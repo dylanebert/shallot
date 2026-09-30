@@ -18,8 +18,8 @@ import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { linearToSrgb } from "../../core/rendering";
-import { Compute, type State } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+import type { State } from "../../engine";
+
 import { tmLuma, tonemap } from "./tonemap";
 
 /** the compute workgroup edge — one thread per swapchain pixel. @internal */
@@ -212,7 +212,7 @@ type Composite = {
 
 const compositeCacheKey = { create: () => createCompositeCache() };
 const createCompositeCache = () => new Map<string, Composite>();
-const compositeCache = () => worldResource(compositeCacheKey);
+const compositeCache = (state: State) => state.resource(compositeCacheKey);
 
 /** Create this world's Glaze pipeline cache during plugin initialization. */
 export function initializeCompositeState(state: State): void {
@@ -220,23 +220,23 @@ export function initializeCompositeState(state: State): void {
 }
 
 /**
- * the layout + compiled pipeline for one swapchain format, memoized against `Compute.device`. The two
+ * the layout + compiled pipeline for one swapchain format, memoized against `state.gpu.device`. The two
  * canvas formats (`bgra8unorm` / `rgba8unorm`) are the only ones `getPreferredCanvasFormat` returns;
  * anything else is a wiring bug and throws rather than emitting `undefined` into the WGSL (typegpu accepts
  * a wrong storage-format string silently).
  * @internal
  */
-export function composite(format: GPUTextureFormat) {
+export function composite(state: State, format: GPUTextureFormat) {
     if (format !== "bgra8unorm" && format !== "rgba8unorm")
         throw new Error(
             `[glaze] the swapchain format ${format} is not a storage-writable canvas format — expected bgra8unorm or rgba8unorm`,
         );
-    const device = Compute.device;
-    const cache = compositeCache();
+    const device = state.gpu.device;
+    const cache = compositeCache(state);
     const cached = cache.get(format);
     if (cached && cached.device === device) return cached;
     const layout = glazeLayout(format);
-    const pipeline = Compute.root
+    const pipeline = state.gpu.root
         .createComputePipeline({ compute: glazeKernel(layout) })
         .$name("glaze");
     const entry = { device, layout, pipeline };

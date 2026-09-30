@@ -39,8 +39,8 @@ export const PartPlugin: Plugin = {
 
     initialize(state) {
         initializePartState(state);
-        initPart();
-        initMeshes();
+        initPart(state);
+        initMeshes(state);
     },
 
     warm: warmPart,

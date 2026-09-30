@@ -1,3 +1,4 @@
+import type { State } from "../../../engine";
 // Broad-phase — a port of Box3D's src/broad_phase.c (Erin Catto, MIT), the container over three
 // dynamic trees (static / kinematic / dynamic) plus the move buffer that records which proxies
 // changed this step, in deterministic insertion order.
@@ -42,18 +43,21 @@ export type BroadPhase = {
 
 const maxInt = (a: number, b: number): number => (a > b ? a : b);
 
-export function createBroadPhase(capacity: {
-    staticShapeCount: number;
-    dynamicShapeCount: number;
-    contactCount?: number;
-}): BroadPhase {
+export function createBroadPhase(
+    state: State | undefined,
+    capacity: {
+        staticShapeCount: number;
+        dynamicShapeCount: number;
+        contactCount?: number;
+    },
+): BroadPhase {
     const staticCapacity = maxInt(16, capacity.staticShapeCount);
     const dynamicCapacity = maxInt(16, capacity.dynamicShapeCount);
 
     // The trees + pairSet node/slot pools are kernel-resident (broadcolumns.ts); the store owns their
     // views and reservations. Register the trees + set on it after creating them so a grow can rewrite
     // every view in place. `store.world` is wired once the world is fully constructed (makeWorldState).
-    const store = createBroadStore();
+    const store = createBroadStore(state);
 
     const trees: DynamicTree[] = [];
     trees[BodyType.Static] = tree.createTree(staticCapacity, store, BodyType.Static);

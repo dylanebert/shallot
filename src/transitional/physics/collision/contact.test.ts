@@ -26,7 +26,7 @@ function dynamicSphere(world: WorldState, radius: number) {
 }
 
 test("createContact leaves a body edge, an awake-set row or a broad-phase pair entry behind after destroyContact, leaking a contact into the next step", () => {
-    const world = getWorld(createWorld(defaultWorldDef())) as WorldState;
+    const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
     const a = dynamicSphere(world, 1);
     const b = dynamicSphere(world, 1);
 
@@ -59,7 +59,7 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
 test("createContact files a non-touching contact between two asleep bodies into the awake set, so sleeping islands pay for contacts nothing is simulating", () => {
     // A body that starts asleep lands in a sleeping set; a contact where neither body is awake
     // parks in the disabled set (the non-touching parking lot).
-    const world = getWorld(createWorld(defaultWorldDef())) as WorldState;
+    const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
 
     const mk = (radius: number) => {
         const bodyId = createBody(world, {

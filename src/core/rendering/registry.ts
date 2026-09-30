@@ -1,7 +1,6 @@
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Registry, type State } from "../../engine";
-import { worldResource } from "../../engine/runtime";
 
 export { Surfaces } from "./contract";
 
@@ -51,7 +50,7 @@ export interface DrawArgs {
  * `mesh` references a registered Mesh by name: the consumer renderer pulls
  * indexed vertices from that mesh's `vertices` + `indices` buffers in WGSL.
  * `args` points at the indirect draw record. Surface bindings beyond mesh
- * resolve by name against `Compute.buffers`
+ * resolve by name against `state.gpu.buffers`
  */
 export interface Draw {
     name: string;
@@ -82,12 +81,9 @@ const drawsKey = { create: () => createDraws() };
 const createDraws = () => new DrawRegistry();
 
 /** every registered draw in the active world's registry, keyed by name */
-export const Draws: Registry<Draw> = new Proxy(new DrawRegistry(), {
-    get(_target, key) {
-        const registry = worldResource(drawsKey);
-        return Reflect.get(registry, key, registry) as unknown;
-    },
-});
+export const Draws: import("../../engine").Resource<Registry<Draw>> = {
+    create: (state) => state.resource(drawsKey),
+};
 
 /** Create this world's draw registry during RenderPlugin initialization. */
 export function initializeDrawState(state: State): void {

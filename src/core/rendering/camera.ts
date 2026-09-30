@@ -1,3 +1,4 @@
+import type { State } from "../../engine";
 import {
     composeTransform,
     f32,
@@ -75,18 +76,19 @@ const _view = new Float32Array(16);
  * transforms world-space lights into cluster space with it)
  */
 export function computeViewProj(
+    state: State,
     eid: number,
     aspect: number,
     out: Float32Array,
     viewOut?: Float32Array,
 ): void {
-    const near = Camera.near.get(eid);
-    const far = Camera.far.get(eid);
+    const near = state.of(Camera).near.get(eid);
+    const far = state.of(Camera).far.get(eid);
     const proj =
-        Camera.mode.get(eid) === CameraMode.Orthographic
-            ? orthographic(Camera.size.get(eid), aspect, near, far, _proj)
-            : perspective(Camera.fov.get(eid), aspect, near, far, _proj);
-    composeTransform(eid, _world);
+        state.of(Camera).mode.get(eid) === CameraMode.Orthographic
+            ? orthographic(state.of(Camera).size.get(eid), aspect, near, far, _proj)
+            : perspective(state.of(Camera).fov.get(eid), aspect, near, far, _proj);
+    composeTransform(state, eid, _world);
     const view = invert(_world, _view);
     viewOut?.set(view);
     multiply(proj, view, out);

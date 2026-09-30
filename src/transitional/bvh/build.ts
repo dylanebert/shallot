@@ -1,3 +1,4 @@
+import type { State } from "../../engine";
 // LBVH binary BVH build + refit — sorted Morton codes → BVH2, the coherence-safe
 // builder. Replaces the
 // single-kernel H-PLOC build (and its atomic-climb refit), which relied on
@@ -52,7 +53,7 @@
 import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute } from "../../engine";
+
 import { precompile, precompileScope } from "../../engine/runtime";
 import { bitcastF32toU32, idiv } from "../../engine/utils";
 
@@ -605,11 +606,12 @@ export interface Build {
  * device.queue.submit([enc.finish()]);
  */
 export async function createBuild(
+    state: State,
     device: GPUDevice,
     maxPrims: number,
     shared: BuildShared = {},
 ): Promise<Build> {
-    const root = Compute.root;
+    const root = state.gpu.root;
     const cap = Math.max(1, maxPrims);
     const nodeCount = 2 * cap; // 2N−1 rounded up; the extra node is never addressed
     // every pass is one thread per node/internal-node (no grid-stride), so the worst-case
@@ -683,14 +685,14 @@ export async function createBuild(
     const sweepBA = sweepBound(validB, validA);
 
     // per-instance labels — an app can build more than one BVH, and the queue rejects a duplicate label
-    const scope = precompileScope("build");
+    const scope = precompileScope(state, "build");
     for (const [label, bound] of [
         ["prepare", prepare],
         ["leaf", leaf],
         ["topo", topo],
         ["sweep", sweepAB],
     ] as const) {
-        await precompile(`${scope}-${label}`, () => {
+        await precompile(state, `${scope}-${label}`, () => {
             return bound;
         });
     }
@@ -701,7 +703,7 @@ export async function createBuild(
         wg: number,
         span: string,
     ): void => {
-        const pass = encoder.beginComputePass({ timestampWrites: Compute.span?.(span) });
+        const pass = encoder.beginComputePass({ timestampWrites: state.gpu.span?.(span) });
         bound.with(pass).dispatchWorkgroups(wg);
         pass.end();
     };
@@ -711,7 +713,7 @@ export async function createBuild(
         offset: number,
         span: string,
     ): void => {
-        const pass = encoder.beginComputePass({ timestampWrites: Compute.span?.(span) });
+        const pass = encoder.beginComputePass({ timestampWrites: state.gpu.span?.(span) });
         bound.with(pass).dispatchWorkgroupsIndirect(indirect, offset);
         pass.end();
     };

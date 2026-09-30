@@ -1,3 +1,4 @@
+import type { State } from "../../../engine";
 // The persistent broad-phase region (kernel/src/broad.rs) — the three dynamic-tree node pools plus the
 // pair-set membership arrays, held resident in the kernel's linear memory so the in-kernel pair query +
 // tree rebuild (3d) run over them without a per-step marshal. This store owns the TS views over the six
@@ -30,6 +31,12 @@ const EMPTY_U = new Uint32Array(0);
  * so a grow can refresh the sibling stores a `memory.grow` detached.
  */
 export class BroadStore {
+    readonly ecsState: State | undefined;
+
+    constructor(ecsState: State | undefined) {
+        this.ecsState = ecsState;
+    }
+
     /** The three dynamic trees (static / kinematic / dynamic), set at broad-phase creation. */
     trees: DynamicTree[] = [];
     /** The pair set, set at broad-phase creation. */
@@ -47,7 +54,7 @@ export class BroadStore {
      * function call + a byteLength read), so it can guard every broad-phase read/mutate entry point
      * without reintroducing churn. */
     refreshIfStale(): void {
-        const k = kernel();
+        const k = kernel(this.ecsState);
         if (k.broadGen() === this._lastGen && k.memory.buffer.byteLength === this._lastLen) return;
         this.refreshViews();
     }
@@ -55,7 +62,7 @@ export class BroadStore {
     /** Re-derive all six column views over the current region and write them into the tree/set structs.
      * Cheap — a handful of typed-array constructions, no copy. */
     refreshViews(): void {
-        const k = kernel();
+        const k = kernel(this.ecsState);
         const buf = k.memory.buffer;
         this._lastLen = buf.byteLength;
         this._lastGen = k.broadGen();
@@ -109,7 +116,7 @@ export class BroadStore {
     // capacity, so its first reserve is a no-op — but the tree still needs a view over it). A real grow
     // additionally `memory.grow`s, detaching every sibling store's views; refresh those too.
     private reserve(capS: number, capK: number, capD: number, setCap: number): void {
-        const grew = kernel().reserveBroad(capS, capK, capD, setCap) !== 0;
+        const grew = kernel(this.ecsState).reserveBroad(capS, capK, capD, setCap) !== 0;
         this.refreshViews();
         if (grew) {
             const w = this.world;
@@ -123,6 +130,6 @@ export class BroadStore {
 }
 
 /** Create an empty broad store for a new world. Its trees + set are registered by `createBroadPhase`. */
-export function createBroadStore(): BroadStore {
-    return new BroadStore();
+export function createBroadStore(state: State | undefined): BroadStore {
+    return new BroadStore(state);
 }

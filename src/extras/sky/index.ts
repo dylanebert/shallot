@@ -1,3 +1,4 @@
+import type { State } from "../../engine";
 // Sky — opt-in procedural sky. A plugin behind sear's backdrop seam: it registers a `Backgrounds` recipe
 // (the bryce3d view-ray → HDR color fragment, in `./shader`) and publishes one uniform buffer the recipe
 // reads. The engine names no sky concept — this plugin owns all of it. It *reads* the sun from the
@@ -7,8 +8,8 @@
 
 import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
-import { Compute, f32, formatHex } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+import { f32, formatHex } from "../../engine";
+
 import { ColorSystem, SearPlugin } from "../../standard/rendering";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
@@ -64,7 +65,7 @@ interface SkyState {
 
 const skyStateKey = { create: () => createSkyState() };
 const createSkyState = (): SkyState => ({ buffer: null, staging: new Float32Array(SKY_FLOATS) });
-const skyState = () => worldResource(skyStateKey);
+const skyState = (state: State) => state.resource(skyStateKey);
 
 // writes the `Sky` uniform each frame from the scene's Sky singleton, before sear's color pass reads it for
 // the backdrop draw. No-op unless the scene has a Sky singleton.
@@ -74,12 +75,12 @@ const SkySystem: System = {
     after: [BeginFrameSystem],
     before: [ColorSystem],
     update(state) {
-        const device = Compute.device;
-        const sky = skyState();
+        const device = state.gpu.device;
+        const sky = skyState(state);
         if (!device || !sky.buffer) return;
         const eid = state.only([Sky]);
         if (eid < 0) return;
-        packSky(eid, sky.staging);
+        packSky(state, eid, sky.staging);
         device.queue.writeBuffer(sky.buffer, 0, sky.staging as Float32Array<ArrayBuffer>);
     },
 };
@@ -132,22 +133,22 @@ export const SkyPlugin: Plugin = {
         registerBackground(state, { ...skyBackground });
     },
 
-    warm() {
-        const { device } = Compute;
+    warm(state: State) {
+        const { device } = state.gpu;
         if (!device) return;
-        const sky = skyState();
+        const sky = skyState(state);
         sky.buffer?.destroy();
         sky.buffer = device.createBuffer({
             label: "sky-config",
             size: SKY_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        // the background bind group resolves the `sky` binding from Compute.buffers by name; republish every
+        // the background bind group resolves the `sky` binding from state.gpu.buffers by name; republish every
         // warm — the map is wiped on each build()
-        Compute.buffers.set("sky", sky.buffer);
-        Compute.typed.set(
+        state.gpu.buffers.set("sky", sky.buffer);
+        state.gpu.typed.set(
             "sky",
-            Compute.root.createBuffer(SkyGpu, sky.buffer).$usage("uniform").$name("sky-config"),
+            state.gpu.root.createBuffer(SkyGpu, sky.buffer).$usage("uniform").$name("sky-config"),
         );
     },
 

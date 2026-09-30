@@ -68,7 +68,7 @@ export function schema(state: State, name: string): Schema | null {
     const component = getComponent(state, name);
     if (!component) return null;
     const traits = getTraits(state, name);
-    const defaults = traits?.defaults?.() ?? {};
+    const defaults = traits?.defaults?.(state) ?? {};
 
     const handled = new Set<string>();
     const fields: FieldInfo[] = [];

@@ -140,7 +140,11 @@ export function computeGlyphMetrics(atlas: GlyphAtlas, char: string): PendingGly
     return { path, paddedBounds, atlasX, atlasY };
 }
 
-export function ensureString(atlas: GlyphAtlas, text: string): void {
+export function ensureString(
+    state: import("../../engine").State,
+    atlas: GlyphAtlas,
+    text: string,
+): void {
     const pending: PendingGlyphEntry[] = [];
 
     for (const char of text) {
@@ -151,7 +155,7 @@ export function ensureString(atlas: GlyphAtlas, text: string): void {
 
     if (pending.length === 0) return;
 
-    atlas.sdfGenerator.begin();
+    atlas.sdfGenerator.begin(state);
     for (const entry of pending) {
         atlas.sdfGenerator.add(
             entry.path,
@@ -161,7 +165,7 @@ export function ensureString(atlas: GlyphAtlas, text: string): void {
             entry.atlasY,
         );
     }
-    atlas.sdfGenerator.flush();
+    atlas.sdfGenerator.flush(state);
 }
 
 export interface LayoutGlyph {

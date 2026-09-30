@@ -342,11 +342,9 @@ export function lanes(value: unknown): 0 | 1 | 2 | 4 {
 }
 
 /**
- * a component's typed storage fields: each {@link Single} / {@link Pair} /
- * {@link Quad} store paired with its declared name, in declaration order. The
- * canonical enumerator of a clean component's stores, for a serializer, a
- * reflection reader, or a schema walk. Keys with no typed layout (a GPU-buffer getter)
- * report {@link lanes} 0 and are skipped.
+ * A component's declared bare storage types paired with their names, in declaration order.
+ * This enumerates metadata for reflection and schema comparison, not a world's field handles.
+ * Keys with no CPU storage type are skipped; resolve entity data with `state.of(component)`.
  */
 export function fields(component: Component): { name: string; field: Type }[] {
     const out: { name: string; field: Type }[] = [];

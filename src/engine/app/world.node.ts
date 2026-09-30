@@ -5,7 +5,13 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import * as d from "typegpu/data";
-import { Compute, f32, type State } from "../index";
+import { Draws, Meshes } from "../../core/rendering";
+import { LinesPlugin, segment } from "../../extras/lines";
+import { Images, image, Sprite, SpritePlugin } from "../../extras/sprite";
+import { Content, Fonts, font, Text, TextPlugin, text } from "../../extras/text";
+import { isolationFont } from "../../extras/text/font.fixture";
+import { f32, GlobalTransform, probeBuffer, requestGPU, State, Time, Transform } from "../index";
+import "../../standard";
 import { serialize } from "../scene";
 import { build, swap } from "./index";
 
@@ -15,11 +21,12 @@ await setupGlobals();
 
 const Value = { amount: f32 };
 const resourceKey = {
-    create: () => Compute.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
+    create: (state: State) =>
+        state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
 };
 const textureKey = {
-    create: () =>
-        Compute.device.createTexture({
+    create: (state: State) =>
+        state.gpu.device.createTexture({
             size: [1, 1, 1],
             format: "rgba8unorm",
             usage: GPUTextureUsage.TEXTURE_BINDING,
@@ -30,12 +37,12 @@ const ResourcePlugin = {
     initialize(state: State) {
         const buffer = state.resource(resourceKey);
         const texture = state.resource(textureKey);
-        const typed = Compute.root.createBuffer(d.arrayOf(d.u32, 1)).$usage("storage");
-        const typedBuffer = Compute.root.unwrap(typed);
-        Compute.buffers.set("world-probe", buffer);
-        Compute.buffers.set("world-probe-typed", typedBuffer);
-        Compute.textures.set("world-probe", texture);
-        Compute.typed.set("world-probe-typed", typed);
+        const typed = state.gpu.root.createBuffer(d.arrayOf(d.u32, 1)).$usage("storage");
+        const typedBuffer = state.gpu.root.unwrap(typed);
+        state.gpu.buffers.set("world-probe", buffer);
+        state.gpu.buffers.set("world-probe-typed", typedBuffer);
+        state.gpu.textures.set("world-probe", texture);
+        state.gpu.typed.set("world-probe-typed", typed);
     },
 };
 let apps: Awaited<ReturnType<typeof build>>[] = [];
@@ -263,10 +270,10 @@ test("entity ids and component columns grow without a configured capacity", asyn
     let eid = 0;
     for (let i = 0; i < 4096; i++) eid = app.state.create();
     app.state.add(eid, Grow);
-    Grow.value.set(eid, 73.5);
+    app.state.of(Grow).value.set(eid, 73.5);
     expect(app.state.entityHighWater).toBe(eid + 1);
     expect(app.state.of(Grow).value.column.length).toBeGreaterThan(eid);
-    expect(Grow.value.get(eid)).toBe(73.5);
+    expect(app.state.of(Grow).value.get(eid)).toBe(73.5);
 });
 
 test("reordered component fields swap without rebuilding their world columns", async () => {
@@ -359,17 +366,17 @@ test("original, reloaded, and rebuilt component accessors stop rechecking bound 
         return originalSort.call(this, compareFn);
     };
     try {
-        first.state.of(originalValue);
-        originalValue.amount.set(originalEid, 11);
-        originalRead = originalValue.amount.get(originalEid);
+        const original = first.state.of(originalValue);
+        original.amount.set(originalEid, 11);
+        originalRead = original.amount.get(originalEid);
 
-        first.state.of(reloadedValue);
-        reloadedValue.amount.set(originalEid, 22);
-        reloadedRead = reloadedValue.amount.get(originalEid);
+        const reloaded = first.state.of(reloadedValue);
+        reloaded.amount.set(originalEid, 22);
+        reloadedRead = reloaded.amount.get(originalEid);
 
-        rebuilt.state.of(reloadedValue);
-        reloadedValue.amount.set(rebuiltEid, 33);
-        rebuiltRead = reloadedValue.amount.get(rebuiltEid);
+        const rebuiltStorage = rebuilt.state.of(reloadedValue);
+        rebuiltStorage.amount.set(rebuiltEid, 33);
+        rebuiltRead = rebuiltStorage.amount.get(rebuiltEid);
     } finally {
         Array.prototype.sort = originalSort;
     }
@@ -400,8 +407,8 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     const reloaded = {
         name: "SwappableWorldSchema",
         components: { Value: reloadedValue },
-        initialize() {
-            expect(reloadedValue.amount.get(firstEid)).toBe(13);
+        initialize(state: State) {
+            expect(state.of(reloadedValue).amount.get(firstEid)).toBe(13);
         },
     };
     expect(await swap(first.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
@@ -419,4 +426,126 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     });
     expect(amount(first.state).get(firstEid)).toBe(13);
     expect(amount(second.state).get(secondEid)).toBe(7);
+});
+
+const OWNERSHIP_FONT = `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`;
+
+async function composition(seed: string, offset: number) {
+    const app = await build({
+        plugins: [TextPlugin, SpritePlugin, LinesPlugin],
+        setup(state) {
+            font(state, OWNERSHIP_FONT, seed);
+            image(state, new Blob([], { type: "image/png" }), seed);
+            text(state, seed === "first" ? "isolation" : "salt");
+        },
+        scene: `<scene>
+            <a id="label" transform="pos: ${offset} 1 0" text="content: ${seed === "first" ? "isolation" : "salt"}; font: ${seed}" />
+            <a id="sprite" transform="pos: ${offset} 2 0" sprite="image: ${seed}" />
+            <a id="line" transform="pos: ${offset} 0 0" line="offset: 1 1 1" />
+        </scene>`,
+    });
+    apps.push(app);
+    console.info(
+        `ownership ${seed} adapter: ${app.state.gpu.adapter.class} (${app.state.gpu.adapter.identity})`,
+    );
+    return app;
+}
+
+async function compositionFrame(state: State, offset: number, frame: number) {
+    const transform = state.of(Transform);
+    for (const eid of state.query([Transform])) transform.pos.x.set(eid, offset + frame);
+    segment(state, [offset, frame, 0], [offset + 1, frame + 1, 1], 0xffcc44);
+    state.step(Time.FIXED_DT);
+    const fields = [...state.query([Transform])].map((eid) => ({
+        eid,
+        pos: Array.from(transform.pos.read(eid, new Float32Array(4))),
+        global: Array.from(state.of(GlobalTransform).pos.read(eid, new Float32Array(4))),
+        text: state.has(eid, Text) ? state.of(Text).content.get(eid) : null,
+        sprite: state.has(eid, Sprite) ? state.of(Sprite).image.get(eid) : null,
+    }));
+    const buffers: Record<string, number[]> = {};
+    for (const name of ["global-transform", "textGlyphs", "spriteData", "lineSegments"]) {
+        const buffer = state.gpu.buffers.get(name);
+        if (!buffer) throw new Error(`ownership composition did not publish ${name}`);
+        const probe = await probeBuffer(state, buffer, { size: Math.min(buffer.size, 2048) });
+        buffers[name] = Array.from(new Uint8Array(probe.bytes));
+    }
+    return {
+        fields,
+        fonts: [...state.resource(Fonts)].map((entry) => entry.name),
+        content: [...state.resource(Content)].map((entry) => entry.name),
+        images: [...state.resource(Images)].map((entry) => entry.name),
+        meshes: [...state.resource(Meshes)].map((entry) => entry.name),
+        draws: [...state.resource(Draws)].map((entry) => entry.name),
+        buffers,
+    };
+}
+
+test("interleaved default worlds with text, sprite and lines equal each world stepped alone in fields, names and GPU bytes", async () => {
+    const soloA = await composition("first", 10);
+    const a = [];
+    for (let i = 0; i < 3; i++) a.push(await compositionFrame(soloA.state, 10, i));
+    soloA.dispose();
+    const soloB = await composition("second", 30);
+    const b = [];
+    for (let i = 0; i < 3; i++) b.push(await compositionFrame(soloB.state, 30, i));
+    soloB.dispose();
+    const first = await composition("first", 10);
+    const second = await composition("second", 30);
+    for (let i = 0; i < 3; i++) {
+        second.state.of(Transform);
+        expect(await compositionFrame(first.state, 10, i)).toEqual(a[i]);
+        first.state.of(Transform);
+        expect(await compositionFrame(second.state, 30, i)).toEqual(b[i]);
+    }
+});
+
+test("nested and asynchronous lifecycle hooks retain explicit field, resource and GPU ownership", async () => {
+    const declaration = { create: () => ({ value: 0 }) };
+    let parent: State | undefined;
+    const childPlugin = {
+        name: "ExplicitChild",
+        components: { Value },
+        async initialize(state: State) {
+            const _declaration = state.resource(declaration);
+
+            const eid = state.create();
+            state.add(eid, Value);
+            state.of(Value).amount.set(eid, 22);
+            _declaration.value = 22;
+            await Promise.resolve();
+            parent!.of(Value);
+            expect(state.of(Value).amount.get(eid)).toBe(22);
+            expect(_declaration.value).toBe(22);
+            expect(state.gpu).not.toBe(parent!.gpu);
+        },
+    };
+    const parentPlugin = {
+        name: "ExplicitParent",
+        components: { Value },
+        async warm(state: State) {
+            const _declaration = state.resource(declaration);
+
+            parent = state;
+            const eid = state.create();
+            state.add(eid, Value);
+            state.of(Value).amount.set(eid, 11);
+            _declaration.value = 11;
+            // Nested build waits for the build lock; direct lifecycle invocation exercises nesting
+            // without asking that serialization contract to become reentrant.
+            const child = new State();
+            child.attachGpu(await requestGPU(parent!.gpu.device));
+            try {
+                await childPlugin.initialize(child);
+                await Promise.resolve();
+                child.of(Value);
+                expect(state.of(Value).amount.get(eid)).toBe(11);
+                expect(_declaration.value).toBe(11);
+            } finally {
+                child.dispose();
+            }
+        },
+    };
+    const app = await build({ defaults: false, plugins: [parentPlugin] });
+    apps.push(app);
 });

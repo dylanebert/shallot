@@ -10,11 +10,12 @@ import {
     Body,
     build,
     CharacterPlugin,
-    devices,
+    Devices,
     InputPlugin,
     PhysicsPlugin,
     PlayerPlugin,
     readBody,
+    type State,
     Time,
 } from "@dylanebert/shallot";
 import { Demo } from "./demo";
@@ -50,34 +51,37 @@ function horizontalSpeed(velocity: readonly [number, number, number]): number {
     return Math.hypot(velocity[0], velocity[2]);
 }
 
-function placeRiderOnActualLift(player: number, lift: number): void {
-    const liftX = Body.pos.x.get(lift);
-    const liftY = Body.pos.y.get(lift);
-    const liftZ = Body.pos.z.get(lift);
-    const riderBottomOffset = Body.halfExtents.y.get(player) + Body.halfExtents.w.get(player);
-    Body.pos.x.set(player, liftX);
-    Body.pos.y.set(player, liftY + Body.halfExtents.y.get(lift) + riderBottomOffset);
-    Body.pos.z.set(player, liftZ);
+function placeRiderOnActualLift(state: State, player: number, lift: number): void {
+    const body = state.of(Body);
+    const liftX = body.pos.x.get(lift);
+    const liftY = body.pos.y.get(lift);
+    const liftZ = body.pos.z.get(lift);
+    const riderBottomOffset = body.halfExtents.y.get(player) + body.halfExtents.w.get(player);
+    body.pos.x.set(player, liftX);
+    body.pos.y.set(player, liftY + body.halfExtents.y.get(lift) + riderBottomOffset);
+    body.pos.z.set(player, liftZ);
 }
 
-function tangentGap(player: number, lift: number): number {
+function tangentGap(state: State, player: number, lift: number): number {
+    const body = state.of(Body);
     const capsuleBottom =
-        Body.pos.y.get(player) - Body.halfExtents.y.get(player) - Body.halfExtents.w.get(player);
-    const liftTop = Body.pos.y.get(lift) + Body.halfExtents.y.get(lift);
+        body.pos.y.get(player) - body.halfExtents.y.get(player) - body.halfExtents.w.get(player);
+    const liftTop = body.pos.y.get(lift) + body.halfExtents.y.get(lift);
     return capsuleBottom - liftTop;
 }
 
-function extent(eid: number, axis: "x" | "z", radius = 0): readonly [number, number] {
-    const center = axis === "x" ? Body.pos.x.get(eid) : Body.pos.z.get(eid);
+function extent(state: State, eid: number, axis: "x" | "z", radius = 0): readonly [number, number] {
+    const body = state.of(Body);
+    const center = axis === "x" ? body.pos.x.get(eid) : body.pos.z.get(eid);
     const half =
-        (axis === "x" ? Body.halfExtents.x.get(eid) : Body.halfExtents.z.get(eid)) + radius;
+        (axis === "x" ? body.halfExtents.x.get(eid) : body.halfExtents.z.get(eid)) + radius;
     return [center - half, center + half];
 }
 
 function authoredStepRise(app: Ascent, player: number, lift: number): number {
     const heights = [...app.state.query([Body])]
-        .filter((eid) => eid !== player && eid !== lift && Body.mass.get(eid) <= 0)
-        .map((eid) => Body.pos.y.get(eid))
+        .filter((eid) => eid !== player && eid !== lift && app.state.of(Body).mass.get(eid) <= 0)
+        .map((eid) => app.state.of(Body).pos.y.get(eid))
         .filter((y) => y > 0 && y < 1.6)
         .sort((a, b) => a - b);
     if (heights.length < 2)
@@ -94,19 +98,20 @@ test("the actual first-person scene gives the player a tangent spawn, a containe
         const step3 = entity(app, "step-3");
         const lift = entity(app, "lift");
         const tower1 = entity(app, "tower-1");
-        const groundTop = Body.pos.y.get(ground) + Body.halfExtents.y.get(ground);
+        const groundTop =
+            app.state.of(Body).pos.y.get(ground) + app.state.of(Body).halfExtents.y.get(ground);
         const playerBottom =
-            Body.pos.y.get(player) -
-            Body.halfExtents.y.get(player) -
-            Body.halfExtents.w.get(player);
+            app.state.of(Body).pos.y.get(player) -
+            app.state.of(Body).halfExtents.y.get(player) -
+            app.state.of(Body).halfExtents.w.get(player);
         if (Math.abs(playerBottom - groundTop) > 0.0001)
             throw new Error(
                 `player was not tangent to ground: bottom=${playerBottom} top=${groundTop}`,
             );
         const spawnGap =
-            Body.pos.z.get(player) -
-            Body.halfExtents.w.get(player) -
-            (Body.pos.z.get(step1) + Body.halfExtents.z.get(step1));
+            app.state.of(Body).pos.z.get(player) -
+            app.state.of(Body).halfExtents.w.get(player) -
+            (app.state.of(Body).pos.z.get(step1) + app.state.of(Body).halfExtents.z.get(step1));
         if (!(spawnGap > 0)) throw new Error(`spawn-to-first-step gap was ${spawnGap}`);
         const route = [
             player,
@@ -120,26 +125,32 @@ test("the actual first-person scene gives the player a tangent spawn, a containe
         ];
         for (const routeEntity of route) {
             for (const axis of ["x", "z"] as const) {
-                const radius = routeEntity === player ? Body.halfExtents.w.get(player) : 0;
-                const [min, max] = extent(routeEntity, axis, radius);
-                const [groundMin, groundMax] = extent(ground, axis);
+                const radius =
+                    routeEntity === player ? app.state.of(Body).halfExtents.w.get(player) : 0;
+                const [min, max] = extent(app.state, routeEntity, axis, radius);
+                const [groundMin, groundMax] = extent(app.state, ground, axis);
                 if (min < groundMin || max > groundMax)
                     throw new Error(
                         `ground did not contain ${axis} route footprint ${min}..${max}`,
                     );
             }
         }
-        const liftTop = Body.pos.y.get(lift) + Body.halfExtents.y.get(lift);
-        const finalStepTop = Body.pos.y.get(step3) + Body.halfExtents.y.get(step3);
+        const liftTop =
+            app.state.of(Body).pos.y.get(lift) + app.state.of(Body).halfExtents.y.get(lift);
+        const finalStepTop =
+            app.state.of(Body).pos.y.get(step3) + app.state.of(Body).halfExtents.y.get(step3);
         if (Math.abs(liftTop - finalStepTop) > 0.0001)
             throw new Error(`lift lower stop missed final step: ${liftTop} vs ${finalStepTop}`);
-        const liftBottom = Body.pos.y.get(lift) - Body.halfExtents.y.get(lift);
+        const liftBottom =
+            app.state.of(Body).pos.y.get(lift) - app.state.of(Body).halfExtents.y.get(lift);
         if (!(liftBottom > groundTop))
             throw new Error(
                 `lift lower stop entered ground: bottom=${liftBottom} top=${groundTop}`,
             );
-        const upperLiftNear = Body.pos.z.get(lift) - Body.halfExtents.z.get(lift);
-        const towerNear = Body.pos.z.get(tower1) + Body.halfExtents.z.get(tower1);
+        const upperLiftNear =
+            app.state.of(Body).pos.z.get(lift) - app.state.of(Body).halfExtents.z.get(lift);
+        const towerNear =
+            app.state.of(Body).pos.z.get(tower1) + app.state.of(Body).halfExtents.z.get(tower1);
         const towerGap = upperLiftNear - towerNear;
         if (!(towerGap > 0 && towerGap < 1))
             throw new Error(`lift upper stop was not adjacent to tower: gap=${towerGap}`);
@@ -150,7 +161,7 @@ test("the actual first-person scene gives the player a tangent spawn, a containe
         // The eye is authored where Player would pose it at spawn: the capsule centre raised by
         // the default eye height, since the player entity authors no tuning of its own.
         const eyeHeight = (
-            PlayerPlugin.traits?.Player?.defaults?.() as { eyeHeight: number } | undefined
+            PlayerPlugin.traits?.Player?.defaults?.(app.state) as { eyeHeight: number } | undefined
         )?.eyeHeight;
         if (eyeHeight === undefined) throw new Error("Player declares no default eyeHeight");
         const eye = scene
@@ -158,9 +169,9 @@ test("the actual first-person scene gives the player a tangent spawn, a containe
             ?.slice(1)
             .map(Number);
         const spawn = [
-            Body.pos.x.get(player),
-            Body.pos.y.get(player) + eyeHeight,
-            Body.pos.z.get(player),
+            app.state.of(Body).pos.x.get(player),
+            app.state.of(Body).pos.y.get(player) + eyeHeight,
+            app.state.of(Body).pos.z.get(player),
         ];
         if (!eye || eye.some((value, i) => Math.abs(value - spawn[i]) > 0.0001))
             throw new Error(
@@ -176,9 +187,9 @@ test("a Character standing on the actual recipe lift rises through its public ki
     try {
         const player = entity(app, "player");
         const lift = entity(app, "lift");
-        placeRiderOnActualLift(player, lift);
+        placeRiderOnActualLift(app.state, player, lift);
         const stepRise = authoredStepRise(app, player, lift);
-        const initialGap = tangentGap(player, lift);
+        const initialGap = tangentGap(app.state, player, lift);
         if (initialGap < 0 || initialGap > 0.0001)
             throw new Error(
                 `invalid actual lift premise: capsule/lift gap was ${initialGap.toFixed(4)}m`,
@@ -201,7 +212,7 @@ test("a Character standing on the actual recipe lift rises through its public ki
             throw new Error(
                 `rider lost actual lift carry: lift ${liftRise.toFixed(3)}m, rider ${riderRise.toFixed(3)}m`,
             );
-        if (devices(app.state).keys.held.size !== 0)
+        if (app.state.resource(Devices).keys.held.size !== 0)
             throw new Error("actual lift evidence received unexpected input");
     } finally {
         app.dispose();
@@ -213,7 +224,7 @@ test("the actual moving lift carries the Character vertically without delivering
     try {
         const player = entity(app, "player");
         const lift = entity(app, "lift");
-        placeRiderOnActualLift(player, lift);
+        placeRiderOnActualLift(app.state, player, lift);
         step(app, 2);
         const before = readBody(app.state, lift);
         if (!before) throw new Error("actual lift never became live");
@@ -235,10 +246,16 @@ test("the actual lift rises monotonically from its authored base, turns repeated
     const app = await ascent();
     try {
         const lift = entity(app, "lift");
-        const base = [Body.pos.x.get(lift), Body.pos.y.get(lift), Body.pos.z.get(lift)] as const;
+        const base = [
+            app.state.of(Body).pos.x.get(lift),
+            app.state.of(Body).pos.y.get(lift),
+            app.state.of(Body).pos.z.get(lift),
+        ] as const;
         const tower = entity(app, "tower-3");
         const ceiling =
-            Body.pos.y.get(tower) + Body.halfExtents.y.get(tower) - Body.halfExtents.y.get(lift);
+            app.state.of(Body).pos.y.get(tower) +
+            app.state.of(Body).halfExtents.y.get(tower) -
+            app.state.of(Body).halfExtents.y.get(lift);
         const stepRise = authoredStepRise(app, entity(app, "player"), lift);
         let previous = base[1];
         let rising = true;

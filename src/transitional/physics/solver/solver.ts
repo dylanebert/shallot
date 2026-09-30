@@ -93,9 +93,6 @@ const finTransform: WorldTransform = {
 const awakeIslandsScratch: boolean[] = [];
 
 // The staged solve's crossing, hoisted: a closure in `solve` would make every call allocate its context.
-function runMt(): void {
-    kernel().runMt();
-}
 
 /** Read a Mat3 out of `col` at `o` into `out` (kernel row order cx, cy, cz — read_sim, body.rs). */
 function readMat3(col: Float32Array, o: number, out: Mat3): void {
@@ -203,7 +200,7 @@ function finalizeBodies(
     // (`fused`) — nothing TS did between that join and here touches the columns it read or wrote, so
     // the result is identical to a separate round. The TS tail below — move events, sleep, CCD, refit,
     // islands — touches world state and stays serial.
-    const k = kernel();
+    const k = kernel(world.ecsState);
     if (!fused) {
         k.finalize(timeStep, context.invDt, enableContinuous ? 1 : 0);
     }
@@ -476,8 +473,13 @@ function buildHitEvents(context: StepContext): void {
                 normal: { x: normal.x, y: normal.y, z: normal.z },
                 approachSpeed,
                 // shapeB is never a compound (b3CreateContact), so its childIndex is irrelevant.
-                userMaterialIdA: getShapeUserMaterialId(shapeA, contact.childIndex, triangleIndex),
-                userMaterialIdB: getShapeUserMaterialId(shapeB, 0, triangleIndex),
+                userMaterialIdA: getShapeUserMaterialId(
+                    world.ecsState,
+                    shapeA,
+                    contact.childIndex,
+                    triangleIndex,
+                ),
+                userMaterialIdB: getShapeUserMaterialId(world.ecsState, shapeB, 0, triangleIndex),
             });
         }
     }
@@ -506,9 +508,10 @@ export function solve(world: WorldState, context: StepContext): void {
     const jointed = hasJoints(world, layout);
     // Joints-in-kernel needs the staged solve, which is the shared/MT kernel — so it only engages with
     // a live pool. The joint column is reserved only then; otherwise the serial path solves joints.
-    const pool = workers();
+    const pool = workers(world.ecsState);
     const jointsInKernel = jointed && pool !== null;
     const cols = reserveColumns(
+        world.ecsState,
         awakeBodyCount,
         layout.contacts,
         layout.manifolds,
@@ -552,7 +555,7 @@ export function solve(world: WorldState, context: StepContext): void {
     clock.mark(CONSTRAINTS_SLOT);
     clock.mark(CURSOR_SLOT);
 
-    const k = kernel();
+    const k = kernel(world.ecsState);
     const colors = layout.colors;
     const restThreshold = context.restitutionThreshold;
     const hitThreshold = world.hitEventThreshold;
@@ -607,7 +610,7 @@ export function solve(world: WorldState, context: StepContext): void {
         // Wake, orchestrate, join. The per-phase profile split stays zero: one crossing has no phases to
         // time, and attributing the whole solve to any one of them would misread the sweep.
         // `profile.constraints` (wall clock over the region, below) is the honest number here.
-        runPool(pool, runMt);
+        runPool(world.ecsState, pool, k.runMt);
         readbackHitEvents(world, layout, context);
     } else if (jointsInKernel && pool !== null) {
         // Joints-in-kernel: marshal the joints into the joint column (color spans already written), lay
@@ -645,7 +648,7 @@ export function solve(world: WorldState, context: StepContext): void {
             hitThreshold,
             world.enableContinuous ? 1 : 0,
         );
-        runPool(pool, runMt);
+        runPool(world.ecsState, pool, k.runMt);
         readbackJointImpulses(world, layout, cols);
         // The joints solved in-kernel, so solveColorJoints' per-substep event-flag pass never ran.
         // Rebuild the flags from the read-back impulses (mirroring the readback's joint iteration) into
@@ -822,7 +825,7 @@ export function solve(world: WorldState, context: StepContext): void {
 
     // Publish the finalized, CCD-clipped pose before sleep compacts the resident body columns.
     world.bodyStore.refreshViews();
-    world.bodyStore.syncCount = kernel().bodySyncMoved(world.bodyMoveCount);
+    world.bodyStore.syncCount = kernel(world.ecsState).bodySyncMoved(world.bodyMoveCount);
 
     // Island sleeping — must be last, because sleeping invalidates the enlarged-body bookkeeping.
     if (world.enableSleep) {

@@ -71,10 +71,10 @@ test("a Body authored with +90 degrees about X stores a unit quaternion rotating
         const eid = [...app.state.query([Body])][0];
         if (eid === undefined) throw new Error("Euler scene did not create a Body");
         const quat: [number, number, number, number] = [
-            Body.quat.x.get(eid),
-            Body.quat.y.get(eid),
-            Body.quat.z.get(eid),
-            Body.quat.w.get(eid),
+            app.state.of(Body).quat.x.get(eid),
+            app.state.of(Body).quat.y.get(eid),
+            app.state.of(Body).quat.z.get(eid),
+            app.state.of(Body).quat.w.get(eid),
         ];
         const norm = Math.hypot(...quat);
         const yAxis = rotateY(quat);

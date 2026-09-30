@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.gpu);
 
 import {
-    devices,
+    Devices,
     focus,
     pointerButton,
     pointerMove,
@@ -22,6 +22,7 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
     const app = subjects()[0];
     try {
         const state = app.state;
+        const _devices = state.resource(Devices);
         const camera = state.create();
         state.add(camera, Transform);
         state.add(camera, Orbit);
@@ -50,16 +51,16 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
             state.of(Transform).pos.z.get(camera) === initialZ
         )
             throw new Error("Orbit did not produce a camera pose from the supplied drag");
-        if (!devices(state).mouse.left) throw new Error("Orbit lost the held button fact");
+        if (!_devices.mouse.left) throw new Error("Orbit lost the held button fact");
 
         pointerButton(state, "left", false);
         state.step(Time.FIXED_DT);
         const releasedYaw = state.of(Orbit).yaw.get(camera);
-        if (devices(state).mouse.left) throw new Error("Orbit retained a released button");
+        if (_devices.mouse.left) throw new Error("Orbit retained a released button");
         state.step(Time.FIXED_DT); // neutral: no stale drag delta may be replayed
         if (state.of(Orbit).yaw.get(camera) !== releasedYaw)
             throw new Error("Orbit replayed released drag input on a neutral step");
-        if (devices(state).keys.released.size !== 0)
+        if (_devices.keys.released.size !== 0)
             throw new Error("unrelated keyboard release state leaked into Orbit");
     } finally {
         app.dispose();

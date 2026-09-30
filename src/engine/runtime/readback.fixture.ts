@@ -95,21 +95,22 @@ export async function controlledReadback(
             return slot.buffer;
         },
     } as unknown as GPUDevice;
-    state.attachGpu(
-        {
-            device,
-            frame: 0,
-            buffers: new Map(),
-            textures: new Map(),
-            samplers: new Map(),
-            typed: new Map(),
-            root: {},
-            pending: () => 0,
-            sync: async () => {},
-            adapter: { class: "test", identity: "controlled" },
+    state.attachGpu({
+        device,
+        frame: 0,
+        buffers: new Map(),
+        textures: new Map(),
+        samplers: new Map(),
+        typed: new Map(),
+        root: {} as import("typegpu").TgpuRoot,
+        pending: () => 0,
+        sync: async () => {},
+        adapter: {
+            class: "unidentified",
+            identity: "controlled",
+            reason: "readback fixture, not a hardware adapter",
         },
-        (run) => run(),
-    );
+    });
     try {
         await body(state, slots, events);
     } finally {

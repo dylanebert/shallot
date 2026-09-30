@@ -4,7 +4,7 @@ import {
     BrowserInputPlugin,
     blur,
     createBrowserInputPlugin,
-    devices,
+    Devices,
     focus,
     type InputHost,
     InputPlugin,
@@ -234,7 +234,7 @@ test("the production browser adapter bypasses shared input producers or loses fo
             clientY: 60,
             preventDefault() {},
         });
-        const input = devices(state);
+        const input = state.resource(Devices);
         if (
             !input.keys.held.has("KeyW") ||
             input.focused !== 0 ||
@@ -297,10 +297,10 @@ test("a pointer-lock promise rejection after disposal changes the retired State 
     for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
     state.step(0);
     requestPointerLock(state);
+    const input = state.resource(Devices);
     state.dispose();
     fixture.rejectLock(new Error("late refusal"));
     await Promise.resolve();
-    const input = devices(state);
     if (input.pointer.lock.status !== "unlocked" || input.pointer.lock.refusal !== null)
         throw new Error("late lock rejection changed retired facts");
     if (fixture.releaseCount !== 0 || fixture.listenerCount() !== 0)
@@ -319,7 +319,8 @@ test("disposing and recreating a State leaves old listeners delivering input to 
     for (const system of replacement.systems ?? []) second.addSystem(system, replacement.name);
     second.step(0);
     fixture.window.emit("keydown", { code: "KeyR" });
-    if (!devices(second).keys.held.has("KeyR")) throw new Error("replacement adapter did not bind");
+    if (!second.resource(Devices).keys.held.has("KeyR"))
+        throw new Error("replacement adapter did not bind");
     second.dispose();
     if (fixture.listenerCount() !== 0) throw new Error("replacement adapter leaked listeners");
 });
@@ -477,26 +478,26 @@ test("non-Player browser input requires lock, or Player lock behavior depends on
     const controlled = inputState();
     controlled.addSystem(PlayerControlSystem, "Player");
     controlled.step(0);
-    if (!devices(controlled).requireLock)
+    const controlledDevices = controlled.resource(Devices);
+    if (!controlledDevices.requireLock)
         throw new Error("Player did not retain its lock gate without a browser producer");
     controlled.dispose();
-    if (devices(controlled).requireLock)
+    if (controlledDevices.requireLock)
         throw new Error("Player disposal did not clear its lock intent");
 
     const fixture = declaredHost();
     const state = inputState();
+    const _devices = state.resource(Devices);
     const plugin = createBrowserInputPlugin(fixture.host);
     for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
     state.addSystem(PlayerControlSystem, "Player");
     state.step(0);
     pointerButton(state, "left", true);
-    if (devices(state).mouse.left)
-        throw new Error("Player lock gate did not hold before engagement");
+    if (_devices.mouse.left) throw new Error("Player lock gate did not hold before engagement");
     requestPointerLock(state);
     fixture.emitLockChange();
     pointerButton(state, "left", true);
-    if (!devices(state).mouse.left)
-        throw new Error("Player lock gate did not open after engagement");
+    if (!_devices.mouse.left) throw new Error("Player lock gate did not open after engagement");
     state.dispose();
     if (fixture.releaseCount !== 1)
         throw new Error("Player disposal did not release through the adapter");
@@ -524,7 +525,8 @@ test("a State with the plain input owner binds browser listeners merely because 
         state.step(0);
         pressKey(state, "KeyW");
         state.step(Time.FIXED_DT);
-        if (!devices(state).keys.held.has("KeyW")) throw new Error("application input was lost");
+        if (!state.resource(Devices).keys.held.has("KeyW"))
+            throw new Error("application input was lost");
         if (queried !== 0 || listeners !== 0)
             throw new Error("host producer was composed implicitly");
     } finally {
@@ -550,7 +552,7 @@ test("browser viewport and audio-status producers overwrite application facts wh
         resizeViewport(state, 0, 100, 50, 2);
         audioContextState(state, "running");
         state.step(0);
-        const input = devices(state);
+        const input = state.resource(Devices);
         const viewport = input.viewport.get(0);
         if (
             viewport?.cssWidth !== 100 ||
@@ -585,10 +587,11 @@ test("the browser input producer fails to bind listeners or request pointer lock
         addEventListener: () => listeners++,
     });
     const state = browserInputState();
+    const _devices = state.resource(Devices);
     try {
         state.step(0);
         pointerButton(state, "left", true);
-        if (devices(state).requireLock || !devices(state).mouse.left)
+        if (_devices.requireLock || !_devices.mouse.left)
             throw new Error("non-Player browser input unexpectedly required pointer lock");
         requestPointerLock(state);
         if (listeners === 0 || requested !== 1)
@@ -609,7 +612,7 @@ test("composing the browser input producer without host globals preserves the pl
     state.addSystem({
         group: "simulation",
         update(s: State) {
-            const keys = devices(s).keys;
+            const keys = s.resource(Devices).keys;
             pressed ||= keys.pressed.has("KeyW");
             released ||= keys.released.has("KeyW");
         },
@@ -620,7 +623,7 @@ test("composing the browser input producer without host globals preserves the pl
         state.step(Time.FIXED_DT);
         releaseKey(state, "KeyW");
         state.step(0);
-        if (!pressed || !released || devices(state).keys.held.has("KeyW"))
+        if (!pressed || !released || state.resource(Devices).keys.held.has("KeyW"))
             throw new Error("browser composition lost shared input transitions");
     } finally {
         state.dispose();
@@ -631,23 +634,23 @@ test("composing the browser input producer without host globals preserves the pl
 
 test("controlled input edges depend on frame cadence rather than the independent fixed and draw boundaries", () => {
     const state = inputState();
+    const _devices = state.resource(Devices);
     const fixedSeen: string[] = [];
     state.addSystem({
         group: "fixed",
         update(s: State) {
-            if (devices(s).keys.tickPressed.has("KeyA")) fixedSeen.push("A");
-            if (devices(s).keys.tickPressed.has("KeyB")) fixedSeen.push("B");
+            if (s.resource(Devices).keys.tickPressed.has("KeyA")) fixedSeen.push("A");
+            if (s.resource(Devices).keys.tickPressed.has("KeyB")) fixedSeen.push("B");
         },
     });
     pressKey(state, "KeyA");
     state.step(0);
-    if (!devices(state).keys.tickPressed.has("KeyA"))
-        throw new Error("zero-tick frame reset a press");
+    if (!_devices.keys.tickPressed.has("KeyA")) throw new Error("zero-tick frame reset a press");
     state.step(Time.FIXED_DT * 2);
     pressKey(state, "KeyB");
     state.step(Time.FIXED_DT);
     if (fixedSeen.join("") !== "AB") throw new Error(`unexpected fixed edges: ${fixedSeen}`);
-    if (devices(state).keys.pressed.has("KeyA") || devices(state).keys.tickPressed.size !== 0)
+    if (_devices.keys.pressed.has("KeyA") || _devices.keys.tickPressed.size !== 0)
         throw new Error("draw or fixed edge reset did not run");
     state.dispose();
 });
@@ -658,7 +661,7 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     const reader = {
         group: "simulation" as const,
         update(s: State) {
-            const keys = devices(s).keys;
+            const keys = s.resource(Devices).keys;
             seen.push({
                 held: keys.held.has("KeyW"),
                 pressed: keys.pressed.has("KeyW"),
@@ -675,7 +678,7 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     state.step(Time.FIXED_DT);
     if (!seen[0]?.held || !seen[0].pressed || seen[0].released)
         throw new Error("press edge was not visible");
-    const d = devices(state);
+    const d = state.resource(Devices);
     if (d.mouse.x !== 12 || d.mouse.y !== 24 || d.mouse.deltaX !== 0 || d.mouse.scroll !== 0) {
         // frame latches are deliberately cleared at the draw boundary; the reader above observes them.
         throw new Error("frame device deltas were not cleared");
@@ -685,7 +688,10 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     const releaseReader = {
         group: "simulation" as const,
         update(s: State) {
-            if (!devices(s).keys.released.has("KeyW") || devices(s).keys.held.has("KeyW")) {
+            if (
+                !s.resource(Devices).keys.released.has("KeyW") ||
+                s.resource(Devices).keys.held.has("KeyW")
+            ) {
                 throw new Error("release edge was not visible");
             }
         },
@@ -701,7 +707,7 @@ test("a key press in a frame with zero fixed ticks is dropped before the next fr
     state.addSystem({
         group: "fixed",
         update(s: State) {
-            if (devices(s).keys.tickPressed.has("KeyA")) count++;
+            if (s.resource(Devices).keys.tickPressed.has("KeyA")) count++;
         },
     });
     pressKey(state, "KeyA");
@@ -716,7 +722,8 @@ test("a press records a wall-clock timestamp instead of the State fixed tick, so
     state.step(Time.FIXED_DT);
     const tick = state.time.fixedTick;
     pressKey(state, "KeyB");
-    if (devices(state).keys.pressedTick.get("KeyB") !== tick) throw new Error("wrong pressedTick");
+    if (state.resource(Devices).keys.pressedTick.get("KeyB") !== tick)
+        throw new Error("wrong pressedTick");
     state.dispose();
 });
 
@@ -726,7 +733,7 @@ test("a press and release between frames loses an edge or leaves the key held", 
     state.addSystem({
         group: "simulation",
         update(s: State) {
-            const keys = devices(s).keys;
+            const keys = s.resource(Devices).keys;
             seen = keys.pressed.has("KeyQ") && keys.released.has("KeyQ") && !keys.held.has("KeyQ");
         },
     });
@@ -745,7 +752,7 @@ test("the same press yields a different fixed edge count under batched and one-t
         state.addSystem({
             group: "fixed",
             update(s: State) {
-                if (devices(s).keys.tickPressed.has("KeyE")) value++;
+                if (s.resource(Devices).keys.tickPressed.has("KeyE")) value++;
             },
         });
         return () => value;
@@ -767,7 +774,7 @@ test("window blur leaves keys or pointer buttons held, or releases them without 
     pressKey(state, "KeyW");
     pointerButton(state, "left", true);
     blur(state);
-    const input = devices(state);
+    const input = state.resource(Devices);
     if (input.keys.held.has("KeyW") || !input.keys.released.has("KeyW"))
         throw new Error("blur did not emit a key release edge");
     if (input.mouse.left) throw new Error("blur left a pointer button held");
@@ -780,7 +787,7 @@ test("hiding the page leaves keys or pointer buttons held, or releases them with
     pressKey(state, "KeyA");
     pointerButton(state, "right", true);
     visibilityChanged(state, true);
-    const input = devices(state);
+    const input = state.resource(Devices);
     if (input.keys.held.has("KeyA") || !input.keys.released.has("KeyA"))
         throw new Error("hidden visibility did not emit a key release edge");
     if (input.mouse.right) throw new Error("hidden visibility left a pointer button held");
@@ -789,17 +796,18 @@ test("hiding the page leaves keys or pointer buttons held, or releases them with
 
 test("pointer-lock exit leaves keys or pointer buttons held, or loses the lock refusal reason", () => {
     const state = inputState();
+    const _devices = state.resource(Devices);
     pointerLockChanged(state, true);
     pressKey(state, "KeyD");
     pointerButton(state, "middle", true);
     pointerLockChanged(state, false);
-    const input = devices(state);
+    const input = _devices;
     if (pointerLockStatus(state) !== "unlocked") throw new Error("lock status did not exit");
     pointerLockChanged(state, true);
     pointerLockChanged(state, false, "denied by browser");
     if (
         pointerLockStatus(state) !== "refused" ||
-        devices(state).pointer.lock.refusal !== "denied by browser"
+        _devices.pointer.lock.refusal !== "denied by browser"
     )
         throw new Error("lock refusal was not recorded");
     if (input.keys.held.has("KeyD") || !input.keys.released.has("KeyD"))
@@ -810,12 +818,13 @@ test("pointer-lock exit leaves keys or pointer buttons held, or loses the lock r
 
 test("a pointer button reads down before a required pointer lock engages", () => {
     const state = inputState();
+    const _devices = state.resource(Devices);
     requirePointerLock(state, true);
     pointerButton(state, "left", true);
-    if (devices(state).mouse.left) throw new Error("button crossed the lock gate");
+    if (_devices.mouse.left) throw new Error("button crossed the lock gate");
     pointerLockChanged(state, true);
     pointerButton(state, "left", true);
-    if (!devices(state).mouse.left) throw new Error("locked button did not engage");
+    if (!_devices.mouse.left) throw new Error("locked button did not engage");
     state.dispose();
 });
 
@@ -824,7 +833,7 @@ test("a suspended State still reads held keys, pointer or touch data, or accepts
     pressKey(state, "KeyS");
     pointerButton(state, "left", true);
     setInputEnabled(state, false);
-    const input = devices(state);
+    const input = state.resource(Devices);
     if (!input.suspended || input.keys.held.has("KeyS") || !input.keys.released.has("KeyS"))
         throw new Error("suspension did not neutralize the key with an edge");
     if (input.mouse.left || input.mouse.deltaX !== 0 || input.touch.count !== 0)
@@ -840,9 +849,9 @@ test("suspending one State suspends or clears a second State's device record", (
     pressKey(first, "KeyW");
     pressKey(second, "KeyW");
     setInputEnabled(first, false);
-    if (!devices(first).suspended || devices(first).keys.held.has("KeyW"))
+    if (!first.resource(Devices).suspended || first.resource(Devices).keys.held.has("KeyW"))
         throw new Error("first State did not suspend");
-    if (devices(second).suspended || !devices(second).keys.held.has("KeyW"))
+    if (second.resource(Devices).suspended || !second.resource(Devices).keys.held.has("KeyW"))
         throw new Error("second State was affected by suspension");
     first.dispose();
     second.dispose();
@@ -855,11 +864,14 @@ test("interleaved producer calls on two States leak edges or held keys between t
     pressKey(b, "KeyW");
     a.step(Time.FIXED_DT);
     b.step(Time.FIXED_DT);
-    if (devices(a).keys.held.has("KeyW") !== devices(b).keys.held.has("KeyW"))
+    if (a.resource(Devices).keys.held.has("KeyW") !== b.resource(Devices).keys.held.has("KeyW"))
         throw new Error("twin held mismatch");
     releaseKey(a, "KeyW");
     releaseKey(b, "KeyW");
-    if (!devices(a).keys.released.has("KeyW") || !devices(b).keys.released.has("KeyW"))
+    if (
+        !a.resource(Devices).keys.released.has("KeyW") ||
+        !b.resource(Devices).keys.released.has("KeyW")
+    )
         throw new Error("twin release mismatch");
     a.dispose();
     b.dispose();
@@ -897,13 +909,17 @@ test("a State-scoped viewport row supplies CSS size and DPR to sizeView through 
 
 test("the normalized pointer coordinate uses the State-scoped viewport row after resize", () => {
     const state = inputState();
+    const _devices = state.resource(Devices);
     resizeViewport(state, 0, 100, 50, 1);
     focus(state, 0);
     pointerMove(state, 50, 25);
-    if (devices(state).mouse.normalizedX !== 0.5 || devices(state).mouse.normalizedY !== 0.5)
+    if (_devices.mouse.normalizedX !== 0.5 || _devices.mouse.normalizedY !== 0.5)
         throw new Error("initial normalized pointer coordinate was wrong");
     resizeViewport(state, 0, 200, 100, 1);
-    if (devices(state).mouse.normalizedX !== 0.25 || devices(state).mouse.normalizedY !== 0.25)
+    if (
+        state.resource(Devices).mouse.normalizedX !== 0.25 ||
+        state.resource(Devices).mouse.normalizedY !== 0.25
+    )
         throw new Error("normalized pointer coordinate did not follow resize");
     state.dispose();
 });
@@ -913,8 +929,8 @@ test("two States hold independent per-canvas viewport records", () => {
     const second = inputState();
     resizeViewport(first, 0, 320, 180, 1);
     resizeViewport(second, 0, 640, 360, 2);
-    const a = devices(first).viewport.get(0);
-    const b = devices(second).viewport.get(0);
+    const a = first.resource(Devices).viewport.get(0);
+    const b = second.resource(Devices).viewport.get(0);
     if (a?.cssWidth !== 320 || a?.cssHeight !== 180 || a?.dpr !== 1)
         throw new Error("first viewport row was changed");
     if (b?.cssWidth !== 640 || b?.cssHeight !== 360 || b?.dpr !== 2)

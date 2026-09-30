@@ -1,3 +1,4 @@
+import type { State } from "../../engine";
 // Morton-code assignment — primitive AABBs + scene AABB → one 30-bit spatial key
 // per prim, plus an identity payload, a stage of the LBVH builder. The pass between
 // scene-bounds (bounds.ts) and
@@ -32,7 +33,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute } from "../../engine";
+
 import { precompile, precompileScope } from "../../engine/runtime";
 
 const WG = 256; // workgroup size; the grid-stride loop folds any count past one dispatch
@@ -190,11 +191,12 @@ export interface Morton {
  * device.queue.submit([enc.finish()]);
  */
 export async function createMorton(
+    state: State,
     device: GPUDevice,
     maxPrims: number,
     shared: MortonShared = {},
 ): Promise<Morton> {
-    const root = Compute.root;
+    const root = state.gpu.root;
     const cap = Math.max(1, maxPrims);
     const owned: GPUBuffer[] = [];
     const own = (label: string, size: number, usage: number): GPUBuffer => {
@@ -218,7 +220,7 @@ export async function createMorton(
             root.createBindGroup(mortonLayout, { prims, bounds, keys, payload, countBuf: count }),
         );
     // per-instance label — an app can build more than one BVH, and the queue rejects a duplicate label
-    await precompile(precompileScope("morton"), () => {
+    await precompile(state, precompileScope(state, "morton"), () => {
         return bound;
     });
 
@@ -235,7 +237,7 @@ export async function createMorton(
         maxPrims,
         compute(encoder: GPUCommandEncoder): void {
             const pass = encoder.beginComputePass({
-                timestampWrites: Compute.span?.("bvh:morton"),
+                timestampWrites: state.gpu.span?.("bvh:morton"),
             });
             bound.with(pass).dispatchWorkgroups(numWg);
             pass.end();

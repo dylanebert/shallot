@@ -97,10 +97,12 @@ export class Body {
         if (i < 0 || i >= this.world.bodies.length) {
             return false;
         }
-        if (kernel().bodyAlive(this.world.worldId, i) === 0) {
+        if (kernel(this.world.ecsState).bodyAlive(this.world.worldId, i) === 0) {
             return false;
         }
-        return kernel().bodyGeneration(this.world.worldId, i) === this.id.generation;
+        return (
+            kernel(this.world.ecsState).bodyGeneration(this.world.worldId, i) === this.id.generation
+        );
     }
 
     /** Destroy this body, its shapes, contacts, and joints. */

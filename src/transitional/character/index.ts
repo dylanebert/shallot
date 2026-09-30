@@ -84,19 +84,23 @@ function signature(state: State): number {
 }
 
 // build a fresh controller state from a character's authored Body placement, capsule geometry and walkable-slope cutoff. Velocity / grounded / jump timers start cleared (a dropped capsule falls to rest).
-function buildState(eid: number): CharState {
+function buildState(state: State, eid: number): CharState {
     return {
-        pos: [Body.pos.x.get(eid), Body.pos.y.get(eid), Body.pos.z.get(eid)],
-        quat: [
-            Body.quat.x.get(eid),
-            Body.quat.y.get(eid),
-            Body.quat.z.get(eid),
-            Body.quat.w.get(eid),
+        pos: [
+            state.of(Body).pos.x.get(eid),
+            state.of(Body).pos.y.get(eid),
+            state.of(Body).pos.z.get(eid),
         ],
-        half: Body.halfExtents.y.get(eid),
-        radius: Body.halfExtents.w.get(eid),
-        maxSlopeCos: Math.cos(Character.maxSlope.get(eid) * DEG),
-        jumpSpeed: Character.jumpSpeed.get(eid),
+        quat: [
+            state.of(Body).quat.x.get(eid),
+            state.of(Body).quat.y.get(eid),
+            state.of(Body).quat.z.get(eid),
+            state.of(Body).quat.w.get(eid),
+        ],
+        half: state.of(Body).halfExtents.y.get(eid),
+        radius: state.of(Body).halfExtents.w.get(eid),
+        maxSlopeCos: Math.cos(state.of(Character).maxSlope.get(eid) * DEG),
+        jumpSpeed: state.of(Character).jumpSpeed.get(eid),
         vel: [0, 0, 0],
         realizedVel: [0, 0, 0],
         grounded: false,
@@ -136,7 +140,7 @@ function rebuildStates(state: State, drive: ReturnType<typeof driveFor>): void {
                 drive.moves.delete(eid);
                 drive.jumped.delete(eid);
             }
-            drive.states.set(eid, buildState(eid));
+            drive.states.set(eid, buildState(state, eid));
             drive.stamps.set(eid, stamp);
         }
     }

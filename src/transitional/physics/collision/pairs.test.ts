@@ -54,9 +54,9 @@ test("collision filtering by group index stops taking precedence over the mask, 
 });
 
 beforeAll(async () => {
-    await init();
+    await init(undefined);
 });
-afterAll(shutdown);
+afterAll(() => shutdown(undefined));
 
 test("contact pair creation from the broad phase emits an overlapping pair once per moved side instead of deduplicating it, or re-creates a pair already in the pair set on a later step, so a single touching pair fires two begin-touch events", () => {
     // Two dynamic boxes overlap along x and both drift +y (zero gravity, sleep off) so both sit in

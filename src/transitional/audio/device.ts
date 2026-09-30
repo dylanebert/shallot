@@ -1,6 +1,8 @@
 import loadAudioWasm from "../../../crates/audio/pkg/shallot_audio.js";
 import {
+    type AudioDevice,
     type AudioContextState as DeviceAudioContextState,
+    Devices,
     reportAudioContextState,
 } from "../../core/input";
 import type { State } from "../../engine";
@@ -50,33 +52,37 @@ function freeList(): number[] {
     return free;
 }
 
-export const Audio: Audio = {
-    ctx: null,
-    node: null,
-    free: freeList(),
-    gen: new Int32Array(MAX_VOICES),
-    queue: [],
-    idle: new Map(),
-    sentInstruments: new Map(),
-    spatial: new Float32Array(MAX_VOICES * 7),
-    spatialLen: 0,
-    resume: null,
-    onState: null,
-    onVisibility: null,
-    onDevice: null,
-    heartbeat: null,
-    lastHeartbeat: 0,
-    wasSuspended: false,
+export const Audio: import("../../engine").Resource<Audio> = {
+    create: () => ({
+        ctx: null,
+        node: null,
+        free: freeList(),
+        gen: new Int32Array(MAX_VOICES),
+        queue: [],
+        idle: new Map(),
+        sentInstruments: new Map(),
+        spatial: new Float32Array(MAX_VOICES * 7),
+        spatialLen: 0,
+        resume: null,
+        onState: null,
+        onVisibility: null,
+        onDevice: null,
+        heartbeat: null,
+        lastHeartbeat: 0,
+        wasSuspended: false,
+    }),
 };
 
 function contextState(state: globalThis.AudioContextState): DeviceAudioContextState {
     return state === "running" || state === "closed" ? state : "suspended";
 }
 
-function reconnect(): void {
-    if (!Audio.node || !Audio.ctx) return;
-    Audio.node.disconnect();
-    Audio.node.connect(Audio.ctx.destination);
+function reconnect(state: State): void {
+    const _audio = state.resource(Audio);
+
+    if (!_audio.node || !_audio.ctx) return;
+    _audio.node.disconnect();
+    _audio.node.connect(_audio.ctx.destination);
 }
 
 /**
@@ -85,28 +91,30 @@ function reconnect(): void {
  * pointer/key listener resumes it; the State-scoped audio record reports the state until then
  */
 export async function initAudio(state: State): Promise<void> {
+    const _audio = state.resource(Audio);
+
     disposeAudio(state);
-    Audio.free = freeList();
-    Audio.gen.fill(0);
-    Audio.queue.length = 0;
-    Audio.idle.clear();
-    Audio.sentInstruments.clear();
-    Audio.spatialLen = 0;
+    _audio.free = freeList();
+    _audio.gen.fill(0);
+    _audio.queue.length = 0;
+    _audio.idle.clear();
+    _audio.sentInstruments.clear();
+    _audio.spatialLen = 0;
     resetSampleUploads();
 
     const ctx = new AudioContext();
-    Audio.ctx = ctx;
+    _audio.ctx = ctx;
     reportAudioContextState(state, contextState(ctx.state));
     if (ctx.state === "suspended") {
         const resume = () => {
             ctx.resume();
             document.removeEventListener("pointerdown", resume);
             document.removeEventListener("keydown", resume);
-            Audio.resume = null;
+            state.resource(Audio).resume = null;
         };
         document.addEventListener("pointerdown", resume);
         document.addEventListener("keydown", resume);
-        Audio.resume = resume;
+        _audio.resume = resume;
     }
 
     const wasmBytes = await loadAudioWasm();
@@ -117,43 +125,47 @@ export async function initAudio(state: State): Promise<void> {
     const node = new AudioWorkletNode(ctx, "synth-processor", { outputChannelCount: [2] });
     node.connect(ctx.destination);
     node.port.postMessage({ type: "init", bytes: wasmBytes });
-    Audio.node = node;
+    _audio.node = node;
 
-    Audio.wasSuspended = ctx.state !== "running";
-    Audio.onState = () => {
+    _audio.wasSuspended = ctx.state !== "running";
+    _audio.onState = () => {
+        const _audio = state.resource(Audio);
+
         reportAudioContextState(state, contextState(ctx.state));
-        if (ctx.state === "running" && Audio.wasSuspended) {
+        if (ctx.state === "running" && _audio.wasSuspended) {
             node.port.postMessage({ type: "reset" });
-            reconnect();
+            reconnect(state);
         }
-        Audio.wasSuspended = ctx.state !== "running";
+        _audio.wasSuspended = ctx.state !== "running";
     };
-    ctx.addEventListener("statechange", Audio.onState);
+    ctx.addEventListener("statechange", _audio.onState);
 
-    Audio.onVisibility = () => {
+    _audio.onVisibility = () => {
         if (document.visibilityState === "visible") {
             ctx.resume();
-            reconnect();
+            reconnect(state);
         }
     };
-    document.addEventListener("visibilitychange", Audio.onVisibility);
+    document.addEventListener("visibilitychange", _audio.onVisibility);
 
-    Audio.onDevice = () => reconnect();
-    navigator.mediaDevices?.addEventListener("devicechange", Audio.onDevice);
+    _audio.onDevice = () => reconnect(state);
+    navigator.mediaDevices?.addEventListener("devicechange", _audio.onDevice);
 
     node.onprocessorerror = (e) => console.error("audio worklet crashed:", e);
     node.port.onmessage = (e: MessageEvent) => {
+        const _audio = state.resource(Audio);
+
         const d = e.data;
         if (d.type === "voice_idle") {
-            const cb = Audio.idle.get(d.voiceId);
+            const cb = _audio.idle.get(d.voiceId);
             if (cb) {
-                Audio.idle.delete(d.voiceId);
+                _audio.idle.delete(d.voiceId);
                 cb();
             }
         } else if (d.type === "overflow") {
             console.warn(`audio: ${d.count} events dropped (buffer full)`);
         } else if (d.type === "heartbeat") {
-            Audio.lastHeartbeat = performance.now();
+            _audio.lastHeartbeat = performance.now();
             if (d.outputPeak !== undefined && d.outputPeak < 0) {
                 console.error("audio: NaN detected in output");
             }
@@ -163,55 +175,63 @@ export async function initAudio(state: State): Promise<void> {
         }
     };
 
-    Audio.lastHeartbeat = performance.now();
-    Audio.heartbeat = setInterval(() => {
+    _audio.lastHeartbeat = performance.now();
+    _audio.heartbeat = setInterval(() => {
+        const _audio = state.resource(Audio);
+
         if (ctx.state !== "running") return;
-        if (performance.now() - Audio.lastHeartbeat > 3000) {
-            reconnect();
-            Audio.lastHeartbeat = performance.now();
+        if (performance.now() - _audio.lastHeartbeat > 3000) {
+            reconnect(state);
+            _audio.lastHeartbeat = performance.now();
         }
     }, 2000);
 }
 
 /** tear down the worklet, context, and all host listeners */
-export function disposeAudio(state: State): void {
-    flush();
-    reportAudioContextState(state, Audio.ctx ? "closed" : "none");
-    if (Audio.heartbeat) {
-        clearInterval(Audio.heartbeat);
-        Audio.heartbeat = null;
+export function disposeAudio(
+    state: State,
+    audio: Audio = state.resource(Audio),
+    facts: AudioDevice = state.resource(Devices).audio,
+): void {
+    const _audio = audio;
+    flush(_audio);
+    facts.context = _audio.ctx ? "closed" : "none";
+    if (_audio.heartbeat) {
+        clearInterval(_audio.heartbeat);
+        _audio.heartbeat = null;
     }
-    if (Audio.resume) {
-        document.removeEventListener("pointerdown", Audio.resume);
-        document.removeEventListener("keydown", Audio.resume);
-        Audio.resume = null;
+    if (_audio.resume) {
+        document.removeEventListener("pointerdown", _audio.resume);
+        document.removeEventListener("keydown", _audio.resume);
+        _audio.resume = null;
     }
-    if (Audio.onState && Audio.ctx) Audio.ctx.removeEventListener("statechange", Audio.onState);
-    if (Audio.onVisibility) document.removeEventListener("visibilitychange", Audio.onVisibility);
-    if (Audio.onDevice) navigator.mediaDevices?.removeEventListener("devicechange", Audio.onDevice);
-    Audio.onState = Audio.onVisibility = Audio.onDevice = null;
-    Audio.node?.disconnect();
-    Audio.node = null;
-    Audio.ctx?.close();
-    Audio.ctx = null;
+    if (_audio.onState && _audio.ctx) _audio.ctx.removeEventListener("statechange", _audio.onState);
+    if (_audio.onVisibility) document.removeEventListener("visibilitychange", _audio.onVisibility);
+    if (_audio.onDevice)
+        navigator.mediaDevices?.removeEventListener("devicechange", _audio.onDevice);
+    _audio.onState = _audio.onVisibility = _audio.onDevice = null;
+    _audio.node?.disconnect();
+    _audio.node = null;
+    _audio.ctx?.close();
+    _audio.ctx = null;
 }
 
 /** flush pending sample uploads + the queued message batch. Once per frame */
-export function tickAudio(): void {
+export function tickAudio(state: State): void {
     flushSamples((id, channel, channels, data) =>
-        enqueue({ type: "set_sample", id, channel, channels, data }),
+        enqueue(state, { type: "set_sample", id, channel, channels, data }),
     );
-    flush();
+    flush(state.resource(Audio));
 }
 
-function enqueue(msg: object): void {
-    Audio.queue.push(msg);
+function enqueue(state: State, msg: object): void {
+    state.resource(Audio).queue.push(msg);
 }
 
-function flush(): void {
-    if (!Audio.node || Audio.queue.length === 0) return;
-    Audio.node.port.postMessage({ type: "batch", commands: Audio.queue });
-    Audio.queue.length = 0;
+function flush(_audio: Audio): void {
+    if (!_audio.node || _audio.queue.length === 0) return;
+    _audio.node.port.postMessage({ type: "batch", commands: _audio.queue });
+    _audio.queue.length = 0;
 }
 
 // --- voice allocator -------------------------------------------------------
@@ -222,10 +242,10 @@ export function slotOf(handle: number): number {
 }
 
 /** true when the slot still belongs to this handle's generation */
-export function valid(handle: number): boolean {
+export function valid(state: State, handle: number): boolean {
     if (handle < 0) return false;
     const slot = handle & SLOT_MASK;
-    return slot < MAX_VOICES && (Audio.gen[slot] & GEN_MASK) === handle >>> 7;
+    return slot < MAX_VOICES && (state.resource(Audio).gen[slot] & GEN_MASK) === handle >>> 7;
 }
 
 /**
@@ -233,63 +253,69 @@ export function valid(handle: number): boolean {
  * is full). The handle invalidates the moment the slot is freed or re-claimed,
  * so a caller holding a stale handle no-ops every op against it
  */
-export function alloc(): number {
-    const slot = Audio.free.pop();
+export function alloc(state: State): number {
+    const _audio = state.resource(Audio);
+
+    const slot = _audio.free.pop();
     if (slot === undefined) return -1;
-    const gen = ++Audio.gen[slot] & GEN_MASK;
-    enqueue({ type: "voice_active", voiceId: slot, active: true });
+    const gen = ++_audio.gen[slot] & GEN_MASK;
+    enqueue(state, { type: "voice_active", voiceId: slot, active: true });
     return slot | (gen << 7);
 }
 
 /** release a voice slot back to the pool, invalidating its handle */
-export function free(handle: number): void {
-    if (!valid(handle)) return;
+export function free(state: State, handle: number): void {
+    const _audio = state.resource(Audio);
+
+    if (!valid(state, handle)) return;
     const slot = handle & SLOT_MASK;
-    Audio.gen[slot]++;
-    Audio.idle.delete(slot);
-    enqueue({ type: "voice_active", voiceId: slot, active: false });
-    Audio.free.push(slot);
+    _audio.gen[slot]++;
+    _audio.idle.delete(slot);
+    enqueue(state, { type: "voice_active", voiceId: slot, active: false });
+    _audio.free.push(slot);
 }
 
 // --- voice ops (gen-validated; send plain objects to the frozen worklet) ----
 
 /** gate a voice on (`value` 1, note-on) or off (0, enters the envelope release): the musical trigger,
  *  distinct from freeing the slot. No-op on a stale handle. */
-export function gate(handle: number, value: number): void {
-    if (!valid(handle)) return;
-    enqueue({ type: "gate", voiceId: handle & SLOT_MASK, value });
+export function gate(state: State, handle: number, value: number): void {
+    if (!valid(state, handle)) return;
+    enqueue(state, { type: "gate", voiceId: handle & SLOT_MASK, value });
 }
 
 /** set one kernel param of a voice by its `offset` in the instrument's compiled param layout: the
  *  per-frame firehose the ECS layer drives volume/pitch through. No-op on a stale handle or negative offset. */
-export function setParam(handle: number, offset: number, value: number): void {
-    if (!valid(handle) || offset < 0) return;
-    enqueue({ type: "params", changes: [[handle & SLOT_MASK, offset, value]] });
+export function setParam(state: State, handle: number, offset: number, value: number): void {
+    if (!valid(state, handle) || offset < 0) return;
+    enqueue(state, { type: "params", changes: [[handle & SLOT_MASK, offset, value]] });
 }
 
 /** route a voice through the FOA + HRTF spatial path (`true`) or direct stereo (`false`) */
-export function spatialize(handle: number, on: boolean): void {
-    if (!valid(handle)) return;
-    enqueue({ type: "voice_spatial", voiceId: handle & SLOT_MASK, spatial: on });
+export function spatialize(state: State, handle: number, on: boolean): void {
+    if (!valid(state, handle)) return;
+    enqueue(state, { type: "voice_spatial", voiceId: handle & SLOT_MASK, spatial: on });
 }
 
 /** mark a voice one-shot: the kernel auto-gates-off + idles it when its envelope completes */
-export function oneShot(handle: number): void {
-    if (!valid(handle)) return;
-    enqueue({ type: "voice_one_shot", voiceId: handle & SLOT_MASK });
+export function oneShot(state: State, handle: number): void {
+    if (!valid(state, handle)) return;
+    enqueue(state, { type: "voice_one_shot", voiceId: handle & SLOT_MASK });
 }
 
 /** register the slot for idle watching; `cb` fires once when the kernel reports it idle */
-export function watchIdle(handle: number, cb: () => void): void {
-    if (!valid(handle)) return;
+export function watchIdle(state: State, handle: number, cb: () => void): void {
+    if (!valid(state, handle)) return;
     const slot = handle & SLOT_MASK;
-    Audio.idle.set(slot, cb);
-    enqueue({ type: "watch_idle", voiceId: slot });
+    state.resource(Audio).idle.set(slot, cb);
+    enqueue(state, { type: "watch_idle", voiceId: slot });
 }
 
-function registerInstrument(id: number, inst: Instrument): void {
-    if (Audio.sentInstruments.get(id) === inst.version) return;
-    enqueue({
+function registerInstrument(state: State, id: number, inst: Instrument): void {
+    const _audio = state.resource(Audio);
+
+    if (_audio.sentInstruments.get(id) === inst.version) return;
+    enqueue(state, {
         type: "set_instrument",
         id,
         nodeCount: inst.nodes.length,
@@ -298,20 +324,20 @@ function registerInstrument(id: number, inst: Instrument): void {
         nodes: inst.nodes,
         modulations: inst.modulations,
     });
-    Audio.sentInstruments.set(id, inst.version);
+    _audio.sentInstruments.set(id, inst.version);
 }
 
 /** point a voice at an instrument: send its topology (once per version) + static param values */
-export function assign(handle: number, id: number): void {
-    if (!valid(handle)) return;
+export function assign(state: State, handle: number, id: number): void {
+    if (!valid(state, handle)) return;
     const inst = byId(id);
     if (!inst) return;
     const slot = handle & SLOT_MASK;
-    registerInstrument(id, inst);
-    enqueue({ type: "set_voice_instrument", voiceId: slot, instrumentId: id });
+    registerInstrument(state, id, inst);
+    enqueue(state, { type: "set_voice_instrument", voiceId: slot, instrumentId: id });
     const pairs = getParamPairs(id);
     if (pairs.length > 0) {
-        enqueue({ type: "params", changes: pairs.map(([off, val]) => [slot, off, val]) });
+        enqueue(state, { type: "params", changes: pairs.map(([off, val]) => [slot, off, val]) });
     }
 }
 
@@ -356,6 +382,7 @@ export function polar(
 
 /** queue one voice's spatial params (polar) into the per-frame batch */
 export function addSpatial(
+    state: State,
     handle: number,
     az: number,
     el: number,
@@ -364,9 +391,11 @@ export function addSpatial(
     max = 100,
     roll = 1,
 ): void {
-    if (!valid(handle) || Audio.spatialLen + 7 > Audio.spatial.length) return;
-    const b = Audio.spatial;
-    let i = Audio.spatialLen;
+    const _audio = state.resource(Audio);
+
+    if (!valid(state, handle) || _audio.spatialLen + 7 > _audio.spatial.length) return;
+    const b = _audio.spatial;
+    let i = _audio.spatialLen;
     b[i++] = handle & SLOT_MASK;
     b[i++] = az;
     b[i++] = el;
@@ -374,14 +403,16 @@ export function addSpatial(
     b[i++] = ref;
     b[i++] = max;
     b[i++] = roll;
-    Audio.spatialLen = i;
+    _audio.spatialLen = i;
 }
 
 /** flush the accumulated spatial batch as one worklet message */
-export function flushSpatial(): void {
-    if (Audio.spatialLen === 0) return;
-    enqueue({ type: "spatial", data: Audio.spatial.slice(0, Audio.spatialLen) });
-    Audio.spatialLen = 0;
+export function flushSpatial(state: State): void {
+    const _audio = state.resource(Audio);
+
+    if (_audio.spatialLen === 0) return;
+    enqueue(state, { type: "spatial", data: _audio.spatial.slice(0, _audio.spatialLen) });
+    _audio.spatialLen = 0;
 }
 
 const C5 = 523.2511;

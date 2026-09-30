@@ -540,7 +540,7 @@ function createCascadeCamera(state: State): number {
     state.add(eid, Transform);
     state.add(eid, Camera);
     state.of(Camera).mode.set(eid, CameraMode.Orthographic);
-    attachView(eid);
+    attachView(state, eid);
     return eid;
 }
 
@@ -551,7 +551,7 @@ function syncCascadePool(state: State, shadow: ShadowRuntime, n: number): void {
     while (shadow.cascadeEids.length < n) shadow.cascadeEids.push(createCascadeCamera(state));
     while (shadow.cascadeEids.length > n) {
         const eid = shadow.cascadeEids.pop()!;
-        detachCanvas(eid);
+        detachCanvas(state, eid);
         state.destroy(eid);
     }
 }
@@ -560,24 +560,24 @@ function syncCascadePool(state: State, shadow: ShadowRuntime, n: number): void {
 // frustum the pack culls against. `aim` returns the lookAt orientation as a quaternion, so
 // `invert(compose(pos, rot))` equals the `lookAt(eye, eye→focus, up)` the atlas render's `_cascadeRecv` folds
 // the tile onto (the cull frustum and the render projection agree to f32 — the sun camera's guarantee)
-function poseCascade(eid: number, fit: LightFit): void {
+function poseCascade(state: State, eid: number, fit: LightFit): void {
     const { eye, focus, up } = fit;
     const q = aim(eye[0], eye[1], eye[2], focus[0], focus[1], focus[2], up[0], up[1], up[2]);
-    Transform.pos.set(eid, eye[0], eye[1], eye[2], 1);
-    Transform.rot.set(eid, q.x, q.y, q.z, q.w);
-    Camera.mode.set(eid, CameraMode.Orthographic);
-    Camera.near.set(eid, 0);
+    state.of(Transform).pos.set(eid, eye[0], eye[1], eye[2], 1);
+    state.of(Transform).rot.set(eid, q.x, q.y, q.z, q.w);
+    state.of(Camera).mode.set(eid, CameraMode.Orthographic);
+    state.of(Camera).near.set(eid, 0);
     // size = the cover, far = the near-extended box depth (2·cover + margin), so the cull frustum matches the
     // render box and the toward-light occluder margin is culled in, not clipped out
-    Camera.size.set(eid, fit.extent[0]);
-    Camera.far.set(eid, fit.extent[1]);
+    state.of(Camera).size.set(eid, fit.extent[0]);
+    state.of(Camera).far.set(eid, fit.extent[1]);
 }
 
 /** destroy the pooled cascade cameras + their views (at plugin dispose). */
 export function destroyCascades(state: State): void {
     const shadow = shadows(state);
     for (const eid of shadow.cascadeEids) {
-        detachCanvas(eid);
+        detachCanvas(state, eid);
         state.destroy(eid);
     }
     shadow.cascadeEids.length = 0;
@@ -623,9 +623,9 @@ export function updateCascades(state: State, main: number): void {
     _sunDir[0] = state.of(DirectionalLight).direction.x.get(light);
     _sunDir[1] = state.of(DirectionalLight).direction.y.get(light);
     _sunDir[2] = state.of(DirectionalLight).direction.z.get(light);
-    const view = Views.get(main);
+    const view = state.resource(Views).get(main);
     const aspect = view && view.height > 0 ? view.width / view.height : 1;
-    composeTransform(main, _cascWorld);
+    composeTransform(state, main, _cascWorld);
     const mode = state.of(Camera).mode.get(main);
     const fov = state.of(Camera).fov.get(main);
     const size = state.of(Camera).size.get(main);
@@ -741,7 +741,7 @@ export function updateCascades(state: State, main: number): void {
         shadow.cascadeCover[i] = _fit.extent[0];
         shadow.cascadeDepth[i] = _fit.extent[1];
         const cam = shadow.cascadeEids[i];
-        if (cam !== undefined) poseCascade(cam, _fit);
+        if (cam !== undefined) poseCascade(state, cam, _fit);
     }
     shadow.cascadeCount = n;
 }
@@ -1096,7 +1096,7 @@ function createComboCamera(state: State): number {
     state.add(eid, Transform);
     state.add(eid, Camera);
     state.of(Camera).mode.set(eid, CameraMode.Perspective);
-    attachView(eid);
+    attachView(state, eid);
     return eid;
 }
 
@@ -1108,7 +1108,7 @@ function syncComboPool(state: State, shadows: ShadowRuntime, n: number): void {
     while (shadows.comboEids.length < n) shadows.comboEids.push(createComboCamera(state));
     while (shadows.comboEids.length > n) {
         const eid = shadows.comboEids.pop()!;
-        detachCanvas(eid);
+        detachCanvas(state, eid);
         state.destroy(eid);
     }
 }
@@ -1118,6 +1118,7 @@ function syncComboPool(state: State, shadows: ShadowRuntime, n: number): void {
 // camera's path), so `invert(compose(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's
 // `_faceVP` folds the tile placement onto — the cull frustum and the render projection agree (to f32).
 function poseCombo(
+    state: State,
     eid: number,
     px: number,
     py: number,
@@ -1129,18 +1130,18 @@ function poseCombo(
     far: number,
 ): void {
     const q = aim(px, py, pz, px + fwd[0], py + fwd[1], pz + fwd[2], up[0], up[1], up[2]);
-    Transform.pos.set(eid, px, py, pz, 1);
-    Transform.rot.set(eid, q.x, q.y, q.z, q.w);
-    Camera.fov.set(eid, fov);
-    Camera.near.set(eid, near);
-    Camera.far.set(eid, far);
+    state.of(Transform).pos.set(eid, px, py, pz, 1);
+    state.of(Transform).rot.set(eid, q.x, q.y, q.z, q.w);
+    state.of(Camera).fov.set(eid, fov);
+    state.of(Camera).near.set(eid, near);
+    state.of(Camera).far.set(eid, far);
 }
 
 /** destroy the pooled combo cameras + their views (at plugin dispose) */
 export function destroyPointShadows(state: State): void {
     const shadow = shadows(state);
     for (const eid of shadow.comboEids) {
-        detachCanvas(eid);
+        detachCanvas(state, eid);
         state.destroy(eid);
     }
     shadow.comboEids.length = 0;
@@ -1423,6 +1424,7 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
             const comboCam = shadow.comboEids[ci];
             if (comboCam !== undefined)
                 poseCombo(
+                    state,
                     comboCam,
                     px,
                     py,
@@ -1462,7 +1464,7 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
                 // pose this face's cull camera (its frustum == the pre-fold `_pv` above)
                 const comboCam = shadow.comboEids[ci];
                 if (comboCam !== undefined)
-                    poseCombo(comboCam, px, py, pz, fwd, up, fov, frame.near, frame.far);
+                    poseCombo(state, comboCam, px, py, pz, fwd, up, fov, frame.near, frame.far);
                 ci++;
             }
         }

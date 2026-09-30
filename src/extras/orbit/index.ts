@@ -1,4 +1,4 @@
-import { devices, InputPlugin, type Mouse } from "../../core/input";
+import { Devices, InputPlugin, type Mouse } from "../../core/input";
 import { Camera, CameraMode } from "../../core/rendering";
 import {
     entity,
@@ -31,7 +31,7 @@ export const OrbitMode = { Free: 0, Locked: 1 } as const;
  * button over something interactive starts an interaction instead of an orbit. Consulted once, at the orbit
  * button's press edge, with the cursor in canvas-local CSS pixels; returning true suppresses orbit rotation
  * for that whole drag (until the button releases), while pan and fly stay unaffected. Unregistered, every
- * press orbits (the optional slot is a `?.` no-op). Analogous to `Compute.span`.
+ * press orbits (the optional slot is a `?.` no-op). Analogous to `state.gpu.span`.
  * @example
  * OrbitPick.claim = (x, y) => bodyUnderCursor(x, y) !== null;
  */
@@ -124,7 +124,7 @@ const OrbitSystem: System = {
     group: "simulation",
 
     update(state: State) {
-        const input = devices(state);
+        const input = state.resource(Devices);
         const dt = state.time.deltaTime;
 
         for (const eid of state.query([Orbit, not(OrbitSmooth)])) {

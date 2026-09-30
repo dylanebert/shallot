@@ -2,8 +2,8 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
-import { Compute, f32, GlobalTransform, unpackColor, vec4 } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+import { f32, GlobalTransform, unpackColor, vec4 } from "../../engine";
+
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
 
 /**
@@ -152,8 +152,8 @@ function createLightingResources(): LightingResources {
     };
 }
 
-function lightingResources(): LightingResources {
-    return worldResource(lightingKey);
+function lightingResources(state: State): LightingResources {
+    return state.resource(lightingKey);
 }
 
 /** Create this world's lighting state during RenderPlugin initialization. */
@@ -161,15 +161,9 @@ export function initializeLightingState(state: State): void {
     state.resource(lightingKey);
 }
 
-export const Lighting: Lighting = new Proxy({} as Lighting, {
-    get(_target, key) {
-        return lightingResources().gpu[key as keyof Lighting];
-    },
-    set(_target, key, value) {
-        (lightingResources().gpu as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
+export const Lighting: import("../../engine").Resource<Lighting> = {
+    create: (state) => state.resource(lightingKey).gpu,
+};
 
 // the singleton query terms and each light's decoded color, held so the per-frame pack mints nothing: a
 // color is unpacked only on the frame its packed value changes, and the linear triple is read from here
@@ -178,26 +172,28 @@ const SUN_TERMS = [DirectionalLight];
 
 /** read the singleton AmbientLight + DirectionalLight entities and pack the Lighting UBO */
 export function writeLighting(state: State): void {
-    if (!Compute.device || !Lighting.buffer) return;
+    const _lighting = state.resource(Lighting);
+
+    if (!state.gpu.device || !_lighting.buffer) return;
 
     // zero first; absent lights + pad lanes stay 0, so each present light just
     // writes its own fields (no sun → sunColor 0 → no contribution either way)
-    const s = Lighting.staging;
+    const s = _lighting.staging;
     s.fill(0);
 
     const ambient = state.only(AMBIENT_TERMS);
     if (ambient >= 0) {
         const packed = state.of(AmbientLight).color.get(ambient);
-        if (packed !== lightingResources().ambientPacked) {
+        if (packed !== lightingResources(state).ambientPacked) {
             const rgb = unpackColor(packed);
-            lightingResources().ambientRgb[0] = rgb.r;
-            lightingResources().ambientRgb[1] = rgb.g;
-            lightingResources().ambientRgb[2] = rgb.b;
-            lightingResources().ambientPacked = packed;
+            lightingResources(state).ambientRgb[0] = rgb.r;
+            lightingResources(state).ambientRgb[1] = rgb.g;
+            lightingResources(state).ambientRgb[2] = rgb.b;
+            lightingResources(state).ambientPacked = packed;
         }
-        s[0] = lightingResources().ambientRgb[0];
-        s[1] = lightingResources().ambientRgb[1];
-        s[2] = lightingResources().ambientRgb[2];
+        s[0] = lightingResources(state).ambientRgb[0];
+        s[1] = lightingResources(state).ambientRgb[1];
+        s[2] = lightingResources(state).ambientRgb[2];
         s[3] = state.of(AmbientLight).intensity.get(ambient);
     }
 
@@ -215,24 +211,24 @@ export function writeLighting(state: State): void {
             s[6] = dz / len;
         }
         const packed = state.of(DirectionalLight).color.get(dir);
-        if (packed !== lightingResources().sunPacked) {
+        if (packed !== lightingResources(state).sunPacked) {
             const rgb = unpackColor(packed);
-            lightingResources().sunRgb[0] = rgb.r;
-            lightingResources().sunRgb[1] = rgb.g;
-            lightingResources().sunRgb[2] = rgb.b;
-            lightingResources().sunPacked = packed;
+            lightingResources(state).sunRgb[0] = rgb.r;
+            lightingResources(state).sunRgb[1] = rgb.g;
+            lightingResources(state).sunRgb[2] = rgb.b;
+            lightingResources(state).sunPacked = packed;
         }
         const i = state.of(DirectionalLight).intensity.get(dir);
-        s[8] = lightingResources().sunRgb[0] * i;
-        s[9] = lightingResources().sunRgb[1] * i;
-        s[10] = lightingResources().sunRgb[2] * i;
+        s[8] = lightingResources(state).sunRgb[0] * i;
+        s[9] = lightingResources(state).sunRgb[1] * i;
+        s[10] = lightingResources(state).sunRgb[2] * i;
         // the sun's volumetric opt-in: a `Volumetric` marker flags the otherwise-pad sunDirection.w lane
         // (1 = scatter shafts in the fog march). The lit path reads only sunDirection.xyz, so the flag is
         // inert there — the analogue of the point light's radius-sign flag, no 4th vec4
         if (state.has(dir, Volumetric)) s[7] = 1;
     }
 
-    Compute.device.queue.writeBuffer(Lighting.buffer, 0, s as Float32Array<ArrayBuffer>);
+    state.gpu.device.queue.writeBuffer(_lighting.buffer, 0, s as Float32Array<ArrayBuffer>);
 }
 
 /** the point-light list cap. The compacted list the cull pass bins is fixed-size so sear's binding
@@ -343,10 +339,12 @@ const POINT_LIGHT_TERMS = [PointLight, GlobalTransform];
  * pack: the light data itself flows GPU-side
  */
 export function warnLightOverflow(state: State): void {
+    const _lighting = state.resource(lightingKey);
+
     let count = 0;
     for (const _ of state.query(POINT_LIGHT_TERMS)) count++;
     if (count > MAX_POINT_LIGHTS) {
-        const resources = state.resource(lightingKey);
+        const resources = _lighting;
         if (!resources.overflowWarned) {
             resources.overflowWarned = true;
             console.warn(
@@ -354,6 +352,6 @@ export function warnLightOverflow(state: State): void {
             );
         }
     } else {
-        state.resource(lightingKey).overflowWarned = false;
+        _lighting.overflowWarned = false;
     }
 }

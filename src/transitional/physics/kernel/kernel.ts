@@ -1,19 +1,18 @@
 // Loader for the wasm-simd128 physics kernel (kernel/, inlined by scripts/build-kernel.ts).
 //
 // The kernel is ~tens of KB, too large for a synchronous main-thread compile, so instantiation is
-// async: call `init()` once before the first `step()`. `step()` itself stays synchronous. Each active
+// async: call `init(state)` once before the first `step()`. `step()` itself stays synchronous. Each owning
 // engine State owns one kernel instance, memory and worker pool; the SoA columns and their TypeScript
-// views therefore cannot overlap another PhysicsPlugin world's memory. Standalone solver calls without
-// an active State retain one process-local kernel for the low-level World API.
+// views therefore cannot overlap another PhysicsPlugin world's memory. Standalone solver calls passing
+// undefined retain one process-local kernel for the low-level World API.
 //
-// Two artifacts (scripts/build-kernel.ts). `init()` resolves threading itself: standalone (bun/node) and a
+// Two artifacts (scripts/build-kernel.ts). `init(state)` resolves threading itself: standalone (bun/node) and a
 // cross-origin-isolated browser get the multithreaded artifact, which needs a shared `WebAssembly.Memory`;
 // a browser without that isolation runs single-thread after one plain log naming the COOP/COEP headers the
-// host is missing. `init({ threads })` is the advanced escape — 0 forces single-thread, n overrides the
+// host is missing. `init(state, { threads })` is the advanced escape — 0 forces single-thread, n overrides the
 // auto count. The MT artifact loads behind a dynamic `import()`, so a single-thread consumer never parses it.
 
 import type { State } from "../../../engine";
-import { currentWorld } from "../../../engine/runtime";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, type Pool } from "./pool";
 
@@ -311,23 +310,24 @@ export type ParKind = (typeof ParKind)[keyof typeof ParKind];
  * drive whatever the last one left behind.
  */
 export function runPar(
+    state: State | undefined,
     kind: ParKind,
     count: number,
     a: number,
     b: number,
     serial: () => void,
 ): void {
-    const pool = workers();
+    const pool = workers(state);
     if (pool === null) {
         serial();
         return;
     }
-    const k = kernel();
+    const k = kernel(state);
     if (k.parBuild(kind, count, pool.size + 1, a, b) === 0) {
         serial();
         return;
     }
-    runPool(pool, k.runMt);
+    runPool(state, pool, k.runMt);
 }
 
 /** Options for {@link init}. */
@@ -367,8 +367,7 @@ function createKernelState(): KernelState {
 const kernelStateKey = { create: createKernelState };
 const standaloneKernelState = createKernelState();
 
-function kernelState(): KernelState {
-    const state = currentWorld<State>();
+function kernelState(state: State | undefined): KernelState {
     return state ? state.resource(kernelStateKey) : standaloneKernelState;
 }
 
@@ -453,7 +452,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
         // biome-ignore lint/style/useNamingConvention: LLD's global, exported under its own name.
         __stack_pointer: WebAssembly.Global;
     };
-    // A lazy `kernel()` can have run during those awaits; it wins rather than swapping memory out from
+    // A lazy `kernel(state)` can have run during those awaits; it wins rather than swapping memory out from
     // under views already held by this world's solver.
     if (runtime.instance) return;
 
@@ -506,26 +505,26 @@ async function boot(runtime: KernelState, threads: number | undefined): Promise<
 }
 
 /**
- * instantiate the active State's physics kernel (or the standalone kernel when no State is active).
+ * Instantiate the given State's physics kernel, or the standalone kernel for explicit `undefined`.
  * idempotent — subsequent calls resolve immediately, and the first call decides threading. await once before the first `step()`. required in a browser, where the main thread
  * refuses to compile a wasm module this size synchronously; outside a browser (bun/node/deno) `step()`
  * also instantiates lazily, so the await is optional there — but a lazy instance is single-threaded, so
- * `init()` before you touch a `World` if you want threads.
+ * `init(state)` before you touch a `World` if you want threads.
  *
  * threading resolves itself: standalone and a cross-origin-isolated browser multithread; a browser without
  * that isolation logs the missing COOP/COEP headers once and runs single-thread. Pass
  * {@link InitOptions.threads} only to force single-thread (`0`) or override the count. the worker pool
- * never holds the process open — a standalone script exits when its own work is done, no `shutdown()`
+ * never holds the process open — a standalone script exits when its own work is done, no `shutdown(state)`
  * needed.
  *
  * @example
- * await init(); // multithreaded wherever the host allows it
- * console.log(threads()); // what the host actually gave
+ * await init(state); // multithreaded wherever the host allows it
+ * console.log(threads(state)); // what the host actually gave
  * @example
- * await init({ threads: 0 }); // force single-thread
+ * await init(state, { threads: 0 }); // force single-thread
  */
-export function init(options?: InitOptions): Promise<void> {
-    const runtime = kernelState();
+export function init(state: State | undefined, options?: InitOptions): Promise<void> {
+    const runtime = kernelState(state);
     runtime.booting ??= boot(runtime, normalizeThreads(options?.threads));
     return runtime.booting;
 }
@@ -539,27 +538,27 @@ function normalizeThreads(v: number | undefined): number | undefined {
 }
 
 /** threads the kernel resolved to — 1 when it is running single-threaded. */
-export function threads(): number {
-    return kernelState().resolved;
+export function threads(state: State | undefined): number {
+    return kernelState(state).resolved;
 }
 
 /** Stop the worker pool; the kernel keeps stepping, single-threaded. Optional: the pooled workers are
  * `unref`'d at boot, so a script that inits, steps, and ends exits on its own without this (pool.ts). Call
  * it to release the worker threads deterministically — at a test suite's teardown, say. */
-export async function shutdown(): Promise<void> {
-    const runtime = kernelState();
+export async function shutdown(state: State | undefined): Promise<void> {
+    const runtime = kernelState(state);
     await runtime.pool?.terminate();
     runtime.pool = null;
     runtime.resolved = 1;
 }
 
 /**
- * The kernel instance. Lazily instantiates synchronously if `init()` hasn't run — fine in bun/node/
+ * The kernel instance. Lazily instantiates synchronously if `init(state)` hasn't run — fine in bun/node/
  * deno; a browser main thread throws on a synchronous compile this large, so browser callers must
- * `await init()` first.
+ * `await init(state)` first.
  */
-export function kernel(): Kernel {
-    const runtime = kernelState();
+export function kernel(state: State | undefined): Kernel {
+    const runtime = kernelState(state);
     if (runtime.dead) {
         throw new Error(
             "physics kernel is dead: a worker trapped mid-step, so the shared columns hold a partial one",
@@ -582,15 +581,15 @@ export function kernel(): Kernel {
  * aliasing the same backing store, so an old view still reads and writes the correct physical bytes and
  * only misses the new tail. Views over the shared path therefore key staleness on this length changing.
  */
-export function sharedBytes(): number {
-    const memory = kernelState().sharedMemory;
+export function sharedBytes(state: State | undefined): number {
+    const memory = kernelState(state).sharedMemory;
     return memory === null ? 0 : memory.buffer.byteLength;
 }
 
 /** The worker pool the solve may run on, or null when the kernel is single-threaded — or when a worker
  * has faulted, which kills the kernel (`runPool`). */
-export function workers(): Pool | null {
-    const pool = kernelState().pool;
+export function workers(state: State | undefined): Pool | null {
+    const pool = kernelState(state).pool;
     return pool?.alive ? pool : null;
 }
 
@@ -607,11 +606,11 @@ export function workers(): Pool | null {
  * A trap here is a kernel bug (an out-of-bounds column access), not a condition a caller can handle —
  * there is nothing to recover to.
  */
-export function runPool(pool: Pool, orchestrate: () => void): void {
+export function runPool(state: State | undefined, pool: Pool, orchestrate: () => void): void {
     try {
         pool.run(orchestrate);
     } catch (e) {
-        kernelState().dead = true;
+        kernelState(state).dead = true;
         // The dead worker is gone; terminate the survivors to reclaim the threads (they are `unref`'d, so
         // they would not block exit, but they are live and now useless). Not awaited — this path is
         // already unwinding.

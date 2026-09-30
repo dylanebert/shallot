@@ -885,11 +885,11 @@ export function computeMeshManifolds(
     }
 
     // Friction / restitution / tangent velocity, averaged over the mesh's per-triangle materials.
-    const materialsA = getShapeMaterials(shapeA);
-    const materialB = getShapeMaterials(shapeB)[0];
+    const materialsA = getShapeMaterials(world.ecsState, shapeA);
+    const materialB = getShapeMaterials(world.ecsState, shapeB)[0];
     let tangentVelocityA: Vec3 = { x: 0, y: 0, z: 0 };
 
-    if (getShapeMaterialCount(shapeA) > 0) {
+    if (getShapeMaterialCount(world.ecsState, shapeA) > 0) {
         let friction = 0;
         let restitution = 0;
         let sampleCount = 0;
@@ -914,7 +914,11 @@ export function computeMeshManifolds(
                 } else {
                     materialIndex = materialIndices[triangleIndex >> 1];
                 }
-                materialIndex = clampInt(materialIndex, 0, getShapeMaterialCount(shapeA) - 1);
+                materialIndex = clampInt(
+                    materialIndex,
+                    0,
+                    getShapeMaterialCount(world.ecsState, shapeA) - 1,
+                );
                 const material = materialsA[materialIndex];
                 friction = f32(
                     friction +

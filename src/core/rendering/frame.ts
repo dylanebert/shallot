@@ -1,7 +1,6 @@
 import * as d from "typegpu/data";
 import type { State } from "../../engine";
-import { Compute } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+
 import { chunk, spliceNs } from "../../engine/utils";
 
 /** the per-frame `Frame` UBO schema — the single source of truth for both sides of the layout (the
@@ -60,26 +59,26 @@ export function initializeFrameState(state: State): void {
     state.resource(frameKey);
 }
 
-export const Frame: Frame = new Proxy({} as Frame, {
-    get(_target, key) {
-        return worldResource<Frame>(frameKey)[key as keyof Frame];
-    },
-    set(_target, key, value) {
-        (worldResource<Frame>(frameKey) as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
+export const Frame: import("../../engine").Resource<Frame> = {
+    create: (state) => state.resource(frameKey),
+};
 
 /** Pack interpolation parameters, time, and frame counter into the shared Frame UBO. */
 export function writeFrame(state: State): void {
-    if (!Compute.device || !Frame.buffer) return;
+    const _frame = state.resource(Frame);
+
+    if (!state.gpu.device || !_frame.buffer) return;
     const globalTransform = state.globalTransformRuntime;
     if (globalTransform?.enabled) {
-        Frame.staging[GLOBAL_TRANSFORM_PARAMS_F32] = state.time.fixedAlpha;
-        Frame.staging[GLOBAL_TRANSFORM_PARAMS_F32 + 1] = globalTransform.current?.count ?? 0;
+        _frame.staging[GLOBAL_TRANSFORM_PARAMS_F32] = state.time.fixedAlpha;
+        _frame.staging[GLOBAL_TRANSFORM_PARAMS_F32 + 1] = globalTransform.current?.count ?? 0;
     }
-    Frame.staging[TIME_F32] = state.time.elapsed;
-    Frame.staging[DT_F32] = state.time.deltaTime;
-    Frame.stagingU32[FRAME_U32] = Compute.frame;
-    Compute.device.queue.writeBuffer(Frame.buffer, 0, Frame.staging as Float32Array<ArrayBuffer>);
+    _frame.staging[TIME_F32] = state.time.elapsed;
+    _frame.staging[DT_F32] = state.time.deltaTime;
+    _frame.stagingU32[FRAME_U32] = state.gpu.frame;
+    state.gpu.device.queue.writeBuffer(
+        _frame.buffer,
+        0,
+        _frame.staging as Float32Array<ArrayBuffer>,
+    );
 }

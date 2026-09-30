@@ -59,14 +59,14 @@ test("a packed headless app steps on a GPU and refuses without navigator.gpu", a
             `import { expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 import { build, type Plugin } from "@dylanebert/shallot/app";
-import { f32, field, Time } from "@dylanebert/shallot/ecs";
+import { f32, Time } from "@dylanebert/shallot/ecs";
 import * as Rendering from "@dylanebert/shallot/rendering";
 import { drainLog, probeTexture } from "@dylanebert/shallot/runtime";
 import { setupGlobals } from "bun-webgpu";
 
 await setupGlobals();
 
-const Ticks = { value: field(f32) };
+const Ticks = { value: f32 };
 let eid = -1;
 const Counter: Plugin = {
     name: "Counter",
@@ -74,13 +74,14 @@ const Counter: Plugin = {
     initialize(state) {
         eid = state.create();
         state.add(eid, Ticks);
-        Ticks.value.set(eid, 0);
+        state.of(Ticks).value.set(eid, 0);
     },
     systems: [{
         group: "fixed",
         update(state) {
             for (const entity of state.query([Ticks])) {
-                Ticks.value.set(entity, Ticks.value.get(entity) + 1);
+                const ticks = state.of(Ticks);
+                ticks.value.set(entity, ticks.value.get(entity) + 1);
             }
         },
     }],
@@ -105,7 +106,7 @@ test("the packed headless plugin set steps the world through public engine subpa
         app.state.step(Time.FIXED_DT);
         expect(app.state.time.fixedTick).toBe(1);
         expect(app.state.only([Ticks])).toBe(eid);
-        expect(Ticks.value.get(eid)).toBe(1);
+        expect(app.state.of(Ticks).value.get(eid)).toBe(1);
         expect(Rendering.CAPTURE_CONTRACT.width).toBe(1280);
         expect(typeof Rendering.captureFrame).toBe("function");
         expect(typeof probeTexture).toBe("function");

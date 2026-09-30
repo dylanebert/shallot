@@ -10,7 +10,7 @@ import {
     Camera,
     Character,
     CharacterPlugin,
-    devices,
+    Devices,
     InputPlugin,
     PhysicsPlugin,
     Player,
@@ -89,7 +89,7 @@ test("the public Player controller consumes held, released and neutral input to 
         const expectedCameraY = Math.sin(halfYaw) * Math.cos(halfPitch);
         if (Math.abs(state.of(Transform).rot.y.get(camera) - expectedCameraY) > 0.000001)
             throw new Error("Player did not apply look to the public camera Transform.rot");
-        if (!devices(state).keys.held.has("KeyW"))
+        if (!state.resource(Devices).keys.held.has("KeyW"))
             throw new Error("Player lost the held move fact");
 
         // PlayerControlSystem writes the intent in simulation; the next fixed tick is the real

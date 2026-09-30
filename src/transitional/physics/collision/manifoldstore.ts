@@ -1,3 +1,4 @@
+import type { State } from "../../../engine";
 // The persistent contact-manifold store — the warm-start state that survives across steps, held
 // column-resident in the kernel's linear memory (kernel/src/manifolds.rs) instead of as JS objects on
 // each contact. TS owns the allocator + lifecycle because the mesh narrowphase is TS and the convex one
@@ -96,6 +97,12 @@ const walkB: Vec3 = { x: 0, y: 0, z: 0 };
  * region grows (or `memory.grow` elsewhere detaches them).
  */
 export class ManifoldStore {
+    readonly ecsState: State | undefined;
+
+    constructor(ecsState: State | undefined) {
+        this.ecsState = ecsState;
+    }
+
     // Current wasm-region capacities (directory records / pool manifold records).
     private _dirCap = 0;
     private _poolCap = 0;
@@ -194,7 +201,7 @@ export class ManifoldStore {
         const oldDirCap = this._dirCap;
         this._dirCap = growCap(Math.max(this._needDir, this._dirCap));
         this._poolCap = growCap(Math.max(this._poolTop, this._poolCap));
-        kernel().reserveManifolds(this._dirCap, this._poolCap);
+        kernel(this.ecsState).reserveManifolds(this._dirCap, this._poolCap);
         this.refreshViews();
         // Cold the convex GJK/SAT cache of every newly-reserved directory record. The wasm kernel is a
         // singleton shared across worlds, so a fresh region reuses another world's (or an abandoned
@@ -213,7 +220,7 @@ export class ManifoldStore {
      * the views were derived at, so a steady step mints no typed-array views. */
     refreshViews(): void {
         if (this._dirCap === 0) return;
-        const k = kernel();
+        const k = kernel(this.ecsState);
         const buf = k.memory.buffer;
         const ptr = k.manifoldLayoutPtr();
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
@@ -244,7 +251,7 @@ export class ManifoldStore {
         const base = this.allocBlock(contactId, count);
         if (this._poolTop > this._poolCap) {
             this._poolCap = growCap(this._poolTop);
-            kernel().reserveManifolds(this._dirCap, this._poolCap);
+            kernel(this.ecsState).reserveManifolds(this._dirCap, this._poolCap);
             this.refreshViews();
             this.grew = true;
         }
@@ -603,6 +610,6 @@ class ManifoldView implements Manifold {
 }
 
 /** Create an empty manifold store for a new world. */
-export function createManifoldStore(): ManifoldStore {
-    return new ManifoldStore();
+export function createManifoldStore(state: State | undefined): ManifoldStore {
+    return new ManifoldStore(state);
 }

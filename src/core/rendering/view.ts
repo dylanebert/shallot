@@ -1,10 +1,10 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute, type State } from "../../engine";
-import { rawDevice, worldResource } from "../../engine/runtime";
+import type { State } from "../../engine";
+import { rawDevice } from "../../engine/runtime";
 import { chunk, spliceNs } from "../../engine/utils";
-import { devices, reportViewport } from "../input";
+import { Devices, reportViewport } from "../input";
 import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
@@ -197,8 +197,8 @@ function createViewResources(state: State): ViewResources {
     return resources;
 }
 
-function viewResources(): ViewResources {
-    return worldResource(viewResourcesKey);
+function _viewResources(state: State): ViewResources {
+    return state.resource(viewResourcesKey);
 }
 
 /** Create this world's view and target registries during RenderPlugin initialization. */
@@ -207,12 +207,9 @@ export function initializeViewState(state: State): void {
 }
 
 /** every camera with a view, keyed by eid: canvas-bound ({@link attachCanvas}) or off-screen ({@link attachView}) */
-export const Views: Map<number, View> = new Proxy(new Map<number, View>(), {
-    get(_target, key) {
-        const views = viewResources().views;
-        return Reflect.get(views, key, views) as unknown;
-    },
-});
+export const Views: import("../../engine").Resource<Map<number, View>> = {
+    create: (state) => state.resource(viewResourcesKey).views,
+};
 
 // canvas → the State that last bound it, for the dev-only rebuild guard below. WeakMap so a collected
 // canvas drops its entry; never populated in production (the guard is dev-gated).
@@ -252,10 +249,12 @@ export function trackCanvasOwner(canvas: HTMLCanvasElement, state: State): void 
  * rebuild guard ({@link trackCanvasOwner}) — it only warns for callers that pass it, so a multi-view app
  * binding its cameras directly should pass `state` to catch a rebuild that skipped `dispose`.
  */
-export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: State): void {
-    if (!Compute.device) throw new Error("attachCanvas: RenderPlugin not initialized");
-    if (!Render.format) throw new Error("attachCanvas: Render.format not set");
-    if (Views.has(eid)) throw new Error(`attachCanvas: eid ${eid} already bound`);
+export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state: State): void {
+    const _views = state.resource(Views);
+
+    if (!state.gpu.device) throw new Error("attachCanvas: RenderPlugin not initialized");
+    if (!state.resource(Render).format) throw new Error("attachCanvas: Render.format not set");
+    if (_views.has(eid)) throw new Error(`attachCanvas: eid ${eid} already bound`);
 
     const context = canvas.getContext("webgpu") as unknown as GPUCanvasContext | null;
     if (!context) throw new Error("attachCanvas: WebGPU canvas context unavailable");
@@ -266,7 +265,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: Sta
 
     const linearFormat = navigator.gpu.getPreferredCanvasFormat();
     context.configure({
-        device: rawDevice(Compute.device),
+        device: rawDevice(state.gpu.device),
         format: linearFormat,
         alphaMode: "premultiplied",
         // the present path is a compute composite writing the swapchain via textureStore, so it needs
@@ -309,7 +308,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: Sta
         if (state) reportViewport(state, viewportIndex, r.width, r.height, nextDpr);
     });
     view.observer.observe(canvas);
-    Views.set(eid, view);
+    _views.set(eid, view);
 }
 
 /**
@@ -360,7 +359,7 @@ const _sizeInputs = new WeakMap<View, Float64Array>();
 export function sizeView(state: State, eid: number, view: View): void {
     const canvas = view.canvas;
     if (!canvas) return;
-    const viewport = devices(state).viewport.get(view.viewportIndex);
+    const viewport = state.resource(Devices).viewport.get(view.viewportIndex);
     if (!viewport || viewport.cssWidth <= 0 || viewport.cssHeight <= 0) return;
     view.clientWidth = viewport.cssWidth;
     view.clientHeight = viewport.cssHeight;
@@ -404,9 +403,11 @@ export function sizeView(state: State, eid: number, view: View): void {
  * one (so is each point/spot shadow combo's depth view). 1:1 per eid, like {@link attachCanvas}; the
  * caller indexes {@link Render.viewBuffers} by its slot. Frustum-culls from its viewProj like any camera.
  */
-export function attachView(eid: number): void {
-    if (Views.has(eid)) throw new Error(`attachView: eid ${eid} already has a view`);
-    Views.set(eid, {
+export function attachView(state: State, eid: number): void {
+    const _views = state.resource(Views);
+
+    if (_views.has(eid)) throw new Error(`attachView: eid ${eid} already has a view`);
+    _views.set(eid, {
         canvas: null,
         context: null,
         // square (aspect 1) — an off-screen view's own target sets the resolution; only the aspect
@@ -427,11 +428,13 @@ export function attachView(eid: number): void {
 }
 
 /** release a camera's view (canvas-bound or off-screen). Safe to call on unbound eids */
-export function detachCanvas(eid: number): void {
-    Views.get(eid)?.observer?.disconnect();
-    Views.delete(eid);
-    releaseOffscreen(eid);
-    releaseScratch(eid);
+export function detachCanvas(state: State, eid: number): void {
+    const _views = state.resource(Views);
+
+    _views.get(eid)?.observer?.disconnect();
+    _views.delete(eid);
+    releaseOffscreen(state, eid);
+    releaseScratch(state, eid);
 }
 
 /**
@@ -443,40 +446,33 @@ export function detachCanvas(eid: number): void {
  * {@link BeginFrameSystem} calls it at frame start, before binding.
  */
 export function pruneViews(state: State): void {
-    Views.forEach(pruneView, state);
+    state.resource(Views).forEach(pruneView, state);
 }
 
 // one View's liveness check for the `pruneViews` walk; the walk passes the State as `this`
 function pruneView(this: State, view: View, eid: number): void {
     if (!this.has(eid, Camera) || (view.stamp !== 0 && this.stamp(eid) !== view.stamp))
-        detachCanvas(eid);
+        detachCanvas(this, eid);
 }
 
 // per-camera offscreen scene-color target — the `view.framebuffer` a renderer draws (or resolves)
 // into and glaze composites to the swapchain. `Render.format` is rg11b10ufloat (HDR): a renderer writes
 // linear and glaze's `textureLoad` reads it linear, keeping radiance >1 alive for the tonemap. Sized to
 // the view, recreated on resize; one per camera so multi-view never last-camera-wins a single shared texture
-const _offscreen = new Proxy(
-    new Map<number, { texture: GPUTexture; view: GPUTextureView; w: number; h: number }>(),
-    {
-        get(_target, key) {
-            const map = viewResources().offscreen;
-            return Reflect.get(map, key, map) as unknown;
-        },
-    },
-);
 
 /** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: sear's
  * MSAA resolve and the `Custom` single-sample draw both target it; {@link BeginFrameSystem} sets it on
  * `view.framebuffer` each frame */
-export function offscreen(eid: number, w: number, h: number): GPUTextureView {
-    const cached = _offscreen.get(eid);
+export function offscreen(state: State, eid: number, w: number, h: number): GPUTextureView {
+    const _viewResources = state.resource(viewResourcesKey);
+
+    const cached = _viewResources.offscreen.get(eid);
     if (cached && cached.w === w && cached.h === h) return cached.view;
     cached?.texture.destroy();
-    const texture = Compute.device.createTexture({
+    const texture = state.gpu.device.createTexture({
         label: `shallot-offscreen-${eid}`,
         size: { width: w, height: h },
-        format: Render.format,
+        format: state.resource(Render).format,
         // Keep the actual scene target readable by `probeTexture` without inserting a render pass.
         usage:
             GPUTextureUsage.RENDER_ATTACHMENT |
@@ -484,7 +480,7 @@ export function offscreen(eid: number, w: number, h: number): GPUTextureView {
             GPUTextureUsage.COPY_SRC,
     });
     const view = texture.createView();
-    _offscreen.set(eid, { texture, view, w, h });
+    _viewResources.offscreen.set(eid, { texture, view, w, h });
     return view;
 }
 
@@ -494,9 +490,11 @@ export function offscreenTexture(state: State, eid: number): GPUTexture | undefi
 }
 
 // free one camera's offscreen target (on detach). Safe on cameras that never allocated one
-function releaseOffscreen(eid: number): void {
-    _offscreen.get(eid)?.texture.destroy();
-    _offscreen.delete(eid);
+function releaseOffscreen(state: State, eid: number): void {
+    const _viewResources = state.resource(viewResourcesKey);
+
+    _viewResources.offscreen.get(eid)?.texture.destroy();
+    _viewResources.offscreen.delete(eid);
 }
 
 // the write half of a scene-transform postfx effect: a per-view **ping-pong pair** of scratches the
@@ -510,20 +508,11 @@ interface Scratch {
     texture: GPUTexture;
     view: GPUTextureView;
 }
-const _scratch = new Proxy(
-    new Map<number, { a: Scratch | null; b: Scratch | null; w: number; h: number }>(),
-    {
-        get(_target, key) {
-            const map = viewResources().scratch;
-            return Reflect.get(map, key, map) as unknown;
-        },
-    },
-);
 
 const SCENE_SCRATCH_FORMAT: GPUTextureFormat = "rgba16float";
 
-function scratchTexture(eid: number, slot: "a" | "b", w: number, h: number): Scratch {
-    const texture = Compute.device.createTexture({
+function scratchTexture(state: State, eid: number, slot: "a" | "b", w: number, h: number): Scratch {
+    const texture = state.gpu.device.createTexture({
         label: `scene-scratch-${eid}-${slot}`,
         size: { width: w, height: h },
         format: SCENE_SCRATCH_FORMAT,
@@ -547,47 +536,56 @@ function scratchTexture(eid: number, slot: "a" | "b", w: number, h: number): Scr
  * renderer resets `view.framebuffer` to the offscreen each frame, so the chain restarts every frame.
  */
 export function sceneTransform(
+    state: State,
     view: View,
     eid: number,
 ): { read: GPUTextureView; write: GPUTextureView } {
+    const _viewResources = state.resource(viewResourcesKey);
+
     const read = view.framebuffer;
     if (!read) throw new Error("sceneTransform: view has no framebuffer");
-    let pair = _scratch.get(eid);
+    let pair = _viewResources.scratch.get(eid);
     if (!pair || pair.w !== view.width || pair.h !== view.height) {
         pair?.a?.texture.destroy();
         pair?.b?.texture.destroy();
         pair = { a: null, b: null, w: view.width, h: view.height };
-        _scratch.set(eid, pair);
+        _viewResources.scratch.set(eid, pair);
     }
     // write to whichever slot isn't the current read (first call read=offscreen → `a`; second read=`a` → `b`)
     const slot: "a" | "b" = read === pair.a?.view ? "b" : "a";
-    const scratch = (pair[slot] ??= scratchTexture(eid, slot, view.width, view.height));
+    const scratch = (pair[slot] ??= scratchTexture(state, eid, slot, view.width, view.height));
     view.framebuffer = scratch.view;
     view.framebufferFormat = SCENE_SCRATCH_FORMAT;
     return { read, write: scratch.view };
 }
 
 // free one camera's scene-transform scratch pair (on detach). Safe on cameras that never allocated one
-function releaseScratch(eid: number): void {
-    const pair = _scratch.get(eid);
+function releaseScratch(state: State, eid: number): void {
+    const _viewResources = state.resource(viewResourcesKey);
+
+    const pair = _viewResources.scratch.get(eid);
     pair?.a?.texture.destroy();
     pair?.b?.texture.destroy();
-    _scratch.delete(eid);
+    _viewResources.scratch.delete(eid);
 }
 
 /** free every offscreen target (on render teardown / HMR re-init) */
-export function clearOffscreens(): void {
-    for (const o of _offscreen.values()) o.texture.destroy();
-    _offscreen.clear();
+export function clearOffscreens(state: State): void {
+    const _viewResources = state.resource(viewResourcesKey);
+
+    for (const o of _viewResources.offscreen.values()) o.texture.destroy();
+    _viewResources.offscreen.clear();
 }
 
 /** free every scene-transform scratch pair (on render teardown / HMR re-init) */
-export function clearScratch(): void {
-    for (const p of _scratch.values()) {
+export function clearScratch(state: State): void {
+    const _viewResources = state.resource(viewResourcesKey);
+
+    for (const p of _viewResources.scratch.values()) {
         p.a?.texture.destroy();
         p.b?.texture.destroy();
     }
-    _scratch.clear();
+    _viewResources.scratch.clear();
 }
 
 /**
@@ -596,8 +594,10 @@ export function clearScratch(): void {
  * `BeginFrameSystem` retries each frame, so a late-mounted canvas binds when it appears.
  * Multi-view binds each camera explicitly via {@link attachCanvas} before its first frame.
  */
-export function bindCamera(eid: number, state?: State): View | undefined {
-    const existing = Views.get(eid);
+export function bindCamera(eid: number, state: State): View | undefined {
+    const _views = state.resource(Views);
+
+    const existing = _views.get(eid);
     if (existing) return existing;
     if (typeof document === "undefined") return undefined;
     const canvas = document.querySelector("canvas");
@@ -605,7 +605,7 @@ export function bindCamera(eid: number, state?: State): View | undefined {
     // claim the canvas for exactly one camera. A second unbound camera (a multi-view scene's extra camera
     // alongside an explicitly-attached viewport camera) must not also grab it — two cameras on one
     // context each call getCurrentTexture per frame, and the second destroys the first's swapchain texture.
-    for (const view of Views.values()) if (view.canvas === canvas) return undefined;
+    for (const view of _views.values()) if (view.canvas === canvas) return undefined;
     attachCanvas(eid, canvas, state);
-    return Views.get(eid);
+    return _views.get(eid);
 }

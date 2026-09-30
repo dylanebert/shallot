@@ -1,3 +1,4 @@
+import type { State } from "../../engine";
 // Radix sort — the Morton-ordering stage of the LBVH builder (transitional/bvh). Sorts
 // (key, payload) u32 pairs ascending; the builder feeds 30-bit Morton codes + prim indices.
 //
@@ -32,7 +33,7 @@
 import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute } from "../../engine";
+
 import { precompile, precompileScope } from "../../engine/runtime";
 import { idiv, subgroupUniformityOff, uniformLoad } from "../../engine/utils";
 import { createRadixSortLds } from "./sort-lds";
@@ -698,13 +699,14 @@ export function radixWgsl(): {
  * device.queue.submit([enc.finish()]);
  */
 export async function createRadixSort(
+    state: State,
     device: GPUDevice,
     maxKeys: number,
     shared: RadixSortShared = {},
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<RadixSort> {
-    if (!subgroups) return createRadixSortLds(device, maxKeys, shared);
-    const root = Compute.root;
+    if (!subgroups) return createRadixSortLds(state, device, maxKeys, shared);
+    const root = state.gpu.root;
     const maxBlocks = Math.max(1, Math.ceil(maxKeys / PART_SIZE));
     if (maxBlocks * RADIX_PASSES > MAX_DISPATCH) {
         throw new Error(
@@ -817,7 +819,7 @@ export async function createRadixSort(
 
     // labels are per-sorter: one app can stand up several (a BVH sorts internally, and a consumer may
     // hold its own beside it), and the precompile queue rejects a duplicate label
-    const scope = precompileScope("radix");
+    const scope = precompileScope(state, "radix");
     for (const [label, bound] of [
         ["init", initBound],
         ["global-hist", histBound],
@@ -825,12 +827,12 @@ export async function createRadixSort(
         ["binning", binBound[0]],
         ...(prepare ? ([["prepare", prepare.bound]] as const) : []),
     ] as const) {
-        await precompile(`${scope}-${label}`, () => {
+        await precompile(state, `${scope}-${label}`, () => {
             return bound;
         });
     }
 
-    const span = (): GPUComputePassTimestampWrites | undefined => Compute.span?.("bvh:sort");
+    const span = (): GPUComputePassTimestampWrites | undefined => state.gpu.span?.("bvh:sort");
     const run = (
         encoder: GPUCommandEncoder,
         bound: TgpuComputePipeline,

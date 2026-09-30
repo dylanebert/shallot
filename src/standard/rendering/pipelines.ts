@@ -27,8 +27,8 @@ import {
     Surfaces,
     VsIn,
 } from "../../core/rendering";
-import { Compute, type State } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+import type { State } from "../../engine";
+
 import {
     decodePos,
     decodeUv,
@@ -83,8 +83,8 @@ function createPipelineState(): PipelineState {
     };
 }
 
-function pipelineState(): PipelineState {
-    return worldResource(pipelineStateKey);
+function pipelineState(state: State): PipelineState {
+    return state.resource(pipelineStateKey);
 }
 
 /** Create this world's Sear pipeline caches during plugin initialization. */
@@ -92,16 +92,16 @@ export function initializePipelineState(state: State): void {
     state.resource(pipelineStateKey);
 }
 
-export function clearGroups(): void {
-    pipelineState().typedGroups.clear();
+export function clearGroups(state: State): void {
+    pipelineState(state).typedGroups.clear();
 }
 
-export function resetPipelineCaches(): void {
-    pipelineState().compiledTyped.clear();
-    pipelineState().compiledTypedBg.clear();
-    pipelineState().typedGroups.clear();
-    pipelineState().bgQuant?.destroy();
-    pipelineState().bgQuant = null;
+export function resetPipelineCaches(state: State): void {
+    pipelineState(state).compiledTyped.clear();
+    pipelineState(state).compiledTypedBg.clear();
+    pipelineState(state).typedGroups.clear();
+    pipelineState(state).bgQuant?.destroy();
+    pipelineState(state).bgQuant = null;
 }
 
 // ---- the typed pipeline builder (the template + its extensions): compiles a `Surface`'s
@@ -205,18 +205,22 @@ export type SurfaceGroupEntry = {
 /** the cached typed per-draw group-2 state for a Draw name, or `undefined` on a cache miss (`record`
  * rebuilds it). Supplying the current surface also invalidates a same-name replacement: bind groups
  * are layout-object-specific even when every resolved GPU resource is unchanged. */
-export function getGroup(name: string, surface?: AnySurface): SurfaceGroupEntry | undefined {
-    const entry = pipelineState().typedGroups.get(name);
+export function getGroup(
+    state: State,
+    name: string,
+    surface?: AnySurface,
+): SurfaceGroupEntry | undefined {
+    const entry = pipelineState(state).typedGroups.get(name);
     if (entry && surface && (entry.owner !== surface || entry.layout !== surface.layout)) {
-        pipelineState().typedGroups.delete(name);
+        pipelineState(state).typedGroups.delete(name);
         return undefined;
     }
     return entry;
 }
 
 /** cache a typed draw's resolved group-2 state (`record`, on a resource-identity change). */
-export function setGroup(name: string, entry: SurfaceGroupEntry): void {
-    pipelineState().typedGroups.set(name, entry);
+export function setGroup(state: State, name: string, entry: SurfaceGroupEntry): void {
+    pipelineState(state).typedGroups.set(name, entry);
 }
 
 /** the engine group-0 bind group for a view slot against one meshQuant buffer — the shared live
@@ -225,20 +229,23 @@ export function setGroup(name: string, entry: SurfaceGroupEntry): void {
  * `SurfaceGroupEntry.engineCache` or a `CompiledBackground.engineCache` — never a module map keyed on the
  * quant buffer, whose entries would outlive a churned buffer for the app's life). */
 export function engineGroup(
+    state: State,
     cache: Map<number, GPUBindGroup>,
     slot: number,
     quant: GPUBuffer,
 ): GPUBindGroup {
+    const _lightCull = state.resource(LightCull);
+
     const cached = cache.get(slot);
     if (cached) return cached;
-    const group = Compute.root.unwrap(
-        Compute.root.createBindGroup(engineLayout, {
-            frame: Frame.buffer!,
-            view: Render.viewBuffers[slot],
-            lighting: Lighting.buffer!,
-            pointLights: LightCull.lights!,
-            lightGrid: LightCull.grid!,
-            lightIndices: LightCull.indices!,
+    const group = state.gpu.root.unwrap(
+        state.gpu.root.createBindGroup(engineLayout, {
+            frame: state.resource(Frame).buffer!,
+            view: state.resource(Render).viewBuffers[slot],
+            lighting: state.resource(Lighting).buffer!,
+            pointLights: _lightCull.lights!,
+            lightGrid: _lightCull.grid!,
+            lightIndices: _lightCull.indices!,
             meshQuant: quant,
         }),
     );
@@ -251,14 +258,14 @@ export function engineGroup(
 // slot-0 View placeholder precedent)
 
 /** the never-read `meshQuant` placeholder a typed background's engine group binds. */
-export function bgQuant(): GPUBuffer {
-    const state = pipelineState();
-    state.bgQuant ??= Compute.device.createBuffer({
+export function bgQuant(state: State): GPUBuffer {
+    const resources = pipelineState(state);
+    resources.bgQuant ??= state.gpu.device.createBuffer({
         label: "sear-bg-quant",
         size: d.sizeOf(MeshQuant),
         usage: GPUBufferUsage.STORAGE,
     });
-    return state.bgQuant;
+    return resources.bgQuant;
 }
 
 /** the widest `Surface` shape (any bindings, any varyings) — the bare `Surface` default pins
@@ -1422,9 +1429,11 @@ function typedVaryingTagFs(surface: AnySurface) {
 export function compileSurface<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
->(surface: Surface<B, V>, capacity: number): CompiledSurface {
+>(state: State, surface: Surface<B, V>, capacity: number): CompiledSurface {
+    const _render = state.resource(Render);
+
     const key = surface.name;
-    const cached = pipelineState().compiledTyped.get(key);
+    const cached = pipelineState(state).compiledTyped.get(key);
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
     const resolved = surface;
     // a `screen` surface's clip position comes from its own `vs` chunk's `patch.clip` and from nowhere
@@ -1452,11 +1461,11 @@ export function compileSurface<
     };
     let compiled: CompiledSurface;
     if (resolved.blend === "alpha") {
-        const transparent = Compute.root
+        const transparent = state.gpu.root
             .createRenderPipeline({
                 vertex,
                 fragment,
-                targets: { format: Render.format, blend: ALPHA_BLEND },
+                targets: { format: _render.format, blend: ALPHA_BLEND },
                 primitive,
                 depthStencil: {
                     format: DEPTH_FORMAT,
@@ -1480,11 +1489,11 @@ export function compileSurface<
             args,
         };
     } else {
-        const color = Compute.root
+        const color = state.gpu.root
             .createRenderPipeline({
                 vertex,
                 fragment,
-                targets: { format: Render.format },
+                targets: { format: _render.format },
                 primitive,
                 depthStencil: {
                     format: DEPTH_FORMAT,
@@ -1506,13 +1515,13 @@ export function compileSurface<
             args,
         };
     }
-    compiled.prepass = compileTypedPrepass(resolved);
+    compiled.prepass = compileTypedPrepass(state, resolved);
     if (resolved.blend !== "alpha") {
-        const { point, cascade } = compileTypedShadow(resolved, capacity);
+        const { point, cascade } = compileTypedShadow(state, resolved, capacity);
         compiled.point = point;
         compiled.cascade = cascade;
     }
-    pipelineState().compiledTyped.set(key, compiled);
+    pipelineState(state).compiledTyped.set(key, compiled);
     return compiled;
 }
 
@@ -1521,15 +1530,17 @@ export function compileSurface<
  * draws it (the wrapper is cheap; the real resolve+create lands at the twin's first draw). Reuses the compiled entry fns, so only
  * `multisample.count` differs.
  */
-export function ensureSingle(t: CompiledSurface): void {
+export function ensureSingle(state: State, t: CompiledSurface): void {
+    const _render = state.resource(Render);
+
     if (t.single) return;
     const { vertex, fragment, blend, primitive, name } = t.args;
     if (blend === "alpha") {
-        const transparent = Compute.root
+        const transparent = state.gpu.root
             .createRenderPipeline({
                 vertex,
                 fragment,
-                targets: { format: Render.format, blend: ALPHA_BLEND },
+                targets: { format: _render.format, blend: ALPHA_BLEND },
                 primitive,
                 depthStencil: {
                     format: DEPTH_FORMAT,
@@ -1542,11 +1553,11 @@ export function ensureSingle(t: CompiledSurface): void {
         t.single = { color: null, transparent };
         return;
     }
-    const color = Compute.root
+    const color = state.gpu.root
         .createRenderPipeline({
             vertex,
             fragment,
-            targets: { format: Render.format },
+            targets: { format: _render.format },
             primitive,
             depthStencil: {
                 format: DEPTH_FORMAT,
@@ -1569,7 +1580,10 @@ export function ensureSingle(t: CompiledSurface): void {
  * `compileSurface` applies (a transparent pixel has no single owner, writes no prepass depth) — so its map
  * stays empty.
  */
-function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipeline<any>> {
+function compileTypedPrepass(
+    state: State,
+    surface: AnySurface,
+): Map<string, TgpuRenderPipeline<any>> {
     const prepass = new Map<string, TgpuRenderPipeline<any>>();
     if (surface.blend === "alpha") return prepass;
     const primitive = surfacePrimitive(surface.screen);
@@ -1581,7 +1595,7 @@ function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipelin
     // the receiver stub bound per pipeline (`pointShadowStub`): a vs-chunk surface's
     // `litPbr` statically reaches `pointShadowOf`, whose free names the depth passes never declare or
     // bind — the stub keeps these modules group-0/2-only, exactly like the raw prepass module
-    const root = Compute.root.with(pointShadowSlot, pointShadowStub);
+    const root = state.gpu.root.with(pointShadowSlot, pointShadowStub);
     const clip = surface.blend === "clip";
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const authoredTag = !!surface.tag;
@@ -2155,6 +2169,7 @@ function clipShadowFs(surface: AnySurface) {
  * resolution × grid).
  */
 function compileTypedShadow(
+    state: State,
     surface: AnySurface,
     capacity: number,
 ): {
@@ -2171,7 +2186,7 @@ function compileTypedShadow(
     // the receiver stub, as in `compileTypedPrepass` — doubly load-bearing here: the real receiver
     // would sample the very atlas this pipeline renders into (a usage hazard the raw path's stubs
     // exist to prevent)
-    const root = Compute.root.with(pointShadowSlot, pointShadowStub);
+    const root = state.gpu.root.with(pointShadowSlot, pointShadowStub);
     const clip = surface.blend === "clip";
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const point = root
@@ -2295,8 +2310,8 @@ export function shadowWgsl(
 
 /** the compiled typed pipeline(s) for a `Surfaces` entry, or `undefined` until
  * {@link compileSurface} has run for it. */
-export function getCompiledSurface(name: string): CompiledSurface | undefined {
-    return pipelineState().compiledTyped.get(name);
+export function getCompiledSurface(state: State, name: string): CompiledSurface | undefined {
+    return pipelineState(state).compiledTyped.get(name);
 }
 
 /** the color/transparent pipeline's emitted vs+fs WGSL for one `Surface` — device-free; both pipeline
@@ -2448,8 +2463,10 @@ export interface CompiledBackground {
  * by name plus exact source-spec/layout identity, so a same-name replacement cannot inherit pipelines
  * or layout-bound groups from its previous owner.
  */
-export function compileBackground(bg: AnyBackground): CompiledBackground {
-    const cached = pipelineState().compiledTypedBg.get(bg.name);
+export function compileBackground(state: State, bg: AnyBackground): CompiledBackground {
+    const _render = state.resource(Render);
+
+    const cached = pipelineState(state).compiledTypedBg.get(bg.name);
     if (cached?.owner === bg && cached.layout === bg.layout) return cached;
     const fragment = typedBgFs(bg);
     const primitive: GPUPrimitiveState = { topology: "triangle-list", cullMode: "none" };
@@ -2458,21 +2475,21 @@ export function compileBackground(bg: AnyBackground): CompiledBackground {
         depthWriteEnabled: false,
         depthCompare: "greater-equal",
     };
-    const color = Compute.root
+    const color = state.gpu.root
         .createRenderPipeline({
             vertex: typedBgVs,
             fragment,
-            targets: { format: Render.format },
+            targets: { format: _render.format },
             primitive,
             depthStencil,
             multisample: { count: SAMPLE_COUNT },
         })
         .$name(`sear-typed-bg-${bg.name}`);
-    const single = Compute.root
+    const single = state.gpu.root
         .createRenderPipeline({
             vertex: typedBgVs,
             fragment,
-            targets: { format: Render.format },
+            targets: { format: _render.format },
             primitive,
             depthStencil,
             multisample: { count: 1 },
@@ -2486,16 +2503,20 @@ export function compileBackground(bg: AnyBackground): CompiledBackground {
         group2: null,
         engineCache: new Map(),
     };
-    pipelineState().compiledTypedBg.set(bg.name, compiled);
+    pipelineState(state).compiledTypedBg.set(bg.name, compiled);
     return compiled;
 }
 
 /** the compiled typed pipeline(s) for a `Backgrounds` entry, or `undefined` until
  * {@link compileBackground} has run for it. */
-export function getBackground(name: string, bg?: AnyBackground): CompiledBackground | undefined {
-    const compiled = pipelineState().compiledTypedBg.get(name);
+export function getBackground(
+    state: State,
+    name: string,
+    bg?: AnyBackground,
+): CompiledBackground | undefined {
+    const compiled = pipelineState(state).compiledTypedBg.get(name);
     if (compiled && bg && (compiled.owner !== bg || compiled.layout !== bg.layout)) {
-        pipelineState().compiledTypedBg.delete(name);
+        pipelineState(state).compiledTypedBg.delete(name);
         return undefined;
     }
     return compiled;
@@ -2507,20 +2528,20 @@ export function backgroundWgsl(bg: AnyBackground): string {
 }
 
 /** Compile every surface and background at warm, before the first draw. */
-export async function preparePipelines(capacity: number): Promise<void> {
+export async function preparePipelines(state: State, capacity: number): Promise<void> {
     // force each typed pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
     // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
     // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm
     // lock)
-    for (const surface of Surfaces) {
-        const t = compileSurface(surface, capacity);
+    for (const surface of state.resource(Surfaces)) {
+        const t = compileSurface(state, surface, capacity);
         for (const p of [t.color, t.transparent, t.point, t.cascade, ...t.prepass.values()]) {
-            if (p) Compute.root.unwrap(p);
+            if (p) state.gpu.root.unwrap(p);
         }
     }
-    for (const bg of Backgrounds) {
-        const cb = compileBackground(bg);
-        Compute.root.unwrap(cb.color);
-        Compute.root.unwrap(cb.single);
+    for (const bg of state.resource(Backgrounds)) {
+        const cb = compileBackground(state, bg);
+        state.gpu.root.unwrap(cb.color);
+        state.gpu.root.unwrap(cb.single);
     }
 }

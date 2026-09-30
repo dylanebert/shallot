@@ -14,7 +14,7 @@ import {
     u32,
     vec4,
 } from "../../engine";
-import { currentWorld, withCompute } from "../../engine/runtime";
+
 import { eulerAlias } from "../../engine/utils";
 
 export { GlobalTransform, globalTransformTraits } from "../../engine";
@@ -242,12 +242,12 @@ function signatureWarningsFor(state: State) {
 }
 
 export function resetSignatures(state: State): void {
-    inState(state, () => {
+    (() => {
         const warnings = signatureWarningsFor(state);
         warnings.joints.clear();
         warnings.springs.clear();
         resetConstraints(state.resource(physicsRuntimeKey).constraints);
-    });
+    })();
 }
 
 /** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
@@ -278,9 +278,7 @@ function springSignatureInState(state: State): number {
 
 /** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
 export function springSignature(state: State): number {
-    return currentWorld<State>() === state
-        ? springSignatureInState(state)
-        : withCompute(state.gpu, () => springSignatureInState(state));
+    return springSignatureInState(state);
 }
 
 /** a hash of the authored {@link Joint} set, endpoint create-stamps included: the {@link springSignature} twin. */
@@ -308,14 +306,12 @@ function jointSignatureInState(state: State): number {
 }
 
 export function jointSignature(state: State): number {
-    return currentWorld<State>() === state
-        ? jointSignatureInState(state)
-        : withCompute(state.gpu, () => jointSignatureInState(state));
+    return jointSignatureInState(state);
 }
 
 /** the authored {@link Spring} set as {@link SpringDef}s, dropping (and warning once for) a negative or NaN stiffness. */
 export function springDefs(state: State): SpringDef[] {
-    return inState(state, () => {
+    return (() => {
         const warnings = signatureWarningsFor(state);
         const out: SpringDef[] = [];
         for (const eid of state.query([Spring])) {
@@ -351,12 +347,12 @@ export function springDefs(state: State): SpringDef[] {
             });
         }
         return out;
-    });
+    })();
 }
 
 /** the authored {@link Joint} set as {@link JointDef}s, dropping (and warning once for) a negative or NaN angular stiffness. */
 export function jointDefs(state: State): JointDef[] {
-    return inState(state, () => {
+    return (() => {
         const warnings = signatureWarningsFor(state);
         const out: JointDef[] = [];
         for (const eid of state.query([Joint])) {
@@ -391,7 +387,7 @@ export function jointDefs(state: State): JointDef[] {
             });
         }
         return out;
-    });
+    })();
 }
 
 const GRAVITY = -10;
@@ -410,8 +406,7 @@ interface PhysicsRuntime {
     kinPrev: Map<number, { pos: [number, number, number]; quat: [number, number, number, number] }>;
     failed: Map<number, { stamp: number; hulls: number }>;
     constraints: ConstraintCache;
-    handleProxies: WeakMap<object, object>;
-    handleMethods: WeakMap<object, Map<PropertyKey, (...args: unknown[]) => unknown>>;
+
     // whether a body's marshal failed, so the constraint uploads defer its joints; made once per runtime
     isFailed: (eid: number) => boolean;
     stale: StaleScan;
@@ -432,77 +427,13 @@ function newRuntime(): PhysicsRuntime {
         kinPrev: new Map(),
         failed,
         constraints: createConstraintCache(),
-        handleProxies: new WeakMap(),
-        handleMethods: new WeakMap(),
+
         isFailed: (eid) => failed.has(eid),
         stale: { state: null, eids: [], count: 0 },
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
         springSig: FNV_BASIS,
         jointSig: FNV_BASIS,
     };
-}
-
-function inState<T>(state: State, callback: () => T): T {
-    return withCompute(state.gpu, callback);
-}
-
-function scopedHandle<T extends object>(state: State, value: T): T {
-    if (
-        Array.isArray(value) ||
-        ArrayBuffer.isView(value) ||
-        value instanceof ArrayBuffer ||
-        value instanceof Map ||
-        value instanceof Set
-    )
-        return value;
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype === Object.prototype || prototype === null) return value;
-    const runtime = runtimeFor(state);
-    const cached = runtime.handleProxies.get(value);
-    if (cached) return cached as T;
-    return createScopedHandle(state, value, runtime);
-}
-
-function createScopedHandle<T extends object>(state: State, value: T, runtime: PhysicsRuntime): T {
-    const proxy = new Proxy(value, {
-        get(target, key) {
-            const member = Reflect.get(target, key, target) as unknown;
-            if (typeof member !== "function") {
-                return member !== null && typeof member === "object"
-                    ? scopedHandle(state, member)
-                    : member;
-            }
-            let methods = runtime.handleMethods.get(target);
-            if (!methods) {
-                methods = new Map();
-                runtime.handleMethods.set(target, methods);
-            }
-            let wrapped = methods.get(key);
-            if (!wrapped) {
-                wrapped = (...args: unknown[]) => {
-                    if (currentWorld<State>() === state) {
-                        const result = member.apply(target, args);
-                        return result !== null && typeof result === "object"
-                            ? scopedHandle(state, result)
-                            : result;
-                    }
-                    return withCompute(state.gpu, () => {
-                        const result = member.apply(target, args);
-                        return result !== null && typeof result === "object"
-                            ? scopedHandle(state, result)
-                            : result;
-                    });
-                };
-                methods.set(key, wrapped);
-            }
-            return wrapped;
-        },
-        set(target, key, next) {
-            return inState(state, () => Reflect.set(target, key, next, target));
-        },
-    });
-    runtime.handleProxies.set(value, proxy);
-    return proxy;
 }
 
 function runtimeFor(state: State): PhysicsRuntime {
@@ -519,41 +450,56 @@ function runtimeFor(state: State): PhysicsRuntime {
 // observing another State's handles, interpolation buffers or failed marshals.
 
 function writeGlobalTransform(
+    state: State,
     eid: number,
     pos: readonly [number, number, number],
     quat: readonly [number, number, number, number],
     vel: readonly [number, number, number],
 ): void {
-    GlobalTransform.pos.set(eid, pos[0], pos[1], pos[2], 0);
-    GlobalTransform.quat.set(eid, quat[0], quat[1], quat[2], quat[3]);
-    GlobalTransform.vel.set(eid, vel[0], vel[1], vel[2], 0);
+    state.of(GlobalTransform).pos.set(eid, pos[0], pos[1], pos[2], 0);
+    state.of(GlobalTransform).quat.set(eid, quat[0], quat[1], quat[2], quat[3]);
+    state.of(GlobalTransform).vel.set(eid, vel[0], vel[1], vel[2], 0);
 }
 
-function seedGlobalTransform(eid: number): void {
-    const shape = Body.shape.get(eid);
-    const radius = Body.halfExtents.w.get(eid);
+function seedGlobalTransform(state: State, eid: number): void {
+    const shape = state.of(Body).shape.get(eid);
+    const radius = state.of(Body).halfExtents.w.get(eid);
     if (shape === ShapeKind.Sphere)
-        GlobalTransform.scale.set(eid, 2 * radius, 2 * radius, 2 * radius, 0);
+        state.of(GlobalTransform).scale.set(eid, 2 * radius, 2 * radius, 2 * radius, 0);
     else if (shape === ShapeKind.Capsule)
-        GlobalTransform.scale.set(
-            eid,
-            2 * radius,
-            Body.halfExtents.y.get(eid) + radius,
-            2 * radius,
-            0,
-        );
+        state
+            .of(GlobalTransform)
+            .scale.set(
+                eid,
+                2 * radius,
+                state.of(Body).halfExtents.y.get(eid) + radius,
+                2 * radius,
+                0,
+            );
     else
-        GlobalTransform.scale.set(
-            eid,
-            2 * Body.halfExtents.x.get(eid),
-            2 * Body.halfExtents.y.get(eid),
-            2 * Body.halfExtents.z.get(eid),
-            0,
-        );
+        state
+            .of(GlobalTransform)
+            .scale.set(
+                eid,
+                2 * state.of(Body).halfExtents.x.get(eid),
+                2 * state.of(Body).halfExtents.y.get(eid),
+                2 * state.of(Body).halfExtents.z.get(eid),
+                0,
+            );
     writeGlobalTransform(
+        state,
         eid,
-        [Body.pos.x.get(eid), Body.pos.y.get(eid), Body.pos.z.get(eid)],
-        [Body.quat.x.get(eid), Body.quat.y.get(eid), Body.quat.z.get(eid), Body.quat.w.get(eid)],
+        [
+            state.of(Body).pos.x.get(eid),
+            state.of(Body).pos.y.get(eid),
+            state.of(Body).pos.z.get(eid),
+        ],
+        [
+            state.of(Body).quat.x.get(eid),
+            state.of(Body).quat.y.get(eid),
+            state.of(Body).quat.z.get(eid),
+            state.of(Body).quat.w.get(eid),
+        ],
         [0, 0, 0],
     );
 }
@@ -582,19 +528,14 @@ function clearBodies(runtime: PhysicsRuntime): void {
  * `null` until {@link PhysicsPlugin} warms. `body(state, eid)` bridges a `Body` entity to its live solver
  * handle (`null` before its first fixed tick). The pose functions are no-ops before warm.
  */
-function physicsWorldOutside(state: State): World | null {
-    return withCompute(state.gpu, () => physicsWorld(state));
-}
 
 export function physicsWorld(state: State): World | null {
-    if (currentWorld<State>() !== state) return physicsWorldOutside(state);
     const world = runtimeFor(state).world;
-    return world ? scopedHandle(state, world) : null;
+    return world ? world : null;
 }
 export function body(state: State, eid: number): SolverBody | null {
-    if (currentWorld<State>() !== state) return withCompute(state.gpu, () => body(state, eid));
     const live = runtimeFor(state).bodies.get(eid);
-    return live ? scopedHandle(state, live) : null;
+    return live ? live : null;
 }
 
 function requireBody(state: State, eid: number): SolverBody {
@@ -610,14 +551,11 @@ export function createWheelJoint(
     bodyB: number,
     config: Partial<WheelJointConfig> = {},
 ) {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
-        return scopedHandle(
-            state,
-            world.createWheelJoint(requireBody(state, bodyA), requireBody(state, bodyB), config),
-        );
-    });
+        return world.createWheelJoint(requireBody(state, bodyA), requireBody(state, bodyB), config);
+    })();
 }
 
 /** Create a parallel joint between two State-owned bodies without exposing the solver World. */
@@ -627,14 +565,15 @@ export function createParallelJoint(
     bodyB: number,
     config: Partial<ParallelJointConfig> = {},
 ) {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
-        return scopedHandle(
-            state,
-            world.createParallelJoint(requireBody(state, bodyA), requireBody(state, bodyB), config),
+        return world.createParallelJoint(
+            requireBody(state, bodyA),
+            requireBody(state, bodyB),
+            config,
         );
-    });
+    })();
 }
 
 /** Create a hinge (revolute) joint between two State-owned bodies. */
@@ -644,14 +583,15 @@ export function createRevoluteJoint(
     bodyB: number,
     config: Partial<RevoluteJointConfig> = {},
 ) {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
-        return scopedHandle(
-            state,
-            world.createRevoluteJoint(requireBody(state, bodyA), requireBody(state, bodyB), config),
+        return world.createRevoluteJoint(
+            requireBody(state, bodyA),
+            requireBody(state, bodyB),
+            config,
         );
-    });
+    })();
 }
 
 /** Create a cone/twist-capable spherical joint between two State-owned bodies. */
@@ -661,18 +601,15 @@ export function createSphericalJoint(
     bodyB: number,
     config: Partial<SphericalJointConfig> = {},
 ) {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
-        return scopedHandle(
-            state,
-            world.createSphericalJoint(
-                requireBody(state, bodyA),
-                requireBody(state, bodyB),
-                config,
-            ),
+        return world.createSphericalJoint(
+            requireBody(state, bodyA),
+            requireBody(state, bodyB),
+            config,
         );
-    });
+    })();
 }
 
 /** Create a soft spring from a State-owned body to a world-space anchor. */
@@ -682,32 +619,29 @@ export function createSoftJoint(
     anchor: { x: number; y: number; z: number },
     config: Partial<SoftJointConfig> = {},
 ) {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
-        return scopedHandle(
-            state,
-            world.createSoftJoint(requireBody(state, bodyEid), anchor, config),
-        );
-    });
+        return world.createSoftJoint(requireBody(state, bodyEid), anchor, config);
+    })();
 }
 
 /** Read contact-begin/end/hit events for the last State-owned fixed step. */
 export function getContactEvents(state: State): ContactEvents {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
         return world.getContactEvents();
-    });
+    })();
 }
 
 /** Read joint break-threshold events for the last State-owned fixed step. */
 export function getJointEvents(state: State): JointEvent[] {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
         return world.getJointEvents();
-    });
+    })();
 }
 
 /** a writable {@link BodyState} that {@link readBody} fills in place. */
@@ -717,13 +651,8 @@ export interface BodyStateOut {
     vel: [number, number, number];
 }
 
-function readBodyOutside(state: State, eid: number, out?: BodyStateOut): BodyState | null {
-    return withCompute(state.gpu, () => readBody(state, eid, out));
-}
-
 /** one body's live pose + velocity, or null when `eid` has no solver body. Pass `out` to fill it instead of allocating. */
 export function readBody(state: State, eid: number, out?: BodyStateOut): BodyState | null {
-    if (currentWorld<State>() !== state) return readBodyOutside(state, eid, out);
     const tb = runtimeFor(state).bodies.get(eid);
     if (!tb) return null;
     const global = state.of(GlobalTransform);
@@ -751,17 +680,6 @@ const kinPos = { x: 0, y: 0, z: 0 };
 const kinQuat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 const kinVel = { x: 0, y: 0, z: 0 };
 
-function setKinematicOutside(
-    state: State,
-    eid: number,
-    pos: readonly [number, number, number],
-    quat: readonly [number, number, number, number],
-    teleport: boolean,
-    vel?: readonly [number, number, number],
-): void {
-    withCompute(state.gpu, () => setKinematic(state, eid, pos, quat, teleport, vel));
-}
-
 export function setKinematic(
     state: State,
     eid: number,
@@ -770,10 +688,6 @@ export function setKinematic(
     teleport = false,
     vel?: readonly [number, number, number],
 ): void {
-    if (currentWorld<State>() !== state) {
-        setKinematicOutside(state, eid, pos, quat, teleport, vel);
-        return;
-    }
     const runtime = runtimeFor(state);
     const tb = runtime.bodies.get(eid);
     if (!tb) return;
@@ -844,27 +758,23 @@ export function setKinematic(
     prev.quat[3] = quat[3];
 }
 export function setVelocity(state: State, eid: number, vx: number, vy: number, vz: number): void {
-    if (currentWorld<State>() !== state) {
-        withCompute(state.gpu, () => setVelocity(state, eid, vx, vy, vz));
-        return;
-    }
     const body = runtimeFor(state).bodies.get(eid);
     if (!body) return;
     body.setLinearVelocity({ x: vx, y: vy, z: vz });
     state.of(GlobalTransform).vel.set(eid, vx, vy, vz, 0);
 }
 export function physicsCounters(state: State): PhysicsCounters {
-    return inState(state, () => ({ ...runtimeFor(state).counters }));
+    return { ...runtimeFor(state).counters };
 }
 export function snapshot(state: State): WorldSnapshot {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
         return snapshotWorld(world);
-    });
+    })();
 }
 export function restore(state: State, saved: WorldSnapshot): void {
-    inState(state, () => {
+    (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
         restoreWorld(world, saved);
@@ -875,16 +785,22 @@ export function restore(state: State, saved: WorldSnapshot): void {
             body.getPosition(p);
             body.getRotation(q);
             body.getLinearVelocity(v);
-            writeGlobalTransform(eid, [p.x, p.y, p.z], [q.v.x, q.v.y, q.v.z, q.s], [v.x, v.y, v.z]);
+            writeGlobalTransform(
+                state,
+                eid,
+                [p.x, p.y, p.z],
+                [q.v.x, q.v.y, q.v.z, q.s],
+                [v.x, v.y, v.z],
+            );
         });
-    });
+    })();
 }
 export function hash(state: State): bigint {
-    return inState(state, () => {
+    return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
         return hashWorld(world);
-    });
+    })();
 }
 
 /** Static physics configuration shared by the State-first functions. */
@@ -901,10 +817,10 @@ export type PhysicsStepConfig = Readonly<{
 
 /** The fixed-step values used by this initialized State's production physics system. */
 export function physicsStepConfig(state: State): PhysicsStepConfig {
-    return inState(state, () => {
+    return (() => {
         runtimeFor(state);
         return { dt: Time.FIXED_DT, gravity: GRAVITY, substeps: SUBSTEPS };
-    });
+    })();
 }
 
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
@@ -1010,17 +926,17 @@ const SyncSystem: System = {
             }
             const f = runtime.failed.get(eid);
             if (f && f.stamp === stamp && f.hulls === Hulls.size) continue;
-            const tb = marshalBody(world, eid);
+            const tb = marshalBody(state, world, eid);
             if (!tb) {
                 runtime.failed.set(eid, { stamp, hulls: Hulls.size });
                 continue;
             }
             runtime.failed.delete(eid);
-            kernel().bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
+            kernel(state).bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
             runtime.bodies.set(eid, tb);
             runtime.stamps.set(eid, stamp);
             bodySetChanged = true;
-            seedGlobalTransform(eid);
+            seedGlobalTransform(state, eid);
             state.teleport(eid);
         }
         runtime.failed.forEach(dropDespawnedFailure, state);
@@ -1066,9 +982,9 @@ export const PhysicsPlugin: Plugin = {
 
     async warm(state) {
         const runtime = runtimeFor(state);
-        await init(); // async wasm compile — the browser main thread can't compile it synchronously
+        await init(state); // async wasm compile — the browser main thread can't compile it synchronously
         runtime.world?.destroy();
-        runtime.world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
+        runtime.world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } }, state);
         clearBodies(runtime);
         resetSignatures(state); // the fresh world receives the authored constraint set on its first frame
     },
@@ -1081,7 +997,7 @@ export const PhysicsPlugin: Plugin = {
         warnings.springs.clear();
         runtime.world?.destroy();
         runtime.world = null;
-        void shutdown();
+        void shutdown(state);
     },
 };
 

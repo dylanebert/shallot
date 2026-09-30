@@ -41,7 +41,6 @@ export {
     PhysicsProfilePlugin,
     Profile,
     ProfilePlugin,
-    profile,
     showProfiler,
     timingClock,
 } from "./profile";
@@ -50,6 +49,7 @@ export {
     SkyPlugin,
 } from "./sky";
 export {
+    Images,
     image,
     Sprite,
     SpriteBillboard,
@@ -58,6 +58,8 @@ export {
     SpritePlugin,
 } from "./sprite";
 export {
+    Content,
+    Fonts,
     font,
     Text,
     TextPlugin,

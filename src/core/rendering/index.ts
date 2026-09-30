@@ -3,14 +3,13 @@
 import * as d from "typegpu/data";
 import type { Plugin, State, System } from "../../engine";
 import {
-    Compute,
     composeTransform,
     formatHex,
     GlobalTransform,
     globalTransformTable,
     invert,
 } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import {
     ClusterSystem,
@@ -103,23 +102,13 @@ function createRenderFrameState(): RenderFrameState {
     };
 }
 
-function renderFrameState(): RenderFrameState {
-    return worldResource(renderFrameKey);
+function _renderFrameState(state: State): RenderFrameState {
+    return state.resource(renderFrameKey);
 }
 
 function initializeRenderFrameState(state: State): void {
     state.resource(renderFrameKey);
 }
-
-const _frame = new Proxy({} as RenderFrameState, {
-    get(_target, key) {
-        return renderFrameState()[key as keyof RenderFrameState];
-    },
-    set(_target, key, value) {
-        (renderFrameState() as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
 
 // write a world-matrix column (base = column index * 4), normalized, into `out` at `at`
 function basisColumn(world: Float32Array, base: number, out: Float32Array, at: number): void {
@@ -139,64 +128,68 @@ function basisColumn(world: Float32Array, base: number, out: Float32Array, at: n
 // off-screen camera) never does, so the cluster substrate is sized by MAX_VIEWS while the
 // cheap slots run to MAX_SLOTS
 function packView(state: State, eid: number, view: ViewSlot, shading: boolean, slot: number): void {
+    const _renderFrame = state.resource(renderFrameKey);
+    const _render = state.resource(Render);
+
     // record the live camera's create-stamp so next frame's pruneViews detects a realias
     view.stamp = state.stamp(eid);
     view.slot = slot;
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
     // the viewProj is composed from, so it is read before the unchanged-slot test below
-    composeTransform(eid, _frame.camWorld);
+    composeTransform(state, eid, _renderFrame.camWorld);
     if (!slotInputsChanged(state, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;
-    const viewProj = _frame.viewProjs[slot];
+    const viewProj = _renderFrame.viewProjs[slot];
     // the light cull reads each shading slot's world→view matrix to bring
     // world-space lights into cluster space
     computeViewProj(
+        state,
         eid,
         view.width / view.height,
         viewProj,
-        shading ? _frame.lightViews[slot] : undefined,
+        shading ? _renderFrame.lightViews[slot] : undefined,
     );
     // resolution (pixels) follows viewProj in the View struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
-    Render.viewStaging[offset + 16] = view.width;
-    Render.viewStaging[offset + 17] = view.height;
+    _render.viewStaging[offset + 16] = view.width;
+    _render.viewStaging[offset + 17] = view.height;
     // camera basis (right at floats 20-23, up at 24-27; 18-19 pad before the vec4) —
     // billboard surfaces orient quads from it (in a shadow pass, the light camera's, so
     // billboards face the light). Normalized: the camera Transform may scale
-    basisColumn(_frame.camWorld, 0, Render.viewStaging, offset + 20);
-    basisColumn(_frame.camWorld, 4, Render.viewStaging, offset + 24);
+    basisColumn(_renderFrame.camWorld, 0, _render.viewStaging, offset + 20);
+    basisColumn(_renderFrame.camWorld, 4, _render.viewStaging, offset + 24);
     // pack this view's frustum cull volume — the pack tests each instance's bound against
     // cullVolumes[slot]'s 6 planes. Every view culls by frustum: cameras, the sun, and each
     // point/spot shadow combo (its own frustum-culled depth view)
-    frustumVolume(Render.cullVolumeStaging, slot, viewProj);
+    frustumVolume(_render.cullVolumeStaging, slot, viewProj);
     // pack the view's cluster params from the same camera fields —
     // ClusterSystem rebuilds the AABB grid only when they change.
     // View.cluster: (near, far, perspective, slot) — sear's FS maps a
     // fragment to its froxel and indexes the slot-major light grid
     if (shading) {
-        const cv = packClusterView(eid, view.width / view.height, slot);
-        Render.viewStaging[offset + 28] = cv.near;
-        Render.viewStaging[offset + 29] = cv.far;
-        Render.viewStaging[offset + 30] = cv.perspective ? 1 : 0;
+        const cv = packClusterView(state, eid, view.width / view.height, slot);
+        _render.viewStaging[offset + 28] = cv.near;
+        _render.viewStaging[offset + 29] = cv.far;
+        _render.viewStaging[offset + 30] = cv.perspective ? 1 : 0;
     } else {
-        Render.viewStaging[offset + 28] = 0;
-        Render.viewStaging[offset + 29] = 0;
-        Render.viewStaging[offset + 30] = 0;
+        _render.viewStaging[offset + 28] = 0;
+        _render.viewStaging[offset + 29] = 0;
+        _render.viewStaging[offset + 30] = 0;
     }
-    Render.viewStaging[offset + 31] = slot;
+    _render.viewStaging[offset + 31] = slot;
     // eye (floats 32-35): the camera's world-space position — viewProj's translation column —
     // for view-dependent shading (specular V = normalize(eye - world))
-    Render.viewStaging[offset + 32] = _frame.camWorld[12];
-    Render.viewStaging[offset + 33] = _frame.camWorld[13];
-    Render.viewStaging[offset + 34] = _frame.camWorld[14];
-    Render.viewStaging[offset + 35] = 1;
+    _render.viewStaging[offset + 32] = _renderFrame.camWorld[12];
+    _render.viewStaging[offset + 33] = _renderFrame.camWorld[13];
+    _render.viewStaging[offset + 34] = _renderFrame.camWorld[14];
+    _render.viewStaging[offset + 35] = 1;
     // invViewProj (floats 36-51): a screen-space pass (fog) reconstructs world position from depth
     // via ndc → invViewProj. Only a shading view (a presenting camera) runs such a pass, so a
     // depth-only shadow view skips the 4×4 inverse — the costliest op in the pack — and zeroes the
     // slot. invert reads viewProj fully into locals before writing, so inverting into a sibling
     // view of the same staging never aliases
-    if (shading) invert(viewProj, _frame.invViewProjs[slot]);
-    else Render.viewStaging.fill(0, offset + 36, offset + 52);
+    if (shading) invert(viewProj, _renderFrame.invViewProjs[slot]);
+    else _render.viewStaging.fill(0, offset + 36, offset + 52);
 }
 
 // whether this slot's pack inputs differ from the ones it was last packed with; records them when they do.
@@ -208,26 +201,28 @@ function slotInputsChanged(
     shading: boolean,
     slot: number,
 ): boolean {
-    _frame.viewKeyNext[0] = eid;
-    _frame.viewKeyNext[1] = state.stamp(eid);
-    _frame.viewKeyNext[2] = shading ? 1 : 0;
-    _frame.viewKeyNext[3] = view.width;
-    _frame.viewKeyNext[4] = view.height;
-    _frame.viewKeyNext[5] = state.of(Camera).mode.get(eid);
-    _frame.viewKeyNext[6] = state.of(Camera).fov.get(eid);
-    _frame.viewKeyNext[7] = state.of(Camera).size.get(eid);
-    _frame.viewKeyNext[8] = state.of(Camera).near.get(eid);
-    _frame.viewKeyNext[9] = state.of(Camera).far.get(eid);
-    _frame.viewKeyNext.set(_frame.camWorld, 10);
+    const _renderFrame = state.resource(renderFrameKey);
+
+    _renderFrame.viewKeyNext[0] = eid;
+    _renderFrame.viewKeyNext[1] = state.stamp(eid);
+    _renderFrame.viewKeyNext[2] = shading ? 1 : 0;
+    _renderFrame.viewKeyNext[3] = view.width;
+    _renderFrame.viewKeyNext[4] = view.height;
+    _renderFrame.viewKeyNext[5] = state.of(Camera).mode.get(eid);
+    _renderFrame.viewKeyNext[6] = state.of(Camera).fov.get(eid);
+    _renderFrame.viewKeyNext[7] = state.of(Camera).size.get(eid);
+    _renderFrame.viewKeyNext[8] = state.of(Camera).near.get(eid);
+    _renderFrame.viewKeyNext[9] = state.of(Camera).far.get(eid);
+    _renderFrame.viewKeyNext.set(_renderFrame.camWorld, 10);
     const at = slot * VIEW_KEY_FLOATS;
     let changed = false;
     for (let i = 0; i < VIEW_KEY_FLOATS; i++) {
-        if (_frame.viewKeys[at + i] !== _frame.viewKeyNext[i]) {
+        if (_renderFrame.viewKeys[at + i] !== _renderFrame.viewKeyNext[i]) {
             changed = true;
             break;
         }
     }
-    if (changed) _frame.viewKeys.set(_frame.viewKeyNext, at);
+    if (changed) _renderFrame.viewKeys.set(_renderFrame.viewKeyNext, at);
     return changed;
 }
 
@@ -249,8 +244,11 @@ export const BeginFrameSystem: System = {
     group: "draw",
     first: true,
     update(state) {
-        Render.encoder = null;
-        const device = Compute.device;
+        const _render = state.resource(Render);
+        const _renderFrame = state.resource(renderFrameKey);
+
+        _render.encoder = null;
+        const device = state.gpu.device;
         if (!device) return;
 
         // auto-bind's inverse. A destroyed camera leaves a stale View whose ResizeObserver leaks
@@ -261,7 +259,7 @@ export const BeginFrameSystem: System = {
         pruneViews(state);
 
         const encoder = device.createCommandEncoder(FRAME_ENCODER);
-        Render.encoder = encoder;
+        _render.encoder = encoder;
         state.beginGpuFrame(encoder);
         writeFrame(state);
         writeLighting(state);
@@ -291,8 +289,8 @@ export const BeginFrameSystem: System = {
                 // packs its viewProj, but draws no framebuffer — its owner renders it to its own target
                 view.framebuffer = null;
                 view.present = null;
-                _frame.depthOnlyEids[depthOnly] = eid;
-                _frame.depthOnlyViews[depthOnly] = view;
+                _renderFrame.depthOnlyEids[depthOnly] = eid;
+                _renderFrame.depthOnlyViews[depthOnly] = view;
                 depthOnly++;
                 continue;
             }
@@ -310,43 +308,49 @@ export const BeginFrameSystem: System = {
             // textureStore (it encodes linear→sRGB itself); framebuffer = the offscreen the renderer
             // draws into and the composite reads (Render.format / sRGB, decoded to linear on load).
             view.present = texture.createView();
-            view.framebuffer = offscreen(eid, view.width, view.height);
-            view.framebufferFormat = Render.format;
+            view.framebuffer = offscreen(state, eid, view.width, view.height);
+            view.framebufferFormat = _render.format;
             packView(state, eid, view, true, count);
             count++;
         }
-        Render.shadeCount = count;
+        _render.shadeCount = count;
         for (let i = 0; i < depthOnly; i++) {
             if (count >= MAX_SLOTS) {
                 console.warn(
-                    `shallot: ${MAX_SLOTS} view-slot cap reached; entity ${_frame.depthOnlyEids[i]} skipped`,
+                    `shallot: ${MAX_SLOTS} view-slot cap reached; entity ${_renderFrame.depthOnlyEids[i]} skipped`,
                 );
                 break;
             }
-            packView(state, _frame.depthOnlyEids[i], _frame.depthOnlyViews[i], false, count);
+            packView(
+                state,
+                _renderFrame.depthOnlyEids[i],
+                _renderFrame.depthOnlyViews[i],
+                false,
+                count,
+            );
             count++;
         }
 
-        Render.viewCount = count;
+        _render.viewCount = count;
         // per-slot writer: only shading slots ([0, shadeCount)) ever bind a real View buffer — the
         // point/cascade atlas passes bind slot 0's buffer as an unread placeholder — so a depth-only slot
         // gets no write at all (design lock). Each write sources VIEW_BYTES from the same
         // per-slot viewStaging subrange the pack loop above always wrote
         const viewFloats = VIEW_BYTES / 4;
-        for (let slot = 0; slot < Render.shadeCount; slot++) {
+        for (let slot = 0; slot < _render.shadeCount; slot++) {
             device.queue.writeBuffer(
-                Render.viewBuffers[slot],
+                _render.viewBuffers[slot],
                 0,
-                Render.viewStaging as Float32Array<ArrayBuffer>,
+                _render.viewStaging as Float32Array<ArrayBuffer>,
                 slot * SLOT_FLOATS,
                 viewFloats,
             );
         }
         if (count > 0) {
             device.queue.writeBuffer(
-                Render.cullVolumes,
+                _render.cullVolumes,
                 0,
-                Render.cullVolumeStaging as Float32Array<ArrayBuffer>,
+                _render.cullVolumeStaging as Float32Array<ArrayBuffer>,
                 0,
                 count * CULL_VOLUME_FLOATS,
             );
@@ -355,7 +359,7 @@ export const BeginFrameSystem: System = {
         // Every renderer reads interpolated GlobalTransforms, independently of clustered lighting.
         const globalTransformRuntime = state.globalTransformRuntime;
         const globalTransformCount =
-            Render.viewCount > 0 && globalTransformRuntime?.enabled
+            _render.viewCount > 0 && globalTransformRuntime?.enabled
                 ? (globalTransformRuntime.current?.count ?? 0)
                 : 0;
         if (globalTransformRuntime && globalTransformCount > 0) {
@@ -368,21 +372,24 @@ export const BeginFrameSystem: System = {
     },
 };
 
-/** closes the frame: submits the encoder, advances `Compute.frame` */
+/** closes the frame: submits the encoder, advances `state.gpu.frame` */
 const EndFrameSystem: System = {
     group: "draw",
     terminal: true,
     update(state) {
-        const device = Compute.device;
+        const _render = state.resource(Render);
+        const _renderFrame = state.resource(renderFrameKey);
+
+        const device = state.gpu.device;
         if (!device) return;
-        const encoder = Render.encoder;
+        const encoder = _render.encoder;
         if (!encoder)
             throw new Error("render submission requires BeginFrameSystem to open an encoder");
-        _frame.submit[0] = encoder.finish();
-        device.queue.submit(_frame.submit);
+        _renderFrame.submit[0] = encoder.finish();
+        device.queue.submit(_renderFrame.submit);
         state.endGpuFrame();
-        Render.encoder = null;
-        Views.forEach(clearTargets);
+        _render.encoder = null;
+        state.resource(Views).forEach(clearTargets);
     },
 };
 
@@ -400,18 +407,21 @@ export const OverlaySystem: System = {
 };
 
 /** allocates the device-shared substrate: format, view UBO, frame UBO */
-async function initRender(): Promise<void> {
-    if (!Compute.device) return;
-    const { device } = Compute;
+async function initRender(state: State): Promise<void> {
+    const _render = state.resource(Render);
+    const _renderFrame = state.resource(renderFrameKey);
+
+    if (!state.gpu.device) return;
+    const { device } = state.gpu;
 
     // clear the render registries so each build re-registers from a clean slate (clear then
     // rebuild). This runs in RenderPlugin.initialize, before any producer / sear re-registers (they
     // depend on RenderPlugin), so a producer toggled off leaves no stale surface / draw /
     // mesh behind to be drawn against its torn-down buffers. A same-set rebuild is unchanged (every
     // plugin re-registers); a first build clears empty registries (a no-op).
-    Surfaces.clear();
-    Draws.clear();
-    clearMeshes();
+    state.resource(Surfaces).clear();
+    state.resource(Draws).clear();
+    clearMeshes(state);
 
     // the scene renders into an rg11b10ufloat HDR offscreen so a tonemap (glaze, default Khronos Neutral)
     // rolls off radiance >1 rather than clamping it to white at store. rg11b10 (4B) halves the MSAA
@@ -419,7 +429,7 @@ async function initRender(): Promise<void> {
     // ~3% relative precision (no alpha; over-blending doesn't need dst alpha). Single path, no flag — the
     // swapchain stays the base canvas format (glaze encodes linear→sRGB into it); this is the offscreen +
     // sear color-target format only
-    Render.format = "rg11b10ufloat";
+    _render.format = "rg11b10ufloat";
 
     const uniform = (label: string, size: number) =>
         device.createBuffer({
@@ -428,50 +438,50 @@ async function initRender(): Promise<void> {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-    Render.encoder = null;
-    for (const b of Render.viewBuffers) b.destroy();
-    Render.viewBuffers = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+    _render.encoder = null;
+    for (const b of _render.viewBuffers) b.destroy();
+    _render.viewBuffers = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         uniform(`shallot-view-${slot}`, VIEW_BYTES),
     );
-    Render.viewStaging = new Float32Array(VIEW_UNIFORM_SIZE / 4);
+    _render.viewStaging = new Float32Array(VIEW_UNIFORM_SIZE / 4);
     // fresh staging: every slot repacks on its first frame against the new buffers
-    _frame.viewKeys.fill(Number.NaN);
-    const staging = Render.viewStaging;
-    _frame.viewProjs = Array.from({ length: MAX_SLOTS }, (_, slot) =>
+    _renderFrame.viewKeys.fill(Number.NaN);
+    const staging = _render.viewStaging;
+    _renderFrame.viewProjs = Array.from({ length: MAX_SLOTS }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
     );
-    _frame.invViewProjs = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+    _renderFrame.invViewProjs = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
     );
-    _frame.lightViews = Array.from({ length: MAX_VIEWS }, (_, slot) =>
-        LightCull.viewStaging.subarray(slot * 16, slot * 16 + 16),
+    _renderFrame.lightViews = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+        state.resource(LightCull).viewStaging.subarray(slot * 16, slot * 16 + 16),
     );
-    Frame.buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
-    Lighting.buffer = uniform("shallot-lighting", LIGHTING_UNIFORM_SIZE);
+    state.resource(Frame).buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
+    state.resource(Lighting).buffer = uniform("shallot-lighting", LIGHTING_UNIFORM_SIZE);
 
     // one tagged cull volume per view, packed for the GPU cull pass and published
     // by name so any producer's cull resolves it the same way it resolves slabs
-    Render.cullVolumes = device.createBuffer({
+    _render.cullVolumes = device.createBuffer({
         label: "shallot-cull-volumes",
         size: MAX_SLOTS * CULL_VOLUME_FLOATS * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    Render.cullVolumeStaging = new Float32Array(MAX_SLOTS * CULL_VOLUME_FLOATS);
-    Render.viewCount = 0;
-    Render.shadeCount = 0;
-    Compute.buffers.set("cullVolumes", Render.cullVolumes);
-    Compute.typed.set(
+    _render.cullVolumeStaging = new Float32Array(MAX_SLOTS * CULL_VOLUME_FLOATS);
+    _render.viewCount = 0;
+    _render.shadeCount = 0;
+    state.gpu.buffers.set("cullVolumes", _render.cullVolumes);
+    state.gpu.typed.set(
         "cullVolumes",
-        Compute.root
+        state.gpu.root
             .createBuffer(
                 d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4)),
-                Render.cullVolumes,
+                _render.cullVolumes,
             )
             .$usage("storage"),
     );
-    Views.clear();
-    clearOffscreens();
-    clearScratch();
+    state.resource(Views).clear();
+    clearOffscreens(state);
+    clearScratch(state);
 }
 
 /**
@@ -551,20 +561,20 @@ export const RenderPlugin: Plugin = {
         initializeRenderFrameState(state);
         initializeDrawState(state);
         initializeSurfaceState(state);
-        await initRender();
+        await initRender(state);
         const globalTransformRuntime = state.globalTransformRuntime;
         if (!globalTransformRuntime)
             throw new Error("GlobalTransform is unavailable before RenderPlugin initialization");
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
-        globalTransformRuntime.params = Frame.buffer;
+        globalTransformRuntime.params = state.resource(Frame).buffer;
         globalTransformTable(state);
     },
 
     // pack the static meshes staged by `mesh()` during initialize into the
     // shared family buffer (runs after every initialize, before first render)
     warm(state) {
-        flushMeshes();
-        warmClusters();
+        flushMeshes(state);
+        warmClusters(state);
         warmLightCull(state);
     },
 };

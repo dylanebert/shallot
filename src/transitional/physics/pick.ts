@@ -3,7 +3,7 @@
 // the two pick rays (first-person centre, screen cursor). Consumers build their own pick/drag state
 // machines on these (the sandbox gravity gun).
 
-import { devices } from "../../core/input";
+import { Devices } from "../../core/input";
 import { Camera } from "../../core/rendering";
 import type { State } from "../../engine";
 import { GlobalTransform } from "../../engine";
@@ -96,7 +96,7 @@ export function forwardRay(state: State, cam: number): Ray | null {
 export function cursorRay(state: State, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, GlobalTransform)) return null;
     const global = state.of(GlobalTransform);
-    const input = devices(state);
+    const input = state.resource(Devices);
     if (!input.mouse.hover) return null;
     const viewport = input.viewport.get(input.focused);
     return screenToRay(

@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { ProfilePlugin, profile } from "./index";
+import { Profile, ProfilePlugin } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [ProfilePlugin] }]);
@@ -10,7 +10,7 @@ test("a profiler without timestamp-query runs and distinguishes missing GPU timi
     const app = subjects()[0];
     try {
         expect(app.state.gpu.device.features.has("timestamp-query")).toBe(false);
-        const stats = profile(app.state);
+        const stats = app.state.resource(Profile);
         app.state.step(0);
         expect(stats.gpuTiming).toBe("requires timestamp-query");
         expect(app.state.gpu.span?.("untimed")).toBeUndefined();

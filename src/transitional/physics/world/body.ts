@@ -251,7 +251,7 @@ export function makeBodyId(world: WorldState, bodyId: number): EntityId {
     return {
         index1: bodyId + 1,
         world0: world.worldId,
-        generation: kernel().bodyGeneration(world.worldId, bodyId),
+        generation: kernel(world.ecsState).bodyGeneration(world.worldId, bodyId),
     };
 }
 
@@ -848,7 +848,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
 
     // The cold record remains the world-local authoring/handle bridge; the lifecycle fields are
     // registered in the kernel record columns before any solver path can observe the body.
-    const bodyId = kernel().bodyCreate(world.worldId);
+    const bodyId = kernel(world.ecsState).bodyCreate(world.worldId);
 
     let lockFlags = 0;
     lockFlags |= def.motionLocks.linearX ? BodyFlags.lockLinearX : 0;
@@ -931,7 +931,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     // Size the resident body region to the new total-body high-water (grow-only), so the region always
     // covers every body — a later mid-step wake can't outgrow it. A grow relocates the manifold +
     // geometry regions and detaches views, so refresh those before anything reads through them.
-    if (reserveBodies(world.bodies.length)) {
+    if (reserveBodies(world.ecsState, world.bodies.length)) {
         world.manifoldStore.refreshViews();
     }
     // Write the awake body's initial state + sim into its resident record and append the views (refresh
@@ -1026,7 +1026,7 @@ export function destroyBody(world: WorldState, body: Body): void {
         }
     }
 
-    kernel().bodyDestroy(world.worldId, body.id);
+    kernel(world.ecsState).bodyDestroy(world.worldId, body.id);
     body.setIndex = NULL_INDEX;
     body.localIndex = NULL_INDEX;
     body.id = NULL_INDEX;
@@ -1212,7 +1212,7 @@ export function bodyCastRay(
         const materialIndex = clampInt(
             shapeOutput.materialIndex,
             0,
-            getShapeMaterialCount(shape) - 1,
+            getShapeMaterialCount(world.ecsState, shape) - 1,
         );
         result = {
             shapeId: { index1: shape.id + 1, world0: world.worldId, generation: shape.generation },
@@ -1220,7 +1220,7 @@ export function bodyCastRay(
             normal: shapeOutput.normal,
             fraction: shapeOutput.fraction,
             triangleIndex: shapeOutput.triangleIndex,
-            userMaterialId: getShapeMaterials(shape)[materialIndex].userMaterialId,
+            userMaterialId: getShapeMaterials(world.ecsState, shape)[materialIndex].userMaterialId,
             iterations: shapeOutput.iterations,
             hit: true,
         };
@@ -1268,7 +1268,7 @@ export function bodyCastShape(
         const materialIndex = clampInt(
             shapeOutput.materialIndex,
             0,
-            getShapeMaterialCount(shape) - 1,
+            getShapeMaterialCount(world.ecsState, shape) - 1,
         );
         result = {
             shapeId: { index1: shape.id + 1, world0: world.worldId, generation: shape.generation },
@@ -1276,7 +1276,7 @@ export function bodyCastShape(
             normal: shapeOutput.normal,
             fraction: shapeOutput.fraction,
             triangleIndex: shapeOutput.triangleIndex,
-            userMaterialId: getShapeMaterials(shape)[materialIndex].userMaterialId,
+            userMaterialId: getShapeMaterials(world.ecsState, shape)[materialIndex].userMaterialId,
             iterations: shapeOutput.iterations,
             hit: true,
         };

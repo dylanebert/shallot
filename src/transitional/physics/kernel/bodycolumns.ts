@@ -1,3 +1,4 @@
+import type { State } from "../../../engine";
 // The persistent body region (kernel/src/bodies.rs) — the awake body columns held resident across
 // steps, first in the kernel's linear memory: velocity/delta `state` + `flags` and the
 // integrate/finalize `sim`/`fin`/`sim2` fields. The solver runs directly over these columns
@@ -74,8 +75,8 @@ function growCap(need: number): number {
  * exceeds the current capacity. @returns true if the region grew (the caller must refresh any views
  * over the relocated regions, including the body store's).
  */
-export function reserveBodies(bodyCount: number): boolean {
-    return kernel().reserveBodies(growCap(bodyCount)) !== 0;
+export function reserveBodies(state: State | undefined, bodyCount: number): boolean {
+    return kernel(state).reserveBodies(growCap(bodyCount)) !== 0;
 }
 
 /**
@@ -84,6 +85,12 @@ export function reserveBodies(bodyCount: number): boolean {
  * `ResidentBodyState` views over this store.
  */
 export class BodyStore {
+    readonly ecsState: State | undefined;
+
+    constructor(ecsState: State | undefined) {
+        this.ecsState = ecsState;
+    }
+
     /** Resident state column (`STATE_STRIDE` f32 per body). Re-derived after every grow (`memory.grow`
      * detaches it, and a body-region relocation shifts the bytes even without a page grow). */
     stateF = new Float32Array(0);
@@ -117,18 +124,21 @@ export class BodyStore {
      * every view (length 0). A shared memory never detaches, so the shared path compares the memory's
      * size against the size the views were derived at (`sharedBytes`, kernel.ts). */
     get stale(): boolean {
-        return this.simF.length === 0 || (this.bytes !== 0 && this.bytes !== sharedBytes());
+        return (
+            this.simF.length === 0 ||
+            (this.bytes !== 0 && this.bytes !== sharedBytes(this.ecsState))
+        );
     }
 
     /** Re-derive the column views over the current region. No-op before the first `reserveBodies` (the
      * region has zero capacity), and when the buffer, layout offsets and capacity are those the views were
      * derived at, so a steady step mints no typed-array views. */
     refreshViews(): void {
-        const k = kernel();
+        const k = kernel(this.ecsState);
         const cap = k.bodyCap();
         if (cap === 0) return;
         const buf = k.memory.buffer;
-        this.bytes = sharedBytes();
+        this.bytes = sharedBytes(this.ecsState);
         const ptr = k.bodyLayoutPtr();
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
             this._layout = new Uint32Array(buf, ptr, N_BODY);
@@ -324,8 +334,8 @@ export class BodyStore {
 }
 
 /** Create an empty body store for a new world. Its views are derived on the first refresh. */
-export function createBodyStore(): BodyStore {
-    return new BodyStore();
+export function createBodyStore(state: State | undefined): BodyStore {
+    return new BodyStore(state);
 }
 
 /**

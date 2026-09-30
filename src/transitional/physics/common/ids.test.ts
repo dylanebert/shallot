@@ -15,15 +15,15 @@ test("body lifecycle records lose a sibling world's validity, generation, LIFO r
     freedB.destroy();
     expect(sibling.getCounters().bodyCount).toBe(1);
 
-    const initialCapacity = kernel().bodyCap();
+    const initialCapacity = kernel(undefined).bodyCap();
     const growingBodies = [];
-    while (kernel().bodyCap() === initialCapacity) {
+    while (kernel(undefined).bodyCap() === initialCapacity) {
         growingBodies.push(growing.createBody({ type: BodyType.Dynamic }));
     }
 
     expect(survivor.id.index1 - 1).toBe(0);
     expect(survivor.isValid()).toBe(true);
-    expect(kernel().bodyGeneration(sibling.state.worldId, 0)).toBe(survivor.id.generation);
+    expect(kernel(undefined).bodyGeneration(sibling.state.worldId, 0)).toBe(survivor.id.generation);
     expect(sibling.getCounters().bodyCount).toBe(1);
 
     const reusedB = sibling.createBody({ type: BodyType.Dynamic });

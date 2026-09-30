@@ -13,7 +13,6 @@ import tgpu, { isTgpuFn } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Registry, type State } from "../../engine";
-import { worldResource } from "../../engine/runtime";
 import { Xform } from "../../engine/utils";
 
 // Free functions (barrel-named — `layout`/`register` are too generic for a barrel), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
@@ -333,12 +332,9 @@ const surfacesKey = { create: () => createSurfaces() };
 const createSurfaces = () => new Registry<Surface>();
 
 /** every registered surface in the active world's registry. */
-export const Surfaces: Registry<Surface> = new Proxy(new Registry<Surface>(), {
-    get(_target, key) {
-        const registry = worldResource(surfacesKey);
-        return Reflect.get(registry, key, registry) as unknown;
-    },
-});
+export const Surfaces: import("../../engine").Resource<Registry<Surface>> = {
+    create: (state) => state.resource(surfacesKey),
+};
 
 /** Create this world's surface and background registries during RenderPlugin initialization. */
 export function initializeSurfaceState(state: State): void {
@@ -417,12 +413,9 @@ const backgroundsKey = { create: () => createBackgrounds() };
 const createBackgrounds = () => new Registry<Background>();
 
 /** every registered background in the active world's registry. */
-export const Backgrounds: Registry<Background> = new Proxy(new Registry<Background>(), {
-    get(_target, key) {
-        const registry = worldResource(backgroundsKey);
-        return Reflect.get(registry, key, registry) as unknown;
-    },
-});
+export const Backgrounds: import("../../engine").Resource<Registry<Background>> = {
+    create: (state) => state.resource(backgroundsKey),
+};
 
 /**
  * register a background for the lifetime of its owning State.

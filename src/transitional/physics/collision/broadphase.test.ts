@@ -29,7 +29,7 @@ const box = (c: number, h: number): AABB => ({
 const DEFAULT_HI = 0xffffffff;
 const DEFAULT_LO = 0xffffffff;
 
-const fresh = () => createBroadPhase({ staticShapeCount: 8, dynamicShapeCount: 8 });
+const fresh = () => createBroadPhase(undefined, { staticShapeCount: 8, dynamicShapeCount: 8 });
 
 function moveKeys(bp: BroadPhase): number[] {
     const out: number[] = [];

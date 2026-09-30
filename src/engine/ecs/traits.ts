@@ -38,11 +38,11 @@ export interface Traits {
      * fields (`{ pos: [0, 0, 0, 0] }`). Dotted keys (`{ "pos.x": 0 }`)
      * address a single lane of a parent Pair/Quad
      */
-    defaults?: () => Record<string, number | readonly number[]>;
+    defaults?: (state: State) => Record<string, number | readonly number[]>;
     /** per-field authoring aliases — a stored vector field edited in an alternate representation */
     aliases?: Record<string, Alias>;
-    parse?: Record<string, (value: string) => number | undefined>;
-    format?: Record<string, (value: number) => string | undefined>;
+    parse?: Record<string, (value: string, state: State) => number | undefined>;
+    format?: Record<string, (value: number, state: State) => string | undefined>;
     enums?: Record<string, Record<string, number>>;
     /** per-field input widget — a stored field shown through a richer control (a `toggle`
      * checkbox, an `angle` unit switcher). Display-only; storage is unchanged */
@@ -120,7 +120,7 @@ export class ComponentRegistry {
         const entry = this._byId.get(idOf(component));
         if (!entry) return;
         let plan = entry.plan;
-        if (plan === undefined) plan = entry.plan = compilePlan(entry);
+        if (plan === undefined) plan = entry.plan = compilePlan(entry, state);
         if (!plan) return;
         const storage = state.of(component) as Record<
             string,
@@ -187,10 +187,10 @@ export const clear = (state: State): void => state.registry.clear();
 
 const LANE_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 };
 
-function compilePlan(entry: Entry): DefaultsPlan | null {
+function compilePlan(entry: Entry, state: State): DefaultsPlan | null {
     const defaults = entry.traits?.defaults;
     if (!defaults) return null;
-    const dict = defaults();
+    const dict = defaults(state);
     const schema = entry.component as Record<string, unknown>;
     const fields = new Map<string, number[]>();
 

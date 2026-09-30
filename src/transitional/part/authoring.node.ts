@@ -26,7 +26,7 @@ test("Color loads canonical rgba field syntax and rejects CSS-function syntax at
     try {
         const eid = [...valid.state.query([Color])][0];
         if (eid === undefined) throw new Error("valid Color scene did not create a Color entity");
-        const lanes = Color.rgba.read(eid, new Float32Array(4));
+        const lanes = valid.state.of(Color).rgba.read(eid, new Float32Array(4));
         const expected = [0.22, 0.24, 0.26, 1];
         if (lanes.some((value, index) => Math.abs(value - expected[index]) > 1e-6))
             throw new Error(`canonical rgba lanes were ${Array.from(lanes).join(", ")}`);

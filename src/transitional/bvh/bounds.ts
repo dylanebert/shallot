@@ -1,3 +1,4 @@
+import type { State } from "../../engine";
 // Scene-bounds reduction — primitive AABBs → one scene AABB, the first stage of the
 // LBVH builder. The build's first pass: Morton
 // normalization needs the scene extent before any code is computed.
@@ -29,7 +30,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute } from "../../engine";
+
 import { precompile, precompileScope } from "../../engine/runtime";
 import { bitcastF32toU32, idiv } from "../../engine/utils";
 
@@ -300,12 +301,13 @@ export interface SceneBounds {
  * device.queue.submit([enc.finish()]);
  */
 export async function createSceneBounds(
+    state: State,
     device: GPUDevice,
     maxPrims: number,
     shared: SceneBoundsShared = {},
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<SceneBounds> {
-    const root = Compute.root;
+    const root = state.gpu.root;
     const cap = Math.max(1, maxPrims);
     const owned: GPUBuffer[] = [];
     const own = (label: string, size: number, usage: number): GPUBuffer => {
@@ -334,12 +336,12 @@ export async function createSceneBounds(
         .$name("bounds-finalize")
         .with(root.createBindGroup(finalizeLayout, { scratch, bounds }));
     // per-instance labels — an app can build more than one BVH, and the queue rejects a duplicate label
-    const scope = precompileScope("bounds");
+    const scope = precompileScope(state, "bounds");
     for (const [label, bound] of [
         ["reduce", reduce],
         ["finalize", finalizeBound],
     ] as const) {
-        await precompile(`${scope}-${label}`, () => {
+        await precompile(state, `${scope}-${label}`, () => {
             return bound;
         });
     }
@@ -360,13 +362,13 @@ export async function createSceneBounds(
 
             // profile under one accumulating row (no-op without ProfilePlugin)
             const reducePass = encoder.beginComputePass({
-                timestampWrites: Compute.span?.("bvh:bounds"),
+                timestampWrites: state.gpu.span?.("bvh:bounds"),
             });
             reduce.with(reducePass).dispatchWorkgroups(numWg);
             reducePass.end();
 
             const finalizePass = encoder.beginComputePass({
-                timestampWrites: Compute.span?.("bvh:bounds"),
+                timestampWrites: state.gpu.span?.("bvh:bounds"),
             });
             finalizeBound.with(finalizePass).dispatchWorkgroups(1);
             finalizePass.end();

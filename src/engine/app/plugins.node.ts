@@ -70,8 +70,7 @@ import {
     setVelocity,
     snapshot as snapshotPhysics,
 } from "../../transitional/physics";
-import { Compute, type Plugin, probeTexture, type State, Time } from "../index";
-import { currentWorld, withCompute } from "../runtime";
+import { type Plugin, probeTexture, type State, Time } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { build } from "./index";
 
@@ -211,11 +210,7 @@ async function trackedDevice() {
     let creationOwnerOverride: State | undefined;
     let hasCreationOwnerOverride = false;
     const ownerAtCreation = (): State | undefined =>
-        hasCreationOwnerOverride
-            ? creationOwnerOverride
-            : buildScope
-              ? currentWorld<State>()
-              : undefined;
+        hasCreationOwnerOverride ? creationOwnerOverride : undefined;
     const resourceLabel = (resource: object | undefined): string => {
         if (!resource) return "missing GPU resource";
         return (
@@ -239,7 +234,7 @@ async function trackedDevice() {
         recordOrigin(resource, ownerAtCreation(), label);
     const assertOwned = (operation: string, resource: object | undefined): void => {
         if (!checkingOwners) return;
-        const active = currentWorld<State>();
+        const active = creationOwnerOverride;
         if (!active) return;
         const origin = resource ? origins.get(resource) : undefined;
         const activeName = labels.get(active) ?? "the active World";
@@ -397,6 +392,10 @@ async function trackedDevice() {
         live,
         watch,
         labels,
+        observeBuild(state: State): void {
+            creationOwnerOverride = state;
+            hasCreationOwnerOverride = true;
+        },
         async withBuild<T>(callback: () => Promise<T>): Promise<T> {
             const previousBuildScope = buildScope;
             const previousOverride = creationOwnerOverride;
@@ -470,9 +469,7 @@ function addJoint(state: State, a: number, b: number): void {
 
 function expectStateViews(state: State, eids: number[]): void {
     expect(eids.length).toBeGreaterThan(0);
-    expect(withCompute(state.gpu, () => eids.every((eid) => Views.get(eid) !== undefined))).toBe(
-        true,
-    );
+    expect(eids.every((eid) => state.resource(Views).get(eid) !== undefined)).toBe(true);
 }
 
 async function stepGpuWorld(
@@ -556,7 +553,7 @@ function featurePlugin(subject: Plugin): Plugin {
             state.add(camera, Orbit);
             state.add(camera, Listener);
             state.of(Transform).pos.set(camera, 0, 4, 12, 0);
-            state.of(Backdrop).name.set(camera, Backgrounds.id("sky") ?? 0);
+            state.of(Backdrop).name.set(camera, state.resource(Backgrounds).id("sky") ?? 0);
             attachCanvas(camera, canvas, state);
 
             const ambient = state.create();
@@ -613,8 +610,8 @@ function featurePlugin(subject: Plugin): Plugin {
             state.add(label, Text);
             state.of(Transform).pos.set(label, 0, 2, 0, 0);
             if (uses(subject, TextPlugin))
-                state.of(Text).font.set(label, font(ISOLATION_FONT, "isolation"));
-            state.of(Text).content.set(label, text("isolation"));
+                state.of(Text).font.set(label, font(state, ISOLATION_FONT, "isolation"));
+            state.of(Text).content.set(label, text(state, "isolation"));
 
             const sound = state.create();
             state.add(sound, Sound);
@@ -630,15 +627,15 @@ function featurePlugin(subject: Plugin): Plugin {
             state.of(Body).mass.set(actor, 0);
             state.of(Player).camera.set(actor, camera);
 
-            const globalTransforms = Compute.buffers.get("global-transform-interpolated");
+            const globalTransforms = state.gpu.buffers.get("global-transform-interpolated");
             if (!globalTransforms)
                 throw new Error("Engine GlobalTransform did not publish its renderer buffer");
         },
         async warm(state) {
             const resources = state.resource(isolationKey);
             if (!uses(subject, BvhPlugin)) return;
-            const device = Compute.device;
-            const bvh = await createBvh(device, 2);
+            const device = state.gpu.device;
+            const bvh = await createBvh(state, device, 2);
             device.queue.writeBuffer(
                 bvh.prims,
                 0,
@@ -693,13 +690,13 @@ function authorIsolationContent(
     const b = addBody(state, content.bodyHeights[1]);
     addSpring(state, a, b);
     addJoint(state, a, b);
-    withCompute(state.gpu, () => {
+    (() => {
         state.of(Body).pos.y.set(resources.actor, content.actorY);
         state.of(Camera).clearColor.set(resources.camera, content.clearColor);
         state.of(Sky).zenith.set(resources.sky, content.skyZenith);
         state.of(Sky).horizon.set(resources.sky, content.skyHorizon);
         state.of(Color).rgba.set(resources.part, ...content.color);
-    });
+    })();
     return a;
 }
 
@@ -733,6 +730,7 @@ async function renderAlone(
                 defaults: false,
                 plugins: [featurePlugin(subject)],
                 device: tracked.device,
+                setup: (state) => tracked.observeBuild(state),
             }),
         ),
     );
@@ -770,6 +768,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
                     defaults: false,
                     plugins: [seed],
                     device: firstDevice.device,
+                    setup: (state) => firstDevice.observeBuild(state),
                 }),
             ),
         );
@@ -786,6 +785,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
                     defaults: false,
                     plugins: [seed],
                     device: secondDevice.device,
+                    setup: (state) => secondDevice.observeBuild(state),
                 }),
             ),
         );
@@ -793,7 +793,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         const secondFeatures = second.state.resource(isolationKey);
         let prebuildWriteError: unknown;
         try {
-            withCompute(second.state.gpu, () =>
+            secondDevice.withWorld(second.state, () =>
                 secondDevice.device.queue.writeBuffer(prebuildBuffer!, 0, new Uint8Array(16)),
             );
         } catch (error) {

@@ -1,3 +1,4 @@
+import type { State } from "../../../engine";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
 // can walk a body's shape list and compute its AABBs without a per-step marshal. A third low persistent
@@ -64,27 +65,27 @@ function growCap(need: number): number {
  * the current capacity. @returns true if the region grew (the caller must refresh any views over the
  * relocated regions above it, and over every region a `memory.grow` detached).
  */
-export function reserveShapes(shapeCount: number): boolean {
+export function reserveShapes(state: State | undefined, shapeCount: number): boolean {
     const cap = growCap(shapeCount);
-    const fatGrew = kernel().reserveFatAabb(cap) !== 0;
-    const shapeGrew = kernel().reserveShapes(cap) !== 0;
+    const fatGrew = kernel(state).reserveFatAabb(cap) !== 0;
+    const shapeGrew = kernel(state).reserveShapes(cap) !== 0;
     return fatGrew || shapeGrew;
 }
 
 /** Allocate a world-local shape slot in the kernel pool. The shape record itself is authored below,
  * but index reuse, generation and validity are never decided by TypeScript. */
 export function createShapeSlot(world: WorldState): number {
-    if (reserveShapes(world.shapes.length + 1)) {
+    if (reserveShapes(world.ecsState, world.shapes.length + 1)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
     }
-    const id = kernel().shapeCreate(world.worldId);
+    const id = kernel(world.ecsState).shapeCreate(world.worldId);
     world.shapeStore.refreshViews();
     return id;
 }
 
 export function destroyShapeSlot(world: WorldState, shapeId: number): void {
-    kernel().shapeDestroy(world.worldId, shapeId);
+    kernel(world.ecsState).shapeDestroy(world.worldId, shapeId);
 }
 
 /**
@@ -93,9 +94,13 @@ export function destroyShapeSlot(world: WorldState, shapeId: number): void {
  * its views whenever a grow detaches or relocates them.
  */
 export class ShapeStore {
+    readonly ecsState: State | undefined;
+
     private readonly _worldId: number;
 
-    constructor(worldId: number) {
+    constructor(ecsState: State | undefined, worldId: number) {
+        this.ecsState = ecsState;
+
         this._worldId = worldId;
     }
 
@@ -116,7 +121,7 @@ export class ShapeStore {
     /** Re-derive the column views over the current region. No-op before the first `reserveShapes`, and
      * when the buffer, offset and capacity are those the views were derived at. */
     refreshViews(): void {
-        const k = kernel();
+        const k = kernel(this.ecsState);
         const cap = k.shapeCap();
         const fatCap = k.fatAabbCap();
         if (cap === 0 && fatCap === 0) return;
@@ -224,7 +229,7 @@ export class ShapeStore {
         this.refreshViews();
         let head = -1;
         for (let i = materials.length - 1; i >= 0; --i) {
-            const id = kernel().materialCreate(world.worldId);
+            const id = kernel(world.ecsState).materialCreate(world.worldId);
             world.manifoldStore.refreshViews();
             world.bodyStore.refreshViews();
             this.refreshViews();
@@ -252,7 +257,7 @@ export class ShapeStore {
     /** Detach and release the kernel material records owned by a shape. */
     destroyMaterials(world: WorldState, shape: Shape): void {
         this.refreshViews();
-        const k = kernel();
+        const k = kernel(world.ecsState);
         const head = k.shapeMaterialHead(world.worldId, shape.id) >>> 0;
         const count = k.shapeMaterialCount(world.worldId, shape.id) >>> 0;
         const listCount = k.materialListCount(world.worldId, head) >>> 0;
@@ -284,14 +289,14 @@ export class ShapeStore {
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
-export function createShapeStore(worldId: number): ShapeStore {
-    return new ShapeStore(worldId);
+export function createShapeStore(state: State | undefined, worldId: number): ShapeStore {
+    return new ShapeStore(state, worldId);
 }
 
 /** Read live material records from the kernel-owned linked list. The returned objects are bridge values;
  * simulation decisions always re-read this column rather than a Shape.materials authoring array. */
-export function readShapeMaterials(shape: Shape): SurfaceMaterial[] {
-    const k = kernel();
+export function readShapeMaterials(state: State | undefined, shape: Shape): SurfaceMaterial[] {
+    const k = kernel(state);
     const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
     const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
     const listCount = k.materialListCount(shape.worldId, head) >>> 0;
@@ -324,8 +329,8 @@ export function readShapeMaterials(shape: Shape): SurfaceMaterial[] {
 }
 
 /** The authoritative live material count for a shape. */
-export function shapeMaterialCount(shape: Shape): number {
-    const k = kernel();
+export function shapeMaterialCount(state: State | undefined, shape: Shape): number {
+    const k = kernel(state);
     const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
     const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
     if (k.materialListCount(shape.worldId, head) >>> 0 !== count) {
@@ -340,7 +345,7 @@ export function shapeMaterialCount(shape: Shape): number {
  * every view, so the stores that read through them are refreshed before anything else runs.
  */
 export function writeShape(world: WorldState, shape: Shape): void {
-    if (reserveShapes(world.shapes.length)) {
+    if (reserveShapes(world.ecsState, world.shapes.length)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
     }
@@ -361,7 +366,7 @@ export function unlinkShape(world: WorldState, shape: Shape): void {
 
 /** Size and write the resident fat-AABB lane owned by the shape store. */
 export function writeFatAabb(world: WorldState, shape: Shape): void {
-    if (reserveShapes(world.shapes.length)) {
+    if (reserveShapes(world.ecsState, world.shapes.length)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
     }

@@ -125,8 +125,8 @@ export class World {
     private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
     private readonly _moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
 
-    constructor(def: Partial<WorldDef> = {}) {
-        this._worldId = createWorld({ ...defaultWorldDef(), ...def });
+    constructor(def: Partial<WorldDef> = {}, state?: import("../../../engine").State) {
+        this._worldId = createWorld(state, { ...defaultWorldDef(), ...def });
         // getWorld succeeds immediately after creation.
         this.state = getWorld(this._worldId) as WorldState;
     }

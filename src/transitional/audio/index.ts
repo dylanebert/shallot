@@ -1,6 +1,6 @@
 // Destination: core/audio and standard/audio; owner: audio-boundary.md.
 
-import { devices } from "../../core/input";
+import { Devices } from "../../core/input";
 import {
     composeTransform,
     f32,
@@ -71,7 +71,7 @@ const _m = new Float32Array(16);
  * registered sample lazily registers a built-in sampler instrument (cached
  * under the same name) so the trivial case authors no DAG
  */
-function resolveInstrument(name: string): number | undefined {
+function resolveInstrument(state: State, name: string): number | undefined {
     const inst = Instruments.id(name);
     if (inst !== undefined) return inst;
     const sampleId = Samples.id(name);
@@ -79,7 +79,7 @@ function resolveInstrument(name: string): number | undefined {
         console.warn(`audio: no instrument or sample named "${name}"`);
         return undefined;
     }
-    return sampler(name, sampleId);
+    return sampler(state, name, sampleId);
 }
 
 // sustain=1 + decay≈sample length makes the envelope a duration timer: the
@@ -87,10 +87,12 @@ function resolveInstrument(name: string): number | undefined {
 // voice cleanly (juice's registerOneShot shape). For a loop the same envelope
 // holds sustain and the sample wraps until the Sound is removed. decay falls
 // back to 2s for a sample still decoding at first play
-function sampler(name: string, sampleId: number): number {
+function sampler(state: State, name: string, sampleId: number): number {
     const s = getSample(sampleId);
     const frames = s?.channels[0]?.length ?? 0;
-    const dur = frames ? frames / (s!.sampleRate || Audio.ctx?.sampleRate || 48000) : 2;
+    const dur = frames
+        ? frames / (s!.sampleRate || state.resource(Audio).ctx?.sampleRate || 48000)
+        : 2;
     const env = { attack: 0.001, decay: dur, sustain: 1, release: 0.05 };
     if ((s?.channels.length ?? 1) >= 2) {
         // two parallel mono chains, one per channel, kept in lockstep by the shared
@@ -176,7 +178,7 @@ function steal(state: State): void {
         }
     }
     if (victim < 0) return;
-    free(state.of(Sound).voice.get(victim));
+    free(state, state.of(Sound).voice.get(victim));
     state.destroy(victim);
 }
 
@@ -225,15 +227,15 @@ const SoundSystem: System = {
     name: "sound",
     group: "simulation",
     update(state) {
-        const context = devices(state).audio.context;
+        const context = state.resource(Devices).audio.context;
         if (context === "none" || context === "closed") return;
 
         // a loop stopped (Sound removed, Voiced kept): gate off, free after the
         // release tail. sparse fields survive remove, so Sound.voice still reads
         for (const eid of [...state.query([Voiced, not(Sound)])]) {
             const handle = state.of(Sound).voice.get(eid);
-            gate(handle, 0);
-            watchIdle(handle, () => free(handle));
+            gate(state, handle, 0);
+            watchIdle(state, handle, () => free(state, handle));
             state.remove(eid, Voiced);
         }
 
@@ -251,26 +253,26 @@ const SoundSystem: System = {
             }
             const id = state.of(Sound).instrument.get(eid);
             if (id < 0) continue;
-            let handle = alloc();
+            let handle = alloc(state);
             if (handle < 0) {
                 steal(state);
-                handle = alloc();
+                handle = alloc(state);
             }
             if (handle < 0) continue;
-            assign(handle, id);
+            assign(state, handle, id);
             const inst = byId(id);
-            if (inst) for (const off of inst.loopOffsets) setParam(handle, off, loop);
-            spatialize(handle, hasListener && state.has(eid, GlobalTransform));
-            gate(handle, 1);
+            if (inst) for (const off of inst.loopOffsets) setParam(state, handle, off, loop);
+            spatialize(state, handle, hasListener && state.has(eid, GlobalTransform));
+            gate(state, handle, 1);
             if (loop === 0) {
                 // gate-on must precede the idle watch: the worklet clears a slot
                 // from _releasing on any gate(value != 0) (the re-gate-cancels-
                 // death-watch guard), so a watch_idle queued before the initial
                 // gate-on is wiped in the same batch — the voice then never
                 // reports idle and leaks until steal reclaims it
-                oneShot(handle);
-                watchIdle(handle, () => {
-                    free(handle);
+                oneShot(state, handle);
+                watchIdle(state, handle, () => {
+                    free(state, handle);
                     if (state.exists(eid)) state.destroy(eid);
                 });
             }
@@ -285,13 +287,13 @@ const SoundSystem: System = {
             if (inst.volumeOffsets.length > 0) {
                 const v = state.of(Sound).volume.get(eid);
                 const level = v * v * inst.baseVolume;
-                for (const off of inst.volumeOffsets) setParam(handle, off, level);
+                for (const off of inst.volumeOffsets) setParam(state, handle, off, level);
             }
             if (inst.pitchEntries.length > 0) {
                 const semis = state.of(Sound).pitch.get(eid);
                 for (const pe of inst.pitchEntries) {
                     const freq = noteFreq(pe.baseFreq, pe.octave, semis + pe.semitone, pe.fine);
-                    setParam(handle, pe.offset, freq);
+                    setParam(state, handle, pe.offset, freq);
                 }
             }
         }
@@ -299,18 +301,24 @@ const SoundSystem: System = {
         // spatial: a positioned voice + a listener pans + attenuates; the polar
         // derivation reads the listener's world basis (column-major right/up/fwd)
         if (hasListener) {
-            const m = composeTransform(listenerEid, _m);
+            const m = composeTransform(state, listenerEid, _m);
             for (const eid of state.query([Sound, Voiced, GlobalTransform])) {
                 const dx = state.of(GlobalTransform).pos.x.get(eid) - m[12];
                 const dy = state.of(GlobalTransform).pos.y.get(eid) - m[13];
                 const dz = state.of(GlobalTransform).pos.z.get(eid) - m[14];
                 const p = polar(dx, dy, dz, m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-                addSpatial(state.of(Sound).voice.get(eid), p.azimuth, p.elevation, p.distance);
+                addSpatial(
+                    state,
+                    state.of(Sound).voice.get(eid),
+                    p.azimuth,
+                    p.elevation,
+                    p.distance,
+                );
             }
-            flushSpatial();
+            flushSpatial(state);
         }
 
-        tickAudio();
+        tickAudio(state);
     },
 };
 
@@ -332,7 +340,7 @@ export function play(
     name: string,
     opts?: { loop?: boolean; volume?: number; pos?: readonly [number, number, number] },
 ): number {
-    const id = resolveInstrument(name);
+    const id = resolveInstrument(state, name);
     if (id === undefined) return -1;
     const policy = policyFor(name);
     if (policy && !admit(state, name, policy, id)) return -1;
@@ -365,7 +373,7 @@ export const AudioPlugin: Plugin = {
     traits: {
         Sound: {
             defaults: () => ({ instrument: -1, loop: 0, volume: 1, pitch: 0, voice: -1 }),
-            parse: { instrument: resolveInstrument },
+            parse: { instrument: (name, state) => resolveInstrument(state, name) },
         },
         Listener: { requires: [GlobalTransform] },
     },
@@ -373,7 +381,9 @@ export const AudioPlugin: Plugin = {
         // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the State's
         // lifetime — registered up front so a partial init that then throws still tears down; disposeAudio
         // is idempotent, so the top-of-initAudio reinit and this dispose can't double-free.
-        state.onDispose(() => disposeAudio(state));
+        const audio = state.resource(Audio);
+        const facts = state.resource(Devices).audio;
+        state.onDispose(() => disposeAudio(state, audio, facts));
         try {
             await initAudio(state);
         } catch {

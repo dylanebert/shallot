@@ -453,8 +453,8 @@ export function createContact(
 
     contact.rollingResistance =
         maxf(
-            getShapeMaterials(shapeA)[0].rollingResistance,
-            getShapeMaterials(shapeB)[0].rollingResistance,
+            getShapeMaterials(world.ecsState, shapeA)[0].rollingResistance,
+            getShapeMaterials(world.ecsState, shapeB)[0].rollingResistance,
         ) * maxRadius;
 
     if (shapeA.enablePreSolveEvents || shapeB.enablePreSolveEvents) {

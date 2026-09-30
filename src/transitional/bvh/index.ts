@@ -1,4 +1,5 @@
 // Destination: shallot-avbd-physics; owner: bvh-extraction.md.
+import type { State } from "../../engine";
 /// <reference types="@webgpu/types" />
 // LBVH — the public extension surface. One GPU BVH2 builder, rendering-unaware and
 // unopinionated about its consumer: geometry in (primitive AABBs), BVH out — it names
@@ -106,7 +107,7 @@ export interface Bvh {
  * produce the identical BVH; force `false` to exercise the LDS path on a subgroup device.
  *
  * @example
- * const bvh = await createBvh(device, 1 << 16);
+ * const bvh = await createBvh(state, device, 1 << 16);
  * device.queue.writeBuffer(bvh.prims, 0, primAabbs);
  * device.queue.writeBuffer(bvh.count, 0, new Uint32Array([count]));
  * const enc = device.createCommandEncoder();
@@ -119,6 +120,7 @@ export interface Bvh {
  * device.queue.submit([enc2.finish()]);
  */
 export async function createBvh(
+    state: State,
     device: GPUDevice,
     maxPrims: number,
     sharedNodes?: GPUBuffer,
@@ -186,10 +188,10 @@ export async function createBvh(
     });
 
     const [sb, mc, rs, bd] = await Promise.all([
-        createSceneBounds(device, cap, { prims, bounds, count }, subgroups),
-        createMorton(device, cap, { prims, bounds, keys, payload, count }),
-        createRadixSort(device, cap, { keys, payload, count }, subgroups),
-        createBuild(device, cap, { prims, keys, payload, nodes, count }),
+        createSceneBounds(state, device, cap, { prims, bounds, count }, subgroups),
+        createMorton(state, device, cap, { prims, bounds, keys, payload, count }),
+        createRadixSort(state, device, cap, { keys, payload, count }, subgroups),
+        createBuild(state, device, cap, { prims, keys, payload, nodes, count }),
     ]);
 
     // owned-buffer total (the injected node buffer belongs to the caller; exclude it, matching destroy)

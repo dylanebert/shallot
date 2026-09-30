@@ -2,11 +2,9 @@
 
 export * from "./adapter";
 export {
-    Compute,
     checkStorageBinding,
     checkTextureLimits,
     checkTgsl,
-    currentWorld,
     deviceLost,
     type LazyAlloc,
     PIPELINE_COMPILE_MEASURE_PREFIX,
@@ -14,16 +12,13 @@ export {
     precompileAll,
     precompileScope,
     rawDevice,
-    releaseCompute,
     requestGPU,
     type ShaderArtifact,
     stampAdapter,
     tgslCanary,
     UnsupportedError,
     validateGpu,
-    withCompute,
-    withComputeAsync,
-    worldResource,
+    type WorldGpu,
 } from "./gpu";
 export { drainLog, type GpuLog } from "./log";
 export { now, Runtime, readBinary, readFile, requestFrame } from "./platform";

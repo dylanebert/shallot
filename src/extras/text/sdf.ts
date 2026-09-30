@@ -1,8 +1,7 @@
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute, type State } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+import type { State } from "../../engine";
 
 // The glyph SDF generator: two raster passes per glyph, both authored in TGSL over explicit bind group
 // layouts. The distance pass rasterizes one instanced fullscreen triangle per outline segment into a
@@ -269,9 +268,8 @@ export function sdfWgsl(): { distance: string; finalize: string } {
     };
 }
 
-// pipelines come from `Compute.root`, which is device-scoped and memoized per device (`engine/runtime/
-// gpu.ts`), so `Compute.root` always matches whichever device is currently adopted — one cache entry is
-// enough. Shared across generators (one per font), which the per-instance pair they replaced was not.
+// Each State caches one pipeline pair from its own TypeGPU root. Its font generators share the pair;
+// another State gets its own pipelines even when both States use the same GPUDevice.
 interface SdfPipelines {
     distance: TgpuRenderPipeline;
     finalize: TgpuRenderPipeline;
@@ -279,16 +277,16 @@ interface SdfPipelines {
 
 const sdfPipelinesKey = { create: () => createSdfPipelines() };
 const createSdfPipelines = () => ({ value: null as SdfPipelines | null });
-const sdfPipelines = () => worldResource(sdfPipelinesKey);
+const sdfPipelines = (state: State) => state.resource(sdfPipelinesKey);
 
 export function initializeSdfState(state: State): void {
     state.resource(sdfPipelinesKey);
 }
 
-function pipelines() {
-    const cache = sdfPipelines();
+function pipelines(state: State) {
+    const cache = sdfPipelines(state);
     if (cache.value) return cache.value;
-    const root = Compute.root;
+    const root = state.gpu.root;
     cache.value = {
         distance: root
             .createRenderPipeline({
@@ -318,12 +316,9 @@ function pipelines() {
     return cache.value;
 }
 
-/** drop the memoized SDF pipeline pair. Pipelines bind to the root that created them, so a re-adopted
- *  device (a rebuild against a new `GPUDevice`) needs a fresh pair rather than the stale one — mirrors
- *  `slab/scatter.ts`'s `resetPipelines`.
- *  @internal */
-export function resetPipelines(): void {
-    sdfPipelines().value = null;
+/** Drop this State's cached SDF pipeline pair. @internal */
+export function resetPipelines(state: State): void {
+    sdfPipelines(state).value = null;
 }
 
 export interface SDFGeneratorConfig {
@@ -375,11 +370,11 @@ export class SDFGenerator {
         });
     }
 
-    begin(): void {
+    begin(state: State): void {
         // built here, drawn from `flush` microseconds later, so there is no force-compile forcer: a
         // `precompile` thunk drains after warm, long after these draws already went out (the load-path
         // blit's refuted precompile)
-        this._pipelines = pipelines();
+        this._pipelines = pipelines(state);
         this.ensureIntermediateTexture();
         this._pending = [];
     }
@@ -394,13 +389,13 @@ export class SDFGenerator {
         this._pending.push({ path, bounds, outputTexture, outputX, outputY });
     }
 
-    flush(): void {
+    flush(state: State): void {
         if (this._pending.length === 0) return;
         const pipes = this._pipelines;
         const intermediate = this._intermediateTexture;
         if (!pipes || !intermediate) throw new Error("[text] SDFGenerator.flush before begin");
 
-        const root = Compute.root;
+        const root = state.gpu.root;
         const encoder = this._device.createCommandEncoder({ label: "text-sdf" });
         // one uniform + one segment buffer per glyph, all read within the single submit below — a shared
         // buffer overwritten per glyph would hand every pass the last glyph's data, since the queue
@@ -464,7 +459,7 @@ export class SDFGenerator {
                         storeOp: "store",
                     },
                 ],
-                timestampWrites: Compute.span?.("text:sdf-distance"),
+                timestampWrites: state.gpu.span?.("text:sdf-distance"),
             });
 
             pipes.distance.with(distanceGroup).with(distancePass).draw(3, segments.length);
@@ -491,7 +486,7 @@ export class SDFGenerator {
                         storeOp: "store",
                     },
                 ],
-                timestampWrites: Compute.span?.("text:sdf-finalize"),
+                timestampWrites: state.gpu.span?.("text:sdf-finalize"),
             });
 
             // the viewport + scissor are what place this glyph in its atlas tile, and a typed pipeline

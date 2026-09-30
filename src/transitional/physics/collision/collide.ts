@@ -123,7 +123,7 @@ const centerBScratch: Vec3 = { x: 0, y: 0, z: 0 };
 const tangentAScratch: Vec3 = { x: 0, y: 0, z: 0 };
 const tangentBScratch: Vec3 = { x: 0, y: 0, z: 0 };
 
-// Compute the convex-convex manifold and map it into the contact's persistent manifold, carrying
+// state.gpu the convex-convex manifold and map it into the contact's persistent manifold, carrying
 // warm-start impulses forward by feature id (b3ComputeConvexManifold). The manifold is column-resident
 // (world.manifoldStore); anchors/normal are written through the pool-backed view.
 function computeConvexManifold(
@@ -301,8 +301,8 @@ function updateConvexContact(
         }
     }
 
-    const materialA = getShapeMaterial(shapeA);
-    const materialB = getShapeMaterial(shapeB);
+    const materialA = getShapeMaterial(world.ecsState, shapeA);
+    const materialB = getShapeMaterial(world.ecsState, shapeB);
 
     contact.friction = world.frictionCallback(
         materialA.friction,
@@ -686,8 +686,8 @@ function finishConvex(
 
     const shapeA = job.shapeA;
     const shapeB = job.shapeB;
-    const materialA = getShapeMaterial(shapeA);
-    const materialB = getShapeMaterial(shapeB);
+    const materialA = getShapeMaterial(world.ecsState, shapeA);
+    const materialB = getShapeMaterial(world.ecsState, shapeB);
 
     contact.friction = world.frictionCallback(
         materialA.friction,
@@ -751,7 +751,7 @@ function dispatchConvexJobs(world: WorldState, stateChanges: number[]): void {
         world.bodyStore.refreshViews();
     }
 
-    const k = kernel();
+    const k = kernel(world.ecsState);
     k.reserveDispatch(jobCount);
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
@@ -774,7 +774,7 @@ function dispatchConvexJobs(world: WorldState, stateChanges: number[]): void {
     // Across the pool when there is one: each record's narrowphase reads its own dispatch record and
     // writes only its own contact's manifold + cache slots, so the blocks are write-disjoint. The reserve
     // above is the last grow before the fork.
-    runPar(ParKind.Convex, jobCount, 0, 0, () => k.dispatchConvex(jobCount));
+    runPar(world.ecsState, ParKind.Convex, jobCount, 0, 0, () => k.dispatchConvex(jobCount));
 
     const out = new Uint32Array(buf, k.dispatchOutPtr(), jobCount);
     for (let i = 0; i < jobCount; ++i) {
@@ -805,7 +805,7 @@ function dispatchRecycleJobs(
         world.bodyStore.refreshViews();
     }
 
-    const k = kernel();
+    const k = kernel(world.ecsState);
     k.reserveRecycle(count);
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
@@ -840,8 +840,13 @@ function dispatchRecycleJobs(
     // Across the pool when there is one: the body / fat-AABB columns are read-only here and every write
     // lands in the record's own contact's slots, so the blocks are write-disjoint. The reserve above is
     // the last grow before the fork.
-    runPar(ParKind.Recycle, count, recycleDistance, recycleDistanceNonTouching, () =>
-        k.dispatchRecycle(count, recycleDistance, recycleDistanceNonTouching),
+    runPar(
+        world.ecsState,
+        ParKind.Recycle,
+        count,
+        recycleDistance,
+        recycleDistanceNonTouching,
+        () => k.dispatchRecycle(count, recycleDistance, recycleDistanceNonTouching),
     );
 
     // Snapshot every result out of the kernel's output column *before* processing. The needs-narrowphase

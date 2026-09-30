@@ -126,10 +126,13 @@ export class Shape {
         if (i < 0 || i >= this.world.shapes.length) {
             return false;
         }
-        if (kernel().shapeAlive(this.world.worldId, i) === 0) {
+        if (kernel(this.world.ecsState).shapeAlive(this.world.worldId, i) === 0) {
             return false;
         }
-        return kernel().shapeGeneration(this.world.worldId, i) === this.id.generation;
+        return (
+            kernel(this.world.ecsState).shapeGeneration(this.world.worldId, i) ===
+            this.id.generation
+        );
     }
 
     /** Destroy this shape. Pass `false` to skip recomputing the body mass. */

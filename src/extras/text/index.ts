@@ -25,7 +25,6 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import {
-    Compute,
     f32,
     formatHex,
     GlobalTransform,
@@ -36,7 +35,7 @@ import {
     u32,
     vec2,
 } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+
 import { packColor, Xform, xformPoint } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
 import {
@@ -62,22 +61,27 @@ const DEFAULT_FONT =
     "https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZg.ttf";
 
 /** registered fonts, keyed by name (the url when unnamed); the id is the atlas slot */
-const Fonts = new Registry<{ name: string; url: string }>();
+export const Fonts = { create: () => new Registry<{ name: string; url: string }>() };
 /** interned label strings; id 0 is the empty string (the `Text.content` default) */
-const Content = new Registry<{ name: string }>();
-Content.register({ name: "" });
+export const Content = {
+    create: () => {
+        const content = new Registry<{ name: string }>();
+        content.register({ name: "" });
+        return content;
+    },
+};
 
 /**
  * register a font by url, returning its id. `name` (optional) is the handle a scene's `font:` attribute
- * resolves; unnamed fonts key by url. Call before `build` (or in `setup`) so the atlas loads at init
+ * resolves; unnamed fonts key by url. Register in the owning State during `setup` so the atlas loads at init
  *
  * @example
  * ```
- * font("/fonts/inter.ttf", "inter");
+ * font(state, "/fonts/inter.ttf", "inter");
  * ```
  */
-export function font(url: string, name?: string): number {
-    return Fonts.register({ name: name ?? url, url });
+export function font(state: State, url: string, name?: string): number {
+    return state.resource(Fonts).register({ name: name ?? url, url });
 }
 
 /**
@@ -86,11 +90,11 @@ export function font(url: string, name?: string): number {
  *
  * @example
  * ```
- * Text.content.set(eid, text("Hello"));
+ * state.of(Text).content.set(eid, text(state, "Hello"));
  * ```
  */
-export function text(content: string): number {
-    return Content.register({ name: content });
+export function text(state: State, content: string): number {
+    return state.resource(Content).register({ name: content });
 }
 
 /**
@@ -282,25 +286,17 @@ function createTextState(): TextState {
     };
 }
 
-function textState(): TextState {
-    return worldResource(textStateKey);
+function _textState(state: State): TextState {
+    return state.resource(textStateKey);
 }
-
-const _text = new Proxy({} as TextState, {
-    get(_target, key) {
-        return textState()[key as keyof TextState];
-    },
-    set(_target, key, value) {
-        (textState() as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
 
 // bitcast scratch + an fnv-1a fold over the layout-affecting fields. The transform is deliberately absent
 // — it flows through the slab, so moving a label leaves the signature (and the glyph buffer) untouched
-function fbits(v: number): number {
-    _text.bits[0] = v;
-    return _text.bitsU[0];
+function fbits(state: State, v: number): number {
+    const _textState = state.resource(textStateKey);
+
+    _textState.bits[0] = v;
+    return _textState.bitsU[0];
 }
 function fold(h: number, x: number): number {
     return Math.imul(h ^ x, 16777619);
@@ -315,49 +311,54 @@ function signature(state: State): number {
         h = fold(h, eid);
         h = fold(h, state.of(Text).content.get(eid));
         h = fold(h, state.of(Text).font.get(eid));
-        h = fold(h, fbits(state.of(Text).fontSize.get(eid)));
-        h = fold(h, fbits(state.of(Text).anchor.x.get(eid)));
-        h = fold(h, fbits(state.of(Text).anchor.y.get(eid)));
+        h = fold(h, fbits(state, state.of(Text).fontSize.get(eid)));
+        h = fold(h, fbits(state, state.of(Text).anchor.x.get(eid)));
+        h = fold(h, fbits(state, state.of(Text).anchor.y.get(eid)));
         h = fold(h, state.of(Text).color.get(eid));
-        h = fold(h, fbits(state.of(Text).opacity.get(eid)));
+        h = fold(h, fbits(state, state.of(Text).opacity.get(eid)));
     }
     return h;
 }
 
-function grow(min: number): void {
-    let cap = _text.cap;
+function grow(state: State, min: number): void {
+    const _textState = state.resource(textStateKey);
+
+    let cap = _textState.cap;
     while (cap < min) cap *= 2;
     const next = new ArrayBuffer(cap * GLYPH_BYTES);
-    new Uint8Array(next).set(new Uint8Array(_text.staging, 0, _text.count * GLYPH_BYTES));
-    _text.staging = next;
-    _text.f32 = new Float32Array(next);
-    _text.u32 = new Uint32Array(next);
-    _text.cap = cap;
+    new Uint8Array(next).set(new Uint8Array(_textState.staging, 0, _textState.count * GLYPH_BYTES));
+    _textState.staging = next;
+    _textState.f32 = new Float32Array(next);
+    _textState.u32 = new Uint32Array(next);
+    _textState.cap = cap;
 }
 
 // lay every visible label out into per-font glyph lists, pack them into the shared staging in font-id
 // order (each font's draw indexes its contiguous range via firstInstance), grow + upload the GPU buffer,
 // and write each font's indirect record. Runs only on a signature change
 function rebuild(state: State, device: GPUDevice): void {
-    while (_text.byFont.length < _text.atlases.length) _text.byFont.push([]);
-    while (_text.ranges.length < _text.atlases.length) _text.ranges.push({ start: 0, count: 0 });
-    for (let i = 0; i < _text.atlases.length; i++) _text.byFont[i].length = 0;
+    const _textState = state.resource(textStateKey);
+
+    while (_textState.byFont.length < _textState.atlases.length) _textState.byFont.push([]);
+    while (_textState.ranges.length < _textState.atlases.length)
+        _textState.ranges.push({ start: 0, count: 0 });
+    for (let i = 0; i < _textState.atlases.length; i++) _textState.byFont[i].length = 0;
 
     for (const eid of state.query([Text, GlobalTransform])) {
         if (!state.of(Text).visible.get(eid)) continue;
-        const content = Content.name(state.of(Text).content.get(eid));
+        const content = state.resource(Content).name(state.of(Text).content.get(eid));
         if (!content) continue;
         let fontId = state.of(Text).font.get(eid);
-        if (!_text.atlases[fontId]) fontId = 0;
-        const atlas = _text.atlases[fontId];
+        if (!_textState.atlases[fontId]) fontId = 0;
+        const atlas = _textState.atlases[fontId];
         if (!atlas) continue;
-        ensureString(atlas, content);
+        ensureString(state, atlas, content);
         const layout = layoutText(content, atlas, state.of(Text).fontSize.get(eid));
         const ox = -layout.width * state.of(Text).anchor.x.get(eid);
         const oy = -layout.height * state.of(Text).anchor.y.get(eid);
         const color = packColor(state.of(Text).color.get(eid), state.of(Text).opacity.get(eid));
         for (const g of layout.glyphs) {
-            _text.byFont[fontId].push({
+            _textState.byFont[fontId].push({
                 eid,
                 x: ox + g.x,
                 y: oy + g.y,
@@ -373,57 +374,58 @@ function rebuild(state: State, device: GPUDevice): void {
     }
 
     let total = 0;
-    for (let id = 0; id < _text.atlases.length; id++) total += _text.byFont[id]?.length ?? 0;
-    if (total > _text.cap) grow(total);
+    for (let id = 0; id < _textState.atlases.length; id++)
+        total += _textState.byFont[id]?.length ?? 0;
+    if (total > _textState.cap) grow(state, total);
 
     let n = 0;
-    for (let id = 0; id < _text.atlases.length; id++) {
-        _text.ranges[id].start = n;
-        for (const g of _text.byFont[id] ?? []) {
+    for (let id = 0; id < _textState.atlases.length; id++) {
+        _textState.ranges[id].start = n;
+        for (const g of _textState.byFont[id] ?? []) {
             const o = n * GLYPH_FLOATS;
-            _text.f32[o + GLYPH_AT.pos] = g.x;
-            _text.f32[o + GLYPH_AT.pos + 1] = g.y;
-            _text.f32[o + GLYPH_AT.pos + 2] = 0;
-            _text.u32[o + GLYPH_AT.eid] = g.eid;
-            _text.f32[o + GLYPH_AT.uvRect] = g.u0;
-            _text.f32[o + GLYPH_AT.uvRect + 1] = g.v0;
-            _text.f32[o + GLYPH_AT.uvRect + 2] = g.u1;
-            _text.f32[o + GLYPH_AT.uvRect + 3] = g.v1;
-            _text.f32[o + GLYPH_AT.size] = g.w;
-            _text.f32[o + GLYPH_AT.size + 1] = g.h;
-            _text.u32[o + GLYPH_AT.color] = g.color;
+            _textState.f32[o + GLYPH_AT.pos] = g.x;
+            _textState.f32[o + GLYPH_AT.pos + 1] = g.y;
+            _textState.f32[o + GLYPH_AT.pos + 2] = 0;
+            _textState.u32[o + GLYPH_AT.eid] = g.eid;
+            _textState.f32[o + GLYPH_AT.uvRect] = g.u0;
+            _textState.f32[o + GLYPH_AT.uvRect + 1] = g.v0;
+            _textState.f32[o + GLYPH_AT.uvRect + 2] = g.u1;
+            _textState.f32[o + GLYPH_AT.uvRect + 3] = g.v1;
+            _textState.f32[o + GLYPH_AT.size] = g.w;
+            _textState.f32[o + GLYPH_AT.size + 1] = g.h;
+            _textState.u32[o + GLYPH_AT.color] = g.color;
             n++;
         }
-        _text.ranges[id].count = n - _text.ranges[id].start;
+        _textState.ranges[id].count = n - _textState.ranges[id].start;
     }
-    _text.count = n;
+    _textState.count = n;
 
-    if (_text.cap * GLYPH_BYTES > Compute.root.unwrap(_text.glyphBuf!).size) {
-        const stale = _text.glyphBuf!;
-        _text.glyphBuf = Compute.root
-            .createBuffer(d.arrayOf(Glyph, _text.cap))
+    if (_textState.cap * GLYPH_BYTES > state.gpu.root.unwrap(_textState.glyphBuf!).size) {
+        const stale = _textState.glyphBuf!;
+        _textState.glyphBuf = state.gpu.root
+            .createBuffer(d.arrayOf(Glyph, _textState.cap))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        Compute.buffers.set("textGlyphs", Compute.root.unwrap(_text.glyphBuf));
-        Compute.typed.set("textGlyphs", _text.glyphBuf);
+        state.gpu.buffers.set("textGlyphs", state.gpu.root.unwrap(_textState.glyphBuf));
+        state.gpu.typed.set("textGlyphs", _textState.glyphBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
-    if (_text.count > 0)
+    if (_textState.count > 0)
         device.queue.writeBuffer(
-            Compute.root.unwrap(_text.glyphBuf!),
+            state.gpu.root.unwrap(_textState.glyphBuf!),
             0,
-            _text.staging,
+            _textState.staging,
             0,
-            _text.count * GLYPH_BYTES,
+            _textState.count * GLYPH_BYTES,
         );
 
-    _text.argBuf!.write(
-        Array.from({ length: Math.max(1, _text.atlases.length) }, (_, id) => ({
+    _textState.argBuf!.write(
+        Array.from({ length: Math.max(1, _textState.atlases.length) }, (_, id) => ({
             indexCount: 6,
-            instanceCount: _text.atlases[id] ? _text.ranges[id].count : 0,
-            firstIndex: _text.quadBase,
+            instanceCount: _textState.atlases[id] ? _textState.ranges[id].count : 0,
+            firstIndex: _textState.quadBase,
             baseVertex: 0,
-            firstInstance: _text.atlases[id] ? _text.ranges[id].start : 0,
+            firstInstance: _textState.atlases[id] ? _textState.ranges[id].start : 0,
         })),
     );
 }
@@ -435,25 +437,34 @@ const TextSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     before: [PrepassSystem],
-    setup() {
-        _text.quadBase = Meshes.get("textQuad")?.indexBase ?? 0;
-        for (let id = 0; id < _text.atlases.length; id++) {
-            if (!_text.atlases[id]) continue;
-            Draws.register({
+    setup(state: State) {
+        const _textState = state.resource(textStateKey);
+
+        _textState.quadBase = state.resource(Meshes).get("textQuad")?.indexBase ?? 0;
+        for (let id = 0; id < _textState.atlases.length; id++) {
+            if (!_textState.atlases[id]) continue;
+            state.resource(Draws).register({
                 name: `text${id}`,
                 surface: surfaceName(id),
                 mesh: "textQuad",
-                args: { indirect: _text.argBuf!, offset: id * 20 },
+                args: { indirect: _textState.argBuf!, offset: id * 20 },
             });
         }
     },
     update(state) {
-        if (!Compute.device || !_text.glyphBuf || !_text.argBuf || _text.atlases.length === 0)
+        const _textState = state.resource(textStateKey);
+
+        if (
+            !state.gpu.device ||
+            !_textState.glyphBuf ||
+            !_textState.argBuf ||
+            _textState.atlases.length === 0
+        )
             return;
         const sig = signature(state);
-        if (sig === _text.sig) return;
-        _text.sig = sig;
-        rebuild(state, Compute.device);
+        if (sig === _textState.sig) return;
+        _textState.sig = sig;
+        rebuild(state, state.gpu.device);
     },
 };
 
@@ -482,58 +493,64 @@ export const TextPlugin: Plugin = {
                 color: 0xffffff,
             }),
             parse: {
-                font: (name: string) => Fonts.id(name) ?? 0,
-                content: (raw: string) => text(raw),
+                font: (name: string, state: State) => state.resource(Fonts).id(name) ?? 0,
+                content: (raw: string, state: State) => text(state, raw),
             },
             format: {
                 color: formatHex,
-                content: (id: number) => Content.name(id) ?? "",
+                content: (id: number, state: State) => state.resource(Content).name(id) ?? "",
             },
         },
     },
 
     async initialize(state) {
-        state.resource(textStateKey);
+        const _textState = state.resource(textStateKey);
+        const _fonts = state.resource(Fonts);
+
+        _textState;
         initializeSdfState(state);
-        _text.loaded = [];
-        _text.atlases = [];
-        _text.glyphBuf = null;
-        _text.argBuf = null;
-        _text.sampler = null;
-        _text.sig = -1;
+        _textState.loaded = [];
+        _textState.atlases = [];
+        _textState.glyphBuf = null;
+        _textState.argBuf = null;
+        _textState.sampler = null;
+        _textState.sig = -1;
 
-        if (!Compute.device) return;
-        const device = Compute.device;
+        if (!state.gpu.device) return;
+        const device = state.gpu.device;
 
-        if (Fonts.size === 0) font(DEFAULT_FONT);
+        if (_fonts.size === 0) font(state, DEFAULT_FONT);
 
-        mesh({ name: "textQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        mesh(state, { name: "textQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
 
         await Promise.all(
-            Array.from({ length: Fonts.size }, async (_, id) => {
-                const url = Fonts.get(Fonts.name(id)!)!.url;
+            Array.from({ length: _fonts.size }, async (_, id) => {
+                const _fonts = state.resource(Fonts);
+                const _textState = state.resource(textStateKey);
+
+                const url = _fonts.get(_fonts.name(id)!)!.url;
                 try {
-                    _text.loaded[id] = await loadFont(url);
+                    _textState.loaded[id] = await loadFont(url);
                 } catch (e) {
                     console.warn(`[Text] font ${id} (${url}) failed to load:`, e);
-                    _text.loaded[id] = null;
+                    _textState.loaded[id] = null;
                 }
             }),
         );
 
-        _text.sampler = device.createSampler({
+        _textState.sampler = device.createSampler({
             label: "text",
             magFilter: "linear",
             minFilter: "linear",
         });
-        Compute.samplers.set("textSamp", _text.sampler);
+        state.gpu.samplers.set("textSamp", _textState.sampler);
 
-        for (let id = 0; id < _text.loaded.length; id++) {
-            const loaded = _text.loaded[id];
+        for (let id = 0; id < _textState.loaded.length; id++) {
+            const loaded = _textState.loaded[id];
             if (!loaded) continue;
             const atlas = createGlyphAtlas(device, loaded);
-            _text.atlases[id] = atlas;
-            Compute.textures.set(atlasName(id), atlas.texture);
+            _textState.atlases[id] = atlas;
+            state.gpu.textures.set(atlasName(id), atlas.texture);
             const { layout, vs, fs } = typedTextSurface(id);
             registerSurface(state, {
                 name: surfaceName(id),
@@ -547,36 +564,40 @@ export const TextPlugin: Plugin = {
         }
     },
 
-    warm() {
-        if (!Compute.device) return;
-        _text.cap = INITIAL;
-        _text.staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
-        _text.f32 = new Float32Array(_text.staging);
-        _text.u32 = new Uint32Array(_text.staging);
-        _text.count = 0;
-        _text.sig = -1;
-        _text.glyphBuf = Compute.root
+    warm(state: State) {
+        const _textState = state.resource(textStateKey);
+
+        if (!state.gpu.device) return;
+        _textState.cap = INITIAL;
+        _textState.staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
+        _textState.f32 = new Float32Array(_textState.staging);
+        _textState.u32 = new Uint32Array(_textState.staging);
+        _textState.count = 0;
+        _textState.sig = -1;
+        _textState.glyphBuf = state.gpu.root
             .createBuffer(d.arrayOf(Glyph, INITIAL))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        Compute.buffers.set("textGlyphs", Compute.root.unwrap(_text.glyphBuf));
-        Compute.typed.set("textGlyphs", _text.glyphBuf);
-        _text.argBuf = Compute.root
-            .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _text.atlases.length)))
+        state.gpu.buffers.set("textGlyphs", state.gpu.root.unwrap(_textState.glyphBuf));
+        state.gpu.typed.set("textGlyphs", _textState.glyphBuf);
+        _textState.argBuf = state.gpu.root
+            .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _textState.atlases.length)))
             .$usage("indirect")
             .$name("shallot-text-args");
-        for (const atlas of _text.atlases) if (atlas) ensureString(atlas, ASCII_CACHE);
+        for (const atlas of _textState.atlases) if (atlas) ensureString(state, atlas, ASCII_CACHE);
     },
 
-    dispose() {
-        _text.glyphBuf?.destroy();
-        _text.argBuf?.destroy();
-        disposeAtlases(_text.atlases);
-        resetPipelines();
-        _text.glyphBuf = null;
-        _text.argBuf = null;
-        _text.atlases = [];
-        _text.loaded = [];
-        _text.count = 0;
+    dispose(state: State) {
+        const _textState = state.resource(textStateKey);
+
+        _textState.glyphBuf?.destroy();
+        _textState.argBuf?.destroy();
+        disposeAtlases(_textState.atlases);
+        resetPipelines(state);
+        _textState.glyphBuf = null;
+        _textState.argBuf = null;
+        _textState.atlases = [];
+        _textState.loaded = [];
+        _textState.count = 0;
     },
 };

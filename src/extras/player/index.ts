@@ -1,6 +1,6 @@
 import type { PointerLockStatus } from "../../core/input";
 import {
-    devices,
+    Devices,
     InputPlugin,
     inputEnabled,
     pointerLockRefusal as readPointerLockRefusal,
@@ -95,7 +95,6 @@ function setupPointerLock(state: State): void {
     requirePointerLock(state, true);
     state.onDispose(() => {
         releasePointerLock(state);
-        requirePointerLock(state, false);
     });
 }
 
@@ -187,14 +186,14 @@ function findCamera(state: State, eid: number): number {
 
 // FPS orientation from yaw (around world Y) then pitch (around the camera's right axis). Matches the
 // forward used for the move basis + the third-person offset (forward = q·(0,0,−1)).
-function setLook(cam: number, yaw: number, pitch: number): void {
+function setLook(state: State, cam: number, yaw: number, pitch: number): void {
     const hy = yaw * 0.5;
     const hp = pitch * 0.5;
     const sy = Math.sin(hy);
     const cy = Math.cos(hy);
     const sp = Math.sin(hp);
     const cp = Math.cos(hp);
-    Transform.rot.set(cam, cy * sp, sy * cp, -sy * sp, cy * cp);
+    state.of(Transform).rot.set(cam, cy * sp, sy * cp, -sy * sp, cy * cp);
 }
 
 const _pos: [number, number, number] = [0, 0, 0];
@@ -214,7 +213,7 @@ export const PlayerControlSystem: System = {
     update(state: State) {
         // input suspended (a menu/cutscene): release the lock so the cursor frees + mouse-look stops, and let
         // the loop run with neutral device data — every key reads up, so move resolves to 0 and the player freezes.
-        const input = devices(state);
+        const input = state.resource(Devices);
         const active = inputEnabled(state);
         for (const eid of state.query(PLAYER_BODIES)) {
             let yaw = state.of(Player).yaw.get(eid);
@@ -273,7 +272,7 @@ export const PlayerControlSystem: System = {
                     _pos[2] - fz * dist,
                     1,
                 );
-            setLook(cam, yaw, pitch);
+            setLook(state, cam, yaw, pitch);
         }
 
         // InputPlugin clears the shared pointer delta at the draw boundary.

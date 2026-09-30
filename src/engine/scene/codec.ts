@@ -181,7 +181,7 @@ export function readComponent(
     eid: number,
     resolveRef?: (target: number) => string | undefined,
 ): string {
-    const defaults = getTraits(state, name)?.defaults?.() ?? {};
+    const defaults = getTraits(state, name)?.defaults?.(state) ?? {};
     const fields = readFields(state, component, eid);
     const merged: Record<string, number | string | readonly number[]> = { ...defaults, ...fields };
     if (resolveRef) {
@@ -323,7 +323,7 @@ function applyComponent(
     state.add(eid, component as never);
 
     if (value !== "" && isCSSAttrSyntax(value)) {
-        const result = parsePropertyString(def, value);
+        const result = parsePropertyString(state, def, value);
         for (const err of result.errors) {
             errors.push({ message: `<${name}> ${err}` });
         }
@@ -493,6 +493,7 @@ function identityLaneKey(
 }
 
 function parsePropertyString(
+    state: State,
     entry: Registered,
     propertyString: string,
 ): {
@@ -565,7 +566,7 @@ function parsePropertyString(
         if (parsed.some((v) => v === null)) {
             const parseFn = traits?.parse?.[name];
             if (parseFn) {
-                const resolved = parseFn(valueStr.trim());
+                const resolved = parseFn(valueStr.trim(), state);
                 if (resolved !== undefined) {
                     values[name] = resolved;
                     continue;
@@ -678,7 +679,7 @@ export function parseFields(
         throw new Error(`Unknown component "${componentName}"`);
     }
 
-    const result = parsePropertyString(registered, attrValue);
+    const result = parsePropertyString(state, registered, attrValue);
     if (result.errors.length > 0) {
         throw new Error(result.errors.join("\n"));
     }
@@ -744,7 +745,7 @@ export function formatFields(
     }
 
     const { component, traits } = registered;
-    const rawDefaults = traits?.defaults?.() ?? {};
+    const rawDefaults = traits?.defaults?.(state) ?? {};
     const defaults = normalizeFields(component, rawDefaults) as Record<string, number>;
     const format = traits?.format;
     const stripDefaults = options?.stripDefaults !== false;
@@ -846,7 +847,7 @@ export function formatFields(
 
         const formatFn = format?.[field];
         if (formatFn) {
-            const formatted = formatFn(value as number);
+            const formatted = formatFn(value as number, state);
             if (formatted !== undefined) {
                 parts.push(`${k}: ${formatted}`);
                 continue;

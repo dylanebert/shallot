@@ -1,6 +1,5 @@
 import { build, CharacterPlugin, InputPlugin, PhysicsPlugin } from "../../../src/index";
 import { Demo } from "../../../examples/first-person/src/demo";
-import { Compute } from "../../../src/engine/runtime";
 const FIXED_DT = 1 / 60;
 const NoCharacterSystem = { ...CharacterPlugin, name: "NoCharacterSystem", systems: [] };
 const VariantDemo = { ...Demo, name: "VariantDemo", dependencies: [PhysicsPlugin, NoCharacterSystem, InputPlugin], systems: [] };
@@ -13,7 +12,7 @@ export default async function create(scene: string) {
     const state = app.state;
     return {
         step: () => state.step(FIXED_DT),
-        wait: () => Compute.device.queue.onSubmittedWorkDone(),
+        wait: () => state.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

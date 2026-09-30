@@ -1,3 +1,4 @@
+import type { State } from "../../engine";
 // Subgroup-free radix sort — the LDS sibling of the Onesweep sort in sort.ts, selected
 // when the device has no `subgroups` (WebKit: Safari / WKWebView). Same contract as
 // {@link createRadixSort}: sorts (key, payload) u32 pairs ascending, stable, the sorted
@@ -27,7 +28,7 @@
 import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute } from "../../engine";
+
 import { precompile, precompileScope } from "../../engine/runtime";
 import type { RadixSort, RadixSortShared } from "./sort";
 
@@ -283,11 +284,12 @@ export function radixLdsWgsl(): {
  * contract; {@link createBvh} threads its shared buffers + count in.
  */
 export async function createRadixSortLds(
+    state: State,
     device: GPUDevice,
     maxKeys: number,
     shared: RadixSortShared = {},
 ): Promise<RadixSort> {
-    const root = Compute.root;
+    const root = state.gpu.root;
     const maxBlocks = Math.max(1, Math.ceil(maxKeys / EPW));
     if (maxBlocks > MAX_DISPATCH) {
         throw new Error(
@@ -390,19 +392,19 @@ export async function createRadixSortLds(
     );
 
     // per-sorter labels — an app can hold several sorters, and the queue rejects a duplicate label
-    const scope = precompileScope("radix-lds");
+    const scope = precompileScope(state, "radix-lds");
     for (const [label, bound] of [
         ["hist", histBound[0]],
         ["scan", scanL0],
         ["add", addBound],
         ["reorder", reorderBound[0]],
     ] as const) {
-        await precompile(`${scope}-${label}`, () => {
+        await precompile(state, `${scope}-${label}`, () => {
             return bound;
         });
     }
 
-    const span = (): GPUComputePassTimestampWrites | undefined => Compute.span?.("bvh:sort");
+    const span = (): GPUComputePassTimestampWrites | undefined => state.gpu.span?.("bvh:sort");
     const pass = (
         encoder: GPUCommandEncoder,
         bound: TgpuComputePipeline,

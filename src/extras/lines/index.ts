@@ -18,7 +18,7 @@ import {
     registerSurface,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, composeTransform, f32, formatHex, GlobalTransform, vec4 } from "../../engine";
+import { composeTransform, f32, formatHex, GlobalTransform, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
 import {
@@ -93,7 +93,7 @@ const _m = new Float32Array(16);
 function expandRetained(state: State): void {
     for (const eid of state.query([Line, GlobalTransform])) {
         if (!state.of(Line).visible.get(eid)) continue;
-        composeTransform(eid, _m);
+        composeTransform(state, eid, _m);
         const ox = state.of(Line).offset.x.get(eid);
         const oy = state.of(Line).offset.y.get(eid);
         const oz = state.of(Line).offset.z.get(eid);
@@ -105,11 +105,11 @@ function expandRetained(state: State): void {
         const ez = sz + _m[2] * ox + _m[6] * oy + _m[10] * oz;
         const w = state.of(Line).thickness.get(eid);
         const c = packColor(state.of(Line).color.get(eid), state.of(Line).opacity.get(eid));
-        push(sx, sy, sz, ex, ey, ez, w, c);
+        push(state, sx, sy, sz, ex, ey, ez, w, c);
         if (state.has(eid, Arrow)) {
             const size = state.of(Arrow).size.get(eid);
-            if (state.of(Arrow).end.get(eid)) head(ex, ey, ez, sx, sy, sz, size, w, c);
-            if (state.of(Arrow).start.get(eid)) head(sx, sy, sz, ex, ey, ez, size, w, c);
+            if (state.of(Arrow).end.get(eid)) head(state, ex, ey, ez, sx, sy, sz, size, w, c);
+            if (state.of(Arrow).start.get(eid)) head(state, sx, sy, sz, ex, ey, ez, size, w, c);
         }
     }
 }
@@ -121,18 +121,22 @@ const LinesSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     before: [PrepassSystem],
-    setup() {
-        Draws.register({
+    setup(state: State) {
+        state.resource(Draws).register({
             name: "lines",
             surface: "lines",
             mesh: "lineQuad",
-            args: { indirect: Lines.args! },
+            args: { indirect: state.resource(Lines).args! },
         });
     },
     update(state) {
-        if (!Compute.device || !ready()) return;
+        if (!state.gpu.device || !ready(state)) return;
         expandRetained(state);
-        flushSegments(Compute.device, Meshes.get("lineQuad")?.indexBase ?? 0);
+        flushSegments(
+            state,
+            state.gpu.device,
+            state.resource(Meshes).get("lineQuad")?.indexBase ?? 0,
+        );
     },
 };
 
@@ -167,8 +171,8 @@ export const LinesPlugin: Plugin = {
 
     initialize(state) {
         initializeSegmentState(state);
-        resetCount();
-        mesh({ name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        resetCount(state);
+        mesh(state, { name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
         registerSurface(state, {
             name: "lines",
             layout: lineLayout,
@@ -180,12 +184,12 @@ export const LinesPlugin: Plugin = {
         });
     },
 
-    warm() {
-        if (!Compute.device) return;
-        warmSegments(Compute.device);
+    warm(state: State) {
+        if (!state.gpu.device) return;
+        warmSegments(state, state.gpu.device);
     },
 
-    dispose() {
-        disposeSegments();
+    dispose(state: State) {
+        disposeSegments(state);
     },
 };

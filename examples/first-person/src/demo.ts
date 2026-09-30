@@ -20,8 +20,8 @@ import {
 function tune(state: State): void {
     for (const eid of state.query([Character])) {
         if (state.identity.id(eid) !== "player") continue;
-        Character.jumpSpeed.set(eid, 7);
-        Character.gravity.set(eid, -30);
+        state.of(Character).jumpSpeed.set(eid, 7);
+        state.of(Character).gravity.set(eid, -30);
     }
 }
 
@@ -156,9 +156,9 @@ export const Demo = {
         for (const eid of state.query([Lift, Body])) {
             const base = bag.liftCount * 3;
             bag.liftEids[bag.liftCount] = eid;
-            bag.liftBases[base] = Body.pos.x.get(eid);
-            bag.liftBases[base + 1] = Body.pos.y.get(eid);
-            bag.liftBases[base + 2] = Body.pos.z.get(eid);
+            bag.liftBases[base] = state.of(Body).pos.x.get(eid);
+            bag.liftBases[base + 1] = state.of(Body).pos.y.get(eid);
+            bag.liftBases[base + 2] = state.of(Body).pos.z.get(eid);
             bag.liftCount++;
         }
     },

@@ -1,3 +1,4 @@
+import type { State } from "../../engine";
 import {
     BodyType,
     createHull,
@@ -91,27 +92,35 @@ function attachShape(
  *  directly, both through a live `State` and by hand-authoring the same field values. Returns `null` when the
  *  body references an unregistered/unbuildable hull (the collider can't attach): it warns, destroys the empty
  *  body, and the caller skips this eid rather than letting the throw take down the frame loop. */
-export function marshalBody(world: SolverWorld, eid: number): SolverBody | null {
-    const kind = Body.shape.get(eid);
-    const mass = Body.mass.get(eid);
+export function marshalBody(state: State, world: SolverWorld, eid: number): SolverBody | null {
+    const kind = state.of(Body).shape.get(eid);
+    const mass = state.of(Body).mass.get(eid);
     const tb = world.createBody({
         type: bodyType(mass),
-        position: { x: Body.pos.x.get(eid), y: Body.pos.y.get(eid), z: Body.pos.z.get(eid) },
+        position: {
+            x: state.of(Body).pos.x.get(eid),
+            y: state.of(Body).pos.y.get(eid),
+            z: state.of(Body).pos.z.get(eid),
+        },
         rotation: {
-            v: { x: Body.quat.x.get(eid), y: Body.quat.y.get(eid), z: Body.quat.z.get(eid) },
-            s: Body.quat.w.get(eid),
+            v: {
+                x: state.of(Body).quat.x.get(eid),
+                y: state.of(Body).quat.y.get(eid),
+                z: state.of(Body).quat.z.get(eid),
+            },
+            s: state.of(Body).quat.w.get(eid),
         },
         userData: eid,
     });
     const attached = attachShape(
         tb,
         kind,
-        Body.halfExtents.x.get(eid),
-        Body.halfExtents.y.get(eid),
-        Body.halfExtents.z.get(eid),
-        Body.halfExtents.w.get(eid),
+        state.of(Body).halfExtents.x.get(eid),
+        state.of(Body).halfExtents.y.get(eid),
+        state.of(Body).halfExtents.z.get(eid),
+        state.of(Body).halfExtents.w.get(eid),
         mass,
-        Body.friction.get(eid),
+        state.of(Body).friction.get(eid),
     );
     if (!attached) {
         tb.destroy();

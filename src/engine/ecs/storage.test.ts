@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type Pair, type Quad, type Single } from "./component";
+import type { Pair, Quad, Single } from "./component";
 import { f32, State, vec2, vec4 } from "./index";
 import { WorldField } from "./storage";
 
@@ -84,17 +84,26 @@ test("resolving another world's storage cannot redirect retained or newly resolv
     expect(av.get(eid)).toBe(11);
     expect(a.of(Component).value.get(eid)).toBe(11);
     expect(b.of(Component).value.get(eid)).toBe(22);
+    let duringA: number[] = [];
+    a.addSystem({
+        update(state) {
+            duringA = [b.of(Component).value.get(eid), state.of(Component).value.get(eid)];
+        },
+    });
+    a.step();
+    expect(duringA).toEqual([22, 11]);
     expect("get" in Component.value).toBe(false);
     a.dispose();
     b.dispose();
 });
 
 // These declarations have metadata only; tsc must reject deleted schema-bound access.
-if (false) {
+function schemaBoundTypeControl(): void {
     const Component = { value: f32 };
     // @ts-expect-error resolve entity data through state.of(Component), not its declaration.
     Component.value.get(1);
 }
+void schemaBoundTypeControl;
 
 test("scalar and vector field writes reach columns without a temporary value array", () => {
     const Scalar = { value: f32 };

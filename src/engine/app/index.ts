@@ -13,7 +13,6 @@ import {
 } from "../ecs";
 import {
     type AdapterVerdict,
-    Compute,
     deviceLost,
     now,
     precompileAll,
@@ -22,8 +21,6 @@ import {
     requestFrame,
     requestGPU,
     validateGpu,
-    withCompute,
-    withComputeAsync,
 } from "../runtime";
 import { diagnose, load, parse } from "../scene";
 import { coalesce, frameDelta, median } from "./coalesce";
@@ -186,7 +183,7 @@ export async function warmPlugins(
 
         // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
         // so every registered pipeline is forced here — under the loading screen, not on frame one.
-        await precompileAll();
+        await precompileAll(state);
     };
 
     await validateGpu(device, "pipeline warm", warm);
@@ -199,7 +196,7 @@ function pluginHookError(plugin: Plugin, hook: "initialize" | "warm", error: unk
 
 // runaway backstop: the most frames the loop may run ahead of the GPU before skipping a step, so the CPU
 // can't queue unboundedly past a saturated GPU. Sized well above a present-throttled pipeline's depth —
-// `Compute.sync` counts frames by `onSubmittedWorkDone`, which is present-gated, so a 60Hz fullscreen
+// `state.gpu.sync` counts frames by `onSubmittedWorkDone`, which is present-gated, so a 60Hz fullscreen
 // throttle reads ~3 frames in flight with the GPU otherwise idle; a tighter cap would drop frames Chrome
 // is ready to present (the fullscreen-throttle judder). Per-present pacing is the double-fire `coalesce`,
 // not this; the bound engages only under sustained genuine GPU saturation.
@@ -307,11 +304,10 @@ async function buildNow(config: Config): Promise<App> {
         const compute = await requestGPU(config.device, features, preferred, config.adapter, {
             own: state.own.bind(state),
             resource: state.resource.bind(state),
-            world: state,
         });
-        state.attachGpu(compute, (callback) => withCompute(compute, callback));
+        state.attachGpu(compute);
         registerGlobalTransform(state);
-        if (Compute.adapter.class !== "real") loading?.notice?.(Compute.adapter);
+        if (state.gpu.adapter.class !== "real") loading?.notice?.(state.gpu.adapter);
 
         for (const plugin of sorted) {
             const components = plugin.components ?? {};
@@ -349,10 +345,10 @@ async function buildNow(config: Config): Promise<App> {
         const warmable = sorted.filter((p) => p.warm);
         const total = sorted.length + warmable.length + scenes.length;
 
-        withCompute(state.gpu, () => {
+        (() => {
             initializeGlobalTransform(state);
             config.setup?.(state);
-        });
+        })();
 
         for (let i = 0; i < sorted.length; i++) {
             const currentLoading = loading;
@@ -361,7 +357,7 @@ async function buildNow(config: Config): Promise<App> {
                 : undefined;
             initialized.push(sorted[i]);
             try {
-                await withComputeAsync(state.gpu, () => sorted[i].initialize?.(state, onProgress));
+                await sorted[i].initialize?.(state, onProgress);
             } catch (error) {
                 throw pluginHookError(sorted[i], "initialize", error);
             }
@@ -380,11 +376,9 @@ async function buildNow(config: Config): Promise<App> {
         const warmBase = sorted.length + scenes.length;
         // Fix component membership bit assignments before plugin warm.
         state.membership.freeze();
-        await withComputeAsync(state.gpu, () =>
-            warmPlugins(state.gpu.device, state, warmable, (progress) => {
-                loading?.update((warmBase + progress) / total);
-            }),
-        );
+        await warmPlugins(state.gpu.device, state, warmable, (progress) => {
+            loading?.update((warmBase + progress) / total);
+        });
 
         loading?.update(1);
         await loading?.complete?.();
@@ -404,7 +398,7 @@ async function buildNow(config: Config): Promise<App> {
                 try {
                     for (let i = sorted.length - 1; i >= 0; i--) {
                         try {
-                            withCompute(state.gpu, () => sorted[i].dispose?.(state));
+                            sorted[i].dispose?.(state);
                         } catch (err) {
                             console.error(`Plugin "${sorted[i].name}" threw during dispose:`, err);
                         }
@@ -426,7 +420,7 @@ async function buildNow(config: Config): Promise<App> {
         try {
             for (let i = initialized.length - 1; i >= 0; i--) {
                 try {
-                    withCompute(state.gpu, () => initialized[i].dispose?.(state));
+                    initialized[i].dispose?.(state);
                 } catch (err) {
                     console.error(`Plugin "${initialized[i].name}" threw during cleanup:`, err);
                 }
@@ -681,7 +675,7 @@ export async function swap(
     // and let the caller's rebuild fallback recover, never wedge on an unhandled throw
     for (const nextPlugin of nextByName.values()) {
         try {
-            await withComputeAsync(state.gpu, () => nextPlugin.initialize?.(state));
+            await nextPlugin.initialize?.(state);
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             return { ok: false, reason: `${nextPlugin.name}: initialize threw — ${msg}` };

@@ -123,8 +123,13 @@ function restoreClone<T>(
 export function snapshot(world: World): WorldSnapshot {
     const state = world.state;
     return {
-        state: clone(state, new Map(), snapshotStores(state)),
-        bytes: new Uint8Array(kernel().memory.buffer).slice(),
+        // The ECS owner is identity, not solver data; snapshots never clone or retain it.
+        state: clone(
+            state,
+            state.ecsState ? new Map<object, unknown>([[state.ecsState, null]]) : new Map(),
+            snapshotStores(state),
+        ),
+        bytes: new Uint8Array(kernel(world.state.ecsState).memory.buffer).slice(),
     };
 }
 
@@ -142,7 +147,7 @@ export function restore(world: World, snapshot: WorldSnapshot): void {
     if (!world.isValid())
         throw new Error("physics: cannot restore a snapshot because its target World is not live");
 
-    if (liveWorldCount(kernel()) > 1)
+    if (liveWorldCount(kernel(world.state.ecsState)) > 1)
         throw new Error(
             "physics: cannot restore a snapshot while other live Worlds share its kernel (WASM memory spans the whole kernel)",
         );
@@ -155,6 +160,7 @@ export function restore(world: World, snapshot: WorldSnapshot): void {
         broadPhase: state.broadPhase.store,
     }) as WorldState;
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
+    restored.ecsState = state.ecsState;
     restored.worldId = state.worldId;
     restored.generation = state.generation;
     restored.maxCapacity = state.maxCapacity;
@@ -166,7 +172,7 @@ export function restore(world: World, snapshot: WorldSnapshot): void {
         const descriptor = Object.getOwnPropertyDescriptor(restored, key);
         if (descriptor) Object.defineProperty(state, key, descriptor);
     }
-    const memory = kernel().memory;
+    const memory = kernel(world.state.ecsState).memory;
     while (memory.buffer.byteLength < snapshot.bytes.byteLength) memory.grow(1);
     new Uint8Array(memory.buffer).set(snapshot.bytes);
     state.broadPhase.store.world = state;

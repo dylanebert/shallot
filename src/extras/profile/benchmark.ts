@@ -1,5 +1,5 @@
 import type { State } from "../../engine";
-import { Compute } from "../../engine";
+
 import type { Profile } from "./index";
 
 /** one GPU pass, measured per-occurrence: the reliable unit for a mixed fixed/variable engine where a
@@ -314,7 +314,7 @@ export function createMeasure(state: State, profile: Profile) {
                         gpuTimeStart = new Map(profile.gpuTime);
                         gpuFiresStart = new Map(profile.gpuFires);
                         indirectCountStart = new Map(profile.indirectCount);
-                        frameStart = Compute?.frame ?? 0;
+                        frameStart = state.gpu?.frame ?? 0;
                         submitStart = profile.submitCount;
                     }
 
@@ -323,7 +323,7 @@ export function createMeasure(state: State, profile: Profile) {
                     fenceWaits.push(profile.fenceWaitMs);
                     if (state.time.throttled) clampedFrames++;
                     fixedStepCounts.push(state.time.fixedSteps);
-                    const fif = Compute?.pending?.() ?? 0;
+                    const fif = state.gpu?.pending?.() ?? 0;
                     if (fif > maxPending) maxPending = fif;
 
                     let cpuTotal = 0;
@@ -361,7 +361,7 @@ export function createMeasure(state: State, profile: Profile) {
                 const stepsPerFrame = mean(fixedStepCounts);
                 // engine frames elapsed in the window — the denominator for every engine-side cumulative
                 // counter (gpuTime, indirectCount, submitCount), distinct from the benchmark's own tick count
-                const dFrames = (Compute?.frame ?? 0) - frameStart;
+                const dFrames = (state.gpu?.frame ?? 0) - frameStart;
 
                 let frame: BenchmarkFrameStats | null = null;
                 if (frameTimes.length > 0) {

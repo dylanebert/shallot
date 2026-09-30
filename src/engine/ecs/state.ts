@@ -1,10 +1,10 @@
 import type * as d from "typegpu/data";
-import { ReadbackPool, releaseCompute } from "../runtime";
+import { ReadbackPool, type WorldGpu } from "../runtime";
 import {
-    freezeComponent,
     type Component,
     Components,
     fields,
+    freezeComponent,
     idOf,
     type Membership,
 } from "./component";
@@ -36,24 +36,6 @@ const INITIAL_CAPACITY = 16;
  * monitors re-sizes the backing. Set via `build({ pixelRatio })`.
  */
 export const pixelRatio: number | "auto" = "auto";
-
-export interface WorldGpu {
-    readonly device: GPUDevice;
-    readonly adapter: { class: string; identity: string; reason?: string };
-    readonly root: any;
-    frame: number;
-    pending(): number;
-    sync(): Promise<void>;
-    readonly buffers: Map<string, GPUBuffer>;
-    readonly textures: Map<string, GPUTexture>;
-    readonly samplers: Map<string, GPUSampler>;
-    readonly typed: Map<string, any>;
-    span?: (
-        name: string,
-    ) => GPUComputePassTimestampWrites | GPURenderPassTimestampWrites | undefined;
-    indirect?: (name: string, count: number) => void;
-    precompiled?: (label: string, start: number, end: number) => void;
-}
 
 /** A world-owned value identified by this declaration object, not its creator or a name. */
 export type Resource<T> = { readonly create: (state: State) => T };
@@ -114,7 +96,6 @@ export class State {
     private _controller: AbortController | undefined;
     private _disposed = false;
     private _gpu: WorldGpu | undefined;
-    private _withCompute: ((callback: () => void) => void) | undefined;
     private _gpuResources = new Set<{ destroy(): void }>();
 
     constructor(opts?: { pixelRatio?: number | "auto" }) {
@@ -128,9 +109,8 @@ export class State {
     }
 
     /** @internal attach this world's GPU context during build. */
-    attachGpu(compute: WorldGpu, withCompute: (callback: () => void) => void): void {
+    attachGpu(compute: WorldGpu): void {
         this._gpu = compute;
-        this._withCompute = withCompute;
     }
 
     /**
@@ -407,8 +387,7 @@ export class State {
         let stepped = false;
         this._stepping = true;
         try {
-            if (this._withCompute) this._withCompute(this._runStep);
-            else this._runStep();
+            this._runStep();
             stepped = true;
         } finally {
             this._stepping = false;
@@ -718,8 +697,7 @@ export class State {
             }
         }
         this._disposals.length = 0;
-        if (this._withCompute) this._withCompute(() => this._scheduler.dispose(this));
-        else this._scheduler.dispose(this);
+        this._scheduler.dispose(this);
         this._queries.clear();
         this._storage.clear();
         for (const table of this._tables.values()) table.dispose();
@@ -742,6 +720,5 @@ export class State {
         this._gpu?.textures.clear();
         this._gpu?.samplers.clear();
         this._gpu?.typed.clear();
-        releaseCompute(this);
     }
 }

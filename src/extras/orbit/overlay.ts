@@ -1,4 +1,4 @@
-import { devices } from "../../core/input";
+import { Devices } from "../../core/input";
 import { mountOverlay, type Plugin, type State, type System } from "../../engine";
 import { Orbit } from "./index";
 import { OrbitSmooth } from "./smooth";
@@ -102,7 +102,7 @@ const OrbitOverlaySystem: System = {
         }
 
         const speed = state.of(Orbit).flySpeed.get(flying);
-        const input = devices(state);
+        const input = state.resource(Devices);
         const shift = input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight");
         const elapsed = state.time.elapsed;
         if (_lastSpeed < 0)

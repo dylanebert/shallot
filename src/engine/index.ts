@@ -26,7 +26,6 @@ export {
     f16,
     f16x4,
     f32,
-    field,
     GlobalTransform,
     GpuTable,
     globalTransformTable,
@@ -58,7 +57,6 @@ export {
 export {
     type BufferProbe,
     type BufferProbeOptions,
-    Compute,
     checkStorageBinding,
     checkTextureLimits,
     checkTgsl,

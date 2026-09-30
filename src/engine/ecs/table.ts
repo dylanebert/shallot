@@ -727,7 +727,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             this._state.growGpuBuffer(previous, buffer);
         }
         this._buffer = buffer;
-        this._typed = this._state.gpu.root
+        this._typed = (this._state.gpu.root as any)
             .createBuffer(d.arrayOf(this.record, this._capacity), buffer)
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
         this._state.gpu.buffers.set(this.name, buffer);

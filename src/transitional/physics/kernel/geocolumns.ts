@@ -1,3 +1,4 @@
+import type { State } from "../../../engine";
 // Upload of interned convex hulls into the kernel's static geometry columns (kernel/src/geo.rs). The
 // narrowphase reads hull topology from wasm linear memory; TS owns hull construction (hull.ts) and the
 // interning database (world.ts `hullDatabase`), so on any change to the hull set it re-uploads every
@@ -41,7 +42,7 @@ export type UploadHull = Pick<
  * hull's `geoIndex` to its record index. A full rewrite — the pools are sized to the exact totals and
  * every hull's data is written fresh, so growth and renumbering need no in-place preservation.
  */
-export function uploadGeometry(hulls: UploadHull[]): void {
+export function uploadGeometry(state: State | undefined, hulls: UploadHull[]): void {
     let verts = 0;
     let edges = 0;
     let faces = 0;
@@ -51,7 +52,7 @@ export function uploadGeometry(hulls: UploadHull[]): void {
         faces += h.faceCount;
     }
 
-    const k = kernel();
+    const k = kernel(state);
     k.reserveGeometry(hulls.length, verts, edges, faces);
     const buf = k.memory.buffer;
     const layout = new Uint32Array(buf, k.geoLayoutPtr(), N_GEO);
@@ -127,5 +128,5 @@ export function rebuildGeometry(world: WorldState): void {
     for (const entry of world.hullDatabase.values()) {
         hulls.push(entry.hull);
     }
-    uploadGeometry(hulls);
+    uploadGeometry(world.ecsState, hulls);
 }

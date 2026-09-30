@@ -2,7 +2,7 @@ import { build, Camera, Sear, Transform, AmbientLight, PointLight, Part, Color }
 import { Render } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
-import { withCompute } from "../../src/engine/runtime";
+
 
 export let controlSink: object;
 export function control() { controlSink = { frame: 0 }; }
@@ -33,7 +33,7 @@ export default async function create(_input = "", device?: GPUDevice) {
     const light = state.create(); state.add(light, Transform); state.add(light, PointLight);
     const part = state.create(); state.add(part, Transform); state.add(part, Part); state.add(part, Color);
     state.step(1 / 60);
-    if (withCompute(state.gpu, () => Render.shadeCount) === 0) throw new Error("allocation subject did not render a shaded view");
+    if (state.resource(Render).shadeCount === 0) throw new Error("allocation subject did not render a shaded view");
     return {
         state,
         step: () => { if (validation) throw validation; state.step(1 / 60); },

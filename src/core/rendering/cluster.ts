@@ -2,8 +2,8 @@ import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } fro
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
-import { Compute, globalTransformTable } from "../../engine";
-import { precompile, probeBuffer, worldResource } from "../../engine/runtime";
+import { globalTransformTable } from "../../engine";
+import { precompile, probeBuffer } from "../../engine/runtime";
 import {
     idiv,
     octEncodeNormal,
@@ -78,8 +78,8 @@ function createClusterGpuState(): ClusterGpuState {
     };
 }
 
-function clusterGpu(): ClusterGpuState {
-    return worldResource(clusterGpuKey);
+function _clusterGpu(state: State): ClusterGpuState {
+    return state.resource(clusterGpuKey);
 }
 
 const LightInput = d
@@ -124,16 +124,6 @@ export function initializeClusterState(state: State): void {
     table.bindPresence(Volumetric, "flags", LIGHT_VOLUMETRIC);
 }
 
-const _gpu = new Proxy({} as Omit<ClusterGpuState, "clusters" | "lightCull">, {
-    get(_target, key) {
-        return clusterGpu()[key as keyof ClusterGpuState] as never;
-    },
-    set(_target, key, value) {
-        (clusterGpu() as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
-
 // The froxel cluster substrate: the grid (per-view view-space cluster AABBs)
 // and the per-frame light passes that bin into it (compact + cull, below) —
 // what sear's clustered loop reads and what volumetric fog / decals / probes
@@ -168,17 +158,17 @@ export interface ClusterView {
 }
 
 /** the camera entity's {@link ClusterView}, from its Camera fields + the view aspect */
-export function clusterView(eid: number, aspect: number): ClusterView {
-    const perspective = Camera.mode.get(eid) !== CameraMode.Orthographic;
+export function clusterView(state: State, eid: number, aspect: number): ClusterView {
+    const perspective = state.of(Camera).mode.get(eid) !== CameraMode.Orthographic;
     const halfH = perspective
-        ? Math.tan((Camera.fov.get(eid) * Math.PI) / 360)
-        : Camera.size.get(eid);
+        ? Math.tan((state.of(Camera).fov.get(eid) * Math.PI) / 360)
+        : state.of(Camera).size.get(eid);
     return {
         perspective,
         halfW: halfH * aspect,
         halfH,
-        near: Camera.near.get(eid),
-        far: Camera.far.get(eid),
+        near: state.of(Camera).near.get(eid),
+        far: state.of(Camera).far.get(eid),
     };
 }
 
@@ -305,7 +295,7 @@ const CLUSTER_VIEW_FLOATS = 8;
 /**
  * GPU cluster substrate. `aabbs` holds each cluster's view-space AABB as two
  * `vec4<f32>` (min, max; w unused), slot-major at
- * `(slot · CLUSTER_COUNT + cluster) · 2`, published to `Compute.buffers` as
+ * `(slot · CLUSTER_COUNT + cluster) · 2`, published to `state.gpu.buffers` as
  * `"clusterAabbs"`. Rebuilt by {@link ClusterSystem} only when a view's
  * projection changes
  * @expand
@@ -317,24 +307,23 @@ export interface Clusters {
     last: Float32Array;
 }
 
-export const Clusters: Clusters = new Proxy({} as Clusters, {
-    get(_target, key) {
-        return clusterGpu().clusters[key as keyof Clusters];
-    },
-    set(_target, key, value) {
-        (clusterGpu().clusters as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
+export const Clusters: import("../../engine").Resource<Clusters> = {
+    create: (state) => state.resource(clusterGpuKey).clusters,
+};
 
 /**
  * pack a camera's {@link ClusterView} into the staging slot, called per view by
  * `BeginFrameSystem`, which reuses the returned view for the View.cluster pack
  */
-export function packClusterView(eid: number, aspect: number, slot: number): ClusterView {
-    const v = clusterView(eid, aspect);
+export function packClusterView(
+    state: State,
+    eid: number,
+    aspect: number,
+    slot: number,
+): ClusterView {
+    const v = clusterView(state, eid, aspect);
     const o = slot * CLUSTER_VIEW_FLOATS;
-    const s = Clusters.staging;
+    const s = state.resource(Clusters).staging;
     s[o] = v.halfW;
     s[o + 1] = v.halfH;
     s[o + 2] = v.near;
@@ -412,31 +401,35 @@ export function gridWgsl(): string {
  */
 export const ClusterSystem: System = {
     group: "draw",
-    update() {
-        if (!Render.encoder || !_gpu.pipe || Render.shadeCount === 0) return;
-        const used = Render.shadeCount * CLUSTER_VIEW_FLOATS;
+    update(state: State) {
+        const _render = state.resource(Render);
+        const _clusterGpu = state.resource(clusterGpuKey);
+        const _clusters = state.resource(Clusters);
+
+        if (!_render.encoder || !_clusterGpu.pipe || _render.shadeCount === 0) return;
+        const used = _render.shadeCount * CLUSTER_VIEW_FLOATS;
         let changed = false;
         for (let i = 0; i < used; i++) {
-            if (Clusters.staging[i] !== Clusters.last[i]) {
+            if (_clusters.staging[i] !== _clusters.last[i]) {
                 changed = true;
                 break;
             }
         }
         if (!changed) return;
-        Clusters.last.set(Clusters.staging.subarray(0, used));
-        Compute.device.queue.writeBuffer(
-            Clusters.views!,
+        _clusters.last.set(_clusters.staging.subarray(0, used));
+        state.gpu.device.queue.writeBuffer(
+            _clusters.views!,
             0,
-            Clusters.staging as Float32Array<ArrayBuffer>,
+            _clusters.staging as Float32Array<ArrayBuffer>,
             0,
             used,
         );
-        _gpu.gridPass.timestampWrites = Compute.span?.("cluster:aabbs");
-        const grid = bindGrid();
-        const pass = Render.encoder.beginComputePass(_gpu.gridPass);
+        _clusterGpu.gridPass.timestampWrites = state.gpu.span?.("cluster:aabbs");
+        const grid = bindGrid(state);
+        const pass = _render.encoder.beginComputePass(_clusterGpu.gridPass);
         pass.setPipeline(grid.pipeline);
         pass.setBindGroup(0, grid.group);
-        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
+        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
         pass.end();
     },
 };
@@ -446,51 +439,58 @@ export const ClusterSystem: System = {
 // bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
 // this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
 // a wiring bug and throws, never a silently skipped frame
-function bindGrid(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
-    if (_gpu.bound) return _gpu.bound;
-    if (!_gpu.pipe || !_gpu.typedViews || !_gpu.typedAabbs)
+function bindGrid(state: State): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
+    const _clusterGpu = state.resource(clusterGpuKey);
+
+    if (_clusterGpu.bound) return _clusterGpu.bound;
+    if (!_clusterGpu.pipe || !_clusterGpu.typedViews || !_clusterGpu.typedAabbs)
         throw new Error("[render] cluster grid used before warmClusters");
-    _gpu.bound = {
-        pipeline: Compute.root.unwrap(_gpu.pipe),
-        group: Compute.root.unwrap(
-            Compute.root.createBindGroup(gridLayout, {
-                clusterViews: _gpu.typedViews,
-                aabbs: _gpu.typedAabbs,
+    _clusterGpu.bound = {
+        pipeline: state.gpu.root.unwrap(_clusterGpu.pipe),
+        group: state.gpu.root.unwrap(
+            state.gpu.root.createBindGroup(gridLayout, {
+                clusterViews: _clusterGpu.typedViews,
+                aabbs: _clusterGpu.typedAabbs,
             }),
         ),
     };
-    return _gpu.bound;
+    return _clusterGpu.bound;
 }
 
 /** allocate the cluster buffers + compile the AABB-build pipeline */
-export function warmClusters(): void {
-    if (!Compute.device) return;
-    const root = Compute.root;
-    Clusters.last.fill(0);
-    _gpu.bound = null;
+export function warmClusters(state: State): void {
+    const _clusters = state.resource(Clusters);
+    const _clusterGpu = state.resource(clusterGpuKey);
 
-    _gpu.typedViews = root
+    if (!state.gpu.device) return;
+    const root = state.gpu.root;
+    _clusters.last.fill(0);
+    _clusterGpu.bound = null;
+
+    _clusterGpu.typedViews = root
         .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * (CLUSTER_VIEW_FLOATS / 4)))
         .$usage("storage")
         .$name("shallot-cluster-views");
-    Clusters.views = root.unwrap(_gpu.typedViews);
+    _clusters.views = root.unwrap(_clusterGpu.typedViews);
     // typegpu grants COPY_SRC on every buffer it creates, which is what a requested readback
     // reads the AABBs back through
-    _gpu.typedAabbs = root
+    _clusterGpu.typedAabbs = root
         .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * CLUSTER_COUNT * 2))
         .$usage("storage")
         .$name("shallot-cluster-aabbs");
-    Clusters.aabbs = root.unwrap(_gpu.typedAabbs);
-    Compute.buffers.set("clusterAabbs", Clusters.aabbs);
-    Compute.typed.set("clusterAabbs", _gpu.typedAabbs);
+    _clusters.aabbs = root.unwrap(_clusterGpu.typedAabbs);
+    state.gpu.buffers.set("clusterAabbs", _clusters.aabbs);
+    state.gpu.typed.set("clusterAabbs", _clusterGpu.typedAabbs);
 
-    _gpu.pipe = root.createComputePipeline({ compute: gridKernel }).$name("shallot-cluster-aabbs");
+    _clusterGpu.pipe = root
+        .createComputePipeline({ compute: gridKernel })
+        .$name("shallot-cluster-aabbs");
     // the bind is deferred into the forcer: it runs after every plugin's warm
     // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
-    precompile("shallot-cluster-aabbs", () => {
+    precompile(state, "shallot-cluster-aabbs", () => {
         // the raw pipeline, already unwrapped for the dispatch: the forcer's raw-pipeline shape, which
         // Dawn compiles on the drain like any other
-        return [bindGrid().pipeline];
+        return [bindGrid(state).pipeline];
     });
 }
 
@@ -532,15 +532,9 @@ export interface LightCull {
     viewStaging: Float32Array;
 }
 
-export const LightCull: LightCull = new Proxy({} as LightCull, {
-    get(_target, key) {
-        return clusterGpu().lightCull[key as keyof LightCull];
-    },
-    set(_target, key, value) {
-        (clusterGpu().lightCull as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
+export const LightCull: import("../../engine").Resource<LightCull> = {
+    create: (state) => state.resource(clusterGpuKey).lightCull,
+};
 
 const compactLayout = tgpu
     .bindGroupLayout({
@@ -735,25 +729,27 @@ export function lightCullWgsl(): { compact: string; cull: string } {
 
 // Keep bind groups until a table buffer generation changes; row membership alone never rebuilds one.
 function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
-    if (!_gpu.compactPipe || !_gpu.typedLights || !_gpu.lightCountBuffer)
+    const _clusterGpu = state.resource(clusterGpuKey);
+
+    if (!_clusterGpu.compactPipe || !_clusterGpu.typedLights || !_clusterGpu.lightCountBuffer)
         throw new Error("[render] light compact used before warmLightCull");
     const lights = lightInputTable(state);
     const globalTransforms = globalTransformTable(state);
-    const generation = _gpu.compactGeneration;
+    const generation = _clusterGpu.compactGeneration;
     if (
-        _gpu.compactBound &&
+        _clusterGpu.compactBound &&
         generation[0] === lights.generation &&
         generation[1] === lights.activeGeneration &&
         generation[2] === globalTransforms.generation &&
         generation[3] === globalTransforms.mapGeneration
     )
-        return _gpu.compactBound;
+        return _clusterGpu.compactBound;
     const inputs = {
         lightRows: lights.activeRowsBuffer,
         lightInput: lights.buffer,
         globalTransforms: globalTransforms.buffer,
         globalTransformRows: globalTransforms.eidToRowBuffer,
-        lightCount: _gpu.lightCountBuffer,
+        lightCount: _clusterGpu.lightCountBuffer,
     };
     const missing = Object.entries(inputs)
         .filter(([, buffer]) => !buffer)
@@ -761,12 +757,12 @@ function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBi
     if (missing.length > 0) {
         throw new Error(`[render] light compact table inputs missing (${missing.join(", ")})`);
     }
-    _gpu.compactBound = {
-        pipeline: Compute.root.unwrap(_gpu.compactPipe),
-        group: Compute.root.unwrap(
-            Compute.root.createBindGroup(compactLayout, {
+    _clusterGpu.compactBound = {
+        pipeline: state.gpu.root.unwrap(_clusterGpu.compactPipe),
+        group: state.gpu.root.unwrap(
+            state.gpu.root.createBindGroup(compactLayout, {
                 ...(inputs as Required<{ [K in keyof typeof inputs]: GPUBuffer }>),
-                lights: _gpu.typedLights,
+                lights: _clusterGpu.typedLights,
             }),
         ),
     };
@@ -774,29 +770,32 @@ function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBi
     generation[1] = lights.activeGeneration;
     generation[2] = globalTransforms.generation;
     generation[3] = globalTransforms.mapGeneration;
-    return _gpu.compactBound;
+    return _clusterGpu.compactBound;
 }
 
-function bindCull(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
-    if (_gpu.cullBound) return _gpu.cullBound;
-    if (!_gpu.cullPipe || !_gpu.typedAabbs || !LightCull.lights)
+function bindCull(state: State): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
+    const _clusterGpu = state.resource(clusterGpuKey);
+    const _lightCull = state.resource(LightCull);
+
+    if (_clusterGpu.cullBound) return _clusterGpu.cullBound;
+    if (!_clusterGpu.cullPipe || !_clusterGpu.typedAabbs || !_lightCull.lights)
         throw new Error("[render] light cull used before warmLightCull");
     // the light list binds RAW here and typed in the compact group: same buffer, two schemas (the
     // writer's count word is atomic, which WGSL forbids in a read-only binding — `PointLightsRw` vs
     // `PointLights`, layouts pinned equal in lighting.test.ts)
-    _gpu.cullBound = {
-        pipeline: Compute.root.unwrap(_gpu.cullPipe),
-        group: Compute.root.unwrap(
-            Compute.root.createBindGroup(cullLayout, {
-                aabbs: _gpu.typedAabbs,
-                lights: LightCull.lights,
-                viewMats: LightCull.viewMats!,
-                grid: LightCull.grid!,
-                pool: LightCull.indices!,
+    _clusterGpu.cullBound = {
+        pipeline: state.gpu.root.unwrap(_clusterGpu.cullPipe),
+        group: state.gpu.root.unwrap(
+            state.gpu.root.createBindGroup(cullLayout, {
+                aabbs: _clusterGpu.typedAabbs,
+                lights: _lightCull.lights,
+                viewMats: _lightCull.viewMats!,
+                grid: _lightCull.grid!,
+                pool: _lightCull.indices!,
             }),
         ),
     };
-    return _gpu.cullBound;
+    return _clusterGpu.cullBound;
 }
 
 /** Request the latest submitted light-pool overflow count for diagnostics.
@@ -830,29 +829,38 @@ export async function requestLightOverflow(state: State) {
 export const LightCullSystem: System = {
     group: "draw",
     update(state) {
-        if (!Render.encoder || !_gpu.compactPipe || !_gpu.cullPipe || Render.shadeCount === 0)
+        const _render = state.resource(Render);
+        const _clusterGpu = state.resource(clusterGpuKey);
+        const _lightCull = state.resource(LightCull);
+
+        if (
+            !_render.encoder ||
+            !_clusterGpu.compactPipe ||
+            !_clusterGpu.cullPipe ||
+            _render.shadeCount === 0
+        )
             return;
         warnLightOverflow(state);
 
-        Compute.device.queue.writeBuffer(
-            LightCull.viewMats!,
+        state.gpu.device.queue.writeBuffer(
+            _lightCull.viewMats!,
             0,
-            LightCull.viewStaging as Float32Array<ArrayBuffer>,
+            _lightCull.viewStaging as Float32Array<ArrayBuffer>,
             0,
-            Render.shadeCount * 16,
+            _render.shadeCount * 16,
         );
-        Render.encoder.clearBuffer(LightCull.lights!, 0, 16);
-        Render.encoder.clearBuffer(LightCull.indices!, 0, POOL_HEADER * 4);
-        _gpu.cullPass.timestampWrites = Compute.span?.("light:cull");
+        _render.encoder.clearBuffer(_lightCull.lights!, 0, 16);
+        _render.encoder.clearBuffer(_lightCull.indices!, 0, POOL_HEADER * 4);
+        _clusterGpu.cullPass.timestampWrites = state.gpu.span?.("light:cull");
         const lightCount = lightInputTable(state).count;
-        if (lightCount !== _gpu.lightCountValue) {
+        if (lightCount !== _clusterGpu.lightCountValue) {
             lightCountData[0] = lightCount;
-            Compute.device.queue.writeBuffer(_gpu.lightCountBuffer!, 0, lightCountData);
-            _gpu.lightCountValue = lightCount;
+            state.gpu.device.queue.writeBuffer(_clusterGpu.lightCountBuffer!, 0, lightCountData);
+            _clusterGpu.lightCountValue = lightCount;
         }
         const compact = lightCount > 0 ? bindCompact(state) : null;
-        const cull = bindCull();
-        const pass = Render.encoder.beginComputePass(_gpu.cullPass);
+        const cull = bindCull(state);
+        const pass = _render.encoder.beginComputePass(_clusterGpu.cullPass);
         if (compact) {
             pass.setPipeline(compact.pipeline);
             pass.setBindGroup(0, compact.group);
@@ -860,65 +868,73 @@ export const LightCullSystem: System = {
         }
         pass.setPipeline(cull.pipeline);
         pass.setBindGroup(0, cull.group);
-        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
+        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
         pass.end();
     },
 };
 
 /** allocate the light-cull buffers + compile the compact and cull pipelines */
 export function warmLightCull(state: State): void {
-    if (!Compute.device) return;
-    const device = Compute.device;
-    const root = Compute.root;
-    _gpu.compactBound = null;
-    _gpu.compactGeneration.fill(-1);
-    _gpu.cullBound = null;
+    const _clusterGpu = state.resource(clusterGpuKey);
+    const _lightCull = state.resource(LightCull);
 
-    _gpu.typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("shallot-lights");
-    LightCull.lights = root.unwrap(_gpu.typedLights);
+    if (!state.gpu.device) return;
+    const device = state.gpu.device;
+    const root = state.gpu.root;
+    _clusterGpu.compactBound = null;
+    _clusterGpu.compactGeneration.fill(-1);
+    _clusterGpu.cullBound = null;
+
+    _clusterGpu.typedLights = root
+        .createBuffer(PointLightsRw)
+        .$usage("storage")
+        .$name("shallot-lights");
+    _lightCull.lights = root.unwrap(_clusterGpu.typedLights);
     // COPY_SRC throughout for requested readback (typegpu grants it on the
     // buffers it creates)
-    LightCull.grid = device.createBuffer({
+    _lightCull.grid = device.createBuffer({
         label: "shallot-light-grid",
         size: MAX_VIEWS * CLUSTER_COUNT * 8,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
-    LightCull.indices = device.createBuffer({
+    _lightCull.indices = device.createBuffer({
         label: "shallot-light-indices",
         size: (POOL_HEADER + LIGHT_POOL) * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
-    LightCull.viewMats = device.createBuffer({
+    _lightCull.viewMats = device.createBuffer({
         label: "shallot-light-views",
         size: MAX_VIEWS * 64,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    _gpu.lightCountBuffer = device.createBuffer({
+    _clusterGpu.lightCountBuffer = device.createBuffer({
         label: "shallot-light-count",
         size: 4,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    _gpu.lightCountValue = -1;
-    Compute.buffers.set("lightGrid", LightCull.grid);
-    Compute.buffers.set("lightIndices", LightCull.indices);
-    Compute.buffers.set("lightCount", _gpu.lightCountBuffer);
-    Compute.typed.set(
+    _clusterGpu.lightCountValue = -1;
+    state.gpu.buffers.set("lightGrid", _lightCull.grid);
+    state.gpu.buffers.set("lightIndices", _lightCull.indices);
+    state.gpu.buffers.set("lightCount", _clusterGpu.lightCountBuffer);
+    state.gpu.typed.set(
         "lightGrid",
         root
-            .createBuffer(d.arrayOf(d.vec2u, MAX_VIEWS * CLUSTER_COUNT), LightCull.grid)
+            .createBuffer(d.arrayOf(d.vec2u, MAX_VIEWS * CLUSTER_COUNT), _lightCull.grid)
             .$usage("storage"),
     );
-    Compute.typed.set(
+    state.gpu.typed.set(
         "lightIndices",
         root
-            .createBuffer(d.arrayOf(d.u32, POOL_HEADER + LIGHT_POOL), LightCull.indices)
+            .createBuffer(d.arrayOf(d.u32, POOL_HEADER + LIGHT_POOL), _lightCull.indices)
             .$usage("storage"),
     );
 
-    _gpu.compactPipe = root
+    _clusterGpu.compactPipe = root
         .createComputePipeline({ compute: compactKernel() })
         .$name("shallot-light-compact");
-    _gpu.cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("shallot-light-cull");
-    precompile("shallot-light-compact", () => [bindCompact(state).pipeline]);
-    precompile("shallot-light-cull", () => [bindCull().pipeline]);
+    _clusterGpu.cullPipe = root
+        .createComputePipeline({ compute: cullKernel })
+        .$name("shallot-light-cull");
+    precompile(state, "shallot-light-compact", () => [bindCompact(state).pipeline]);
+    precompile(state, "shallot-light-cull", () => [bindCull(state).pipeline]);
 }

@@ -1,5 +1,4 @@
 import type { State } from "../../engine";
-import { worldResource } from "../../engine/runtime";
 
 /**
  * device-level render state owned by `RenderPlugin`. `encoder` is the frame's
@@ -15,7 +14,7 @@ import { worldResource } from "../../engine/runtime";
  * (shading + depth-only), unchanged — the writer sources each shading slot's
  * 208 B from the same subrange it always did. `cullVolumes` packs one per-slot cull
  * volume per active view (a tagged descriptor carrying a frustum's six clip-space planes;
- * published to `Compute.buffers` as `"cullVolumes"`); a GPU cull pass tests instance bounds
+ * published to `state.gpu.buffers` as `"cullVolumes"`); a GPU cull pass tests instance bounds
  * for `cullVolumes[slot]`.
  * `viewCount` is how many slots `BeginFrameSystem` populated this frame: the
  * view dimension a producer's cull dispatches over. `shadeCount` is the shading
@@ -58,13 +57,7 @@ export function initializeRenderState(state: State): void {
     state.resource(renderKey);
 }
 
-/** Active world's render state. Systems run inside their State's GPU callback. */
-export const Render: Render = new Proxy({} as Render, {
-    get(_target, key) {
-        return worldResource<Render>(renderKey)[key as keyof Render];
-    },
-    set(_target, key, value) {
-        (worldResource<Render>(renderKey) as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
+/** World-owned rendering state, resolved with `state.resource(Render)`. */
+export const Render: import("../../engine").Resource<Render> = {
+    create: (state) => state.resource(renderKey),
+};

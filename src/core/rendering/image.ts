@@ -13,8 +13,7 @@
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute, checkTextureLimits, type State } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+import { checkTextureLimits, type State } from "../../engine";
 
 /** mip levels for a square texture of `size` px: the full chain down to 1×1. */
 export function mipLevels(size: number): number {
@@ -67,11 +66,11 @@ const blitFs = tgpu.fragmentFn({
 
 // pipelines bind to the root that created them (device-scoped, memoized — `engine/runtime/gpu.ts`), so a
 // stale entry from a torn-down device must not be reused; keyed like the pre-port cache, by format alone
-// (the per-device root memo means `Compute.root` always matches whichever device is currently adopted).
+// (the per-device root memo means `state.gpu.root` always matches whichever device is currently adopted).
 const blitPipelinesKey = { create: () => new Map<string, TgpuRenderPipeline>() };
 
-function blitPipelines(): Map<string, TgpuRenderPipeline> {
-    return worldResource(blitPipelinesKey);
+function blitPipelines(state: State): Map<string, TgpuRenderPipeline> {
+    return state.resource(blitPipelinesKey);
 }
 
 /** Create this world's image pipeline cache during RenderPlugin initialization. */
@@ -79,10 +78,10 @@ export function initializeImageState(state: State): void {
     state.resource(blitPipelinesKey);
 }
 
-function blitPipeline(format: GPUTextureFormat): TgpuRenderPipeline {
-    const cached = blitPipelines().get(format);
+function blitPipeline(state: State, format: GPUTextureFormat): TgpuRenderPipeline {
+    const cached = blitPipelines(state).get(format);
     if (cached) return cached;
-    const pipeline = Compute.root
+    const pipeline = state.gpu.root
         .createRenderPipeline({
             vertex: blitVs,
             fragment: blitFs,
@@ -90,7 +89,7 @@ function blitPipeline(format: GPUTextureFormat): TgpuRenderPipeline {
             primitive: { topology: "triangle-list" },
         })
         .$name("image-mipmap");
-    blitPipelines().set(format, pipeline);
+    blitPipelines(state).set(format, pipeline);
     return pipeline;
 }
 
@@ -104,6 +103,7 @@ export function blitWgsl(): string {
 // Sampling decodes sRGB→linear and the store re-encodes, so the downsample averages in linear (gamma-correct).
 // Per-layer so a staged builder can budget a layer's blit chain as one frame's unit (the union upload spread).
 function genMipmapsLayer(
+    state: State,
     device: GPUDevice,
     texture: GPUTexture,
     layer: number,
@@ -111,7 +111,7 @@ function genMipmapsLayer(
     format: GPUTextureFormat,
 ): void {
     if (levels <= 1) return;
-    const pipeline = blitPipeline(format);
+    const pipeline = blitPipeline(state, format);
     const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     const encoder = device.createCommandEncoder({ label: "image-mipmap" });
     const sub = (level: number) =>
@@ -123,7 +123,7 @@ function genMipmapsLayer(
             arrayLayerCount: 1,
         });
     for (let level = 1; level < levels; level++) {
-        const group = Compute.root.createBindGroup(blitLayout, {
+        const group = state.gpu.root.createBindGroup(blitLayout, {
             src: sub(level - 1),
             samp: sampler,
         });
@@ -143,9 +143,10 @@ function genMipmapsLayer(
  *
  * @example
  * const atlas = await imageArray(device, blobs);
- * Compute.textures.set("spriteAtlas", atlas);
+ * state.gpu.textures.set("spriteAtlas", atlas);
  */
 export async function imageArray(
+    state: State,
     device: GPUDevice,
     blobs: Blob[],
     cap = 2048,
@@ -156,7 +157,7 @@ export async function imageArray(
     const native = await Promise.all(
         blobs.map((b) => createImageBitmap(b, { premultiplyAlpha: "none" })),
     );
-    return arrayFromBitmaps(device, native, cap, format);
+    return arrayFromBitmaps(state, device, native, cap, format);
 }
 
 /**
@@ -196,6 +197,7 @@ export function allocArray(
  * frame; the synchronous-uploading {@link arrayFromBitmaps} loops it.
  */
 export async function uploadLayer(
+    state: State,
     device: GPUDevice,
     texture: GPUTexture,
     bitmap: ImageBitmap,
@@ -218,7 +220,7 @@ export async function uploadLayer(
         { texture, origin: { x: 0, y: 0, z: layer } },
         { width: size, height: size },
     );
-    genMipmapsLayer(device, texture, layer, levels, format);
+    genMipmapsLayer(state, device, texture, layer, levels, format);
 }
 
 /**
@@ -228,6 +230,7 @@ export async function uploadLayer(
  * decodes its own way. Synchronous-uploading; the glTF union stages the same primitives across frames instead.
  */
 export async function arrayFromBitmaps(
+    state: State,
     device: GPUDevice,
     native: ImageBitmap[],
     cap = 2048,
@@ -240,7 +243,7 @@ export async function arrayFromBitmaps(
     const levels = mipLevels(size);
     const texture = allocArray(device, size, native.length, levels, format);
     for (let layer = 0; layer < native.length; layer++) {
-        await uploadLayer(device, texture, native[layer], layer, size, levels, format);
+        await uploadLayer(state, device, texture, native[layer], layer, size, levels, format);
     }
     return texture;
 }

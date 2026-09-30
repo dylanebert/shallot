@@ -189,8 +189,13 @@ function rayCastCallback(ctx: RayCastContext, input: RayCastInput, userData: num
 
     if (output.hit) {
         const point = offsetPos(ctx.origin, output.point);
-        const materialIndex = clampInt(output.materialIndex, 0, getShapeMaterialCount(shape) - 1);
-        const userMaterialId = getShapeMaterials(shape)[materialIndex].userMaterialId;
+        const materialIndex = clampInt(
+            output.materialIndex,
+            0,
+            getShapeMaterialCount(world.ecsState, shape) - 1,
+        );
+        const userMaterialId = getShapeMaterials(world.ecsState, shape)[materialIndex]
+            .userMaterialId;
         const fraction = ctx.fcn(
             shapeId(world, shape),
             point,
@@ -364,9 +369,10 @@ export function castShape(
             const materialIndex = clampInt(
                 output.materialIndex,
                 0,
-                getShapeMaterialCount(shape) - 1,
+                getShapeMaterialCount(world.ecsState, shape) - 1,
             );
-            const userMaterialId = getShapeMaterials(shape)[materialIndex].userMaterialId;
+            const userMaterialId = getShapeMaterials(world.ecsState, shape)[materialIndex]
+                .userMaterialId;
             const fraction = fcn(
                 shapeId(world, shape),
                 offsetPos(origin, output.point),

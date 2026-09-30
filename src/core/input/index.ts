@@ -168,7 +168,16 @@ interface BrowserAdapter {
     lockMove: (e: MouseEvent) => void;
 }
 
-const records = new WeakMap<State, DeviceRecord>();
+/** This world's input devices; available without DOM or InputPlugin setup. */
+export const Devices: import("../../engine").Resource<Devices> = {
+    create(state) {
+        const devices = emptyRecord();
+        state.onDispose(() => {
+            devices.requireLock = false;
+        });
+        return devices;
+    },
+};
 const adapters = new WeakMap<State, BrowserAdapter>();
 
 const DEFAULT_MOUSE: Mouse = {
@@ -215,18 +224,8 @@ function emptyRecord(): DeviceRecord {
     };
 }
 
-/** Return the device record belonging to `state`. No DOM or plugin setup is required. */
-export function devices(state: State): Devices {
-    let record = records.get(state);
-    if (!record) {
-        record = emptyRecord();
-        records.set(state, record);
-    }
-    return record;
-}
-
 function record(state: State): DeviceRecord {
-    return devices(state) as DeviceRecord;
+    return state.resource(Devices) as DeviceRecord;
 }
 
 const lockOwners = new WeakMap<HTMLCanvasElement, BrowserAdapter>();

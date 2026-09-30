@@ -1,6 +1,5 @@
 import type { LazyAlloc, Plugin, State, System } from "../../engine";
-import { Compute, mountOverlay } from "../../engine";
-import { currentWorld } from "../../engine/runtime";
+import { mountOverlay } from "../../engine";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
 import { reorderRows } from "./reorder";
 
@@ -52,7 +51,7 @@ export interface Profile {
      *  instead, which return before the driver finishes compiling — so a typed pipeline's duration is
      *  near-zero and not trustworthy on its own, only its presence is (the pipeline-count golden this
      *  table backs). Where a `precompile` forcer also wraps that same
-     *  pipeline, its later `Compute.precompiled` completion measurement (an error-scope wrap, not a
+     *  pipeline, its later `state.gpu.precompiled` completion measurement (an error-scope wrap, not a
      *  fence — only compile-timing attribution is reported here) overwrites
      *  the sync stub under the pipeline's own label; a typed pipeline with no forcer (or one forcer
      *  covering several pipelines) keeps only the near-zero sync entry — real
@@ -133,7 +132,10 @@ const READ_RING = 4;
 
 // GPU timings are optional; CPU timings and resource tracking work without them.
 const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
-const profileKey = { create: () => new ProfileImpl() };
+/** The profiler value owned by this State, populated by ProfilePlugin. */
+export const Profile: import("../../engine").Resource<Profile> = {
+    create: () => new ProfileImpl(),
+};
 
 // timestamp queries + pipeline-compile timing + live allocation tracking. Each State owns its query set,
 // timestamp results, counters and device hooks; staging belongs to the world pool.
@@ -475,7 +477,7 @@ class ProfileImpl implements Profile {
         }
     }
 
-    /** @internal — also the `Compute.precompiled` sink for typed pipelines. `isPipeline` marks a call
+    /** @internal — also the `state.gpu.precompiled` sink for typed pipelines. `isPipeline` marks a call
      *  that came from an actual `create*Pipeline(Async)` constructor (real pipelines: {@link compiledPipelines}),
      *  as opposed to a `precompile` forcer-scope span observing one after the fact — membership is
      *  monotonic (only added, never revoked) so a forcer's later, non-pipeline call can still refine an
@@ -483,7 +485,7 @@ class ProfileImpl implements Profile {
     recordCompile(label: string, start: number, end: number, isPipeline = false): void {
         // A named label overwrites — this is what lets a typed pipeline's own sync-constructor patch
         // (fires first, inside the precompile forcer's dispatch, near-zero) and that same forcer's later
-        // `Compute.precompiled` completion measurement (an error-scope wrap, not a fence — only
+        // `state.gpu.precompiled` completion measurement (an error-scope wrap, not a fence — only
         // compile-timing attribution is reported here) converge on ONE entry under
         // the pipeline's own name, rather than the forcer's more-accurate span landing as a spurious
         // second row beside its own near-zero stub. Two genuinely different pipelines colliding on the
@@ -1102,7 +1104,7 @@ function collectStats(s: State, profile: ProfileImpl): OverlayData {
         gapMs: Math.max(0, rawMs - cpuTotal - fenceWaitMs),
         fixedSteps: t.fixedSteps,
         throttled: t.throttled,
-        pending: Compute?.pending?.() ?? 0,
+        pending: s.gpu.pending() ?? 0,
         memBuffers: profile.bufferBytes / MB,
         memTextures: profile.textureBytes / MB,
         memTotal: (profile.bufferBytes + profile.textureBytes) / MB,
@@ -1114,39 +1116,32 @@ function collectStats(s: State, profile: ProfileImpl): OverlayData {
     };
 }
 
-/** Resolve the profiler state owned by one App. */
-export function profile(state: State): Profile {
-    return state.resource(profileKey);
-}
-
-/** Active-callback facade; code outside a State callback uses `profile(state)`. */
-export const Profile: Profile = new Proxy({} as Profile, {
-    get(_target, key) {
-        const state = currentWorld<State>();
-        if (!state) throw new Error("profile: use profile(state) outside a world callback");
-        return Reflect.get(profile(state), key);
-    },
-});
-let _overlay: Overlay | null = null;
-let _benchmarkReady = false;
+const profileUi = {
+    create: () => ({
+        overlay: null as Overlay | null,
+        benchmarkReady: false,
+        visible: false,
+        benchmark: undefined as Window["__benchmark"],
+    }),
+};
 // the overlay is a convenience HUD, off by default and toggled with F3 (owned here, not per-consumer).
 // it lives inside the canvas's container so it sits within the view, not over the whole window — a
-// fullscreen example reads the same; an embedded canvas stays inside its host container. persists across
-// rebuilds (module-scoped), so a rebuild doesn't re-hide it.
-let _visible = false;
+// fullscreen example reads the same; an embedded canvas stays inside its host container. Each State owns it.
 
 /**
  * show or hide the profiler overlay — the same HUD F3 toggles, driven from code. Off by default; call
- * `showProfiler()` in a plugin `warm` to surface the numbers on open without a keypress. F3 still toggles
+ * `showProfiler(state)` in a plugin `warm` to surface the numbers on open without a keypress. F3 still toggles
  * it alongside. No-op without {@link ProfilePlugin} (nothing populates the overlay).
  * @example
- * const Perf = { name: "Perf", warm() { showProfiler(); } } satisfies Plugin;
+ * const Perf = { name: "Perf", warm(state) { showProfiler(state); } } satisfies Plugin;
  */
-export function showProfiler(show = true): void {
-    _visible = show;
-    if (!_visible && _overlay) {
-        _overlay.destroy();
-        _overlay = null;
+export function showProfiler(state: State, show = true): void {
+    const _profileUi = state.resource(profileUi);
+
+    _profileUi.visible = show;
+    if (!_profileUi.visible && _profileUi.overlay) {
+        _profileUi.overlay.destroy();
+        _profileUi.overlay = null;
     }
 }
 
@@ -1159,9 +1154,9 @@ const ProfileFrameBeginSystem: System = {
     group: "setup",
     first: true,
     update(state: State) {
-        const profiler = profile(state) as ProfileImpl;
+        const profiler = state.resource(Profile) as ProfileImpl;
         profiler.drain();
-        const compute = Compute;
+        const compute = state.gpu;
         if (compute) profiler.resolve(state);
         profiler.reset();
     },
@@ -1174,10 +1169,12 @@ const ProfileRenderSystem: System = {
     group: "draw",
     last: true,
     update(state: State) {
-        _benchmarkReady = true;
-        if (typeof document === "undefined" || !_visible) return;
-        if (!_overlay) _overlay = createOverlay();
-        _overlay.update(state, profile(state) as ProfileImpl);
+        const _profileUi = state.resource(profileUi);
+
+        _profileUi.benchmarkReady = true;
+        if (typeof document === "undefined" || !_profileUi.visible) return;
+        if (!_profileUi.overlay) _profileUi.overlay = createOverlay();
+        _profileUi.overlay.update(state, state.resource(Profile) as ProfileImpl);
     },
 };
 
@@ -1198,10 +1195,11 @@ export const ProfilePlugin: Plugin = {
     preferredFeatures: TIMESTAMP,
 
     initialize(state: State) {
-        const compute = Compute;
+        const compute = state.gpu;
         if (!compute) return;
 
-        const profiler = profile(state) as ProfileImpl;
+        const profiler = state.resource(Profile) as ProfileImpl;
+        const ui = state.resource(profileUi);
         profiler.attach(compute.device);
 
         compute.span = (name) => profiler.span(name);
@@ -1215,16 +1213,16 @@ export const ProfilePlugin: Plugin = {
         // the overlay is a DOM mount; its removal rides the State's lifetime, so a host that calls
         // state.dispose() directly (not App.dispose) still tears it down — the leak class this closes.
         state.onDispose(() => {
-            _overlay?.destroy();
-            _overlay = null;
+            ui.overlay?.destroy();
+            ui.overlay = null;
         });
 
         if (typeof window !== "undefined") {
-            _benchmarkReady = false;
+            ui.benchmarkReady = false;
             const measure = createMeasure(state, profiler);
-            window.__benchmark = {
+            window.__benchmark = ui.benchmark = {
                 get ready() {
-                    return _benchmarkReady;
+                    return ui.benchmarkReady;
                 },
                 measure,
             };
@@ -1235,18 +1233,20 @@ export const ProfilePlugin: Plugin = {
                 (e: KeyboardEvent) => {
                     if (e.key !== "F3") return;
                     e.preventDefault();
-                    showProfiler(!_visible);
+                    showProfiler(state, !ui.visible);
                 },
                 { signal: state.signal },
             );
         }
     },
 
-    // Clear the active Compute hooks and the window.__benchmark global; the DOM overlay + F3 listener
+    // Clear the active state.gpu hooks and the window.__benchmark global; the DOM overlay + F3 listener
     // ride the State (initialize above), and the profiler releases its own resources below.
     dispose(state: State) {
-        const profiler = profile(state) as ProfileImpl;
-        const compute = Compute;
+        const _profileUi = state.resource(profileUi);
+
+        const profiler = state.resource(Profile) as ProfileImpl;
+        const compute = state.gpu;
         if (compute) {
             compute.span = undefined;
             compute.indirect = undefined;
@@ -1254,10 +1254,10 @@ export const ProfilePlugin: Plugin = {
         }
         state.recordSink = undefined;
         state.fenceWaitSink = undefined;
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && window.__benchmark === _profileUi.benchmark) {
             delete window.__benchmark;
         }
-        _benchmarkReady = false;
+        _profileUi.benchmarkReady = false;
         profiler.dispose();
     },
 };

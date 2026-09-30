@@ -53,7 +53,7 @@ const QUAT_ID = { v: { x: 0, y: 0, z: 0 }, s: 1 };
  * real body's velocity would silently poison every later null-lane gather.
  */
 function expectIdentityRecords(): void {
-    const k = kernel();
+    const k = kernel(undefined);
     const cap = k.bodyCap();
     if (cap === 0) return;
     const buf = k.memory.buffer;

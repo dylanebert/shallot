@@ -17,8 +17,8 @@ import {
     Surfaces,
 } from "../../core/rendering";
 import type { Registry, State, System } from "../../engine";
-import { Compute, GlobalTransform, globalTransformTable, u32, vec4 } from "../../engine";
-import { precompile, worldResource } from "../../engine/runtime";
+import { GlobalTransform, globalTransformTable, u32, vec4 } from "../../engine";
+import { precompile } from "../../engine/runtime";
 import {
     CullParams,
     countKernel,
@@ -181,8 +181,8 @@ function createPartGpuState(): PartGpuState {
     };
 }
 
-function partGpuState(): PartGpuState {
-    return worldResource(partGpuKey);
+function _partGpuState(state: State): PartGpuState {
+    return state.resource(partGpuKey);
 }
 
 export function initializePartState(state: State): void {
@@ -200,25 +200,9 @@ export function initializePartState(state: State): void {
     state.onDispose(removeMissingColorDefault);
 }
 
-const _part = new Proxy({} as Omit<PartGpuState, "parts">, {
-    get(_target, key) {
-        return partGpuState()[key as keyof PartGpuState] as never;
-    },
-    set(_target, key, value) {
-        (partGpuState() as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
-
-export const Parts: Parts = new Proxy({} as Parts, {
-    get(_target, key) {
-        return partGpuState().parts[key as keyof Parts];
-    },
-    set(_target, key, value) {
-        (partGpuState().parts as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
+export const Parts: import("../../engine").Resource<Parts> = {
+    create: (state) => state.resource(partGpuKey).parts,
+};
 
 /**
  * per-frame Part pack. Clears the counts, then cull → count → scan → scatter
@@ -232,11 +216,15 @@ export const PartSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(state) {
-        if (!Render.encoder || !_part.countPipe || !_part.scanPipe || !_part.scatterPipe) return;
+        const _render = state.resource(Render);
+        const _partGpu = state.resource(partGpuKey);
+
+        if (!_render.encoder || !_partGpu.countPipe || !_partGpu.scanPipe || !_partGpu.scatterPipe)
+            return;
         syncBuffers(state);
-        if (_part.pairCount === 0) return;
+        if (_partGpu.pairCount === 0) return;
         const count = bindCount(state);
-        const scan = bindScan();
+        const scan = bindScan(state);
         const scatter = bindScatter(state);
         if (!count || !scan || !scatter) return;
 
@@ -244,38 +232,38 @@ export const PartSystem: System = {
         // index its slot's slice; slot ≥ viewCount means no frustum (headless),
         // packed unculled. Queued before EndFrameSystem submits the encoder, so
         // it lands before the pack executes
-        const views = Math.max(1, Render.viewCount);
+        const views = Math.max(1, _render.viewCount);
         // a two-word uniform written when either word changes: the typed write is the idiomatic path here.
         // The "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
         // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
         const partCount = partTable(state).count;
         if (
-            _part.paramsTarget !== _part.cullParams ||
-            _part.paramsViewCount !== Render.viewCount ||
-            _part.paramsPairCount !== _part.pairCount ||
-            _part.paramsPartCount !== partCount ||
-            _part.paramsPartCapacity !== _part.rowCapacity
+            _partGpu.paramsTarget !== _partGpu.cullParams ||
+            _partGpu.paramsViewCount !== _render.viewCount ||
+            _partGpu.paramsPairCount !== _partGpu.pairCount ||
+            _partGpu.paramsPartCount !== partCount ||
+            _partGpu.paramsPartCapacity !== _partGpu.rowCapacity
         ) {
-            _part.cullParams!.write({
-                viewCount: Render.viewCount,
-                pairCount: _part.pairCount,
+            _partGpu.cullParams!.write({
+                viewCount: _render.viewCount,
+                pairCount: _partGpu.pairCount,
                 partCount,
-                partCapacity: _part.rowCapacity,
+                partCapacity: _partGpu.rowCapacity,
             });
-            _part.paramsTarget = _part.cullParams;
-            _part.paramsViewCount = Render.viewCount;
-            _part.paramsPairCount = _part.pairCount;
-            _part.paramsPartCount = partCount;
-            _part.paramsPartCapacity = _part.rowCapacity;
+            _partGpu.paramsTarget = _partGpu.cullParams;
+            _partGpu.paramsViewCount = _render.viewCount;
+            _partGpu.paramsPairCount = _partGpu.pairCount;
+            _partGpu.paramsPartCount = partCount;
+            _partGpu.paramsPartCapacity = _partGpu.rowCapacity;
         }
 
-        if (_part.countsUnwrapped !== _part.counts) {
-            _part.countsUnwrapped = _part.counts;
-            _part.countsRaw = Compute.root.unwrap(_part.counts!);
+        if (_partGpu.countsUnwrapped !== _partGpu.counts) {
+            _partGpu.countsUnwrapped = _partGpu.counts;
+            _partGpu.countsRaw = state.gpu.root.unwrap(_partGpu.counts!);
         }
-        Render.encoder.clearBuffer(_part.countsRaw!);
-        _part.packPass.timestampWrites = Compute.span?.("part:pack");
-        const pass = Render.encoder.beginComputePass(_part.packPass);
+        _render.encoder.clearBuffer(_partGpu.countsRaw!);
+        _partGpu.packPass.timestampWrites = state.gpu.span?.("part:pack");
+        const pass = _render.encoder.beginComputePass(_partGpu.packPass);
         const rows = Math.ceil(partCount / 64);
         if (rows > 0) {
             setBound(pass, count);
@@ -284,7 +272,7 @@ export const PartSystem: System = {
         // one workgroup per allocated view slot (the counts buffer spans _part.viewDim ×
         // pairCount); slots past the active views carry zero counts → zero instanceCount
         setBound(pass, scan);
-        pass.dispatchWorkgroups(_part.viewDim);
+        pass.dispatchWorkgroups(_partGpu.viewDim);
         if (rows > 0) {
             setBound(pass, scatter);
             pass.dispatchWorkgroups(rows, views);
@@ -304,24 +292,26 @@ function setBound(
 
 // Bind dense Part and Transform tables, replacing groups only when one of their GPU buffers grows.
 function cullGroup(state: State): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
-    if (!_part.cullParams || !_part.meshBounds) return null;
+    const _partGpu = state.resource(partGpuKey);
+
+    if (!_partGpu.cullParams || !_partGpu.meshBounds) return null;
     const parts = partTable(state);
     const globalTransforms = globalTransformTable(state);
-    const generation = _part.inputGeneration;
+    const generation = _partGpu.inputGeneration;
     if (
         generation[0] !== parts.generation ||
         generation[1] !== parts.activeGeneration ||
         generation[2] !== globalTransforms.generation ||
         generation[3] !== globalTransforms.mapGeneration
     ) {
-        unbind();
+        unbind(state);
         generation[0] = parts.generation;
         generation[1] = parts.activeGeneration;
         generation[2] = globalTransforms.generation;
         generation[3] = globalTransforms.mapGeneration;
     }
-    if (_part.cullGroup) return _part.cullGroup;
-    const cullVolumes = Compute.buffers.get("cullVolumes");
+    if (_partGpu.cullGroup) return _partGpu.cullGroup;
+    const cullVolumes = state.gpu.buffers.get("cullVolumes");
     const partRows = parts.activeRowsBuffer;
     const globalTransformRows = globalTransforms.eidToRowBuffer;
     if (!cullVolumes || !partRows || !globalTransformRows) {
@@ -329,82 +319,99 @@ function cullGroup(state: State): TgpuBindGroup<(typeof cullLayout)["entries"]> 
             "[part] dense table inputs missing: cull volumes, Part rows or GlobalTransform row lookup",
         );
     }
-    _part.cullGroup = Compute.root.createBindGroup(cullLayout, {
+    _partGpu.cullGroup = state.gpu.root.createBindGroup(cullLayout, {
         partRows,
         parts: parts.buffer,
         globalTransforms: globalTransforms.buffer,
         globalTransformRows,
-        meshBounds: _part.meshBounds,
+        meshBounds: _partGpu.meshBounds,
         cullVolumes,
-        params: _part.cullParams,
+        params: _partGpu.cullParams,
     });
-    return _part.cullGroup;
+    return _partGpu.cullGroup;
 }
 
 function bindCount(state: State): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+    const _partGpu = state.resource(partGpuKey);
+
     const cull = cullGroup(state);
-    if (_part.countBound) return _part.countBound;
-    if (!_part.countPipe || !cull || !_part.counts) return null;
-    _part.countBound = {
-        pipeline: Compute.root.unwrap(_part.countPipe),
+    if (_partGpu.countBound) return _partGpu.countBound;
+    if (!_partGpu.countPipe || !cull || !_partGpu.counts) return null;
+    _partGpu.countBound = {
+        pipeline: state.gpu.root.unwrap(_partGpu.countPipe),
         groups: [
-            Compute.root.unwrap(cull),
-            Compute.root.unwrap(
-                Compute.root.createBindGroup(countLayout, { counts: _part.counts }),
+            state.gpu.root.unwrap(cull),
+            state.gpu.root.unwrap(
+                state.gpu.root.createBindGroup(countLayout, { counts: _partGpu.counts }),
             ),
         ],
     };
-    return _part.countBound;
+    return _partGpu.countBound;
 }
 
-function bindScan(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
-    if (_part.scanBound) return _part.scanBound;
-    if (!_part.scanPipe || !_part.counts || !Parts.drawArgs || !_part.cullParams) return null;
-    _part.scanBound = {
-        pipeline: Compute.root.unwrap(_part.scanPipe),
+function bindScan(state: State): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+    const _partGpu = state.resource(partGpuKey);
+    const _parts = state.resource(Parts);
+
+    if (_partGpu.scanBound) return _partGpu.scanBound;
+    if (!_partGpu.scanPipe || !_partGpu.counts || !_parts.drawArgs || !_partGpu.cullParams)
+        return null;
+    _partGpu.scanBound = {
+        pipeline: state.gpu.root.unwrap(_partGpu.scanPipe),
         groups: [
-            Compute.root.unwrap(
-                Compute.root.createBindGroup(scanLayout, {
-                    counts: _part.counts,
-                    drawArgs: Parts.drawArgs,
-                    params: _part.cullParams,
+            state.gpu.root.unwrap(
+                state.gpu.root.createBindGroup(scanLayout, {
+                    counts: _partGpu.counts,
+                    drawArgs: _parts.drawArgs,
+                    params: _partGpu.cullParams,
                 }),
             ),
         ],
     };
-    return _part.scanBound;
+    return _partGpu.scanBound;
 }
 
 function bindScatter(
     state: State,
 ): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+    const _partGpu = state.resource(partGpuKey);
+    const _parts = state.resource(Parts);
+
     const cull = cullGroup(state);
-    if (_part.scatterBound) return _part.scatterBound;
-    if (!_part.scatterPipe || !cull || !_part.counts || !Parts.drawArgs || !Parts.packedEids)
+    if (_partGpu.scatterBound) return _partGpu.scatterBound;
+    if (
+        !_partGpu.scatterPipe ||
+        !cull ||
+        !_partGpu.counts ||
+        !_parts.drawArgs ||
+        !_parts.packedEids
+    )
         return null;
-    _part.scatterBound = {
-        pipeline: Compute.root.unwrap(_part.scatterPipe),
+    _partGpu.scatterBound = {
+        pipeline: state.gpu.root.unwrap(_partGpu.scatterPipe),
         groups: [
-            Compute.root.unwrap(cull),
-            Compute.root.unwrap(
-                Compute.root.createBindGroup(scatterLayout, {
-                    drawArgs: Parts.drawArgs,
-                    counts: _part.counts,
-                    packedEids: Parts.packedEids,
+            state.gpu.root.unwrap(cull),
+            state.gpu.root.unwrap(
+                state.gpu.root.createBindGroup(scatterLayout, {
+                    drawArgs: _parts.drawArgs,
+                    counts: _partGpu.counts,
+                    packedEids: _parts.packedEids,
                 }),
             ),
         ],
     };
-    return _part.scatterBound;
+    return _partGpu.scatterBound;
 }
 
 // every bound pipeline names at least one buffer `syncBuffers` can reallocate, so growth drops all of
 // them together rather than tracking which buffer each one holds
-function unbind(): void {
-    _part.cullGroup = null;
-    _part.countBound = null;
-    _part.scanBound = null;
-    _part.scatterBound = null;
+function unbind(state: State): void {
+    const _partGpu = state.resource(partGpuKey);
+
+    _partGpu.cullGroup = null;
+    _partGpu.countBound = null;
+    _partGpu.scanBound = null;
+    _partGpu.scatterBound = null;
 }
 
 /**
@@ -418,56 +425,59 @@ function unbind(): void {
  * buffers free behind the submit fence: a prior frame may still reference them
  */
 function syncBuffers(state: State): void {
-    if (_part.surfaceCount === 0) return;
-    const meshCount = Meshes.size;
-    const viewDim = Math.max(1, Render.viewCount);
-    const rowCapacity = partTable(state).capacity;
-    const growMesh = meshCount > _part.meshCount;
-    const growView = viewDim > _part.viewDim;
-    const growRows = rowCapacity > _part.rowCapacity;
-    if (!growMesh && !growView && !growRows && Parts.drawArgs) return;
+    const _partGpu = state.resource(partGpuKey);
+    const _parts = state.resource(Parts);
 
-    const device = Compute.device;
-    _part.meshCount = Math.max(_part.meshCount, meshCount);
-    _part.viewDim = Math.max(_part.viewDim, viewDim);
-    _part.rowCapacity = Math.max(_part.rowCapacity, rowCapacity);
-    _part.pairCount = _part.surfaceCount * _part.meshCount;
-    const records = _part.viewDim * _part.pairCount;
+    if (_partGpu.surfaceCount === 0) return;
+    const meshCount = state.resource(Meshes).size;
+    const viewDim = Math.max(1, state.resource(Render).viewCount);
+    const rowCapacity = partTable(state).capacity;
+    const growMesh = meshCount > _partGpu.meshCount;
+    const growView = viewDim > _partGpu.viewDim;
+    const growRows = rowCapacity > _partGpu.rowCapacity;
+    if (!growMesh && !growView && !growRows && _parts.drawArgs) return;
+
+    const device = state.gpu.device;
+    _partGpu.meshCount = Math.max(_partGpu.meshCount, meshCount);
+    _partGpu.viewDim = Math.max(_partGpu.viewDim, viewDim);
+    _partGpu.rowCapacity = Math.max(_partGpu.rowCapacity, rowCapacity);
+    _partGpu.pairCount = _partGpu.surfaceCount * _partGpu.meshCount;
+    const records = _partGpu.viewDim * _partGpu.pairCount;
 
     const staleArgs: (DrawBuffer | AtomicU32Buffer | null)[] = [];
-    if (growMesh || growView || !Parts.drawArgs) {
-        staleArgs.push(Parts.drawArgs, _part.counts);
-        Parts.drawArgs = Compute.root
+    if (growMesh || growView || !_parts.drawArgs) {
+        staleArgs.push(_parts.drawArgs, _partGpu.counts);
+        _parts.drawArgs = state.gpu.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
             .$usage("storage", "indirect")
             .$name("shallot-draw-args");
-        _part.counts = Compute.root
+        _partGpu.counts = state.gpu.root
             .createBuffer(d.arrayOf(d.atomic(d.u32), records))
             .$usage("storage")
             .$name("shallot-part-counts");
     }
 
     let stalePacked: InstanceBuffer | null = null;
-    if (growView || growRows || !Parts.packedEids) {
-        stalePacked = Parts.packedEids;
-        const listCapacity = _part.viewDim * _part.rowCapacity;
-        Parts.packedEids = Compute.root
+    if (growView || growRows || !_parts.packedEids) {
+        stalePacked = _parts.packedEids;
+        const listCapacity = _partGpu.viewDim * _partGpu.rowCapacity;
+        _parts.packedEids = state.gpu.root
             .createBuffer(d.arrayOf(d.vec4u, listCapacity))
             .$usage("storage")
             .$name("shallot-packed-eids");
-        Compute.buffers.set("eids", Compute.root.unwrap(Parts.packedEids));
-        Compute.typed.set("eids", Parts.packedEids);
+        state.gpu.buffers.set("eids", state.gpu.root.unwrap(_parts.packedEids));
+        state.gpu.typed.set("eids", _parts.packedEids);
     }
 
     // meshBounds is indexed by mesh id — rebuild only when a mesh registers
     let staleBounds: Vec4fBuffer | null = null;
-    if (growMesh || !_part.meshBounds) {
-        staleBounds = _part.meshBounds;
-        _part.meshBounds = writeMeshBounds(device);
+    if (growMesh || !_partGpu.meshBounds) {
+        staleBounds = _partGpu.meshBounds;
+        _partGpu.meshBounds = writeMeshBounds(state, device);
     }
 
-    unbind();
-    registerDraws();
+    unbind(state);
+    registerDraws(state);
 
     const stale = [...staleArgs, stalePacked, staleBounds];
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
@@ -480,18 +490,21 @@ function syncBuffers(state: State): void {
  * producer that didn't supply one) gets a sentinel radius so the cull keeps it
  * always-visible rather than wrongly culling it
  */
-function writeMeshBounds(device: GPUDevice): Vec4fBuffer {
-    const buffer = Compute.root
-        .createBuffer(d.arrayOf(d.vec4f, _part.meshCount))
+function writeMeshBounds(state: State, device: GPUDevice): Vec4fBuffer {
+    const _partGpu = state.resource(partGpuKey);
+    const _meshes = state.resource(Meshes);
+
+    const buffer = state.gpu.root
+        .createBuffer(d.arrayOf(d.vec4f, _partGpu.meshCount))
         .$usage("storage")
         .$name("shallot-mesh-bounds");
-    const data = new Float32Array(_part.meshCount * 4);
-    for (const m of Meshes) {
-        const id = Meshes.id(m.name)!;
+    const data = new Float32Array(_partGpu.meshCount * 4);
+    for (const m of _meshes) {
+        const id = _meshes.id(m.name)!;
         if (m.bounds) data.set(m.bounds, id * 4);
         else data[id * 4 + 3] = 1e30; // never-cull sentinel
     }
-    device.queue.writeBuffer(Compute.root.unwrap(buffer), 0, data as Float32Array<ArrayBuffer>);
+    device.queue.writeBuffer(state.gpu.root.unwrap(buffer), 0, data as Float32Array<ArrayBuffer>);
     return buffer;
 }
 
@@ -507,6 +520,7 @@ type DrawRecord = {
 };
 
 export function publishPartDraws(
+    state: State,
     drawArgs: DrawBuffer,
     surfaceCount: number,
     pairCount: number,
@@ -514,7 +528,11 @@ export function publishPartDraws(
         surfaces: Registry<Surface>;
         meshes: Registry<Mesh>;
         draws: Registry<Draw>;
-    } = { surfaces: Surfaces, meshes: Meshes, draws: Draws },
+    } = {
+        surfaces: state.resource(Surfaces),
+        meshes: state.resource(Meshes),
+        draws: state.resource(Draws),
+    },
 ): { offset: number; args: DrawRecord }[] {
     const { surfaces, meshes, draws } = registries;
     const writes: { offset: number; args: DrawRecord }[] = [];
@@ -547,19 +565,23 @@ export function publishPartDraws(
     return writes;
 }
 
-function registerDraws(): void {
-    if (!Compute.device || !Parts.drawArgs || _part.pairCount === 0) return;
-    const viewStride = _part.pairCount * DRAW_ARG_STRIDE;
+function registerDraws(state: State): void {
+    const _parts = state.resource(Parts);
+    const _partGpu = state.resource(partGpuKey);
+
+    if (!state.gpu.device || !_parts.drawArgs || _partGpu.pairCount === 0) return;
+    const viewStride = _partGpu.pairCount * DRAW_ARG_STRIDE;
     for (const { offset, args } of publishPartDraws(
-        Parts.drawArgs,
-        _part.surfaceCount,
-        _part.pairCount,
+        state,
+        _parts.drawArgs,
+        _partGpu.surfaceCount,
+        _partGpu.pairCount,
     )) {
         const bytes = new ArrayBuffer(DRAW_ARG_STRIDE);
         writeToArrayBuffer(bytes, DrawIndexedIndirect, args);
-        for (let slot = 0; slot < _part.viewDim; slot++) {
-            Compute.device.queue.writeBuffer(
-                Compute.root.unwrap(Parts.drawArgs),
+        for (let slot = 0; slot < _partGpu.viewDim; slot++) {
+            state.gpu.device.queue.writeBuffer(
+                state.gpu.root.unwrap(_parts.drawArgs),
                 slot * viewStride + offset,
                 bytes,
             );
@@ -568,8 +590,8 @@ function registerDraws(): void {
 }
 
 /** Reset cached bind groups for a newly built world. */
-export function initPart(): void {
-    unbind();
+export function initPart(state: State): void {
+    unbind(state);
 }
 
 /**
@@ -583,38 +605,41 @@ export function initPart(): void {
  * final at warm
  */
 export function warmPart(state: State): void {
-    if (!Compute.device) return;
-    const root = Compute.root;
-    _part.surfaceCount = Surfaces.size;
-    _part.meshCount = 0;
-    _part.pairCount = 0;
-    _part.viewDim = 1;
-    Parts.drawArgs = null;
-    Parts.packedEids = null;
-    _part.counts = null;
-    _part.meshBounds = null;
-    _part.rowCapacity = 0;
-    _part.inputGeneration.fill(-1);
-    _part.paramsViewCount = -1;
-    _part.paramsPairCount = -1;
-    _part.paramsPartCount = -1;
-    _part.paramsPartCapacity = -1;
-    unbind();
+    const _partGpu = state.resource(partGpuKey);
+    const _parts = state.resource(Parts);
 
-    _part.cullParams = root
+    if (!state.gpu.device) return;
+    const root = state.gpu.root;
+    _partGpu.surfaceCount = state.resource(Surfaces).size;
+    _partGpu.meshCount = 0;
+    _partGpu.pairCount = 0;
+    _partGpu.viewDim = 1;
+    _parts.drawArgs = null;
+    _parts.packedEids = null;
+    _partGpu.counts = null;
+    _partGpu.meshBounds = null;
+    _partGpu.rowCapacity = 0;
+    _partGpu.inputGeneration.fill(-1);
+    _partGpu.paramsViewCount = -1;
+    _partGpu.paramsPairCount = -1;
+    _partGpu.paramsPartCount = -1;
+    _partGpu.paramsPartCapacity = -1;
+    unbind(state);
+
+    _partGpu.cullParams = root
         .createBuffer(CullParams)
         .$usage("uniform")
         .$name("shallot-part-cull-params");
-    if (_part.surfaceCount === 0) return;
+    if (_partGpu.surfaceCount === 0) return;
 
-    _part.countPipe = root
-        .createComputePipeline({ compute: countKernel(_part.surfaceCount) })
+    _partGpu.countPipe = root
+        .createComputePipeline({ compute: countKernel(_partGpu.surfaceCount) })
         .$name("shallot-part-count");
-    _part.scanPipe = root
+    _partGpu.scanPipe = root
         .createComputePipeline({ compute: scanKernel() })
         .$name("shallot-part-scan");
-    _part.scatterPipe = root
-        .createComputePipeline({ compute: scatterKernel(_part.surfaceCount) })
+    _partGpu.scatterPipe = root
+        .createComputePipeline({ compute: scatterKernel(_partGpu.surfaceCount) })
         .$name("shallot-part-scatter");
 
     // both the allocation and the bind are deferred into the forcers, not done here. The drain runs
@@ -622,16 +647,16 @@ export function warmPart(state: State): void {
     // moment meshes, dense table buffers, the transform lookup, and cull volumes are published — so
     // `syncBuffers` can size the pack's buffers there, and the pipeline that forces the compile has
     // something to bind. One forcer per pipeline, so each gets its own row in the compile table
-    precompile("shallot-part-count", () => {
+    precompile(state, "shallot-part-count", () => {
         syncBuffers(state);
         const bound = bindCount(state);
         return bound && [bound.pipeline];
     });
-    precompile("shallot-part-scan", () => {
-        const bound = bindScan();
+    precompile(state, "shallot-part-scan", () => {
+        const bound = bindScan(state);
         return bound && [bound.pipeline];
     });
-    precompile("shallot-part-scatter", () => {
+    precompile(state, "shallot-part-scatter", () => {
         const bound = bindScatter(state);
         return bound && [bound.pipeline];
     });
@@ -639,7 +664,10 @@ export function warmPart(state: State): void {
 
 export const PartTraits = {
     requires: [GlobalTransform],
-    defaults: () => {
+    defaults: (state: State) => {
+        const _surfaces = state.resource(Surfaces);
+        const _meshes = state.resource(Meshes);
+
         // a missing "default" surface or "cube" mesh is a wiring bug — but only when the registry is
         // populated. With no SearPlugin the surface registry is empty (`Surfaces.size === 0`), so id 0 is
         // inert: there is no sear pass to marshal it to. That build is sanctioned (the conformance roster
@@ -651,25 +679,25 @@ export const PartTraits = {
         // and likewise for `Meshes`/"cube". The fallback return is still 0 — the same value the pre-fix
         // `?? 0` produced, but now named at the call site as a wiring bug instead of silently binding
         // whatever surface/mesh holds registry id 0.
-        const surface = Surfaces.id("default");
-        const mesh = Meshes.id("cube");
-        if (Surfaces.size > 0 && surface === undefined)
+        const surface = _surfaces.id("default");
+        const mesh = _meshes.id("cube");
+        if (_surfaces.size > 0 && surface === undefined)
             console.warn(
                 '[part] default surface "default" is not registered — a SearPlugin or surface owner must register it; Part entities will bind whatever surface holds registry id 0',
             );
-        if (Meshes.size > 0 && mesh === undefined)
+        if (_meshes.size > 0 && mesh === undefined)
             console.warn(
                 '[part] default mesh "cube" is not registered — PartPlugin.initialize() registers it via initMeshes(); Part entities will bind whatever mesh holds registry id 0',
             );
         return { surface: surface ?? 0, mesh: mesh ?? 0 };
     },
     parse: {
-        surface: (value: string) => Surfaces.id(value),
-        mesh: (value: string) => Meshes.id(value),
+        surface: (value: string, state: State) => state.resource(Surfaces).id(value),
+        mesh: (value: string, state: State) => state.resource(Meshes).id(value),
     },
     format: {
-        surface: (value: number) => Surfaces.name(value),
-        mesh: (value: number) => Meshes.name(value),
+        surface: (value: number, state: State) => state.resource(Surfaces).name(value),
+        mesh: (value: number, state: State) => state.resource(Meshes).name(value),
     },
 };
 

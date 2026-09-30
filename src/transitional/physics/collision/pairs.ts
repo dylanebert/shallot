@@ -172,7 +172,7 @@ export function updateBroadPhasePairs(world: WorldState): void {
     // (in the pre-3d path a TS `containsKey`/`addKey` did this; the kernel query never reserves).
     ensureResident(broadPhase.pairSet);
 
-    const k = kernel();
+    const k = kernel(world.ecsState);
     const trees = broadPhase.trees;
     const movedDyn = broadPhase.movedProxies[BodyType.Dynamic];
     const movedWords = movedDyn.blockCount;

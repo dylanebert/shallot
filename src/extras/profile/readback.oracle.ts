@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { build } from "../../engine";
-import { ProfilePlugin, profile } from "./index";
+import { Profile, ProfilePlugin } from "./index";
 
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
@@ -45,7 +45,7 @@ test("profiler timestamps arrive through the world's one-shot pool and staging i
         ],
     });
     try {
-        const stats = profile(app.state);
+        const stats = app.state.resource(Profile);
         if (stats.gpuTiming !== "available") throw new Error("requires timestamp-query");
         const deadline = performance.now() + 750;
         while (!stats.gpuTime.has("readback-witness")) {

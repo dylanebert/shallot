@@ -40,8 +40,8 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, laneAlias, u32, unpackColor, vec4 } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+import { laneAlias, u32, unpackColor, vec4 } from "../../engine";
+
 import { Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
 import { Part, partTable } from "../../transitional/part";
@@ -187,19 +187,9 @@ function createSearState(): SearState {
     };
 }
 
-function searState(): SearState {
-    return worldResource(searStateKey);
+function _searState(state: State): SearState {
+    return state.resource(searStateKey);
 }
-
-const _sear = new Proxy({} as SearState, {
-    get(_target, key) {
-        return searState()[key as keyof SearState];
-    },
-    set(_target, key, value) {
-        (searState() as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
 
 /**
  * marker selecting Sear as the active renderer on a Camera entity. A camera carrying it renders through
@@ -298,19 +288,21 @@ export const Backdrop = {
 // name ↔ Backgrounds-id at scene parse / format, the PartTraits surface pattern (id stored, name authored).
 const BackdropTraits = {
     parse: {
-        name: (value: string) => Backgrounds.id(value),
+        name: (value: string, state: State) => state.resource(Backgrounds).id(value),
     },
     format: {
-        name: (value: number) => Backgrounds.name(value),
+        name: (value: number, state: State) => state.resource(Backgrounds).name(value),
     },
 };
 
 // a draw resolving to null is a silent skip — usually a typo'd binding or an
 // unpublished resource. Warn once per draw so it's visible without spamming
 
-function warnSkip(draw: string, cause: string): null {
-    if (!_sear.warned.has(draw)) {
-        _sear.warned.add(draw);
+function warnSkip(state: State, draw: string, cause: string): null {
+    const _searState = state.resource(searStateKey);
+
+    if (!_searState.warned.has(draw)) {
+        _searState.warned.add(draw);
         console.warn(`sear: draw "${draw}" skipped — ${cause}`);
     }
     return null;
@@ -379,15 +371,16 @@ type FrameDraw = { draw: Draw; r: Recorded };
  * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
  * are stable, so untracked
  */
-function record(draw: Draw, capacity: number): FrameDraw | null {
-    const surface = Surfaces.get(draw.surface);
-    return surface ? recordSurface(draw, surface, capacity) : null;
+function record(state: State, draw: Draw, capacity: number): FrameDraw | null {
+    const surface = state.resource(Surfaces).get(draw.surface);
+    return surface ? recordSurface(state, draw, surface, capacity) : null;
 }
 
 // resolve a typed layout's own bindings (never the sear-injected `vertices`) to live resources by the
 // entry's kind. Returns the createBindGroup value record + the identity list + each binding's name and the
 // registry it resolved from, or the missing binding's name
 function typedResources(
+    state: State,
     entries: Record<string, object>,
     override?: Record<string, BindResource>,
 ):
@@ -406,10 +399,10 @@ function typedResources(
         if (name === "vertices") continue;
         const registry: ReadonlyMap<string, BindResource> =
             "texture" in entry
-                ? Compute.textures
+                ? state.gpu.textures
                 : "sampler" in entry
-                  ? Compute.samplers
-                  : Compute.typed;
+                  ? state.gpu.samplers
+                  : state.gpu.typed;
         const res = override?.[name] ?? registry.get(name);
         if (!res) return name;
         if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
@@ -433,7 +426,7 @@ function typedResources(
 // compared in place so a steady frame neither re-validates nor builds a list
 function sameResources(
     g: SurfaceGroupEntry,
-    mesh: NonNullable<ReturnType<typeof Meshes.get>>,
+    mesh: NonNullable<ReturnType<ReturnType<typeof Meshes.create>["get"]>>,
     pointList: GPUBuffer | null,
     cascadeList: GPUBuffer | null,
 ): boolean {
@@ -461,12 +454,13 @@ function sameResources(
 // authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class). A module function,
 // so the steady `recordSurface` path captures nothing and opens no context
 function surfaceGroup(
+    state: State,
     values: Record<string, unknown>,
     layout: unknown,
     vertices: TgpuBuffer<AnyData>,
     override?: Record<string, BindResource>,
 ): GPUBindGroup {
-    const root = Compute.root;
+    const root = state.gpu.root;
     return root.unwrap(
         root.createBindGroup(
             layout as TgpuBindGroupLayout,
@@ -485,26 +479,39 @@ function surfaceGroup(
  * depth-side groups against the full layout so cutoff sees material UVs — plus the atlas `eids` swaps
  * and the slot-0 engine group the atlas passes bind.
  */
-function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDraw | null {
-    const mesh = Meshes.get(draw.mesh);
-    if (!mesh) return warnSkip(draw.name, `mesh "${draw.mesh}" not registered`);
+function recordSurface(
+    state: State,
+    draw: Draw,
+    surface: Surface,
+    capacity: number,
+): FrameDraw | null {
+    const mesh = state.resource(Meshes).get(draw.mesh);
+    if (!mesh) return warnSkip(state, draw.name, `mesh "${draw.mesh}" not registered`);
     if (!mesh.position || !mesh.quant)
-        return warnSkip(draw.name, `mesh "${draw.mesh}" has no quantized position/quant stream`);
-    const prev = getGroup(draw.name, surface);
-    let t = prev?.item.r.t ?? getCompiledSurface(surface.name);
+        return warnSkip(
+            state,
+            draw.name,
+            `mesh "${draw.mesh}" has no quantized position/quant stream`,
+        );
+    const prev = getGroup(state, draw.name, surface);
+    let t = prev?.item.r.t ?? getCompiledSurface(state, surface.name);
     if (!t || t.owner !== surface || t.layout !== surface.layout) {
         // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
         // loop, so it degrades to the warn-once skip
         try {
-            t = compileSurface(surface, capacity);
+            t = compileSurface(state, surface, capacity);
         } catch (e) {
-            return warnSkip(draw.name, `typed surface "${surface.name}" failed to compile: ${e}`);
+            return warnSkip(
+                state,
+                draw.name,
+                `typed surface "${surface.name}" failed to compile: ${e}`,
+            );
         }
     }
 
-    const pointList = pointRegather.eids();
-    const cascadeList = cascadeRegather.eids();
+    const pointList = state.resource(pointRegather).eids();
+    const cascadeList = state.resource(cascadeRegather).eids();
     // a steady frame compares the cached entry's identities in place; only a changed resource re-resolves,
     // re-validates the overrides and rebuilds the groups
     if (prev && sameResources(prev, mesh, pointList, cascadeList)) {
@@ -514,11 +521,12 @@ function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDra
     }
 
     const resolved = typedResources(
+        state,
         surface.layout.entries as Record<string, object>,
         mesh.bindings as Record<string, MeshBinding> | undefined,
     );
     if (typeof resolved === "string")
-        return warnSkip(draw.name, `binding "${resolved}" not published`);
+        return warnSkip(state, draw.name, `binding "${resolved}" not published`);
     // geometry + the atlas packed lists join the identity check (a re-gather realloc also clears the
     // whole cache via `clearGroups` — the lists here make the entry self-consistent even without it)
     const resources: BindResource[] = [
@@ -531,7 +539,7 @@ function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDra
     if (pointList) resources.push(pointList);
     if (cascadeList) resources.push(cascadeList);
 
-    const root = Compute.root;
+    const root = state.gpu.root;
     const engineCache = new Map<number, GPUBindGroup>();
     const clip = surface.blend === "clip";
     const depthLayout = clip ? surface.layout : surface.layout.depthVariant;
@@ -540,28 +548,34 @@ function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDra
         owner: surface,
         layout: surface.layout,
         quant: root.unwrap(mesh.quant),
-        color: surfaceGroup(resolved.values, surface.layout, mesh.vertices),
+        color: surfaceGroup(state, resolved.values, surface.layout, mesh.vertices),
         // `alpha` compiles no depth-side pipelines, so it needs no depth-shape groups
         depth:
             surface.blend === "alpha"
                 ? null
-                : surfaceGroup(resolved.values, depthLayout, depthVertices),
+                : surfaceGroup(state, resolved.values, depthLayout, depthVertices),
         // an authored tag receives the full fragment context (requested uv/localPos + custom varyings),
         // so its tag pair reads the main stream even while an opaque depth-only pass stays compact
-        tag: surface.tag ? surfaceGroup(resolved.values, surface.layout, mesh.vertices) : null,
+        tag: surface.tag
+            ? surfaceGroup(state, resolved.values, surface.layout, mesh.vertices)
+            : null,
         point:
             t.point && pointList
-                ? surfaceGroup(resolved.values, depthLayout, depthVertices, { eids: pointList })
+                ? surfaceGroup(state, resolved.values, depthLayout, depthVertices, {
+                      eids: pointList,
+                  })
                 : null,
         cascade:
             t.cascade && cascadeList
-                ? surfaceGroup(resolved.values, depthLayout, depthVertices, { eids: cascadeList })
+                ? surfaceGroup(state, resolved.values, depthLayout, depthVertices, {
+                      eids: cascadeList,
+                  })
                 : null,
         eids: resolved.values.eids
             ? root.unwrap(resolved.values.eids as TgpuBuffer<AnyData>)
             : null,
         engineCache,
-        atlasG0: engineGroup(engineCache, 0, root.unwrap(mesh.quant)),
+        atlasG0: engineGroup(state, engineCache, 0, root.unwrap(mesh.quant)),
         resources,
         names: resolved.names,
         registries: resolved.registries,
@@ -569,7 +583,7 @@ function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDra
         item: null!,
     };
     entry.item = { draw, r: { t, g: entry, index: mesh.indices } };
-    setGroup(draw.name, entry);
+    setGroup(state, draw.name, entry);
     return entry.item;
 }
 
@@ -584,34 +598,38 @@ function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDra
  * resolves it once per frame into `_sear.frameDraws` and the prepass, shadow map, and color pass all
  * render every camera against that one list
  */
-function resolveDraws(capacity: number): void {
-    _sear.frameCount = 0;
-    Draws.forEach((draw) => {
-        resolveDraw(draw, capacity);
+function resolveDraws(state: State, capacity: number): void {
+    state.resource(searStateKey).frameCount = 0;
+    state.resource(Draws).forEach((draw) => {
+        resolveDraw(state, draw, capacity);
     });
 }
 
-function resolveDraw(draw: Draw, capacity: number): void {
-    const item = record(draw, capacity);
-    if (item) _sear.frameDraws[_sear.frameCount++] = item;
+function resolveDraw(state: State, draw: Draw, capacity: number): void {
+    const _searState = state.resource(searStateKey);
+
+    const item = record(state, draw, capacity);
+    if (item) _searState.frameDraws[_searState.frameCount++] = item;
 }
 
 // the per-camera single-sample depth the prepass writes — always the front-most-fragment test the id
 // lane needs, but only *stored* + published as `view.depth` when the camera carries `Depth` (else the
 // store is discarded). Allocated when the prepass runs (any lane marker). TEXTURE_BINDING so a
 // screen-space consumer (AO, volumetrics) can sample it the same frame
-function depthView(eid: number, w: number, h: number): GPUTextureView {
-    const cached = _sear.depth.get(eid);
+function depthView(state: State, eid: number, w: number, h: number): GPUTextureView {
+    const _searState = state.resource(searStateKey);
+
+    const cached = _searState.depth.get(eid);
     if (cached && cached.w === w && cached.h === h) return cached.view;
     cached?.texture.destroy();
-    const texture = Compute.device.createTexture({
+    const texture = state.gpu.device.createTexture({
         label: `sear-depth-${eid}`,
         size: { width: w, height: h },
         format: DEPTH_FORMAT,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     const view = texture.createView();
-    _sear.depth.set(eid, { texture, view, w, h });
+    _searState.depth.set(eid, { texture, view, w, h });
     return view;
 }
 
@@ -621,23 +639,26 @@ function depthView(eid: number, w: number, h: number): GPUTextureView {
 // (published onto `view.<lane>`) + the color-attachment view — one cache keyed `${eid}:${lane.name}`
 // that drives both, so adding a lane needs no new allocator
 function laneTarget(
+    state: State,
     eid: number,
     lane: ColorLane,
     w: number,
     h: number,
 ): { texture: GPUTexture; view: GPUTextureView } {
+    const _searState = state.resource(searStateKey);
+
     const key = `${eid}:${lane.name}`;
-    const cached = _sear.laneTargets.get(key);
+    const cached = _searState.laneTargets.get(key);
     if (cached && cached.w === w && cached.h === h) return cached;
     cached?.texture.destroy();
-    const texture = Compute.device.createTexture({
+    const texture = state.gpu.device.createTexture({
         label: `sear-${lane.name}-${eid}`,
         size: { width: w, height: h },
         format: lane.format,
         usage: lane.usage,
     });
     const entry = { texture, view: texture.createView(), w, h };
-    _sear.laneTargets.set(key, entry);
+    _searState.laneTargets.set(key, entry);
     return entry;
 }
 
@@ -657,22 +678,24 @@ type ColorTargets = {
 // pass end) + a 4× depth. AA off: no MSAA color (the pass renders straight into view.framebuffer) + a 1×
 // depth. The color pass owns this depth (`less` + write, cleared each frame); the prepass + shadow map
 // keep their own 1× depth (never cross-compared). Sized to the view + keyed on AA, recreated on resize/toggle
-function colorTargets(eid: number, w: number, h: number, aa: boolean): ColorTargets {
-    const cached = _sear.colorTargets.get(eid);
+function colorTargets(state: State, eid: number, w: number, h: number, aa: boolean): ColorTargets {
+    const _searState = state.resource(searStateKey);
+
+    const cached = _searState.colorTargets.get(eid);
     if (cached && cached.w === w && cached.h === h && cached.aa === aa) return cached;
     cached?.color?.destroy();
     cached?.depth.destroy();
     const samples = aa ? SAMPLE_COUNT : 1;
     const color = aa
-        ? Compute.device.createTexture({
+        ? state.gpu.device.createTexture({
               label: `sear-color-msaa-${eid}`,
               size: { width: w, height: h },
-              format: Render.format,
+              format: state.resource(Render).format,
               sampleCount: SAMPLE_COUNT,
               usage: GPUTextureUsage.RENDER_ATTACHMENT,
           })
         : null;
-    const depth = Compute.device.createTexture({
+    const depth = state.gpu.device.createTexture({
         label: `sear-color-depth-${eid}`,
         size: { width: w, height: h },
         format: DEPTH_FORMAT,
@@ -689,7 +712,7 @@ function colorTargets(eid: number, w: number, h: number, aa: boolean): ColorTarg
         aa,
         label: `sear-color/${eid}`,
     };
-    _sear.colorTargets.set(eid, entry);
+    _searState.colorTargets.set(eid, entry);
     return entry;
 }
 
@@ -718,23 +741,26 @@ type ViewColorAttachment = Omit<GPURenderPassColorAttachment, "view" | "resolveT
 // result (`discard` would throw away the only copy → a black frame). The depth `discard`s either way
 // (transient)
 function beginColor(
+    state: State,
     label: string,
     msaaColor: GPUTextureView | null,
     depth: GPUTextureView,
     framebuffer: GPUTextureView,
 ): GPURenderPassEncoder {
+    const _searState = state.resource(searStateKey);
+
     if (msaaColor) {
-        _sear.msaaColor.view = msaaColor;
-        _sear.msaaColor.resolveTarget = framebuffer;
-        _sear.colorAttachments[0] = _sear.msaaColor;
+        _searState.msaaColor.view = msaaColor;
+        _searState.msaaColor.resolveTarget = framebuffer;
+        _searState.colorAttachments[0] = _searState.msaaColor;
     } else {
-        _sear.directColor.view = framebuffer;
-        _sear.colorAttachments[0] = _sear.directColor;
+        _searState.directColor.view = framebuffer;
+        _searState.colorAttachments[0] = _searState.directColor;
     }
-    _sear.colorDepth.view = depth;
-    _sear.colorPass.label = label;
-    _sear.colorPass.timestampWrites = Compute.span?.("sear:color");
-    return Render.encoder!.beginRenderPass(_sear.colorPass);
+    _searState.colorDepth.view = depth;
+    _searState.colorPass.label = label;
+    _searState.colorPass.timestampWrites = state.gpu.span?.("sear:color");
+    return state.resource(Render).encoder!.beginRenderPass(_searState.colorPass);
 }
 
 /**
@@ -749,6 +775,7 @@ function beginColor(
  * pass count; an empty draw list still clears every lane
  */
 function renderPrepass(
+    state: State,
     eid: number,
     view: View,
     items: FrameDraw[],
@@ -756,11 +783,14 @@ function renderPrepass(
     lanes: ColorLane[],
     storeDepth: boolean,
 ): void {
-    if (!Render.encoder || !view.framebuffer) return;
-    const depth = depthView(eid, view.width, view.height);
+    const _render = state.resource(Render);
+    const _searState = state.resource(searStateKey);
+
+    if (!_render.encoder || !view.framebuffer) return;
+    const depth = depthView(state, eid, view.width, view.height);
     const key = laneKey(lanes);
     const colorAttachments = lanes.map((lane) => {
-        const target = laneTarget(eid, lane, view.width, view.height);
+        const target = laneTarget(state, eid, lane, view.width, view.height);
         lane.set(view, target.texture); // publish `view.<lane>`
         return {
             view: target.view,
@@ -769,9 +799,9 @@ function renderPrepass(
             clearValue: lane.clear,
         };
     });
-    const pass = Render.encoder.beginRenderPass({
+    const pass = _render.encoder.beginRenderPass({
         label: `sear-prepass/${eid}`,
-        timestampWrites: Compute.span?.("sear:prepass"),
+        timestampWrites: state.gpu.span?.("sear:prepass"),
         colorAttachments,
         depthStencilAttachment: {
             view: depth,
@@ -784,16 +814,16 @@ function renderPrepass(
     });
     let draws = 0;
     const tagLane = lanes.some((lane) => lane.name === "tag");
-    const shadow = shadowGroup();
+    const shadow = shadowGroup(state);
     for (let i = 0; i < count; i++) {
         const { draw, r } = items[i];
         const pipe = r.t.prepass.get(key);
         const group = tagLane ? (r.g.tag ?? r.g.depth) : r.g.depth;
         if (pipe && group) {
-            const step = bundleDraw(_sear.prepassProgram, draws);
+            const step = bundleDraw(_searState.prepassProgram, draws);
             step.pipeline = boundPipeline(r.g, pipe, group, true, r.index) as never;
             step.layout0 = engineLayout;
-            step.group0 = engineGroup(r.g.engineCache, view.slot, r.g.quant);
+            step.group0 = engineGroup(state, r.g.engineCache, view.slot, r.g.quant);
             step.layout1 = shadowLayout;
             step.group1 = shadow;
             step.layout2 = null;
@@ -805,20 +835,20 @@ function renderPrepass(
     }
     // the prepass runs only for a camera carrying a lane marker; its lane set, and so its attachment
     // shape, is per camera, so each camera keeps its own recording
-    let bundle = _sear.prepassBundles.get(eid);
+    let bundle = _searState.prepassBundles.get(eid);
     if (!bundle) {
         bundle = newPassBundle();
-        _sear.prepassBundles.set(eid, bundle);
+        _searState.prepassBundles.set(eid, bundle);
     }
-    _sear.prepassBundleDesc.colorFormats.length = 0;
+    _searState.prepassBundleDesc.colorFormats.length = 0;
     for (let l = 0; l < lanes.length; l++)
-        _sear.prepassBundleDesc.colorFormats.push(lanes[l].format);
-    if (bundleChanged(bundle, _sear.prepassProgram, draws, _sear.prepassBundleDesc)) {
-        recordBundle(bundle, _sear.prepassProgram, draws, _sear.prepassBundleDesc);
+        _searState.prepassBundleDesc.colorFormats.push(lanes[l].format);
+    if (bundleChanged(bundle, _searState.prepassProgram, draws, _searState.prepassBundleDesc)) {
+        recordBundle(state, bundle, _searState.prepassProgram, draws, _searState.prepassBundleDesc);
     }
     if (bundle.bundle) pass.executeBundles(bundle.replay);
     pass.end();
-    Compute.indirect?.("sear:prepass", draws);
+    state.gpu.indirect?.("sear:prepass", draws);
     view.depth = storeDepth ? depth : null;
 }
 
@@ -828,24 +858,30 @@ function renderPrepass(
 // no-backdrop path on the clear
 type BackdropPick = { bg: Background; ct: CompiledBackground };
 function backdrop(state: State, eid: number): BackdropPick | null {
+    const _backgrounds = state.resource(Backgrounds);
+
     if (!state.has(eid, Backdrop)) return null;
     const id = state.of(Backdrop).name.get(eid);
-    const name = Backgrounds.name(id);
-    const bg = name ? Backgrounds.get(name) : undefined;
+    const name = _backgrounds.name(id);
+    const bg = name ? _backgrounds.get(name) : undefined;
     if (!bg) return null;
-    const ct = getBackground(bg.name, bg) ?? compileBackground(bg);
+    const ct = getBackground(state, bg.name, bg) ?? compileBackground(state, bg);
     return { bg, ct };
 }
 
 // build (and cache on the CompiledBackground) a typed background's own group-2 bind group — slot-invariant
 // (the per-slot View rides the engine group 0). Returns null while a binding is unpublished (skip); a
 // binding-free background carries no group at all (its empty layout never enters the pipeline layout)
-function backgroundGroup(bg: Background, ct: CompiledBackground): GPUBindGroup | null | "none" {
+function backgroundGroup(
+    state: State,
+    bg: Background,
+    ct: CompiledBackground,
+): GPUBindGroup | null | "none" {
     const entries = bg.layout.entries as Record<string, object>;
     if (Object.keys(entries).length === 0) return "none";
-    const resolved = typedResources(entries);
+    const resolved = typedResources(state, entries);
     if (typeof resolved === "string") {
-        return warnSkip(`background:${bg.name}`, `binding "${resolved}" not published`);
+        return warnSkip(state, `background:${bg.name}`, `binding "${resolved}" not published`);
     }
     if (
         ct.group2 &&
@@ -854,8 +890,8 @@ function backgroundGroup(bg: Background, ct: CompiledBackground): GPUBindGroup |
     ) {
         return ct.group2.group;
     }
-    const group = Compute.root.unwrap(
-        Compute.root.createBindGroup(bg.layout, resolved.values as never),
+    const group = state.gpu.root.unwrap(
+        state.gpu.root.createBindGroup(bg.layout, resolved.values as never),
     );
     ct.group2 = { group, resources: resolved.resources };
     return group;
@@ -878,6 +914,7 @@ function backgroundGroup(bg: Background, ct: CompiledBackground): GPUBindGroup |
 // one opaque or blended surface draw in a camera's color pass at its view slot, written into the
 // camera's bundle program at `at`
 function drawColor(
+    state: State,
     program: BundleDraw[],
     at: number,
     item: FrameDraw,
@@ -889,7 +926,7 @@ function drawColor(
     const step = bundleDraw(program, at);
     step.pipeline = boundPipeline(r.g, pipe, r.g.color, false, r.index) as never;
     step.layout0 = engineLayout;
-    step.group0 = engineGroup(r.g.engineCache, slot, r.g.quant);
+    step.group0 = engineGroup(state, r.g.engineCache, slot, r.g.quant);
     step.layout1 = shadowLayout;
     step.group1 = shadow;
     step.layout2 = null;
@@ -899,36 +936,40 @@ function drawColor(
 }
 
 function renderColor(
+    state: State,
     eid: number,
     view: View,
     items: FrameDraw[],
     count: number,
     bg: BackdropPick | null = null,
 ): void {
-    if (!Render.encoder || !view.framebuffer) return;
+    const _render = state.resource(Render);
+    const _searState = state.resource(searStateKey);
+
+    if (!_render.encoder || !view.framebuffer) return;
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the default the Camera trait seeds), else
     // single-sample. A scene attribute or a runtime `Camera.antialias.set(eid, 0)` flips it live
-    const aa = Camera.antialias.get(eid) !== 0;
-    const packed = Camera.clearColor.get(eid);
-    if (packed !== _sear.clearPacked) {
+    const aa = state.of(Camera).antialias.get(eid) !== 0;
+    const packed = state.of(Camera).clearColor.get(eid);
+    if (packed !== _searState.clearPacked) {
         const clear = unpackColor(packed);
-        _sear.clearValue.r = clear.r;
-        _sear.clearValue.g = clear.g;
-        _sear.clearValue.b = clear.b;
-        _sear.clearPacked = packed;
+        _searState.clearValue.r = clear.r;
+        _searState.clearValue.g = clear.g;
+        _searState.clearValue.b = clear.b;
+        _searState.clearPacked = packed;
     }
-    const targets = colorTargets(eid, view.width, view.height, aa);
-    const shadow = shadowGroup();
+    const targets = colorTargets(state, eid, view.width, view.height, aa);
+    const shadow = shadowGroup(state);
     // the camera's draw program: opaque, then the backdrop, then blend. Building it reads only cached
     // identities, so a steady frame allocates nothing here and the compare below reports no transition
     let draws = 0;
     let indirect = 0;
     for (let i = 0; i < count; i++) {
         const item = items[i];
-        if (!aa) ensureSingle(item.r.t);
+        if (!aa) ensureSingle(state, item.r.t);
         const pipe = aa ? item.r.t.color : item.r.t.single?.color;
         if (pipe) {
-            drawColor(_sear.colorProgram, draws++, item, pipe, view.slot, shadow);
+            drawColor(state, _searState.colorProgram, draws++, item, pipe, view.slot, shadow);
             indirect++;
         }
     }
@@ -940,12 +981,12 @@ function renderColor(
         // a typed backdrop: the shared engine group 0 (a never-read `bgQuant()` fills the meshQuant
         // slot — a background pulls no mesh), the typed shadow group 1 (declared-but-unused, the
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
-        const group = backgroundGroup(bg.bg, bg.ct);
+        const group = backgroundGroup(state, bg.bg, bg.ct);
         if (group) {
-            const step = bundleDraw(_sear.colorProgram, draws++);
+            const step = bundleDraw(_searState.colorProgram, draws++);
             step.pipeline = (aa ? bg.ct.color : bg.ct.single) as never;
             step.layout0 = engineLayout;
-            step.group0 = engineGroup(bg.ct.engineCache, view.slot, bgQuant());
+            step.group0 = engineGroup(state, bg.ct.engineCache, view.slot, bgQuant(state));
             step.layout1 = shadowLayout;
             step.group1 = shadow;
             step.layout2 = group === "none" ? null : bg.bg.layout;
@@ -958,22 +999,23 @@ function renderColor(
         const item = items[i];
         const pipe = aa ? item.r.t.transparent : item.r.t.single?.transparent;
         if (pipe) {
-            drawColor(_sear.colorProgram, draws++, item, pipe, view.slot, shadow);
+            drawColor(state, _searState.colorProgram, draws++, item, pipe, view.slot, shadow);
             indirect++;
         }
     }
 
-    let pass = _sear.colorBundles.get(eid);
+    let pass = _searState.colorBundles.get(eid);
     if (!pass) {
         pass = newPassBundle();
-        _sear.colorBundles.set(eid, pass);
+        _searState.colorBundles.set(eid, pass);
     }
-    _sear.colorBundleDesc.colorFormats[0] = Render.format;
-    _sear.colorBundleDesc.sampleCount = aa ? SAMPLE_COUNT : 1;
-    if (bundleChanged(pass, _sear.colorProgram, draws, _sear.colorBundleDesc)) {
-        recordBundle(pass, _sear.colorProgram, draws, _sear.colorBundleDesc);
+    _searState.colorBundleDesc.colorFormats[0] = _render.format;
+    _searState.colorBundleDesc.sampleCount = aa ? SAMPLE_COUNT : 1;
+    if (bundleChanged(pass, _searState.colorProgram, draws, _searState.colorBundleDesc)) {
+        recordBundle(state, pass, _searState.colorProgram, draws, _searState.colorBundleDesc);
     }
     const encoded = beginColor(
+        state,
         targets.label,
         targets.colorView,
         targets.depthView,
@@ -984,7 +1026,7 @@ function renderColor(
     // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
     // validation floor; the honest count is post the `if (pipe)` skip, and excludes the backdrop's
     // three-vertex draw, which is not indirect
-    Compute.indirect?.("sear:color", indirect);
+    state.gpu.indirect?.("sear:color", indirect);
 }
 
 // the Sear camera query terms, and the point caster frames `ShadowCameraSystem` ranks into (a capacity pool
@@ -1004,19 +1046,22 @@ const SEAR_CAMERAS = [Camera, Sear];
  * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
  * params buffer — `./atlas`), surviving HMR re-warms
  */
-async function prepareSear(device: GPUDevice, capacity: number): Promise<void> {
+async function prepareSear(state: State, device: GPUDevice, capacity: number): Promise<void> {
     // the caster count + atlas size fold into the shadow WGSL at its first resolve and the uniforms below
     // size from the same schemas, so a config mutated between builds is a hard error, not a silent mismatch
     checkShadowConfig();
-    resetPipelineCaches();
-    _sear.warned.clear();
-    resetShadowAtlas(device);
+    resetPipelineCaches(state);
+    state.resource(searStateKey).warned.clear();
+    resetShadowAtlas(state, device);
     // the lazily-allocated packed list binds at each atlas pipeline's `eids` lane, so allocating it clears
     // the resolved-bind-group cache to rebuild with it
-    pointRegather.reset(() => clearGroups());
-    cascadeRegather.reset(() => clearGroups());
+    state.resource(pointRegather).reset(() => clearGroups(state));
+    state.resource(cascadeRegather).reset(() => clearGroups(state));
     // Compile surfaces and the shared re-gather pipelines before the first draw.
-    await Promise.all([prepareRegather(device, capacity), preparePipelines(capacity)]);
+    await Promise.all([
+        prepareRegather(state, device, capacity),
+        preparePipelines(state, capacity),
+    ]);
 }
 
 /**
@@ -1037,11 +1082,13 @@ export const PrepassSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(state) {
-        if (!Render.encoder) return;
+        const _searState = state.resource(searStateKey);
+
+        if (!state.resource(Render).encoder) return;
         // resolve once for the prepass + shadow map + color pass (they all run after this)
-        resolveDraws(state.entityHighWater);
+        resolveDraws(state, state.entityHighWater);
         for (const eid of state.query(SEAR_CAMERAS)) {
-            const view = Views.get(eid);
+            const view = state.resource(Views).get(eid);
             if (!view?.framebuffer) continue;
             // markers → the requested lanes. The id lane is a color attachment; depth is the
             // depth-stencil, stored only when the camera carries `Depth`. Reset both each frame so a
@@ -1061,7 +1108,15 @@ export const PrepassSystem: System = {
             for (let l = 0; l < COLOR_LANES.length; l++) {
                 if (state.has(eid, COLOR_LANES[l].marker)) lanes.push(COLOR_LANES[l]);
             }
-            renderPrepass(eid, view, _sear.frameDraws, _sear.frameCount, lanes, storeDepth);
+            renderPrepass(
+                state,
+                eid,
+                view,
+                _searState.frameDraws,
+                _searState.frameCount,
+                lanes,
+                storeDepth,
+            );
         }
     },
 };
@@ -1081,11 +1136,20 @@ export const ColorSystem: System = {
     after: [PrepassSystem],
     before: [GlazeSystem],
     update(state) {
-        if (!Render.encoder) return;
+        const _searState = state.resource(searStateKey);
+
+        if (!state.resource(Render).encoder) return;
         for (const eid of state.query(SEAR_CAMERAS)) {
-            const view = Views.get(eid);
+            const view = state.resource(Views).get(eid);
             if (!view?.framebuffer) continue;
-            renderColor(eid, view, _sear.frameDraws, _sear.frameCount, backdrop(state, eid));
+            renderColor(
+                state,
+                eid,
+                view,
+                _searState.frameDraws,
+                _searState.frameCount,
+                backdrop(state, eid),
+            );
         }
     },
 };
@@ -1101,22 +1165,24 @@ const ShadowCameraSystem: System = {
     name: "shadow-camera",
     group: "simulation",
     update(state) {
+        const _searState = state.resource(searStateKey);
+
         let main = -1;
         for (const eid of state.query(SEAR_CAMERAS)) {
             main = eid;
             break;
         }
-        const casters = updatePointShadows(state, main, _sear.pointFrames);
-        setPointFrames(_sear.pointFrames, casters);
+        const casters = updatePointShadows(state, main, _searState.pointFrames);
+        setPointFrames(state, _searState.pointFrames, casters);
         updateCascades(state, main);
         // allocate each atlas's re-gather list here, before record() (PrepassSystem) builds the cast bind
         // groups that bind it — so the first casting frame's groups include it (the alloc clears the
         // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
         // again harmlessly
-        if (casters > 0 && shadowReady())
-            pointRegather.ensure(pointCasters() * 6, state.entityHighWater);
-        if (cascadeCount(state) > 0 && shadowReady())
-            cascadeRegather.ensure(MAX_CASCADES, state.entityHighWater);
+        if (casters > 0 && shadowReady(state))
+            state.resource(pointRegather).ensure(pointCasters() * 6, state.entityHighWater);
+        if (cascadeCount(state) > 0 && shadowReady(state))
+            state.resource(cascadeRegather).ensure(MAX_CASCADES, state.entityHighWater);
     },
 };
 
@@ -1133,8 +1199,15 @@ const ShadowMapSystem: System = {
     after: [PrepassSystem],
     before: [ColorSystem],
     update(state) {
-        renderPointShadows(state, _sear.frameDraws, _sear.frameCount, state.entityHighWater);
-        renderCascades(state, _sear.frameDraws, _sear.frameCount, state.entityHighWater);
+        const _searState = state.resource(searStateKey);
+
+        renderPointShadows(
+            state,
+            _searState.frameDraws,
+            _searState.frameCount,
+            state.entityHighWater,
+        );
+        renderCascades(state, _searState.frameDraws, _searState.frameCount, state.entityHighWater);
     },
 };
 
@@ -1223,17 +1296,19 @@ const typedVertexFs = tgpu.fn(
 // free every GPU resource sear owns (at plugin dispose): the shadow atlases (point + cascade, ./atlas) +
 // their params, and the per-camera prepass depth / lane targets / MSAA color+depth. The cascade Camera
 // entities live in a State, so destroyCascades (./shadows) tears those down separately
-function disposeSear(): void {
-    disposeShadowAtlas();
-    for (const c of _sear.depth.values()) c.texture.destroy();
-    for (const c of _sear.laneTargets.values()) c.texture.destroy();
-    for (const c of _sear.colorTargets.values()) {
+function disposeSear(state: State): void {
+    const _searState = state.resource(searStateKey);
+
+    disposeShadowAtlas(state);
+    for (const c of _searState.depth.values()) c.texture.destroy();
+    for (const c of _searState.laneTargets.values()) c.texture.destroy();
+    for (const c of _searState.colorTargets.values()) {
         c.color?.destroy();
         c.depth.destroy();
     }
-    _sear.depth.clear();
-    _sear.laneTargets.clear();
-    _sear.colorTargets.clear();
+    _searState.depth.clear();
+    _searState.laneTargets.clear();
+    _searState.colorTargets.clear();
 }
 
 export function createSearPlugin(): Plugin {
@@ -1294,14 +1369,14 @@ export function createSearPlugin(): Plugin {
         },
 
         async warm(state) {
-            if (!Compute.device) return;
-            await prepareSear(Compute.device, state.entityHighWater);
+            if (!state.gpu.device) return;
+            await prepareSear(state, state.gpu.device, state.entityHighWater);
         },
 
         dispose(state) {
             destroyPointShadows(state);
             destroyCascades(state);
-            disposeSear();
+            disposeSear(state);
         },
     };
 }

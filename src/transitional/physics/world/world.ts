@@ -74,6 +74,8 @@ export type Counters = {
 
 /** The simulation world state (b3World), trimmed to the lifecycle subset the port implements. */
 export type WorldState = {
+    /** ECS owner; undefined only for the standalone solver API. */
+    ecsState: import("../../../engine").State | undefined;
     broadPhase: BroadPhase;
     constraintGraph: ConstraintGraph;
 
@@ -231,14 +233,20 @@ function makeCapacity(c?: Capacity): Capacity {
     };
 }
 
-function makeWorldState(def: WorldDef, worldId: number, generation: number): WorldState {
+function makeWorldState(
+    state: import("../../../engine").State | undefined,
+    def: WorldDef,
+    worldId: number,
+    generation: number,
+): WorldState {
     // Round every user float to f32 once at ingress; the C def is f32, so an f64 scalar would feed the
     // solver an extra bit and break bit-exact parity. Callbacks/capacity/bigints pass through.
     def = froundConfig(def);
     const capacity = makeCapacity(def.capacity);
 
     const world: WorldState = {
-        broadPhase: createBroadPhase(capacity),
+        ecsState: state,
+        broadPhase: createBroadPhase(state, capacity),
         constraintGraph: createGraph(capacity.staticBodyCount + capacity.dynamicBodyCount),
         bodies: [],
         solverSetIdPool: createIdPool(),
@@ -254,9 +262,9 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
         shapes: [],
         hullDatabase: new Map(),
         geometryDirty: false,
-        manifoldStore: createManifoldStore(),
-        bodyStore: createBodyStore(),
-        shapeStore: createShapeStore(worldId),
+        manifoldStore: createManifoldStore(state),
+        bodyStore: createBodyStore(state),
+        shapeStore: createShapeStore(state, worldId),
         sensors: [],
         sensorQuery: null,
         bodyMoveCount: 0,
@@ -310,8 +318,11 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
 }
 
 /** Create a simulation world (b3CreateWorld). @returns its id. */
-export function createWorld(def: WorldDef): WorldId {
-    const owner = kernel();
+export function createWorld(
+    state: import("../../../engine").State | undefined,
+    def: WorldDef,
+): WorldId {
+    const owner = kernel(state);
     let worldId = -1;
     for (let i = 0; i < MAX_WORLDS; ++i) {
         const w = worlds[i];
@@ -327,7 +338,7 @@ export function createWorld(def: WorldDef): WorldId {
     initializeContactRegisters();
 
     const generation = worlds[worldId]?.generation ?? 0;
-    const world = makeWorldState(def, worldId, generation);
+    const world = makeWorldState(state, def, worldId, generation);
     worlds[worldId] = world;
     worldKernels.set(world, owner);
     liveWorldsByKernel.set(owner, liveWorldCount(owner) + 1);
@@ -381,9 +392,9 @@ export function destroyWorld(world: WorldState): void {
 
     // Wipe but preserve+bump generation so stale ids to this (possibly recycled) slot are detected.
     const generation = world.generation;
-    kernel().bodyResetWorld(world.worldId);
-    kernel().shapeResetWorld(world.worldId);
-    kernel().materialResetWorld(world.worldId);
+    kernel(world.ecsState).bodyResetWorld(world.worldId);
+    kernel(world.ecsState).shapeResetWorld(world.worldId);
+    kernel(world.ecsState).materialResetWorld(world.worldId);
     world.inUse = false;
     world.worldId = 0;
     world.generation = (generation + 1) & 0xffff;
@@ -399,8 +410,8 @@ export function destroyWorld(world: WorldState): void {
 /** @returns entity counts for a world (b3World_GetCounters). */
 export function worldCounters(world: WorldState): Counters {
     return {
-        bodyCount: kernel().bodyCount(world.worldId),
-        shapeCount: kernel().shapeCount(world.worldId),
+        bodyCount: kernel(world.ecsState).bodyCount(world.worldId),
+        shapeCount: kernel(world.ecsState).shapeCount(world.worldId),
         contactCount: idCount(world.contactIdPool),
         jointCount: idCount(world.jointIdPool),
         islandCount: idCount(world.islandIdPool),

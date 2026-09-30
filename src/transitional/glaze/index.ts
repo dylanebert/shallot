@@ -4,7 +4,7 @@
 // scene-color target (`view.framebuffer`); glaze runs one compute dispatch per camera that reads it and
 // writes the swapchain (`view.present`), applying the per-camera postfx chain on the way. The swapchain
 // is a base-format storage texture (not sRGB), so glaze encodes linear→sRGB itself (`linearToSrgb`) — the
-// same path a consumer's own fused composite takes. Compute, not a render pass, so the present costs no
+// same path a consumer's own fused composite takes. state.gpu, not a render pass, so the present costs no
 // tile load/store on TBDR; WebGPU exposes no programmable blending, so a
 // compute dispatch reading the offscreen and writing the swapchain once is the portable fused-postfx
 // substitute. Renderer-agnostic: it imports only `render` and reads `view.framebuffer` / `view.present`,
@@ -27,8 +27,8 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, u32, vec4 } from "../../engine";
-import { precompile, worldResource } from "../../engine/runtime";
+import { f32, u32, vec4 } from "../../engine";
+import { precompile } from "../../engine/runtime";
 import { composite, GlazeConfig, initializeCompositeState, WORKGROUP } from "./composite";
 
 export { Tonemap, tonemapWgsl } from "./tonemap";
@@ -75,19 +75,9 @@ function createGlazeState(): GlazeState {
     };
 }
 
-function glazeState(): GlazeState {
-    return worldResource(glazeStateKey);
+function _glazeState(state: State): GlazeState {
+    return state.resource(glazeStateKey);
 }
-
-const _glaze = new Proxy({} as GlazeState, {
-    get(_target, key) {
-        return glazeState()[key as keyof GlazeState];
-    },
-    set(_target, key, value) {
-        (glazeState() as unknown as Record<PropertyKey, unknown>)[key] = value;
-        return true;
-    },
-});
 
 /**
  * per-camera postfx tuning. A camera tonemaps Neutral by default (no `Glaze` needed); add `Glaze` to
@@ -122,8 +112,8 @@ export const Glaze = {
 // group binds a whole buffer (no offset/size, no `hasDynamicOffset`). It keeps the property the stride
 // existed for — `writeBuffer` is queue-ordered against the submit, so a single rewritten uniform would
 // clobber every camera's composite with the last camera's config, while distinct buffers never collide
-function configBuffer(slot: number) {
-    return Compute.root.createBuffer(GlazeConfig).$usage("uniform").$name(`glaze-config-${slot}`);
+function configBuffer(state: State, slot: number) {
+    return state.gpu.root.createBuffer(GlazeConfig).$usage("uniform").$name(`glaze-config-${slot}`);
 }
 
 // the grade identities, so a camera without `Glaze` composites a no-op grade at unit exposure and mode 0
@@ -154,22 +144,27 @@ const CAMERAS = [Camera];
 // The raw group descriptors and handles live in the world's Glaze resource.
 
 // the composite's raw handles, resolved once per build from the typegpu pipeline, layout and uniforms
-function rawComposite(built: ReturnType<typeof composite>): {
+function rawComposite(
+    state: State,
+    built: ReturnType<typeof composite>,
+): {
     pipeline: GPUComputePipeline;
     layout: GPUBindGroupLayout;
     configs: GPUBuffer[];
 } {
-    if (_glaze.raw && _glaze.raw.composite === built) return _glaze.raw;
-    _glaze.raw = {
+    const _glazeState = state.resource(glazeStateKey);
+
+    if (_glazeState.raw && _glazeState.raw.composite === built) return _glazeState.raw;
+    _glazeState.raw = {
         composite: built,
-        pipeline: Compute.root.unwrap(built.pipeline),
-        layout: Compute.root.unwrap(built.layout),
-        configs: _glaze.configs.map((buffer) => Compute.root.unwrap(buffer)),
+        pipeline: state.gpu.root.unwrap(built.pipeline),
+        layout: state.gpu.root.unwrap(built.layout),
+        configs: _glazeState.configs.map((buffer) => state.gpu.root.unwrap(buffer)),
     };
-    return _glaze.raw;
+    return _glazeState.raw;
 }
 function uploadConfig(state: State, eid: number, slot: number): void {
-    const buffer = _glaze.configs[slot];
+    const buffer = state.resource(glazeStateKey).configs[slot];
     if (!state.has(eid, Glaze)) {
         buffer.write(DEFAULT);
         return;
@@ -217,26 +212,28 @@ export const GlazeSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(state) {
-        const encoder = Render.encoder;
-        if (!encoder || !Compute.device || !_glaze.composite) return;
-        const raw = rawComposite(_glaze.composite);
-        _glaze.groupDesc.layout = raw.layout;
+        const _glazeState = state.resource(glazeStateKey);
+
+        const encoder = state.resource(Render).encoder;
+        if (!encoder || !state.gpu.device || !_glazeState.composite) return;
+        const raw = rawComposite(state, _glazeState.composite);
+        _glazeState.groupDesc.layout = raw.layout;
         for (const eid of state.query(CAMERAS)) {
-            const view = Views.get(eid);
+            const view = state.resource(Views).get(eid);
             if (!view?.present || !view.framebuffer) continue;
             uploadConfig(state, eid, view.slot);
-            _glaze.inputEntry.resource = view.framebuffer;
-            _glaze.glazeBinding.buffer = raw.configs[view.slot];
-            _glaze.outputEntry.resource = view.present;
-            const group = Compute.device.createBindGroup(_glaze.groupDesc);
-            let label = _glaze.labels.get(eid);
+            _glazeState.inputEntry.resource = view.framebuffer;
+            _glazeState.glazeBinding.buffer = raw.configs[view.slot];
+            _glazeState.outputEntry.resource = view.present;
+            const group = state.gpu.device.createBindGroup(_glazeState.groupDesc);
+            let label = _glazeState.labels.get(eid);
             if (label === undefined) {
                 label = `glaze/${eid}`;
-                _glaze.labels.set(eid, label);
+                _glazeState.labels.set(eid, label);
             }
-            _glaze.pass.label = label;
-            _glaze.pass.timestampWrites = Compute.span?.("glaze");
-            const pass = encoder.beginComputePass(_glaze.pass);
+            _glazeState.pass.label = label;
+            _glazeState.pass.timestampWrites = state.gpu.span?.("glaze");
+            const pass = encoder.beginComputePass(_glazeState.pass);
             pass.setPipeline(raw.pipeline);
             pass.setBindGroup(0, group);
             pass.dispatchWorkgroups(
@@ -284,21 +281,24 @@ export const GlazePlugin: Plugin = {
         initializeCompositeState(state);
     },
 
-    async warm() {
-        const device = Compute.device;
+    async warm(state: State) {
+        const _glazeState = state.resource(glazeStateKey);
+
+        const device = state.gpu.device;
         if (!device) return;
         const format = navigator.gpu.getPreferredCanvasFormat();
-        for (const buffer of _glaze.configs) buffer.destroy();
-        _glaze.configs = [];
-        for (let slot = 0; slot < MAX_VIEWS; slot++) _glaze.configs.push(configBuffer(slot));
-        _glaze.composite = composite(format);
-        const { layout, pipeline } = _glaze.composite;
+        for (const buffer of _glazeState.configs) buffer.destroy();
+        _glazeState.configs = [];
+        for (let slot = 0; slot < MAX_VIEWS; slot++)
+            _glazeState.configs.push(configBuffer(state, slot));
+        _glazeState.composite = composite(state, format);
+        const { layout, pipeline } = _glazeState.composite;
 
         // typegpu pipelines are created synchronously and Dawn defers the real shader compile, so without
         // this the composite compiles inside frame 1 — glaze runs every frame, so that
         // is the whole first-frame stall. The real bind needs the per-frame swapchain view, which does not
         // exist at warm, so the forcer binds 1×1 throwaways of the same formats
-        precompile("glaze", () => {
+        precompile(state, "glaze", () => {
             const src = device.createTexture({
                 label: "glaze-precompile-src",
                 size: { width: 1, height: 1 },
@@ -312,9 +312,9 @@ export const GlazePlugin: Plugin = {
                 usage: GPUTextureUsage.STORAGE_BINDING,
             });
             const bound = pipeline.with(
-                Compute.root.createBindGroup(layout, {
+                state.gpu.root.createBindGroup(layout, {
                     input: src.createView(),
-                    glaze: _glaze.configs[0],
+                    glaze: state.resource(glazeStateKey).configs[0],
                     output: dst.createView(),
                 }),
             );
@@ -324,12 +324,14 @@ export const GlazePlugin: Plugin = {
         });
     },
 
-    dispose() {
-        for (const buffer of _glaze.configs) buffer.destroy();
-        _glaze.configs = [];
+    dispose(state: State) {
+        const _glazeState = state.resource(glazeStateKey);
+
+        for (const buffer of _glazeState.configs) buffer.destroy();
+        _glazeState.configs = [];
         // the pipeline memo is device-scoped and outlives a build (`composite`), like every other typed
         // pipeline cache — only this build's per-slot uniforms are ours to free
-        _glaze.composite = null;
-        _glaze.raw = null;
+        _glazeState.composite = null;
+        _glazeState.raw = null;
     },
 };

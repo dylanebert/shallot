@@ -1,6 +1,5 @@
 import { build, CharacterPlugin, InputPlugin, PhysicsPlugin } from "../../../src/index";
 import { Demo } from "../../../examples/first-person/src/demo";
-import { Compute } from "../../../src/engine/runtime";
 const FIXED_DT = 1 / 60;
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -15,7 +14,7 @@ export default async function create(scene: string) {
             subjectSink = { frame: 0 };
             state.step(FIXED_DT);
         },
-        wait: () => Compute.device.queue.onSubmittedWorkDone(),
+        wait: () => state.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }
