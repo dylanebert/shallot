@@ -18,9 +18,6 @@ let _anon = 0;
 export const Samples: Registry<SampleEntry> = new Registry<SampleEntry>();
 
 const _pending = new Map<number, Promise<void>>();
-// sample id → version last sent to the worklet; cleared on audio re-init so a
-// fresh worklet re-receives every decoded sample
-const _sent = new Map<number, number>();
 
 let _decodeCtx: AudioContext | null = null;
 function decodeCtx(): AudioContext {
@@ -123,21 +120,17 @@ export function whenLoaded(id: number): Promise<void> {
     return _pending.get(id) ?? Promise.resolve();
 }
 
-/** clear the sent-version tracking so a fresh worklet re-receives every sample */
-export function resetSampleUploads(): void {
-    _sent.clear();
-}
-
 /** send each newly-decoded sample to the worklet once, one call per channel, via `emit` */
 export function flushSamples(
+    sent: Map<number, number>,
     emit: (id: number, channel: number, channels: number, data: Float32Array) => void,
 ): void {
     for (const entry of Samples) {
         if (entry.channels.length === 0) continue;
         const id = Samples.id(entry.name)!;
-        if (_sent.get(id) === entry.version) continue;
+        if (sent.get(id) === entry.version) continue;
         const count = entry.channels.length;
         for (let c = 0; c < count; c++) emit(id, c, count, entry.channels[c]);
-        _sent.set(id, entry.version);
+        sent.set(id, entry.version);
     }
 }

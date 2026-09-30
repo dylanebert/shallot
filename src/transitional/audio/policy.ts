@@ -1,3 +1,5 @@
+import type { Resource, State } from "../../engine";
+
 // SFX policy — a per-name instance-limit contract over play(), FMOD/Wwise style.
 // The kernel cull is the audibility half (it quiets the least-audible voice when
 // the 64-voice pool is full); this is the per-event budget half it lacks: a
@@ -15,10 +17,8 @@ export interface SfxPolicy {
 }
 
 const policies = new Map<string, Required<SfxPolicy>>();
-// per-name elapsed-time of the last admitted trigger. The cooldown clock is
-// state.time.elapsed, so a State rebuild resets it to 0 — withinCooldown reads a
-// backwards clock (elapsed < last) as expired, self-healing without a hook
-const fired = new Map<string, number>();
+// Per-name trigger progress uses the owning State's elapsed-time clock.
+const Cooldowns: Resource<Map<string, number>> = { create: () => new Map() };
 
 /**
  * declare a per-name instance limit for {@link play}, FMOD/Wwise style: cap the
@@ -43,13 +43,18 @@ export function policyFor(name: string): Required<SfxPolicy> | undefined {
 }
 
 /** true when `name` last fired inside its cooldown window; the trigger should drop. A backwards clock (a State rebuild reset elapsed) reads as expired */
-export function withinCooldown(name: string, cooldown: number, elapsed: number): boolean {
+export function withinCooldown(
+    state: State,
+    name: string,
+    cooldown: number,
+    elapsed: number,
+): boolean {
     if (cooldown <= 0) return false;
-    const last = fired.get(name);
+    const last = state.resource(Cooldowns).get(name);
     return last !== undefined && elapsed >= last && elapsed - last < cooldown;
 }
 
 /** record an admitted trigger's time, opening the cooldown window */
-export function markCooldown(name: string, elapsed: number): void {
-    fired.set(name, elapsed);
+export function markCooldown(state: State, name: string, elapsed: number): void {
+    state.resource(Cooldowns).set(name, elapsed);
 }

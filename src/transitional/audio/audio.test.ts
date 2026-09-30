@@ -7,8 +7,55 @@ import {
     Sound,
     State,
     sample,
+    sfx,
 } from "@dylanebert/shallot";
-import { Audio, alloc, gate } from "./device";
+import { Audio, alloc, gate, tickAudio } from "./device";
+
+test("each State uploads each sample version once to its own worklet", () => {
+    const a = new State();
+    const b = new State();
+    const id = sample(new Float32Array([0.25]), "recipient-sample");
+    const received: object[][] = [[], []];
+    for (const [i, state] of [a, b].entries()) {
+        state.resource(Audio).node = {
+            port: {
+                postMessage: (batch: { commands: object[] }) => received[i].push(...batch.commands),
+            },
+        } as unknown as AudioWorkletNode;
+    }
+    const uploads = (i: number) =>
+        received[i].filter(
+            (command) =>
+                (command as { type: string; id: number }).type === "set_sample" &&
+                (command as { id: number }).id === id,
+        );
+    tickAudio(a);
+    tickAudio(b);
+    expect([uploads(0).length, uploads(1).length]).toEqual([1, 1]);
+    const counts = received.map((commands) => commands.length);
+    tickAudio(a);
+    tickAudio(b);
+    expect(received.map((commands) => commands.length)).toEqual(counts);
+    sample(new Float32Array([0.5]), "recipient-sample");
+    tickAudio(a);
+    tickAudio(b);
+    expect([uploads(0).length, uploads(1).length]).toEqual([2, 2]);
+    a.dispose();
+    b.dispose();
+});
+
+test("SFX cooldown progress belongs to the State that admitted the trigger", () => {
+    const a = new State();
+    const b = new State();
+    sample(new Float32Array([0]), "recipient-cooldown");
+    sfx("recipient-cooldown", { cooldown: 1 });
+    expect(play(a, "recipient-cooldown")).toBeGreaterThanOrEqual(0);
+    expect(play(b, "recipient-cooldown")).toBeGreaterThanOrEqual(0);
+    expect(play(a, "recipient-cooldown")).toBe(-1);
+    expect(play(b, "recipient-cooldown")).toBe(-1);
+    a.dispose();
+    b.dispose();
+});
 
 test("audio voice slots and worklet queues belong to their explicit State", () => {
     const a = new State();

@@ -7,7 +7,7 @@ import {
 } from "../../core/input";
 import type { State } from "../../engine";
 import { byId, getParamPairs, type Instrument } from "./instrument";
-import { flushSamples, resetSampleUploads } from "./sample";
+import { flushSamples } from "./sample";
 import { createWorkletURL } from "./worklet";
 
 export const MAX_VOICES = 64;
@@ -34,6 +34,8 @@ export interface Audio {
     idle: Map<number, () => void>;
     /** instrument id → topology version last sent (re-sent only on change) */
     sentInstruments: Map<number, number>;
+    /** sample id → version last sent to this worklet; cleared on re-init */
+    sentSamples: Map<number, number>;
     /** spatial param batch: 7 floats per voice (slot, az, el, dist, ref, max, roll) */
     spatial: Float32Array;
     spatialLen: number;
@@ -61,6 +63,7 @@ export const Audio: import("../../engine").Resource<Audio> = {
         queue: [],
         idle: new Map(),
         sentInstruments: new Map(),
+        sentSamples: new Map(),
         spatial: new Float32Array(MAX_VOICES * 7),
         spatialLen: 0,
         resume: null,
@@ -100,7 +103,7 @@ export async function initAudio(state: State): Promise<void> {
     _audio.idle.clear();
     _audio.sentInstruments.clear();
     _audio.spatialLen = 0;
-    resetSampleUploads();
+    _audio.sentSamples.clear();
 
     const ctx = new AudioContext();
     _audio.ctx = ctx;
@@ -218,7 +221,7 @@ export function disposeAudio(
 
 /** flush pending sample uploads + the queued message batch. Once per frame */
 export function tickAudio(state: State): void {
-    flushSamples((id, channel, channels, data) =>
+    flushSamples(state.resource(Audio).sentSamples, (id, channel, channels, data) =>
         enqueue(state, { type: "set_sample", id, channel, channels, data }),
     );
     flush(state.resource(Audio));

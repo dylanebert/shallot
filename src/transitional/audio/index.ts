@@ -191,7 +191,7 @@ function steal(state: State): void {
 // the graceful loop-stop path (the cap is well under the pool, so a slot is
 // free; no hard cut needed)
 function admit(state: State, name: string, policy: Required<SfxPolicy>, id: number): boolean {
-    if (withinCooldown(name, policy.cooldown, state.time.elapsed)) return false;
+    if (withinCooldown(state, name, policy.cooldown, state.time.elapsed)) return false;
     if (policy.max > 0) {
         let count = 0;
         let victim = -1;
@@ -214,7 +214,7 @@ function admit(state: State, name: string, policy: Required<SfxPolicy>, id: numb
             state.remove(victim, Sound);
         }
     }
-    if (policy.cooldown > 0) markCooldown(name, state.time.elapsed);
+    if (policy.cooldown > 0) markCooldown(state, name, state.time.elapsed);
     return true;
 }
 
