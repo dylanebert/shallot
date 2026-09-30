@@ -47,7 +47,7 @@ table.markRange(row, 1);
 
 Each table has one struct record layout and dense rows. `table.acquire(eid)` returns a slot that stays stable until `table.release(eid)`. Use the compact `activeRowsBuffer` for dispatches rather than scanning entity ids. If a shader starts from an eid, enable the lookup with `table.enableEidLookup()` or `table.subscribeMap(...)`; map entries encode `slot + 1`, with zero meaning absent.
 
-Fill records in bulk through `table.bytes`, then call `table.markRange(firstRow, count)`. Upload with `table.upload()` before the passes that read the table. Unchanged tables skip upload; changed tables use a range `writeBuffer`.
+Fill records in bulk through `table.bytes`, then call `table.markRange(firstRow, count)`. The engine uploads tables at the head of draw; ordinary writes need no manual upload call. Unchanged tables skip upload; changed tables use a range `writeBuffer`.
 
 Tables expose a raw record buffer, typed handle, capacity and generation. Subscribe to record, map or active-list changes and rebuild bind groups when the corresponding buffer changes. Do not retain a buffer across growth without rebinding.
 
