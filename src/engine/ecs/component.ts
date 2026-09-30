@@ -4,6 +4,17 @@ import type { Entity } from "./entity";
 /** SoA component schema: each field names a type; worlds own the columns. */
 export type Component = Record<string, unknown>;
 
+/** Optional starting values for a component's declared fields. */
+export type ComponentValues<T> = {
+    [K in keyof T as T[K] extends FieldType ? K : never]?: T[K] extends FieldType
+        ? T[K]["lanes"] extends 1
+            ? number
+            : T[K]["lanes"] extends 2
+              ? readonly [number, number]
+              : readonly [number, number, number, number]
+        : never;
+};
+
 /** @internal Freeze a component's shared declarations, never its world's storage. */
 export function freezeComponent(component: Component): void {
     for (const value of Object.values(component)) {

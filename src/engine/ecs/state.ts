@@ -1,6 +1,13 @@
 import type * as d from "typegpu/data";
 import { ReadbackPool, type WorldGpu } from "../runtime";
-import { type Component, Components, fields, freezeComponent, idOf } from "./component";
+import {
+    type Component,
+    Components,
+    type ComponentValues,
+    fields,
+    freezeComponent,
+    idOf,
+} from "./component";
 import { Entities } from "./entity";
 import {
     forgetGlobalTransformEntity,
@@ -463,14 +470,13 @@ export class World {
     }
 
     /**
-     * attach a component to an entity. Default values declared via the component's
-     * `Traits.defaults` are routed through each field's `.set` (for fields
-     * implementing the `ScalarField` contract): dirty tracking falls out automatically.
+     * Attach a component with optional field values (vectors are arrays).
+     * Missing fields keep `Traits.defaults`. Defaults and starting values go through
+     * field setters, publishing changes. An already attached component is unchanged.
      * @example
-     * world.add(eid, Health);
-     * world.storage(Health).current.set(eid, 100);
+     * world.add(eid, Health, { current: 100 });
      */
-    add<T>(eid: number, component: T): void {
+    add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
         const excluded = this.registry.getExclusions(component as Component);
         if (excluded) {
             for (const other of excluded) {
@@ -503,6 +509,16 @@ export class World {
             }
             this._queries.onComponentChanged(eid, component, this._components);
             this.registry.applyDefaults(this, component as Component, eid);
+            if (values) {
+                for (const [name, value] of Object.entries(values)) {
+                    const field = this.fieldStorage(component as Component, name);
+                    if (typeof value === "number") field.set(eid, value);
+                    else {
+                        const lanes = value as readonly number[];
+                        field.set(eid, lanes[0], lanes[1], lanes[2], lanes[3]);
+                    }
+                }
+            }
         } else {
             console.warn("world.add: component already attached to entity", eid);
         }
