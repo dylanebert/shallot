@@ -1,7 +1,7 @@
 // Text — the shallot SDF-text producer. A retained `Text` component (string content, font, size,
 // anchor, color) lays each label out into instanced glyph quads, drawn as a sear `"alpha"` world-space
 // surface (one draw per font atlas). The glyph buffer holds glyph-local positions + the owning entity id;
-// the VS reads `globalTransforms[eid]` per frame, so moving a labeled entity flows through GlobalTransform
+// the VS resolves the entity's dense row through `globalTransformRows` each frame, so placement flows through GlobalTransform
 // and triggers no glyph rebuild — the buffer rebuilds only when a layout-affecting field changes (a
 // content / size / anchor / color edit, an add / remove), gated by a per-frame signature. The SDF atlas /
 // font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the shallot
@@ -142,11 +142,13 @@ const textVaryings = { uvSize: d.vec4f, gcolor: d.vec4f };
 // another's). localPos.xy is the quad corner (0,0)..(1,1); signed-distance edge AA decodes the SDF to a
 // world-space signed distance, faded over one screen-space derivative either side of the glyph edge
 // (Valve "Improved Alpha-Tested Magnification"); fully-transparent texels discard before the blend
-function typedTextSurface(id: number) {
+/** @internal Shader factory shared by registration and placement verification. */
+export function typedTextSurface(id: number) {
     const atlasKey = atlasName(id);
     const layout = surfaceLayout({
         textGlyphs: { type: "storage", element: Glyph },
         globalTransforms: { type: "storage", element: Xform },
+        globalTransformRows: { type: "storage", element: d.u32 },
         textSamp: { type: "sampler" },
         [atlasKey]: { type: "texture-2d" },
     });
@@ -162,7 +164,18 @@ function typedTextSurface(id: number) {
         )((vsIn) => {
             "use gpu";
             const g = Glyph(layout.$.textGlyphs[vsIn.iid]);
-            const x = Xform(layout.$.globalTransforms[g.eid]);
+            const encodedRow = layout.$.globalTransformRows[g.eid];
+            // Like the instance packer, omit geometry without a placement. All corners collapse.
+            if (encodedRow === 0) {
+                return VertexPatch({
+                    world: d.vec4f(0),
+                    worldNormal: d.vec3f(0),
+                    clip: d.vec4f(0),
+                    uvSize: d.vec4f(0),
+                    gcolor: d.vec4f(0),
+                } as never);
+            }
+            const x = Xform(layout.$.globalTransforms[encodedRow - 1]);
             const corner = vsIn.localPos.xy;
             const gp = d.vec3f(
                 g.pos.x + corner.x * g.size.x,

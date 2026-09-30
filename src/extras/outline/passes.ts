@@ -50,6 +50,7 @@ export function groupByMesh(
 /** the always-on-top mask layout: view/position/indices/globalTransforms/maskEids/maskAttrs/meshQuant.
  *  @internal */
 export const maskLayoutPlain = tgpu.bindGroupLayout({
+    globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
     view: { uniform: ViewUniforms, visibility: ["vertex"] },
     position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
     indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
@@ -65,6 +66,7 @@ export const maskLayoutPlain = tgpu.bindGroupLayout({
  *  on the plain one: an out-of-bounds `textureLoad` returns 0 = far under reverse-Z, which would silently
  *  read every fragment as un-occluded. @internal */
 export const maskLayoutOcclude = tgpu.bindGroupLayout({
+    globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
     view: { uniform: ViewUniforms, visibility: ["vertex"] },
     position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
     indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
@@ -94,7 +96,10 @@ export function maskVertex(layout: MaskLayout) {
             // passing them by value into decodePos / xformPoint
             const quant = MeshQuant(layout.$.meshQuant[meshIdOf(raw.y)]);
             const p = decodePos(raw.x, raw.y, quant);
-            const x = Xform(layout.$.globalTransforms[layout.$.maskEids[input.iid]]);
+            const encodedRow = layout.$.globalTransformRows[layout.$.maskEids[input.iid]];
+            // Missing placement is excluded by the standard instance packer too.
+            if (encodedRow === 0) return { pos: d.vec4f(2, 2, 2, 1), iid: input.iid };
+            const x = Xform(layout.$.globalTransforms[encodedRow - 1]);
             const world = d.vec4f(xformPoint(x, p), 1);
             return { pos: std.mul(layout.$.view.viewProj, world), iid: input.iid };
         })
