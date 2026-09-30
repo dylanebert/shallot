@@ -87,7 +87,7 @@ for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
             expect(table.lastUploadPath).toBe("writeBuffer");
             const sparseRows = await bounded(
                 "probe sparsely changed table row",
-                probeBuffer(state.gpu.device, table.buffer, {
+                probeBuffer(state, table.buffer, {
                     offset: slots[0] * table.rowBytes,
                     size: table.rowBytes,
                     label: "table-range-write-proof",
@@ -113,7 +113,7 @@ for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
         expect(table.lastUploadPath).toBe("writeBuffer");
         const readRows = await bounded(
             "probe fully uploaded table rows",
-            probeBuffer(state.gpu.device, table.buffer, {
+            probeBuffer(state, table.buffer, {
                 offset: 0,
                 size: eids.length * d.sizeOf(Record),
                 label: "table-full-upload-proof",
@@ -200,7 +200,7 @@ test("component fields bulk-upload through a dense struct table and release thei
     await stepAndValidate(state, "component-bound struct upload");
     const record = await bounded(
         "probe component-bound row",
-        probeBuffer(state.gpu.device, table.buffer, {
+        probeBuffer(state, table.buffer, {
             size: table.rowBytes,
             label: "component-bound-table-proof",
         }),
@@ -217,7 +217,7 @@ test("component fields bulk-upload through a dense struct table and release thei
     await stepAndValidate(state, "reused component-bound row upload");
     const reused = await bounded(
         "probe reused component-bound row",
-        probeBuffer(state.gpu.device, table.buffer, {
+        probeBuffer(state, table.buffer, {
             size: table.rowBytes,
             label: "component-bound-table-reuse-proof",
         }),
@@ -277,7 +277,7 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
 
     const map = await bounded(
         "probe eid-to-row map",
-        probeBuffer(state.gpu.device, table.eidToRowBuffer!, {
+        probeBuffer(state, table.eidToRowBuffer!, {
             offset: second * 4,
             size: 8,
             label: "dense-table-eid-map-proof",
@@ -286,7 +286,7 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
     expect(Array.from(new Uint32Array(map.bytes))).toEqual([secondRow + 1, reusedRow + 1]);
     const active = await bounded(
         "probe compact active-row list",
-        probeBuffer(state.gpu.device, table.activeRowsBuffer!, {
+        probeBuffer(state, table.activeRowsBuffer!, {
             size: table.count * 8,
             label: "dense-table-active-rows-proof",
         }),
@@ -299,7 +299,7 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
     ]);
     const data = await bounded(
         "probe dense table records",
-        probeBuffer(state.gpu.device, table.buffer, {
+        probeBuffer(state, table.buffer, {
             size: table.capacity * table.rowBytes,
             label: "dense-table-records-proof",
         }),

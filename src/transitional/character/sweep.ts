@@ -5,7 +5,7 @@
 // algorithm is unchanged from the oracle — gather (sphere-cull), collide-and-slide along the geometric
 // closest-point MTV, ground snap, moving-platform carry, the coyote/jump-buffer timers, the full-speed push
 // — only the data it reads is reshaped: runtime poses the caller supplies (the character's own `Body` pose,
-// static candidates from the authored slab, dynamic candidates from a `Mirror` snapshot), the `raycast.ts`
+// static authored candidates and dynamic body poses), the `raycast.ts`
 // shape of a pure CPU physics primitive over caller-supplied poses.
 //
 // The controller owns the character's POSE; the broadphase/solver only read it (to push dynamics + carry
@@ -130,7 +130,7 @@ function rotateInv(out: Vec3, q: Quat, v: Vec3): Vec3 {
 
 /**
  * one candidate body the sweep collides the capsule against: the world pose + collider geometry the caller
- * reads off the runtime sources (a static's authored `Body` slab, a dynamic's `Mirror`-read GPU pose). `half`
+ * reads off the caller's authored fields or live body poses. `half`
  * is the box / hull-AABB half-extents (the capsule core half-height for a capsule); `radius` the rounding
  * (`Body.halfExtents.w`); `hull` the registry geometry for `ShapeKind.Hull`; `vel` the body velocity (a
  * static platform's, read for the carry; a dynamic's, mutated in place by the push). The {@link RayBody}

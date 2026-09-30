@@ -20,7 +20,6 @@ export const EXTRA_PLUGIN_NAMES = [
     "Character",
     "Fog",
     "Lines",
-    "Mirror",
     "Orbit",
     "OrbitOverlay",
     "Outline",

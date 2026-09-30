@@ -76,11 +76,25 @@ Access GPU registries through `state.gpu`. `Compute` remains available inside sy
 These helpers now take the owning State:
 
 - `profile(state)` replaces process-level `Profile` data.
-- `mirror(state, source)` replaces `mirror(source)`.
 - `cascadeCount`, `cascadeComboEids`, `pointComboCount` and `pointComboEids` take State first.
 - Character helpers `move`, `jump`, `pose`, `teleport` and `grounded` take State before the entity id.
 
 Each PhysicsPlugin App has its own physics runtime. State-first physics calls operate on that runtime; standalone low-level `World` calls remain available. A `WorldSnapshot` owns detached state and copied kernel bytes. Restore it only into a compatible World; restoring into a fresh World requires that its kernel have no other live World.
+
+## GPU readback is one-shot
+
+`Mirror`, `mirror()`, `MirrorSystem` and `MirrorPlugin` are removed, with no continuous replacement. Remove Mirror from manifests and plugin dependencies. Keep counts used to size GPU work on the GPU; request CPU bytes only when needed:
+
+```ts
+const result = await probeBuffer(state, counters, { offset: 4, size: 4 });
+const count = new Uint32Array(result.bytes)[0];
+```
+
+Import `probeBuffer` and `probeTexture` from `/runtime`. Both now take the owning State, not a GPUDevice. Results own their bytes and carry `frame` and `fixedTick` from the copy. Staging is shared by the world's requests and released after `state.readback.maxUnusedFrames` idle frames (default 10).
+
+Deterministic plugins cannot request or read readback bytes in `fixed`. A plugin whose simulation depends on GPU readback must declare `deterministic: false`.
+
+The light-pool overflow warning is no longer polled automatically. Use `requestLightOverflow(state)` from `/rendering` for a diagnostic result with `dropped`, `frame` and `fixedTick`. Light culling clamps writes whether or not the diagnostic is requested.
 
 ## `shallot recipe` is now `shallot add`
 

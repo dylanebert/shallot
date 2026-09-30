@@ -129,7 +129,7 @@ interface PartGpuState {
     paramsPartCount: number;
     paramsPartCapacity: number;
     rowCapacity: number;
-    inputGeneration: string | null;
+    inputGeneration: Int32Array;
 }
 
 const partGpuKey = Symbol("shallot.part");
@@ -137,17 +137,19 @@ const partTableKey = Symbol("shallot.part-table");
 
 /** Dense Part records shared by the GPU pack and typed surface stages. */
 export function partTable(state: State) {
-    return state.resource(partTableKey, () => {
-        const table = state.table("partInputs", PartRecord);
-        table.enableEidLookup();
-        const publishMap = (buffer: GPUBuffer) => {
-            state.gpu.buffers.set("partRowMap", buffer);
-            state.gpu.typed.set("partRowMap", table.eidToRowTyped!);
-        };
-        table.subscribeMap(publishMap);
-        publishMap(table.eidToRowBuffer!);
-        return table;
-    });
+    return state.resource(partTableKey, createPartTable);
+}
+
+function createPartTable(state: State) {
+    const table = state.table("partInputs", PartRecord);
+    table.enableEidLookup();
+    const publishMap = (buffer: GPUBuffer) => {
+        state.gpu.buffers.set("partRowMap", buffer);
+        state.gpu.typed.set("partRowMap", table.eidToRowTyped!);
+    };
+    table.subscribeMap(publishMap);
+    publishMap(table.eidToRowBuffer!);
+    return table;
 }
 
 function createPartGpuState(): PartGpuState {
@@ -176,7 +178,7 @@ function createPartGpuState(): PartGpuState {
         paramsPartCount: -1,
         paramsPartCapacity: -1,
         rowCapacity: 0,
-        inputGeneration: null,
+        inputGeneration: new Int32Array(4).fill(-1),
     };
 }
 
@@ -306,10 +308,18 @@ function cullGroup(state: State): TgpuBindGroup<(typeof cullLayout)["entries"]> 
     if (!_part.cullParams || !_part.meshBounds) return null;
     const parts = partTable(state);
     const transforms = transformTable(state);
-    const generation = `${parts.generation}:${parts.activeGeneration}:${transforms.generation}:${transforms.mapGeneration}`;
-    if (_part.inputGeneration !== generation) {
+    const generation = _part.inputGeneration;
+    if (
+        generation[0] !== parts.generation ||
+        generation[1] !== parts.activeGeneration ||
+        generation[2] !== transforms.generation ||
+        generation[3] !== transforms.mapGeneration
+    ) {
         unbind();
-        _part.inputGeneration = generation;
+        generation[0] = parts.generation;
+        generation[1] = parts.activeGeneration;
+        generation[2] = transforms.generation;
+        generation[3] = transforms.mapGeneration;
     }
     if (_part.cullGroup) return _part.cullGroup;
     const cullVolumes = Compute.buffers.get("cullVolumes");
@@ -585,7 +595,7 @@ export function warmPart(state: State): void {
     _part.counts = null;
     _part.meshBounds = null;
     _part.rowCapacity = 0;
-    _part.inputGeneration = null;
+    _part.inputGeneration.fill(-1);
     _part.paramsViewCount = -1;
     _part.paramsPairCount = -1;
     _part.paramsPartCount = -1;

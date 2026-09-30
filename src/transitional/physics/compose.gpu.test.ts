@@ -79,7 +79,7 @@ test("physics interpolation uploads one dense pose range and preserves unmoved r
         if (error) throw new Error(error.message);
         const result = await bounded(
             "bulk interpolated pose readback",
-            probeBuffer(state.gpu.device, table.buffer, {
+            probeBuffer(state, table.buffer, {
                 size: table.buffer.size,
                 label: "physics-pose-range",
             }),

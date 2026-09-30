@@ -52,7 +52,6 @@ import {
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
 import { Character, CharacterPlugin, pose } from "../../transitional/character";
-import { type Mirror, MirrorPlugin, mirror } from "../../transitional/mirror";
 import {
     Body,
     hash as hashPhysics,
@@ -79,7 +78,6 @@ const everyPlugin: readonly Plugin[] = [
     CharacterPlugin,
     FogPlugin,
     LinesPlugin,
-    MirrorPlugin,
     PhysicsPlugin,
     OrbitOverlayPlugin,
     OrbitPlugin,
@@ -486,21 +484,11 @@ async function stepGpuWorld(
     tracked.watch.check(`${label} frame submission`);
 }
 
-async function waitForMirrorMap(mirror: Mirror): Promise<void> {
-    const deadline = Date.now() + 1_000;
-    while (!mirror.snapshot) {
-        if (Date.now() >= deadline)
-            throw new Error("Mirror mapAsync did not produce a snapshot in 1000 ms");
-        await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-}
-
 interface IsolationResources {
     camera: number;
     actor: number;
     part: number;
     sky: number;
-    mirror: Mirror | null;
     bvh: Bvh | null;
 }
 
@@ -510,7 +498,6 @@ const createIsolationResources = (): IsolationResources => ({
     actor: -1,
     part: -1,
     sky: -1,
-    mirror: null,
     bvh: null,
 });
 
@@ -635,7 +622,6 @@ function featurePlugin(subject: Plugin): Plugin {
 
             const transforms = Compute.buffers.get("transforms");
             if (!transforms) throw new Error("Transforms did not publish their buffer");
-            if (uses(subject, MirrorPlugin)) resources.mirror = mirror(state, transforms);
         },
         async warm(state) {
             const resources = state.resource(isolationKey, createIsolationResources);
@@ -655,8 +641,6 @@ function featurePlugin(subject: Plugin): Plugin {
         },
         dispose(state) {
             const resources = state.resource(isolationKey, createIsolationResources);
-            resources.mirror?.dispose();
-            resources.mirror = null;
             resources.bvh?.destroy();
             resources.bvh = null;
         },
@@ -719,7 +703,7 @@ async function readRenderedFrame(
     const probe = await tracked.withoutOwnershipChecks(() =>
         tracked.watch.wait(
             `${label} probeTexture readback`,
-            probeTexture(tracked.device, texture, { label }),
+            probeTexture(state, texture, { label }),
         ),
     );
     return new Uint8Array(probe.bytes);
@@ -814,16 +798,6 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
 
         await stepGpuWorld(first.state, "first world", firstDevice);
         await stepGpuWorld(second.state, "second world", secondDevice);
-        if (firstFeatures.mirror)
-            await firstDevice.watch.wait(
-                "first-world Mirror mapAsync",
-                waitForMirrorMap(firstFeatures.mirror),
-            );
-        if (secondFeatures.mirror)
-            await secondDevice.watch.wait(
-                "second-world Mirror mapAsync",
-                waitForMirrorMap(secondFeatures.mirror),
-            );
         firstDevice.watch.check("first world GPU work");
         secondDevice.watch.check("second world GPU work");
         const firstTexture = offscreenTexture(first.state, firstFeatures.camera);
@@ -872,10 +846,6 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         if (uses(subject, BvhPlugin)) {
             expect(firstFeatures.bvh).not.toBeNull();
             expect(secondFeatures.bvh).not.toBeNull();
-        }
-        if (uses(subject, MirrorPlugin)) {
-            expect(firstFeatures.mirror?.allocated).toBeGreaterThan(0);
-            expect(secondFeatures.mirror?.allocated).toBeGreaterThan(0);
         }
         if (uses(subject, SkyPlugin)) {
             expectStateViews(first.state, cascadeComboEids(first.state));

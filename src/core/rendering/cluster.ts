@@ -37,7 +37,7 @@ interface ClusterGpuState {
     compactPipe: TgpuComputePipeline | null;
     cullPipe: TgpuComputePipeline | null;
     compactBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
-    compactGeneration: string | null;
+    compactGeneration: Int32Array;
     lightCountBuffer: GPUBuffer | null;
     lightCountValue: number;
     cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
@@ -70,7 +70,7 @@ function createClusterGpuState(): ClusterGpuState {
         compactPipe: null,
         cullPipe: null,
         compactBound: null,
-        compactGeneration: null,
+        compactGeneration: new Int32Array(4).fill(-1),
         lightCountBuffer: null,
         lightCountValue: -1,
         cullBound: null,
@@ -100,8 +100,12 @@ const LIGHT_VOLUMETRIC = 2;
 const lightInputKey = Symbol("shallot.light-input-table");
 const lightCountData = new Uint32Array(1);
 
+function createLightInputTable(state: State) {
+    return state.table("lightInputs", LightInput);
+}
+
 function lightInputTable(state: State) {
-    return state.resource(lightInputKey, () => state.table("lightInputs", LightInput));
+    return state.resource(lightInputKey, createLightInputTable);
 }
 
 /** Create this world's cluster and dense light-input state during RenderPlugin initialization. */
@@ -471,7 +475,7 @@ export function warmClusters(): void {
         .$usage("storage")
         .$name("shallot-cluster-views");
     Clusters.views = root.unwrap(_gpu.typedViews);
-    // typegpu grants COPY_SRC on every buffer it creates, which is what a Mirror readback
+    // typegpu grants COPY_SRC on every buffer it creates, which is what a requested readback
     // reads the AABBs back through
     _gpu.typedAabbs = root
         .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * CLUSTER_COUNT * 2))
@@ -736,8 +740,15 @@ function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBi
         throw new Error("[render] light compact used before warmLightCull");
     const lights = lightInputTable(state);
     const transforms = transformTable(state);
-    const generation = `${lights.generation}:${lights.activeGeneration}:${transforms.generation}:${transforms.mapGeneration}`;
-    if (_gpu.compactBound && _gpu.compactGeneration === generation) return _gpu.compactBound;
+    const generation = _gpu.compactGeneration;
+    if (
+        _gpu.compactBound &&
+        generation[0] === lights.generation &&
+        generation[1] === lights.activeGeneration &&
+        generation[2] === transforms.generation &&
+        generation[3] === transforms.mapGeneration
+    )
+        return _gpu.compactBound;
     const inputs = {
         lightRows: lights.activeRowsBuffer,
         lightInput: lights.buffer,
@@ -760,7 +771,10 @@ function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBi
             }),
         ),
     };
-    _gpu.compactGeneration = generation;
+    generation[0] = lights.generation;
+    generation[1] = lights.activeGeneration;
+    generation[2] = transforms.generation;
+    generation[3] = transforms.mapGeneration;
     return _gpu.compactBound;
 }
 
@@ -797,8 +811,12 @@ export async function requestLightOverflow(state: State) {
         label: "light-pool-overflow",
     });
     return {
-        frame: result.frame,
-        fixedTick: result.fixedTick,
+        get frame() {
+            return result.frame;
+        },
+        get fixedTick() {
+            return result.fixedTick;
+        },
         get dropped() {
             return new Uint32Array(result.bytes)[0];
         },
@@ -854,12 +872,12 @@ export function warmLightCull(state: State): void {
     const device = Compute.device;
     const root = Compute.root;
     _gpu.compactBound = null;
-    _gpu.compactGeneration = null;
+    _gpu.compactGeneration.fill(-1);
     _gpu.cullBound = null;
 
     _gpu.typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("shallot-lights");
     LightCull.lights = root.unwrap(_gpu.typedLights);
-    // COPY_SRC throughout for Mirror readback (typegpu grants it on the
+    // COPY_SRC throughout for requested readback (typegpu grants it on the
     // buffers it creates)
     LightCull.grid = device.createBuffer({
         label: "shallot-light-grid",

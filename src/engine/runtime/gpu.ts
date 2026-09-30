@@ -1296,6 +1296,9 @@ export async function requestGPU(
     const trackedDevice = owner
         ? (() => {
               const deviceOverrides = new Map<PropertyKey, unknown>();
+              // Capabilities are fixed at device acquisition; native getters need not rebuild wrappers in play.
+              const limits = d.limits;
+              const granted = d.features;
               const queue = d.queue;
               const queueOverrides = new Map<PropertyKey, unknown>();
               const queueMethods: MethodCache = new Map();
@@ -1326,6 +1329,8 @@ export async function requestGPU(
                   get(target, key) {
                       if (deviceOverrides.has(key)) return deviceOverrides.get(key);
                       if (key === "queue") return trackedQueue;
+                      if (key === "limits") return limits;
+                      if (key === "features") return granted;
                       if (key === "createBuffer") return ownedBuffer;
                       if (key === "createTexture") return ownedTexture;
                       return cachedMember(target, key, deviceMethods);

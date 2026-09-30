@@ -60,8 +60,8 @@ export function fieldSchema<T extends Type>(type: T): SchemaField<T> {
                 (storage as Quad).set(eid, x, y, z, w);
             }
         },
-        get(eid: number) {
-            return (bound(descriptor) as Single).get(eid);
+        get get() {
+            return (bound(descriptor) as Single).get;
         },
         read(eid: number, out: Float32Array) {
             return (bound(descriptor) as Pair | Quad).read(eid, out);

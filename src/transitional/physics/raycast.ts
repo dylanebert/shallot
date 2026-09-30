@@ -1,6 +1,6 @@
 // CPU raycast — analytic ray-vs-shape tests + a nearest-hit query over a body list, plus a
 // screen-cursor → world ray for picking (`screenToRay`/`generateRay`). The shared pick primitive for player
-// grab + god-mode pick/drag + acoustics. CPU over poses the caller passes in (Mirror'd from
+// grab + god-mode pick/drag + acoustics. CPU over poses the caller passes in (from
 // the GPU `bodies` for live bodies, the authored slab for statics) — the right call for grab's low volume
 // + latency tolerance, vs a GPU LBVH traverse. Gold-tested closed-form
 // (`raycast.test.ts`). No GJK — each shape is a closed-form solve.
@@ -358,7 +358,7 @@ export function screenToRay(
 /**
  * nearest hit of `ray` against `bodies`, or null. `ray.dir` must be normalized; the returned `distance`
  * is world units along it. `maxDist` (default ∞) rejects farther hits. The caller supplies the candidate
- * poses (live ones Mirror'd from the GPU `bodies`), so this stays a pure function the gold test pins.
+ * poses, so this stays a pure function the gold test pins.
  */
 export function raycast(ray: Ray, bodies: Iterable<RayBody>, maxDist = Infinity): RayHit | null {
     let best: RayHit | null = null;

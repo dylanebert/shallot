@@ -16,7 +16,6 @@ export {
 export { BvhPlugin } from "../transitional/bvh";
 export { Character, CharacterPlugin, CharacterSweepSystem } from "../transitional/character";
 export { Glaze, GlazePlugin, Tonemap } from "../transitional/glaze";
-export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "../transitional/mirror";
 export { Color, Part, PartPlugin } from "../transitional/part";
 export {
     Body,

@@ -1,18 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import { build } from "../app";
-import type { State } from "../ecs/state";
 import { rawDevice } from "./gpu";
 import { probeBuffer, probeTexture } from "./probe";
 
 setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
-
-// The legacy standalone signature lets these claims fail semantically against pre-stage main.
-function probeOwner(state: State): State | GPUDevice {
-    return "readback" in (state as object) ? state : state.gpu.device;
-}
 
 test("one-shot readback stamps its copy and reuses then releases world staging", async () => {
     const app = await build({ defaults: false, plugins: [] });
@@ -27,14 +21,14 @@ test("one-shot readback stamps its copy and reuses then releases world staging",
         device.queue.writeBuffer(source, 0, new Uint32Array([10, 20, 30, 40]));
         const frame = state.gpu.frame;
         const fixedTick = state.time.fixedTick;
-        const pending = probeBuffer(probeOwner(state), source, { offset: 4, size: 4 });
+        const pending = probeBuffer(state, source, { offset: 4, size: 4 });
         state.step(1 / 60);
         const first = await pending;
         expect(first.frame).toBe(frame);
         expect(first.fixedTick).toBe(fixedTick);
         expect(new Uint32Array(first.bytes)[0]).toBe(20);
         expect(state.readback.allocated).toBe(1);
-        await probeBuffer(probeOwner(state), source, { size: 4 });
+        await probeBuffer(state, source, { size: 4 });
         expect(state.readback.allocated).toBe(1);
         state.readback.maxUnusedFrames = 2;
         state.step(1 / 60);
@@ -64,6 +58,7 @@ test("rendered frames without a request map nothing", async () => {
     try {
         subject = await createRenderedSubject("", device);
         for (let i = 0; i < 482; i++) subject.step();
+        await subject.wait();
         expect(maps).toBe(0);
     } finally {
         device.createBuffer = original;
@@ -92,14 +87,60 @@ test("a texture request shares buffer staging and returns tightly packed owned b
             { bytesPerRow: 4 },
             [1, 1],
         );
-        const result = await probeTexture(probeOwner(state), texture);
+        const result = await probeTexture(state, texture);
         expect([...new Uint8Array(result.bytes)]).toEqual([1, 2, 3, 4]);
-        await probeBuffer(probeOwner(state), buffer);
+        await probeBuffer(state, buffer);
         expect(state.readback.allocated).toBe(1);
     } finally {
         texture.destroy();
         buffer.destroy();
         app.dispose();
+    }
+});
+
+test("a deterministic consumer cannot read bytes or stamps requested by another world", async () => {
+    const producer = await build({ defaults: false, plugins: [] });
+    const source = producer.state.gpu.device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.COPY_SRC,
+    });
+    const result = await probeBuffer(producer.state, source);
+    let refusals = 0;
+    const consumer = await build({
+        defaults: false,
+        plugins: [
+            {
+                name: "CrossWorldConsumer",
+                systems: [
+                    {
+                        group: "fixed",
+                        update() {
+                            for (const read of [
+                                () => result.bytes,
+                                () => result.frame,
+                                () => result.fixedTick,
+                            ]) {
+                                try {
+                                    read();
+                                } catch (error) {
+                                    if (String(error).includes("CrossWorldConsumer")) refusals++;
+                                    else throw error;
+                                }
+                            }
+                        },
+                    },
+                ],
+            },
+        ],
+    });
+    try {
+        producer.dispose();
+        consumer.state.step(1 / 60);
+        expect(refusals).toBe(3);
+    } finally {
+        source.destroy();
+        producer.dispose();
+        consumer.dispose();
     }
 });
 
@@ -134,7 +175,7 @@ for (const deterministic of [true, false]) {
         const state = app.state;
         const source = state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
         try {
-            result = await probeBuffer(probeOwner(state), source);
+            result = await probeBuffer(state, source);
             state.step(1 / 60);
             if (deterministic) {
                 expect(reads).toBe(0);

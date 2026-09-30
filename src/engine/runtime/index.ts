@@ -24,7 +24,6 @@ export {
     withComputeAsync,
     worldResource,
 } from "./gpu";
-export { ReadbackPool, type ReadbackStamp } from "./readback";
 export { drainLog, type GpuLog } from "./log";
 export { now, Runtime, readBinary, readFile, requestFrame } from "./platform";
 export {
@@ -36,3 +35,4 @@ export {
     type TextureProbe,
     type TextureProbeOptions,
 } from "./probe";
+export { ReadbackPool, type ReadbackStamp } from "./readback";

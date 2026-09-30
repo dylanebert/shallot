@@ -98,7 +98,7 @@ export interface BenchmarkFrameStats {
     fenceP95: number;
     /** mean idle gap (`frame − cpu − fence`): rAF/vsync pacing, not work */
     gapMs: number;
-    /** `device.queue.submit` calls per frame over the window: render + slab flush + any mirror
+    /** `device.queue.submit` calls per frame over the window: render + table upload + any requested
      *  readback + the profiler's own resolve. Each is an IPC round-trip + a GPU serialization point,
      *  untimed by the per-pass timers (it surfaces in {@link fenceMs}); window-diffed from
      *  `Profile.submitCount`. The before/after number for the submit-collapse lever.

@@ -68,7 +68,7 @@ export class State {
     /** One-shot buffer and texture staging owned by this world. */
     get readback(): ReadbackPool {
         if (this._disposed) throw new Error("readback world is disposed");
-        return (this._readback ??= new ReadbackPool(this.gpu.device, this));
+        return (this._readback ??= new ReadbackPool(this));
     }
 
     /** @internal Reject GPU-derived reads by deterministic fixed systems. */
@@ -315,13 +315,15 @@ export class State {
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
         this._stepInput.deltaTime = deltaTime;
+        let stepped = false;
         try {
             if (this._withCompute) this._withCompute(this._runStep);
             else this._runStep();
+            stepped = true;
         } finally {
             useState(this);
             if (!this._gpu) this.clearChangesIfNeeded();
-            if (this._gpu) {
+            if (this._gpu && stepped) {
                 this._gpu.frame++;
                 this._readback?.advance(this._gpu.frame);
             }

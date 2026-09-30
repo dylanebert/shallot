@@ -692,6 +692,8 @@ function shapeDiff(
     prevIndex: Map<System, number>,
     nextIndex: Map<System, number>,
 ): string | null {
+    if ((prev.deterministic !== false) !== (next.deterministic !== false))
+        return "determinism declaration changed";
     const pc = prev.components ?? {};
     const nc = next.components ?? {};
     const pcKeys = Object.keys(pc).sort();

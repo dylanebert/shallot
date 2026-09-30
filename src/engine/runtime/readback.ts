@@ -1,4 +1,10 @@
 import type { State } from "../ecs";
+import { currentWorld, deviceLost, type LazyAlloc } from "./gpu";
+
+/** @internal Check the consuming world, including results requested by a different world. */
+export function assertReadbackAccess(): void {
+    currentWorld<State>()?.assertReadbackAllowed();
+}
 
 interface Slot {
     buffer: GPUBuffer;
@@ -23,21 +29,21 @@ export class ReadbackPool {
     };
 
     private readonly _device: GPUDevice;
-    private readonly _state?: State;
+    private readonly _state: State;
 
-    constructor(device: GPUDevice, state?: State) {
-        this._device = device;
+    constructor(state: State) {
+        this._device = state.gpu.device;
         this._state = state;
-        device.addEventListener("uncapturederror", this._onError);
+        this._device.addEventListener("uncapturederror", this._onError);
     }
 
-    /** Release available staging after this many frames without use. Defaults to 10. */
+    /** Release available staging after this many idle frames. Defaults to 10; zero releases at completion. */
     get maxUnusedFrames(): number {
         return this._unusedFrames;
     }
     set maxUnusedFrames(value: number) {
-        if (!Number.isSafeInteger(value) || value < 1)
-            throw new RangeError("readback maxUnusedFrames must be a positive integer");
+        if (!Number.isSafeInteger(value) || value < 0)
+            throw new RangeError("readback maxUnusedFrames must be a non-negative integer");
         this._unusedFrames = value;
     }
 
@@ -48,6 +54,10 @@ export class ReadbackPool {
 
     /** @internal Called after each world frame, without creating a pool for an unused world. */
     advance(frame: number): void {
+        if (deviceLost(this._device)) {
+            this.dispose();
+            return;
+        }
         for (let i = this._slots.length - 1; i >= 0; i--) {
             const slot = this._slots[i];
             if (!slot.busy && frame - slot.lastFrame >= this._unusedFrames) {
@@ -63,18 +73,32 @@ export class ReadbackPool {
         label: string,
         encode: (encoder: GPUCommandEncoder, staging: GPUBuffer) => void,
     ): Promise<ReadbackStamp & { bytes: ArrayBuffer }> {
-        if (this._disposed) throw new Error(`${label}: readback world is disposed`);
-        this._state?.assertReadbackAllowed();
-        const frame = this._state?.gpu.frame ?? 0;
-        const fixedTick = this._state?.time.fixedTick ?? 0;
+        if (deviceLost(this._device)) this.dispose();
+        if (this._disposed) throw new Error(`${label}: readback world or device is disposed`);
+        this._state.assertReadbackAllowed();
+        assertReadbackAccess();
+        if (
+            !Number.isSafeInteger(size) ||
+            size < 4 ||
+            size % 4 !== 0 ||
+            size > this._device.limits.maxBufferSize
+        ) {
+            throw new RangeError(
+                `${label}: readback size must be a positive multiple of 4 within device.limits.maxBufferSize`,
+            );
+        }
+        const frame = this._state.gpu.frame;
+        const fixedTick = this._state.time.fixedTick;
         let slot = this._slots.find((entry) => !entry.busy && entry.buffer.size === size);
         if (!slot) {
+            const descriptor: GPUBufferDescriptor & LazyAlloc = {
+                label: "shallot-readback-staging",
+                size,
+                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+                lazy: true,
+            };
             slot = {
-                buffer: this._device.createBuffer({
-                    label: "shallot-readback-staging",
-                    size,
-                    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-                }),
+                buffer: this._device.createBuffer(descriptor),
                 busy: false,
                 lastFrame: frame,
             };
@@ -102,16 +126,22 @@ export class ReadbackPool {
             await Promise.race([slot.buffer.mapAsync(GPUMapMode.READ, 0, size), failure]);
             if (this._disposed) throw new Error(`${label}: readback world is disposed`);
             const bytes = slot.buffer.getMappedRange(0, size).slice(0);
-            const state = this._state;
             return {
                 get bytes() {
-                    state?.assertReadbackAllowed();
+                    assertReadbackAccess();
                     return bytes;
                 },
-                frame,
-                fixedTick,
+                get frame() {
+                    assertReadbackAccess();
+                    return frame;
+                },
+                get fixedTick() {
+                    assertReadbackAccess();
+                    return fixedTick;
+                },
             };
         } catch (error) {
+            if (deviceLost(this._device)) this.dispose();
             slot.buffer.destroy();
             const index = this._slots.indexOf(slot);
             if (index >= 0) this._slots.splice(index, 1);
@@ -121,7 +151,8 @@ export class ReadbackPool {
             slot.reject = undefined;
             if (slot.buffer.mapState === "mapped") slot.buffer.unmap();
             slot.busy = false;
-            slot.lastFrame = this._state?.gpu.frame ?? frame;
+            slot.lastFrame = this._state.gpu.frame;
+            if (this._unusedFrames === 0) this.advance(slot.lastFrame);
         }
     }
 

@@ -1,11 +1,15 @@
 import type { State } from "../ecs";
-import { ReadbackPool, type ReadbackStamp } from "./readback";
+import { deviceLost } from "./gpu";
+import { assertReadbackAccess, type ReadbackStamp } from "./readback";
 
 const COPY_ALIGNMENT = 4;
-type ProbeOwner = State | GPUDevice;
-const deviceOf = (owner: ProbeOwner) => ("gpu" in owner ? owner.gpu.device : owner);
-function assertAllowed(owner: ProbeOwner): void {
-    if ("gpu" in owner) owner.assertReadbackAllowed();
+type ProbeOwner = State;
+const deviceOf = (owner: ProbeOwner) => owner.gpu.device;
+function assertRequestAllowed(owner: ProbeOwner): void {
+    if (owner.disposed || deviceLost(owner.gpu.device))
+        throw new Error("readback world or device is disposed");
+    owner.assertReadbackAllowed();
+    assertReadbackAccess();
 }
 async function request(
     owner: ProbeOwner,
@@ -13,12 +17,7 @@ async function request(
     label: string,
     encode: (encoder: GPUCommandEncoder, staging: GPUBuffer) => void,
 ) {
-    const pool = "gpu" in owner ? owner.readback : new ReadbackPool(owner);
-    try {
-        return await pool.request(size, label, encode);
-    } finally {
-        if (!("gpu" in owner)) pool.dispose();
-    }
+    return owner.readback.request(size, label, encode);
 }
 const ROW_ALIGNMENT = 256;
 
@@ -199,17 +198,17 @@ function copyAspect(
 
 /**
  * Request one raw buffer range after an optional encoded trigger. Pass a State to share world staging
- * and stamp the copy's frame and tick. A standalone device probe has zero stamps and releases staging.
+ * and stamp the copy's frame and tick.
  * Returned bytes are owned by this result. Deterministic fixed systems cannot read them.
  *
- * @example const result = await probeBuffer(device, counters, { encode: runPass });
+ * @example const result = await probeBuffer(state, counters, { encode: runPass });
  */
 export async function probeBuffer(
     owner: ProbeOwner,
     source: GPUBuffer,
     options: BufferProbeOptions = {},
 ): Promise<BufferProbe> {
-    assertAllowed(owner);
+    assertRequestAllowed(owner);
     const device = deviceOf(owner);
     if ((source.usage & GPUBufferUsage.COPY_SRC) === 0) {
         throw new Error("probeBuffer: source is missing GPUBufferUsage.COPY_SRC");
@@ -244,14 +243,21 @@ export async function probeBuffer(
             encoder.copyBufferToBuffer(source, start, staging, 0, copySize);
         },
     );
-    const bytes = result.bytes.slice(offset - start, offset - start + size);
+    const bytes =
+        offset === start && size === copySize
+            ? result.bytes
+            : result.bytes.slice(offset - start, offset - start + size);
     return Object.freeze({
         get bytes() {
-            assertAllowed(owner);
+            assertReadbackAccess();
             return bytes;
         },
-        frame: result.frame,
-        fixedTick: result.fixedTick,
+        get frame() {
+            return result.frame;
+        },
+        get fixedTick() {
+            return result.fixedTick;
+        },
         offset,
         size,
     });
@@ -261,14 +267,14 @@ export async function probeBuffer(
  * capture one single-sample, uncompressed color or copyable depth/stencil texture region after an
  * optional encoded trigger. WebGPU row padding is stripped from the owned result.
  *
- * @example const depth = await probeTexture(device, target, { aspect: "depth-only", encode: draw });
+ * @example const depth = await probeTexture(state, target, { aspect: "depth-only", encode: draw });
  */
 export async function probeTexture(
     owner: ProbeOwner,
     source: GPUTexture,
     options: TextureProbeOptions = {},
 ): Promise<TextureProbe> {
-    assertAllowed(owner);
+    assertRequestAllowed(owner);
     const device = deviceOf(owner);
     if ((source.usage & GPUTextureUsage.COPY_SRC) === 0) {
         throw new Error("probeTexture: source is missing GPUTextureUsage.COPY_SRC");
@@ -348,11 +354,15 @@ export async function probeTexture(
     }
     return Object.freeze({
         get bytes() {
-            assertAllowed(owner);
+            assertReadbackAccess();
             return bytes.buffer;
         },
-        frame: result.frame,
-        fixedTick: result.fixedTick,
+        get frame() {
+            return result.frame;
+        },
+        get fixedTick() {
+            return result.fixedTick;
+        },
         format: source.format,
         aspect,
         width: size.width,

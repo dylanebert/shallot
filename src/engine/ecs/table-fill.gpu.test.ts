@@ -67,7 +67,7 @@ test("bound tables gather marked columns at upload after set, bulk write and rem
         state.step(0);
         const result = await bounded(
             "bound table readback",
-            probeBuffer(state.gpu.device, table.buffer, { size: table.buffer.size }),
+            probeBuffer(state, table.buffer, { size: table.buffer.size }),
         );
         const values = new Float32Array(result.bytes);
         expect(values[rowB]).toBe(11);

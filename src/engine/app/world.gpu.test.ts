@@ -274,16 +274,12 @@ test("render light inputs upload as active dense table rows", async () => {
     state.step(0);
     await state.gpu.device.queue.onSubmittedWorkDone();
     expect(await state.gpu.device.popErrorScope()).toBeNull();
-    const active = await probeBuffer(
-        state.gpu.device,
-        state.gpu.buffers.get("lightInputs:active-rows")!,
-        {
-            size: 8,
-        },
-    );
+    const active = await probeBuffer(state, state.gpu.buffers.get("lightInputs:active-rows")!, {
+        size: 8,
+    });
     const [activeEid, row] = new Uint32Array(active.bytes);
     expect(activeEid).toBe(eid);
-    const record = await probeBuffer(state.gpu.device, state.gpu.buffers.get("lightInputs")!, {
+    const record = await probeBuffer(state, state.gpu.buffers.get("lightInputs")!, {
         offset: row * 32,
         size: 32,
     });
@@ -305,21 +301,19 @@ test("Part and Sear warm and compact a component-bound dense instance", async ()
     state.step(0);
     await state.gpu.device.queue.onSubmittedWorkDone();
     expect(await state.gpu.device.popErrorScope()).toBeNull();
-    const packed = await probeBuffer(state.gpu.device, state.gpu.buffers.get("eids")!, {
+    const packed = await probeBuffer(state, state.gpu.buffers.get("eids")!, {
         size: 4,
     });
     expect(new Uint32Array(packed.bytes)[0]).toBe(eid);
-    const active = await probeBuffer(
-        state.gpu.device,
-        state.gpu.buffers.get("partInputs:active-rows")!,
-        { size: 8 },
-    );
+    const active = await probeBuffer(state, state.gpu.buffers.get("partInputs:active-rows")!, {
+        size: 8,
+    });
     const [activeEid, row] = new Uint32Array(active.bytes);
     expect(activeEid).toBe(eid);
     const recordSize = d.sizeOf(PartInput);
     const colorOffset = d.memoryLayoutOf(PartInput, (value) => value.color).offset;
     const materialOffset = d.memoryLayoutOf(PartInput, (value) => value.material).offset;
-    const record = await probeBuffer(state.gpu.device, state.gpu.buffers.get("partInputs")!, {
+    const record = await probeBuffer(state, state.gpu.buffers.get("partInputs")!, {
         offset: row * recordSize,
         size: recordSize,
     });

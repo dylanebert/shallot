@@ -85,7 +85,7 @@ export interface Profile {
     readonly allocBytes: ReadonlyMap<string, number>;
     /** live bytes across every allocation the allocator marked {@link LazyAlloc.lazy} at creation — a
      *  subset of {@link bufferBytes} + {@link textureBytes}, summed and decremented on `destroy()` the
-     *  same way. Timing-dependent by construction (a pool, like `Mirror`'s readback ring or `Slab`'s
+     *  same way. Timing-dependent by construction (such as the world's readback
      *  staging pool, that grows lazily under real GPU backpressure rather than deterministically for a
      *  fixed scenario at fixed params), so a byte-budget gate excludes it from its gated total and
      *  reports it separately: `bufferBytes + textureBytes - lazyBytes` is the exact, device-independent
@@ -93,7 +93,7 @@ export interface Profile {
     readonly lazyBytes: number;
     /** cumulative `device.queue.submit` calls since attach. Each submit is a renderer→GPU-process IPC
      *  round-trip + a GPU serialization point, untimed by `timestampWrites` (the cost surfaces in fence
-     *  wait, not a pass). A frame issues several (render, the slab flush, a mirror readback, the
+     *  wait, not a pass). A frame issues several (render, table upload, requested readback, the
      *  profiler's own resolve), so the benchmark window-diffs this into submits/frame, the lever for
      *  collapsing them into one encoder. */
     readonly submitCount: number;
@@ -107,10 +107,10 @@ interface ResourceAlloc {
     lazy: boolean;
 }
 
-// one readback ring slot: a MAP_READ buffer plus the pass names + count for the queries copied into
-// it this frame (snapshotted at resolve, so the shared `_passes` scratch can be reused next frame).
+// One timestamp result plus the pass names and count captured at its request. Staging belongs to the
+// world's readback pool; this metadata lets the shared `_passes` scratch be reused next frame.
 interface ReadSlot {
-    buffer: GPUBuffer;
+    bytes: ArrayBuffer;
     passes: string[];
     count: number;
 }
@@ -125,11 +125,8 @@ interface ReadSlot {
 // only; the benchmark reads the exact per-occurrence counters (gpuTime / gpuFires), never the held map.
 const GPU_HOLD_DRAINS = 8;
 
-// the timestamp read-buffer ring depth. resolve copies each frame's query timestamps into a free slot;
-// the slot maps async (1–2 frames) then drain reads + recycles it. Sized over the 2-frame fence pipeline
-// + map latency so a slot is always free — a SINGLE buffer's copy-when-unmapped cadence (~3 frames) beats
-// against the fixed-step cadence (~4 frames at headless 240Hz) and silently drops the physics passes:
-// they age out of the held `gpu` map and the reported GPU total craters mid-run.
+// Bound the number of timestamp requests in flight. Metadata returns after the result is drained;
+// the world's pool owns mapping and staging reuse. Saturation skips a profiling sample, not gameplay.
 const READ_RING = 4;
 
 // the one feature this plugin requires — `ProfilePlugin.features` and `attach`'s guard read the same list,
@@ -138,7 +135,7 @@ const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
 const profileKey = Symbol("shallot.profile");
 
 // timestamp queries + pipeline-compile timing + live allocation tracking. Each State owns its query set,
-// staging ring, counters and device hooks; dispose releases the allocations with that world.
+// timestamp results, counters and device hooks; staging belongs to the world pool.
 class ProfileImpl implements Profile {
     readonly cpu = new Map<string, number>();
     readonly gpu = new Map<string, number>();
@@ -186,9 +183,8 @@ class ProfileImpl implements Profile {
     private readonly _gpuMiss = new Map<string, number>();
     // reused scratch: one drained frame's per-pass summed time (cleared per slot, no per-frame alloc)
     private readonly _fired = new Map<string, number>();
-    // the readback ring (see READ_RING): a slot carries its frame's resolved buffer + the pass names
-    // for the queries it holds. `_free` slots are unmapped + ready to copy into; `_mapped` slots have
-    // resolved their async map and await drain.
+    // Bounded timestamp metadata: `_free` can accept a request; `_mapped` holds owned result bytes
+    // waiting for drain. Neither list owns staging buffers.
     private readonly _free: ReadSlot[] = [];
     private readonly _mapped: ReadSlot[] = [];
     private readonly _restorePatches: (() => void)[] = [];
@@ -216,12 +212,7 @@ class ProfileImpl implements Profile {
             usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
         });
         for (let i = 0; i < READ_RING; i++) {
-            const buffer = device.createBuffer({
-                label: "profile-read",
-                size: bytes,
-                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-            });
-            this._free.push({ buffer, passes: [], count: 0 });
+            this._free.push({ bytes: new ArrayBuffer(0), passes: [], count: 0 });
         }
 
         const origCompute = device.createComputePipelineAsync.bind(device);
@@ -352,8 +343,6 @@ class ProfileImpl implements Profile {
         this._querySet = null;
         this._resolveBuffer?.destroy();
         this._resolveBuffer = null;
-        for (const slot of this._free) slot.buffer.destroy();
-        for (const slot of this._mapped) slot.buffer.destroy();
         this._free.length = 0;
         this._mapped.length = 0;
         for (const [resource, allocation] of this.sizes) {
@@ -415,45 +404,43 @@ class ProfileImpl implements Profile {
         return cached;
     }
 
-    // resolve the just-completed frame's queries into a free ring slot + kick its async map. Called at
-    // the START of the next frame (ProfileFrameBeginSystem), so every one of the prior frame's submits —
-    // the render encoder, the separate slab flush, any producer's pass — has settled into one coherent
-    // capture. Resolving at the tail of the same frame raced the render submit (a `last: true` tie with
-    // EndFrameSystem, which the render contract warns against) and could capture the render passes a frame
-    // stale while the separately-submitted slab flush was current. destination offset is always 0 so
-    // resolveQuerySet's 256-byte alignment holds trivially. A slot is taken every frame (the ring is
-    // sized so one is free; see READ_RING).
-    resolve(device: GPUDevice): void {
-        if (!this._querySet || !this._resolveBuffer) return;
+    // Request prior-frame query timestamps at frame begin, before resetting query indices. Queue
+    // order puts the resolve and copy after every prior submission and before the next frame's writes.
+    // Capture pass names with the request so later frames cannot relabel an arriving result. The world
+    // pool owns staging; READ_RING bounds only the profiling metadata in flight.
+    resolve(state: State): void {
+        const querySet = this._querySet;
+        const resolveBuffer = this._resolveBuffer;
+        if (!querySet || !resolveBuffer) return;
         const queryCount = this._nextSlot * 2;
         if (queryCount === 0) return;
         const slot = this._free.pop();
-        if (!slot) return; // ring momentarily saturated; the held `gpu` values cover this frame
-        const encoder = device.createCommandEncoder({ label: "profile-resolve" });
-        encoder.resolveQuerySet(this._querySet, 0, queryCount, this._resolveBuffer, 0);
-        encoder.copyBufferToBuffer(this._resolveBuffer, 0, slot.buffer, 0, queryCount * 8);
+        if (!slot) return;
         slot.count = this._nextSlot;
         for (let i = 0; i < this._nextSlot; i++) slot.passes[i] = this._passes[i];
-        device.queue.submit([encoder.finish()]);
-        slot.buffer.mapAsync(GPUMapMode.READ).then(
-            () => {
-                if (this._disposed) slot.buffer.unmap();
-                else this._mapped.push(slot);
-            },
-            () => {
-                if (!this._disposed) this._free.push(slot);
-            },
-        );
+        state.readback
+            .request(queryCount * 8, "profile-timestamps", (encoder, staging) => {
+                encoder.resolveQuerySet(querySet, 0, queryCount, resolveBuffer, 0);
+                encoder.copyBufferToBuffer(resolveBuffer, 0, staging, 0, queryCount * 8);
+            })
+            .then(
+                (result) => {
+                    if (this._disposed) return;
+                    slot.bytes = result.bytes;
+                    this._mapped.push(slot);
+                },
+                (error: unknown) => {
+                    if (this._disposed) return;
+                    this._free.push(slot);
+                    console.error("profile timestamp readback failed:", error);
+                },
+            );
     }
 
     drain(): void {
         while (this._mapped.length > 0) {
             const slot = this._mapped.shift()!;
-            if (slot.buffer.mapState !== "mapped") {
-                this._free.push(slot);
-                continue;
-            }
-            const data = new BigUint64Array(slot.buffer.getMappedRange());
+            const data = new BigUint64Array(slot.bytes);
             // sum this frame's occurrences per pass — a fixed-group pass fires once per fixed step, so
             // multiple steps in one draw frame stack here (their real combined per-frame GPU cost).
             const fired = this._fired;
@@ -465,7 +452,6 @@ class ProfileImpl implements Profile {
                     (fired.get(name) ?? 0) + Number(data[i * 2 + 1] - data[i * 2]) / 1e6,
                 );
             }
-            slot.buffer.unmap();
             this._free.push(slot);
             // exact per-occurrence accounting — cumulative time + fire count, one fire per drained
             // frame the pass appears in. Untouched by the display hold below.
@@ -1180,7 +1166,7 @@ const ProfileFrameBeginSystem: System = {
         const profiler = profile(state) as ProfileImpl;
         profiler.drain();
         const compute = Compute;
-        if (compute) profiler.resolve(compute.device);
+        if (compute) profiler.resolve(state);
         profiler.reset();
     },
 };

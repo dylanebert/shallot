@@ -57,7 +57,7 @@ export function initializeSegmentState(state: State): void {
 // the producer's GPU publication. `count` is the segments packed this frame (reset after the upload);
 // `args` is the `DrawIndexedIndirect` buffer whose `instanceCount` lane the live segment count drives.
 // Internal — the unit test reads `count` to check the immediate-API expansion; `args` is COPY_SRC so a
-// Mirror can read back the produced instance count
+// A one-shot probe can read back the produced instance count
 interface Lines {
     readonly count: number;
     args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;

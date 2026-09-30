@@ -2,14 +2,22 @@ import { build, Camera, Sear, Transform, AmbientLight, PointLight, Part, Color }
 import { Render } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
+import { withCompute } from "../../src/engine/runtime";
 
 export let controlSink: object;
 export function control() { controlSink = { frame: 0 }; }
 
 export default async function create(_input = "", device?: GPUDevice) {
+    const resizeObserver = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
     globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
     const app = await build({ plugins: [], device });
     const state = app.state;
+    let validation: GPUError | undefined;
+    let failValidation!: (error: GPUError) => void;
+    const failed = new Promise<never>((_, reject) => { failValidation = reject; });
+    void failed.catch(() => {});
+    const onError = (event: GPUUncapturedErrorEvent) => { validation ??= event.error; failValidation(validation); };
+    state.gpu.device.addEventListener("uncapturederror", onError);
     let context: CanvasContext;
     const canvas = {
         width: 32, height: 24, style: { imageRendering: "auto" },
@@ -25,10 +33,24 @@ export default async function create(_input = "", device?: GPUDevice) {
     const light = state.create(); state.add(light, Transform); state.add(light, PointLight);
     const part = state.create(); state.add(part, Transform); state.add(part, Part); state.add(part, Color);
     state.step(1 / 60);
-    if (Render.shadeCount === 0) throw new Error("allocation subject did not render a shaded view");
+    if (withCompute(state.gpu, () => Render.shadeCount) === 0) throw new Error("allocation subject did not render a shaded view");
     return {
-        step: () => state.step(1 / 60),
-        wait: () => state.gpu.device.queue.onSubmittedWorkDone(),
-        dispose: () => { context.unconfigure(); app.dispose(); },
+        state,
+        step: () => { if (validation) throw validation; state.step(1 / 60); },
+        wait: async () => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                await Promise.race([state.gpu.device.queue.onSubmittedWorkDone(), failed, new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => reject(new Error("render allocation frame submissions exceeded 750 ms")), 750);
+                })]);
+                if (validation) throw validation;
+            } finally { clearTimeout(timer); }
+        },
+        dispose: () => {
+            state.gpu.device.removeEventListener("uncapturederror", onError);
+            context.unconfigure(); app.dispose();
+            if (resizeObserver) Object.defineProperty(globalThis, "ResizeObserver", resizeObserver);
+            else Reflect.deleteProperty(globalThis, "ResizeObserver");
+        },
     };
 }

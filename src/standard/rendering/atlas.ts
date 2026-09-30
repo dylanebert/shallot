@@ -245,7 +245,7 @@ const _atlas = new Proxy({} as AtlasState, {
 // PlayCanvas model), allocated lazily on the first casting frame. `_atlas.pointParams` is the PointCaster
 // uniform array the FS matches compacted lights against — always bound on group 1 (an empty slot's
 // pos.w = -1 never matches a real eid, so the no-caster path reads the fallback atlas never).
-// Published as "pointShadows" so a Mirror can pin the metadata to the TS oracle.
+// Published as "pointShadows" so a one-shot probe can pin the metadata to the TS oracle.
 // `_atlas.pointAtlasView` doubles as the seam: non-null once the atlas exists.
 //
 // The atlas renders in one pass, one indirect draw per casting mesh (the re-gather concatenates each mesh's
@@ -254,7 +254,7 @@ const _atlas = new Proxy({} as AtlasState, {
 
 // the per-(caster, face) allocated atlas-UV rects, indexed slot·6 + face — the receiver samples it (color
 // group 1) and the atlas VS reads it for the tile-discard bounds (point group 1). Published "pointTileRects"
-// so a Mirror can pin the allocation; (re)sized at warm when the PointShadows config is final
+// so a one-shot probe can pin the allocation; (re)sized at warm when the PointShadows config is final
 
 // this frame's ranked casters: the first `_atlas.pointFrameCount` of `_atlas.pointFrames`
 
@@ -632,7 +632,7 @@ export function resetShadowAtlas(device: GPUDevice): void {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     // the point-shadow atlas also allocates lazily; the params buffer always exists (always bound on
-    // group 1, cleared to empty slots). COPY_SRC + published by name for a metadata Mirror
+    // group 1, cleared to empty slots). COPY_SRC + published by name for a metadata probe
     _atlas.pointAtlas?.destroy();
     _atlas.pointAtlas = null;
     _atlas.pointAtlasView = null;
@@ -661,7 +661,7 @@ export function resetShadowAtlas(device: GPUDevice): void {
     );
     // the per-(caster, face) tile rects — bound on both the color shadow group (the receiver) and the point
     // group (the atlas VS's discard bounds). Always exists (cleared to zero), COPY_SRC + published for the
-    // Mirror. 6 vec4 per caster
+    // probe. 6 vec4 per caster
     _atlas.pointTileRects?.destroy();
     _atlas.pointTileRects = device.createBuffer({
         label: "sear-point-tilerects",
