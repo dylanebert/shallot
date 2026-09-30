@@ -47,11 +47,19 @@ table.bindComponent(Heat, { value: "value" });
 const gpuRows = table.buffer;
 ```
 
-Change shaders from entity-indexed scalar arrays to struct records addressed by dense row slots. `table.rowIndex(eid)` gives the CPU slot; enable the table's eid lookup when a shader starts from an eid. Rebind when the table's buffer generation changes. Built-in Body, Transform and light fields no longer publish their old per-field `.gpu` buffers either.
+Change shaders from entity-indexed scalar arrays to struct records addressed by dense row slots. `table.rowIndex(eid)` gives the CPU slot; enable the table's eid lookup when a shader starts from an eid. Rebind when the table's buffer generation changes. Built-in Body, GlobalTransform and light fields no longer publish their old per-field `.gpu` buffers either.
+
+## Authored Transform and world GlobalTransform are separate
+
+`Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Those producers exclude each other, and `Body` satisfies rendering requirements for `GlobalTransform`. Read world placement through `state.of(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, cannot be authored in a scene, and has no hierarchy.
+
+The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
+
+Custom typed surfaces change their instance binding from `transforms` to `globalTransforms`; the dense instance record still names its `globalTransform` row. Body, camera, light, text, sprite and other world-space consumers read GlobalTransform rather than Transform as world placement.
 
 ## Instanced surfaces read a row payload, not a list of eids
 
-For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, transformSlot, encodedPartSlot, shadowCombo)`: the Part slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
+For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, globalTransformSlot, encodedPartSlot, shadowCombo)`: the Part slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
 
 The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity.
 
@@ -71,7 +79,7 @@ These helpers now take the owning State:
 
 - `Profile` data becomes `profile(state)`.
 - `cascadeCount()`, `cascadeComboEids()`, `pointComboCount()` and `pointComboEids()` take State first.
-- Character helpers `move`, `jump`, `pose`, `teleport` and `grounded` take State before the entity id.
+- Character helpers `move`, `jump`, `globalTransform`, `teleport` and `grounded` take State before the entity id.
 
 ## Replace Mirror with explicit snapshot requests
 

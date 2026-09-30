@@ -16,21 +16,14 @@ import {
 import { driveFor, resetDrive } from "./drive";
 import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 
-// Character — the kinematic capsule controller, the base a higher-level controller (the
-// first-person Player) composes. The Character entity IS a capsule Body (mass <= 0) whose pose the CPU
-// SWEEP owns: each fixed tick `CharacterSweepSystem` runs the collide-and-slide (`sweep.ts`, the f32-tier
-// twin of an f64 controller oracle) on the CPU, BEFORE the physics solve, then uploads the
-// swept pose as a kinematic body (`setKinematic(state, ...)`). So the player's input → pose → camera is
-// a same-frame CPU path with no GPU readback, and the solver's dynamics collide against the CURRENT-tick
-// player. The coupling is one-way: the CPU writes the player's fresh pose (the solver reads it to push
-// dynamics + carry riders), and the CPU sweep reads every other body's live pose through `readBody(state, ...)`.
+// Character is the kinematic capsule controller that Player composes. Its Body is produced by the CPU
+// sweep: each fixed tick CharacterSweepSystem runs collide-and-slide before the physics solve, writes the
+// swept GlobalTransform through setKinematic, and the solver collides dynamics against that same tick's
+// body. The CPU sweep reads other bodies through readBody; there is no readback in this path.
 //
-// This module is the authoring + driving surface: the tuning component, the per-tick sweep system, the
-// eid-keyed drive (move/jump) + the swept-pose / grounded readback a follower (a camera) reads from the
-// CPU controller state. The CPU sweep is the SOLE runtime controller — there is no GPU character pass (it
-// was deleted with the camera-follow rewire); the f64 controller oracle is the spec the
-// sweep is validated against. `Player` composes this controller (look +
-// a camera) on top, snapshotting `pose` off this CPU state `after: [CharacterSweepSystem]`.
+// This module owns the tuning component, the per-tick sweep, and the eid-keyed move/jump controls plus
+// GlobalTransform-position and grounded reads used by followers. The CPU sweep is the sole runtime
+// controller; the f64 controller oracle specifies the behavior. Player composes look and a camera above it.
 
 const DEG = Math.PI / 180;
 const _worldGravity = { x: 0, y: 0, z: 0 };
@@ -39,7 +32,7 @@ const _worldGravity = { x: 0, y: 0, z: 0 };
  * a kinematic character: a capsule {@link Body} (`mass <= 0`) swept against the scene's bodies each fixed
  * step (collide-and-slide on the CPU). Authors the walkable slope, the jump launch speed, and a per-character
  * gravity; the controller sweeps every `[Character, Body]`, drives it via {@link move} / {@link jump}, and
- * reads {@link grounded} / {@link pose} back. The first-person {@link Player} composes this.
+ * reads {@link grounded} / {@link globalTransform} back. The first-person {@link Player} composes this.
  *
  * @example
  * ```
@@ -73,7 +66,7 @@ const sigBits = (x: number): number => {
 // the create-stamp each `states` entry was built at. A same-update
 // destroy+create recycling a character's eid with identical tuning hashes to the SAME signature, so folding
 // the stamp into the signature is what makes the realias visible; the per-eid compare in `syncStates` then
-// rebuilds the controller state (a stale pose/velocity kept across the recycle is the bug this closes).
+// rebuilds the controller state (stale position/velocity kept across the recycle is the bug this closes).
 
 // query terms held once, so a steady signature mints no array.
 const CHARACTER_TERMS = [Character, Body];
@@ -338,11 +331,11 @@ export const CharacterPlugin: Plugin = {
     },
 };
 
-// Character extension surface — the eid-keyed drive (`move` / `jump`) + readback (`pose` / `grounded`), for
+// Character extension surface — the eid-keyed drive (`move` / `jump`) + readback (`globalTransform` / `grounded`), for
 // custom controllers. The happy path (the `Character` component +
 // `CharacterPlugin`, which registers every `[Character, Body]` with the solver) ships on the barrel.
 
-export { grounded, jump, move, pose, teleport } from "./drive";
+export { globalTransform, grounded, jump, move, teleport } from "./drive";
 export {
     type CharState,
     MAX_CHAR_CANDIDATES,

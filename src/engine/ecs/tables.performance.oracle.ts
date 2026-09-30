@@ -126,16 +126,17 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
         await waitAndValidate(state, "100%-population index inputs");
         const initialMapUploadBytes = table.lastMapUploadBytes;
         expect(initialMapUploadBytes).toBe(count * 4);
-        const poseBytes = table.rowBytes;
+        const globalTransformBytes = table.rowBytes;
         const instanceBytes = d.sizeOf(d.struct({ transform: d.mat4x4f, color: d.vec4f }));
-        const poseMapPercent = (eidToSlot.size / (table.capacity * poseBytes)) * 100;
+        const globalTransformMapPercent =
+            (eidToSlot.size / (table.capacity * globalTransformBytes)) * 100;
         const instanceMapPercent = (eidToSlot.size / (table.capacity * instanceBytes)) * 100;
         device.pushErrorScope("validation");
         table.upload();
         await waitAndValidate(state, "steady-state map upload");
         expect(table.lastMapUploadBytes).toBe(0);
         console.info(
-            `[gpu-table-perf] map bytes=${eidToSlot.size}; representative pose=${poseBytes} B/row (${poseMapPercent.toFixed(2)}% of allocated record bytes); instance=${instanceBytes} B/row (${instanceMapPercent.toFixed(2)}%); initial map upload=${initialMapUploadBytes} B; steady map upload=${table.lastMapUploadBytes} B`,
+            `[gpu-table-perf] map bytes=${eidToSlot.size}; representative GlobalTransform=${globalTransformBytes} B/row (${globalTransformMapPercent.toFixed(2)}% of allocated record bytes); instance=${instanceBytes} B/row (${instanceMapPercent.toFixed(2)}%); initial map upload=${initialMapUploadBytes} B; steady map upload=${table.lastMapUploadBytes} B`,
         );
 
         const output = device.createBuffer({
@@ -147,16 +148,16 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
         const shader = device.createShaderModule({
             label: "eid-map-cost-shader",
             code: `
-struct Pose { transform: mat4x4f, };
-@group(0) @binding(0) var<storage, read> records: array<Pose>;
+struct GlobalTransform { transform: mat4x4f, };
+@group(0) @binding(0) var<storage, read> records: array<GlobalTransform>;
 @group(0) @binding(1) var<storage, read> eidToSlot: array<u32>;
 @group(0) @binding(2) var<storage, read_write> result: array<vec4f>;
 @compute @workgroup_size(64)
 fn directEid(@builtin(global_invocation_id) id: vec3<u32>) {
     let eid = id.x;
     if (eid < ${count}u) {
-        let pose = records[eid].transform;
-        result[eid] = pose[0] + pose[1] + pose[2] + pose[3];
+        let transform = records[eid].transform;
+        result[eid] = transform[0] + transform[1] + transform[2] + transform[3];
     }
 }
 @compute @workgroup_size(64)
@@ -164,8 +165,8 @@ fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
     let eid = id.x;
     if (eid < ${count}u) {
         let slot = eidToSlot[eid] - 1u;
-        let pose = records[slot].transform;
-        result[eid] = pose[0] + pose[1] + pose[2] + pose[3];
+        let transform = records[slot].transform;
+        result[eid] = transform[0] + transform[1] + transform[2] + transform[3];
     }
 }`,
         });
@@ -303,14 +304,14 @@ fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
         const mappedMedian = median(mappedTimes);
         const difference = (mappedMedian / directMedian - 1) * 100;
         console.info(
-            `[gpu-table-perf] 100%-population pose dispatch median ms per ${count} rows; direct-eid=${directMedian.toFixed(4)} mapped-eid=${mappedMedian.toFixed(4)} difference=${difference.toFixed(1)}% directSamples=${directTimes.map((time) => time.toFixed(4)).join("/")} mappedSamples=${mappedTimes.map((time) => time.toFixed(4)).join("/")} recordBytes=${table.buffer.size} mapBytes=${eidToSlot.size} mapUploadBytes=${count * 4}`,
+            `[gpu-table-perf] 100%-population GlobalTransform dispatch median ms per ${count} rows; direct-eid=${directMedian.toFixed(4)} mapped-eid=${mappedMedian.toFixed(4)} difference=${difference.toFixed(1)}% directSamples=${directTimes.map((time) => time.toFixed(4)).join("/")} mappedSamples=${mappedTimes.map((time) => time.toFixed(4)).join("/")} recordBytes=${table.buffer.size} mapBytes=${eidToSlot.size} mapUploadBytes=${count * 4}`,
         );
     } finally {
         app.dispose();
     }
 }, 0);
 
-test("measure struct records against per-field arrays for pose and light", async () => {
+test("measure struct records against per-field arrays for GlobalTransform and light", async () => {
     let state!: State;
     const plugin: Plugin = {
         name: "TableRecordLayoutProbe",
@@ -346,7 +347,7 @@ test("measure struct records against per-field arrays for pose and light", async
 
         const scenarios = [
             {
-                name: "pose",
+                name: "global-transform",
                 recordBytes: d.sizeOf(
                     d.struct({
                         position: d.vec4f,

@@ -35,7 +35,7 @@ export const SURFACE_GROUP = 2;
 /**
  * the schema-carrying surface binding union. `uniform` takes the WGSL struct schema directly (`struct:
  * AnyWgslStruct`) and `storage` its element schema (`element: AnyWgslData`) — registry-kind resolution,
- * `mesh.bindings` overrides, and the `eids`+`transforms` instancing convention carry over unchanged;
+ * `mesh.bindings` overrides, and the `eids`+`globalTransforms` instancing convention carry over unchanged;
  * only the payload each variant carries changes. Texture/sampler variants are
  * unchanged (no schema needed — `type` alone selects the WGSL type).
  */
@@ -182,7 +182,7 @@ function ownEntries<B extends Record<string, Binding>>(
  * bindings (sprite ×6 — register the same layout object on each).
  *
  * @example
- * const layout = surfaceLayout({ eids: { type: "storage", element: InstanceInput }, transforms: { type: "storage", element: Xform } });
+ * const layout = surfaceLayout({ eids: { type: "storage", element: InstanceInput }, globalTransforms: { type: "storage", element: Xform } });
  * const fs = tgpu.fn([fsCtxSchema()], d.vec4f)((ctx) => ctx.color);
  */
 export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): SurfaceLayout<B> {
@@ -228,7 +228,7 @@ export function backgroundLayout<B extends Record<string, Binding>>(bindings: B)
 
 /** what a `vs` chunk reads: the vertex-pull's pulled `localPos`/`localNormal`/`uv`, the
  *  `vidx`/`eid`/`iid` builtins, the resolved instance `xform`, and `world`/`worldNormal` — already carrying
- *  that transform when the surface is instanced (the `eids`+`transforms` convention). `xform` is identity for a
+ *  that GlobalTransform when the surface is instanced (the `eids`+`globalTransforms` convention). `xform` is identity for a
  *  non-instanced surface and lets a deforming vs replace local geometry without closing over one pass's
  *  concrete surface layout. */
 export const VsIn = d

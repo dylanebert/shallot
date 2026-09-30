@@ -3,7 +3,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 
 import { RenderPlugin } from "../../core/rendering";
-import { build, probeBuffer, Time, Transform, transformTable } from "../../engine";
+import { build, globalTransformTable, probeBuffer, Time, Transform } from "../../engine";
 import { Body, PhysicsPlugin, readBody } from "./index";
 
 const peerModule = "bun-webgpu";
@@ -43,7 +43,7 @@ test("engine interpolation uploads one current-pose range and preserves unmoved 
     state.add(middle, Transform);
     state.of(Transform).pos.set(middle, 23, 7, 9, 0);
     const second = falling(30);
-    const table = transformTable(state);
+    const table = globalTransformTable(state);
     const queue = state.gpu.device.queue;
     const descriptor = Object.getOwnPropertyDescriptor(queue, "writeBuffer");
     const write = queue.writeBuffer.bind(queue);
@@ -52,7 +52,7 @@ test("engine interpolation uploads one current-pose range and preserves unmoved 
     Object.defineProperty(queue, "writeBuffer", {
         configurable: true,
         value: (...args: Parameters<GPUQueue["writeBuffer"]>) => {
-            if (args[0] === state.poseRuntime!.current.buffer) {
+            if (state.globalTransformRuntime!.stages.includes(args[0])) {
                 poseWrites++;
                 poseBytes += args[4] ?? 0;
             }

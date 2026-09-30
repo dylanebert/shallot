@@ -5,10 +5,10 @@ import {
     composeTransform,
     f32,
     field,
+    GlobalTransform,
     i32,
     not,
     type Plugin,
-    Pose,
     type State,
     type System,
     Transform,
@@ -237,7 +237,7 @@ const SoundSystem: System = {
         }
 
         const ctxRunning = context === "running";
-        const listenerEid = state.only([Listener, Pose]);
+        const listenerEid = state.only([Listener, GlobalTransform]);
         const hasListener = listenerEid >= 0;
 
         for (const eid of [...state.query([Sound, not(Voiced)])]) {
@@ -259,7 +259,7 @@ const SoundSystem: System = {
             assign(handle, id);
             const inst = byId(id);
             if (inst) for (const off of inst.loopOffsets) setParam(handle, off, loop);
-            spatialize(handle, hasListener && state.has(eid, Pose));
+            spatialize(handle, hasListener && state.has(eid, GlobalTransform));
             gate(handle, 1);
             if (loop === 0) {
                 // gate-on must precede the idle watch: the worklet clears a slot
@@ -299,10 +299,10 @@ const SoundSystem: System = {
         // derivation reads the listener's world basis (column-major right/up/fwd)
         if (hasListener) {
             const m = composeTransform(listenerEid, _m);
-            for (const eid of state.query([Sound, Voiced, Pose])) {
-                const dx = Pose.pos.x.get(eid) - m[12];
-                const dy = Pose.pos.y.get(eid) - m[13];
-                const dz = Pose.pos.z.get(eid) - m[14];
+            for (const eid of state.query([Sound, Voiced, GlobalTransform])) {
+                const dx = GlobalTransform.pos.x.get(eid) - m[12];
+                const dy = GlobalTransform.pos.y.get(eid) - m[13];
+                const dz = GlobalTransform.pos.z.get(eid) - m[14];
                 const p = polar(dx, dy, dz, m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
                 addSpatial(Sound.voice.get(eid), p.azimuth, p.elevation, p.distance);
             }
@@ -366,7 +366,7 @@ export const AudioPlugin: Plugin = {
             defaults: () => ({ instrument: -1, loop: 0, volume: 1, pitch: 0, voice: -1 }),
             parse: { instrument: resolveInstrument },
         },
-        Listener: { requires: [Pose] },
+        Listener: { requires: [GlobalTransform] },
     },
     async initialize(state) {
         // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the State's

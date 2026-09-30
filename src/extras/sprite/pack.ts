@@ -6,7 +6,7 @@
 // over State — no GPU — so the packing contract is what sprite.test.ts exercises directly.
 
 import * as d from "typegpu/data";
-import { f32, field, Pose, type State, u32, vec2 } from "../../engine";
+import { f32, field, GlobalTransform, type State, u32, vec2 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { SpriteData } from "./surface";
 
@@ -158,7 +158,7 @@ function fold(h: number, x: number): number {
 export function signature(state: State): number {
     const scratch = spritePackState(state);
     let h = 0x811c9dc5 | 0;
-    for (const eid of state.query([Sprite, Pose])) {
+    for (const eid of state.query([Sprite, GlobalTransform])) {
         if (!Sprite.visible.get(eid)) continue;
         h = fold(h, eid);
         h = fold(h, Sprite.image.get(eid));
@@ -220,7 +220,7 @@ export function packSprites(state: State): {
     for (const bucket of pack.byBucket) bucket.length = 0;
 
     let maxEid = -1;
-    for (const eid of state.query([Sprite, Pose])) {
+    for (const eid of state.query([Sprite, GlobalTransform])) {
         if (!Sprite.visible.get(eid)) continue;
         const w = Sprite.size.x.get(eid);
         const h = Sprite.size.y.get(eid);

@@ -11,8 +11,8 @@ import {
     useState,
 } from "./component";
 import { Entities } from "./entity";
+import { type GlobalTransformRuntime, recordGlobalTransform } from "./global-transform";
 import { Identity } from "./identity";
-import type { PoseRuntime } from "./pose";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
 import { type ComponentStorage, sameSchema, WorldField } from "./storage";
@@ -64,8 +64,13 @@ export class State {
     /** this world's component registrations, defaults, exclusions, and reflection data. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
-    /** @internal Built-in fixed pose and GPU-only history, owned by this world. */
-    poseRuntime: PoseRuntime | undefined;
+    /** @internal Fixed world placement and renderer-only GPU history, owned by this world. */
+    globalTransformRuntime: GlobalTransformRuntime | undefined;
+    private _frameEncoder: GPUCommandEncoder | undefined;
+    private _retiredBuffers: GPUBuffer[] = [];
+    private _pendingCopies: { source: GPUBuffer; target: GPUBuffer }[] = [];
+    private _uploadStages = new Map<GPUBuffer, GPUBuffer>();
+    private _stepping = false;
     private _readback: ReadbackPool | undefined;
 
     /** One-shot buffer and texture staging owned by this world. */
@@ -142,6 +147,70 @@ export class State {
             resource.destroy = destroy;
             destroy.call(resource);
         };
+    }
+
+    /** @internal The renderer opens one encoder; engine work records into it. */
+    beginGpuFrame(encoder: GPUCommandEncoder): void {
+        this._frameEncoder = encoder;
+        for (const copy of this._pendingCopies)
+            encoder.copyBufferToBuffer(copy.source, 0, copy.target, 0, copy.source.size);
+        this._pendingCopies.length = 0;
+        recordGlobalTransform(this, encoder);
+    }
+
+    /** @internal Release buffers retired by growth only after the frame was submitted. */
+    endGpuFrame(): void {
+        this._frameEncoder = undefined;
+        for (const buffer of this._retiredBuffers) buffer.destroy();
+        this._retiredBuffers.length = 0;
+    }
+
+    /** @internal Growth during a frame shares its encoder and retains referenced old buffers. */
+    growGpuBuffer(previous: GPUBuffer, buffer: GPUBuffer): void {
+        const oldStage = this._uploadStages.get(previous);
+        if (oldStage) {
+            this._uploadStages.delete(previous);
+            this.retireGpuBuffer(oldStage);
+        }
+        if (this._frameEncoder) {
+            this._frameEncoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
+            this._retiredBuffers.push(previous);
+        } else if (this._stepping && this.globalTransformRuntime?.enabled) {
+            this._pendingCopies.push({ source: previous, target: buffer });
+            this._retiredBuffers.push(previous);
+        } else {
+            const encoder = this.gpu.device.createCommandEncoder();
+            encoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
+            this.gpu.device.queue.submit([encoder.finish()]);
+            previous.destroy();
+        }
+    }
+
+    /** @internal CPU metadata replaces old buffers without a GPU copy. */
+    retireGpuBuffer(buffer: GPUBuffer): void {
+        if (this._frameEncoder || (this._stepping && this.globalTransformRuntime?.enabled))
+            this._retiredBuffers.push(buffer);
+        else buffer.destroy();
+    }
+
+    /** @internal A table upload during draw must follow recorded growth copies, not precede them. */
+    uploadGpuTable(buffer: GPUBuffer, offset: number, data: ArrayBufferLike, size: number): void {
+        const encoder = this._frameEncoder;
+        if (!encoder) {
+            this.gpu.device.queue.writeBuffer(buffer, offset, data as ArrayBuffer, offset, size);
+            return;
+        }
+        let staging = this._uploadStages.get(buffer);
+        if (!staging) {
+            staging = this.gpu.device.createBuffer({
+                size: buffer.size,
+                usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+            });
+            this.own(staging);
+            this._uploadStages.set(buffer, staging);
+        }
+        this.gpu.device.queue.writeBuffer(staging, offset, data as ArrayBuffer, offset, size);
+        encoder.copyBufferToBuffer(staging, offset, buffer, offset, size);
     }
 
     /** Whether this world owns a registered resource. */
@@ -320,11 +389,13 @@ export class State {
         this._changesClearedAtUpload = false;
         this._stepInput.deltaTime = deltaTime;
         let stepped = false;
+        this._stepping = true;
         try {
             if (this._withCompute) this._withCompute(this._runStep);
             else this._runStep();
             stepped = true;
         } finally {
+            this._stepping = false;
             useState(this);
             if (!this._gpu) this.clearChangesIfNeeded();
             if (this._gpu && stepped) {
@@ -632,7 +703,10 @@ export class State {
         this._storage.clear();
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
-        this.poseRuntime = undefined;
+        this.globalTransformRuntime = undefined;
+        this.endGpuFrame();
+        this._pendingCopies.length = 0;
+        this._uploadStages.clear();
         this._resources.clear();
         this.registry.clear();
         for (const resource of this._gpuResources) {

@@ -521,7 +521,7 @@ function scratchTexture(eid: number, slot: "a" | "b", w: number, h: number): Scr
  * `read` (the current `view.framebuffer`: the renderer's resolved scene, or the prior effect's output) and
  * `write` (a lazily-allocated scratch, the *other* half of the ping-pong pair from `read`), and repoints
  * `view.framebuffer` at `write` so the next effect, or the compositor ({@link GlazeSystem}), reads this
- * one's output. Call from a compute system in the post-color seam (`after: [ColorSystem]`, scene-transforms
+ * one's output. Call from a compute system in the post-color seam (`after: [ColorSystem]`, scene effects
  * `before: [OverlaySystem]`, overlays `after: [OverlaySystem]`): bind `read` as input, `write` as the
  * storage output, dispatch once. `write` is always the pair slot `read` isn't, so two effects chain
  * (fog reads the offscreen → writes `a`; outline reads `a` → writes `b`) and `read` is never `write`. The

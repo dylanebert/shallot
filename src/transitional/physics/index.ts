@@ -6,8 +6,8 @@ import {
     FIXED_DT,
     f32,
     field,
+    GlobalTransform,
     type Plugin,
-    Pose,
     type State,
     type System,
     Time,
@@ -18,7 +18,7 @@ import {
 import { currentWorld, withCompute } from "../../engine/runtime";
 import { eulerAlias } from "../../engine/utils";
 
-export { Pose, poseTraits } from "../../engine";
+export { GlobalTransform, globalTransformTraits } from "../../engine";
 
 import {
     type ContactEvents,
@@ -52,9 +52,9 @@ import { marshalBody } from "./marshal";
 export { createPool, maxWorkers, type Pool, type WorkerReady } from "./kernel/pool";
 
 // Physics: the authoring components (`Body`/`Spring`/`Joint`), the CPU raycast + pick layer, and the
-// Rust/WASM rigid-body solver behind them. CPU writeback: move events become an interpolated pose written
-// into the `transforms` firehose, movers only. Storage is an eid↔solver-body map plus a capacity-sized
-// prev/curr pose double buffer; no slab or mirror, since the solver serves this tick's state directly.
+// Rust/WASM rigid-body solver behind them. Move events write the engine's fixed GlobalTransform
+// column in bulk. Physics owns the eid↔solver-body map; renderer interpolation and history belong
+// to the engine. There is no slab or mirror.
 // Body marshaling is `marshal.ts`, Spring/Joint marshaling `joints.ts`. An outside solver plugs in through
 // the physics barrel (traits, defs, signatures, system anchors) and never through this module's state.
 
@@ -155,9 +155,8 @@ export const bodyTraits = {
         friction: 0.5,
     }),
     excludes: [Transform],
-    // physics owns the entity's world transform (composed into the firehose each frame), so a
-    // Body stands in for Transform: a `Part` on the same entity renders at the body's pose
-    provides: [Pose],
+    // Body produces GlobalTransform instead of authored Transform; a Part accepts either producer.
+    provides: [GlobalTransform],
     // a Body's orientation is stored as a quaternion but authored as euler degrees, like Transform.rot
     aliases: { quat: eulerAlias("quat") },
 };
@@ -502,32 +501,39 @@ function runtimeFor(state: State): PhysicsRuntime {
 // The remaining fields live in PhysicsRuntime; keeping them beside the state map prevents one State from
 // observing another State's handles, interpolation buffers or failed marshals.
 
-function writePose(
+function writeGlobalTransform(
     eid: number,
     pos: readonly [number, number, number],
     quat: readonly [number, number, number, number],
     vel: readonly [number, number, number],
 ): void {
-    Pose.pos.set(eid, pos[0], pos[1], pos[2], 0);
-    Pose.quat.set(eid, quat[0], quat[1], quat[2], quat[3]);
-    Pose.vel.set(eid, vel[0], vel[1], vel[2], 0);
+    GlobalTransform.pos.set(eid, pos[0], pos[1], pos[2], 0);
+    GlobalTransform.quat.set(eid, quat[0], quat[1], quat[2], quat[3]);
+    GlobalTransform.vel.set(eid, vel[0], vel[1], vel[2], 0);
 }
 
-function seedPose(eid: number): void {
+function seedGlobalTransform(eid: number): void {
     const shape = Body.shape.get(eid);
     const radius = Body.halfExtents.w.get(eid);
-    if (shape === ShapeKind.Sphere) Pose.scale.set(eid, 2 * radius, 2 * radius, 2 * radius, 0);
+    if (shape === ShapeKind.Sphere)
+        GlobalTransform.scale.set(eid, 2 * radius, 2 * radius, 2 * radius, 0);
     else if (shape === ShapeKind.Capsule)
-        Pose.scale.set(eid, 2 * radius, Body.halfExtents.y.get(eid) + radius, 2 * radius, 0);
+        GlobalTransform.scale.set(
+            eid,
+            2 * radius,
+            Body.halfExtents.y.get(eid) + radius,
+            2 * radius,
+            0,
+        );
     else
-        Pose.scale.set(
+        GlobalTransform.scale.set(
             eid,
             2 * Body.halfExtents.x.get(eid),
             2 * Body.halfExtents.y.get(eid),
             2 * Body.halfExtents.z.get(eid),
             0,
         );
-    writePose(
+    writeGlobalTransform(
         eid,
         [Body.pos.x.get(eid), Body.pos.y.get(eid), Body.pos.z.get(eid)],
         [Body.quat.x.get(eid), Body.quat.y.get(eid), Body.quat.z.get(eid), Body.quat.w.get(eid)],
@@ -703,13 +709,13 @@ export function readBody(state: State, eid: number, out?: BodyStateOut): BodySta
     if (currentWorld<State>() !== state) return readBodyOutside(state, eid, out);
     const tb = runtimeFor(state).bodies.get(eid);
     if (!tb) return null;
-    const pose = state.of(Pose);
+    const global = state.of(GlobalTransform);
     if (out === undefined)
         return readBody(state, eid, { pos: [0, 0, 0], quat: [0, 0, 0, 1], vel: [0, 0, 0] });
     const offset = eid * 4;
-    const p = pose.pos.column,
-        q = pose.quat.column,
-        v = pose.vel.column;
+    const p = global.pos.column,
+        q = global.quat.column,
+        v = global.vel.column;
     out.pos[0] = p[offset];
     out.pos[1] = p[offset + 1];
     out.pos[2] = p[offset + 2];
@@ -797,11 +803,11 @@ export function setKinematic(
         tb.setTransform(kinPos, kinQuat);
     }
     tb.setLinearVelocity(kinVel);
-    const pose = state.of(Pose);
+    const global = state.of(GlobalTransform);
     const offset = eid * 4;
-    const pc = pose.pos.column,
-        qc = pose.quat.column,
-        vc = pose.vel.column;
+    const pc = global.pos.column,
+        qc = global.quat.column,
+        vc = global.vel.column;
     for (let lane = 0; lane < 3; lane++) pc[offset + lane] = pos[lane];
     for (let lane = 0; lane < 4; lane++) qc[offset + lane] = quat[lane];
     vc[offset] = kinVel.x;
@@ -809,9 +815,9 @@ export function setKinematic(
     vc[offset + 2] = kinVel.z;
     const word = eid >>> 5,
         mask = 1 << (eid & 31);
-    pose.pos.dirty[word] |= mask;
-    pose.quat.dirty[word] |= mask;
-    pose.vel.dirty[word] |= mask;
+    global.pos.dirty[word] |= mask;
+    global.quat.dirty[word] |= mask;
+    global.vel.dirty[word] |= mask;
     if (moved && !tb.isAwake()) tb.setAwake(true);
     prev.pos[0] = pos[0];
     prev.pos[1] = pos[1];
@@ -829,7 +835,7 @@ export function setVelocity(state: State, eid: number, vx: number, vy: number, v
     const body = runtimeFor(state).bodies.get(eid);
     if (!body) return;
     body.setLinearVelocity({ x: vx, y: vy, z: vz });
-    state.of(Pose).vel.set(eid, vx, vy, vz, 0);
+    state.of(GlobalTransform).vel.set(eid, vx, vy, vz, 0);
 }
 export function physicsCounters(state: State): PhysicsCounters {
     return inState(state, () => ({ ...runtimeFor(state).counters }));
@@ -853,7 +859,7 @@ export function restore(state: State, saved: WorldSnapshot): void {
             body.getPosition(p);
             body.getRotation(q);
             body.getLinearVelocity(v);
-            writePose(eid, [p.x, p.y, p.z], [q.v.x, q.v.y, q.v.z, q.s], [v.x, v.y, v.z]);
+            writeGlobalTransform(eid, [p.x, p.y, p.z], [q.v.x, q.v.y, q.v.z, q.s], [v.x, v.y, v.z]);
         });
     });
 }
@@ -895,11 +901,11 @@ export const StepSystem: System = {
         if (!world) return;
         world.step(FIXED_DT, SUBSTEPS);
         runtime.counters.bytesUploaded = 0;
-        const pose = state.of(Pose);
+        const global = state.of(GlobalTransform);
         const rows = world.state.bodyStore.movedRows();
-        pose.pos.write(rows.eids, rows.pos);
-        pose.quat.write(rows.eids, rows.quat);
-        pose.vel.write(rows.eids, rows.vel);
+        global.pos.write(rows.eids, rows.pos);
+        global.quat.write(rows.eids, rows.quat);
+        global.vel.write(rows.eids, rows.vel);
     },
 };
 
@@ -997,9 +1003,9 @@ const SyncSystem: System = {
             kernel().bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
             runtime.bodies.set(eid, tb);
             runtime.stamps.set(eid, stamp);
-            if (!state.has(eid, Pose)) state.add(eid, Pose);
+            if (!state.has(eid, GlobalTransform)) state.add(eid, GlobalTransform);
             bodySetChanged = true;
-            seedPose(eid);
+            seedGlobalTransform(eid);
         }
         runtime.failed.forEach(dropDespawnedFailure, state);
         const stale = runtime.stale;
@@ -1011,7 +1017,7 @@ const SyncSystem: System = {
             const eid = stale.eids[i];
             forget(runtime, eid);
             runtime.stamps.delete(eid);
-            if (state.has(eid, Pose)) state.remove(eid, Pose);
+            if (state.has(eid, GlobalTransform)) state.remove(eid, GlobalTransform);
             bodySetChanged = true;
         }
         if (bodySetChanged)

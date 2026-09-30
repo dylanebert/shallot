@@ -1024,7 +1024,7 @@ async function prepareSear(device: GPUDevice, capacity: number): Promise<void> {
  * ({@link Tag} / {@link Depth}). It collapses the old empty depth anchor + the tag pass into one
  * single-sample pass that emits the camera's opt-in lanes (the id lane → `view.tag`, the depth lane →
  * `view.depth`), the shape Bevy's prepass takes. It's also the **anchor**: a producer whose per-frame
- * compute writes the geometry sear reads (vertices / indices, or an instanced surface's `transforms` /
+ * compute writes the geometry sear reads (vertices / indices, or an instanced surface's `globalTransforms` /
  * `eids`) declares `before: [PrepassSystem]` so its emit precedes every geometry-reading pass (the
  * prepass, the shadow map, and the color pass all read it within the frame; an emit landing between them
  * would desync the reads). It runs first among the geometry passes (`after: [BeginFrameSystem]`), so it
@@ -1142,7 +1142,7 @@ const ShadowMapSystem: System = {
 // element shapes, feeding the typed `default` surface.
 const typedDefaultLayout = typedLayout({
     eids: { type: "storage", element: d.vec4u },
-    transforms: { type: "storage", element: Xform },
+    globalTransforms: { type: "storage", element: Xform },
 });
 
 // The dense Part record carries linear base color and `(metallic, roughness, emissive, occlusion)`.
@@ -1168,7 +1168,7 @@ const typedDefaultFs = tgpu.fn(
 // the typed twin of `colorBindings` — `unlit`'s three bindings, no `material` (it never shades).
 const typedColorLayout = typedLayout({
     eids: { type: "storage", element: d.vec4u },
-    transforms: { type: "storage", element: Xform },
+    globalTransforms: { type: "storage", element: Xform },
 });
 
 // The unlit surface reads the same linear color carried in the dense Part record.

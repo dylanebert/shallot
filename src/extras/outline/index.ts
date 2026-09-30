@@ -44,7 +44,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, field, Pose, vec4 } from "../../engine";
+import { Compute, f32, field, GlobalTransform, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import { ColorSystem, DEPTH_FORMAT } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
@@ -270,7 +270,7 @@ interface Group {
 function renderOutline(
     camEid: number,
     view: View,
-    transforms: GPUBuffer,
+    globalTransforms: GPUBuffer,
     groups: Group[],
     steps: number[],
     occlude: boolean,
@@ -301,7 +301,7 @@ function renderOutline(
                 view: Render.viewBuffers[view.slot],
                 position: g.mesh.position,
                 indices: g.mesh.indices,
-                transforms,
+                globalTransforms,
                 maskEids: _gpu.eids!,
                 maskAttrs: _gpu.attrs!,
                 meshQuant: g.mesh.quant,
@@ -315,7 +315,7 @@ function renderOutline(
                 view: Render.viewBuffers[view.slot],
                 position: g.mesh.position,
                 indices: g.mesh.indices,
-                transforms,
+                globalTransforms,
                 maskEids: _gpu.eids!,
                 maskAttrs: _gpu.attrs!,
                 meshQuant: g.mesh.quant,
@@ -379,8 +379,8 @@ const OutlineSystem: System = {
         if (!Render.encoder || !_gpu.maskPlain) return;
         const eids = [...state.query([Outline, Part])];
         if (eids.length === 0) return; // bare path — no passes
-        const transforms = Compute.buffers.get("transforms");
-        if (!transforms) return;
+        const globalTransforms = Compute.buffers.get("global-transform-interpolated");
+        if (!globalTransforms) return;
 
         ensureInstances(eids.length);
         const byMesh = groupByMesh(eids, (eid) => Part.mesh.get(eid));
@@ -421,7 +421,7 @@ const OutlineSystem: System = {
             const view = Views.get(camEid);
             if (!view?.framebuffer) continue;
             // occlusion needs sear's Depth lane; without it, degrade to always-on-top
-            renderOutline(camEid, view, transforms, groups, steps, occlude && !!view.depth);
+            renderOutline(camEid, view, globalTransforms, groups, steps, occlude && !!view.depth);
         }
     },
 };
@@ -549,7 +549,7 @@ function forceCompile(): void {
             view: Render.viewBuffers[0],
             position,
             indices,
-            transforms: transformsBuf,
+            globalTransforms: transformsBuf,
             maskEids: eids,
             maskAttrs: attrs,
             meshQuant: quant,
@@ -583,7 +583,7 @@ function forceCompile(): void {
             view: Render.viewBuffers[0],
             position,
             indices,
-            transforms: transformsBuf,
+            globalTransforms: transformsBuf,
             maskEids: eids,
             maskAttrs: attrs,
             meshQuant: quant,
@@ -642,7 +642,7 @@ export const OutlinePlugin: Plugin = {
     dependencies: [RenderPlugin, PartPlugin],
     traits: {
         Outline: {
-            requires: [Part, Pose],
+            requires: [Part, GlobalTransform],
             defaults: () => ({
                 color: [1, 0.85, 0.2, 1],
                 width: 4,

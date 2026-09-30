@@ -145,7 +145,7 @@ export interface Compute {
     /**
      * named GPU buffers published for cross-system lookup. Slabs with a name
      * self-register; producers register their static buffers (cube vertices,
-     * transforms firehose, …). Consumers (renderers) resolve binding names
+     * GlobalTransform rows, …). Consumers (renderers) resolve binding names
      * to buffers at bind-group build time
      */
     readonly buffers: Map<string, GPUBuffer>;

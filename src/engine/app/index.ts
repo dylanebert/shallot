@@ -3,9 +3,9 @@
 import {
     type Component,
     entries,
-    initializePose,
+    initializeGlobalTransform,
     register,
-    registerPose,
+    registerGlobalTransform,
     State,
     type System,
     sameComponentSchema,
@@ -310,7 +310,7 @@ async function buildNow(config: Config): Promise<App> {
             world: state,
         });
         state.attachGpu(compute, (callback) => withCompute(compute, callback));
-        registerPose(state);
+        registerGlobalTransform(state);
         if (Compute.adapter.class !== "real") loading?.notice?.(Compute.adapter);
 
         for (const plugin of sorted) {
@@ -350,7 +350,7 @@ async function buildNow(config: Config): Promise<App> {
         const total = sorted.length + warmable.length + scenes.length;
 
         withCompute(state.gpu, () => {
-            initializePose(state);
+            initializeGlobalTransform(state);
             config.setup?.(state);
         });
 

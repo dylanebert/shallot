@@ -9,8 +9,8 @@ test("isolate native GPU-copy handle allocation against the allocation-free uplo
     const copy = await sampleAllocation(entry, { warm: 6000, frames: 600, input: "copy" });
     expect(windowBytes({ sites: upload.control })).toBeGreaterThan(0);
     expect(windowBytes({ sites: copy.control })).toBeGreaterThan(0);
-    console.info("[pose-copy-allocation] writeBuffer control\n" + siteTable(upload));
-    console.info("[pose-copy-allocation] copyBufferToBuffer\n" + siteTable(copy));
+    console.info("[gpu-copy-allocation] writeBuffer control\n" + siteTable(upload));
+    console.info("[gpu-copy-allocation] copyBufferToBuffer\n" + siteTable(copy));
     for (const window of upload.windows) expect(windowBytes(window)).toBe(0);
     for (const window of copy.windows) expect(windowBytes(window)).toBeGreaterThan(0);
 }, 0);

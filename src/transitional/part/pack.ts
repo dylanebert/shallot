@@ -32,8 +32,8 @@ export const cullLayout = tgpu
     .bindGroupLayout({
         partRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
         parts: { storage: d.arrayOf(PartRecord), access: "readonly" },
-        transforms: { storage: d.arrayOf(Xform), access: "readonly" },
-        transformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
+        globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
+        globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
         cullVolumes: { storage: d.arrayOf(d.vec4f), access: "readonly" },
         params: { uniform: CullParams },
@@ -83,7 +83,7 @@ export const visible = tgpu.fn(
 )((mid, transformRow, slot) => {
     "use gpu";
     if (slot >= cullLayout.$.params.viewCount) return true;
-    const xf = cullLayout.$.transforms[transformRow];
+    const xf = cullLayout.$.globalTransforms[transformRow];
     const b = cullLayout.$.meshBounds[mid];
     const center = xformPoint(xf, d.vec3f(b.x, b.y, b.z));
     const radius =
@@ -116,7 +116,7 @@ function pairFactory(surfaceCount: number) {
             const eid = entry.x;
             const row = entry.y;
             const part = cullLayout.$.parts[row];
-            const encodedTransform = cullLayout.$.transformRows[eid];
+            const encodedTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
             if (part.surface >= surfaceCount || encodedTransform === 0) {
                 return Pair({

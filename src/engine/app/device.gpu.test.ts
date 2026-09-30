@@ -12,7 +12,7 @@ import {
     ShapeKind,
 } from "../../transitional/physics";
 import "../../standard";
-import { type State, Time, Transform, transformTable } from "../index";
+import { globalTransformTable, type State, Time, Transform } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { build } from "./index";
 
@@ -269,10 +269,12 @@ test("live Physics apps keep their authored component values and solver worlds i
     expect(second.state.of(Body).pos.y.get(secondEid)).toBe(20);
     expect(first.state.of(Body).pos.y.get(firstEid)).toBe(2);
     expect(first.state.of(Body).pos.column).not.toBe(second.state.of(Body).pos.column);
-    expect(transformTable(first.state).buffer).not.toBe(transformTable(second.state).buffer);
-    expect(transformTable(first.state).eidToRowBuffer).toBeDefined();
-    expect(transformTable(first.state).eidToRowBuffer).not.toBe(
-        transformTable(second.state).eidToRowBuffer,
+    expect(globalTransformTable(first.state).buffer).not.toBe(
+        globalTransformTable(second.state).buffer,
+    );
+    expect(globalTransformTable(first.state).eidToRowBuffer).toBeDefined();
+    expect(globalTransformTable(first.state).eidToRowBuffer).not.toBe(
+        globalTransformTable(second.state).eidToRowBuffer,
     );
 
     first.dispose();

@@ -21,16 +21,16 @@ export {
     vec4,
 } from "./component";
 export { field } from "./field";
-export { Identity } from "./identity";
 export {
     composeTransform,
-    initializePose,
-    Pose,
-    poseTraits,
-    registerPose,
+    GlobalTransform,
+    globalTransformTable,
+    globalTransformTraits,
+    initializeGlobalTransform,
+    registerGlobalTransform,
     Transform,
-    transformTable,
-} from "./pose";
+} from "./global-transform";
+export { Identity } from "./identity";
 export { and, not, or } from "./query";
 export {
     camel,

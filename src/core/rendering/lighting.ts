@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
-import { Compute, f32, field, Pose, unpackColor, vec4 } from "../../engine";
+import { Compute, f32, field, GlobalTransform, unpackColor, vec4 } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
 
@@ -253,7 +253,7 @@ export const PointLightGpu = d.struct({
 
 /**
  * the compacted point-light list: a count header plus the fixed-cap light array, GPU-written by the light
- * compact pass (`cluster.ts`) from the PointLight + Spot slabs + the transforms firehose, and read by
+ * compact pass (`cluster.ts`) from the PointLight + Spot slabs + GlobalTransform, and read by
  * sear's clustered loop and the fog march. There is no CPU light list.
  */
 export const PointLights = d.struct({
@@ -334,7 +334,7 @@ export function spotParams(innerDeg: number, outerDeg: number): { scale: number;
     return { scale, offset: -cosOuter * scale };
 }
 
-const POINT_LIGHT_TERMS = [PointLight, Pose];
+const POINT_LIGHT_TERMS = [PointLight, GlobalTransform];
 
 /**
  * warn once per episode when more PointLight entities exist than the list cap:

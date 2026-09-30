@@ -2,7 +2,14 @@
 
 import * as d from "typegpu/data";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, composeTransform, formatHex, invert, Pose } from "../../engine";
+import {
+    Compute,
+    composeTransform,
+    formatHex,
+    GlobalTransform,
+    globalTransformTable,
+    invert,
+} from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import {
@@ -254,6 +261,7 @@ export const BeginFrameSystem: System = {
 
         const encoder = device.createCommandEncoder(FRAME_ENCODER);
         Render.encoder = encoder;
+        state.beginGpuFrame(encoder);
         writeFrame(state);
         writeLighting(state);
 
@@ -349,7 +357,7 @@ export const BeginFrameSystem: System = {
 const EndFrameSystem: System = {
     group: "draw",
     terminal: true,
-    update() {
+    update(state) {
         const device = Compute.device;
         if (!device) return;
         const encoder = Render.encoder;
@@ -357,6 +365,7 @@ const EndFrameSystem: System = {
             throw new Error("render submission requires BeginFrameSystem to open an encoder");
         _frame.submit[0] = encoder.finish();
         device.queue.submit(_frame.submit);
+        state.endGpuFrame();
         Render.encoder = null;
         Views.forEach(clearTargets);
     },
@@ -372,7 +381,7 @@ const EndFrameSystem: System = {
 };
 
 /**
- * a no-op ordering anchor splitting the post-color seam: scene-space transforms (fog) run `before` it,
+ * a no-op ordering anchor splitting the post-color seam: scene-space effects (fog) run `before` it,
  * screen-space overlays (outline) run `after` it, so an overlay composites on top of the transformed
  * scene. Both reference it by name, so neither imports the other (the scene-transform / overlay pair
  * stays decoupled). It carries no `update`: pure scheduling, invisible to the profiler. Sits in `draw`
@@ -480,7 +489,7 @@ export const RenderPlugin: Plugin = {
     },
     traits: {
         Camera: {
-            requires: [Pose],
+            requires: [GlobalTransform],
             defaults: () => ({
                 mode: CameraMode.Perspective,
                 fov: 60,
@@ -512,7 +521,7 @@ export const RenderPlugin: Plugin = {
             format: { color: formatHex },
         },
         PointLight: {
-            requires: [Pose],
+            requires: [GlobalTransform],
             defaults: () => ({ color: 0xffffff, intensity: 1, range: 10, radius: 0.1 }),
             format: { color: formatHex },
         },
@@ -526,6 +535,7 @@ export const RenderPlugin: Plugin = {
     },
 
     async initialize(state) {
+        globalTransformTable(state);
         initializeRenderState(state);
         initializeViewState(state);
         initializeClusterState(state);

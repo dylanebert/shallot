@@ -6,18 +6,18 @@ setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 
-for (const [first, second, firstName, secondName] of [
+for (const [first, second, firstProducer, secondProducer] of [
     [Transform, Body, "transform", "body"],
     [Body, Transform, "body", "transform"],
 ] as const) {
-    test(`a second pose producer ${secondName} refuses after ${firstName} without changing membership`, async () => {
+    test(`a second GlobalTransform producer ${secondProducer} refuses after ${firstProducer} without changing membership`, async () => {
         const app = await build({ defaults: false, plugins: [PhysicsPlugin] });
         try {
             const state = app.state;
             const eid = state.create();
             state.add(eid, first);
             expect(() => state.add(eid, second)).toThrow(
-                new RegExp(`cannot attach "${secondName}".*excluded by "${firstName}"`),
+                new RegExp(`cannot attach "${secondProducer}".*excluded by "${firstProducer}"`),
             );
             expect(state.has(eid, first)).toBe(true);
             expect(state.has(eid, second)).toBe(false);

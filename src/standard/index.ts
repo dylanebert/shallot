@@ -1,4 +1,4 @@
-export { composeTransform, Pose, Transform } from "../engine";
+export { composeTransform, GlobalTransform, Transform } from "../engine";
 export {
     AudioPlugin,
     type InstrumentDef,

@@ -33,10 +33,10 @@ import {
     composeTransform,
     f32,
     field,
+    GlobalTransform,
     lookAt,
     multiply,
     orthographic,
-    Pose,
     perspective,
     type State,
     Transform,
@@ -1020,7 +1020,7 @@ export interface PointShadowFrame {
 }
 
 // the shadowed point-light query terms and the ranked candidates, a capacity pool reused in place
-const POINT_CASTER_TERMS = [PointLight, Shadow, Pose];
+const POINT_CASTER_TERMS = [PointLight, Shadow, GlobalTransform];
 const _cands: { light: number; range: number; score: number; rank: number }[] = [];
 
 // one caster frame record for a caller's pool, written in place each frame by `updatePointShadows`
@@ -1225,16 +1225,16 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
     const shadow = shadows(state);
     const cap = pointCasters();
     const atlas = pointAtlasSize();
-    const cx = main >= 0 ? Pose.pos.x.get(main) : 0;
-    const cy = main >= 0 ? Pose.pos.y.get(main) : 0;
-    const cz = main >= 0 ? Pose.pos.z.get(main) : 0;
+    const cx = main >= 0 ? GlobalTransform.pos.x.get(main) : 0;
+    const cy = main >= 0 ? GlobalTransform.pos.y.get(main) : 0;
+    const cz = main >= 0 ? GlobalTransform.pos.z.get(main) : 0;
     let candCount = 0;
     for (const light of state.query(POINT_CASTER_TERMS)) {
         const range = PointLight.range.get(light);
         if (range <= 0) continue;
-        const dx = Pose.pos.x.get(light) - cx;
-        const dy = Pose.pos.y.get(light) - cy;
-        const dz = Pose.pos.z.get(light) - cz;
+        const dx = GlobalTransform.pos.x.get(light) - cx;
+        const dy = GlobalTransform.pos.y.get(light) - cy;
+        const dz = GlobalTransform.pos.z.get(light) - cz;
         const distSq = main >= 0 ? Math.max(dx * dx + dy * dy + dz * dz, 1) : 1;
         const score = (PointLight.intensity.get(light) * range * range) / distSq;
         // an incumbent (cast last frame) ranks with the hysteresis margin so a sub-margin challenger can't
@@ -1292,9 +1292,9 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
         f.slot = slot;
         f.score = c.score;
         f.tilePx = MIN_TILE;
-        f.pos[0] = Pose.pos.x.get(c.light);
-        f.pos[1] = Pose.pos.y.get(c.light);
-        f.pos[2] = Pose.pos.z.get(c.light);
+        f.pos[0] = GlobalTransform.pos.x.get(c.light);
+        f.pos[1] = GlobalTransform.pos.y.get(c.light);
+        f.pos[2] = GlobalTransform.pos.z.get(c.light);
         f.near = c.range / 1000;
         f.far = c.range;
         f.depthBias = Shadow.depthBias.get(c.light);
@@ -1362,10 +1362,10 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
         f.tilePx = rect ? rect[2] * atlas : MIN_TILE;
         if (f.spot) {
             const b = spotBasis(
-                Pose.quat.x.get(f.light),
-                Pose.quat.y.get(f.light),
-                Pose.quat.z.get(f.light),
-                Pose.quat.w.get(f.light),
+                GlobalTransform.quat.x.get(f.light),
+                GlobalTransform.quat.y.get(f.light),
+                GlobalTransform.quat.z.get(f.light),
+                GlobalTransform.quat.w.get(f.light),
                 Spot.outer.get(f.light),
                 f.tilePx,
             );

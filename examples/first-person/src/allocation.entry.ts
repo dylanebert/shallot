@@ -23,9 +23,8 @@ export default async function create(scene: string) {
         scene,
     });
     const state = app.state;
-    // Pose is the composition's one derived field component; the package root does not export it.
-    const pose = getComponent(state, "pose");
-    if (!pose) throw new Error("allocation entry: the composition registers no `pose` component");
+    const global = getComponent(state, "global-transform");
+    if (!global) throw new Error("allocation entry: the composition registers no GlobalTransform");
     let eid = 0;
     return {
         step: () => state.step(FIXED_DT),
@@ -34,7 +33,7 @@ export default async function create(scene: string) {
         // composition's non-Body slab component, step its frame, destroy it, step its frame.
         spawn: () => {
             eid = state.create();
-            state.add(eid, pose);
+            state.add(eid, global);
             state.step(FIXED_DT);
         },
         despawn: () => {

@@ -24,9 +24,9 @@ import {
     Character,
     CharacterPlugin,
     CharacterSweepSystem,
+    globalTransform,
     jump,
     move,
-    pose,
 } from "../../transitional/character";
 import { Body } from "../../transitional/physics";
 import { PlayerFollow } from "./follow";
@@ -35,11 +35,11 @@ import { PlayerFollow } from "./follow";
 // pointer-lock mouse look + a follow camera. The Player entity IS the character's capsule body (Body +
 // Character, mass <= 0); a separate camera entity (Camera + a renderer marker + Transform) is linked via
 // `Player.camera`. The controller owns the look (yaw/pitch, instant) + the move/jump intent (driven through
-// the `character` module's eid-keyed `move`/`jump`); the CPU sweep owns the swept pose, written same-frame
-// on the fixed clock with no GPU readback. The camera follows that pose with fixed-timestep interpolation: a
-// `fixed`-group system (`after: [CharacterSweepSystem]`) snapshots this tick's swept pose (`character.pose`,
+// the `character` module's eid-keyed `move`/`jump`); the CPU sweep produces fixed-tick GlobalTransform.
+// The camera follows its position with fixed-timestep interpolation: a
+// `fixed`-group system (`after: [CharacterSweepSystem]`) snapshots this tick's swept GlobalTransform (`character.globalTransform`,
 // off the CPU controller state) into prev/curr, and the camera renders `lerp(prev, curr, fixedAlpha)` — see
-// `PlayerSnapshotSystem`. So input → pose → camera position carries no readback lag (it stops scaling with
+// `PlayerSnapshotSystem`. Input → GlobalTransform → camera position carries no readback lag (it stops scaling with
 // GPU frame time, mouse-look already did); the only camera latency is the kept one-tick interpolation +
 // the irreducible display fence. Walk/jump/slope tuning lives on `Character`.
 //
@@ -108,17 +108,16 @@ function setupPointerLock(state: State): void {
     });
 }
 
-// scratch for the per-tick swept-pose read (character.pose), reused across players.
-const _pose: [number, number, number] = [0, 0, 0];
+// scratch for the per-tick swept GlobalTransform read (character.globalTransform), reused across players.
+const _globalTransform: [number, number, number] = [0, 0, 0];
 // query terms held once, so a steady frame mints no array.
 const PLAYER_BODIES = [Player, Body];
 const ORPHAN_FOLLOWS = [not(Player), PlayerFollow];
 
-// Snapshot the player's swept pose on the FIXED clock (once per tick) into prev/curr, so the camera can
-// render-interpolate it by `fixedAlpha` — standard fixed-timestep interpolation (Gaffer), the same the
-// engine's body renderer uses. The pose is the CPU controller's own `CharState` (read by `character.pose`),
-// written THIS tick by the sweep — so this system runs `after: [CharacterSweepSystem]` to capture the fresh
-// pose, not last tick's, and there is no GPU readback in the path. Capturing on the fixed clock is what keeps
+// Snapshot the character's fixed-tick GlobalTransform position once per tick, so the camera can
+// render-interpolate it by `fixedAlpha`, matching the engine renderer. The character controller writes
+// GlobalTransform this tick, so this system runs `after: [CharacterSweepSystem]`; it does not read back
+// from the GPU. Capturing on the fixed clock is what keeps
 // the camera smooth at ANY render rate; the only camera lag is the kept one-tick interpolation, no readback.
 const PlayerSnapshotSystem: System = {
     name: "snapshot",
@@ -126,10 +125,10 @@ const PlayerSnapshotSystem: System = {
     after: [CharacterSweepSystem],
     update(state: State) {
         for (const eid of state.query(PLAYER_BODIES)) {
-            if (!pose(state, eid, _pose)) continue; // unregistered (the sweep hasn't built its CharState) — keep the fallback pose
-            const x = _pose[0];
-            const y = _pose[1];
-            const z = _pose[2];
+            if (!globalTransform(state, eid, _globalTransform)) continue; // The body producer has not registered yet.
+            const x = _globalTransform[0];
+            const y = _globalTransform[1];
+            const z = _globalTransform[2];
             if (state.has(eid, PlayerFollow)) {
                 PlayerFollow.prev.set(
                     eid,
@@ -150,8 +149,8 @@ const PlayerSnapshotSystem: System = {
     },
 };
 
-// the player's render position: lerp between the two most recent fixed-tick poses by `fixedAlpha`. Falls back
-// to the Body spawn pose (the CPU slab) until the first snapshot lands, so the first frames aren't at the origin.
+// the player's render position: lerp between the two most recent fixed-tick GlobalTransform positions by `fixedAlpha`.
+// Falls back to the authored Body spawn position until the first snapshot lands, so the first frames aren't at the origin.
 function followPos(state: State, eid: number, out: [number, number, number]): void {
     if (state.has(eid, PlayerFollow)) {
         const a = state.time.fixedAlpha;
@@ -169,7 +168,7 @@ function findCamera(state: State, eid: number): number {
     const cam = Player.camera.get(eid);
     if (!cam || !state.has(cam, Camera)) {
         // warn once, latched on the derived PlayerFollow (added by the snapshot system); if it isn't up yet
-        // (the character hasn't registered), skip — the next frame with a fresh pose warns.
+        // (the character hasn't registered), skip — the next frame with GlobalTransform warns.
         if (state.has(eid, PlayerFollow) && !PlayerFollow.warned.get(eid)) {
             PlayerFollow.warned.set(eid, 1);
             console.warn(
@@ -196,9 +195,9 @@ function setLook(cam: number, yaw: number, pitch: number): void {
 const _pos: [number, number, number] = [0, 0, 0];
 
 /**
- * the first-person controller: mouse-look + WASD/jump intent + the follow-camera pose, run in the
- * `simulation` group. Exported as an ordering anchor: a camera-juice / additive-pose system that perturbs
- * the camera on top of the controller's base pose declares `after: [PlayerControlSystem]`, reading the base
+ * the first-person controller: mouse-look + WASD/jump intent + the follow-camera Transform, run in the
+ * `simulation` group. Exported as an ordering anchor: a camera-juice system that perturbs the authored camera
+ * placement declares `after: [PlayerControlSystem]`, reading the base
  * `Transform` this writes before `BeginFrameSystem` (draw) consumes it.
  */
 export const PlayerControlSystem: System = {

@@ -1,9 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { RenderPlugin } from "../../core/rendering";
-import { Body, forwardRay, PhysicsPlugin, Pose } from "../../transitional/physics";
+import { Body, forwardRay, GlobalTransform, PhysicsPlugin } from "../../transitional/physics";
 import { build } from "../app";
 import * as engine from "../index";
-import { probeBuffer, Transform, transformTable } from "../index";
+import { globalTransformTable, probeBuffer, Transform } from "../index";
 import { Time } from "./scheduler";
 
 setDefaultTimeout(1000);
@@ -12,7 +12,10 @@ await (await import(peer)).setupGlobals();
 
 function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("pose readback exceeded 750 ms")), 750);
+        const timer = setTimeout(
+            () => reject(new Error("GlobalTransform readback exceeded 750 ms")),
+            750,
+        );
         promise.then(
             (value) => {
                 clearTimeout(timer);
@@ -25,11 +28,11 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
         );
     });
 }
-test("Pose is an engine-owned public schema, independent of Physics", () => {
-    expect(Reflect.get(engine, "Pose")).toBe(Pose);
+test("GlobalTransform is an engine-owned public schema, independent of Physics", () => {
+    expect(Reflect.get(engine, "GlobalTransform")).toBe(GlobalTransform);
 });
 
-test("Transform placement lands in the fixed-tick Pose column and the renderer table", async () => {
+test("Transform placement lands in the fixed-tick GlobalTransform column and the renderer table", async () => {
     const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
         const state = app.state;
@@ -39,11 +42,11 @@ test("Transform placement lands in the fixed-tick Pose column and the renderer t
         placement.pos.set(eid, 12, 7, -3, 0);
         placement.scale.set(eid, 2, 3, 4, 0);
         state.step(Time.FIXED_DT);
-        expect(state.has(eid, Pose)).toBe(true);
-        expect(state.of(Pose).pos.x.get(eid)).toBe(12);
-        expect(state.of(Pose).pos.y.get(eid)).toBe(7);
-        expect(state.of(Pose).pos.z.get(eid)).toBe(-3);
-        const table = transformTable(state);
+        expect(state.has(eid, GlobalTransform)).toBe(true);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(12);
+        expect(state.of(GlobalTransform).pos.y.get(eid)).toBe(7);
+        expect(state.of(GlobalTransform).pos.z.get(eid)).toBe(-3);
+        const table = globalTransformTable(state);
         const row = table.rowIndex(eid);
         expect(row).toBeGreaterThanOrEqual(0);
         const words = new Float32Array(
@@ -56,8 +59,8 @@ test("Transform placement lands in the fixed-tick Pose column and the renderer t
     }
 });
 
-test("a Body writes scale as part of fixed-tick Pose instead of deriving it only in renderer rows", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin] });
+test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriving it only in renderer rows", async () => {
+    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
         const state = app.state;
         const eid = state.create();
@@ -66,11 +69,11 @@ test("a Body writes scale as part of fixed-tick Pose instead of deriving it only
         state.of(Body).halfExtents.set(eid, 1, 2, 3, 0);
         state.of(Body).mass.set(eid, 0);
         state.step(Time.FIXED_DT);
-        expect(state.of(Pose).pos.x.get(eid)).toBe(12);
-        expect(Reflect.get(Pose, "scale")).toBeDefined();
-        const scale = Reflect.get(state.of(Pose), "scale");
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(12);
+        expect(Reflect.get(GlobalTransform, "scale")).toBeDefined();
+        const scale = Reflect.get(state.of(GlobalTransform), "scale");
         expect([scale.x.get(eid), scale.y.get(eid), scale.z.get(eid)]).toEqual([2, 4, 6]);
-        const table = transformTable(state);
+        const table = globalTransformTable(state);
         const row = table.rowIndex(eid);
         const words = new Float32Array(
             (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
@@ -82,7 +85,7 @@ test("a Body writes scale as part of fixed-tick Pose instead of deriving it only
     }
 });
 
-test("a physics camera query reads fixed-tick Pose without requiring Transform", async () => {
+test("a physics camera query reads fixed-tick GlobalTransform without requiring Transform", async () => {
     const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
         const state = app.state;

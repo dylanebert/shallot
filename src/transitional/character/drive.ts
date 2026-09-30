@@ -1,8 +1,8 @@
-import { Pose, type State } from "../../engine";
+import { GlobalTransform, type State } from "../../engine";
 import { setKinematic } from "../physics";
 import type { CharState } from "./sweep";
 
-/** per-State intent and controller pose shared by the sweep and its callers */
+/** Per-State intent and controller state shared by the sweep and its callers. */
 export interface CharacterDrive {
     states: Map<number, CharState>;
     moves: Map<number, [number, number]>;
@@ -58,20 +58,20 @@ export function jump(state: State, eid: number): void {
     driveFor(state).jumped.add(eid);
 }
 
-/** read a character's swept pose into `out` (by body eid); returns false (leaving `out` untouched) until the
- *  character is registered. The CPU sweep owns this pose same-frame, so a follower (a camera) tracks the
+/** Read a character's GlobalTransform position into `out`; returns false until the character is
+ *  registered. The body producer writes it in the fixed tick, so a follower (a camera) tracks the
  *  player with no GPU readback.
  *
  * @example
  * ```
  * const p: [number, number, number] = [0, 0, 0];
- * if (pose(state, player, p)) placeModelAt(p);
+ * if (globalTransform(state, player, p)) placeModelAt(p);
  * ```
  */
-export function pose(state: State, eid: number, out: [number, number, number]): boolean {
-    if (!driveFor(state).states.has(eid) || !state.has(eid, Pose)) return false;
-    const pose = state.of(Pose);
-    const column = pose.pos.column;
+export function globalTransform(state: State, eid: number, out: [number, number, number]): boolean {
+    if (!driveFor(state).states.has(eid) || !state.has(eid, GlobalTransform)) return false;
+    const global = state.of(GlobalTransform);
+    const column = global.pos.column;
     const offset = eid * 4;
     out[0] = column[offset];
     out[1] = column[offset + 1];
@@ -81,13 +81,13 @@ export function pose(state: State, eid: number, out: [number, number, number]): 
 
 /** place a character at a world position (by body eid), clearing its velocity: the respawn primitive a
  *  fall-recovery system calls. Returns false (a no-op) until the character is registered. The controller
- *  owns the pose, so this is the ONLY way to move a swept character from the outside; the next sweep
+ *  owns its motion, so this is the way to move a swept character from the outside; the next sweep
  *  integrates from here, and zeroing the velocity keeps a mid-air respawn from inheriting the old fall speed.
  *
  * @example
  * ```
  * const p: [number, number, number] = [0, 0, 0];
- * if (pose(state, player, p) && p[1] < -20) teleport(state, player, 0, 4, 0);
+ * if (globalTransform(state, player, p) && p[1] < -20) teleport(state, player, 0, 4, 0);
  * ```
  */
 export function teleport(state: State, eid: number, x: number, y: number, z: number): boolean {

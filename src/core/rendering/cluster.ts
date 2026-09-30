@@ -2,7 +2,7 @@ import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } fro
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
-import { Compute, transformTable } from "../../engine";
+import { Compute, globalTransformTable } from "../../engine";
 import { precompile, probeBuffer, worldResource } from "../../engine/runtime";
 import {
     idiv,
@@ -497,9 +497,9 @@ export function warmClusters(): void {
 // The per-frame light passes: compact + cull, the GPU-driven deviation from
 // Bevy's CPU light assignment (the firehose has no CPU loop over lights). The
 // compact pass scans capacity gated on PointLight membership and atomic-appends
-// the live lights — world position from the transforms firehose, params from the
+// the live lights — world position from the GlobalTransform table, params from the
 // PointLight slabs — into the compacted list. The cull pass then bins that list
-// into the cluster grid (one thread per cluster per view): each light transforms
+// into the cluster grid (one thread per cluster per view): each light is transformed
 // to view space once per workgroup batch (shared memory, the DaveH355/logdahl
 // structure), sphere-vs-AABB tests against the landed cluster AABBs, and the
 // survivors atomic-append into one flat index pool, `lightGrid` recording each
@@ -546,8 +546,8 @@ const compactLayout = tgpu
     .bindGroupLayout({
         lightRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
         lightInput: { storage: d.arrayOf(LightInput), access: "readonly" },
-        transforms: { storage: d.arrayOf(Xform), access: "readonly" },
-        transformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
+        globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
+        globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         lightCount: { uniform: d.u32 },
         lights: { storage: PointLightsRw, access: "mutable" },
     })
@@ -564,7 +564,7 @@ const cullLayout = tgpu
     .$idx(0);
 
 // Compact only active point-light rows. Dense table slots feed the record fields; the optional eid map is
-// a point lookup into transforms, never a capacity-sized pass. Hex sRGB is decoded on GPU.
+// a point lookup into the GlobalTransform table, never a capacity-sized pass. Hex sRGB is decoded on GPU.
 function compactKernel() {
     return tgpu
         .computeFn({
@@ -577,9 +577,9 @@ function compactKernel() {
             const entry = compactLayout.$.lightRows[index];
             const eid = entry.x;
             const record = compactLayout.$.lightInput[entry.y];
-            const transformEncoded = compactLayout.$.transformRows[eid];
-            if (transformEncoded === 0 || record.range <= 0) return;
-            const transform = compactLayout.$.transforms[transformEncoded - 1];
+            const globalTransformEncoded = compactLayout.$.globalTransformRows[eid];
+            if (globalTransformEncoded === 0 || record.range <= 0) return;
+            const globalTransform = compactLayout.$.globalTransforms[globalTransformEncoded - 1];
             const i = std.atomicAdd(compactLayout.$.lights.count[0], 1);
             if (i >= MAX_POINT_LIGHTS) return;
             const hex = d.u32(record.color);
@@ -591,7 +591,7 @@ function compactKernel() {
                 ),
                 record.intensity,
             );
-            const pos = transform.pos;
+            const pos = globalTransform.pos;
             compactLayout.$.lights.lights[i].posRange = d.vec4f(
                 pos.x,
                 pos.y,
@@ -605,7 +605,7 @@ function compactKernel() {
             if ((record.flags & LIGHT_VOLUMETRIC) !== 0) radius = -std.max(radius, 1e-4);
             let params = d.vec4f(radius, 0, 0, 1);
             if ((record.flags & LIGHT_SPOT) !== 0) {
-                const dir = std.normalize(xformQuat(transform.quat, d.vec3f(0, 0, -1)));
+                const dir = std.normalize(xformQuat(globalTransform.quat, d.vec3f(0, 0, -1)));
                 const cosInner = std.cos(std.radians(record.spotInner));
                 const cosOuter = std.cos(std.radians(record.spotOuter));
                 const scale = 1 / std.max(cosInner - cosOuter, 1e-4);
@@ -738,21 +738,21 @@ function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBi
     if (!_gpu.compactPipe || !_gpu.typedLights || !_gpu.lightCountBuffer)
         throw new Error("[render] light compact used before warmLightCull");
     const lights = lightInputTable(state);
-    const transforms = transformTable(state);
+    const globalTransforms = globalTransformTable(state);
     const generation = _gpu.compactGeneration;
     if (
         _gpu.compactBound &&
         generation[0] === lights.generation &&
         generation[1] === lights.activeGeneration &&
-        generation[2] === transforms.generation &&
-        generation[3] === transforms.mapGeneration
+        generation[2] === globalTransforms.generation &&
+        generation[3] === globalTransforms.mapGeneration
     )
         return _gpu.compactBound;
     const inputs = {
         lightRows: lights.activeRowsBuffer,
         lightInput: lights.buffer,
-        transforms: transforms.buffer,
-        transformRows: transforms.eidToRowBuffer,
+        globalTransforms: globalTransforms.buffer,
+        globalTransformRows: globalTransforms.eidToRowBuffer,
         lightCount: _gpu.lightCountBuffer,
     };
     const missing = Object.entries(inputs)
@@ -772,8 +772,8 @@ function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBi
     };
     generation[0] = lights.generation;
     generation[1] = lights.activeGeneration;
-    generation[2] = transforms.generation;
-    generation[3] = transforms.mapGeneration;
+    generation[2] = globalTransforms.generation;
+    generation[3] = globalTransforms.mapGeneration;
     return _gpu.compactBound;
 }
 

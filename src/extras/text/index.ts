@@ -1,7 +1,7 @@
 // Text — the shallot SDF-text producer. A retained `Text` component (string content, font, size,
 // anchor, color) lays each label out into instanced glyph quads, drawn as a sear `"alpha"` world-space
 // surface (one draw per font atlas). The glyph buffer holds glyph-local positions + the owning entity id;
-// the VS reads `transforms[eid]` per frame, so moving a labeled entity flows through the Transform slab
+// the VS reads `globalTransforms[eid]` per frame, so moving a labeled entity flows through GlobalTransform
 // and triggers no glyph rebuild — the buffer rebuilds only when a layout-affecting field changes (a
 // content / size / anchor / color edit, an add / remove), gated by a per-frame signature. The SDF atlas /
 // font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the shallot
@@ -29,8 +29,8 @@ import {
     f32,
     field,
     formatHex,
+    GlobalTransform,
     type Plugin,
-    Pose,
     Registry,
     type State,
     type System,
@@ -143,7 +143,7 @@ function typedTextSurface(id: number) {
     const atlasKey = atlasName(id);
     const layout = surfaceLayout({
         textGlyphs: { type: "storage", element: Glyph },
-        transforms: { type: "storage", element: Xform },
+        globalTransforms: { type: "storage", element: Xform },
         textSamp: { type: "sampler" },
         [atlasKey]: { type: "texture-2d" },
     });
@@ -159,7 +159,7 @@ function typedTextSurface(id: number) {
         )((vsIn) => {
             "use gpu";
             const g = Glyph(layout.$.textGlyphs[vsIn.iid]);
-            const x = Xform(layout.$.transforms[g.eid]);
+            const x = Xform(layout.$.globalTransforms[g.eid]);
             const corner = vsIn.localPos.xy;
             const gp = d.vec3f(
                 g.pos.x + corner.x * g.size.x,
@@ -311,7 +311,7 @@ function fold(h: number, x: number): number {
 // glyph buffer still holds the right geometry, so the rebuild + upload are skipped
 function signature(state: State): number {
     let h = 0x811c9dc5 | 0;
-    for (const eid of state.query([Text, Pose])) {
+    for (const eid of state.query([Text, GlobalTransform])) {
         if (!Text.visible.get(eid)) continue;
         h = fold(h, eid);
         h = fold(h, Text.content.get(eid));
@@ -344,7 +344,7 @@ function rebuild(state: State, device: GPUDevice): void {
     while (_text.ranges.length < _text.atlases.length) _text.ranges.push({ start: 0, count: 0 });
     for (let i = 0; i < _text.atlases.length; i++) _text.byFont[i].length = 0;
 
-    for (const eid of state.query([Text, Pose])) {
+    for (const eid of state.query([Text, GlobalTransform])) {
         if (!Text.visible.get(eid)) continue;
         const content = Content.name(Text.content.get(eid));
         if (!content) continue;
@@ -472,7 +472,7 @@ export const TextPlugin: Plugin = {
     dependencies: [RenderPlugin],
     traits: {
         Text: {
-            requires: [Pose],
+            requires: [GlobalTransform],
             defaults: () => ({
                 content: 0,
                 font: 0,

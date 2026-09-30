@@ -1,4 +1,8 @@
-import { beginPoseTick, endPoseTick, presentPose } from "./pose";
+import {
+    beginGlobalTransformTick,
+    endGlobalTransformTick,
+    prepareGlobalTransform,
+} from "./global-transform";
 import type { State } from "./state";
 
 function invalidDelta(): never {
@@ -205,9 +209,9 @@ export class Scheduler {
         while (this._accumulator >= fixedDt && steps < Time.MAX_FIXED_STEPS) {
             this._time.deltaTime = fixedDt;
             this._time.fixedTick++;
-            beginPoseTick(state);
+            beginGlobalTransformTick(state);
             this.runGroup(state, "fixed");
-            endPoseTick(state);
+            endGlobalTransformTick(state);
             this._accumulator -= fixedDt;
             steps++;
         }
@@ -221,7 +225,7 @@ export class Scheduler {
 
         this._time.deltaTime = scaled;
         this.runGroup(state, "simulation");
-        presentPose(state);
+        prepareGlobalTransform(state);
         this.runGroup(state, "draw");
     }
 

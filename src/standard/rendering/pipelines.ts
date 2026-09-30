@@ -137,7 +137,7 @@ export interface CompiledSurface {
     prepass: Map<string, TgpuRenderPipeline<any>>;
     // the point/cascade shadow-atlas pipelines — the former string shadow pipeline's typed twin. `null` for a
     // non-instanced surface (only an instanced surface casts) —
-    // never a silent gap, since a non-instanced typed surface has no per-instance `eids`/`transforms` to
+    // never a silent gap, since a non-instanced typed surface has no per-instance `eids`/`globalTransforms` to
     // re-gather against in the first place.
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
@@ -301,10 +301,10 @@ export function surfacePrimitive(screen?: boolean): GPUPrimitiveState {
     return { topology: "triangle-list", cullMode: screen ? "none" : "back", frontFace: "ccw" };
 }
 
-/** whether a typed surface's own `layout` carries the `eids` + `transforms` instancing convention —
+/** whether a typed surface's own `layout` carries the `eids` + `globalTransforms` instancing convention —
  * mirrors `record()`'s test, run over the typed layout's `entries` instead. */
 function typedInstanced(surface: AnySurface): boolean {
-    return "eids" in surface.layout.entries && "transforms" in surface.layout.entries;
+    return "eids" in surface.layout.entries && "globalTransforms" in surface.layout.entries;
 }
 
 // A zero-custom-varying surface stays entirely TGSL. One fixed function computes the vertex payload;
@@ -332,8 +332,8 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
     const layout = surface.layout;
     const bound = layout.$ as unknown as {
         eids: any[];
-        transforms: any[];
-        transformRows: any[];
+        globalTransforms: any[];
+        globalTransformRows: any[];
         partRowMap: any[];
         partInputs: any[];
     };
@@ -363,7 +363,7 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
                     color = d.vec4f(part.color);
                     material = d.vec4f(part.material);
                 }
-                xform = Xform(bound.transforms[instance.y]);
+                xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -587,8 +587,8 @@ function typedPrepassVs(surface: AnySurface) {
     const layout = surface.layout.depthVariant;
     const bound = layout.$ as unknown as {
         eids: any[];
-        transforms: any[];
-        transformRows: any[];
+        globalTransforms: any[];
+        globalTransformRows: any[];
         partRowMap: any[];
         partInputs: any[];
     };
@@ -622,7 +622,7 @@ function typedPrepassVs(surface: AnySurface) {
                     color = d.vec4f(part.color);
                     material = d.vec4f(part.material);
                 }
-                xform = Xform(bound.transforms[instance.y]);
+                xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -670,8 +670,8 @@ function typedTagVs(surface: AnySurface) {
     const layout = surface.layout.depthVariant;
     const bound = layout.$ as unknown as {
         eids: any[];
-        transforms: any[];
-        transformRows: any[];
+        globalTransforms: any[];
+        globalTransformRows: any[];
         partRowMap: any[];
         partInputs: any[];
     };
@@ -707,7 +707,7 @@ function typedTagVs(surface: AnySurface) {
                     color = d.vec4f(part.color);
                     material = d.vec4f(part.material);
                 }
-                xform = Xform(bound.transforms[instance.y]);
+                xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -1040,7 +1040,7 @@ ${
         color = part.color;
         material = part.material;
     }
-    xform = bound.transforms[instance.y];
+    xform = bound.globalTransforms[instance.y];
     world = vec4f(xformPoint(xform, world.xyz), world.w);
     worldNormal = vec3f(xformNormal(xform, worldNormal));
 `
@@ -1660,7 +1660,7 @@ const typedShadowFs = tgpu
  * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
  * `tileBox` seam-discard bounds from `shadowLayout.$.tileRects` (indexed `slot·6+face` for the point atlas,
  * `slot` alone for the cascade atlas — indexed differently per atlas) scaled by the atlas's pixel size.
- * Only an **instanced** surface reaches here (only `eids`+`transforms` gives a per-instance member to
+ * Only an **instanced** surface reaches here (only `eids`+`globalTransforms` gives a per-instance member to
  * re-gather against) — `compileTypedShadow` gates the call, so this never runs for a non-instanced surface.
  */
 function typedShadowVs(
@@ -1675,8 +1675,8 @@ function typedShadowVs(
     const layout = surface.layout.depthVariant;
     const bound = layout.$ as unknown as {
         eids: any[];
-        transforms: any[];
-        transformRows: any[];
+        globalTransforms: any[];
+        globalTransformRows: any[];
         partRowMap: any[];
         partInputs: any[];
     };
@@ -1709,7 +1709,7 @@ function typedShadowVs(
                 color = d.vec4f(part.color);
                 material = d.vec4f(part.material);
             }
-            const xform = Xform(bound.transforms[instance.y]);
+            const xform = Xform(bound.globalTransforms[instance.y]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
             if (hasVs) {
@@ -1768,8 +1768,8 @@ function typedClipShadowVertex(
     const layout = surface.layout;
     const bound = layout.$ as unknown as {
         eids: any[];
-        transforms: any[];
-        transformRows: any[];
+        globalTransforms: any[];
+        globalTransformRows: any[];
         partRowMap: any[];
         partInputs: any[];
     };
@@ -1800,7 +1800,7 @@ function typedClipShadowVertex(
                 color = d.vec4f(part.color);
                 material = d.vec4f(part.material);
             }
-            const xform = Xform(bound.transforms[instance.y]);
+            const xform = Xform(bound.globalTransforms[instance.y]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
             if (hasVs) {
@@ -1995,7 +1995,7 @@ function varyingShadowVs(
         color = part.color;
         material = part.material;
     }
-    let xform = bound.transforms[instance.y];
+    let xform = bound.globalTransforms[instance.y];
     var world = vec4f(xformPoint(xform, localPos), 1.0);
     var worldNormal = vec3f(xformNormal(xform, localNormal));
 ${

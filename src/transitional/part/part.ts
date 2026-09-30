@@ -17,7 +17,7 @@ import {
     Surfaces,
 } from "../../core/rendering";
 import type { Registry, State, System } from "../../engine";
-import { Compute, field, Pose, transformTable, u32, vec4 } from "../../engine";
+import { Compute, field, GlobalTransform, globalTransformTable, u32, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import {
     CullParams,
@@ -306,34 +306,34 @@ function setBound(
 function cullGroup(state: State): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
     if (!_part.cullParams || !_part.meshBounds) return null;
     const parts = partTable(state);
-    const transforms = transformTable(state);
+    const globalTransforms = globalTransformTable(state);
     const generation = _part.inputGeneration;
     if (
         generation[0] !== parts.generation ||
         generation[1] !== parts.activeGeneration ||
-        generation[2] !== transforms.generation ||
-        generation[3] !== transforms.mapGeneration
+        generation[2] !== globalTransforms.generation ||
+        generation[3] !== globalTransforms.mapGeneration
     ) {
         unbind();
         generation[0] = parts.generation;
         generation[1] = parts.activeGeneration;
-        generation[2] = transforms.generation;
-        generation[3] = transforms.mapGeneration;
+        generation[2] = globalTransforms.generation;
+        generation[3] = globalTransforms.mapGeneration;
     }
     if (_part.cullGroup) return _part.cullGroup;
     const cullVolumes = Compute.buffers.get("cullVolumes");
     const partRows = parts.activeRowsBuffer;
-    const transformRows = transforms.eidToRowBuffer;
-    if (!cullVolumes || !partRows || !transformRows) {
+    const globalTransformRows = globalTransforms.eidToRowBuffer;
+    if (!cullVolumes || !partRows || !globalTransformRows) {
         throw new Error(
-            "[part] dense table inputs missing: cull volumes, Part rows or pose row lookup",
+            "[part] dense table inputs missing: cull volumes, Part rows or GlobalTransform row lookup",
         );
     }
     _part.cullGroup = Compute.root.createBindGroup(cullLayout, {
         partRows,
         parts: parts.buffer,
-        transforms: transforms.buffer,
-        transformRows,
+        globalTransforms: globalTransforms.buffer,
+        globalTransformRows,
         meshBounds: _part.meshBounds,
         cullVolumes,
         params: _part.cullParams,
@@ -521,7 +521,7 @@ export function publishPartDraws(
     const viewStride = pairCount * DRAW_ARG_STRIDE;
     for (const surface of surfaces) {
         const entries = surface.layout.entries;
-        if (!("eids" in entries) || !("transforms" in entries)) continue;
+        if (!("eids" in entries) || !("globalTransforms" in entries)) continue;
         const sid = surfaces.id(surface.name)!;
         for (const m of meshes) {
             const pair = meshes.id(m.name)! * surfaceCount + sid;
@@ -638,7 +638,7 @@ export function warmPart(state: State): void {
 }
 
 export const PartTraits = {
-    requires: [Pose],
+    requires: [GlobalTransform],
     defaults: () => {
         // a missing "default" surface or "cube" mesh is a wiring bug — but only when the registry is
         // populated. With no SearPlugin the surface registry is empty (`Surfaces.size === 0`), so id 0 is

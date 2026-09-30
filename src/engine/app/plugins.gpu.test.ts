@@ -53,13 +53,13 @@ import {
 } from "../../standard/rendering";
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
-import { Character, CharacterPlugin, pose } from "../../transitional/character";
+import { Character, CharacterPlugin, globalTransform } from "../../transitional/character";
 import {
     Body,
+    GlobalTransform,
     hash as hashPhysics,
     Joint,
     PhysicsPlugin,
-    Pose,
     physicsWorld,
     readBody,
     restore as restorePhysics,
@@ -624,8 +624,9 @@ function featurePlugin(subject: Plugin): Plugin {
             Body.mass.set(actor, 0);
             Player.camera.set(actor, camera);
 
-            const transforms = Compute.buffers.get("transforms");
-            if (!transforms) throw new Error("Engine pose did not publish its renderer buffer");
+            const transforms = Compute.buffers.get("global-transform-interpolated");
+            if (!transforms)
+                throw new Error("Engine GlobalTransform did not publish its renderer buffer");
         },
         async warm(state) {
             const resources = state.resource(isolationKey, createIsolationResources);
@@ -840,11 +841,19 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect(readBody(second.state, peerA)).toEqual(siblingBody);
 
             if (uses(subject, CharacterPlugin)) {
-                const firstActorPose = [0, 0, 0] as [number, number, number];
-                const secondActorPose = [0, 0, 0] as [number, number, number];
-                expect(pose(first.state, firstFeatures.actor, firstActorPose)).toBe(true);
-                expect(pose(second.state, secondFeatures.actor, secondActorPose)).toBe(true);
-                expect(firstActorPose[1]).not.toBe(secondActorPose[1]);
+                const firstGlobalTransformPosition = [0, 0, 0] as [number, number, number];
+                const secondGlobalTransformPosition = [0, 0, 0] as [number, number, number];
+                expect(
+                    globalTransform(first.state, firstFeatures.actor, firstGlobalTransformPosition),
+                ).toBe(true);
+                expect(
+                    globalTransform(
+                        second.state,
+                        secondFeatures.actor,
+                        secondGlobalTransformPosition,
+                    ),
+                ).toBe(true);
+                expect(firstGlobalTransformPosition[1]).not.toBe(secondGlobalTransformPosition[1]);
             }
         }
         if (uses(subject, BvhPlugin)) {
@@ -858,8 +867,8 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expectStateViews(second.state, pointComboEids(second.state));
         }
         if (hasPhysics) {
-            expect([...first.state.query([Pose])].length).toBeGreaterThan(0);
-            expect([...second.state.query([Pose])].length).toBeGreaterThan(0);
+            expect([...first.state.query([GlobalTransform])].length).toBeGreaterThan(0);
+            expect([...second.state.query([GlobalTransform])].length).toBeGreaterThan(0);
         }
         for (const [plugin, key] of [
             [SpritePlugin, "spriteData"],

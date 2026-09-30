@@ -33,7 +33,7 @@ export type MeshBinding =
  * a buffer set share a bind group in sear.
  *
  * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
- * frustum cull transforms per instance. {@link mesh} derives it from the staged
+ * frustum cull GlobalTransforms per instance. {@link mesh} derives it from the staged
  * vertices; procedural producers may supply their own or omit it (a culler then
  * treats the mesh as always-visible)
  *

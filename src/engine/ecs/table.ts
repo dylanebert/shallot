@@ -53,6 +53,10 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _typed!: TgpuBuffer<d.AnyWgslData>;
     private _disposed = false;
     private _lastUploadPath: TableUploadPath = "none";
+    private _lastUploadOffset = 0;
+    private _lastUploadSourceOffset = 0;
+    private _lastUploadSize = 0;
+    private _boundFieldsPrepared = false;
     private _consumers: Consumer[] = [];
 
     private _eidToRow = new Uint32Array(0);
@@ -475,22 +479,71 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return () => removeConsumer(this._activeConsumers, consumer);
     }
 
-    /** Upload once at the engine's draw-group upload point. */
-    upload(): void {
+    /** Gather changed component records without choosing their upload target. @internal */
+    prepareUpload(): void {
         if (this._disposed) return;
-        this._lastMapUploadBytes = 0;
         this.fillBoundFields();
+        this._boundFieldsPrepared = true;
+    }
+
+    /** Pending contiguous component upload range. @internal */
+    get pendingUploadSize(): number {
+        return this._dirtyLast < this._dirtyFirst
+            ? 0
+            : (this._dirtyLast - this._dirtyFirst + 1) * this.rowBytes;
+    }
+
+    /** Byte range written by the last upload, for recording a staged copy. @internal */
+    get lastUploadOffset(): number {
+        return this._lastUploadOffset;
+    }
+    get lastUploadSourceOffset(): number {
+        return this._lastUploadSourceOffset;
+    }
+    get lastUploadSize(): number {
+        return this._lastUploadSize;
+    }
+
+    /** Gather marked records and upload their range; an engine producer may stage it for the frame. */
+    upload(destination: GPUBuffer = this._buffer, packedRange = false): void {
+        if (this._disposed) return;
+        this._lastUploadOffset = 0;
+        this._lastUploadSourceOffset = 0;
+        this._lastUploadSize = 0;
+        this._lastMapUploadBytes = 0;
+        if (this._boundFieldsPrepared) this._boundFieldsPrepared = false;
+        else this.fillBoundFields();
         if (this._dirtyLast < this._dirtyFirst) {
             this._lastUploadPath = "none";
         } else {
             if (!this._bytes) throw new Error(`GpuTable "${this.name}" is GPU-only`);
-            this._state.gpu.device.queue.writeBuffer(
-                this._buffer,
-                this._dirtyFirst * this.rowBytes,
-                this._bytes.buffer,
-                this._dirtyFirst * this.rowBytes,
-                (this._dirtyLast - this._dirtyFirst + 1) * this.rowBytes,
-            );
+            this._lastUploadOffset = this._dirtyFirst * this.rowBytes;
+            this._lastUploadSourceOffset = this._lastUploadOffset;
+            this._lastUploadSize = (this._dirtyLast - this._dirtyFirst + 1) * this.rowBytes;
+            if (packedRange) {
+                this._state.gpu.device.queue.writeBuffer(
+                    destination,
+                    0,
+                    this._bytes.buffer,
+                    this._lastUploadSourceOffset,
+                    this._lastUploadSize,
+                );
+            } else if (destination === this._buffer) {
+                this._state.uploadGpuTable(
+                    destination,
+                    this._lastUploadOffset,
+                    this._bytes.buffer,
+                    this._lastUploadSize,
+                );
+            } else {
+                this._state.gpu.device.queue.writeBuffer(
+                    destination,
+                    this._lastUploadOffset,
+                    this._bytes.buffer,
+                    this._lastUploadSourceOffset,
+                    this._lastUploadSize,
+                );
+            }
             this._lastUploadPath = "writeBuffer";
             this._dirtyFirst = Number.POSITIVE_INFINITY;
             this._dirtyLast = -1;
@@ -620,14 +673,15 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
         this._state.own(buffer);
-        if (previous) {
-            const encoder = this._state.gpu.device.createCommandEncoder({
-                label: `table-${this.name}-grow-map`,
-            });
-            encoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
-            this._state.gpu.device.queue.submit([encoder.finish()]);
-            previous.destroy();
-        }
+        if (previous) this._state.retireGpuBuffer(previous);
+        // Metadata has a complete CPU source; copying the old GPU range would overwrite new marks.
+        this._state.gpu.device.queue.writeBuffer(
+            buffer,
+            0,
+            this._eidToRow.buffer,
+            0,
+            this._mapHighWater * 4,
+        );
         this._mapBuffer = buffer;
         this._mapTyped = this._state.gpu.root
             .createBuffer(d.arrayOf(d.u32, Math.max(1, this._mapCapacity)), buffer)
@@ -670,10 +724,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         });
         this._state.own(buffer);
         if (previous) {
-            const encoder = device.createCommandEncoder({ label: `table-${this.name}-grow` });
-            encoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
-            device.queue.submit([encoder.finish()]);
-            previous.destroy();
+            this._state.growGpuBuffer(previous, buffer);
         }
         this._buffer = buffer;
         this._typed = this._state.gpu.root
@@ -709,14 +760,15 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
         this._state.own(buffer);
-        if (previous) {
-            const encoder = device.createCommandEncoder({
-                label: `table-${this.name}-grow-active`,
-            });
-            encoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
-            device.queue.submit([encoder.finish()]);
-            previous.destroy();
-        }
+        if (previous) this._state.retireGpuBuffer(previous);
+        if (this._activeCount)
+            this._state.gpu.device.queue.writeBuffer(
+                buffer,
+                0,
+                this._activeRows.buffer,
+                0,
+                this._activeCount * 8,
+            );
         this._activeBuffer = buffer;
         this._activeCapacity = capacity;
         this._activeTyped = this._state.gpu.root

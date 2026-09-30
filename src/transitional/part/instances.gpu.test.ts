@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(1000);
 
-import { build, Transform, transformTable } from "../../engine";
+import { build, globalTransformTable, Transform } from "../../engine";
 import { Part, partTable } from "./part";
 import "../../standard";
 
@@ -45,7 +45,7 @@ test("Part compaction carries independent dense Transform and Part slots with ea
         // Different membership order forces unrelated row slots.
         state.add(b, Part);
         state.add(a, Part);
-        const transforms = transformTable(state);
+        const transforms = globalTransformTable(state);
         const parts = partTable(state);
         expect(transforms.rowIndex(b)).not.toBe(parts.rowIndex(b));
         device.pushErrorScope("validation");

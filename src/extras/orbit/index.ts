@@ -4,9 +4,9 @@ import {
     entity,
     f32,
     field,
+    GlobalTransform,
     not,
     type Plugin,
-    Pose,
     type State,
     type System,
     Transform,
@@ -360,9 +360,9 @@ const OrbitSystem: System = {
 
                 Transform.pos.set(
                     eid,
-                    Pose.pos.x.get(eid) + wx,
-                    Pose.pos.y.get(eid) + wy,
-                    Pose.pos.z.get(eid) + wz,
+                    GlobalTransform.pos.x.get(eid) + wx,
+                    GlobalTransform.pos.y.get(eid) + wy,
+                    GlobalTransform.pos.z.get(eid) + wz,
                     0,
                 );
 
@@ -380,18 +380,19 @@ const OrbitSystem: System = {
                     let entityTargetY = 0;
                     let entityTargetZ = 0;
                     const targetEid = Orbit.target.get(eid);
-                    if (targetEid > 0 && state.has(targetEid, Pose)) {
-                        entityTargetX = Pose.pos.x.get(targetEid);
-                        entityTargetY = Pose.pos.y.get(targetEid);
-                        entityTargetZ = Pose.pos.z.get(targetEid);
+                    if (targetEid > 0 && state.has(targetEid, GlobalTransform)) {
+                        entityTargetX = GlobalTransform.pos.x.get(targetEid);
+                        entityTargetY = GlobalTransform.pos.y.get(targetEid);
+                        entityTargetZ = GlobalTransform.pos.z.get(targetEid);
                     }
                     panX =
-                        Pose.pos.x.get(eid) -
+                        GlobalTransform.pos.x.get(eid) -
                         distS * Math.cos(pitchS) * Math.sin(yawS) -
                         entityTargetX;
-                    panY = Pose.pos.y.get(eid) - distS * Math.sin(pitchS) - entityTargetY;
+                    panY =
+                        GlobalTransform.pos.y.get(eid) - distS * Math.sin(pitchS) - entityTargetY;
                     panZ =
-                        Pose.pos.z.get(eid) -
+                        GlobalTransform.pos.z.get(eid) -
                         distS * Math.cos(pitchS) * Math.cos(yawS) -
                         entityTargetZ;
                 }
@@ -400,10 +401,10 @@ const OrbitSystem: System = {
                 let targetY = panY;
                 let targetZ = panZ;
                 const targetEid = Orbit.target.get(eid);
-                if (targetEid > 0 && state.has(targetEid, Pose)) {
-                    targetX += Pose.pos.x.get(targetEid);
-                    targetY += Pose.pos.y.get(targetEid);
-                    targetZ += Pose.pos.z.get(targetEid);
+                if (targetEid > 0 && state.has(targetEid, GlobalTransform)) {
+                    targetX += GlobalTransform.pos.x.get(targetEid);
+                    targetY += GlobalTransform.pos.y.get(targetEid);
+                    targetZ += GlobalTransform.pos.z.get(targetEid);
                 }
 
                 const camX = targetX + distS * Math.cos(pitchS) * Math.sin(yawS);

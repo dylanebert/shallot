@@ -1,7 +1,7 @@
 // The typed sprite surface: six per-bucket registrations — (screen | y | world) billboard × (clip |
 // alpha) blend — sharing one `surfaceLayout`. Sprite adopts the
-// `eids`+`transforms` instancing convention (its own layout declares both), so `VsIn.eid`/`VsIn.xform`
-// replace the hand-rolled `transforms[spriteData[iid].eid]` lookup and the engine's instanced
+// `eids`+`globalTransforms` instancing convention (its own layout declares both), so `VsIn.eid`/`VsIn.xform`
+// replace the hand-rolled `globalTransforms[spriteData[iid].eid]` lookup and the engine's instanced
 // `tag = eid` default applies for free — the authored tag line is no longer needed.
 // `spriteData` is itself eid-indexed (packed at `eid * SPRITE_FLOATS`, see pack.ts), not slot-indexed:
 // the point/cascade shadow atlas re-gathers casters mesh-major across combos and preserves only
@@ -45,7 +45,7 @@ export const SpriteData = d
 const layout = surfaceLayout({
     spriteData: { type: "storage", element: SpriteData },
     eids: { type: "storage", element: d.vec4u },
-    transforms: { type: "storage", element: Xform },
+    globalTransforms: { type: "storage", element: Xform },
     spriteAtlas: { type: "texture-2d-array" },
     spriteSamp: { type: "sampler" },
 });

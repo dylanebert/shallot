@@ -2,7 +2,7 @@
 // anchor, tint, billboard mode) draws textured unit quads instanced from one shared buffer, one
 // indirect draw per (billboard, blend) variant. Images register into one `texture_2d_array` (the
 // glTF binding model — per-instance layer index, one bind group, one draw), so adding an icon never
-// adds a draw. Sprite rides the `eids`+`transforms` instancing convention: a slot-major eids buffer
+// adds a draw. Sprite rides the `eids`+`globalTransforms` instancing convention: a slot-major eids buffer
 // (packSprites' bucket-contiguous ranges) publishes each slot's owning entity, and the engine
 // resolves the per-instance transform from the global entity-transform firehose — so moving a
 // sprite flows through the Transform slab and triggers no rebuild, only the buffer rebuilds when a
@@ -27,12 +27,12 @@ import {
 import {
     Compute,
     formatHex,
+    GlobalTransform,
+    globalTransformTable,
     type Plugin,
-    Pose,
     Registry,
     type State,
     type System,
-    transformTable,
 } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { PrepassSystem } from "../../standard/rendering";
@@ -166,10 +166,10 @@ function rebuild(state: State, device: GPUDevice): void {
     if (_sprite.instances.length < eids.length * 4)
         _sprite.instances = new Uint32Array(eids.length * 4);
     const instances = _sprite.instances;
-    const transforms = transformTable(state);
+    const globalTransforms = globalTransformTable(state);
     for (let i = 0; i < count; i++) {
         const eid = eids[i];
-        const row = transforms.rowIndex(eid);
+        const row = globalTransforms.rowIndex(eid);
         if (row < 0) throw new Error(`Sprite ${eid} has no Transform row`);
         instances[i * 4] = eid;
         instances[i * 4 + 1] = row;
@@ -230,7 +230,7 @@ export const SpritePlugin: Plugin = {
     dependencies: [RenderPlugin],
     traits: {
         Sprite: {
-            requires: [Pose],
+            requires: [GlobalTransform],
             defaults: () => ({
                 image: 0,
                 size: [1, 1],

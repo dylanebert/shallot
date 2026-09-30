@@ -53,7 +53,7 @@ export const maskLayoutPlain = tgpu.bindGroupLayout({
     view: { uniform: View, visibility: ["vertex"] },
     position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
     indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
-    transforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
+    globalTransforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
     maskEids: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
     maskAttrs: { storage: d.arrayOf(d.vec4f), access: "readonly", visibility: ["fragment"] },
     meshQuant: { storage: d.arrayOf(MeshQuant), access: "readonly", visibility: ["vertex"] },
@@ -68,7 +68,7 @@ export const maskLayoutOcclude = tgpu.bindGroupLayout({
     view: { uniform: View, visibility: ["vertex"] },
     position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
     indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
-    transforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
+    globalTransforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
     maskEids: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
     maskAttrs: { storage: d.arrayOf(d.vec4f), access: "readonly", visibility: ["fragment"] },
     meshQuant: { storage: d.arrayOf(MeshQuant), access: "readonly", visibility: ["vertex"] },
@@ -94,7 +94,7 @@ export function maskVertex(layout: MaskLayout) {
             // passing them by value into decodePos / xformPoint
             const quant = MeshQuant(layout.$.meshQuant[meshIdOf(raw.y)]);
             const p = decodePos(raw.x, raw.y, quant);
-            const x = Xform(layout.$.transforms[layout.$.maskEids[input.iid]]);
+            const x = Xform(layout.$.globalTransforms[layout.$.maskEids[input.iid]]);
             const world = d.vec4f(xformPoint(x, p), 1);
             return { pos: std.mul(layout.$.view.viewProj, world), iid: input.iid };
         })

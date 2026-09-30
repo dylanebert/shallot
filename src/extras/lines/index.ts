@@ -18,7 +18,15 @@ import {
     registerSurface,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, composeTransform, f32, field, formatHex, Pose, vec4 } from "../../engine";
+import {
+    Compute,
+    composeTransform,
+    f32,
+    field,
+    formatHex,
+    GlobalTransform,
+    vec4,
+} from "../../engine";
 import { packColor } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
 import {
@@ -91,7 +99,7 @@ const _m = new Float32Array(16);
 // adds fletched heads at the endpoints. Appended on top of this frame's immediate segments. Small counts
 // (scene annotations) — the immediate API is the scale path
 function expandRetained(state: State): void {
-    for (const eid of state.query([Line, Pose])) {
+    for (const eid of state.query([Line, GlobalTransform])) {
         if (!Line.visible.get(eid)) continue;
         composeTransform(eid, _m);
         const ox = Line.offset.x.get(eid);
@@ -149,7 +157,7 @@ export const LinesPlugin: Plugin = {
     dependencies: [RenderPlugin],
     traits: {
         Line: {
-            requires: [Pose],
+            requires: [GlobalTransform],
             defaults: () => ({
                 offset: [1, 0, 0, 0],
                 thickness: 2,
