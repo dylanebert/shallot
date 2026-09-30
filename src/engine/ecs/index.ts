@@ -16,7 +16,6 @@ export {
     i32,
     idOf,
     lanes,
-    refs,
     sameComponentSchema,
     sameTypeLayout,
     srgb8x4,
@@ -35,7 +34,6 @@ export {
     registerGlobalTransform,
     Transform,
 } from "./global-transform";
-export { Identity } from "./identity";
 export { and, not, or } from "./query";
 export {
     camel,

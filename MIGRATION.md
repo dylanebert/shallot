@@ -231,6 +231,8 @@ There is no animation plugin in this release line. Implement animation in app co
 
 The `.scene` format, `parseScene`, `loadScene`, `serializeScene`, `stringifyScene` and `normalizeAttribute` are removed with no replacement. Remove the app's and manifest's `scene` option. A game saves the component values it needs from `snapshot(world)` and restores them itself.
 
+`Identity`, `world.identity`, `refs()` and the `derived` component trait are removed. Keep the eids returned by `world.create()` instead of naming entities. The `entity` field type still stores a plain eid; save and restore references yourself. `GlobalTransform` remains engine-managed through its providers without the trait.
+
 Author worlds in code:
 
 ```ts

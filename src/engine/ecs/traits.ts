@@ -18,13 +18,6 @@ export interface Traits {
      * reflection, not enforced at `world.add` */
     singleton?: boolean;
     /**
-     * runtime-derived decoration — a system owns its membership and values (for example
-     * `GlobalTransform`). Registration still allocates its columns. Runtime code manages its
-     * membership and values;
-     * `GlobalTransform` membership is managed by the engine's provider lifecycle
-     */
-    derived?: boolean;
-    /**
      * components that cannot coexist on the same entity. Symmetric — declaring
      * `A.excludes = [B]` is equivalent to declaring `B.excludes = [A]`; both
      * directions are enforced at `world.add` and during scene validation

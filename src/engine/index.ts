@@ -30,7 +30,6 @@ export {
     GpuTable,
     globalTransformTable,
     globalTransformTraits,
-    Identity,
     i32,
     not,
     or,

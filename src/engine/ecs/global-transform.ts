@@ -19,7 +19,6 @@ export const GlobalTransform = {
     linearVelocity: vec4,
 };
 export const globalTransformTraits = {
-    derived: true,
     defaults: () => ({
         translation: [0, 0, 0, 0],
         rotation: [0, 0, 0, 1],

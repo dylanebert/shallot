@@ -20,7 +20,6 @@ import {
     prepareGlobalTransformFrame,
     retainsGlobalTransform,
 } from "./global-transform";
-import { Identity } from "./identity";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
 import { type ComponentStorage, sameSchema, WorldField } from "./storage";
@@ -83,7 +82,6 @@ export class World {
     private _pixelRatio: number | "auto";
     private _fieldUploadSeen = false;
     private _changesClearedAtUpload = false;
-    private _identity = new Identity();
     private _disposals: (() => void)[] = [];
     private _controller: AbortController | undefined;
     private _disposed = false;
@@ -436,7 +434,6 @@ export class World {
             for (const field of entry.fields.values()) field.clear(eid);
         }
         this._entities.remove(eid);
-        this._identity.forget(eid);
     }
 
     /** true if entity ID is alive */
@@ -461,13 +458,6 @@ export class World {
      */
     generation(eid: number): number {
         return this._entities.stamp(eid);
-    }
-
-    /**
-     * named entity identity and authored membership. See {@link Identity}
-     */
-    get identity(): Identity {
-        return this._identity;
     }
 
     /**

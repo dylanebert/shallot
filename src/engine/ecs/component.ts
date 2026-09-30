@@ -102,8 +102,7 @@ export const u32: FieldType<Uint32Array> & { readonly lanes: 1 } = {
 };
 
 /**
- * a u32 that holds an entity id (`Joint.a`, `Spring.b`). Storage is identical to {@link u32};
- * {@link refs} enumerates fields with this descriptor.
+ * a u32 that holds an entity id (`Joint.a`, `Spring.b`). Storage is identical to {@link u32}.
  */
 export const entity: FieldType<Uint32Array> & { readonly lanes: 1 } = {
     ctor: Uint32Array,
@@ -377,18 +376,6 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
         }
     }
     return true;
-}
-
-/**
- * the fields holding an entity ref: those declared with the bare `entity` type.
- * A sibling of {@link fields}.
- */
-export function refs(component: Component): string[] {
-    const out: string[] = [];
-    for (const name of Object.keys(component)) {
-        if (component[name] === entity) out.push(name);
-    }
-    return out;
 }
 
 // Stable component identity. A component's id is interned by name at
