@@ -1,16 +1,15 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { PointLight, RenderPlugin } from "../../core/rendering";
-import { Transform } from "../index";
-import { probeBuffer } from "../runtime";
-import { createApp } from "./index";
+import { Transform } from "../../engine";
+import { probeBuffer } from "../../engine/runtime";
+import { PointLight, RenderPlugin } from "./index";
 
-setDefaultTimeout(CEILING.node);
-const peerModule = "bun-webgpu";
-await (await import(peerModule)).setupGlobals();
+setDefaultTimeout(CEILING.gpu);
+const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [RenderPlugin] }]);
 
 test("render light inputs upload as active dense table rows", async () => {
-    const app = await createApp({ defaults: false, plugins: [RenderPlugin] });
+    const app = subjects()[0];
     try {
         const { world } = app;
         const eid = world.create();

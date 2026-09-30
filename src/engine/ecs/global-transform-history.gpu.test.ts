@@ -3,7 +3,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, PointLight, RenderPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
 import {
-    createApp,
+    type createApp,
     GlobalTransform,
     globalTransformTable,
     probeBuffer,
@@ -12,7 +12,7 @@ import {
     type World,
 } from "../index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(CEILING.gpu);
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {
         ResizeObserver: class {
@@ -22,8 +22,11 @@ if (typeof ResizeObserver === "undefined") {
         },
     });
 }
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { gpuApps } from "../../../scripts/gpu.fixture";
+
+const configs: Parameters<typeof createApp>[0][] = [];
+const subjects = gpuApps(import.meta.path, configs);
 function attachTestCamera(world: World): void {
     let context: CanvasContext;
     const canvas = {
@@ -60,9 +63,9 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     });
 }
 
-test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws advance only interpolation", async () => {
+{
     let eid = -1;
-    const app = await createApp({
+    configs.push({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -87,47 +90,53 @@ test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws ad
             world.add(eid, Transform);
         },
     });
-    const world = app.world;
-    attachTestCamera(world);
-    const table = globalTransformTable(world);
-    const row = table.rowIndex(eid);
-    try {
-        world.step(0);
-        world.gpu.device.pushErrorScope("validation");
-        world.step(Time.FIXED_DT * 2.5);
-        let words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
-        );
-        expect(words[row * 12]).toBeCloseTo(15, 5);
-        expect(words[row * 12 + 8]).toBeCloseTo(16, 5);
-        expect(words[row * 12 + 7]).toBeCloseTo(1, 5);
-        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(20, 7);
-        expect(world.storage(GlobalTransform).scale.x.get(eid)).toBeCloseTo(21, 7);
-        world.step(Time.FIXED_DT * 0.25);
-        expect(world.time.fixedSteps).toBe(0);
-        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(20, 7);
-        words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
-        );
-        expect(words[row * 12]).toBeCloseTo(17.5, 5);
-        expect(words[row * 12 + 8]).toBeCloseTo(18.5, 5);
-        world.step(Time.FIXED_DT * 0.5);
-        expect(world.time.fixedSteps).toBe(1);
-        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(30, 7);
-        words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
-        );
-        expect(words[row * 12]).toBeCloseTo(22.5, 5);
-        expect(() => world.globalTransformRuntime!.previous!.bytes).toThrow("GPU-only");
-        expect(await bounded(world.gpu.device.popErrorScope())).toBeNull();
-    } finally {
-        app.dispose();
-    }
-});
+    test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws advance only interpolation", async () => {
+        const app = subjects()[0];
+        const world = app.world;
+        attachTestCamera(world);
+        const table = globalTransformTable(world);
+        const row = table.rowIndex(eid);
+        try {
+            world.step(0);
+            world.gpu.device.pushErrorScope("validation");
+            world.step(Time.FIXED_DT * 2.5);
+            let words = new Float32Array(
+                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
+                    .bytes,
+            );
+            expect(words[row * 12]).toBeCloseTo(15, 5);
+            expect(words[row * 12 + 8]).toBeCloseTo(16, 5);
+            expect(words[row * 12 + 7]).toBeCloseTo(1, 5);
+            expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(20, 7);
+            expect(world.storage(GlobalTransform).scale.x.get(eid)).toBeCloseTo(21, 7);
+            world.step(Time.FIXED_DT * 0.25);
+            expect(world.time.fixedSteps).toBe(0);
+            expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(20, 7);
+            words = new Float32Array(
+                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
+                    .bytes,
+            );
+            expect(words[row * 12]).toBeCloseTo(17.5, 5);
+            expect(words[row * 12 + 8]).toBeCloseTo(18.5, 5);
+            world.step(Time.FIXED_DT * 0.5);
+            expect(world.time.fixedSteps).toBe(1);
+            expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(30, 7);
+            words = new Float32Array(
+                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
+                    .bytes,
+            );
+            expect(words[row * 12]).toBeCloseTo(22.5, 5);
+            expect(() => world.globalTransformRuntime!.previous!.bytes).toThrow("GPU-only");
+            expect(await bounded(world.gpu.device.popErrorScope())).toBeNull();
+        } finally {
+            app.dispose();
+        }
+    });
+}
 
-test("a producer spawned during catch-up keeps motion after its spawn tick", async () => {
+{
     let eid = -1;
-    const app = await createApp({
+    configs.push({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -150,26 +159,30 @@ test("a producer spawned during catch-up keeps motion after its spawn tick", asy
             },
         ],
     });
-    try {
-        const { world } = app;
-        attachTestCamera(world);
-        const table = globalTransformTable(world);
-        world.step(Time.FIXED_DT * 2.5);
-        expect(world.time.fixedTick).toBe(2);
-        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
-        const words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
-        );
-        expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(15, 5);
-    } finally {
-        app.dispose();
-    }
-});
+    test("a producer spawned during catch-up keeps motion after its spawn tick", async () => {
+        const app = subjects()[1];
+        try {
+            const { world } = app;
+            attachTestCamera(world);
+            const table = globalTransformTable(world);
+            world.step(Time.FIXED_DT * 2.5);
+            expect(world.time.fixedTick).toBe(2);
+            expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+            expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
+            const words = new Float32Array(
+                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
+                    .bytes,
+            );
+            expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(15, 5);
+        } finally {
+            app.dispose();
+        }
+    });
+}
 
-test("a teleport on the first catch-up tick keeps later tick motion", async () => {
+{
     let eid = -1;
-    const app = await createApp({
+    configs.push({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -198,26 +211,30 @@ test("a teleport on the first catch-up tick keeps later tick motion", async () =
             world.storage(Transform).translation.x.set(eid, 0);
         },
     });
-    try {
-        const { world } = app;
-        attachTestCamera(world);
-        const table = globalTransformTable(world);
-        world.step(Time.FIXED_DT * 2.5);
-        expect(world.time.fixedTick).toBe(2);
-        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(110);
-        const words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
-        );
-        expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(105, 5);
-    } finally {
-        app.dispose();
-    }
-});
+    test("a teleport on the first catch-up tick keeps later tick motion", async () => {
+        const app = subjects()[2];
+        try {
+            const { world } = app;
+            attachTestCamera(world);
+            const table = globalTransformTable(world);
+            world.step(Time.FIXED_DT * 2.5);
+            expect(world.time.fixedTick).toBe(2);
+            expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+            expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(110);
+            const words = new Float32Array(
+                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
+                    .bytes,
+            );
+            expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(105, 5);
+        } finally {
+            app.dispose();
+        }
+    });
+}
 
-test("a renderer interpolates GlobalTransform when the scene has no lights", async () => {
+{
     let eid = -1;
-    const app = await createApp({
+    configs.push({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -241,20 +258,24 @@ test("a renderer interpolates GlobalTransform when the scene has no lights", asy
             world.add(eid, Transform);
         },
     });
-    try {
-        const { world } = app;
-        attachTestCamera(world);
-        expect([...world.query([PointLight])]).toHaveLength(0);
-        const table = globalTransformTable(world);
-        world.step(Time.FIXED_DT);
-        world.step(Time.FIXED_DT * 1.5);
-        const row = table.rowIndex(eid);
-        expect(row).toBeGreaterThanOrEqual(0);
-        const words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
-        );
-        expect(words[row * 12]).toBeCloseTo(6, 5);
-    } finally {
-        app.dispose();
-    }
-});
+    test("a renderer interpolates GlobalTransform when the scene has no lights", async () => {
+        const app = subjects()[3];
+        try {
+            const { world } = app;
+            attachTestCamera(world);
+            expect([...world.query([PointLight])]).toHaveLength(0);
+            const table = globalTransformTable(world);
+            world.step(Time.FIXED_DT);
+            world.step(Time.FIXED_DT * 1.5);
+            const row = table.rowIndex(eid);
+            expect(row).toBeGreaterThanOrEqual(0);
+            const words = new Float32Array(
+                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
+                    .bytes,
+            );
+            expect(words[row * 12]).toBeCloseTo(6, 5);
+        } finally {
+            app.dispose();
+        }
+    });
+}

@@ -2,9 +2,9 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
-import { createApp, Time, Transform, type World } from "../index";
+import { Time, Transform, type World } from "../index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(CEILING.gpu);
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {
         ResizeObserver: class {
@@ -14,8 +14,13 @@ if (typeof ResizeObserver === "undefined") {
         },
     });
 }
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { gpuApps } from "../../../scripts/gpu.fixture";
+
+const subjects = gpuApps(import.meta.path, [
+    { defaults: false, plugins: [] },
+    { defaults: false, plugins: [RenderPlugin] },
+]);
 
 function attachTestCamera(world: World): void {
     let context: CanvasContext;
@@ -40,10 +45,7 @@ for (const renderer of [false, true]) {
             ? "GlobalTransform history and interpolation share the frame submission across catch-up ticks"
             : "a world with no interpolated GlobalTransform reader runs no GlobalTransform GPU work",
         async () => {
-            const app = await createApp({
-                defaults: false,
-                plugins: renderer ? [RenderPlugin] : [],
-            });
+            const app = subjects()[renderer ? 1 : 0];
             const world = app.world;
             const eid = world.create();
             world.add(eid, Transform);
@@ -66,6 +68,7 @@ for (const renderer of [false, true]) {
                 submissions = 0,
                 globalTransformWrites = 0,
                 copies = 0;
+            // Only this world steps while the shared-device counters are installed.
             Object.defineProperty(device, "createCommandEncoder", {
                 configurable: true,
                 value: (...args: Parameters<GPUDevice["createCommandEncoder"]>) => {
