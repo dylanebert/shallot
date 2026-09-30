@@ -76,7 +76,6 @@ export interface GlobalTransformRuntime {
     group?: GPUBindGroup;
     generation: number;
     params?: GPUBuffer;
-    words: Float32Array;
     placement: ComponentStorage<typeof Transform>;
     global: ComponentStorage<typeof GlobalTransform>;
     producers: Map<number, Set<number>>;
@@ -84,6 +83,7 @@ export interface GlobalTransformRuntime {
     discontinuities: Uint32Array;
     discontinuityPhases: Uint8Array;
     discontinuityCount: number;
+    historyNeedsPromotion: boolean;
 }
 
 /** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
@@ -108,7 +108,6 @@ export function initializeGlobalTransform(state: State): void {
         ranges: new Uint32Array(12),
         group: undefined,
         generation: -1,
-        words: new Float32Array(4),
         placement: state.of(Transform),
         global: state.of(GlobalTransform),
         producers: new Map(),
@@ -116,6 +115,7 @@ export function initializeGlobalTransform(state: State): void {
         discontinuities: new Uint32Array(1),
         discontinuityPhases: new Uint8Array(1),
         discontinuityCount: 0,
+        historyNeedsPromotion: false,
     };
     state.globalTransformRuntime = runtime;
     state.observeMembership(GlobalTransform, (eid, present) => {
@@ -148,9 +148,12 @@ export function globalTransformTable(state: State): GpuTable<typeof Xform> {
             state.gpu.buffers.set("globalTransformRows", buffer);
             state.gpu.typed.set("globalTransformRows", render.eidToRowTyped!);
         });
-        const params = state.gpu.root.createBuffer(d.vec4f).$usage("uniform");
-        runtime.params = state.gpu.root.unwrap(params);
-        state.own(runtime.params!);
+        if (!runtime.params) {
+            const params = state.gpu.root.createBuffer(d.vec4f).$usage("uniform");
+            const buffer = state.gpu.root.unwrap(params);
+            runtime.params = buffer;
+            state.own(buffer);
+        }
         runtime.pipeline = state.gpu.root.unwrap(
             state.gpu.root.createComputePipeline({ compute: kernel }),
         );
@@ -314,7 +317,7 @@ function copyPhase(state: State, encoder: GPUCommandEncoder, phase: number): voi
             `GlobalTransform history phase ${phase} has ${size} bytes but no staging buffer`,
         );
     }
-    if (size)
+    if (size) {
         encoder.copyBufferToBuffer(
             runtime.stages[phase]!,
             0,
@@ -322,6 +325,8 @@ function copyPhase(state: State, encoder: GPUCommandEncoder, phase: number): voi
             offset,
             size,
         );
+        runtime.historyNeedsPromotion = true;
+    }
     for (let i = 0; i < runtime.discontinuityCount; i++) {
         if (runtime.discontinuityPhases[i] !== phase) continue;
         const row = runtime.current!.rowIndex(runtime.discontinuities[i]);
@@ -341,13 +346,16 @@ export function prepareGlobalTransformFrame(state: State, encoder: GPUCommandEnc
     if (!runtime?.enabled) return;
     copyPhase(state, encoder, 0);
     for (let tick = 1; tick <= runtime.tickCount; tick++) {
-        encoder.copyBufferToBuffer(
-            runtime.current!.buffer,
-            0,
-            runtime.previous!.buffer,
-            0,
-            runtime.current!.buffer.size,
-        );
+        if (runtime.historyNeedsPromotion) {
+            encoder.copyBufferToBuffer(
+                runtime.current!.buffer,
+                0,
+                runtime.previous!.buffer,
+                0,
+                runtime.current!.buffer.size,
+            );
+            runtime.historyNeedsPromotion = false;
+        }
         copyPhase(state, encoder, tick);
     }
     if (runtime.tickCount) copyPhase(state, encoder, runtime.tickCount + 1);
@@ -367,7 +375,10 @@ export function prepareGlobalTransformFrame(state: State, encoder: GPUCommandEnc
     runtime.freshCount = 0;
     runtime.discontinuityCount = 0;
     runtime.ranges.fill(0);
-    if (!runtime.current!.count) return;
+    if (!runtime.current!.count) {
+        runtime.historyNeedsPromotion = false;
+        return;
+    }
     const generation =
         runtime.current!.generation +
         runtime.previous!.generation +
@@ -386,9 +397,6 @@ export function prepareGlobalTransformFrame(state: State, encoder: GPUCommandEnc
         });
         runtime.generation = generation;
     }
-    runtime.words[0] = state.time.fixedAlpha;
-    runtime.words[1] = runtime.current!.count;
-    state.gpu.device.queue.writeBuffer(runtime.params!, 0, runtime.words);
 }
 
 /** Compose fixed-tick GlobalTransform for CPU camera and query readers. */

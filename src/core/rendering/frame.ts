@@ -11,19 +11,20 @@ import { chunk, spliceNs } from "../../engine/utils";
  * singleton already owns that identifier ({@link Frame} below) — the `LightingGpu` precedent. */
 export const FrameGpu = d
     .struct({
+        globalTransformParams: d.vec4f,
         time: d.f32,
         dt: d.f32,
         frame: d.u32,
     })
     .$name("Frame");
 
-/** the Frame UBO's byte size: the schema's natural size (12 — three 4-byte scalars) rounded up to 16, the
- * alignment WGSL requires for any struct type bound in the uniform address space (`RequiredAlignOf` =
- * `max(AlignOf(S), 16)` — `d.sizeOf` alone under-reports it, since that rule is address-space-specific,
- * not a property of the struct itself). `View`/`Step`/`Lighting` all happen to land on a 16-byte multiple
- * already (their largest members force it); Frame is the first schema this port has hit that doesn't. */
+/** the Frame UBO's byte size: its 28-byte schema rounded up to 32, the alignment WGSL requires for any
+ * struct type bound in the uniform address space (`RequiredAlignOf` = `max(AlignOf(S), 16)`). The first
+ * vec4 holds GlobalTransform interpolation parameters; `d.sizeOf` excludes only the final 4-byte pad. */
 export const FRAME_UNIFORM_SIZE = Math.ceil(d.sizeOf(FrameGpu) / 16) * 16;
 
+const GLOBAL_TRANSFORM_PARAMS_F32 =
+    d.memoryLayoutOf(FrameGpu, (s) => s.globalTransformParams).offset / 4;
 const TIME_F32 = d.memoryLayoutOf(FrameGpu, (s) => s.time).offset / 4;
 const DT_F32 = d.memoryLayoutOf(FrameGpu, (s) => s.dt).offset / 4;
 const FRAME_U32 = d.memoryLayoutOf(FrameGpu, (s) => s.frame).offset / 4;
@@ -71,9 +72,14 @@ export const Frame: Frame = new Proxy({} as Frame, {
     },
 });
 
-/** pack time + frame counter into the Frame UBO */
+/** Pack interpolation parameters, time, and frame counter into the shared Frame UBO. */
 export function writeFrame(state: State): void {
     if (!Compute.device || !Frame.buffer) return;
+    const globalTransform = state.globalTransformRuntime;
+    if (globalTransform?.enabled) {
+        Frame.staging[GLOBAL_TRANSFORM_PARAMS_F32] = state.time.fixedAlpha;
+        Frame.staging[GLOBAL_TRANSFORM_PARAMS_F32 + 1] = globalTransform.current?.count ?? 0;
+    }
     Frame.staging[TIME_F32] = state.time.elapsed;
     Frame.staging[DT_F32] = state.time.deltaTime;
     Frame.stagingU32[FRAME_U32] = Compute.frame;

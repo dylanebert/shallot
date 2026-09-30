@@ -110,6 +110,13 @@ test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws ad
         );
         expect(words[row * 12]).toBeCloseTo(17.5, 5);
         expect(words[row * 12 + 8]).toBeCloseTo(18.5, 5);
+        state.step(Time.FIXED_DT * 0.5);
+        expect(state.time.fixedSteps).toBe(1);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBeCloseTo(30, 7);
+        words = new Float32Array(
+            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+        );
+        expect(words[row * 12]).toBeCloseTo(22.5, 5);
         expect(() => state.globalTransformRuntime!.previous!.bytes).toThrow("GPU-only");
         expect(await bounded(state.gpu.device.popErrorScope())).toBeNull();
     } finally {

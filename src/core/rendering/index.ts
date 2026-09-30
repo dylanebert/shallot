@@ -550,7 +550,6 @@ export const RenderPlugin: Plugin = {
     },
 
     async initialize(state) {
-        globalTransformTable(state);
         initializeRenderState(state);
         initializeViewState(state);
         initializeClusterState(state);
@@ -562,6 +561,12 @@ export const RenderPlugin: Plugin = {
         initializeDrawState(state);
         initializeSurfaceState(state);
         await initRender();
+        const globalTransformRuntime = state.globalTransformRuntime;
+        if (!globalTransformRuntime)
+            throw new Error("GlobalTransform is unavailable before RenderPlugin initialization");
+        // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
+        globalTransformRuntime.params = Frame.buffer;
+        globalTransformTable(state);
     },
 
     // pack the static meshes staged by `mesh()` during initialize into the
