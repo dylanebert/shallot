@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(1000);
 
@@ -19,6 +19,7 @@ import {
     Arrow,
     Fog,
     FogPlugin,
+    font,
     Line,
     LinesPlugin,
     Orbit,
@@ -38,6 +39,7 @@ import {
     TextPlugin,
     text,
 } from "../../extras";
+import { isolationFont } from "../../extras/text/font.fixture";
 import { Color, DEFAULT_PLUGINS, Glaze, Part, Transform } from "../../standard";
 import {
     Backdrop,
@@ -492,6 +494,7 @@ interface IsolationResources {
     bvh: Bvh | null;
 }
 
+const ISOLATION_FONT = `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`;
 const isolationKey = Symbol("gpu-isolation");
 const createIsolationResources = (): IsolationResources => ({
     camera: -1,
@@ -604,6 +607,7 @@ function featurePlugin(subject: Plugin): Plugin {
             state.add(label, Transform);
             state.add(label, Text);
             Transform.pos.set(label, 0, 2, 0, 0);
+            if (uses(subject, TextPlugin)) Text.font.set(label, font(ISOLATION_FONT, "isolation"));
             Text.content.set(label, text("isolation"));
 
             const sound = state.create();
@@ -900,18 +904,14 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         second = undefined;
         if (!firstPairPixels || !secondPairPixels)
             throw new Error("both paired Worlds must produce a captured frame");
-        const firstSoloPixels = await renderAlone(
-            firstDevice,
-            FIRST_CONTENT,
-            "first world",
-            subject,
-        );
-        const secondSoloPixels = await renderAlone(
-            secondDevice,
-            SECOND_CONTENT,
-            "second world",
-            subject,
-        );
+        const firstSoloPixels =
+            subject === TextPlugin
+                ? textBaselines.get(FIRST_CONTENT)!
+                : await renderAlone(firstDevice, FIRST_CONTENT, "first world", subject);
+        const secondSoloPixels =
+            subject === TextPlugin
+                ? textBaselines.get(SECOND_CONTENT)!
+                : await renderAlone(secondDevice, SECOND_CONTENT, "second world", subject);
         expect(firstPairPixels).toEqual(firstSoloPixels);
         expect(secondPairPixels).toEqual(secondSoloPixels);
     } finally {
@@ -930,6 +930,25 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
     }
     expect(firstDevice.live.size).toBe(0);
     if (!sharedDevice) expect(secondDevice.live.size).toBe(0);
+}
+
+// Four cold Text builds exceeded a GPU test's ceiling. Prepare the two independent solo witnesses
+// in separate bounded hooks; only owned CPU pixels survive, never a device or plugin GPU state.
+const textBaselines = new Map<IsolationContent, Uint8Array>();
+for (const content of [FIRST_CONTENT, SECOND_CONTENT]) {
+    beforeAll(async () => {
+        const tracked = await trackedDevice();
+        try {
+            textBaselines.set(
+                content,
+                await renderAlone(tracked, content, "Text solo witness", TextPlugin),
+            );
+        } finally {
+            tracked.watch.dispose();
+            tracked.device.destroy();
+        }
+        expect(tracked.live.size).toBe(0);
+    });
 }
 
 for (const plugin of everyPlugin) {
