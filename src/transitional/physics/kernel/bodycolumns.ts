@@ -120,7 +120,7 @@ export class BodyStore {
     private _layout = new Uint32Array(0);
 
     /** Whether a `memory.grow` has happened since the views were derived — the guard for the reads a
-     * mid-loop grow (the narrowphase's manifold `alloc`) can strand. ScalarField-threaded that grow detaches
+     * mid-loop grow (the narrowphase's manifold `alloc`) can strand. Single-threaded that grow detaches
      * every view (length 0). A shared memory never detaches, so the shared path compares the memory's
      * size against the size the views were derived at (`sharedBytes`, kernel.ts). */
     get stale(): boolean {
@@ -828,7 +828,7 @@ const evicted = new WeakSet<object>();
 export function claimResident(token: object): void {
     if (owner === token) return;
     // A World-owned physics runtime restores its last snapshot before claiming the shared resident
-    // columns. The old throw made two clean States impossible to twin-step; the snapshot boundary is the
+    // columns. The old throw made two clean Worlds impossible to twin-step; the snapshot boundary is the
     // ownership transfer and keeps the wasm columns deterministic for both worlds.
     if (owner !== null) evicted.add(owner);
     owner = token;

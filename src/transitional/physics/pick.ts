@@ -1,4 +1,4 @@
-// Pick utilities — the layer binding the pose-agnostic raycast to live ECS + backend world: candidate
+// Pick utilities — the layer binding the pose-agnostic raycast to live ECS + backend state: candidate
 // gathering off the installed backend's live pose, world↔body-local conversion for joint anchors, and
 // the two pick rays (first-person centre, screen cursor). Consumers build their own pick/drag state
 // machines on these (the sandbox gravity gun).

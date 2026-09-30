@@ -217,12 +217,12 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
             writeFileSync(
                 join(example, "src/packed-tgsl.test.ts"),
                 `import { expect, test } from "bun:test";
-import { linearToSrgb } from "@dylanebert/shallot/rendering";
+import { linearToSrgb3 } from "@dylanebert/shallot/rendering";
 import { checkTgsl } from "@dylanebert/shallot/runtime";
 
 test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", () => {
     checkTgsl();
-    const encoded = linearToSrgb([0.5, 0.5, 0.5] as Parameters<typeof linearToSrgb>[0]);
+    const encoded = linearToSrgb3([0.5, 0.5, 0.5] as Parameters<typeof linearToSrgb3>[0]);
     expect(encoded.x).toBeCloseTo(0.7353569, 5);
     expect(encoded.y).toBeCloseTo(0.7353569, 5);
     expect(encoded.z).toBeCloseTo(0.7353569, 5);

@@ -245,7 +245,7 @@ export class ManifoldStore {
      * Allocate `contactId`'s manifold block for `count` records (recycling a freed same-size block or
      * bumping the pool), write the block descriptor into the directory, growing + re-deriving views in
      * place if the pool overflowed, and return column-backed `Manifold` views over the fresh block. The
-     * narrowphase writes its manifolds through these; the data is the persistent warm-start world.
+     * narrowphase writes its manifolds through these; the data is the persistent warm-start state.
      */
     alloc(contactId: number, count: number): Manifold[] {
         const base = this.allocBlock(contactId, count);

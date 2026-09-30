@@ -108,7 +108,7 @@ export type WorldState = {
     hullDatabase: Map<number, { hull: HullData; refCount: number }>;
     // Set when the hull set changes; the next step re-uploads the kernel's static geometry columns.
     geometryDirty: boolean;
-    // Persistent contact-manifold columns (warm-start world, column-resident): the allocator + wasm
+    // Persistent contact-manifold columns (warm-start state, column-resident): the allocator + wasm
     // region for the manifolds keyed by contactId. Slots are tracked on contact create/destroy.
     manifoldStore: ManifoldStore;
     // Resident body-state columns (velocity/delta/flags of awake bodies), held across steps in the
@@ -119,7 +119,7 @@ export type WorldState = {
     // at shape create/destroy — no dirty set (shapecolumns.ts).
     shapeStore: ShapeStore;
 
-    // Dense array of sensor overlap-tracking world, one per sensor shape (b3World.sensors).
+    // Dense array of sensor overlap-tracking state, one per sensor shape (b3World.sensors).
     sensors: Sensor[];
     // The sensor pass's tree-query context, made by the first pass that runs a query.
     sensorQuery: SensorQueryContext | null;

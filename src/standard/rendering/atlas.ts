@@ -1,4 +1,4 @@
-// StandardRenderer's shadow-atlas GPU world: the sun's CSM cascade atlas, the point/spot importance-packed atlas, and
+// StandardRenderer's shadow-atlas GPU state: the sun's CSM cascade atlas, the point/spot importance-packed atlas, and
 // the 1×1 fallback + comparison sampler bound when nothing casts. Owns every buffer/texture/bind-group
 // these need, the two atlas render passes (`renderPointShadows` / `renderCascades`), the color pass's
 // group-1 bind group, and the getters a screen-space consumer (the fog march) binds to

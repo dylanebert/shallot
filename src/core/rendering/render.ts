@@ -6,7 +6,7 @@ import type { World } from "../../engine";
  * frame is a raw pass on it, replaying render bundles recorded at transitions
  * and dispatching compute over unwrapped pipelines and bind groups, so no
  * per-draw wrapper state runs in a steady frame. It is transient per-frame
- * world. `viewBuffers` is one static
+ * state. `viewBuffers` is one static
  * `View`-struct uniform buffer per shading slot (`MAX_VIEWS` of them — the
  * per-slot-buffer design, replacing the old single dynamic-offset UBO: a
  * depth-only slot's shadow-atlas passes never read `view`, so only the shading
@@ -57,7 +57,7 @@ export function initializeRenderState(world: World): void {
     world.resource(renderKey);
 }
 
-/** World-owned rendering world, resolved with `world.resource(Render)`. */
+/** World-owned rendering state, resolved with `world.resource(Render)`. */
 export const Render: import("../../engine").Resource<Render> = {
     create: (world) => world.resource(renderKey),
 };

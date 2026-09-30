@@ -103,7 +103,7 @@ test("resolving another world's storage cannot redirect retained or newly resolv
 // These declarations have metadata only; tsc must reject deleted schema-bound access.
 function schemaBoundTypeControl(): void {
     const Component = { value: f32 };
-    // @ts-expect-error resolve entity data through world.storage(Component), not its declaration.
+    // @ts-expect-error resolve entity data through state.storage(Component), not its declaration.
     Component.value.get(1);
 }
 void schemaBoundTypeControl;

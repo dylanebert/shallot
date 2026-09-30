@@ -434,7 +434,7 @@ export const UpdateLightClustersSystem: System = {
     },
 };
 
-// Pass descriptors are part of the world's mutable dispatch world.
+// Pass descriptors are part of the world's mutable dispatch state.
 
 // bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
 // this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
@@ -515,7 +515,7 @@ export const LIGHT_POOL = CLUSTER_COUNT * 32;
 const POOL_HEADER = 2;
 
 /**
- * GPU light-cull world. `lights` is the compacted world-space light list
+ * GPU light-cull state. `lights` is the compacted world-space light list
  * (POINT_LIGHTS_STRUCT_WGSL: count header + posRange/color entries), GPU-written
  * each frame by the compact pass. `grid` holds an (offset, count) entry per
  * (view slot, cluster), slot-major; `indices` is the flat index pool the offsets

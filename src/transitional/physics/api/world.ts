@@ -4,7 +4,7 @@
 // planck/rapier idiom). Definitions are plain partial data merged over the ported defaults.
 //
 // This is authoring ergonomics only — the internals stay op-for-op faithful to Box3D regardless.
-// The step and the reads that depend on it (velocities, awake world) arrive with the solver stage.
+// The step and the reads that depend on it (velocities, awake state) arrive with the solver stage.
 
 import type { ShapeProxy } from "../collision/distance";
 import {

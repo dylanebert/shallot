@@ -11,7 +11,7 @@ import { eulerToQuat, quatToEuler } from "./math";
 export interface Alias {
     /** axis labels for the editable inputs */
     axes: readonly string[];
-    /** stored lanes (dotted keys, e.g. `rot.x`) → the per-axis values shown */
+    /** stored lanes (dotted keys, e.g. `rotation.x`) → the per-axis values shown */
     read(parsed: Record<string, number>): number[];
     /** axis `i` edited to `value` → the stored-lane updates to apply (dotted keys) */
     write(axis: number, value: number, parsed: Record<string, number>): Record<string, number>;
@@ -43,7 +43,7 @@ const EULER_AXES = ["x", "y", "z"] as const;
  * never sees the quaternion: `read` decodes quat→euler, `write` encodes the edited euler→quat.
  *
  * @example
- * traits: { Transform: { aliases: { rot: eulerAlias("rot") } } }
+ * traits: { Transform: { aliases: { rotation: eulerAlias("rotation") } } }
  */
 export function eulerAlias(base: string): Alias {
     const lane = (p: Record<string, number>, k: string): number =>

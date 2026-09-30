@@ -26,7 +26,7 @@ import { PlayerFollow } from "./follow";
 // the `character` module's eid-keyed `move`/`jump`); the CPU sweep produces fixed-tick GlobalTransform.
 // The camera follows its position with fixed-timestep interpolation: a
 // `fixed`-group system (`after: [SweepCharactersSystem]`) snapshots this tick's swept GlobalTransform (`character.globalTransform`,
-// off the CPU controller world) into prev/curr, and the camera renders `lerp(prev, curr, fixedAlpha)` — see
+// off the CPU controller state) into previous/current, and the camera renders `lerp(previous, current, fixedAlpha)` — see
 // `SnapshotPlayerPositionSystem`. Input → GlobalTransform → camera position carries no readback lag (it stops scaling with
 // GPU frame time, mouse-look already did); the only camera latency is the kept one-tick interpolation +
 // the irreducible display fence. Walk/jump/slope tuning lives on `Character`.
@@ -121,7 +121,7 @@ const SnapshotPlayerPositionSystem: System = {
                         0,
                     );
             } else {
-                // first snapshot: prev == curr, and membership becomes the "initialized" flag
+                // first snapshot: previous == current, and membership becomes the "initialized" flag
                 world.add(eid, PlayerFollow);
                 world.storage(PlayerFollow).previous.set(eid, x, y, z, 0);
             }

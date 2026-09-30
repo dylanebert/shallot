@@ -30,7 +30,7 @@ export interface GlyphAtlas {
     sdfGenerator: SDFGenerator;
 }
 
-/** tear down every atlas's GPU-owned world: the glyph texture and the SDF generator's own
+/** tear down every atlas's GPU-owned state: the glyph texture and the SDF generator's own
  *  {@link SDFGenerator.destroy} (its `_intermediateTexture`) — both, or a rebuilt atlas leaks the
  *  generator's texture on every teardown. `@internal`, pure iteration over caller-owned handles so
  *  `TextPlugin.dispose` and this module's test can drive the same code. */

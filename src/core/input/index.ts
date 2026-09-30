@@ -389,7 +389,7 @@ export function pointerMove(
 
 export type PointerButton = "left" | "right" | "middle" | 0 | 1 | 2;
 
-/** Produce one pointer-button world. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
+/** Produce one pointer-button state. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
 export function pointerButton(world: World, button: PointerButton, pressed: boolean): void {
     const d = record(world);
     if (d.suspended) return;

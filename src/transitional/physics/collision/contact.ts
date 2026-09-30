@@ -300,7 +300,7 @@ export function writeBodySimIndex(world: WorldState, body: Body): void {
 
 /** Re-partition every contact on a body's edge list after the body's setIndex changed (wake/sleep/
  * transfer), and refresh this body's `bodySimIndex` side (localIndex was reassigned in the same move).
- * Walks the doubly-linked contact list; each contact is reclassified against current world. */
+ * Walks the doubly-linked contact list; each contact is reclassified against current state. */
 export function reclassifyBodyContacts(world: WorldState, body: Body): void {
     const simIndex = body.type === BodyType.Static ? NULL_INDEX : body.localIndex;
     let contactKey = body.headContactKey;

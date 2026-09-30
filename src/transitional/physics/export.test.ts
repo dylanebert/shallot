@@ -11,9 +11,9 @@ import {
     getJointEvents,
     JointType,
     maxWorkers,
+    PhysicsWorld,
     type Pool,
     type WorkerReady,
-    PhysicsWorld,
 } from "@dylanebert/shallot/physics";
 
 // Type-only evidence: this file stops compiling if the public subpath drops either pool type.

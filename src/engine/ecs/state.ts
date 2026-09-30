@@ -545,7 +545,7 @@ export class World {
     /**
      * find entities matching component terms
      * @example
-     * for (const eid of world.query([Health, not(Dead)])) {
+     * for (const eid of state.query([Health, not(Dead)])) {
      *     Health.current[eid] -= 1;
      * }
      */
@@ -585,14 +585,14 @@ export class World {
     /**
      * hot-swap a live system's behavior in place. the reloaded module's
      * `update`/`setup`/`dispose` replace the old ones on the same registered
-     * object, preserving its identity, ordering, and setup world. The engine
-     * `swap` (plugin-level) drives this per system; not a per-frame call.
+     * object, preserving its identity, ordering, and setup state. The engine
+     * `swapPlugins` (plugin-level) drives this per system; not a per-frame call.
      */
     swapSystem(old: System, next: System): void {
         this._scheduler.swap(old, next);
     }
 
-    /** true if the system is live in the scheduler; `swap` validates its pairing against this */
+    /** true if the system is live in the scheduler; `swapPlugins` validates its pairing against this */
     hasSystem(system: System): boolean {
         return this._scheduler.has(system);
     }

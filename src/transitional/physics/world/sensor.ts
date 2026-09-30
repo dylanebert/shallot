@@ -3,7 +3,7 @@
 // contact response. Sensors never create contacts (the pair phase skips them, pairs.ts) and never
 // perturb dynamics, so the world-state hash is unaffected; correctness is behavioral, not bit-exact.
 //
-// ScalarField-threaded and serial: the C's per-worker sensor task + the event-publish pass collapse into
+// Single-threaded and serial: the C's per-worker sensor task + the event-publish pass collapse into
 // one loop, and the eventBits optimization drops out (a sensor whose overlaps didn't change emits no
 // events regardless, so the diff always runs). fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 

@@ -24,7 +24,7 @@ function opKey(kind: string, components: any[]): string {
 
 // Interned op factory — `not(C)` returns the same QueryOp object on every call
 // for the same C. Stable identity lets `Queries` resolve by terms-array element
-// walk instead of recomputing the structural hash per query call. ScalarField-arg
+// walk instead of recomputing the structural hash per query call. Single-arg
 // path (the hot one) hits a per-kind WeakMap; multi-arg falls through to the
 // shared structural-key Map.
 function makeOp(kind: "not" | "and" | "or") {
@@ -52,7 +52,7 @@ export const or = makeOp("or");
 
 // A pooled query iterator. The `next` object and its single reused IteratorResult are borrowed from
 // the owning query's free-list and returned to it when the loop completes or breaks, so
-// `for…of world.query([...])` allocates nothing after warmup (V8 doesn't reliably elide the per-loop
+// `for…of state.query([...])` allocates nothing after warmup (V8 doesn't reliably elide the per-loop
 // iterator object). It snapshots count + the live `_dense` reference exactly as a fresh iterator
 // would, so iteration-during-mutation is unchanged: a swap-remove of the current eid still visits
 // every original member once (the swap only overwrites already-visited slots; the snapshotted count
@@ -87,7 +87,7 @@ class QueryIterator implements Iterator<number> {
 
     // for…of calls return() on an early break/throw — reclaim there too so a broken-out loop's
     // iterator returns to the pool. The _active guard makes reclaim idempotent (a manual caller that
-    // calls next() past done, or return() after a completed loop, can't double-push the same world).
+    // calls next() past done, or return() after a completed loop, can't double-push the same state).
     return(): IteratorResult<number> {
         this.reclaim();
         return this._r;

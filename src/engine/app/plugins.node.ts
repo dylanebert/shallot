@@ -949,7 +949,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
     if (!sharedDevice) expect(secondDevice.live.size).toBe(0);
 }
 
-// Prepare independent Text witnesses; only owned CPU pixels survive, never a device or plugin GPU world.
+// Prepare independent Text witnesses; only owned CPU pixels survive, never a device or plugin GPU state.
 const textBaselines = new Map<IsolationContent, Uint8Array>();
 for (const content of [FIRST_CONTENT, SECOND_CONTENT]) {
     beforeAll(async () => {

@@ -5,7 +5,7 @@
 // and triggers no glyph rebuild — the buffer rebuilds only when a layout-affecting field changes (a
 // content / size / anchor / color edit, an add / remove), gated by a per-frame signature. The SDF atlas /
 // font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the shallot
-// surface + producer around it. ScalarField-channel SDF (Valve "Improved Alpha-Tested Magnification").
+// surface + producer around it. Single-channel SDF (Valve "Improved Alpha-Tested Magnification").
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import tgpu from "typegpu";

@@ -56,7 +56,7 @@ async function cleanState() {
     return { app, world: app.world, body };
 }
 
-test("sequential clean physics States and an owner-world snapshot replay one fixed action stream, so rollback reproduces a confirmed tick without overlapping global slabs", async () => {
+test("sequential clean physics Worlds and an owner-world snapshot replay one fixed action stream, so rollback reproduces a confirmed tick without overlapping global slabs", async () => {
     const left = await cleanState();
     const leftHashes: string[] = [];
     const leftAfterSaved: string[] = [];

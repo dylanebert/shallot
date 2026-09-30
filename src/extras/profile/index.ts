@@ -28,7 +28,7 @@ export interface Profile {
      *  drain hold). For exact per-occurrence accounting, use {@link gpuTime} / {@link gpuFires}. */
     readonly gpu: ReadonlyMap<string, number>;
     /** cumulative GPU time per pass since attach, in milliseconds: summed over every actual
-     *  occurrence (a fixed-group pass once per fixed step, a draw pass once per frame). Vector2Field with
+     *  occurrence (a fixed-group pass once per fixed step, a draw pass once per frame). Pair with
      *  {@link gpuFires} to derive the per-occurrence cost: `gpuTime / gpuFires`. Immune to the
      *  greedy hold the display {@link gpu} map applies, the source of truth for the benchmark. */
     readonly gpuTime: ReadonlyMap<string, number>;
@@ -37,7 +37,7 @@ export interface Profile {
      *  render pass, ≈fixed-steps-per-frame for a per-step sim pass). */
     readonly gpuFires: ReadonlyMap<string, number>;
     /** cumulative indirect-draw count per pass since attach: summed over every frame the pass issued
-     *  draws. Vector2Field with {@link indirectFires} for the per-frame count (`indirectCount / indirectFires`)
+     *  draws. Pair with {@link indirectFires} for the per-frame count (`indirectCount / indirectFires`)
      *  and derive Dawn's injected-validation floor via `INDIRECT_FLOOR_US`. The benchmark
      *  window-diffs it like {@link gpuTime} / {@link gpuFires}, untimed by `timestampWrites`. */
     readonly indirectCount: ReadonlyMap<string, number>;
@@ -1240,7 +1240,7 @@ export const ProfilePlugin: Plugin = {
         }
     },
 
-    // Clear the active world.gpu hooks and the window.__benchmark global; the DOM overlay + F3 listener
+    // Clear the active state.gpu hooks and the window.__benchmark global; the DOM overlay + F3 listener
     // ride the World (initialize above), and the profiler releases its own resources below.
     dispose(world: World) {
         const _profileUi = world.resource(profileUi);

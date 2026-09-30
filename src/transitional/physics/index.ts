@@ -54,7 +54,7 @@ export { createPool, maxWorkers, type Pool, type WorkerReady } from "./kernel/po
 // column in bulk. Physics owns the eid↔solver-body map; renderer interpolation and history belong
 // to the engine. There is no slab or mirror.
 // Body marshaling is `marshal.ts`, Spring/Joint marshaling `joints.ts`. An outside solver plugs in through
-// the physics barrel (traits, defs, signatures, system anchors) and never through this module's world.
+// the physics barrel (traits, defs, signatures, system anchors) and never through this module's state.
 
 /** collision-shape tag for {@link Body}. Box collides as an OBB; sphere/capsule as a core + radius; hull as a convex polytope (geometry registered in `Hulls`, referenced by `halfExtents.w` = the hull id). */
 export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
@@ -389,6 +389,7 @@ export function jointDefs(world: World): JointDef[] {
     })();
 }
 
+const fixedDeltaTime = Time.FIXED_DT;
 const GRAVITY = -10;
 const SUBSTEPS = 4; // the solver's own recommended sub-step count (World.step's default)
 
@@ -838,7 +839,7 @@ export const StepPhysicsSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
-        physicsWorld.step(Time.FIXED_DT, SUBSTEPS);
+        physicsWorld.step(fixedDeltaTime, SUBSTEPS);
         runtime.counters.bytesUploaded = 0;
         const global = world.storage(GlobalTransform);
         const rows = physicsWorld.state.bodyStore.movedRows();

@@ -14,9 +14,9 @@
     <body>
         <canvas id="canvas"></canvas>
         <script type="module">
-            import { BrowserInputPlugin, run } from "@dylanebert/shallot";
+            import { BrowserInputPlugin, runApp } from "@dylanebert/shallot";
             import project from "virtual:project";
-            await run({
+            await runApp({
                 plugins: [BrowserInputPlugin, ...project.plugins],
                 scene: project.scene ?? undefined,
                 defaults: false,

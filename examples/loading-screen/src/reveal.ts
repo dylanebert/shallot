@@ -21,7 +21,7 @@ export function revealAfterFirstFrame(host: HostFrame, loading: Pick<Loading, "e
                     if (waiting || disposed) return;
                     waiting = true;
                     // This draw system runs before the terminal submission. Ask for the queue fence only
-                    // after world.step returns, when the frame's commands have been submitted.
+                    // after state.step returns, when the frame's commands have been submitted.
                     queueMicrotask(() => {
                         if (disposed) return;
                         const device = world.gpu?.device;

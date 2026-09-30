@@ -857,7 +857,7 @@ test("suspending one World suspends or clears a second World's device record", (
     second.dispose();
 });
 
-test("interleaved producer calls on two States leak edges or held keys between their records", () => {
+test("interleaved producer calls on two Worlds leak edges or held keys between their records", () => {
     const a = inputState();
     const b = inputState();
     pressKey(a, "KeyW");
@@ -924,7 +924,7 @@ test("the normalized pointer coordinate uses the World-scoped viewport row after
     world.dispose();
 });
 
-test("two States hold independent per-canvas viewport records", () => {
+test("two Worlds hold independent per-canvas viewport records", () => {
     const first = inputState();
     const second = inputState();
     resizeViewport(first, 0, 320, 180, 1);

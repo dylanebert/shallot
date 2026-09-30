@@ -426,7 +426,7 @@ async function initRender(world: World): Promise<void> {
     // the scene renders into an rg11b10ufloat HDR offscreen so a tonemap (glaze, default Khronos Neutral)
     // rolls off radiance >1 rather than clamping it to white at store. rg11b10 (4B) halves the MSAA
     // color-target + resolve bandwidth vs rgba16float (8B), the dominant sear:color cost at 4× MSAA, for
-    // ~3% relative precision (no alpha; over-blending doesn't need dst alpha). ScalarField path, no flag — the
+    // ~3% relative precision (no alpha; over-blending doesn't need dst alpha). Single path, no flag — the
     // swapchain stays the base canvas format (glaze encodes linear→sRGB into it); this is the offscreen +
     // sear color-target format only
     _render.format = "rg11b10ufloat";

@@ -419,7 +419,7 @@ function unbind(world: World): void {
  * active MeshInstance table row capacity and camera count, growing when any axis rises
  * after warm. `drawArgs` + `counts` scale with `viewDim × pairCount`; dense
  * output lists scale with `viewDim × rowCapacity`; mesh bounds scale with mesh count.
- * Vector2Field growth only appends slots
+ * Pair growth only appends slots
  * (`mid * surfaceCount + sid`) so existing offsets hold, and the pipelines read
  * both dimensions from `cullParams` + `arrayLength`, never recompiling. Old
  * buffers free behind the submit fence: a prior frame may still reference them

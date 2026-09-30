@@ -2,7 +2,7 @@
 // A body is stored as three records: the cold organizational handle (b3Body, in world.bodies,
 // id-indexed), the hot simulation payload (b3BodySim, in a solver set's bodySims column), and the
 // solver velocity/delta state (b3BodyState, only in the awake set's bodyStates column). Static and
-// sleeping bodies have a sim but no world.
+// sleeping bodies have a sim but no state.
 //
 // fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity). This file holds the types + accessors; the
 // create/destroy/setType/mass machinery is appended below.
@@ -108,7 +108,7 @@ export const BodyFlags = {
     allowFastRotation: 0x00000400,
     enlargeBounds: 0x00000800,
     // The solver may write to this body (dynamic). Kept off kinematic bodies to avoid cross-worker
-    // cache thrash on shared world.
+    // cache thrash on shared state.
     dynamicFlag: 0x00001000,
     enableSleep: 0x00002000,
     enableContactRecycling: 0x00004000,
@@ -235,7 +235,7 @@ export function getBodySim(world: WorldState, body: Body): BodySim {
     return world.solverSets[body.setIndex].bodySims[body.localIndex];
 }
 
-/** @returns the body's solver world, or null when the body is not awake (b3GetBodyState). */
+/** @returns the body's solver state, or null when the body is not awake (b3GetBodyState). */
 export function getBodyState(world: WorldState, body: Body): BodyState | null {
     if (body.setIndex === SetType.Awake) {
         return world.solverSets[SetType.Awake].bodyStates[body.localIndex];
@@ -277,7 +277,7 @@ export function bodySetLinearVelocity(world: WorldState, body: Body, linearVeloc
     if (vec3.lengthSq(linearVelocity) > 0) wakeBody(world, body);
     const state = getBodyState(world, body);
     if (state === null) return;
-    // Copy, don't store the caller's object: finalize mutates world.linearVelocity in place. A column
+    // Copy, don't store the caller's object: finalize mutates state.linearVelocity in place. A column
     // view's setter already copies the components.
     state.linearVelocity = isResidentState(state)
         ? linearVelocity

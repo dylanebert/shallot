@@ -31,7 +31,7 @@ export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array |
 /**
  * typed-array storage descriptor. Shared between {@link ScalarField}/{@link Vector2Field}/{@link Vector4Field}
  * fields so a consumer can change the type without
- * changing the type spelling. Metadata only. Descriptors don't carry world.
+ * changing the type spelling. Metadata only. Descriptors don't carry state.
  *
  * @expand
  */

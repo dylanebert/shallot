@@ -25,6 +25,7 @@ import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 // GlobalTransform-position and grounded reads used by followers. The CPU sweep is the sole runtime
 // controller; the f64 controller oracle specifies the behavior. Player composes look and a camera above it.
 
+const fixedDeltaTime = Time.FIXED_DT;
 const DEG = Math.PI / 180;
 const _worldGravity = { x: 0, y: 0, z: 0 };
 
@@ -267,7 +268,7 @@ function sweepEid(eid: number, st: CharState, world: World): void {
         _pushVel0[3 * i + 2] = v[2];
     }
 
-    sweepCharacter(st, input, _statics, gravity, Time.FIXED_DT, drive.jumped.has(eid), _push);
+    sweepCharacter(st, input, _statics, gravity, fixedDeltaTime, drive.jumped.has(eid), _push);
 
     // kinematic upload — the swept position and rotation, with realized velocity (snap excluded) so the carry
     // of riders and broadphase pad follow actual motion, not the cosmetic ground snap.

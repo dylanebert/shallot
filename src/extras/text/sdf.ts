@@ -269,7 +269,7 @@ export function sdfWgsl(): { distance: string; finalize: string } {
 }
 
 // Each World caches one pipeline pair from its own TypeGPU root. Its font generators share the pair;
-// another World gets its own pipelines even when both States use the same GPUDevice.
+// another World gets its own pipelines even when both Worlds use the same GPUDevice.
 interface SdfPipelines {
     distance: TgpuRenderPipeline;
     finalize: TgpuRenderPipeline;

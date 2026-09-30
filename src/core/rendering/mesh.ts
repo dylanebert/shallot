@@ -63,7 +63,7 @@ export interface Mesh {
      * compute-emitting producer that materializes only its live elements supplies it so the
      * RT-shadow BLAS builds over the live triangle range each frame, not the registered cap:
      * the GPU-count contract, the count never crossing to the CPU. Omit for a fixed mesh: its
-     * `indexCount` is the live count. Vector2Field with `dynamic: true`.
+     * `indexCount` is the live count. Pair with `dynamic: true`.
      */
     count?: MeshStorage<d.U32>;
     /**

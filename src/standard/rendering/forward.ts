@@ -600,7 +600,7 @@ function recordSurface(
 
 /**
  * the frame's draw list: every registered {@link Draw} with a compiled surface + published
- * bindings, paired with its cached group-0 world. Camera-independent (the per-slot bind groups it builds
+ * bindings, paired with its cached group-0 state. Camera-independent (the per-slot bind groups it builds
  * against are cached lazily by slot, not baked per camera), so {@link RenderPrepassesSystem}
  * resolves it once per frame into `_sear.frameDraws` and the prepass, shadow map, and color pass all
  * render every camera against that one list

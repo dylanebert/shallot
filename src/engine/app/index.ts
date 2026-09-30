@@ -31,7 +31,7 @@ export * from "./compose";
  * @expand
  */
 export interface Plugin {
-    /** unique name; the manifest enables the plugin by this name, and `swap` pairs reloads by it */
+    /** unique name; the manifest enables the plugin by this name, and `swapPlugins` pairs reloads by it */
     readonly name: string;
     /** Declares whether fixed simulation replays deterministically (default true).
      * Fixed consumers of GPU readback declare false. Byte access is not guarded. */
@@ -481,9 +481,9 @@ export async function runApp(config: AppConfig): Promise<App> {
         const world = app.world;
         const { device, pending, sync } = world.gpu;
         // UI teardown is World-owned: the overlay auto-registers its removal (mountOverlay above), and the
-        // ui cleanup registers beside it. Both run at world.dispose() — after the plugin dispose hooks on the
+        // ui cleanup registers beside it. Both run at state.dispose() — after the plugin dispose hooks on the
         // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
-        // covers a host that calls world.dispose() directly (the flows apps).
+        // covers a host that calls state.dispose() directly (the flows apps).
         if (config.ui && Runtime === "web") {
             const overlay = mountOverlay(document.querySelector("canvas"), world);
             const uiCleanup = config.ui(overlay, world);
@@ -491,7 +491,7 @@ export async function runApp(config: AppConfig): Promise<App> {
         }
 
         let disposed = false;
-        // stop the rAF loop when the World tears down, so a host that calls world.dispose() directly (the
+        // stop the rAF loop when the World tears down, so a host that calls state.dispose() directly (the
         // flows path) halts the loop too — not only the returned App.dispose(). Without this the loop keeps
         // stepping a torn-down World every frame (the stacked-rAF leak). App.dispose sets it first; this is
         // idempotent with that.
@@ -670,7 +670,7 @@ export async function swapPlugins(
     }
 
     // initialize is registration-only and idempotent (the lifecycle contract), so re-running it
-    // repopulates singletons with the new code without touching entities or warm GPU world.
+    // repopulates singletons with the new code without touching entities or warm GPU state.
     // A throw here lands after the system swap, so the World is half-updated — report ok:false
     // and let the caller's rebuild fallback recover, never wedge on an unhandled throw
     for (const nextPlugin of nextByName.values()) {

@@ -143,7 +143,7 @@ export const SkyPlugin: Plugin = {
             size: SKY_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        // the background bind group resolves the `sky` binding from world.gpu.buffers by name; republish every
+        // the background bind group resolves the `sky` binding from state.gpu.buffers by name; republish every
         // warm — the map is wiped on each createApp()
         world.gpu.buffers.set("sky", sky.buffer);
         world.gpu.typed.set(

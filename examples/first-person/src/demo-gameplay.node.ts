@@ -176,7 +176,7 @@ test("the actual first-person scene gives the player a tangent spawn, a containe
         )?.eyeHeight;
         if (eyeHeight === undefined) throw new Error("Player declares no default eyeHeight");
         const eye = scene
-            .match(/id="eye"[^>]*pos: (\S+) (\S+) ([^;"]+)/)
+            .match(/id="eye"[^>]*translation: (\S+) (\S+) ([^;"]+)/)
             ?.slice(1)
             .map(Number);
         const spawn = [

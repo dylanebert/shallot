@@ -700,7 +700,7 @@ export const quat = {
         return vec3.mulAdd(v, 2, t3);
     },
 
-    /** {@link quat.rotateQuatByEuler}, written into `o` (may alias `v`, must not alias `q.v`). */
+    /** {@link quat.rotate}, written into `o` (may alias `v`, must not alias `q.v`). */
     rotateOut: (q: Quat, v: Vec3, o: Vec3): Vec3 => {
         vec3.crossOut(q.v, v, rotateScratch);
         vec3.mulAddOut(rotateScratch, q.s, v, rotateScratch);

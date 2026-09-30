@@ -168,7 +168,7 @@ export const prepareLayout = tgpu.bindGroupLayout({
     p3: { storage: Params, access: "mutable" },
 });
 
-// INIT — zero the cross-workgroup world: passHist [0, binBlocks*RADIX*PASSES) (one descriptor
+// INIT — zero the cross-workgroup state: passHist [0, binBlocks*RADIX*PASSES) (one descriptor
 // per (pass, partition, digit)), globalHist [0, RADIX*PASSES), index [0, PASSES) (the per-pass
 // partition-assignment counters). Dispatched binBlocks*PASSES workgroups, so it scales with N.
 const initKernel = tgpu

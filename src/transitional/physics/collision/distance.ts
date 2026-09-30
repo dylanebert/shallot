@@ -1415,7 +1415,7 @@ function forceFixedAxis(fcn: SeparationFunction, beta: number): void {
 
 /**
  * Conservative-advancement time of impact between two swept convex proxies (b3TimeOfImpact).
- * Returns the sweep fraction of first contact and the classification world.
+ * Returns the sweep fraction of first contact and the classification state.
  */
 export function timeOfImpact(input: TOIInput): TOIOutput {
     const output: TOIOutput = {

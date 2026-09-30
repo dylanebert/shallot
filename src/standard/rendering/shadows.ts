@@ -412,7 +412,7 @@ export function cascadeAtlasSize(resolution: number, n: number): number {
 }
 
 // shadow cameras and their retained atlas inputs belong to the World that authors the lights. Frame-local
-// matrix scratch below is reused synchronously; no cached eid, signature, output buffer or warning latch crosses States.
+// matrix scratch below is reused synchronously; no cached eid, signature, output buffer or warning latch crosses Worlds.
 const CASC_KEY_FLOATS = 29;
 interface ShadowRuntime {
     cascadeEids: number[];

@@ -130,7 +130,7 @@ export interface WorldGpu {
      * TypeGPU root adopting {@link device} — the handle every typed buffer, bind group, and pipeline
      * is created through, and the reach-back out (`root.unwrap(...)`) to the raw WebGPU handle.
      * Created by {@link requestGPU} for the owning World (never at import time — the module stays
-     * side-effect free), so two States sharing a device still own distinct typed handles. It has no
+     * side-effect free), so two Worlds sharing a device still own distinct typed handles. It has no
      * teardown of its own; GPU resources are tracked and released with the World.
      */
     readonly root: TgpuRoot;
@@ -1026,7 +1026,7 @@ async function compileBody(
 export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
 
 /**
- * report one forcer's compile timing — {@link world.gpu.precompiled} plus the paired
+ * report one forcer's compile timing — {@link state.gpu.precompiled} plus the paired
  * `performance.measure` entry — once {@link compileBody} has resolved. A forcer that never awaited a
  * real `initAsync` (sear's raw-pipeline array, or `[]`) is not warmed, so nothing is reported;
  * attributing that skip as a compile is the still-unwarmed path reporting warm.
@@ -1171,7 +1171,7 @@ export async function precompileAll(world: World): Promise<void> {
     }
 }
 
-// TypeGPU's root and resource handles belong to the World using them, even when two States share a device.
+// TypeGPU's root and resource handles belong to the World using them, even when two Worlds share a device.
 const typegpuRoot: Resource<{ root?: TgpuRoot }> = { create: () => ({}) };
 
 function adopt(
@@ -1211,9 +1211,9 @@ export function stampAdapter(
  * any `features` the active plugins require), throwing {@link UnsupportedError}
  * otherwise. `preferred` features are requested only where the adapter has them
  * (never gating the device). Pass an external device to adopt it as-is; the caller
- * is responsible for feature support. Either way the device is adopted by {@link world.gpu.root}, the
+ * is responsible for feature support. Either way the device is adopted by {@link state.gpu.root}, the
  * TypeGPU handle typed resources are created through — one root belongs to the owning World, even when
- * two States adopt the same device.
+ * two Worlds adopt the same device.
  */
 export async function requestGPU(
     device?: GPUDevice,

@@ -75,7 +75,7 @@ import {
  * ```
  * // hover feedback driven by a pick (the cast hands you the hovered eid)
  * if (mode === "hover") world.add(hovered, Outline);
- * else world.remove(hovered, Outline);
+ * else state.remove(hovered, Outline);
  * ```
  */
 export const Outline = {

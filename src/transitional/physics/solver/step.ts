@@ -2,7 +2,7 @@
 // the broad-phase pairs, runs narrow-phase collision, then solves and integrates. The world-state
 // hash (the regression contract) is taken by the caller after the step returns.
 //
-// No recording. ScalarField-threaded and serial, so the parallel task orchestration collapses to
+// No recording. Single-threaded and serial, so the parallel task orchestration collapses to
 // straight-line calls. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import { collide } from "../collision/collide";

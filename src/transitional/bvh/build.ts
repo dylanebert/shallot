@@ -28,7 +28,7 @@ import type { World } from "../../engine";
 //    dispatch, a node completes only when BOTH children completed in a PRIOR sweep, so
 //    every cross-node read crosses a dispatch boundary (spec-clean visibility) and a
 //    node's bounds are written once, with no concurrent reader. `valid` flags are
-//    double-buffered (read prior-sweep world, write this-sweep world) so a flag a peer
+//    double-buffered (read prior-sweep state, write this-sweep state) so a flag a peer
 //    flips mid-sweep is never observed with its bounds still in flight. Each sweep climbs
 //    LEVELS levels at once (a node resolves a child from deeper prior-sweep descendants when
 //    the child isn't valid yet), so the fixed sweep count is ceil(worst-case height / LEVELS); sweeps past
@@ -402,7 +402,7 @@ export const sweepLayout = tgpu.bindGroupLayout({
     validOut: { storage: d.arrayOf(d.u32), access: "mutable" },
 });
 
-/** a child's final bounds resolved from prior-sweep world, looking up to LEVELS-1 levels past it.
+/** a child's final bounds resolved from prior-sweep state, looking up to LEVELS-1 levels past it.
  *  `ok` is false when the child's subtree hasn't reached this thread yet (a later sweep completes it). */
 const Resolved = d.struct({ ok: d.bool, mn: d.vec3f, mx: d.vec3f }).$name("Resolved");
 
