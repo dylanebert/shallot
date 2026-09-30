@@ -39,6 +39,7 @@ export {
     type Pair,
     pixelRatio,
     type Quad,
+    type Resource,
     type Single,
     State,
     type System,

@@ -9,6 +9,7 @@ import {
     type Plugin,
     pointerLockRefusal,
     pointerLockStatus,
+    type Resource,
     type State,
     type System,
     setKinematic,
@@ -30,7 +31,7 @@ export const Lift = {};
 
 const TRAVEL = 1.5;
 const RATE = 0.65;
-const RECIPE_STATE = Symbol.for("shallot.examples.first-person.state");
+const RECIPE_STATE: Resource<DemoBag> = { create: createBag };
 type DemoBag = {
     // one slot per lift: its body eid, and its authored base at `slot * 3`. Two held arrays rather than a
     // Map, so the per-tick walk indexes instead of iterating and the base reads stay unboxed doubles.
@@ -40,16 +41,13 @@ type DemoBag = {
     panel: HTMLDivElement | null;
     look: HTMLDivElement | null;
 };
-type DemoState = State & { [RECIPE_STATE]?: DemoBag };
-
 function stateBag(state: State): DemoBag {
-    return (state as DemoState)[RECIPE_STATE] ?? createBag(state);
+    return state.resource(RECIPE_STATE);
 }
 
 // The bag's creation, apart from the per-frame lookup: its dispose closure would otherwise make every
 // lookup allocate a context.
 function createBag(state: State): DemoBag {
-    const owner = state as DemoState;
     const bag: DemoBag = {
         liftEids: [],
         liftBases: [],
@@ -57,14 +55,11 @@ function createBag(state: State): DemoBag {
         panel: null,
         look: null,
     };
-    owner[RECIPE_STATE] = bag;
     state.onDispose(() => {
-        if (owner[RECIPE_STATE] !== bag) return;
         // the slot arrays keep their capacity; the count is what empties them
         bag.liftCount = 0;
         bag.panel = null;
         bag.look = null;
-        delete owner[RECIPE_STATE];
     });
     return bag;
 }

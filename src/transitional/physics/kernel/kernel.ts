@@ -364,12 +364,12 @@ function createKernelState(): KernelState {
     };
 }
 
-const kernelStateKey = Symbol("shallot.physics-kernel");
+const kernelStateKey = { create: createKernelState };
 const standaloneKernelState = createKernelState();
 
 function kernelState(): KernelState {
     const state = currentWorld<State>();
-    return state ? state.resource(kernelStateKey, createKernelState) : standaloneKernelState;
+    return state ? state.resource(kernelStateKey) : standaloneKernelState;
 }
 
 function decode(base64: string): Uint8Array<ArrayBuffer> {

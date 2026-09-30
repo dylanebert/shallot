@@ -11,7 +11,7 @@ export interface CharacterDrive {
     signature: number;
 }
 
-const driveKey = Symbol("shallot.character");
+const driveKey = { create: createDrive };
 
 function createDrive(): CharacterDrive {
     return {
@@ -24,7 +24,7 @@ function createDrive(): CharacterDrive {
 }
 
 export function driveFor(state: State): CharacterDrive {
-    return state.resource(driveKey, createDrive);
+    return state.resource(driveKey);
 }
 
 /** push a character's per-frame horizontal move input (world x/z velocity), by body eid. Call each fixed tick

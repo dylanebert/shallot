@@ -113,7 +113,7 @@ interface AtlasState {
     cascadeRegather: Regather;
 }
 
-const atlasStateKey = Symbol("shallot.shadow-atlas");
+const atlasStateKey = { create: createAtlasState };
 
 function createAtlasState(): AtlasState {
     const paramsBuf = new ArrayBuffer(SHADOW_PARAMS_BYTES);
@@ -202,12 +202,12 @@ function createAtlasState(): AtlasState {
 }
 
 function atlasState(): AtlasState {
-    return worldResource(atlasStateKey, createAtlasState);
+    return worldResource(atlasStateKey);
 }
 
 /** Create this world's shadow-atlas resources during Sear initialization. */
 export function initializeShadowAtlasState(state: State): void {
-    state.resource(atlasStateKey, createAtlasState);
+    state.resource(atlasStateKey);
 }
 
 const _atlas = new Proxy({} as AtlasState, {

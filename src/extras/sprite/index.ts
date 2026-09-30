@@ -103,7 +103,7 @@ interface SpriteGpuState {
     sig: number;
 }
 
-const spriteGpuKey = Symbol("shallot.sprites");
+const spriteGpuKey = { create: () => createSpriteGpuState() };
 const createSpriteGpuState = (): SpriteGpuState => ({
     atlas: null,
     sampler: null,
@@ -114,7 +114,7 @@ const createSpriteGpuState = (): SpriteGpuState => ({
     quadBase: 0,
     sig: -1,
 });
-const spriteGpuState = () => worldResource(spriteGpuKey, createSpriteGpuState);
+const spriteGpuState = () => worldResource(spriteGpuKey);
 
 const _sprite = new Proxy({} as SpriteGpuState, {
     get(_target, key) {
@@ -255,7 +255,7 @@ export const SpritePlugin: Plugin = {
     },
 
     initialize(state) {
-        state.resource(spriteGpuKey, createSpriteGpuState);
+        state.resource(spriteGpuKey);
         resetPack(state);
         _sprite.atlas = null;
         _sprite.sampler = null;

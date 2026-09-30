@@ -114,7 +114,7 @@ interface MeshResources {
     placeholderIndices: MeshIndex | null;
 }
 
-const meshResourcesKey = Symbol("shallot.meshes");
+const meshResourcesKey = { create: createMeshResources };
 
 function createMeshResources(): MeshResources {
     return {
@@ -126,12 +126,12 @@ function createMeshResources(): MeshResources {
 }
 
 function meshResources(): MeshResources {
-    return worldResource(meshResourcesKey, createMeshResources);
+    return worldResource(meshResourcesKey);
 }
 
 /** Create this world's mesh registry and staging during RenderPlugin initialization. */
 export function initializeMeshState(state: State): void {
-    state.resource(meshResourcesKey, createMeshResources);
+    state.resource(meshResourcesKey);
 }
 
 /**

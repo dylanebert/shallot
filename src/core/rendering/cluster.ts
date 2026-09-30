@@ -44,7 +44,7 @@ interface ClusterGpuState {
     cullPass: GPUComputePassDescriptor;
 }
 
-const clusterGpuKey = Symbol("shallot.cluster-gpu");
+const clusterGpuKey = { create: createClusterGpuState };
 
 function createClusterGpuState(): ClusterGpuState {
     return {
@@ -79,7 +79,7 @@ function createClusterGpuState(): ClusterGpuState {
 }
 
 function clusterGpu(): ClusterGpuState {
-    return worldResource(clusterGpuKey, createClusterGpuState);
+    return worldResource(clusterGpuKey);
 }
 
 const LightInput = d
@@ -96,7 +96,7 @@ const LightInput = d
     .$name("LightInput");
 const LIGHT_SPOT = 1;
 const LIGHT_VOLUMETRIC = 2;
-const lightInputKey = Symbol("shallot.light-input-table");
+const lightInputKey = { create: createLightInputTable };
 const lightCountData = new Uint32Array(1);
 
 function createLightInputTable(state: State) {
@@ -104,12 +104,12 @@ function createLightInputTable(state: State) {
 }
 
 function lightInputTable(state: State) {
-    return state.resource(lightInputKey, createLightInputTable);
+    return state.resource(lightInputKey);
 }
 
 /** Create this world's cluster and dense light-input state during RenderPlugin initialization. */
 export function initializeClusterState(state: State): void {
-    state.resource(clusterGpuKey, createClusterGpuState);
+    state.resource(clusterGpuKey);
     const table = lightInputTable(state);
     table.bindFields(PointLight, {
         color: "color",
@@ -802,7 +802,7 @@ function bindCull(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
 /** Request the latest submitted light-pool overflow count for diagnostics.
  * The cull pass clamps its writes independently of this request. */
 export async function requestLightOverflow(state: State) {
-    const indices = state.resource(clusterGpuKey, createClusterGpuState).lightCull.indices;
+    const indices = state.resource(clusterGpuKey).lightCull.indices;
     if (!indices) throw new Error("light overflow diagnostic requested before rendering warm");
     const result = await probeBuffer(state, indices, {
         offset: 4,

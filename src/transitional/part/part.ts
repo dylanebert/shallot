@@ -131,12 +131,12 @@ interface PartGpuState {
     inputGeneration: Int32Array;
 }
 
-const partGpuKey = Symbol("shallot.part");
-const partTableKey = Symbol("shallot.part-table");
+const partGpuKey = { create: createPartGpuState };
+const partTableKey = { create: createPartTable };
 
 /** Dense Part records shared by the GPU pack and typed surface stages. */
 export function partTable(state: State) {
-    return state.resource(partTableKey, createPartTable);
+    return state.resource(partTableKey);
 }
 
 function createPartTable(state: State) {
@@ -182,11 +182,11 @@ function createPartGpuState(): PartGpuState {
 }
 
 function partGpuState(): PartGpuState {
-    return worldResource(partGpuKey, createPartGpuState);
+    return worldResource(partGpuKey);
 }
 
 export function initializePartState(state: State): void {
-    state.resource(partGpuKey, createPartGpuState);
+    state.resource(partGpuKey);
     const table = partTable(state);
     table.bindComponent(Part, { surface: "surface", mesh: "mesh" });
     table.bindFields(Color, { color: "rgba" });

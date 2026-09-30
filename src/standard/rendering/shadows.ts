@@ -437,7 +437,7 @@ interface ShadowRuntime {
     overflowWarned: boolean;
     slotWarned: boolean;
 }
-const shadowRuntimeKey = Symbol("shallot.sear-shadows");
+const shadowRuntimeKey = { create: () => createShadowRuntime() };
 const createShadowRuntime = (): ShadowRuntime => ({
     cascadeEids: [],
     cascadeCount: 0,
@@ -460,8 +460,7 @@ const createShadowRuntime = (): ShadowRuntime => ({
     overflowWarned: false,
     slotWarned: false,
 });
-const shadows = (state: State): ShadowRuntime =>
-    state.resource(shadowRuntimeKey, createShadowRuntime);
+const shadows = (state: State): ShadowRuntime => state.resource(shadowRuntimeKey);
 const _cascNext = new Float64Array(CASC_KEY_FLOATS);
 const _cascWorld = new Float32Array(16);
 const _cascView = new Float32Array(16);

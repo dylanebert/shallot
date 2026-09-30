@@ -93,17 +93,17 @@ interface FogState {
     >;
 }
 
-const fogStateKey = Symbol("shallot.fog");
+const fogStateKey = { create: () => createFogState() };
 const createFogState = (): FogState => ({
     fog: { pipeline: null, buffer: null },
     staging: new Float32Array(FOG_FLOATS),
     lights: null,
     views: new Map(),
 });
-const fogState = () => worldResource(fogStateKey, createFogState);
+const fogState = () => worldResource(fogStateKey);
 
 function initializeFogState(state: State): void {
-    state.resource(fogStateKey, createFogState);
+    state.resource(fogStateKey);
 }
 
 const _fog = new Proxy({} as FogState["fog"], {

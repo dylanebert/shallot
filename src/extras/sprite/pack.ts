@@ -115,7 +115,7 @@ interface SpritePackState {
     bitsU: Uint32Array;
 }
 
-const spritePackKey = Symbol("shallot.sprite-pack");
+const spritePackKey = { create: createSpritePackState };
 
 function createSpritePackState(): SpritePackState {
     const staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
@@ -136,7 +136,7 @@ function createSpritePackState(): SpritePackState {
 }
 
 function spritePackState(state: State): SpritePackState {
-    return state.resource(spritePackKey, createSpritePackState);
+    return state.resource(spritePackKey);
 }
 
 function packFill(amount: number, mode: number): number {

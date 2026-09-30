@@ -277,12 +277,12 @@ interface SdfPipelines {
     finalize: TgpuRenderPipeline;
 }
 
-const sdfPipelinesKey = Symbol("shallot.text-sdf-pipelines");
+const sdfPipelinesKey = { create: () => createSdfPipelines() };
 const createSdfPipelines = () => ({ value: null as SdfPipelines | null });
-const sdfPipelines = () => worldResource(sdfPipelinesKey, createSdfPipelines);
+const sdfPipelines = () => worldResource(sdfPipelinesKey);
 
 export function initializeSdfState(state: State): void {
-    state.resource(sdfPipelinesKey, createSdfPipelines);
+    state.resource(sdfPipelinesKey);
 }
 
 function pipelines() {

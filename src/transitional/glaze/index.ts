@@ -52,7 +52,7 @@ interface GlazeState {
     labels: Map<number, string>;
 }
 
-const glazeStateKey = Symbol("shallot.glaze");
+const glazeStateKey = { create: createGlazeState };
 
 function createGlazeState(): GlazeState {
     const inputEntry: GPUBindGroupEntry = { binding: 0, resource: null! };
@@ -76,7 +76,7 @@ function createGlazeState(): GlazeState {
 }
 
 function glazeState(): GlazeState {
-    return worldResource(glazeStateKey, createGlazeState);
+    return worldResource(glazeStateKey);
 }
 
 const _glaze = new Proxy({} as GlazeState, {
@@ -265,7 +265,7 @@ export const GlazePlugin: Plugin = {
     dependencies: [RenderPlugin],
 
     initialize(state) {
-        state.resource(glazeStateKey, createGlazeState);
+        state.resource(glazeStateKey);
         initializeCompositeState(state);
     },
 

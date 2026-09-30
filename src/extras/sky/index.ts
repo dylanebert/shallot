@@ -62,9 +62,9 @@ interface SkyState {
     staging: Float32Array;
 }
 
-const skyStateKey = Symbol("shallot.sky");
+const skyStateKey = { create: () => createSkyState() };
 const createSkyState = (): SkyState => ({ buffer: null, staging: new Float32Array(SKY_FLOATS) });
-const skyState = () => worldResource(skyStateKey, createSkyState);
+const skyState = () => worldResource(skyStateKey);
 
 // writes the `Sky` uniform each frame from the scene's Sky singleton, before sear's color pass reads it for
 // the backdrop draw. No-op unless the scene has a Sky singleton.
@@ -126,7 +126,7 @@ export const SkyPlugin: Plugin = {
     dependencies: [RenderPlugin, SearPlugin],
 
     initialize(state) {
-        state.resource(skyStateKey, createSkyState);
+        state.resource(skyStateKey);
         // Each State owns a distinct spec identity. Reusing the module singleton here would let an old
         // State's exact-object disposal guard mistake a later build for its own registration.
         registerBackground(state, { ...skyBackground });
@@ -152,7 +152,7 @@ export const SkyPlugin: Plugin = {
     },
 
     dispose(state) {
-        const sky = state.resource(skyStateKey, createSkyState);
+        const sky = state.resource(skyStateKey);
         sky.buffer?.destroy();
         sky.buffer = null;
     },

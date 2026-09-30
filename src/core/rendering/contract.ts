@@ -329,21 +329,21 @@ export interface Surface<
 }
 
 /** every schema-backed surface, keyed by name with a stable renderer-owned id. */
-const surfacesKey = Symbol("shallot.surfaces");
+const surfacesKey = { create: () => createSurfaces() };
 const createSurfaces = () => new Registry<Surface>();
 
 /** every registered surface in the active world's registry. */
 export const Surfaces: Registry<Surface> = new Proxy(new Registry<Surface>(), {
     get(_target, key) {
-        const registry = worldResource(surfacesKey, createSurfaces);
+        const registry = worldResource(surfacesKey);
         return Reflect.get(registry, key, registry) as unknown;
     },
 });
 
 /** Create this world's surface and background registries during RenderPlugin initialization. */
 export function initializeSurfaceState(state: State): void {
-    state.resource(surfacesKey, createSurfaces);
-    state.resource(backgroundsKey, createBackgrounds);
+    state.resource(surfacesKey);
+    state.resource(backgroundsKey);
 }
 
 /**
@@ -383,7 +383,7 @@ export function registerSurface<
     assertOwnFn(`registerSurface "${spec.name}" vs`, spec.vs);
     assertOwnFn(`registerSurface "${spec.name}" fs`, spec.fs);
     assertOwnFn(`registerSurface "${spec.name}" tag`, spec.tag);
-    return state.resource(surfacesKey, createSurfaces).register(spec as Surface);
+    return state.resource(surfacesKey).register(spec as Surface);
 }
 
 // Background bindings use the same group-2 scheme, minus the mesh vertex slot and depth variant.
@@ -413,13 +413,13 @@ export interface Background<B extends Record<string, Binding> = Record<string, B
 }
 
 /** every registered background, keyed by name. */
-const backgroundsKey = Symbol("shallot.backgrounds");
+const backgroundsKey = { create: () => createBackgrounds() };
 const createBackgrounds = () => new Registry<Background>();
 
 /** every registered background in the active world's registry. */
 export const Backgrounds: Registry<Background> = new Proxy(new Registry<Background>(), {
     get(_target, key) {
-        const registry = worldResource(backgroundsKey, createBackgrounds);
+        const registry = worldResource(backgroundsKey);
         return Reflect.get(registry, key, registry) as unknown;
     },
 });
@@ -433,5 +433,5 @@ export function registerBackground<B extends Record<string, Binding>>(
     spec: Background<B>,
 ): number {
     assertOwnFn(`registerBackground "${spec.name}" fs`, spec.fs);
-    return state.resource(backgroundsKey, createBackgrounds).register(spec as Background);
+    return state.resource(backgroundsKey).register(spec as Background);
 }

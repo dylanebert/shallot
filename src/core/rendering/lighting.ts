@@ -138,7 +138,7 @@ interface LightingResources {
     overflowWarned: boolean;
 }
 
-const lightingKey = Symbol("shallot.lighting");
+const lightingKey = { create: createLightingResources };
 
 function createLightingResources(): LightingResources {
     const backing = new ArrayBuffer(LIGHTING_UNIFORM_SIZE);
@@ -153,12 +153,12 @@ function createLightingResources(): LightingResources {
 }
 
 function lightingResources(): LightingResources {
-    return worldResource(lightingKey, createLightingResources);
+    return worldResource(lightingKey);
 }
 
 /** Create this world's lighting state during RenderPlugin initialization. */
 export function initializeLightingState(state: State): void {
-    state.resource(lightingKey, createLightingResources);
+    state.resource(lightingKey);
 }
 
 export const Lighting: Lighting = new Proxy({} as Lighting, {
@@ -346,7 +346,7 @@ export function warnLightOverflow(state: State): void {
     let count = 0;
     for (const _ of state.query(POINT_LIGHT_TERMS)) count++;
     if (count > MAX_POINT_LIGHTS) {
-        const resources = state.resource(lightingKey, createLightingResources);
+        const resources = state.resource(lightingKey);
         if (!resources.overflowWarned) {
             resources.overflowWarned = true;
             console.warn(
@@ -354,6 +354,6 @@ export function warnLightOverflow(state: State): void {
             );
         }
     } else {
-        state.resource(lightingKey, createLightingResources).overflowWarned = false;
+        state.resource(lightingKey).overflowWarned = false;
     }
 }

@@ -258,7 +258,7 @@ interface TextState {
     bitsU: Uint32Array;
 }
 
-const textStateKey = Symbol("shallot.text");
+const textStateKey = { create: createTextState };
 
 function createTextState(): TextState {
     const staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
@@ -284,7 +284,7 @@ function createTextState(): TextState {
 }
 
 function textState(): TextState {
-    return worldResource(textStateKey, createTextState);
+    return worldResource(textStateKey);
 }
 
 const _text = new Proxy({} as TextState, {
@@ -494,7 +494,7 @@ export const TextPlugin: Plugin = {
     },
 
     async initialize(state) {
-        state.resource(textStateKey, createTextState);
+        state.resource(textStateKey);
         initializeSdfState(state);
         _text.loaded = [];
         _text.atlases = [];

@@ -72,7 +72,7 @@ interface PipelineState {
     compiledTypedBg: Map<string, CompiledBackground>;
 }
 
-const pipelineStateKey = Symbol("shallot.sear-pipelines");
+const pipelineStateKey = { create: createPipelineState };
 
 function createPipelineState(): PipelineState {
     return {
@@ -84,12 +84,12 @@ function createPipelineState(): PipelineState {
 }
 
 function pipelineState(): PipelineState {
-    return worldResource(pipelineStateKey, createPipelineState);
+    return worldResource(pipelineStateKey);
 }
 
 /** Create this world's Sear pipeline caches during plugin initialization. */
 export function initializePipelineState(state: State): void {
-    state.resource(pipelineStateKey, createPipelineState);
+    state.resource(pipelineStateKey);
 }
 
 export function clearGroups(): void {

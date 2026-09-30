@@ -497,7 +497,7 @@ interface IsolationResources {
 }
 
 const ISOLATION_FONT = `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`;
-const isolationKey = Symbol("gpu-isolation");
+const isolationKey = { create: () => createIsolationResources() };
 const createIsolationResources = (): IsolationResources => ({
     camera: -1,
     actor: -1,
@@ -528,7 +528,7 @@ function featurePlugin(subject: Plugin): Plugin {
             subject,
         ],
         initialize(state) {
-            const resources = state.resource(isolationKey, createIsolationResources);
+            const resources = state.resource(isolationKey);
             let context: GPUCanvasContext;
             const canvas = {
                 width: 32,
@@ -634,7 +634,7 @@ function featurePlugin(subject: Plugin): Plugin {
                 throw new Error("Engine GlobalTransform did not publish its renderer buffer");
         },
         async warm(state) {
-            const resources = state.resource(isolationKey, createIsolationResources);
+            const resources = state.resource(isolationKey);
             if (!uses(subject, BvhPlugin)) return;
             const device = Compute.device;
             const bvh = await createBvh(device, 2);
@@ -650,7 +650,7 @@ function featurePlugin(subject: Plugin): Plugin {
             resources.bvh = bvh;
         },
         dispose(state) {
-            const resources = state.resource(isolationKey, createIsolationResources);
+            const resources = state.resource(isolationKey);
             resources.bvh?.destroy();
             resources.bvh = null;
         },
@@ -737,7 +737,7 @@ async function renderAlone(
     );
     try {
         tracked.labels.set(app.state, label);
-        const resources = app.state.resource(isolationKey, createIsolationResources);
+        const resources = app.state.resource(isolationKey);
         tracked.withWorld(app.state, () => authorIsolationContent(app.state, resources, content));
         await stepGpuWorld(app.state, `${label} solo world`, tracked);
         return await readRenderedFrame(app.state, resources, `${label} solo frame`, tracked);
@@ -773,7 +773,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             ),
         );
         firstDevice.labels.set(first.state, "first world");
-        const firstFeatures = first.state.resource(isolationKey, createIsolationResources);
+        const firstFeatures = first.state.resource(isolationKey);
         const firstA = firstDevice.withWorld(first.state, () =>
             authorIsolationContent(first!.state, firstFeatures, FIRST_CONTENT),
         );
@@ -789,7 +789,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             ),
         );
         secondDevice.labels.set(second.state, "second world");
-        const secondFeatures = second.state.resource(isolationKey, createIsolationResources);
+        const secondFeatures = second.state.resource(isolationKey);
         let prebuildWriteError: unknown;
         try {
             withCompute(second.state.gpu, () =>

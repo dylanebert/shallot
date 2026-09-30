@@ -68,15 +68,15 @@ const blitFs = tgpu.fragmentFn({
 // pipelines bind to the root that created them (device-scoped, memoized — `engine/runtime/gpu.ts`), so a
 // stale entry from a torn-down device must not be reused; keyed like the pre-port cache, by format alone
 // (the per-device root memo means `Compute.root` always matches whichever device is currently adopted).
-const blitPipelinesKey = Symbol("shallot.image-blit-pipelines");
+const blitPipelinesKey = { create: () => new Map<string, TgpuRenderPipeline>() };
 
 function blitPipelines(): Map<string, TgpuRenderPipeline> {
-    return worldResource(blitPipelinesKey, () => new Map<string, TgpuRenderPipeline>());
+    return worldResource(blitPipelinesKey);
 }
 
 /** Create this world's image pipeline cache during RenderPlugin initialization. */
 export function initializeImageState(state: State): void {
-    state.resource(blitPipelinesKey, () => new Map<string, TgpuRenderPipeline>());
+    state.resource(blitPipelinesKey);
 }
 
 function blitPipeline(format: GPUTextureFormat): TgpuRenderPipeline {

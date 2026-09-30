@@ -31,7 +31,7 @@ interface SegmentState {
     args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;
 }
 
-const segmentStateKey = Symbol("shallot.line-segments");
+const segmentStateKey = { create: createSegmentState };
 
 function createSegmentState(): SegmentState {
     const staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
@@ -47,11 +47,11 @@ function createSegmentState(): SegmentState {
 }
 
 function segmentState(): SegmentState {
-    return worldResource(segmentStateKey, createSegmentState);
+    return worldResource(segmentStateKey);
 }
 
 export function initializeSegmentState(state: State): void {
-    state.resource(segmentStateKey, createSegmentState);
+    state.resource(segmentStateKey);
 }
 
 // the producer's GPU publication. `count` is the segments packed this frame (reset after the upload);

@@ -87,7 +87,7 @@ interface RenderFrameState {
     viewKeyNext: Float64Array;
 }
 
-const renderFrameKey = Symbol("shallot.render-frame");
+const renderFrameKey = { create: createRenderFrameState };
 
 function createRenderFrameState(): RenderFrameState {
     return {
@@ -104,11 +104,11 @@ function createRenderFrameState(): RenderFrameState {
 }
 
 function renderFrameState(): RenderFrameState {
-    return worldResource(renderFrameKey, createRenderFrameState);
+    return worldResource(renderFrameKey);
 }
 
 function initializeRenderFrameState(state: State): void {
-    state.resource(renderFrameKey, createRenderFrameState);
+    state.resource(renderFrameKey);
 }
 
 const _frame = new Proxy({} as RenderFrameState, {
@@ -383,15 +383,6 @@ const EndFrameSystem: System = {
         state.endGpuFrame();
         Render.encoder = null;
         Views.forEach(clearTargets);
-    },
-    dispose() {
-        for (const view of Views.values()) {
-            view.observer?.disconnect();
-            view.context?.unconfigure();
-        }
-        Views.clear();
-        clearOffscreens();
-        clearScratch();
     },
 };
 

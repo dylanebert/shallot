@@ -124,7 +124,7 @@ interface SearState {
     pointFrames: PointShadowFrame[];
 }
 
-const searStateKey = Symbol("shallot.sear");
+const searStateKey = { create: createSearState };
 
 function createSearState(): SearState {
     const clearValue = { r: 0, g: 0, b: 0, a: 1 };
@@ -188,7 +188,7 @@ function createSearState(): SearState {
 }
 
 function searState(): SearState {
-    return worldResource(searStateKey, createSearState);
+    return worldResource(searStateKey);
 }
 
 const _sear = new Proxy({} as SearState, {
@@ -1256,7 +1256,7 @@ export function createSearPlugin(): Plugin {
         // builds the Pbr struct from the packed `material` lanes; the engine default has no specular until a
         // Material sets metallic > 0 (dielectric 0), so a bare Part shades exactly like the pre-PBR diffuse.
         initialize(state) {
-            state.resource(searStateKey, createSearState);
+            state.resource(searStateKey);
             initializeShadowAtlasState(state);
             initializePipelineState(state);
             initializeRegatherState(state);

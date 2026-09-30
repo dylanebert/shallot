@@ -231,13 +231,15 @@ const JOINT_TERMS = [Joint];
 
 // FNV_BASIS is the empty-set signature, so an unconstrained scene's first frame already matches → no upload.
 /** re-arm the warning dedupe when a plugin world is warmed. Signatures themselves are State-owned. */
-const signatureWarningsKey = Symbol("shallot.physics-signature-warnings");
-
-function signatureWarningsFor(state: State) {
-    return state.resource(signatureWarningsKey, () => ({
+const signatureWarningsKey = {
+    create: () => ({
         joints: new Set<number>(),
         springs: new Set<number>(),
-    }));
+    }),
+};
+
+function signatureWarningsFor(state: State) {
+    return state.resource(signatureWarningsKey);
 }
 
 export function resetSignatures(state: State): void {
@@ -245,7 +247,7 @@ export function resetSignatures(state: State): void {
         const warnings = signatureWarningsFor(state);
         warnings.joints.clear();
         warnings.springs.clear();
-        resetConstraints(state.resource(physicsRuntimeKey, newRuntime).constraints);
+        resetConstraints(state.resource(physicsRuntimeKey).constraints);
     });
 }
 
@@ -403,7 +405,7 @@ interface PhysicsRuntime {
     jointSig: number;
 }
 
-const physicsRuntimeKey = Symbol("shallot.physics-runtime");
+const physicsRuntimeKey = { create: newRuntime };
 
 function newRuntime(): PhysicsRuntime {
     const failed: PhysicsRuntime["failed"] = new Map();
@@ -489,7 +491,7 @@ function createScopedHandle<T extends object>(state: State, value: T, runtime: P
 }
 
 function runtimeFor(state: State): PhysicsRuntime {
-    const runtime = state.resource(physicsRuntimeKey, newRuntime);
+    const runtime = state.resource(physicsRuntimeKey);
     if (!runtime.initialized)
         throw new Error("physics: PhysicsPlugin is not initialized for this State");
     return runtime;
@@ -1046,7 +1048,7 @@ export const PhysicsPlugin: Plugin = {
     },
 
     initialize(state) {
-        state.resource(physicsRuntimeKey, newRuntime).initialized = true;
+        state.resource(physicsRuntimeKey).initialized = true;
     },
 
     async warm(state) {

@@ -1,5 +1,5 @@
 import type * as d from "typegpu/data";
-import { ReadbackPool } from "../runtime";
+import { ReadbackPool, releaseCompute } from "../runtime";
 import {
     bindFields,
     type Component,
@@ -57,6 +57,9 @@ export interface WorldGpu {
     precompiled?: (label: string, start: number, end: number) => void;
 }
 
+/** A world-owned value identified by this declaration object, not its creator or a name. */
+export type Resource<T> = { readonly create: (state: State) => T };
+
 /**
  * ecs state passed to every system
  * @expand
@@ -100,7 +103,7 @@ export class State {
             storage: Record<string, unknown>;
         }
     >();
-    private _resources = new Map<PropertyKey, unknown>();
+    private _resources = new Map<Resource<unknown>, unknown>();
     private _tables = new Map<string, GpuTable>();
     private _tablesByComponent = new Map<number, GpuTable[]>();
     private _membershipObservers = new Map<number, Set<(eid: number, present: boolean) => void>>();
@@ -132,11 +135,16 @@ export class State {
         this._withCompute = withCompute;
     }
 
-    /** resolve a typed world resource once for this State; the entry dies with its world. */
-    resource<T>(key: PropertyKey, create: (state: State) => T): T {
-        if (this._resources.has(key)) return this._resources.get(key) as T;
-        const value = create(this);
-        this._resources.set(key, value);
+    /**
+     * Resolve once per declaration object in this State. Reloaded declarations create fresh values;
+     * creators register cleanup with onDispose or own, which runs at world disposal.
+     * Refuses after disposal; this does not invalidate caller-retained references.
+     */
+    resource<T>(declaration: Resource<T>): T {
+        if (this._disposed) throw new Error("State.resource: world is disposed");
+        if (this._resources.has(declaration)) return this._resources.get(declaration) as T;
+        const value = declaration.create(this);
+        this._resources.set(declaration, value);
         return value;
     }
 
@@ -739,5 +747,6 @@ export class State {
         this._gpu?.textures.clear();
         this._gpu?.samplers.clear();
         this._gpu?.typed.clear();
+        releaseCompute(this);
     }
 }

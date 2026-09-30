@@ -181,7 +181,7 @@ interface OutlineState {
     composites: Map<number, CompositeEntry>;
 }
 
-const outlineStateKey = Symbol("shallot.outline");
+const outlineStateKey = { create: () => createOutlineState() };
 const createOutlineState = (): OutlineState => ({
     gpu: {
         maskPlain: null,
@@ -198,10 +198,10 @@ const createOutlineState = (): OutlineState => ({
     targets: new Map(),
     composites: new Map(),
 });
-const outlineState = () => worldResource(outlineStateKey, createOutlineState);
+const outlineState = () => worldResource(outlineStateKey);
 
 function initializeOutlineState(state: State): void {
-    state.resource(outlineStateKey, createOutlineState);
+    state.resource(outlineStateKey);
 }
 
 const _gpu = new Proxy({} as OutlineGpuState, {

@@ -14,21 +14,22 @@ const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise
 await setupGlobals();
 
 const Value = { amount: field(f32) };
-const resourceKey = Symbol("world-probe");
-const textureKey = Symbol("world-probe-texture");
+const resourceKey = {
+    create: () => Compute.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
+};
+const textureKey = {
+    create: () =>
+        Compute.device.createTexture({
+            size: [1, 1, 1],
+            format: "rgba8unorm",
+            usage: GPUTextureUsage.TEXTURE_BINDING,
+        }),
+};
 const ResourcePlugin = {
     name: "WorldResourceProbe",
     initialize(state: State) {
-        const buffer = state.resource(resourceKey, () =>
-            Compute.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
-        );
-        const texture = state.resource(textureKey, () =>
-            Compute.device.createTexture({
-                size: [1, 1, 1],
-                format: "rgba8unorm",
-                usage: GPUTextureUsage.TEXTURE_BINDING,
-            }),
-        );
+        const buffer = state.resource(resourceKey);
+        const texture = state.resource(textureKey);
         const typed = Compute.root.createBuffer(d.arrayOf(d.u32, 1)).$usage("storage");
         const typedBuffer = Compute.root.unwrap(typed);
         Compute.buffers.set("world-probe", buffer);

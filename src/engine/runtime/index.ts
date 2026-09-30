@@ -14,6 +14,7 @@ export {
     precompileAll,
     precompileScope,
     rawDevice,
+    releaseCompute,
     requestGPU,
     type ShaderArtifact,
     stampAdapter,

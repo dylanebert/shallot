@@ -210,13 +210,13 @@ type Composite = {
     pipeline: TgpuComputePipeline;
 };
 
-const compositeCacheKey = Symbol("shallot.glaze-composites");
+const compositeCacheKey = { create: () => createCompositeCache() };
 const createCompositeCache = () => new Map<string, Composite>();
-const compositeCache = () => worldResource(compositeCacheKey, createCompositeCache);
+const compositeCache = () => worldResource(compositeCacheKey);
 
 /** Create this world's Glaze pipeline cache during plugin initialization. */
 export function initializeCompositeState(state: State): void {
-    state.resource(compositeCacheKey, createCompositeCache);
+    state.resource(compositeCacheKey);
 }
 
 /**

@@ -133,7 +133,7 @@ const READ_RING = 4;
 
 // GPU timings are optional; CPU timings and resource tracking work without them.
 const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
-const profileKey = Symbol("shallot.profile");
+const profileKey = { create: () => new ProfileImpl() };
 
 // timestamp queries + pipeline-compile timing + live allocation tracking. Each State owns its query set,
 // timestamp results, counters and device hooks; staging belongs to the world pool.
@@ -1116,7 +1116,7 @@ function collectStats(s: State, profile: ProfileImpl): OverlayData {
 
 /** Resolve the profiler state owned by one App. */
 export function profile(state: State): Profile {
-    return state.resource(profileKey, () => new ProfileImpl());
+    return state.resource(profileKey);
 }
 
 /** Active-callback facade; code outside a State callback uses `profile(state)`. */

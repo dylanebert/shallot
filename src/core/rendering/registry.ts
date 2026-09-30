@@ -78,18 +78,18 @@ class DrawRegistry extends Registry<Draw> {
     }
 }
 
-const drawsKey = Symbol("shallot.draws");
+const drawsKey = { create: () => createDraws() };
 const createDraws = () => new DrawRegistry();
 
 /** every registered draw in the active world's registry, keyed by name */
 export const Draws: Registry<Draw> = new Proxy(new DrawRegistry(), {
     get(_target, key) {
-        const registry = worldResource(drawsKey, createDraws);
+        const registry = worldResource(drawsKey);
         return Reflect.get(registry, key, registry) as unknown;
     },
 });
 
 /** Create this world's draw registry during RenderPlugin initialization. */
 export function initializeDrawState(state: State): void {
-    state.resource(drawsKey, createDraws);
+    state.resource(drawsKey);
 }

@@ -38,7 +38,7 @@ export interface Render {
     shadeCount: number;
 }
 
-const renderKey = Symbol("shallot.render");
+const renderKey = { create: createRender };
 
 function createRender(): Render {
     return {
@@ -55,18 +55,16 @@ function createRender(): Render {
 
 /** Create this world's render state during RenderPlugin initialization. */
 export function initializeRenderState(state: State): void {
-    state.resource(renderKey, createRender);
+    state.resource(renderKey);
 }
 
 /** Active world's render state. Systems run inside their State's GPU callback. */
 export const Render: Render = new Proxy({} as Render, {
     get(_target, key) {
-        return worldResource<Render>(renderKey, createRender)[key as keyof Render];
+        return worldResource<Render>(renderKey)[key as keyof Render];
     },
     set(_target, key, value) {
-        (worldResource<Render>(renderKey, createRender) as unknown as Record<PropertyKey, unknown>)[
-            key
-        ] = value;
+        (worldResource<Render>(renderKey) as unknown as Record<PropertyKey, unknown>)[key] = value;
         return true;
     },
 });

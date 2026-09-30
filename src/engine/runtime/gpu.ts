@@ -1,6 +1,6 @@
 import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
-import { useState } from "../ecs";
+import { type Resource, useState } from "../ecs";
 import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
 import { captureGpuLog } from "./log";
 import { now } from "./platform";
@@ -199,6 +199,11 @@ export interface Compute {
 /** active world's GPU surface, resolved for its lifecycle and system callbacks. */
 let activeCompute: Compute | undefined;
 
+/** @internal Release the ambient GPU context when its owning State is disposed. */
+export function releaseCompute(world: object): void {
+    if (activeCompute?.world === world) activeCompute = undefined;
+}
+
 function activateState(compute: Compute | undefined): void {
     const world = compute?.world as
         | { of(component: Record<string, unknown>): Record<string, unknown> }
@@ -214,8 +219,10 @@ export function withCompute<T>(compute: object, callback: () => T): T {
     try {
         return callback();
     } finally {
-        activeCompute = previous;
-        activateState(previous);
+        activeCompute = (previous?.world as { disposed?: boolean } | undefined)?.disposed
+            ? undefined
+            : previous;
+        activateState(activeCompute);
     }
 }
 
@@ -230,8 +237,10 @@ export async function withComputeAsync<T>(
     try {
         return await callback();
     } finally {
-        activeCompute = previous;
-        activateState(previous);
+        activeCompute = (previous?.world as { disposed?: boolean } | undefined)?.disposed
+            ? undefined
+            : previous;
+        activateState(activeCompute);
     }
 }
 
@@ -254,12 +263,12 @@ export function currentWorld<T extends object>(): T | undefined {
 }
 
 /** Resolve a resource in the State active for this lifecycle or system callback. */
-export function worldResource<T>(key: PropertyKey, create: () => T): T {
+export function worldResource<T>(declaration: Resource<T>): T {
     const world = activeCompute?.world as
-        | { resource?: (key: PropertyKey, create: () => T) => T }
+        | { resource?: <V>(declaration: Resource<V>) => V }
         | undefined;
     if (!world?.resource) throw new Error("worldResource accessed outside a world's lifecycle");
-    return world.resource(key, create);
+    return world.resource(declaration);
 }
 
 export const Compute: Compute = new Proxy({} as Compute, {
@@ -1219,14 +1228,16 @@ export async function precompileAll(): Promise<void> {
 }
 
 // TypeGPU's root and resource handles belong to the State using them, even when two States share a device.
-const typegpuRootKey = Symbol("shallot.typegpu-root");
+const typegpuRoot: Resource<{ root?: TgpuRoot }> = { create: () => ({}) };
 
 function adopt(
     device: GPUDevice,
-    owner?: { resource?: <T>(key: PropertyKey, create: () => T) => T },
+    owner?: { resource?: <T>(declaration: Resource<T>) => T },
 ): TgpuRoot {
     const create = () => tgpu.initFromDevice({ device });
-    return owner?.resource ? owner.resource(typegpuRootKey, create) : create();
+    if (!owner?.resource) return create();
+    const value = owner.resource(typegpuRoot);
+    return (value.root ??= create());
 }
 
 /** classify the adapter and warn once when the result is not real hardware. */
@@ -1267,7 +1278,7 @@ export async function requestGPU(
     adapter?: GPUAdapter,
     owner?: {
         own(resource: { destroy(): void }): void;
-        resource?: <T>(key: PropertyKey, create: () => T) => T;
+        resource?: <T>(declaration: Resource<T>) => T;
         world?: object;
     },
 ): Promise<Compute> {

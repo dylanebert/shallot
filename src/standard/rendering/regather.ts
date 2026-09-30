@@ -27,7 +27,7 @@ interface RegatherState {
     pipelineCapacity: number;
 }
 
-const regatherStateKey = Symbol("shallot.regather");
+const regatherStateKey = { create: () => createRegatherState() };
 const createRegatherState = (): RegatherState => ({
     aPipe: null,
     bPipe: null,
@@ -38,12 +38,12 @@ const createRegatherState = (): RegatherState => ({
 });
 
 function regatherState(): RegatherState {
-    return worldResource(regatherStateKey, createRegatherState);
+    return worldResource(regatherStateKey);
 }
 
 /** Create this world's regather pipeline state during Sear initialization. */
 export function initializeRegatherState(state: State): void {
-    state.resource(regatherStateKey, createRegatherState);
+    state.resource(regatherStateKey);
 }
 
 /** Pass A's exact compiled source, exposed lazily for the device-free indirect-record contract test. */

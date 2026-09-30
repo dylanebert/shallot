@@ -156,7 +156,7 @@ interface ViewResources {
     scratch: Map<number, { a: Scratch | null; b: Scratch | null; w: number; h: number }>;
 }
 
-const viewResourcesKey = Symbol("shallot.views");
+const viewResourcesKey = { create: createViewResources };
 
 function stateMap<K, V>(): Map<K, V> {
     const map = new Map<K, V>();
@@ -174,17 +174,36 @@ function stateMap<K, V>(): Map<K, V> {
     });
 }
 
-function createViewResources(): ViewResources {
-    return { views: stateMap(), offscreen: stateMap(), scratch: stateMap() };
+function createViewResources(state: State): ViewResources {
+    const resources: ViewResources = {
+        views: stateMap(),
+        offscreen: stateMap(),
+        scratch: stateMap(),
+    };
+    state.onDispose(() => {
+        for (const view of resources.views.values()) {
+            view.observer?.disconnect();
+            view.context?.unconfigure();
+        }
+        resources.views.clear();
+        for (const target of resources.offscreen.values()) target.texture.destroy();
+        resources.offscreen.clear();
+        for (const pair of resources.scratch.values()) {
+            pair.a?.texture.destroy();
+            pair.b?.texture.destroy();
+        }
+        resources.scratch.clear();
+    });
+    return resources;
 }
 
 function viewResources(): ViewResources {
-    return worldResource(viewResourcesKey, createViewResources);
+    return worldResource(viewResourcesKey);
 }
 
 /** Create this world's view and target registries during RenderPlugin initialization. */
 export function initializeViewState(state: State): void {
-    state.resource(viewResourcesKey, createViewResources);
+    state.resource(viewResourcesKey);
 }
 
 /** every camera with a view, keyed by eid: canvas-bound ({@link attachCanvas}) or off-screen ({@link attachView}) */
@@ -471,7 +490,7 @@ export function offscreen(eid: number, w: number, h: number): GPUTextureView {
 
 /** @internal the State-owned texture behind a camera's rendered offscreen view. */
 export function offscreenTexture(state: State, eid: number): GPUTexture | undefined {
-    return state.resource(viewResourcesKey, createViewResources).offscreen.get(eid)?.texture;
+    return state.resource(viewResourcesKey).offscreen.get(eid)?.texture;
 }
 
 // free one camera's offscreen target (on detach). Safe on cameras that never allocated one

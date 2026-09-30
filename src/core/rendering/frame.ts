@@ -44,7 +44,7 @@ export interface Frame {
     stagingU32: Uint32Array;
 }
 
-const frameKey = Symbol("shallot.frame");
+const frameKey = { create: createFrame };
 
 function createFrame(): Frame {
     const backing = new ArrayBuffer(FRAME_UNIFORM_SIZE);
@@ -57,17 +57,15 @@ function createFrame(): Frame {
 
 /** Create this world's frame UBO state during RenderPlugin initialization. */
 export function initializeFrameState(state: State): void {
-    state.resource(frameKey, createFrame);
+    state.resource(frameKey);
 }
 
 export const Frame: Frame = new Proxy({} as Frame, {
     get(_target, key) {
-        return worldResource<Frame>(frameKey, createFrame)[key as keyof Frame];
+        return worldResource<Frame>(frameKey)[key as keyof Frame];
     },
     set(_target, key, value) {
-        (worldResource<Frame>(frameKey, createFrame) as unknown as Record<PropertyKey, unknown>)[
-            key
-        ] = value;
+        (worldResource<Frame>(frameKey) as unknown as Record<PropertyKey, unknown>)[key] = value;
         return true;
     },
 });
