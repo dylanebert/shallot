@@ -50,6 +50,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
 }
 test("GlobalTransform is an engine-owned public schema, independent of Physics", () => {
     expect(Reflect.get(engine, "GlobalTransform")).toBe(GlobalTransform);
+    expect(Reflect.get(engine, "markGlobalTransformDiscontinuity")).toBeUndefined();
 });
 
 test("Transform placement lands in the fixed-tick GlobalTransform column and the renderer table", async () => {

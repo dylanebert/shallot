@@ -7,7 +7,6 @@ import {
     f32,
     field,
     GlobalTransform,
-    markGlobalTransformDiscontinuity,
     type Plugin,
     type State,
     type System,
@@ -819,7 +818,7 @@ export function setKinematic(
     global.pos.dirty[word] |= mask;
     global.quat.dirty[word] |= mask;
     global.vel.dirty[word] |= mask;
-    if (teleport) markGlobalTransformDiscontinuity(state, eid);
+    if (teleport) state.teleport(eid);
     if (moved && !tb.isAwake()) tb.setAwake(true);
     prev.pos[0] = pos[0];
     prev.pos[1] = pos[1];

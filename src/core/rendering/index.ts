@@ -72,6 +72,7 @@ export { mesh } from "./mesh";
 const SLOT_FLOATS = VIEW_STRIDE / 4;
 const CAMERAS = [Camera];
 const FRAME_ENCODER: GPUCommandEncoderDescriptor = { label: "shallot-frame" };
+const GLOBAL_TRANSFORM_PASS: GPUComputePassDescriptor = {};
 const VIEW_KEY_FLOATS = 26;
 
 interface RenderFrameState {
@@ -349,6 +350,20 @@ export const BeginFrameSystem: System = {
                 0,
                 count * CULL_VOLUME_FLOATS,
             );
+        }
+
+        // Every renderer reads interpolated GlobalTransforms, independently of clustered lighting.
+        const globalTransformRuntime = state.globalTransformRuntime;
+        const globalTransformCount =
+            Render.viewCount > 0 && globalTransformRuntime?.enabled
+                ? (globalTransformRuntime.current?.count ?? 0)
+                : 0;
+        if (globalTransformRuntime && globalTransformCount > 0) {
+            const pass = encoder.beginComputePass(GLOBAL_TRANSFORM_PASS);
+            pass.setPipeline(globalTransformRuntime.pipeline!);
+            pass.setBindGroup(0, globalTransformRuntime.group!);
+            pass.dispatchWorkgroups(Math.ceil(globalTransformCount / 64));
+            pass.end();
         }
     },
 };

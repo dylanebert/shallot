@@ -34,7 +34,6 @@ export {
     Identity,
     i32,
     type Membership,
-    markGlobalTransformDiscontinuity,
     not,
     or,
     type Pair,

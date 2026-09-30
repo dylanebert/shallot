@@ -28,7 +28,6 @@ export const globalTransformTraits = {
 };
 const transformTerms = [Transform];
 const globalTransformTerms = [GlobalTransform];
-const TRANSFORM_JUMP_DISTANCE_SQ = 1;
 const layout = tgpu.bindGroupLayout({
     current: { storage: d.arrayOf(Xform), access: "readonly" },
     previous: { storage: d.arrayOf(Xform), access: "readonly" },
@@ -217,26 +216,6 @@ function queueFresh(runtime: GlobalTransformRuntime, eid: number): void {
 }
 
 /** @internal Gather authored placement into the fixed world column without per-row callbacks. */
-export function markGlobalTransformDiscontinuity(state: State, eid: number): void {
-    const runtime = state.globalTransformRuntime;
-    if (!runtime?.enabled || !state.has(eid, GlobalTransform)) return;
-    const phase = runtime.captureIndex;
-    for (let i = 0; i < runtime.discontinuityCount; i++) {
-        if (runtime.discontinuities[i] === eid && runtime.discontinuityPhases[i] === phase) return;
-    }
-    if (runtime.discontinuityCount === runtime.discontinuities.length) {
-        const discontinuities = new Uint32Array(runtime.discontinuities.length * 2);
-        const phases = new Uint8Array(discontinuities.length);
-        discontinuities.set(runtime.discontinuities);
-        phases.set(runtime.discontinuityPhases);
-        runtime.discontinuities = discontinuities;
-        runtime.discontinuityPhases = phases;
-    }
-    runtime.discontinuities[runtime.discontinuityCount] = eid;
-    runtime.discontinuityPhases[runtime.discontinuityCount++] = phase;
-}
-
-/** @internal Gather authored placement and mark large authored jumps as discontinuities. */
 export function deriveTransforms(state: State): void {
     const runtime = state.globalTransformRuntime;
     if (!runtime) return;
@@ -259,11 +238,6 @@ export function deriveTransforms(state: State): void {
             mask = 1 << (eid & 31);
         if (((spd[word] | sqd[word] | ssd[word]) & mask) === 0) continue;
         const offset = eid * 4;
-        const dx = pp[offset] - op[offset];
-        const dy = pp[offset + 1] - op[offset + 1];
-        const dz = pp[offset + 2] - op[offset + 2];
-        if (dx * dx + dy * dy + dz * dz > TRANSFORM_JUMP_DISTANCE_SQ)
-            markGlobalTransformDiscontinuity(state, eid);
         let posChanged = false,
             quatChanged = false,
             scaleChanged = false;

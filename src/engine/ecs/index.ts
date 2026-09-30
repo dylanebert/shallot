@@ -27,7 +27,6 @@ export {
     globalTransformTable,
     globalTransformTraits,
     initializeGlobalTransform,
-    markGlobalTransformDiscontinuity,
     registerGlobalTransform,
     Transform,
 } from "./global-transform";

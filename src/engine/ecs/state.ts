@@ -13,6 +13,7 @@ import {
 import { Entities } from "./entity";
 import {
     forgetGlobalTransformEntity,
+    GlobalTransform,
     type GlobalTransformRuntime,
     globalTransformProducerChanged,
     prepareGlobalTransformFrame,
@@ -427,6 +428,27 @@ export class State {
      * read via `time.scale`. */
     timescale(scale: number): void {
         this._scheduler.setScale(scale);
+    }
+
+    /** Mark a placement change as a teleport so rendering snaps instead of interpolating it. */
+    teleport(eid: number): void {
+        const runtime = this.globalTransformRuntime;
+        if (!runtime?.enabled || !this.has(eid, GlobalTransform)) return;
+        const phase = runtime.captureIndex;
+        for (let i = 0; i < runtime.discontinuityCount; i++) {
+            if (runtime.discontinuities[i] === eid && runtime.discontinuityPhases[i] === phase)
+                return;
+        }
+        if (runtime.discontinuityCount === runtime.discontinuities.length) {
+            const discontinuities = new Uint32Array(runtime.discontinuities.length * 2);
+            const phases = new Uint8Array(discontinuities.length);
+            discontinuities.set(runtime.discontinuities);
+            phases.set(runtime.discontinuityPhases);
+            runtime.discontinuities = discontinuities;
+            runtime.discontinuityPhases = phases;
+        }
+        runtime.discontinuities[runtime.discontinuityCount] = eid;
+        runtime.discontinuityPhases[runtime.discontinuityCount++] = phase;
     }
 
     /** create a new entity, returns its ID */

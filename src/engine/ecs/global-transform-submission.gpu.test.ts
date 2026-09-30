@@ -108,7 +108,7 @@ for (const renderer of [false, true]) {
                 expect(state.time.fixedSteps).toBe(2);
                 expect(encoders).toBe(renderer ? 1 : 0);
                 expect(submissions).toBe(renderer ? 1 : 0);
-                expect(copies).toBe(renderer ? 3 : 0);
+                expect(copies).toBe(renderer ? 2 : 0);
                 if (!renderer) {
                     expect(globalTransformWrites).toBe(0);
                     expect(state.globalTransformRuntime!.enabled).toBe(false);

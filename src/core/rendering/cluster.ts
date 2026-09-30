@@ -853,15 +853,6 @@ export const LightCullSystem: System = {
         const compact = lightCount > 0 ? bindCompact(state) : null;
         const cull = bindCull();
         const pass = Render.encoder.beginComputePass(_gpu.cullPass);
-        const globalTransformRuntime = state.globalTransformRuntime;
-        const globalTransformCount = globalTransformRuntime?.enabled
-            ? (globalTransformRuntime.current?.count ?? 0)
-            : 0;
-        if (globalTransformCount) {
-            pass.setPipeline(globalTransformRuntime!.pipeline!);
-            pass.setBindGroup(0, globalTransformRuntime!.group!);
-            pass.dispatchWorkgroups(Math.ceil(globalTransformCount / 64));
-        }
         if (compact) {
             pass.setPipeline(compact.pipeline);
             pass.setBindGroup(0, compact.group);
