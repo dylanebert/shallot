@@ -37,7 +37,7 @@ async function trackedPool(
         return buffer;
     };
     const app = await build({ defaults: false, plugins: [], device });
-    const source = device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_SRC });
+    const source = app.state.gpu.device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_SRC });
     try {
         await body(app.state, source, counts);
     } finally {

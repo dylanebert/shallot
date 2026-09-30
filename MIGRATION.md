@@ -92,7 +92,7 @@ const count = new Uint32Array(observation.bytes)[0];
 
 Existing `probeBuffer(device, source, options)` and `probeTexture(device, source, options)` calls now take the owning State instead of the GPUDevice. The returned bytes remain owned by that result.
 
-If a fixed simulation previously consumed Mirror snapshots, declare its plugin `deterministic: false` before feeding it requested readback. Keep counts that only size GPU work on the GPU instead of replacing the old Mirror with per-frame requests.
+Requests accept only buffers and textures owned by their State. Allocate through `state.gpu.device` or `state.gpu.root`; register an external allocation intended solely for this world with `state.own(resource)` before probing it. Do not request another world's resource, even on a shared device. Keep counts that only size GPU work on the GPU instead of replacing the old Mirror with per-frame requests.
 
 ## `shallot recipe` is now `shallot add`
 

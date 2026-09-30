@@ -68,22 +68,6 @@ export interface System {
 
 export class Scheduler {
     private readonly _systems = new Set<System>();
-    private readonly _nonDeterministic = new WeakSet<System>();
-    private _current: System | undefined;
-    private _currentGroup: SystemGroup | undefined;
-
-    /** @internal Readback is not deterministic simulation input. */
-    assertReadbackAllowed(): void {
-        if (
-            this._currentGroup === "fixed" &&
-            this._current &&
-            !this._nonDeterministic.has(this._current)
-        ) {
-            throw new Error(
-                `Plugin system "${this._names.get(this._current) ?? this._current.name ?? "?"}" reads readback in fixed; declare deterministic: false`,
-            );
-        }
-    }
     private _systemsVersion = 0;
     private _accumulator = 0;
     private readonly _initialized = new WeakSet<System>();
@@ -142,8 +126,7 @@ export class Scheduler {
         }
     }
 
-    register(system: System, pluginName?: string, deterministic = true): void {
-        if (!deterministic) this._nonDeterministic.add(system);
+    register(system: System, pluginName?: string): void {
         this._systems.add(system);
         this._systemsVersion++;
         // a system's own `name` labels its profiler row legibly (`Sear/forward`); without
@@ -248,8 +231,6 @@ export class Scheduler {
             // bug would wedge a live host). It pauses after the first throw — a failed setup stays
             // uninitialized so the fix retries it — and resumes on its next swap or a rebuild.
             try {
-                this._current = system;
-                this._currentGroup = group;
                 if (!this._initialized.has(system)) {
                     system.setup?.(state);
                     this._initialized.add(system);
@@ -269,9 +250,6 @@ export class Scheduler {
                     `System "${this._names.get(system) ?? system.name ?? "?"}" threw and is paused until its next reload:`,
                     e,
                 );
-            } finally {
-                this._current = undefined;
-                this._currentGroup = undefined;
             }
         }
     }

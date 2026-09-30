@@ -98,96 +98,25 @@ test("a texture request shares buffer staging and returns tightly packed owned b
     }
 });
 
-test("a deterministic consumer cannot read bytes or stamps requested by another world", async () => {
-    const producer = await build({ defaults: false, plugins: [] });
-    const source = producer.state.gpu.device.createBuffer({
-        size: 4,
-        usage: GPUBufferUsage.COPY_SRC,
-    });
-    const result = await probeBuffer(producer.state, source);
-    let refusals = 0;
-    const consumer = await build({
-        defaults: false,
-        plugins: [
-            {
-                name: "CrossWorldConsumer",
-                systems: [
-                    {
-                        group: "fixed",
-                        update() {
-                            for (const read of [
-                                () => result.bytes,
-                                () => result.frame,
-                                () => result.fixedTick,
-                            ]) {
-                                try {
-                                    read();
-                                } catch (error) {
-                                    if (String(error).includes("CrossWorldConsumer")) refusals++;
-                                    else throw error;
-                                }
-                            }
-                        },
-                    },
-                ],
-            },
-        ],
-    });
+test("readback bytes and stamps are plain owned data that survive world disposal", async () => {
+    const app = await build({ defaults: false, plugins: [] });
     try {
-        producer.dispose();
-        consumer.state.step(1 / 60);
-        expect(refusals).toBe(3);
+        const source = app.state.gpu.device.createBuffer({
+            size: 4,
+            usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        });
+        app.state.gpu.device.queue.writeBuffer(source, 0, new Uint32Array([17]));
+        const result = await probeBuffer(app.state, source);
+        const retained = new Uint32Array(result.bytes);
+        for (const field of ["bytes", "frame", "fixedTick"]) {
+            expect(Object.getOwnPropertyDescriptor(result, field)?.get).toBeUndefined();
+        }
+        app.dispose();
+        expect(retained[0]).toBe(17);
+        expect(new Uint32Array(result.bytes)[0]).toBe(17);
+        expect(result.frame).toBe(0);
+        expect(result.fixedTick).toBe(0);
     } finally {
-        source.destroy();
-        producer.dispose();
-        consumer.dispose();
+        app.dispose();
     }
 });
-
-for (const deterministic of [true, false]) {
-    test(`fixed readback ${deterministic ? "refuses deterministic" : "allows explicitly non-deterministic"} plugins`, async () => {
-        let result: Awaited<ReturnType<typeof probeBuffer>> | undefined;
-        let error: unknown;
-        let reads = 0;
-        const app = await build({
-            defaults: false,
-            plugins: [
-                {
-                    name: "ReadbackConsumer",
-                    deterministic,
-                    systems: [
-                        {
-                            group: "fixed",
-                            update() {
-                                if (!result) return;
-                                try {
-                                    new Uint32Array(result.bytes);
-                                    reads++;
-                                } catch (cause) {
-                                    error = cause;
-                                }
-                            },
-                        },
-                    ],
-                },
-            ],
-        });
-        const state = app.state;
-        const source = state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
-        try {
-            result = await probeBuffer(state, source);
-            state.step(1 / 60);
-            if (deterministic) {
-                expect(reads).toBe(0);
-                expect(String(error)).toContain("ReadbackConsumer");
-                expect(String(error)).toContain("deterministic: false");
-            } else {
-                expect(reads).toBe(1);
-                expect(error).toBeUndefined();
-            }
-        } finally {
-            source.destroy();
-            app.dispose();
-        }
-    });
-}

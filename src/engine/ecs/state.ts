@@ -71,10 +71,6 @@ export class State {
         return (this._readback ??= new ReadbackPool(this));
     }
 
-    /** @internal Reject GPU-derived reads by deterministic fixed systems. */
-    assertReadbackAllowed(): void {
-        this._scheduler.assertReadbackAllowed();
-    }
     private readonly _stepInput = { deltaTime: Time.DEFAULT_DT };
     private readonly _runStep = () => this._scheduler.step(this, this._stepInput);
     private _entities = new Entities();
@@ -143,6 +139,11 @@ export class State {
             resource.destroy = destroy;
             destroy.call(resource);
         };
+    }
+
+    /** Whether this world owns a registered resource. */
+    owns(resource: { destroy(): void }): boolean {
+        return this._gpuResources.has(resource);
     }
 
     /** Declare one dense-slot GPU table with a single record layout. */
@@ -509,8 +510,8 @@ export class State {
     }
 
     /** wire a system into the scheduler */
-    addSystem(system: System, pluginName?: string, deterministic = true): void {
-        this._scheduler.register(system, pluginName, deterministic);
+    addSystem(system: System, pluginName?: string): void {
+        this._scheduler.register(system, pluginName);
     }
 
     /** remove a previously-added system */

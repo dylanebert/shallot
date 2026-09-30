@@ -1,10 +1,5 @@
 import type { State } from "../ecs";
-import { currentWorld, deviceLost, type LazyAlloc } from "./gpu";
-
-/** @internal Check the consuming world, including results requested by a different world. */
-export function assertReadbackAccess(): void {
-    currentWorld<State>()?.assertReadbackAllowed();
-}
+import { deviceLost, type LazyAlloc } from "./gpu";
 
 interface Slot {
     buffer: GPUBuffer;
@@ -75,8 +70,6 @@ export class ReadbackPool {
     ): Promise<ReadbackStamp & { bytes: ArrayBuffer }> {
         if (deviceLost(this._device)) this.dispose();
         if (this._disposed) throw new Error(`${label}: readback world or device is disposed`);
-        this._state.assertReadbackAllowed();
-        assertReadbackAccess();
         if (
             !Number.isSafeInteger(size) ||
             size < 4 ||
@@ -121,25 +114,31 @@ export class ReadbackPool {
         });
         try {
             const encoder = this._device.createCommandEncoder({ label });
+            const copyBuffer = encoder.copyBufferToBuffer;
+            const copyTexture = encoder.copyTextureToBuffer?.bind(encoder);
+            if (copyBuffer)
+                encoder.copyBufferToBuffer = (source: GPUBuffer, ...args: unknown[]) => {
+                    if (!this._state.owns(source))
+                        throw new Error(
+                            `${label}: buffer "${source.label || "unlabeled buffer"}" is not owned by this world`,
+                        );
+                    Reflect.apply(copyBuffer, encoder, [source, ...args]);
+                    return undefined;
+                };
+            if (copyTexture)
+                encoder.copyTextureToBuffer = (source, ...args) => {
+                    if (!this._state.owns(source.texture))
+                        throw new Error(
+                            `${label}: texture "${source.texture.label || "unlabeled texture"}" is not owned by this world`,
+                        );
+                    copyTexture(source, ...args);
+                };
             encode(encoder, slot.buffer);
             this._device.queue.submit([encoder.finish()]);
             await Promise.race([slot.buffer.mapAsync(GPUMapMode.READ, 0, size), failure]);
             if (this._disposed) throw new Error(`${label}: readback world is disposed`);
             const bytes = slot.buffer.getMappedRange(0, size).slice(0);
-            return {
-                get bytes() {
-                    assertReadbackAccess();
-                    return bytes;
-                },
-                get frame() {
-                    assertReadbackAccess();
-                    return frame;
-                },
-                get fixedTick() {
-                    assertReadbackAccess();
-                    return fixedTick;
-                },
-            };
+            return { bytes, frame, fixedTick };
         } catch (error) {
             if (deviceLost(this._device)) this.dispose();
             slot.buffer.destroy();

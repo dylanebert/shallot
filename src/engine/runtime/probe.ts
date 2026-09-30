@@ -1,6 +1,6 @@
 import type { State } from "../ecs";
 import { deviceLost } from "./gpu";
-import { assertReadbackAccess, type ReadbackStamp } from "./readback";
+import type { ReadbackStamp } from "./readback";
 
 const COPY_ALIGNMENT = 4;
 type ProbeOwner = State;
@@ -8,8 +8,6 @@ const deviceOf = (owner: ProbeOwner) => owner.gpu.device;
 function assertRequestAllowed(owner: ProbeOwner): void {
     if (owner.disposed || deviceLost(owner.gpu.device))
         throw new Error("readback world or device is disposed");
-    owner.assertReadbackAllowed();
-    assertReadbackAccess();
 }
 async function request(
     owner: ProbeOwner,
@@ -199,7 +197,7 @@ function copyAspect(
 /**
  * Request one raw buffer range after an optional encoded trigger. Pass a State to share world staging
  * and stamp the copy's frame and tick.
- * Returned bytes are owned by this result. Deterministic fixed systems cannot read them.
+ * Returned bytes are owned by this result. Readback is not deterministic simulation input.
  *
  * @example const result = await probeBuffer(state, counters, { encode: runPass });
  */
@@ -209,6 +207,10 @@ export async function probeBuffer(
     options: BufferProbeOptions = {},
 ): Promise<BufferProbe> {
     assertRequestAllowed(owner);
+    if (!owner.owns(source))
+        throw new Error(
+            `probeBuffer: buffer "${source.label || "unlabeled buffer"}" is not owned by this world`,
+        );
     const device = deviceOf(owner);
     if ((source.usage & GPUBufferUsage.COPY_SRC) === 0) {
         throw new Error("probeBuffer: source is missing GPUBufferUsage.COPY_SRC");
@@ -248,16 +250,9 @@ export async function probeBuffer(
             ? result.bytes
             : result.bytes.slice(offset - start, offset - start + size);
     return Object.freeze({
-        get bytes() {
-            assertReadbackAccess();
-            return bytes;
-        },
-        get frame() {
-            return result.frame;
-        },
-        get fixedTick() {
-            return result.fixedTick;
-        },
+        bytes,
+        frame: result.frame,
+        fixedTick: result.fixedTick,
         offset,
         size,
     });
@@ -275,6 +270,10 @@ export async function probeTexture(
     options: TextureProbeOptions = {},
 ): Promise<TextureProbe> {
     assertRequestAllowed(owner);
+    if (!owner.owns(source))
+        throw new Error(
+            `probeTexture: texture "${source.label || "unlabeled texture"}" is not owned by this world`,
+        );
     const device = deviceOf(owner);
     if ((source.usage & GPUTextureUsage.COPY_SRC) === 0) {
         throw new Error("probeTexture: source is missing GPUTextureUsage.COPY_SRC");
@@ -353,16 +352,9 @@ export async function probeTexture(
         );
     }
     return Object.freeze({
-        get bytes() {
-            assertReadbackAccess();
-            return bytes.buffer;
-        },
-        get frame() {
-            return result.frame;
-        },
-        get fixedTick() {
-            return result.fixedTick;
-        },
+        bytes: bytes.buffer,
+        frame: result.frame,
+        fixedTick: result.fixedTick,
         format: source.format,
         aspect,
         width: size.width,

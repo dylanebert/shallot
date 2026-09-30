@@ -36,7 +36,8 @@ export * from "./compose";
 export interface Plugin {
     /** unique name; the manifest enables the plugin by this name, and `swap` pairs reloads by it */
     readonly name: string;
-    /** False when fixed simulation uses timing-dependent GPU readback or otherwise cannot replay deterministically. Defaults to true. */
+    /** Declares whether fixed simulation replays deterministically (default true).
+     * Fixed consumers of GPU readback declare false. Byte access is not guarded. */
     readonly deterministic?: boolean;
     /** systems this plugin adds to the scheduler */
     readonly systems?: readonly System[];
@@ -324,7 +325,7 @@ async function buildNow(config: Config): Promise<App> {
                 }
             }
             for (const system of plugin.systems ?? []) {
-                state.addSystem(system, plugin.name, plugin.deterministic !== false);
+                state.addSystem(system, plugin.name);
             }
         }
 
@@ -692,8 +693,6 @@ function shapeDiff(
     prevIndex: Map<System, number>,
     nextIndex: Map<System, number>,
 ): string | null {
-    if ((prev.deterministic !== false) !== (next.deterministic !== false))
-        return "determinism declaration changed";
     const pc = prev.components ?? {};
     const nc = next.components ?? {};
     const pcKeys = Object.keys(pc).sort();

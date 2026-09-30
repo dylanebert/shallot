@@ -1317,11 +1317,15 @@ export async function requestGPU(
               const createTexture = d.createTexture.bind(d);
               const ownedBuffer = (descriptor: GPUBufferDescriptor) => {
                   const buffer = createBuffer(descriptor);
+                  if (descriptor.label !== undefined && buffer.label !== descriptor.label)
+                      buffer.label = descriptor.label;
                   owner.own(buffer);
                   return buffer;
               };
               const ownedTexture = (descriptor: GPUTextureDescriptor) => {
                   const texture = createTexture(descriptor);
+                  if (descriptor.label !== undefined && texture.label !== descriptor.label)
+                      texture.label = descriptor.label;
                   owner.own(texture);
                   return texture;
               };
@@ -1343,7 +1347,7 @@ export async function requestGPU(
           })()
         : d;
     _rawDevices.set(trackedDevice, d);
-    const root = adopt(d, owner);
+    const root = adopt(trackedDevice, owner);
     const rootMethods: MethodCache = new Map();
     const ownedRootBuffer = (...args: unknown[]) => {
         const resource = (root.createBuffer as (...args: unknown[]) => unknown)(...args);

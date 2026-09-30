@@ -66,15 +66,14 @@ test("a deterministic composition hashes identically under two frame pacings wit
     expect(await run(1 / 120, 120)).toBe(await run(1 / 30, 30));
 });
 
-test("changing a plugin's determinism declaration requires rebuild rather than inheriting its prior readback permission", async () => {
+test("a determinism declaration is metadata, not runtime readback permission state", async () => {
     const system = { group: "fixed" as const, update() {} };
     const before = { name: "ChangedPermission", deterministic: false, systems: [system] };
     const after = { name: "ChangedPermission", deterministic: true, systems: [{ ...system }] };
     const app = await build({ defaults: false, plugins: [before] });
     try {
         expect(await swap(app.state, [before], [after])).toEqual({
-            ok: false,
-            reason: "ChangedPermission: determinism declaration changed",
+            ok: true,
         });
     } finally {
         app.dispose();
