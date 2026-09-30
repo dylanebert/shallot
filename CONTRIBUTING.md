@@ -62,11 +62,17 @@ bun run check                         # static gates; run before every push
 bun run test                          # *.test.ts, including GPU tests on a device
 bun run test --path-ignore-patterns '**/*.gpu.test.ts' # no-device host tier
 bun test gpu.test                     # GPU tier
-bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts')  # Node tier: full compositions, on a device
+bun test ./examples/first-person/src/demo.node.ts  # a Node-tier file your change selects, by path
 bun test ./diagnostics/first-person-allocation/allocation.oracle.ts # named display oracle (manual)
-bun run test:browser                  # wide browser run; every subject config
 bun test --todo                       # run quarantined test.todo entries, if any
 bun run format                        # biome, scene formatter and examples index
+```
+
+Wide runs confirm a final candidate before it lands or is released, and CI runs them on every push; they are not the loop. While iterating, run the files your change selects:
+
+```bash
+bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts')  # the whole Node tier
+bun run test:browser                  # every browser subject
 ```
 
 `check-imports` stays red while modules live in `src/transitional/`; their `// Destination:` lines name the migration owners. The current `core/rendering/view.ts` → `core/input` sibling import is a separate unresolved violation, not a permitted dependency. For unrelated work, compare import reds with main: report unchanged violations and continue, but stop on a new or changed violation. The gate remains red and is never skipped.
