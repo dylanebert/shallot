@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { createApp, Time } from "@dylanebert/shallot";
+import { createApp, ShapeKind, Time } from "@dylanebert/shallot";
 import {
     Body,
     hashPhysics,
@@ -19,7 +19,6 @@ const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
-const FALLING_SCENE = `<scene><a body="shape: 1; position: 0 3 0; half-extents: 0 0 0 0.5; mass: 1" /></scene>`;
 const EULER_SCENE = `<scene><a id="wheel" body="shape: 1; position: 0 1.5 0; half-extents: 0 0 0 0.4; mass: 0.5; rotation: 90 0 0" /></scene>`;
 
 function rotateY(quat: readonly [number, number, number, number]): [number, number, number] {
@@ -31,7 +30,15 @@ test("vehicle trajectory bounds can duplicate gravity and substeps instead of re
     const app = await createApp({
         defaults: false,
         plugins: [PhysicsPlugin],
-        scene: FALLING_SCENE,
+        setup(world) {
+            const eid = world.create();
+            world.add(eid, Body, {
+                shape: ShapeKind.Sphere,
+                position: [0, 3, 0, 0],
+                halfExtents: [0, 0, 0, 0.5],
+                mass: 1,
+            });
+        },
     });
     try {
         const config = physicsStepConfig(app.world);

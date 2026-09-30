@@ -6,7 +6,7 @@ setDefaultTimeout(CEILING.node);
 
 import * as d from "typegpu/data";
 import { Draws, Meshes } from "../../core/rendering";
-import { drawLine, LinesPlugin } from "../../extras/lines";
+import { drawLine, Line, LinesPlugin } from "../../extras/lines";
 import { Images, registerImage, Sprite, SpritePlugin } from "../../extras/sprite";
 import { Content, Fonts, internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
@@ -436,15 +436,19 @@ async function composition(seed: string, offset: number) {
     const app = await createApp({
         plugins: [TextPlugin, SpritePlugin, LinesPlugin],
         setup(world) {
-            registerFont(world, OWNERSHIP_FONT, seed);
-            registerImage(world, new Blob([], { type: "image/png" }), seed);
-            internText(world, seed === "first" ? "isolation" : "salt");
+            const font = registerFont(world, OWNERSHIP_FONT, seed);
+            const image = registerImage(world, new Blob([], { type: "image/png" }), seed);
+            const content = internText(world, seed === "first" ? "isolation" : "salt");
+            const label = world.create();
+            world.add(label, Transform, { translation: [offset, 1, 0, 0] });
+            world.add(label, Text, { content, font });
+            const sprite = world.create();
+            world.add(sprite, Transform, { translation: [offset, 2, 0, 0] });
+            world.add(sprite, Sprite, { image });
+            const line = world.create();
+            world.add(line, Transform, { translation: [offset, 0, 0, 0] });
+            world.add(line, Line, { offset: [1, 1, 1, 0] });
         },
-        scene: `<scene>
-            <a id="label" transform="translation: ${offset} 1 0" text="content: ${seed === "first" ? "isolation" : "salt"}; font: ${seed}" />
-            <a id="sprite" transform="translation: ${offset} 2 0" sprite="image: ${seed}" />
-            <a id="line" transform="translation: ${offset} 0 0" line="offset: 1 1 1" />
-        </scene>`,
     });
     apps.push(app);
     console.info(
