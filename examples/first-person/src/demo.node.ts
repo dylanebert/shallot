@@ -1,6 +1,8 @@
 import { setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(20_000);
+import { CEILING } from "../../../scripts/test-tiers";
+
+setDefaultTimeout(CEILING.node);
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -30,4 +32,4 @@ test("a warm fixed step of the actual first-person GPU-backed gameplay compositi
         );
     const failure = allocationFailure(sample);
     if (failure !== undefined) throw new Error(failure);
-}, 20_000);
+});

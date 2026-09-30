@@ -1,13 +1,31 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
-import { sharedGpuBuild } from "../app/gpu.fixture";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { CEILING } from "../../../scripts/test-tiers";
+import { build } from "../app";
 import type { State } from "../ecs";
 import { rawDevice } from "./gpu";
 import { probeBuffer } from "./probe";
+import { countStaging } from "./readback.fixture";
 
-setDefaultTimeout(1000);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
-const build = await sharedGpuBuild();
+setDefaultTimeout(CEILING.gpu);
+const apps: Awaited<ReturnType<typeof build>>[] = [];
+const subject = compileGpuFile(import.meta.path, async () => {
+    const owner = await build({ defaults: false, plugins: [] });
+    apps.push(owner);
+    const device = rawDevice(owner.state.gpu.device);
+    const tracker = countStaging(device);
+    try {
+        for (let i = 0; i < 2; i++)
+            apps.push(await build({ defaults: false, plugins: [], device }));
+        return { worlds: apps.slice(1), counts: tracker.counts };
+    } finally {
+        tracker.restore();
+    }
+});
+afterAll(() => {
+    for (const app of apps.reverse()) app.dispose();
+});
+let nextSubject = 0;
 
 async function trackedPool(
     body: (
@@ -16,36 +34,14 @@ async function trackedPool(
         counts: { created: number; live: number },
     ) => Promise<void>,
 ) {
-    const owner = await build({ defaults: false, plugins: [] });
-    const device = rawDevice(owner.state.gpu.device);
-    const original = device.createBuffer.bind(device);
-    const counts = { created: 0, live: 0 };
-    device.createBuffer = (descriptor) => {
-        const buffer = original(descriptor);
-        if ((descriptor.usage & GPUBufferUsage.MAP_READ) !== 0) {
-            counts.created++;
-            counts.live++;
-            const destroy = buffer.destroy.bind(buffer);
-            let destroyed = false;
-            buffer.destroy = () => {
-                if (!destroyed) {
-                    destroyed = true;
-                    counts.live--;
-                }
-                destroy();
-            };
-        }
-        return buffer;
-    };
-    const app = await build({ defaults: false, plugins: [], device });
+    const { worlds, counts } = subject();
+    const app = worlds[nextSubject++];
     const source = app.state.gpu.device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_SRC });
     try {
         await body(app.state, source, counts);
     } finally {
         source.destroy();
         app.dispose();
-        device.createBuffer = original;
-        owner.dispose();
     }
 }
 

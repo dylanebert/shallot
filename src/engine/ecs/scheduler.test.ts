@@ -11,7 +11,7 @@ test("the scheduler consumes each updated duration from its lifetime frame input
     scheduler.step({} as State, input);
     expect(scheduler.time.rawDeltaTime).toBe(0.02);
     expect(scheduler.time.elapsed).toBeCloseTo(0.03);
-}, 250);
+});
 
 test("step refuses a non-finite or negative delta before advancing its clock", () => {
     const scheduler = new Scheduler();
@@ -22,4 +22,4 @@ test("step refuses a non-finite or negative delta before advancing its clock", (
         );
         expect(scheduler.time).toEqual(before);
     }
-}, 250);
+});

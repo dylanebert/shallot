@@ -1,11 +1,34 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { CEILING } from "../../../scripts/test-tiers";
 import { build } from "../app";
-import { rawDevice } from "./gpu";
 import { probeBuffer } from "./probe";
+import { countStaging } from "./readback.fixture";
 
-setDefaultTimeout(1000);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+setDefaultTimeout(CEILING.gpu);
+const worlds: Awaited<ReturnType<typeof build>>[] = [];
+const devices: GPUDevice[] = [];
+const subjects = compileGpuFile(import.meta.path, async () => {
+    let counts!: ReturnType<typeof countStaging>["counts"];
+    for (let i = 0; i < 3; i++) {
+        const device = await freshDevice();
+        devices.push(device);
+        const count = i === 0 ? 2 : 1;
+        const tracker = i === 0 ? countStaging(device) : undefined;
+        if (tracker) counts = tracker.counts;
+        try {
+            for (let j = 0; j < count; j++)
+                worlds.push(await build({ defaults: false, plugins: [], device }));
+        } finally {
+            tracker?.restore();
+        }
+    }
+    return { worlds, counts };
+});
+afterAll(() => {
+    for (const app of worlds) app.dispose();
+    for (const device of devices) device.destroy();
+});
 
 async function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -28,28 +51,11 @@ async function freshDevice() {
 }
 
 test("world pools on a shared device own separate staging and release it without affecting a sibling", async () => {
-    const device = await freshDevice();
-    const raw = rawDevice(device);
-    const original = raw.createBuffer.bind(raw);
-    let live = 0;
-    raw.createBuffer = (descriptor) => {
-        const buffer = original(descriptor);
-        if (descriptor.label === "shallot-readback-staging") {
-            live++;
-            const destroy = buffer.destroy.bind(buffer);
-            let destroyed = false;
-            buffer.destroy = () => {
-                if (!destroyed) {
-                    live--;
-                    destroyed = true;
-                }
-                destroy();
-            };
-        }
-        return buffer;
-    };
-    const first = await build({ defaults: false, plugins: [], device });
-    const second = await build({ defaults: false, plugins: [], device });
+    const {
+        worlds: [first, second],
+        counts,
+    } = subjects();
+    const device = devices[0];
     const source = first.state.gpu.device.createBuffer({
         size: 4,
         usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
@@ -66,28 +72,27 @@ test("world pools on a shared device own separate staging and release it without
             probeBuffer(second.state, secondSource),
         ]);
         expect(first.state.readback).not.toBe(second.state.readback);
-        expect(live).toBe(2);
+        expect(counts.live).toBe(2);
         first.dispose();
-        expect(live).toBe(1);
+        expect(counts.live).toBe(1);
         expect(new Uint32Array(b.bytes)[0]).toBe(17);
         expect(new Uint32Array(a.bytes)[0]).toBe(17);
         await probeBuffer(second.state, secondSource);
-        expect(live).toBe(1);
+        expect(counts.live).toBe(1);
         second.dispose();
-        expect(live).toBe(0);
+        expect(counts.live).toBe(0);
     } finally {
         source.destroy();
         secondSource.destroy();
         first.dispose();
         second.dispose();
-        raw.createBuffer = original;
         device.destroy();
     }
 });
 
 test("a request after device loss creates no staging", async () => {
-    const device = await freshDevice();
-    const app = await build({ defaults: false, plugins: [], device });
+    const device = devices[1];
+    const app = subjects().worlds[2];
     const source = app.state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
     const pool = app.state.readback;
     try {
@@ -101,8 +106,8 @@ test("a request after device loss creates no staging", async () => {
 });
 
 test("device loss rejects a pending request and releases staging", async () => {
-    const device = await freshDevice();
-    const app = await build({ defaults: false, plugins: [], device });
+    const device = devices[2];
+    const app = subjects().worlds[3];
     const source = app.state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
     const pool = app.state.readback;
     try {

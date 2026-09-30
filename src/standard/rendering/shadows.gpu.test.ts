@@ -1,10 +1,12 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(1000);
+import { CEILING } from "../../../scripts/test-tiers";
 
+setDefaultTimeout(CEILING.gpu);
+
+import { gpuApps } from "../../../scripts/gpu.fixture";
 import { Camera, CameraMode, DirectionalLight } from "../../core/rendering";
 import { Transform } from "../../engine";
-import { sharedGpuBuild } from "../../engine/app/gpu.fixture";
 import {
     cascadeComboEids,
     cascadeCount,
@@ -15,17 +17,18 @@ import {
     updateCascades,
 } from "./shadows";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
-await setupGlobals();
-const build = await sharedGpuBuild();
+const subjects = gpuApps(
+    import.meta.path,
+    Array.from({ length: 3 }, () => ({ defaults: false, plugins: [] })),
+);
+let nextSubject = 0;
 
 // `updateCascades` rebuilds the sun's boxes only when its inputs change, so the pooled cascade cameras keep
 // the camera GlobalTransform the last build wrote. These rows pin what that skip must still restore: a rebuilt pool, and a
 // camera whose size or far was written from outside the pass. Both are silent otherwise — the cull frustum
 // would simply stop matching the box the atlas renders.
 
-let live: Awaited<ReturnType<typeof build>> | null = null;
+let live: ReturnType<typeof subjects>[number] | null = null;
 
 afterEach(() => {
     // destroy, not just forget: the pooled cameras hold views keyed by eid, and the next row's State
@@ -37,7 +40,7 @@ afterEach(() => {
 
 // a headless State with one posed perspective camera and one shadow-casting sun
 async function sunScene() {
-    live = await build({ defaults: false, plugins: [] });
+    live = subjects()[nextSubject++];
     const state = live.state;
     const main = state.create();
     state.add(main, Transform);

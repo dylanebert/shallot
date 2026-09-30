@@ -4,7 +4,9 @@
 
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(20_000);
+import { CEILING } from "../../../../scripts/test-tiers";
+
+setDefaultTimeout(CEILING.node);
 
 import { World } from "../api/world";
 import { BodyType } from "../common/types";
@@ -61,7 +63,7 @@ test("the active collision route changes the symmetric face-B feature order, the
     });
     expect(sensorChecked).toBe(true);
     expect(sensorResult.hashes.find((hash) => hash.step === 14)?.value).toBe("0x31240e262d32461b");
-}, 20_000);
+});
 
 test("a Shallot physics result diverges from the Box3D reference on any case of the immutable v6 corpus, including the official scenes", () => {
     const corpus = loadConsumerCorpus();
@@ -71,4 +73,4 @@ test("a Shallot physics result diverges from the Box3D reference on any case of 
             throw new Error(`${item.id}: ${result.firstDifference?.path ?? "mismatch"}`);
     }
     console.log(JSON.stringify({ corpus: "immutable box3d v6", cases: corpus.cases.length }));
-}, 20_000);
+});

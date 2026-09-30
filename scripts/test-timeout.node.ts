@@ -1,6 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(20_000);
+import { CEILING } from "./test-tiers";
+
+setDefaultTimeout(CEILING.node);
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,4 +34,4 @@ test("the test script's default rejects a cheap test that runs longer than 250 m
     } finally {
         rmSync(fixture, { recursive: true, force: true });
     }
-}, 5_000);
+});

@@ -1,22 +1,15 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { sharedGpuBuild } from "../../engine/app/gpu.fixture";
+import { gpuApps } from "../../../scripts/gpu.fixture";
+import { CEILING } from "../../../scripts/test-tiers";
 import { ProfilePlugin, profile } from "./index";
 
-setDefaultTimeout(1000);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
-const build = await sharedGpuBuild();
+setDefaultTimeout(CEILING.gpu);
+const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [ProfilePlugin] }]);
 
 test("a profiler without timestamp-query runs and distinguishes missing GPU timings from zero", async () => {
-    const owner = await build({ defaults: false, plugins: [] });
-    let app: Awaited<ReturnType<typeof build>> | undefined;
+    const app = subjects()[0];
     try {
-        expect(owner.state.gpu.device.features.has("timestamp-query")).toBe(false);
-        app = await build({
-            defaults: false,
-            plugins: [ProfilePlugin],
-            device: owner.state.gpu.device,
-        });
+        expect(app.state.gpu.device.features.has("timestamp-query")).toBe(false);
         const stats = profile(app.state);
         app.state.step(0);
         expect(stats.gpuTiming).toBe("requires timestamp-query");
@@ -34,7 +27,6 @@ test("a profiler without timestamp-query runs and distinguishes missing GPU timi
         buffer.destroy();
         expect(stats.bufferBytes).toBe(before);
     } finally {
-        app?.dispose();
-        owner.dispose();
+        app.dispose();
     }
 });

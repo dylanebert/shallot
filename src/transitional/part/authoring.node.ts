@@ -1,15 +1,15 @@
 import { setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(1000);
+import { CEILING } from "../../../scripts/test-tiers";
 
-import { Color } from "@dylanebert/shallot";
-import { sharedGpuBuild } from "../../engine/app/gpu.fixture";
+setDefaultTimeout(CEILING.node);
+
+import { build, Color } from "@dylanebert/shallot";
 import { ColorTraits } from "./part";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
-const build = await sharedGpuBuild();
 
 const ColorOwner = {
     name: "ColorAuthoringOwner",

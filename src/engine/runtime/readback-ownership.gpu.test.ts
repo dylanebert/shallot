@@ -1,16 +1,18 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { d } from "typegpu";
-import { sharedGpuBuild } from "../app/gpu.fixture";
+import { gpuApps } from "../../../scripts/gpu.fixture";
+import { CEILING } from "../../../scripts/test-tiers";
 import { rawDevice } from "./gpu";
 import { probeBuffer, probeTexture } from "./probe";
 
-setDefaultTimeout(1000);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
-const build = await sharedGpuBuild();
+setDefaultTimeout(CEILING.gpu);
+const subjects = gpuApps(
+    import.meta.path,
+    Array.from({ length: 7 }, () => ({ defaults: false, plugins: [] })),
+);
 
 test("TypeGPU native buffers and textures belong to their world, and external allocations require explicit ownership", async () => {
-    const app = await build({ defaults: false, plugins: [] });
+    const app = subjects()[0];
     const state = app.state;
     try {
         const typed = state.gpu.root.createBuffer(d.arrayOf(d.u32, 1), [29]).$usage("storage");
@@ -41,14 +43,10 @@ test("TypeGPU native buffers and textures belong to their world, and external al
     }
 });
 
-for (const kind of ["buffer", "range", "texture"] as const) {
+for (const [index, kind] of (["buffer", "range", "texture"] as const).entries()) {
     test(`a ${kind} request refuses another world's resource on the same device, naming it before encoding`, async () => {
-        const owner = await build({ defaults: false, plugins: [] });
-        const reader = await build({
-            defaults: false,
-            plugins: [],
-            device: owner.state.gpu.device,
-        });
+        const owner = subjects()[1 + index * 2];
+        const reader = subjects()[2 + index * 2];
         const buffer = owner.state.gpu.device.createBuffer({
             label: "other-world-buffer",
             size: 16,

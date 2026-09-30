@@ -1,9 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
+import { CEILING } from "../../../scripts/test-tiers";
 import { build } from "../app";
 import { rawDevice } from "./gpu";
 
-setDefaultTimeout(20_000);
+setDefaultTimeout(CEILING.node);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 

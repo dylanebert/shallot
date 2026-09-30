@@ -1,3 +1,6 @@
+import type { PlaywrightTestConfig } from "playwright/test";
+import { CEILING } from "./test-tiers";
+
 export const CHROMIUM_USE = {
     channel: "chromium" as const,
     launchOptions: {
@@ -8,4 +11,23 @@ export const CHROMIUM_USE = {
             "--enable-gpu",
         ],
     },
+};
+
+export const BROWSER_CONFIG = {
+    testMatch: "**/*.e2e.ts",
+    globalTimeout: CEILING.browser,
+    fullyParallel: false,
+    workers: 1,
+    reporter: "list",
+    use: {
+        browserName: "chromium",
+        ...CHROMIUM_USE,
+        viewport: { width: 1280, height: 720 },
+        deviceScaleFactor: 1,
+    },
+} satisfies PlaywrightTestConfig;
+
+export const WEB_SERVER_CONFIG = {
+    reuseExistingServer: false,
+    timeout: CEILING.startup,
 };

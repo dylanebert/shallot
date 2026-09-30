@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "playwright/test";
+import { CEILING } from "../../scripts/test-tiers";
 
 async function canvasImage(page: Page): Promise<string> {
     const canvas = page.locator("#canvas");
@@ -50,7 +51,7 @@ test("the browser input adapter fails to record a real key press on the focused 
     await expect(canvas).toBeVisible();
     try {
         await expect(page.locator("[data-recipe-controls]")).toContainText("WASD", {
-            timeout: 10_000,
+            timeout: CEILING.browser,
         });
     } catch (cause) {
         throw new Error(

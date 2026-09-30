@@ -1,10 +1,11 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(1000);
+import { CEILING } from "../../../scripts/test-tiers";
+
+setDefaultTimeout(CEILING.node);
 
 import * as d from "typegpu/data";
-import type { Plugin } from "../app";
-import { sharedGpuBuild } from "../app/gpu.fixture";
+import { build, type Plugin } from "../app";
 import { f32, field, u32 } from "../index";
 import { probeBuffer } from "../runtime";
 import type { State } from "./state";
@@ -12,7 +13,6 @@ import type { State } from "./state";
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
-const build = await sharedGpuBuild();
 
 const apps: Awaited<ReturnType<typeof build>>[] = [];
 afterEach(() => {
@@ -175,7 +175,7 @@ test("tables combine source fields, optional presence, and several row owners", 
     state.remove(eid, Core);
     expect(table.rowIndex(eid)).toBe(-1);
     expect(table.count).toBe(0);
-}, 1000);
+});
 
 test("component fields bulk-upload through a dense struct table and release their slots", async () => {
     let state!: State;
@@ -227,7 +227,7 @@ test("component fields bulk-upload through a dense struct table and release thei
     expect(new DataView(reused.bytes).getFloat32(0, true)).toBe(7.5);
     state.destroy(eid);
     expect(table.count).toBe(0);
-}, 1000);
+});
 
 test("dense tables reuse free-list slots, lazily publish eid mappings, and expose active rows", async () => {
     let state!: State;
@@ -307,7 +307,7 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
         }),
     );
     expect(Array.from(new Uint32Array(data.bytes))).toEqual([333, 222]);
-}, 1000);
+});
 
 test("table growth changes generation and refuses beyond the named device limit", async () => {
     let table!: ReturnType<State["table"]>;
@@ -339,4 +339,4 @@ test("table growth changes generation and refuses beyond the named device limit"
     expect(() => table.reserveSlots(table.maxRows + 1)).toThrow(
         `maxStorageBufferBindingSize (${app.state.gpu.device.limits.maxStorageBufferBindingSize} bytes)`,
     );
-}, 1000);
+});

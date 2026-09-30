@@ -1,6 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(20_000);
+import { CEILING } from "../../scripts/test-tiers";
+
+setDefaultTimeout(CEILING.node);
 
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,7 +41,7 @@ test("a native debug process receives the Vite URL instead of its packaged asset
     } finally {
         rmSync(project, { recursive: true, force: true });
     }
-}, 5_000);
+});
 
 test("native preview retains its platform launch command and portable Linux library path", () => {
     expect(windowsPreviewCommand("C:\\game folder", "my-game")).toBe(

@@ -1,16 +1,19 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
-import { sharedGpuBuild } from "../app/gpu.fixture";
+import { gpuApps } from "../../../scripts/gpu.fixture";
+import { CEILING } from "../../../scripts/test-tiers";
 import { probeBuffer } from "./probe";
 
-setDefaultTimeout(1000);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
-const build = await sharedGpuBuild();
+setDefaultTimeout(CEILING.gpu);
+const kinds = ["records", "active", "map"] as const;
+const subjects = gpuApps(
+    import.meta.path,
+    kinds.map(() => ({ defaults: false, plugins: [] })),
+);
 
-for (const kind of ["records", "active", "map"] as const) {
+for (const [index, kind] of kinds.entries()) {
     test(`one-shot readback reads a table's grown ${kind} buffer without mutating a prior result`, async () => {
-        const app = await build({ defaults: false, plugins: [] });
+        const app = subjects()[index];
         const state = app.state;
         const table = state.table(`readback-${kind}`, d.struct({ value: d.u32 }));
         const row = table.acquire(4);

@@ -44,7 +44,6 @@ async function waitForPreview(url: string, child: ChildProcess, log: () => strin
 test("a Vite project built from the packed Shallot captures through its public rendering export", async ({
     page,
 }) => {
-    test.setTimeout(120_000);
     const scratch = mkdtempSync(join(tmpdir(), "shallot-packed-capture-"));
     const project = join(scratch, "project");
     const packageManifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));

@@ -157,4 +157,4 @@ test("dev clients fully reload when a scene or shallot.json changes", () => {
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
-    }, 20);
+    });

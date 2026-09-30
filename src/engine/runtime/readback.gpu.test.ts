@@ -1,14 +1,16 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { sharedGpuBuild } from "../app/gpu.fixture";
+import { gpuApps } from "../../../scripts/gpu.fixture";
+import { CEILING } from "../../../scripts/test-tiers";
 import { probeBuffer, probeTexture } from "./probe";
 
-setDefaultTimeout(1000);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
-const build = await sharedGpuBuild();
+setDefaultTimeout(CEILING.gpu);
+const subjects = gpuApps(
+    import.meta.path,
+    Array.from({ length: 3 }, () => ({ defaults: false, plugins: [] })),
+);
 
 test("one-shot readback stamps its copy and reuses then releases world staging", async () => {
-    const app = await build({ defaults: false, plugins: [] });
+    const app = subjects()[0];
     const state = app.state;
     const device = state.gpu.device;
     const source = device.createBuffer({
@@ -40,7 +42,7 @@ test("one-shot readback stamps its copy and reuses then releases world staging",
 });
 
 test("a texture request shares buffer staging and returns tightly packed owned bytes", async () => {
-    const app = await build({ defaults: false, plugins: [] });
+    const app = subjects()[1];
     const state = app.state;
     const device = state.gpu.device;
     const texture = device.createTexture({
@@ -71,7 +73,7 @@ test("a texture request shares buffer staging and returns tightly packed owned b
 });
 
 test("readback bytes and stamps are plain owned data that survive world disposal", async () => {
-    const app = await build({ defaults: false, plugins: [] });
+    const app = subjects()[2];
     try {
         const source = app.state.gpu.device.createBuffer({
             size: 4,

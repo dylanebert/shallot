@@ -1,6 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(20_000);
+import { CEILING } from "../../scripts/test-tiers";
+
+setDefaultTimeout(CEILING.node);
 
 import {
     existsSync,
@@ -90,7 +92,7 @@ test("shallot build refuses a project with no resolvable Vite and names the devD
     } finally {
         rmSync(project, { recursive: true, force: true });
     }
-}, 15_000);
+});
 
 test("a bun-linked Shallot consumer without Vite is told to add Vite as a devDependency", () => {
     const root = resolve(import.meta.dir, "../..");
@@ -121,7 +123,7 @@ test("a bun-linked Shallot consumer without Vite is told to add Vite as a devDep
     } finally {
         rmSync(consumer, { recursive: true, force: true });
     }
-}, 15_000);
+});
 
 test("shallot maps dev, build and preview to Vite and preserves each command's arguments", () => {
     const forwarded = ["--port", "4012", "--mode", "staging"];
@@ -160,7 +162,7 @@ test("the real Shallot CLI finds Vite hoisted above a workspace app reached thro
     } finally {
         rmSync(fixture, { recursive: true, force: true });
     }
-}, 15_000);
+});
 
 test("shallot dev, build and preview run the Vite declared by the project", async () => {
     const root = resolve(import.meta.dir, "../..");
@@ -217,7 +219,7 @@ test("shallot dev, build and preview run the Vite declared by the project", asyn
     } finally {
         rmSync(project, { recursive: true, force: true });
     }
-}, 20_000);
+});
 
 test("native dev keeps the complete reported Local URL and can use a Network URL alone", () => {
     const network = "  ➜  Network:   http://192.168.0.139:41989/game/";
@@ -249,7 +251,7 @@ test("native dev loads the complete local Vite URL when the project uses a base 
         await server?.close();
         rmSync(project, { recursive: true, force: true });
     }
-}, 15_000);
+});
 
 test("shallot dev --port and vite --port serve the same page and project config", async () => {
     const root = resolve(import.meta.dir, "../..");
@@ -308,7 +310,7 @@ test("shallot dev --port and vite --port serve the same page and project config"
     } finally {
         rmSync(project, { recursive: true, force: true });
     }
-}, 20_000);
+});
 
 test("Vite returns no entry page when the project has no index.html", async () => {
     const root = resolve(import.meta.dir, "../..");
@@ -339,7 +341,7 @@ test("Vite returns no entry page when the project has no index.html", async () =
         await child.exited;
         rmSync(project, { recursive: true, force: true });
     }
-}, 15_000);
+});
 
 test("native dev receives the actual local URL reported by the project's Vite server", async () => {
     const root = resolve(import.meta.dir, "../..");
@@ -360,4 +362,4 @@ test("native dev receives the actual local URL reported by the project's Vite se
         await server?.close();
         rmSync(project, { recursive: true, force: true });
     }
-}, 15_000);
+});

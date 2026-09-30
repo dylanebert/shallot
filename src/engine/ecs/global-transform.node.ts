@@ -1,4 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
 import {
     Body,
@@ -15,7 +16,7 @@ import { field, globalTransformTable, probeBuffer, Transform, u32 } from "../ind
 import type { System } from "./scheduler";
 import { Time } from "./scheduler";
 
-setDefaultTimeout(20_000);
+setDefaultTimeout(CEILING.node);
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {
         ResizeObserver: class {

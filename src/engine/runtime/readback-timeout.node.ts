@@ -1,7 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "../../../scripts/test-tiers";
 import { controlledReadback } from "./readback.fixture";
 
-setDefaultTimeout(20_000);
+setDefaultTimeout(CEILING.node);
 
 test("a stalled readback rejects with its copy label, frame and tick within the GPU ceiling", async () => {
     await controlledReadback(async (state, slots) => {

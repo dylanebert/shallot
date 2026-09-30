@@ -49,7 +49,7 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: GPU tier
-        run: /usr/bin/time -p bun test gpu.test
+        run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts
 
   cargo:
     runs-on: ubuntu-latest
@@ -76,6 +76,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Node tier
         run: /usr/bin/time -p bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print)
+      - name: compile time oracle
+        run: bun test ./scripts/compile.oracle.ts
 
   browser:
     runs-on: macos-15

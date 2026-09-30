@@ -81,4 +81,4 @@ test("examples-index.ts indexes tracked and non-ignored source files, excludes i
     } finally {
         rmSync(noGit, { recursive: true, force: true });
     }
-}, 250);
+});

@@ -1,6 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(20_000);
+import { CEILING } from "./test-tiers";
+
+setDefaultTimeout(CEILING.node);
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -111,7 +113,7 @@ test("the packed headless plugin set steps the world through public engine subpa
     } finally {
         app.dispose();
     }
-}, 1000);
+});
 `,
         );
 
@@ -128,4 +130,4 @@ test("the packed headless plugin set steps the world through public engine subpa
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }
-}, 20_000);
+});

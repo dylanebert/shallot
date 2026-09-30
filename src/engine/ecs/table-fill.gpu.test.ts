@@ -1,15 +1,18 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import * as d from "typegpu/data";
-import { sharedGpuBuild } from "../app/gpu.fixture";
+import { gpuApps } from "../../../scripts/gpu.fixture";
+import { CEILING } from "../../../scripts/test-tiers";
 import { f32, field } from "../index";
 import { probeBuffer } from "../runtime";
 
-setDefaultTimeout(1000);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
-const build = await sharedGpuBuild();
-
+setDefaultTimeout(CEILING.gpu);
 const Rows = { amount: field(f32) };
+const subjects = gpuApps(import.meta.path, [
+    {
+        defaults: false,
+        plugins: [{ name: "BoundFill", components: { Rows } }],
+    },
+]);
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -28,10 +31,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
 }
 
 test("bound tables gather marked columns at upload after set, bulk write and removal without field callbacks", async () => {
-    const app = await build({
-        defaults: false,
-        plugins: [{ name: "BoundFill", components: { Rows } }],
-    });
+    const app = subjects()[0];
     const state = app.state;
     const observe = spyOn(state, "observeField");
     try {

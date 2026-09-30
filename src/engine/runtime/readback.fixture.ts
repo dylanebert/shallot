@@ -1,5 +1,33 @@
 import { State } from "../ecs";
 
+export function countStaging(device: GPUDevice) {
+    const original = device.createBuffer.bind(device);
+    const counts = { created: 0, live: 0 };
+    device.createBuffer = (descriptor) => {
+        const buffer = original(descriptor);
+        if ((descriptor.usage & GPUBufferUsage.MAP_READ) !== 0) {
+            counts.created++;
+            counts.live++;
+            const destroy = buffer.destroy.bind(buffer);
+            let destroyed = false;
+            buffer.destroy = () => {
+                if (!destroyed) {
+                    destroyed = true;
+                    counts.live--;
+                }
+                destroy();
+            };
+        }
+        return buffer;
+    };
+    return {
+        counts,
+        restore: () => {
+            device.createBuffer = original;
+        },
+    };
+}
+
 export interface ControlledSlot {
     buffer: GPUBuffer;
     resolve(bytes: number[]): void;

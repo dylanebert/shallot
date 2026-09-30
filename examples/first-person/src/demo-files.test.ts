@@ -72,4 +72,4 @@ test("Git ignores first-person build outputs while reporting source and lockfile
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }
-}, 250);
+});

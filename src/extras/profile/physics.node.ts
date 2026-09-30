@@ -1,6 +1,8 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(20_000);
+import { CEILING } from "../../../scripts/test-tiers";
+
+setDefaultTimeout(CEILING.node);
 
 import { build, type Plugin } from "@dylanebert/shallot";
 import { PhysicsProfilePlugin } from "@dylanebert/shallot/extras";

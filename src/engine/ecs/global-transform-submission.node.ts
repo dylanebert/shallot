@@ -1,9 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
 import { build, type State, Time, Transform } from "../index";
 
-setDefaultTimeout(20_000);
+setDefaultTimeout(CEILING.node);
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {
         ResizeObserver: class {

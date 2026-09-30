@@ -1,8 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "../../../scripts/test-tiers";
 import { build, Transform } from "../../engine";
 import { Body, PhysicsPlugin } from "./index";
 
-setDefaultTimeout(20_000);
+setDefaultTimeout(CEILING.node);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 

@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
+import { CEILING } from "../../../scripts/test-tiers";
 import { PartInput, RenderPlugin } from "../../core/rendering";
 import { SearPlugin } from "../../standard/rendering";
 import { Part, PartPlugin } from "../../transitional/part";
@@ -7,7 +8,7 @@ import { Transform } from "../index";
 import { probeBuffer } from "../runtime";
 import { build } from "./index";
 
-setDefaultTimeout(20_000);
+setDefaultTimeout(CEILING.node);
 const peerModule = "bun-webgpu";
 await (await import(peerModule)).setupGlobals();
 
