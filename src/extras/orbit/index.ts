@@ -6,13 +6,14 @@ import {
     field,
     not,
     type Plugin,
+    Pose,
     type State,
     type System,
+    Transform,
     u8,
     vec4,
 } from "../../engine";
 import { aim, angle, clamp } from "../../engine/utils";
-import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import { OrbitSmooth } from "./smooth";
 
 const Tau = Math.PI * 2;
@@ -359,9 +360,9 @@ const OrbitSystem: System = {
 
                 Transform.pos.set(
                     eid,
-                    Transform.pos.x.get(eid) + wx,
-                    Transform.pos.y.get(eid) + wy,
-                    Transform.pos.z.get(eid) + wz,
+                    Pose.pos.x.get(eid) + wx,
+                    Pose.pos.y.get(eid) + wy,
+                    Pose.pos.z.get(eid) + wz,
                     0,
                 );
 
@@ -379,18 +380,18 @@ const OrbitSystem: System = {
                     let entityTargetY = 0;
                     let entityTargetZ = 0;
                     const targetEid = Orbit.target.get(eid);
-                    if (targetEid > 0 && state.has(targetEid, Transform)) {
-                        entityTargetX = Transform.pos.x.get(targetEid);
-                        entityTargetY = Transform.pos.y.get(targetEid);
-                        entityTargetZ = Transform.pos.z.get(targetEid);
+                    if (targetEid > 0 && state.has(targetEid, Pose)) {
+                        entityTargetX = Pose.pos.x.get(targetEid);
+                        entityTargetY = Pose.pos.y.get(targetEid);
+                        entityTargetZ = Pose.pos.z.get(targetEid);
                     }
                     panX =
-                        Transform.pos.x.get(eid) -
+                        Pose.pos.x.get(eid) -
                         distS * Math.cos(pitchS) * Math.sin(yawS) -
                         entityTargetX;
-                    panY = Transform.pos.y.get(eid) - distS * Math.sin(pitchS) - entityTargetY;
+                    panY = Pose.pos.y.get(eid) - distS * Math.sin(pitchS) - entityTargetY;
                     panZ =
-                        Transform.pos.z.get(eid) -
+                        Pose.pos.z.get(eid) -
                         distS * Math.cos(pitchS) * Math.cos(yawS) -
                         entityTargetZ;
                 }
@@ -399,10 +400,10 @@ const OrbitSystem: System = {
                 let targetY = panY;
                 let targetZ = panZ;
                 const targetEid = Orbit.target.get(eid);
-                if (targetEid > 0 && state.has(targetEid, Transform)) {
-                    targetX += Transform.pos.x.get(targetEid);
-                    targetY += Transform.pos.y.get(targetEid);
-                    targetZ += Transform.pos.z.get(targetEid);
+                if (targetEid > 0 && state.has(targetEid, Pose)) {
+                    targetX += Pose.pos.x.get(targetEid);
+                    targetY += Pose.pos.y.get(targetEid);
+                    targetZ += Pose.pos.z.get(targetEid);
                 }
 
                 const camX = targetX + distS * Math.cos(pitchS) * Math.sin(yawS);
@@ -483,7 +484,7 @@ export const OrbitPlugin: Plugin = {
             },
         },
     },
-    dependencies: [InputPlugin, TransformsPlugin],
+    dependencies: [InputPlugin],
 };
 
 export { OrbitOverlayPlugin } from "./overlay";

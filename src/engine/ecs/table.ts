@@ -552,14 +552,23 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                     const column = field.source.column;
                     const sourceBase = eid * field.sourceLanes;
                     const targetBase = row * this.rowBytes + field.offset;
+                    let fieldChanged = seed;
                     for (let lane = 0; lane < field.lanes; lane++) {
                         const offset = targetBase + lane * field.bytesPerLane;
                         const value = column[sourceBase + lane];
-                        if (column instanceof Float32Array) view.setFloat32(offset, value, true);
-                        else if (column instanceof Int32Array) view.setInt32(offset, value, true);
-                        else view.setUint32(offset, value, true);
+                        if (column instanceof Float32Array) {
+                            if (!Object.is(view.getFloat32(offset, true), value))
+                                fieldChanged = true;
+                            view.setFloat32(offset, value, true);
+                        } else if (column instanceof Int32Array) {
+                            if (view.getInt32(offset, true) !== value) fieldChanged = true;
+                            view.setInt32(offset, value, true);
+                        } else {
+                            if (view.getUint32(offset, true) !== value) fieldChanged = true;
+                            view.setUint32(offset, value, true);
+                        }
                     }
-                    changed = true;
+                    changed ||= fieldChanged;
                 }
             }
             this._boundDirty[row] = 0;

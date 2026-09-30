@@ -1,6 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { build } from "../../engine";
-import { Transform } from "../transforms";
+import { build, Transform } from "../../engine";
 import { Body, PhysicsPlugin } from "./index";
 
 setDefaultTimeout(1000);

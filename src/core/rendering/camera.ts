@@ -1,5 +1,13 @@
-import { f32, field, invert, multiply, orthographic, perspective, u32 } from "../../engine";
-import { composeTransform, Transform } from "../../transitional/transforms";
+import {
+    composeTransform,
+    f32,
+    field,
+    invert,
+    multiply,
+    orthographic,
+    perspective,
+    u32,
+} from "../../engine";
 
 /**
  * a camera's projection model: `Perspective` (fov-based, the default) or `Orthographic` (size-based).
@@ -11,7 +19,7 @@ export const CameraMode = {
 } as const;
 
 /**
- * camera component. Pose comes from {@link Transform} (looks down its local -Z). A lone camera
+ * camera component. Placement comes from the engine's fixed-tick Pose (looks down its local -Z). A lone camera
  * auto-binds to the first `<canvas>` in the document, so the single-view case needs no wiring;
  * multi-view (or a dynamically-created canvas) binds each camera explicitly via `attachCanvas`
  * from `render`. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); sear unpacks to linear

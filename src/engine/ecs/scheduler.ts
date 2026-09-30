@@ -1,3 +1,4 @@
+import { beginPoseTick, endPoseTick, presentPose } from "./pose";
 import type { State } from "./state";
 
 function invalidDelta(): never {
@@ -204,7 +205,9 @@ export class Scheduler {
         while (this._accumulator >= fixedDt && steps < Time.MAX_FIXED_STEPS) {
             this._time.deltaTime = fixedDt;
             this._time.fixedTick++;
+            beginPoseTick(state);
             this.runGroup(state, "fixed");
+            endPoseTick(state);
             this._accumulator -= fixedDt;
             steps++;
         }
@@ -218,6 +221,7 @@ export class Scheduler {
 
         this._time.deltaTime = scaled;
         this.runGroup(state, "simulation");
+        presentPose(state);
         this.runGroup(state, "draw");
     }
 

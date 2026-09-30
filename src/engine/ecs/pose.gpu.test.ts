@@ -1,17 +1,30 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { RenderPlugin } from "../../core/rendering";
 import { Body, forwardRay, PhysicsPlugin, Pose } from "../../transitional/physics";
-import { Transform, transformTable } from "../../transitional/transforms";
-import * as engine from "../index";
 import { build } from "../app";
+import * as engine from "../index";
+import { probeBuffer, Transform, transformTable } from "../index";
 import { Time } from "./scheduler";
 
 setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 
-// Stage 6 red checkpoint: until the engine owns Pose, use the existing Physics schema to expose
-// missing production behavior rather than failing module resolution on a nonexistent export.
+function bounded<T>(promise: PromiseLike<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("pose readback exceeded 750 ms")), 750);
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
 test("Pose is an engine-owned public schema, independent of Physics", () => {
     expect(Reflect.get(engine, "Pose")).toBe(Pose);
 });
@@ -33,7 +46,9 @@ test("Transform placement lands in the fixed-tick Pose column and the renderer t
         const table = transformTable(state);
         const row = table.rowIndex(eid);
         expect(row).toBeGreaterThanOrEqual(0);
-        const words = new Float32Array(table.bytes.buffer);
+        const words = new Float32Array(
+            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+        );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
         expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([2, 3, 4]);
     } finally {
@@ -57,7 +72,9 @@ test("a Body writes scale as part of fixed-tick Pose instead of deriving it only
         expect([scale.x.get(eid), scale.y.get(eid), scale.z.get(eid)]).toEqual([2, 4, 6]);
         const table = transformTable(state);
         const row = table.rowIndex(eid);
-        const words = new Float32Array(table.bytes.buffer);
+        const words = new Float32Array(
+            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+        );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
         expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([2, 4, 6]);
     } finally {

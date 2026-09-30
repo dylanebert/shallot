@@ -22,6 +22,15 @@ export {
 } from "./component";
 export { field } from "./field";
 export { Identity } from "./identity";
+export {
+    composeTransform,
+    initializePose,
+    Pose,
+    poseTraits,
+    registerPose,
+    Transform,
+    transformTable,
+} from "./pose";
 export { and, not, or } from "./query";
 export {
     camel,

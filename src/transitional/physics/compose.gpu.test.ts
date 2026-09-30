@@ -3,8 +3,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 
 import { RenderPlugin } from "../../core/rendering";
-import { build, probeBuffer, Time } from "../../engine";
-import { Transform, transformTable } from "../transforms";
+import { build, probeBuffer, Time, Transform, transformTable } from "../../engine";
 import { Body, PhysicsPlugin, readBody } from "./index";
 
 const peerModule = "bun-webgpu";
@@ -27,7 +26,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     });
 }
 
-test("physics interpolation uploads one dense pose range and preserves unmoved rows inside it", async () => {
+test("engine interpolation uploads one current-pose range and preserves unmoved renderer rows", async () => {
     const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     const state = app.state;
     const body = state.of(Body);
@@ -53,7 +52,7 @@ test("physics interpolation uploads one dense pose range and preserves unmoved r
     Object.defineProperty(queue, "writeBuffer", {
         configurable: true,
         value: (...args: Parameters<GPUQueue["writeBuffer"]>) => {
-            if (args[0] === table.buffer) {
+            if (args[0] === state.poseRuntime!.current.buffer) {
                 poseWrites++;
                 poseBytes += args[4] ?? 0;
             }

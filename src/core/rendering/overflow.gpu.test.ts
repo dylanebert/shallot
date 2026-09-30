@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
+import { Transform } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
-import { Transform } from "../../transitional/transforms";
 import { CLUSTER_COUNT, LIGHT_POOL, requestLightOverflow } from "./cluster";
 import { PointLight } from "./lighting";
 

@@ -44,12 +44,11 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, field, vec4 } from "../../engine";
+import { Compute, f32, field, Pose, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import { ColorSystem, DEPTH_FORMAT } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
 import { Part, PartPlugin } from "../../transitional/part";
-import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import {
     compositeKernel,
     compositeLayout,
@@ -640,10 +639,10 @@ export const OutlinePlugin: Plugin = {
     name: "Outline",
     components: { Outline },
     systems: [OutlineSystem],
-    dependencies: [RenderPlugin, PartPlugin, TransformsPlugin],
+    dependencies: [RenderPlugin, PartPlugin],
     traits: {
         Outline: {
-            requires: [Part, Transform],
+            requires: [Part, Pose],
             defaults: () => ({
                 color: [1, 0.85, 0.2, 1],
                 width: 4,

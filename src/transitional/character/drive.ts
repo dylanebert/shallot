@@ -1,4 +1,5 @@
-import type { State } from "../../engine";
+import { Pose, type State } from "../../engine";
+import { setKinematic } from "../physics";
 import type { CharState } from "./sweep";
 
 /** per-State intent and controller pose shared by the sweep and its callers */
@@ -68,11 +69,13 @@ export function jump(state: State, eid: number): void {
  * ```
  */
 export function pose(state: State, eid: number, out: [number, number, number]): boolean {
-    const st = driveFor(state).states.get(eid);
-    if (!st) return false;
-    out[0] = st.pos[0];
-    out[1] = st.pos[1];
-    out[2] = st.pos[2];
+    if (!driveFor(state).states.has(eid) || !state.has(eid, Pose)) return false;
+    const pose = state.of(Pose);
+    const column = pose.pos.column;
+    const offset = eid * 4;
+    out[0] = column[offset];
+    out[1] = column[offset + 1];
+    out[2] = column[offset + 2];
     return true;
 }
 
@@ -95,6 +98,7 @@ export function teleport(state: State, eid: number, x: number, y: number, z: num
     st.pos[2] = z;
     st.vel[0] = st.vel[1] = st.vel[2] = 0;
     st.realizedVel[0] = st.realizedVel[1] = st.realizedVel[2] = 0;
+    setKinematic(state, eid, st.pos, st.quat, true, st.realizedVel);
     return true;
 }
 

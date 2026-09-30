@@ -21,7 +21,6 @@ import {
     ShapeKind,
     Time,
     Transform,
-    TransformsPlugin,
 } from "@dylanebert/shallot";
 
 const peerModule = "bun-webgpu";
@@ -31,7 +30,7 @@ await setupGlobals();
 test("the public Player controller consumes held, released and neutral input to look and drive an actual Character without a renderer or browser input", async () => {
     const app = await build({
         defaults: false,
-        plugins: [InputPlugin, CharacterPlugin, PhysicsPlugin, TransformsPlugin],
+        plugins: [InputPlugin, CharacterPlugin, PhysicsPlugin],
         setup: (state) => state.addSystem(PlayerControlSystem, "Player"),
     });
     try {

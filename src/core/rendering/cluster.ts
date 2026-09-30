@@ -2,7 +2,7 @@ import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } fro
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
-import { Compute } from "../../engine";
+import { Compute, transformTable } from "../../engine";
 import { precompile, probeBuffer, worldResource } from "../../engine/runtime";
 import {
     idiv,
@@ -12,7 +12,6 @@ import {
     Xform,
     xformQuat,
 } from "../../engine/utils";
-import { transformTable } from "../../transitional/transforms";
 import { Camera, CameraMode } from "./camera";
 import {
     MAX_POINT_LIGHTS,

@@ -9,16 +9,9 @@ import { Xform } from "../utils";
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 
-const Input = d.struct({
-    previousPos: d.vec4f,
-    previousQuat: d.vec4f,
-    previousScale: d.vec4f,
-    currentPos: d.vec4f,
-    currentQuat: d.vec4f,
-    currentScale: d.vec4f,
-});
 const layout = tgpu.bindGroupLayout({
-    input: { storage: d.arrayOf(Input), access: "readonly" },
+    current: { storage: d.arrayOf(Xform), access: "readonly" },
+    previous: { storage: d.arrayOf(Xform), access: "readonly" },
     output: { storage: d.arrayOf(Xform), access: "mutable" },
     params: { uniform: d.vec4f },
 });
@@ -30,14 +23,15 @@ const kernel = tgpu.computeFn({
     const i = args.gid.x;
     if (i >= d.u32(layout.$.params.y)) return;
     const a = layout.$.params.x;
-    const v = layout.$.input[i];
-    const flip = std.select(d.f32(1), d.f32(-1), std.dot(v.previousQuat, v.currentQuat) < 0);
-    const blend = std.add(std.mul(v.previousQuat, flip * (1 - a)), std.mul(v.currentQuat, a));
+    const previous = layout.$.previous[i];
+    const current = layout.$.current[i];
+    const flip = std.select(d.f32(1), d.f32(-1), std.dot(previous.quat, current.quat) < 0);
+    const blend = std.add(std.mul(previous.quat, flip * (1 - a)), std.mul(current.quat, a));
     const len = std.length(blend);
     let quat = d.vec4f(0, 0, 0, 1);
     if (len > 1e-12) quat = std.div(blend, len);
-    const pos = std.mix(v.previousPos, v.currentPos, a);
-    const scale = std.mix(v.previousScale, v.currentScale, a);
+    const pos = std.mix(previous.pos, current.pos, a);
+    const scale = std.mix(previous.scale, current.scale, a);
     layout.$.output[i] = Xform({
         pos: d.vec3f(pos.x, pos.y, pos.z),
         quat,
@@ -92,7 +86,7 @@ function median(values: number[]): number {
 
 // Deliberately manual: timing is reported, never asserted. Both alternatives fill the same Xform
 // table, use dense rows, interpolate pos/scale and shortest-arc normalized quaternions, and start
-// from the same six eid-indexed columns. The GPU alternative caches a dense 96-byte tick-pair input.
+// from the same six eid-indexed columns. GPU history lives only on the device, copied each tick.
 // This measures a prototype, not production frames or a replacement for engine verification.
 test("measure CPU interpolation against cached GPU pose-table fill", async () => {
     const app = await build({
@@ -121,7 +115,8 @@ test("measure CPU interpolation against cached GPU pose-table fill", async () =>
         const rawPipeline = root.unwrap(pipeline);
         for (const count of [1_000, 10_000, 100_000]) {
             const cpu = state.table(`pose-cpu-${count}`, Xform);
-            const input = state.table(`pose-input-${count}`, Input);
+            const input = state.table(`pose-input-${count}`, Xform);
+            const previous = state.table(`pose-history-${count}`, Xform, { gpuOnly: true });
             const gpu = state.table(`pose-gpu-${count}`, Xform, { gpuOnly: true });
             const eids = new Uint32Array(count);
             for (let row = 0; row < count; row++) {
@@ -130,6 +125,7 @@ test("measure CPU interpolation against cached GPU pose-table fill", async () =>
                 eids[row] = eid;
                 cpu.acquire(eid);
                 input.acquire(eid);
+                previous.acquire(eid);
                 gpu.acquire(eid);
             }
             const columns = Array.from({ length: 6 }, () => new Float32Array(count * 4));
@@ -164,12 +160,12 @@ test("measure CPU interpolation against cached GPU pose-table fill", async () =>
                     nlerpShortestInto(pq, j, cq, j, alpha, cpuWords, b + 4);
                 }
             }
-            function gatherInputs(): void {
+            function gatherInputs(start = 3): void {
                 for (let row = 0; row < count; row++) {
                     const j = eids[row] * 4;
-                    const b = row * 24;
-                    for (let field = 0; field < 6; field++) {
-                        const source = columns[field];
+                    const b = row * 12;
+                    for (let field = 0; field < 3; field++) {
+                        const source = columns[start + field];
                         const target = b + field * 4;
                         inputWords[target] = source[j];
                         inputWords[target + 1] = source[j + 1];
@@ -185,7 +181,8 @@ test("measure CPU interpolation against cached GPU pose-table fill", async () =>
             state.own(rawParams);
             const paramWords = new Float32Array([0.375, count, 0, 0]);
             const group = root.createBindGroup(layout, {
-                input: input.typed,
+                current: input.typed,
+                previous: previous.typed,
                 output: gpu.typed,
                 params,
             });
@@ -219,6 +216,15 @@ test("measure CPU interpolation against cached GPU pose-table fill", async () =>
             fillCpu(0.375);
             cpu.markRange(0, count);
             cpu.upload();
+            gatherInputs(0);
+            input.markRange(0, count);
+            input.upload();
+            function copyPrevious(): void {
+                const encoder = device.createCommandEncoder();
+                encoder.copyBufferToBuffer(input.buffer, 0, previous.buffer, 0, count * 48);
+                device.queue.submit([encoder.finish()]);
+            }
+            copyPrevious();
             gatherInputs();
             input.markRange(0, count);
             input.upload();
@@ -266,7 +272,7 @@ test("measure CPU interpolation against cached GPU pose-table fill", async () =>
                 read.unmap();
             }
             console.info(
-                `[pose-fill] count=${count} CPU-fill-ms=${median(cpuFill).toFixed(6)} GPU-input-gather-ms=${median(gpuGather).toFixed(6)} GPU-dispatch-ms=${median(gpuTimes).toFixed(6)} CPU-upload-bytes=${count * 48} GPU-input-upload-bytes=${count * 96} GPU-extra-allocated-bytes=${input.buffer.size}`,
+                `[pose-fill] count=${count} CPU-fill-ms=${median(cpuFill).toFixed(6)} GPU-input-gather-ms=${median(gpuGather).toFixed(6)} GPU-dispatch-ms=${median(gpuTimes).toFixed(6)} CPU-upload-bytes=${count * 48} GPU-input-upload-bytes=${count * 48} GPU-extra-allocated-bytes=${input.buffer.size + previous.buffer.size}`,
             );
             for (const changed of [false, true]) {
                 const cpuWall: number[] = [];
@@ -283,6 +289,7 @@ test("measure CPU interpolation against cached GPU pose-table fill", async () =>
                     } else {
                         paramWords[0] = alpha;
                         if (changed) {
+                            copyPrevious();
                             gatherInputs();
                             input.markRange(0, count);
                             input.upload();

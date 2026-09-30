@@ -2,8 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(1000);
 
-import { build } from "../../engine";
-import { Transform, transformTable } from "../transforms";
+import { build, Transform, transformTable } from "../../engine";
 import { Part, partTable } from "./part";
 import "../../standard";
 

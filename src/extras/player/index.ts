@@ -9,7 +9,16 @@ import {
     requirePointerLock,
 } from "../../core/input";
 import { Camera, RenderPlugin } from "../../core/rendering";
-import { entity, f32, field, not, type Plugin, type State, type System } from "../../engine";
+import {
+    entity,
+    f32,
+    field,
+    not,
+    type Plugin,
+    type State,
+    type System,
+    Transform,
+} from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
 import {
     Character,
@@ -20,7 +29,6 @@ import {
     pose,
 } from "../../transitional/character";
 import { Body } from "../../transitional/physics";
-import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import { PlayerFollow } from "./follow";
 
 // First-person player controller — composes a kinematic `Character` (the §6.4 controller) with WASD + a
@@ -274,7 +282,7 @@ export const PlayerPlugin: Plugin = {
     name: "Player",
     systems: [PlayerSnapshotSystem, PlayerControlSystem],
     components: { Player },
-    dependencies: [CharacterPlugin, InputPlugin, RenderPlugin, TransformsPlugin],
+    dependencies: [CharacterPlugin, InputPlugin, RenderPlugin],
     traits: {
         Player: {
             requires: [Body, Character],

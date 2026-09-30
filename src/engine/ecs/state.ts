@@ -12,6 +12,7 @@ import {
 } from "./component";
 import { Entities } from "./entity";
 import { Identity } from "./identity";
+import type { PoseRuntime } from "./pose";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
 import { type ComponentStorage, sameSchema, WorldField } from "./storage";
@@ -63,6 +64,8 @@ export class State {
     /** this world's component registrations, defaults, exclusions, and reflection data. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
+    /** @internal Built-in fixed pose and GPU-only history, owned by this world. */
+    poseRuntime: PoseRuntime | undefined;
     private _readback: ReadbackPool | undefined;
 
     /** One-shot buffer and texture staging owned by this world. */
@@ -629,6 +632,7 @@ export class State {
         this._storage.clear();
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
+        this.poseRuntime = undefined;
         this._resources.clear();
         this.registry.clear();
         for (const resource of this._gpuResources) {

@@ -3,8 +3,7 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 
 import { Camera, CameraMode, DirectionalLight } from "../../core/rendering";
-import { build } from "../../engine";
-import { Transform, TransformsPlugin } from "../../transitional/transforms";
+import { build, Transform } from "../../engine";
 import {
     cascadeComboEids,
     cascadeCount,
@@ -36,7 +35,7 @@ afterEach(() => {
 
 // a headless State with one posed perspective camera and one shadow-casting sun
 async function sunScene() {
-    live = await build({ defaults: false, plugins: [TransformsPlugin] });
+    live = await build({ defaults: false, plugins: [] });
     const state = live.state;
     const main = state.create();
     state.add(main, Transform);
@@ -55,6 +54,7 @@ async function sunScene() {
     Shadow.distance.set(sun, 80);
     Shadow.depthBias.set(sun, 0);
     Shadow.normalBias.set(sun, 0);
+    state.step(0);
     return { state, main, sun };
 }
 
@@ -117,6 +117,7 @@ test("the cascade pass reuses the boxes it last built after the main camera move
     ]);
 
     Transform.pos.set(main, 200, 2, -150, 0);
+    state.step(0);
     updateCascades(state, main);
     let moved = false;
     for (let i = 0; i < n; i++) {

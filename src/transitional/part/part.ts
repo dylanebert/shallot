@@ -17,9 +17,8 @@ import {
     Surfaces,
 } from "../../core/rendering";
 import type { Registry, State, System } from "../../engine";
-import { Compute, field, u32, vec4 } from "../../engine";
+import { Compute, field, Pose, transformTable, u32, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
-import { Transform, transformTable } from "../transforms";
 import {
     CullParams,
     countKernel,
@@ -327,7 +326,7 @@ function cullGroup(state: State): TgpuBindGroup<(typeof cullLayout)["entries"]> 
     const transformRows = transforms.eidToRowBuffer;
     if (!cullVolumes || !partRows || !transformRows) {
         throw new Error(
-            "[part] dense table inputs missing — declare RenderPlugin + TransformsPlugin",
+            "[part] dense table inputs missing: cull volumes, Part rows or pose row lookup",
         );
     }
     _part.cullGroup = Compute.root.createBindGroup(cullLayout, {
@@ -639,7 +638,7 @@ export function warmPart(state: State): void {
 }
 
 export const PartTraits = {
-    requires: [Transform],
+    requires: [Pose],
     defaults: () => {
         // a missing "default" surface or "cube" mesh is a wiring bug — but only when the registry is
         // populated. With no SearPlugin the surface registry is empty (`Surfaces.size === 0`), so id 0 is

@@ -6,7 +6,7 @@
 import { devices } from "../../core/input";
 import { Camera } from "../../core/rendering";
 import type { State } from "../../engine";
-import { Transform } from "../transforms";
+import { Pose } from "../../engine";
 import { Body, type BodyState } from "./index";
 import { qRotate, type Ray, type RayBody, type RayHit, raycast, screenToRay } from "./raycast";
 
@@ -73,19 +73,20 @@ export function worldToLocal(
 /** the first-person centre ray: camera position + its normalized forward (−Z). The player's crosshair pick.
  *  Unlike {@link cursorRay} (which offsets the origin to the near plane), the origin stays AT the camera. */
 export function forwardRay(state: State, cam: number): Ray | null {
-    if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Transform)) return null;
+    if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Pose)) return null;
+    const pose = state.of(Pose);
     const [dx, dy, dz] = qRotate(
-        Transform.rot.x.get(cam),
-        Transform.rot.y.get(cam),
-        Transform.rot.z.get(cam),
-        Transform.rot.w.get(cam),
+        pose.quat.x.get(cam),
+        pose.quat.y.get(cam),
+        pose.quat.z.get(cam),
+        pose.quat.w.get(cam),
         0,
         0,
         -1,
     );
     const len = Math.hypot(dx, dy, dz) || 1;
     return {
-        origin: [Transform.pos.x.get(cam), Transform.pos.y.get(cam), Transform.pos.z.get(cam)],
+        origin: [pose.pos.x.get(cam), pose.pos.y.get(cam), pose.pos.z.get(cam)],
         dir: [dx / len, dy / len, dz / len],
     };
 }
@@ -93,7 +94,8 @@ export function forwardRay(state: State, cam: number): Ray | null {
 /** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick aims with it. The pick aspect derives from the State-scoped viewport row,
  * so it can diverge from the render aspect under an aspect-distorting `Resolution` override. */
 export function cursorRay(state: State, cam: number): Ray | null {
-    if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Transform)) return null;
+    if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Pose)) return null;
+    const pose = state.of(Pose);
     const input = devices(state);
     if (!input.mouse.hover) return null;
     const viewport = input.viewport.get(input.focused);
@@ -104,12 +106,7 @@ export function cursorRay(state: State, cam: number): Ray | null {
         viewport?.cssHeight ?? 0,
         Camera.fov.get(cam),
         Camera.near.get(cam),
-        [Transform.pos.x.get(cam), Transform.pos.y.get(cam), Transform.pos.z.get(cam)],
-        [
-            Transform.rot.x.get(cam),
-            Transform.rot.y.get(cam),
-            Transform.rot.z.get(cam),
-            Transform.rot.w.get(cam),
-        ],
+        [pose.pos.x.get(cam), pose.pos.y.get(cam), pose.pos.z.get(cam)],
+        [pose.quat.x.get(cam), pose.quat.y.get(cam), pose.quat.z.get(cam), pose.quat.w.get(cam)],
     );
 }

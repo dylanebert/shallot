@@ -1,8 +1,19 @@
 // Destination: core/audio and standard/audio; owner: audio-boundary.md.
 
 import { devices } from "../../core/input";
-import { f32, field, i32, not, type Plugin, type State, type System, u8 } from "../../engine";
-import { composeTransform, Transform, TransformsPlugin } from "../transforms";
+import {
+    composeTransform,
+    f32,
+    field,
+    i32,
+    not,
+    type Plugin,
+    Pose,
+    type State,
+    type System,
+    Transform,
+    u8,
+} from "../../engine";
 import {
     Audio,
     addSpatial,
@@ -226,7 +237,7 @@ const SoundSystem: System = {
         }
 
         const ctxRunning = context === "running";
-        const listenerEid = state.only([Listener, Transform]);
+        const listenerEid = state.only([Listener, Pose]);
         const hasListener = listenerEid >= 0;
 
         for (const eid of [...state.query([Sound, not(Voiced)])]) {
@@ -248,7 +259,7 @@ const SoundSystem: System = {
             assign(handle, id);
             const inst = byId(id);
             if (inst) for (const off of inst.loopOffsets) setParam(handle, off, loop);
-            spatialize(handle, hasListener && state.has(eid, Transform));
+            spatialize(handle, hasListener && state.has(eid, Pose));
             gate(handle, 1);
             if (loop === 0) {
                 // gate-on must precede the idle watch: the worklet clears a slot
@@ -288,10 +299,10 @@ const SoundSystem: System = {
         // derivation reads the listener's world basis (column-major right/up/fwd)
         if (hasListener) {
             const m = composeTransform(listenerEid, _m);
-            for (const eid of state.query([Sound, Voiced, Transform])) {
-                const dx = Transform.pos.x.get(eid) - m[12];
-                const dy = Transform.pos.y.get(eid) - m[13];
-                const dz = Transform.pos.z.get(eid) - m[14];
+            for (const eid of state.query([Sound, Voiced, Pose])) {
+                const dx = Pose.pos.x.get(eid) - m[12];
+                const dy = Pose.pos.y.get(eid) - m[13];
+                const dz = Pose.pos.z.get(eid) - m[14];
                 const p = polar(dx, dy, dz, m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
                 addSpatial(Sound.voice.get(eid), p.azimuth, p.elevation, p.distance);
             }
@@ -349,14 +360,13 @@ export { Instruments, instrument };
 export const AudioPlugin: Plugin = {
     name: "Audio",
     components: { Sound, Listener, Voiced },
-    dependencies: [TransformsPlugin],
     systems: [SoundSystem],
     traits: {
         Sound: {
             defaults: () => ({ instrument: -1, loop: 0, volume: 1, pitch: 0, voice: -1 }),
             parse: { instrument: resolveInstrument },
         },
-        Listener: { requires: [Transform] },
+        Listener: { requires: [Pose] },
     },
     async initialize(state) {
         // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the State's

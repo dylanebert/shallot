@@ -2,10 +2,9 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
-import { Compute, f32, field, unpackColor, vec4 } from "../../engine";
+import { Compute, f32, field, Pose, unpackColor, vec4 } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
-import { Transform } from "../../transitional/transforms";
 
 /**
  * ambient light component. sear's `lit` / `lightFactor` helpers
@@ -335,7 +334,7 @@ export function spotParams(innerDeg: number, outerDeg: number): { scale: number;
     return { scale, offset: -cosOuter * scale };
 }
 
-const POINT_LIGHT_TERMS = [PointLight, Transform];
+const POINT_LIGHT_TERMS = [PointLight, Pose];
 
 /**
  * warn once per episode when more PointLight entities exist than the list cap:

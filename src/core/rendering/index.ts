@@ -2,9 +2,8 @@
 
 import * as d from "typegpu/data";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, formatHex, invert } from "../../engine";
+import { Compute, composeTransform, formatHex, invert, Pose } from "../../engine";
 import { worldResource } from "../../engine/runtime";
-import { composeTransform, Transform, TransformsPlugin } from "../../transitional/transforms";
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import {
     ClusterSystem,
@@ -481,7 +480,7 @@ export const RenderPlugin: Plugin = {
     },
     traits: {
         Camera: {
-            requires: [Transform],
+            requires: [Pose],
             defaults: () => ({
                 mode: CameraMode.Perspective,
                 fov: 60,
@@ -513,7 +512,7 @@ export const RenderPlugin: Plugin = {
             format: { color: formatHex },
         },
         PointLight: {
-            requires: [Transform],
+            requires: [Pose],
             defaults: () => ({ color: 0xffffff, intensity: 1, range: 10, radius: 0.1 }),
             format: { color: formatHex },
         },
@@ -525,7 +524,6 @@ export const RenderPlugin: Plugin = {
             defaults: () => ({}),
         },
     },
-    dependencies: [TransformsPlugin],
 
     async initialize(state) {
         initializeRenderState(state);

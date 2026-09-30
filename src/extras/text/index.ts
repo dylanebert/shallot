@@ -30,6 +30,7 @@ import {
     field,
     formatHex,
     type Plugin,
+    Pose,
     Registry,
     type State,
     type System,
@@ -39,7 +40,6 @@ import {
 import { worldResource } from "../../engine/runtime";
 import { packColor, Xform, xformPoint } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
-import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import {
     createGlyphAtlas,
     disposeAtlases,
@@ -311,7 +311,7 @@ function fold(h: number, x: number): number {
 // glyph buffer still holds the right geometry, so the rebuild + upload are skipped
 function signature(state: State): number {
     let h = 0x811c9dc5 | 0;
-    for (const eid of state.query([Text, Transform])) {
+    for (const eid of state.query([Text, Pose])) {
         if (!Text.visible.get(eid)) continue;
         h = fold(h, eid);
         h = fold(h, Text.content.get(eid));
@@ -344,7 +344,7 @@ function rebuild(state: State, device: GPUDevice): void {
     while (_text.ranges.length < _text.atlases.length) _text.ranges.push({ start: 0, count: 0 });
     for (let i = 0; i < _text.atlases.length; i++) _text.byFont[i].length = 0;
 
-    for (const eid of state.query([Text, Transform])) {
+    for (const eid of state.query([Text, Pose])) {
         if (!Text.visible.get(eid)) continue;
         const content = Content.name(Text.content.get(eid));
         if (!content) continue;
@@ -469,10 +469,10 @@ export const TextPlugin: Plugin = {
     name: "Text",
     components: { Text },
     systems: [TextSystem],
-    dependencies: [RenderPlugin, TransformsPlugin],
+    dependencies: [RenderPlugin],
     traits: {
         Text: {
-            requires: [Transform],
+            requires: [Pose],
             defaults: () => ({
                 content: 0,
                 font: 0,

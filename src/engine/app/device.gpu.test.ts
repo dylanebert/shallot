@@ -12,8 +12,7 @@ import {
     ShapeKind,
 } from "../../transitional/physics";
 import "../../standard";
-import { Transform, transformTable } from "../../transitional/transforms";
-import { type State, Time } from "../index";
+import { type State, Time, Transform, transformTable } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { build } from "./index";
 

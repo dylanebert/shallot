@@ -625,7 +625,7 @@ function featurePlugin(subject: Plugin): Plugin {
             Player.camera.set(actor, camera);
 
             const transforms = Compute.buffers.get("transforms");
-            if (!transforms) throw new Error("Transforms did not publish their buffer");
+            if (!transforms) throw new Error("Engine pose did not publish its renderer buffer");
         },
         async warm(state) {
             const resources = state.resource(isolationKey, createIsolationResources);

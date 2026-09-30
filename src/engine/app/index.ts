@@ -3,7 +3,9 @@
 import {
     type Component,
     entries,
+    initializePose,
     register,
+    registerPose,
     State,
     type System,
     sameComponentSchema,
@@ -308,6 +310,7 @@ async function buildNow(config: Config): Promise<App> {
             world: state,
         });
         state.attachGpu(compute, (callback) => withCompute(compute, callback));
+        registerPose(state);
         if (Compute.adapter.class !== "real") loading?.notice?.(Compute.adapter);
 
         for (const plugin of sorted) {
@@ -346,7 +349,10 @@ async function buildNow(config: Config): Promise<App> {
         const warmable = sorted.filter((p) => p.warm);
         const total = sorted.length + warmable.length + scenes.length;
 
-        withCompute(state.gpu, () => config.setup?.(state));
+        withCompute(state.gpu, () => {
+            initializePose(state);
+            config.setup?.(state);
+        });
 
         for (let i = 0; i < sorted.length; i++) {
             const currentLoading = loading;

@@ -24,10 +24,18 @@ import {
     RenderPlugin,
     registerSurface,
 } from "../../core/rendering";
-import { Compute, formatHex, type Plugin, Registry, type State, type System } from "../../engine";
+import {
+    Compute,
+    formatHex,
+    type Plugin,
+    Pose,
+    Registry,
+    type State,
+    type System,
+    transformTable,
+} from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { PrepassSystem } from "../../standard/rendering";
-import { Transform, TransformsPlugin, transformTable } from "../../transitional/transforms";
 import {
     BUCKETS,
     INITIAL,
@@ -219,10 +227,10 @@ export const SpritePlugin: Plugin = {
     name: "Sprite",
     components: { Sprite },
     systems: [SpriteSystem],
-    dependencies: [RenderPlugin, TransformsPlugin],
+    dependencies: [RenderPlugin],
     traits: {
         Sprite: {
-            requires: [Transform],
+            requires: [Pose],
             defaults: () => ({
                 image: 0,
                 size: [1, 1],
