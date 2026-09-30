@@ -97,6 +97,15 @@ export class ComponentRegistry {
         return this._byName.get(kebab(name))?.traits;
     }
 
+    /** whether this component declares the given component as a runtime producer output. */
+    provides(component: Component, output: Component): boolean {
+        return (
+            this._byId
+                .get(idOf(component))
+                ?.traits?.provides?.some((item) => idOf(item) === idOf(output)) ?? false
+        );
+    }
+
     getName(component: Component): string | undefined {
         return this._byId.get(idOf(component))?.name;
     }

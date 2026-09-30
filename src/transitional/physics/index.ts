@@ -1003,7 +1003,6 @@ const SyncSystem: System = {
             kernel().bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
             runtime.bodies.set(eid, tb);
             runtime.stamps.set(eid, stamp);
-            if (!state.has(eid, GlobalTransform)) state.add(eid, GlobalTransform);
             bodySetChanged = true;
             seedGlobalTransform(eid);
         }
@@ -1017,7 +1016,6 @@ const SyncSystem: System = {
             const eid = stale.eids[i];
             forget(runtime, eid);
             runtime.stamps.delete(eid);
-            if (state.has(eid, GlobalTransform)) state.remove(eid, GlobalTransform);
             bodySetChanged = true;
         }
         if (bodySetChanged)

@@ -11,7 +11,13 @@ import {
     useState,
 } from "./component";
 import { Entities } from "./entity";
-import { type GlobalTransformRuntime, recordGlobalTransform } from "./global-transform";
+import {
+    forgetGlobalTransformEntity,
+    type GlobalTransformRuntime,
+    globalTransformProducerChanged,
+    recordGlobalTransform,
+    retainsGlobalTransform,
+} from "./global-transform";
 import { Identity } from "./identity";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
@@ -270,6 +276,7 @@ export class State {
         this._membershipObservers.get(idOf(component))?.forEach((observer) => {
             observer(eid, present);
         });
+        globalTransformProducerChanged(this, component, eid, present);
     }
 
     /** @internal Observe a field setter without putting state on the component schema. */
@@ -435,6 +442,7 @@ export class State {
     /** destroy an entity */
     destroy(eid: number): void {
         if (!this._entities.exists(eid)) return;
+        forgetGlobalTransformEntity(this, eid);
         this._queries.onEntityRemoved(eid);
         for (const tables of this._tablesByComponent.values()) {
             for (const table of tables) table.release(eid);
@@ -539,6 +547,7 @@ export class State {
 
     /** detach a component from an entity */
     remove(eid: number, component: any): void {
+        if (retainsGlobalTransform(this, eid, component)) return;
         if (this._components.remove(eid, component)) {
             this.notifyMembership(component as Component, eid, false);
             const tables = this._tablesByComponent.get(idOf(component as Component));

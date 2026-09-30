@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { eulerAlias, Xform } from "../utils";
-import { vec4 } from "./component";
+import { idOf, vec4 } from "./component";
 import { field } from "./field";
 import type { State } from "./state";
 import type { ComponentStorage } from "./storage";
@@ -66,7 +66,6 @@ export interface GlobalTransformRuntime {
     previous?: GpuTable<typeof Xform>;
     render?: GpuTable<typeof Xform>;
     fresh: Uint32Array;
-    freshPhase: Uint8Array;
     freshCount: number;
     enabled: boolean;
     tickCount: number;
@@ -81,6 +80,8 @@ export interface GlobalTransformRuntime {
     placement: ComponentStorage<typeof Transform>;
     global: ComponentStorage<typeof GlobalTransform>;
     passDescriptor: GPUComputePassDescriptor;
+    producers: Map<number, Set<number>>;
+    pendingRemoval: Set<number>;
 }
 
 /** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
@@ -96,7 +97,6 @@ export function registerGlobalTransform(state: State): void {
 export function initializeGlobalTransform(state: State): void {
     const runtime: GlobalTransformRuntime = {
         fresh: new Uint32Array(1),
-        freshPhase: new Uint8Array(1),
         freshCount: 0,
         enabled: false,
         tickCount: 0,
@@ -110,14 +110,12 @@ export function initializeGlobalTransform(state: State): void {
         placement: state.of(Transform),
         global: state.of(GlobalTransform),
         passDescriptor: {},
+        producers: new Map(),
+        pendingRemoval: new Set(),
     };
     state.globalTransformRuntime = runtime;
     state.observeMembership(GlobalTransform, (eid, present) => {
         if (present && runtime.enabled) queueFresh(runtime, eid);
-    });
-    state.observeMembership(Transform, (eid, present) => {
-        if (present) state.add(eid, GlobalTransform);
-        else if (state.has(eid, GlobalTransform)) state.remove(eid, GlobalTransform);
     });
 }
 
@@ -157,17 +155,60 @@ export function globalTransformTable(state: State): GpuTable<typeof Xform> {
     return runtime.render!;
 }
 
+/** @internal Producer membership and derived-component lifetime belong to the engine. */
+export function globalTransformProducerChanged(
+    state: State,
+    component: object,
+    eid: number,
+    present: boolean,
+): void {
+    if (!state.registry.provides(component as typeof Transform, GlobalTransform)) return;
+    const runtime = state.globalTransformRuntime;
+    if (!runtime) return;
+    let producers = runtime.producers.get(eid);
+    if (present) {
+        if (!producers) runtime.producers.set(eid, (producers = new Set()));
+        producers.add(idOf(component as typeof Transform));
+        runtime.pendingRemoval.delete(eid);
+        if (!state.has(eid, GlobalTransform)) state.add(eid, GlobalTransform);
+    } else {
+        producers?.delete(idOf(component as typeof Transform));
+        if (producers?.size === 0) runtime.pendingRemoval.add(eid);
+    }
+}
+
+/** @internal A producer cannot remove a derived row still owned by another producer. */
+export function retainsGlobalTransform(state: State, eid: number, component: object): boolean {
+    if (component !== GlobalTransform) return false;
+    return (state.globalTransformRuntime?.producers.get(eid)?.size ?? 0) > 0;
+}
+
+/** @internal Destruction clears owner state along with the entity's component membership. */
+export function forgetGlobalTransformEntity(state: State, eid: number): void {
+    const runtime = state.globalTransformRuntime;
+    runtime?.producers.delete(eid);
+    runtime?.pendingRemoval.delete(eid);
+}
+
+/** @internal Reconcile one-frame producer gaps before world placement is derived for draw. */
+export function reconcileGlobalTransformProducers(state: State): void {
+    const runtime = state.globalTransformRuntime;
+    if (!runtime) return;
+    for (const eid of runtime.pendingRemoval) {
+        if (runtime.producers.get(eid)?.size) continue;
+        runtime.pendingRemoval.delete(eid);
+        runtime.producers.delete(eid);
+        if (state.has(eid, GlobalTransform)) state.remove(eid, GlobalTransform);
+    }
+}
+
 function queueFresh(runtime: GlobalTransformRuntime, eid: number): void {
     if (runtime.freshCount === runtime.fresh.length) {
         const fresh = new Uint32Array(runtime.fresh.length * 2);
-        const phases = new Uint8Array(fresh.length);
         fresh.set(runtime.fresh);
-        phases.set(runtime.freshPhase);
         runtime.fresh = fresh;
-        runtime.freshPhase = phases;
     }
-    runtime.fresh[runtime.freshCount] = eid;
-    runtime.freshPhase[runtime.freshCount++] = runtime.captureIndex;
+    runtime.fresh[runtime.freshCount++] = eid;
 }
 
 /** @internal Gather authored placement into the fixed world column without per-row callbacks. */
@@ -252,6 +293,7 @@ export function endGlobalTransformTick(state: State): void {
 }
 /** @internal Gather post-simulation placement; recording waits for the renderer's frame encoder. */
 export function prepareGlobalTransform(state: State): void {
+    reconcileGlobalTransformProducers(state);
     deriveTransforms(state);
     const runtime = state.globalTransformRuntime;
     if (!runtime?.enabled) return;
@@ -276,18 +318,6 @@ function copyPhase(state: State, encoder: GPUCommandEncoder, phase: number): voi
             offset,
             size,
         );
-    for (let i = 0; i < runtime.freshCount; i++) {
-        if (runtime.freshPhase[i] !== phase) continue;
-        const row = runtime.current!.rowIndex(runtime.fresh[i]);
-        if (row >= 0)
-            encoder.copyBufferToBuffer(
-                runtime.current!.buffer,
-                row * 48,
-                runtime.previous!.buffer,
-                row * 48,
-                48,
-            );
-    }
 }
 /** @internal Record history and interpolation into the frame's encoder. Never create or submit one. */
 export function recordGlobalTransform(state: State, encoder: GPUCommandEncoder): void {
@@ -305,6 +335,17 @@ export function recordGlobalTransform(state: State, encoder: GPUCommandEncoder):
         copyPhase(state, encoder, tick);
     }
     if (runtime.tickCount) copyPhase(state, encoder, runtime.tickCount + 1);
+    for (let i = 0; i < runtime.freshCount; i++) {
+        const row = runtime.current!.rowIndex(runtime.fresh[i]);
+        if (row >= 0)
+            encoder.copyBufferToBuffer(
+                runtime.current!.buffer,
+                row * 48,
+                runtime.previous!.buffer,
+                row * 48,
+                48,
+            );
+    }
     runtime.tickCount = 0;
     runtime.captureIndex = 0;
     runtime.freshCount = 0;
