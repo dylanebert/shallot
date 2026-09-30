@@ -175,7 +175,8 @@ export class Scheduler {
         this._errored.delete(old);
     }
 
-    step(state: State, deltaTime = Time.DEFAULT_DT): void {
+    step(state: State, input: Readonly<{ deltaTime: number }>): void {
+        const deltaTime = input.deltaTime;
         if (!Number.isFinite(deltaTime) || deltaTime < 0) {
             invalidDelta();
         }

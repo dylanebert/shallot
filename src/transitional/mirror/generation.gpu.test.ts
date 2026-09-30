@@ -71,3 +71,45 @@ test("Mirror follows a growing table's record generation and invalidates its old
         app.dispose();
     }
 }, 100);
+
+for (const kind of ["active", "map"] as const) {
+    test(`Mirror follows a growing table's ${kind} generation and invalidates its old-size snapshot`, async () => {
+        const app = await build({ defaults: false, plugins: [MirrorPlugin] });
+        const state = app.state;
+        const table = state.table(`mirror-${kind}-generation`, d.struct({ value: d.u32 }));
+        table.acquire(4);
+        if (kind === "map") table.enableEidLookup();
+        table.upload();
+        const buffer = () => (kind === "active" ? table.activeRowsBuffer! : table.eidToRowBuffer!);
+        const subject = mirror(state, buffer(), { ring: 1 });
+        try {
+            Mirror.flush(state);
+            const original = await snapshot(subject, `initial ${kind} Mirror snapshot`);
+            const size = original.bytes.byteLength;
+            const device = state.gpu.device;
+            device.pushErrorScope("validation");
+            table.acquire(33);
+            expect(buffer().size).toBeGreaterThan(size);
+            expect(state.tableForBuffer(buffer())).toBe(table);
+            expect(subject.size).toBe(buffer().size);
+            expect(subject.snapshot).toBeNull();
+            table.upload();
+            state.gpu.frame = 9;
+            Mirror.flush(state);
+            const error = await bounded(`grown ${kind} Mirror validation`, device.popErrorScope());
+            if (error) throw new Error(error.message);
+            const current = await snapshot(subject, `grown ${kind} Mirror snapshot`);
+            expect(current.frame).toBe(9);
+            expect(current.bytes.byteLength).toBe(buffer().size);
+            const values = new Uint32Array(current.bytes);
+            if (kind === "active") expect(Array.from(values)).toEqual([4, 0, 33, 1]);
+            else {
+                expect(values[4]).toBe(1);
+                expect(values[33]).toBe(2);
+            }
+        } finally {
+            subject.dispose();
+            app.dispose();
+        }
+    });
+}

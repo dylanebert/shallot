@@ -19,11 +19,11 @@ type BoundField = {
     readonly lanes: number;
     readonly sourceLanes: number;
     readonly bytesPerLane: number;
+    readonly source: { readonly column: TypedArray; readonly dirty: Uint32Array };
 };
 type ComponentBinding = {
     readonly component: Component;
     readonly fields: BoundField[];
-    readonly unsubscribes: (() => void)[];
     ownsRows: boolean;
 };
 type PresenceBinding = {
@@ -78,6 +78,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _activeGeneration = 0;
     private _activeConsumers: Consumer[] = [];
     private _componentBindings: ComponentBinding[] = [];
+    private _boundDirty = new Uint8Array(0);
     private _membershipCounts = new Map<number, number>();
     private _presenceBindings: PresenceBinding[] = [];
     private _presenceUnsubscribes: (() => void)[] = [];
@@ -304,17 +305,15 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 lanes,
                 sourceLanes: descriptor.type.lanes,
                 bytesPerLane,
+                source: this._state.of(component)[componentName] as {
+                    readonly column: TypedArray;
+                    readonly dirty: Uint32Array;
+                },
             };
             binding.fields.push(field);
-            binding.unsubscribes.push(
-                this._state.observeField(component, componentName, (eid) =>
-                    this.writeBoundField(binding, field, eid),
-                ),
-            );
         }
         for (let i = 0; i < this._activeCount; i++) {
-            const eid = this._activeRows[i * 2];
-            for (const field of binding.fields) this.writeBoundField(binding, field, eid);
+            this._boundDirty[this._activeRows[i * 2 + 1]] = 1;
         }
     }
 
@@ -364,17 +363,14 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this.markRange(row, 1);
     }
 
-    /** Attach an entity to a bound component table and seed its row from all bound columns. @internal */
+    /** Attach an entity to a bound component table and mark its row for column fill at upload. @internal */
     attachComponent(eid: number, component: Component): void {
         const binding = this._componentBindings.find(
             (item) => item.ownsRows && idOf(item.component) === idOf(component),
         );
         if (!binding) throw new Error(`GpuTable "${this.name}": component has no row binding`);
-        this.acquire(eid);
+        this._boundDirty[this.acquire(eid)] = 1;
         this._membershipCounts.set(eid, (this._membershipCounts.get(eid) ?? 0) + 1);
-        for (const source of this._componentBindings) {
-            for (const field of source.fields) this.writeBoundField(source, field, eid);
-        }
         for (const presence of this._presenceBindings) {
             this.writePresence(eid, presence, this._state.has(eid, presence.component));
         }
@@ -395,7 +391,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const binding: ComponentBinding = {
             component,
             fields: [],
-            unsubscribes: [],
             ownsRows: false,
         };
         this._componentBindings.push(binding);
@@ -412,6 +407,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._eidToRow[eid] = row + 1;
         this._mapDirty = true;
         this.activateRow(eid, row);
+        this._boundDirty[row] = 1;
         return row;
     }
 
@@ -483,6 +479,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     upload(): void {
         if (this._disposed) return;
         this._lastMapUploadBytes = 0;
+        this.fillBoundFields();
         if (this._dirtyLast < this._dirtyFirst) {
             this._lastUploadPath = "none";
         } else {
@@ -507,7 +504,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (this._disposed) return;
         this._disposed = true;
         for (const binding of this._componentBindings) {
-            for (const unsubscribe of binding.unsubscribes) unsubscribe();
             if (binding.ownsRows) this._state.unbindTableComponent(binding.component, this);
         }
         this._componentBindings.length = 0;
@@ -539,29 +535,39 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         );
     }
 
-    private writeBoundField(binding: ComponentBinding, field: BoundField, eid: number): void {
-        const row = this.rowIndex(eid);
-        if (row < 0) return;
-        const bytes = this._bytes;
+    private fillBoundFields(): void {
         const view = this._view;
-        if (!bytes || !view) return;
-        const source = this._state.of(binding.component)[field.componentName] as {
-            column: TypedArray;
-        };
-        const column = source.column;
-        const sourceBase = eid * field.sourceLanes;
-        const targetBase = row * this.rowBytes + field.offset;
-        for (let lane = 0; lane < field.lanes; lane++) {
-            const offset = targetBase + lane * field.bytesPerLane;
-            const value = column[sourceBase + lane];
-            if (column instanceof Float32Array) view.setFloat32(offset, value, true);
-            else if (column instanceof Int32Array) view.setInt32(offset, value, true);
-            else if (column instanceof Uint32Array) view.setUint32(offset, value, true);
-            else if (column instanceof Uint16Array) view.setUint16(offset, value, true);
-            else if (column instanceof Uint8Array) view.setUint8(offset, value);
-            else throw new Error(`GpuTable "${this.name}": unsupported component column`);
+        if (!view || this._componentBindings.length === 0) return;
+        for (let i = 0; i < this._activeCount; i++) {
+            const eid = this._activeRows[i * 2];
+            const row = this._activeRows[i * 2 + 1];
+            const seed = this._boundDirty[row] !== 0;
+            let changed = false;
+            for (const binding of this._componentBindings) {
+                // Other producers may acquire rows in this table without this component.
+                if (binding.ownsRows && !this._state.has(eid, binding.component)) continue;
+                for (const field of binding.fields) {
+                    if (!seed && (field.source.dirty[eid >>> 5] & (1 << (eid & 31))) === 0)
+                        continue;
+                    const column = field.source.column;
+                    const sourceBase = eid * field.sourceLanes;
+                    const targetBase = row * this.rowBytes + field.offset;
+                    for (let lane = 0; lane < field.lanes; lane++) {
+                        const offset = targetBase + lane * field.bytesPerLane;
+                        const value = column[sourceBase + lane];
+                        if (column instanceof Float32Array) view.setFloat32(offset, value, true);
+                        else if (column instanceof Int32Array) view.setInt32(offset, value, true);
+                        else view.setUint32(offset, value, true);
+                    }
+                    changed = true;
+                }
+            }
+            this._boundDirty[row] = 0;
+            if (changed) {
+                this._dirtyFirst = Math.min(this._dirtyFirst, row);
+                this._dirtyLast = Math.max(this._dirtyLast, row);
+            }
         }
-        this.markRange(row, 1);
     }
 
     private ensureEntityRows(rows: number): void {
@@ -640,6 +646,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         indices.fill(-1);
         indices.set(this._activeIndex);
         this._activeIndex = indices;
+        const dirty = new Uint8Array(capacity);
+        dirty.set(this._boundDirty);
+        this._boundDirty = dirty;
     }
 
     private replaceRecordBuffer(oldCapacity: number): void {

@@ -78,13 +78,20 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
         this._raw = unwrap(state, source);
         this._ringSize = opts?.ring ?? 2;
         const table = state.tableForBuffer(this._raw);
-        if (table)
-            this._unsubscribe = table.subscribe((buffer) => {
+        if (table) {
+            const rebind = (buffer: GPUBuffer) => {
                 if (buffer === this._raw) return;
                 this._raw = buffer;
                 this._generation++;
                 this._release();
-            });
+            };
+            this._unsubscribe =
+                this._raw === table.activeRowsBuffer
+                    ? table.subscribeActiveRows(rebind)
+                    : this._raw === table.eidToRowBuffer
+                      ? table.subscribeMap(rebind)
+                      : table.subscribe(rebind);
+        }
         mirrorsFor(state).add(this);
     }
 

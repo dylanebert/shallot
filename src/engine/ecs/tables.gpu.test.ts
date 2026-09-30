@@ -155,6 +155,7 @@ test("tables combine source fields, optional presence, and several row owners", 
     state.add(eid, Flag);
     Core.x.set(eid, 4.5);
     Optional.y.set(eid, 8.25);
+    state.step(0);
     const row = table.rowIndex(eid);
     expect(row).toBeGreaterThanOrEqual(0);
     expect(table.count).toBe(1);

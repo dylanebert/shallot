@@ -62,8 +62,8 @@ export class State {
     /** this world's component registrations, defaults, exclusions, and reflection data. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
-    private _stepDelta = Time.DEFAULT_DT;
-    private readonly _runStep = () => this._scheduler.step(this, this._stepDelta);
+    private readonly _stepInput = { deltaTime: Time.DEFAULT_DT };
+    private readonly _runStep = () => this._scheduler.step(this, this._stepInput);
     private _entities = new Entities();
     private _components = new Components();
     private _queries = new Queries();
@@ -196,9 +196,16 @@ export class State {
         if (tables.length === 0) this._tablesByComponent.delete(id);
     }
 
-    /** @internal Find the table that owns a current record buffer. */
+    /** @internal Find the table that owns a current record, active-list or eid-map buffer. */
     tableForBuffer(buffer: GPUBuffer): GpuTable | undefined {
-        for (const table of this._tables.values()) if (table.buffer === buffer) return table;
+        for (const table of this._tables.values()) {
+            if (
+                table.buffer === buffer ||
+                table.activeRowsBuffer === buffer ||
+                table.eidToRowBuffer === buffer
+            )
+                return table;
+        }
         return undefined;
     }
 
@@ -287,7 +294,7 @@ export class State {
         useState(this);
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
-        this._stepDelta = deltaTime;
+        this._stepInput.deltaTime = deltaTime;
         try {
             if (this._withCompute) this._withCompute(this._runStep);
             else this._runStep();
