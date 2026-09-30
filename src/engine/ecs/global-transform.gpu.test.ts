@@ -1,15 +1,34 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { RenderPlugin } from "../../core/rendering";
-import { Body, forwardRay, GlobalTransform, PhysicsPlugin } from "../../transitional/physics";
+import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
+import {
+    Body,
+    forwardRay,
+    GlobalTransform,
+    PhysicsPlugin,
+    StepSystem,
+    setKinematic,
+} from "../../transitional/physics";
 import { build } from "../app";
+import { CanvasContext } from "../app/canvas.fixture";
 import * as engine from "../index";
-import { globalTransformTable, probeBuffer, Transform } from "../index";
+import { field, globalTransformTable, probeBuffer, Transform, u32 } from "../index";
 import type { System } from "./scheduler";
 import { Time } from "./scheduler";
 
 setDefaultTimeout(1000);
+if (typeof ResizeObserver === "undefined") {
+    Object.assign(globalThis, {
+        ResizeObserver: class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        },
+    });
+}
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
+
+const SpawnedPlacement = { marker: field(u32) };
 
 function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -114,6 +133,34 @@ function addStaticBody(state: engine.State, eid: number, x: number): void {
 function addTransform(state: engine.State, eid: number, x: number): void {
     state.add(eid, Transform);
     state.of(Transform).pos.set(eid, x, 0, 0, 0);
+}
+
+function attachTestCamera(state: engine.State): void {
+    let context: CanvasContext;
+    const canvas = {
+        width: 32,
+        height: 24,
+        style: { imageRendering: "auto" },
+        getContext: () => context,
+        getBoundingClientRect: () => ({ width: 32, height: 24 }),
+    } as unknown as HTMLCanvasElement;
+    context = new CanvasContext(canvas, 32, 24);
+    const camera = state.create();
+    state.add(camera, Transform);
+    state.add(camera, Camera);
+    state.of(Transform).pos.set(camera, 0, 0, 5, 0);
+    attachCanvas(camera, canvas, state);
+}
+
+async function renderedX(
+    state: engine.State,
+    table: ReturnType<typeof globalTransformTable>,
+    eid: number,
+): Promise<number> {
+    const row = table.rowIndex(eid);
+    expect(row).toBeGreaterThanOrEqual(0);
+    const result = await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }));
+    return new Float32Array(result.bytes)[row * 12];
 }
 
 async function handoverApp(initial: "Body" | "Transform"): Promise<{
@@ -225,6 +272,84 @@ test("Transform to Body keeps its GlobalTransform row when handover crosses a fi
         expect(table.rowIndex(eid)).toBe(row);
         expect(state.has(eid, GlobalTransform)).toBe(true);
         expect(GlobalTransform.pos.x.get(eid)).toBe(42);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("the first Body spawn renders at its placement at half a fixed step", async () => {
+    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    try {
+        const { state } = app;
+        attachTestCamera(state);
+        const table = globalTransformTable(state);
+        state.step(Time.FIXED_DT);
+        const eid = state.create();
+        addStaticBody(state, eid, 100);
+        state.step(Time.FIXED_DT * 1.5);
+        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(state, table, eid)).toBeCloseTo(100, 5);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a newly spawned GlobalTransform producer renders at its placement at half a fixed step", async () => {
+    let spawned = -1;
+    const app = await build({
+        defaults: false,
+        plugins: [
+            RenderPlugin,
+            {
+                name: "SpawnedPlacement",
+                components: { SpawnedPlacement },
+                traits: { SpawnedPlacement: { provides: [GlobalTransform] } },
+                systems: [
+                    {
+                        group: "simulation",
+                        update(state) {
+                            if (spawned >= 0) return;
+                            spawned = state.create();
+                            state.add(spawned, SpawnedPlacement);
+                            GlobalTransform.pos.set(spawned, 100, 0, 0, 0);
+                        },
+                    },
+                ],
+            },
+        ],
+    });
+    try {
+        const { state } = app;
+        attachTestCamera(state);
+        const table = globalTransformTable(state);
+        state.step(Time.FIXED_DT * 1.5);
+        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(state, table, spawned)).toBeCloseTo(100, 5);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a kinematic teleport renders at its new placement at half a fixed step", async () => {
+    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    try {
+        const { state } = app;
+        const eid = state.create();
+        addStaticBody(state, eid, 0);
+        attachTestCamera(state);
+        const table = globalTransformTable(state);
+        state.step(Time.FIXED_DT);
+        const teleport: System = {
+            group: "fixed",
+            after: [StepSystem],
+            update(world) {
+                setKinematic(world, eid, [100, 0, 0], [0, 0, 0, 1], true);
+            },
+        };
+        state.addSystem(teleport);
+        state.step(Time.FIXED_DT * 1.5);
+        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(state, table, eid)).toBeCloseTo(100, 5);
     } finally {
         app.dispose();
     }
