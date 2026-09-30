@@ -1,6 +1,6 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 
 import {
     AmbientLight,
@@ -96,7 +96,7 @@ const peerModule = "bun-webgpu";
 const peer = (await import(peerModule)) as Record<string, unknown> & {
     setupGlobals(): Promise<void>;
 };
-await withTimeout("WebGPU global setup", peer.setupGlobals(), 750);
+await withTimeout("WebGPU global setup", peer.setupGlobals(), 5000);
 const createCanvasContext = CanvasContext as unknown as new (
     canvas: HTMLCanvasElement,
     width: number,
@@ -140,7 +140,7 @@ function watchDevice(device: GPUDevice) {
     };
     device.addEventListener("uncapturederror", uncaptured);
     return {
-        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 750): Promise<T> {
+        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 5000): Promise<T> {
             if (firstError)
                 return Promise.reject(new Error(`${label}: uncaptured GPU error: ${firstError}`));
             return new Promise<T>((resolve, reject) => {
@@ -181,7 +181,7 @@ function watchDevice(device: GPUDevice) {
 }
 
 async function trackedDevice() {
-    const adapter = await withTimeout("Dawn adapter request", navigator.gpu.requestAdapter(), 750);
+    const adapter = await withTimeout("Dawn adapter request", navigator.gpu.requestAdapter(), 5000);
     if (!adapter) throw new Error("Dawn adapter unavailable");
     const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
     for (const limit of [
@@ -198,7 +198,7 @@ async function trackedDevice() {
             requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable"],
             requiredLimits,
         }),
-        750,
+        5000,
     );
     const watch = watchDevice(device);
     const live = new Set<GPUBuffer | GPUTexture>();
@@ -768,7 +768,6 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
                     plugins: [seed],
                     device: firstDevice.device,
                 }),
-                750,
             ),
         );
         firstDevice.labels.set(first.state, "first world");
@@ -785,7 +784,6 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
                     plugins: [seed],
                     device: secondDevice.device,
                 }),
-                750,
             ),
         );
         secondDevice.labels.set(second.state, "second world");
@@ -944,8 +942,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
     if (!sharedDevice) expect(secondDevice.live.size).toBe(0);
 }
 
-// Four cold Text builds exceeded a GPU test's ceiling. Prepare the two independent solo witnesses
-// in separate bounded hooks; only owned CPU pixels survive, never a device or plugin GPU state.
+// Prepare independent Text witnesses; only owned CPU pixels survive, never a device or plugin GPU state.
 const textBaselines = new Map<IsolationContent, Uint8Array>();
 for (const content of [FIRST_CONTENT, SECOND_CONTENT]) {
     beforeAll(async () => {

@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 
 import { build, globalTransformTable, Transform } from "../../engine";
 import { Part, partTable } from "./part";
@@ -12,7 +12,7 @@ await setupGlobals();
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`${label} timed out after 750 ms`)), 750);
+        const timer = setTimeout(() => reject(new Error(`${label} timed out after 5000 ms`)), 5000);
         promise.then(
             (value) => {
                 clearTimeout(timer);

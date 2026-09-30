@@ -8,7 +8,7 @@ export const config = {
     testDir: ".",
     testMatch: "**/*.e2e.ts",
     timeout: 20_000,
-    globalTimeout: 120_000,
+    globalTimeout: 22_000,
     fullyParallel: false,
     workers: 1,
     reporter: "list",
