@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { eulerAlias, Xform } from "../utils";
-import { idOf, vec4 } from "./component";
+import { type Component, idOf, vec4 } from "./component";
 import { field } from "./field";
 import type { State } from "./state";
 import type { ComponentStorage } from "./storage";
@@ -28,6 +28,7 @@ export const globalTransformTraits = {
 };
 const transformTerms = [Transform];
 const globalTransformTerms = [GlobalTransform];
+const TRANSFORM_JUMP_DISTANCE_SQ = 1;
 const layout = tgpu.bindGroupLayout({
     current: { storage: d.arrayOf(Xform), access: "readonly" },
     previous: { storage: d.arrayOf(Xform), access: "readonly" },
@@ -79,9 +80,11 @@ export interface GlobalTransformRuntime {
     words: Float32Array;
     placement: ComponentStorage<typeof Transform>;
     global: ComponentStorage<typeof GlobalTransform>;
-    passDescriptor: GPUComputePassDescriptor;
     producers: Map<number, Set<number>>;
     pendingRemoval: Set<number>;
+    discontinuities: Uint32Array;
+    discontinuityPhases: Uint8Array;
+    discontinuityCount: number;
 }
 
 /** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
@@ -109,9 +112,11 @@ export function initializeGlobalTransform(state: State): void {
         words: new Float32Array(4),
         placement: state.of(Transform),
         global: state.of(GlobalTransform),
-        passDescriptor: {},
         producers: new Map(),
         pendingRemoval: new Set(),
+        discontinuities: new Uint32Array(1),
+        discontinuityPhases: new Uint8Array(1),
+        discontinuityCount: 0,
     };
     state.globalTransformRuntime = runtime;
     state.observeMembership(GlobalTransform, (eid, present) => {
@@ -158,27 +163,27 @@ export function globalTransformTable(state: State): GpuTable<typeof Xform> {
 /** @internal Producer membership and derived-component lifetime belong to the engine. */
 export function globalTransformProducerChanged(
     state: State,
-    component: object,
+    component: Component,
     eid: number,
     present: boolean,
 ): void {
-    if (!state.registry.provides(component as typeof Transform, GlobalTransform)) return;
+    if (!state.registry.provides(component, GlobalTransform)) return;
     const runtime = state.globalTransformRuntime;
     if (!runtime) return;
     let producers = runtime.producers.get(eid);
     if (present) {
         if (!producers) runtime.producers.set(eid, (producers = new Set()));
-        producers.add(idOf(component as typeof Transform));
+        producers.add(idOf(component));
         runtime.pendingRemoval.delete(eid);
         if (!state.has(eid, GlobalTransform)) state.add(eid, GlobalTransform);
     } else {
-        producers?.delete(idOf(component as typeof Transform));
+        producers?.delete(idOf(component));
         if (producers?.size === 0) runtime.pendingRemoval.add(eid);
     }
 }
 
 /** @internal A producer cannot remove a derived row still owned by another producer. */
-export function retainsGlobalTransform(state: State, eid: number, component: object): boolean {
+export function retainsGlobalTransform(state: State, eid: number, component: Component): boolean {
     if (component !== GlobalTransform) return false;
     return (state.globalTransformRuntime?.producers.get(eid)?.size ?? 0) > 0;
 }
@@ -212,6 +217,26 @@ function queueFresh(runtime: GlobalTransformRuntime, eid: number): void {
 }
 
 /** @internal Gather authored placement into the fixed world column without per-row callbacks. */
+export function markGlobalTransformDiscontinuity(state: State, eid: number): void {
+    const runtime = state.globalTransformRuntime;
+    if (!runtime?.enabled || !state.has(eid, GlobalTransform)) return;
+    const phase = runtime.captureIndex;
+    for (let i = 0; i < runtime.discontinuityCount; i++) {
+        if (runtime.discontinuities[i] === eid && runtime.discontinuityPhases[i] === phase) return;
+    }
+    if (runtime.discontinuityCount === runtime.discontinuities.length) {
+        const discontinuities = new Uint32Array(runtime.discontinuities.length * 2);
+        const phases = new Uint8Array(discontinuities.length);
+        discontinuities.set(runtime.discontinuities);
+        phases.set(runtime.discontinuityPhases);
+        runtime.discontinuities = discontinuities;
+        runtime.discontinuityPhases = phases;
+    }
+    runtime.discontinuities[runtime.discontinuityCount] = eid;
+    runtime.discontinuityPhases[runtime.discontinuityCount++] = phase;
+}
+
+/** @internal Gather authored placement and mark large authored jumps as discontinuities. */
 export function deriveTransforms(state: State): void {
     const runtime = state.globalTransformRuntime;
     if (!runtime) return;
@@ -234,6 +259,11 @@ export function deriveTransforms(state: State): void {
             mask = 1 << (eid & 31);
         if (((spd[word] | sqd[word] | ssd[word]) & mask) === 0) continue;
         const offset = eid * 4;
+        const dx = pp[offset] - op[offset];
+        const dy = pp[offset + 1] - op[offset + 1];
+        const dz = pp[offset + 2] - op[offset + 2];
+        if (dx * dx + dy * dy + dz * dz > TRANSFORM_JUMP_DISTANCE_SQ)
+            markGlobalTransformDiscontinuity(state, eid);
         let posChanged = false,
             quatChanged = false,
             scaleChanged = false;
@@ -318,9 +348,21 @@ function copyPhase(state: State, encoder: GPUCommandEncoder, phase: number): voi
             offset,
             size,
         );
+    for (let i = 0; i < runtime.discontinuityCount; i++) {
+        if (runtime.discontinuityPhases[i] !== phase) continue;
+        const row = runtime.current!.rowIndex(runtime.discontinuities[i]);
+        if (row >= 0)
+            encoder.copyBufferToBuffer(
+                runtime.current!.buffer,
+                row * 48,
+                runtime.previous!.buffer,
+                row * 48,
+                48,
+            );
+    }
 }
-/** @internal Record history and interpolation into the frame's encoder. Never create or submit one. */
-export function recordGlobalTransform(state: State, encoder: GPUCommandEncoder): void {
+/** @internal Record history copies and bind data before renderer compute passes. */
+export function prepareGlobalTransformFrame(state: State, encoder: GPUCommandEncoder): void {
     const runtime = state.globalTransformRuntime;
     if (!runtime?.enabled) return;
     copyPhase(state, encoder, 0);
@@ -349,7 +391,9 @@ export function recordGlobalTransform(state: State, encoder: GPUCommandEncoder):
     runtime.tickCount = 0;
     runtime.captureIndex = 0;
     runtime.freshCount = 0;
+    runtime.discontinuityCount = 0;
     runtime.ranges.fill(0);
+    if (!runtime.current!.count) return;
     const generation =
         runtime.current!.generation +
         runtime.previous!.generation +
@@ -371,12 +415,6 @@ export function recordGlobalTransform(state: State, encoder: GPUCommandEncoder):
     runtime.words[0] = state.time.fixedAlpha;
     runtime.words[1] = runtime.current!.count;
     state.gpu.device.queue.writeBuffer(runtime.params!, 0, runtime.words);
-    if (!runtime.current!.count) return;
-    const pass = encoder.beginComputePass(runtime.passDescriptor);
-    pass.setPipeline(runtime.pipeline!);
-    pass.setBindGroup(0, runtime.group!);
-    pass.dispatchWorkgroups(Math.ceil(runtime.current!.count / 64));
-    pass.end();
 }
 
 /** Compose fixed-tick GlobalTransform for CPU camera and query readers. */

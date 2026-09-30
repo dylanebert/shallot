@@ -1,10 +1,37 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { RenderPlugin } from "../../core/rendering";
-import { build, Time, Transform } from "../index";
+import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
+import { CanvasContext } from "../app/canvas.fixture";
+import { build, type State, Time, Transform } from "../index";
 
 setDefaultTimeout(1000);
+if (typeof ResizeObserver === "undefined") {
+    Object.assign(globalThis, {
+        ResizeObserver: class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        },
+    });
+}
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
+
+function attachTestCamera(state: State): void {
+    let context: CanvasContext;
+    const canvas = {
+        width: 32,
+        height: 24,
+        style: { imageRendering: "auto" },
+        getContext: () => context,
+        getBoundingClientRect: () => ({ width: 32, height: 24 }),
+    } as unknown as HTMLCanvasElement;
+    context = new CanvasContext(canvas, 32, 24);
+    const camera = state.create();
+    state.add(camera, Transform);
+    state.add(camera, Camera);
+    state.of(Transform).pos.set(camera, 0, 0, 5, 0);
+    attachCanvas(camera, canvas, state);
+}
 
 for (const renderer of [false, true]) {
     test(
@@ -17,6 +44,7 @@ for (const renderer of [false, true]) {
             const eid = state.create();
             state.add(eid, Transform);
             state.of(Transform).pos.set(eid, 3, 2, 1, 0);
+            if (renderer) attachTestCamera(state);
             // Warm allocation/growth is not the stepped submission under observation.
             state.step(0);
             const device = state.gpu.device;
@@ -80,7 +108,7 @@ for (const renderer of [false, true]) {
                 expect(state.time.fixedSteps).toBe(2);
                 expect(encoders).toBe(renderer ? 1 : 0);
                 expect(submissions).toBe(renderer ? 1 : 0);
-                expect(copies).toBe(renderer ? 2 : 0);
+                expect(copies).toBe(renderer ? 3 : 0);
                 if (!renderer) {
                     expect(globalTransformWrites).toBe(0);
                     expect(state.globalTransformRuntime!.enabled).toBe(false);

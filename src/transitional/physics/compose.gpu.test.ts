@@ -2,13 +2,40 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(1000);
 
-import { RenderPlugin } from "../../core/rendering";
+import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
 import { build, globalTransformTable, probeBuffer, Time, Transform } from "../../engine";
+import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { Body, PhysicsPlugin, readBody } from "./index";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
+if (typeof ResizeObserver === "undefined") {
+    Object.assign(globalThis, {
+        ResizeObserver: class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        },
+    });
+}
+
+function attachTestCamera(state: import("../../engine").State): void {
+    let context: CanvasContext;
+    const canvas = {
+        width: 32,
+        height: 24,
+        style: { imageRendering: "auto" },
+        getContext: () => context,
+        getBoundingClientRect: () => ({ width: 32, height: 24 }),
+    } as unknown as HTMLCanvasElement;
+    context = new CanvasContext(canvas, 32, 24);
+    const camera = state.create();
+    state.add(camera, Transform);
+    state.add(camera, Camera);
+    Transform.pos.set(camera, 0, 0, 5, 0);
+    attachCanvas(camera, canvas, state);
+}
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -29,6 +56,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
 test("engine interpolation uploads one GlobalTransform range and preserves unmoved renderer rows", async () => {
     const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     const state = app.state;
+    attachTestCamera(state);
     const body = state.of(Body);
     function falling(y: number): number {
         const eid = state.create();

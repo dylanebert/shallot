@@ -61,6 +61,7 @@ test("Transform placement lands in the fixed-tick GlobalTransform column and the
         const placement = state.of(Transform);
         placement.pos.set(eid, 12, 7, -3, 0);
         placement.scale.set(eid, 2, 3, 4, 0);
+        attachTestCamera(state);
         state.step(Time.FIXED_DT);
         expect(state.has(eid, GlobalTransform)).toBe(true);
         expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(12);
@@ -88,6 +89,7 @@ test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriv
         state.of(Body).pos.set(eid, 12, 7, -3, 0);
         state.of(Body).halfExtents.set(eid, 1, 2, 3, 0);
         state.of(Body).mass.set(eid, 0);
+        attachTestCamera(state);
         state.step(Time.FIXED_DT);
         expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(12);
         expect(Reflect.get(GlobalTransform, "scale")).toBeDefined();

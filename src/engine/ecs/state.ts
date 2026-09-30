@@ -15,7 +15,7 @@ import {
     forgetGlobalTransformEntity,
     type GlobalTransformRuntime,
     globalTransformProducerChanged,
-    recordGlobalTransform,
+    prepareGlobalTransformFrame,
     retainsGlobalTransform,
 } from "./global-transform";
 import { Identity } from "./identity";
@@ -161,7 +161,7 @@ export class State {
         for (const copy of this._pendingCopies)
             encoder.copyBufferToBuffer(copy.source, 0, copy.target, 0, copy.source.size);
         this._pendingCopies.length = 0;
-        recordGlobalTransform(this, encoder);
+        prepareGlobalTransformFrame(this, encoder);
     }
 
     /** @internal Release buffers retired by growth only after the frame was submitted. */
