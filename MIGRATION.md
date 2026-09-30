@@ -8,7 +8,7 @@ These changes require updates to a 0.9.5 app.
 
 ## Resolve component storage from the owning State
 
-`slab()` and `sparse()` are removed. Declare fields with `field(type)` and resolve their values from the State:
+`slab()` and `sparse()` are removed. Declare bare field types and resolve their values from the State:
 
 ```ts
 // 0.9.5
@@ -18,7 +18,7 @@ Health.value.set(eid, 100);
 
 ```ts
 // 0.10
-const Health = { value: field(f32) };
+const Health = { value: f32 };
 const health = state.of(Health);
 health.value.set(eid, 100);
 ```
@@ -41,7 +41,7 @@ const gpuValues = Heat.value.gpu;
 
 ```ts
 // 0.10
-const Heat = { value: field(f32) };
+const Heat = { value: f32 };
 const table = state.table("heat", d.struct({ value: d.f32 }));
 table.bindComponent(Heat, { value: "value" });
 const gpuRows = table.buffer;
@@ -73,11 +73,11 @@ The importer-only shader specialization is also removed: `Surface.specialize`, `
 
 ## GPU registries and plugin helpers take State
 
-Outside systems and lifecycle callbacks, replace access to the process-level `Compute` registries with the owning `state.gpu`. `Compute` still resolves the active world's GPU inside callbacks.
+Replace the process-level `Compute` registries with the owning `state.gpu`. Helpers needing GPU state receive the owning State explicitly.
 
 These helpers now take the owning State:
 
-- `Profile` data becomes `profile(state)`.
+- `Profile` data is read with `state.resource(Profile)`.
 - `cascadeCount()`, `cascadeComboEids()`, `pointComboCount()` and `pointComboEids()` take State first.
 - Character helpers `move`, `jump`, `globalTransform`, `teleport` and `grounded` take State before the entity id.
 
@@ -136,7 +136,7 @@ import { Xform } from "@dylanebert/shallot/utils";
 
 Likewise `/ecs/core` is `/ecs`, `/scene/core` is `/scene`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is `/character` and `/bvh/core` is `/bvh`. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
 
-## `Inputs` is now `devices(state)`
+## `Inputs` is now `state.resource(Devices)`
 
 The owning App's keys, mouse, touch and viewport replace the process-level `Inputs` facade. `setInputEnabled` takes State, and canvas size moved from `mouse` to `viewport`.
 
@@ -150,7 +150,7 @@ setInputEnabled(false);
 
 ```ts
 // 0.10
-const input = devices(state);
+const input = state.resource(Devices);
 if (input.keys.held.has("KeyW")) moveForward();
 if (input.keys.pressed.has("Space")) jump();
 const width = input.viewport.get(input.focused)?.cssWidth ?? 0;
@@ -232,7 +232,7 @@ bun add typegpu@~0.12.6
 
 ## Scalar sparse values now use their declared numeric type
 
-0.9.5's scalar `sparse(u8)` stored a JS number: writing 300 read back 300. Its `field(u8)` replacement stores 44. Likewise, scalar `u32` now wraps negatives as unsigned and `f32` rounds to 32-bit precision. Choose an integer type wide enough for the values and account for f32 rounding.
+0.9.5's scalar `sparse(u8)` stored a JS number: writing 300 read back 300. A `u8` field stores 44. Likewise, scalar `u32` now wraps negatives as unsigned and `f32` rounds to 32-bit precision. Choose an integer type wide enough for the values and account for f32 rounding.
 
 ## Update the 0.9.5 scaffold's TypeScript types
 
