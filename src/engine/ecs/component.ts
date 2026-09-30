@@ -428,47 +428,14 @@ export function intern(component: object, name: string): number {
 
 const BITS_PER_GEN = 31;
 
-/**
- * read access to the component-membership bitset, exposed as `world.membership`.
- * A GPU producer that scans a buffer by index gates on it instead of a per-field
- * sentinel: `(membershipWord & mask) != 0` is the authoritative "does eid carry
- * this component" test. The standard membership mirror uploads the bitset each
- * frame; consumers read the published `"membership"` buffer.
- */
-export interface Membership {
-    /**
-     * a component's gate coordinates — `gen` selects the membership word,
-     * `mask` is the bit to test within it. Assigns a bit on first use
-     */
-    bit(component: object): { gen: number; mask: number };
-    /** membership words per entity (31 components each); fixes the mirror size */
-    readonly generations: number;
-    /**
-     * lock the generation count after `createApp` has assigned every registered
-     * component its bit. A later component that would require a new generation
-     * is refused rather than silently outsizing the fixed GPU mirror.
-     */
-    freeze(): void;
-    /**
-     * report every entity whose membership changed since the last call, then
-     * clear the pending set; returns false when nothing changed. The standard
-     * membership mirror is the sole caller — it copies each `(eid, gen, word)`
-     * into its GPU staging
-     */
-    drain(visit: (eid: number, gen: number, word: number) => void): boolean;
-}
-
 /** per-entity component membership, packed as bitsets across generations of 31-bit masks */
-export class Components implements Membership {
+export class Components {
     private _nextBit = 0;
     private _gen = 0;
-    private _frozen = false;
     // keyed by component id (idOf), not the object — a reloaded component handle
     // re-attaches by id. Array-by-id, since ids are small and monotonic.
     private _meta: ({ gen: number; bit: number } | undefined)[] = [];
     private _masks: number[][] = [[]];
-    /** eids whose membership changed since the last {@link drain} */
-    private _dirty = new Set<number>();
 
     has(eid: Entity, component: any): boolean {
         const m = this._meta[idOf(component)];
@@ -481,7 +448,6 @@ export class Components implements Membership {
         const prev = this._masks[m.gen][eid] ?? 0;
         if (prev & m.bit) return false;
         this._masks[m.gen][eid] = prev | m.bit;
-        this._dirty.add(eid);
         return true;
     }
 
@@ -491,40 +457,11 @@ export class Components implements Membership {
         const prev = this._masks[m.gen][eid] ?? 0;
         if (!(prev & m.bit)) return false;
         this._masks[m.gen][eid] = prev & ~m.bit;
-        this._dirty.add(eid);
         return true;
     }
 
     clear(eid: Entity): void {
         for (let g = 0; g <= this._gen; g++) this._masks[g][eid] = 0;
-        this._dirty.add(eid);
-    }
-
-    /** {@inheritDoc Membership.bit} */
-    bit(component: any): { gen: number; mask: number } {
-        const m = this.ensure(component);
-        return { gen: m.gen, mask: m.bit };
-    }
-
-    /** {@inheritDoc Membership.generations} */
-    get generations(): number {
-        return this._gen + 1;
-    }
-
-    /** {@inheritDoc Membership.freeze} */
-    freeze(): void {
-        this._frozen = true;
-    }
-
-    /** {@inheritDoc Membership.drain} */
-    drain(visit: (eid: number, gen: number, word: number) => void): boolean {
-        if (this._dirty.size === 0) return false;
-        const gens = this._gen + 1;
-        for (const eid of this._dirty) {
-            for (let g = 0; g < gens; g++) visit(eid, g, this._masks[g][eid] ?? 0);
-        }
-        this._dirty.clear();
-        return true;
     }
 
     private ensure(component: any) {
@@ -532,13 +469,6 @@ export class Components implements Membership {
         const existing = this._meta[id];
         if (existing) return existing;
         if (this._nextBit >= BITS_PER_GEN) {
-            if (this._frozen) {
-                throw new Error(
-                    `membership: generation count is frozen at ${this._gen + 1} after build; ` +
-                        `a new component would require generation ${this._gen + 2} — ` +
-                        `rebuild to register more than ${(this._gen + 1) * BITS_PER_GEN} components`,
-                );
-            }
             this._gen++;
             this._nextBit = 0;
             this._masks.push([]);

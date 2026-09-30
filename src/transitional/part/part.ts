@@ -206,8 +206,8 @@ export const MeshInstances: import("../../engine").Resource<MeshInstances> = {
 
 /**
  * per-frame MeshInstance pack. Clears the counts, then cull → count → scan → scatter
- * over `(eid, view slot)`. No CPU iteration over MeshInstances: every thread gates on
- * the mirrored component-membership bit, then on the view's frustum. The
+ * over active MeshInstance table rows and view slots. No CPU iteration over
+ * MeshInstances: every thread culls an active row against the view's frustum. The
  * count + scatter dispatch a row of workgroups per active view (`gid.y` =
  * slot); the scan dispatches one workgroup per slot, each scanning its row in
  * parallel

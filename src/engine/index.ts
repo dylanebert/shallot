@@ -32,7 +32,6 @@ export {
     globalTransformTraits,
     Identity,
     i32,
-    type Membership,
     not,
     or,
     type Resource,

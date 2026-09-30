@@ -327,12 +327,11 @@ async function buildNow(config: AppConfig): Promise<App> {
             }
         }
 
-        // Assign registered components their world-owned columns and membership bits before loading.
+        // Assign registered components their world-owned columns before loading.
         world.addSystem(ClearChangeMarksSystem, "Engine");
 
         for (const { component } of world.registry.entries()) {
             world.storage(component);
-            world.membership.bit(component);
         }
 
         const scenes = config.scene
@@ -373,8 +372,6 @@ async function buildNow(config: AppConfig): Promise<App> {
         }
 
         const warmBase = sorted.length + scenes.length;
-        // Fix component membership bit assignments before plugin warm.
-        world.membership.freeze();
         await warmPlugins(world.gpu.device, world, warmable, (progress) => {
             loading?.update((warmBase + progress) / total);
         });

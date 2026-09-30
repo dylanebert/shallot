@@ -2,7 +2,6 @@ export { type Alias, eulerAlias, laneAlias } from "../utils";
 export type {
     Component,
     FieldType,
-    Membership,
     ScalarField,
     TypedArray,
     Vector2Field,

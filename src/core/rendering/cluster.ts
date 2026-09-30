@@ -496,9 +496,9 @@ export function warmClusters(world: World): void {
 
 // The per-frame light passes: compact + cull, the GPU-driven deviation from
 // Bevy's CPU light assignment (the firehose has no CPU loop over lights). The
-// compact pass scans capacity gated on PointLight membership and atomic-appends
+// compact pass reads active PointLight table rows and atomic-appends
 // the live lights — world position from the GlobalTransform table, params from the
-// PointLight slabs — into the compacted list. The cull pass then bins that list
+// PointLight table — into the compacted list. The cull pass then bins that list
 // into the cluster grid (one thread per cluster per view): each light is transformed
 // to view space once per workgroup batch (shared memory, the DaveH355/logdahl
 // structure), sphere-vs-AABB tests against the landed cluster AABBs, and the

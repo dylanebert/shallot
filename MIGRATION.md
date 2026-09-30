@@ -63,6 +63,8 @@ Scene helpers `diagnose`, `parseFields`, `formatFields` and `normalizeAttribute`
 
 ## Component fields no longer expose `.gpu`
 
+`state.membership` and the `"membership"` buffer shipped in v0.9.5 are removed. Gate GPU work on a table's active rows.
+
 `Slab`, `SlabPlugin` and `SlabSystem` are removed. Remove them from imports and plugin dependencies. Replace per-field GPU buffers with a record table:
 
 ```ts

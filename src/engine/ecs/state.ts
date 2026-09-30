@@ -1,13 +1,6 @@
 import type * as d from "typegpu/data";
 import { ReadbackPool, type WorldGpu } from "../runtime";
-import {
-    type Component,
-    Components,
-    fields,
-    freezeComponent,
-    idOf,
-    type Membership,
-} from "./component";
+import { type Component, Components, fields, freezeComponent, idOf } from "./component";
 import { Entities } from "./entity";
 import {
     forgetGlobalTransformEntity,
@@ -467,16 +460,6 @@ export class World {
      */
     get identity(): Identity {
         return this._identity;
-    }
-
-    /**
-     * read access to the component-membership bitset. A GPU producer that
-     * scans a buffer by index gates on `world.membership.bit(C)` rather than a
-     * per-field sentinel; the standard membership mirror flushes the bitset to
-     * the `"membership"` buffer each frame. See {@link Membership}
-     */
-    get membership(): Membership {
-        return this._components;
     }
 
     /**
