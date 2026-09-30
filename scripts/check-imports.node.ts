@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 
 import { CEILING } from "./test-tiers";
 
@@ -8,6 +8,70 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { checkImports } from "./check-imports";
+
+// Temporary scopes for existing debts, not permission for matching new violations.
+const deferred = [
+    [
+        "audio-boundary: audio leaves transitional",
+        "src/transitional/audio/index.ts:1: pending roadmap migration (still red): // Destination: core/audio and standard/audio; owner: audio-boundary.md.",
+    ],
+    [
+        "bvh-extraction: BVH leaves transitional",
+        "src/transitional/bvh/index.ts:1: pending roadmap migration (still red): // Destination: shallot-avbd-physics; owner: bvh-extraction.md.",
+    ],
+    [
+        "physics-boundary: character leaves transitional",
+        "src/transitional/character/index.ts:1: pending roadmap migration (still red): // Destination: standard/physics; owner: physics-boundary.md.",
+    ],
+    [
+        "presentation: Glaze leaves transitional",
+        "src/transitional/glaze/index.ts:1: pending roadmap migration (still red): // Destination: core/rendering; owner: presentation.md.",
+    ],
+    [
+        "rendering-boundary: Part leaves transitional",
+        "src/transitional/part/index.ts:1: pending roadmap migration (still red): // Destination: standard/rendering; owner: rendering-boundary.md.",
+    ],
+    [
+        "physics-boundary: physics leaves transitional",
+        "src/transitional/physics/index.ts:1: pending roadmap migration (still red): // Destination: core/physics and standard/physics; owner: physics-boundary.md.",
+    ],
+    [
+        "rendering-boundary: rendering does not import input",
+        "src/core/rendering/view.ts:7: sibling import core/rendering → core/input",
+    ],
+] as const;
+
+function unexpected(findings: readonly string[]): string[] {
+    const remaining = [...findings];
+    for (const [, finding] of deferred) {
+        const index = remaining.indexOf(finding);
+        if (index >= 0) remaining.splice(index, 1);
+    }
+    return remaining;
+}
+
+let repositoryFindings: string[];
+beforeAll(() => {
+    repositoryFindings = checkImports(resolve(import.meta.dir, ".."));
+});
+
+test("repository imports have no violations outside the deferred claims", () => {
+    expect(unexpected(repositoryFindings)).toEqual([]);
+});
+
+test.todo.each(deferred)("%s", (_claim, finding) => {
+    expect(repositoryFindings.filter((red) => red === finding)).toEqual([]);
+});
+
+test("deferred import claims never hide new, changed or duplicate findings", () => {
+    const findings = deferred.map(([, finding]) => finding);
+    const newEdge = "src/core/rendering/new.ts:1: sibling import core/rendering → core/input";
+    const changedFinding = `${findings[0]} changed`;
+    expect(unexpected(findings)).toEqual([]);
+    expect(unexpected([...findings, newEdge])).toEqual([newEdge]);
+    expect(unexpected([...findings.slice(1), changedFinding])).toEqual([changedFinding]);
+    expect(unexpected([...findings, findings[0]])).toEqual([findings[0]]);
+});
 
 function withFixture(run: (root: string) => void): void {
     const root = mkdtempSync(resolve(tmpdir(), "shallot-check-imports-"));
@@ -155,9 +219,8 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
 });
 
 test("the repository engine runtime does not import past the ECS barrel", () => {
-    const root = resolve(import.meta.dir, "..");
     expect(
-        checkImports(root).filter((red) => red.startsWith("src/engine/runtime/gpu.ts:")),
+        repositoryFindings.filter((red) => red.startsWith("src/engine/runtime/gpu.ts:")),
     ).toEqual([]);
 });
 

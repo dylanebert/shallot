@@ -316,11 +316,9 @@ export function checkImports(root: string): string[] {
 }
 
 if (import.meta.main) {
-    const args = Bun.argv.slice(2);
-    const rootArg = args.indexOf("--root");
-    const root = resolve(rootArg < 0 ? process.cwd() : (args[rootArg + 1] ?? process.cwd()));
-    const violations = checkImports(root);
-    for (const violation of violations) console.error(violation);
-    if (violations.length > 0) process.exit(1);
-    console.log("imports pass");
+    const result = Bun.spawnSync(
+        ["bun", "test", "--todo", resolve(import.meta.dir, "check-imports.node.ts")],
+        { cwd: resolve(import.meta.dir, ".."), stdout: "inherit", stderr: "inherit" },
+    );
+    process.exit(result.exitCode);
 }

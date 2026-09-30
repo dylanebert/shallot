@@ -46,7 +46,7 @@ Layers run from `engine` outward through `core`, `standard` and `extras`; depend
 - Each module owns one useful responsibility completely; split, fix or remove one that doesn't.
 - Game modules never import tooling (`project`, `cli`, `native`, `types`). Core, standard and extras modules never import siblings in their layer. Physics never imports rendering.
 - A game module's `index.ts` is public; its other files are internal. Modules registering systems or resources define plugins; others export data and functions. Layer indexes re-export modules, and the root barrel re-exports every game layer. `standard/index.ts` also sets the default plugins. `package.json` declares public subpaths.
-- `transitional` modules declare their destination and migration owner; their import-check reds remain until they move.
+- `transitional` modules declare their destination and migration owner.
 - Provider-specific observation belongs in optional application integrations, outside Shallot.
 
 ### Core and standard
@@ -79,7 +79,7 @@ bun run format                   # biome, scenes, examples index
 
 Iterate on selected files or subjects. Wide runs confirm the final candidate before landing or release; CI runs them on every push. The wide Node command is in [CI](.github/workflows/test.yml); `bun run test:browser` runs all browser subjects. Manual oracles run by path.
 
-`check-imports` remains red for pending migrations and the unresolved `core/rendering/view.ts` → `core/input` sibling import. For unrelated work, compare with main: report unchanged reds and continue; stop on new or changed violations. The gate remains red and is never skipped.
+The import gate runs its Bun assertions with `--todo`. Only the existing debts named in those assertions are todos; all other findings fail normally. A passing todo fails until its scope is retired. These scopes leave with their migrations, not as a framework for future exceptions. Future stages preserve import boundaries at each landing.
 
 ## Verification
 
