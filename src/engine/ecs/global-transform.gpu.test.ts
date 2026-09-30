@@ -330,6 +330,24 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
     }
 });
 
+test("an authored Transform jump renders at its new placement at half a fixed step", async () => {
+    const app = await build({ defaults: false, plugins: [RenderPlugin] });
+    try {
+        const { state } = app;
+        const eid = state.create();
+        addTransform(state, eid, 0);
+        attachTestCamera(state);
+        const table = globalTransformTable(state);
+        state.step(Time.FIXED_DT);
+        state.of(Transform).pos.set(eid, 100, 0, 0, 0);
+        state.step(Time.FIXED_DT / 2);
+        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(state, table, eid)).toBeCloseTo(100, 5);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("a kinematic teleport renders at its new placement at half a fixed step", async () => {
     const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
