@@ -116,7 +116,7 @@ type ViewGroup = TgpuBindGroup<(typeof fogLayout0)["entries"]>;
 
 // per-camera group 0 (scene / depth / output / view / fog), cached per eid on the `sceneTransform` read +
 // write + the depth view (all three reallocate only on a resize, so the group rebuilds then, not every
-// frame) and the view slot (the per-slot View buffer it binds — a per-slot-buffer design)
+// frame) and the view slot (the per-slot ViewUniforms buffer it binds — a per-slot-buffer design)
 
 function fogLights(world: World): LightsGroup {
     const _lightCull = world.resource(LightCull);

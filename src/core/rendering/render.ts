@@ -7,7 +7,7 @@ import type { World } from "../../engine";
  * and dispatching compute over unwrapped pipelines and bind groups, so no
  * per-draw wrapper state runs in a steady frame. It is transient per-frame
  * state. `viewBuffers` is one static
- * `View`-struct uniform buffer per shading slot (`MAX_VIEWS` of them — the
+ * `ViewUniforms`-struct uniform buffer per shading slot (`MAX_VIEWS` of them — the
  * per-slot-buffer design, replacing the old single dynamic-offset UBO: a
  * depth-only slot's shadow-atlas passes never read `view`, so only the shading
  * prefix needs a real buffer). `viewStaging` stays the full per-slot pack

@@ -171,7 +171,7 @@ export interface CompiledSurface {
  * entry-scoped so a quant-buffer churn — a glTF import's
  * per-import buffers — drops the old groups with the overwritten entry, never a module map keyed on
  * buffer identity that grows for the app's life). `atlasG0` is its prebuilt slot-0 instance the
- * shadow-atlas passes bind (slot 0's View buffer as an unread placeholder — the atlas VS projects by
+ * shadow-atlas passes bind (slot 0's ViewUniforms buffer as an unread placeholder — the atlas VS projects by
  * its own tile viewProj, never `view`). */
 export type SurfaceGroupEntry = {
     /** exact registry spec this group was built for — resource identity alone is insufficient when a
@@ -1004,7 +1004,7 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     }
     // `engine` rides unconditionally even for a `screen` copier, which projects nothing: resolution is
     // per dot-chain reference in the WGSL text, not per top-level external, so an unreferenced
-    // `engine.view` emits no group-0 declaration (pinned by pipelines.test.ts's `not.toContain("var<uniform> view: View;")`)
+    // `engine.view` emits no group-0 declaration (pinned by pipelines.test.ts's `not.toContain("var<uniform> view: ViewUniforms;")`)
     if (clip) uses.shadowG = shadowG;
     if (instanced) {
         uses.xformPoint = xformPoint;

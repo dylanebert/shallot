@@ -149,7 +149,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
         viewProj,
         shading ? _renderFrame.lightViews[slot] : undefined,
     );
-    // resolution (pixels) follows viewProj in the View struct — a screen-space
+    // resolution (pixels) follows viewProj in the ViewUniforms struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
     _render.viewStaging[offset + 16] = view.width;
     _render.viewStaging[offset + 17] = view.height;
@@ -164,7 +164,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     frustumVolume(_render.cullVolumeStaging, slot, viewProj);
     // pack the view's cluster params from the same camera fields —
     // UpdateLightClustersSystem rebuilds the AABB grid only when they change.
-    // View.cluster: (near, far, perspective, slot) — sear's FS maps a
+    // ViewUniforms.cluster: (near, far, perspective, slot) — sear's FS maps a
     // fragment to its froxel and indexes the slot-major light grid
     if (shading) {
         const cv = packClusterView(world, eid, view.width / view.height, slot);
@@ -236,7 +236,7 @@ function clearTargets(view: ViewSlot): void {
  * opens the frame: creates the encoder, writes the Frame UBO, records the
  * world-matrix compose dispatch, acquires each view's swapchain backbuffer
  * (`view.present`) + offscreen scene-color target (`view.framebuffer`), and
- * packs the View UBO. Producer and renderer systems both run
+ * packs the ViewUniforms UBO. Producer and renderer systems both run
  * `after: [BeginFrameSystem]`; the terminal submission system closes the frame
  * after every producer and renderer in the draw group.
  */
@@ -332,7 +332,7 @@ export const BeginFrameSystem: System = {
         }
 
         _render.viewCount = count;
-        // per-slot writer: only shading slots ([0, shadeCount)) ever bind a real View buffer — the
+        // per-slot writer: only shading slots ([0, shadeCount)) ever bind a real ViewUniforms buffer — the
         // point/cascade atlas passes bind slot 0's buffer as an unread placeholder — so a depth-only slot
         // gets no write at all (design lock). Each write sources VIEW_BYTES from the same
         // per-slot viewStaging subrange the pack loop above always wrote
@@ -485,7 +485,7 @@ async function initRender(world: World): Promise<void> {
 }
 
 /**
- * the renderer-agnostic substrate: frame loop, camera, Frame/View UBOs, and
+ * the renderer-agnostic substrate: frame loop, camera, Frame/ViewUniforms UBOs, and
  * the `Surfaces` / `Meshes` / `Draws` registries. Producer and consumer
  * plugins (MeshInstance, StandardRenderer, custom producers) depend on this. Users
  * typically don't list it directly: `PartPlugin` pulls it transitively,

@@ -313,7 +313,7 @@ export const Clusters: import("../../engine").Resource<Clusters> = {
 
 /**
  * pack a camera's {@link ClusterView} into the staging slot, called per view by
- * `BeginFrameSystem`, which reuses the returned view for the View.cluster pack
+ * `BeginFrameSystem`, which reuses the returned view for the ViewUniforms.cluster pack
  */
 export function packClusterView(
     world: World,

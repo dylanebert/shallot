@@ -993,7 +993,7 @@ export function renderPointShadows(
     cpass.end();
 
     // one pass into the whole atlas — one indirect draw per casting mesh, the VS placing each re-gathered
-    // instance into its combo's tile. The point VS projects by faceVP (not view), so the View buffer bound
+    // instance into its combo's tile. The point VS projects by faceVP (not view), so the ViewUniforms buffer bound
     // at slot 0 is an unread placeholder
     _atlasState.pointShadowDepth.view = _atlasState.pointAtlasView!;
     _atlasState.pointShadowPass.timestampWrites = world.gpu.span?.("sear:pointshadow");
