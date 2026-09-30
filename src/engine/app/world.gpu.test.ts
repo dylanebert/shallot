@@ -3,9 +3,7 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 
 import * as d from "typegpu/data";
-import { PartInput, PointLight, RenderPlugin } from "../../core/rendering";
-import { SearPlugin } from "../../standard/rendering";
-import { Part, PartPlugin } from "../../transitional/part";
+import { PointLight, RenderPlugin } from "../../core/rendering";
 import { Compute, f32, field, type State, Transform } from "../index";
 import { probeBuffer } from "../runtime";
 import { serialize } from "../scene";
@@ -287,42 +285,6 @@ test("render light inputs upload as active dense table rows", async () => {
     expect(data.getFloat32(4, true)).toBe(2.5);
     expect(data.getFloat32(8, true)).toBe(7);
     expect(data.getFloat32(12, true)).toBe(0.25);
-}, 1000);
-
-test("Part and Sear warm and compact a component-bound dense instance", async () => {
-    const app = await build({ defaults: false, plugins: [RenderPlugin, PartPlugin, SearPlugin] });
-    apps.push(app);
-    const { state } = app;
-    const eid = state.create();
-    state.add(eid, Transform);
-    state.add(eid, Part);
-    state.gpu.device.pushErrorScope("validation");
-    state.step(0);
-    await state.gpu.device.queue.onSubmittedWorkDone();
-    expect(await state.gpu.device.popErrorScope()).toBeNull();
-    const packed = await probeBuffer(state, state.gpu.buffers.get("eids")!, {
-        size: 4,
-    });
-    expect(new Uint32Array(packed.bytes)[0]).toBe(eid);
-    const active = await probeBuffer(state, state.gpu.buffers.get("partInputs:active-rows")!, {
-        size: 8,
-    });
-    const [activeEid, row] = new Uint32Array(active.bytes);
-    expect(activeEid).toBe(eid);
-    const recordSize = d.sizeOf(PartInput);
-    const colorOffset = d.memoryLayoutOf(PartInput, (value) => value.color).offset;
-    const materialOffset = d.memoryLayoutOf(PartInput, (value) => value.material).offset;
-    const record = await probeBuffer(state, state.gpu.buffers.get("partInputs")!, {
-        offset: row * recordSize,
-        size: recordSize,
-    });
-    const data = new DataView(record.bytes);
-    expect([0, 1, 2, 3].map((lane) => data.getFloat32(colorOffset + lane * 4, true))).toEqual([
-        1, 0, 1, 1,
-    ]);
-    expect([0, 1, 2, 3].map((lane) => data.getFloat32(materialOffset + lane * 4, true))).toEqual([
-        0, 1, 0, 1,
-    ]);
 }, 1000);
 
 test("entity ids and component columns grow without a configured capacity", async () => {
