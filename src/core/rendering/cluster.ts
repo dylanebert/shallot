@@ -140,7 +140,7 @@ const _gpu = new Proxy({} as Omit<ClusterGpuState, "clusters" | "lightCull">, {
 // read later. 16×9×24 with logarithmic Z-slicing (DOOM 2016 / Olsson 2012):
 // log slicing counters NDC depth non-linearity, where linear slicing bands
 // everything near the camera into one slice. The view-space AABB per cluster
-// depends only on the projection (not the pose), so the GPU build runs only
+// depends only on the projection (not the view position), so the GPU build runs only
 // on projection change.
 
 /** cluster grid: horizontal screen-space tiles */
@@ -405,7 +405,7 @@ export function gridWgsl(): string {
 
 /**
  * rebuilds the cluster AABB buffer when any active view's projection changed
- * since the last build (the staging prefix is the dirty signal: pose changes
+ * since the last build (the staging prefix is the dirty signal: GlobalTransform changes
  * never touch it, so a static-projection frame dispatches nothing). Runs after
  * `BeginFrameSystem` (the `first` bucket sorts ahead of every normal system),
  * which packed the staging prefix this frame

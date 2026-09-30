@@ -527,7 +527,7 @@ function forceCompile(): void {
         return bound;
     });
 
-    // the mask buffers (position/indices/transforms/maskEids/maskAttrs/meshQuant) are storage bindings, not
+    // the mask buffers (position/indices/globalTransforms/maskEids/maskAttrs/meshQuant) are storage bindings, not
     // textures — 4-byte throwaways, same shape as `stand()`'s texture stand-ins
     const buf = (size: number) =>
         Compute.device.createBuffer({
@@ -539,7 +539,7 @@ function forceCompile(): void {
     precompile("outline-mask", () => {
         const position = buf(8);
         const indices = buf(4);
-        const transformsBuf = buf(48);
+        const globalTransformsBuffer = buf(48);
         const eids = buf(4);
         const attrs = buf(32);
         const quant = buf(48);
@@ -549,7 +549,7 @@ function forceCompile(): void {
             view: Render.viewBuffers[0],
             position,
             indices,
-            globalTransforms: transformsBuf,
+            globalTransforms: globalTransformsBuffer,
             maskEids: eids,
             maskAttrs: attrs,
             meshQuant: quant,
@@ -560,7 +560,7 @@ function forceCompile(): void {
         });
         position.destroy();
         indices.destroy();
-        transformsBuf.destroy();
+        globalTransformsBuffer.destroy();
         eids.destroy();
         attrs.destroy();
         quant.destroy();
@@ -572,7 +572,7 @@ function forceCompile(): void {
     precompile("outline-mask-occlude", () => {
         const position = buf(8);
         const indices = buf(4);
-        const transformsBuf = buf(48);
+        const globalTransformsBuffer = buf(48);
         const eids = buf(4);
         const attrs = buf(32);
         const quant = buf(48);
@@ -583,7 +583,7 @@ function forceCompile(): void {
             view: Render.viewBuffers[0],
             position,
             indices,
-            globalTransforms: transformsBuf,
+            globalTransforms: globalTransformsBuffer,
             maskEids: eids,
             maskAttrs: attrs,
             meshQuant: quant,
@@ -595,7 +595,7 @@ function forceCompile(): void {
         });
         position.destroy();
         indices.destroy();
-        transformsBuf.destroy();
+        globalTransformsBuffer.destroy();
         eids.destroy();
         attrs.destroy();
         quant.destroy();

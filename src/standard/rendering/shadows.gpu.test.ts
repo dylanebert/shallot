@@ -19,7 +19,7 @@ const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise
 await setupGlobals();
 
 // `updateCascades` rebuilds the sun's boxes only when its inputs change, so the pooled cascade cameras keep
-// the pose the last build wrote. These rows pin what that skip must still repose: a rebuilt pool, and a
+// the camera GlobalTransform the last build wrote. These rows pin what that skip must still restore: a rebuilt pool, and a
 // camera whose size or far was written from outside the pass. Both are silent otherwise — the cull frustum
 // would simply stop matching the box the atlas renders.
 
@@ -94,7 +94,7 @@ test("a cascade camera whose size or far is overwritten between frames keeps the
     updateCascades(state, main);
     expect(Camera.near.get(cams[0])).toBe(7);
 
-    // size and far are compared, so writing either restores the whole pose
+    // size and far are compared, so writing either restores the complete camera state
     Camera.size.set(cams[0], size + 3);
     updateCascades(state, main);
     expect(Camera.size.get(cams[0])).toBeCloseTo(size, 4);
@@ -105,7 +105,7 @@ test("a cascade camera whose size or far is overwritten between frames keeps the
     expect(Camera.far.get(cams[0])).toBeCloseTo(far, 4);
 });
 
-test("the cascade pass reuses the boxes it last built after the main camera moves, so the shadow cascades would stay fitted to a pose the camera has left", async () => {
+test("the cascade pass rebuilds its boxes after the main camera GlobalTransform changes", async () => {
     const { state, main } = await sunScene();
     updateCascades(state, main);
     const n = cascadeCount(state);

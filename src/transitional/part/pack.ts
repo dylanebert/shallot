@@ -80,10 +80,10 @@ const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
 export const visible = tgpu.fn(
     [d.u32, d.u32, d.u32],
     d.bool,
-)((mid, transformRow, slot) => {
+)((mid, globalTransformRow, slot) => {
     "use gpu";
     if (slot >= cullLayout.$.params.viewCount) return true;
-    const xf = cullLayout.$.globalTransforms[transformRow];
+    const xf = cullLayout.$.globalTransforms[globalTransformRow];
     const b = cullLayout.$.meshBounds[mid];
     const center = xformPoint(xf, d.vec3f(b.x, b.y, b.z));
     const radius =
@@ -101,8 +101,14 @@ export const visible = tgpu.fn(
     return true;
 });
 
-// Resolve one active table row to its pair, identity and transform slot. A miss is an out-of-range pair.
-const Pair = d.struct({ pair: d.u32, mid: d.u32, eid: d.u32, row: d.u32, transformRow: d.u32 });
+// Resolve one active table row to its pair, identity and GlobalTransform row. A miss is out of range.
+const Pair = d.struct({
+    pair: d.u32,
+    mid: d.u32,
+    eid: d.u32,
+    row: d.u32,
+    globalTransformRow: d.u32,
+});
 
 // Surface count is baked; the active row list and pair grid remain dynamic.
 function pairFactory(surfaceCount: number) {
@@ -116,15 +122,15 @@ function pairFactory(surfaceCount: number) {
             const eid = entry.x;
             const row = entry.y;
             const part = cullLayout.$.parts[row];
-            const encodedTransform = cullLayout.$.globalTransformRows[eid];
+            const encodedGlobalTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
-            if (part.surface >= surfaceCount || encodedTransform === 0) {
+            if (part.surface >= surfaceCount || encodedGlobalTransform === 0) {
                 return Pair({
                     pair: invalidPair,
                     mid: part.mesh,
                     eid,
                     row,
-                    transformRow: 0,
+                    globalTransformRow: 0,
                 });
             }
             return Pair({
@@ -132,7 +138,7 @@ function pairFactory(surfaceCount: number) {
                 mid: part.mesh,
                 eid,
                 row,
-                transformRow: encodedTransform - 1,
+                globalTransformRow: encodedGlobalTransform - 1,
             });
         })
         .$name("partPair");
@@ -152,7 +158,7 @@ export function countKernel(surfaceCount: number) {
             if (index >= cullLayout.$.params.partCount) return;
             const g = pair(index);
             if (g.pair >= cullLayout.$.params.pairCount) return;
-            if (!visible(g.mid, g.transformRow, slot)) return;
+            if (!visible(g.mid, g.globalTransformRow, slot)) return;
             std.atomicAdd(countLayout.$.counts[slot * cullLayout.$.params.pairCount + g.pair], 1);
         })
         .$name("partCount");
@@ -241,11 +247,11 @@ export function scatterKernel(surfaceCount: number) {
             if (index >= cullLayout.$.params.partCount) return;
             const g = pair(index);
             if (g.pair >= cullLayout.$.params.pairCount) return;
-            if (!visible(g.mid, g.transformRow, slot)) return;
+            if (!visible(g.mid, g.globalTransformRow, slot)) return;
             const idx = slot * cullLayout.$.params.pairCount + g.pair;
             const local = std.atomicAdd(scatterLayout.$.counts[idx], 1);
             const target = scatterLayout.$.drawArgs[idx].firstInstance + local;
-            scatterLayout.$.packedEids[target] = d.vec4u(g.eid, g.transformRow, g.row + 1, 0);
+            scatterLayout.$.packedEids[target] = d.vec4u(g.eid, g.globalTransformRow, g.row + 1, 0);
         })
         .$name("partScatter");
 }

@@ -26,7 +26,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     });
 }
 
-test("Part compaction carries independent dense Transform and Part slots with each logical eid", async () => {
+test("Part compaction carries independent dense GlobalTransform and Part slots with each logical eid", async () => {
     const app = await build({ plugins: [] });
     const state = app.state;
     const device = state.gpu.device;
@@ -45,9 +45,9 @@ test("Part compaction carries independent dense Transform and Part slots with ea
         // Different membership order forces unrelated row slots.
         state.add(b, Part);
         state.add(a, Part);
-        const transforms = globalTransformTable(state);
+        const globalTransforms = globalTransformTable(state);
         const parts = partTable(state);
-        expect(transforms.rowIndex(b)).not.toBe(parts.rowIndex(b));
+        expect(globalTransforms.rowIndex(b)).not.toBe(parts.rowIndex(b));
         device.pushErrorScope("validation");
         state.step();
         const instances = state.gpu.buffers.get("eids");
@@ -63,7 +63,7 @@ test("Part compaction carries independent dense Transform and Part slots with ea
             (x, y) => x[0]! - y[0]!,
         );
         expect(records).toEqual(
-            [a, b].map((eid) => [eid, transforms.rowIndex(eid), parts.rowIndex(eid) + 1, 0]),
+            [a, b].map((eid) => [eid, globalTransforms.rowIndex(eid), parts.rowIndex(eid) + 1, 0]),
         );
         readback.unmap();
     } finally {

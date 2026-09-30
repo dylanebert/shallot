@@ -26,7 +26,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     });
 }
 
-test("engine interpolation uploads one current-pose range and preserves unmoved renderer rows", async () => {
+test("engine interpolation uploads one GlobalTransform range and preserves unmoved renderer rows", async () => {
     const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     const state = app.state;
     const body = state.of(Body);
@@ -47,14 +47,14 @@ test("engine interpolation uploads one current-pose range and preserves unmoved 
     const queue = state.gpu.device.queue;
     const descriptor = Object.getOwnPropertyDescriptor(queue, "writeBuffer");
     const write = queue.writeBuffer.bind(queue);
-    let poseWrites = 0;
-    let poseBytes = 0;
+    let globalTransformWrites = 0;
+    let globalTransformBytes = 0;
     Object.defineProperty(queue, "writeBuffer", {
         configurable: true,
         value: (...args: Parameters<GPUQueue["writeBuffer"]>) => {
             if (state.globalTransformRuntime!.stages.includes(args[0])) {
-                poseWrites++;
-                poseBytes += args[4] ?? 0;
+                globalTransformWrites++;
+                globalTransformBytes += args[4] ?? 0;
             }
             return write(...args);
         },
@@ -62,25 +62,25 @@ test("engine interpolation uploads one current-pose range and preserves unmoved 
     try {
         state.step(Time.FIXED_DT);
         const previous = readBody(state, first);
-        if (!previous) throw new Error("first falling Body has no solver pose");
-        poseWrites = 0;
-        poseBytes = 0;
+        if (!previous) throw new Error("first falling Body has no solver state");
+        globalTransformWrites = 0;
+        globalTransformBytes = 0;
         state.gpu.device.pushErrorScope("validation");
         state.step(Time.FIXED_DT);
-        expect(poseWrites).toBe(1);
-        expect(poseBytes).toBe(
+        expect(globalTransformWrites).toBe(1);
+        expect(globalTransformBytes).toBe(
             (table.rowIndex(second) - table.rowIndex(first) + 1) * table.rowBytes,
         );
         const error = await bounded(
-            "bulk interpolated pose validation",
+            "bulk interpolated GlobalTransform validation",
             state.gpu.device.popErrorScope(),
         );
         if (error) throw new Error(error.message);
         const result = await bounded(
-            "bulk interpolated pose readback",
+            "bulk interpolated GlobalTransform readback",
             probeBuffer(state, table.buffer, {
                 size: table.buffer.size,
-                label: "physics-pose-range",
+                label: "physics-global-transform-range",
             }),
         );
         const words = new Float32Array(result.bytes);

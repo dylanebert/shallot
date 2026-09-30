@@ -102,11 +102,11 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
         const device = state.gpu.device;
         const count = 100_000;
         const batchSize = 512;
-        const poseRecord = d.struct({ transform: d.mat4x4f });
-        const table = state.table("mapped-eid-index", poseRecord);
+        const transformRecord = d.struct({ transform: d.mat4x4f });
+        const table = state.table("mapped-eid-index", transformRecord);
         const values = table.bytes;
         for (let eid = 0; eid < count; eid++) table.acquire(eid);
-        values.fill(1, 0, count * d.sizeOf(poseRecord));
+        values.fill(1, 0, count * d.sizeOf(transformRecord));
         table.markRange(0, count);
         const eidToSlot = table.enableEidLookup();
 

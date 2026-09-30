@@ -83,8 +83,7 @@ function signature(state: State): number {
     return h;
 }
 
-// build a fresh controller state from a character's authored Body — the spawn pose + capsule geometry + the
-// walkable-slope cutoff. Velocity / grounded / jump timers start cleared (a dropped capsule falls to rest).
+// build a fresh controller state from a character's authored Body placement, capsule geometry and walkable-slope cutoff. Velocity / grounded / jump timers start cleared (a dropped capsule falls to rest).
 function buildState(eid: number): CharState {
     return {
         pos: [Body.pos.x.get(eid), Body.pos.y.get(eid), Body.pos.z.get(eid)],
@@ -108,10 +107,9 @@ function buildState(eid: number): CharState {
 }
 
 // re-sync `states` to the authored `[Character, Body]` set on a signature change. A new character builds a
-// fresh state; an existing one KEEPS its live pose + motion (the controller owns the pose, like the GPU char
-// pass — a sibling spawning must not teleport a walking character back to its spawn) and only picks up a
-// tuning edit; a removed one is dropped. A freshly built State starts with `states` empty, so its first sync
-// takes every pose from the authored Body slab.
+// fresh state; an existing one KEEPS its live Body position and motion (the controller owns the fixed-tick
+// GlobalTransform — a sibling spawn must not reset a walking character) and only picks up a tuning edit; a
+// removed one is dropped. A fresh State starts with `states` empty, so its first sync reads authored Body fields.
 function syncStates(state: State): void {
     const drive = driveFor(state);
     const sig = signature(state);
@@ -183,11 +181,10 @@ function poolBody(i: number): SweepBody {
 
 const hullById = (id: number): Hull | undefined => Hulls.get(Hulls.name(id) ?? "");
 
-// one character's sweep: gather candidates (geometry from the authored Body slab, live pose + velocity
-// through the installed backend's pose-read seam — the static world is unchanged by the possible one-tick
-// lag, a dynamic / platform pose is fine one tick old), run the collide-and-slide, upload the swept pose as
-// a kinematic body, and apply the full-speed push to shoved dynamics (variant A — the full-CPU apply: the
-// swept body's stale-velocity + shove is written straight through `setVelocity`, no GPU character work).
+// one character's sweep: gather candidates (geometry from authored Body fields, live Body placement + velocity
+// through the backend read seam — the static world is unchanged by the possible one-tick lag, and one-tick-old
+// dynamic or platform data is fine), run collide-and-slide, upload the result as a kinematic body, and apply
+// full-speed pushes to shoved dynamics (variant A — the CPU writes swept velocity directly through `setVelocity`).
 function sweepEid(eid: number, st: CharState, state: State): void {
     let pi = 0;
     let ns = 0;
@@ -221,8 +218,8 @@ function sweepEid(eid: number, st: CharState, state: State): void {
             sb.vel[1] = live.vel[1];
             sb.vel[2] = live.vel[2];
         } else {
-            // cold start (no live pose yet): the authored spawn pose, velocity 0 — correct for the static
-            // collision world the character needs from frame 1, and a freshly-spawned dynamic hasn't moved.
+            // cold start (no live Body state yet): authored Body placement, velocity 0 — correct for the static
+            // collision world the character needs from frame 1, and a freshly spawned dynamic hasn't moved.
             sb.pos[0] = Body.pos.x.get(b);
             sb.pos[1] = Body.pos.y.get(b);
             sb.pos[2] = Body.pos.z.get(b);
@@ -264,8 +261,8 @@ function sweepEid(eid: number, st: CharState, state: State): void {
 
     sweepCharacter(st, input, _statics, gravity, FIXED_DT, drive.jumped.has(eid), _push);
 
-    // kinematic upload — the swept pose, with the realized velocity (snap excluded) as the explicit
-    // velocity so the carry-of-riders + broadphase pad read the swept motion, not the cosmetic ground snap.
+    // kinematic upload — the swept position and rotation, with realized velocity (snap excluded) so the carry
+    // of riders and broadphase pad follow actual motion, not the cosmetic ground snap.
     setKinematic(state, eid, st.pos, st.quat, false, st.realizedVel);
 
     // full-speed push (variant A): write each shoved dynamic's new velocity straight through the backend.
@@ -289,10 +286,9 @@ function sweepEach(this: State, st: CharState, eid: number): void {
 
 // Fixed group — the deterministic dt the sweep integrates gravity over.
 /**
- * the kinematic-character sweep: runs collide-and-slide for every `[Character, Body]` each fixed step,
- * before the physics solve, uploading the swept pose as a kinematic body. Exported as an ordering anchor: a
- * follower that reads the swept pose (a camera, an attached prop) declares `after: [CharacterSweepSystem]` so
- * it sees this tick's pose, not last tick's.
+ * The kinematic-character sweep runs collide-and-slide for every `[Character, Body]` each fixed step before
+ * the physics solve and updates the body's GlobalTransform through the physics backend. A follower that reads
+ * GlobalTransform (a camera or attached prop) declares `after: [CharacterSweepSystem]` to read this tick's value.
  */
 export const CharacterSweepSystem: System = {
     name: "character",

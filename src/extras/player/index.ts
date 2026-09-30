@@ -56,7 +56,7 @@ const LOOK_REFERENCE_HEIGHT = 1080;
  * first-person player: the look + camera layer over a kinematic {@link Character}. Lives on the same capsule
  * {@link Body} as a {@link Character} (`mass <= 0`); the character module registers + drives it, this adds the
  * mouse look + a follow camera. `camera` is the eid of a separate camera entity (Camera + Transform + a
- * renderer marker) the controller poses each frame. `distance` is the camera's pull-back from the eye. 0 is
+ * renderer marker); the controller writes its authored Transform each frame. `distance` is the camera's pull-back from the eye. 0 is
  * first-person (the default), `> 0` is the third-person scaffolding. Walk/jump/slope tuning lives on `Character`.
  *
  * @example

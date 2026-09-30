@@ -25,7 +25,7 @@ function median(values: number[]): number {
 }
 
 // Paired prototypes isolate the changed payload: both use the same independent row permutations,
-// pose and Part records, vertex arithmetic, survivor order and shadow combo. Not a scene benchmark.
+// GlobalTransform and Part records, vertex arithmetic, survivor order and shadow combo. Not a scene benchmark.
 test("measure vertex and compaction/regather costs of the approved instance payload", async () => {
     const app = await build({
         defaults: false,
@@ -107,23 +107,23 @@ test("measure vertex and compaction/regather costs of the approved instance payl
             }
             const ids = new Uint32Array(count);
             const payload = new Uint32Array(count * 4);
-            const transformMap = new Uint32Array(count);
+            const globalTransformMap = new Uint32Array(count);
             const partMap = new Uint32Array(count);
             for (let i = 0; i < count; i++) {
                 ids[i] = i;
-                transformMap[i] = ((i * 7) % count) + 1;
+                globalTransformMap[i] = ((i * 7) % count) + 1;
                 partMap[i] = ((i * 11) % count) + 1;
-                payload.set([i, transformMap[i]! - 1, partMap[i]!, 3], i * 4);
+                payload.set([i, globalTransformMap[i]! - 1, partMap[i]!, 3], i * 4);
             }
             buffer("old-eids", ids);
             buffer("new-payload", payload);
-            buffer("transform-map", transformMap);
+            buffer("global-transform-map", globalTransformMap);
             buffer("part-map", partMap);
-            const poses = new Float32Array(count * 12);
+            const globalTransforms = new Float32Array(count * 12);
             const parts = new Float32Array(count * 12);
-            poses.fill(0.5);
+            globalTransforms.fill(0.5);
             parts.fill(0.25);
-            buffer("poses", poses);
+            buffer("global-transforms", globalTransforms);
             buffer("parts", parts);
             buffer("regather-output", new Uint32Array(count * 4));
             const layout = device.createBindGroupLayout({
@@ -145,9 +145,9 @@ test("measure vertex and compaction/regather costs of the approved instance payl
 struct Record { a: vec4f, b: vec4f, c: vec4f };
 @group(0) @binding(0) var<storage, read> ids: array<u32>;
 @group(0) @binding(1) var<storage, read> payload: array<vec4u>;
-@group(0) @binding(2) var<storage, read> transformMap: array<u32>;
+@group(0) @binding(2) var<storage, read> globalTransformMap: array<u32>;
 @group(0) @binding(3) var<storage, read> partMap: array<u32>;
-@group(0) @binding(4) var<storage, read> poses: array<Record>;
+@group(0) @binding(4) var<storage, read> globalTransforms: array<Record>;
 @group(0) @binding(5) var<storage, read> parts: array<Record>;
 @group(0) @binding(6) var<storage, read_write> output: array<u32>;
 `;
@@ -160,8 +160,8 @@ struct Record { a: vec4f, b: vec4f, c: vec4f };
                                 common +
                                 `
 @vertex fn main(@builtin(instance_index) i: u32, @builtin(vertex_index) v: u32) -> @builtin(position) vec4f {
-${rows ? "let p = payload[i]; let eid = p.x; let tr = p.y; let pr = p.z - 1u;" : "let eid = ids[i]; let tr = transformMap[eid] - 1u; let pr = partMap[eid] - 1u;"}
-let xf = poses[tr]; let part = parts[pr];
+${rows ? "let p = payload[i]; let eid = p.x; let tr = p.y; let pr = p.z - 1u;" : "let eid = ids[i]; let tr = globalTransformMap[eid] - 1u; let pr = partMap[eid] - 1u;"}
+let xf = globalTransforms[tr]; let part = parts[pr];
 let x = xf.a + xf.b + xf.c + part.a + part.b + part.c;
 // Outside the viewport: raster work cannot mask vertex timing. Every field affects the position.
 return vec4f(x.xyz + vec3f(f32(v % 3u), f32(eid % 3u), 10.0), x.w);
@@ -189,7 +189,7 @@ return vec4f(x.xyz + vec3f(f32(v % 3u), f32(eid % 3u), 10.0), x.w);
                     kind === "compact-old"
                         ? "output[i] = ids[i];"
                         : kind === "compact-new"
-                          ? "let eid = ids[i]; let base = i * 4u; output[base] = eid; output[base+1u] = transformMap[eid]-1u; output[base+2u] = partMap[eid]; output[base+3u] = 0u;"
+                          ? "let eid = ids[i]; let base = i * 4u; output[base] = eid; output[base+1u] = globalTransformMap[eid]-1u; output[base+2u] = partMap[eid]; output[base+3u] = 0u;"
                           : kind === "regather-old"
                             ? "output[i] = ids[i] | (3u << 20u);"
                             : "let p = payload[i]; let base = i * 4u; output[base] = p.x; output[base+1u] = p.y; output[base+2u] = p.z; output[base+3u] = 3u;";
@@ -199,7 +199,7 @@ return vec4f(x.xyz + vec3f(f32(v % 3u), f32(eid % 3u), 10.0), x.w);
                         module: device.createShaderModule({
                             code:
                                 common +
-                                `@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3u) { let i = gid.x; if (i >= ${count}u) { return; } ${kind.startsWith("compact") ? "let eidCull = ids[i]; let xfCull = poses[transformMap[eidCull]-1u]; let partCull = parts[partMap[eidCull]-1u]; if (xfCull.a.x + partCull.a.x < 0.0) { return; }" : ""} ${code} }`,
+                                `@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3u) { let i = gid.x; if (i >= ${count}u) { return; } ${kind.startsWith("compact") ? "let eidCull = ids[i]; let xfCull = globalTransforms[globalTransformMap[eidCull]-1u]; let partCull = parts[partMap[eidCull]-1u]; if (xfCull.a.x + partCull.a.x < 0.0) { return; }" : ""} ${code} }`,
                         }),
                         entryPoint: "main",
                     },

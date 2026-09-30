@@ -624,8 +624,8 @@ function featurePlugin(subject: Plugin): Plugin {
             Body.mass.set(actor, 0);
             Player.camera.set(actor, camera);
 
-            const transforms = Compute.buffers.get("global-transform-interpolated");
-            if (!transforms)
+            const globalTransforms = Compute.buffers.get("global-transform-interpolated");
+            if (!globalTransforms)
                 throw new Error("Engine GlobalTransform did not publish its renderer buffer");
         },
         async warm(state) {

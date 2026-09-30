@@ -47,7 +47,7 @@ export function groupByMesh(
     return groups;
 }
 
-/** the always-on-top mask layout: view/position/indices/transforms/maskEids/maskAttrs/meshQuant.
+/** the always-on-top mask layout: view/position/indices/globalTransforms/maskEids/maskAttrs/meshQuant.
  *  @internal */
 export const maskLayoutPlain = tgpu.bindGroupLayout({
     view: { uniform: View, visibility: ["vertex"] },
@@ -80,7 +80,7 @@ type MaskLayout = typeof maskLayoutPlain | typeof maskLayoutOcclude;
 /**
  * the mask vs, over a specific mask layout (plain or occlude — one authored
  * kernel re-emitting per layout). Pulls the highlighted instance's 8 B position stream, dequantizes against
- * its meshId's {@link MeshQuant}, and applies the `transforms` firehose ({@link xformPoint}). @internal
+ * its meshId's {@link MeshQuant}, and applies the `globalTransforms` rows ({@link xformPoint}). @internal
  */
 export function maskVertex(layout: MaskLayout) {
     return tgpu

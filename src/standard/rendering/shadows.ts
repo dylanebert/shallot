@@ -221,7 +221,7 @@ export function cascadeSplits(
  * sphere** of the symmetric slice (its two extreme corners are the far-plane diagonal or the whole-slice
  * diagonal, whichever is longer, three.js CSM), so the `cover` is rotation-stable as the camera turns
  * (no per-frame size pumping). `margin` extends the box's near plane toward the light ({@link placeFromCenter})
- * so a tight cascade still captures occluders above its slice. Reads only the camera pose + projection (the
+ * so a tight cascade still captures occluders above its slice. Reads only the camera GlobalTransform + projection (the
  * perspective `fov` or the ortho `size`), never its own near/far. Writes the placement into `out`,
  * otherwise pure.
  */
@@ -995,7 +995,7 @@ export function tileTransform(
     return out;
 }
 
-/** one shadowed caster's per-frame placement the renderer needs: the caster slot, the light's pose +
+/** one shadowed caster's per-frame placement the renderer needs: the caster slot, the light's GlobalTransform +
  * range-derived clip planes, the bias knobs, and the importance fields the atlas allocator reads (`score`
  * sizes its tile; `tilePx` is the resolved face-tile pixel size). A point caster spans six cube-face combos;
  * a `spot` caster a single cone combo (the `cone*` basis the FS reconstructs the receiver from: `right`/

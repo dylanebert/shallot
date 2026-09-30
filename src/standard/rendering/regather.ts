@@ -226,7 +226,7 @@ export async function prepareRegather(device: GPUDevice, capacity: number): Prom
 /** one shadow atlas's re-gather instance: its own packed list + indirect args + meta, sharing the
  * State-owned A/B pipelines. The point atlas and the CSM cascade atlas each own one. */
 export interface Regather {
-    /** the re-gathered instance list (`eid, transformSlot, encodedPartSlot, combo`), bound at the consumer
+    /** the re-gathered instance list (`eid, globalTransformRow, encodedPartSlot, combo`), bound at the consumer
      * pipeline's `eids` lane. `null` until {@link Regather.ensure} allocates it (the first casting frame). */
     eids(): GPUBuffer | null;
     /** the indirect buffer the atlas render pass draws from: one DrawIndexedIndirect record per casting
