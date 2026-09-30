@@ -353,6 +353,30 @@ test("an author-marked Transform jump of any size snaps instead of interpolating
     }
 });
 
+test("setKinematic publishes moved body placement to the fixed GlobalTransform table after one step", async () => {
+    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    try {
+        const { state } = app;
+        const eid = state.create();
+        addStaticBody(state, eid, 0);
+        attachTestCamera(state);
+        globalTransformTable(state);
+        state.step(Time.FIXED_DT);
+        const table = state.globalTransformRuntime!.current!;
+        const row = table.rowIndex(eid);
+        expect(row).toBeGreaterThanOrEqual(0);
+        setKinematic(state, eid, [17, 3, -2], [0, 0, 0, 1], false);
+        // No solver tick can republish the position on this draw-only step.
+        state.step(0);
+        const words = new Float32Array(
+            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+        );
+        expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([17, 3, -2]);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("a kinematic teleport renders at its new placement at half a fixed step", async () => {
     const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {

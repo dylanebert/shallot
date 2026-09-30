@@ -17,7 +17,6 @@ type Column = {
 export class WorldField<T extends Type = Type> {
     readonly type: T;
     readonly #column: Column;
-    readonly #observers = new Set<(eid: number) => void>();
     readonly #writeRows = new WeakMap<TypedArray, Map<number, TypedArray[]>>();
 
     constructor(schema: FieldSchema<T>, initialCapacity: number) {
@@ -43,9 +42,10 @@ export class WorldField<T extends Type = Type> {
         column.dirty = dirty;
     }
 
-    observe(observer: (eid: number) => void): () => void {
-        this.#observers.add(observer);
-        return () => this.#observers.delete(observer);
+    /** Publish an eid after writing its current raw column; retained arrays do not follow growth. */
+    markChanged(eid: number): void {
+        this.ensure(eid + 1);
+        this.#column.dirty[eid >>> 5] |= 1 << (eid & 31);
     }
 
     set(eid: number, x: number, y = 0, z = 0, w = 0): void {
@@ -60,10 +60,9 @@ export class WorldField<T extends Type = Type> {
             array[base + 3] = encode(w);
         }
         dirty[eid >>> 5] |= 1 << (eid & 31);
-        for (const observer of this.#observers) observer(eid);
     }
 
-    /** Copy encoded typed rows and publish the same change notifications as scalar setters. */
+    /** Copy encoded typed rows and publish the same change marks as scalar setters. */
     write(eids: Uint32Array, source: TypedArray, lane = -1): void {
         const lanes = lane < 0 ? this.type.lanes : 1;
         if (!(eids instanceof Uint32Array))
@@ -98,7 +97,6 @@ export class WorldField<T extends Type = Type> {
             const eid = eids[i];
             array.set(rows[i], eid * this.type.lanes + Math.max(0, lane));
             dirty[eid >>> 5] |= 1 << (eid & 31);
-            for (const observer of this.#observers) observer(eid);
         }
     }
 
@@ -118,7 +116,6 @@ export class WorldField<T extends Type = Type> {
         if (base + this.type.lanes > array.length) return;
         for (let lane = 0; lane < this.type.lanes; lane++) array[base + lane] = 0;
         dirty[eid >>> 5] |= 1 << (eid & 31);
-        for (const observer of this.#observers) observer(eid);
     }
 
     get column(): TypedArray {
@@ -145,12 +142,13 @@ export class WorldField<T extends Type = Type> {
             get column() {
                 return field.column;
             },
-            get dirty() {
-                return field.dirty;
+            markChanged(eid) {
+                field.markChanged(eid);
             },
         });
         const base = {
             type: this.type,
+            markChanged: (eid: number) => this.markChanged(eid),
             write: (eids: Uint32Array, source: TypedArray) => this.write(eids, source),
         };
         if (this.type.lanes === 1) {
@@ -159,9 +157,7 @@ export class WorldField<T extends Type = Type> {
                 get column() {
                     return field.column;
                 },
-                get dirty() {
-                    return field.dirty;
-                },
+
                 set: (eid: number, value: number) => this.set(eid, value),
                 get: (eid: number) => this.get(eid),
             } as unknown as FieldStorage<T>;
@@ -172,9 +168,7 @@ export class WorldField<T extends Type = Type> {
                 get column() {
                     return field.column;
                 },
-                get dirty() {
-                    return field.dirty;
-                },
+
                 set: (eid: number, x: number, y: number) => this.set(eid, x, y),
                 read: (eid: number, out: Float32Array) => this.read(eid, out),
                 x: lane(0),
@@ -185,9 +179,6 @@ export class WorldField<T extends Type = Type> {
             ...base,
             get column() {
                 return field.column;
-            },
-            get dirty() {
-                return field.dirty;
             },
             set: (eid: number, x: number, y: number, z: number, w: number) =>
                 this.set(eid, x, y, z, w),
@@ -204,7 +195,6 @@ export class WorldField<T extends Type = Type> {
         const encode = this.type.encode ?? identity;
         this.#column.array[eid * this.type.lanes + lane] = encode(value);
         this.#column.dirty[eid >>> 5] |= 1 << (eid & 31);
-        for (const observer of this.#observers) observer(eid);
     }
 }
 

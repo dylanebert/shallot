@@ -246,12 +246,12 @@ export function deriveTransforms(state: State): void {
     const op = global.pos.column,
         oq = global.quat.column,
         os = global.scale.column;
-    const pd = global.pos.dirty,
-        qd = global.quat.dirty,
-        sd = global.scale.dirty;
-    const spd = source.pos.dirty,
-        sqd = source.rot.dirty,
-        ssd = source.scale.dirty;
+    const pd = state.fieldStorage(GlobalTransform, "pos").dirty,
+        qd = state.fieldStorage(GlobalTransform, "quat").dirty,
+        sd = state.fieldStorage(GlobalTransform, "scale").dirty;
+    const spd = state.fieldStorage(Transform, "pos").dirty,
+        sqd = state.fieldStorage(Transform, "rot").dirty,
+        ssd = state.fieldStorage(Transform, "scale").dirty;
     for (const eid of state.query(transformTerms)) {
         const word = eid >>> 5,
             mask = 1 << (eid & 31);

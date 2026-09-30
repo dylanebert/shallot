@@ -815,11 +815,9 @@ export function setKinematic(
     vc[offset] = kinVel.x;
     vc[offset + 1] = kinVel.y;
     vc[offset + 2] = kinVel.z;
-    const word = eid >>> 5,
-        mask = 1 << (eid & 31);
-    global.pos.dirty[word] |= mask;
-    global.quat.dirty[word] |= mask;
-    global.vel.dirty[word] |= mask;
+    global.pos.markChanged(eid);
+    global.quat.markChanged(eid);
+    global.vel.markChanged(eid);
     if (teleport) state.teleport(eid);
     if (moved && !tb.isAwake()) tb.setAwake(true);
     prev.pos[0] = pos[0];

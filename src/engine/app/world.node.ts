@@ -233,8 +233,8 @@ test("frame change marks clear at the world upload point", async () => {
 
     state.step(0);
     expect(
-        [storage.sparse, storage.uploaded].map((field) =>
-            Array.from(field.dirty).some((word) => word !== 0),
+        ["sparse", "uploaded"].map((name) =>
+            Array.from(state.fieldStorage(Changed, name).dirty).some((word) => word !== 0),
         ),
     ).toEqual([false, false]);
 
@@ -248,11 +248,11 @@ test("frame change marks clear at the world upload point", async () => {
     state.addSystem(lateWriter);
     writeAfterUpload = true;
     state.step(0);
-    expect(storage.uploaded.dirty[0]).not.toBe(0);
+    expect(state.fieldStorage(Changed, "uploaded").dirty[0]).not.toBe(0);
 
     writeAfterUpload = false;
     state.step(0);
-    expect(storage.uploaded.dirty[0]).toBe(0);
+    expect(state.fieldStorage(Changed, "uploaded").dirty[0]).toBe(0);
 });
 
 test("entity ids and component columns grow without a configured capacity", async () => {

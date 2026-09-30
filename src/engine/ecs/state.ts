@@ -289,11 +289,12 @@ export class State {
         globalTransformProducerChanged(this, component, eid, present);
     }
 
-    /** @internal Observe a field setter without putting state on the component schema. */
-    observeField(component: Component, name: string, observer: (eid: number) => void): () => void {
+    /** @internal Resolve the world-owned column for engine change consumers. */
+    fieldStorage(component: Component, name: string): WorldField {
+        this.of(component);
         const field = this._storage.get(idOf(component))?.fields.get(name);
-        if (!field) throw new Error(`State.observeField: unknown field "${name}"`);
-        return field.observe(observer);
+        if (!field) throw new Error(`State.fieldStorage: unknown field "${name}"`);
+        return field;
     }
 
     /** @internal Unbind a table from a component's membership lifecycle. */

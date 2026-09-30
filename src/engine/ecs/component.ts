@@ -81,8 +81,8 @@ export function fieldSchema<T extends Type>(type: T): SchemaField<T> {
         get column() {
             return (bound(descriptor) as Single | Pair | Quad).column;
         },
-        get dirty() {
-            return (bound(descriptor) as Single | Pair | Quad).dirty;
+        markChanged(eid: number) {
+            bound(descriptor).markChanged(eid);
         },
     };
     return descriptor;
@@ -347,8 +347,8 @@ export interface Single {
     readonly type: Type;
     /** world-owned CPU column, including each vector lane in field order */
     readonly column: TypedArray;
-    /** entities changed since the field's last upload */
-    readonly dirty: Uint32Array;
+    /** Publish this eid after a raw column write. Resolve column again after growth. */
+    markChanged(eid: number): void;
 }
 
 /**
@@ -367,7 +367,8 @@ export interface Pair {
     readonly y: Single;
     readonly type: Type;
     readonly column: TypedArray;
-    readonly dirty: Uint32Array;
+    /** Publish this eid after a raw column write. Resolve column again after growth. */
+    markChanged(eid: number): void;
 }
 
 /**
@@ -385,7 +386,8 @@ export interface Quad {
     readonly w: Single;
     readonly type: Type;
     readonly column: TypedArray;
-    readonly dirty: Uint32Array;
+    /** Publish this eid after a raw column write. Resolve column again after growth. */
+    markChanged(eid: number): void;
 }
 
 /**

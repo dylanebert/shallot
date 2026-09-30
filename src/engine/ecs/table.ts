@@ -312,10 +312,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 lanes,
                 sourceLanes: descriptor.type.lanes,
                 bytesPerLane,
-                source: this._state.of(component)[componentName] as {
-                    readonly column: TypedArray;
-                    readonly dirty: Uint32Array;
-                },
+                source: this._state.fieldStorage(component, componentName),
             };
             binding.fields.push(field);
         }

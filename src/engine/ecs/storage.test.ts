@@ -1,28 +1,26 @@
 import { expect, test } from "bun:test";
+import { fieldSchema, type Pair, type Quad, type Single } from "./component";
 import { f32, field, State, vec2, vec4 } from "./index";
 import { WorldField } from "./storage";
 
 test("bulk field writes copy typed rows, preserve other rows, publish scalar-equivalent marks and refuse mismatches", () => {
     const column = new WorldField(field(vec4), 16);
     const storage = column.bind();
-    const observed: number[] = [];
-    column.observe((eid) => observed.push(eid));
     storage.set(3, 9, 8, 7, 6);
-    storage.dirty.fill(0);
-    observed.length = 0;
+    column.dirty.fill(0);
     const eids = new Uint32Array([99, 2, 7, 99]).subarray(1, 3);
     const source = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]);
     storage.write(eids, source);
     expect(Array.from(storage.column.slice(8, 12))).toEqual([1, 2, 3, 4]);
     expect(Array.from(storage.column.slice(28, 32))).toEqual([5, 6, 7, 8]);
     expect(Array.from(storage.column.slice(12, 16))).toEqual([9, 8, 7, 6]);
-    expect(storage.dirty[0]).toBe((1 << 2) | (1 << 7));
-    expect(observed).toEqual([2, 7]);
+    expect(column.dirty[0]).toBe((1 << 2) | (1 << 7));
+    expect(Array.from(column.dirty)).toEqual([(1 << 2) | (1 << 7)]);
     expect(() => storage.write(eids, new Float32Array(7))).toThrow(/write.*length.*4 lanes/);
     expect(() => storage.write(eids, new Uint32Array(8))).toThrow(
         /write.*Float32Array.*Uint32Array/,
     );
-    expect(observed).toEqual([2, 7]);
+    expect(Array.from(column.dirty)).toEqual([(1 << 2) | (1 << 7)]);
 });
 
 test("binding a component freezes its schema against later mutation", () => {
@@ -101,3 +99,34 @@ test("scalar and vector field writes reach columns without a temporary value arr
 
     expect(firstArguments.map(Array.isArray)).toEqual([false, false, false]);
 });
+
+for (const type of [f32, vec2, vec4] as const) {
+    test(`${type.name} retained handles publish exactly the written eids across growth and raw writes require markChanged`, () => {
+        const column = new WorldField(fieldSchema(type), 16);
+        const handle = column.bind() as Single | Pair | Quad;
+        const lane = "x" in handle ? handle.x : handle;
+        const replaced = handle.column;
+        // Retain the handles, never the raw array, across growth.
+        lane.set(40, 5);
+        expect(handle.column).not.toBe(replaced);
+        expect(lane.column).toBe(handle.column);
+        column.dirty.fill(0);
+        handle.set(2, 1, 2, 3, 4);
+        lane.set(7, 8);
+        handle.write(new Uint32Array([33]), new Float32Array(type.lanes).fill(9));
+        lane.write(new Uint32Array([35]), new Float32Array([10]));
+        handle.column[41 * type.lanes] = 11;
+        handle.markChanged(41);
+        lane.column[43 * type.lanes] = 12;
+        lane.markChanged(43);
+        handle.column[45 * type.lanes] = 13;
+        expect(Array.from(column.dirty)).toEqual([
+            (1 << 2) | (1 << 7),
+            (1 << 1) | (1 << 3) | (1 << 9) | (1 << 11),
+        ]);
+        column.dirty.fill(0);
+        lane.column[45 * type.lanes] = 14;
+        expect(Array.from(column.dirty)).toEqual([0, 0]);
+        expect(lane.get(45)).toBe(14);
+    });
+}
