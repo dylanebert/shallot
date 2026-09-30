@@ -66,15 +66,15 @@ export class WorldField<T extends FieldType = FieldType> {
     writeEncoded(eids: Uint32Array, source: TypedArray, lane = -1): void {
         const lanes = lane < 0 ? this.type.lanes : 1;
         if (!(eids instanceof Uint32Array))
-            throw new Error("WorldField.write: eids must be Uint32Array");
+            throw new Error("WorldField.writeEncoded: eids must be Uint32Array");
         if (source.constructor !== this.#column.array.constructor) {
             throw new Error(
-                `WorldField.write: expected ${this.#column.array.constructor.name}, received ${source.constructor.name}`,
+                `WorldField.writeEncoded: expected ${this.#column.array.constructor.name}, received ${source.constructor.name}`,
             );
         }
         if (source.length !== eids.length * lanes) {
             throw new Error(
-                `WorldField.write: source length ${source.length} does not match ${eids.length} rows with ${lanes} lanes`,
+                `WorldField.writeEncoded: source length ${source.length} does not match ${eids.length} rows with ${lanes} lanes`,
             );
         }
         let capacity = 0;

@@ -3,8 +3,8 @@ import type { Entity } from "./entity";
 /**
  * per-{@link World} entity identity: which entities `loadScene` authored, and the
  * stable scene `id` each was named with. The runtime half of
- * the durable-identity story `serializeScene` reads. An eid stays a borrow
- *, so a round-trip keys refs by the recorded scene id, never the
+ * the durable-identity story `serializeScene` reads. An eid is a runtime handle,
+ * so a round-trip keys refs by the recorded scene id, never the
  * recycled eid. Reset with the World; populated by `loadScene`, dropped on
  * `destroy`. Holds no serialization logic, just the map.
  */

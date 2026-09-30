@@ -347,8 +347,8 @@ function applyComponent(
 /**
  * write a scene-parsed value into a component field. Handles:
  *
- * - `field = "pos"`, `value = number` — ScalarField, or first lane of a Vector2Field/Vector4Field
- * - `field = "pos"`, `value = number[]` — Vector2Field/Vector4Field bulk lane write
+ * - `field = "translation"`, `value = number` — ScalarField, or first lane of a Vector2Field/Vector4Field
+ * - `field = "translation"`, `value = number[]` — Vector2Field/Vector4Field bulk lane write
  * - `field = "translation.x"`, `value = number` — single lane of a parent Vector2Field/Vector4Field
  */
 export function setFieldValue(
@@ -778,10 +778,10 @@ export function formatFields(
         }
     }
 
-    // direct Vector2Field/Vector4Field fields keyed by dotted lane (`pos.x`, `pos.y` …).
+    // direct Vector2Field/Vector4Field fields keyed by dotted lane (`translation.x`, `translation.y` …).
     // Emit the longest contiguous lane prefix the user actually supplied —
     // omitted trailing lanes parse-back from the trait default, so dropping
-    // them keeps `pos: 1 2 3` (vec3-shaped Vector4Field) roundtripping cleanly
+    // them keeps `translation: 1 2 3` (vec3-shaped Vector4Field) roundtripping cleanly
     // through `normalizeAttribute`. Trim-trailing-default still operates within
     // the prefix when stripDefaults is on.
     for (const field of [...remaining]) {
@@ -816,8 +816,8 @@ export function formatFields(
             const emitted = values.slice(0, trimEnd);
             const allEqual = emitted.every((v) => v === emitted[0]);
             const k = kebab(base);
-            // `pos: 5` splats to every lane at parse; only collapse when
-            // emitting the full lane count, else `pos: 5 5 5` on a Vector4Field
+            // `translation: 5` splats to every lane at parse; only collapse when
+            // emitting the full lane count, else `translation: 5 5 5` on a Vector4Field
             // would silently set lane w to 5
             if (allEqual && emitted.length > 1 && emitted.length === direct) {
                 parts.push(`${k}: ${formatNumber(emitted[0])}`);
@@ -892,7 +892,7 @@ function formatNumber(n: number): string {
 }
 
 function isCSSAttrSyntax(value: string): boolean {
-    // dotted-field syntax (e.g. `pos.x: 5`) opts in just like `field: value`
+    // dotted-field syntax (e.g. `translation.x: 5`) opts in just like `field: value`
     return value.includes(":") && (value.includes(";") || /^[\w-]+(\.[a-z])?\s*:/.test(value));
 }
 

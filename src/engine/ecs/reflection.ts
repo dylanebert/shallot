@@ -41,7 +41,7 @@ export interface Schema {
 }
 
 /** a flat map of one entity's field values for a component, vec fields split into dotted lanes
- * (`pos.x`, `pos.y`) */
+ * (`translation.x`, `translation.y`) */
 export interface FieldValues {
     [field: string]: number | string | readonly number[];
 }
@@ -151,8 +151,9 @@ export function requiredComponents(world: World, name: string): string[] {
     return out;
 }
 
-/** the components this one stands in for: an entity carrying it satisfies a `requires` of any of
- * them (`Body` provides `Transform`). empty for an unknown component or one with no `provides` trait */
+/** the registered names of this component's derived outputs (`Transform` and `Body` provide
+ * `GlobalTransform`). Scene validation counts them as satisfying `requires` on the same entity.
+ * Empty for an unknown component or one with no `provides` trait */
 export function provides(world: World, name: string): string[] {
     const traits = world.registry.getTraits(name);
     if (!traits?.provides) return [];
@@ -186,7 +187,7 @@ export function exclusions(world: World, name: string): string[] {
 }
 
 /** read every field of `component` on `eid` into a flat map, vec fields split into dotted lanes
- * (`pos.x`, `pos.y`); the row values tooling shows */
+ * (`translation.x`, `translation.y`); the row values tooling shows */
 export function readFields(world: World, component: Component, eid: number): FieldValues {
     const fields: FieldValues = {};
     const storage = world.storage(component) as Record<string, unknown>;

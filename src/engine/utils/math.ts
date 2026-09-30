@@ -102,7 +102,7 @@ export function quatToEuler(
     w: number,
 ): { x: number; y: number; z: number } {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(w)) {
-        throw new Error(`euler received non-finite: q=[${x},${y},${z},${w}]`);
+        throw new Error(`quatToEuler received non-finite: q=[${x},${y},${z},${w}]`);
     }
     const x2 = x + x,
         y2 = y + y,
@@ -457,7 +457,7 @@ export function invertMat4(m: Float32Array, out?: Float32Array): Float32Array {
     return out;
 }
 
-/** shared finite-guard for aim/lookAt's nine congruent numeric params (eye, target, up) */
+/** shared finite-guard for lookAtRotation and lookAt's nine numeric params (eye, target, up) */
 function assertFiniteAimLookAtParams(
     name: string,
     eyeX: number,
@@ -519,7 +519,7 @@ export function lookAt(
 
     // degeneracy: the eye-minus-target direction is garbage when |z| falls to the f64 rounding
     // level of the subtraction (eps * max(|eye|, |target|)). The 1 floor avoids a zero threshold
-    // for origin-coincident coordinates. Unifies the old tuned 1e-6 (lookAt) and exact === 0 (aim).
+    // for origin-coincident coordinates, matching lookAtRotation's scale-relative threshold.
     const _zScale = Math.max(
         Math.abs(eyeX),
         Math.abs(eyeY),
@@ -603,7 +603,18 @@ export function lookAtRotation(
     upY = 1,
     upZ = 0,
 ): { x: number; y: number; z: number; w: number } {
-    assertFiniteAimLookAtParams("aim", eyeX, eyeY, eyeZ, targetX, targetY, targetZ, upX, upY, upZ);
+    assertFiniteAimLookAtParams(
+        "lookAtRotation",
+        eyeX,
+        eyeY,
+        eyeZ,
+        targetX,
+        targetY,
+        targetZ,
+        upX,
+        upY,
+        upZ,
+    );
 
     let zx = eyeX - targetX;
     let zy = eyeY - targetY;
@@ -612,7 +623,7 @@ export function lookAtRotation(
 
     // degeneracy: the eye-minus-target direction is garbage when |z| falls to the f64 rounding
     // level of the subtraction (eps * max(|eye|, |target|)). The 1 floor avoids a zero threshold
-    // for origin-coincident coordinates. Unifies the old tuned 1e-6 (lookAt) and exact === 0 (aim).
+    // for origin-coincident coordinates, matching lookAt's scale-relative threshold.
     const _zScale = Math.max(
         Math.abs(eyeX),
         Math.abs(eyeY),

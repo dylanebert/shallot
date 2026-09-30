@@ -8,11 +8,10 @@ import type { World } from "./state";
 export interface Traits {
     requires?: Component[];
     /**
-     * components this one stands in for — an entity carrying it satisfies another component's
-     * `requires` of any listed component, without holding that component itself. `Body.provides =
-     * [Transform]` (physics owns the entity's world transform, so `Body` excludes `Transform` yet a
-     * `MeshInstance` on the same entity still renders). Directional (the counterpart to `requires`), read by
-     * scene validation only, not enforced at `world.add`
+     * derived outputs this component produces. `Transform` and `Body` provide `GlobalTransform`.
+     * Adding a provider with `world.add` attaches `GlobalTransform`; removing a provider with
+     * `world.remove` retains it while another provider owns it, otherwise deferring removal until
+     * reconciliation. Scene validation counts each output as satisfying `requires` on the same entity.
      */
     provides?: Component[];
     /** one instance per scene (lights, the active camera). Informational — surfaced through
@@ -22,8 +21,8 @@ export interface Traits {
      * runtime-derived decoration — a system owns its membership and values (for example
      * `GlobalTransform`), so scenes never author it: `serializeScene` skips it, authoring tooling
      * hides it, and `diagnose` flags an authored attr. Registration
-     * still allocates its columns, and an always-mode system may add/remove it
-     * freely, since nothing serialized sees it
+     * still allocates its columns. Runtime code manages its membership and values;
+     * `GlobalTransform` membership is managed by the engine's provider lifecycle
      */
     derived?: boolean;
     /**
