@@ -7,6 +7,9 @@ import {
     fields,
     freezeComponent,
     idOf,
+    type ScalarField,
+    type Vector2Field,
+    type Vector4Field,
 } from "./component";
 import { Entities } from "./entity";
 import {
@@ -489,7 +492,7 @@ export class World {
                 }
             }
         }
-        this.storage(component as Component);
+        const storage = this.storage(component as Component);
         if (this._components.add(eid, component)) {
             this.notifyMembership(component as Component, eid, true);
             const tables = this._tablesByComponent.get(idOf(component as Component));
@@ -510,9 +513,11 @@ export class World {
             this._queries.onComponentChanged(eid, component, this._components);
             this.registry.applyDefaults(this, component as Component, eid);
             if (values) {
-                for (const [name, value] of Object.entries(values)) {
-                    const field = this.fieldStorage(component as Component, name);
-                    if (typeof value === "number") field.set(eid, value);
+                for (const name in values) {
+                    const value = values[name];
+                    if (value === undefined) continue;
+                    const field = storage[name] as ScalarField | Vector2Field | Vector4Field;
+                    if (typeof value === "number") (field as ScalarField).set(eid, value);
                     else {
                         const lanes = value as readonly number[];
                         field.set(eid, lanes[0], lanes[1], lanes[2], lanes[3]);
