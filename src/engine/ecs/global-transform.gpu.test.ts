@@ -4,6 +4,7 @@ import { Body, forwardRay, GlobalTransform, PhysicsPlugin } from "../../transiti
 import { build } from "../app";
 import * as engine from "../index";
 import { globalTransformTable, probeBuffer, Transform } from "../index";
+import type { System } from "./scheduler";
 import { Time } from "./scheduler";
 
 setDefaultTimeout(1000);
@@ -99,6 +100,131 @@ test("a physics camera query reads fixed-tick GlobalTransform without requiring 
         state.step(Time.FIXED_DT);
         expect(state.has(eid, Transform)).toBe(false);
         expect(forwardRay(state, eid)).toEqual({ origin: [12, 7, -3], dir: [0, 0, -1] });
+    } finally {
+        app.dispose();
+    }
+});
+
+function addStaticBody(state: engine.State, eid: number, x: number): void {
+    state.add(eid, Body);
+    state.of(Body).pos.set(eid, x, 0, 0, 0);
+    state.of(Body).mass.set(eid, 0);
+}
+
+function addTransform(state: engine.State, eid: number, x: number): void {
+    state.add(eid, Transform);
+    state.of(Transform).pos.set(eid, x, 0, 0, 0);
+}
+
+async function handoverApp(initial: "Body" | "Transform"): Promise<{
+    app: Awaited<ReturnType<typeof build>>;
+    handover(action: (state: engine.State, eid: number) => void): void;
+}> {
+    let action: ((state: engine.State, eid: number) => void) | undefined;
+    let eid = -1;
+    const handoverSystem: System = {
+        group: "simulation",
+        update(state) {
+            const current = action;
+            if (!current) return;
+            action = undefined;
+            current(state, eid);
+        },
+    };
+    const app = await build({
+        defaults: false,
+        plugins: [PhysicsPlugin, { name: "Handover", systems: [handoverSystem] }],
+        setup(state) {
+            eid = state.create();
+            if (initial === "Body") addStaticBody(state, eid, 10);
+            else addTransform(state, eid, 10);
+        },
+    });
+    app.state.step(Time.FIXED_DT);
+    return { app, handover: (next) => (action = next) };
+}
+
+test("Body to Transform keeps its GlobalTransform row for a same-frame producer handover", async () => {
+    const { app } = await handoverApp("Body");
+    const { state } = app;
+    const eid = [...state.query([Body])][0];
+    const table = globalTransformTable(state);
+    const row = table.rowIndex(eid);
+    try {
+        state.remove(eid, Body);
+        addTransform(state, eid, 42);
+        const bystander = state.create();
+        addTransform(state, bystander, -9);
+        state.step(Time.FIXED_DT);
+        expect(table.rowIndex(eid)).toBe(row);
+        expect(state.has(eid, GlobalTransform)).toBe(true);
+        expect(GlobalTransform.pos.x.get(eid)).toBe(42);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("Transform to Body keeps its GlobalTransform row for a same-frame producer handover", async () => {
+    const { app } = await handoverApp("Transform");
+    const { state } = app;
+    const eid = [...state.query([Transform])][0];
+    const table = globalTransformTable(state);
+    const row = table.rowIndex(eid);
+    try {
+        state.remove(eid, Transform);
+        const bystander = state.create();
+        addTransform(state, bystander, -9);
+        addStaticBody(state, eid, 42);
+        state.step(Time.FIXED_DT);
+        expect(table.rowIndex(eid)).toBe(row);
+        expect(state.has(eid, GlobalTransform)).toBe(true);
+        expect(GlobalTransform.pos.x.get(eid)).toBe(42);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("Body to Transform keeps its GlobalTransform row when handover crosses a fixed tick", async () => {
+    const { app, handover } = await handoverApp("Body");
+    const { state } = app;
+    const eid = [...state.query([Body])][0];
+    const table = globalTransformTable(state);
+    const row = table.rowIndex(eid);
+    try {
+        handover((world, target) => {
+            world.remove(target, Body);
+            addTransform(world, target, 42);
+            const bystander = world.create();
+            addTransform(world, bystander, -9);
+        });
+        state.step(Time.FIXED_DT);
+        state.step(Time.FIXED_DT);
+        expect(table.rowIndex(eid)).toBe(row);
+        expect(state.has(eid, GlobalTransform)).toBe(true);
+        expect(GlobalTransform.pos.x.get(eid)).toBe(42);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("Transform to Body keeps its GlobalTransform row when handover crosses a fixed tick", async () => {
+    const { app, handover } = await handoverApp("Transform");
+    const { state } = app;
+    const eid = [...state.query([Transform])][0];
+    const table = globalTransformTable(state);
+    const row = table.rowIndex(eid);
+    try {
+        handover((world, target) => {
+            world.remove(target, Transform);
+            const bystander = world.create();
+            addTransform(world, bystander, -9);
+            addStaticBody(world, target, 42);
+        });
+        state.step(Time.FIXED_DT);
+        state.step(Time.FIXED_DT);
+        expect(table.rowIndex(eid)).toBe(row);
+        expect(state.has(eid, GlobalTransform)).toBe(true);
+        expect(GlobalTransform.pos.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
