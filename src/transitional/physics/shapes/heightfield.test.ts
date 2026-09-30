@@ -337,22 +337,21 @@ const waveOrigins = (): Vec3[] => {
 const label = (o: Vec3, d: Vec3) =>
     `origin (${o.x}, ${o.y}, ${o.z}) delta (${d.x}, ${d.y}, ${d.z})`;
 
-test("the grid walk in shapeCastHeightField would disagree with a brute-force cast against every wave height field triangle on hit or fraction for some origin, radius and translation", () => {
-    const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
-    const deltas: Vec3[] = [
-        { x: 0, y: -8, z: 0 },
-        { x: 0, y: -8, z: 6.4 },
-        { x: 5.1, y: -8, z: 0 },
-        { x: 0, y: -8, z: -6.4 },
-        { x: -5.1, y: -8, z: 0 },
-        { x: 6, y: -8, z: 5 },
-        { x: -7, y: -8, z: 4 },
-        { x: 9, y: -3, z: -9 },
-    ];
-    const triangles = immutableBruteTriangles(hf);
-    const transform = xf.identity();
-    const failures: string[] = [];
-    for (const delta of deltas) {
+for (const delta of [
+    { x: 0, y: -8, z: 0 },
+    { x: 0, y: -8, z: 6.4 },
+    { x: 5.1, y: -8, z: 0 },
+    { x: 0, y: -8, z: -6.4 },
+    { x: -5.1, y: -8, z: 0 },
+    { x: 6, y: -8, z: 5 },
+    { x: -7, y: -8, z: 4 },
+    { x: 9, y: -3, z: -9 },
+]) {
+    test(`the grid walk in shapeCastHeightField agrees with every wave triangle for delta (${delta.x}, ${delta.y}, ${delta.z}), every origin and radius`, () => {
+        const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
+        const triangles = immutableBruteTriangles(hf);
+        const transform = xf.identity();
+        const failures: string[] = [];
         for (const origin of waveOrigins()) {
             for (const radius of [0.15, 0.4, 0.9]) {
                 const input: ShapeCastInput = {
@@ -373,9 +372,9 @@ test("the grid walk in shapeCastHeightField would disagree with a brute-force ca
                 }
             }
         }
-    }
-    expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
-});
+        expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
+    });
+}
 
 test("the grid walk in rayCastHeightField would disagree with a brute-force ray against every wave height field triangle on hit or fraction for some origin and translation", () => {
     const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);

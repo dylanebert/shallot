@@ -43,10 +43,22 @@ async function changedFraction(page: Page, first: string, second: string): Promi
 test("the browser input adapter fails to record a real key press on the focused canvas or accepts it after focus leaves the canvas", async ({
     page,
 }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto("/");
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
-    await expect(page.locator("[data-recipe-controls]")).toContainText("WASD");
+    try {
+        await expect(page.locator("[data-recipe-controls]")).toContainText("WASD", {
+            timeout: 10_000,
+        });
+    } catch (cause) {
+        throw new Error(
+            `first-person did not reach its first draw; page errors: ${JSON.stringify(pageErrors)}`,
+            { cause },
+        );
+    }
+    expect(pageErrors, "first-person reaches its first draw without a runtime error").toEqual([]);
     await canvas.evaluate((element) => {
         element.tabIndex = 0;
     });
