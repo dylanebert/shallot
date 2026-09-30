@@ -1,7 +1,7 @@
 // The line producer's segment buffer: one shared CPU staging array fed by the immediate API
-// (`segment` / `box` / `arrow`) and the retained-component expansion, doubled on demand, uploaded to a
+// (`drawLine` / `drawWireBox` / `drawArrow`) and the retained-component expansion, doubled on demand, uploaded to a
 // GPU storage buffer each frame and drawn as one instanced quad per segment. Internal —
-// `segment` / `box` / `arrow` re-export through the barrel; the staging, the `Lines` handle, and the GPU
+// `drawLine` / `drawWireBox` / `drawArrow` re-export through the barrel; the staging, the `Lines` handle, and the GPU
 // lifecycle stay off it (`head` / `push` are shared with the retained expansion in `index.ts`).
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";

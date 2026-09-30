@@ -557,7 +557,7 @@ function syncCascadePool(world: World, shadow: ShadowRuntime, n: number): void {
 }
 
 // pose a pooled cascade camera so render's `computeViewProj` reproduces this cascade's ortho projection — the
-// frustum the pack culls against. `aim` returns the lookAt orientation as a quaternion, so
+// frustum the pack culls against. `lookAtRotation` returns the lookAt orientation as a quaternion, so
 // `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye→focus, up)` the atlas render's `_cascadeRecv` folds
 // the tile onto (the cull frustum and the render projection agree to f32 — the sun camera's guarantee)
 function poseCascade(world: World, eid: number, fit: LightFit): void {
@@ -947,7 +947,7 @@ export function spotBasis(
     return { fwd, right, up, coneTanHalf, coneFov };
 }
 
-/** one cube face's render basis. `right` is derived (fwd × up, the camera basis `aim` produces), so the
+/** one cube face's render basis. `right` is derived (fwd × up, the camera basis `lookAtRotation` produces), so the
  * WGSL face selection generated from this table and the camera orientation can never disagree */
 export interface PointFaceBasis {
     fwd: [number, number, number];
@@ -984,8 +984,8 @@ export const POINT_FACES: PointFaceBasis[] = [
  * `clip.y = dv·fc.y + (1−2v0−dv)·fc.w`, z/w untouched, so `tileVP = D · faceVP` and the VS is one matrix
  * multiply. The receiver (`pointShadowOf`) reconstructs the same tile uv analytically from its rect, so it
  * reads identical depth at identical pixels: `D` changes only what the render writes, not where it samples.
- * Column-major, the layout `multiply`/the shader expect. Reads the rect at `at` in `rect`. Writes into `out`
- * when given (so the per-frame loop reuses a scratch matrix, like `perspective`/`lookAt`/`multiply`), else
+ * Column-major, the layout `multiplyMat4`/the shader expect. Reads the rect at `at` in `rect`. Writes into `out`
+ * when given (so the per-frame loop reuses a scratch matrix, like `perspective`/`lookAt`/`multiplyMat4`), else
  * allocates. Pure; pinned to the receiver's uv by unit test.
  */
 export function tileTransform(
@@ -1128,7 +1128,7 @@ function syncComboPool(world: World, shadows: ShadowRuntime, n: number): void {
 }
 
 // pose a pooled combo camera so render's `computeViewProj` reproduces this combo's face/cone projection —
-// the frustum the pack culls against. `aim` returns the lookAt orientation as a quaternion (the sun
+// the frustum the pack culls against. `lookAtRotation` returns the lookAt orientation as a quaternion (the sun
 // camera's path), so `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's
 // `_faceVP` folds the tile placement onto — the cull frustum and the render projection agree (to f32).
 function poseCombo(

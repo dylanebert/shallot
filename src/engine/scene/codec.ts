@@ -163,10 +163,10 @@ export function loadScene(nodes: SceneNode[], world: World): LoadResult {
 
 /**
  * reads one live component instance back to its scene attribute string (fields at their trait default
- * elide). The one shared per-component read — `serialize` routes every component through
+ * elide). The one shared per-component read — `serializeScene` routes every component through
  * it, so live component state and scene text have a single codec.
  *
- * `resolveRef` (passed only by `serialize`) turns an `entity`-typed field's
+ * `resolveRef` (passed only by `serializeScene`) turns an `entity`-typed field's
  * stored eid into the target's scene `id`, so the field formats as `@<id>`: a
  * ref keyed on a stable name survives the creation-order eid reshuffle a reload
  * causes.

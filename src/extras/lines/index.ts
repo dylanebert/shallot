@@ -1,5 +1,5 @@
 // Lines — the shallot debug-line producer. One shared segment buffer, two feeders: an immediate API
-// (`segment` / `box` / `arrow`, appended and cleared each frame — the scale path) and the retained
+// (`drawLine` / `drawWireBox` / `drawArrow`, appended and cleared each frame — the scale path) and the retained
 // `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
 // Everything draws as one instanced 6-vertex quad per segment, rendered as a sear `"alpha"` surface
 // inside the color pass — translucent, depth-tested, depth-write off, no overlay pass. Screen-space

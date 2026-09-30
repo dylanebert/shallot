@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { composeMat4, invertMat4, lookAt, lookAtRotation, multiplyMat4 } from "./math";
 
-// `aim` and `lookAt` are two readings of one orientation: `aim` returns it as a quaternion an entity is
+// `lookAtRotation` and `lookAt` are two readings of one orientation: `lookAtRotation` returns it as a quaternion an entity is
 // posed with, `lookAt` as the view matrix a projection multiplies. StandardRenderer poses each shadow light camera with
-// `aim` and renders that light through `lookAt`, so the pack's cull frustum is the render's frustum only
+// `lookAtRotation` and renders that light through `lookAt`, so the pack's cull frustum is the render's frustum only
 // while `invertMat4(composeMat4(eye, lookAtRotation(...)))` is `lookAt(...)`. Nothing else in the tree reads that agreement.
 
 // eye/target pairs whose direction is not parallel to the up vector each row passes. A direction that is
-// parallel is degenerate for both functions, and they resolve it differently — `aim` nudges the up vector,
+// parallel is degenerate for both functions, and they resolve it differently — `lookAtRotation` nudges the up vector,
 // `lookAt` substitutes an axis — so the two frames differ by a roll there. StandardRenderer never poses one: a cascade's
 // up comes from the sun's own snap-plane basis, and a cube face's from its face table.
 const CASES: { eye: [number, number, number]; target: [number, number, number] }[] = [
@@ -17,7 +17,7 @@ const CASES: { eye: [number, number, number]; target: [number, number, number] }
     { eye: [0.25, 8.5, 0.75], target: [3.25, -3, -2.5] },
 ];
 
-// the view matrix `aim`'s quaternion implies: pose an entity at `eye` with it, then invert its world matrix
+// the view matrix `lookAtRotation`'s quaternion implies: pose an entity at `eye` with it, then invert its world matrix
 function viewFromAim(
     eye: [number, number, number],
     q: { x: number; y: number; z: number; w: number },

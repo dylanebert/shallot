@@ -839,7 +839,7 @@ function compile({ label, force }: Forcer): unknown {
  * force a pipeline to compile before the first frame. A typegpu pipeline is created synchronously
  * (`root.unwrap` calls the synchronous `create*Pipeline`), and Dawn can defer the real compile to the
  * first dispatch (measured ~3 s of first-frame drain at engine scale). A pipeline owner registers its
- * bound pipeline from `warm`; `build` drains the queue once every plugin has warmed, awaiting
+ * bound pipeline from `warm`; `createApp` drains the queue once every plugin has warmed, awaiting
  * `initAsync()` on each returned pipeline, so the compile is paid under the loading screen. Registered
  * *after* that drain (a lazily-built pipeline, a post-warm producer), the drain runs on arrival and the
  * returned promise must be awaited — late is better than silently dropped, but it still owes the same
@@ -1090,7 +1090,7 @@ function removeForcers(world: World, drained: readonly Forcer[]): void {
 
 /**
  * drain the {@link precompile} queue level by level ({@link ordered}'s `Forcer[][]` partition).
- * `build` calls it after every plugin `warm`; a forcer registered afterwards runs on arrival (a
+ * `createApp` calls it after every plugin `warm`; a forcer registered afterwards runs on arrival (a
  * different code path, {@link precompile}'s own `_drained` branch) — unless it lands mid-await
  * while a multi-member level is in flight, in which case it lands directly in `_precompile` and is
  * picked up by this function's own next iteration; see {@link removeForcers}.

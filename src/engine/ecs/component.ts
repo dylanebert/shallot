@@ -93,7 +93,7 @@ export const u32: FieldType<Uint32Array> & { readonly lanes: 1 } = {
 /**
  * a u32 that holds an entity id, a `@name` reference in scene files (`Joint.a`,
  * `Spring.b`). Storage is identical to {@link u32}; the distinct descriptor lets the field
- * declare itself a ref, so `serialize` round-trips it by the target's scene id rather than the
+ * declare itself a ref, so `serializeScene` round-trips it by the target's scene id rather than the
  * recycled, creation-order eid, with no side list to keep in sync. {@link refs} enumerates them.
  */
 export const entity: FieldType<Uint32Array> & { readonly lanes: 1 } = {
@@ -372,7 +372,7 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
 
 /**
  * the fields holding an entity ref: those declared with the bare `entity` type.
- * `serialize` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it
+ * `serializeScene` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it
  * can't drift from a separate list. A sibling of {@link fields}.
  */
 export function refs(component: Component): string[] {
@@ -444,7 +444,7 @@ export interface Membership {
     /** membership words per entity (31 components each); fixes the mirror size */
     readonly generations: number;
     /**
-     * lock the generation count after `build` has assigned every registered
+     * lock the generation count after `createApp` has assigned every registered
      * component its bit. A later component that would require a new generation
      * is refused rather than silently outsizing the fixed GPU mirror.
      */

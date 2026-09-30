@@ -142,7 +142,7 @@ export const Joint = {
 // them. `Body`/`Spring`/`Joint` are the same objects across plugins (idempotent registration
 // keeps component ids stable), so their traits live here once.
 
-/** {@link Body}'s traits: defaults, its exclusion of {@link Transform}, and the euler-degree `quat` alias. Shared by every plugin that registers `Body`. */
+/** {@link Body}'s traits: defaults, its exclusion of {@link Transform}, and the euler-degree `rotation` alias. Shared by every plugin that registers `Body`. */
 export const bodyTraits = {
     defaults: () => ({
         shape: ShapeKind.Box,

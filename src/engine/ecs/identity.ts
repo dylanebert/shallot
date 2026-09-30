@@ -1,18 +1,18 @@
 import type { Entity } from "./entity";
 
 /**
- * per-{@link World} entity identity: which entities `load` authored, and the
+ * per-{@link World} entity identity: which entities `loadScene` authored, and the
  * stable scene `id` each was named with. The runtime half of
- * the durable-identity story `serialize` reads. An eid stays a borrow
+ * the durable-identity story `serializeScene` reads. An eid stays a borrow
  *, so a round-trip keys refs by the recorded scene id, never the
- * recycled eid. Reset with the World; populated by `load`, dropped on
+ * recycled eid. Reset with the World; populated by `loadScene`, dropped on
  * `destroy`. Holds no serialization logic, just the map.
  */
 export class Identity {
     private _ids = new Map<Entity, string>();
     private _authored = new Set<Entity>();
 
-    /** mark an entity as authored by `load`, recording its scene `id` when named */
+    /** mark an entity as authored by `loadScene`, recording its scene `id` when named */
     author(eid: Entity, id?: string): void {
         this._authored.add(eid);
         if (id !== undefined) this._ids.set(eid, id);

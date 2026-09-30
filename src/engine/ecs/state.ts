@@ -461,8 +461,8 @@ export class World {
     }
 
     /**
-     * entity identity recorded by `load`: the authored set + each entity's
-     * scene `id`. `serialize` reads it to round-trip refs by name and to skip
+     * entity identity recorded by `loadScene`: the authored set + each entity's
+     * scene `id`. `serializeScene` reads it to round-trip refs by name and to skip
      * warm-derived entities. See {@link Identity}
      */
     get identity(): Identity {

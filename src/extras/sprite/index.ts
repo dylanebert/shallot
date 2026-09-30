@@ -68,7 +68,7 @@ function transparentPixel(): Blob {
  * `Blob` (a procedurally-drawn `OffscreenCanvas.convertToBlob` works); `name` is the handle a
  * scene's `image:` attribute resolves (defaults to the url). Register any time up to a plugin's
  * `initialize` (`SpritePlugin` builds the `texture_2d_array` at `warm`, after every initialize), so a
- * plugin can register its own images (no pre-`build` call needed); all images share one array, layer-per-image
+ * plugin can register its own images (no pre-`createApp` call needed); all images share one array, layer-per-image
  *
  * @example
  * ```
