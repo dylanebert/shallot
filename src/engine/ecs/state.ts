@@ -1,4 +1,5 @@
 import type * as d from "typegpu/data";
+import { ReadbackPool } from "../runtime";
 import {
     bindFields,
     type Component,
@@ -62,6 +63,18 @@ export class State {
     /** this world's component registrations, defaults, exclusions, and reflection data. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
+    private _readback: ReadbackPool | undefined;
+
+    /** One-shot buffer and texture staging owned by this world. */
+    get readback(): ReadbackPool {
+        if (this._disposed) throw new Error("readback world is disposed");
+        return (this._readback ??= new ReadbackPool(this.gpu.device, this));
+    }
+
+    /** @internal Reject GPU-derived reads by deterministic fixed systems. */
+    assertReadbackAllowed(): void {
+        this._scheduler.assertReadbackAllowed();
+    }
     private readonly _stepInput = { deltaTime: Time.DEFAULT_DT };
     private readonly _runStep = () => this._scheduler.step(this, this._stepInput);
     private _entities = new Entities();
@@ -122,7 +135,14 @@ export class State {
             resource.destroy();
             return;
         }
+        if (this._gpuResources.has(resource)) return;
         this._gpuResources.add(resource);
+        const destroy = resource.destroy;
+        resource.destroy = () => {
+            this._gpuResources.delete(resource);
+            resource.destroy = destroy;
+            destroy.call(resource);
+        };
     }
 
     /** Declare one dense-slot GPU table with a single record layout. */
@@ -301,6 +321,10 @@ export class State {
         } finally {
             useState(this);
             if (!this._gpu) this.clearChangesIfNeeded();
+            if (this._gpu) {
+                this._gpu.frame++;
+                this._readback?.advance(this._gpu.frame);
+            }
         }
     }
 
@@ -483,8 +507,8 @@ export class State {
     }
 
     /** wire a system into the scheduler */
-    addSystem(system: System, pluginName?: string): void {
-        this._scheduler.register(system, pluginName);
+    addSystem(system: System, pluginName?: string, deterministic = true): void {
+        this._scheduler.register(system, pluginName, deterministic);
     }
 
     /** remove a previously-added system */
@@ -583,6 +607,8 @@ export class State {
         if (this._disposed) return;
         this._disposed = true;
         this._controller?.abort();
+        this._readback?.dispose();
+        this._readback = undefined;
         // the list now carries user cleanups (a Svelte unmount, an app rAF stop) that throw more readily
         // than engine hooks, and LIFO runs them first — a throw must not skip the remaining callbacks or
         // the scheduler/query teardown below, or it re-opens the leak this list closes. Report, never mask.

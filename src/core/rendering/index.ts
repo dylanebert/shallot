@@ -58,6 +58,7 @@ import {
 // custom producer is a peer of Part rather than a fork of it.
 export { Camera, CameraMode, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame } from "./capture";
+export { requestLightOverflow } from "./cluster";
 export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
 export type { Mesh } from "./mesh";
 export { mesh } from "./mesh";
@@ -357,7 +358,6 @@ const EndFrameSystem: System = {
             throw new Error("render submission requires BeginFrameSystem to open an encoder");
         _frame.submit[0] = encoder.finish();
         device.queue.submit(_frame.submit);
-        Compute.frame++;
         Render.encoder = null;
         Views.forEach(clearTargets);
     },

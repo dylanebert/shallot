@@ -24,6 +24,7 @@ export {
     withComputeAsync,
     worldResource,
 } from "./gpu";
+export { ReadbackPool, type ReadbackStamp } from "./readback";
 export { drainLog, type GpuLog } from "./log";
 export { now, Runtime, readBinary, readFile, requestFrame } from "./platform";
 export {

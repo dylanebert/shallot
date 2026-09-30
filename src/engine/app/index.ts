@@ -36,6 +36,8 @@ export * from "./compose";
 export interface Plugin {
     /** unique name; the manifest enables the plugin by this name, and `swap` pairs reloads by it */
     readonly name: string;
+    /** False when fixed simulation uses timing-dependent GPU readback or otherwise cannot replay deterministically. Defaults to true. */
+    readonly deterministic?: boolean;
     /** systems this plugin adds to the scheduler */
     readonly systems?: readonly System[];
     /** components this plugin registers, keyed by scene-attribute name */
@@ -322,7 +324,7 @@ async function buildNow(config: Config): Promise<App> {
                 }
             }
             for (const system of plugin.systems ?? []) {
-                state.addSystem(system, plugin.name);
+                state.addSystem(system, plugin.name, plugin.deterministic !== false);
             }
         }
 

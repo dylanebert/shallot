@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
 import { Compute } from "../../engine";
-import { precompile, worldResource } from "../../engine/runtime";
+import { precompile, probeBuffer, worldResource } from "../../engine/runtime";
 import {
     idiv,
     octEncodeNormal,
@@ -41,10 +41,6 @@ interface ClusterGpuState {
     lightCountBuffer: GPUBuffer | null;
     lightCountValue: number;
     cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
-    overflowStaging: GPUBuffer | null;
-    overflowPending: boolean;
-    overflowInFlight: boolean;
-    overflowWarned: boolean;
     gridPass: GPUComputePassDescriptor;
     cullPass: GPUComputePassDescriptor;
 }
@@ -78,10 +74,6 @@ function createClusterGpuState(): ClusterGpuState {
         lightCountBuffer: null,
         lightCountValue: -1,
         cullBound: null,
-        overflowStaging: null,
-        overflowPending: false,
-        overflowInFlight: false,
-        overflowWarned: false,
         gridPass: { label: "shallot-cluster-aabbs" },
         cullPass: { label: "shallot-light-cull" },
     };
@@ -738,12 +730,6 @@ export function lightCullWgsl(): { compact: string; cull: string } {
     };
 }
 
-// pool-overflow surfacing: the reserve counter lives GPU-side, so a throttled
-// 8-byte readback (copy one frame, map the next) carries the warn — never
-// silent truncation, never a per-frame stall
-
-const OVERFLOW_PERIOD = 240;
-
 // Keep bind groups until a table buffer generation changes; row membership alone never rebuilds one.
 function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     if (!_gpu.compactPipe || !_gpu.typedLights || !_gpu.lightCountBuffer)
@@ -800,39 +786,23 @@ function bindCull(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     return _gpu.cullBound;
 }
 
-// The two readback reactions, held as module functions rather than minted at each map: both read only
-// module state, so neither needs a closure or a context per frame.
-function overflowMapped(state: ClusterGpuState): void {
-    const words = new Uint32Array(state.overflowStaging!.getMappedRange());
-    const dropped = words[1];
-    if (dropped > 0) {
-        if (!state.overflowWarned) {
-            state.overflowWarned = true;
-            console.warn(
-                `shallot: light index pool overflow — ${dropped} cluster-light entries dropped this frame (pool ${LIGHT_POOL})`,
-            );
-        }
-    } else {
-        state.overflowWarned = false;
-    }
-    state.overflowStaging!.unmap();
-    state.overflowInFlight = false;
-}
-
-function overflowUnmapped(state: ClusterGpuState): void {
-    state.overflowInFlight = false;
-}
-
-function checkOverflow(): void {
-    const state = clusterGpu();
-    if (!state.overflowStaging) return;
-    // copy was submitted with last frame's encoder — safe to map now
-    if (state.overflowInFlight) return;
-    state.overflowInFlight = true;
-    state.overflowStaging
-        .mapAsync(GPUMapMode.READ)
-        .then(() => overflowMapped(state))
-        .catch(() => overflowUnmapped(state));
+/** Request the latest submitted light-pool overflow count for diagnostics.
+ * The cull pass clamps its writes independently of this request. */
+export async function requestLightOverflow(state: State) {
+    const indices = state.resource(clusterGpuKey, createClusterGpuState).lightCull.indices;
+    if (!indices) throw new Error("light overflow diagnostic requested before rendering warm");
+    const result = await probeBuffer(state, indices, {
+        offset: 4,
+        size: 4,
+        label: "light-pool-overflow",
+    });
+    return {
+        frame: result.frame,
+        fixedTick: result.fixedTick,
+        get dropped() {
+            return new Uint32Array(result.bytes)[0];
+        },
+    };
 }
 
 /**
@@ -875,14 +845,6 @@ export const LightCullSystem: System = {
         pass.setBindGroup(0, cull.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
         pass.end();
-
-        if (_gpu.overflowPending) {
-            _gpu.overflowPending = false;
-            checkOverflow();
-        } else if (Compute.frame % OVERFLOW_PERIOD === 0 && !_gpu.overflowInFlight) {
-            Render.encoder.copyBufferToBuffer(LightCull.indices!, 0, _gpu.overflowStaging!, 0, 8);
-            _gpu.overflowPending = true;
-        }
     },
 };
 
@@ -894,7 +856,6 @@ export function warmLightCull(state: State): void {
     _gpu.compactBound = null;
     _gpu.compactGeneration = null;
     _gpu.cullBound = null;
-    _gpu.overflowPending = false;
 
     _gpu.typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("shallot-lights");
     LightCull.lights = root.unwrap(_gpu.typedLights);
@@ -921,12 +882,6 @@ export function warmLightCull(state: State): void {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _gpu.lightCountValue = -1;
-    _gpu.overflowInFlight = false;
-    _gpu.overflowStaging = device.createBuffer({
-        label: "shallot-light-overflow",
-        size: 8,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
     Compute.buffers.set("lightGrid", LightCull.grid);
     Compute.buffers.set("lightIndices", LightCull.indices);
     Compute.buffers.set("lightCount", _gpu.lightCountBuffer);

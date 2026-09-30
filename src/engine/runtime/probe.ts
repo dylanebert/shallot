@@ -1,18 +1,39 @@
+import type { State } from "../ecs";
+import { ReadbackPool, type ReadbackStamp } from "./readback";
+
 const COPY_ALIGNMENT = 4;
+type ProbeOwner = State | GPUDevice;
+const deviceOf = (owner: ProbeOwner) => ("gpu" in owner ? owner.gpu.device : owner);
+function assertAllowed(owner: ProbeOwner): void {
+    if ("gpu" in owner) owner.assertReadbackAllowed();
+}
+async function request(
+    owner: ProbeOwner,
+    size: number,
+    label: string,
+    encode: (encoder: GPUCommandEncoder, staging: GPUBuffer) => void,
+) {
+    const pool = "gpu" in owner ? owner.readback : new ReadbackPool(owner);
+    try {
+        return await pool.request(size, label, encode);
+    } finally {
+        if (!("gpu" in owner)) pool.dispose();
+    }
+}
 const ROW_ALIGNMENT = 256;
 
 /** encode the work whose resource boundary a one-shot probe captures. */
 export type ProbeEncode = (encoder: GPUCommandEncoder) => void;
 
 /** an owned buffer snapshot. Its bytes are never reused or mutated by the probe. */
-export interface BufferProbe {
+export interface BufferProbe extends ReadbackStamp {
     readonly bytes: ArrayBuffer;
     readonly offset: number;
     readonly size: number;
 }
 
 /** one tightly-packed texture snapshot. Rows carry no WebGPU copy padding. */
-export interface TextureProbe {
+export interface TextureProbe extends ReadbackStamp {
     readonly bytes: ArrayBuffer;
     readonly format: GPUTextureFormat;
     readonly aspect: GPUTextureAspect;
@@ -176,27 +197,20 @@ function copyAspect(
     );
 }
 
-async function mappedCopy(
-    staging: GPUBuffer,
-    device: GPUDevice,
-    size: number,
-): Promise<ArrayBuffer> {
-    await device.queue.onSubmittedWorkDone();
-    await staging.mapAsync(GPUMapMode.READ, 0, size);
-    return staging.getMappedRange(0, size).slice(0);
-}
-
 /**
- * capture one raw buffer range after an optional encoded trigger. The call owns one encoder, submission,
- * fence, and staging buffer; the returned bytes belong only to this result and never enter frame wiring.
+ * Request one raw buffer range after an optional encoded trigger. Pass a State to share world staging
+ * and stamp the copy's frame and tick. A standalone device probe has zero stamps and releases staging.
+ * Returned bytes are owned by this result. Deterministic fixed systems cannot read them.
  *
  * @example const result = await probeBuffer(device, counters, { encode: runPass });
  */
 export async function probeBuffer(
-    device: GPUDevice,
+    owner: ProbeOwner,
     source: GPUBuffer,
     options: BufferProbeOptions = {},
 ): Promise<BufferProbe> {
+    assertAllowed(owner);
+    const device = deviceOf(owner);
     if ((source.usage & GPUBufferUsage.COPY_SRC) === 0) {
         throw new Error("probeBuffer: source is missing GPUBufferUsage.COPY_SRC");
     }
@@ -221,26 +235,26 @@ export async function probeBuffer(
     if (copySize > device.limits.maxBufferSize) {
         throw new RangeError("probeBuffer: staging copy exceeds device.limits.maxBufferSize");
     }
-    const staging = device.createBuffer({
-        label: `${options.label ?? source.label ?? "buffer"}-probe-staging`,
-        size: copySize,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    const result = await request(
+        owner,
+        copySize,
+        options.label ?? "buffer-probe",
+        (encoder, staging) => {
+            options.encode?.(encoder);
+            encoder.copyBufferToBuffer(source, start, staging, 0, copySize);
+        },
+    );
+    const bytes = result.bytes.slice(offset - start, offset - start + size);
+    return Object.freeze({
+        get bytes() {
+            assertAllowed(owner);
+            return bytes;
+        },
+        frame: result.frame,
+        fixedTick: result.fixedTick,
+        offset,
+        size,
     });
-    try {
-        const encoder = device.createCommandEncoder({ label: options.label ?? "buffer-probe" });
-        options.encode?.(encoder);
-        encoder.copyBufferToBuffer(source, start, staging, 0, copySize);
-        device.queue.submit([encoder.finish()]);
-        const copied = await mappedCopy(staging, device, copySize);
-        return Object.freeze({
-            bytes: copied.slice(offset - start, offset - start + size),
-            offset,
-            size,
-        });
-    } finally {
-        if (staging.mapState === "mapped") staging.unmap();
-        staging.destroy();
-    }
 }
 
 /**
@@ -250,10 +264,12 @@ export async function probeBuffer(
  * @example const depth = await probeTexture(device, target, { aspect: "depth-only", encode: draw });
  */
 export async function probeTexture(
-    device: GPUDevice,
+    owner: ProbeOwner,
     source: GPUTexture,
     options: TextureProbeOptions = {},
 ): Promise<TextureProbe> {
+    assertAllowed(owner);
+    const device = deviceOf(owner);
     if ((source.usage & GPUTextureUsage.COPY_SRC) === 0) {
         throw new Error("probeTexture: source is missing GPUTextureUsage.COPY_SRC");
     }
@@ -308,40 +324,40 @@ export async function probeTexture(
     if (!Number.isSafeInteger(stagingSize) || stagingSize > device.limits.maxBufferSize) {
         throw new RangeError("probeTexture: staging copy exceeds device.limits.maxBufferSize");
     }
-    const staging = device.createBuffer({
-        label: `${options.label ?? source.label ?? "texture"}-probe-staging`,
-        size: stagingSize,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
-    try {
-        const encoder = device.createCommandEncoder({ label: options.label ?? "texture-probe" });
-        options.encode?.(encoder);
-        encoder.copyTextureToBuffer(
-            { texture: source, mipLevel, origin, aspect },
-            { buffer: staging, bytesPerRow: paddedBytesPerRow, rowsPerImage: size.height },
-            size,
-        );
-        device.queue.submit([encoder.finish()]);
-        const padded = new Uint8Array(await mappedCopy(staging, device, stagingSize));
-        const bytes = new Uint8Array(bytesPerRow * size.height * size.depthOrArrayLayers);
-        const rows = size.height * size.depthOrArrayLayers;
-        for (let row = 0; row < rows; row++) {
-            bytes.set(
-                padded.subarray(row * paddedBytesPerRow, row * paddedBytesPerRow + bytesPerRow),
-                row * bytesPerRow,
+    const result = await request(
+        owner,
+        stagingSize,
+        options.label ?? "texture-probe",
+        (encoder, staging) => {
+            options.encode?.(encoder);
+            encoder.copyTextureToBuffer(
+                { texture: source, mipLevel, origin, aspect },
+                { buffer: staging, bytesPerRow: paddedBytesPerRow, rowsPerImage: size.height },
+                size,
             );
-        }
-        return Object.freeze({
-            bytes: bytes.buffer,
-            format: source.format,
-            aspect,
-            width: size.width,
-            height: size.height,
-            depthOrArrayLayers: size.depthOrArrayLayers,
-            bytesPerRow,
-        });
-    } finally {
-        if (staging.mapState === "mapped") staging.unmap();
-        staging.destroy();
+        },
+    );
+    const padded = new Uint8Array(result.bytes);
+    const bytes = new Uint8Array(bytesPerRow * size.height * size.depthOrArrayLayers);
+    const rows = size.height * size.depthOrArrayLayers;
+    for (let row = 0; row < rows; row++) {
+        bytes.set(
+            padded.subarray(row * paddedBytesPerRow, row * paddedBytesPerRow + bytesPerRow),
+            row * bytesPerRow,
+        );
     }
+    return Object.freeze({
+        get bytes() {
+            assertAllowed(owner);
+            return bytes.buffer;
+        },
+        frame: result.frame,
+        fixedTick: result.fixedTick,
+        format: source.format,
+        aspect,
+        width: size.width,
+        height: size.height,
+        depthOrArrayLayers: size.depthOrArrayLayers,
+        bytesPerRow,
+    });
 }
