@@ -3,7 +3,7 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 
 import * as d from "typegpu/data";
-import { Compute, f32, field, type State, Transform } from "../index";
+import { Compute, f32, field, type State } from "../index";
 import { serialize } from "../scene";
 import { build, swap } from "./index";
 
