@@ -14,8 +14,8 @@ const subjects = gpuApps(
 for (const [index, kind] of kinds.entries()) {
     test(`one-shot readback reads a table's grown ${kind} buffer without mutating a prior result`, async () => {
         const app = subjects()[index];
-        const state = app.state;
-        const table = state.table(`readback-${kind}`, d.struct({ value: d.u32 }));
+        const world = app.world;
+        const table = world.table(`readback-${kind}`, d.struct({ value: d.u32 }));
         const row = table.acquire(4);
         if (kind === "map") table.enableEidLookup();
         new Uint32Array(table.bytes.buffer)[row] = 42;
@@ -28,15 +28,15 @@ for (const [index, kind] of kinds.entries()) {
                   ? table.activeRowsBuffer!
                   : table.eidToRowBuffer!;
         try {
-            const original = await probeBuffer(state, source());
+            const original = await probeBuffer(world, source());
             const oldBytes = original.bytes.slice(0);
             const second = table.acquire(33);
             new Uint32Array(table.bytes.buffer)[second] = 73;
             table.markRange(second, 1);
             table.upload();
             expect(source().size).toBeGreaterThan(original.bytes.byteLength);
-            state.gpu.frame = 9;
-            const current = await probeBuffer(state, source());
+            world.gpu.frame = 9;
+            const current = await probeBuffer(world, source());
             expect(current.frame).toBe(9);
             expect(current.bytes.byteLength).toBe(source().size);
             expect(new Uint8Array(original.bytes)).toEqual(new Uint8Array(oldBytes));

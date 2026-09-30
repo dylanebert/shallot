@@ -16,9 +16,9 @@ const entries = {
 const sceneControls = {
     empty: "<scene></scene>",
     character:
-        '<scene><a id="player" body="pos: 0 1.4 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character /></scene>',
+        '<scene><a id="player" body="position: 0 1.4 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character /></scene>',
     characterGround:
-        '<scene><a id="player" body="pos: 0 1.4 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character /><a id="ground" body="pos: 0 0 0; half-extents: 16 0.5 26; mass: 0" /></scene>',
+        '<scene><a id="player" body="position: 0 1.4 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character /><a id="ground" body="position: 0 0 0; half-extents: 16 0.5 26; mass: 0" /></scene>',
 };
 
 const sample = async (entry: string, input: string = scene) =>

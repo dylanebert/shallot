@@ -147,7 +147,7 @@ export interface SweepBody {
 }
 
 /**
- * a kinematic character's controller state, owned by the CPU sweep across fixed ticks. `pos` / `quat` are
+ * a kinematic character's controller world, owned by the CPU sweep across fixed ticks. `pos` / `quat` are
  * the capsule pose the sweep writes (read from the `Body` at tick start, written back for the kinematic
  * upload); `half` / `radius` the capsule core half-height + rounding; `maxSlopeCos` the cos of the walkable
  * cutoff; `jumpSpeed` the launch speed (0 = no jump). `vel` is the persistent controller velocity (gravity
@@ -338,7 +338,7 @@ const boundRadius = (b: SweepBody): number => len(b.half) + b.radius;
 const _coreAxis = vec3();
 const _coreHalf = vec3();
 
-// the capsule core segment endpoints at trial pose `pos` (centre ± rotate(quat, halfHeight·Y)), into `e0` /
+// the capsule core segment endpoints at trial pose `pos` (centre ± rotateQuatByEuler(quat, halfHeight·Y)), into `e0` /
 // `e1` — oracle coreAt
 function coreAt(ch: CharState, pos: Vec3, e0: Vec3, e1: Vec3): void {
     _coreAxis[1] = ch.half;
@@ -470,7 +470,7 @@ const _dv = vec3();
  * `push` dynamics (every body blocks; Jolt CharacterVirtual's model), rides a moving platform (carry), snaps
  * to the ground, and shoves touched dynamics at the desired speed (the push mutates their `vel` in place).
  * Writes the swept pose (`ch.pos`), the realized velocity (`ch.realizedVel`, for the kinematic upload +
- * carry), and the grounded / jump-timer state. `cull: false` is the brute seam (bit-identical output; the
+ * carry), and the grounded / jump-timer world. `cull: false` is the brute seam (bit-identical output; the
  * cull is a contact-set-preserving superset); `diag` surfaces the gather + displacement-guard diagnostics.
  */
 export function sweepCharacter(

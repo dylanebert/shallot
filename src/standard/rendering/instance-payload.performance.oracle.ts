@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { build } from "../../engine/app";
+import { createApp } from "../../engine/app";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -25,14 +25,14 @@ function median(values: number[]): number {
 }
 
 // Paired prototypes isolate the changed payload: both use the same independent row permutations,
-// GlobalTransform and Part records, vertex arithmetic, survivor order and shadow combo. Not a scene benchmark.
+// GlobalTransform and MeshInstance records, vertex arithmetic, survivor order and shadow combo. Not a scene benchmark.
 test("measure vertex and compaction/regather costs of the approved instance payload", async () => {
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [{ name: "InstancePayloadProbe", features: ["timestamp-query"] }],
     });
-    const state = app.state;
-    const device = state.gpu.device;
+    const world = app.world;
+    const device = world.gpu.device;
     const owned: { destroy(): void }[] = [];
     const own = <T extends { destroy(): void }>(value: T): T => {
         owned.push(value);
@@ -43,9 +43,9 @@ test("measure vertex and compaction/regather costs of the approved instance payl
     });
     try {
         console.info(
-            `[instance-payload] adapter=${state.gpu.adapter.identity} class=${state.gpu.adapter.class}`,
+            `[instance-payload] adapter=${world.gpu.adapter.identity} class=${world.gpu.adapter.class}`,
         );
-        expect(state.gpu.adapter.class).toBe("real");
+        expect(world.gpu.adapter.class).toBe("real");
         const queries = own(device.createQuerySet({ type: "timestamp", count: 2 }));
         const resolved = own(
             device.createBuffer({

@@ -191,12 +191,12 @@ export interface Morton {
  * device.queue.submit([enc.finish()]);
  */
 export async function createMorton(
-    state: World,
+    world: World,
     device: GPUDevice,
     maxPrims: number,
     shared: MortonShared = {},
 ): Promise<Morton> {
-    const root = state.gpu.root;
+    const root = world.gpu.root;
     const cap = Math.max(1, maxPrims);
     const owned: GPUBuffer[] = [];
     const own = (label: string, size: number, usage: number): GPUBuffer => {
@@ -220,7 +220,7 @@ export async function createMorton(
             root.createBindGroup(mortonLayout, { prims, bounds, keys, payload, countBuf: count }),
         );
     // per-instance label — an app can build more than one BVH, and the queue rejects a duplicate label
-    await precompile(state, precompileScope(state, "morton"), () => {
+    await precompile(world, precompileScope(world, "morton"), () => {
         return bound;
     });
 
@@ -237,7 +237,7 @@ export async function createMorton(
         maxPrims,
         compute(encoder: GPUCommandEncoder): void {
             const pass = encoder.beginComputePass({
-                timestampWrites: state.gpu.span?.("bvh:morton"),
+                timestampWrites: world.gpu.span?.("bvh:morton"),
             });
             bound.with(pass).dispatchWorkgroups(numWg);
             pass.end();

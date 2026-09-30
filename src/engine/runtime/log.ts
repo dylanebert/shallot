@@ -88,7 +88,7 @@ async function drain(trigger: () => void, timeoutMs: number): Promise<string[]> 
  * TypeGPU exposes one fire-and-forget map callback rather than a per-trigger completion promise. The wait
  * polls the captured console: one readback deserializes its whole ring synchronously, so the first new
  * line means that batch has landed. Lines already printed before this call are excluded; lines queued in
- * the GPU ring by an external pass are necessarily included. Single-flight covers calls through this API,
+ * the GPU ring by an external pass are necessarily included. ScalarField-flight covers calls through this API,
  * not an uncoordinated TypeGPU-owned draw.
  *
  * A timeout rejects and permanently poisons this page's capture session. Every queued or later call then

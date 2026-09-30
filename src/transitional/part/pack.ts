@@ -5,18 +5,18 @@ import {
     CULL_FRUSTUM,
     CULL_VOLUME_FLOATS,
     DrawIndexedIndirect,
-    PartInput,
+    MeshInstanceInput,
 } from "../../core/rendering";
 import { Xform, xformPoint } from "../../engine/utils";
 
-// The pack kernels: cull → count → scan → scatter, the compute half of the Part producer. Count and
+// The pack kernels: cull → count → scan → scatter, the compute half of the MeshInstance producer. Count and
 // scatter share the same cull inputs, so those are ONE bind group layout both kernels reference (and the
 // shared `visible` test closes over), and the prefix needs no re-declaration. The scan is a third pipeline
 // with no cull inputs at all. Each layout pins its group index with `$idx`: the dispatches are issued on a
 // raw compute pass, which addresses a bind group by index, so the index is declared here rather than left
 // to resolution order. This displaces the note that the group index is invisible to the CPU side.
 
-/** dense Part row counts and view/pair dimensions, written once per changed frame @internal */
+/** dense MeshInstance row counts and view/pair dimensions, written once per changed frame @internal */
 export const CullParams = d.struct({
     viewCount: d.u32,
     pairCount: d.u32,
@@ -24,8 +24,8 @@ export const CullParams = d.struct({
     partCapacity: d.u32,
 });
 
-/** one dense record per Part row, shared with typed surface vertex stages @internal */
-export const PartRecord = PartInput;
+/** one dense record per MeshInstance row, shared with typed surface vertex stages @internal */
+export const PartRecord = MeshInstanceInput;
 
 /** shared dense inputs for count + scatter, plus mesh bounds and per-view cull volumes @internal */
 export const cullLayout = tgpu
@@ -71,7 +71,7 @@ const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
 
 /**
  * test the instance's world bounding sphere against this slot's frustum cull volume, dispatched on the
- * leading tag word. Tag `CULL_FRUSTUM` = a 6-plane AND (every camera, the sun, and each point/spot shadow
+ * leading tag word. PickingPrepass `CULL_FRUSTUM` = a 6-plane AND (every camera, the sun, and each point/spot shadow
  * combo's depth view). An unknown tag (an unwritten slot) keeps the instance, and so does a slot past the
  * active view count (headless, or the synthetic slot 0 when no camera exists) — the pack then degrades to
  * plain compaction. The radius scales by the largest |scale| axis, conservative for non-uniform scale.
@@ -144,7 +144,7 @@ function pairFactory(surfaceCount: number) {
         .$name("partPair");
 }
 
-/** Tally frustum-visible active Part rows per (view slot, pair); no entity-capacity scan. @internal */
+/** Tally frustum-visible active MeshInstance rows per (view slot, pair); no entity-capacity scan. @internal */
 export function countKernel(surfaceCount: number) {
     const pair = pairFactory(surfaceCount);
     return tgpu
@@ -233,7 +233,7 @@ export function scanKernel() {
     });
 }
 
-/** Scatter visible identities and Part rows into matching dense per-view draw lists. @internal */
+/** Scatter visible identities and MeshInstance rows into matching dense per-view draw lists. @internal */
 export function scatterKernel(surfaceCount: number) {
     const pair = pairFactory(surfaceCount);
     return tgpu

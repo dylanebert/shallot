@@ -42,7 +42,7 @@ export type UploadHull = Pick<
  * hull's `geoIndex` to its record index. A full rewrite — the pools are sized to the exact totals and
  * every hull's data is written fresh, so growth and renumbering need no in-place preservation.
  */
-export function uploadGeometry(state: World | undefined, hulls: UploadHull[]): void {
+export function uploadGeometry(world: World | undefined, hulls: UploadHull[]): void {
     let verts = 0;
     let edges = 0;
     let faces = 0;
@@ -52,7 +52,7 @@ export function uploadGeometry(state: World | undefined, hulls: UploadHull[]): v
         faces += h.faceCount;
     }
 
-    const k = kernel(state);
+    const k = kernel(world);
     k.reserveGeometry(hulls.length, verts, edges, faces);
     const buf = k.memory.buffer;
     const layout = new Uint32Array(buf, k.geoLayoutPtr(), N_GEO);

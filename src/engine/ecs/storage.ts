@@ -1,20 +1,20 @@
-import type { Pair, Quad, Single, Type, TypedArray } from "./component";
+import type { FieldType, ScalarField, TypedArray, Vector2Field, Vector4Field } from "./component";
 import { sameComponentSchema } from "./component";
 
-export type FieldStorage<T extends Type> = T["lanes"] extends 1
-    ? Single
+export type FieldStorage<T extends FieldType> = T["lanes"] extends 1
+    ? ScalarField
     : T["lanes"] extends 2
-      ? Pair
-      : Quad;
+      ? Vector2Field
+      : Vector4Field;
 
 type Column = {
-    schema: Type;
+    schema: FieldType;
     array: TypedArray;
     dirty: Uint32Array;
 };
 
 /** world-owned field column. The exposed accessors close over this record, not a component singleton. */
-export class WorldField<T extends Type = Type> {
+export class WorldField<T extends FieldType = FieldType> {
     readonly type: T;
     readonly #column: Column;
     readonly #writeRows = new WeakMap<TypedArray, Map<number, TypedArray[]>>();
@@ -63,7 +63,7 @@ export class WorldField<T extends Type = Type> {
     }
 
     /** Copy encoded typed rows and publish the same change marks as scalar setters. */
-    write(eids: Uint32Array, source: TypedArray, lane = -1): void {
+    writeEncoded(eids: Uint32Array, source: TypedArray, lane = -1): void {
         const lanes = lane < 0 ? this.type.lanes : 1;
         if (!(eids instanceof Uint32Array))
             throw new Error("WorldField.write: eids must be Uint32Array");
@@ -128,9 +128,9 @@ export class WorldField<T extends Type = Type> {
 
     bind(): FieldStorage<T> {
         const field = this;
-        const lane = (offset: number): Single => ({
-            write(eids, source) {
-                field.write(eids, source, offset);
+        const lane = (offset: number): ScalarField => ({
+            writeEncoded(eids, source) {
+                field.writeEncoded(eids, source, offset);
             },
             set(eid, value) {
                 field.setLane(eid, offset, value);
@@ -149,7 +149,8 @@ export class WorldField<T extends Type = Type> {
         const base = {
             type: this.type,
             markChanged: (eid: number) => this.markChanged(eid),
-            write: (eids: Uint32Array, source: TypedArray) => this.write(eids, source),
+            writeEncoded: (eids: Uint32Array, source: TypedArray) =>
+                this.writeEncoded(eids, source),
         };
         if (this.type.lanes === 1) {
             return {
@@ -203,7 +204,7 @@ function identity(value: number): number {
 }
 
 export type ComponentStorage<T> = {
-    [K in keyof T]: T[K] extends Type ? FieldStorage<T[K]> : T[K];
+    [K in keyof T]: T[K] extends FieldType ? FieldStorage<T[K]> : T[K];
 };
 
 export function sameSchema(a: Record<string, unknown>, b: Record<string, unknown>): boolean {

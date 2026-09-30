@@ -4,18 +4,18 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { build, type World, Time } from "@dylanebert/shallot";
+import { createApp, Time, type World } from "@dylanebert/shallot";
 import {
     Body,
-    hash,
+    hashPhysics,
     PhysicsPlugin,
     physicsCounters,
     physicsWorld,
     readBody,
-    restore,
+    restorePhysics,
     ShapeKind,
     setVelocity,
-    snapshot,
+    snapshotPhysics,
     type WorldSnapshot,
 } from "@dylanebert/shallot/physics";
 
@@ -24,7 +24,7 @@ const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise
 await setupGlobals();
 
 function addBody(
-    state: World,
+    world: World,
     data: {
         shape: number;
         pos: [number, number, number];
@@ -34,26 +34,26 @@ function addBody(
         quat?: [number, number, number, number];
     },
 ): number {
-    const eid = state.create();
-    state.add(eid, Body);
-    state.of(Body).shape.set(eid, data.shape);
-    state.of(Body).halfExtents.set(eid, ...data.halfExtents);
-    state.of(Body).pos.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
-    state.of(Body).quat.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
-    state.of(Body).mass.set(eid, data.mass);
-    state.of(Body).friction.set(eid, data.friction ?? 0.5);
+    const eid = world.create();
+    world.add(eid, Body);
+    world.storage(Body).shape.set(eid, data.shape);
+    world.storage(Body).halfExtents.set(eid, ...data.halfExtents);
+    world.storage(Body).position.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
+    world.storage(Body).rotation.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
+    world.storage(Body).mass.set(eid, data.mass);
+    world.storage(Body).friction.set(eid, data.friction ?? 0.5);
     return eid;
 }
 
 async function cleanState() {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin] });
-    const body = addBody(app.state, {
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const body = addBody(app.world, {
         shape: ShapeKind.Box,
         pos: [0, 2, 0],
         halfExtents: [0.5, 0.5, 0.5, 0],
         mass: 1,
     });
-    return { app, state: app.state, body };
+    return { app, world: app.world, body };
 }
 
 test("sequential clean physics States and an owner-world snapshot replay one fixed action stream, so rollback reproduces a confirmed tick without overlapping global slabs", async () => {
@@ -62,10 +62,10 @@ test("sequential clean physics States and an owner-world snapshot replay one fix
     const leftAfterSaved: string[] = [];
     try {
         for (let tick = 0; tick < 6; tick++) {
-            setVelocity(left.state, left.body, 1, 0, 0);
-            left.state.step(Time.FIXED_DT);
-            leftHashes.push(hash(left.state).toString(16));
-            if (tick > 2) leftAfterSaved.push(hash(left.state).toString(16));
+            setVelocity(left.world, left.body, 1, 0, 0);
+            left.world.step(Time.FIXED_DT);
+            leftHashes.push(hashPhysics(left.world).toString(16));
+            if (tick > 2) leftAfterSaved.push(hashPhysics(left.world).toString(16));
         }
     } finally {
         left.app.dispose();
@@ -75,9 +75,9 @@ test("sequential clean physics States and an owner-world snapshot replay one fix
     const rightHashes: string[] = [];
     try {
         for (let tick = 0; tick < 6; tick++) {
-            setVelocity(right.state, right.body, 1, 0, 0);
-            right.state.step(Time.FIXED_DT);
-            rightHashes.push(hash(right.state).toString(16));
+            setVelocity(right.world, right.body, 1, 0, 0);
+            right.world.step(Time.FIXED_DT);
+            rightHashes.push(hashPhysics(right.world).toString(16));
         }
     } finally {
         right.app.dispose();
@@ -87,19 +87,19 @@ test("sequential clean physics States and an owner-world snapshot replay one fix
     const replay = await cleanState();
     try {
         for (let tick = 0; tick < 3; tick++) {
-            setVelocity(replay.state, replay.body, 1, 0, 0);
-            replay.state.step(Time.FIXED_DT);
+            setVelocity(replay.world, replay.body, 1, 0, 0);
+            replay.world.step(Time.FIXED_DT);
         }
-        const saved = snapshot(replay.state);
-        const savedHash = hash(replay.state);
+        const saved = snapshotPhysics(replay.world);
+        const savedHash = hashPhysics(replay.world);
         const before = savedHash;
-        replay.state.step(Time.FIXED_DT);
-        restore(replay.state, saved);
-        expect(hash(replay.state)).toBe(savedHash);
-        setVelocity(replay.state, replay.body, 1, 0, 0);
-        replay.state.step(Time.FIXED_DT);
-        expect(hash(replay.state).toString(16)).toBe(leftAfterSaved[0]);
-        expect(hash(replay.state)).not.toBe(before);
+        replay.world.step(Time.FIXED_DT);
+        restorePhysics(replay.world, saved);
+        expect(hashPhysics(replay.world)).toBe(savedHash);
+        setVelocity(replay.world, replay.body, 1, 0, 0);
+        replay.world.step(Time.FIXED_DT);
+        expect(hashPhysics(replay.world).toString(16)).toBe(leftAfterSaved[0]);
+        expect(hashPhysics(replay.world)).not.toBe(before);
     } finally {
         replay.app.dispose();
     }
@@ -119,38 +119,38 @@ function snapshotRefs(saved: WorldSnapshot): SnapshotRefs {
     };
 }
 
-function droppedSnapshotRefs(state: World, registry: FinalizationRegistry<string>): SnapshotRefs {
-    const saved = snapshot(state);
+function droppedSnapshotRefs(world: World, registry: FinalizationRegistry<string>): SnapshotRefs {
+    const saved = snapshotPhysics(world);
     registry.register(saved, "dropped");
     return snapshotRefs(saved);
 }
 
 function retainedSnapshot(
-    state: World,
+    world: World,
     registry: FinalizationRegistry<string>,
 ): {
     saved: WorldSnapshot;
     refs: SnapshotRefs;
 } {
-    const saved = snapshot(state);
+    const saved = snapshotPhysics(world);
     registry.register(saved, "control");
     return { saved, refs: snapshotRefs(saved) };
 }
 
 test("a snapshot restores into a fresh compatible World with an equivalent hash", async () => {
     const source = await cleanState();
-    const target = await build({ defaults: false, plugins: [PhysicsPlugin] });
+    const target = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
     try {
         for (let tick = 0; tick < 4; tick++) {
-            setVelocity(source.state, source.body, 1, 0, 0);
-            source.state.step(Time.FIXED_DT);
+            setVelocity(source.world, source.body, 1, 0, 0);
+            source.world.step(Time.FIXED_DT);
         }
-        const saved = snapshot(source.state);
-        const expected = hash(source.state);
-        const targetWorld = physicsWorld(target.state);
+        const saved = snapshotPhysics(source.world);
+        const expected = hashPhysics(source.world);
+        const targetWorld = physicsWorld(target.world);
         expect(targetWorld).not.toBeNull();
         targetWorld!.restore(saved);
-        expect(hash(target.state)).toBe(expected);
+        expect(hashPhysics(target.world)).toBe(expected);
     } finally {
         target.dispose();
         source.app.dispose();
@@ -162,8 +162,8 @@ test("snapshot logical state and WASM bytes are collectable after the caller dro
     try {
         const finalized = new Set<string>();
         const registry = new FinalizationRegistry<string>((tag) => finalized.add(tag));
-        const dropped = droppedSnapshotRefs(subject.state, registry);
-        const control = retainedSnapshot(subject.state, registry);
+        const dropped = droppedSnapshotRefs(subject.world, registry);
+        const control = retainedSnapshot(subject.world, registry);
 
         const deadline = Date.now() + 1_000;
         while (!finalized.has("dropped") && Date.now() < deadline) {
@@ -185,21 +185,21 @@ test("snapshot logical state and WASM bytes are collectable after the caller dro
 test("physics reports the same body visit count for every scene, so a body-content mutation can hide an omitted visit from the budget row", async () => {
     const one = await cleanState();
     try {
-        one.state.step(Time.FIXED_DT);
-        const oneCount = physicsCounters(one.state).bodiesVisited;
+        one.world.step(Time.FIXED_DT);
+        const oneCount = physicsCounters(one.world).bodiesVisited;
         expect(oneCount).toBe(1);
-        expect(readBody(one.state, one.body)).not.toBeNull();
+        expect(readBody(one.world, one.body)).not.toBeNull();
 
-        const second = addBody(one.state, {
+        const second = addBody(one.world, {
             shape: ShapeKind.Box,
             pos: [2, 2, 0],
             halfExtents: [0.5, 0.5, 0.5, 0],
             mass: 1,
         });
-        one.state.step(Time.FIXED_DT);
-        const changed = physicsCounters(one.state);
+        one.world.step(Time.FIXED_DT);
+        const changed = physicsCounters(one.world);
         expect(changed.bodiesVisited).toBe(2);
-        expect(readBody(one.state, second)).not.toBeNull();
+        expect(readBody(one.world, second)).not.toBeNull();
     } finally {
         one.app.dispose();
     }

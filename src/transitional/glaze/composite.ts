@@ -17,7 +17,7 @@
 import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { linearToSrgb } from "../../core/rendering";
+import { linearToSrgb3 } from "../../core/rendering";
 import type { World } from "../../engine";
 
 import { tmLuma, tonemap } from "./tonemap";
@@ -195,7 +195,7 @@ export function glazeKernel(layout: ReturnType<typeof glazeLayout>) {
             std.textureStore(
                 layout.$.output,
                 p,
-                d.vec4f(linearToSrgb(std.max(color, d.vec3f(0))), 1),
+                d.vec4f(linearToSrgb3(std.max(color, d.vec3f(0))), 1),
             );
         })
         .$name("glazeComposite");
@@ -212,31 +212,31 @@ type Composite = {
 
 const compositeCacheKey = { create: () => createCompositeCache() };
 const createCompositeCache = () => new Map<string, Composite>();
-const compositeCache = (state: World) => state.resource(compositeCacheKey);
+const compositeCache = (world: World) => world.resource(compositeCacheKey);
 
 /** Create this world's Glaze pipeline cache during plugin initialization. */
-export function initializeCompositeState(state: World): void {
-    state.resource(compositeCacheKey);
+export function initializeCompositeState(world: World): void {
+    world.resource(compositeCacheKey);
 }
 
 /**
- * the layout + compiled pipeline for one swapchain format, memoized against `state.gpu.device`. The two
+ * the layout + compiled pipeline for one swapchain format, memoized against `world.gpu.device`. The two
  * canvas formats (`bgra8unorm` / `rgba8unorm`) are the only ones `getPreferredCanvasFormat` returns;
  * anything else is a wiring bug and throws rather than emitting `undefined` into the WGSL (typegpu accepts
  * a wrong storage-format string silently).
  * @internal
  */
-export function composite(state: World, format: GPUTextureFormat) {
+export function composite(world: World, format: GPUTextureFormat) {
     if (format !== "bgra8unorm" && format !== "rgba8unorm")
         throw new Error(
             `[glaze] the swapchain format ${format} is not a storage-writable canvas format — expected bgra8unorm or rgba8unorm`,
         );
-    const device = state.gpu.device;
-    const cache = compositeCache(state);
+    const device = world.gpu.device;
+    const cache = compositeCache(world);
     const cached = cache.get(format);
     if (cached && cached.device === device) return cached;
     const layout = glazeLayout(format);
-    const pipeline = state.gpu.root
+    const pipeline = world.gpu.root
         .createComputePipeline({ compute: glazeKernel(layout) })
         .$name("glaze");
     const entry = { device, layout, pipeline };

@@ -99,12 +99,12 @@ function contactExtent(world: WorldState, contactId: number): void {
     extent.points = points;
 }
 
-// Reused per-step layout scratch. Single-live-world + synchronous stepping (one computeLayout call per
+// Reused per-step layout scratch. ScalarField-live-world + synchronous stepping (one computeLayout call per
 // step, its result consumed before the next), so module scratch is safe — the same pattern as
 // `awakeIslandsScratch` in solver.ts. `layoutScratch.colors` is `spansScratch` permanently; every field
 // of every used slot is rewritten each call and the array is truncated to the active-color count, so no
 // stale span is ever observable (the truncation means spans re-mint if the active-color count
-// oscillates — stable in steady state, not strictly grow-only). `spansScratch` holds live GraphColor
+// oscillates — stable in steady world, not strictly grow-only). `spansScratch` holds live GraphColor
 // refs, but they're overwritten before any read each step (the pooled objects never outlive the step's
 // consumers).
 const activeScratch: number[] = [];

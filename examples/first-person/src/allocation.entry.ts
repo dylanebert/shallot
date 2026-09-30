@@ -1,5 +1,4 @@
-import { build, CharacterPlugin, InputPlugin, PhysicsPlugin } from "@dylanebert/shallot";
-import { getComponent } from "@dylanebert/shallot/ecs";
+import { CharacterPlugin, createApp, InputPlugin, PhysicsPlugin } from "@dylanebert/shallot";
 
 import { Demo } from "./demo";
 
@@ -17,28 +16,28 @@ export const control = () => {
 // Bundled for Node by the allocation row, which passes the scene as XML text since the runtime's
 // file loader is Bun or fetch. Same GPU composition as the demo rows.
 export default async function create(scene: string) {
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
         scene,
     });
-    const state = app.state;
-    const global = getComponent(state, "global-transform");
+    const world = app.world;
+    const global = world.registry.getComponent("global-transform");
     if (!global) throw new Error("allocation entry: the composition registers no GlobalTransform");
     let eid = 0;
     return {
-        step: () => state.step(FIXED_DT),
-        wait: () => state.gpu.device.queue.onSubmittedWorkDone(),
+        step: () => world.step(FIXED_DT),
+        wait: () => world.gpu.device.queue.onSubmittedWorkDone(),
         // The transition row's event frames, an ECS entity cycle with no Body: create an entity carrying the
         // composition's non-Body slab component, step its frame, destroy it, step its frame.
         spawn: () => {
-            eid = state.create();
-            state.add(eid, global);
-            state.step(FIXED_DT);
+            eid = world.create();
+            world.add(eid, global);
+            world.step(FIXED_DT);
         },
         despawn: () => {
-            state.destroy(eid);
-            state.step(FIXED_DT);
+            world.destroy(eid);
+            world.step(FIXED_DT);
         },
         dispose: () => app.dispose(),
     };

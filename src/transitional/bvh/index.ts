@@ -60,11 +60,11 @@ export const BvhPlugin: Plugin = {
 /**
  * an LBVH BVH2 builder sized for `maxPrims`. Write primitive AABBs into {@link
  * Bvh.prims} (2 × vec4<f32> per prim: `min.xyz+pad`, `max.xyz+pad`, leaf-index
- * order), record {@link Bvh.build}, submit, then read the BVH2 from {@link
+ * order), record {@link Bvh.createApp}, submit, then read the BVH2 from {@link
  * Bvh.nodes} (`2N−1` nodes × 32 B; root is node `2N−2` for N≥2, else node 0; see
  * {@link bvhRoot}). For stable topology under motion, write moved AABBs and record
  * {@link Bvh.refit} instead: the bounds relaxation alone, topology untouched. A {@link
- * Bvh.build} always leaves the tree refit-ready.
+ * Bvh.createApp} always leaves the tree refit-ready.
  */
 export interface Bvh {
     /** input prim AABB buffer; fill [0, count) prims, 2 vec4 each */
@@ -73,7 +73,7 @@ export interface Bvh {
     readonly nodes: GPUBuffer;
     /**
      * GPU-driven prim count (one u32 at [0]). Write it (≤ `maxPrims`) before {@link
-     * Bvh.build} / {@link Bvh.refit}: a fixed-count producer via `writeBuffer`, a
+     * Bvh.createApp} / {@link Bvh.refit}: a fixed-count producer via `writeBuffer`, a
      * GPU producer by writing it from its own compute. Read on the GPU into bounds,
      * Morton (gating), the build (indirect dispatch + the `2N−1` node range), and the
      * trace root (`bvhRoot`, {@link bvhRootWgsl}); it never crosses to the CPU.
@@ -93,7 +93,7 @@ export interface Bvh {
 /**
  * build an LBVH BVH2 builder for up to `maxPrims` primitives. Allocates one shared
  * prim / node / working-buffer set and compiles every stage's kernels up front;
- * {@link Bvh.build} and {@link Bvh.refit} then record with no further allocation.
+ * {@link Bvh.createApp} and {@link Bvh.refit} then record with no further allocation.
  *
  * Pass `sharedNodes` to build *in place* into a larger external buffer — concatenating
  * several BVHs into one node buffer (packing many small BLASes into one buffer): write the
@@ -107,11 +107,11 @@ export interface Bvh {
  * produce the identical BVH; force `false` to exercise the LDS path on a subgroup device.
  *
  * @example
- * const bvh = await createBvh(state, device, 1 << 16);
+ * const bvh = await createBvh(world, device, 1 << 16);
  * device.queue.writeBuffer(bvh.prims, 0, primAabbs);
  * device.queue.writeBuffer(bvh.count, 0, new Uint32Array([count]));
  * const enc = device.createCommandEncoder();
- * bvh.build(enc);
+ * bvh.createApp(enc);
  * device.queue.submit([enc.finish()]);
  * // later, the prims moved but the set is unchanged:
  * device.queue.writeBuffer(bvh.prims, 0, movedAabbs);
@@ -120,7 +120,7 @@ export interface Bvh {
  * device.queue.submit([enc2.finish()]);
  */
 export async function createBvh(
-    state: World,
+    world: World,
     device: GPUDevice,
     maxPrims: number,
     sharedNodes?: GPUBuffer,
@@ -188,10 +188,10 @@ export async function createBvh(
     });
 
     const [sb, mc, rs, bd] = await Promise.all([
-        createSceneBounds(state, device, cap, { prims, bounds, count }, subgroups),
-        createMorton(state, device, cap, { prims, bounds, keys, payload, count }),
-        createRadixSort(state, device, cap, { keys, payload, count }, subgroups),
-        createBuild(state, device, cap, { prims, keys, payload, nodes, count }),
+        createSceneBounds(world, device, cap, { prims, bounds, count }, subgroups),
+        createMorton(world, device, cap, { prims, bounds, keys, payload, count }),
+        createRadixSort(world, device, cap, { keys, payload, count }, subgroups),
+        createBuild(world, device, cap, { prims, keys, payload, nodes, count }),
     ]);
 
     // owned-buffer total (the injected node buffer belongs to the caller; exclude it, matching destroy)

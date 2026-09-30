@@ -1,17 +1,17 @@
 /**
  * an input widget for a component field. Display-only: the stored value never changes; a
  * widget maps stored↔shown at the authoring boundary so ECS data stays pristine. Declare it in a
- * component's traits (`inputs`) when the default number field isn't the right control: a radians field
- * authored in degrees is an {@link angle}. The standard set is small on purpose; add a variant when a
+ * component's traits (`inputs`) when the default number field isn't the right control: a radianUnit field
+ * authored in degreeUnit is an {@link angleInput}. The standard set is small on purpose; add a variant when a
  * field actually needs one.
  */
-export type Input = { kind: "unit"; units: Unit[] };
+export type FieldInput = { kind: "unit"; units: FieldUnit[] };
 
 /**
- * one entry in a {@link units} menu: how to show the stored value in this unit and read it back. `to`
+ * one entry in a {@link unitInput} menu: how to show the stored value in this unit and read it back. `to`
  * and `from` must be inverse: an authoring host round-trips a value through them on every edit.
  */
-export interface Unit {
+export interface FieldUnit {
     /** dropdown label, e.g. `deg` */
     label: string;
     /** stored value → shown value */
@@ -20,11 +20,11 @@ export interface Unit {
     from: (shown: number) => number;
 }
 
-/** radians shown as-is: the identity unit, storage's own. */
-export const radians: Unit = { label: "rad", to: (x) => x, from: (x) => x };
+/** radianUnit shown as-is: the identity unit, storage's own. */
+export const radianUnit: FieldUnit = { label: "rad", to: (x) => x, from: (x) => x };
 
-/** a radians field shown in degrees. */
-export const degrees: Unit = {
+/** a radianUnit field shown in degreeUnit. */
+export const degreeUnit: FieldUnit = {
     label: "deg",
     to: (r) => (r * 180) / Math.PI,
     from: (d) => (d * Math.PI) / 180,
@@ -32,12 +32,12 @@ export const degrees: Unit = {
 
 /**
  * a number field with a unit dropdown. `list[0]` is the unit shown by default; storage is unchanged,
- * an authoring host converts through the selected unit's {@link Unit.to}/{@link Unit.from}.
+ * an authoring host converts through the selected unit's {@link FieldUnit.to}/{@link FieldUnit.from}.
  *
  * @example
- * traits: { Lens: { inputs: { fov: units([degrees, radians]) } } }
+ * traits: { Lens: { inputs: { fov: unitInput([degreeUnit, radianUnit]) } } }
  */
-export const units = (list: Unit[]): Input => ({ kind: "unit", units: list });
+export const unitInput = (list: FieldUnit[]): FieldInput => ({ kind: "unit", units: list });
 
-/** a radians field authored in degrees, with a `deg`/`rad` switch: the common angle case. */
-export const angle: Input = units([degrees, radians]);
+/** a radianUnit field authored in degreeUnit, with a `deg`/`rad` switch: the common angleInput case. */
+export const angleInput: FieldInput = unitInput([degreeUnit, radianUnit]);

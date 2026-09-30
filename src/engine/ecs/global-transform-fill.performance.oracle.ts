@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { build } from "../app";
+import { createApp } from "../app";
 import { probeBuffer } from "../runtime";
 import { Xform } from "../utils";
 
@@ -113,16 +113,16 @@ function fillCpu(
 // records current→previous then staging→current copies into the frame encoder, and computes renderer
 // rows before that encoder's one submit. It has no CPU history shadow and does no history copy on no-tick.
 test("measure CPU GlobalTransform fill against GPU-only tick history and frame interpolation", async () => {
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [{ name: "GlobalTransformFillMeasure", features: ["timestamp-query"] }],
     });
-    const state = app.state;
+    const world = app.world;
     try {
-        console.info(`[global-transform-fill] adapter=${JSON.stringify(state.gpu.adapter)}`);
-        expect(state.gpu.adapter.class).toBe("real");
-        const device = state.gpu.device;
-        const root = state.gpu.root;
+        console.info(`[global-transform-fill] adapter=${JSON.stringify(world.gpu.adapter)}`);
+        expect(world.gpu.adapter.class).toBe("real");
+        const device = world.gpu.device;
+        const root = world.gpu.root;
         const pipeline = root.unwrap(root.createComputePipeline({ compute: interpolate }));
         for (const count of [1_000, 10_000, 100_000]) {
             const bytes = count * 48;
@@ -137,7 +137,7 @@ test("measure CPU GlobalTransform fill against GPU-only tick history and frame i
             }
             const make = (label: string, usage: GPUBufferUsageFlags) => {
                 const buffer = device.createBuffer({ label, size: bytes, usage });
-                state.own(buffer);
+                world.own(buffer);
                 return buffer;
             };
             const cpuCurrentGpu = make(
@@ -167,7 +167,7 @@ test("measure CPU GlobalTransform fill against GPU-only tick history and frame i
             const params = root.unwrap(
                 root.createBuffer(d.vec4f, d.vec4f(0.375, count, 0, 0)).$usage("uniform"),
             );
-            state.own(params);
+            world.own(params);
             device.queue.writeBuffer(cpuCurrentGpu, 0, cpuCurrent);
             device.queue.writeBuffer(cpuOutputGpu, 0, cpuOutput);
             device.queue.writeBuffer(current, 0, gpuInitial);
@@ -220,7 +220,7 @@ test("measure CPU GlobalTransform fill against GPU-only tick history and frame i
                 (
                     await bounded(
                         "fill comparison readback",
-                        probeBuffer(state, output, { size: bytes }),
+                        probeBuffer(world, output, { size: bytes }),
                     )
                 ).bytes,
             );

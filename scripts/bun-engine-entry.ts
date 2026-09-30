@@ -1,5 +1,5 @@
-import { build } from "@dylanebert/shallot/app";
-import { World, Time } from "@dylanebert/shallot/ecs";
+import { createApp } from "@dylanebert/shallot/app";
+import { Time, World } from "@dylanebert/shallot/ecs";
 import { drainLog, probeTexture } from "@dylanebert/shallot/runtime";
 
-void [build, World, Time, drainLog, probeTexture];
+void [createApp, World, Time, drainLog, probeTexture];

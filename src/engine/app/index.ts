@@ -2,14 +2,12 @@
 
 import {
     type Component,
-    entries,
     initializeGlobalTransform,
-    register,
     registerGlobalTransform,
-    World,
     type System,
     sameComponentSchema,
     type Traits,
+    World,
 } from "../ecs";
 import {
     type AdapterVerdict,
@@ -22,7 +20,7 @@ import {
     requestGPU,
     validateGpu,
 } from "../runtime";
-import { diagnose, load, parse } from "../scene";
+import { diagnose, loadScene, parseScene } from "../scene";
 import { coalesce, frameDelta, median } from "./coalesce";
 import { resolvePlugins } from "./compose";
 
@@ -62,26 +60,26 @@ export interface Plugin {
     readonly preferredFeatures?: readonly GPUFeatureName[];
     /** registration-only setup, run before scene parse (no entities exist yet); idempotent, may report progress */
     readonly initialize?: (
-        state: World,
+        world: World,
         onProgress?: (progress: number) => void,
     ) => void | Promise<void>;
     /**
      * post-scene GPU setup and derived spawns, run once entities exist; may report progress.
-     * idempotent: entity spawns need nothing (they live in the `State`). Tie any external effect
-     * (a DOM mount, listener, or rAF loop) to the State via `state.onDispose` / `state.signal` so it
-     * unwinds at dispose. warm also re-runs on an in-place rebuild with no `dispose` first (`swap()`),
+     * idempotent: entity spawns need nothing (they live in the `World`). Tie any external effect
+     * (a DOM mount, listener, or rAF loop) to the World via `world.onDispose` / `world.signal` so it
+     * unwinds at dispose. warm also re-runs on an in-place rebuild with no `dispose` first (`swapPlugins()`),
      * where `onDispose` doesn't fire — so also clear a warm-created mount at the top of `warm` before
      * re-creating it
      */
-    readonly warm?: (state: World, onProgress?: (progress: number) => void) => void | Promise<void>;
+    readonly warm?: (world: World, onProgress?: (progress: number) => void) => void | Promise<void>;
     /**
      * teardown, run in reverse dependency order on `App.dispose`. reserve it for process/module-lifetime
      * teardown — engine singletons, globals — not per-build external effects. tie a per-build mount,
-     * listener, or rAF loop to the State via `state.onDispose` / `state.signal` at its creation site
-     * instead: a `dispose` hook fires only on the `App.dispose` path, never on a direct `state.dispose()`
-     * (a host driving the State without an App), so a State-registered effect is the only one covering both.
+     * listener, or rAF loop to the World via `world.onDispose` / `world.signal` at its creation site
+     * instead: a `dispose` hook fires only on the `App.dispose` path, never on a direct `world.dispose()`
+     * (a host driving the World without an App), so a World-registered effect is the only one covering both.
      */
-    readonly dispose?: (state: World) => void;
+    readonly dispose?: (world: World) => void;
 }
 
 /**
@@ -107,10 +105,10 @@ export interface Loading {
 }
 
 /**
- * the {@link build} / {@link run} configuration: plugins, scene, and startup behavior.
+ * the {@link createApp} / {@link runApp} configuration: plugins, scene, and startup behavior.
  * @expand
  */
-export interface Config {
+export interface AppConfig {
     /** plugins to load, unioned with the built-in defaults unless `defaults` is `false` */
     plugins: Plugin[];
     /** `.scene` file path(s), or an inline XML string (any value starting with `<`) */
@@ -122,9 +120,9 @@ export interface Config {
     /** specific default plugins to drop while keeping the rest */
     exclude?: Plugin[];
     /** hook run after registration, before any plugin `initialize` */
-    setup?: (state: World) => void;
+    setup?: (world: World) => void;
     /** mount app UI into the canvas-bounded overlay; return a cleanup. see `mountOverlay` */
-    ui?: (container: HTMLElement, state: World) => () => void;
+    ui?: (container: HTMLElement, world: World) => () => void;
     /** externally-acquired GPU device; if omitted, the engine acquires one */
     device?: GPUDevice;
     /** adapter that supplied an externally-acquired {@link device}; omitted devices are stamped unidentified */
@@ -132,15 +130,16 @@ export interface Config {
     /**
      * render device-pixel ratio for canvas views; fixed at app construction. `"auto"` (default)
      * clamps `devicePixelRatio` to `[1, 2]`. A number forces a fixed ratio (`1` = CSS resolution /
-     * cheapest; below 1 = pixel-art downscale). See {@link pixelRatio}.
+     * cheapest; `2` = twice CSS resolution; below 1 = pixel-art downscale with nearest-neighbor
+     * upscaling). Canvas resize reads the ratio again, including after moving between monitors.
      */
     pixelRatio?: number | "auto";
 }
 
-/** result of {@link build} / {@link run}. owns the plugin teardown order. */
+/** result of {@link createApp} / {@link runApp}. owns the plugin teardown order. */
 export interface App {
-    readonly state: World;
-    /** @deprecated compatibility field; always empty because incomplete compositions fail in {@link build}. */
+    readonly world: World;
+    /** @deprecated compatibility field; always empty because incomplete compositions fail in {@link createApp}. */
     readonly skipped: readonly string[];
     dispose(): void;
 }
@@ -148,7 +147,7 @@ export interface App {
 /** settle every started warm before closing the shared device error scope. @internal */
 export async function warmPlugins(
     device: GPUDevice,
-    state: World,
+    world: World,
     plugins: readonly Plugin[],
     onProgress?: (progress: number) => void,
 ): Promise<void> {
@@ -158,7 +157,7 @@ export async function warmPlugins(
         const results = await Promise.allSettled(
             plugins.map(async (plugin, i) => {
                 try {
-                    await plugin.warm!(state, (p) => {
+                    await plugin.warm!(world, (p) => {
                         perPlugin[i] = Math.max(perPlugin[i], p);
                         report();
                     });
@@ -183,7 +182,7 @@ export async function warmPlugins(
 
         // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
         // so every registered pipeline is forced here — under the loading screen, not on frame one.
-        await precompileAll(state);
+        await precompileAll(world);
     };
 
     await validateGpu(device, "pipeline warm", warm);
@@ -196,7 +195,7 @@ function pluginHookError(plugin: Plugin, hook: "initialize" | "warm", error: unk
 
 // runaway backstop: the most frames the loop may run ahead of the GPU before skipping a step, so the CPU
 // can't queue unboundedly past a saturated GPU. Sized well above a present-throttled pipeline's depth —
-// `state.gpu.sync` counts frames by `onSubmittedWorkDone`, which is present-gated, so a 60Hz fullscreen
+// `world.gpu.sync` counts frames by `onSubmittedWorkDone`, which is present-gated, so a 60Hz fullscreen
 // throttle reads ~3 frames in flight with the GPU otherwise idle; a tighter cap would drop frames Chrome
 // is ready to present (the fullscreen-throttle judder). Per-present pacing is the double-fire `coalesce`,
 // not this; the bound engages only under sustained genuine GPU saturation.
@@ -208,9 +207,9 @@ const ClearChangeMarksSystem: System = {
     group: "draw",
     first: true,
     name: "clear-component-changes",
-    update(state) {
-        state.uploadTables();
-        state.clearChangesIfNeeded();
+    update(world) {
+        world.uploadTables();
+        world.clearChangesIfNeeded();
     },
 };
 
@@ -218,7 +217,7 @@ let _defaultPlugins: readonly Plugin[] = [];
 let _defaultLoading: (() => Loading) | null = null;
 
 /**
- * set the global default plugin set every {@link build} unions in (unless `defaults: false`). `standard`
+ * set the global default plugin set every {@link createApp} unions in (unless `defaults: false`). `standard`
  * calls this at import with `DEFAULT_PLUGINS`; override it to define your own zero-config baseline.
  */
 export function setDefaultPlugins(plugins: readonly Plugin[]): void {
@@ -226,7 +225,7 @@ export function setDefaultPlugins(plugins: readonly Plugin[]): void {
 }
 
 /**
- * set the global default {@link Loading} screen every {@link build} uses when `config.loading` is omitted.
+ * set the global default {@link Loading} screen every {@link createApp} uses when `config.loading` is omitted.
  * `standard` calls this at import with {@link shallotDark}.
  */
 export function setDefaultLoading(factory: () => Loading): void {
@@ -235,18 +234,18 @@ export function setDefaultLoading(factory: () => Loading): void {
 
 /**
  * build the app: collect plugins, acquire the GPU device, register, run `initialize`, load scenes, and
- * `warm`, returning a live {@link State} without starting a frame loop. Build setup is serialized, and
- * completed Apps may coexist with separate State-owned storage and GPU registries. Plugin resources retained
- * in module globals are not isolated by this guarantee. Drive `state.step(dt)` yourself, or use {@link run}
+ * `warm`, returning a live {@link World} without starting a frame loop. Build setup is serialized, and
+ * completed Apps may coexist with separate World-owned storage and GPU registries. Plugin resources retained
+ * in module globals are not isolated by this guarantee. Drive `world.step(dt)` yourself, or use {@link runApp}
  * for the managed loop.
  * @example
- * const app = await build({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
- * app.state.step(1 / 60);
+ * const app = await createApp({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
+ * app.world.step(1 / 60);
  */
 let buildTail: Promise<void> = Promise.resolve();
 
 /** Builds serialize their registration and warm phases; completed Apps remain independent and may coexist. */
-export function build(config: Config): Promise<App> {
+export function createApp(config: AppConfig): Promise<App> {
     const pending = buildTail.then(() => buildNow(config));
     buildTail = pending.then(
         () => undefined,
@@ -255,8 +254,8 @@ export function build(config: Config): Promise<App> {
     return pending;
 }
 
-async function buildNow(config: Config): Promise<App> {
-    let state!: World;
+async function buildNow(config: AppConfig): Promise<App> {
+    let world!: World;
     let stateCreated = false;
     let loading: Loading | undefined;
     let cleanup: (() => void) | undefined;
@@ -272,7 +271,7 @@ async function buildNow(config: Config): Promise<App> {
         for (const plugin of config.plugins) pluginSet.add(plugin);
 
         // A public plugin selection pulls in its declared substrates. The resolver remains pure and strict;
-        // this boundary makes `build({ defaults: false, plugins: [PhysicsPlugin] })` a complete composition.
+        // this boundary makes `createApp({ defaults: false, plugins: [PhysicsPlugin] })` a complete composition.
         const requested = [...pluginSet];
         for (let i = 0; i < requested.length; i++) {
             for (const dependency of requested[i].dependencies ?? []) {
@@ -292,7 +291,7 @@ async function buildNow(config: Config): Promise<App> {
         }
 
         const sorted = composition.plugins;
-        state = new World({ pixelRatio: config.pixelRatio });
+        world = new World({ pixelRatio: config.pixelRatio });
         stateCreated = true;
         loading = config.loading ?? _defaultLoading?.();
         cleanup = loading?.show() ?? undefined;
@@ -302,19 +301,19 @@ async function buildNow(config: Config): Promise<App> {
         const features = [...new Set(sorted.flatMap((p) => p.features ?? []))];
         const preferred = [...new Set(sorted.flatMap((p) => p.preferredFeatures ?? []))];
         const compute = await requestGPU(config.device, features, preferred, config.adapter, {
-            own: state.own.bind(state),
-            resource: state.resource.bind(state),
+            own: world.own.bind(world),
+            resource: world.resource.bind(world),
         });
-        state.attachGpu(compute);
-        registerGlobalTransform(state);
-        if (state.gpu.adapter.class !== "real") loading?.notice?.(state.gpu.adapter);
+        world.attachGpu(compute);
+        registerGlobalTransform(world);
+        if (world.gpu.adapter.class !== "real") loading?.notice?.(world.gpu.adapter);
 
         for (const plugin of sorted) {
             const components = plugin.components ?? {};
             const traits = plugin.traits ?? {};
             for (const [name, component] of Object.entries(components)) {
-                register(state, name, component, traits[name]);
-                state.of(component);
+                world.registry.register(name, component, traits[name]);
+                world.storage(component);
             }
             for (const name of Object.keys(traits)) {
                 if (!components[name]) {
@@ -324,16 +323,16 @@ async function buildNow(config: Config): Promise<App> {
                 }
             }
             for (const system of plugin.systems ?? []) {
-                state.addSystem(system, plugin.name);
+                world.addSystem(system, plugin.name);
             }
         }
 
         // Assign registered components their world-owned columns and membership bits before loading.
-        state.addSystem(ClearChangeMarksSystem, "Engine");
+        world.addSystem(ClearChangeMarksSystem, "Engine");
 
-        for (const { component } of entries(state)) {
-            state.of(component);
-            state.membership.bit(component);
+        for (const { component } of world.registry.entries()) {
+            world.storage(component);
+            world.membership.bit(component);
         }
 
         const scenes = config.scene
@@ -346,8 +345,8 @@ async function buildNow(config: Config): Promise<App> {
         const total = sorted.length + warmable.length + scenes.length;
 
         (() => {
-            initializeGlobalTransform(state);
-            config.setup?.(state);
+            initializeGlobalTransform(world);
+            config.setup?.(world);
         })();
 
         for (let i = 0; i < sorted.length; i++) {
@@ -357,7 +356,7 @@ async function buildNow(config: Config): Promise<App> {
                 : undefined;
             initialized.push(sorted[i]);
             try {
-                await sorted[i].initialize?.(state, onProgress);
+                await sorted[i].initialize?.(world, onProgress);
             } catch (error) {
                 throw pluginHookError(sorted[i], "initialize", error);
             }
@@ -367,16 +366,16 @@ async function buildNow(config: Config): Promise<App> {
         for (let i = 0; i < scenes.length; i++) {
             const scene = scenes[i];
             const xml = scene.startsWith("<") ? scene : await readFile(scene);
-            const nodes = parse(xml);
-            for (const d of diagnose(state, nodes)) console.warn(`[shallot] ${d.message}`);
-            load(nodes, state);
+            const nodes = parseScene(xml);
+            for (const d of diagnose(world, nodes)) console.warn(`[shallot] ${d.message}`);
+            loadScene(nodes, world);
             loading?.update((sorted.length + i + 1) / total);
         }
 
         const warmBase = sorted.length + scenes.length;
         // Fix component membership bit assignments before plugin warm.
-        state.membership.freeze();
-        await warmPlugins(state.gpu.device, state, warmable, (progress) => {
+        world.membership.freeze();
+        await warmPlugins(world.gpu.device, world, warmable, (progress) => {
             loading?.update((warmBase + progress) / total);
         });
 
@@ -390,7 +389,7 @@ async function buildNow(config: Config): Promise<App> {
 
         let disposed = false;
         return {
-            state,
+            world,
             skipped: [],
             dispose() {
                 if (disposed) return;
@@ -398,37 +397,37 @@ async function buildNow(config: Config): Promise<App> {
                 try {
                     for (let i = sorted.length - 1; i >= 0; i--) {
                         try {
-                            sorted[i].dispose?.(state);
+                            sorted[i].dispose?.(world);
                         } catch (err) {
                             console.error(`Plugin "${sorted[i].name}" threw during dispose:`, err);
                         }
                     }
                     try {
-                        state.dispose();
+                        world.dispose();
                     } catch (err) {
-                        console.error("State dispose threw:", err);
+                        console.error("World dispose threw:", err);
                     }
                 } finally {
-                    // State disposal releases the world's owned resources.
+                    // World disposal releases the world's owned resources.
                 }
             },
         };
     } catch (e) {
         // a failed build leaves nothing live: plugins that started initialize dispose in
-        // reverse, then the State, so a retry builds against clean module singletons. A dispose
+        // reverse, then the World, so a retry builds against clean module singletons. A dispose
         // throw here is reported, never allowed to mask the build error.
         try {
             for (let i = initialized.length - 1; i >= 0; i--) {
                 try {
-                    initialized[i].dispose?.(state);
+                    initialized[i].dispose?.(world);
                 } catch (err) {
                     console.error(`Plugin "${initialized[i].name}" threw during cleanup:`, err);
                 }
             }
             try {
-                if (stateCreated) state.dispose();
+                if (stateCreated) world.dispose();
             } catch (err) {
-                console.error("State dispose threw during cleanup:", err);
+                console.error("World dispose threw during cleanup:", err);
             }
             try {
                 if (loading?.error) loading.error(e);
@@ -437,7 +436,7 @@ async function buildNow(config: Config): Promise<App> {
                 console.error("Loading cleanup threw during build failure:", err);
             }
         } finally {
-            // Build-local resources are released by State.dispose above.
+            // Build-local resources are released by World.dispose above.
         }
         throw e;
     }
@@ -445,16 +444,16 @@ async function buildNow(config: Config): Promise<App> {
 
 /**
  * create the sandboxed UI overlay over a canvas: the single DOM surface a shallot app's UI mounts
- * into ({@link Config.ui}). It fills the canvas's parent and is a true sandbox: `contain: layout
+ * into ({@link AppConfig.ui}). It fills the canvas's parent and is a true sandbox: `contain: layout
  * paint` makes it the containing block for absolute *and* fixed descendants and clips paint to its
  * box, so app UI is bounded to the canvas region and can never spill into an embedding host (a
  * host page), even a stray `position: fixed`. `pointer-events: none` lets input
  * reach the canvas; UI panels re-enable it. Returns the overlay. Pass `state` to tie the overlay's
- * removal to the State's lifetime — it auto-registers `overlay.remove()` via {@link State.onDispose}
+ * removal to the World's lifetime — it auto-registers `overlay.remove()` via {@link World.onDispose}
  * and restores the host element's prior inline `position`, so a build that disposes cleans it up; omit
  * `state` to remove the overlay yourself, in which case the `position` is not restored.
  */
-export function mountOverlay(canvas: HTMLElement | null, state?: World): HTMLDivElement {
+export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
     const prior = parent.style.position;
     parent.style.position = "relative";
@@ -462,7 +461,7 @@ export function mountOverlay(canvas: HTMLElement | null, state?: World): HTMLDiv
     overlay.style.cssText =
         "position:absolute;inset:0;pointer-events:none;z-index:1;contain:layout paint;overflow:hidden";
     parent.appendChild(overlay);
-    state?.onDispose(() => {
+    world?.onDispose(() => {
         overlay.remove();
         parent.style.position = prior;
     });
@@ -471,32 +470,32 @@ export function mountOverlay(canvas: HTMLElement | null, state?: World): HTMLDiv
 
 /**
  * build the app and start the `requestAnimationFrame` frame loop, mounting `config.ui` (web only). the
- * loop drives `state.step(dt)` each frame, GPU-fence backpressured so it never runs far ahead of the GPU.
+ * loop drives `world.step(dt)` each frame, GPU-fence backpressured so it never runs far ahead of the GPU.
  * @example
- * const app = await run({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
+ * const app = await runApp({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
  * // later: app.dispose();
  */
-export async function run(config: Config): Promise<App> {
-    const app = await build(config);
+export async function runApp(config: AppConfig): Promise<App> {
+    const app = await createApp(config);
     try {
-        const state = app.state;
-        const { device, pending, sync } = state.gpu;
-        // UI teardown is State-owned: the overlay auto-registers its removal (mountOverlay above), and the
-        // ui cleanup registers beside it. Both run at state.dispose() — after the plugin dispose hooks on the
+        const world = app.world;
+        const { device, pending, sync } = world.gpu;
+        // UI teardown is World-owned: the overlay auto-registers its removal (mountOverlay above), and the
+        // ui cleanup registers beside it. Both run at world.dispose() — after the plugin dispose hooks on the
         // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
-        // covers a host that calls state.dispose() directly (the flows apps).
+        // covers a host that calls world.dispose() directly (the flows apps).
         if (config.ui && Runtime === "web") {
-            const overlay = mountOverlay(document.querySelector("canvas"), state);
-            const uiCleanup = config.ui(overlay, state);
-            if (uiCleanup) state.onDispose(uiCleanup);
+            const overlay = mountOverlay(document.querySelector("canvas"), world);
+            const uiCleanup = config.ui(overlay, world);
+            if (uiCleanup) world.onDispose(uiCleanup);
         }
 
         let disposed = false;
-        // stop the rAF loop when the State tears down, so a host that calls state.dispose() directly (the
+        // stop the rAF loop when the World tears down, so a host that calls world.dispose() directly (the
         // flows path) halts the loop too — not only the returned App.dispose(). Without this the loop keeps
-        // stepping a torn-down State every frame (the stacked-rAF leak). App.dispose sets it first; this is
+        // stepping a torn-down World every frame (the stacked-rAF leak). App.dispose sets it first; this is
         // idempotent with that.
-        state.onDispose(() => {
+        world.onDispose(() => {
             disposed = true;
         });
         // seeded by the first frame's own timestamp (`frameDelta` steps 0 there), never by `now()` here: a
@@ -530,7 +529,7 @@ export async function run(config: Config): Promise<App> {
         // build's profile still names the frame loop.
         const loop = {
             frame(timestamp?: number): void {
-                if (disposed || deviceLost(device) || state.gpu.sync !== sync) return;
+                if (disposed || deviceLost(device) || world.gpu.sync !== sync) return;
                 // rAF clocks the loop and reschedules first, before any GPU work: the next frame is registered
                 // while the browser's paint deadline is still open, so frame delivery stays vsync-aligned. The
                 // alternative — scheduling the next rAF off the completion fence — slips a paint whenever the
@@ -563,9 +562,9 @@ export async function run(config: Config): Promise<App> {
                 if ((pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
                 const dt = frameDelta(t, lastTime);
                 lastTime = t;
-                state.fenceWait(pendingFenceWaitMs);
+                world.fenceWait(pendingFenceWaitMs);
                 pendingFenceWaitMs = 0;
-                state.step(dt);
+                world.step(dt);
                 const fence = sync?.();
                 if (fence) {
                     fenceIssued[fenceTail] = now();
@@ -578,7 +577,7 @@ export async function run(config: Config): Promise<App> {
         requestFrame(loop.frame);
 
         return {
-            state,
+            world,
             skipped: [],
             dispose() {
                 disposed = true;
@@ -595,14 +594,14 @@ export async function run(config: Config): Promise<App> {
     }
 }
 
-/** outcome of a {@link swap}: `ok` when the in-place swap applied, else `reason` says why a rebuild is needed */
-export interface SwapResult {
+/** outcome of a {@link swapPlugins}: `ok` when the in-place swap applied, else `reason` says why a rebuild is needed */
+export interface PluginSwapResult {
     ok: boolean;
     reason?: string;
 }
 
 /**
- * hot-swap a live `State`'s plugins in place, preserving runtime state. For each
+ * hot-swap a live `World`'s plugins in place, preserving runtime state. For each
  * plugin (paired by name) it re-registers the components: the stable-id layer
  * reuses their storage and id, so membership, queries, and the GPU firehose
  * (slab buffers, bind groups, pipelines) survive untouched. It swaps each system's
@@ -616,14 +615,14 @@ export interface SwapResult {
  * before and after the reload.
  *
  * A user `initialize` that throws mid-swap returns `{ ok: false }`: systems
- * are already swapped at that point, so the State is half-updated and the
+ * are already swapped at that point, so the World is half-updated and the
  * rebuild the caller falls back to is the recovery.
  */
-export async function swap(
-    state: World,
+export async function swapPlugins(
+    world: World,
     prev: readonly Plugin[],
     next: readonly Plugin[],
-): Promise<SwapResult> {
+): Promise<PluginSwapResult> {
     const prevByName = new Map(prev.map((p) => [p.name, p]));
     const nextByName = new Map(next.map((p) => [p.name, p]));
     if (prevByName.size !== nextByName.size) return { ok: false, reason: "plugin set changed" };
@@ -652,7 +651,7 @@ export async function swap(
         const diff = shapeDiff(prevPlugin, nextPlugin, prevIndex, nextIndex);
         if (diff) return { ok: false, reason: `${name}: ${diff}` };
         for (const system of prevPlugin.systems ?? []) {
-            if (!state.hasSystem(system)) return { ok: false, reason: `${name}: system not live` };
+            if (!world.hasSystem(system)) return { ok: false, reason: `${name}: system not live` };
         }
     }
 
@@ -661,21 +660,22 @@ export async function swap(
         const components = nextPlugin.components ?? {};
         const traits = nextPlugin.traits ?? {};
         for (const [cname, component] of Object.entries(components)) {
-            register(state, cname, component, traits[cname]);
-            state.of(component);
+            world.registry.register(cname, component, traits[cname]);
+            world.storage(component);
         }
         const prevSystems = prevPlugin.systems ?? [];
         const nextSystems = nextPlugin.systems ?? [];
-        for (let i = 0; i < nextSystems.length; i++) state.swap(prevSystems[i], nextSystems[i]);
+        for (let i = 0; i < nextSystems.length; i++)
+            world.swapSystem(prevSystems[i], nextSystems[i]);
     }
 
     // initialize is registration-only and idempotent (the lifecycle contract), so re-running it
-    // repopulates singletons with the new code without touching entities or warm GPU state.
-    // A throw here lands after the system swap, so the State is half-updated — report ok:false
+    // repopulates singletons with the new code without touching entities or warm GPU world.
+    // A throw here lands after the system swap, so the World is half-updated — report ok:false
     // and let the caller's rebuild fallback recover, never wedge on an unhandled throw
     for (const nextPlugin of nextByName.values()) {
         try {
-            await nextPlugin.initialize?.(state);
+            await nextPlugin.initialize?.(world);
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             return { ok: false, reason: `${nextPlugin.name}: initialize threw — ${msg}` };

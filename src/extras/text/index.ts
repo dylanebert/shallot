@@ -5,7 +5,7 @@
 // and triggers no glyph rebuild — the buffer rebuilds only when a layout-affecting field changes (a
 // content / size / anchor / color edit, an add / remove), gated by a per-frame signature. The SDF atlas /
 // font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the shallot
-// surface + producer around it. Single-channel SDF (Valve "Improved Alpha-Tested Magnification").
+// surface + producer around it. ScalarField-channel SDF (Valve "Improved Alpha-Tested Magnification").
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import tgpu from "typegpu";
@@ -17,8 +17,8 @@ import {
     Draws,
     fsCtxSchema,
     Meshes,
-    mesh,
     RenderPlugin,
+    registerMesh,
     registerSurface,
     surfaceLayout,
     VsIn,
@@ -30,14 +30,14 @@ import {
     GlobalTransform,
     type Plugin,
     Registry,
-    type World,
     type System,
     u32,
     vec2,
+    type World,
 } from "../../engine";
 
 import { packColor, Xform, xformPoint } from "../../engine/utils";
-import { PrepassSystem } from "../../standard/rendering";
+import { RenderPrepassesSystem } from "../../standard/rendering";
 import {
     createGlyphAtlas,
     disposeAtlases,
@@ -73,15 +73,15 @@ export const Content = {
 
 /**
  * register a font by url, returning its id. `name` (optional) is the handle a scene's `font:` attribute
- * resolves; unnamed fonts key by url. Register in the owning State during `setup` so the atlas loads at init
+ * resolves; unnamed fonts key by url. Register in the owning World during `setup` so the atlas loads at init
  *
  * @example
  * ```
- * font(state, "/fonts/inter.ttf", "inter");
+ * registerFont(world, "/fonts/inter.ttf", "inter");
  * ```
  */
-export function font(state: World, url: string, name?: string): number {
-    return state.resource(Fonts).register({ name: name ?? url, url });
+export function registerFont(world: World, url: string, name?: string): number {
+    return world.resource(Fonts).register({ name: name ?? url, url });
 }
 
 /**
@@ -90,16 +90,16 @@ export function font(state: World, url: string, name?: string): number {
  *
  * @example
  * ```
- * state.of(Text).content.set(eid, text(state, "Hello"));
+ * world.storage(Text).content.set(eid, internText(world, "Hello"));
  * ```
  */
-export function text(state: World, content: string): number {
-    return state.resource(Content).register({ name: content });
+export function internText(world: World, content: string): number {
+    return world.resource(Content).register({ name: content });
 }
 
 /**
  * a world-space text label anchored to an entity's {@link Transform}. Register the string with
- * {@link text} and, optionally, a face with {@link font}; the glyphs lay out once and ride the entity's
+ * {@link internText} and, optionally, a face with {@link registerFont}; the glyphs lay out once and ride the entity's
  * transform, so moving a label triggers no rebuild
  *
  * @example
@@ -108,9 +108,9 @@ export function text(state: World, content: string): number {
  * ```
  */
 export const Text = {
-    /** interned string id (see {@link text}); a scene's `content:` interns the raw string */
+    /** interned string id (see {@link internText}); a scene's `content:` interns the raw string */
     content: u32,
-    /** registered font id (see {@link font}); 0 is the default face */
+    /** registered font id (see {@link registerFont}); 0 is the default face */
     font: u32,
     /** world height of one em */
     fontSize: f32,
@@ -286,14 +286,14 @@ function createTextState(): TextState {
     };
 }
 
-function _textState(state: World): TextState {
-    return state.resource(textStateKey);
+function _textState(world: World): TextState {
+    return world.resource(textStateKey);
 }
 
 // bitcast scratch + an fnv-1a fold over the layout-affecting fields. The transform is deliberately absent
 // — it flows through the slab, so moving a label leaves the signature (and the glyph buffer) untouched
-function fbits(state: World, v: number): number {
-    const _textState = state.resource(textStateKey);
+function fbits(world: World, v: number): number {
+    const _textState = world.resource(textStateKey);
 
     _textState.bits[0] = v;
     return _textState.bitsU[0];
@@ -304,24 +304,24 @@ function fold(h: number, x: number): number {
 
 // the dirty key: every visible label's layout-affecting state + membership. Equal to last frame ⇒ the
 // glyph buffer still holds the right geometry, so the rebuild + upload are skipped
-function signature(state: World): number {
+function signature(world: World): number {
     let h = 0x811c9dc5 | 0;
-    for (const eid of state.query([Text, GlobalTransform])) {
-        if (!state.of(Text).visible.get(eid)) continue;
+    for (const eid of world.query([Text, GlobalTransform])) {
+        if (!world.storage(Text).visible.get(eid)) continue;
         h = fold(h, eid);
-        h = fold(h, state.of(Text).content.get(eid));
-        h = fold(h, state.of(Text).font.get(eid));
-        h = fold(h, fbits(state, state.of(Text).fontSize.get(eid)));
-        h = fold(h, fbits(state, state.of(Text).anchor.x.get(eid)));
-        h = fold(h, fbits(state, state.of(Text).anchor.y.get(eid)));
-        h = fold(h, state.of(Text).color.get(eid));
-        h = fold(h, fbits(state, state.of(Text).opacity.get(eid)));
+        h = fold(h, world.storage(Text).content.get(eid));
+        h = fold(h, world.storage(Text).font.get(eid));
+        h = fold(h, fbits(world, world.storage(Text).fontSize.get(eid)));
+        h = fold(h, fbits(world, world.storage(Text).anchor.x.get(eid)));
+        h = fold(h, fbits(world, world.storage(Text).anchor.y.get(eid)));
+        h = fold(h, world.storage(Text).color.get(eid));
+        h = fold(h, fbits(world, world.storage(Text).opacity.get(eid)));
     }
     return h;
 }
 
-function grow(state: World, min: number): void {
-    const _textState = state.resource(textStateKey);
+function grow(world: World, min: number): void {
+    const _textState = world.resource(textStateKey);
 
     let cap = _textState.cap;
     while (cap < min) cap *= 2;
@@ -336,27 +336,30 @@ function grow(state: World, min: number): void {
 // lay every visible label out into per-font glyph lists, pack them into the shared staging in font-id
 // order (each font's draw indexes its contiguous range via firstInstance), grow + upload the GPU buffer,
 // and write each font's indirect record. Runs only on a signature change
-function rebuild(state: World, device: GPUDevice): void {
-    const _textState = state.resource(textStateKey);
+function rebuild(world: World, device: GPUDevice): void {
+    const _textState = world.resource(textStateKey);
 
     while (_textState.byFont.length < _textState.atlases.length) _textState.byFont.push([]);
     while (_textState.ranges.length < _textState.atlases.length)
         _textState.ranges.push({ start: 0, count: 0 });
     for (let i = 0; i < _textState.atlases.length; i++) _textState.byFont[i].length = 0;
 
-    for (const eid of state.query([Text, GlobalTransform])) {
-        if (!state.of(Text).visible.get(eid)) continue;
-        const content = state.resource(Content).name(state.of(Text).content.get(eid));
+    for (const eid of world.query([Text, GlobalTransform])) {
+        if (!world.storage(Text).visible.get(eid)) continue;
+        const content = world.resource(Content).name(world.storage(Text).content.get(eid));
         if (!content) continue;
-        let fontId = state.of(Text).font.get(eid);
+        let fontId = world.storage(Text).font.get(eid);
         if (!_textState.atlases[fontId]) fontId = 0;
         const atlas = _textState.atlases[fontId];
         if (!atlas) continue;
-        ensureString(state, atlas, content);
-        const layout = layoutText(content, atlas, state.of(Text).fontSize.get(eid));
-        const ox = -layout.width * state.of(Text).anchor.x.get(eid);
-        const oy = -layout.height * state.of(Text).anchor.y.get(eid);
-        const color = packColor(state.of(Text).color.get(eid), state.of(Text).opacity.get(eid));
+        ensureString(world, atlas, content);
+        const layout = layoutText(content, atlas, world.storage(Text).fontSize.get(eid));
+        const ox = -layout.width * world.storage(Text).anchor.x.get(eid);
+        const oy = -layout.height * world.storage(Text).anchor.y.get(eid);
+        const color = packColor(
+            world.storage(Text).color.get(eid),
+            world.storage(Text).opacity.get(eid),
+        );
         for (const g of layout.glyphs) {
             _textState.byFont[fontId].push({
                 eid,
@@ -376,7 +379,7 @@ function rebuild(state: World, device: GPUDevice): void {
     let total = 0;
     for (let id = 0; id < _textState.atlases.length; id++)
         total += _textState.byFont[id]?.length ?? 0;
-    if (total > _textState.cap) grow(state, total);
+    if (total > _textState.cap) grow(world, total);
 
     let n = 0;
     for (let id = 0; id < _textState.atlases.length; id++) {
@@ -400,19 +403,19 @@ function rebuild(state: World, device: GPUDevice): void {
     }
     _textState.count = n;
 
-    if (_textState.cap * GLYPH_BYTES > state.gpu.root.unwrap(_textState.glyphBuf!).size) {
+    if (_textState.cap * GLYPH_BYTES > world.gpu.root.unwrap(_textState.glyphBuf!).size) {
         const stale = _textState.glyphBuf!;
-        _textState.glyphBuf = state.gpu.root
+        _textState.glyphBuf = world.gpu.root
             .createBuffer(d.arrayOf(Glyph, _textState.cap))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        state.gpu.buffers.set("textGlyphs", state.gpu.root.unwrap(_textState.glyphBuf));
-        state.gpu.typed.set("textGlyphs", _textState.glyphBuf);
+        world.gpu.buffers.set("textGlyphs", world.gpu.root.unwrap(_textState.glyphBuf));
+        world.gpu.typed.set("textGlyphs", _textState.glyphBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
     if (_textState.count > 0)
         device.queue.writeBuffer(
-            state.gpu.root.unwrap(_textState.glyphBuf!),
+            world.gpu.root.unwrap(_textState.glyphBuf!),
             0,
             _textState.staging,
             0,
@@ -431,19 +434,19 @@ function rebuild(state: World, device: GPUDevice): void {
 }
 
 // runs before sear reads the glyph buffer (the VS positions glyphs from it), so it pins before:
-// [PrepassSystem] like any geometry producer. Skips the rebuild when the signature is unchanged
+// [RenderPrepassesSystem] like any geometry producer. Skips the rebuild when the signature is unchanged
 const TextSystem: System = {
     name: "text",
     group: "draw",
     after: [BeginFrameSystem],
-    before: [PrepassSystem],
-    setup(state: World) {
-        const _textState = state.resource(textStateKey);
+    before: [RenderPrepassesSystem],
+    setup(world: World) {
+        const _textState = world.resource(textStateKey);
 
-        _textState.quadBase = state.resource(Meshes).get("textQuad")?.indexBase ?? 0;
+        _textState.quadBase = world.resource(Meshes).get("textQuad")?.indexBase ?? 0;
         for (let id = 0; id < _textState.atlases.length; id++) {
             if (!_textState.atlases[id]) continue;
-            state.resource(Draws).register({
+            world.resource(Draws).register({
                 name: `text${id}`,
                 surface: surfaceName(id),
                 mesh: "textQuad",
@@ -451,20 +454,20 @@ const TextSystem: System = {
             });
         }
     },
-    update(state) {
-        const _textState = state.resource(textStateKey);
+    update(world) {
+        const _textState = world.resource(textStateKey);
 
         if (
-            !state.gpu.device ||
+            !world.gpu.device ||
             !_textState.glyphBuf ||
             !_textState.argBuf ||
             _textState.atlases.length === 0
         )
             return;
-        const sig = signature(state);
+        const sig = signature(world);
         if (sig === _textState.sig) return;
         _textState.sig = sig;
-        rebuild(state, state.gpu.device);
+        rebuild(world, world.gpu.device);
     },
 };
 
@@ -472,8 +475,8 @@ const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456
 
 /**
  * the shallot text producer: the retained {@link Text} component laid out into instanced SDF glyph quads,
- * drawn as a sear `"alpha"` world-space surface (one draw per font). Register fonts with {@link font} and
- * label strings with {@link text}. Depends on {@link RenderPlugin}; a Sear camera renders it
+ * drawn as a sear `"alpha"` world-space surface (one draw per font). Register fonts with {@link registerFont} and
+ * label strings with {@link internText}. Depends on {@link RenderPlugin}; a StandardRenderer camera renders it
  */
 export const TextPlugin: Plugin = {
     name: "Text",
@@ -493,22 +496,22 @@ export const TextPlugin: Plugin = {
                 color: 0xffffff,
             }),
             parse: {
-                font: (name: string, state: World) => state.resource(Fonts).id(name) ?? 0,
-                content: (raw: string, state: World) => text(state, raw),
+                font: (name: string, world: World) => world.resource(Fonts).id(name) ?? 0,
+                content: (raw: string, world: World) => internText(world, raw),
             },
             format: {
                 color: formatHex,
-                content: (id: number, state: World) => state.resource(Content).name(id) ?? "",
+                content: (id: number, world: World) => world.resource(Content).name(id) ?? "",
             },
         },
     },
 
-    async initialize(state) {
-        const _textState = state.resource(textStateKey);
-        const _fonts = state.resource(Fonts);
+    async initialize(world) {
+        const _textState = world.resource(textStateKey);
+        const _fonts = world.resource(Fonts);
 
         _textState;
-        initializeSdfState(state);
+        initializeSdfState(world);
         _textState.loaded = [];
         _textState.atlases = [];
         _textState.glyphBuf = null;
@@ -516,17 +519,17 @@ export const TextPlugin: Plugin = {
         _textState.sampler = null;
         _textState.sig = -1;
 
-        if (!state.gpu.device) return;
-        const device = state.gpu.device;
+        if (!world.gpu.device) return;
+        const device = world.gpu.device;
 
-        if (_fonts.size === 0) font(state, DEFAULT_FONT);
+        if (_fonts.size === 0) registerFont(world, DEFAULT_FONT);
 
-        mesh(state, { name: "textQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        registerMesh(world, { name: "textQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
 
         await Promise.all(
             Array.from({ length: _fonts.size }, async (_, id) => {
-                const _fonts = state.resource(Fonts);
-                const _textState = state.resource(textStateKey);
+                const _fonts = world.resource(Fonts);
+                const _textState = world.resource(textStateKey);
 
                 const url = _fonts.get(_fonts.name(id)!)!.url;
                 try {
@@ -543,16 +546,16 @@ export const TextPlugin: Plugin = {
             magFilter: "linear",
             minFilter: "linear",
         });
-        state.gpu.samplers.set("textSamp", _textState.sampler);
+        world.gpu.samplers.set("textSamp", _textState.sampler);
 
         for (let id = 0; id < _textState.loaded.length; id++) {
             const loaded = _textState.loaded[id];
             if (!loaded) continue;
             const atlas = createGlyphAtlas(device, loaded);
             _textState.atlases[id] = atlas;
-            state.gpu.textures.set(atlasName(id), atlas.texture);
+            world.gpu.textures.set(atlasName(id), atlas.texture);
             const { layout, vs, fs } = typedTextSurface(id);
-            registerSurface(state, {
+            registerSurface(world, {
                 name: surfaceName(id),
                 layout,
                 fragmentInputs: { localPos: true },
@@ -564,36 +567,36 @@ export const TextPlugin: Plugin = {
         }
     },
 
-    warm(state: World) {
-        const _textState = state.resource(textStateKey);
+    warm(world: World) {
+        const _textState = world.resource(textStateKey);
 
-        if (!state.gpu.device) return;
+        if (!world.gpu.device) return;
         _textState.cap = INITIAL;
         _textState.staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
         _textState.f32 = new Float32Array(_textState.staging);
         _textState.u32 = new Uint32Array(_textState.staging);
         _textState.count = 0;
         _textState.sig = -1;
-        _textState.glyphBuf = state.gpu.root
+        _textState.glyphBuf = world.gpu.root
             .createBuffer(d.arrayOf(Glyph, INITIAL))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        state.gpu.buffers.set("textGlyphs", state.gpu.root.unwrap(_textState.glyphBuf));
-        state.gpu.typed.set("textGlyphs", _textState.glyphBuf);
-        _textState.argBuf = state.gpu.root
+        world.gpu.buffers.set("textGlyphs", world.gpu.root.unwrap(_textState.glyphBuf));
+        world.gpu.typed.set("textGlyphs", _textState.glyphBuf);
+        _textState.argBuf = world.gpu.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _textState.atlases.length)))
             .$usage("indirect")
             .$name("shallot-text-args");
-        for (const atlas of _textState.atlases) if (atlas) ensureString(state, atlas, ASCII_CACHE);
+        for (const atlas of _textState.atlases) if (atlas) ensureString(world, atlas, ASCII_CACHE);
     },
 
-    dispose(state: World) {
-        const _textState = state.resource(textStateKey);
+    dispose(world: World) {
+        const _textState = world.resource(textStateKey);
 
         _textState.glyphBuf?.destroy();
         _textState.argBuf?.destroy();
         disposeAtlases(_textState.atlases);
-        resetPipelines(state);
+        resetPipelines(world);
         _textState.glyphBuf = null;
         _textState.argBuf = null;
         _textState.atlases = [];

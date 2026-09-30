@@ -195,7 +195,7 @@ function copyAspect(
 }
 
 /**
- * Request one raw buffer range after an optional encoded trigger. Pass a State to share world staging
+ * Request one raw buffer range after an optional encoded trigger. Pass a World to share world staging
  * and stamp the copy's frame and tick.
  * Returned bytes are owned by this result. Readback is not deterministic simulation input.
  *

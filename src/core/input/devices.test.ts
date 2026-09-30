@@ -2,13 +2,12 @@ import { test } from "bun:test";
 import {
     audioContextState,
     BrowserInputPlugin,
-    blur,
+    blurCanvas,
     createBrowserInputPlugin,
     Devices,
-    focus,
+    focusCanvas,
     type InputHost,
     InputPlugin,
-    PlayerControlSystem,
     pointerButton,
     pointerLockChanged,
     pointerLockStatus,
@@ -20,25 +19,26 @@ import {
     requestPointerLock,
     requirePointerLock,
     resizeViewport,
-    World,
     setInputEnabled,
     Time,
     touchPoint,
+    UpdatePlayerControlSystem,
     visibilityChanged,
+    World,
 } from "@dylanebert/shallot";
 import { sizeView, type View } from "@dylanebert/shallot/rendering";
 
 function inputState(): World {
-    const state = new World();
-    for (const system of InputPlugin.systems ?? []) state.addSystem(system, InputPlugin.name);
-    return state;
+    const world = new World();
+    for (const system of InputPlugin.systems ?? []) world.addSystem(system, InputPlugin.name);
+    return world;
 }
 
 function browserInputState(): World {
-    const state = inputState();
+    const world = inputState();
     for (const system of BrowserInputPlugin.systems ?? [])
-        state.addSystem(system, BrowserInputPlugin.name);
-    return state;
+        world.addSystem(system, BrowserInputPlugin.name);
+    return world;
 }
 
 type FixtureListener = (event: any) => void;
@@ -201,11 +201,11 @@ function declaredHost(
 
 test("the production browser adapter bypasses shared input producers or loses focus, pointer, touch and visibility transitions", () => {
     const fixture = declaredHost();
-    const state = inputState();
+    const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
-    for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
+    for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
     try {
-        state.step(0);
+        world.step(0);
         fixture.emitCanvas("pointerdown", {
             pointerId: 1,
             pointerType: "mouse",
@@ -234,7 +234,7 @@ test("the production browser adapter bypasses shared input producers or loses fo
             clientY: 60,
             preventDefault() {},
         });
-        const input = state.resource(Devices);
+        const input = world.resource(Devices);
         if (
             !input.keys.held.has("KeyW") ||
             input.focused !== 0 ||
@@ -252,7 +252,7 @@ test("the production browser adapter bypasses shared input producers or loses fo
         fixture.document.emit("visibilitychange");
         if (input.keys.held.has("KeyW") || Number(input.touch.count) !== 0 || input.mouse.left)
             throw new Error("visibility did not release captured input");
-        state.dispose();
+        world.dispose();
         if (
             fixture.listenerCount() !== 0 ||
             fixture.canvas.style.touchAction !== "auto" ||
@@ -260,7 +260,7 @@ test("the production browser adapter bypasses shared input producers or loses fo
         )
             throw new Error("adapter teardown left listeners, capture or canvas state");
     } finally {
-        state.dispose();
+        world.dispose();
     }
 });
 
@@ -275,30 +275,30 @@ function replaceGlobal(name: "document" | "window", value: unknown): () => void 
 
 test("a browser adapter setup exception leaves listeners or canvas capture effects installed", () => {
     const fixture = declaredHost({ failOn: "wheel" });
-    const state = inputState();
+    const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
-    for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
+    for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
     const report = console.error;
     console.error = () => {};
     try {
-        state.step(0);
+        world.step(0);
     } finally {
         console.error = report;
     }
-    state.dispose();
+    world.dispose();
     if (fixture.listenerCount() !== 0 || fixture.canvas.style.touchAction !== "auto")
         throw new Error("partial adapter setup was not unwound");
 });
 
-test("a pointer-lock promise rejection after disposal changes the retired State or releases another canvas", async () => {
+test("a pointer-lock promise rejection after disposal changes the retired World or releases another canvas", async () => {
     const fixture = declaredHost({ pendingLock: true });
-    const state = inputState();
+    const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
-    for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
-    state.step(0);
-    requestPointerLock(state);
-    const input = state.resource(Devices);
-    state.dispose();
+    for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
+    world.step(0);
+    requestPointerLock(world);
+    const input = world.resource(Devices);
+    world.dispose();
     fixture.rejectLock(new Error("late refusal"));
     await Promise.resolve();
     if (input.pointer.lock.status !== "unlocked" || input.pointer.lock.refusal !== null)
@@ -307,7 +307,7 @@ test("a pointer-lock promise rejection after disposal changes the retired State 
         throw new Error("late lock rejection crossed the retired adapter boundary");
 });
 
-test("disposing and recreating a State leaves old listeners delivering input to the replacement", () => {
+test("disposing and recreating a World leaves old listeners delivering input to the replacement", () => {
     const fixture = declaredHost();
     const first = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -325,7 +325,7 @@ test("disposing and recreating a State leaves old listeners delivering input to 
     if (fixture.listenerCount() !== 0) throw new Error("replacement adapter leaked listeners");
 });
 
-test("releasing one State's pointer lock affects a different State's canvas", () => {
+test("releasing one World's pointer lock affects a different World's canvas", () => {
     const firstFixture = declaredHost();
     const secondFixture = declaredHost();
     const first = inputState();
@@ -395,7 +395,7 @@ test("a pending second-canvas pointer-lock request leaks the first canvas owners
         { pointerId: 2, pointerType: "mouse", button: 0, buttons: 1, preventDefault() {} },
         fixture.canvases[1],
     );
-    focus(first, 1);
+    focusCanvas(first, 1);
     requestPointerLock(first);
     if (Number(fixture.requestCount) !== 2 || fixture.lock.element !== fixture.canvases[0])
         throw new Error("second canvas did not remain pending behind the first lock");
@@ -428,12 +428,12 @@ test("a pending second-canvas pointer-lock request leaks the first canvas owners
 
 test("a pointer-lock grant that arrives after adapter disposal leaves the retired canvas locked", async () => {
     const fixture = declaredHost({ pendingLock: true });
-    const state = inputState();
+    const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
-    for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
-    state.step(0);
-    requestPointerLock(state);
-    state.dispose();
+    for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
+    world.step(0);
+    requestPointerLock(world);
+    world.dispose();
 
     fixture.lock.element = fixture.canvas;
     fixture.resolveLock(fixture.canvas);
@@ -476,7 +476,7 @@ test("releasing a retired adapter's late pointer-lock grant releases a replaceme
 
 test("non-Player browser input requires lock, or Player lock behavior depends on direct DOM access", () => {
     const controlled = inputState();
-    controlled.addSystem(PlayerControlSystem, "Player");
+    controlled.addSystem(UpdatePlayerControlSystem, "Player");
     controlled.step(0);
     const controlledDevices = controlled.resource(Devices);
     if (!controlledDevices.requireLock)
@@ -486,24 +486,24 @@ test("non-Player browser input requires lock, or Player lock behavior depends on
         throw new Error("Player disposal did not clear its lock intent");
 
     const fixture = declaredHost();
-    const state = inputState();
-    const _devices = state.resource(Devices);
+    const world = inputState();
+    const _devices = world.resource(Devices);
     const plugin = createBrowserInputPlugin(fixture.host);
-    for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
-    state.addSystem(PlayerControlSystem, "Player");
-    state.step(0);
-    pointerButton(state, "left", true);
+    for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
+    world.addSystem(UpdatePlayerControlSystem, "Player");
+    world.step(0);
+    pointerButton(world, "left", true);
     if (_devices.mouse.left) throw new Error("Player lock gate did not hold before engagement");
-    requestPointerLock(state);
+    requestPointerLock(world);
     fixture.emitLockChange();
-    pointerButton(state, "left", true);
+    pointerButton(world, "left", true);
     if (!_devices.mouse.left) throw new Error("Player lock gate did not open after engagement");
-    state.dispose();
+    world.dispose();
     if (fixture.releaseCount !== 1)
         throw new Error("Player disposal did not release through the adapter");
 });
 
-test("a State with the plain input owner binds browser listeners merely because browser globals exist", () => {
+test("a World with the plain input owner binds browser listeners merely because browser globals exist", () => {
     let queried = 0;
     let listeners = 0;
     const canvas = {
@@ -520,17 +520,17 @@ test("a State with the plain input owner binds browser listeners merely because 
     const restoreWindow = replaceGlobal("window", {
         addEventListener: () => listeners++,
     });
-    const state = inputState();
+    const world = inputState();
     try {
-        state.step(0);
-        pressKey(state, "KeyW");
-        state.step(Time.FIXED_DT);
-        if (!state.resource(Devices).keys.held.has("KeyW"))
+        world.step(0);
+        pressKey(world, "KeyW");
+        world.step(Time.FIXED_DT);
+        if (!world.resource(Devices).keys.held.has("KeyW"))
             throw new Error("application input was lost");
         if (queried !== 0 || listeners !== 0)
             throw new Error("host producer was composed implicitly");
     } finally {
-        state.dispose();
+        world.dispose();
         restoreWindow();
         restoreDocument();
     }
@@ -547,12 +547,12 @@ test("browser viewport and audio-status producers overwrite application facts wh
         addEventListener: () => listeners++,
     });
     const restoreWindow = replaceGlobal("window", { addEventListener: () => listeners++ });
-    const state = inputState();
+    const world = inputState();
     try {
-        resizeViewport(state, 0, 100, 50, 2);
-        audioContextState(state, "running");
-        state.step(0);
-        const input = state.resource(Devices);
+        resizeViewport(world, 0, 100, 50, 2);
+        audioContextState(world, "running");
+        world.step(0);
+        const input = world.resource(Devices);
         const viewport = input.viewport.get(0);
         if (
             viewport?.cssWidth !== 100 ||
@@ -563,7 +563,7 @@ test("browser viewport and audio-status producers overwrite application facts wh
         )
             throw new Error("omitted host reports changed supplied facts");
     } finally {
-        state.dispose();
+        world.dispose();
         restoreWindow();
         restoreDocument();
     }
@@ -586,18 +586,18 @@ test("the browser input producer fails to bind listeners or request pointer lock
     const restoreWindow = replaceGlobal("window", {
         addEventListener: () => listeners++,
     });
-    const state = browserInputState();
-    const _devices = state.resource(Devices);
+    const world = browserInputState();
+    const _devices = world.resource(Devices);
     try {
-        state.step(0);
-        pointerButton(state, "left", true);
+        world.step(0);
+        pointerButton(world, "left", true);
         if (_devices.requireLock || !_devices.mouse.left)
             throw new Error("non-Player browser input unexpectedly required pointer lock");
-        requestPointerLock(state);
+        requestPointerLock(world);
         if (listeners === 0 || requested !== 1)
             throw new Error("browser input was not the default adapter");
     } finally {
-        state.dispose();
+        world.dispose();
         restoreWindow();
         restoreDocument();
     }
@@ -606,10 +606,10 @@ test("the browser input producer fails to bind listeners or request pointer lock
 test("composing the browser input producer without host globals preserves the plain input owner's transitions", () => {
     const restoreDocument = replaceGlobal("document", undefined);
     const restoreWindow = replaceGlobal("window", undefined);
-    const state = browserInputState();
+    const world = browserInputState();
     let pressed = false;
     let released = false;
-    state.addSystem({
+    world.addSystem({
         group: "simulation",
         update(s: World) {
             const keys = s.resource(Devices).keys;
@@ -618,45 +618,45 @@ test("composing the browser input producer without host globals preserves the pl
         },
     });
     try {
-        state.step(0);
-        pressKey(state, "KeyW");
-        state.step(Time.FIXED_DT);
-        releaseKey(state, "KeyW");
-        state.step(0);
-        if (!pressed || !released || state.resource(Devices).keys.held.has("KeyW"))
+        world.step(0);
+        pressKey(world, "KeyW");
+        world.step(Time.FIXED_DT);
+        releaseKey(world, "KeyW");
+        world.step(0);
+        if (!pressed || !released || world.resource(Devices).keys.held.has("KeyW"))
             throw new Error("browser composition lost shared input transitions");
     } finally {
-        state.dispose();
+        world.dispose();
         restoreWindow();
         restoreDocument();
     }
 });
 
 test("controlled input edges depend on frame cadence rather than the independent fixed and draw boundaries", () => {
-    const state = inputState();
-    const _devices = state.resource(Devices);
+    const world = inputState();
+    const _devices = world.resource(Devices);
     const fixedSeen: string[] = [];
-    state.addSystem({
+    world.addSystem({
         group: "fixed",
         update(s: World) {
             if (s.resource(Devices).keys.tickPressed.has("KeyA")) fixedSeen.push("A");
             if (s.resource(Devices).keys.tickPressed.has("KeyB")) fixedSeen.push("B");
         },
     });
-    pressKey(state, "KeyA");
-    state.step(0);
+    pressKey(world, "KeyA");
+    world.step(0);
     if (!_devices.keys.tickPressed.has("KeyA")) throw new Error("zero-tick frame reset a press");
-    state.step(Time.FIXED_DT * 2);
-    pressKey(state, "KeyB");
-    state.step(Time.FIXED_DT);
+    world.step(Time.FIXED_DT * 2);
+    pressKey(world, "KeyB");
+    world.step(Time.FIXED_DT);
     if (fixedSeen.join("") !== "AB") throw new Error(`unexpected fixed edges: ${fixedSeen}`);
     if (_devices.keys.pressed.has("KeyA") || _devices.keys.tickPressed.size !== 0)
         throw new Error("draw or fixed edge reset did not run");
-    state.dispose();
+    world.dispose();
 });
 
 test("a key press, pointer, wheel or touch fact is lost before the frame's readers see it, or a release edge never appears", () => {
-    const state = inputState();
+    const world = inputState();
     const seen: Array<{ held: boolean; pressed: boolean; released: boolean }> = [];
     const reader = {
         group: "simulation" as const,
@@ -669,22 +669,22 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
             });
         },
     };
-    state.addSystem(reader);
-    pressKey(state, "KeyW");
-    pointerMove(state, 12, 24, 3, -2);
-    pointerButton(state, "left", true);
-    pointerWheel(state, 7);
-    touchPoint(state, 1, 10, 20);
-    state.step(Time.FIXED_DT);
+    world.addSystem(reader);
+    pressKey(world, "KeyW");
+    pointerMove(world, 12, 24, 3, -2);
+    pointerButton(world, "left", true);
+    pointerWheel(world, 7);
+    touchPoint(world, 1, 10, 20);
+    world.step(Time.FIXED_DT);
     if (!seen[0]?.held || !seen[0].pressed || seen[0].released)
         throw new Error("press edge was not visible");
-    const d = state.resource(Devices);
+    const d = world.resource(Devices);
     if (d.mouse.x !== 12 || d.mouse.y !== 24 || d.mouse.deltaX !== 0 || d.mouse.scroll !== 0) {
         // frame latches are deliberately cleared at the draw boundary; the reader above observes them.
         throw new Error("frame device deltas were not cleared");
     }
     if (d.touch.count !== 1 || !d.mouse.left) throw new Error("pointer/touch fact was lost");
-    releaseKey(state, "KeyW");
+    releaseKey(world, "KeyW");
     const releaseReader = {
         group: "simulation" as const,
         update(s: World) {
@@ -696,60 +696,60 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
             }
         },
     };
-    state.addSystem(releaseReader);
-    state.step(0);
-    state.dispose();
+    world.addSystem(releaseReader);
+    world.step(0);
+    world.dispose();
 });
 
 test("a key press in a frame with zero fixed ticks is dropped before the next frame's first fixed tick", () => {
-    const state = inputState();
+    const world = inputState();
     let count = 0;
-    state.addSystem({
+    world.addSystem({
         group: "fixed",
         update(s: World) {
             if (s.resource(Devices).keys.tickPressed.has("KeyA")) count++;
         },
     });
-    pressKey(state, "KeyA");
-    state.step(0);
-    state.step(Time.FIXED_DT);
+    pressKey(world, "KeyA");
+    world.step(0);
+    world.step(Time.FIXED_DT);
     if (count !== 1) throw new Error(`expected carried edge, got ${count}`);
-    state.dispose();
+    world.dispose();
 });
 
-test("a press records a wall-clock timestamp instead of the State fixed tick, so replays diverge", () => {
-    const state = inputState();
-    state.step(Time.FIXED_DT);
-    const tick = state.time.fixedTick;
-    pressKey(state, "KeyB");
-    if (state.resource(Devices).keys.pressedTick.get("KeyB") !== tick)
+test("a press records a wall-clock timestamp instead of the World fixed tick, so replays diverge", () => {
+    const world = inputState();
+    world.step(Time.FIXED_DT);
+    const tick = world.time.fixedTick;
+    pressKey(world, "KeyB");
+    if (world.resource(Devices).keys.pressedTick.get("KeyB") !== tick)
         throw new Error("wrong pressedTick");
-    state.dispose();
+    world.dispose();
 });
 
 test("a press and release between frames loses an edge or leaves the key held", () => {
-    const state = inputState();
+    const world = inputState();
     let seen = false;
-    state.addSystem({
+    world.addSystem({
         group: "simulation",
         update(s: World) {
             const keys = s.resource(Devices).keys;
             seen = keys.pressed.has("KeyQ") && keys.released.has("KeyQ") && !keys.held.has("KeyQ");
         },
     });
-    pressKey(state, "KeyQ");
-    releaseKey(state, "KeyQ");
-    state.step(0);
+    pressKey(world, "KeyQ");
+    releaseKey(world, "KeyQ");
+    world.step(0);
     if (!seen) throw new Error("between-frame edges were not latched");
-    state.dispose();
+    world.dispose();
 });
 
 test("the same press yields a different fixed edge count under batched and one-tick-per-frame cadence", () => {
     const batched = inputState();
     const stepped = inputState();
-    const count = (state: World) => {
+    const count = (world: World) => {
         let value = 0;
-        state.addSystem({
+        world.addSystem({
             group: "fixed",
             update(s: World) {
                 if (s.resource(Devices).keys.tickPressed.has("KeyE")) value++;
@@ -770,89 +770,89 @@ test("the same press yields a different fixed edge count under batched and one-t
 });
 
 test("window blur leaves keys or pointer buttons held, or releases them without an edge", () => {
-    const state = inputState();
-    pressKey(state, "KeyW");
-    pointerButton(state, "left", true);
-    blur(state);
-    const input = state.resource(Devices);
+    const world = inputState();
+    pressKey(world, "KeyW");
+    pointerButton(world, "left", true);
+    blurCanvas(world);
+    const input = world.resource(Devices);
     if (input.keys.held.has("KeyW") || !input.keys.released.has("KeyW"))
         throw new Error("blur did not emit a key release edge");
     if (input.mouse.left) throw new Error("blur left a pointer button held");
-    state.dispose();
+    world.dispose();
 });
 
 test("hiding the page leaves keys or pointer buttons held, or releases them without an edge", () => {
-    const state = inputState();
-    focus(state, 0);
-    pressKey(state, "KeyA");
-    pointerButton(state, "right", true);
-    visibilityChanged(state, true);
-    const input = state.resource(Devices);
+    const world = inputState();
+    focusCanvas(world, 0);
+    pressKey(world, "KeyA");
+    pointerButton(world, "right", true);
+    visibilityChanged(world, true);
+    const input = world.resource(Devices);
     if (input.keys.held.has("KeyA") || !input.keys.released.has("KeyA"))
         throw new Error("hidden visibility did not emit a key release edge");
     if (input.mouse.right) throw new Error("hidden visibility left a pointer button held");
-    state.dispose();
+    world.dispose();
 });
 
 test("pointer-lock exit leaves keys or pointer buttons held, or loses the lock refusal reason", () => {
-    const state = inputState();
-    const _devices = state.resource(Devices);
-    pointerLockChanged(state, true);
-    pressKey(state, "KeyD");
-    pointerButton(state, "middle", true);
-    pointerLockChanged(state, false);
+    const world = inputState();
+    const _devices = world.resource(Devices);
+    pointerLockChanged(world, true);
+    pressKey(world, "KeyD");
+    pointerButton(world, "middle", true);
+    pointerLockChanged(world, false);
     const input = _devices;
-    if (pointerLockStatus(state) !== "unlocked") throw new Error("lock status did not exit");
-    pointerLockChanged(state, true);
-    pointerLockChanged(state, false, "denied by browser");
+    if (pointerLockStatus(world) !== "unlocked") throw new Error("lock status did not exit");
+    pointerLockChanged(world, true);
+    pointerLockChanged(world, false, "denied by browser");
     if (
-        pointerLockStatus(state) !== "refused" ||
+        pointerLockStatus(world) !== "refused" ||
         _devices.pointer.lock.refusal !== "denied by browser"
     )
         throw new Error("lock refusal was not recorded");
     if (input.keys.held.has("KeyD") || !input.keys.released.has("KeyD"))
         throw new Error("lock exit did not emit a key release edge");
     if (input.mouse.middle) throw new Error("lock exit left a pointer button held");
-    state.dispose();
+    world.dispose();
 });
 
 test("a pointer button reads down before a required pointer lock engages", () => {
-    const state = inputState();
-    const _devices = state.resource(Devices);
-    requirePointerLock(state, true);
-    pointerButton(state, "left", true);
+    const world = inputState();
+    const _devices = world.resource(Devices);
+    requirePointerLock(world, true);
+    pointerButton(world, "left", true);
     if (_devices.mouse.left) throw new Error("button crossed the lock gate");
-    pointerLockChanged(state, true);
-    pointerButton(state, "left", true);
+    pointerLockChanged(world, true);
+    pointerButton(world, "left", true);
     if (!_devices.mouse.left) throw new Error("locked button did not engage");
-    state.dispose();
+    world.dispose();
 });
 
-test("a suspended State still reads held keys, pointer or touch data, or accepts new presses", () => {
-    const state = inputState();
-    pressKey(state, "KeyS");
-    pointerButton(state, "left", true);
-    setInputEnabled(state, false);
-    const input = state.resource(Devices);
+test("a suspended World still reads held keys, pointer or touch data, or accepts new presses", () => {
+    const world = inputState();
+    pressKey(world, "KeyS");
+    pointerButton(world, "left", true);
+    setInputEnabled(world, false);
+    const input = world.resource(Devices);
     if (!input.suspended || input.keys.held.has("KeyS") || !input.keys.released.has("KeyS"))
         throw new Error("suspension did not neutralize the key with an edge");
     if (input.mouse.left || input.mouse.deltaX !== 0 || input.touch.count !== 0)
         throw new Error("suspension did not neutralize pointer/touch reads");
-    pressKey(state, "KeyQ");
+    pressKey(world, "KeyQ");
     if (input.keys.held.has("KeyQ")) throw new Error("suspended producer changed the record");
-    state.dispose();
+    world.dispose();
 });
 
-test("suspending one State suspends or clears a second State's device record", () => {
+test("suspending one World suspends or clears a second World's device record", () => {
     const first = inputState();
     const second = inputState();
     pressKey(first, "KeyW");
     pressKey(second, "KeyW");
     setInputEnabled(first, false);
     if (!first.resource(Devices).suspended || first.resource(Devices).keys.held.has("KeyW"))
-        throw new Error("first State did not suspend");
+        throw new Error("first World did not suspend");
     if (second.resource(Devices).suspended || !second.resource(Devices).keys.held.has("KeyW"))
-        throw new Error("second State was affected by suspension");
+        throw new Error("second World was affected by suspension");
     first.dispose();
     second.dispose();
 });
@@ -877,9 +877,9 @@ test("interleaved producer calls on two States leak edges or held keys between t
     b.dispose();
 });
 
-test("a State-scoped viewport row supplies CSS size and DPR to sizeView through backingSize", () => {
-    const state = inputState();
-    resizeViewport(state, 0, 100, 50, 2);
+test("a World-scoped viewport row supplies CSS size and DPR to sizeView through backingSize", () => {
+    const world = inputState();
+    resizeViewport(world, 0, 100, 50, 2);
     const canvas = {
         height: 0,
         style: { imageRendering: "" },
@@ -897,31 +897,31 @@ test("a State-scoped viewport row supplies CSS size and DPR to sizeView through 
         present: null,
         slot: 0,
         stamp: 0,
-        tag: null,
+        pickingId: null,
         viewportIndex: 0,
         width: 0,
     } as View;
-    sizeView(state, 1, view);
+    sizeView(world, 1, view);
     if (canvas.width !== 200 || canvas.height !== 100)
         throw new Error(`expected 200x100 backing, got ${canvas.width}x${canvas.height}`);
-    state.dispose();
+    world.dispose();
 });
 
-test("the normalized pointer coordinate uses the State-scoped viewport row after resize", () => {
-    const state = inputState();
-    const _devices = state.resource(Devices);
-    resizeViewport(state, 0, 100, 50, 1);
-    focus(state, 0);
-    pointerMove(state, 50, 25);
+test("the normalized pointer coordinate uses the World-scoped viewport row after resize", () => {
+    const world = inputState();
+    const _devices = world.resource(Devices);
+    resizeViewport(world, 0, 100, 50, 1);
+    focusCanvas(world, 0);
+    pointerMove(world, 50, 25);
     if (_devices.mouse.normalizedX !== 0.5 || _devices.mouse.normalizedY !== 0.5)
         throw new Error("initial normalized pointer coordinate was wrong");
-    resizeViewport(state, 0, 200, 100, 1);
+    resizeViewport(world, 0, 200, 100, 1);
     if (
-        state.resource(Devices).mouse.normalizedX !== 0.25 ||
-        state.resource(Devices).mouse.normalizedY !== 0.25
+        world.resource(Devices).mouse.normalizedX !== 0.25 ||
+        world.resource(Devices).mouse.normalizedY !== 0.25
     )
         throw new Error("normalized pointer coordinate did not follow resize");
-    state.dispose();
+    world.dispose();
 });
 
 test("two States hold independent per-canvas viewport records", () => {

@@ -1,4 +1,4 @@
-import type { Alias, Input } from "../utils";
+import type { Alias, FieldInput } from "../utils";
 import type { Component } from "./component";
 import { idOf, intern, isType, lanes } from "./component";
 import { kebab } from "./reflection";
@@ -11,12 +11,12 @@ export interface Traits {
      * components this one stands in for — an entity carrying it satisfies another component's
      * `requires` of any listed component, without holding that component itself. `Body.provides =
      * [Transform]` (physics owns the entity's world transform, so `Body` excludes `Transform` yet a
-     * `Part` on the same entity still renders). Directional (the counterpart to `requires`), read by
-     * scene validation only, not enforced at `state.add`
+     * `MeshInstance` on the same entity still renders). Directional (the counterpart to `requires`), read by
+     * scene validation only, not enforced at `world.add`
      */
     provides?: Component[];
     /** one instance per scene (lights, the active camera). Informational — surfaced through
-     * reflection, not enforced at `state.add` */
+     * reflection, not enforced at `world.add` */
     singleton?: boolean;
     /**
      * runtime-derived decoration — a system owns its membership and values (for example
@@ -29,24 +29,24 @@ export interface Traits {
     /**
      * components that cannot coexist on the same entity. Symmetric — declaring
      * `A.excludes = [B]` is equivalent to declaring `B.excludes = [A]`; both
-     * directions are enforced at `state.add` and during scene validation
+     * directions are enforced at `world.add` and during scene validation
      */
     excludes?: Component[];
     /**
-     * default field values, applied on `state.add`. Values are scalars for
-     * Single fields and per-lane arrays for direct {@link Pair}/{@link Quad}
+     * default field values, applied on `world.add`. Values are scalars for
+     * ScalarField fields and per-lane arrays for direct {@link Vector2Field}/{@link Vector4Field}
      * fields (`{ pos: [0, 0, 0, 0] }`). Dotted keys (`{ "pos.x": 0 }`)
-     * address a single lane of a parent Pair/Quad
+     * address a single lane of a parent Vector2Field/Vector4Field
      */
-    defaults?: (state: World) => Record<string, number | readonly number[]>;
+    defaults?: (world: World) => Record<string, number | readonly number[]>;
     /** per-field authoring aliases — a stored vector field edited in an alternate representation */
     aliases?: Record<string, Alias>;
-    parse?: Record<string, (value: string, state: World) => number | undefined>;
-    format?: Record<string, (value: number, state: World) => string | undefined>;
+    parse?: Record<string, (value: string, world: World) => number | undefined>;
+    format?: Record<string, (value: number, world: World) => string | undefined>;
     enums?: Record<string, Record<string, number>>;
     /** per-field input widget — a stored field shown through a richer control (a `toggle`
      * checkbox, an `angle` unit switcher). Display-only; storage is unchanged */
-    inputs?: Record<string, Input>;
+    inputs?: Record<string, FieldInput>;
     annotations?: Record<string, unknown>;
 }
 
@@ -116,13 +116,13 @@ export class ComponentRegistry {
     }
 
     /** write default values into this world's field columns. */
-    applyDefaults(state: World, component: Component, eid: number): void {
+    applyDefaults(world: World, component: Component, eid: number): void {
         const entry = this._byId.get(idOf(component));
         if (!entry) return;
         let plan = entry.plan;
-        if (plan === undefined) plan = entry.plan = compilePlan(entry, state);
+        if (plan === undefined) plan = entry.plan = compilePlan(entry, world);
         if (!plan) return;
-        const storage = state.of(component) as Record<
+        const storage = world.storage(component) as Record<
             string,
             { set(eid: number, ...values: number[]): void }
         >;
@@ -172,25 +172,19 @@ function expandEnums(t: Traits): Traits {
     return { ...t, parse, format };
 }
 
-/** registration and reflection helpers always resolve through the owning State. */
-export const register = (state: World, name: string, component: Component, traits?: Traits): void =>
-    state.registry.register(name, component, traits);
-export const getExclusions = (state: World, component: Component) =>
-    state.registry.getExclusions(component);
-export const getComponent = (state: World, name: string) => state.registry.getComponent(name);
-export const getTraits = (state: World, name: string) => state.registry.getTraits(name);
-export const getName = (state: World, component: Component) => state.registry.getName(component);
-export const entries = (state: World) => state.registry.entries();
-export const applyDefaults = (state: World, component: Component, eid: number) =>
-    state.registry.applyDefaults(state, component, eid);
-export const clear = (state: World): void => state.registry.clear();
+/** registration and reflection helpers always resolve through the owning World. */
+
+export const getName = (world: World, component: Component) => world.registry.getName(component);
+
+export const applyDefaults = (world: World, component: Component, eid: number) =>
+    world.registry.applyDefaults(world, component, eid);
 
 const LANE_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 };
 
-function compilePlan(entry: Entry, state: World): DefaultsPlan | null {
+function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
     const defaults = entry.traits?.defaults;
     if (!defaults) return null;
-    const dict = defaults(state);
+    const dict = defaults(world);
     const schema = entry.component as Record<string, unknown>;
     const fields = new Map<string, number[]>();
 

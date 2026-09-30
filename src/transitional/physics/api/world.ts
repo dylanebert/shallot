@@ -4,7 +4,7 @@
 // planck/rapier idiom). Definitions are plain partial data merged over the ported defaults.
 //
 // This is authoring ergonomics only — the internals stay op-for-op faithful to Box3D regardless.
-// The step and the reads that depend on it (velocities, awake state) arrive with the solver stage.
+// The step and the reads that depend on it (velocities, awake world) arrive with the solver stage.
 
 import type { ShapeProxy } from "../collision/distance";
 import {
@@ -125,8 +125,8 @@ export class PhysicsWorld {
     private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
     private readonly _moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
 
-    constructor(def: Partial<WorldDef> = {}, state?: import("../../../engine").World) {
-        this._worldId = createWorld(state, { ...defaultWorldDef(), ...def });
+    constructor(def: Partial<WorldDef> = {}, world?: import("../../../engine").World) {
+        this._worldId = createWorld(world, { ...defaultWorldDef(), ...def });
         // getWorld succeeds immediately after creation.
         this.state = getWorld(this._worldId) as WorldState;
     }

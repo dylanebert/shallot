@@ -168,7 +168,7 @@ export const prepareLayout = tgpu.bindGroupLayout({
     p3: { storage: Params, access: "mutable" },
 });
 
-// INIT — zero the cross-workgroup state: passHist [0, binBlocks*RADIX*PASSES) (one descriptor
+// INIT — zero the cross-workgroup world: passHist [0, binBlocks*RADIX*PASSES) (one descriptor
 // per (pass, partition, digit)), globalHist [0, RADIX*PASSES), index [0, PASSES) (the per-pass
 // partition-assignment counters). Dispatched binBlocks*PASSES workgroups, so it scales with N.
 const initKernel = tgpu
@@ -699,14 +699,14 @@ export function radixWgsl(): {
  * device.queue.submit([enc.finish()]);
  */
 export async function createRadixSort(
-    state: World,
+    world: World,
     device: GPUDevice,
     maxKeys: number,
     shared: RadixSortShared = {},
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<RadixSort> {
-    if (!subgroups) return createRadixSortLds(state, device, maxKeys, shared);
-    const root = state.gpu.root;
+    if (!subgroups) return createRadixSortLds(world, device, maxKeys, shared);
+    const root = world.gpu.root;
     const maxBlocks = Math.max(1, Math.ceil(maxKeys / PART_SIZE));
     if (maxBlocks * RADIX_PASSES > MAX_DISPATCH) {
         throw new Error(
@@ -819,7 +819,7 @@ export async function createRadixSort(
 
     // labels are per-sorter: one app can stand up several (a BVH sorts internally, and a consumer may
     // hold its own beside it), and the precompile queue rejects a duplicate label
-    const scope = precompileScope(state, "radix");
+    const scope = precompileScope(world, "radix");
     for (const [label, bound] of [
         ["init", initBound],
         ["global-hist", histBound],
@@ -827,12 +827,12 @@ export async function createRadixSort(
         ["binning", binBound[0]],
         ...(prepare ? ([["prepare", prepare.bound]] as const) : []),
     ] as const) {
-        await precompile(state, `${scope}-${label}`, () => {
+        await precompile(world, `${scope}-${label}`, () => {
             return bound;
         });
     }
 
-    const span = (): GPUComputePassTimestampWrites | undefined => state.gpu.span?.("bvh:sort");
+    const span = (): GPUComputePassTimestampWrites | undefined => world.gpu.span?.("bvh:sort");
     const run = (
         encoder: GPUCommandEncoder,
         bound: TgpuComputePipeline,

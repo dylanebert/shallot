@@ -50,7 +50,7 @@ export interface DrawArgs {
  * `mesh` references a registered Mesh by name: the consumer renderer pulls
  * indexed vertices from that mesh's `vertices` + `indices` buffers in WGSL.
  * `args` points at the indirect draw record. Surface bindings beyond mesh
- * resolve by name against `state.gpu.buffers`
+ * resolve by name against `world.gpu.buffers`
  */
 export interface Draw {
     name: string;
@@ -82,10 +82,10 @@ const createDraws = () => new DrawRegistry();
 
 /** every registered draw in the active world's registry, keyed by name */
 export const Draws: import("../../engine").Resource<Registry<Draw>> = {
-    create: (state) => state.resource(drawsKey),
+    create: (world) => world.resource(drawsKey),
 };
 
 /** Create this world's draw registry during RenderPlugin initialization. */
-export function initializeDrawState(state: World): void {
-    state.resource(drawsKey);
+export function initializeDrawState(world: World): void {
+    world.resource(drawsKey);
 }

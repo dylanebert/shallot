@@ -43,7 +43,7 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
     expect(a.body.headContactKey).not.toBe(NULL_INDEX);
     expect(contact.edges[0].bodyId).toBe(a.bodyId);
     expect(contact.edges[1].bodyId).toBe(b.bodyId);
-    // Pair recorded so it isn't turned into a second contact.
+    // Vector2Field recorded so it isn't turned into a second contact.
     expect(containsKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(true);
 
     destroyContact(world, contact, false);

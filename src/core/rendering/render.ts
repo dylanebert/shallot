@@ -6,7 +6,7 @@ import type { World } from "../../engine";
  * frame is a raw pass on it, replaying render bundles recorded at transitions
  * and dispatching compute over unwrapped pipelines and bind groups, so no
  * per-draw wrapper state runs in a steady frame. It is transient per-frame
- * state. `viewBuffers` is one static
+ * world. `viewBuffers` is one static
  * `View`-struct uniform buffer per shading slot (`MAX_VIEWS` of them — the
  * per-slot-buffer design, replacing the old single dynamic-offset UBO: a
  * depth-only slot's shadow-atlas passes never read `view`, so only the shading
@@ -14,12 +14,12 @@ import type { World } from "../../engine";
  * (shading + depth-only), unchanged — the writer sources each shading slot's
  * 208 B from the same subrange it always did. `cullVolumes` packs one per-slot cull
  * volume per active view (a tagged descriptor carrying a frustum's six clip-space planes;
- * published to `state.gpu.buffers` as `"cullVolumes"`); a GPU cull pass tests instance bounds
+ * published to `world.gpu.buffers` as `"cullVolumes"`); a GPU cull pass tests instance bounds
  * for `cullVolumes[slot]`.
  * `viewCount` is how many slots `BeginFrameSystem` populated this frame: the
  * view dimension a producer's cull dispatches over. `shadeCount` is the shading
  * prefix of those slots (presenting cameras, the views that carry clustered-light
- * state); depth-only views (shadow light cameras) fill `[shadeCount, viewCount)`,
+ * world); depth-only views (shadow light cameras) fill `[shadeCount, viewCount)`,
  * so the cluster + light-cull passes dispatch over `shadeCount` alone.
  * Renderer-agnostic: knows
  * nothing about how draws are issued. Lives as a leaf (no intra-module imports)
@@ -53,11 +53,11 @@ function createRender(): Render {
 }
 
 /** Create this world's render state during RenderPlugin initialization. */
-export function initializeRenderState(state: World): void {
-    state.resource(renderKey);
+export function initializeRenderState(world: World): void {
+    world.resource(renderKey);
 }
 
-/** World-owned rendering state, resolved with `state.resource(Render)`. */
+/** World-owned rendering world, resolved with `world.resource(Render)`. */
 export const Render: import("../../engine").Resource<Render> = {
-    create: (state) => state.resource(renderKey),
+    create: (world) => world.resource(renderKey),
 };

@@ -82,7 +82,7 @@ export type ConvexContactCache = { simplexCache: SimplexCache; satCache: SATCach
 export type TriangleCache = { triangleIndex: number; cache: ConvexContactCache };
 
 /**
- * State a mesh/height-field contact carries in place of the convex cache (b3MeshContact): the
+ * World a mesh/height-field contact carries in place of the convex cache (b3MeshContact): the
  * per-triangle caches from the last narrowphase pass and the world-space bounds those triangles
  * were queried against, so an unmoved body can skip re-querying the BVH.
  */
@@ -300,7 +300,7 @@ export function writeBodySimIndex(world: WorldState, body: Body): void {
 
 /** Re-partition every contact on a body's edge list after the body's setIndex changed (wake/sleep/
  * transfer), and refresh this body's `bodySimIndex` side (localIndex was reassigned in the same move).
- * Walks the doubly-linked contact list; each contact is reclassified against current state. */
+ * Walks the doubly-linked contact list; each contact is reclassified against current world. */
 export function reclassifyBodyContacts(world: WorldState, body: Body): void {
     const simIndex = body.type === BodyType.Static ? NULL_INDEX : body.localIndex;
     let contactKey = body.headContactKey;

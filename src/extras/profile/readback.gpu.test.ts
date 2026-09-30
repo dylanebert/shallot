@@ -9,17 +9,17 @@ const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [Profile
 test("a profiler without timestamp-query runs and distinguishes missing GPU timings from zero", async () => {
     const app = subjects()[0];
     try {
-        expect(app.state.gpu.device.features.has("timestamp-query")).toBe(false);
-        const stats = app.state.resource(Profile);
-        app.state.step(0);
+        expect(app.world.gpu.device.features.has("timestamp-query")).toBe(false);
+        const stats = app.world.resource(Profile);
+        app.world.step(0);
         expect(stats.gpuTiming).toBe("requires timestamp-query");
-        expect(app.state.gpu.span?.("untimed")).toBeUndefined();
+        expect(app.world.gpu.span?.("untimed")).toBeUndefined();
         expect(stats.gpu.size).toBe(0);
         expect(stats.gpuTime.size).toBe(0);
         expect(stats.gpuFires.size).toBe(0);
-        expect(app.state.readback.allocated).toBe(0);
+        expect(app.world.readback.allocated).toBe(0);
         const before = stats.bufferBytes;
-        const buffer = app.state.gpu.device.createBuffer({
+        const buffer = app.world.gpu.device.createBuffer({
             size: 16,
             usage: GPUBufferUsage.COPY_DST,
         });

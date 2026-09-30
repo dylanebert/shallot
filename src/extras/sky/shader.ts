@@ -5,7 +5,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { type Background, BgCtx, backgroundLayout } from "../../core/rendering";
+import { type Background, BackgroundContext, backgroundLayout } from "../../core/rendering";
 import { engineLayout } from "../../standard/rendering";
 
 /** the procedural sky uniform. Explicit pad fields preserve the shipped 144-byte contract: the two
@@ -286,7 +286,7 @@ export const skyLayout = backgroundLayout({ sky: { type: "uniform", struct: SkyG
 
 const skyFs = tgpu
     .fn(
-        [BgCtx],
+        [BackgroundContext],
         d.vec3f,
     )((ctx) => {
         "use gpu";

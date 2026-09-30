@@ -55,28 +55,28 @@ function createFrame(): Frame {
 }
 
 /** Create this world's frame UBO state during RenderPlugin initialization. */
-export function initializeFrameState(state: World): void {
-    state.resource(frameKey);
+export function initializeFrameState(world: World): void {
+    world.resource(frameKey);
 }
 
 export const Frame: import("../../engine").Resource<Frame> = {
-    create: (state) => state.resource(frameKey),
+    create: (world) => world.resource(frameKey),
 };
 
 /** Pack interpolation parameters, time, and frame counter into the shared Frame UBO. */
-export function writeFrame(state: World): void {
-    const _frame = state.resource(Frame);
+export function writeFrame(world: World): void {
+    const _frame = world.resource(Frame);
 
-    if (!state.gpu.device || !_frame.buffer) return;
-    const globalTransform = state.globalTransformRuntime;
+    if (!world.gpu.device || !_frame.buffer) return;
+    const globalTransform = world.globalTransformRuntime;
     if (globalTransform?.enabled) {
-        _frame.staging[GLOBAL_TRANSFORM_PARAMS_F32] = state.time.fixedAlpha;
+        _frame.staging[GLOBAL_TRANSFORM_PARAMS_F32] = world.time.fixedAlpha;
         _frame.staging[GLOBAL_TRANSFORM_PARAMS_F32 + 1] = globalTransform.current?.count ?? 0;
     }
-    _frame.staging[TIME_F32] = state.time.elapsed;
-    _frame.staging[DT_F32] = state.time.deltaTime;
-    _frame.stagingU32[FRAME_U32] = state.gpu.frame;
-    state.gpu.device.queue.writeBuffer(
+    _frame.staging[TIME_F32] = world.time.elapsed;
+    _frame.staging[DT_F32] = world.time.deltaTime;
+    _frame.stagingU32[FRAME_U32] = world.gpu.frame;
+    world.gpu.device.queue.writeBuffer(
         _frame.buffer,
         0,
         _frame.staging as Float32Array<ArrayBuffer>,

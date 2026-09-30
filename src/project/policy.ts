@@ -41,7 +41,7 @@ function recipeSourceViolations(root: string): string[] {
                 );
             if (PHYSICS_WORLD_ESCAPE.test(source))
                 violations.push(
-                    `recipe source uses Physics.world/physicsWorld: ${file}; use the State-scoped public seam`,
+                    `recipe source uses Physics.world/physicsWorld: ${file}; use the World-scoped public seam`,
                 );
         }
     }

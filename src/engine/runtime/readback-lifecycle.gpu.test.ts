@@ -1,12 +1,12 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { compileGpuFile } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { build } from "../app";
+import { createApp } from "../app";
 import { probeBuffer } from "./probe";
 import { countStaging } from "./readback.fixture";
 
 setDefaultTimeout(CEILING.gpu);
-const worlds: Awaited<ReturnType<typeof build>>[] = [];
+const worlds: Awaited<ReturnType<typeof createApp>>[] = [];
 const devices: GPUDevice[] = [];
 const subjects = compileGpuFile(import.meta.path, async () => {
     let counts!: ReturnType<typeof countStaging>["counts"];
@@ -18,7 +18,7 @@ const subjects = compileGpuFile(import.meta.path, async () => {
         if (tracker) counts = tracker.counts;
         try {
             for (let j = 0; j < count; j++)
-                worlds.push(await build({ defaults: false, plugins: [], device }));
+                worlds.push(await createApp({ defaults: false, plugins: [], device }));
         } finally {
             tracker?.restore();
         }
@@ -56,11 +56,11 @@ test("world pools on a shared device own separate staging and release it without
         counts,
     } = subjects();
     const device = devices[0];
-    const source = first.state.gpu.device.createBuffer({
+    const source = first.world.gpu.device.createBuffer({
         size: 4,
         usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-    const secondSource = second.state.gpu.device.createBuffer({
+    const secondSource = second.world.gpu.device.createBuffer({
         size: 4,
         usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
@@ -68,16 +68,16 @@ test("world pools on a shared device own separate staging and release it without
         device.queue.writeBuffer(source, 0, new Uint32Array([17]));
         device.queue.writeBuffer(secondSource, 0, new Uint32Array([17]));
         const [a, b] = await Promise.all([
-            probeBuffer(first.state, source),
-            probeBuffer(second.state, secondSource),
+            probeBuffer(first.world, source),
+            probeBuffer(second.world, secondSource),
         ]);
-        expect(first.state.readback).not.toBe(second.state.readback);
+        expect(first.world.readback).not.toBe(second.world.readback);
         expect(counts.live).toBe(2);
         first.dispose();
         expect(counts.live).toBe(1);
         expect(new Uint32Array(b.bytes)[0]).toBe(17);
         expect(new Uint32Array(a.bytes)[0]).toBe(17);
-        await probeBuffer(second.state, secondSource);
+        await probeBuffer(second.world, secondSource);
         expect(counts.live).toBe(1);
         second.dispose();
         expect(counts.live).toBe(0);
@@ -93,12 +93,12 @@ test("world pools on a shared device own separate staging and release it without
 test("a request after device loss creates no staging", async () => {
     const device = devices[1];
     const app = subjects().worlds[2];
-    const source = app.state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
-    const pool = app.state.readback;
+    const source = app.world.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
+    const pool = app.world.readback;
     try {
         device.destroy();
         await bounded("lost readback device notification", device.lost);
-        await expect(probeBuffer(app.state, source)).rejects.toThrow("disposed");
+        await expect(probeBuffer(app.world, source)).rejects.toThrow("disposed");
         expect(pool.allocated).toBe(0);
     } finally {
         app.dispose();
@@ -108,10 +108,10 @@ test("a request after device loss creates no staging", async () => {
 test("device loss rejects a pending request and releases staging", async () => {
     const device = devices[2];
     const app = subjects().worlds[3];
-    const source = app.state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
-    const pool = app.state.readback;
+    const source = app.world.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
+    const pool = app.world.readback;
     try {
-        const pending = probeBuffer(app.state, source);
+        const pending = probeBuffer(app.world, source);
         // Install rejection observation before destroying the device.
         const outcome = pending.then(
             () => undefined,

@@ -1,4 +1,4 @@
-import { minimalDark, run } from "@dylanebert/shallot";
+import { minimalDark, runApp } from "@dylanebert/shallot";
 import { OrbitPlugin } from "@dylanebert/shallot/extras";
 import { mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
@@ -6,14 +6,14 @@ import { SCENE } from "./scene";
 
 const host = mountHost();
 const loading = minimalDark({ container: host.frame });
-let app: Awaited<ReturnType<typeof run>> | undefined;
+let app: Awaited<ReturnType<typeof runApp>> | undefined;
 let pageClosed = false;
 window.addEventListener("pagehide", () => {
     pageClosed = true;
     app?.dispose();
 });
 
-void run({
+void runApp({
     plugins: [OrbitPlugin, revealAfterFirstFrame(host, loading)],
     scene: SCENE,
     loading,

@@ -1,4 +1,4 @@
-// Outline — the drop-in screen-space highlight. Add the `Outline` component to a Part entity and a
+// Outline — the drop-in screen-space highlight. Add the `Outline` component to a MeshInstance entity and a
 // uniform-width band hugs its silhouette: hover/select feedback, the player's grab highlight. The
 // technique is mask → jump-flood distance field → threshold (Ben Golus, "The Quest for Very Wide
 // Outlines"; Bevy's JFA outline crates), NOT an inverted hull (stylistic, non-uniform width). Cost
@@ -10,19 +10,19 @@
 //   1. mask — draw only the `Outline` entities (a scoped instanced draw, grouped by mesh) into a seed
 //      texture (each covered pixel seeds its own coordinate) + an attribute texture (per-entity color +
 //      width). Always-on-top by default; `Outline.occlude` depth-tests against sear's `view.depth` lane
-//      so an occluded object's outline hides (needs `Depth` on the camera).
+//      so an occluded object's outline hides (needs `DepthPrepass` on the camera).
 //   2. JFA — ping-pong fullscreen passes (`jfaSteps(maxWidth)` of them) that flood the nearest seed
 //      coordinate outward, producing a distance field within `width` pixels of every silhouette.
 //   3. composite — one fullscreen **compute** dispatch through the `sceneTransform` seam: reads the
 //      resolved scene (format-agnostic — the offscreen, or the fog scratch), the JFA distance field, and
 //      the seed's color/width, blends the band over the scene in linear, and writes the rgba16float scratch.
 //
-// Runs in the post-color seam, ordered `after: [ColorSystem, OverlaySystem]` (an overlay — on top of any
+// Runs in the post-color seam, ordered `after: [RenderMeshColorSystem, OverlaySystem]` (an overlay — on top of any
 // scene-transform effect like fog) `before: [GlazeSystem]`. The
 // composite goes through `sceneTransform` (a compute pass, like glaze) rather than a render pass into
 // `view.framebuffer`, so it never assumes the framebuffer's format/usage — a fog scratch is rgba16float
 // storage, not a render attachment — which is what let the two effects collide. Both anchor refs drop
-// harmlessly when their plugin isn't registered. Targets the sear + glaze path (reads sear's `Depth` lane).
+// harmlessly when their plugin isn't registered. Targets the sear + glaze path (reads sear's `DepthPrepass` lane).
 
 import type {
     TgpuBindGroup,
@@ -43,12 +43,12 @@ import {
     type View,
     Views,
 } from "../../core/rendering";
-import type { Plugin, World, System } from "../../engine";
+import type { Plugin, System, World } from "../../engine";
 import { f32, GlobalTransform, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { ColorSystem, DEPTH_FORMAT } from "../../standard/rendering";
+import { DEPTH_FORMAT, RenderMeshColorSystem } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
-import { Part, PartPlugin } from "../../transitional/part";
+import { MeshInstance, PartPlugin } from "../../transitional/part";
 import {
     compositeKernel,
     compositeLayout,
@@ -68,14 +68,14 @@ import {
 /**
  * outline highlight: a colored band hugs the object's silhouette for hover, selection, or grab feedback.
  *
- * Add it to a Part entity to highlight it; remove it to clear. Fields are per-entity, so different
+ * Add it to a MeshInstance entity to highlight it; remove it to clear. Fields are per-entity, so different
  * highlights coexist in one pass.
  *
  * @example
  * ```
  * // hover feedback driven by a pick (the cast hands you the hovered eid)
- * if (mode === "hover") state.add(hovered, Outline);
- * else state.remove(hovered, Outline);
+ * if (mode === "hover") world.add(hovered, Outline);
+ * else world.remove(hovered, Outline);
  * ```
  */
 export const Outline = {
@@ -83,7 +83,7 @@ export const Outline = {
     color: vec4,
     /** band thickness in pixels, clamped to 64 */
     width: f32,
-    /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs sear's `Depth` on the camera) */
+    /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs sear's `DepthPrepass` on the camera) */
     occlude: f32,
 };
 
@@ -122,15 +122,15 @@ interface Targets {
     w: number;
     h: number;
 }
-function targets(state: World, eid: number, w: number, h: number): Targets {
-    const cached = outlineState(state).targets.get(eid);
+function targets(world: World, eid: number, w: number, h: number): Targets {
+    const cached = outlineState(world).targets.get(eid);
     if (cached && cached.w === w && cached.h === h) return cached;
     cached?.seedA.destroy();
     cached?.seedB.destroy();
     cached?.attr.destroy();
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
     const tex = (label: string, format: GPUTextureFormat) =>
-        state.gpu.device.createTexture({ label, size: { width: w, height: h }, format, usage });
+        world.gpu.device.createTexture({ label, size: { width: w, height: h }, format, usage });
     const seedA = tex(`outline-seedA-${eid}`, SEED_FORMAT);
     const seedB = tex(`outline-seedB-${eid}`, SEED_FORMAT);
     const attr = tex(`outline-attr-${eid}`, ATTR_FORMAT);
@@ -144,7 +144,7 @@ function targets(state: World, eid: number, w: number, h: number): Targets {
         w,
         h,
     };
-    outlineState(state).targets.set(eid, entry);
+    outlineState(world).targets.set(eid, entry);
     return entry;
 }
 
@@ -198,21 +198,21 @@ const createOutlineState = (): OutlineState => ({
     targets: new Map(),
     composites: new Map(),
 });
-const outlineState = (state: World) => state.resource(outlineStateKey);
+const outlineState = (world: World) => world.resource(outlineStateKey);
 
-function initializeOutlineState(state: World): void {
-    state.resource(outlineStateKey);
+function initializeOutlineState(world: World): void {
+    world.resource(outlineStateKey);
 }
 
 function compositeBind(
-    state: World,
+    world: World,
     eid: number,
     read: GPUTextureView,
     write: GPUTextureView,
     seed: GPUTextureView,
     attr: GPUTextureView,
 ): CompositeGroup {
-    const cached = outlineState(state).composites.get(eid);
+    const cached = outlineState(world).composites.get(eid);
     if (
         cached &&
         cached.read === read &&
@@ -221,37 +221,37 @@ function compositeBind(
         cached.attr === attr
     )
         return cached.group;
-    const group = state.gpu.root.createBindGroup(compositeLayout, {
+    const group = world.gpu.root.createBindGroup(compositeLayout, {
         scene: read,
         seed,
         attr,
         output: write,
     });
-    outlineState(state).composites.set(eid, { read, write, seed, attr, group });
+    outlineState(world).composites.set(eid, { read, write, seed, attr, group });
     return group;
 }
 
-function ensureInstances(state: World, n: number): void {
-    const _outlineState = state.resource(outlineStateKey);
+function ensureInstances(world: World, n: number): void {
+    const _outlineState = world.resource(outlineStateKey);
 
     if (n <= _outlineState.gpu.capacity) return;
     let cap = Math.max(INITIAL_INSTANCES, _outlineState.gpu.capacity);
     while (cap < n) cap <<= 1;
     _outlineState.gpu.eids?.destroy();
     _outlineState.gpu.attrs?.destroy();
-    _outlineState.gpu.eids = state.gpu.device.createBuffer({
+    _outlineState.gpu.eids = world.gpu.device.createBuffer({
         label: "outline-eids",
         size: cap * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    _outlineState.gpu.attrs = state.gpu.device.createBuffer({
+    _outlineState.gpu.attrs = world.gpu.device.createBuffer({
         label: "outline-attrs",
         size: cap * 8 * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     _outlineState.gpu.capacity = cap;
-    outlineState(state).eidsStaging = new Uint32Array(cap);
-    outlineState(state).attrStaging = new Float32Array(cap * 8);
+    outlineState(world).eidsStaging = new Uint32Array(cap);
+    outlineState(world).attrStaging = new Float32Array(cap * 8);
 }
 
 interface Group {
@@ -261,7 +261,7 @@ interface Group {
 }
 
 function renderOutline(
-    state: World,
+    world: World,
     camEid: number,
     view: View,
     globalTransforms: GPUBuffer,
@@ -269,18 +269,18 @@ function renderOutline(
     steps: number[],
     occlude: boolean,
 ): void {
-    const _render = state.resource(Render);
-    const _outlineState = state.resource(outlineStateKey);
+    const _render = world.resource(Render);
+    const _outlineState = world.resource(outlineStateKey);
 
     const encoder = _render.encoder;
     if (!encoder || !view.framebuffer) return;
-    const t = targets(state, camEid, view.width, view.height);
+    const t = targets(world, camEid, view.width, view.height);
     const seedClear = { r: SENTINEL, g: SENTINEL, b: 0, a: 0 };
 
     // 1. mask — the scoped instanced draw, grouped by mesh, into seed + attr (MRT, no depth attachment)
     const mask = encoder.beginRenderPass({
         label: `outline-mask/${camEid}`,
-        timestampWrites: state.gpu.span?.("outline:mask"),
+        timestampWrites: world.gpu.span?.("outline:mask"),
         colorAttachments: [
             { view: t.seedAView, loadOp: "clear", storeOp: "store", clearValue: seedClear },
             {
@@ -294,7 +294,7 @@ function renderOutline(
     for (const g of groups) {
         if (!g.mesh.position || !g.mesh.quant) continue; // un-quantized producer — nothing to outline
         if (occlude) {
-            const group = state.gpu.root.createBindGroup(maskLayoutOcclude, {
+            const group = world.gpu.root.createBindGroup(maskLayoutOcclude, {
                 view: _render.viewBuffers[view.slot],
                 position: g.mesh.position,
                 indices: g.mesh.indices,
@@ -309,7 +309,7 @@ function renderOutline(
                 .with(mask)
                 .draw(g.mesh.indexCount, g.count, g.mesh.indexBase, g.first);
         } else {
-            const group = state.gpu.root.createBindGroup(maskLayoutPlain, {
+            const group = world.gpu.root.createBindGroup(maskLayoutPlain, {
                 view: _render.viewBuffers[view.slot],
                 position: g.mesh.position,
                 indices: g.mesh.indices,
@@ -332,12 +332,12 @@ function renderOutline(
     for (let k = 0; k < steps.length; k++) {
         const pass = encoder.beginRenderPass({
             label: `outline-jfa/${camEid}`,
-            timestampWrites: state.gpu.span?.("outline:jfa"),
+            timestampWrites: world.gpu.span?.("outline:jfa"),
             colorAttachments: [
                 { view: dstView, loadOp: "clear", storeOp: "store", clearValue: seedClear },
             ],
         });
-        const group = state.gpu.root.createBindGroup(jfaLayout, {
+        const group = world.gpu.root.createBindGroup(jfaLayout, {
             seed: srcView,
             step: _outlineState.gpu.steps[k],
         });
@@ -350,43 +350,43 @@ function renderOutline(
     // (TBDR-friendly, like glaze): reads the scene format-agnostically (offscreen, or fog's scratch) + the
     // JFA field, writes the rgba16float scratch, repoints `view.framebuffer`. `sceneTransform` is called here,
     // last — the caller's early-outs already ran, so the framebuffer is never repointed at an unwritten scratch
-    const { read, write } = sceneTransform(state, view, camEid);
+    const { read, write } = sceneTransform(world, view, camEid);
     const composite = encoder.beginComputePass({
         label: `outline-composite/${camEid}`,
-        timestampWrites: state.gpu.span?.("outline:composite"),
+        timestampWrites: world.gpu.span?.("outline:composite"),
     });
     _outlineState.gpu
-        .composite!.with(compositeBind(state, camEid, read, write, srcView, t.attrView))
+        .composite!.with(compositeBind(world, camEid, read, write, srcView, t.attrView))
         .with(composite)
         .dispatchWorkgroups(Math.ceil(view.width / WORKGROUP), Math.ceil(view.height / WORKGROUP));
     composite.end();
 }
 
 /**
- * draw every camera's outline, after the scene color is resolved. Collects the highlighted Part entities,
+ * draw every camera's outline, after the scene color is resolved. Collects the highlighted MeshInstance entities,
  * groups them by mesh into one instance buffer, then runs mask → JFA → composite per camera. Nothing
  * highlighted → returns before any GPU pass (zero cost on the bare path)
  */
 const OutlineSystem: System = {
     name: "outline",
     group: "draw",
-    // an overlay: after the scene color (ColorSystem) and after any scene-transform effect (the OverlaySystem
+    // an overlay: after the scene color (RenderMeshColorSystem) and after any scene-transform effect (the OverlaySystem
     // anchor, which fog runs before), so the band composites on top of the haze; before glaze presents it.
     // Both anchor refs drop harmlessly when their plugin isn't registered
-    after: [ColorSystem, OverlaySystem],
+    after: [RenderMeshColorSystem, OverlaySystem],
     before: [GlazeSystem],
-    update(state: World) {
-        const _outlineState = state.resource(outlineStateKey);
-        const _meshes = state.resource(Meshes);
+    update(world: World) {
+        const _outlineState = world.resource(outlineStateKey);
+        const _meshes = world.resource(Meshes);
 
-        if (!state.resource(Render).encoder || !_outlineState.gpu.maskPlain) return;
-        const eids = [...state.query([Outline, Part])];
+        if (!world.resource(Render).encoder || !_outlineState.gpu.maskPlain) return;
+        const eids = [...world.query([Outline, MeshInstance])];
         if (eids.length === 0) return; // bare path — no passes
-        const globalTransforms = state.gpu.buffers.get("global-transform-interpolated");
+        const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
         if (!globalTransforms) return;
 
-        ensureInstances(state, eids.length);
-        const byMesh = groupByMesh(eids, (eid) => state.of(Part).mesh.get(eid));
+        ensureInstances(world, eids.length);
+        const byMesh = groupByMesh(eids, (eid) => world.storage(MeshInstance).mesh.get(eid));
         const groups: Group[] = [];
         let cursor = 0;
         let maxWidth = 1;
@@ -397,16 +397,16 @@ const OutlineSystem: System = {
             if (!mesh) continue; // mesh deleted / unregistered — skip the group
             const first = cursor;
             for (const eid of group) {
-                outlineState(state).eidsStaging[cursor] = eid;
+                outlineState(world).eidsStaging[cursor] = eid;
                 const o = cursor * 8;
-                outlineState(state).attrStaging[o] = state.of(Outline).color.x.get(eid);
-                outlineState(state).attrStaging[o + 1] = state.of(Outline).color.y.get(eid);
-                outlineState(state).attrStaging[o + 2] = state.of(Outline).color.z.get(eid);
-                outlineState(state).attrStaging[o + 3] = state.of(Outline).color.w.get(eid);
-                const w = Math.max(0, Math.min(MAX_WIDTH, state.of(Outline).width.get(eid)));
-                const occ = state.of(Outline).occlude.get(eid);
-                outlineState(state).attrStaging[o + 4] = w;
-                outlineState(state).attrStaging[o + 5] = occ;
+                outlineState(world).attrStaging[o] = world.storage(Outline).color.x.get(eid);
+                outlineState(world).attrStaging[o + 1] = world.storage(Outline).color.y.get(eid);
+                outlineState(world).attrStaging[o + 2] = world.storage(Outline).color.z.get(eid);
+                outlineState(world).attrStaging[o + 3] = world.storage(Outline).color.w.get(eid);
+                const w = Math.max(0, Math.min(MAX_WIDTH, world.storage(Outline).width.get(eid)));
+                const occ = world.storage(Outline).occlude.get(eid);
+                outlineState(world).attrStaging[o + 4] = w;
+                outlineState(world).attrStaging[o + 5] = occ;
                 if (w > maxWidth) maxWidth = w;
                 if (occ > 0.5) occlude = true;
                 cursor++;
@@ -414,17 +414,17 @@ const OutlineSystem: System = {
             groups.push({ mesh, first, count: group.length });
         }
         if (cursor === 0) return;
-        state.gpu.device.queue.writeBuffer(
+        world.gpu.device.queue.writeBuffer(
             _outlineState.gpu.eids!,
             0,
-            outlineState(state).eidsStaging,
+            outlineState(world).eidsStaging,
             0,
             cursor,
         );
-        state.gpu.device.queue.writeBuffer(
+        world.gpu.device.queue.writeBuffer(
             _outlineState.gpu.attrs!,
             0,
-            outlineState(state).attrStaging,
+            outlineState(world).attrStaging,
             0,
             cursor * 8,
         );
@@ -432,12 +432,12 @@ const OutlineSystem: System = {
         const steps = jfaSteps(maxWidth);
         for (let k = 0; k < steps.length; k++) _outlineState.gpu.steps[k].write(steps[k]);
 
-        for (const camEid of state.query([Camera])) {
-            const view = state.resource(Views).get(camEid);
+        for (const camEid of world.query([Camera])) {
+            const view = world.resource(Views).get(camEid);
             if (!view?.framebuffer) continue;
-            // occlusion needs sear's Depth lane; without it, degrade to always-on-top
+            // occlusion needs sear's DepthPrepass lane; without it, degrade to always-on-top
             renderOutline(
-                state,
+                world,
                 camEid,
                 view,
                 globalTransforms,
@@ -449,8 +449,8 @@ const OutlineSystem: System = {
     },
 };
 
-function prepareOutline(state: World): void {
-    const _outlineState = state.resource(outlineStateKey);
+function prepareOutline(world: World): void {
+    const _outlineState = world.resource(outlineStateKey);
 
     // the JFA + composite layouts are the typed `jfaLayout` / `compositeLayout` in passes.ts — declared
     // beside the kernels that read them, bound by layout object, never by group index. Only the per-pass
@@ -460,7 +460,7 @@ function prepareOutline(state: World): void {
     _outlineState.gpu.steps.length = 0;
     for (let k = 0; k < MAX_JFA_PASSES; k++) {
         _outlineState.gpu.steps.push(
-            state.gpu.root.createBuffer(d.f32).$usage("uniform").$name(`outline-jfa-step-${k}`),
+            world.gpu.root.createBuffer(d.f32).$usage("uniform").$name(`outline-jfa-step-${k}`),
         );
     }
 
@@ -468,7 +468,7 @@ function prepareOutline(state: World): void {
     const maskPrimitive: GPUPrimitiveState = { topology: "triangle-list", cullMode: "back" };
     const fullscreen: GPUPrimitiveState = { topology: "triangle-list", cullMode: "none" };
 
-    _outlineState.gpu.jfa = state.gpu.root
+    _outlineState.gpu.jfa = world.gpu.root
         .createRenderPipeline({
             vertex: fullscreenVs,
             fragment: jfaFs,
@@ -476,13 +476,13 @@ function prepareOutline(state: World): void {
             primitive: fullscreen,
         })
         .$name("outline-jfa");
-    _outlineState.gpu.composite = state.gpu.root
+    _outlineState.gpu.composite = world.gpu.root
         .createComputePipeline({ compute: compositeKernel })
         .$name("outline-composite");
     // the two mask variants: same vs/fs shape over the plain / occlude layout (`maskVertex`/`maskFragment`
     // re-emit per layout), splicing the already-typed `decodePos` /
     // `xformPoint` real references (the resolve-call-graph precedent — no chunk splice needed)
-    _outlineState.gpu.maskPlain = state.gpu.root
+    _outlineState.gpu.maskPlain = world.gpu.root
         .createRenderPipeline({
             vertex: maskVertex(maskLayoutPlain),
             fragment: maskFragment(maskLayoutPlain, false),
@@ -490,7 +490,7 @@ function prepareOutline(state: World): void {
             primitive: maskPrimitive,
         })
         .$name("outline-mask");
-    _outlineState.gpu.maskOcclude = state.gpu.root
+    _outlineState.gpu.maskOcclude = world.gpu.root
         .createRenderPipeline({
             vertex: maskVertex(maskLayoutOcclude),
             fragment: maskFragment(maskLayoutOcclude, true),
@@ -499,7 +499,7 @@ function prepareOutline(state: World): void {
         })
         .$name("outline-mask-occlude");
 
-    forceCompile(state);
+    forceCompile(world);
 }
 
 /**
@@ -511,21 +511,21 @@ function prepareOutline(state: World): void {
  * the pipeline — it records and submits nothing, so compilation never reads the bind groups the
  * stand-ins were bound into.
  */
-function forceCompile(state: World): void {
+function forceCompile(world: World): void {
     const stand = (format: GPUTextureFormat, usage: number) =>
-        state.gpu.device.createTexture({
+        world.gpu.device.createTexture({
             label: "outline-warm",
             size: { width: 1, height: 1 },
             format,
             usage: usage | GPUTextureUsage.TEXTURE_BINDING,
         });
 
-    precompile(state, "outline-jfa", () => {
-        const _outlineState = state.resource(outlineStateKey);
+    precompile(world, "outline-jfa", () => {
+        const _outlineState = world.resource(outlineStateKey);
 
         const src = stand(SEED_FORMAT, 0);
         const dst = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const group = state.gpu.root.createBindGroup(jfaLayout, {
+        const group = world.gpu.root.createBindGroup(jfaLayout, {
             seed: src.createView(),
             step: _outlineState.gpu.steps[0],
         });
@@ -537,18 +537,18 @@ function forceCompile(state: World): void {
         return bound;
     });
 
-    precompile(state, "outline-composite", () => {
+    precompile(world, "outline-composite", () => {
         const scene = stand(ATTR_FORMAT, 0);
         const seed = stand(SEED_FORMAT, 0);
         const attr = stand(ATTR_FORMAT, 0);
         const out = stand(ATTR_FORMAT, GPUTextureUsage.STORAGE_BINDING);
-        const group = state.gpu.root.createBindGroup(compositeLayout, {
+        const group = world.gpu.root.createBindGroup(compositeLayout, {
             scene: scene.createView(),
             seed: seed.createView(),
             attr: attr.createView(),
             output: out.createView(),
         });
-        const bound = state.resource(outlineStateKey).gpu.composite!.with(group);
+        const bound = world.resource(outlineStateKey).gpu.composite!.with(group);
         scene.destroy();
         seed.destroy();
         attr.destroy();
@@ -559,13 +559,13 @@ function forceCompile(state: World): void {
     // the mask buffers (position/indices/globalTransforms/maskEids/maskAttrs/meshQuant) are storage bindings, not
     // textures — 4-byte throwaways, same shape as `stand()`'s texture stand-ins
     const buf = (size: number) =>
-        state.gpu.device.createBuffer({
+        world.gpu.device.createBuffer({
             label: "outline-mask-warm",
             size,
             usage: GPUBufferUsage.STORAGE,
         });
 
-    precompile(state, "outline-mask", () => {
+    precompile(world, "outline-mask", () => {
         const position = buf(8);
         const indices = buf(4);
         const globalTransformsBuffer = buf(48);
@@ -574,8 +574,8 @@ function forceCompile(state: World): void {
         const quant = buf(48);
         const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
         const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const group = state.gpu.root.createBindGroup(maskLayoutPlain, {
-            view: state.resource(Render).viewBuffers[0],
+        const group = world.gpu.root.createBindGroup(maskLayoutPlain, {
+            view: world.resource(Render).viewBuffers[0],
             position,
             indices,
             globalTransforms: globalTransformsBuffer,
@@ -583,7 +583,7 @@ function forceCompile(state: World): void {
             maskAttrs: attrs,
             meshQuant: quant,
         });
-        const bound = state
+        const bound = world
             .resource(outlineStateKey)
             .gpu.maskPlain!.with(group)
             .withColorAttachment({
@@ -601,7 +601,7 @@ function forceCompile(state: World): void {
         return bound;
     });
 
-    precompile(state, "outline-mask-occlude", () => {
+    precompile(world, "outline-mask-occlude", () => {
         const position = buf(8);
         const indices = buf(4);
         const globalTransformsBuffer = buf(48);
@@ -611,8 +611,8 @@ function forceCompile(state: World): void {
         const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
         const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
         const depth = stand(DEPTH_FORMAT, 0);
-        const group = state.gpu.root.createBindGroup(maskLayoutOcclude, {
-            view: state.resource(Render).viewBuffers[0],
+        const group = world.gpu.root.createBindGroup(maskLayoutOcclude, {
+            view: world.resource(Render).viewBuffers[0],
             position,
             indices,
             globalTransforms: globalTransformsBuffer,
@@ -621,7 +621,7 @@ function forceCompile(state: World): void {
             meshQuant: quant,
             sceneDepth: depth.createView(),
         });
-        const bound = state
+        const bound = world
             .resource(outlineStateKey)
             .gpu.maskOcclude!.with(group)
             .withColorAttachment({
@@ -641,19 +641,19 @@ function forceCompile(state: World): void {
     });
 }
 
-function disposeOutline(state: World): void {
-    const _outlineState = state.resource(outlineStateKey);
+function disposeOutline(world: World): void {
+    const _outlineState = world.resource(outlineStateKey);
 
     _outlineState.gpu.eids?.destroy();
     _outlineState.gpu.attrs?.destroy();
     for (const s of _outlineState.gpu.steps) s.destroy();
-    for (const t of outlineState(state).targets.values()) {
+    for (const t of outlineState(world).targets.values()) {
         t.seedA.destroy();
         t.seedB.destroy();
         t.attr.destroy();
     }
-    outlineState(state).targets.clear();
-    outlineState(state).composites.clear();
+    outlineState(world).targets.clear();
+    outlineState(world).composites.clear();
     _outlineState.gpu.eids = null;
     _outlineState.gpu.attrs = null;
     _outlineState.gpu.steps = [];
@@ -662,12 +662,12 @@ function disposeOutline(state: World): void {
     _outlineState.gpu.jfa = null;
     _outlineState.gpu.composite = null;
     _outlineState.gpu.capacity = 0;
-    outlineState(state).eidsStaging = new Uint32Array(0);
-    outlineState(state).attrStaging = new Float32Array(0);
+    outlineState(world).eidsStaging = new Uint32Array(0);
+    outlineState(world).attrStaging = new Float32Array(0);
 }
 
 /**
- * the screen-space outline composite: add it alongside `SearPlugin` + `GlazePlugin`, then add `Outline` to a Part entity to highlight it.
+ * the screen-space outline composite: add it alongside `SearPlugin` + `GlazePlugin`, then add `Outline` to a MeshInstance entity to highlight it.
  *
  * The band is a mask → jump-flood distance field → composite over the scene color. Cost scales with the
  * highlighted-object count + screen × log(width), not scene geometry; nothing highlighted runs no passes.
@@ -679,7 +679,7 @@ export const OutlinePlugin: Plugin = {
     dependencies: [RenderPlugin, PartPlugin],
     traits: {
         Outline: {
-            requires: [Part, GlobalTransform],
+            requires: [MeshInstance, GlobalTransform],
             defaults: () => ({
                 color: [1, 0.85, 0.2, 1],
                 width: 4,
@@ -688,16 +688,16 @@ export const OutlinePlugin: Plugin = {
         },
     },
 
-    initialize(state) {
-        initializeOutlineState(state);
+    initialize(world) {
+        initializeOutlineState(world);
     },
 
-    async warm(state: World) {
-        if (!state.gpu.device) return;
-        prepareOutline(state);
+    async warm(world: World) {
+        if (!world.gpu.device) return;
+        prepareOutline(world);
     },
 
-    dispose(state: World) {
-        disposeOutline(state);
+    dispose(world: World) {
+        disposeOutline(world);
     },
 };

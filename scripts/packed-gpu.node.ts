@@ -58,7 +58,7 @@ test("a packed headless app steps on a GPU and refuses without navigator.gpu", a
             join(project, "packed-engine.gpu.test.ts"),
             `import { expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
-import { build, type Plugin } from "@dylanebert/shallot/app";
+import { createApp, type Plugin } from "@dylanebert/shallot/app";
 import { f32, Time } from "@dylanebert/shallot/ecs";
 import * as Rendering from "@dylanebert/shallot/rendering";
 import { drainLog, probeTexture } from "@dylanebert/shallot/runtime";
@@ -71,16 +71,16 @@ let eid = -1;
 const Counter: Plugin = {
     name: "Counter",
     components: { counter: Ticks },
-    initialize(state) {
-        eid = state.create();
-        state.add(eid, Ticks);
-        state.of(Ticks).value.set(eid, 0);
+    initialize(world) {
+        eid = world.create();
+        world.add(eid, Ticks);
+        world.storage(Ticks).value.set(eid, 0);
     },
     systems: [{
         group: "fixed",
-        update(state) {
-            for (const entity of state.query([Ticks])) {
-                const ticks = state.of(Ticks);
+        update(world) {
+            for (const entity of world.query([Ticks])) {
+                const ticks = world.storage(Ticks);
                 ticks.value.set(entity, ticks.value.get(entity) + 1);
             }
         },
@@ -91,7 +91,7 @@ test("the packed engine refuses with Bun's optional peer fix when navigator.gpu 
     const previous = Object.getOwnPropertyDescriptor(navigator, "gpu");
     Object.defineProperty(navigator, "gpu", { configurable: true, value: undefined });
     try {
-        await expect(build({ plugins: [Counter], defaults: false })).rejects.toThrow(
+        await expect(createApp({ plugins: [Counter], defaults: false })).rejects.toThrow(
             "WebGPU unavailable: navigator.gpu is missing in Bun. Install the optional bun-webgpu peer dependency",
         );
     } finally {
@@ -101,12 +101,12 @@ test("the packed engine refuses with Bun's optional peer fix when navigator.gpu 
 });
 
 test("the packed headless plugin set steps the world through public engine subpaths", async () => {
-    const app = await build({ plugins: [Counter], defaults: false });
+    const app = await createApp({ plugins: [Counter], defaults: false });
     try {
-        app.state.step(Time.FIXED_DT);
-        expect(app.state.time.fixedTick).toBe(1);
-        expect(app.state.only([Ticks])).toBe(eid);
-        expect(app.state.of(Ticks).value.get(eid)).toBe(1);
+        app.world.step(Time.FIXED_DT);
+        expect(app.world.time.fixedTick).toBe(1);
+        expect(app.world.only([Ticks])).toBe(eid);
+        expect(app.world.storage(Ticks).value.get(eid)).toBe(1);
         expect(Rendering.CAPTURE_CONTRACT.width).toBe(1280);
         expect(typeof Rendering.captureFrame).toBe("function");
         expect(typeof probeTexture).toBe("function");

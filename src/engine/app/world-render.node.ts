@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
 import { CEILING } from "../../../scripts/test-tiers";
-import { PartInput, RenderPlugin } from "../../core/rendering";
+import { MeshInstanceInput, RenderPlugin } from "../../core/rendering";
 import { SearPlugin } from "../../standard/rendering";
-import { Part, PartPlugin } from "../../transitional/part";
+import { MeshInstance, PartPlugin } from "../../transitional/part";
 import { Transform } from "../index";
 import { probeBuffer } from "../runtime";
-import { build } from "./index";
+import { createApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
 const peerModule = "bun-webgpu";
@@ -28,28 +28,36 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     });
 }
 
-test("Part and Sear warm and compact a component-bound dense instance", async () => {
-    const app = await build({ defaults: false, plugins: [RenderPlugin, PartPlugin, SearPlugin] });
-    const { state } = app;
+test("MeshInstance and StandardRenderer warm and compact a component-bound dense instance", async () => {
+    const app = await createApp({
+        defaults: false,
+        plugins: [RenderPlugin, PartPlugin, SearPlugin],
+    });
+    const { world } = app;
     try {
-        const eid = state.create();
-        state.add(eid, Transform);
-        state.add(eid, Part);
-        state.gpu.device.pushErrorScope("validation");
-        state.step(0);
-        await bounded("Part submissions", state.gpu.device.queue.onSubmittedWorkDone());
-        expect(await bounded("Part validation", state.gpu.device.popErrorScope())).toBeNull();
-        const packed = await probeBuffer(state, state.gpu.buffers.get("eids")!, { size: 4 });
+        const eid = world.create();
+        world.add(eid, Transform);
+        world.add(eid, MeshInstance);
+        world.gpu.device.pushErrorScope("validation");
+        world.step(0);
+        await bounded("MeshInstance submissions", world.gpu.device.queue.onSubmittedWorkDone());
+        expect(
+            await bounded("MeshInstance validation", world.gpu.device.popErrorScope()),
+        ).toBeNull();
+        const packed = await probeBuffer(world, world.gpu.buffers.get("eids")!, { size: 4 });
         expect(new Uint32Array(packed.bytes)[0]).toBe(eid);
-        const active = await probeBuffer(state, state.gpu.buffers.get("partInputs:active-rows")!, {
+        const active = await probeBuffer(world, world.gpu.buffers.get("partInputs:active-rows")!, {
             size: 8,
         });
         const [activeEid, row] = new Uint32Array(active.bytes);
         expect(activeEid).toBe(eid);
-        const recordSize = d.sizeOf(PartInput);
-        const colorOffset = d.memoryLayoutOf(PartInput, (value) => value.color).offset;
-        const materialOffset = d.memoryLayoutOf(PartInput, (value) => value.material).offset;
-        const record = await probeBuffer(state, state.gpu.buffers.get("partInputs")!, {
+        const recordSize = d.sizeOf(MeshInstanceInput);
+        const colorOffset = d.memoryLayoutOf(MeshInstanceInput, (value) => value.color).offset;
+        const materialOffset = d.memoryLayoutOf(
+            MeshInstanceInput,
+            (value) => value.material,
+        ).offset;
+        const record = await probeBuffer(world, world.gpu.buffers.get("partInputs")!, {
             offset: row * recordSize,
             size: recordSize,
         });

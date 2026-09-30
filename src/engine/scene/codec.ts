@@ -1,19 +1,16 @@
-import type { Component, Pair, Quad, Single, World } from "../ecs";
+import type { Component, ScalarField, Vector2Field, Vector4Field, World } from "../ecs";
 import {
     camel,
-    dependencies,
-    entries,
     exclusions,
-    getComponent,
-    getTraits,
     kebab,
     lanes,
     provides,
     readFields,
     refs,
+    requiredComponents,
     type Traits,
 } from "../ecs";
-import type { Attr, Node, ParseError } from "./xml";
+import type { ParseError, SceneAttribute, SceneNode } from "./xml";
 
 interface Registered {
     component: Component;
@@ -22,14 +19,14 @@ interface Registered {
 }
 
 /** result of loading authored nodes, including attrs omitted by the active composition. */
-export interface LoadResult extends Map<Node, number> {
+export interface LoadResult extends Map<SceneNode, number> {
     readonly dropped: readonly string[];
 }
 
-function lookup(state: World, rawName: string): Registered | undefined {
-    const component = getComponent(state, rawName);
+function lookup(world: World, rawName: string): Registered | undefined {
+    const component = world.registry.getComponent(rawName);
     if (!component) return undefined;
-    return { component, name: kebab(rawName), traits: getTraits(state, rawName) };
+    return { component, name: kebab(rawName), traits: world.registry.getTraits(rawName) };
 }
 
 interface Ref {
@@ -102,23 +99,23 @@ function findClosestMatch(input: string, candidates: string[]): string | null {
 
 /**
  * builds ECS state from a parsed scene: one entity per node, one component per registered attribute, each
- * entity's scene `id` recorded on `state.identity` (so `serialize` round-trips refs by name). `@name`
+ * entity's scene `id` recorded on `world.identity` (so `serialize` round-trips refs by name). `@name`
  * field refs resolve to their target eid in a second pass. Throws on unresolved refs and malformed
- * values, joined into one message; unregistered component attrs are silently dropped. `run()` calls
+ * values, joined into one message; unregistered component attrs are silently dropped. `runApp()` calls
  * this; a custom loader calls `parse` then `load`.
  *
  * @example
- * const map = load(parse(xml), state);
+ * const map = loadScene(parseScene(xml), world);
  */
-export function load(nodes: Node[], state: World): LoadResult {
+export function loadScene(nodes: SceneNode[], world: World): LoadResult {
     const nameToEntity = new Map<string, number>();
-    const nodeToEntity = new Map<Node, number>();
+    const nodeToEntity = new Map<SceneNode, number>();
     const errors: ParseError[] = [];
     const droppedAttrs: string[] = [];
     const pendingFieldRefs: PendingFieldRef[] = [];
 
     for (const node of nodes) {
-        const eid = state.create();
+        const eid = world.create();
         if (node.id) {
             if (nameToEntity.has(node.id)) {
                 errors.push({ message: `Duplicate entity id: "${node.id}"` });
@@ -127,12 +124,12 @@ export function load(nodes: Node[], state: World): LoadResult {
             }
         }
         nodeToEntity.set(node, eid);
-        state.identity.author(eid, node.id);
+        world.identity.author(eid, node.id);
     }
 
     for (const node of nodes) {
         const eid = nodeToEntity.get(node)!;
-        const { componentAttrs, refs, dropped } = categorizeAttrs(state, node.attrs);
+        const { componentAttrs, refs, dropped } = categorizeAttrs(world, node.attrs);
         droppedAttrs.push(...dropped);
 
         for (const ref of refs) {
@@ -142,7 +139,7 @@ export function load(nodes: Node[], state: World): LoadResult {
         }
 
         for (const attr of componentAttrs) {
-            applyComponent(state, eid, attr, errors, pendingFieldRefs);
+            applyComponent(world, eid, attr, errors, pendingFieldRefs);
         }
     }
 
@@ -152,7 +149,7 @@ export function load(nodes: Node[], state: World): LoadResult {
             errors.push({ message: `Unknown entity: "@${ref.targetName}"` });
             continue;
         }
-        setFieldValue(state, ref.component, ref.field, ref.eid, targetEid);
+        setFieldValue(world, ref.component, ref.field, ref.eid, targetEid);
     }
 
     if (errors.length > 0) {
@@ -175,14 +172,14 @@ export function load(nodes: Node[], state: World): LoadResult {
  * causes.
  */
 export function readComponent(
-    state: World,
+    world: World,
     name: string,
     component: Component,
     eid: number,
     resolveRef?: (target: number) => string | undefined,
 ): string {
-    const defaults = getTraits(state, name)?.defaults?.(state) ?? {};
-    const fields = readFields(state, component, eid);
+    const defaults = world.registry.getTraits(name)?.defaults?.(world) ?? {};
+    const fields = readFields(world, component, eid);
     const merged: Record<string, number | string | readonly number[]> = { ...defaults, ...fields };
     if (resolveRef) {
         for (const field of refs(component)) {
@@ -192,11 +189,11 @@ export function readComponent(
             if (id !== undefined) merged[field] = `@${id}`;
         }
     }
-    return formatFields(state, name, merged);
+    return formatFields(world, name, merged);
 }
 
 /**
- * reads a live `State` back to a node tree, the on-demand inverse of `load`: one node per entity, one
+ * reads a live `World` back to a node tree, the on-demand inverse of `load`: one node per entity, one
  * attribute per registered component it has. `stringify` the result for the scene text (save /
  * survive-reload), or feed it back to `load` to rebuild. Pay-for-what-you-use, not a per-frame cost.
  *
@@ -211,16 +208,16 @@ export function readComponent(
  * state; GPU buffers and derived entities are rebuilt, not serialized.
  *
  * @example
- * const xml = stringify(serialize(state));
+ * const xml = stringifyScene(serializeScene(state));
  */
-export function serialize(state: World, eids?: Iterable<number>): Node[] {
-    const list = (eids ? [...eids] : [...state.identity.authored]).filter((e) => state.exists(e));
+export function serializeScene(world: World, eids?: Iterable<number>): SceneNode[] {
+    const list = (eids ? [...eids] : [...world.identity.authored]).filter((e) => world.exists(e));
     const set = new Set(list);
 
     const ids = new Map<number, string>();
     const used = new Set<string>();
     for (const eid of list) {
-        const id = state.identity.id(eid);
+        const id = world.identity.id(eid);
         if (id !== undefined) {
             ids.set(eid, id);
             used.add(id);
@@ -238,11 +235,13 @@ export function serialize(state: World, eids?: Iterable<number>): Node[] {
 
     // a ref target that lacks a scene id needs one minted before any node emits, so its @-ref resolves on reload
     for (const eid of list) {
-        for (const { component, traits } of entries(state)) {
+        for (const { component, traits } of world.registry.entries()) {
             if (traits?.derived) continue;
-            if (!state.has(eid, component as never)) continue;
+            if (!world.has(eid, component as never)) continue;
             for (const field of refs(component)) {
-                const target = (state.of(component) as Record<string, Single>)[field].get(eid);
+                const target = (world.storage(component) as Record<string, ScalarField>)[field].get(
+                    eid,
+                );
                 if (target > 0 && set.has(target)) mint(target);
             }
         }
@@ -255,12 +254,12 @@ export function serialize(state: World, eids?: Iterable<number>): Node[] {
         // a target outside the serialized set resolves to its scene id, so a subset
         // serialize emits `@name` rather than a raw eid that points at the wrong
         // (recycled) entity on reload
-        const id = state.identity.id(target);
+        const id = world.identity.id(target);
         if (id !== undefined) return id;
         // a ref target that is destroyed or was never authored a scene id cannot be
         // expressed as `@name` — fail loud rather than emitting a raw eid that points
         // at the wrong (recycled) entity on reload
-        if (!state.exists(target)) {
+        if (!world.exists(target)) {
             throw new Error(`Scene: cannot serialize ref to destroyed entity ${target}`);
         }
         throw new Error(
@@ -268,14 +267,14 @@ export function serialize(state: World, eids?: Iterable<number>): Node[] {
         );
     };
 
-    const nodes: Node[] = [];
+    const nodes: SceneNode[] = [];
     for (const eid of list) {
-        const attrs: Attr[] = [];
-        for (const { component, name, traits } of entries(state)) {
+        const attrs: SceneAttribute[] = [];
+        for (const { component, name, traits } of world.registry.entries()) {
             // a derived decoration is a system's runtime state (union-relative ids), never scene truth
             if (traits?.derived) continue;
-            if (!state.has(eid, component as never)) continue;
-            attrs.push({ name, value: readComponent(state, name, component, eid, resolveRef) });
+            if (!world.has(eid, component as never)) continue;
+            attrs.push({ name, value: readComponent(world, name, component, eid, resolveRef) });
         }
         nodes.push({ id: ids.get(eid), attrs, children: [] });
     }
@@ -288,7 +287,7 @@ interface CategorizedAttrs {
     dropped: string[];
 }
 
-function categorizeAttrs(state: World, attrs: Attr[]): CategorizedAttrs {
+function categorizeAttrs(world: World, attrs: SceneAttribute[]): CategorizedAttrs {
     const componentAttrs: { name: string; value: string; def: Registered }[] = [];
     const refs: Ref[] = [];
     const dropped: string[] = [];
@@ -299,7 +298,7 @@ function categorizeAttrs(state: World, attrs: Attr[]): CategorizedAttrs {
             continue;
         }
 
-        const registered = lookup(state, attr.name);
+        const registered = lookup(world, attr.name);
         if (registered) {
             componentAttrs.push({ name: attr.name, value: attr.value, def: registered });
         } else {
@@ -311,7 +310,7 @@ function categorizeAttrs(state: World, attrs: Attr[]): CategorizedAttrs {
 }
 
 function applyComponent(
-    state: World,
+    world: World,
     eid: number,
     attr: { name: string; value: string; def: Registered },
     errors: ParseError[],
@@ -320,15 +319,15 @@ function applyComponent(
     const { def, value } = attr;
     const { component, name } = def;
 
-    state.add(eid, component as never);
+    world.add(eid, component as never);
 
     if (value !== "" && isCSSAttrSyntax(value)) {
-        const result = parsePropertyString(state, def, value);
+        const result = parsePropertyString(world, def, value);
         for (const err of result.errors) {
             errors.push({ message: `<${name}> ${err}` });
         }
         for (const [field, val] of Object.entries(result.values)) {
-            setFieldValue(state, component, field, eid, val);
+            setFieldValue(world, component, field, eid, val);
         }
         for (const ref of result.entityRefs) {
             pendingFieldRefs.push({
@@ -348,26 +347,26 @@ function applyComponent(
 /**
  * write a scene-parsed value into a component field. Handles:
  *
- * - `field = "pos"`, `value = number` — Single, or first lane of a Pair/Quad
- * - `field = "pos"`, `value = number[]` — Pair/Quad bulk lane write
- * - `field = "pos.x"`, `value = number` — single lane of a parent Pair/Quad
+ * - `field = "pos"`, `value = number` — ScalarField, or first lane of a Vector2Field/Vector4Field
+ * - `field = "pos"`, `value = number[]` — Vector2Field/Vector4Field bulk lane write
+ * - `field = "pos.x"`, `value = number` — single lane of a parent Vector2Field/Vector4Field
  */
 export function setFieldValue(
-    state: World,
+    world: World,
     component: Component,
     field: string,
     eid: number,
     value: number | number[],
 ): void {
     const schema = component as Record<string, unknown>;
-    const storage = state.of(component) as Record<string, unknown>;
+    const storage = world.storage(component) as Record<string, unknown>;
     const dotIdx = field.indexOf(".");
     if (dotIdx !== -1) {
         const base = field.slice(0, dotIdx);
         const laneKey = field.slice(dotIdx + 1);
         const parent = storage[base];
         if (parent == null) return;
-        const lane = (parent as Record<string, unknown>)[laneKey] as Single | undefined;
+        const lane = (parent as Record<string, unknown>)[laneKey] as ScalarField | undefined;
         if (lane && typeof lane.set === "function" && typeof value === "number") {
             lane.set(eid, value);
         }
@@ -380,13 +379,13 @@ export function setFieldValue(
 
     if (Array.isArray(value)) {
         if (n === 4) {
-            const q = target as Quad;
+            const q = target as Vector4Field;
             q.set(eid, value[0] ?? 0, value[1] ?? 0, value[2] ?? 0, value[3] ?? 0);
         } else if (n === 2) {
-            const p = target as Pair;
+            const p = target as Vector2Field;
             p.set(eid, value[0] ?? 0, value[1] ?? 0);
         } else if (n === 1) {
-            (target as Single).set(eid, value[0] ?? 0);
+            (target as ScalarField).set(eid, value[0] ?? 0);
         } else if (ArrayBuffer.isView(target) || Array.isArray(target)) {
             (target as number[])[eid] = value[0] ?? 0;
         }
@@ -395,8 +394,8 @@ export function setFieldValue(
 
     if (ArrayBuffer.isView(target) || Array.isArray(target)) {
         (target as number[])[eid] = value;
-    } else if (typeof (target as Single).set === "function") {
-        (target as Single).set(eid, value);
+    } else if (typeof (target as ScalarField).set === "function") {
+        (target as ScalarField).set(eid, value);
     } else {
         console.warn(`Scene: cannot assign number to non-array field "${field}"`);
     }
@@ -493,7 +492,7 @@ function identityLaneKey(
 }
 
 function parsePropertyString(
-    state: World,
+    world: World,
     entry: Registered,
     propertyString: string,
 ): {
@@ -566,7 +565,7 @@ function parsePropertyString(
         if (parsed.some((v) => v === null)) {
             const parseFn = traits?.parse?.[name];
             if (parseFn) {
-                const resolved = parseFn(valueStr.trim(), state);
+                const resolved = parseFn(valueStr.trim(), world);
                 if (resolved !== undefined) {
                     values[name] = resolved;
                     continue;
@@ -635,7 +634,7 @@ function parsePropertyString(
             continue;
         }
 
-        // named lane of an identity-lane alias: `metallic: 1` writes one lane of a packed Quad/Pair
+        // named lane of an identity-lane alias: `metallic: 1` writes one lane of a packed Vector4Field/Vector2Field
         const laneKey = identityLaneKey(traits, component, name);
         if (laneKey) {
             if (nums.length === 1) {
@@ -670,16 +669,16 @@ function parsePropertyString(
  * parseFields(state, "transform", "pos: 0 5 0"); // { "pos.x": 0, "pos.y": 5, "pos.z": 0 }
  */
 export function parseFields(
-    state: World,
+    world: World,
     componentName: string,
     attrValue: string,
 ): Record<string, number | string> {
-    const registered = lookup(state, componentName);
+    const registered = lookup(world, componentName);
     if (!registered) {
         throw new Error(`Unknown component "${componentName}"`);
     }
 
-    const result = parsePropertyString(state, registered, attrValue);
+    const result = parsePropertyString(world, registered, attrValue);
     if (result.errors.length > 0) {
         throw new Error(result.errors.join("\n"));
     }
@@ -695,7 +694,7 @@ export function parseFields(
 }
 
 /**
- * expand any array-form values on direct Pair/Quad fields into dotted lane
+ * expand any array-form values on direct Vector2Field/Vector4Field fields into dotted lane
  * keys. `{ pos: [1, 2, 3, 4] }` → `{ "pos.x": 1, "pos.y": 2, ... }`. Used to
  * normalize the merged-defaults+fields record before formatting
  */
@@ -734,18 +733,18 @@ function normalizeFields(
  * formatFields(state, "transform", { "pos.x": 0, "pos.y": 5, "pos.z": 0 }); // "pos: 0 5 0"
  */
 export function formatFields(
-    state: World,
+    world: World,
     componentName: string,
     fieldsInput: Record<string, number | string | readonly number[]>,
     options?: { stripDefaults?: boolean },
 ): string {
-    const registered = lookup(state, componentName);
+    const registered = lookup(world, componentName);
     if (!registered) {
         throw new Error(`Unknown component "${componentName}"`);
     }
 
     const { component, traits } = registered;
-    const rawDefaults = traits?.defaults?.(state) ?? {};
+    const rawDefaults = traits?.defaults?.(world) ?? {};
     const defaults = normalizeFields(component, rawDefaults) as Record<string, number>;
     const format = traits?.format;
     const stripDefaults = options?.stripDefaults !== false;
@@ -757,7 +756,7 @@ export function formatFields(
     const handled = new Set<string>();
 
     // identity-lane aliases: emit each lane as an independent named scalar (`metallic: 1; roughness: 0.2`)
-    // and claim its dotted key, so the positional Pair/Quad loop below skips it. Each lane elides
+    // and claim its dotted key, so the positional Vector2Field/Vector4Field loop below skips it. Each lane elides
     // independently at its default — a packed material has no vec3-shaped trailing-lane semantics.
     const aliases = traits?.aliases;
     if (aliases) {
@@ -779,11 +778,11 @@ export function formatFields(
         }
     }
 
-    // direct Pair/Quad fields keyed by dotted lane (`pos.x`, `pos.y` …).
+    // direct Vector2Field/Vector4Field fields keyed by dotted lane (`pos.x`, `pos.y` …).
     // Emit the longest contiguous lane prefix the user actually supplied —
     // omitted trailing lanes parse-back from the trait default, so dropping
-    // them keeps `pos: 1 2 3` (vec3-shaped Quad) roundtripping cleanly
-    // through `normalizeAttr`. Trim-trailing-default still operates within
+    // them keeps `pos: 1 2 3` (vec3-shaped Vector4Field) roundtripping cleanly
+    // through `normalizeAttribute`. Trim-trailing-default still operates within
     // the prefix when stripDefaults is on.
     for (const field of [...remaining]) {
         if (handled.has(field)) continue;
@@ -796,8 +795,8 @@ export function formatFields(
         const dotKeys = laneNames.map((l) => `${base}.${l}`);
         let prefix = 0;
         while (prefix < dotKeys.length && remaining.has(dotKeys[prefix])) prefix++;
-        // smallest non-splat partial-set: Quad parses {1, 3, 4}, Pair parses
-        // {1, 2}. Trim to 2 on a Quad would emit a length the parser rejects;
+        // smallest non-splat partial-set: Vector4Field parses {1, 3, 4}, Vector2Field parses
+        // {1, 2}. Trim to 2 on a Vector4Field would emit a length the parser rejects;
         // trim to 1 splats on re-parse and loses lane intent.
         const minPartial = direct === 4 ? 3 : 2;
         if (prefix < minPartial) continue;
@@ -818,7 +817,7 @@ export function formatFields(
             const allEqual = emitted.every((v) => v === emitted[0]);
             const k = kebab(base);
             // `pos: 5` splats to every lane at parse; only collapse when
-            // emitting the full lane count, else `pos: 5 5 5` on a Quad
+            // emitting the full lane count, else `pos: 5 5 5` on a Vector4Field
             // would silently set lane w to 5
             if (allEqual && emitted.length > 1 && emitted.length === direct) {
                 parts.push(`${k}: ${formatNumber(emitted[0])}`);
@@ -847,7 +846,7 @@ export function formatFields(
 
         const formatFn = format?.[field];
         if (formatFn) {
-            const formatted = formatFn(value as number, state);
+            const formatted = formatFn(value as number, world);
             if (formatted !== undefined) {
                 parts.push(`${k}: ${formatted}`);
                 continue;
@@ -872,16 +871,16 @@ function atDefault(value: number, def: number | undefined): boolean {
  * normalize a scene attribute value to its canonical form: parse, then re-format the way the live
  * `serialize` path does (`stripDefaults` on, so a field sitting at its trait default elides). The scene
  * formatter (`scripts/format.ts`) runs every `.scene` through this, so a formatted file is the same
- * minimal bytes `serialize(state)` emits: one canonical form, no divergence
+ * minimal bytes `serializeScene(state)` emits: one canonical form, no divergence
  * between hand-authored and programmatically-written scenes. Returns null for an empty value, unregistered
  * component, or a value that fails to parse (left untouched).
  */
-export function normalizeAttr(state: World, name: string, value: string): string | null {
+export function normalizeAttribute(world: World, name: string, value: string): string | null {
     if (!value) return null;
-    if (!getComponent(state, name)) return null;
+    if (!world.registry.getComponent(name)) return null;
     try {
-        const fields = parseFields(state, name, value);
-        return formatFields(state, name, fields);
+        const fields = parseFields(world, name, value);
+        return formatFields(world, name, fields);
     } catch {
         return null;
     }
@@ -899,7 +898,7 @@ function isCSSAttrSyntax(value: string): boolean {
 
 /** one scene validation issue: the offending `node` and `attr`, a `kind` tag (`"unregistered"` / `"missing-requires"` / `"excluded-with"` / `"derived"`), and a human-readable `message`. */
 export interface Diagnostic {
-    readonly node: Node;
+    readonly node: SceneNode;
     readonly attr: string;
     readonly kind: string;
     readonly message: string;
@@ -908,24 +907,24 @@ export interface Diagnostic {
 /**
  * validates a parsed scene against the registered components: an unknown component (with a did-you-mean
  * suggestion), a runtime-derived component, an unmet `requires` trait, or a violated `excludes`. Returns
- * every issue found; `run()` warns each to the console. Empty means the scene
+ * every issue found; `runApp()` warns each to the console. Empty means the scene
  * is clean.
  *
  * @example
- * for (const d of diagnose(state, parse(xml))) console.warn(d.message);
+ * for (const d of diagnose(state, parseScene(xml))) console.warn(d.message);
  */
-export function diagnose(state: World, nodes: Node[]): Diagnostic[] {
+export function diagnose(world: World, nodes: SceneNode[]): Diagnostic[] {
     const results: Diagnostic[] = [];
-    const registered = [...entries(state)].map((e) => e.name);
+    const registered = [...world.registry.entries()].map((e) => e.name);
     for (const node of nodes) {
         const attrNames = new Set(node.attrs.map((a) => a.name));
         // a component that `provides` X satisfies another's `requires` X on the same entity (Body
         // provides Transform), so fold every attr's provisions into the satisfied set
         const satisfied = new Set(attrNames);
-        for (const name of attrNames) for (const p of provides(state, name)) satisfied.add(p);
+        for (const name of attrNames) for (const p of provides(world, name)) satisfied.add(p);
         for (const attr of node.attrs) {
             if (attr.value.startsWith("@") && attr.value.length > 1) continue;
-            const reg = getComponent(state, attr.name);
+            const reg = world.registry.getComponent(attr.name);
             if (!reg) {
                 const suggestion = findClosestMatch(attr.name, registered);
                 const message = suggestion
@@ -934,7 +933,7 @@ export function diagnose(state: World, nodes: Node[]): Diagnostic[] {
                 results.push({ node, attr: attr.name, kind: "unregistered", message });
                 continue;
             }
-            if (getTraits(state, attr.name)?.derived) {
+            if (world.registry.getTraits(attr.name)?.derived) {
                 results.push({
                     node,
                     attr: attr.name,
@@ -942,7 +941,7 @@ export function diagnose(state: World, nodes: Node[]): Diagnostic[] {
                     message: `"${attr.name}" is runtime-derived — a system owns it, so the authored value is overwritten`,
                 });
             }
-            for (const reqName of dependencies(state, attr.name)) {
+            for (const reqName of requiredComponents(world, attr.name)) {
                 if (!satisfied.has(reqName)) {
                     results.push({
                         node,
@@ -952,7 +951,7 @@ export function diagnose(state: World, nodes: Node[]): Diagnostic[] {
                     });
                 }
             }
-            for (const excName of exclusions(state, attr.name)) {
+            for (const excName of exclusions(world, attr.name)) {
                 if (attrNames.has(excName) && excName > attr.name) {
                     results.push({
                         node,

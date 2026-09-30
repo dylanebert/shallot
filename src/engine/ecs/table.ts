@@ -1,6 +1,6 @@
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import type { Component, Type, TypedArray } from "./component";
+import type { Component, FieldType, TypedArray } from "./component";
 import { idOf, isType } from "./component";
 import type { World } from "./state";
 
@@ -90,9 +90,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _presenceBindings: PresenceBinding[] = [];
     private _presenceUnsubscribes: (() => void)[] = [];
 
-    constructor(state: World, name: string, record: T, options: GpuTableOptions = {}) {
+    constructor(world: World, name: string, record: T, options: GpuTableOptions = {}) {
         if (!name) throw new Error("GpuTable: name must not be empty");
-        this._state = state;
+        this._state = world;
         this.name = name;
         this.record = record;
         this.rowBytes = d.sizeOf(record);
@@ -102,7 +102,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             );
         }
         this.gpuOnly = options.gpuOnly ?? false;
-        const device = state.gpu.device;
+        const device = world.gpu.device;
         const bindingLimit = device.limits.maxStorageBufferBindingSize;
         const bufferLimit = device.limits.maxBufferSize;
         this.maxRows = Math.min(
@@ -254,7 +254,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         }
         const recordFields = record.propTypes as Record<string, d.BaseData>;
         const binding = this.binding(component);
-        this._state.of(component);
+        this._state.storage(component);
         for (const [recordName, componentName] of Object.entries(fields)) {
             if (!recordFields[recordName]) {
                 throw new Error(`GpuTable "${this.name}": unknown record field "${recordName}"`);
@@ -264,7 +264,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                     `GpuTable "${this.name}": record field "${recordName}" is already bound`,
                 );
             }
-            const descriptor = component[componentName] as Type;
+            const descriptor = component[componentName] as FieldType;
             if (!isType(descriptor)) {
                 throw new Error(
                     `GpuTable "${this.name}": component field "${componentName}" is not a field schema`,

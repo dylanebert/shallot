@@ -4,16 +4,10 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import {
-    Body,
-    hash as hashPhysics,
-    PhysicsPlugin,
-    readBody,
-    ShapeKind,
-} from "../../transitional/physics";
+import { Body, hashPhysics, PhysicsPlugin, readBody, ShapeKind } from "../../transitional/physics";
 import "../../standard";
-import { globalTransformTable, type World, Time } from "../index";
-import { build } from "./index";
+import { globalTransformTable, Time, type World } from "../index";
+import { createApp } from "./index";
 
 const peerModule = "bun-webgpu";
 const peer = (await import(peerModule)) as Record<string, unknown> & {
@@ -22,7 +16,7 @@ const peer = (await import(peerModule)) as Record<string, unknown> & {
 const { setupGlobals } = peer;
 await setupGlobals();
 
-let live: Awaited<ReturnType<typeof build>> | null = null;
+let live: Awaited<ReturnType<typeof createApp>> | null = null;
 
 afterEach(() => {
     live?.dispose();
@@ -39,7 +33,7 @@ function replaceGpu(gpu: GPU | undefined): () => void {
 }
 
 async function refusalMessage(): Promise<string> {
-    return build({ defaults: false, plugins: [] }).then(
+    return createApp({ defaults: false, plugins: [] }).then(
         (app) => {
             app.dispose();
             return "build unexpectedly succeeded";
@@ -121,85 +115,87 @@ test("overlapping public builds serialize their setup and then coexist as indepe
         },
     };
 
-    const firstPromise = build({ defaults: false, plugins: [held] });
+    const firstPromise = createApp({ defaults: false, plugins: [held] });
     await started;
-    const secondPromise = build({ defaults: false, plugins: [] });
+    const secondPromise = createApp({ defaults: false, plugins: [] });
     release();
     const first = await firstPromise;
     const second = await secondPromise;
-    first.state.step(Time.FIXED_DT);
-    second.state.step(Time.FIXED_DT);
+    first.world.step(Time.FIXED_DT);
+    second.world.step(Time.FIXED_DT);
     first.dispose();
-    second.state.step(Time.FIXED_DT);
+    second.world.step(Time.FIXED_DT);
     second.dispose();
 });
 
 test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
-    const author = (state: World, y: number) => {
-        const eid = state.create();
-        state.add(eid, Body);
-        const body = state.of(Body);
+    const author = (world: World, y: number) => {
+        const eid = world.create();
+        world.add(eid, Body);
+        const body = world.storage(Body);
         body.shape.set(eid, ShapeKind.Box);
-        body.pos.set(eid, 0, y, 0, 0);
+        body.position.set(eid, 0, y, 0, 0);
         body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
         body.mass.set(eid, 1);
         return eid;
     };
-    const first = await build({ defaults: false, plugins: [PhysicsPlugin] });
-    const firstEid = author(first.state, 2);
-    for (let i = 0; i < 8; i++) first.state.step(Time.FIXED_DT);
-    const firstBefore = readBody(first.state, firstEid);
+    const first = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const firstEid = author(first.world, 2);
+    for (let i = 0; i < 8; i++) first.world.step(Time.FIXED_DT);
+    const firstBefore = readBody(first.world, firstEid);
     if (!firstBefore) throw new Error("first Physics App did not produce a live body");
 
-    const second = await build({ defaults: false, plugins: [PhysicsPlugin] });
-    const secondEid = author(second.state, 20);
-    expect(second.state.of(Body).pos.y.get(secondEid)).toBe(20);
-    expect(first.state.of(Body).pos.y.get(firstEid)).toBe(2);
-    expect(first.state.of(Body).pos.column).not.toBe(second.state.of(Body).pos.column);
-    expect(globalTransformTable(first.state).buffer).not.toBe(
-        globalTransformTable(second.state).buffer,
+    const second = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const secondEid = author(second.world, 20);
+    expect(second.world.storage(Body).position.y.get(secondEid)).toBe(20);
+    expect(first.world.storage(Body).position.y.get(firstEid)).toBe(2);
+    expect(first.world.storage(Body).position.column).not.toBe(
+        second.world.storage(Body).position.column,
     );
-    expect(globalTransformTable(first.state).eidToRowBuffer).toBeDefined();
-    expect(globalTransformTable(first.state).eidToRowBuffer).not.toBe(
-        globalTransformTable(second.state).eidToRowBuffer,
+    expect(globalTransformTable(first.world).buffer).not.toBe(
+        globalTransformTable(second.world).buffer,
+    );
+    expect(globalTransformTable(first.world).eidToRowBuffer).toBeDefined();
+    expect(globalTransformTable(first.world).eidToRowBuffer).not.toBe(
+        globalTransformTable(second.world).eidToRowBuffer,
     );
 
     first.dispose();
-    for (let i = 0; i < 8; i++) second.state.step(Time.FIXED_DT);
-    const secondAfter = readBody(second.state, secondEid);
-    expect(secondAfter?.pos[1]).toBeLessThan(20);
+    for (let i = 0; i < 8; i++) second.world.step(Time.FIXED_DT);
+    const secondAfter = readBody(second.world, secondEid);
+    expect(secondAfter?.position[1]).toBeLessThan(20);
     second.dispose();
 });
 
 test("two live Physics apps keep sibling bodies and hash unchanged when only one steps", async () => {
-    const author = (state: World, y: number) => {
-        const eid = state.create();
-        state.add(eid, Body);
-        const body = state.of(Body);
+    const author = (world: World, y: number) => {
+        const eid = world.create();
+        world.add(eid, Body);
+        const body = world.storage(Body);
         body.shape.set(eid, ShapeKind.Box);
-        body.pos.set(eid, 0, y, 0, 0);
+        body.position.set(eid, 0, y, 0, 0);
         body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
         body.mass.set(eid, 1);
         return eid;
     };
-    let first: Awaited<ReturnType<typeof build>> | undefined;
-    let second: Awaited<ReturnType<typeof build>> | undefined;
+    let first: Awaited<ReturnType<typeof createApp>> | undefined;
+    let second: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-        first = await build({ defaults: false, plugins: [PhysicsPlugin] });
-        author(first.state, 2);
-        for (let i = 0; i < 8; i++) first.state.step(Time.FIXED_DT);
+        first = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+        author(first.world, 2);
+        for (let i = 0; i < 8; i++) first.world.step(Time.FIXED_DT);
 
-        second = await build({ defaults: false, plugins: [PhysicsPlugin] });
-        const secondEid = author(second.state, 20);
-        for (let i = 0; i < 8; i++) second.state.step(Time.FIXED_DT);
-        const bodyBefore = readBody(second.state, secondEid);
+        second = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+        const secondEid = author(second.world, 20);
+        for (let i = 0; i < 8; i++) second.world.step(Time.FIXED_DT);
+        const bodyBefore = readBody(second.world, secondEid);
         if (!bodyBefore) throw new Error("second Physics App did not produce a live body");
-        const hashBefore = hashPhysics(second.state);
+        const hashBefore = hashPhysics(second.world);
 
-        for (let i = 0; i < 8; i++) first.state.step(Time.FIXED_DT);
+        for (let i = 0; i < 8; i++) first.world.step(Time.FIXED_DT);
         expect({
-            body: readBody(second.state, secondEid),
-            hash: hashPhysics(second.state),
+            body: readBody(second.world, secondEid),
+            hash: hashPhysics(second.world),
         }).toEqual({ body: bodyBefore, hash: hashBefore });
     } finally {
         second?.dispose();
@@ -214,37 +210,37 @@ test("a failed plugin initialize releases its world and permits a later build", 
             throw new Error("intentional initialize failure");
         },
     };
-    await expect(build({ defaults: false, plugins: [broken] })).rejects.toThrow(
+    await expect(createApp({ defaults: false, plugins: [broken] })).rejects.toThrow(
         "intentional initialize failure",
     );
-    const recovered = await build({ defaults: false, plugins: [PhysicsPlugin] });
-    recovered.state.step(Time.FIXED_DT);
+    const recovered = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    recovered.world.step(Time.FIXED_DT);
     recovered.dispose();
 });
 
 test("disposing a Physics build leaves slab or solver state behind, so a sequential re-entry produces a different fixed-step world", async () => {
-    const author = (state: World) => {
-        const eid = state.create();
-        state.add(eid, Body);
-        state.of(Body).shape.set(eid, ShapeKind.Box);
-        state.of(Body).pos.set(eid, 0, 2, 0, 0);
-        state.of(Body).halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-        state.of(Body).mass.set(eid, 1);
+    const author = (world: World) => {
+        const eid = world.create();
+        world.add(eid, Body);
+        world.storage(Body).shape.set(eid, ShapeKind.Box);
+        world.storage(Body).position.set(eid, 0, 2, 0, 0);
+        world.storage(Body).halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
+        world.storage(Body).mass.set(eid, 1);
         return eid;
     };
-    const stepAndHash = (state: World): bigint => {
-        for (let i = 0; i < 8; i++) state.step(Time.FIXED_DT);
-        return hashPhysics(state);
+    const stepAndHash = (world: World): bigint => {
+        for (let i = 0; i < 8; i++) world.step(Time.FIXED_DT);
+        return hashPhysics(world);
     };
 
-    const first = await build({ defaults: false, plugins: [PhysicsPlugin] });
-    author(first.state);
-    const firstHash = stepAndHash(first.state);
+    const first = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    author(first.world);
+    const firstHash = stepAndHash(first.world);
     first.dispose();
-    expect(first.state.gpu.buffers.size).toBe(0);
-    expect(first.state.gpu.typed.size).toBe(0);
+    expect(first.world.gpu.buffers.size).toBe(0);
+    expect(first.world.gpu.typed.size).toBe(0);
 
-    live = await build({ defaults: false, plugins: [PhysicsPlugin] });
-    author(live.state);
-    expect(stepAndHash(live.state)).toBe(firstHash);
+    live = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    author(live.world);
+    expect(stepAndHash(live.world)).toBe(firstHash);
 });

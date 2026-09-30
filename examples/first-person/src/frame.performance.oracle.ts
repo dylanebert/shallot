@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-    build,
     Camera,
     CharacterPlugin,
+    createApp,
     PhysicsPlugin,
     PlayerPlugin,
     Time,
@@ -119,13 +119,13 @@ test("report production frame GPU time for first-person and a 10k-instance scene
         new URL("../public/scenes/first-person.scene", import.meta.url),
         "utf8",
     );
-    const stress = `<scene><a camera sear transform="pos: 0 0 90" /><a ambient-light="intensity: 0.8" />${Array.from({ length: 10000 }, (_, i) => `<a part transform="pos: ${((i % 100) - 50) * 0.4} ${Math.floor(i / 100 - 50) * 0.4} 0; scale: 0.15 0.15 0.15" color="rgba: 0.3 0.6 0.8" />`).join("")}</scene>`;
+    const stress = `<scene><a camera standard-renderer transform="translation: 0 0 90" /><a ambient-light="intensity: 0.8" />${Array.from({ length: 10000 }, (_, i) => `<a mesh-instance transform="translation: ${((i % 100) - 50) * 0.4} ${Math.floor(i / 100 - 50) * 0.4} 0; scale: 0.15 0.15 0.15" color="rgba: 0.3 0.6 0.8" />`).join("")}</scene>`;
     try {
         for (const [name, scene] of [
             ["first-person", firstPerson],
             ["stress-10k", stress],
         ] as const) {
-            const app = await build({
+            const app = await createApp({
                 device,
                 plugins:
                     name === "first-person"
@@ -134,7 +134,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
                 scene,
             });
             try {
-                const camera = [...app.state.query([Camera])][0];
+                const camera = [...app.world.query([Camera])][0];
                 if (camera === undefined) throw new Error(`${name} has no camera`);
                 let context: GPUCanvasContext;
                 const canvas = {
@@ -145,8 +145,8 @@ test("report production frame GPU time for first-person and a 10k-instance scene
                     getBoundingClientRect: () => ({ width: 1280, height: 720 }),
                 } as unknown as HTMLCanvasElement;
                 context = new createCanvasContext(canvas, 1280, 720);
-                attachCanvas(camera, canvas, app.state);
-                for (let frame = 0; frame < 30; frame++) app.state.step(Time.FIXED_DT);
+                attachCanvas(camera, canvas, app.world);
+                for (let frame = 0; frame < 30; frame++) app.world.step(Time.FIXED_DT);
                 await bounded(`${name} warmup completion`, device.queue.onSubmittedWorkDone());
                 for (let run = 0; run < 3; run++) {
                     const elapsed: number[] = [];
@@ -157,7 +157,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
                         labels.length = 0;
                         active = true;
                         try {
-                            app.state.step(Time.FIXED_DT);
+                            app.world.step(Time.FIXED_DT);
                         } finally {
                             active = false;
                         }

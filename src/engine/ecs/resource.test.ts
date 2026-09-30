@@ -1,28 +1,28 @@
 import { expect, test } from "bun:test";
 import { type Resource, World } from "./state";
 
-function callerTypeControl(state: World): void {
+function callerTypeControl(world: World): void {
     const number: Resource<number> = { create: () => 1 };
     // @ts-expect-error The declaration binds the result type, not the caller.
-    const value: string = state.resource<string>(number);
+    const value: string = world.resource<string>(number);
     void value;
 }
 void callerTypeControl;
 
 test("a declaration creates once per world, including an undefined value", () => {
-    const state = new World();
+    const world = new World();
     let calls = 0;
     const declaration: Resource<undefined> = {
         create: (owner) => {
-            expect(owner).toBe(state);
+            expect(owner).toBe(world);
             calls++;
             return undefined;
         },
     };
-    expect(state.resource(declaration)).toBeUndefined();
-    expect(state.resource(declaration)).toBeUndefined();
+    expect(world.resource(declaration)).toBeUndefined();
+    expect(world.resource(declaration)).toBeUndefined();
     expect(calls).toBe(1);
-    state.dispose();
+    world.dispose();
 });
 
 test("worlds and declarations isolate values even with the same creator", () => {
@@ -30,9 +30,9 @@ test("worlds and declarations isolate values even with the same creator", () => 
     const second = new World();
     let calls = 0;
     let cleanups = 0;
-    const create = (state: World) => {
+    const create = (world: World) => {
         calls++;
-        state.onDispose(() => cleanups++);
+        world.onDispose(() => cleanups++);
         return {};
     };
     const a = { create };
@@ -49,17 +49,17 @@ test("worlds and declarations isolate values even with the same creator", () => 
 });
 
 test("disposed worlds refuse cached and fresh declarations without invoking creators or caching", () => {
-    const state = new World();
+    const world = new World();
     let calls = 0;
     const create = () => ++calls;
     const cached = { create };
     const fresh = { create };
-    state.resource(cached);
-    state.dispose();
+    world.resource(cached);
+    world.dispose();
     for (const declaration of [cached, fresh, fresh]) {
-        expect(() => state.resource(declaration)).toThrow("world is disposed");
+        expect(() => world.resource(declaration)).toThrow("world is disposed");
     }
     expect(calls).toBe(1);
     // Inspect only the owner's cache, not caller-retained values.
-    expect((state as unknown as { _resources: Map<unknown, unknown> })._resources.size).toBe(0);
+    expect((world as unknown as { _resources: Map<unknown, unknown> })._resources.size).toBe(0);
 });

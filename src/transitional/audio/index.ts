@@ -2,16 +2,16 @@
 
 import { Devices } from "../../core/input";
 import {
-    composeTransform,
+    composeGlobalTransform,
     f32,
     GlobalTransform,
     i32,
     not,
     type Plugin,
-    type World,
     type System,
     Transform,
     u8,
+    type World,
 } from "../../engine";
 import {
     Audio,
@@ -71,7 +71,7 @@ const _m = new Float32Array(16);
  * registered sample lazily registers a built-in sampler instrument (cached
  * under the same name) so the trivial case authors no DAG
  */
-function resolveInstrument(state: World, name: string): number | undefined {
+function resolveInstrument(world: World, name: string): number | undefined {
     const inst = Instruments.id(name);
     if (inst !== undefined) return inst;
     const sampleId = Samples.id(name);
@@ -79,7 +79,7 @@ function resolveInstrument(state: World, name: string): number | undefined {
         console.warn(`audio: no instrument or sample named "${name}"`);
         return undefined;
     }
-    return sampler(state, name, sampleId);
+    return sampler(world, name, sampleId);
 }
 
 // sustain=1 + decay≈sample length makes the envelope a duration timer: the
@@ -87,11 +87,11 @@ function resolveInstrument(state: World, name: string): number | undefined {
 // voice cleanly (juice's registerOneShot shape). For a loop the same envelope
 // holds sustain and the sample wraps until the Sound is removed. decay falls
 // back to 2s for a sample still decoding at first play
-function sampler(state: World, name: string, sampleId: number): number {
+function sampler(world: World, name: string, sampleId: number): number {
     const s = getSample(sampleId);
     const frames = s?.channels[0]?.length ?? 0;
     const dur = frames
-        ? frames / (s!.sampleRate || state.resource(Audio).ctx?.sampleRate || 48000)
+        ? frames / (s!.sampleRate || world.resource(Audio).ctx?.sampleRate || 48000)
         : 2;
     const env = { attack: 0.001, decay: dur, sustain: 1, release: 0.05 };
     if ((s?.channels.length ?? 1) >= 2) {
@@ -166,20 +166,20 @@ function sampler(state: World, name: string, sampleId: number): number {
 // (the crowd bed / music) are lifecycle-owned — stopped only by remove(Sound),
 // never culled — so a one-shot burst never steals the bed. A graceful default
 // (no crash); a Sound.priority bias is the FMOD-style follow-up
-function steal(state: World): void {
+function steal(world: World): void {
     let victim = -1;
     let oldest = Number.POSITIVE_INFINITY;
-    for (const eid of state.query([Sound, Voiced])) {
-        if (state.of(Sound).loop.get(eid) === 1) continue;
-        const gen = state.of(Sound).voice.get(eid) >>> 7;
+    for (const eid of world.query([Sound, Voiced])) {
+        if (world.storage(Sound).loop.get(eid) === 1) continue;
+        const gen = world.storage(Sound).voice.get(eid) >>> 7;
         if (gen < oldest) {
             oldest = gen;
             victim = eid;
         }
     }
     if (victim < 0) return;
-    free(state, state.of(Sound).voice.get(victim));
-    state.destroy(victim);
+    free(world, world.storage(Sound).voice.get(victim));
+    world.destroy(victim);
 }
 
 // apply a name's SFX policy before play() spawns. Drop inside the cooldown
@@ -190,20 +190,20 @@ function steal(state: World): void {
 // victim drops Sound — SoundSystem gates it off + frees it on the next tick,
 // the graceful loop-stop path (the cap is well under the pool, so a slot is
 // free; no hard cut needed)
-function admit(state: World, name: string, policy: Required<SfxPolicy>, id: number): boolean {
-    if (withinCooldown(state, name, policy.cooldown, state.time.elapsed)) return false;
+function admit(world: World, name: string, policy: Required<SfxPolicy>, id: number): boolean {
+    if (withinCooldown(world, name, policy.cooldown, world.time.elapsed)) return false;
     if (policy.max > 0) {
         let count = 0;
         let victim = -1;
         let best = Number.POSITIVE_INFINITY;
-        for (const eid of state.query([Sound])) {
-            if (state.of(Sound).instrument.get(eid) !== id) continue;
+        for (const eid of world.query([Sound])) {
+            if (world.storage(Sound).instrument.get(eid) !== id) continue;
             count++;
-            if (!state.has(eid, Voiced)) continue;
+            if (!world.has(eid, Voiced)) continue;
             const key =
                 policy.steal === "quietest"
-                    ? state.of(Sound).volume.get(eid)
-                    : state.of(Sound).voice.get(eid) >>> 7;
+                    ? world.storage(Sound).volume.get(eid)
+                    : world.storage(Sound).voice.get(eid) >>> 7;
             if (key < best) {
                 best = key;
                 victim = eid;
@@ -211,10 +211,10 @@ function admit(state: World, name: string, policy: Required<SfxPolicy>, id: numb
         }
         if (count >= policy.max) {
             if (policy.steal === "none" || victim < 0) return false;
-            state.remove(victim, Sound);
+            world.remove(victim, Sound);
         }
     }
-    if (policy.cooldown > 0) markCooldown(state, name, state.time.elapsed);
+    if (policy.cooldown > 0) markCooldown(world, name, world.time.elapsed);
     return true;
 }
 
@@ -226,74 +226,74 @@ function admit(state: World, name: string, policy: Required<SfxPolicy>, id: numb
 const SoundSystem: System = {
     name: "sound",
     group: "simulation",
-    update(state) {
-        const context = state.resource(Devices).audio.context;
+    update(world) {
+        const context = world.resource(Devices).audio.context;
         if (context === "none" || context === "closed") return;
 
         // a loop stopped (Sound removed, Voiced kept): gate off, free after the
         // release tail. sparse fields survive remove, so Sound.voice still reads
-        for (const eid of [...state.query([Voiced, not(Sound)])]) {
-            const handle = state.of(Sound).voice.get(eid);
-            gate(state, handle, 0);
-            watchIdle(state, handle, () => free(state, handle));
-            state.remove(eid, Voiced);
+        for (const eid of [...world.query([Voiced, not(Sound)])]) {
+            const handle = world.storage(Sound).voice.get(eid);
+            gate(world, handle, 0);
+            watchIdle(world, handle, () => free(world, handle));
+            world.remove(eid, Voiced);
         }
 
         const ctxRunning = context === "running";
-        const listenerEid = state.only([Listener, GlobalTransform]);
+        const listenerEid = world.only([Listener, GlobalTransform]);
         const hasListener = listenerEid >= 0;
 
-        for (const eid of [...state.query([Sound, not(Voiced)])]) {
-            const loop = state.of(Sound).loop.get(eid);
+        for (const eid of [...world.query([Sound, not(Voiced)])]) {
+            const loop = world.storage(Sound).loop.get(eid);
             if (!ctxRunning) {
                 // suspended (no user gesture): drop one-shots so they don't burst
                 // on resume; loops stay pending until the context runs
-                if (loop === 0) state.destroy(eid);
+                if (loop === 0) world.destroy(eid);
                 continue;
             }
-            const id = state.of(Sound).instrument.get(eid);
+            const id = world.storage(Sound).instrument.get(eid);
             if (id < 0) continue;
-            let handle = alloc(state);
+            let handle = alloc(world);
             if (handle < 0) {
-                steal(state);
-                handle = alloc(state);
+                steal(world);
+                handle = alloc(world);
             }
             if (handle < 0) continue;
-            assign(state, handle, id);
+            assign(world, handle, id);
             const inst = byId(id);
-            if (inst) for (const off of inst.loopOffsets) setParam(state, handle, off, loop);
-            spatialize(state, handle, hasListener && state.has(eid, GlobalTransform));
-            gate(state, handle, 1);
+            if (inst) for (const off of inst.loopOffsets) setParam(world, handle, off, loop);
+            spatialize(world, handle, hasListener && world.has(eid, GlobalTransform));
+            gate(world, handle, 1);
             if (loop === 0) {
                 // gate-on must precede the idle watch: the worklet clears a slot
                 // from _releasing on any gate(value != 0) (the re-gate-cancels-
                 // death-watch guard), so a watch_idle queued before the initial
                 // gate-on is wiped in the same batch — the voice then never
                 // reports idle and leaks until steal reclaims it
-                oneShot(state, handle);
-                watchIdle(state, handle, () => {
-                    free(state, handle);
-                    if (state.exists(eid)) state.destroy(eid);
+                oneShot(world, handle);
+                watchIdle(world, handle, () => {
+                    free(world, handle);
+                    if (world.exists(eid)) world.destroy(eid);
                 });
             }
-            state.of(Sound).voice.set(eid, handle);
-            state.add(eid, Voiced);
+            world.storage(Sound).voice.set(eid, handle);
+            world.add(eid, Voiced);
         }
 
-        for (const eid of state.query([Sound, Voiced])) {
-            const inst = byId(state.of(Sound).instrument.get(eid));
+        for (const eid of world.query([Sound, Voiced])) {
+            const inst = byId(world.storage(Sound).instrument.get(eid));
             if (!inst) continue;
-            const handle = state.of(Sound).voice.get(eid);
+            const handle = world.storage(Sound).voice.get(eid);
             if (inst.volumeOffsets.length > 0) {
-                const v = state.of(Sound).volume.get(eid);
+                const v = world.storage(Sound).volume.get(eid);
                 const level = v * v * inst.baseVolume;
-                for (const off of inst.volumeOffsets) setParam(state, handle, off, level);
+                for (const off of inst.volumeOffsets) setParam(world, handle, off, level);
             }
             if (inst.pitchEntries.length > 0) {
-                const semis = state.of(Sound).pitch.get(eid);
+                const semis = world.storage(Sound).pitch.get(eid);
                 for (const pe of inst.pitchEntries) {
                     const freq = noteFreq(pe.baseFreq, pe.octave, semis + pe.semitone, pe.fine);
-                    setParam(state, handle, pe.offset, freq);
+                    setParam(world, handle, pe.offset, freq);
                 }
             }
         }
@@ -301,24 +301,24 @@ const SoundSystem: System = {
         // spatial: a positioned voice + a listener pans + attenuates; the polar
         // derivation reads the listener's world basis (column-major right/up/fwd)
         if (hasListener) {
-            const m = composeTransform(state, listenerEid, _m);
-            for (const eid of state.query([Sound, Voiced, GlobalTransform])) {
-                const dx = state.of(GlobalTransform).pos.x.get(eid) - m[12];
-                const dy = state.of(GlobalTransform).pos.y.get(eid) - m[13];
-                const dz = state.of(GlobalTransform).pos.z.get(eid) - m[14];
+            const m = composeGlobalTransform(world, listenerEid, _m);
+            for (const eid of world.query([Sound, Voiced, GlobalTransform])) {
+                const dx = world.storage(GlobalTransform).translation.x.get(eid) - m[12];
+                const dy = world.storage(GlobalTransform).translation.y.get(eid) - m[13];
+                const dz = world.storage(GlobalTransform).translation.z.get(eid) - m[14];
                 const p = polar(dx, dy, dz, m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
                 addSpatial(
-                    state,
-                    state.of(Sound).voice.get(eid),
+                    world,
+                    world.storage(Sound).voice.get(eid),
                     p.azimuth,
                     p.elevation,
                     p.distance,
                 );
             }
-            flushSpatial(state);
+            flushSpatial(world);
         }
 
-        tickAudio(state);
+        tickAudio(world);
     },
 };
 
@@ -328,30 +328,30 @@ const SoundSystem: System = {
  * writes); scenes declare static / looping audio with `<a sound transform>`. A
  * sample name auto-registers a sampler, so the trivial case needs no
  * instrument. `pos` adds a `Transform`, making it spatial when a `Listener`
- * exists. Stop a loop with `state.remove(eid, Sound)`, not a bare destroy;
+ * exists. Stop a loop with `world.remove(eid, Sound)`, not a bare destroy;
  * destroying a looping voice directly orphans its slot until it's stolen. A
  * name with a registered {@link sfx} policy is capped / cooled / stolen-from
  * first; a dropped trigger returns -1 like an unresolved name
  * @example
- * play(state, "explosion", { pos: [x, y, z] });
+ * play(world, "explosion", { pos: [x, y, z] });
  */
 export function play(
-    state: World,
+    world: World,
     name: string,
     opts?: { loop?: boolean; volume?: number; pos?: readonly [number, number, number] },
 ): number {
-    const id = resolveInstrument(state, name);
+    const id = resolveInstrument(world, name);
     if (id === undefined) return -1;
     const policy = policyFor(name);
-    if (policy && !admit(state, name, policy, id)) return -1;
-    const eid = state.create();
-    state.add(eid, Sound);
-    state.of(Sound).instrument.set(eid, id);
-    state.of(Sound).loop.set(eid, opts?.loop ? 1 : 0);
-    if (opts?.volume !== undefined) state.of(Sound).volume.set(eid, opts.volume);
+    if (policy && !admit(world, name, policy, id)) return -1;
+    const eid = world.create();
+    world.add(eid, Sound);
+    world.storage(Sound).instrument.set(eid, id);
+    world.storage(Sound).loop.set(eid, opts?.loop ? 1 : 0);
+    if (opts?.volume !== undefined) world.storage(Sound).volume.set(eid, opts.volume);
     if (opts?.pos) {
-        state.add(eid, Transform);
-        state.of(Transform).pos.set(eid, opts.pos[0], opts.pos[1], opts.pos[2], 0);
+        world.add(eid, Transform);
+        world.storage(Transform).translation.set(eid, opts.pos[0], opts.pos[1], opts.pos[2], 0);
     }
     return eid;
 }
@@ -373,19 +373,19 @@ export const AudioPlugin: Plugin = {
     traits: {
         Sound: {
             defaults: () => ({ instrument: -1, loop: 0, volume: 1, pitch: 0, voice: -1 }),
-            parse: { instrument: (name, state) => resolveInstrument(state, name) },
+            parse: { instrument: (name, world) => resolveInstrument(world, name) },
         },
         Listener: { requires: [GlobalTransform] },
     },
-    async initialize(state) {
-        // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the State's
+    async initialize(world) {
+        // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the World's
         // lifetime — registered up front so a partial init that then throws still tears down; disposeAudio
         // is idempotent, so the top-of-initAudio reinit and this dispose can't double-free.
-        const audio = state.resource(Audio);
-        const facts = state.resource(Devices).audio;
-        state.onDispose(() => disposeAudio(state, audio, facts));
+        const audio = world.resource(Audio);
+        const facts = world.resource(Devices).audio;
+        world.onDispose(() => disposeAudio(world, audio, facts));
         try {
-            await initAudio(state);
+            await initAudio(world);
         } catch {
             // no AudioContext (headless / unsupported) — SoundSystem stays inert
         }

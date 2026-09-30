@@ -65,10 +65,10 @@ function growCap(need: number): number {
  * the current capacity. @returns true if the region grew (the caller must refresh any views over the
  * relocated regions above it, and over every region a `memory.grow` detached).
  */
-export function reserveShapes(state: World | undefined, shapeCount: number): boolean {
+export function reserveShapes(world: World | undefined, shapeCount: number): boolean {
     const cap = growCap(shapeCount);
-    const fatGrew = kernel(state).reserveFatAabb(cap) !== 0;
-    const shapeGrew = kernel(state).reserveShapes(cap) !== 0;
+    const fatGrew = kernel(world).reserveFatAabb(cap) !== 0;
+    const shapeGrew = kernel(world).reserveShapes(cap) !== 0;
     return fatGrew || shapeGrew;
 }
 
@@ -289,14 +289,14 @@ export class ShapeStore {
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
-export function createShapeStore(state: World | undefined, worldId: number): ShapeStore {
-    return new ShapeStore(state, worldId);
+export function createShapeStore(world: World | undefined, worldId: number): ShapeStore {
+    return new ShapeStore(world, worldId);
 }
 
 /** Read live material records from the kernel-owned linked list. The returned objects are bridge values;
  * simulation decisions always re-read this column rather than a Shape.materials authoring array. */
-export function readShapeMaterials(state: World | undefined, shape: Shape): SurfaceMaterial[] {
-    const k = kernel(state);
+export function readShapeMaterials(world: World | undefined, shape: Shape): SurfaceMaterial[] {
+    const k = kernel(world);
     const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
     const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
     const listCount = k.materialListCount(shape.worldId, head) >>> 0;
@@ -329,8 +329,8 @@ export function readShapeMaterials(state: World | undefined, shape: Shape): Surf
 }
 
 /** The authoritative live material count for a shape. */
-export function shapeMaterialCount(state: World | undefined, shape: Shape): number {
-    const k = kernel(state);
+export function shapeMaterialCount(world: World | undefined, shape: Shape): number {
+    const k = kernel(world);
     const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
     const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
     if (k.materialListCount(shape.worldId, head) >>> 0 !== count) {

@@ -301,13 +301,13 @@ export interface SceneBounds {
  * device.queue.submit([enc.finish()]);
  */
 export async function createSceneBounds(
-    state: World,
+    world: World,
     device: GPUDevice,
     maxPrims: number,
     shared: SceneBoundsShared = {},
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<SceneBounds> {
-    const root = state.gpu.root;
+    const root = world.gpu.root;
     const cap = Math.max(1, maxPrims);
     const owned: GPUBuffer[] = [];
     const own = (label: string, size: number, usage: number): GPUBuffer => {
@@ -336,12 +336,12 @@ export async function createSceneBounds(
         .$name("bounds-finalize")
         .with(root.createBindGroup(finalizeLayout, { scratch, bounds }));
     // per-instance labels — an app can build more than one BVH, and the queue rejects a duplicate label
-    const scope = precompileScope(state, "bounds");
+    const scope = precompileScope(world, "bounds");
     for (const [label, bound] of [
         ["reduce", reduce],
         ["finalize", finalizeBound],
     ] as const) {
-        await precompile(state, `${scope}-${label}`, () => {
+        await precompile(world, `${scope}-${label}`, () => {
             return bound;
         });
     }
@@ -362,13 +362,13 @@ export async function createSceneBounds(
 
             // profile under one accumulating row (no-op without ProfilePlugin)
             const reducePass = encoder.beginComputePass({
-                timestampWrites: state.gpu.span?.("bvh:bounds"),
+                timestampWrites: world.gpu.span?.("bvh:bounds"),
             });
             reduce.with(reducePass).dispatchWorkgroups(numWg);
             reducePass.end();
 
             const finalizePass = encoder.beginComputePass({
-                timestampWrites: state.gpu.span?.("bvh:bounds"),
+                timestampWrites: world.gpu.span?.("bvh:bounds"),
             });
             finalizeBound.with(finalizePass).dispatchWorkgroups(1);
             finalizePass.end();

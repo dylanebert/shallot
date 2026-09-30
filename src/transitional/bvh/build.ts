@@ -28,7 +28,7 @@ import type { World } from "../../engine";
 //    dispatch, a node completes only when BOTH children completed in a PRIOR sweep, so
 //    every cross-node read crosses a dispatch boundary (spec-clean visibility) and a
 //    node's bounds are written once, with no concurrent reader. `valid` flags are
-//    double-buffered (read prior-sweep state, write this-sweep state) so a flag a peer
+//    double-buffered (read prior-sweep world, write this-sweep world) so a flag a peer
 //    flips mid-sweep is never observed with its bounds still in flight. Each sweep climbs
 //    LEVELS levels at once (a node resolves a child from deeper prior-sweep descendants when
 //    the child isn't valid yet), so the fixed sweep count is ceil(worst-case height / LEVELS); sweeps past
@@ -402,7 +402,7 @@ export const sweepLayout = tgpu.bindGroupLayout({
     validOut: { storage: d.arrayOf(d.u32), access: "mutable" },
 });
 
-/** a child's final bounds resolved from prior-sweep state, looking up to LEVELS-1 levels past it.
+/** a child's final bounds resolved from prior-sweep world, looking up to LEVELS-1 levels past it.
  *  `ok` is false when the child's subtree hasn't reached this thread yet (a later sweep completes it). */
 const Resolved = d.struct({ ok: d.bool, mn: d.vec3f, mx: d.vec3f }).$name("Resolved");
 
@@ -562,7 +562,7 @@ export interface BuildShared {
  * a built LBVH BVH2 builder sized for `maxPrims`. Write primitive AABBs into {@link
  * Build.prims} (2 × vec4<f32> per prim, leaf-index order) and the sorted Morton output
  * into {@link Build.keys} (codes) + {@link Build.payload} (prim indices, the {@link
- * RadixSort} result), record {@link Build.build}, submit, then read the BVH2 back from
+ * RadixSort} result), record {@link Build.createApp}, submit, then read the BVH2 back from
  * {@link Build.nodes} (`2N−1` nodes × 32 B; root is node `2N−2` for N≥2, else node 0).
  * For stable topology under motion, write moved AABBs and record {@link Build.refit}
  * instead: the bounds relaxation alone, topology untouched.
@@ -592,7 +592,7 @@ export interface Build {
 /**
  * build an LBVH BVH2 builder for up to `maxPrims` primitives. Compiles the prepare +
  * leaf-init + topology + relaxation kernels and allocates the node / flag / working
- * buffers up front; {@link Build.build} and {@link Build.refit} then record with no
+ * buffers up front; {@link Build.createApp} and {@link Build.refit} then record with no
  * further allocation, dispatching every pass indirectly off the GPU count.
  *
  * @example
@@ -602,16 +602,16 @@ export interface Build {
  * device.queue.writeBuffer(b.payload, 0, sortedPrimIds);
  * device.queue.writeBuffer(b.count, 0, new Uint32Array([count]));
  * const enc = device.createCommandEncoder();
- * b.build(enc);
+ * b.createApp(enc);
  * device.queue.submit([enc.finish()]);
  */
 export async function createBuild(
-    state: World,
+    world: World,
     device: GPUDevice,
     maxPrims: number,
     shared: BuildShared = {},
 ): Promise<Build> {
-    const root = state.gpu.root;
+    const root = world.gpu.root;
     const cap = Math.max(1, maxPrims);
     const nodeCount = 2 * cap; // 2N−1 rounded up; the extra node is never addressed
     // every pass is one thread per node/internal-node (no grid-stride), so the worst-case
@@ -685,14 +685,14 @@ export async function createBuild(
     const sweepBA = sweepBound(validB, validA);
 
     // per-instance labels — an app can build more than one BVH, and the queue rejects a duplicate label
-    const scope = precompileScope(state, "build");
+    const scope = precompileScope(world, "build");
     for (const [label, bound] of [
         ["prepare", prepare],
         ["leaf", leaf],
         ["topo", topo],
         ["sweep", sweepAB],
     ] as const) {
-        await precompile(state, `${scope}-${label}`, () => {
+        await precompile(world, `${scope}-${label}`, () => {
             return bound;
         });
     }
@@ -703,7 +703,7 @@ export async function createBuild(
         wg: number,
         span: string,
     ): void => {
-        const pass = encoder.beginComputePass({ timestampWrites: state.gpu.span?.(span) });
+        const pass = encoder.beginComputePass({ timestampWrites: world.gpu.span?.(span) });
         bound.with(pass).dispatchWorkgroups(wg);
         pass.end();
     };
@@ -713,7 +713,7 @@ export async function createBuild(
         offset: number,
         span: string,
     ): void => {
-        const pass = encoder.beginComputePass({ timestampWrites: state.gpu.span?.(span) });
+        const pass = encoder.beginComputePass({ timestampWrites: world.gpu.span?.(span) });
         bound.with(pass).dispatchWorkgroupsIndirect(indirect, offset);
         pass.end();
     };

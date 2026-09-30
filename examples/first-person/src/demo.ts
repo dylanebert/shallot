@@ -2,7 +2,6 @@ import {
     Body,
     Character,
     CharacterPlugin,
-    CharacterSweepSystem,
     InputPlugin,
     mountOverlay,
     PhysicsPlugin,
@@ -10,18 +9,19 @@ import {
     pointerLockRefusal,
     pointerLockStatus,
     type Resource,
-    type World,
+    SweepCharactersSystem,
     type System,
     setKinematic,
+    type World,
 } from "@dylanebert/shallot";
 
 // The built-in Player keeps its default WASD, look, and jump controls. These two Character values make the
 // ascent's step rhythm and lift transfer feel deliberate without replacing the controller.
-function tune(state: World): void {
-    for (const eid of state.query([Character])) {
-        if (state.identity.id(eid) !== "player") continue;
-        state.of(Character).jumpSpeed.set(eid, 7);
-        state.of(Character).gravity.set(eid, -30);
+function tune(world: World): void {
+    for (const eid of world.query([Character])) {
+        if (world.identity.id(eid) !== "player") continue;
+        world.storage(Character).jumpSpeed.set(eid, 7);
+        world.storage(Character).gravity.set(eid, -30);
     }
 }
 
@@ -41,13 +41,13 @@ type DemoBag = {
     panel: HTMLDivElement | null;
     look: HTMLDivElement | null;
 };
-function stateBag(state: World): DemoBag {
-    return state.resource(RECIPE_STATE);
+function stateBag(world: World): DemoBag {
+    return world.resource(RECIPE_STATE);
 }
 
 // The bag's creation, apart from the per-frame lookup: its dispose closure would otherwise make every
 // lookup allocate a context.
-function createBag(state: World): DemoBag {
+function createBag(world: World): DemoBag {
     const bag: DemoBag = {
         liftEids: [],
         liftBases: [],
@@ -55,7 +55,7 @@ function createBag(state: World): DemoBag {
         panel: null,
         look: null,
     };
-    state.onDispose(() => {
+    world.onDispose(() => {
         // the slot arrays keep their capacity; the count is what empties them
         bag.liftCount = 0;
         bag.panel = null;
@@ -72,12 +72,12 @@ const liftVel: [number, number, number] = [0, 0, 0];
 const lift: System = {
     name: "lift",
     group: "fixed",
-    before: [CharacterSweepSystem],
+    before: [SweepCharactersSystem],
     // Every lift shares one trajectory, so the phase, the rise and the velocity are the tick's, not each
     // lift's: they are computed once here and the slot walk only adds each lift's base to them.
-    update(state: World): void {
-        const bag = stateBag(state);
-        const phase = 2 * (state.time.elapsed * RATE);
+    update(world: World): void {
+        const bag = stateBag(world);
+        const phase = 2 * (world.time.elapsed * RATE);
         const rise = 0.5 * TRAVEL * (1 - Math.cos(phase));
         liftVel[1] = RATE * TRAVEL * Math.sin(phase);
         for (let slot = 0; slot < bag.liftCount; slot++) {
@@ -85,16 +85,16 @@ const lift: System = {
             liftPos[0] = bag.liftBases[base];
             liftPos[1] = bag.liftBases[base + 1] + rise;
             liftPos[2] = bag.liftBases[base + 2];
-            setKinematic(state, bag.liftEids[slot], liftPos, LIFT_QUAT, false, liftVel);
+            setKinematic(world, bag.liftEids[slot], liftPos, LIFT_QUAT, false, liftVel);
         }
     },
 };
 
-function mountControls(state: World): void {
+function mountControls(world: World): void {
     if (typeof document === "undefined") return;
-    const bag = stateBag(state);
+    const bag = stateBag(world);
     if (bag.panel) return;
-    const overlay = mountOverlay(document.querySelector("canvas"), state);
+    const overlay = mountOverlay(document.querySelector("canvas"), world);
     const panel = document.createElement("div");
     panel.dataset.recipeControls = "";
     panel.style.cssText =
@@ -130,18 +130,18 @@ function mountControls(state: World): void {
 const controls: System = {
     name: "first-person-controls",
     group: "draw",
-    update(state) {
-        mountControls(state);
-        const bag = stateBag(state);
+    update(world) {
+        mountControls(world);
+        const bag = stateBag(world);
         if (!bag.panel || !bag.look) return;
-        const status = pointerLockStatus(state);
+        const status = pointerLockStatus(world);
         const look =
             status === "locked" ? "locked" : status === "unlocked" ? "idle" : "unavailable";
         if (bag.look.dataset.pointerLook === look) return;
         bag.look.dataset.pointerLook = look;
         bag.look.style.opacity = look === "locked" ? "1" : "0.45";
         bag.look.style.textDecoration = look === "unavailable" ? "line-through" : "none";
-        bag.look.title = look === "unavailable" ? (pointerLockRefusal(state) ?? "") : "";
+        bag.look.title = look === "unavailable" ? (pointerLockRefusal(world) ?? "") : "";
     },
 };
 
@@ -149,16 +149,16 @@ export const Demo = {
     name: "Demo",
     components: { Lift },
     dependencies: [CharacterPlugin, InputPlugin, PhysicsPlugin],
-    warm(state: World) {
-        tune(state);
-        const bag = stateBag(state);
+    warm(world: World) {
+        tune(world);
+        const bag = stateBag(world);
         bag.liftCount = 0;
-        for (const eid of state.query([Lift, Body])) {
+        for (const eid of world.query([Lift, Body])) {
             const base = bag.liftCount * 3;
             bag.liftEids[bag.liftCount] = eid;
-            bag.liftBases[base] = state.of(Body).pos.x.get(eid);
-            bag.liftBases[base + 1] = state.of(Body).pos.y.get(eid);
-            bag.liftBases[base + 2] = state.of(Body).pos.z.get(eid);
+            bag.liftBases[base] = world.storage(Body).position.x.get(eid);
+            bag.liftBases[base + 1] = world.storage(Body).position.y.get(eid);
+            bag.liftBases[base + 2] = world.storage(Body).position.z.get(eid);
             bag.liftCount++;
         }
     },

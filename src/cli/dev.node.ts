@@ -261,7 +261,7 @@ test("shallot dev --port and vite --port serve the same page and project config"
     writeFileSync(join(project, "index.html"), "<!doctype html><title>OWNED PAGE</title>\n");
     writeFileSync(
         join(project, "vite.config.ts"),
-        `export default { server: { headers: { "X-Project-Vite-Config": "same" } } };\n`,
+        `export default { server: { headers: { "X-Project-Vite-AppConfig": "same" } } };\n`,
     );
     const serve = async (command: string[]) => {
         const child = Bun.spawn(command, {
@@ -274,7 +274,7 @@ test("shallot dev --port and vite --port serve the same page and project config"
             const response = await waitForPage(`http://127.0.0.1:${port}/`);
             return {
                 status: response.status,
-                header: response.headers.get("X-Project-Vite-Config"),
+                header: response.headers.get("X-Project-Vite-AppConfig"),
                 body: await response.text(),
             };
         } finally {

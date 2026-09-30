@@ -56,7 +56,7 @@ export function pairKeyLo(s1: number, s2: number, c: number): number {
     return (((hi & 0xfff) << 20) | (c & CHILD_MASK)) >>> 0;
 }
 
-// Box3D's Murmur3 fmix64 constants. Pair keys are built from increasing integers, so a weak hash
+// Box3D's Murmur3 fmix64 constants. Vector2Field keys are built from increasing integers, so a weak hash
 // collides badly.
 const K1_HI = 0xff51afd7;
 const K1_LO = 0xed558ccd;

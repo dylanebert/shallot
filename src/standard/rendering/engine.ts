@@ -13,7 +13,7 @@ import {
     PointLightGpu,
     PointLights,
     spotFactor,
-    View,
+    ViewUniforms,
 } from "../../core/rendering";
 import { MeshQuant } from "../../engine/utils";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
@@ -27,7 +27,7 @@ import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 export const engineLayout = tgpu
     .bindGroupLayout({
         frame: { uniform: FrameGpu, visibility: ["vertex", "fragment"] },
-        view: { uniform: View, visibility: ["vertex", "fragment"] },
+        view: { uniform: ViewUniforms, visibility: ["vertex", "fragment"] },
         lighting: { uniform: LightingGpu, visibility: ["vertex", "fragment"] },
         pointLights: {
             storage: PointLights,
@@ -95,7 +95,7 @@ export const pointShadowStub = tgpu
  *  the raw prepass module's shadow stubs). */
 export const pointShadowSlot = tgpu.slot(pointShadowOf).$name("pointShadowSlot");
 
-/** the fragment's slot-major cluster index ({@link clusterCell}). View depth recovers from the position
+/** the fragment's slot-major cluster index ({@link clusterCell}). ViewUniforms depth recovers from the position
  *  builtin: perspective clip.w is the view depth (`fragCoord.w = 1/clip.w`); orthographic depth is
  *  linear in `fragCoord.z`.
  *

@@ -6,10 +6,10 @@ import {
     forwardRay,
     GlobalTransform,
     PhysicsPlugin,
-    StepSystem,
+    StepPhysicsSystem,
     setKinematic,
 } from "../../transitional/physics";
-import { build } from "../app";
+import { createApp } from "../app";
 import { CanvasContext } from "../app/canvas.fixture";
 import * as engine from "../index";
 import { globalTransformTable, probeBuffer, Transform, u32 } from "../index";
@@ -55,25 +55,25 @@ test("GlobalTransform is an engine-owned public schema, independent of Physics",
 });
 
 test("Transform placement lands in the fixed-tick GlobalTransform column and the renderer table", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
-        const state = app.state;
-        const eid = state.create();
-        state.add(eid, Transform);
-        const placement = state.of(Transform);
-        placement.pos.set(eid, 12, 7, -3, 0);
+        const world = app.world;
+        const eid = world.create();
+        world.add(eid, Transform);
+        const placement = world.storage(Transform);
+        placement.translation.set(eid, 12, 7, -3, 0);
         placement.scale.set(eid, 2, 3, 4, 0);
-        attachTestCamera(state);
-        state.step(Time.FIXED_DT);
-        expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(12);
-        expect(state.of(GlobalTransform).pos.y.get(eid)).toBe(7);
-        expect(state.of(GlobalTransform).pos.z.get(eid)).toBe(-3);
-        const table = globalTransformTable(state);
+        attachTestCamera(world);
+        world.step(Time.FIXED_DT);
+        expect(world.has(eid, GlobalTransform)).toBe(true);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(12);
+        expect(world.storage(GlobalTransform).translation.y.get(eid)).toBe(7);
+        expect(world.storage(GlobalTransform).translation.z.get(eid)).toBe(-3);
+        const table = globalTransformTable(world);
         const row = table.rowIndex(eid);
         expect(row).toBeGreaterThanOrEqual(0);
         const words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
         expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([2, 3, 4]);
@@ -83,24 +83,24 @@ test("Transform placement lands in the fixed-tick GlobalTransform column and the
 });
 
 test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriving it only in renderer rows", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
-        const state = app.state;
-        const eid = state.create();
-        state.add(eid, Body);
-        state.of(Body).pos.set(eid, 12, 7, -3, 0);
-        state.of(Body).halfExtents.set(eid, 1, 2, 3, 0);
-        state.of(Body).mass.set(eid, 0);
-        attachTestCamera(state);
-        state.step(Time.FIXED_DT);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(12);
+        const world = app.world;
+        const eid = world.create();
+        world.add(eid, Body);
+        world.storage(Body).position.set(eid, 12, 7, -3, 0);
+        world.storage(Body).halfExtents.set(eid, 1, 2, 3, 0);
+        world.storage(Body).mass.set(eid, 0);
+        attachTestCamera(world);
+        world.step(Time.FIXED_DT);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(12);
         expect(Reflect.get(GlobalTransform, "scale")).toBeDefined();
-        const scale = Reflect.get(state.of(GlobalTransform), "scale");
+        const scale = Reflect.get(world.storage(GlobalTransform), "scale");
         expect([scale.x.get(eid), scale.y.get(eid), scale.z.get(eid)]).toEqual([2, 4, 6]);
-        const table = globalTransformTable(state);
+        const table = globalTransformTable(world);
         const row = table.rowIndex(eid);
         const words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
         expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([2, 4, 6]);
@@ -110,36 +110,36 @@ test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriv
 });
 
 test("a physics camera query reads fixed-tick GlobalTransform without requiring Transform", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
-        const state = app.state;
-        const camera = state.registry.getComponent("camera");
+        const world = app.world;
+        const camera = world.registry.getComponent("camera");
         if (!camera) throw new Error("RenderPlugin must register Camera");
-        const eid = state.create();
-        state.add(eid, Body);
-        state.add(eid, camera);
-        state.of(Body).pos.set(eid, 12, 7, -3, 0);
-        state.of(Body).mass.set(eid, 0);
-        state.step(Time.FIXED_DT);
-        expect(state.has(eid, Transform)).toBe(false);
-        expect(forwardRay(state, eid)).toEqual({ origin: [12, 7, -3], dir: [0, 0, -1] });
+        const eid = world.create();
+        world.add(eid, Body);
+        world.add(eid, camera);
+        world.storage(Body).position.set(eid, 12, 7, -3, 0);
+        world.storage(Body).mass.set(eid, 0);
+        world.step(Time.FIXED_DT);
+        expect(world.has(eid, Transform)).toBe(false);
+        expect(forwardRay(world, eid)).toEqual({ origin: [12, 7, -3], dir: [0, 0, -1] });
     } finally {
         app.dispose();
     }
 });
 
-function addStaticBody(state: engine.World, eid: number, x: number): void {
-    state.add(eid, Body);
-    state.of(Body).pos.set(eid, x, 0, 0, 0);
-    state.of(Body).mass.set(eid, 0);
+function addStaticBody(world: engine.World, eid: number, x: number): void {
+    world.add(eid, Body);
+    world.storage(Body).position.set(eid, x, 0, 0, 0);
+    world.storage(Body).mass.set(eid, 0);
 }
 
-function addTransform(state: engine.World, eid: number, x: number): void {
-    state.add(eid, Transform);
-    state.of(Transform).pos.set(eid, x, 0, 0, 0);
+function addTransform(world: engine.World, eid: number, x: number): void {
+    world.add(eid, Transform);
+    world.storage(Transform).translation.set(eid, x, 0, 0, 0);
 }
 
-function attachTestCamera(state: engine.World): void {
+function attachTestCamera(world: engine.World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,
@@ -149,67 +149,67 @@ function attachTestCamera(state: engine.World): void {
         getBoundingClientRect: () => ({ width: 32, height: 24 }),
     } as unknown as HTMLCanvasElement;
     context = new CanvasContext(canvas, 32, 24);
-    const camera = state.create();
-    state.add(camera, Transform);
-    state.add(camera, Camera);
-    state.of(Transform).pos.set(camera, 0, 0, 5, 0);
-    attachCanvas(camera, canvas, state);
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera);
+    world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
+    attachCanvas(camera, canvas, world);
 }
 
 async function renderedX(
-    state: engine.World,
+    world: engine.World,
     table: ReturnType<typeof globalTransformTable>,
     eid: number,
 ): Promise<number> {
     const row = table.rowIndex(eid);
     expect(row).toBeGreaterThanOrEqual(0);
-    const result = await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }));
+    const result = await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }));
     return new Float32Array(result.bytes)[row * 12];
 }
 
 async function handoverApp(initial: "Body" | "Transform"): Promise<{
-    app: Awaited<ReturnType<typeof build>>;
-    handover(action: (state: engine.World, eid: number) => void): void;
+    app: Awaited<ReturnType<typeof createApp>>;
+    handover(action: (world: engine.World, eid: number) => void): void;
 }> {
-    let action: ((state: engine.World, eid: number) => void) | undefined;
+    let action: ((world: engine.World, eid: number) => void) | undefined;
     let eid = -1;
     const handoverSystem: System = {
         group: "simulation",
-        update(state) {
+        update(world) {
             const current = action;
             if (!current) return;
             action = undefined;
-            current(state, eid);
+            current(world, eid);
         },
     };
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [PhysicsPlugin, { name: "Handover", systems: [handoverSystem] }],
-        setup(state) {
-            eid = state.create();
-            if (initial === "Body") addStaticBody(state, eid, 10);
-            else addTransform(state, eid, 10);
+        setup(world) {
+            eid = world.create();
+            if (initial === "Body") addStaticBody(world, eid, 10);
+            else addTransform(world, eid, 10);
         },
     });
-    app.state.step(Time.FIXED_DT);
+    app.world.step(Time.FIXED_DT);
     return { app, handover: (next) => (action = next) };
 }
 
 test("Body to Transform keeps its GlobalTransform row for a same-frame producer handover", async () => {
     const { app } = await handoverApp("Body");
-    const { state } = app;
-    const eid = [...state.query([Body])][0];
-    const table = globalTransformTable(state);
+    const { world } = app;
+    const eid = [...world.query([Body])][0];
+    const table = globalTransformTable(world);
     const row = table.rowIndex(eid);
     try {
-        state.remove(eid, Body);
-        addTransform(state, eid, 42);
-        const bystander = state.create();
-        addTransform(state, bystander, -9);
-        state.step(Time.FIXED_DT);
+        world.remove(eid, Body);
+        addTransform(world, eid, 42);
+        const bystander = world.create();
+        addTransform(world, bystander, -9);
+        world.step(Time.FIXED_DT);
         expect(table.rowIndex(eid)).toBe(row);
-        expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(42);
+        expect(world.has(eid, GlobalTransform)).toBe(true);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
@@ -217,19 +217,19 @@ test("Body to Transform keeps its GlobalTransform row for a same-frame producer 
 
 test("Transform to Body keeps its GlobalTransform row for a same-frame producer handover", async () => {
     const { app } = await handoverApp("Transform");
-    const { state } = app;
-    const eid = [...state.query([Transform])][0];
-    const table = globalTransformTable(state);
+    const { world } = app;
+    const eid = [...world.query([Transform])][0];
+    const table = globalTransformTable(world);
     const row = table.rowIndex(eid);
     try {
-        state.remove(eid, Transform);
-        const bystander = state.create();
-        addTransform(state, bystander, -9);
-        addStaticBody(state, eid, 42);
-        state.step(Time.FIXED_DT);
+        world.remove(eid, Transform);
+        const bystander = world.create();
+        addTransform(world, bystander, -9);
+        addStaticBody(world, eid, 42);
+        world.step(Time.FIXED_DT);
         expect(table.rowIndex(eid)).toBe(row);
-        expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(42);
+        expect(world.has(eid, GlobalTransform)).toBe(true);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
@@ -237,9 +237,9 @@ test("Transform to Body keeps its GlobalTransform row for a same-frame producer 
 
 test("Body to Transform keeps its GlobalTransform row when handover crosses a fixed tick", async () => {
     const { app, handover } = await handoverApp("Body");
-    const { state } = app;
-    const eid = [...state.query([Body])][0];
-    const table = globalTransformTable(state);
+    const { world } = app;
+    const eid = [...world.query([Body])][0];
+    const table = globalTransformTable(world);
     const row = table.rowIndex(eid);
     try {
         handover((world, target) => {
@@ -248,11 +248,11 @@ test("Body to Transform keeps its GlobalTransform row when handover crosses a fi
             const bystander = world.create();
             addTransform(world, bystander, -9);
         });
-        state.step(Time.FIXED_DT);
-        state.step(Time.FIXED_DT);
+        world.step(Time.FIXED_DT);
+        world.step(Time.FIXED_DT);
         expect(table.rowIndex(eid)).toBe(row);
-        expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(42);
+        expect(world.has(eid, GlobalTransform)).toBe(true);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
@@ -260,9 +260,9 @@ test("Body to Transform keeps its GlobalTransform row when handover crosses a fi
 
 test("Transform to Body keeps its GlobalTransform row when handover crosses a fixed tick", async () => {
     const { app, handover } = await handoverApp("Transform");
-    const { state } = app;
-    const eid = [...state.query([Transform])][0];
-    const table = globalTransformTable(state);
+    const { world } = app;
+    const eid = [...world.query([Transform])][0];
+    const table = globalTransformTable(world);
     const row = table.rowIndex(eid);
     try {
         handover((world, target) => {
@@ -271,28 +271,28 @@ test("Transform to Body keeps its GlobalTransform row when handover crosses a fi
             addTransform(world, bystander, -9);
             addStaticBody(world, target, 42);
         });
-        state.step(Time.FIXED_DT);
-        state.step(Time.FIXED_DT);
+        world.step(Time.FIXED_DT);
+        world.step(Time.FIXED_DT);
         expect(table.rowIndex(eid)).toBe(row);
-        expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(42);
+        expect(world.has(eid, GlobalTransform)).toBe(true);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
 });
 
 test("the first Body spawn renders at its placement at half a fixed step", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
-        const { state } = app;
-        attachTestCamera(state);
-        const table = globalTransformTable(state);
-        state.step(Time.FIXED_DT);
-        const eid = state.create();
-        addStaticBody(state, eid, 100);
-        state.step(Time.FIXED_DT * 1.5);
-        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(await renderedX(state, table, eid)).toBeCloseTo(100, 5);
+        const { world } = app;
+        attachTestCamera(world);
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT);
+        const eid = world.create();
+        addStaticBody(world, eid, 100);
+        world.step(Time.FIXED_DT * 1.5);
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(world, table, eid)).toBeCloseTo(100, 5);
     } finally {
         app.dispose();
     }
@@ -300,7 +300,7 @@ test("the first Body spawn renders at its placement at half a fixed step", async
 
 test("a newly spawned GlobalTransform producer renders at its placement at half a fixed step", async () => {
     let spawned = -1;
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -311,11 +311,11 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
                 systems: [
                     {
                         group: "simulation",
-                        update(state) {
+                        update(world) {
                             if (spawned >= 0) return;
-                            spawned = state.create();
-                            state.add(spawned, SpawnedPlacement);
-                            state.of(GlobalTransform).pos.set(spawned, 100, 0, 0, 0);
+                            spawned = world.create();
+                            world.add(spawned, SpawnedPlacement);
+                            world.storage(GlobalTransform).translation.set(spawned, 100, 0, 0, 0);
                         },
                     },
                 ],
@@ -323,53 +323,53 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
         ],
     });
     try {
-        const { state } = app;
-        attachTestCamera(state);
-        const table = globalTransformTable(state);
-        state.step(Time.FIXED_DT * 1.5);
-        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(await renderedX(state, table, spawned)).toBeCloseTo(100, 5);
+        const { world } = app;
+        attachTestCamera(world);
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT * 1.5);
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(world, table, spawned)).toBeCloseTo(100, 5);
     } finally {
         app.dispose();
     }
 });
 
 test("an author-marked Transform jump of any size snaps instead of interpolating", async () => {
-    const app = await build({ defaults: false, plugins: [RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [RenderPlugin] });
     try {
-        const { state } = app;
-        const eid = state.create();
-        addTransform(state, eid, 0);
-        attachTestCamera(state);
-        const table = globalTransformTable(state);
-        state.step(Time.FIXED_DT);
-        state.of(Transform).pos.set(eid, 0.25, 0, 0, 0);
-        state.teleport(eid);
-        state.step(Time.FIXED_DT / 2);
-        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(await renderedX(state, table, eid)).toBeCloseTo(0.25, 5);
+        const { world } = app;
+        const eid = world.create();
+        addTransform(world, eid, 0);
+        attachTestCamera(world);
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT);
+        world.storage(Transform).translation.set(eid, 0.25, 0, 0, 0);
+        world.teleport(eid);
+        world.step(Time.FIXED_DT / 2);
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(world, table, eid)).toBeCloseTo(0.25, 5);
     } finally {
         app.dispose();
     }
 });
 
 test("setKinematic publishes moved body placement to the fixed GlobalTransform table after one step", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
-        const { state } = app;
-        const eid = state.create();
-        addStaticBody(state, eid, 0);
-        attachTestCamera(state);
-        globalTransformTable(state);
-        state.step(Time.FIXED_DT);
-        const table = state.globalTransformRuntime!.current!;
+        const { world } = app;
+        const eid = world.create();
+        addStaticBody(world, eid, 0);
+        attachTestCamera(world);
+        globalTransformTable(world);
+        world.step(Time.FIXED_DT);
+        const table = world.globalTransformRuntime!.current!;
         const row = table.rowIndex(eid);
         expect(row).toBeGreaterThanOrEqual(0);
-        setKinematic(state, eid, [17, 3, -2], [0, 0, 0, 1], false);
+        setKinematic(world, eid, [17, 3, -2], [0, 0, 0, 1], false);
         // No solver tick can republish the position on this draw-only step.
-        state.step(0);
+        world.step(0);
         const words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([17, 3, -2]);
     } finally {
@@ -378,25 +378,25 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
 });
 
 test("a kinematic teleport renders at its new placement at half a fixed step", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
-        const { state } = app;
-        const eid = state.create();
-        addStaticBody(state, eid, 0);
-        attachTestCamera(state);
-        const table = globalTransformTable(state);
-        state.step(Time.FIXED_DT);
+        const { world } = app;
+        const eid = world.create();
+        addStaticBody(world, eid, 0);
+        attachTestCamera(world);
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT);
         const teleport: System = {
             group: "fixed",
-            after: [StepSystem],
+            after: [StepPhysicsSystem],
             update(world) {
                 setKinematic(world, eid, [100, 0, 0], [0, 0, 0, 1], true);
             },
         };
-        state.addSystem(teleport);
-        state.step(Time.FIXED_DT * 1.5);
-        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(await renderedX(state, table, eid)).toBeCloseTo(100, 5);
+        world.addSystem(teleport);
+        world.step(Time.FIXED_DT * 1.5);
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(world, table, eid)).toBeCloseTo(100, 5);
     } finally {
         app.dispose();
     }

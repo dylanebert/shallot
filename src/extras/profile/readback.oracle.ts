@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { build } from "../../engine";
+import { createApp } from "../../engine";
 import { Profile, ProfilePlugin } from "./index";
 
 const peer = "bun-webgpu";
@@ -20,7 +20,7 @@ async function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
 }
 
 test("profiler timestamps arrive through the world's one-shot pool and staging is reused", async () => {
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [
             {
@@ -29,15 +29,15 @@ test("profiler timestamps arrive through the world's one-shot pool and staging i
                 systems: [
                     {
                         group: "draw",
-                        update(state) {
-                            const timestampWrites = state.gpu.span?.("readback-witness");
+                        update(world) {
+                            const timestampWrites = world.gpu.span?.("readback-witness");
                             if (!timestampWrites)
                                 throw new Error("profiler did not supply timestamp writes");
-                            const encoder = state.gpu.device.createCommandEncoder({
+                            const encoder = world.gpu.device.createCommandEncoder({
                                 label: "readback-witness",
                             });
                             encoder.beginComputePass({ timestampWrites }).end();
-                            state.gpu.device.queue.submit([encoder.finish()]);
+                            world.gpu.device.queue.submit([encoder.finish()]);
                         },
                     },
                 ],
@@ -45,23 +45,23 @@ test("profiler timestamps arrive through the world's one-shot pool and staging i
         ],
     });
     try {
-        const stats = app.state.resource(Profile);
+        const stats = app.world.resource(Profile);
         if (stats.gpuTiming !== "available") throw new Error("requires timestamp-query");
         const deadline = performance.now() + 750;
         while (!stats.gpuTime.has("readback-witness")) {
             if (performance.now() >= deadline)
                 throw new Error("profiler timestamp delivery exceeded 750 ms");
-            app.state.step(0);
+            app.world.step(0);
             await bounded(
                 "timestamp witness submissions",
-                app.state.gpu.device.queue.onSubmittedWorkDone(),
+                app.world.gpu.device.queue.onSubmittedWorkDone(),
             );
             await new Promise((resolve) => setTimeout(resolve, 1));
         }
         expect(stats.gpuFires.get("readback-witness")).toBeGreaterThan(0);
         expect(Number.isFinite(stats.gpuTime.get("readback-witness"))).toBe(true);
-        expect(app.state.readback.allocated).toBeGreaterThan(0);
-        expect(app.state.readback.allocated).toBeLessThanOrEqual(4);
+        expect(app.world.readback.allocated).toBeGreaterThan(0);
+        expect(app.world.readback.allocated).toBeLessThanOrEqual(4);
     } finally {
         app.dispose();
     }

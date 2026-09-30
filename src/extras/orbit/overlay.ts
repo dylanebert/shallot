@@ -1,5 +1,5 @@
 import { Devices } from "../../core/input";
-import { mountOverlay, type Plugin, type World, type System } from "../../engine";
+import { mountOverlay, type Plugin, type System, type World } from "../../engine";
 import { Orbit } from "./index";
 import { OrbitSmooth } from "./smooth";
 
@@ -18,14 +18,14 @@ interface Overlay {
     destroy(): void;
 }
 
-function createOverlay(canvas: HTMLElement | null, state: World): Overlay {
+function createOverlay(canvas: HTMLElement | null, world: World): Overlay {
     // the readout lives in the engine's sandboxed overlay (canvas-bounded, can't spill into an
     // embedding host page), the same surface `config.ui` hands an app. Passing `state` ties the
-    // overlay's removal to `state.onDispose` (auto-registers `overlay.remove()`), so a direct
-    // `state.dispose()` — which never fires the plugin `dispose` hook — still cleans up the DOM node.
+    // overlay's removal to `world.onDispose` (auto-registers `overlay.remove()`), so a direct
+    // `world.dispose()` — which never fires the plugin `dispose` hook — still cleans up the DOM node.
     // The module-scope cleanup cleared at top-of-warm (below) is the fallback for a host that re-warms
-    // without disposing (`swap()`), which `onDispose` doesn't fire for.
-    const parent = mountOverlay(canvas, state);
+    // without disposing (`swapPlugins()`), which `onDispose` doesn't fire for.
+    const parent = mountOverlay(canvas, world);
     const root = document.createElement("div");
     Object.assign(root.style, {
         position: "absolute",
@@ -72,10 +72,10 @@ function createOverlay(canvas: HTMLElement | null, state: World): Overlay {
     };
 }
 
-// module-scoped runtime state, keyed to the canvas/State it was built against. _lastSpeed tracks the
+// module-scoped runtime state, keyed to the canvas/World it was built against. _lastSpeed tracks the
 // previous frame's speed to detect a scroll change; -1 means "not flying / uninitialized", so entering
 // fly doesn't flash the readout. _shownUntil is the elapsed time the fade-out begins. Both reset on a
-// rebuild (warm), so a fresh State can't inherit a stale visible window or a stale speed sentinel.
+// rebuild (warm), so a fresh World can't inherit a stale visible window or a stale speed sentinel.
 let _overlay: Overlay | null = null;
 let _overlayCanvas: HTMLElement | null = null;
 let _lastSpeed = -1;
@@ -84,13 +84,13 @@ let _shownUntil = 0;
 const OrbitOverlaySystem: System = {
     group: "draw",
     last: true,
-    update(state: World) {
+    update(world: World) {
         if (typeof document === "undefined") return;
 
         // first flying camera in query order owns the readout — one shared HUD, like the profile overlay
         let flying = 0;
-        for (const eid of state.query([Orbit, OrbitSmooth])) {
-            if (state.of(OrbitSmooth).flyActive.get(eid) === 1) {
+        for (const eid of world.query([Orbit, OrbitSmooth])) {
+            if (world.storage(OrbitSmooth).flyActive.get(eid) === 1) {
                 flying = eid;
                 break;
             }
@@ -101,10 +101,10 @@ const OrbitOverlaySystem: System = {
             return;
         }
 
-        const speed = state.of(Orbit).flySpeed.get(flying);
-        const input = state.resource(Devices);
+        const speed = world.storage(Orbit).flySpeed.get(flying);
+        const input = world.resource(Devices);
         const shift = input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight");
-        const elapsed = state.time.elapsed;
+        const elapsed = world.time.elapsed;
         if (_lastSpeed < 0)
             _lastSpeed = speed; // just started flying — arm without showing
         else if (speed !== _lastSpeed) {
@@ -125,10 +125,10 @@ const OrbitOverlaySystem: System = {
             _shownUntil = 0;
         }
         if (!_overlay) {
-            _overlay = createOverlay(canvas, state);
+            _overlay = createOverlay(canvas, world);
             _overlayCanvas = canvas;
         }
-        _overlay.set(speed, state.of(Orbit).flyBoost.get(flying), shift, visible);
+        _overlay.set(speed, world.storage(Orbit).flyBoost.get(flying), shift, visible);
     },
 };
 

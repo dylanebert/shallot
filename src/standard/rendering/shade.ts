@@ -1,4 +1,4 @@
-// Sear's shading substrate: the schemas that define its shadow-uniform layouts and the TGSL functions
+// StandardRenderer's shading substrate: the schemas that define its shadow-uniform layouts and the TGSL functions
 // its color FS shades with — the half of the renderer that is pure math over pure data, sitting beside
 // the ECS/system/registry code in `forward.ts` (the kernel-sibling convention).
 //
@@ -207,7 +207,7 @@ export const PointCaster = d.struct({
 /** the `PointCaster` stride in f32 (5 vec4) — the staging mirror's row size, from the schema. */
 export const POINT_CASTER_FLOATS = d.sizeOf(PointCaster) / 4;
 
-/** the caster-slot uniform, sized by the `PointShadows.casters` cap (fixed before `build()`). */
+/** the caster-slot uniform, sized by the `PointShadows.casters` cap (fixed before `createApp()`). */
 export function pointCastersSchema() {
     // a factory-built schema is anonymous, and an unnamed one resolves to `struct item` — name it, or
     // the raw splice sites that declare `var<uniform> pointShadows: PointCasters` reference nothing
@@ -219,13 +219,13 @@ export function pointCastersSchema() {
 // resolve suffixes it `PointCasters_1`, which the raw splice site couldn't reference), while the uniforms
 // are re-sized from the live config at every warm. So a config change between builds would bind a
 // re-sized buffer against a stale struct: `checkShadowConfig` turns that into a named throw at warm,
-// which is what "fixed before build(), like capacity" means.
+// which is what "fixed before createApp(), like capacity" means.
 let _folded: { casters: number; atlas: number } | null = null;
 
 /**
  * assert the live `PointShadows` config still matches what the resolved shadow WGSL folded in, throwing a
  * named error when it doesn't. Called at warm, after the chunks a build compiled: the config is fixed
- * before `build()`, so a live host that mutates it between builds fails loud rather than binding a
+ * before `createApp()`, so a live host that mutates it between builds fails loud rather than binding a
  * re-sized uniform against a stale struct.
  * @internal
  */

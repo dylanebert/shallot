@@ -1,5 +1,5 @@
 // The fog march's typed pipeline: the two bind-group layouts (group 0 — the per-camera scene/depth/output
-// + the View/Fog uniforms; group 1 — the camera-independent light + shadow service) and the compute kernel
+// + the ViewUniforms/Fog uniforms; group 1 — the camera-independent light + shadow service) and the compute kernel
 // over them. The march primitives themselves (`fogDensity`, `fogTransmittance`, the in-scatter terms) are
 // pure TGSL fns in `./march`, spliced by both this pipeline and the CPU oracles — this file is the
 // pipeline/layout half `march.ts`'s header describes.
@@ -15,7 +15,13 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { clusterCell, LightingGpu, PointLightGpu, PointLights, View } from "../../core/rendering";
+import {
+    clusterCell,
+    LightingGpu,
+    PointLightGpu,
+    PointLights,
+    ViewUniforms,
+} from "../../core/rendering";
 import {
     pointCasters,
     pointCastersSchema,
@@ -37,7 +43,7 @@ import {
 } from "./march";
 
 /** group 0: the per-camera resources — the resolved scene + depth to march, the storage-texture write
- *  target, and the `View` / `Fog` uniforms. Rebuilt per camera (`index.ts`'s `_views` cache). @internal */
+ *  target, and the `ViewUniforms` / `Fog` uniforms. Rebuilt per camera (`index.ts`'s `_views` cache). @internal */
 export const fogLayout0 = tgpu
     .bindGroupLayout({
         // "sceneTex", not "scene" — fogComposite's own `scene` parameter would collide with a binding
@@ -48,7 +54,7 @@ export const fogLayout0 = tgpu
             storageTexture: d.textureStorage2d("rgba16float", "write-only"),
             visibility: ["compute"],
         },
-        view: { uniform: View, visibility: ["compute"] },
+        view: { uniform: ViewUniforms, visibility: ["compute"] },
         fog: { uniform: FogGpu, visibility: ["compute"] },
     })
     .$idx(0);

@@ -3,13 +3,13 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, PointLight, RenderPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
 import {
-    build,
+    createApp,
     GlobalTransform,
     globalTransformTable,
     probeBuffer,
-    type World,
     Time,
     Transform,
+    type World,
 } from "../index";
 
 setDefaultTimeout(CEILING.node);
@@ -24,7 +24,7 @@ if (typeof ResizeObserver === "undefined") {
 }
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
-function attachTestCamera(state: World): void {
+function attachTestCamera(world: World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,
@@ -34,11 +34,11 @@ function attachTestCamera(state: World): void {
         getBoundingClientRect: () => ({ width: 32, height: 24 }),
     } as unknown as HTMLCanvasElement;
     context = new CanvasContext(canvas, 32, 24);
-    const camera = state.create();
-    state.add(camera, Transform);
-    state.add(camera, Camera);
-    state.of(Transform).pos.set(camera, 0, 0, 5, 0);
-    attachCanvas(camera, canvas, state);
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera);
+    world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
+    attachCanvas(camera, canvas, world);
 }
 
 function bounded<T>(promise: PromiseLike<T>): Promise<T> {
@@ -62,7 +62,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
 
 test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws advance only interpolation", async () => {
     let eid = -1;
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -71,55 +71,55 @@ test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws ad
                 systems: [
                     {
                         group: "fixed",
-                        update(state) {
-                            const input = state.of(Transform);
-                            const x = state.time.fixedTick * 10;
-                            input.pos.set(eid, x, 2, 3, 0);
+                        update(world) {
+                            const input = world.storage(Transform);
+                            const x = world.time.fixedTick * 10;
+                            input.translation.set(eid, x, 2, 3, 0);
                             input.scale.set(eid, x + 1, 1, 1, 0);
-                            input.rot.set(eid, 0, 0, 0, state.time.fixedTick % 2 ? -1 : 1);
+                            input.rotation.set(eid, 0, 0, 0, world.time.fixedTick % 2 ? -1 : 1);
                         },
                     },
                 ],
             },
         ],
-        setup(state) {
-            eid = state.create();
-            state.add(eid, Transform);
+        setup(world) {
+            eid = world.create();
+            world.add(eid, Transform);
         },
     });
-    const state = app.state;
-    attachTestCamera(state);
-    const table = globalTransformTable(state);
+    const world = app.world;
+    attachTestCamera(world);
+    const table = globalTransformTable(world);
     const row = table.rowIndex(eid);
     try {
-        state.step(0);
-        state.gpu.device.pushErrorScope("validation");
-        state.step(Time.FIXED_DT * 2.5);
+        world.step(0);
+        world.gpu.device.pushErrorScope("validation");
+        world.step(Time.FIXED_DT * 2.5);
         let words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(words[row * 12]).toBeCloseTo(15, 5);
         expect(words[row * 12 + 8]).toBeCloseTo(16, 5);
         expect(words[row * 12 + 7]).toBeCloseTo(1, 5);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBeCloseTo(20, 7);
-        expect(state.of(GlobalTransform).scale.x.get(eid)).toBeCloseTo(21, 7);
-        state.step(Time.FIXED_DT * 0.25);
-        expect(state.time.fixedSteps).toBe(0);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBeCloseTo(20, 7);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(20, 7);
+        expect(world.storage(GlobalTransform).scale.x.get(eid)).toBeCloseTo(21, 7);
+        world.step(Time.FIXED_DT * 0.25);
+        expect(world.time.fixedSteps).toBe(0);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(20, 7);
         words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(words[row * 12]).toBeCloseTo(17.5, 5);
         expect(words[row * 12 + 8]).toBeCloseTo(18.5, 5);
-        state.step(Time.FIXED_DT * 0.5);
-        expect(state.time.fixedSteps).toBe(1);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBeCloseTo(30, 7);
+        world.step(Time.FIXED_DT * 0.5);
+        expect(world.time.fixedSteps).toBe(1);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(30, 7);
         words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(words[row * 12]).toBeCloseTo(22.5, 5);
-        expect(() => state.globalTransformRuntime!.previous!.bytes).toThrow("GPU-only");
-        expect(await bounded(state.gpu.device.popErrorScope())).toBeNull();
+        expect(() => world.globalTransformRuntime!.previous!.bytes).toThrow("GPU-only");
+        expect(await bounded(world.gpu.device.popErrorScope())).toBeNull();
     } finally {
         app.dispose();
     }
@@ -127,7 +127,7 @@ test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws ad
 
 test("a producer spawned during catch-up keeps motion after its spawn tick", async () => {
     let eid = -1;
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -136,12 +136,14 @@ test("a producer spawned during catch-up keeps motion after its spawn tick", asy
                 systems: [
                     {
                         group: "fixed",
-                        update(state) {
+                        update(world) {
                             if (eid < 0) {
-                                eid = state.create();
-                                state.add(eid, Transform);
+                                eid = world.create();
+                                world.add(eid, Transform);
                             }
-                            state.of(Transform).pos.x.set(eid, state.time.fixedTick * 10);
+                            world
+                                .storage(Transform)
+                                .translation.x.set(eid, world.time.fixedTick * 10);
                         },
                     },
                 ],
@@ -149,15 +151,15 @@ test("a producer spawned during catch-up keeps motion after its spawn tick", asy
         ],
     });
     try {
-        const { state } = app;
-        attachTestCamera(state);
-        const table = globalTransformTable(state);
-        state.step(Time.FIXED_DT * 2.5);
-        expect(state.time.fixedTick).toBe(2);
-        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(20);
+        const { world } = app;
+        attachTestCamera(world);
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT * 2.5);
+        expect(world.time.fixedTick).toBe(2);
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
         const words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(15, 5);
     } finally {
@@ -167,7 +169,7 @@ test("a producer spawned during catch-up keeps motion after its spawn tick", asy
 
 test("a teleport on the first catch-up tick keeps later tick motion", async () => {
     let eid = -1;
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -176,36 +178,36 @@ test("a teleport on the first catch-up tick keeps later tick motion", async () =
                 systems: [
                     {
                         group: "fixed",
-                        update(state) {
-                            if (state.time.fixedTick === 1) {
-                                state.of(Transform).pos.x.set(eid, 100);
-                                state.teleport(eid);
+                        update(world) {
+                            if (world.time.fixedTick === 1) {
+                                world.storage(Transform).translation.x.set(eid, 100);
+                                world.teleport(eid);
                             } else {
-                                state
-                                    .of(Transform)
-                                    .pos.x.set(eid, 100 + (state.time.fixedTick - 1) * 10);
+                                world
+                                    .storage(Transform)
+                                    .translation.x.set(eid, 100 + (world.time.fixedTick - 1) * 10);
                             }
                         },
                     },
                 ],
             },
         ],
-        setup(state) {
-            eid = state.create();
-            state.add(eid, Transform);
-            state.of(Transform).pos.x.set(eid, 0);
+        setup(world) {
+            eid = world.create();
+            world.add(eid, Transform);
+            world.storage(Transform).translation.x.set(eid, 0);
         },
     });
     try {
-        const { state } = app;
-        attachTestCamera(state);
-        const table = globalTransformTable(state);
-        state.step(Time.FIXED_DT * 2.5);
-        expect(state.time.fixedTick).toBe(2);
-        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(110);
+        const { world } = app;
+        attachTestCamera(world);
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT * 2.5);
+        expect(world.time.fixedTick).toBe(2);
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(110);
         const words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(105, 5);
     } finally {
@@ -215,7 +217,7 @@ test("a teleport on the first catch-up tick keeps later tick motion", async () =
 
 test("a renderer interpolates GlobalTransform when the scene has no lights", async () => {
     let eid = -1;
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [
             RenderPlugin,
@@ -224,30 +226,32 @@ test("a renderer interpolates GlobalTransform when the scene has no lights", asy
                 systems: [
                     {
                         group: "fixed",
-                        update(state) {
+                        update(world) {
                             if (eid >= 0)
-                                state.of(Transform).pos.x.set(eid, state.time.fixedTick * 4);
+                                world
+                                    .storage(Transform)
+                                    .translation.x.set(eid, world.time.fixedTick * 4);
                         },
                     },
                 ],
             },
         ],
-        setup(state) {
-            eid = state.create();
-            state.add(eid, Transform);
+        setup(world) {
+            eid = world.create();
+            world.add(eid, Transform);
         },
     });
     try {
-        const { state } = app;
-        attachTestCamera(state);
-        expect([...state.query([PointLight])]).toHaveLength(0);
-        const table = globalTransformTable(state);
-        state.step(Time.FIXED_DT);
-        state.step(Time.FIXED_DT * 1.5);
+        const { world } = app;
+        attachTestCamera(world);
+        expect([...world.query([PointLight])]).toHaveLength(0);
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT);
+        world.step(Time.FIXED_DT * 1.5);
         const row = table.rowIndex(eid);
         expect(row).toBeGreaterThanOrEqual(0);
         const words = new Float32Array(
-            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(words[row * 12]).toBeCloseTo(6, 5);
     } finally {

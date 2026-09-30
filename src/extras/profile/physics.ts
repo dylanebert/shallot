@@ -2,11 +2,11 @@ import type { Plugin, System } from "../../engine";
 import {
     CLOCK_SLOTS,
     PhysicsPlugin,
+    type PhysicsWorld,
     type Profile,
     physicsWorld,
     type StepClock,
-    StepSystem,
-    type PhysicsWorld,
+    StepPhysicsSystem,
     zeroProfile,
 } from "../../transitional/physics";
 
@@ -46,18 +46,18 @@ const timed = new WeakSet<PhysicsWorld>();
 const PhysicsClockSystem: System = {
     name: "physics-clock",
     group: "fixed",
-    before: [StepSystem],
-    update(state) {
-        const world = physicsWorld(state);
-        if (!world || timed.has(world)) return;
-        timed.add(world);
-        world.setClock(timingClock());
+    before: [StepPhysicsSystem],
+    update(world) {
+        const solverWorld = physicsWorld(world);
+        if (!solverWorld || timed.has(solverWorld)) return;
+        timed.add(solverWorld);
+        solverWorld.setClock(timingClock());
     },
 };
 
 /**
  * physics phase timings: gives each physics world a {@link timingClock} before its first step, so
- * `physicsWorld(state).getProfile()` reads wall-clock milliseconds per step phase. Without it the step
+ * `physicsWorld(world).getProfile()` reads wall-clock milliseconds per step phase. Without it the step
  * does no timing work and every phase reads zero.
  * @example
  * const config = { plugins: [PhysicsPlugin, PhysicsProfilePlugin] };

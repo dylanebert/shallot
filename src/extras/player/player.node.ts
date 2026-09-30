@@ -6,15 +6,14 @@ setDefaultTimeout(CEILING.node);
 
 import {
     Body,
-    build,
     Camera,
     Character,
     CharacterPlugin,
+    createApp,
     Devices,
     InputPlugin,
     PhysicsPlugin,
     Player,
-    PlayerControlSystem,
     pointerLockChanged,
     pointerMove,
     pressKey,
@@ -23,6 +22,7 @@ import {
     ShapeKind,
     Time,
     Transform,
+    UpdatePlayerControlSystem,
 } from "@dylanebert/shallot";
 
 const peerModule = "bun-webgpu";
@@ -30,56 +30,60 @@ const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise
 await setupGlobals();
 
 test("the public Player controller consumes held, released and neutral input to look and drive an actual Character without a renderer or browser input", async () => {
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [InputPlugin, CharacterPlugin, PhysicsPlugin],
-        setup: (state) => state.addSystem(PlayerControlSystem, "Player"),
+        setup: (world) => world.addSystem(UpdatePlayerControlSystem, "Player"),
     });
     try {
-        const state = app.state;
-        const floor = state.create();
-        state.add(floor, Body);
-        state.of(Body).shape.set(floor, ShapeKind.Box);
-        state.of(Body).pos.set(floor, 0, 0, 0, 0);
-        state.of(Body).halfExtents.set(floor, 4, 0.5, 4, 0);
-        state.of(Body).mass.set(floor, 0);
+        const world = app.world;
+        const floor = world.create();
+        world.add(floor, Body);
+        world.storage(Body).shape.set(floor, ShapeKind.Box);
+        world.storage(Body).position.set(floor, 0, 0, 0, 0);
+        world.storage(Body).halfExtents.set(floor, 4, 0.5, 4, 0);
+        world.storage(Body).mass.set(floor, 0);
 
-        const camera = state.create();
-        state.add(camera, Camera);
-        state.add(camera, Transform);
+        const camera = world.create();
+        world.add(camera, Camera);
+        world.add(camera, Transform);
 
-        const player = state.create();
-        state.add(player, Body);
-        state.add(player, Character);
-        state.add(player, Player);
-        state.of(Body).shape.set(player, ShapeKind.Capsule);
-        state.of(Body).pos.set(player, 0, 1.3, 0, 0);
-        state.of(Body).halfExtents.set(player, 0, 0.5, 0, 0.3);
-        state.of(Body).mass.set(player, 0);
-        state.of(Player).speed.set(player, 6);
-        state.of(Player).sprint.set(player, 1);
-        state.of(Player).sensitivity.set(player, 1.5);
-        state.of(Player).camera.set(player, camera);
-        state.of(Character).jumpSpeed.set(player, 7);
-        state.of(Character).gravity.set(player, -30);
+        const player = world.create();
+        world.add(player, Body);
+        world.add(player, Character);
+        world.add(player, Player);
+        world.storage(Body).shape.set(player, ShapeKind.Capsule);
+        world.storage(Body).position.set(player, 0, 1.3, 0, 0);
+        world.storage(Body).halfExtents.set(player, 0, 0.5, 0, 0.3);
+        world.storage(Body).mass.set(player, 0);
+        world.storage(Player).speed.set(player, 6);
+        world.storage(Player).sprint.set(player, 1);
+        world.storage(Player).sensitivity.set(player, 1.5);
+        world.storage(Player).camera.set(player, camera);
+        world.storage(Character).jumpSpeed.set(player, 7);
+        world.storage(Character).gravity.set(player, -30);
 
         // Establish the floor contact before the supplied jump edge arrives.
-        state.step(Time.FIXED_DT);
-        const initial = readBody(state, player);
+        world.step(Time.FIXED_DT);
+        const initial = readBody(world, player);
         if (!initial) throw new Error("Player body did not enter the CPU physics world");
-        const initialYaw = state.of(Player).yaw.get(player);
-        const initialPitch = state.of(Player).pitch.get(player);
+        const initialYaw = world.storage(Player).yaw.get(player);
+        const initialPitch = world.storage(Player).pitch.get(player);
 
-        pointerLockChanged(state, true);
-        pointerMove(state, 0, 0, 12, -4);
-        pressKey(state, "KeyW");
-        pressKey(state, "Space");
-        state.step(Time.FIXED_DT);
-        const lookScale = state.of(Player).sensitivity.get(player) / 1080;
-        if (Math.abs(state.of(Player).yaw.get(player) - (initialYaw - 12 * lookScale)) > 0.000001)
+        pointerLockChanged(world, true);
+        pointerMove(world, 0, 0, 12, -4);
+        pressKey(world, "KeyW");
+        pressKey(world, "Space");
+        world.step(Time.FIXED_DT);
+        const lookScale = world.storage(Player).sensitivity.get(player) / 1080;
+        if (
+            Math.abs(world.storage(Player).yaw.get(player) - (initialYaw - 12 * lookScale)) >
+            0.000001
+        )
             throw new Error("Player did not consume the supplied locked look sensitivity");
         if (
-            Math.abs(state.of(Player).pitch.get(player) - (initialPitch + 4 * lookScale)) > 0.000001
+            Math.abs(world.storage(Player).pitch.get(player) - (initialPitch + 4 * lookScale)) >
+            0.000001
         )
             throw new Error("Player did not consume the supplied vertical look sensitivity");
         const expectedYaw = initialYaw - 12 * lookScale;
@@ -87,35 +91,43 @@ test("the public Player controller consumes held, released and neutral input to 
         const halfYaw = expectedYaw * 0.5;
         const halfPitch = expectedPitch * 0.5;
         const expectedCameraY = Math.sin(halfYaw) * Math.cos(halfPitch);
-        if (Math.abs(state.of(Transform).rot.y.get(camera) - expectedCameraY) > 0.000001)
+        if (Math.abs(world.storage(Transform).rotation.y.get(camera) - expectedCameraY) > 0.000001)
             throw new Error("Player did not apply look to the public camera Transform.rot");
-        if (!state.resource(Devices).keys.held.has("KeyW"))
+        if (!world.resource(Devices).keys.held.has("KeyW"))
             throw new Error("Player lost the held move fact");
 
-        // PlayerControlSystem writes the intent in simulation; the next fixed tick is the real
+        // UpdatePlayerControlSystem writes the intent in simulation; the next fixed tick is the real
         // Character consumer. This deliberately uses the stepped clock rather than a private drive.
-        state.step(Time.FIXED_DT);
-        const moved = readBody(state, player);
+        world.step(Time.FIXED_DT);
+        const moved = readBody(world, player);
         if (
             !moved ||
-            Math.hypot(moved.pos[0] - initial.pos[0], moved.pos[2] - initial.pos[2]) < 0.001
+            Math.hypot(
+                moved.position[0] - initial.position[0],
+                moved.position[2] - initial.position[2],
+            ) < 0.001
         )
             throw new Error("Character did not apply Player's supplied movement intent");
-        if (!moved || moved.pos[1] <= initial.pos[1] + 0.01)
+        if (!moved || moved.position[1] <= initial.position[1] + 0.01)
             throw new Error("Character did not apply Player's supplied jump edge");
 
-        releaseKey(state, "KeyW");
-        releaseKey(state, "Space");
-        state.step(Time.FIXED_DT); // the released facts reach PlayerControlSystem
-        const beforeNeutral = readBody(state, player);
+        releaseKey(world, "KeyW");
+        releaseKey(world, "Space");
+        world.step(Time.FIXED_DT); // the released facts reach UpdatePlayerControlSystem
+        const beforeNeutral = readBody(world, player);
         if (!beforeNeutral) throw new Error("Player body disappeared after release");
-        state.step(Time.FIXED_DT); // the first neutral frame drains the previous simulation intent
-        const neutral = readBody(state, player);
+        world.step(Time.FIXED_DT); // the first neutral frame drains the previous simulation intent
+        const neutral = readBody(world, player);
         if (!neutral) throw new Error("Player body disappeared on the neutral step");
-        state.step(Time.FIXED_DT); // this fixed tick must not replay a stale movement intent
-        const settled = readBody(state, player);
+        world.step(Time.FIXED_DT); // this fixed tick must not replay a stale movement intent
+        const settled = readBody(world, player);
         if (!settled) throw new Error("Player body disappeared on the settled neutral step");
-        if (Math.hypot(settled.pos[0] - neutral.pos[0], settled.pos[2] - neutral.pos[2]) > 0.0001)
+        if (
+            Math.hypot(
+                settled.position[0] - neutral.position[0],
+                settled.position[2] - neutral.position[2],
+            ) > 0.0001
+        )
             throw new Error("released Player movement was replayed after the neutral step");
     } finally {
         app.dispose();

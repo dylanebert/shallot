@@ -13,14 +13,14 @@ import {
     BeginFrameSystem,
     Draws,
     Meshes,
-    mesh,
     RenderPlugin,
+    registerMesh,
     registerSurface,
 } from "../../core/rendering";
-import type { Plugin, World, System } from "../../engine";
-import { composeTransform, f32, formatHex, GlobalTransform, vec4 } from "../../engine";
+import type { Plugin, System, World } from "../../engine";
+import { composeGlobalTransform, f32, formatHex, GlobalTransform, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
-import { PrepassSystem } from "../../standard/rendering";
+import { RenderPrepassesSystem } from "../../standard/rendering";
 import {
     disposeSegments,
     flushSegments,
@@ -34,7 +34,7 @@ import {
 } from "./segments";
 import { lineFs, lineLayout, lineVaryings, lineVs } from "./surface";
 
-export { arrow, box, segment } from "./segments";
+export { drawArrow, drawLine, drawWireBox } from "./segments";
 
 /**
  * a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated
@@ -90,61 +90,65 @@ const _m = new Float32Array(16);
 // each retained Line is one segment from the entity's world pos along its rotated offset; an Arrow on it
 // adds fletched heads at the endpoints. Appended on top of this frame's immediate segments. Small counts
 // (scene annotations) — the immediate API is the scale path
-function expandRetained(state: World): void {
-    for (const eid of state.query([Line, GlobalTransform])) {
-        if (!state.of(Line).visible.get(eid)) continue;
-        composeTransform(state, eid, _m);
-        const ox = state.of(Line).offset.x.get(eid);
-        const oy = state.of(Line).offset.y.get(eid);
-        const oz = state.of(Line).offset.z.get(eid);
+function expandRetained(world: World): void {
+    for (const eid of world.query([Line, GlobalTransform])) {
+        if (!world.storage(Line).visible.get(eid)) continue;
+        composeGlobalTransform(world, eid, _m);
+        const ox = world.storage(Line).offset.x.get(eid);
+        const oy = world.storage(Line).offset.y.get(eid);
+        const oz = world.storage(Line).offset.z.get(eid);
         const sx = _m[12];
         const sy = _m[13];
         const sz = _m[14];
         const ex = sx + _m[0] * ox + _m[4] * oy + _m[8] * oz;
         const ey = sy + _m[1] * ox + _m[5] * oy + _m[9] * oz;
         const ez = sz + _m[2] * ox + _m[6] * oy + _m[10] * oz;
-        const w = state.of(Line).thickness.get(eid);
-        const c = packColor(state.of(Line).color.get(eid), state.of(Line).opacity.get(eid));
-        push(state, sx, sy, sz, ex, ey, ez, w, c);
-        if (state.has(eid, Arrow)) {
-            const size = state.of(Arrow).size.get(eid);
-            if (state.of(Arrow).end.get(eid)) head(state, ex, ey, ez, sx, sy, sz, size, w, c);
-            if (state.of(Arrow).start.get(eid)) head(state, sx, sy, sz, ex, ey, ez, size, w, c);
+        const w = world.storage(Line).thickness.get(eid);
+        const c = packColor(
+            world.storage(Line).color.get(eid),
+            world.storage(Line).opacity.get(eid),
+        );
+        push(world, sx, sy, sz, ex, ey, ez, w, c);
+        if (world.has(eid, Arrow)) {
+            const size = world.storage(Arrow).size.get(eid);
+            if (world.storage(Arrow).end.get(eid)) head(world, ex, ey, ez, sx, sy, sz, size, w, c);
+            if (world.storage(Arrow).start.get(eid))
+                head(world, sx, sy, sz, ex, ey, ez, size, w, c);
         }
     }
 }
 
 // runs after the immediate appends (simulation systems) and before sear reads the segment buffer
-// (PrepassSystem resolves the draw's bind group): expands retained components, then uploads + clears
+// (RenderPrepassesSystem resolves the draw's bind group): expands retained components, then uploads + clears
 const LinesSystem: System = {
     name: "lines",
     group: "draw",
     after: [BeginFrameSystem],
-    before: [PrepassSystem],
-    setup(state: World) {
-        state.resource(Draws).register({
+    before: [RenderPrepassesSystem],
+    setup(world: World) {
+        world.resource(Draws).register({
             name: "lines",
             surface: "lines",
             mesh: "lineQuad",
-            args: { indirect: state.resource(Lines).args! },
+            args: { indirect: world.resource(Lines).args! },
         });
     },
-    update(state) {
-        if (!state.gpu.device || !ready(state)) return;
-        expandRetained(state);
+    update(world) {
+        if (!world.gpu.device || !ready(world)) return;
+        expandRetained(world);
         flushSegments(
-            state,
-            state.gpu.device,
-            state.resource(Meshes).get("lineQuad")?.indexBase ?? 0,
+            world,
+            world.gpu.device,
+            world.resource(Meshes).get("lineQuad")?.indexBase ?? 0,
         );
     },
 };
 
 /**
- * the shallot debug-line producer: an immediate {@link segment} / {@link box} / {@link arrow} API plus
+ * the shallot debug-line producer: an immediate {@link drawLine} / {@link drawWireBox} / {@link drawArrow} API plus
  * the retained {@link Line} / {@link Arrow} components, both feeding one instanced-quad draw rendered
  * as a sear `"alpha"` surface (screen-space constant-pixel width, no overlay pass). Depends on
- * {@link RenderPlugin}; a Sear camera renders it
+ * {@link RenderPlugin}; a StandardRenderer camera renders it
  */
 export const LinesPlugin: Plugin = {
     name: "Lines",
@@ -169,11 +173,11 @@ export const LinesPlugin: Plugin = {
         },
     },
 
-    initialize(state) {
-        initializeSegmentState(state);
-        resetCount(state);
-        mesh(state, { name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
-        registerSurface(state, {
+    initialize(world) {
+        initializeSegmentState(world);
+        resetCount(world);
+        registerMesh(world, { name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        registerSurface(world, {
             name: "lines",
             layout: lineLayout,
             blend: "alpha",
@@ -184,12 +188,12 @@ export const LinesPlugin: Plugin = {
         });
     },
 
-    warm(state: World) {
-        if (!state.gpu.device) return;
-        warmSegments(state, state.gpu.device);
+    warm(world: World) {
+        if (!world.gpu.device) return;
+        warmSegments(world, world.gpu.device);
     },
 
-    dispose(state: World) {
-        disposeSegments(state);
+    dispose(world: World) {
+        disposeSegments(world);
     },
 };

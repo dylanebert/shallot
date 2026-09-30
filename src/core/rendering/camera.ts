@@ -1,9 +1,9 @@
 import type { World } from "../../engine";
 import {
-    composeTransform,
+    composeGlobalTransform,
     f32,
-    invert,
-    multiply,
+    invertMat4,
+    multiplyMat4,
     orthographic,
     perspective,
     u32,
@@ -27,7 +27,7 @@ export const CameraMode = {
  *
  * @example
  * ```
- * <a camera="mode: perspective; fov: 60; clear-color: 0x5cbfbf" transform="pos: 4 3 4" />
+ * <a camera="mode: perspective; fov: 60; clear-color: 0x5cbfbf" transform="translation: 4 3 4" />
  * ```
  */
 export const Camera = {
@@ -76,20 +76,20 @@ const _view = new Float32Array(16);
  * transforms world-space lights into cluster space with it)
  */
 export function computeViewProj(
-    state: World,
+    world: World,
     eid: number,
     aspect: number,
     out: Float32Array,
     viewOut?: Float32Array,
 ): void {
-    const near = state.of(Camera).near.get(eid);
-    const far = state.of(Camera).far.get(eid);
+    const near = world.storage(Camera).near.get(eid);
+    const far = world.storage(Camera).far.get(eid);
     const proj =
-        state.of(Camera).mode.get(eid) === CameraMode.Orthographic
-            ? orthographic(state.of(Camera).size.get(eid), aspect, near, far, _proj)
-            : perspective(state.of(Camera).fov.get(eid), aspect, near, far, _proj);
-    composeTransform(state, eid, _world);
-    const view = invert(_world, _view);
+        world.storage(Camera).mode.get(eid) === CameraMode.Orthographic
+            ? orthographic(world.storage(Camera).size.get(eid), aspect, near, far, _proj)
+            : perspective(world.storage(Camera).fov.get(eid), aspect, near, far, _proj);
+    composeGlobalTransform(world, eid, _world);
+    const view = invertMat4(_world, _view);
     viewOut?.set(view);
-    multiply(proj, view, out);
+    multiplyMat4(proj, view, out);
 }

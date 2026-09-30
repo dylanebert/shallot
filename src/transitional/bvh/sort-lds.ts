@@ -284,12 +284,12 @@ export function radixLdsWgsl(): {
  * contract; {@link createBvh} threads its shared buffers + count in.
  */
 export async function createRadixSortLds(
-    state: World,
+    world: World,
     device: GPUDevice,
     maxKeys: number,
     shared: RadixSortShared = {},
 ): Promise<RadixSort> {
-    const root = state.gpu.root;
+    const root = world.gpu.root;
     const maxBlocks = Math.max(1, Math.ceil(maxKeys / EPW));
     if (maxBlocks > MAX_DISPATCH) {
         throw new Error(
@@ -392,19 +392,19 @@ export async function createRadixSortLds(
     );
 
     // per-sorter labels — an app can hold several sorters, and the queue rejects a duplicate label
-    const scope = precompileScope(state, "radix-lds");
+    const scope = precompileScope(world, "radix-lds");
     for (const [label, bound] of [
         ["hist", histBound[0]],
         ["scan", scanL0],
         ["add", addBound],
         ["reorder", reorderBound[0]],
     ] as const) {
-        await precompile(state, `${scope}-${label}`, () => {
+        await precompile(world, `${scope}-${label}`, () => {
             return bound;
         });
     }
 
-    const span = (): GPUComputePassTimestampWrites | undefined => state.gpu.span?.("bvh:sort");
+    const span = (): GPUComputePassTimestampWrites | undefined => world.gpu.span?.("bvh:sort");
     const pass = (
         encoder: GPUCommandEncoder,
         bound: TgpuComputePipeline,

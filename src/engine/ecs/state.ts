@@ -26,26 +26,15 @@ import { ComponentRegistry } from "./traits";
 
 const INITIAL_CAPACITY = 16;
 
-/**
- * render device-pixel ratio for canvas-bound views, fixed at app construction. `"auto"`
- * (default) clamps the display's `devicePixelRatio` to `[1, 2]` (react-three-fiber's default):
- * crisp on HiDPI, never below logical resolution, capped so a DPR-3 phone doesn't pay 9× the fill.
- * A fixed number overrides: `1` renders at CSS resolution (cheapest, the three.js literal default),
- * `2` forces 2×, a value below 1 downscales for a pixel-art look (the upscale switches to
- * nearest-neighbor). Read at every resize (see {@link attachCanvas}), so dragging a window between
- * monitors re-sizes the backing. Set via `build({ pixelRatio })`.
- */
-export const pixelRatio: number | "auto" = "auto";
-
 /** A world-owned value identified by this declaration object, not its creator or a name. */
-export type Resource<T> = { readonly create: (state: World) => T };
+export type Resource<T> = { readonly create: (world: World) => T };
 
 /**
  * ecs state passed to every system
  * @expand
  * @example
  * const MySystem: System = {
- *     update(state) {
+ *     update(world) {
  *         // state passed in every frame
  *     },
  * };
@@ -104,7 +93,7 @@ export class World {
 
     /** this world's GPU device, registries, typed handles and frame state. */
     get gpu(): WorldGpu {
-        if (!this._gpu) throw new Error("State.gpu is unavailable before build acquires a device");
+        if (!this._gpu) throw new Error("World.gpu is unavailable before build acquires a device");
         return this._gpu;
     }
 
@@ -114,12 +103,12 @@ export class World {
     }
 
     /**
-     * Resolve once per declaration object in this State. Reloaded declarations create fresh values;
+     * Resolve once per declaration object in this World. Reloaded declarations create fresh values;
      * creators register cleanup with onDispose or own, which runs at world disposal.
      * Refuses after disposal; this does not invalidate caller-retained references.
      */
     resource<T>(declaration: Resource<T>): T {
-        if (this._disposed) throw new Error("State.resource: world is disposed");
+        if (this._disposed) throw new Error("World.resource: world is disposed");
         if (this._resources.has(declaration)) return this._resources.get(declaration) as T;
         const value = declaration.create(this);
         this._resources.set(declaration, value);
@@ -218,14 +207,14 @@ export class World {
         record: T,
         options?: GpuTableOptions,
     ): GpuTable<T> {
-        if (this._tables.has(name)) throw new Error(`State.table: duplicate table "${name}"`);
+        if (this._tables.has(name)) throw new Error(`World.table: duplicate table "${name}"`);
         const registry = this._gpu?.buffers;
         if (
             registry?.has(name) ||
             registry?.has(`${name}:eid-to-row`) ||
             registry?.has(`${name}:active-rows`)
         ) {
-            throw new Error(`State.table: GPU registry name "${name}" is already in use`);
+            throw new Error(`World.table: GPU registry name "${name}" is already in use`);
         }
         const table = new GpuTable(this, name, record, options);
         this._tables.set(name, table);
@@ -269,9 +258,9 @@ export class World {
 
     /** @internal Resolve the world-owned column for engine change consumers. */
     fieldStorage(component: Component, name: string): WorldField {
-        this.of(component);
+        this.storage(component);
         const field = this._storage.get(idOf(component))?.fields.get(name);
-        if (!field) throw new Error(`State.fieldStorage: unknown field "${name}"`);
+        if (!field) throw new Error(`World.fieldStorage: unknown field "${name}"`);
         return field;
     }
 
@@ -341,15 +330,15 @@ export class World {
 
     /** Resolve a schema to this world's storage. Retain these accessors at system setup,
      * not their `column` arrays: growth replaces arrays, while accessors remain valid.
-     * Setters and bulk `write` publish frame-scoped field marks for table upload. */
-    of<T extends Component>(component: T): ComponentStorage<T> {
+     * Setters and bulk `writeEncoded` publish frame-scoped field marks for table upload. */
+    storage<T extends Component>(component: T): ComponentStorage<T> {
         const id = idOf(component);
         const existing = this._storage.get(id);
         if (existing) {
             if (existing.schemas.has(component)) return existing.storage as ComponentStorage<T>;
             if (!sameSchema(existing.schema, component)) {
                 throw new Error(
-                    `state.of: component schema changed for "${String(id)}"; rebuild this world`,
+                    `world.storage: component schema changed for "${String(id)}"; rebuild this world`,
                 );
             }
             freezeComponent(component);
@@ -400,7 +389,7 @@ export class World {
     }
 
     /** freeze the virtual clock: gameplay (`time.deltaTime`/`elapsed`) and physics hold; the real clock keeps
-     * running for camera/UI/input. takes effect next frame. {@link resume} restores the prior {@link timescale}. */
+     * running for camera/UI/input. takes effect next frame. {@link resume} restores the prior {@link setTimeScale}. */
     pause(): void {
         this._scheduler.pause();
     }
@@ -412,7 +401,7 @@ export class World {
 
     /** set the virtual timescale: 1 real time, <1 slow-mo, >1 fast-forward, 0 freeze (negative clamps to 0).
      * read via `time.scale`. */
-    timescale(scale: number): void {
+    setTimeScale(scale: number): void {
         this._scheduler.setScale(scale);
     }
 
@@ -464,10 +453,10 @@ export class World {
      * unchanged), the stamp catches a same-update destroy+create realias that membership misses.
      * Neither alone suffices. `0` for an eid never created.
      * @example
-     * const stamp = state.stamp(eid); // cache beside the held eid
-     * if (!state.has(eid, Body) || state.stamp(eid) !== stamp) evict(); // despawn or realias
+     * const stamp = world.generation(eid); // cache beside the held eid
+     * if (!world.has(eid, Body) || world.generation(eid) !== stamp) evict(); // despawn or realias
      */
-    stamp(eid: number): number {
+    generation(eid: number): number {
         return this._entities.stamp(eid);
     }
 
@@ -482,7 +471,7 @@ export class World {
 
     /**
      * read access to the component-membership bitset. A GPU producer that
-     * scans a buffer by index gates on `state.membership.bit(C)` rather than a
+     * scans a buffer by index gates on `world.membership.bit(C)` rather than a
      * per-field sentinel; the standard membership mirror flushes the bitset to
      * the `"membership"` buffer each frame. See {@link Membership}
      */
@@ -493,10 +482,10 @@ export class World {
     /**
      * attach a component to an entity. Default values declared via the component's
      * `Traits.defaults` are routed through each field's `.set` (for fields
-     * implementing the `Single` contract): dirty tracking falls out automatically.
+     * implementing the `ScalarField` contract): dirty tracking falls out automatically.
      * @example
-     * state.add(eid, Health);
-     * state.of(Health).current.set(eid, 100);
+     * world.add(eid, Health);
+     * world.storage(Health).current.set(eid, 100);
      */
     add<T>(eid: number, component: T): void {
         const excluded = this.registry.getExclusions(component as Component);
@@ -511,7 +500,7 @@ export class World {
                 }
             }
         }
-        this.of(component as Component);
+        this.storage(component as Component);
         if (this._components.add(eid, component)) {
             this.notifyMembership(component as Component, eid, true);
             const tables = this._tablesByComponent.get(idOf(component as Component));
@@ -556,7 +545,7 @@ export class World {
     /**
      * find entities matching component terms
      * @example
-     * for (const eid of state.query([Health, not(Dead)])) {
+     * for (const eid of world.query([Health, not(Dead)])) {
      *     Health.current[eid] -= 1;
      * }
      */
@@ -567,7 +556,7 @@ export class World {
     /**
      * find exactly one entity, warns if multiple match, returns -1 when nothing matches
      * @example
-     * const player = state.only([Player]);
+     * const player = world.only([Player]);
      */
     only(terms: any[]): number {
         let result = -1;
@@ -596,10 +585,10 @@ export class World {
     /**
      * hot-swap a live system's behavior in place. the reloaded module's
      * `update`/`setup`/`dispose` replace the old ones on the same registered
-     * object, preserving its identity, ordering, and setup state. The engine
+     * object, preserving its identity, ordering, and setup world. The engine
      * `swap` (plugin-level) drives this per system; not a per-frame call.
      */
-    swap(old: System, next: System): void {
+    swapSystem(old: System, next: System): void {
         this._scheduler.swap(old, next);
     }
 
@@ -641,7 +630,7 @@ export class World {
 
     /**
      * true once {@link dispose} has run. An async plugin step that awaits across a teardown (a glTF decode
-     * resolving after a scene switch) checks this before touching the State, so a late result no-ops instead
+     * resolving after a scene switch) checks this before touching the World, so a late result no-ops instead
      * of mutating a dead world.
      */
     get disposed(): boolean {
@@ -649,14 +638,14 @@ export class World {
     }
 
     /**
-     * register a teardown callback tied to this State's lifetime. Callbacks run in LIFO order (last
+     * register a teardown callback tied to this World's lifetime. Callbacks run in LIFO order (last
      * registered, first run) at {@link dispose}, so a DOM mount, listener, or rAF loop keeps its cleanup
      * beside its creation site. A callback registered after dispose has already run fires immediately
      * (paired with {@link signal}, already aborted), so a late async step never leaks silently.
      * @example
      * const el = document.createElement("div");
      * container.appendChild(el);
-     * state.onDispose(() => el.remove());
+     * world.onDispose(() => el.remove());
      */
     onDispose(fn: () => void): void {
         if (this._disposed) {
@@ -667,11 +656,11 @@ export class World {
     }
 
     /**
-     * an {@link AbortSignal} tied to this State's lifetime, aborted when {@link dispose} runs (already
+     * an {@link AbortSignal} tied to this World's lifetime, aborted when {@link dispose} runs (already
      * aborted if read afterward). Pass it as `{ signal }` to `addEventListener`, `fetch`, or any
      * abortable API to detach on teardown with zero removal code. Lazily created on first read.
      * @example
-     * window.addEventListener("resize", onResize, { signal: state.signal });
+     * window.addEventListener("resize", onResize, { signal: world.signal });
      */
     get signal(): AbortSignal {
         if (!this._controller) this._controller = new AbortController();
@@ -693,7 +682,7 @@ export class World {
             try {
                 this._disposals[i]();
             } catch (err) {
-                console.error("State.dispose: a teardown callback threw:", err);
+                console.error("World.dispose: a teardown callback threw:", err);
             }
         }
         this._disposals.length = 0;
@@ -712,7 +701,7 @@ export class World {
             try {
                 resource.destroy();
             } catch (err) {
-                console.error("State.dispose: GPU resource release threw:", err);
+                console.error("World.dispose: GPU resource release threw:", err);
             }
         }
         this._gpuResources.clear();

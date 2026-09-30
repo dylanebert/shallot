@@ -13,9 +13,9 @@ export function freezeComponent(component: Component): void {
 }
 
 /** @internal Recognize a bare CPU storage type, not a world-bound field handle. */
-export function isType(value: unknown): value is Type {
+export function isType(value: unknown): value is FieldType {
     if (!value || typeof value !== "object") return false;
-    const type = value as Type;
+    const type = value as FieldType;
     return (
         typeof type.ctor === "function" &&
         typeof type.ctor.BYTES_PER_ELEMENT === "number" &&
@@ -29,13 +29,13 @@ export function isType(value: unknown): value is Type {
 export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array | Uint8Array;
 
 /**
- * typed-array storage descriptor. Shared between {@link Single}/{@link Pair}/{@link Quad}
+ * typed-array storage descriptor. Shared between {@link ScalarField}/{@link Vector2Field}/{@link Vector4Field}
  * fields so a consumer can change the type without
- * changing the type spelling. Metadata only. Descriptors don't carry state.
+ * changing the type spelling. Metadata only. Descriptors don't carry world.
  *
  * @expand
  */
-export interface Type<TArray extends TypedArray = TypedArray> {
+export interface FieldType<TArray extends TypedArray = TypedArray> {
     /** typed-array constructor used to back CPU storage */
     readonly ctor: {
         readonly BYTES_PER_ELEMENT: number;
@@ -67,7 +67,7 @@ export interface Type<TArray extends TypedArray = TypedArray> {
 }
 
 /** 32-bit IEEE float. */
-export const f32: Type<Float32Array> & { readonly lanes: 1 } = {
+export const f32: FieldType<Float32Array> & { readonly lanes: 1 } = {
     ctor: Float32Array,
     lanes: 1,
     name: "f32",
@@ -75,7 +75,7 @@ export const f32: Type<Float32Array> & { readonly lanes: 1 } = {
 };
 
 /** 32-bit signed integer. */
-export const i32: Type<Int32Array> & { readonly lanes: 1 } = {
+export const i32: FieldType<Int32Array> & { readonly lanes: 1 } = {
     ctor: Int32Array,
     lanes: 1,
     name: "i32",
@@ -83,7 +83,7 @@ export const i32: Type<Int32Array> & { readonly lanes: 1 } = {
 };
 
 /** 32-bit unsigned integer. */
-export const u32: Type<Uint32Array> & { readonly lanes: 1 } = {
+export const u32: FieldType<Uint32Array> & { readonly lanes: 1 } = {
     ctor: Uint32Array,
     lanes: 1,
     name: "u32",
@@ -96,15 +96,15 @@ export const u32: Type<Uint32Array> & { readonly lanes: 1 } = {
  * declare itself a ref, so `serialize` round-trips it by the target's scene id rather than the
  * recycled, creation-order eid, with no side list to keep in sync. {@link refs} enumerates them.
  */
-export const entity: Type<Uint32Array> & { readonly lanes: 1 } = {
+export const entity: FieldType<Uint32Array> & { readonly lanes: 1 } = {
     ctor: Uint32Array,
     lanes: 1,
     name: "entity",
     wgsl: "u32",
 };
 
-/** @internal compare storage and conversion semantics, never a Type's debug label. */
-export function sameTypeLayout(a: Type, b: Type): boolean {
+/** @internal compare storage and conversion semantics, never a FieldType's debug label. */
+export function sameTypeLayout(a: FieldType, b: FieldType): boolean {
     if (
         a.ctor !== b.ctor ||
         a.ctor.BYTES_PER_ELEMENT !== b.ctor.BYTES_PER_ELEMENT ||
@@ -124,7 +124,7 @@ export function sameTypeLayout(a: Type, b: Type): boolean {
 /**
  * 8-bit unsigned CPU column. WGSL has no u8 storage type; a GPU record uses u32.
  */
-export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
+export const u8: FieldType<Uint8Array> & { readonly lanes: 1 } = {
     ctor: Uint8Array,
     lanes: 1,
     name: "u8",
@@ -134,7 +134,7 @@ export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
 /**
  * 16-bit unsigned CPU column. WGSL has no u16 storage type; a GPU record uses u32.
  */
-export const u16: Type<Uint16Array> & { readonly lanes: 1 } = {
+export const u16: FieldType<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
     lanes: 1,
     name: "u16",
@@ -186,7 +186,7 @@ function f16decode(bits: number): number {
  * platform floor, so a native-f16 GPU consumer declares it in its own
  * `Plugin.features`. For four half lanes with no feature at all, use {@link f16x4}.
  */
-export const f16: Type<Uint16Array> & { readonly lanes: 1 } = {
+export const f16: FieldType<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
     lanes: 1,
     name: "f16",
@@ -196,7 +196,7 @@ export const f16: Type<Uint16Array> & { readonly lanes: 1 } = {
 };
 
 /** two f32 lanes. */
-export const vec2: Type<Float32Array> & { readonly lanes: 2 } = {
+export const vec2: FieldType<Float32Array> & { readonly lanes: 2 } = {
     ctor: Float32Array,
     lanes: 2,
     name: "vec2",
@@ -209,7 +209,7 @@ export const vec2: Type<Float32Array> & { readonly lanes: 2 } = {
  * memory. put something useful in `.w` (mass paired with position, opacity
  * with RGB) or leave it 0.
  */
-export const vec4: Type<Float32Array> & { readonly lanes: 4 } = {
+export const vec4: FieldType<Float32Array> & { readonly lanes: 4 } = {
     ctor: Float32Array,
     lanes: 4,
     name: "vec4",
@@ -225,7 +225,7 @@ export const vec4: Type<Float32Array> & { readonly lanes: 4 } = {
  * finer than unorm8 across [0,1] (~15k representable values vs 256), so it suits PBR material params
  * (metallic / roughness / occlusion) alongside an unbounded emissive glow strength.
  */
-export const f16x4: Type<Float32Array> & { readonly lanes: 4 } = {
+export const f16x4: FieldType<Float32Array> & { readonly lanes: 4 } = {
     ctor: Float32Array,
     lanes: 4,
     name: "f16x4",
@@ -246,10 +246,10 @@ export const f16x4: Type<Float32Array> & { readonly lanes: 4 } = {
  * an LDR color mirrored to one u32: four 8-bit lanes, sRGB transfer on rgb + linear alpha (WebGPU's
  * `rgba8unorm-srgb` semantics), 16 B → 4 B. The CPU surface is identical to {@link vec4} and sees
  * lossless linear floats; only the GPU mirror packs (sRGB-encoding rgb on store), and the reader shader
- * binds a `u32` and decodes with `unpackLdrColor` (`engine/utils/encode.ts`). For `Part.Color` and any
+ * binds a `u32` and decodes with `unpackLdrColor` (`engine/utils/encode.ts`). For `MeshInstance.Color` and any
  * LDR per-entity color: sRGB storage keeps perceptual precision in 8 bits.
  */
-export const srgb8x4: Type<Float32Array> & { readonly lanes: 4 } = {
+export const srgb8x4: FieldType<Float32Array> & { readonly lanes: 4 } = {
     ctor: Float32Array,
     lanes: 4,
     name: "srgb8x4",
@@ -266,17 +266,17 @@ export const srgb8x4: Type<Float32Array> & { readonly lanes: 4 } = {
 /**
  * per-entity scalar storage. one value per entity, read/written by eid.
  * Component fields that need dirty tracking, GPU mirroring, or other
- * lifecycle behavior expose this instead of a bare typed array. `state.add`
+ * lifecycle behavior expose this instead of a bare typed array. `world.add`
  * routes default values through `.set`, so defaults flow into dirty bits
  * automatically. GPU consumers declare record tables separately.
  */
-export interface Single {
+export interface ScalarField {
     /** Copy encoded typed rows in eid order; source must match this lane's element type. */
-    write(eids: Uint32Array, source: TypedArray): void;
+    writeEncoded(eids: Uint32Array, source: TypedArray): void;
     set(eid: number, value: number): void;
     get(eid: number): number;
     /** type descriptor — needed for surface binding (WGSL element type) */
-    readonly type: Type;
+    readonly type: FieldType;
     /** world-owned CPU column, including each vector lane in field order */
     readonly column: TypedArray;
     /** Publish this eid after a raw column write. Resolve column again after growth. */
@@ -286,48 +286,48 @@ export interface Single {
 /**
  * per-entity 2-lane storage. one vec2 per entity. `set` writes both lanes at
  * once (AoS), the perf-friendly path. `x` and `y` are per-lane
- * {@link Single} accessors sharing the master's storage; partial writes go
+ * {@link ScalarField} accessors sharing the master's storage; partial writes go
  * through them and dirty the whole slot. `read` copies both lanes into an
  * out param without allocation
  */
-export interface Pair {
+export interface Vector2Field {
     /** Copy encoded two-lane typed rows in eid order and mark each entity changed. */
-    write(eids: Uint32Array, source: TypedArray): void;
+    writeEncoded(eids: Uint32Array, source: TypedArray): void;
     set(eid: number, x: number, y: number): void;
     read(eid: number, out: Float32Array): Float32Array;
-    readonly x: Single;
-    readonly y: Single;
-    readonly type: Type;
+    readonly x: ScalarField;
+    readonly y: ScalarField;
+    readonly type: FieldType;
     readonly column: TypedArray;
     /** Publish this eid after a raw column write. Resolve column again after growth. */
     markChanged(eid: number): void;
 }
 
 /**
- * per-entity 4-lane storage. one vec4 per entity. shape matches {@link Pair}
+ * per-entity 4-lane storage. one vec4 per entity. shape matches {@link Vector2Field}
  * with two more lanes
  */
-export interface Quad {
+export interface Vector4Field {
     /** Copy encoded four-lane typed rows in eid order and mark each entity changed. */
-    write(eids: Uint32Array, source: TypedArray): void;
+    writeEncoded(eids: Uint32Array, source: TypedArray): void;
     set(eid: number, x: number, y: number, z: number, w: number): void;
     read(eid: number, out: Float32Array): Float32Array;
-    readonly x: Single;
-    readonly y: Single;
-    readonly z: Single;
-    readonly w: Single;
-    readonly type: Type;
+    readonly x: ScalarField;
+    readonly y: ScalarField;
+    readonly z: ScalarField;
+    readonly w: ScalarField;
+    readonly type: FieldType;
     readonly column: TypedArray;
     /** Publish this eid after a raw column write. Resolve column again after growth. */
     markChanged(eid: number): void;
 }
 
 /**
- * structural lane-count detector. Returns 1 / 2 / 4 for a {@link Single} /
- * {@link Pair} / {@link Quad}; 0 for anything else (TypedArray, plain Array,
+ * structural lane-count detector. Returns 1 / 2 / 4 for a {@link ScalarField} /
+ * {@link Vector2Field} / {@link Vector4Field}; 0 for anything else (TypedArray, plain Array,
  * non-storage object, primitive, null). Discriminates by shape so lane
- * `Single`s of a parent Quad (which inherit the parent's `type.lanes`)
- * report as `Single` (1), not their parent's lane count
+ * `ScalarField`s of a parent Vector4Field (which inherit the parent's `type.lanes`)
+ * report as `ScalarField` (1), not their parent's lane count
  */
 export function lanes(value: unknown): 0 | 1 | 2 | 4 {
     if (isType(value)) return value.lanes;
@@ -344,10 +344,10 @@ export function lanes(value: unknown): 0 | 1 | 2 | 4 {
 /**
  * A component's declared bare storage types paired with their names, in declaration order.
  * This enumerates metadata for reflection and schema comparison, not a world's field handles.
- * Keys with no CPU storage type are skipped; resolve entity data with `state.of(component)`.
+ * Keys with no CPU storage type are skipped; resolve entity data with `world.storage(component)`.
  */
-export function fields(component: Component): { name: string; field: Type }[] {
-    const out: { name: string; field: Type }[] = [];
+export function fields(component: Component): { name: string; field: FieldType }[] {
+    const out: { name: string; field: FieldType }[] = [];
     for (const name of Object.keys(component)) {
         const field = component[name];
         if (isType(field)) out.push({ name, field });
@@ -429,7 +429,7 @@ export function intern(component: object, name: string): number {
 const BITS_PER_GEN = 31;
 
 /**
- * read access to the component-membership bitset, exposed as `state.membership`.
+ * read access to the component-membership bitset, exposed as `world.membership`.
  * A GPU producer that scans a buffer by index gates on it instead of a per-field
  * sentinel: `(membershipWord & mask) != 0` is the authoritative "does eid carry
  * this component" test. The standard membership mirror uploads the bitset each

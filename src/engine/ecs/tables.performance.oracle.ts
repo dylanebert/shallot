@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import * as d from "typegpu/data";
-import { build, type Plugin } from "../app";
+import { createApp, type Plugin } from "../app";
 import { u32 } from "../index";
 import type { World } from "./state";
 
@@ -30,8 +30,8 @@ function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 5_000): Pr
     });
 }
 
-async function waitAndValidate(state: World, label: string): Promise<void> {
-    const device = state.gpu.device;
+async function waitAndValidate(world: World, label: string): Promise<void> {
+    const device = world.gpu.device;
     await bounded(`${label} queue completion`, device.queue.onSubmittedWorkDone());
     const error = await bounded(`${label} validation scope`, device.popErrorScope());
     if (error) throw new Error(`${label}: ${error.message}`);
@@ -43,7 +43,7 @@ function median(values: number[]): number {
 }
 
 async function timestampedPass(
-    state: World,
+    world: World,
     label: string,
     pipeline: GPUComputePipeline,
     bindings: GPUBindGroup,
@@ -53,7 +53,7 @@ async function timestampedPass(
     workgroups: number,
     repetitions: number,
 ): Promise<number> {
-    const device = state.gpu.device;
+    const device = world.gpu.device;
     device.pushErrorScope("validation");
     const encoder = device.createCommandEncoder({ label: `${label}-timed-batch` });
     const pass = encoder.beginComputePass({
@@ -82,28 +82,28 @@ async function timestampedPass(
 }
 
 test("measure the opt-in eid-map cost against direct eid indexing at full population", async () => {
-    let state!: World;
+    let world!: World;
     const plugin: Plugin = {
         name: "TableMapCostProbe",
         features: ["timestamp-query"],
         initialize(current) {
-            state = current;
+            world = current;
         },
     };
-    const app = await build({ defaults: false, plugins: [plugin] });
+    const app = await createApp({ defaults: false, plugins: [plugin] });
 
     try {
-        const { class: adapterClass, identity } = state.gpu.adapter;
+        const { class: adapterClass, identity } = world.gpu.adapter;
         console.info(`[gpu-table-perf] adapter class=${adapterClass} identity=${identity}`);
         expect(adapterClass).toBe("real");
         expect(identity.length).toBeGreaterThan(0);
         expect(identity.toLowerCase()).not.toContain("swiftshader");
 
-        const device = state.gpu.device;
+        const device = world.gpu.device;
         const count = 100_000;
         const batchSize = 512;
         const transformRecord = d.struct({ transform: d.mat4x4f });
-        const table = state.table("mapped-eid-index", transformRecord);
+        const table = world.table("mapped-eid-index", transformRecord);
         const values = table.bytes;
         for (let eid = 0; eid < count; eid++) table.acquire(eid);
         values.fill(1, 0, count * d.sizeOf(transformRecord));
@@ -115,7 +115,7 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
             size: table.buffer.size,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
-        state.own(direct);
+        world.own(direct);
         const wordsPerRow = table.rowBytes / 4;
         const directValues = new Uint32Array(table.capacity * wordsPerRow);
         directValues.fill(1, 0, count * wordsPerRow);
@@ -123,7 +123,7 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
         device.pushErrorScope("validation");
         device.queue.writeBuffer(direct, 0, directValues);
         table.upload();
-        await waitAndValidate(state, "100%-population index inputs");
+        await waitAndValidate(world, "100%-population index inputs");
         const initialMapUploadBytes = table.lastMapUploadBytes;
         expect(initialMapUploadBytes).toBe(count * 4);
         const globalTransformBytes = table.rowBytes;
@@ -133,7 +133,7 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
         const instanceMapPercent = (eidToSlot.size / (table.capacity * instanceBytes)) * 100;
         device.pushErrorScope("validation");
         table.upload();
-        await waitAndValidate(state, "steady-state map upload");
+        await waitAndValidate(world, "steady-state map upload");
         expect(table.lastMapUploadBytes).toBe(0);
         console.info(
             `[gpu-table-perf] map bytes=${eidToSlot.size}; representative GlobalTransform=${globalTransformBytes} B/row (${globalTransformMapPercent.toFixed(2)}% of allocated record bytes); instance=${instanceBytes} B/row (${instanceMapPercent.toFixed(2)}%); initial map upload=${initialMapUploadBytes} B; steady map upload=${table.lastMapUploadBytes} B`,
@@ -144,7 +144,7 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
             size: count * 16,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
-        state.own(output);
+        world.own(output);
         const shader = device.createShaderModule({
             label: "eid-map-cost-shader",
             code: `
@@ -220,19 +220,19 @@ fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
         });
 
         const querySet = device.createQuerySet({ type: "timestamp", count: 2 });
-        state.own(querySet);
+        world.own(querySet);
         const resolveBuffer = device.createBuffer({
             label: "eid-map-cost-query-resolve",
             size: 16,
             usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
         });
-        state.own(resolveBuffer);
+        world.own(resolveBuffer);
         const timestampBuffer = device.createBuffer({
             label: "eid-map-cost-timestamp-readback",
             size: 16,
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
-        state.own(timestampBuffer);
+        world.own(timestampBuffer);
         const sample = async (
             label: string,
             pipeline: GPUComputePipeline,
@@ -312,38 +312,38 @@ fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
 }, 0);
 
 test("measure struct records against per-field arrays for GlobalTransform and light", async () => {
-    let state!: World;
+    let world!: World;
     const plugin: Plugin = {
         name: "TableRecordLayoutProbe",
         features: ["timestamp-query"],
         initialize(current) {
-            state = current;
+            world = current;
         },
     };
-    const app = await build({ defaults: false, plugins: [plugin] });
+    const app = await createApp({ defaults: false, plugins: [plugin] });
 
     try {
-        const { class: adapterClass, identity } = state.gpu.adapter;
+        const { class: adapterClass, identity } = world.gpu.adapter;
         console.info(`[gpu-table-layout] adapter class=${adapterClass} identity=${identity}`);
         expect(adapterClass).toBe("real");
         expect(identity.length).toBeGreaterThan(0);
-        const device = state.gpu.device;
+        const device = world.gpu.device;
         const count = 100_000;
         const outputBytes = count * 16;
         const querySet = device.createQuerySet({ type: "timestamp", count: 2 });
-        state.own(querySet);
+        world.own(querySet);
         const resolveBuffer = device.createBuffer({
             label: "table-layout-query-resolve",
             size: 16,
             usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
         });
-        state.own(resolveBuffer);
+        world.own(resolveBuffer);
         const readbackBuffer = device.createBuffer({
             label: "table-layout-query-readback",
             size: 16,
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
-        state.own(readbackBuffer);
+        world.own(readbackBuffer);
 
         const scenarios = [
             {
@@ -400,7 +400,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
                 size: totalBytes,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
-            state.own(recordBuffer);
+            world.own(recordBuffer);
             const recordSource = new Uint8Array(totalBytes);
             const fieldBuffers = scenario.fieldBytes.map((bytes, index) => {
                 const buffer = device.createBuffer({
@@ -408,7 +408,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
                     size: count * bytes,
                     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
                 });
-                state.own(buffer);
+                world.own(buffer);
                 return buffer;
             });
             const fieldSources = scenario.fieldBytes.map((bytes) => new Uint8Array(count * bytes));
@@ -417,13 +417,13 @@ test("measure struct records against per-field arrays for GlobalTransform and li
                 size: outputBytes,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
-            state.own(structOutput);
+            world.own(structOutput);
             const fieldsOutput = device.createBuffer({
                 label: `${scenario.name}-fields-output`,
                 size: outputBytes,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
-            state.own(fieldsOutput);
+            world.own(fieldsOutput);
 
             const measureUpload = async (shape: "struct" | "fields") => {
                 const submitTimes: number[] = [];
@@ -537,7 +537,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
             const fieldsGpu: number[] = [];
             for (let warmup = 0; warmup < 2; warmup++) {
                 await timestampedPass(
-                    state,
+                    world,
                     `${scenario.name} struct warmup ${warmup + 1}`,
                     structPipeline,
                     structGroup,
@@ -548,7 +548,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
                     32,
                 );
                 await timestampedPass(
-                    state,
+                    world,
                     `${scenario.name} fields warmup ${warmup + 1}`,
                     fieldsPipeline,
                     fieldsGroup,
@@ -563,7 +563,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
                 if ((sample & 1) === 0) {
                     structGpu.push(
                         await timestampedPass(
-                            state,
+                            world,
                             `${scenario.name} struct read ${sample + 1}`,
                             structPipeline,
                             structGroup,
@@ -576,7 +576,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
                     );
                     fieldsGpu.push(
                         await timestampedPass(
-                            state,
+                            world,
                             `${scenario.name} fields read ${sample + 1}`,
                             fieldsPipeline,
                             fieldsGroup,
@@ -590,7 +590,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
                 } else {
                     fieldsGpu.push(
                         await timestampedPass(
-                            state,
+                            world,
                             `${scenario.name} fields read ${sample + 1}`,
                             fieldsPipeline,
                             fieldsGroup,
@@ -603,7 +603,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
                     );
                     structGpu.push(
                         await timestampedPass(
-                            state,
+                            world,
                             `${scenario.name} struct read ${sample + 1}`,
                             structPipeline,
                             structGroup,
@@ -630,25 +630,25 @@ test("measure struct records against per-field arrays for GlobalTransform and li
 }, 0);
 
 test("measure dense table range uploads at 0.1%, 10%, and 100% changed", async () => {
-    let state!: World;
+    let world!: World;
     const plugin: Plugin = {
         name: "TableUploadCostProbe",
         initialize(current) {
-            state = current;
+            world = current;
         },
     };
-    const app = await build({ defaults: false, plugins: [plugin] });
+    const app = await createApp({ defaults: false, plugins: [plugin] });
 
     try {
-        const { class: adapterClass, identity } = state.gpu.adapter;
+        const { class: adapterClass, identity } = world.gpu.adapter;
         console.info(`[gpu-table-upload-perf] adapter class=${adapterClass} identity=${identity}`);
         expect(adapterClass).toBe("real");
         expect(identity.length).toBeGreaterThan(0);
         const results: string[] = [];
-        const device = state.gpu.device;
+        const device = world.gpu.device;
 
         for (const count of [1_000, 10_000, 100_000]) {
-            const table = state.table(`upload-cost-${count}`, UPLOAD_RECORD);
+            const table = world.table(`upload-cost-${count}`, UPLOAD_RECORD);
             for (let eid = 0; eid < count; eid++) table.acquire(eid);
             table.bytes.fill(0x5a);
             device.pushErrorScope("validation");
@@ -704,26 +704,26 @@ test("measure dense table range uploads at 0.1%, 10%, and 100% changed", async (
 }, 0);
 
 test("measure dense table GPU memory at 1% and 100% population", async () => {
-    let state!: World;
+    let world!: World;
     const plugin: Plugin = {
         name: "TableMemoryProbe",
         initialize(current) {
-            state = current;
+            world = current;
         },
     };
-    const app = await build({ defaults: false, plugins: [plugin] });
+    const app = await createApp({ defaults: false, plugins: [plugin] });
 
     try {
-        const { class: adapterClass, identity } = state.gpu.adapter;
+        const { class: adapterClass, identity } = world.gpu.adapter;
         console.info(`[gpu-table-memory] adapter class=${adapterClass} identity=${identity}`);
         expect(adapterClass).toBe("real");
-        const device = state.gpu.device;
+        const device = world.gpu.device;
         const results: string[] = [];
         for (const entityCount of [1_000, 10_000, 100_000]) {
             for (const fraction of [0.01, 1]) {
                 const population = Math.max(1, Math.floor(entityCount * fraction));
                 for (const usesMap of [false, true]) {
-                    const table = state.table(
+                    const table = world.table(
                         `table-memory-${entityCount}-${fraction}-${usesMap}`,
                         MEMORY_RECORD,
                     );
@@ -774,24 +774,24 @@ test("measure dense table GPU memory at 1% and 100% population", async () => {
 }, 0);
 
 test("measure component setter overhead against direct column writes", async () => {
-    let state!: World;
+    let world!: World;
     const Setter = { value: u32 };
     const count = 100_000;
     const plugin: Plugin = {
         name: "TableSetterCostProbe",
         components: { Setter },
         initialize(current) {
-            state = current;
+            world = current;
         },
     };
-    const app = await build({ defaults: false, plugins: [plugin] });
+    const app = await createApp({ defaults: false, plugins: [plugin] });
 
     try {
-        const { class: adapterClass, identity } = state.gpu.adapter;
+        const { class: adapterClass, identity } = world.gpu.adapter;
         console.info(`[gpu-table-setter] adapter class=${adapterClass} identity=${identity}`);
         expect(adapterClass).toBe("real");
-        const eids = Array.from({ length: count }, () => state.create());
-        const value = state.of(Setter).value;
+        const eids = Array.from({ length: count }, () => world.create());
+        const value = world.storage(Setter).value;
         const setterTimes: number[] = [];
         const directTimes: number[] = [];
         for (let repeat = 0; repeat < 7; repeat++) {

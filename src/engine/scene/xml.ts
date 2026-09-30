@@ -2,17 +2,17 @@ const INDENT = "    ";
 const MAX_LINE = 100;
 
 /** one parsed scene entity: an optional `id`, its component attributes, and a (always-empty) children list. */
-export interface Node {
+export interface SceneNode {
     id?: string;
-    attrs: Attr[];
+    attrs: SceneAttribute[];
     /** always empty — kept for AST shape stability after flat-scene migration. */
-    children: Node[];
+    children: SceneNode[];
     comments?: string[];
     blankBefore?: boolean;
 }
 
 /** one component attribute on a node: its kebab-case name and raw string value (`""` for a bare component). */
-export interface Attr {
+export interface SceneAttribute {
     name: string;
     value: string;
 }
@@ -26,18 +26,18 @@ const TAG_RE = /<!--([\s\S]*?)-->|<\s*(\/?)\s*(\w+)([^>]*)>/g;
 const ATTR_RE = /([^\s=<>/]+)(?:\s*=\s*"([^"]*)")?/g;
 
 /**
- * parses scene XML into a flat node tree, one `Node` per `<a>` element. Throws on malformed markup, an
+ * parses scene XML into a flat node tree, one `SceneNode` per `<a>` element. Throws on malformed markup, an
  * unknown tag, or a nested `<a>`; scenes are flat, so cross-entity links use `@name` field refs.
  *
  * @example
- * const nodes = parse('<scene><a id="cam" camera orbit /></scene>');
+ * const nodes = parseScene('<scene><a id="cam" camera orbit /></scene>');
  */
-export function parse(xml: string): Node[] {
+export function parseScene(xml: string): SceneNode[] {
     if (/<[^>]*$/.test(xml)) {
         throw new Error("xml parse error: Unclosed tag at end of document");
     }
 
-    const nodes: Node[] = [];
+    const nodes: SceneNode[] = [];
     let comments: string[] = [];
     let blank = false;
     let inEntity = false;
@@ -93,8 +93,8 @@ export function parse(xml: string): Node[] {
     return nodes;
 }
 
-function parseEntity(body: string): Node {
-    const attrs: Attr[] = [];
+function parseEntity(body: string): SceneNode {
+    const attrs: SceneAttribute[] = [];
     let id: string | undefined;
     ATTR_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
@@ -107,7 +107,7 @@ function parseEntity(body: string): Node {
 }
 
 /** finds a node by its scene `id` in a parsed tree, or `undefined` if none matches. */
-export function findNodeById(id: string, nodes: Node[]): Node | undefined {
+export function findNodeById(id: string, nodes: SceneNode[]): SceneNode | undefined {
     for (const node of nodes) {
         if (node.id === id) return node;
     }
@@ -118,10 +118,10 @@ export function findNodeById(id: string, nodes: Node[]): Node | undefined {
  * (`null` at the top level); a node absent from the tree returns `undefined`.
  */
 export function findParent(
-    target: Node,
-    nodes: Node[],
-    parent: Node | null = null,
-): Node | null | undefined {
+    target: SceneNode,
+    nodes: SceneNode[],
+    parent: SceneNode | null = null,
+): SceneNode | null | undefined {
     for (const node of nodes) {
         if (node === target) return parent;
     }
@@ -130,19 +130,19 @@ export function findParent(
 
 /**
  * renders a node tree back to formatted scene XML, the inverse of `parse`. Long entities wrap one
- * attribute per line; a `stringify(serialize(state))` round-trips a live scene to disk.
+ * attribute per line; a `stringifyScene(serializeScene(state))` round-trips a live scene to disk.
  *
  * @example
- * const xml = stringify(serialize(state));
+ * const xml = stringifyScene(serializeScene(state));
  */
-export function stringify(nodes: Node[]): string {
+export function stringifyScene(nodes: SceneNode[]): string {
     const lines: string[] = ["<scene>"];
     for (let i = 0; i < nodes.length; i++) writeNode(nodes[i], lines, 1, i === 0);
     lines.push("</scene>");
     return lines.join("\n");
 }
 
-function writeNode(node: Node, lines: string[], depth: number, isFirst: boolean): void {
+function writeNode(node: SceneNode, lines: string[], depth: number, isFirst: boolean): void {
     const indent = INDENT.repeat(depth);
 
     if (node.blankBefore && !isFirst) lines.push("");
@@ -163,7 +163,7 @@ function writeNode(node: Node, lines: string[], depth: number, isFirst: boolean)
     lines.push(`${indent}/>`);
 }
 
-function attrParts(node: Node): string[] {
+function attrParts(node: SceneNode): string[] {
     const parts: string[] = [];
     if (node.id) parts.push(` id="${escapeAttr(node.id)}"`);
     for (const { name, value } of node.attrs) {

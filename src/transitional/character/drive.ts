@@ -2,7 +2,7 @@ import { GlobalTransform, type World } from "../../engine";
 import { setKinematic } from "../physics";
 import type { CharState } from "./sweep";
 
-/** Per-State intent and controller state shared by the sweep and its callers. */
+/** Per-World intent and controller state shared by the sweep and its callers. */
 export interface CharacterDrive {
     states: Map<number, CharState>;
     moves: Map<number, [number, number]>;
@@ -23,8 +23,8 @@ function createDrive(): CharacterDrive {
     };
 }
 
-export function driveFor(state: World): CharacterDrive {
-    return state.resource(driveKey);
+export function driveFor(world: World): CharacterDrive {
+    return world.resource(driveKey);
 }
 
 /** push a character's per-frame horizontal move input (world x/z velocity), by body eid. Call each fixed tick
@@ -32,11 +32,11 @@ export function driveFor(state: World): CharacterDrive {
  *
  * @example
  * ```
- * move(state, player, dir[0] * speed, dir[2] * speed);   // each fixed tick
+ * move(world, player, dir[0] * speed, dir[2] * speed);   // each fixed tick
  * ```
  */
-export function move(state: World, eid: number, vx: number, vz: number): void {
-    const moves = driveFor(state).moves;
+export function move(world: World, eid: number, vx: number, vz: number): void {
+    const moves = driveFor(world).moves;
     const m = moves.get(eid);
     if (m) {
         m[0] = vx;
@@ -51,11 +51,11 @@ export function move(state: World, eid: number, vx: number, vz: number): void {
  *
  * @example
  * ```
- * if (pressed) jump(state, player);   // on the press edge, not the held key
+ * if (pressed) jump(world, player);   // on the press edge, not the held key
  * ```
  */
-export function jump(state: World, eid: number): void {
-    driveFor(state).jumped.add(eid);
+export function jump(world: World, eid: number): void {
+    driveFor(world).jumped.add(eid);
 }
 
 /** Read a character's GlobalTransform position into `out`; returns false until the character is
@@ -65,13 +65,13 @@ export function jump(state: World, eid: number): void {
  * @example
  * ```
  * const p: [number, number, number] = [0, 0, 0];
- * if (globalTransform(state, player, p)) placeModelAt(p);
+ * if (globalTransform(world, player, p)) placeModelAt(p);
  * ```
  */
-export function globalTransform(state: World, eid: number, out: [number, number, number]): boolean {
-    if (!driveFor(state).states.has(eid) || !state.has(eid, GlobalTransform)) return false;
-    const global = state.of(GlobalTransform);
-    const column = global.pos.column;
+export function globalTransform(world: World, eid: number, out: [number, number, number]): boolean {
+    if (!driveFor(world).states.has(eid) || !world.has(eid, GlobalTransform)) return false;
+    const global = world.storage(GlobalTransform);
+    const column = global.translation.column;
     const offset = eid * 4;
     out[0] = column[offset];
     out[1] = column[offset + 1];
@@ -87,18 +87,18 @@ export function globalTransform(state: World, eid: number, out: [number, number,
  * @example
  * ```
  * const p: [number, number, number] = [0, 0, 0];
- * if (globalTransform(state, player, p) && p[1] < -20) teleport(state, player, 0, 4, 0);
+ * if (globalTransform(world, player, p) && p[1] < -20) teleport(world, player, 0, 4, 0);
  * ```
  */
-export function teleport(state: World, eid: number, x: number, y: number, z: number): boolean {
-    const st = driveFor(state).states.get(eid);
+export function teleport(world: World, eid: number, x: number, y: number, z: number): boolean {
+    const st = driveFor(world).states.get(eid);
     if (!st) return false;
     st.pos[0] = x;
     st.pos[1] = y;
     st.pos[2] = z;
     st.vel[0] = st.vel[1] = st.vel[2] = 0;
     st.realizedVel[0] = st.realizedVel[1] = st.realizedVel[2] = 0;
-    setKinematic(state, eid, st.pos, st.quat, true, st.realizedVel);
+    setKinematic(world, eid, st.pos, st.quat, true, st.realizedVel);
     return true;
 }
 
@@ -107,16 +107,16 @@ export function teleport(state: World, eid: number, x: number, y: number, z: num
  *
  * @example
  * ```
- * anim.set(grounded(state, player) ? "idle" : "fall");
+ * anim.set(grounded(world, player) ? "idle" : "fall");
  * ```
  */
-export function grounded(state: World, eid: number): boolean {
-    return driveFor(state).states.get(eid)?.grounded ?? false;
+export function grounded(world: World, eid: number): boolean {
+    return driveFor(world).states.get(eid)?.grounded ?? false;
 }
 
-/** clear the drive state owned by a disposed or rebuilt State. */
-export function resetDrive(state: World): void {
-    const drive = driveFor(state);
+/** clear the drive state owned by a disposed or rebuilt World. */
+export function resetDrive(world: World): void {
+    const drive = driveFor(world);
     drive.states.clear();
     drive.moves.clear();
     drive.jumped.clear();

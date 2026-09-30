@@ -9,15 +9,12 @@ function invalidDelta(): never {
     throw new Error("step deltaTime must be a finite, non-negative number");
 }
 
-/** the fixed simulation step in seconds; {@link Time.FIXED_DT} is this value */
-export const FIXED_DT = 1 / 60;
-
 /**
  * frame timing constants and per-frame data
  * @expand
  */
 export const Time = {
-    FIXED_DT,
+    FIXED_DT: 1 / 60,
     DEFAULT_DT: 1 / 60,
     MAX_FIXED_STEPS: 4,
 } as const;
@@ -37,10 +34,10 @@ export interface Time {
     elapsed: number;
     /** total elapsed real time in seconds (advances with {@link Time.realDeltaTime}, runs through a pause) */
     realElapsed: number;
-    /** virtual timescale multiplier (1 = real time, <1 slow-mo, >1 fast-forward). set via `state.timescale` */
+    /** virtual timescale multiplier (1 = real time, <1 slow-mo, >1 fast-forward). set via `world.setTimeScale` */
     scale: number;
     /** when true the virtual clock is frozen: `deltaTime`/`elapsed` hold and no fixed steps run. set via
-     * `state.pause`/`state.resume`. separate from `scale = 0` so resume restores the prior speed */
+     * `world.pause`/`world.resume`. separate from `scale = 0` so resume restores the prior speed */
     paused: boolean;
     /** fixed steps taken this frame (0–4) */
     fixedSteps: number;
@@ -56,9 +53,9 @@ export type SystemGroup = "setup" | "fixed" | "simulation" | "draw";
 
 /** unit of behavior: update, setup, dispose, scheduling */
 export interface System {
-    readonly update?: (state: World) => void;
-    readonly setup?: (state: World) => void;
-    readonly dispose?: (state: World) => void;
+    readonly update?: (world: World) => void;
+    readonly setup?: (world: World) => void;
+    readonly dispose?: (world: World) => void;
     /** profiler/debug label; falls back to `pluginName/index` when omitted */
     readonly name?: string;
     readonly group?: SystemGroup;
@@ -118,10 +115,10 @@ export class Scheduler {
         this._time.scale = Math.max(0, scale);
     }
 
-    dispose(state: World): void {
+    dispose(world: World): void {
         for (const system of this._systems) {
             try {
-                system.dispose?.(state);
+                system.dispose?.(world);
             } catch (err) {
                 console.error(
                     `System "${this._names.get(system) ?? system.name ?? "?"}" threw during dispose:`,
@@ -134,8 +131,8 @@ export class Scheduler {
     register(system: System, pluginName?: string): void {
         this._systems.add(system);
         this._systemsVersion++;
-        // a system's own `name` labels its profiler row legibly (`Sear/forward`); without
-        // one, fall back to the registration index (`Sear/1`)
+        // a system's own `name` labels its profiler row legibly (`StandardRenderer/forward`); without
+        // one, fall back to the registration index (`StandardRenderer/1`)
         if (system.name !== undefined) {
             this._names.set(system, pluginName ? `${pluginName}/${system.name}` : system.name);
         } else if (pluginName !== undefined) {
@@ -180,7 +177,7 @@ export class Scheduler {
         this._errored.delete(old);
     }
 
-    step(state: World, input: Readonly<{ deltaTime: number }>): void {
+    step(world: World, input: Readonly<{ deltaTime: number }>): void {
         const deltaTime = input.deltaTime;
         if (!Number.isFinite(deltaTime) || deltaTime < 0) {
             invalidDelta();
@@ -201,7 +198,7 @@ export class Scheduler {
         this._time.elapsed += scaled;
         this._accumulator += scaled;
 
-        this.runGroup(state, "setup");
+        this.runGroup(world, "setup");
 
         // the cap runs on the post-scale accumulator — timescale must not reintroduce the spiral it clamps
         // out of `real` above. Past the cap, drop the backlog rather than carry debt into future frames.
@@ -209,9 +206,9 @@ export class Scheduler {
         while (this._accumulator >= fixedDt && steps < Time.MAX_FIXED_STEPS) {
             this._time.deltaTime = fixedDt;
             this._time.fixedTick++;
-            beginGlobalTransformTick(state);
-            this.runGroup(state, "fixed");
-            endGlobalTransformTick(state);
+            beginGlobalTransformTick(world);
+            this.runGroup(world, "fixed");
+            endGlobalTransformTick(world);
             this._accumulator -= fixedDt;
             steps++;
         }
@@ -224,12 +221,12 @@ export class Scheduler {
         this._time.fixedAlpha = this._accumulator / fixedDt;
 
         this._time.deltaTime = scaled;
-        this.runGroup(state, "simulation");
-        prepareGlobalTransform(state);
-        this.runGroup(state, "draw");
+        this.runGroup(world, "simulation");
+        prepareGlobalTransform(world);
+        this.runGroup(world, "draw");
     }
 
-    private runGroup(state: World, group: SystemGroup): void {
+    private runGroup(world: World, group: SystemGroup): void {
         const record = this.record;
         const systems = this.getSorted(group);
         for (let i = 0; i < systems.length; i++) {
@@ -240,16 +237,16 @@ export class Scheduler {
             // uninitialized so the fix retries it — and resumes on its next swap or a rebuild.
             try {
                 if (!this._initialized.has(system)) {
-                    system.setup?.(state);
+                    system.setup?.(world);
                     this._initialized.add(system);
                 }
                 if (system.update) {
                     if (record) {
                         const t0 = performance.now();
-                        system.update(state);
+                        system.update(world);
                         record(this._names.get(system) ?? "?", performance.now() - t0);
                     } else {
-                        system.update(state);
+                        system.update(world);
                     }
                 }
             } catch (e) {

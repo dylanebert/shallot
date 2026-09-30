@@ -1,6 +1,6 @@
 import { afterAll, beforeAll } from "bun:test";
 import { relative } from "node:path";
-import { build } from "@dylanebert/shallot";
+import { createApp } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
 import { CEILING } from "./test-tiers";
 
@@ -26,16 +26,16 @@ export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () =
 /** Prebuild independent worlds on one file device; never share pipelines between worlds. */
 export function gpuApps(
     path: string,
-    configs: Parameters<typeof build>[0][],
-): () => Awaited<ReturnType<typeof build>>[] {
-    const apps: Awaited<ReturnType<typeof build>>[] = [];
+    configs: Parameters<typeof createApp>[0][],
+): () => Awaited<ReturnType<typeof createApp>>[] {
+    const apps: Awaited<ReturnType<typeof createApp>>[] = [];
     const subject = compileGpuFile(path, async () => {
-        const owner = await build({ defaults: false, plugins: [] });
+        const owner = await createApp({ defaults: false, plugins: [] });
         apps.push(owner);
-        const device = rawDevice(owner.state.gpu.device);
+        const device = rawDevice(owner.world.gpu.device);
         const worlds = [];
         for (const config of configs) {
-            const app = await build({ ...config, device });
+            const app = await createApp({ ...config, device });
             apps.push(app);
             worlds.push(app);
         }

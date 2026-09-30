@@ -40,7 +40,7 @@ export const CONTACT_RECYCLE_DISTANCE = f32(10.0 * LINEAR_SLOP);
 /// cost of a small visual gap (B3_MESH_REST_OFFSET). PhysX/Unreal call it "rest offset".
 export const MESH_REST_OFFSET = f32(1.0 * LINEAR_SLOP);
 
-/// A large sanity bound on coordinates (B3_HUGE), 100 km at the default length unit. Single-precision
+/// A large sanity bound on coordinates (B3_HUGE), 100 km at the default length unit. ScalarField-precision
 /// value; large-world double mode would widen it, but the port is single precision.
 export const HUGE = f32(1.0e5 * LENGTH_UNITS_PER_METER);
 

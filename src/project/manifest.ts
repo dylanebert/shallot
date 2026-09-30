@@ -14,7 +14,7 @@
 export type PluginValue = boolean | string | [string, boolean];
 
 /**
- * the on-disk manifest, tolerant-parsed — the serialized form of the runtime `Config`, read identically
+ * the on-disk manifest, tolerant-parsed — the serialized form of the runtime `AppConfig`, read identically
  * by the toolchain and a standalone boot. `plugins` is name → {@link PluginValue}; `pixelRatio` is the
  * render scale and is omitted to take the engine default.
  */

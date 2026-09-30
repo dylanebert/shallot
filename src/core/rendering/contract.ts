@@ -1,5 +1,5 @@
 // The renderer-neutral schema-backed surface/background contract. Layouts are created before their TGSL functions so
-// shader code can close over `layout.$.name`; registration binds exact spec identity to a State lifetime.
+// shader code can close over `layout.$.name`; registration binds exact spec identity to a World lifetime.
 //
 // Group split: a typed surface's own bindings + the sear-injected `vertices` slot pin
 // to **group 2** (engine 0 / shadow-or-atlas 1 / surface 2) — `surfaceLayout()`'s `$idx(SURFACE_GROUP)`. The
@@ -127,20 +127,20 @@ const verticesDepth = {
     access: "readonly" as const,
     visibility: VS_FS,
 };
-/** Per-draw instance: eid, Transform slot, Part slot + 1 (zero if absent), shadow combo. */
+/** Per-draw instance: eid, Transform slot, MeshInstance slot + 1 (zero if absent), shadow combo. */
 export const InstanceInput = d.vec4u;
 
-/** Dense per-Part fields read by instanced typed surfaces. */
-export const PartInput = d
+/** Dense per-MeshInstance fields read by instanced typed surfaces. */
+export const MeshInstanceInput = d
     .struct({
         surface: d.u32,
         mesh: d.u32,
         color: d.vec4f,
         material: d.vec4f,
     })
-    .$name("PartInput");
+    .$name("MeshInstanceInput");
 const partInputsEntry = {
-    storage: d.arrayOf(PartInput),
+    storage: d.arrayOf(MeshInstanceInput),
     access: "readonly" as const,
     visibility: VS_FS,
 };
@@ -207,7 +207,7 @@ export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): S
  *  Backgrounds bindings lock), a background's own bindings by name (`layout.$.name`), through the SAME
  *  {@link layoutEntry} synthesis {@link surfaceLayout} uses — minus the `vertices` slot (a background pulls no
  *  mesh) and with no `depthVariant` (a background draws only in the color pass). */
-export type BgLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<{
+export type BackgroundLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<{
     [K in keyof B]: EntryFor<B[K]>;
 }>;
 
@@ -219,10 +219,12 @@ export type BgLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<{
  * @example
  * const Tint = d.struct({ value: d.vec4f });
  * const layout = backgroundLayout({ tint: { type: "uniform", struct: Tint } });
- * const fs = tgpu.fn([BgCtx], d.vec3f)((ctx) => std.mul(layout.$.tint.value.xyz, ctx.dir));
+ * const fs = tgpu.fn([BackgroundContext], d.vec3f)((ctx) => std.mul(layout.$.tint.value.xyz, ctx.dir));
  */
-export function backgroundLayout<B extends Record<string, Binding>>(bindings: B): BgLayout<B> {
-    return tgpu.bindGroupLayout(ownEntries(bindings)).$idx(SURFACE_GROUP) as BgLayout<B>;
+export function backgroundLayout<B extends Record<string, Binding>>(
+    bindings: B,
+): BackgroundLayout<B> {
+    return tgpu.bindGroupLayout(ownEntries(bindings)).$idx(SURFACE_GROUP) as BackgroundLayout<B>;
 }
 
 /** what a `vs` chunk reads: the vertex-pull's pulled `localPos`/`localNormal`/`uv`, the
@@ -288,8 +290,8 @@ export type FsFn<V extends Record<string, AnyWgslData> = Record<string, never>> 
 
 /** a surface's optional typed id-lane hook: the same fragment context as {@link FsFn}, plus the
  * renderer's default (`eid` for an instanced surface, the no-surface sentinel otherwise), returning
- * the u32 written to `view.tag`. */
-export type TagFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
+ * the u32 written to `view.pickingId`. */
+export type PickingIdFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
     (ctx: ReturnType<typeof fsCtxSchema<V>>, defaultTag: d.U32) => d.U32
 >;
 
@@ -318,7 +320,7 @@ export interface Surface<
     fs: FsFn<V>;
     /** optional id-lane shader evaluated by the tag prepass. It receives the fragment context and the
      * renderer's default tag, and replaces the color fragment function for that pass. */
-    tag?: TagFn<V>;
+    tag?: PickingIdFn<V>;
     /** alpha blends without depth writes; clip retains opaque depth/shadow routing and honors any
      * `discard` authored by {@link fs}. */
     blend?: "alpha" | "clip";
@@ -333,13 +335,13 @@ const createSurfaces = () => new Registry<Surface>();
 
 /** every registered surface in the active world's registry. */
 export const Surfaces: import("../../engine").Resource<Registry<Surface>> = {
-    create: (state) => state.resource(surfacesKey),
+    create: (world) => world.resource(surfacesKey),
 };
 
 /** Create this world's surface and background registries during RenderPlugin initialization. */
-export function initializeSurfaceState(state: World): void {
-    state.resource(surfacesKey);
-    state.resource(backgroundsKey);
+export function initializeSurfaceState(world: World): void {
+    world.resource(surfacesKey);
+    world.resource(backgroundsKey);
 }
 
 /**
@@ -368,18 +370,18 @@ export function assertOwnFn(label: string, fn: unknown): void {
 }
 
 /**
- * register a surface for the lifetime of its owning State. Disposal removes it only while this exact
- * spec still owns the name, so a rebuilt State cannot delete its replacement.
- * @example registerSurface(state, { name: "tinted", layout, fs });
+ * register a surface for the lifetime of its owning World. Disposal removes it only while this exact
+ * spec still owns the name, so a rebuilt World cannot delete its replacement.
+ * @example registerSurface(world, { name: "tinted", layout, fs });
  */
 export function registerSurface<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
->(state: World, spec: Surface<B, V>): number {
+>(world: World, spec: Surface<B, V>): number {
     assertOwnFn(`registerSurface "${spec.name}" vs`, spec.vs);
     assertOwnFn(`registerSurface "${spec.name}" fs`, spec.fs);
     assertOwnFn(`registerSurface "${spec.name}" tag`, spec.tag);
-    return state.resource(surfacesKey).register(spec as Surface);
+    return world.resource(surfacesKey).register(spec as Surface);
 }
 
 // Background bindings use the same group-2 scheme, minus the mesh vertex slot and depth variant.
@@ -389,23 +391,23 @@ export function registerSurface<
  *  Fixed shape, no per-background
  *  varyings — a background has no vertex stage of its own to write one from (the engine owns the one
  *  fullscreen-triangle `vertexFn`), so unlike {@link fsCtxSchema} this schema never folds anything in. */
-export const BgCtx = d.struct({ dir: d.vec3f }).$name("BgCtx");
+export const BackgroundContext = d.struct({ dir: d.vec3f }).$name("BackgroundContext");
 
-/** a background's TGSL fragment function: {@link BgCtx} in and HDR RGB out; Sear adds opaque alpha. */
-export type BgFn = TgpuFn<(ctx: typeof BgCtx) => d.Vec3f>;
+/** a background's TGSL fragment function: {@link BackgroundContext} in and HDR RGB out; StandardRenderer adds opaque alpha. */
+export type BackgroundFn = TgpuFn<(ctx: typeof BackgroundContext) => d.Vec3f>;
 
 /**
  * a schema-backed background recipe: {@link backgroundLayout} declares the group-2 resources its TGSL
- * {@link BgFn} closes over. It has no mesh, vertex function, or interpolators; Sear owns the fullscreen
- * triangle and reconstructs {@link BgCtx.dir} per fragment.
+ * {@link BackgroundFn} closes over. It has no mesh, vertex function, or interpolators; StandardRenderer owns the fullscreen
+ * triangle and reconstructs {@link BackgroundContext.dir} per fragment.
  */
 export interface Background<B extends Record<string, Binding> = Record<string, Binding>> {
-    /** registry key referenced by a camera's `Backdrop.background`. */
+    /** registry key referenced by a camera's `CameraBackground.background`. */
     name: string;
     /** group-2 resources the fragment function closes over. */
-    layout: BgLayout<B>;
+    layout: BackgroundLayout<B>;
     /** fragment shader returning linear HDR RGB for the reconstructed view ray. */
-    fs: BgFn;
+    fs: BackgroundFn;
 }
 
 /** every registered background, keyed by name. */
@@ -414,17 +416,17 @@ const createBackgrounds = () => new Registry<Background>();
 
 /** every registered background in the active world's registry. */
 export const Backgrounds: import("../../engine").Resource<Registry<Background>> = {
-    create: (state) => state.resource(backgroundsKey),
+    create: (world) => world.resource(backgroundsKey),
 };
 
 /**
- * register a background for the lifetime of its owning State.
- * @example registerBackground(state, { name: "sky", layout, fs });
+ * register a background for the lifetime of its owning World.
+ * @example registerBackground(world, { name: "sky", layout, fs });
  */
 export function registerBackground<B extends Record<string, Binding>>(
-    state: World,
+    world: World,
     spec: Background<B>,
 ): number {
     assertOwnFn(`registerBackground "${spec.name}" fs`, spec.fs);
-    return state.resource(backgroundsKey).register(spec as Background);
+    return world.resource(backgroundsKey).register(spec as Background);
 }

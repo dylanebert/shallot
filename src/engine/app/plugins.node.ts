@@ -21,7 +21,7 @@ import {
     Arrow,
     Fog,
     FogPlugin,
-    font,
+    internText,
     Line,
     LinesPlugin,
     Orbit,
@@ -33,25 +33,25 @@ import {
     Player,
     PlayerPlugin,
     ProfilePlugin,
+    registerFont,
     Sky,
     SkyPlugin,
     Sprite,
     SpritePlugin,
     Text,
     TextPlugin,
-    text,
 } from "../../extras";
 import { isolationFont } from "../../extras/text/font.fixture";
-import { Color, DEFAULT_PLUGINS, Glaze, Part, Transform } from "../../standard";
+import { Color, DEFAULT_PLUGINS, Glaze, MeshInstance, Transform } from "../../standard";
 import {
-    Backdrop,
+    CameraBackground,
     cascadeComboEids,
-    Depth,
+    DepthPrepass,
     Material,
+    PickingPrepass,
     pointComboEids,
-    Sear,
     Shadow,
-    Tag,
+    StandardRenderer,
 } from "../../standard/rendering";
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
@@ -59,20 +59,20 @@ import { Character, CharacterPlugin, globalTransform } from "../../transitional/
 import {
     Body,
     GlobalTransform,
-    hash as hashPhysics,
+    hashPhysics,
     Joint,
     PhysicsPlugin,
     physicsWorld,
     readBody,
-    restore as restorePhysics,
+    restorePhysics,
     ShapeKind,
     Spring,
     setVelocity,
-    snapshot as snapshotPhysics,
+    snapshotPhysics,
 } from "../../transitional/physics";
-import { type Plugin, probeTexture, type World, Time } from "../index";
+import { type Plugin, probeTexture, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
-import { build } from "./index";
+import { createApp } from "./index";
 
 const everyPlugin: readonly Plugin[] = [
     ...DEFAULT_PLUGINS,
@@ -392,8 +392,8 @@ async function trackedDevice() {
         live,
         watch,
         labels,
-        observeBuild(state: World): void {
-            creationOwnerOverride = state;
+        observeBuild(world: World): void {
+            creationOwnerOverride = world;
             hasCreationOwnerOverride = true;
         },
         async withBuild<T>(callback: () => Promise<T>): Promise<T> {
@@ -411,12 +411,12 @@ async function trackedDevice() {
                 hasCreationOwnerOverride = previousOverrideSet;
             }
         },
-        withWorld<T>(state: World, callback: () => T): T {
+        withWorld<T>(world: World, callback: () => T): T {
             const previousBuildScope = buildScope;
             const previousOverride = creationOwnerOverride;
             const previousOverrideSet = hasCreationOwnerOverride;
             buildScope = false;
-            creationOwnerOverride = state;
+            creationOwnerOverride = world;
             hasCreationOwnerOverride = true;
             try {
                 return callback();
@@ -438,46 +438,46 @@ async function trackedDevice() {
     };
 }
 
-function addBody(state: World, y: number): number {
-    const eid = state.create();
-    state.add(eid, Body);
-    const body = state.of(Body);
+function addBody(world: World, y: number): number {
+    const eid = world.create();
+    world.add(eid, Body);
+    const body = world.storage(Body);
     body.shape.set(eid, ShapeKind.Box);
-    body.pos.set(eid, 0, y, 0, 0);
+    body.position.set(eid, 0, y, 0, 0);
     body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
     body.mass.set(eid, 1);
     return eid;
 }
 
-function addSpring(state: World, a: number, b: number): void {
-    const eid = state.create();
-    state.add(eid, Spring);
-    const spring = state.of(Spring);
+function addSpring(world: World, a: number, b: number): void {
+    const eid = world.create();
+    world.add(eid, Spring);
+    const spring = world.storage(Spring);
     spring.a.set(eid, a);
     spring.b.set(eid, b);
     spring.stiffness.set(eid, 10);
     spring.rest.set(eid, 1);
 }
 
-function addJoint(state: World, a: number, b: number): void {
-    const eid = state.create();
-    state.add(eid, Joint);
-    const joint = state.of(Joint);
+function addJoint(world: World, a: number, b: number): void {
+    const eid = world.create();
+    world.add(eid, Joint);
+    const joint = world.storage(Joint);
     joint.a.set(eid, a);
     joint.b.set(eid, b);
 }
 
-function expectStateViews(state: World, eids: number[]): void {
+function expectStateViews(world: World, eids: number[]): void {
     expect(eids.length).toBeGreaterThan(0);
-    expect(eids.every((eid) => state.resource(Views).get(eid) !== undefined)).toBe(true);
+    expect(eids.every((eid) => world.resource(Views).get(eid) !== undefined)).toBe(true);
 }
 
 async function stepGpuWorld(
-    state: World,
+    world: World,
     label: string,
     tracked: Awaited<ReturnType<typeof trackedDevice>>,
 ): Promise<void> {
-    tracked.withWorld(state, () => state.step(Time.FIXED_DT));
+    tracked.withWorld(world, () => world.step(Time.FIXED_DT));
     await tracked.watch.wait(
         `${label} frame submission`,
         tracked.device.queue.onSubmittedWorkDone(),
@@ -524,8 +524,8 @@ function featurePlugin(subject: Plugin): Plugin {
             ...(uses(subject, CharacterPlugin) ? [PhysicsPlugin] : []),
             subject,
         ],
-        initialize(state) {
-            const resources = state.resource(isolationKey);
+        initialize(world) {
+            const resources = world.resource(isolationKey);
             let context: GPUCanvasContext;
             const canvas = {
                 width: 32,
@@ -540,102 +540,106 @@ function featurePlugin(subject: Plugin): Plugin {
             } as unknown as HTMLCanvasElement;
             context = new createCanvasContext(canvas, canvas.width, canvas.height);
 
-            const camera = state.create();
+            const camera = world.create();
             resources.camera = camera;
-            state.add(camera, Transform);
-            state.add(camera, Camera);
-            state.add(camera, Resolution);
-            state.add(camera, Sear);
-            state.add(camera, Tag);
-            state.add(camera, Depth);
-            state.add(camera, Backdrop);
-            state.add(camera, Glaze);
-            state.add(camera, Orbit);
-            state.add(camera, Listener);
-            state.of(Transform).pos.set(camera, 0, 4, 12, 0);
-            state.of(Backdrop).name.set(camera, state.resource(Backgrounds).id("sky") ?? 0);
-            attachCanvas(camera, canvas, state);
+            world.add(camera, Transform);
+            world.add(camera, Camera);
+            world.add(camera, Resolution);
+            world.add(camera, StandardRenderer);
+            world.add(camera, PickingPrepass);
+            world.add(camera, DepthPrepass);
+            world.add(camera, CameraBackground);
+            world.add(camera, Glaze);
+            world.add(camera, Orbit);
+            world.add(camera, Listener);
+            world.storage(Transform).translation.set(camera, 0, 4, 12, 0);
+            world
+                .storage(CameraBackground)
+                .name.set(camera, world.resource(Backgrounds).id("sky") ?? 0);
+            attachCanvas(camera, canvas, world);
 
-            const ambient = state.create();
-            state.add(ambient, AmbientLight);
+            const ambient = world.create();
+            world.add(ambient, AmbientLight);
             if (
                 subject.name === "Render" ||
                 subject.name === "Sear" ||
                 subject.name === "Glaze" ||
                 uses(subject, SkyPlugin)
             ) {
-                const sun = state.create();
-                state.add(sun, DirectionalLight);
-                state.add(sun, Shadow);
-                state.add(sun, Volumetric);
-                const point = state.create();
-                state.add(point, Transform);
-                state.add(point, PointLight);
-                state.add(point, Spot);
-                state.add(point, Shadow);
-                state.add(point, Volumetric);
-                state.of(Transform).pos.set(point, 1, 2, 1, 0);
+                const sun = world.create();
+                world.add(sun, DirectionalLight);
+                world.add(sun, Shadow);
+                world.add(sun, Volumetric);
+                const point = world.create();
+                world.add(point, Transform);
+                world.add(point, PointLight);
+                world.add(point, Spot);
+                world.add(point, Shadow);
+                world.add(point, Volumetric);
+                world.storage(Transform).translation.set(point, 1, 2, 1, 0);
             }
 
-            const sky = state.create();
+            const sky = world.create();
             resources.sky = sky;
-            state.add(sky, Sky);
-            const fog = state.create();
-            state.add(fog, Fog);
+            world.add(sky, Sky);
+            const fog = world.create();
+            world.add(fog, Fog);
 
-            const part = state.create();
+            const part = world.create();
             resources.part = part;
-            state.add(part, Transform);
-            state.add(part, Part);
-            state.add(part, Color);
-            state.add(part, Material);
-            state.add(part, Outline);
-            state.of(Transform).pos.set(part, 0, 1, 0, 0);
-            state.of(Color).rgba.set(part, 0.8, 0.25, 0.1, 1);
-            state.of(Material).params.set(part, 0.1, 0.6, 0, 1);
+            world.add(part, Transform);
+            world.add(part, MeshInstance);
+            world.add(part, Color);
+            world.add(part, Material);
+            world.add(part, Outline);
+            world.storage(Transform).translation.set(part, 0, 1, 0, 0);
+            world.storage(Color).rgba.set(part, 0.8, 0.25, 0.1, 1);
+            world.storage(Material).params.set(part, 0.1, 0.6, 0, 1);
 
-            const line = state.create();
-            state.add(line, Transform);
-            state.add(line, Line);
-            state.add(line, Arrow);
-            state.of(Transform).pos.set(line, -1, 0, 0, 0);
+            const line = world.create();
+            world.add(line, Transform);
+            world.add(line, Line);
+            world.add(line, Arrow);
+            world.storage(Transform).translation.set(line, -1, 0, 0, 0);
 
-            const sprite = state.create();
-            state.add(sprite, Transform);
-            state.add(sprite, Sprite);
-            state.of(Transform).pos.set(sprite, 1, 0, 0, 0);
+            const sprite = world.create();
+            world.add(sprite, Transform);
+            world.add(sprite, Sprite);
+            world.storage(Transform).translation.set(sprite, 1, 0, 0, 0);
 
-            const label = state.create();
-            state.add(label, Transform);
-            state.add(label, Text);
-            state.of(Transform).pos.set(label, 0, 2, 0, 0);
+            const label = world.create();
+            world.add(label, Transform);
+            world.add(label, Text);
+            world.storage(Transform).translation.set(label, 0, 2, 0, 0);
             if (uses(subject, TextPlugin))
-                state.of(Text).font.set(label, font(state, ISOLATION_FONT, "isolation"));
-            state.of(Text).content.set(label, text(state, "isolation"));
+                world
+                    .storage(Text)
+                    .font.set(label, registerFont(world, ISOLATION_FONT, "isolation"));
+            world.storage(Text).content.set(label, internText(world, "isolation"));
 
-            const sound = state.create();
-            state.add(sound, Sound);
+            const sound = world.create();
+            world.add(sound, Sound);
 
-            const actor = state.create();
+            const actor = world.create();
             resources.actor = actor;
-            state.add(actor, Body);
-            state.add(actor, Character);
-            state.add(actor, Player);
-            state.of(Body).shape.set(actor, ShapeKind.Capsule);
-            state.of(Body).pos.set(actor, 0, 2, 2, 0);
-            state.of(Body).halfExtents.set(actor, 0, 0.6, 0, 0.35);
-            state.of(Body).mass.set(actor, 0);
-            state.of(Player).camera.set(actor, camera);
+            world.add(actor, Body);
+            world.add(actor, Character);
+            world.add(actor, Player);
+            world.storage(Body).shape.set(actor, ShapeKind.Capsule);
+            world.storage(Body).position.set(actor, 0, 2, 2, 0);
+            world.storage(Body).halfExtents.set(actor, 0, 0.6, 0, 0.35);
+            world.storage(Body).mass.set(actor, 0);
+            world.storage(Player).camera.set(actor, camera);
 
-            const globalTransforms = state.gpu.buffers.get("global-transform-interpolated");
+            const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
             if (!globalTransforms)
                 throw new Error("Engine GlobalTransform did not publish its renderer buffer");
         },
-        async warm(state) {
-            const resources = state.resource(isolationKey);
+        async warm(world) {
+            const resources = world.resource(isolationKey);
             if (!uses(subject, BvhPlugin)) return;
-            const device = state.gpu.device;
-            const bvh = await createBvh(state, device, 2);
+            const device = world.gpu.device;
+            const bvh = await createBvh(world, device, 2);
             device.queue.writeBuffer(
                 bvh.prims,
                 0,
@@ -647,8 +651,8 @@ function featurePlugin(subject: Plugin): Plugin {
             device.queue.submit([encoder.finish()]);
             resources.bvh = bvh;
         },
-        dispose(state) {
-            const resources = state.resource(isolationKey);
+        dispose(world) {
+            const resources = world.resource(isolationKey);
             resources.bvh?.destroy();
             resources.bvh = null;
         },
@@ -682,36 +686,36 @@ const SECOND_CONTENT: IsolationContent = {
 };
 
 function authorIsolationContent(
-    state: World,
+    world: World,
     resources: IsolationResources,
     content: IsolationContent,
 ): number {
-    const a = addBody(state, content.bodyHeights[0]);
-    const b = addBody(state, content.bodyHeights[1]);
-    addSpring(state, a, b);
-    addJoint(state, a, b);
+    const a = addBody(world, content.bodyHeights[0]);
+    const b = addBody(world, content.bodyHeights[1]);
+    addSpring(world, a, b);
+    addJoint(world, a, b);
     (() => {
-        state.of(Body).pos.y.set(resources.actor, content.actorY);
-        state.of(Camera).clearColor.set(resources.camera, content.clearColor);
-        state.of(Sky).zenith.set(resources.sky, content.skyZenith);
-        state.of(Sky).horizon.set(resources.sky, content.skyHorizon);
-        state.of(Color).rgba.set(resources.part, ...content.color);
+        world.storage(Body).position.y.set(resources.actor, content.actorY);
+        world.storage(Camera).clearColor.set(resources.camera, content.clearColor);
+        world.storage(Sky).zenith.set(resources.sky, content.skyZenith);
+        world.storage(Sky).horizon.set(resources.sky, content.skyHorizon);
+        world.storage(Color).rgba.set(resources.part, ...content.color);
     })();
     return a;
 }
 
 async function readRenderedFrame(
-    state: World,
+    world: World,
     resources: IsolationResources,
     label: string,
     tracked: Awaited<ReturnType<typeof trackedDevice>>,
 ): Promise<Uint8Array> {
-    const texture = offscreenTexture(state, resources.camera);
-    if (!texture) throw new Error(`${label}: camera has no State-owned offscreen texture`);
+    const texture = offscreenTexture(world, resources.camera);
+    if (!texture) throw new Error(`${label}: camera has no World-owned offscreen texture`);
     const probe = await tracked.withoutOwnershipChecks(() =>
         tracked.watch.wait(
             `${label} probeTexture readback`,
-            probeTexture(state, texture, { label }),
+            probeTexture(world, texture, { label }),
         ),
     );
     return new Uint8Array(probe.bytes);
@@ -726,20 +730,20 @@ async function renderAlone(
     const app = await tracked.withBuild(() =>
         tracked.watch.wait(
             `${label} solo world build`,
-            build({
+            createApp({
                 defaults: false,
                 plugins: [featurePlugin(subject)],
                 device: tracked.device,
-                setup: (state) => tracked.observeBuild(state),
+                setup: (world) => tracked.observeBuild(world),
             }),
         ),
     );
     try {
-        tracked.labels.set(app.state, label);
-        const resources = app.state.resource(isolationKey);
-        tracked.withWorld(app.state, () => authorIsolationContent(app.state, resources, content));
-        await stepGpuWorld(app.state, `${label} solo world`, tracked);
-        return await readRenderedFrame(app.state, resources, `${label} solo frame`, tracked);
+        tracked.labels.set(app.world, label);
+        const resources = app.world.resource(isolationKey);
+        tracked.withWorld(app.world, () => authorIsolationContent(app.world, resources, content));
+        await stepGpuWorld(app.world, `${label} solo world`, tracked);
+        return await readRenderedFrame(app.world, resources, `${label} solo frame`, tracked);
     } finally {
         app.dispose();
     }
@@ -750,8 +754,8 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
     const firstDevice = await trackedDevice();
     const secondDevice = sharedDevice ? firstDevice : await trackedDevice();
     const seed = featurePlugin(subject);
-    let first: Awaited<ReturnType<typeof build>> | undefined;
-    let second: Awaited<ReturnType<typeof build>> | undefined;
+    let first: Awaited<ReturnType<typeof createApp>> | undefined;
+    let second: Awaited<ReturnType<typeof createApp>> | undefined;
     let firstPairPixels: Uint8Array | undefined;
     let secondPairPixels: Uint8Array | undefined;
     let prebuildBuffer: GPUBuffer | undefined;
@@ -764,36 +768,36 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         first = await firstDevice.withBuild(() =>
             firstDevice.watch.wait(
                 "first world build",
-                build({
+                createApp({
                     defaults: false,
                     plugins: [seed],
                     device: firstDevice.device,
-                    setup: (state) => firstDevice.observeBuild(state),
+                    setup: (world) => firstDevice.observeBuild(world),
                 }),
             ),
         );
-        firstDevice.labels.set(first.state, "first world");
-        const firstFeatures = first.state.resource(isolationKey);
-        const firstA = firstDevice.withWorld(first.state, () =>
-            authorIsolationContent(first!.state, firstFeatures, FIRST_CONTENT),
+        firstDevice.labels.set(first.world, "first world");
+        const firstFeatures = first.world.resource(isolationKey);
+        const firstA = firstDevice.withWorld(first.world, () =>
+            authorIsolationContent(first!.world, firstFeatures, FIRST_CONTENT),
         );
 
         second = await secondDevice.withBuild(() =>
             secondDevice.watch.wait(
                 "second world build",
-                build({
+                createApp({
                     defaults: false,
                     plugins: [seed],
                     device: secondDevice.device,
-                    setup: (state) => secondDevice.observeBuild(state),
+                    setup: (world) => secondDevice.observeBuild(world),
                 }),
             ),
         );
-        secondDevice.labels.set(second.state, "second world");
-        const secondFeatures = second.state.resource(isolationKey);
+        secondDevice.labels.set(second.world, "second world");
+        const secondFeatures = second.world.resource(isolationKey);
         let prebuildWriteError: unknown;
         try {
-            secondDevice.withWorld(second.state, () =>
+            secondDevice.withWorld(second.world, () =>
                 secondDevice.device.queue.writeBuffer(prebuildBuffer!, 0, new Uint8Array(16)),
             );
         } catch (error) {
@@ -801,58 +805,58 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         }
         expect(String(prebuildWriteError)).toContain("reviewer pre-build buffer");
         expect(String(prebuildWriteError)).toContain("created outside a World callback");
-        const peerA = secondDevice.withWorld(second.state, () =>
-            authorIsolationContent(second!.state, secondFeatures, SECOND_CONTENT),
+        const peerA = secondDevice.withWorld(second.world, () =>
+            authorIsolationContent(second!.world, secondFeatures, SECOND_CONTENT),
         );
 
-        await stepGpuWorld(first.state, "first world", firstDevice);
-        await stepGpuWorld(second.state, "second world", secondDevice);
+        await stepGpuWorld(first.world, "first world", firstDevice);
+        await stepGpuWorld(second.world, "second world", secondDevice);
         firstDevice.watch.check("first world GPU work");
         secondDevice.watch.check("second world GPU work");
-        const firstTexture = offscreenTexture(first.state, firstFeatures.camera);
-        const secondTexture = offscreenTexture(second.state, secondFeatures.camera);
+        const firstTexture = offscreenTexture(first.world, firstFeatures.camera);
+        const secondTexture = offscreenTexture(second.world, secondFeatures.camera);
         if (!firstTexture || !secondTexture)
             throw new Error("both Worlds must own their rendered offscreen texture");
         expect(firstTexture).not.toBe(secondTexture);
         firstPairPixels = await readRenderedFrame(
-            first.state,
+            first.world,
             firstFeatures,
             "first world frame",
             firstDevice,
         );
         secondPairPixels = await readRenderedFrame(
-            second.state,
+            second.world,
             secondFeatures,
             "second world frame",
             secondDevice,
         );
         expect(firstPairPixels).not.toEqual(secondPairPixels);
         if (hasPhysics) {
-            expect(physicsWorld(first.state)?.getCounters().jointCount).toBe(2);
-            expect(physicsWorld(second.state)?.getCounters().jointCount).toBe(2);
-            const firstHash = hashPhysics(first.state);
-            const firstBody = readBody(first.state, firstA);
+            expect(physicsWorld(first.world)?.getCounters().jointCount).toBe(2);
+            expect(physicsWorld(second.world)?.getCounters().jointCount).toBe(2);
+            const firstHash = hashPhysics(first.world);
+            const firstBody = readBody(first.world, firstA);
             if (!firstBody) throw new Error("first Physics body did not become live");
-            const siblingHash = hashPhysics(second.state);
-            const siblingBody = readBody(second.state, peerA);
-            const saved = snapshotPhysics(first.state);
-            setVelocity(first.state, firstA, 7, 0, 0);
-            expect(readBody(first.state, firstA)?.vel[0]).toBeCloseTo(7);
-            restorePhysics(first.state, saved);
-            expect(hashPhysics(first.state)).toBe(firstHash);
-            expect(readBody(first.state, firstA)).toEqual(firstBody);
-            expect(hashPhysics(second.state)).toBe(siblingHash);
-            expect(readBody(second.state, peerA)).toEqual(siblingBody);
+            const siblingHash = hashPhysics(second.world);
+            const siblingBody = readBody(second.world, peerA);
+            const saved = snapshotPhysics(first.world);
+            setVelocity(first.world, firstA, 7, 0, 0);
+            expect(readBody(first.world, firstA)?.linearVelocity[0]).toBeCloseTo(7);
+            restorePhysics(first.world, saved);
+            expect(hashPhysics(first.world)).toBe(firstHash);
+            expect(readBody(first.world, firstA)).toEqual(firstBody);
+            expect(hashPhysics(second.world)).toBe(siblingHash);
+            expect(readBody(second.world, peerA)).toEqual(siblingBody);
 
             if (uses(subject, CharacterPlugin)) {
                 const firstGlobalTransformPosition = [0, 0, 0] as [number, number, number];
                 const secondGlobalTransformPosition = [0, 0, 0] as [number, number, number];
                 expect(
-                    globalTransform(first.state, firstFeatures.actor, firstGlobalTransformPosition),
+                    globalTransform(first.world, firstFeatures.actor, firstGlobalTransformPosition),
                 ).toBe(true);
                 expect(
                     globalTransform(
-                        second.state,
+                        second.world,
                         secondFeatures.actor,
                         secondGlobalTransformPosition,
                     ),
@@ -865,14 +869,14 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect(secondFeatures.bvh).not.toBeNull();
         }
         if (uses(subject, SkyPlugin)) {
-            expectStateViews(first.state, cascadeComboEids(first.state));
-            expectStateViews(second.state, cascadeComboEids(second.state));
-            expectStateViews(first.state, pointComboEids(first.state));
-            expectStateViews(second.state, pointComboEids(second.state));
+            expectStateViews(first.world, cascadeComboEids(first.world));
+            expectStateViews(second.world, cascadeComboEids(second.world));
+            expectStateViews(first.world, pointComboEids(first.world));
+            expectStateViews(second.world, pointComboEids(second.world));
         }
         if (hasPhysics) {
-            expect([...first.state.query([GlobalTransform])].length).toBeGreaterThan(0);
-            expect([...second.state.query([GlobalTransform])].length).toBeGreaterThan(0);
+            expect([...first.world.query([GlobalTransform])].length).toBeGreaterThan(0);
+            expect([...second.world.query([GlobalTransform])].length).toBeGreaterThan(0);
         }
         for (const [plugin, key] of [
             [SpritePlugin, "spriteData"],
@@ -881,37 +885,37 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             [SkyPlugin, "sky"],
         ] as const) {
             if (!uses(subject, plugin)) continue;
-            const a = first.state.gpu.buffers.get(key);
-            const b = second.state.gpu.buffers.get(key);
+            const a = first.world.gpu.buffers.get(key);
+            const b = second.world.gpu.buffers.get(key);
             expect(a).toBeDefined();
             expect(b).toBeDefined();
             expect(a).not.toBe(b);
         }
 
-        const peerHashBeforeDispose = hasPhysics ? hashPhysics(second.state) : 0n;
-        const peerBodyBeforeDispose = hasPhysics ? readBody(second.state, peerA) : null;
+        const peerHashBeforeDispose = hasPhysics ? hashPhysics(second.world) : 0n;
+        const peerBodyBeforeDispose = hasPhysics ? readBody(second.world, peerA) : null;
         const peerResources = new Set<GPUBuffer | GPUTexture>([
-            ...second.state.gpu.buffers.values(),
-            ...second.state.gpu.textures.values(),
+            ...second.world.gpu.buffers.values(),
+            ...second.world.gpu.textures.values(),
         ]);
         const peerRegistries = {
-            buffers: [...second.state.gpu.buffers],
-            textures: [...second.state.gpu.textures],
-            typed: [...second.state.gpu.typed],
+            buffers: [...second.world.gpu.buffers],
+            textures: [...second.world.gpu.textures],
+            typed: [...second.world.gpu.typed],
         };
 
         first.dispose();
         first = undefined;
         expect([...peerResources].every((resource) => secondDevice.live.has(resource))).toBe(true);
-        expect([...second.state.gpu.buffers]).toEqual(peerRegistries.buffers);
-        expect([...second.state.gpu.textures]).toEqual(peerRegistries.textures);
-        expect([...second.state.gpu.typed]).toEqual(peerRegistries.typed);
+        expect([...second.world.gpu.buffers]).toEqual(peerRegistries.buffers);
+        expect([...second.world.gpu.textures]).toEqual(peerRegistries.textures);
+        expect([...second.world.gpu.typed]).toEqual(peerRegistries.typed);
         if (hasPhysics) {
-            expect(hashPhysics(second.state)).toBe(peerHashBeforeDispose);
-            expect(readBody(second.state, peerA)).toEqual(peerBodyBeforeDispose);
+            expect(hashPhysics(second.world)).toBe(peerHashBeforeDispose);
+            expect(readBody(second.world, peerA)).toEqual(peerBodyBeforeDispose);
         }
-        await stepGpuWorld(second.state, "second world after sibling disposal", secondDevice);
-        if (hasPhysics) expect(readBody(second.state, peerA)).not.toEqual(peerBodyBeforeDispose);
+        await stepGpuWorld(second.world, "second world after sibling disposal", secondDevice);
+        if (hasPhysics) expect(readBody(second.world, peerA)).not.toEqual(peerBodyBeforeDispose);
 
         second.dispose();
         second = undefined;
@@ -945,7 +949,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
     if (!sharedDevice) expect(secondDevice.live.size).toBe(0);
 }
 
-// Prepare independent Text witnesses; only owned CPU pixels survive, never a device or plugin GPU state.
+// Prepare independent Text witnesses; only owned CPU pixels survive, never a device or plugin GPU world.
 const textBaselines = new Map<IsolationContent, Uint8Array>();
 for (const content of [FIRST_CONTENT, SECOND_CONTENT]) {
     beforeAll(async () => {

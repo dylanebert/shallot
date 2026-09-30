@@ -4,9 +4,9 @@ import { SearPlugin } from "../../standard/rendering";
 import "../../standard";
 
 import { CEILING } from "../../../scripts/test-tiers";
-import { type World, Time, Transform } from "../index";
+import { Time, Transform, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
-import { build } from "./index";
+import { createApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
 const peerModule = "bun-webgpu";
@@ -32,11 +32,11 @@ function cameraPlugin(label: string) {
     return {
         name: label,
         dependencies: [SearPlugin],
-        initialize(state: World) {
-            const eid = state.create();
-            state.add(eid, Transform);
-            state.add(eid, Camera);
-            attachCanvas(eid, canvas, state);
+        initialize(world: World) {
+            const eid = world.create();
+            world.add(eid, Transform);
+            world.add(eid, Camera);
+            attachCanvas(eid, canvas, world);
         },
     };
 }
@@ -96,21 +96,21 @@ for (const sharedDevice of [true, false]) {
             secondDevice: GPUDevice,
             live: Set<GPUBuffer | GPUTexture>,
         ) => {
-            let first: Awaited<ReturnType<typeof build>> | undefined;
-            let second: Awaited<ReturnType<typeof build>> | undefined;
+            let first: Awaited<ReturnType<typeof createApp>> | undefined;
+            let second: Awaited<ReturnType<typeof createApp>> | undefined;
             try {
-                first = await build({
+                first = await createApp({
                     plugins: [cameraPlugin("DefaultCameraA")],
                     device: firstDevice,
                 });
-                second = await build({
+                second = await createApp({
                     plugins: [cameraPlugin("DefaultCameraB")],
                     device: secondDevice,
                 });
-                expect(first.state.gpu.root).not.toBe(second.state.gpu.root);
-                first.state.step(Time.FIXED_DT);
-                second.state.step(Time.FIXED_DT);
-                first.state.step(Time.FIXED_DT);
+                expect(first.world.gpu.root).not.toBe(second.world.gpu.root);
+                first.world.step(Time.FIXED_DT);
+                second.world.step(Time.FIXED_DT);
+                first.world.step(Time.FIXED_DT);
             } finally {
                 second?.dispose();
                 first?.dispose();

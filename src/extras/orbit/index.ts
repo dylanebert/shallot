@@ -6,13 +6,13 @@ import {
     GlobalTransform,
     not,
     type Plugin,
-    type World,
     type System,
     Transform,
     u8,
     vec4,
+    type World,
 } from "../../engine";
-import { aim, angle, clamp } from "../../engine/utils";
+import { angleInput, clamp, lookAtRotation } from "../../engine/utils";
 import { OrbitSmooth } from "./smooth";
 
 const Tau = Math.PI * 2;
@@ -31,7 +31,7 @@ export const OrbitMode = { Free: 0, Locked: 1 } as const;
  * button over something interactive starts an interaction instead of an orbit. Consulted once, at the orbit
  * button's press edge, with the cursor in canvas-local CSS pixels; returning true suppresses orbit rotation
  * for that whole drag (until the button releases), while pan and fly stay unaffected. Unregistered, every
- * press orbits (the optional slot is a `?.` no-op). Analogous to `state.gpu.span`.
+ * press orbits (the optional slot is a `?.` no-op). Analogous to `world.gpu.span`.
  * @example
  * OrbitPick.claim = (x, y) => bodyUnderCursor(x, y) !== null;
  */
@@ -123,60 +123,61 @@ function isButton(mouse: Readonly<Mouse>, button: number): boolean {
 const OrbitSystem: System = {
     group: "simulation",
 
-    update(state: World) {
-        const input = state.resource(Devices);
-        const dt = state.time.deltaTime;
+    update(world: World) {
+        const input = world.resource(Devices);
+        const dt = world.time.deltaTime;
 
-        for (const eid of state.query([Orbit, not(OrbitSmooth)])) {
-            state.add(eid, OrbitSmooth);
-            state.of(OrbitSmooth).yaw.set(eid, state.of(Orbit).yaw.get(eid));
-            state.of(OrbitSmooth).pitch.set(eid, state.of(Orbit).pitch.get(eid));
-            state.of(OrbitSmooth).distance.set(eid, state.of(Orbit).distance.get(eid));
-            state.of(OrbitSmooth).size.set(eid, state.of(Orbit).size.get(eid));
-            state.of(OrbitSmooth).keyYawVelocity.set(eid, 0);
-            state.of(OrbitSmooth).keyPitchVelocity.set(eid, 0);
+        for (const eid of world.query([Orbit, not(OrbitSmooth)])) {
+            world.add(eid, OrbitSmooth);
+            world.storage(OrbitSmooth).yaw.set(eid, world.storage(Orbit).yaw.get(eid));
+            world.storage(OrbitSmooth).pitch.set(eid, world.storage(Orbit).pitch.get(eid));
+            world.storage(OrbitSmooth).distance.set(eid, world.storage(Orbit).distance.get(eid));
+            world.storage(OrbitSmooth).size.set(eid, world.storage(Orbit).size.get(eid));
+            world.storage(OrbitSmooth).keyYawVelocity.set(eid, 0);
+            world.storage(OrbitSmooth).keyPitchVelocity.set(eid, 0);
             // sparse storage survives destroy — a recycled eid could inherit a stale latch
-            state.of(OrbitSmooth).flyActive.set(eid, 0);
-            state.of(OrbitSmooth).orbitLatch.set(eid, 0);
+            world.storage(OrbitSmooth).flyActive.set(eid, 0);
+            world.storage(OrbitSmooth).orbitLatch.set(eid, 0);
             // the pose loop below requires Transform — orbit drives pos + rot through it. Without one the
             // camera silently never moves; warn at init (once per Orbit entity) so it's not a blank screen.
-            if (!state.has(eid, Transform)) {
+            if (!world.has(eid, Transform)) {
                 console.warn(
                     `[orbit] entity ${eid} has Orbit but no Transform — add Transform or it won't move`,
                 );
             }
         }
 
-        for (const eid of state.query([not(Orbit), OrbitSmooth])) {
-            state.remove(eid, OrbitSmooth);
+        for (const eid of world.query([not(Orbit), OrbitSmooth])) {
+            world.remove(eid, OrbitSmooth);
         }
 
-        for (const eid of state.query([Orbit, OrbitSmooth, Transform])) {
-            const sensitivity = state.of(Orbit).sensitivity.get(eid);
-            const zoomSpeed = state.of(Orbit).zoomSpeed.get(eid);
-            const minPitch = state.of(Orbit).minPitch.get(eid);
-            const maxPitch = state.of(Orbit).maxPitch.get(eid);
-            const smoothness = state.of(Orbit).smoothness.get(eid);
+        for (const eid of world.query([Orbit, OrbitSmooth, Transform])) {
+            const sensitivity = world.storage(Orbit).sensitivity.get(eid);
+            const zoomSpeed = world.storage(Orbit).zoomSpeed.get(eid);
+            const minPitch = world.storage(Orbit).minPitch.get(eid);
+            const maxPitch = world.storage(Orbit).maxPitch.get(eid);
+            const smoothness = world.storage(Orbit).smoothness.get(eid);
 
-            let yawO = state.of(Orbit).yaw.get(eid);
-            let pitchO = state.of(Orbit).pitch.get(eid);
-            let distO = state.of(Orbit).distance.get(eid);
-            let sizeO = state.of(Orbit).size.get(eid);
-            let panX = state.of(Orbit).pan.x.get(eid);
-            let panY = state.of(Orbit).pan.y.get(eid);
-            let panZ = state.of(Orbit).pan.z.get(eid);
-            let flyActive = state.of(OrbitSmooth).flyActive.get(eid);
-            let flySpd = state.of(Orbit).flySpeed.get(eid);
-            let yawS = state.of(OrbitSmooth).yaw.get(eid);
-            let pitchS = state.of(OrbitSmooth).pitch.get(eid);
-            let distS = state.of(OrbitSmooth).distance.get(eid);
-            let sizeS = state.of(OrbitSmooth).size.get(eid);
-            let keyYawVelocity = state.of(OrbitSmooth).keyYawVelocity.get(eid);
-            let keyPitchVelocity = state.of(OrbitSmooth).keyPitchVelocity.get(eid);
+            let yawO = world.storage(Orbit).yaw.get(eid);
+            let pitchO = world.storage(Orbit).pitch.get(eid);
+            let distO = world.storage(Orbit).distance.get(eid);
+            let sizeO = world.storage(Orbit).size.get(eid);
+            let panX = world.storage(Orbit).pan.x.get(eid);
+            let panY = world.storage(Orbit).pan.y.get(eid);
+            let panZ = world.storage(Orbit).pan.z.get(eid);
+            let flyActive = world.storage(OrbitSmooth).flyActive.get(eid);
+            let flySpd = world.storage(Orbit).flySpeed.get(eid);
+            let yawS = world.storage(OrbitSmooth).yaw.get(eid);
+            let pitchS = world.storage(OrbitSmooth).pitch.get(eid);
+            let distS = world.storage(OrbitSmooth).distance.get(eid);
+            let sizeS = world.storage(OrbitSmooth).size.get(eid);
+            let keyYawVelocity = world.storage(OrbitSmooth).keyYawVelocity.get(eid);
+            let keyPitchVelocity = world.storage(OrbitSmooth).keyPitchVelocity.get(eid);
 
-            const hasCamera = state.has(eid, Camera);
-            const isOrtho = hasCamera && state.of(Camera).mode.get(eid) === CameraMode.Orthographic;
-            const locked = state.of(Orbit).mode.get(eid) === OrbitMode.Locked;
+            const hasCamera = world.has(eid, Camera);
+            const isOrtho =
+                hasCamera && world.storage(Camera).mode.get(eid) === CameraMode.Orthographic;
+            const locked = world.storage(Orbit).mode.get(eid) === OrbitMode.Locked;
             const touchCount = input.touch.count;
             // touch overrides the mouse-button read entirely rather than adding to it, while any finger
             // is down: the first finger's continued capture keeps `mouse.left` synthesized true for the
@@ -187,27 +188,29 @@ const OrbitSystem: System = {
             const orbitHeld =
                 touchCount > 0
                     ? touchCount === 1
-                    : isButton(input.mouse, state.of(Orbit).orbitButton.get(eid));
+                    : isButton(input.mouse, world.storage(Orbit).orbitButton.get(eid));
             const panHeld =
                 touchCount > 0
                     ? touchCount >= 2
-                    : isButton(input.mouse, state.of(Orbit).panButton.get(eid));
+                    : isButton(input.mouse, world.storage(Orbit).panButton.get(eid));
             const flyHeld =
-                touchCount > 0 ? false : isButton(input.mouse, state.of(Orbit).flyButton.get(eid));
+                touchCount > 0
+                    ? false
+                    : isButton(input.mouse, world.storage(Orbit).flyButton.get(eid));
             // the held button picks the mode; fly engages only while the fly button is held (hold-to-fly, the
             // Unity/UE scene-view idiom), and orbit/pan win over it. bare WASD/QE never fly, so a gameplay
             // scene owns the movement keys by default — the camera only takes them while fly is held.
             const flying = !orbitHeld && !panHeld && flyHeld;
             // look applies the active mode's drag: fly looks in place (fly button), orbit swings the target.
             const looking = flying ? flyHeld : orbitHeld;
-            const lookSpeed = flying ? state.of(Orbit).flySensitivity.get(eid) : sensitivity;
+            const lookSpeed = flying ? world.storage(Orbit).flySensitivity.get(eid) : sensitivity;
 
             // consult the picker once, at the orbit button's down-edge (latch idle → a fresh press). a true
             // claim suppresses this drag's orbit rotation so an interaction owns the press; the latch holds
             // until release, so a mid-drag claim change can't flip it. only orbit look is gated — fly look
             // reads flyHeld (which needs the orbit button up, so suppression can't coincide) and pan/zoom
             // read their own buttons.
-            let orbitLatch = state.of(OrbitSmooth).orbitLatch.get(eid);
+            let orbitLatch = world.storage(OrbitSmooth).orbitLatch.get(eid);
             if (orbitHeld) {
                 if (orbitLatch === 0)
                     orbitLatch = OrbitPick.claim?.(input.mouse.x, input.mouse.y) ? 1 : 2;
@@ -221,9 +224,9 @@ const OrbitSystem: System = {
                 pitchO = clamp(pitchO + input.mouse.deltaY * lookSpeed, minPitch, maxPitch);
             }
 
-            const keyRate = state.of(Orbit).keyRate.get(eid);
-            const keyAcceleration = state.of(Orbit).keyAcceleration.get(eid);
-            const keyDamping = state.of(Orbit).keyDamping.get(eid);
+            const keyRate = world.storage(Orbit).keyRate.get(eid);
+            const keyAcceleration = world.storage(Orbit).keyAcceleration.get(eid);
+            const keyDamping = world.storage(Orbit).keyDamping.get(eid);
             const keyYaw =
                 Number(input.keys.held.has("ArrowRight")) -
                 Number(input.keys.held.has("ArrowLeft"));
@@ -257,12 +260,12 @@ const OrbitSystem: System = {
                 const upZ = -sp * cy;
 
                 const worldPerPixel = isOrtho
-                    ? (state.of(Camera).size.get(eid) * 2) /
+                    ? (world.storage(Camera).size.get(eid) * 2) /
                       (input.viewport.get(input.focused)?.cssHeight ?? 0)
                     : (2 *
                           distO *
                           Math.tan(
-                              (hasCamera ? state.of(Camera).fov.get(eid) : 60) * Deg2Rad * 0.5,
+                              (hasCamera ? world.storage(Camera).fov.get(eid) : 60) * Deg2Rad * 0.5,
                           )) /
                       (input.viewport.get(input.focused)?.cssHeight ?? 0);
 
@@ -292,22 +295,22 @@ const OrbitSystem: System = {
                     // retargets to fly speed, multiplicative like Unity's scene-view accelerator.
                     flySpd = clamp(
                         flySpd * Math.exp(-zoomInput * FlyScrollRate),
-                        state.of(Orbit).flyMin.get(eid),
-                        state.of(Orbit).flyMax.get(eid),
+                        world.storage(Orbit).flyMin.get(eid),
+                        world.storage(Orbit).flyMax.get(eid),
                     );
                 } else if (isOrtho) {
                     const sizeScale = Math.max(0.1, sizeO * 0.08);
                     sizeO = clamp(
                         sizeO + zoomInput * zoomSpeed * sizeScale,
-                        state.of(Orbit).minSize.get(eid),
-                        state.of(Orbit).maxSize.get(eid),
+                        world.storage(Orbit).minSize.get(eid),
+                        world.storage(Orbit).maxSize.get(eid),
                     );
                 } else {
                     const distanceScale = Math.max(0.3, distO * 0.08);
                     distO = clamp(
                         distO + zoomInput * zoomSpeed * distanceScale,
-                        state.of(Orbit).minDistance.get(eid),
-                        state.of(Orbit).maxDistance.get(eid),
+                        world.storage(Orbit).minDistance.get(eid),
+                        world.storage(Orbit).maxDistance.get(eid),
                     );
                 }
             }
@@ -315,14 +318,14 @@ const OrbitSystem: System = {
             const t = smoothLerp(smoothness, dt);
             // fly look uses its own, tighter damping (flySmoothness) so first-person look tracks the mouse
             // closely without orbit's floaty glide. the exit reproject keeps pose continuous either way.
-            const tLook = flying ? smoothLerp(state.of(Orbit).flySmoothness.get(eid), dt) : t;
+            const tLook = flying ? smoothLerp(world.storage(Orbit).flySmoothness.get(eid), dt) : t;
             yawS += angleDiff(yawS, yawO) * tLook;
             pitchS += (pitchO - pitchS) * tLook;
             distS += (distO - distS) * t;
 
             if (isOrtho) {
                 sizeS += (sizeO - sizeS) * t;
-                state.of(Camera).size.set(eid, sizeS);
+                world.storage(Camera).size.set(eid, sizeS);
             }
 
             if (flying) {
@@ -330,7 +333,7 @@ const OrbitSystem: System = {
                 // shift boosts speed transiently — the stored base (flySpd) is unchanged
                 const boost =
                     input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight")
-                        ? state.of(Orbit).flyBoost.get(eid)
+                        ? world.storage(Orbit).flyBoost.get(eid)
                         : 1;
                 const speed = flySpd * boost * dt;
                 const fp = -pitchS;
@@ -361,13 +364,13 @@ const OrbitSystem: System = {
                     wz *= k;
                 }
 
-                state
-                    .of(Transform)
-                    .pos.set(
+                world
+                    .storage(Transform)
+                    .translation.set(
                         eid,
-                        state.of(GlobalTransform).pos.x.get(eid) + wx,
-                        state.of(GlobalTransform).pos.y.get(eid) + wy,
-                        state.of(GlobalTransform).pos.z.get(eid) + wz,
+                        world.storage(GlobalTransform).translation.x.get(eid) + wx,
+                        world.storage(GlobalTransform).translation.y.get(eid) + wy,
+                        world.storage(GlobalTransform).translation.z.get(eid) + wz,
                         0,
                     );
 
@@ -377,29 +380,31 @@ const OrbitSystem: System = {
                 const chy = Math.cos(hy);
                 const shp = Math.sin(hp);
                 const chp = Math.cos(hp);
-                state.of(Transform).rot.set(eid, chy * shp, shy * chp, -shy * shp, chy * chp);
+                world
+                    .storage(Transform)
+                    .rotation.set(eid, chy * shp, shy * chp, -shy * shp, chy * chp);
             } else {
                 if (flyActive) {
                     flyActive = 0;
                     let entityTargetX = 0;
                     let entityTargetY = 0;
                     let entityTargetZ = 0;
-                    const targetEid = state.of(Orbit).target.get(eid);
-                    if (targetEid > 0 && state.has(targetEid, GlobalTransform)) {
-                        entityTargetX = state.of(GlobalTransform).pos.x.get(targetEid);
-                        entityTargetY = state.of(GlobalTransform).pos.y.get(targetEid);
-                        entityTargetZ = state.of(GlobalTransform).pos.z.get(targetEid);
+                    const targetEid = world.storage(Orbit).target.get(eid);
+                    if (targetEid > 0 && world.has(targetEid, GlobalTransform)) {
+                        entityTargetX = world.storage(GlobalTransform).translation.x.get(targetEid);
+                        entityTargetY = world.storage(GlobalTransform).translation.y.get(targetEid);
+                        entityTargetZ = world.storage(GlobalTransform).translation.z.get(targetEid);
                     }
                     panX =
-                        state.of(GlobalTransform).pos.x.get(eid) -
+                        world.storage(GlobalTransform).translation.x.get(eid) -
                         distS * Math.cos(pitchS) * Math.sin(yawS) -
                         entityTargetX;
                     panY =
-                        state.of(GlobalTransform).pos.y.get(eid) -
+                        world.storage(GlobalTransform).translation.y.get(eid) -
                         distS * Math.sin(pitchS) -
                         entityTargetY;
                     panZ =
-                        state.of(GlobalTransform).pos.z.get(eid) -
+                        world.storage(GlobalTransform).translation.z.get(eid) -
                         distS * Math.cos(pitchS) * Math.cos(yawS) -
                         entityTargetZ;
                 }
@@ -407,36 +412,36 @@ const OrbitSystem: System = {
                 let targetX = panX;
                 let targetY = panY;
                 let targetZ = panZ;
-                const targetEid = state.of(Orbit).target.get(eid);
-                if (targetEid > 0 && state.has(targetEid, GlobalTransform)) {
-                    targetX += state.of(GlobalTransform).pos.x.get(targetEid);
-                    targetY += state.of(GlobalTransform).pos.y.get(targetEid);
-                    targetZ += state.of(GlobalTransform).pos.z.get(targetEid);
+                const targetEid = world.storage(Orbit).target.get(eid);
+                if (targetEid > 0 && world.has(targetEid, GlobalTransform)) {
+                    targetX += world.storage(GlobalTransform).translation.x.get(targetEid);
+                    targetY += world.storage(GlobalTransform).translation.y.get(targetEid);
+                    targetZ += world.storage(GlobalTransform).translation.z.get(targetEid);
                 }
 
                 const camX = targetX + distS * Math.cos(pitchS) * Math.sin(yawS);
                 const camY = targetY + distS * Math.sin(pitchS);
                 const camZ = targetZ + distS * Math.cos(pitchS) * Math.cos(yawS);
 
-                state.of(Transform).pos.set(eid, camX, camY, camZ, 0);
-                const r = aim(camX, camY, camZ, targetX, targetY, targetZ);
-                state.of(Transform).rot.set(eid, r.x, r.y, r.z, r.w);
+                world.storage(Transform).translation.set(eid, camX, camY, camZ, 0);
+                const r = lookAtRotation(camX, camY, camZ, targetX, targetY, targetZ);
+                world.storage(Transform).rotation.set(eid, r.x, r.y, r.z, r.w);
             }
 
-            state.of(Orbit).yaw.set(eid, yawO);
-            state.of(Orbit).pitch.set(eid, pitchO);
-            state.of(Orbit).distance.set(eid, distO);
-            state.of(Orbit).size.set(eid, sizeO);
-            state.of(Orbit).pan.set(eid, panX, panY, panZ, 0);
-            state.of(Orbit).flySpeed.set(eid, flySpd);
-            state.of(OrbitSmooth).flyActive.set(eid, flyActive);
-            state.of(OrbitSmooth).orbitLatch.set(eid, orbitLatch);
-            state.of(OrbitSmooth).yaw.set(eid, yawS);
-            state.of(OrbitSmooth).pitch.set(eid, pitchS);
-            state.of(OrbitSmooth).distance.set(eid, distS);
-            state.of(OrbitSmooth).size.set(eid, sizeS);
-            state.of(OrbitSmooth).keyYawVelocity.set(eid, keyYawVelocity);
-            state.of(OrbitSmooth).keyPitchVelocity.set(eid, keyPitchVelocity);
+            world.storage(Orbit).yaw.set(eid, yawO);
+            world.storage(Orbit).pitch.set(eid, pitchO);
+            world.storage(Orbit).distance.set(eid, distO);
+            world.storage(Orbit).size.set(eid, sizeO);
+            world.storage(Orbit).pan.set(eid, panX, panY, panZ, 0);
+            world.storage(Orbit).flySpeed.set(eid, flySpd);
+            world.storage(OrbitSmooth).flyActive.set(eid, flyActive);
+            world.storage(OrbitSmooth).orbitLatch.set(eid, orbitLatch);
+            world.storage(OrbitSmooth).yaw.set(eid, yawS);
+            world.storage(OrbitSmooth).pitch.set(eid, pitchS);
+            world.storage(OrbitSmooth).distance.set(eid, distS);
+            world.storage(OrbitSmooth).size.set(eid, sizeS);
+            world.storage(OrbitSmooth).keyYawVelocity.set(eid, keyYawVelocity);
+            world.storage(OrbitSmooth).keyPitchVelocity.set(eid, keyPitchVelocity);
         }
     },
 };
@@ -485,10 +490,10 @@ export const OrbitPlugin: Plugin = {
             }),
             enums: { mode: OrbitMode },
             inputs: {
-                yaw: angle,
-                pitch: angle,
-                minPitch: angle,
-                maxPitch: angle,
+                yaw: angleInput,
+                pitch: angleInput,
+                minPitch: angleInput,
+                maxPitch: angleInput,
             },
         },
     },

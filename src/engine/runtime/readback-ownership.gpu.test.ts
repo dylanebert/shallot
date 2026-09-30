@@ -13,28 +13,28 @@ const subjects = gpuApps(
 
 test("TypeGPU native buffers and textures belong to their world, and external allocations require explicit ownership", async () => {
     const app = subjects()[0];
-    const state = app.state;
+    const world = app.world;
     try {
-        const typed = state.gpu.root.createBuffer(d.arrayOf(d.u32, 1), [29]).$usage("storage");
-        const buffer = state.gpu.root.unwrap(typed);
-        const texture = state.gpu.root.unwrap(
-            state.gpu.root.createTexture({ size: [1, 1], format: "rgba8unorm" }).$usage("sampled"),
+        const typed = world.gpu.root.createBuffer(d.arrayOf(d.u32, 1), [29]).$usage("storage");
+        const buffer = world.gpu.root.unwrap(typed);
+        const texture = world.gpu.root.unwrap(
+            world.gpu.root.createTexture({ size: [1, 1], format: "rgba8unorm" }).$usage("sampled"),
         );
-        expect(state.owns(buffer)).toBe(true);
-        expect(state.owns(texture)).toBe(true);
-        expect(new Uint32Array((await probeBuffer(state, buffer)).bytes)[0]).toBe(29);
-        expect((await probeTexture(state, texture)).bytes.byteLength).toBe(4);
-        const external = rawDevice(state.gpu.device).createBuffer({
+        expect(world.owns(buffer)).toBe(true);
+        expect(world.owns(texture)).toBe(true);
+        expect(new Uint32Array((await probeBuffer(world, buffer)).bytes)[0]).toBe(29);
+        expect((await probeTexture(world, texture)).bytes.byteLength).toBe(4);
+        const external = rawDevice(world.gpu.device).createBuffer({
             size: 4,
             usage: GPUBufferUsage.COPY_SRC,
         });
         try {
-            await expect(probeBuffer(state, external)).rejects.toThrow("not owned by this world");
-            state.own(external);
-            await probeBuffer(state, external);
+            await expect(probeBuffer(world, external)).rejects.toThrow("not owned by this world");
+            world.own(external);
+            await probeBuffer(world, external);
             external.destroy();
-            expect(state.owns(external)).toBe(false);
-            await expect(probeBuffer(state, external)).rejects.toThrow("not owned by this world");
+            expect(world.owns(external)).toBe(false);
+            await expect(probeBuffer(world, external)).rejects.toThrow("not owned by this world");
         } finally {
             external.destroy();
         }
@@ -47,12 +47,12 @@ for (const [index, kind] of (["buffer", "range", "texture"] as const).entries())
     test(`a ${kind} request refuses another world's resource on the same device, naming it before encoding`, async () => {
         const owner = subjects()[1 + index * 2];
         const reader = subjects()[2 + index * 2];
-        const buffer = owner.state.gpu.device.createBuffer({
+        const buffer = owner.world.gpu.device.createBuffer({
             label: "other-world-buffer",
             size: 16,
             usage: GPUBufferUsage.COPY_SRC,
         });
-        const texture = owner.state.gpu.device.createTexture({
+        const texture = owner.world.gpu.device.createTexture({
             label: "other-world-texture",
             size: [1, 1],
             format: "rgba8unorm",
@@ -65,8 +65,8 @@ for (const [index, kind] of (["buffer", "range", "texture"] as const).entries())
         try {
             const request =
                 kind === "texture"
-                    ? probeTexture(reader.state, texture, { encode })
-                    : probeBuffer(reader.state, buffer, {
+                    ? probeTexture(reader.world, texture, { encode })
+                    : probeBuffer(reader.world, buffer, {
                           offset: kind === "range" ? 4 : 0,
                           size: 4,
                           encode,
@@ -75,9 +75,9 @@ for (const [index, kind] of (["buffer", "range", "texture"] as const).entries())
                 `other-world-${kind === "texture" ? "texture" : "buffer"}`,
             );
             expect(encoded).toBe(0);
-            expect(reader.state.readback.allocated).toBe(0);
+            expect(reader.world.readback.allocated).toBe(0);
             await expect(
-                reader.state.readback.request(
+                reader.world.readback.request(
                     kind === "texture" ? 256 : 4,
                     "foreign copy",
                     (encoder, staging) => {
@@ -98,7 +98,7 @@ for (const [index, kind] of (["buffer", "range", "texture"] as const).entries())
                     },
                 ),
             ).rejects.toThrow(`other-world-${kind === "texture" ? "texture" : "buffer"}`);
-            expect(reader.state.readback.allocated).toBe(0);
+            expect(reader.world.readback.allocated).toBe(0);
         } finally {
             reader.dispose();
             owner.dispose();

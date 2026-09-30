@@ -114,13 +114,13 @@ export function bundleChanged(
  * recorded from. Called only at a transition {@link changed} reports.
  */
 export function recordBundle(
-    state: World,
+    world: World,
     pass: PassBundle,
     next: readonly BundleDraw[],
     count: number,
     descriptor: GPURenderBundleEncoderDescriptor,
 ): void {
-    const encoder = state.gpu.root["~unstable"].createRenderBundleEncoder(descriptor);
+    const encoder = world.gpu.root["~unstable"].createRenderBundleEncoder(descriptor);
     for (let i = 0; i < count; i++) {
         const step = next[i];
         encoder.setPipeline(step.pipeline as TgpuRenderPipeline<never>);
@@ -129,7 +129,7 @@ export function recordBundle(
         if (step.layout2 && step.group2) encoder.setBindGroup(step.layout2, step.group2);
         if (step.indirect) {
             const raw = isBuffer(step.indirect)
-                ? state.gpu.root.unwrap(step.indirect)
+                ? world.gpu.root.unwrap(step.indirect)
                 : (step.indirect as GPUBuffer);
             encoder.drawIndexedIndirect(raw, step.offset);
         } else {

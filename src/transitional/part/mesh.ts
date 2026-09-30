@@ -1,4 +1,4 @@
-import { mesh } from "../../core/rendering";
+import { registerMesh } from "../../core/rendering";
 import type { World } from "../../engine";
 
 /**
@@ -9,10 +9,10 @@ import type { World } from "../../engine";
  * - `sphere` / `capsule` — smooth-shaded; the rounded primitives physics will
  *   collide as a point/segment + radius
  */
-export function initMeshes(state: World): void {
-    mesh(state, { name: "cube", ...cube() });
-    mesh(state, { name: "sphere", ...sphere() });
-    mesh(state, { name: "capsule", ...capsule() });
+export function initMeshes(world: World): void {
+    registerMesh(world, { name: "cube", ...cube() });
+    registerMesh(world, { name: "sphere", ...sphere() });
+    registerMesh(world, { name: "capsule", ...capsule() });
 }
 
 interface Vert {

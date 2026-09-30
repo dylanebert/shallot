@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { View } from "../../core/rendering";
+import { ViewUniforms } from "../../core/rendering";
 import { decodePos, MeshQuant, meshIdOf, Xform, xformPoint } from "../../engine/utils";
 
 // The outline's pass internals: the JFA + composite kernels with their bind group layouts, plus the pure
@@ -50,7 +50,7 @@ export function groupByMesh(
 /** the always-on-top mask layout: view/position/indices/globalTransforms/maskEids/maskAttrs/meshQuant.
  *  @internal */
 export const maskLayoutPlain = tgpu.bindGroupLayout({
-    view: { uniform: View, visibility: ["vertex"] },
+    view: { uniform: ViewUniforms, visibility: ["vertex"] },
     position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
     indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
     globalTransforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
@@ -65,7 +65,7 @@ export const maskLayoutPlain = tgpu.bindGroupLayout({
  *  on the plain one: an out-of-bounds `textureLoad` returns 0 = far under reverse-Z, which would silently
  *  read every fragment as un-occluded. @internal */
 export const maskLayoutOcclude = tgpu.bindGroupLayout({
-    view: { uniform: View, visibility: ["vertex"] },
+    view: { uniform: ViewUniforms, visibility: ["vertex"] },
     position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
     indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
     globalTransforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },

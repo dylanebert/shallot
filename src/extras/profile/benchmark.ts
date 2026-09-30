@@ -272,7 +272,7 @@ export function passStats(
     };
 }
 
-export function createMeasure(state: World, profile: Profile) {
+export function createMeasure(world: World, profile: Profile) {
     return (warmup: number, frames: number): Promise<BenchmarkMeasurement> => {
         return new Promise((resolve) => {
             const frameTimes: number[] = [];
@@ -314,16 +314,16 @@ export function createMeasure(state: World, profile: Profile) {
                         gpuTimeStart = new Map(profile.gpuTime);
                         gpuFiresStart = new Map(profile.gpuFires);
                         indirectCountStart = new Map(profile.indirectCount);
-                        frameStart = state.gpu?.frame ?? 0;
+                        frameStart = world.gpu?.frame ?? 0;
                         submitStart = profile.submitCount;
                     }
 
-                    frameTimes.push(state.time.deltaTime * 1000);
-                    rawFrameTimes.push(state.time.rawDeltaTime * 1000);
+                    frameTimes.push(world.time.deltaTime * 1000);
+                    rawFrameTimes.push(world.time.rawDeltaTime * 1000);
                     fenceWaits.push(profile.fenceWaitMs);
-                    if (state.time.throttled) clampedFrames++;
-                    fixedStepCounts.push(state.time.fixedSteps);
-                    const fif = state.gpu?.pending?.() ?? 0;
+                    if (world.time.throttled) clampedFrames++;
+                    fixedStepCounts.push(world.time.fixedSteps);
+                    const fif = world.gpu?.pending?.() ?? 0;
                     if (fif > maxPending) maxPending = fif;
 
                     let cpuTotal = 0;
@@ -361,7 +361,7 @@ export function createMeasure(state: World, profile: Profile) {
                 const stepsPerFrame = mean(fixedStepCounts);
                 // engine frames elapsed in the window — the denominator for every engine-side cumulative
                 // counter (gpuTime, indirectCount, submitCount), distinct from the benchmark's own tick count
-                const dFrames = (state.gpu?.frame ?? 0) - frameStart;
+                const dFrames = (world.gpu?.frame ?? 0) - frameStart;
 
                 let frame: BenchmarkFrameStats | null = null;
                 if (frameTimes.length > 0) {

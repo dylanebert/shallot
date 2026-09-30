@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { build, swap } from "../app";
+import { createApp, swapPlugins } from "../app";
 import { snapshot, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 
@@ -14,34 +14,34 @@ test("a deterministic composition hashes identically under two frame pacings wit
         let eid = 0;
         let source!: GPUBuffer;
         const requests: ReturnType<typeof probeBuffer>[] = [];
-        const app = await build({
+        const app = await createApp({
             defaults: false,
             plugins: [
                 {
                     name: "DeterministicCounter",
                     components: { Counter },
-                    initialize(state) {
-                        eid = state.create();
-                        state.add(eid, Counter);
-                        source = state.gpu.device.createBuffer({
+                    initialize(world) {
+                        eid = world.create();
+                        world.add(eid, Counter);
+                        source = world.gpu.device.createBuffer({
                             size: 4,
                             usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
                         });
-                        state.gpu.device.queue.writeBuffer(source, 0, new Uint32Array([42]));
+                        world.gpu.device.queue.writeBuffer(source, 0, new Uint32Array([42]));
                     },
                     systems: [
                         {
                             group: "fixed",
-                            update(state) {
-                                const counter = state.of(Counter).value;
-                                counter.set(eid, counter.get(eid) + state.time.fixedTick);
+                            update(world) {
+                                const counter = world.storage(Counter).value;
+                                counter.set(eid, counter.get(eid) + world.time.fixedTick);
                             },
                         },
                         {
                             group: "draw",
-                            update(state) {
+                            update(world) {
                                 requests.push(
-                                    probeBuffer(state, source, { label: "pacing diagnostic" }),
+                                    probeBuffer(world, source, { label: "pacing diagnostic" }),
                                 );
                             },
                         },
@@ -50,16 +50,16 @@ test("a deterministic composition hashes identically under two frame pacings wit
             ],
         });
         try {
-            for (let i = 0; i < frames; i++) app.state.step(dt);
+            for (let i = 0; i < frames; i++) app.world.step(dt);
             const results = await Promise.all(requests);
             expect(results).toHaveLength(frames);
             for (let i = 0; i < results.length; i++) {
                 expect(results[i].frame).toBe(i);
                 expect(new Uint32Array(results[i].bytes)[0]).toBe(42);
             }
-            expect(app.state.time.fixedTick).toBe(60);
-            expect(app.state.of(Counter).value.get(eid)).toBe(1830);
-            return Bun.hash(JSON.stringify(snapshot(app.state)));
+            expect(app.world.time.fixedTick).toBe(60);
+            expect(app.world.storage(Counter).value.get(eid)).toBe(1830);
+            return Bun.hash(JSON.stringify(snapshot(app.world)));
         } finally {
             app.dispose();
         }
@@ -71,9 +71,9 @@ test("a determinism declaration is metadata, not runtime readback permission sta
     const system = { group: "fixed" as const, update() {} };
     const before = { name: "ChangedPermission", deterministic: false, systems: [system] };
     const after = { name: "ChangedPermission", deterministic: true, systems: [{ ...system }] };
-    const app = await build({ defaults: false, plugins: [before] });
+    const app = await createApp({ defaults: false, plugins: [before] });
     try {
-        expect(await swap(app.state, [before], [after])).toEqual({
+        expect(await swapPlugins(app.world, [before], [after])).toEqual({
             ok: true,
         });
     } finally {

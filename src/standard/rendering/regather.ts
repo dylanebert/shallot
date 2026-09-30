@@ -1,9 +1,9 @@
-// The shadow-atlas re-gather: concatenate the per-combo *culled* regions the Part pack wrote (slot-major
+// The shadow-atlas re-gather: concatenate the per-combo *culled* regions the MeshInstance pack wrote (slot-major
 // `drawArgs` + the `packedEids` pool), or duplicate a view-independent producer's direct range, into one
 // contiguous, mesh-major run per casting mesh + a per-instance combo index. Each shadow atlas (the
 // point/spot tiles, the CSM cascade tiles) instantiates its own `Regather`; the two A/B compute pipelines
 // are geometry-blind (they read slot-major counts + the instance pool alone, with no projection or mesh
-// knowledge). Each State owns the shared pipeline pair; each atlas owns its output buffers. The re-gather is a *consumer* of the cull spine's output (`render` owns the spine that
+// knowledge). Each World owns the shared pipeline pair; each atlas owns its output buffers. The re-gather is a *consumer* of the cull spine's output (`render` owns the spine that
 // feeds it); it knows sear-private concepts (the packing convention below, the atlas record shape, the
 // `eids`-lane swap), so it lives here, not in render (render stays renderer-agnostic).
 
@@ -36,13 +36,13 @@ const createRegatherState = (): RegatherState => ({
     pipelineCapacity: 0,
 });
 
-function regatherState(state: World): RegatherState {
-    return state.resource(regatherStateKey);
+function regatherState(world: World): RegatherState {
+    return world.resource(regatherStateKey);
 }
 
-/** Create this world's regather pipeline state during Sear initialization. */
-export function initializeRegatherState(state: World): void {
-    state.resource(regatherStateKey);
+/** Create this world's regather pipeline state during StandardRenderer initialization. */
+export function initializeRegatherState(world: World): void {
+    world.resource(regatherStateKey);
 }
 
 /** Pass A's exact compiled source, exposed lazily for the device-free indirect-record contract test. */
@@ -127,29 +127,29 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     });
 
 /** compile the shared A/B re-gather pipelines once (idempotent): called from `prepareSear`, folded into its
- * warm `Promise.all`. Every {@link Regather} instance in this State uses these layouts. */
+ * warm `Promise.all`. Every {@link Regather} instance in this World uses these layouts. */
 export async function prepareRegather(
-    state: World,
+    world: World,
     device: GPUDevice,
     capacity: number,
 ): Promise<void> {
     if (
-        regatherState(state).aPipe &&
-        regatherState(state).pipelineDevice === device &&
-        regatherState(state).pipelineCapacity === capacity
+        regatherState(world).aPipe &&
+        regatherState(world).pipelineDevice === device &&
+        regatherState(world).pipelineCapacity === capacity
     )
         return;
-    regatherState(state).aPipe = null;
-    regatherState(state).bPipe = null;
-    regatherState(state).aLayout = null;
-    regatherState(state).bLayout = null;
-    regatherState(state).pipelineDevice = device;
-    regatherState(state).pipelineCapacity = capacity;
+    regatherState(world).aPipe = null;
+    regatherState(world).bPipe = null;
+    regatherState(world).aLayout = null;
+    regatherState(world).bLayout = null;
+    regatherState(world).pipelineDevice = device;
+    regatherState(world).pipelineCapacity = capacity;
     // Pass A — one thread: for each casting mesh, sum its per-combo culled counts (the spine's drawArgs at
     // each combo slot), exclusive-prefix the totals into per-mesh run bases, and write one DrawIndexedIndirect
     // record (instanceCount = the sum, firstInstance = the base; the static indexCount/firstIndex from any
     // combo slot, which the pack seeds per slot). D + C are tiny, so a serial single thread is free
-    regatherState(state).aLayout = device.createBindGroupLayout({
+    regatherState(world).aLayout = device.createBindGroupLayout({
         label: "sear-regather-a",
         entries: [
             {
@@ -171,7 +171,7 @@ export async function prepareRegather(
     // counts), setting the payload's combo lane. The serial inner copy is the per-(mesh, combo)
     // count; a per-instance dispatch is the deferred optimization if a mesh ever owns a large
     // per-combo count
-    regatherState(state).bLayout = device.createBindGroupLayout({
+    regatherState(world).bLayout = device.createBindGroupLayout({
         label: "sear-regather-b",
         entries: [
             {
@@ -205,7 +205,7 @@ export async function prepareRegather(
         device.createComputePipelineAsync({
             label: "sear-regather-a",
             layout: device.createPipelineLayout({
-                bindGroupLayouts: [regatherState(state).aLayout],
+                bindGroupLayouts: [regatherState(world).aLayout],
             }),
             compute: {
                 module: device.createShaderModule({
@@ -218,7 +218,7 @@ export async function prepareRegather(
         device.createComputePipelineAsync({
             label: "sear-regather-b",
             layout: device.createPipelineLayout({
-                bindGroupLayouts: [regatherState(state).bLayout],
+                bindGroupLayouts: [regatherState(world).bLayout],
             }),
             compute: {
                 module: device.createShaderModule({ label: "sear-regather-b", code: bWgsl }),
@@ -226,14 +226,14 @@ export async function prepareRegather(
             },
         }),
     ]);
-    regatherState(state).aPipe = a;
-    regatherState(state).bPipe = b;
+    regatherState(world).aPipe = a;
+    regatherState(world).bPipe = b;
 }
 
 /** one shadow atlas's re-gather instance: its own packed list + indirect args + meta, sharing the
- * State-owned A/B pipelines. The point atlas and the CSM cascade atlas each own one. */
+ * World-owned A/B pipelines. The point atlas and the CSM cascade atlas each own one. */
 export interface Regather {
-    /** the re-gathered instance list (`eid, globalTransformRow, encodedPartSlot, combo`), bound at the consumer
+    /** the re-gathered instance list (`eid, globalTransformRow, encodedMeshInstanceSlot, combo`), bound at the consumer
      * pipeline's `eids` lane. `null` until {@link Regather.ensure} allocates it (the first casting frame). */
     eids(): GPUBuffer | null;
     /** the indirect buffer the atlas render pass draws from: one DrawIndexedIndirect record per casting
@@ -247,7 +247,7 @@ export interface Regather {
      * shared output: earlier GPU commands in the same unsubmitted encoder must keep the buffer they captured. */
     reserve(maxDraws: number): void;
     /** upload the per-frame meta + run Pass A then Pass B on `cpass` (one compute pass, the intra-pass
-     * dispatch ordering the Part pack relies on). `comboSlots` = the view slot each dense combo packed into
+     * dispatch ordering the MeshInstance pack relies on). `comboSlots` = the view slot each dense combo packed into
      * (the first `comboCount`); `drawPairs` = the source indirect-record indices (the first `drawCount`);
      * `pairCount` = the pack's pair stride, or zero for a
      * view-independent producer whose direct range is duplicated across combos. */
@@ -270,8 +270,8 @@ export interface Regather {
 }
 
 /** create a shadow-atlas re-gather instance. `label` names its GPU buffers. The A/B pipelines must be
- * compiled once via {@link prepareRegather} before {@link Regather.run}. */
-export function createRegather(state: World, label: string): Regather {
+ * compiled once via {@link prepareRegather} before {@link Regather.runApp}. */
+export function createRegather(world: World, label: string): Regather {
     let _eids: GPUBuffer | null = null;
     let _eidCapacity = 0;
     let _eidCombos = 0;
@@ -300,11 +300,11 @@ export function createRegather(state: World, label: string): Regather {
 
     // (re)allocate the per-mesh indirect args (one DrawIndexedIndirect record per casting draw); grows as the
     // casting-draw count rises, invalidating the bind groups on grow
-    function ensureArgs(state: World, count: number): void {
+    function ensureArgs(world: World, count: number): void {
         if (_args && _argsCap >= count) return;
         _args?.destroy();
         _argsCap = Math.max(count, 8);
-        _args = state.gpu.device.createBuffer({
+        _args = world.gpu.device.createBuffer({
             label: `sear-${label}-shadow-args`,
             size: _argsCap * SHADOW_ARG_STRIDE,
             usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -314,11 +314,11 @@ export function createRegather(state: World, label: string): Regather {
     }
 
     // (re)allocate the meta buffer to hold `combos + draws` u32 (the combo slots then the draw pairs)
-    function ensureMeta(state: World, n: number, runIndex: number): GPUBuffer {
+    function ensureMeta(world: World, n: number, runIndex: number): GPUBuffer {
         if (_meta[runIndex] && _metaCap[runIndex] >= n) return _meta[runIndex];
         _meta[runIndex]?.destroy();
         const cap = Math.max(n, 64);
-        const buffer = state.gpu.device.createBuffer({
+        const buffer = world.gpu.device.createBuffer({
             label: `sear-${label}-regather-meta-${runIndex}`,
             size: cap * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -331,10 +331,10 @@ export function createRegather(state: World, label: string): Regather {
         return buffer;
     }
 
-    function params(state: World, runIndex: number): GPUBuffer {
+    function params(world: World, runIndex: number): GPUBuffer {
         let buffer = _params[runIndex];
         if (buffer) return buffer;
-        buffer = state.gpu.device.createBuffer({
+        buffer = world.gpu.device.createBuffer({
             label: `sear-${label}-regather-params-${runIndex}`,
             size: 16,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -343,10 +343,10 @@ export function createRegather(state: World, label: string): Regather {
         return buffer;
     }
 
-    // Pass A bind group (drawArgs + meta → args). `drawArgs` is the Part pack's shared indirect buffer (read
+    // Pass A bind group (drawArgs + meta → args). `drawArgs` is the MeshInstance pack's shared indirect buffer (read
     // from a casting Draw — sear stays part-agnostic), which reallocs on pack growth
     function aGroup(
-        state: World,
+        world: World,
         drawArgs: GPUBuffer,
         meta: GPUBuffer,
         runIndex: number,
@@ -360,14 +360,14 @@ export function createRegather(state: World, label: string): Regather {
         ) {
             return cached.group;
         }
-        const group = state.gpu.device.createBindGroup({
+        const group = world.gpu.device.createBindGroup({
             label: `sear-${label}-regather-a`,
-            layout: regatherState(state).aLayout!,
+            layout: regatherState(world).aLayout!,
             entries: [
                 { binding: 0, resource: { buffer: drawArgs } },
                 { binding: 1, resource: { buffer: meta } },
                 { binding: 2, resource: { buffer: _args! } },
-                { binding: 3, resource: { buffer: params(state, runIndex) } },
+                { binding: 3, resource: { buffer: params(world, runIndex) } },
             ],
         });
         _aGroups[runIndex] = { args: _args!, meta, drawArgs, group };
@@ -376,7 +376,7 @@ export function createRegather(state: World, label: string): Regather {
 
     // Pass B bind group (drawArgs + packedEids + args + meta → eids)
     function bGroup(
-        state: World,
+        world: World,
         drawArgs: GPUBuffer,
         packed: GPUBuffer,
         meta: GPUBuffer,
@@ -393,16 +393,16 @@ export function createRegather(state: World, label: string): Regather {
         ) {
             return cached.group;
         }
-        const group = state.gpu.device.createBindGroup({
+        const group = world.gpu.device.createBindGroup({
             label: `sear-${label}-regather-b`,
-            layout: regatherState(state).bLayout!,
+            layout: regatherState(world).bLayout!,
             entries: [
                 { binding: 0, resource: { buffer: drawArgs } },
                 { binding: 1, resource: { buffer: packed } },
                 { binding: 2, resource: { buffer: _args! } },
                 { binding: 3, resource: { buffer: meta } },
                 { binding: 4, resource: { buffer: _eids! } },
-                { binding: 5, resource: { buffer: params(state, runIndex) } },
+                { binding: 5, resource: { buffer: params(world, runIndex) } },
             ],
         });
         _bGroups[runIndex] = {
@@ -424,7 +424,7 @@ export function createRegather(state: World, label: string): Regather {
             _eids?.destroy();
             _eidCapacity = capacity;
             _eidCombos = maxCombos;
-            _eids = state.gpu.device.createBuffer({
+            _eids = world.gpu.device.createBuffer({
                 label: `sear-${label}-regather-eids`,
                 size: maxCombos * capacity * 16,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -432,7 +432,7 @@ export function createRegather(state: World, label: string): Regather {
             _onAlloc();
         },
         reserve(maxDraws: number): void {
-            ensureArgs(state, maxDraws);
+            ensureArgs(world, maxDraws);
         },
         run(
             cpass,
@@ -452,13 +452,13 @@ export function createRegather(state: World, label: string): Regather {
                     `sear ${label} re-gather run has ${D} draws after a ${_argsCap}-draw reserve`,
                 );
             }
-            const meta = ensureMeta(state, C + D, runIndex);
+            const meta = ensureMeta(world, C + D, runIndex);
             const staging = _metaStaging[runIndex];
             // meta = [combo slots (C) | draw pairs (D)]: the view slot each dense combo packed into (its
             // per-combo culled counts live in drawArgs there), and the (surface,mesh) pair each casting draw owns
             for (let c = 0; c < C; c++) staging[c] = comboSlots[c];
             for (let i = 0; i < D; i++) staging[C + i] = drawPairs[i];
-            state.gpu.device.queue.writeBuffer(
+            world.gpu.device.queue.writeBuffer(
                 meta,
                 0,
                 staging as Uint32Array<ArrayBuffer>,
@@ -468,25 +468,25 @@ export function createRegather(state: World, label: string): Regather {
             _paramsStaging[0] = D;
             _paramsStaging[1] = C;
             _paramsStaging[2] = pairCount;
-            state.gpu.device.queue.writeBuffer(
-                params(state, runIndex),
+            world.gpu.device.queue.writeBuffer(
+                params(world, runIndex),
                 0,
                 _paramsStaging as Uint32Array<ArrayBuffer>,
             );
             // Pass A (per-mesh args, 1 thread) → Pass B (scatter, one thread per (mesh, combo)) in one pass —
-            // the same intra-pass dispatch-ordering the Part pack relies on, so B sees A's args writes
+            // the same intra-pass dispatch-ordering the MeshInstance pack relies on, so B sees A's args writes
             //. The atlas render then sees the compute output by in-encoder ordering
-            cpass.setPipeline(regatherState(state).aPipe!);
-            cpass.setBindGroup(0, aGroup(state, drawArgs, meta, runIndex));
+            cpass.setPipeline(regatherState(world).aPipe!);
+            cpass.setBindGroup(0, aGroup(world, drawArgs, meta, runIndex));
             cpass.dispatchWorkgroups(1);
-            cpass.setPipeline(regatherState(state).bPipe!);
-            cpass.setBindGroup(0, bGroup(state, drawArgs, packedEids, meta, runIndex));
+            cpass.setPipeline(regatherState(world).bPipe!);
+            cpass.setBindGroup(0, bGroup(world, drawArgs, packedEids, meta, runIndex));
             cpass.dispatchWorkgroups(Math.ceil((D * C) / 64));
         },
         reset(onAlloc: () => void): void {
             _onAlloc = onAlloc;
             // the packed list + args + meta allocate lazily on the first casting frame; drop any a prior
-            // State left behind so a fresh State rebuilds its own
+            // World left behind so a fresh World rebuilds its own
             _eids?.destroy();
             _eids = null;
             _eidCapacity = 0;

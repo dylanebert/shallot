@@ -3,35 +3,35 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { PointLight, RenderPlugin } from "../../core/rendering";
 import { Transform } from "../index";
 import { probeBuffer } from "../runtime";
-import { build } from "./index";
+import { createApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
 const peerModule = "bun-webgpu";
 await (await import(peerModule)).setupGlobals();
 
 test("render light inputs upload as active dense table rows", async () => {
-    const app = await build({ defaults: false, plugins: [RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [RenderPlugin] });
     try {
-        const { state } = app;
-        const eid = state.create();
-        state.add(eid, Transform);
-        state.add(eid, PointLight);
-        state.of(Transform).pos.set(eid, 2, 3, 4, 0);
-        state.of(PointLight).color.set(eid, 0xffd9a0);
-        state.of(PointLight).intensity.set(eid, 2.5);
-        state.of(PointLight).range.set(eid, 7);
-        state.of(PointLight).radius.set(eid, 0.25);
+        const { world } = app;
+        const eid = world.create();
+        world.add(eid, Transform);
+        world.add(eid, PointLight);
+        world.storage(Transform).translation.set(eid, 2, 3, 4, 0);
+        world.storage(PointLight).color.set(eid, 0xffd9a0);
+        world.storage(PointLight).intensity.set(eid, 2.5);
+        world.storage(PointLight).range.set(eid, 7);
+        world.storage(PointLight).radius.set(eid, 0.25);
 
-        state.gpu.device.pushErrorScope("validation");
-        state.step(0);
-        await state.gpu.device.queue.onSubmittedWorkDone();
-        expect(await state.gpu.device.popErrorScope()).toBeNull();
-        const active = await probeBuffer(state, state.gpu.buffers.get("lightInputs:active-rows")!, {
+        world.gpu.device.pushErrorScope("validation");
+        world.step(0);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+        expect(await world.gpu.device.popErrorScope()).toBeNull();
+        const active = await probeBuffer(world, world.gpu.buffers.get("lightInputs:active-rows")!, {
             size: 8,
         });
         const [activeEid, row] = new Uint32Array(active.bytes);
         expect(activeEid).toBe(eid);
-        const record = await probeBuffer(state, state.gpu.buffers.get("lightInputs")!, {
+        const record = await probeBuffer(world, world.gpu.buffers.get("lightInputs")!, {
             offset: row * 32,
             size: 32,
         });

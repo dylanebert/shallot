@@ -120,8 +120,8 @@ function restoreClone<T>(
 }
 
 /** Capture detached logical world state plus its own wasm linear-memory image. */
-export function snapshot(world: PhysicsWorld): WorldSnapshot {
-    const state = world.state;
+export function snapshot(physicsWorld: PhysicsWorld): WorldSnapshot {
+    const state = physicsWorld.state;
     return {
         // The ECS owner is identity, not solver data; snapshots never clone or retain it.
         state: clone(
@@ -129,12 +129,12 @@ export function snapshot(world: PhysicsWorld): WorldSnapshot {
             state.ecsState ? new Map<object, unknown>([[state.ecsState, null]]) : new Map(),
             snapshotStores(state),
         ),
-        bytes: new Uint8Array(kernel(world.state.ecsState).memory.buffer).slice(),
+        bytes: new Uint8Array(kernel(physicsWorld.state.ecsState).memory.buffer).slice(),
     };
 }
 
 /** Restore into a live compatible World while its kernel has no other live World. */
-export function restore(world: PhysicsWorld, snapshot: WorldSnapshot): void {
+export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): void {
     if (
         snapshot === null ||
         typeof snapshot !== "object" ||
@@ -144,15 +144,15 @@ export function restore(world: PhysicsWorld, snapshot: WorldSnapshot): void {
     )
         throw new Error("physics: invalid world snapshot");
 
-    if (!world.isValid())
+    if (!physicsWorld.isValid())
         throw new Error("physics: cannot restore a snapshot because its target World is not live");
 
-    if (liveWorldCount(kernel(world.state.ecsState)) > 1)
+    if (liveWorldCount(kernel(physicsWorld.state.ecsState)) > 1)
         throw new Error(
             "physics: cannot restore a snapshot while other live Worlds share its kernel (WASM memory spans the whole kernel)",
         );
 
-    const state = world.state;
+    const state = physicsWorld.state;
     const restored = restoreClone(snapshot.state, new Map(), {
         body: state.bodyStore,
         shape: state.shapeStore,
@@ -172,7 +172,7 @@ export function restore(world: PhysicsWorld, snapshot: WorldSnapshot): void {
         const descriptor = Object.getOwnPropertyDescriptor(restored, key);
         if (descriptor) Object.defineProperty(state, key, descriptor);
     }
-    const memory = kernel(world.state.ecsState).memory;
+    const memory = kernel(physicsWorld.state.ecsState).memory;
     while (memory.buffer.byteLength < snapshot.bytes.byteLength) memory.grow(1);
     new Uint8Array(memory.buffer).set(snapshot.bytes);
     state.broadPhase.store.world = state;

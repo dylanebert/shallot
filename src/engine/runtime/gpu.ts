@@ -129,9 +129,9 @@ export interface WorldGpu {
     /**
      * TypeGPU root adopting {@link device} — the handle every typed buffer, bind group, and pipeline
      * is created through, and the reach-back out (`root.unwrap(...)`) to the raw WebGPU handle.
-     * Created by {@link requestGPU} for the owning State (never at import time — the module stays
+     * Created by {@link requestGPU} for the owning World (never at import time — the module stays
      * side-effect free), so two States sharing a device still own distinct typed handles. It has no
-     * teardown of its own; GPU resources are tracked and released with the State.
+     * teardown of its own; GPU resources are tracked and released with the World.
      */
     readonly root: TgpuRoot;
     /** monotonically incremented per frame */
@@ -864,12 +864,12 @@ function compile({ label, force }: Forcer): unknown {
  * });
  */
 export function precompile(
-    state: World,
+    world: World,
     label: string,
     force: () => unknown,
     options: { after?: readonly string[] } = {},
 ): Promise<void> {
-    const _precompileState = state.resource(precompileState);
+    const _precompileState = world.resource(precompileState);
 
     if (_precompileState.labels.has(label)) {
         throw new Error(`duplicate precompile label "${label}"`);
@@ -878,8 +878,8 @@ export function precompile(
     const forcer = { label, force, after: options.after ?? [], order: _precompileState.order++ };
     if (_precompileState.drained) {
         const completion = _precompileState.late.then(
-            () => compileValidated(state, forcer),
-            () => compileValidated(state, forcer),
+            () => compileValidated(world, forcer),
+            () => compileValidated(world, forcer),
         );
         // Device error scopes are a stack: serialize unrelated late factories so their pops stay LIFO.
         _precompileState.late = completion.catch(() => {});
@@ -896,7 +896,7 @@ export function precompile(
  * a unique {@link precompile} label prefix for a factory an app can instantiate more than once (the
  * BVH stages: a scene builds one BVH, the physics broadphase another). The first instance keeps the
  * bare `prefix`, so a single-instance app's labels — and their profiler rows — read unchanged; every
- * later one gets `prefix-2`, `prefix-3`, … Counts and labels belong to the supplied State.
+ * later one gets `prefix-2`, `prefix-3`, … Counts and labels belong to the supplied World.
  *
  * A scoped label is therefore not a fixed string, so it can't be named by another forcer's `after`
  * (which would silently degrade to the missing-predecessor case). Scope only a factory nothing
@@ -905,8 +905,8 @@ export function precompile(
  * const scope = precompileScope(state, "radix"); // "radix", then "radix-2", …
  * precompile(state, `${scope}-init`, () => initBound);
  */
-export function precompileScope(state: World, prefix: string): string {
-    const _precompileState = state.resource(precompileState);
+export function precompileScope(world: World, prefix: string): string {
+    const _precompileState = world.resource(precompileState);
 
     const n = (_precompileState.scopes.get(prefix) ?? 0) + 1;
     _precompileState.scopes.set(prefix, n);
@@ -1018,7 +1018,7 @@ async function compileBody(
  * an importer builds from workspace source, so renaming this silently breaks that wire.
  *
  * Async-only coverage: a measure is emitted only when a forcer actually awaited `initAsync`
- * ({@link compileBody}'s `warmed`), the same gate `state.gpu.precompiled` reports through — a
+ * ({@link compileBody}'s `warmed`), the same gate `world.gpu.precompiled` reports through — a
  * non-forced sync pipeline records a near-zero stub (TypeGPU returns before the driver compiles),
  * so no vital is emitted for it.
  * @internal
@@ -1026,20 +1026,20 @@ async function compileBody(
 export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
 
 /**
- * report one forcer's compile timing — {@link state.gpu.precompiled} plus the paired
+ * report one forcer's compile timing — {@link world.gpu.precompiled} plus the paired
  * `performance.measure` entry — once {@link compileBody} has resolved. A forcer that never awaited a
  * real `initAsync` (sear's raw-pipeline array, or `[]`) is not warmed, so nothing is reported;
  * attributing that skip as a compile is the still-unwarmed path reporting warm.
  */
 function reportCompile(
-    state: World,
+    world: World,
     forcer: Forcer,
     warmed: boolean,
     start: number,
     end: number,
 ): void {
     if (!warmed) return;
-    state.gpu.precompiled?.(forcer.label, start, end);
+    world.gpu.precompiled?.(forcer.label, start, end);
     // telemetry must never throw into the validation path — a User Timing entry is a nice-to-have
     // for the site's RUM script, not a build-breaking dependency, so a missing or throwing
     // `performance.measure` (an older runtime, a locked-down embedder) is swallowed.
@@ -1058,11 +1058,11 @@ function reportCompile(
 /** the serial per-forcer path: one `validateGpu` scope, one {@link compileBody}, one report. Used for
  *  a single-member level, for a late arrival past `_drained` ({@link precompile}'s own branch), and as
  *  {@link precompileAll}'s batch-then-bisect fallback when a multi-member level's shared scope fails. */
-async function compileValidated(state: World, forcer: Forcer): Promise<void> {
-    const { warmed, start, end } = await validateGpu(state.gpu.device, forcer.label, () =>
+async function compileValidated(world: World, forcer: Forcer): Promise<void> {
+    const { warmed, start, end } = await validateGpu(world.gpu.device, forcer.label, () =>
         compileBody(forcer),
     );
-    reportCompile(state, forcer, warmed, start, end);
+    reportCompile(world, forcer, warmed, start, end);
 }
 
 /**
@@ -1078,8 +1078,8 @@ async function compileValidated(state: World, forcer: Forcer): Promise<void> {
  * removal has no such snapshot to go stale, since it reads `_precompile`'s live contents at the
  * moment it runs, not a copy taken earlier.
  */
-function removeForcers(state: World, drained: readonly Forcer[]): void {
-    const _precompileState = state.resource(precompileState);
+function removeForcers(world: World, drained: readonly Forcer[]): void {
+    const _precompileState = world.resource(precompileState);
 
     if (drained.length === 0) return;
     const set = new Set(drained);
@@ -1111,8 +1111,8 @@ function removeForcers(state: World, drained: readonly Forcer[]): void {
  * for a later {@link precompileAll} call, so nothing is silently dropped.
  * @internal
  */
-export async function precompileAll(state: World): Promise<void> {
-    const _precompileState = state.resource(precompileState);
+export async function precompileAll(world: World): Promise<void> {
+    const _precompileState = world.resource(precompileState);
 
     if (_precompileState.draining) return;
     _precompileState.draining = true;
@@ -1126,7 +1126,7 @@ export async function precompileAll(state: World): Promise<void> {
                 // and this splice, so a stale snapshot here is not reachable.
                 const rest = levels.slice(1).flat();
                 _precompileState.precompile.splice(0, _precompileState.precompile.length, ...rest);
-                await compileValidated(state, level[0]);
+                await compileValidated(world, level[0]);
                 continue;
             }
 
@@ -1135,7 +1135,7 @@ export async function precompileAll(state: World): Promise<void> {
                 | { forcer: Forcer; warmed: boolean; start: number; end: number }[]
                 | undefined;
             try {
-                results = await validateGpu(state.gpu.device, scopeLabel, () =>
+                results = await validateGpu(world.gpu.device, scopeLabel, () =>
                     Promise.all(
                         level.map(async (forcer) => ({ forcer, ...(await compileBody(forcer)) })),
                     ),
@@ -1145,9 +1145,9 @@ export async function precompileAll(state: World): Promise<void> {
             }
 
             if (results) {
-                removeForcers(state, level);
+                removeForcers(world, level);
                 for (const { forcer, warmed, start, end } of results) {
-                    reportCompile(state, forcer, warmed, start, end);
+                    reportCompile(world, forcer, warmed, start, end);
                 }
                 continue;
             }
@@ -1156,13 +1156,13 @@ export async function precompileAll(state: World): Promise<void> {
             let ranThrough = 0;
             try {
                 for (; ranThrough < level.length; ranThrough++) {
-                    await compileValidated(state, level[ranThrough]);
+                    await compileValidated(world, level[ranThrough]);
                 }
             } finally {
                 // indices [0, ranThrough] actually ran (succeeded, or the thrower itself) — remove
                 // exactly those, by identity, so anything appended during any of these awaits (the
                 // batch attempt's, or a serial member's) survives into the next iteration.
-                removeForcers(state, level.slice(0, ranThrough + 1));
+                removeForcers(world, level.slice(0, ranThrough + 1));
             }
         }
         _precompileState.drained = true;
@@ -1171,7 +1171,7 @@ export async function precompileAll(state: World): Promise<void> {
     }
 }
 
-// TypeGPU's root and resource handles belong to the State using them, even when two States share a device.
+// TypeGPU's root and resource handles belong to the World using them, even when two States share a device.
 const typegpuRoot: Resource<{ root?: TgpuRoot }> = { create: () => ({}) };
 
 function adopt(
@@ -1211,8 +1211,8 @@ export function stampAdapter(
  * any `features` the active plugins require), throwing {@link UnsupportedError}
  * otherwise. `preferred` features are requested only where the adapter has them
  * (never gating the device). Pass an external device to adopt it as-is; the caller
- * is responsible for feature support. Either way the device is adopted by {@link state.gpu.root}, the
- * TypeGPU handle typed resources are created through — one root belongs to the owning State, even when
+ * is responsible for feature support. Either way the device is adopted by {@link world.gpu.root}, the
+ * TypeGPU handle typed resources are created through — one root belongs to the owning World, even when
  * two States adopt the same device.
  */
 export async function requestGPU(
@@ -1394,7 +1394,7 @@ async function acquireDevice(
         maxStorageBuffersPerShaderStage: REQUIRED_STORAGE_BUFFERS_PER_STAGE,
     };
     // Older implementations expose the split-stage limits as zero even though the unified limit
-    // governs them. State zero explicitly so their requestDevice wrappers don't substitute the
+    // governs them. World zero explicitly so their requestDevice wrappers don't substitute the
     // newer spec defaults as impossible requirements.
     for (const limit of [
         "maxStorageBuffersInVertexStage",

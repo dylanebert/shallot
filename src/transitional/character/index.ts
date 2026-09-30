@@ -1,5 +1,5 @@
 // Destination: standard/physics; owner: physics-boundary.md.
-import { FIXED_DT, f32, type Plugin, type World, type System } from "../../engine";
+import { f32, type Plugin, type System, Time, type World } from "../../engine";
 import {
     Body,
     type BodyStateOut,
@@ -9,7 +9,7 @@ import {
     physicsWorld,
     readBody,
     ShapeKind,
-    StepSystem,
+    StepPhysicsSystem,
     setKinematic,
     setVelocity,
 } from "../physics";
@@ -17,7 +17,7 @@ import { driveFor, resetDrive } from "./drive";
 import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 
 // Character is the kinematic capsule controller that Player composes. Its Body is produced by the CPU
-// sweep: each fixed tick CharacterSweepSystem runs collide-and-slide before the physics solve, writes the
+// sweep: each fixed tick SweepCharactersSystem runs collide-and-slide before the physics solve, writes the
 // swept GlobalTransform through setKinematic, and the solver collides dynamics against that same tick's
 // body. The CPU sweep reads other bodies through readBody; there is no readback in this path.
 //
@@ -36,8 +36,8 @@ const _worldGravity = { x: 0, y: 0, z: 0 };
  *
  * @example
  * ```
- * const body = state.create();
- * state.add(body, Body); state.add(body, Character);
+ * const body = world.create();
+ * world.add(body, Body); world.add(body, Character);
  * Body.shape.set(body, ShapeKind.Capsule);
  * Body.halfExtents.set(body, 0, 0.5, 0, 0.3); Body.mass.set(body, 0);
  * Character.jumpSpeed.set(body, 5);   // 0 = no jump
@@ -71,36 +71,36 @@ const sigBits = (x: number): number => {
 // query terms held once, so a steady signature mints no array.
 const CHARACTER_TERMS = [Character, Body];
 
-function signature(state: World): number {
+function signature(world: World): number {
     let h = FNV_BASIS;
-    for (const eid of state.query(CHARACTER_TERMS)) {
+    for (const eid of world.query(CHARACTER_TERMS)) {
         h = fold(h, eid);
-        h = fold(h, state.stamp(eid));
-        h = fold(h, sigBits(state.of(Character).maxSlope.get(eid)));
-        h = fold(h, sigBits(state.of(Character).jumpSpeed.get(eid)));
-        h = fold(h, sigBits(state.of(Character).gravity.get(eid)));
+        h = fold(h, world.generation(eid));
+        h = fold(h, sigBits(world.storage(Character).maxSlope.get(eid)));
+        h = fold(h, sigBits(world.storage(Character).jumpSpeed.get(eid)));
+        h = fold(h, sigBits(world.storage(Character).gravity.get(eid)));
     }
     return h;
 }
 
 // build a fresh controller state from a character's authored Body placement, capsule geometry and walkable-slope cutoff. Velocity / grounded / jump timers start cleared (a dropped capsule falls to rest).
-function buildState(state: World, eid: number): CharState {
+function buildState(world: World, eid: number): CharState {
     return {
         pos: [
-            state.of(Body).pos.x.get(eid),
-            state.of(Body).pos.y.get(eid),
-            state.of(Body).pos.z.get(eid),
+            world.storage(Body).position.x.get(eid),
+            world.storage(Body).position.y.get(eid),
+            world.storage(Body).position.z.get(eid),
         ],
         quat: [
-            state.of(Body).quat.x.get(eid),
-            state.of(Body).quat.y.get(eid),
-            state.of(Body).quat.z.get(eid),
-            state.of(Body).quat.w.get(eid),
+            world.storage(Body).rotation.x.get(eid),
+            world.storage(Body).rotation.y.get(eid),
+            world.storage(Body).rotation.z.get(eid),
+            world.storage(Body).rotation.w.get(eid),
         ],
-        half: state.of(Body).halfExtents.y.get(eid),
-        radius: state.of(Body).halfExtents.w.get(eid),
-        maxSlopeCos: Math.cos(state.of(Character).maxSlope.get(eid) * DEG),
-        jumpSpeed: state.of(Character).jumpSpeed.get(eid),
+        half: world.storage(Body).halfExtents.y.get(eid),
+        radius: world.storage(Body).halfExtents.w.get(eid),
+        maxSlopeCos: Math.cos(world.storage(Character).maxSlope.get(eid) * DEG),
+        jumpSpeed: world.storage(Character).jumpSpeed.get(eid),
         vel: [0, 0, 0],
         realizedVel: [0, 0, 0],
         grounded: false,
@@ -113,26 +113,26 @@ function buildState(state: World, eid: number): CharState {
 // re-sync `states` to the authored `[Character, Body]` set on a signature change. A new character builds a
 // fresh state; an existing one KEEPS its live Body position and motion (the controller owns the fixed-tick
 // GlobalTransform — a sibling spawn must not reset a walking character) and only picks up a tuning edit; a
-// removed one is dropped. A fresh State starts with `states` empty, so its first sync reads authored Body fields.
-function syncStates(state: World): void {
-    const drive = driveFor(state);
-    const sig = signature(state);
+// removed one is dropped. A fresh World starts with `states` empty, so its first sync reads authored Body fields.
+function syncStates(world: World): void {
+    const drive = driveFor(world);
+    const sig = signature(world);
     if (sig === drive.signature) return;
     drive.signature = sig;
-    rebuildStates(state, drive);
+    rebuildStates(world, drive);
 }
 
-function rebuildStates(state: World, drive: ReturnType<typeof driveFor>): void {
+function rebuildStates(world: World, drive: ReturnType<typeof driveFor>): void {
     const seen = new Set<number>();
-    for (const eid of state.query([Character, Body])) {
+    for (const eid of world.query([Character, Body])) {
         seen.add(eid);
-        const stamp = state.stamp(eid);
+        const stamp = world.generation(eid);
         const st = drive.states.get(eid);
         if (st && drive.stamps.get(eid) === stamp) {
-            st.maxSlopeCos = Math.cos(state.of(Character).maxSlope.get(eid) * DEG);
-            st.jumpSpeed = state.of(Character).jumpSpeed.get(eid);
-            st.half = state.of(Body).halfExtents.y.get(eid);
-            st.radius = state.of(Body).halfExtents.w.get(eid);
+            st.maxSlopeCos = Math.cos(world.storage(Character).maxSlope.get(eid) * DEG);
+            st.jumpSpeed = world.storage(Character).jumpSpeed.get(eid);
+            st.half = world.storage(Body).halfExtents.y.get(eid);
+            st.radius = world.storage(Body).halfExtents.w.get(eid);
         } else {
             if (st) {
                 // realias: drive input keyed to the destroyed owner is stale. A fresh spawn keeps
@@ -140,7 +140,7 @@ function rebuildStates(state: World, drive: ReturnType<typeof driveFor>): void {
                 drive.moves.delete(eid);
                 drive.jumped.delete(eid);
             }
-            drive.states.set(eid, buildState(state, eid));
+            drive.states.set(eid, buildState(world, eid));
             drive.stamps.set(eid, stamp);
         }
     }
@@ -163,7 +163,11 @@ const _statics: SweepBody[] = [];
 const _push: SweepBody[] = [];
 const _pushEids: number[] = [];
 const _pushVel0: number[] = []; // pre-sweep dynamic velocities, to detect which the push actually shoved
-const _live: BodyStateOut = { pos: [0, 0, 0], quat: [0, 0, 0, 1], vel: [0, 0, 0] };
+const _live: BodyStateOut = {
+    position: [0, 0, 0],
+    rotation: [0, 0, 0, 1],
+    linearVelocity: [0, 0, 0],
+};
 const _input: [number, number, number] = [0, 0, 0];
 const BODY_TERMS = [Body];
 
@@ -189,19 +193,19 @@ const hullById = (id: number): Hull | undefined => Hulls.get(Hulls.name(id) ?? "
 // through the backend read seam — the static world is unchanged by the possible one-tick lag, and one-tick-old
 // dynamic or platform data is fine), run collide-and-slide, upload the result as a kinematic body, and apply
 // full-speed pushes to shoved dynamics (variant A — the CPU writes swept velocity directly through `setVelocity`).
-function sweepEid(eid: number, st: CharState, state: World): void {
+function sweepEid(eid: number, st: CharState, world: World): void {
     let pi = 0;
     let ns = 0;
     let np = 0;
-    for (const b of state.query(BODY_TERMS)) {
+    for (const b of world.query(BODY_TERMS)) {
         if (b === eid) continue; // the character never collides against itself (it IS `start`)
-        const shape = state.of(Body).shape.get(b);
+        const shape = world.storage(Body).shape.get(b);
         const sb = poolBody(pi++);
         sb.shape = shape;
-        sb.half[0] = state.of(Body).halfExtents.x.get(b);
-        sb.half[1] = state.of(Body).halfExtents.y.get(b);
-        sb.half[2] = state.of(Body).halfExtents.z.get(b);
-        const hw = state.of(Body).halfExtents.w.get(b); // a rounding radius (sphere/capsule) OR a hull id (shape 3)
+        sb.half[0] = world.storage(Body).halfExtents.x.get(b);
+        sb.half[1] = world.storage(Body).halfExtents.y.get(b);
+        sb.half[2] = world.storage(Body).halfExtents.z.get(b);
+        const hw = world.storage(Body).halfExtents.w.get(b); // a rounding radius (sphere/capsule) OR a hull id (shape 3)
         if (shape === ShapeKind.Hull) {
             sb.radius = 0;
             sb.hull = hullById(hw);
@@ -209,33 +213,33 @@ function sweepEid(eid: number, st: CharState, state: World): void {
             sb.radius = hw;
             sb.hull = undefined;
         }
-        const live = readBody(state, b, _live);
+        const live = readBody(world, b, _live);
         if (live) {
-            sb.pos[0] = live.pos[0];
-            sb.pos[1] = live.pos[1];
-            sb.pos[2] = live.pos[2];
-            sb.quat[0] = live.quat[0];
-            sb.quat[1] = live.quat[1];
-            sb.quat[2] = live.quat[2];
-            sb.quat[3] = live.quat[3];
-            sb.vel[0] = live.vel[0];
-            sb.vel[1] = live.vel[1];
-            sb.vel[2] = live.vel[2];
+            sb.pos[0] = live.position[0];
+            sb.pos[1] = live.position[1];
+            sb.pos[2] = live.position[2];
+            sb.quat[0] = live.rotation[0];
+            sb.quat[1] = live.rotation[1];
+            sb.quat[2] = live.rotation[2];
+            sb.quat[3] = live.rotation[3];
+            sb.vel[0] = live.linearVelocity[0];
+            sb.vel[1] = live.linearVelocity[1];
+            sb.vel[2] = live.linearVelocity[2];
         } else {
             // cold start (no live Body state yet): authored Body placement, velocity 0 — correct for the static
             // collision world the character needs from frame 1, and a freshly spawned dynamic hasn't moved.
-            sb.pos[0] = state.of(Body).pos.x.get(b);
-            sb.pos[1] = state.of(Body).pos.y.get(b);
-            sb.pos[2] = state.of(Body).pos.z.get(b);
-            sb.quat[0] = state.of(Body).quat.x.get(b);
-            sb.quat[1] = state.of(Body).quat.y.get(b);
-            sb.quat[2] = state.of(Body).quat.z.get(b);
-            sb.quat[3] = state.of(Body).quat.w.get(b);
+            sb.pos[0] = world.storage(Body).position.x.get(b);
+            sb.pos[1] = world.storage(Body).position.y.get(b);
+            sb.pos[2] = world.storage(Body).position.z.get(b);
+            sb.quat[0] = world.storage(Body).rotation.x.get(b);
+            sb.quat[1] = world.storage(Body).rotation.y.get(b);
+            sb.quat[2] = world.storage(Body).rotation.z.get(b);
+            sb.quat[3] = world.storage(Body).rotation.w.get(b);
             sb.vel[0] = 0;
             sb.vel[1] = 0;
             sb.vel[2] = 0;
         }
-        if (state.of(Body).mass.get(b) > 0) {
+        if (world.storage(Body).mass.get(b) > 0) {
             _pushEids[np] = b;
             _push[np++] = sb;
         } else {
@@ -245,14 +249,14 @@ function sweepEid(eid: number, st: CharState, state: World): void {
     if (_statics.length !== ns) _statics.length = ns;
     if (_push.length !== np) _push.length = np;
 
-    const drive = driveFor(state);
+    const drive = driveFor(world);
     const m = drive.moves.get(eid);
     const input = _input;
     input[0] = m ? m[0] : 0;
     input[2] = m ? m[1] : 0;
-    const g = state.of(Character).gravity.get(eid);
+    const g = world.storage(Character).gravity.get(eid);
     const gravity =
-        g !== 0 ? g : (physicsWorld(state)?.getGravity(_worldGravity).y ?? Physics.gravity);
+        g !== 0 ? g : (physicsWorld(world)?.getGravity(_worldGravity).y ?? Physics.gravity);
 
     // snapshot the dynamics' velocities so we can tell which the sweep actually shoved (the push loop only
     // mutates a touched dynamic's `vel`) — a no-op velocity rewrite would wake every nearby resting body.
@@ -263,11 +267,11 @@ function sweepEid(eid: number, st: CharState, state: World): void {
         _pushVel0[3 * i + 2] = v[2];
     }
 
-    sweepCharacter(st, input, _statics, gravity, FIXED_DT, drive.jumped.has(eid), _push);
+    sweepCharacter(st, input, _statics, gravity, Time.FIXED_DT, drive.jumped.has(eid), _push);
 
     // kinematic upload — the swept position and rotation, with realized velocity (snap excluded) so the carry
     // of riders and broadphase pad follow actual motion, not the cosmetic ground snap.
-    setKinematic(state, eid, st.pos, st.quat, false, st.realizedVel);
+    setKinematic(world, eid, st.pos, st.quat, false, st.realizedVel);
 
     // full-speed push (variant A): write each shoved dynamic's new velocity straight through the backend.
     // setVelocity wakes the body, so apply it only to the ones the sweep changed.
@@ -278,12 +282,12 @@ function sweepEid(eid: number, st: CharState, state: World): void {
             v[1] !== _pushVel0[3 * i + 1] ||
             v[2] !== _pushVel0[3 * i + 2]
         ) {
-            setVelocity(state, _pushEids[i], v[0], v[1], v[2]);
+            setVelocity(world, _pushEids[i], v[0], v[1], v[2]);
         }
     }
 }
 
-// the map walk's callback, given the State as its `this`, so a steady update mints no entries iterator.
+// the map walk's callback, given the World as its `this`, so a steady update mints no entries iterator.
 function sweepEach(this: World, st: CharState, eid: number): void {
     sweepEid(eid, st, this);
 }
@@ -292,18 +296,18 @@ function sweepEach(this: World, st: CharState, eid: number): void {
 /**
  * The kinematic-character sweep runs collide-and-slide for every `[Character, Body]` each fixed step before
  * the physics solve and updates the body's GlobalTransform through the physics backend. A follower that reads
- * GlobalTransform (a camera or attached prop) declares `after: [CharacterSweepSystem]` to read this tick's value.
+ * GlobalTransform (a camera or attached prop) declares `after: [SweepCharactersSystem]` to read this tick's value.
  */
-export const CharacterSweepSystem: System = {
+export const SweepCharactersSystem: System = {
     name: "character",
     group: "fixed",
-    before: [StepSystem],
-    update(state: World) {
-        if (!physicsWorld(state)) return;
-        syncStates(state);
-        const drive = driveFor(state);
+    before: [StepPhysicsSystem],
+    update(world: World) {
+        if (!physicsWorld(world)) return;
+        syncStates(world);
+        const drive = driveFor(world);
         if (drive.states.size === 0) return;
-        drive.states.forEach(sweepEach, state);
+        drive.states.forEach(sweepEach, world);
         if (drive.jumped.size !== 0) drive.jumped.clear();
     },
 };
@@ -315,7 +319,7 @@ export const CharacterSweepSystem: System = {
 export const CharacterPlugin: Plugin = {
     name: "Character",
     components: { Character },
-    systems: [CharacterSweepSystem],
+    systems: [SweepCharactersSystem],
     traits: {
         Character: {
             requires: [Body],
@@ -326,8 +330,8 @@ export const CharacterPlugin: Plugin = {
             }),
         },
     },
-    dispose(state: World) {
-        resetDrive(state);
+    dispose(world: World) {
+        resetDrive(world);
     },
 };
 

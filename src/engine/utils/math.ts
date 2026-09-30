@@ -71,7 +71,7 @@ export function slerp(
 }
 
 /** quaternion from euler angles in degrees (XYZ order) */
-export function quat(
+export function eulerToQuat(
     x: number,
     y: number,
     z: number,
@@ -95,7 +95,7 @@ export function quat(
 }
 
 /** euler angles in degrees (XYZ order) from a quaternion */
-export function euler(
+export function quatToEuler(
     x: number,
     y: number,
     z: number,
@@ -136,7 +136,7 @@ export function euler(
 }
 
 /** apply an euler delta (degrees, XYZ order) to a quaternion */
-export function rotate(
+export function rotateQuatByEuler(
     qx: number,
     qy: number,
     qz: number,
@@ -248,7 +248,7 @@ export function orthographic(
 }
 
 /** column-major mat4 from translation (px, py, pz), quaternion (qx, qy, qz, qw), scale (sx, sy, sz) */
-export function compose(
+export function composeMat4(
     px: number,
     py: number,
     pz: number,
@@ -295,16 +295,16 @@ export function compose(
 
 /**
  * decompose a column-major TRS matrix into `[px,py,pz, qx,qy,qz,qw, sx,sy,sz]`, the inverse of
- * {@link compose}. Scale is each basis column's length (`sx` negated when the determinant is negative, so
+ * {@link composeMat4}. Scale is each basis column's length (`sx` negated when the determinant is negative, so
  * the extracted rotation stays proper); the quaternion is read from the scale-normalized rotation columns
  * (Shepperd). Exact only for a similarity transform (T·R·scale); shear / non-uniform-scale-under-rotation
  * can't be captured by a TRS triple, so a caller that may see either measures the residual against a
  * recomposed matrix.
  *
  * @example
- * const trs = decompose(compose(1, 2, 3, 0, 0, 0, 1, 2, 2, 2)); // → [1,2,3, 0,0,0,1, 2,2,2]
+ * const trs = decomposeMat4(composeMat4(1, 2, 3, 0, 0, 0, 1, 2, 2, 2)); // → [1,2,3, 0,0,0,1, 2,2,2]
  */
-export function decompose(m: Float32Array, out?: Float32Array): Float32Array {
+export function decomposeMat4(m: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(10);
     // basis column lengths are the scale; flip sx on a mirrored (det < 0) frame to keep R proper
     let sx = Math.hypot(m[0], m[1], m[2]);
@@ -372,7 +372,7 @@ export function decompose(m: Float32Array, out?: Float32Array): Float32Array {
 }
 
 /** mat4 × mat4, column-major. `out` must not alias `a` or `b` — the element-wise write-back corrupts the read. */
-export function multiply(a: Float32Array, b: Float32Array, out?: Float32Array): Float32Array {
+export function multiplyMat4(a: Float32Array, b: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(16);
     for (let i = 0; i < 4; i++) {
         for (let j = 0; j < 4; j++) {
@@ -387,7 +387,7 @@ export function multiply(a: Float32Array, b: Float32Array, out?: Float32Array): 
 }
 
 /** general mat4 inverse; a singular matrix zeroes `out` and returns it (an all-zero matrix) */
-export function invert(m: Float32Array, out?: Float32Array): Float32Array {
+export function invertMat4(m: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(16);
 
     const a00 = m[0],
@@ -592,7 +592,7 @@ export function lookAt(
 }
 
 /** rotation quaternion that points an object at eye toward target */
-export function aim(
+export function lookAtRotation(
     eyeX: number,
     eyeY: number,
     eyeZ: number,

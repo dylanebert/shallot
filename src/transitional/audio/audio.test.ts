@@ -5,19 +5,19 @@ import {
     Devices,
     play,
     Sound,
-    World,
     sample,
     sfx,
+    World,
 } from "@dylanebert/shallot";
 import { Audio, alloc, gate, tickAudio } from "./device";
 
-test("each State uploads each sample version once to its own worklet", () => {
+test("each World uploads each sample version once to its own worklet", () => {
     const a = new World();
     const b = new World();
     const id = sample(new Float32Array([0.25]), "recipient-sample");
     const received: object[][] = [[], []];
-    for (const [i, state] of [a, b].entries()) {
-        state.resource(Audio).node = {
+    for (const [i, world] of [a, b].entries()) {
+        world.resource(Audio).node = {
             port: {
                 postMessage: (batch: { commands: object[] }) => received[i].push(...batch.commands),
             },
@@ -44,7 +44,7 @@ test("each State uploads each sample version once to its own worklet", () => {
     b.dispose();
 });
 
-test("SFX cooldown progress belongs to the State that admitted the trigger", () => {
+test("SFX cooldown progress belongs to the World that admitted the trigger", () => {
     const a = new World();
     const b = new World();
     sample(new Float32Array([0]), "recipient-cooldown");
@@ -57,7 +57,7 @@ test("SFX cooldown progress belongs to the State that admitted the trigger", () 
     b.dispose();
 });
 
-test("audio voice slots and worklet queues belong to their explicit State", () => {
+test("audio voice slots and worklet queues belong to their explicit World", () => {
     const a = new World();
     const b = new World();
     const first = a.resource(Audio);
@@ -76,24 +76,24 @@ test("audio voice slots and worklet queues belong to their explicit State", () =
     b.dispose();
 });
 
-test("a suspended State drops a one-shot Sound while leaving a loop pending for resume", () => {
-    const state = new World();
-    for (const system of AudioPlugin.systems ?? []) state.addSystem(system, AudioPlugin.name);
+test("a suspended World drops a one-shot Sound while leaving a loop pending for resume", () => {
+    const world = new World();
+    for (const system of AudioPlugin.systems ?? []) world.addSystem(system, AudioPlugin.name);
     sample(new Float32Array([0]), "s4-suspended-audio");
-    audioContextState(state, "suspended");
-    const oneShot = play(state, "s4-suspended-audio");
-    const loop = play(state, "s4-suspended-audio", { loop: true });
+    audioContextState(world, "suspended");
+    const oneShot = play(world, "s4-suspended-audio");
+    const loop = play(world, "s4-suspended-audio", { loop: true });
     if (oneShot < 0 || loop < 0) throw new Error("test sounds did not spawn");
-    state.of(Sound).voice.set(loop, -1);
-    state.step(0);
-    if (state.exists(oneShot)) throw new Error("suspended one-shot was not dropped");
+    world.storage(Sound).voice.set(loop, -1);
+    world.step(0);
+    if (world.exists(oneShot)) throw new Error("suspended one-shot was not dropped");
     if (
-        !state.exists(loop) ||
-        state.of(Sound).loop.get(loop) !== 1 ||
-        state.of(Sound).voice.get(loop) !== -1
+        !world.exists(loop) ||
+        world.storage(Sound).loop.get(loop) !== 1 ||
+        world.storage(Sound).voice.get(loop) !== -1
     )
         throw new Error("suspended loop was not left pending");
-    if (state.resource(Devices).audio.context !== "suspended")
+    if (world.resource(Devices).audio.context !== "suspended")
         throw new Error("audio state changed");
-    state.dispose();
+    world.dispose();
 });

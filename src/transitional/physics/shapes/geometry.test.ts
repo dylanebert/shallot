@@ -60,8 +60,8 @@ const capsuleGold = (name: string) => gold.capsules.find((c) => c.name === name)
 
 /** Keep the authoring gold on its existing builders while driving shape lifetime through production. */
 function exercisePublicShapeLifecycle(): void {
-    const world = new PhysicsWorld();
-    const body = world.createBody({ type: BodyType.Dynamic });
+    const physicsWorld = new PhysicsWorld();
+    const body = physicsWorld.createBody({ type: BodyType.Dynamic });
     const stale = body.createSphere({}, { center: v(0, 0, 0), radius: 0.5 });
     const capsule = body.createCapsule(
         {},
@@ -81,7 +81,7 @@ function exercisePublicShapeLifecycle(): void {
     capsule.destroy(false);
     reused.destroy(false);
     body.destroy();
-    world.destroy();
+    physicsWorld.destroy();
 }
 
 test("computeSphereMass or computeCapsuleMass drifts from the Box3D C reference's f32 bits for a sphere or capsule vector, including the ragdoll bone capsule where an unrounded 0.4 sphere-inertia literal costs a ULP", () => {

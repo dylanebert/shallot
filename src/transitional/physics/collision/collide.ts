@@ -123,7 +123,7 @@ const centerBScratch: Vec3 = { x: 0, y: 0, z: 0 };
 const tangentAScratch: Vec3 = { x: 0, y: 0, z: 0 };
 const tangentBScratch: Vec3 = { x: 0, y: 0, z: 0 };
 
-// state.gpu the convex-convex manifold and map it into the contact's persistent manifold, carrying
+// world.gpu the convex-convex manifold and map it into the contact's persistent manifold, carrying
 // warm-start impulses forward by feature id (b3ComputeConvexManifold). The manifold is column-resident
 // (world.manifoldStore); anchors/normal are written through the pool-backed view.
 function computeConvexManifold(

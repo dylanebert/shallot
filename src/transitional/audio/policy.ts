@@ -17,7 +17,7 @@ export interface SfxPolicy {
 }
 
 const policies = new Map<string, Required<SfxPolicy>>();
-// Per-name trigger progress uses the owning State's elapsed-time clock.
+// Per-name trigger progress uses the owning World's elapsed-time clock.
 const Cooldowns: Resource<Map<string, number>> = { create: () => new Map() };
 
 /**
@@ -27,7 +27,7 @@ const Cooldowns: Resource<Map<string, number>> = { create: () => new Map() };
  * policy plays unbounded as before. Re-registering a name overwrites its policy
  * @example
  * sfx("coin", { max: 8, cooldown: 0.05, steal: "oldest" });
- * play(state, "coin"); // capped, cooled, and stolen-from per the policy
+ * play(world, "coin"); // capped, cooled, and stolen-from per the policy
  */
 export function sfx(name: string, policy: SfxPolicy): void {
     policies.set(name, {
@@ -42,19 +42,19 @@ export function policyFor(name: string): Required<SfxPolicy> | undefined {
     return policies.get(name);
 }
 
-/** true when `name` last fired inside its cooldown window; the trigger should drop. A backwards clock (a State rebuild reset elapsed) reads as expired */
+/** true when `name` last fired inside its cooldown window; the trigger should drop. A backwards clock (a World rebuild reset elapsed) reads as expired */
 export function withinCooldown(
-    state: World,
+    world: World,
     name: string,
     cooldown: number,
     elapsed: number,
 ): boolean {
     if (cooldown <= 0) return false;
-    const last = state.resource(Cooldowns).get(name);
+    const last = world.resource(Cooldowns).get(name);
     return last !== undefined && elapsed >= last && elapsed - last < cooldown;
 }
 
 /** record an admitted trigger's time, opening the cooldown window */
-export function markCooldown(state: World, name: string, elapsed: number): void {
-    state.resource(Cooldowns).set(name, elapsed);
+export function markCooldown(world: World, name: string, elapsed: number): void {
+    world.resource(Cooldowns).set(name, elapsed);
 }

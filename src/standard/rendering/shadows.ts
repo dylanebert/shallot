@@ -1,5 +1,5 @@
-// Sear's shadow feature, the CPU/ECS half: the off-screen light cameras + their placement math.
-// Shadows are sear-internal and data-gated on the `Shadow` component — like the `Tag` marker, presence
+// StandardRenderer's shadow feature, the CPU/ECS half: the off-screen light cameras + their placement math.
+// Shadows are sear-internal and data-gated on the `Shadow` component — like the `PickingPrepass` marker, presence
 // on a light turns them on (and tunes them), absence is the zero-cost off path. On the directional
 // light it's the sun shadow map; on a `PointLight` it's six cube faces rendered as tiles into a shared
 // depth atlas (the point-shadow half, bottom of this file). The renderer (sear/index.ts) owns the GPU
@@ -9,9 +9,9 @@
 //
 // The light's view is a real **off-screen ortho Camera entity** — no canvas (`attachView`), so it takes
 // a cull slot and packs its viewProj through render's own `computeViewProj` like any camera. That means
-// the Part pack culls casters into it as one more view, and any producer's draws bind it — no
+// the MeshInstance pack culls casters into it as one more view, and any producer's draws bind it — no
 // shadow-side view math, no producer-side caster code. The camera is created lazily on the first frame
-// a casting light exists, so a scene with no `Shadow` never allocates it (matching `Tag`).
+// a casting light exists, so a scene with no `Shadow` never allocates it (matching `PickingPrepass`).
 //
 // Bevy's shape: the directional light owns a shadow map in the view's lighting bindings, light-data-
 // gated, sampled inline — no separate shadow pass module, no coordination singleton.
@@ -29,20 +29,20 @@ import {
     Views,
 } from "../../core/rendering";
 import {
-    aim,
-    composeTransform,
+    composeGlobalTransform,
     f32,
     GlobalTransform,
     lookAt,
-    multiply,
+    lookAtRotation,
+    multiplyMat4,
     orthographic,
     perspective,
-    type World,
     Transform,
+    type World,
 } from "../../engine";
 
 /**
- * shadow tuning, on a light entity: presence is the switch (like {@link Tag} on a camera), the
+ * shadow tuning, on a light entity: presence is the switch (like {@link PickingPrepass} on a camera), the
  * fields are the tuning. On the {@link DirectionalLight} it casts the sun's cascaded shadow map; on a
  * {@link PointLight} the light's six cube faces render into the shared depth atlas (`distance` doesn't
  * apply there: coverage is the light's `range`, and the tile size is importance-sized from the
@@ -84,7 +84,7 @@ export const MAX_CASCADES = 4;
  * the sun's cascaded-shadow-map (CSM) budget. The single directional shadow box is split into `cascades`
  * depth slices along the camera's view range so near geometry gets fine shadow texels without a giant box:
  * the practical/PSSM split ({@link cascadeSplits}), each cascade its own frustum-slice-fit ortho view
- * ({@link cascadeFit}). `cascades` + `resolution` are fixed before `build()` (sear compiles the cascade count
+ * ({@link cascadeFit}). `cascades` + `resolution` are fixed before `createApp()` (sear compiles the cascade count
  * into its shaders and sizes the cascade atlas, `ceil(√cascades)·resolution` square, like
  * {@link PointShadows}); `resolution` is the per-cascade shadow map size: a fixed config (Bevy's
  * directional-shadow-map size), since the atlas texture + the compiled shader bake it. (Point/spot tiles are
@@ -384,7 +384,7 @@ export function orthoFootprintFit(
 // ---- CSM: the cascade combo-camera pool (the sun's analogue of the point combo pool) ----
 //
 // The single sun box is split into N depth slices along the camera's view range, each its own
-// frustum-culled ortho depth view — a pooled off-screen camera the Part pack culls casters into through the
+// frustum-culled ortho depth view — a pooled off-screen camera the MeshInstance pack culls casters into through the
 // same `cull → count → scan → scatter` spine every view uses (the sun joining the unified culled-combo
 // path). Each cascade renders into a tile of a dedicated atlas (the fixed grid below — cascades are
 // equal-resolution, so no importance sizing), the tile placement folded into its viewProj (`tileTransform`).
@@ -411,7 +411,7 @@ export function cascadeAtlasSize(resolution: number, n: number): number {
     return Math.min(4096, 1 << Math.round(Math.log2(s)));
 }
 
-// shadow cameras and their retained atlas inputs belong to the State that authors the lights. Frame-local
+// shadow cameras and their retained atlas inputs belong to the World that authors the lights. Frame-local
 // matrix scratch below is reused synchronously; no cached eid, signature, output buffer or warning latch crosses States.
 const CASC_KEY_FLOATS = 29;
 interface ShadowRuntime {
@@ -459,7 +459,7 @@ const createShadowRuntime = (): ShadowRuntime => ({
     overflowWarned: false,
     slotWarned: false,
 });
-const shadows = (state: World): ShadowRuntime => state.resource(shadowRuntimeKey);
+const shadows = (world: World): ShadowRuntime => world.resource(shadowRuntimeKey);
 const _cascNext = new Float64Array(CASC_KEY_FLOATS);
 const _cascWorld = new Float32Array(16);
 const _cascView = new Float32Array(16);
@@ -481,113 +481,123 @@ const _cascFolded = new Float32Array(16);
  * depth-only frustum-culled view slot: the per-cascade cull. An oracle reads each one's
  * `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the pack's per-cascade survivor counts to a CPU
  * frustum test, the {@link pointComboEids} shape over cascade slots. */
-export function cascadeComboEids(state: World): number[] {
-    return shadows(state).cascadeEids;
+export function cascadeComboEids(world: World): number[] {
+    return shadows(world).cascadeEids;
 }
 
 /** the number of active cascades this frame ({@link sunCascades} when the sun casts, else 0). */
-export function cascadeCount(state: World): number {
-    return shadows(state).cascadeCount;
+export function cascadeCount(world: World): number {
+    return shadows(world).cascadeCount;
 }
 
 /** the dense per-cascade **folded** tile viewProjs the atlas VS projects by (tile placement folded in via
  * {@link tileTransform}); the first {@link cascadeCount} mat4 valid. Filled by {@link updateCascades}. */
-export function cascadeFaceVP(state: World): Float32Array {
-    return shadows(state).cascadeVP;
+export function cascadeFaceVP(world: World): Float32Array {
+    return shadows(world).cascadeVP;
 }
 
 /** the dense per-cascade **unfolded** receiver viewProjs (ortho × lookAt, no tile) the receiver projects a
  * fragment by before remapping into its tile rect; the first {@link cascadeCount} mat4 valid. */
-export function cascadeRecvVP(state: World): Float32Array {
-    return shadows(state).cascadeRecv;
+export function cascadeRecvVP(world: World): Float32Array {
+    return shadows(world).cascadeRecv;
 }
 
 /** the per-cascade `(tileIndex, …)` meta the atlas VS reads to index its tile rect; one `vec4<u32>` per
  * cascade, the first {@link cascadeCount} valid. */
-export function cascadeMeta(state: World): Uint32Array {
-    return shadows(state).cascadeMeta;
+export function cascadeMeta(world: World): Uint32Array {
+    return shadows(world).cascadeMeta;
 }
 
 /** the per-cascade atlas-UV tile rects (`[u0, v0, du, dv]`), the first {@link cascadeCount} valid: what the
  * atlas VS discards by and the receiver remaps into. */
-export function cascadeTileRects(state: World): Float32Array {
-    return shadows(state).cascadeRects;
+export function cascadeTileRects(world: World): Float32Array {
+    return shadows(world).cascadeRects;
 }
 
 /** the per-cascade far-bound splits in linear view-z (the receiver's `get_cascade_index` selects by these,
  * Bevy's shape), the first {@link cascadeCount} valid. */
-export function cascadeFars(state: World): Float32Array {
-    return shadows(state).cascadeFar;
+export function cascadeFars(world: World): Float32Array {
+    return shadows(world).cascadeFar;
 }
 
 /** the per-cascade box half-extents (`cover`), the first {@link cascadeCount} valid: the receiver derives a
  * per-cascade shadow texel world size `2·cover/resolution` for its normal-offset bias. */
-export function cascadeCovers(state: World): Float32Array {
-    return shadows(state).cascadeCover;
+export function cascadeCovers(world: World): Float32Array {
+    return shadows(world).cascadeCover;
 }
 
 /** the casting sun's bias knobs this frame, `[depthBias, normalBias]` (the residual clip-space lift, the
  * receiver normal-offset multiplier): the renderer writes them into the receiver's params. */
-export function sunBias(state: World): Float64Array {
-    return shadows(state).sunBias;
+export function sunBias(world: World): Float64Array {
+    return shadows(world).sunBias;
 }
 
 // a pooled cascade camera: an off-screen ortho Camera (no canvas, `attachView`) posed per frame by
 // `poseCascade` — the single sun camera's shape, one per cascade. It takes a cull slot, so the pack culls
 // casters into it as one more depth-only view
-function createCascadeCamera(state: World): number {
-    const eid = state.create();
-    state.add(eid, Transform);
-    state.add(eid, Camera);
-    state.of(Camera).mode.set(eid, CameraMode.Orthographic);
-    attachView(state, eid);
+function createCascadeCamera(world: World): number {
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, Camera);
+    world.storage(Camera).mode.set(eid, CameraMode.Orthographic);
+    attachView(world, eid);
     return eid;
 }
 
 // grow/shrink the cascade-camera pool to exactly `n` (the active cascade count). The count is hysteresis-free
 // but `sunCascades()` is fixed before build, so this is effectively a one-time create
-function syncCascadePool(state: World, shadow: ShadowRuntime, n: number): void {
+function syncCascadePool(world: World, shadow: ShadowRuntime, n: number): void {
     if (shadow.cascadeEids.length !== n) shadow.cascKey.fill(Number.NaN);
-    while (shadow.cascadeEids.length < n) shadow.cascadeEids.push(createCascadeCamera(state));
+    while (shadow.cascadeEids.length < n) shadow.cascadeEids.push(createCascadeCamera(world));
     while (shadow.cascadeEids.length > n) {
         const eid = shadow.cascadeEids.pop()!;
-        detachCanvas(state, eid);
-        state.destroy(eid);
+        detachCanvas(world, eid);
+        world.destroy(eid);
     }
 }
 
 // pose a pooled cascade camera so render's `computeViewProj` reproduces this cascade's ortho projection — the
 // frustum the pack culls against. `aim` returns the lookAt orientation as a quaternion, so
-// `invert(compose(pos, rot))` equals the `lookAt(eye, eye→focus, up)` the atlas render's `_cascadeRecv` folds
+// `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye→focus, up)` the atlas render's `_cascadeRecv` folds
 // the tile onto (the cull frustum and the render projection agree to f32 — the sun camera's guarantee)
-function poseCascade(state: World, eid: number, fit: LightFit): void {
+function poseCascade(world: World, eid: number, fit: LightFit): void {
     const { eye, focus, up } = fit;
-    const q = aim(eye[0], eye[1], eye[2], focus[0], focus[1], focus[2], up[0], up[1], up[2]);
-    state.of(Transform).pos.set(eid, eye[0], eye[1], eye[2], 1);
-    state.of(Transform).rot.set(eid, q.x, q.y, q.z, q.w);
-    state.of(Camera).mode.set(eid, CameraMode.Orthographic);
-    state.of(Camera).near.set(eid, 0);
+    const q = lookAtRotation(
+        eye[0],
+        eye[1],
+        eye[2],
+        focus[0],
+        focus[1],
+        focus[2],
+        up[0],
+        up[1],
+        up[2],
+    );
+    world.storage(Transform).translation.set(eid, eye[0], eye[1], eye[2], 1);
+    world.storage(Transform).rotation.set(eid, q.x, q.y, q.z, q.w);
+    world.storage(Camera).mode.set(eid, CameraMode.Orthographic);
+    world.storage(Camera).near.set(eid, 0);
     // size = the cover, far = the near-extended box depth (2·cover + margin), so the cull frustum matches the
     // render box and the toward-light occluder margin is culled in, not clipped out
-    state.of(Camera).size.set(eid, fit.extent[0]);
-    state.of(Camera).far.set(eid, fit.extent[1]);
+    world.storage(Camera).size.set(eid, fit.extent[0]);
+    world.storage(Camera).far.set(eid, fit.extent[1]);
 }
 
 /** destroy the pooled cascade cameras + their views (at plugin dispose). */
-export function destroyCascades(state: World): void {
-    const shadow = shadows(state);
+export function destroyCascades(world: World): void {
+    const shadow = shadows(world);
     for (const eid of shadow.cascadeEids) {
-        detachCanvas(state, eid);
-        state.destroy(eid);
+        detachCanvas(world, eid);
+        world.destroy(eid);
     }
     shadow.cascadeEids.length = 0;
     shadow.cascKey.fill(Number.NaN);
 }
 
-/** forget the cached cascade camera eids on a (re)build: the prior State owns its own teardown, a fresh one
+/** forget the cached cascade camera eids on a (re)build: the prior World owns its own teardown, a fresh one
  * recreates lazily (the same lifecycle-reset as {@link resetPointShadows}). */
-export function resetCascades(state: World): void {
-    const shadow = shadows(state);
+export function resetCascades(world: World): void {
+    const shadow = shadows(world);
     shadow.cascadeEids.length = 0;
     shadow.cascKey.fill(Number.NaN);
     shadow.cascadeCount = 0;
@@ -609,33 +619,33 @@ export function resetCascades(state: World): void {
  * margin every box extends toward the light ({@link placeFromCenter}), so a caster within shadow range above a
  * slice is captured, not clipped. The boxes texel-snap per cascade so the edges don't crawl.
  */
-export function updateCascades(state: World, main: number): void {
-    const shadow = shadows(state);
-    const light = state.only(SUN_TERMS);
-    if (light < 0 || !state.has(light, Shadow) || main < 0) {
+export function updateCascades(world: World, main: number): void {
+    const shadow = shadows(world);
+    const light = world.only(SUN_TERMS);
+    if (light < 0 || !world.has(light, Shadow) || main < 0) {
         shadow.cascadeCount = 0;
         return;
     }
     const resolution = sunResolution();
-    const maxDist = Math.max(1e-3, state.of(Shadow).distance.get(light));
-    shadow.sunBias[0] = state.of(Shadow).depthBias.get(light);
-    shadow.sunBias[1] = state.of(Shadow).normalBias.get(light);
-    _sunDir[0] = state.of(DirectionalLight).direction.x.get(light);
-    _sunDir[1] = state.of(DirectionalLight).direction.y.get(light);
-    _sunDir[2] = state.of(DirectionalLight).direction.z.get(light);
-    const view = state.resource(Views).get(main);
+    const maxDist = Math.max(1e-3, world.storage(Shadow).distance.get(light));
+    shadow.sunBias[0] = world.storage(Shadow).depthBias.get(light);
+    shadow.sunBias[1] = world.storage(Shadow).normalBias.get(light);
+    _sunDir[0] = world.storage(DirectionalLight).direction.x.get(light);
+    _sunDir[1] = world.storage(DirectionalLight).direction.y.get(light);
+    _sunDir[2] = world.storage(DirectionalLight).direction.z.get(light);
+    const view = world.resource(Views).get(main);
     const aspect = view && view.height > 0 ? view.width / view.height : 1;
-    composeTransform(state, main, _cascWorld);
-    const mode = state.of(Camera).mode.get(main);
-    const fov = state.of(Camera).fov.get(main);
-    const size = state.of(Camera).size.get(main);
-    const near = Math.max(1e-3, state.of(Camera).near.get(main));
+    composeGlobalTransform(world, main, _cascWorld);
+    const mode = world.storage(Camera).mode.get(main);
+    const fov = world.storage(Camera).fov.get(main);
+    const size = world.storage(Camera).size.get(main);
+    const near = Math.max(1e-3, world.storage(Camera).near.get(main));
     // ortho cameras get one footprint box; perspective gets N depth slices
     const ortho = mode === CameraMode.Orthographic;
     const n = ortho ? 1 : sunCascades();
     const overlap = Math.max(0, SunShadows.overlap);
 
-    syncCascadePool(state, shadow, n);
+    syncCascadePool(world, shadow, n);
 
     _cascNext.set(_cascWorld, 0);
     _cascNext[16] = mode;
@@ -665,8 +675,8 @@ export function updateCascades(state: World, main: number): void {
             const cam = shadow.cascadeEids[i];
             if (cam === undefined) continue;
             if (
-                state.of(Camera).size.get(cam) !== shadow.cascadeCover[i] ||
-                state.of(Camera).far.get(cam) !== shadow.cascadeDepth[i]
+                world.storage(Camera).size.get(cam) !== shadow.cascadeCover[i] ||
+                world.storage(Camera).far.get(cam) !== shadow.cascadeDepth[i]
             ) {
                 changed = true;
                 break;
@@ -732,16 +742,20 @@ export function updateCascades(state: World, main: number): void {
             _fit.up[2],
             _cascView,
         );
-        multiply(_cascProj, _cascView, _cascRecv);
+        multiplyMat4(_cascProj, _cascView, _cascRecv);
         shadow.cascadeRecv.set(_cascRecv, i * 16);
-        multiply(tileTransform(shadow.cascadeRects, _cascTileMat, i * 4), _cascRecv, _cascFolded);
+        multiplyMat4(
+            tileTransform(shadow.cascadeRects, _cascTileMat, i * 4),
+            _cascRecv,
+            _cascFolded,
+        );
         shadow.cascadeVP.set(_cascFolded, i * 16);
         shadow.cascadeMeta[i * 4] = i; // tile index = cascade index (the VS reads cascadeRects[meta.x])
         shadow.cascadeFar[i] = farBound;
         shadow.cascadeCover[i] = _fit.extent[0];
         shadow.cascadeDepth[i] = _fit.extent[1];
         const cam = shadow.cascadeEids[i];
-        if (cam !== undefined) poseCascade(state, cam, _fit);
+        if (cam !== undefined) poseCascade(world, cam, _fit);
     }
     shadow.cascadeCount = n;
 }
@@ -758,7 +772,7 @@ export function updateCascades(state: World, main: number): void {
 // important with a non-silent warn.
 //
 // Each combo (a point caster's cube face, a spot's cone) is its own **frustum-culled depth view** — a
-// pooled off-screen camera the Part pack culls casters into, the same `cull → count → scan → scatter` spine
+// pooled off-screen camera the MeshInstance pack culls casters into, the same `cull → count → scan → scatter` spine
 // every camera uses. So a member rasterizes only the faces it actually hits, not all six (no
 // over-amplification). The viewProjs are computed here CPU-side (one per combo, the tile placement folded
 // in — {@link tileTransform}); sear re-gathers the per-combo culled members into one contiguous run per
@@ -787,7 +801,7 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
 }
 
 /**
- * the point-shadow budget. `atlas` + `casters` are fixed before `build()` (sear compiles the caster array
+ * the point-shadow budget. `atlas` + `casters` are fixed before `createApp()` (sear compiles the caster array
  * size and atlas resolution into its shaders + textures at warm, like `capacity`, don't change them on a
  * live app). `atlas` is the square depth atlas's side in pixels (snapped to a power of two in [256, 4096],
  * default 2048 ≈ 16 MB of depth), sub-allocated by importance. `casters` is how many shadowed point/spot
@@ -807,7 +821,7 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
  * import { PointShadows } from "@dylanebert/shallot";
  * PointShadows.casters = 8;
  * PointShadows.atlas = 2048;
- * await run({ ... });
+ * await runApp({ ... });
  * ```
  */
 export const PointShadows = { atlas: 2048, casters: 8, hysteresis: 0.25 };
@@ -1055,28 +1069,28 @@ const _tileMat = new Float32Array(16);
  * combo, the first {@link pointComboCount} entries valid). Each carries its atlas tile placement folded in
  * ({@link tileTransform}), so the atlas VS emits `tileVP·world` with no manual divide. Filled by
  * {@link updatePointShadows} */
-export function pointFaceVP(state: World): Float32Array {
-    return shadows(state).faceVP;
+export function pointFaceVP(world: World): Float32Array {
+    return shadows(world).faceVP;
 }
 
 /** the per-combo `(casterSlot, face, _, _)` the atlas VS reads (keyed by the re-gathered instance's combo
  * index) to index its tile rect (`slot·6 + face`). One `vec4<u32>` per combo, the first
  * {@link pointComboCount} valid */
-export function pointComboMeta(state: World): Uint32Array {
-    return shadows(state).comboMeta;
+export function pointComboMeta(world: World): Uint32Array {
+    return shadows(world).comboMeta;
 }
 
 /** the per-(caster, face) allocated atlas-UV rects (`[u0, v0, du, dv]`, square), sparse and indexed
  * `slot·6 + face`: what the receiver samples and the atlas VS reads for its tile-discard bounds. Sized to
  * `cap·6` vec4. Filled by {@link updatePointShadows}, uploaded by sear as the `"pointTileRects"` uniform */
-export function pointTileRects(state: World): Float32Array {
-    return shadows(state).tileRects;
+export function pointTileRects(world: World): Float32Array {
+    return shadows(world).tileRects;
 }
 
 /** the number of active combos this frame (Σ over casters of 6 for a point, 1 for a spot): the count of
  * combo view slots the pack culls into, and the re-gather's combo dimension */
-export function pointComboCount(state: World): number {
-    return shadows(state).comboCount;
+export function pointComboCount(world: World): number {
+    return shadows(world).comboCount;
 }
 
 /** the pooled combo cameras' eids, one per active combo (combo-major: each caster's faces/cone in turn,
@@ -1084,19 +1098,19 @@ export function pointComboCount(state: World): number {
  * cull. An oracle reads each combo's `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the
  * pack's per-combo survivor counts to a CPU frustum test (the combo's frustum is what the pack culls
  * against, == the pre-fold proj·view the atlas VS folds the tile into). */
-export function pointComboEids(state: World): number[] {
-    return shadows(state).comboEids;
+export function pointComboEids(world: World): number[] {
+    return shadows(world).comboEids;
 }
 
 // a pooled combo camera: an off-screen perspective Camera (no canvas, `attachView`) whose pose + fov are
 // set per frame by `poseCombo`. The sun camera's shape — it takes a cull slot and packs its viewProj
 // through the same `computeViewProj` as any camera, so the pack culls casters into it as one more view
-function createComboCamera(state: World): number {
-    const eid = state.create();
-    state.add(eid, Transform);
-    state.add(eid, Camera);
-    state.of(Camera).mode.set(eid, CameraMode.Perspective);
-    attachView(state, eid);
+function createComboCamera(world: World): number {
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, Camera);
+    world.storage(Camera).mode.set(eid, CameraMode.Perspective);
+    attachView(world, eid);
     return eid;
 }
 
@@ -1104,21 +1118,21 @@ function createComboCamera(state: World): number {
 // as casters appear and tearing the excess down as they leave. Only a count change drives create/destroy —
 // the per-frame path just reposes the live ones — and the caster set is hysteresis-stable, so this is
 // cold
-function syncComboPool(state: World, shadows: ShadowRuntime, n: number): void {
-    while (shadows.comboEids.length < n) shadows.comboEids.push(createComboCamera(state));
+function syncComboPool(world: World, shadows: ShadowRuntime, n: number): void {
+    while (shadows.comboEids.length < n) shadows.comboEids.push(createComboCamera(world));
     while (shadows.comboEids.length > n) {
         const eid = shadows.comboEids.pop()!;
-        detachCanvas(state, eid);
-        state.destroy(eid);
+        detachCanvas(world, eid);
+        world.destroy(eid);
     }
 }
 
 // pose a pooled combo camera so render's `computeViewProj` reproduces this combo's face/cone projection —
 // the frustum the pack culls against. `aim` returns the lookAt orientation as a quaternion (the sun
-// camera's path), so `invert(compose(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's
+// camera's path), so `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's
 // `_faceVP` folds the tile placement onto — the cull frustum and the render projection agree (to f32).
 function poseCombo(
-    state: World,
+    world: World,
     eid: number,
     px: number,
     py: number,
@@ -1129,28 +1143,38 @@ function poseCombo(
     near: number,
     far: number,
 ): void {
-    const q = aim(px, py, pz, px + fwd[0], py + fwd[1], pz + fwd[2], up[0], up[1], up[2]);
-    state.of(Transform).pos.set(eid, px, py, pz, 1);
-    state.of(Transform).rot.set(eid, q.x, q.y, q.z, q.w);
-    state.of(Camera).fov.set(eid, fov);
-    state.of(Camera).near.set(eid, near);
-    state.of(Camera).far.set(eid, far);
+    const q = lookAtRotation(
+        px,
+        py,
+        pz,
+        px + fwd[0],
+        py + fwd[1],
+        pz + fwd[2],
+        up[0],
+        up[1],
+        up[2],
+    );
+    world.storage(Transform).translation.set(eid, px, py, pz, 1);
+    world.storage(Transform).rotation.set(eid, q.x, q.y, q.z, q.w);
+    world.storage(Camera).fov.set(eid, fov);
+    world.storage(Camera).near.set(eid, near);
+    world.storage(Camera).far.set(eid, far);
 }
 
 /** destroy the pooled combo cameras + their views (at plugin dispose) */
-export function destroyPointShadows(state: World): void {
-    const shadow = shadows(state);
+export function destroyPointShadows(world: World): void {
+    const shadow = shadows(world);
     for (const eid of shadow.comboEids) {
-        detachCanvas(state, eid);
-        state.destroy(eid);
+        detachCanvas(world, eid);
+        world.destroy(eid);
     }
     shadow.comboEids.length = 0;
 }
 
-/** forget the cached combo camera eids on a (re)build: the prior State owns its own teardown, a fresh
+/** forget the cached combo camera eids on a (re)build: the prior World owns its own teardown, a fresh
  * one recreates lazily */
-export function resetPointShadows(state: World): void {
-    const shadow = shadows(state);
+export function resetPointShadows(world: World): void {
+    const shadow = shadows(world);
     shadow.comboEids.length = 0;
     shadow.capWarned = false;
     shadow.overflowWarned = false;
@@ -1220,22 +1244,22 @@ export function packCasters(
  * caller's `frames` pool (grown by one record per new high-water caster, reused in place after) and the
  * live caster count is returned.
  */
-export function updatePointShadows(state: World, main: number, frames: PointShadowFrame[]): number {
-    const shadow = shadows(state);
+export function updatePointShadows(world: World, main: number, frames: PointShadowFrame[]): number {
+    const shadow = shadows(world);
     const cap = pointCasters();
     const atlas = pointAtlasSize();
-    const cx = main >= 0 ? state.of(GlobalTransform).pos.x.get(main) : 0;
-    const cy = main >= 0 ? state.of(GlobalTransform).pos.y.get(main) : 0;
-    const cz = main >= 0 ? state.of(GlobalTransform).pos.z.get(main) : 0;
+    const cx = main >= 0 ? world.storage(GlobalTransform).translation.x.get(main) : 0;
+    const cy = main >= 0 ? world.storage(GlobalTransform).translation.y.get(main) : 0;
+    const cz = main >= 0 ? world.storage(GlobalTransform).translation.z.get(main) : 0;
     let candCount = 0;
-    for (const light of state.query(POINT_CASTER_TERMS)) {
-        const range = state.of(PointLight).range.get(light);
+    for (const light of world.query(POINT_CASTER_TERMS)) {
+        const range = world.storage(PointLight).range.get(light);
         if (range <= 0) continue;
-        const dx = state.of(GlobalTransform).pos.x.get(light) - cx;
-        const dy = state.of(GlobalTransform).pos.y.get(light) - cy;
-        const dz = state.of(GlobalTransform).pos.z.get(light) - cz;
+        const dx = world.storage(GlobalTransform).translation.x.get(light) - cx;
+        const dy = world.storage(GlobalTransform).translation.y.get(light) - cy;
+        const dz = world.storage(GlobalTransform).translation.z.get(light) - cz;
         const distSq = main >= 0 ? Math.max(dx * dx + dy * dy + dz * dz, 1) : 1;
-        const score = (state.of(PointLight).intensity.get(light) * range * range) / distSq;
+        const score = (world.storage(PointLight).intensity.get(light) * range * range) / distSq;
         // an incumbent (cast last frame) ranks with the hysteresis margin so a sub-margin challenger can't
         // evict it — the set stays put under small camera moves, killing the shadow flicker
         const rank = shadow.lastCasters.has(light)
@@ -1291,14 +1315,14 @@ export function updatePointShadows(state: World, main: number, frames: PointShad
         f.slot = slot;
         f.score = c.score;
         f.tilePx = MIN_TILE;
-        f.pos[0] = state.of(GlobalTransform).pos.x.get(c.light);
-        f.pos[1] = state.of(GlobalTransform).pos.y.get(c.light);
-        f.pos[2] = state.of(GlobalTransform).pos.z.get(c.light);
+        f.pos[0] = world.storage(GlobalTransform).translation.x.get(c.light);
+        f.pos[1] = world.storage(GlobalTransform).translation.y.get(c.light);
+        f.pos[2] = world.storage(GlobalTransform).translation.z.get(c.light);
         f.near = c.range / 1000;
         f.far = c.range;
-        f.depthBias = state.of(Shadow).depthBias.get(c.light);
-        f.normalBias = state.of(Shadow).normalBias.get(c.light);
-        f.spot = state.has(c.light, Spot);
+        f.depthBias = world.storage(Shadow).depthBias.get(c.light);
+        f.normalBias = world.storage(Shadow).normalBias.get(c.light);
+        f.spot = world.has(c.light, Spot);
         f.fwd[0] = 0;
         f.fwd[1] = 0;
         f.fwd[2] = -1;
@@ -1361,11 +1385,11 @@ export function updatePointShadows(state: World, main: number, frames: PointShad
         f.tilePx = rect ? rect[2] * atlas : MIN_TILE;
         if (f.spot) {
             const b = spotBasis(
-                state.of(GlobalTransform).quat.x.get(f.light),
-                state.of(GlobalTransform).quat.y.get(f.light),
-                state.of(GlobalTransform).quat.z.get(f.light),
-                state.of(GlobalTransform).quat.w.get(f.light),
-                state.of(Spot).outer.get(f.light),
+                world.storage(GlobalTransform).rotation.x.get(f.light),
+                world.storage(GlobalTransform).rotation.y.get(f.light),
+                world.storage(GlobalTransform).rotation.z.get(f.light),
+                world.storage(GlobalTransform).rotation.w.get(f.light),
+                world.storage(Spot).outer.get(f.light),
                 f.tilePx,
             );
             f.fwd = b.fwd;
@@ -1380,7 +1404,7 @@ export function updatePointShadows(state: World, main: number, frames: PointShad
     // depth-only frustum-culled view this frame (the per-combo cull) — the pack culls casters into each
     // independently. The loop below poses each from its face/cone basis, and an empty caster set tears
     // the pool down
-    syncComboPool(state, shadow, comboSlots(frames, count));
+    syncComboPool(world, shadow, comboSlots(frames, count));
 
     // fill the combo tile-viewProjs densely (a point caster's 6 cube faces, a spot's 1 cone), the per-combo
     // (caster slot, face), and the per-(caster, face) rects. Each viewProj has its allocated atlas-UV rect
@@ -1414,8 +1438,8 @@ export function updatePointShadows(state: World, main: number, frames: PointShad
             );
             // fold the tile placement into the viewProj, so the VS projects straight into the atlas tile
             // with the hardware doing the divide + near-plane clip
-            multiply(_faceProj, _faceView, _pv);
-            multiply(tileTransform(rect, _tileMat), _pv, shadow.faceVP.subarray(ci * 16));
+            multiplyMat4(_faceProj, _faceView, _pv);
+            multiplyMat4(tileTransform(rect, _tileMat), _pv, shadow.faceVP.subarray(ci * 16));
             shadow.comboMeta[ci * 4] = frame.slot;
             shadow.comboMeta[ci * 4 + 1] = 0; // a spot's lone combo is face 0 of its slot
             shadow.tileRects.set(rect, frame.slot * 6 * 4);
@@ -1424,7 +1448,7 @@ export function updatePointShadows(state: World, main: number, frames: PointShad
             const comboCam = shadow.comboEids[ci];
             if (comboCam !== undefined)
                 poseCombo(
-                    state,
+                    world,
                     comboCam,
                     px,
                     py,
@@ -1456,15 +1480,15 @@ export function updatePointShadows(state: World, main: number, frames: PointShad
                 );
                 // fold the face's atlas tile placement into its viewProj — the VS emits `tileVP·world`
                 // with no manual divide, so the hardware clips a triangle behind the face near plane
-                multiply(_faceProj, _faceView, _pv);
-                multiply(tileTransform(rect, _tileMat), _pv, shadow.faceVP.subarray(ci * 16));
+                multiplyMat4(_faceProj, _faceView, _pv);
+                multiplyMat4(tileTransform(rect, _tileMat), _pv, shadow.faceVP.subarray(ci * 16));
                 shadow.comboMeta[ci * 4] = frame.slot;
                 shadow.comboMeta[ci * 4 + 1] = f;
                 shadow.tileRects.set(rect, (frame.slot * 6 + f) * 4);
                 // pose this face's cull camera (its frustum == the pre-fold `_pv` above)
                 const comboCam = shadow.comboEids[ci];
                 if (comboCam !== undefined)
-                    poseCombo(state, comboCam, px, py, pz, fwd, up, fov, frame.near, frame.far);
+                    poseCombo(world, comboCam, px, py, pz, fwd, up, fov, frame.near, frame.far);
                 ci++;
             }
         }

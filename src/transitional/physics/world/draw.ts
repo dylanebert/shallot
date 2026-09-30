@@ -4,7 +4,7 @@
 // sits outside the bit-exact contract (fround discipline is unnecessary here; the geometry math is
 // display-only). Shape geometry stays internal; the walk hands the renderer resolved primitives.
 //
-// Scope: the minimal debug draw — solid shapes (hue by body state), joints (anchors + connection +
+// Scope: the minimal debug draw — solid shapes (hue by body world), joints (anchors + connection +
 // local frames), fat-AABB bounds, and dynamic-body mass markers. The ornate per-joint-type gizmos
 // (limit arcs, motor/steering indicators) and the contact/island/graph-color diagnostics are the
 // heavier diagnostic tier, out of the minimal renderer's fidelity floor.

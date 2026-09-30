@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
-import { build, globalTransformTable, probeBuffer, Time, Transform } from "../../engine";
+import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { Body, PhysicsPlugin, readBody } from "./index";
 
@@ -22,7 +22,7 @@ if (typeof ResizeObserver === "undefined") {
     });
 }
 
-function attachTestCamera(state: import("../../engine").World): void {
+function attachTestCamera(world: import("../../engine").World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,
@@ -32,11 +32,11 @@ function attachTestCamera(state: import("../../engine").World): void {
         getBoundingClientRect: () => ({ width: 32, height: 24 }),
     } as unknown as HTMLCanvasElement;
     context = new CanvasContext(canvas, 32, 24);
-    const camera = state.create();
-    state.add(camera, Transform);
-    state.add(camera, Camera);
-    state.of(Transform).pos.set(camera, 0, 0, 5, 0);
-    attachCanvas(camera, canvas, state);
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera);
+    world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
+    attachCanvas(camera, canvas, world);
 }
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
@@ -56,25 +56,25 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
 }
 
 test("engine interpolation uploads one GlobalTransform range and preserves unmoved renderer rows", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
-    const state = app.state;
-    attachTestCamera(state);
-    const body = state.of(Body);
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const world = app.world;
+    attachTestCamera(world);
+    const body = world.storage(Body);
     function falling(y: number): number {
-        const eid = state.create();
-        state.add(eid, Body);
-        body.pos.set(eid, 0, y, 0, 0);
+        const eid = world.create();
+        world.add(eid, Body);
+        body.position.set(eid, 0, y, 0, 0);
         body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
         body.mass.set(eid, 1);
         return eid;
     }
     const first = falling(10);
-    const middle = state.create();
-    state.add(middle, Transform);
-    state.of(Transform).pos.set(middle, 23, 7, 9, 0);
+    const middle = world.create();
+    world.add(middle, Transform);
+    world.storage(Transform).translation.set(middle, 23, 7, 9, 0);
     const second = falling(30);
-    const table = globalTransformTable(state);
-    const queue = state.gpu.device.queue;
+    const table = globalTransformTable(world);
+    const queue = world.gpu.device.queue;
     const descriptor = Object.getOwnPropertyDescriptor(queue, "writeBuffer");
     const write = queue.writeBuffer.bind(queue);
     let globalTransformWrites = 0;
@@ -82,7 +82,7 @@ test("engine interpolation uploads one GlobalTransform range and preserves unmov
     Object.defineProperty(queue, "writeBuffer", {
         configurable: true,
         value: (...args: Parameters<GPUQueue["writeBuffer"]>) => {
-            if (state.globalTransformRuntime!.stages.includes(args[0])) {
+            if (world.globalTransformRuntime!.stages.includes(args[0])) {
                 globalTransformWrites++;
                 globalTransformBytes += args[4] ?? 0;
             }
@@ -90,31 +90,31 @@ test("engine interpolation uploads one GlobalTransform range and preserves unmov
         },
     });
     try {
-        state.step(Time.FIXED_DT);
-        const previous = readBody(state, first);
+        world.step(Time.FIXED_DT);
+        const previous = readBody(world, first);
         if (!previous) throw new Error("first falling Body has no solver state");
         globalTransformWrites = 0;
         globalTransformBytes = 0;
-        state.gpu.device.pushErrorScope("validation");
-        state.step(Time.FIXED_DT);
+        world.gpu.device.pushErrorScope("validation");
+        world.step(Time.FIXED_DT);
         expect(globalTransformWrites).toBe(1);
         expect(globalTransformBytes).toBe(
             (table.rowIndex(second) - table.rowIndex(first) + 1) * table.rowBytes,
         );
         const error = await bounded(
             "bulk interpolated GlobalTransform validation",
-            state.gpu.device.popErrorScope(),
+            world.gpu.device.popErrorScope(),
         );
         if (error) throw new Error(error.message);
         const result = await bounded(
             "bulk interpolated GlobalTransform readback",
-            probeBuffer(state, table.buffer, {
+            probeBuffer(world, table.buffer, {
                 size: table.buffer.size,
                 label: "physics-global-transform-range",
             }),
         );
         const words = new Float32Array(result.bytes);
-        expect(words[table.rowIndex(first) * 12 + 1]).toBeCloseTo(previous.pos[1], 5);
+        expect(words[table.rowIndex(first) * 12 + 1]).toBeCloseTo(previous.position[1], 5);
         expect(
             Array.from(
                 words.subarray(table.rowIndex(middle) * 12, table.rowIndex(middle) * 12 + 3),

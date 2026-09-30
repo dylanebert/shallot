@@ -5,7 +5,7 @@
 // pair work, are observable through the public contact events.
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { BodyType, init, makeBoxHull, shutdown, PhysicsWorld } from "../api/index";
+import { BodyType, init, makeBoxHull, PhysicsWorld, shutdown } from "../api/index";
 import { defaultFilter, type FilterBits, toFilterBits } from "../common/types";
 import { shouldShapesCollide } from "./pairs";
 
@@ -63,16 +63,16 @@ test("contact pair creation from the broad phase emits an overlapping pair once 
     // the move buffer every step. Step 1: both moved, the pair is found from both sides — dedup
     // must emit it exactly once. Step 2: the pair persists in the pair set, so the re-query must
     // reject it — no duplicate contact, no new begin.
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
     const drift = { x: 0, y: 0.5, z: 0 };
 
-    const a = world.createBody({
+    const a = physicsWorld.createBody({
         type: BodyType.Dynamic,
         position: { x: -0.25, y: 0, z: 0 },
         linearVelocity: drift,
     });
     a.createHull({ enableContactEvents: true }, makeBoxHull(0.5, 0.5, 0.5));
-    const b = world.createBody({
+    const b = physicsWorld.createBody({
         type: BodyType.Dynamic,
         position: { x: 0.25, y: 0, z: 0 },
         linearVelocity: drift,
@@ -82,15 +82,15 @@ test("contact pair creation from the broad phase emits an overlapping pair once 
     let beginTotal = 0;
     let endTotal = 0;
 
-    world.step(1 / 60);
-    let ev = world.getContactEvents();
+    physicsWorld.step(1 / 60);
+    let ev = physicsWorld.getContactEvents();
     beginTotal += ev.beginEvents.length;
     endTotal += ev.endEvents.length;
     // Dedup: the overlapping pair emitted exactly once, not once per moved side.
     expect(beginTotal).toBe(1);
 
-    world.step(1 / 60);
-    ev = world.getContactEvents();
+    physicsWorld.step(1 / 60);
+    ev = physicsWorld.getContactEvents();
     beginTotal += ev.beginEvents.length;
     endTotal += ev.endEvents.length;
     // Membership: the pair persisted, so step 2 creates no duplicate contact and fires no new
@@ -98,5 +98,5 @@ test("contact pair creation from the broad phase emits an overlapping pair once 
     expect(beginTotal).toBe(1);
     expect(endTotal).toBe(0);
 
-    world.destroy();
+    physicsWorld.destroy();
 });

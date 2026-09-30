@@ -42,7 +42,7 @@ import {
 } from "./columns";
 import { kernel, sharedBytes } from "./kernel";
 
-// BODY_LAYOUT header indices (bodies.rs), in memory order: state, sim, fin, finOut, flags, sim2.
+// BODY_LAYOUT header indices (bodies.rs), in memory order: world, sim, fin, finOut, flags, sim2.
 export const B_STATE = 0;
 const B_SIM = 1;
 const B_FIN = 2;
@@ -75,8 +75,8 @@ function growCap(need: number): number {
  * exceeds the current capacity. @returns true if the region grew (the caller must refresh any views
  * over the relocated regions, including the body store's).
  */
-export function reserveBodies(state: World | undefined, bodyCount: number): boolean {
-    return kernel(state).reserveBodies(growCap(bodyCount)) !== 0;
+export function reserveBodies(world: World | undefined, bodyCount: number): boolean {
+    return kernel(world).reserveBodies(growCap(bodyCount)) !== 0;
 }
 
 /**
@@ -120,7 +120,7 @@ export class BodyStore {
     private _layout = new Uint32Array(0);
 
     /** Whether a `memory.grow` has happened since the views were derived — the guard for the reads a
-     * mid-loop grow (the narrowphase's manifold `alloc`) can strand. Single-threaded that grow detaches
+     * mid-loop grow (the narrowphase's manifold `alloc`) can strand. ScalarField-threaded that grow detaches
      * every view (length 0). A shared memory never detaches, so the shared path compares the memory's
      * size against the size the views were derived at (`sharedBytes`, kernel.ts). */
     get stale(): boolean {
@@ -334,8 +334,8 @@ export class BodyStore {
 }
 
 /** Create an empty body store for a new world. Its views are derived on the first refresh. */
-export function createBodyStore(state: World | undefined): BodyStore {
-    return new BodyStore(state);
+export function createBodyStore(world: World | undefined): BodyStore {
+    return new BodyStore(world);
 }
 
 /**
@@ -827,7 +827,7 @@ const evicted = new WeakSet<object>();
  * later world taking the region over — its resident body state is gone. */
 export function claimResident(token: object): void {
     if (owner === token) return;
-    // A State-owned physics runtime restores its last snapshot before claiming the shared resident
+    // A World-owned physics runtime restores its last snapshot before claiming the shared resident
     // columns. The old throw made two clean States impossible to twin-step; the snapshot boundary is the
     // ownership transfer and keeps the wasm columns deterministic for both worlds.
     if (owner !== null) evicted.add(owner);

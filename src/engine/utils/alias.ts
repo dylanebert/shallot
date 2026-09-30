@@ -1,4 +1,4 @@
-import { euler, quat } from "./math";
+import { eulerToQuat, quatToEuler } from "./math";
 
 /**
  * a field's authoring alias: a bidirectional codec between its stored lanes and the representation a
@@ -18,7 +18,7 @@ export interface Alias {
 }
 
 /**
- * author a packed `Pair`/`Quad`'s lanes by name (`metallic`, `roughness`) for one-buffer storage with
+ * author a packed `Vector2Field`/`Vector4Field`'s lanes by name (`metallic`, `roughness`) for one-buffer storage with
  * friendly authoring: `material="metallic: 1; roughness: 0.2"`. An **identity** alias: `axes.length`
  * equals the field's lane count, each axis 1:1 with a lane, which the scene parser + serializer honor.
  * A non-identity alias ({@link eulerAlias}, 3 axes over a 4-lane quat) stays authoring-only: the length
@@ -51,14 +51,14 @@ export function eulerAlias(base: string): Alias {
     return {
         axes: EULER_AXES,
         read(p) {
-            const e = euler(lane(p, "x"), lane(p, "y"), lane(p, "z"), lane(p, "w"));
+            const e = quatToEuler(lane(p, "x"), lane(p, "y"), lane(p, "z"), lane(p, "w"));
             return [e.x, e.y, e.z];
         },
         write(axis, value, p) {
-            const e = euler(lane(p, "x"), lane(p, "y"), lane(p, "z"), lane(p, "w"));
+            const e = quatToEuler(lane(p, "x"), lane(p, "y"), lane(p, "z"), lane(p, "w"));
             const a = EULER_AXES[axis];
             if (a) e[a] = value;
-            const q = quat(e.x, e.y, e.z);
+            const q = eulerToQuat(e.x, e.y, e.z);
             return {
                 [`${base}.x`]: q.x,
                 [`${base}.y`]: q.y,

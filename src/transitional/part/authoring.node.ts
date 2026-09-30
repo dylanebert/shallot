@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { build, Color } from "@dylanebert/shallot";
+import { Color, createApp } from "@dylanebert/shallot";
 import { ColorTraits } from "./part";
 
 const peerModule = "bun-webgpu";
@@ -18,15 +18,15 @@ const ColorOwner = {
 };
 
 test("Color loads canonical rgba field syntax and rejects CSS-function syntax at the scene owner, so an authored invalid color cannot reach runtime silently", async () => {
-    const valid = await build({
+    const valid = await createApp({
         defaults: false,
         plugins: [ColorOwner],
         scene: `<scene><a id="valid" color="rgba: 0.22 0.24 0.26" /></scene>`,
     });
     try {
-        const eid = [...valid.state.query([Color])][0];
+        const eid = [...valid.world.query([Color])][0];
         if (eid === undefined) throw new Error("valid Color scene did not create a Color entity");
-        const lanes = valid.state.of(Color).rgba.read(eid, new Float32Array(4));
+        const lanes = valid.world.storage(Color).rgba.read(eid, new Float32Array(4));
         const expected = [0.22, 0.24, 0.26, 1];
         if (lanes.some((value, index) => Math.abs(value - expected[index]) > 1e-6))
             throw new Error(`canonical rgba lanes were ${Array.from(lanes).join(", ")}`);
@@ -34,7 +34,7 @@ test("Color loads canonical rgba field syntax and rejects CSS-function syntax at
         valid.dispose();
     }
 
-    await build({
+    await createApp({
         defaults: false,
         plugins: [ColorOwner],
         scene: `<scene><a color="rgba(0.22 0.24 0.26)" /></scene>`,

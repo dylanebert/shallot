@@ -24,7 +24,7 @@ function readManifest(absDir: string) {
 
 /**
  * the WebGPU features a project's enabled plugins require beyond the base floor — the same union the
- * runtime computes at `build()` (engine/app: `plugins.flatMap(p => p.features)`), resolved statically
+ * runtime computes at `createApp()` (engine/app: `plugins.flatMap(p => p.features)`), resolved statically
  * from `shallot.json`. Imports engine plugin barrels and local plugins to read their feature declarations;
  * GPU work remains in lifecycle hooks. Missing entries refuse before evaluation; an already-resolved local
  * that fails during evaluation remains the web build's problem to surface.

@@ -268,8 +268,8 @@ export function sdfWgsl(): { distance: string; finalize: string } {
     };
 }
 
-// Each State caches one pipeline pair from its own TypeGPU root. Its font generators share the pair;
-// another State gets its own pipelines even when both States use the same GPUDevice.
+// Each World caches one pipeline pair from its own TypeGPU root. Its font generators share the pair;
+// another World gets its own pipelines even when both States use the same GPUDevice.
 interface SdfPipelines {
     distance: TgpuRenderPipeline;
     finalize: TgpuRenderPipeline;
@@ -277,16 +277,16 @@ interface SdfPipelines {
 
 const sdfPipelinesKey = { create: () => createSdfPipelines() };
 const createSdfPipelines = () => ({ value: null as SdfPipelines | null });
-const sdfPipelines = (state: World) => state.resource(sdfPipelinesKey);
+const sdfPipelines = (world: World) => world.resource(sdfPipelinesKey);
 
-export function initializeSdfState(state: World): void {
-    state.resource(sdfPipelinesKey);
+export function initializeSdfState(world: World): void {
+    world.resource(sdfPipelinesKey);
 }
 
-function pipelines(state: World) {
-    const cache = sdfPipelines(state);
+function pipelines(world: World) {
+    const cache = sdfPipelines(world);
     if (cache.value) return cache.value;
-    const root = state.gpu.root;
+    const root = world.gpu.root;
     cache.value = {
         distance: root
             .createRenderPipeline({
@@ -316,9 +316,9 @@ function pipelines(state: World) {
     return cache.value;
 }
 
-/** Drop this State's cached SDF pipeline pair. @internal */
-export function resetPipelines(state: World): void {
-    sdfPipelines(state).value = null;
+/** Drop this World's cached SDF pipeline pair. @internal */
+export function resetPipelines(world: World): void {
+    sdfPipelines(world).value = null;
 }
 
 export interface SDFGeneratorConfig {
@@ -370,11 +370,11 @@ export class SDFGenerator {
         });
     }
 
-    begin(state: World): void {
+    begin(world: World): void {
         // built here, drawn from `flush` microseconds later, so there is no force-compile forcer: a
         // `precompile` thunk drains after warm, long after these draws already went out (the load-path
         // blit's refuted precompile)
-        this._pipelines = pipelines(state);
+        this._pipelines = pipelines(world);
         this.ensureIntermediateTexture();
         this._pending = [];
     }
@@ -389,13 +389,13 @@ export class SDFGenerator {
         this._pending.push({ path, bounds, outputTexture, outputX, outputY });
     }
 
-    flush(state: World): void {
+    flush(world: World): void {
         if (this._pending.length === 0) return;
         const pipes = this._pipelines;
         const intermediate = this._intermediateTexture;
         if (!pipes || !intermediate) throw new Error("[text] SDFGenerator.flush before begin");
 
-        const root = state.gpu.root;
+        const root = world.gpu.root;
         const encoder = this._device.createCommandEncoder({ label: "text-sdf" });
         // one uniform + one segment buffer per glyph, all read within the single submit below — a shared
         // buffer overwritten per glyph would hand every pass the last glyph's data, since the queue
@@ -459,7 +459,7 @@ export class SDFGenerator {
                         storeOp: "store",
                     },
                 ],
-                timestampWrites: state.gpu.span?.("text:sdf-distance"),
+                timestampWrites: world.gpu.span?.("text:sdf-distance"),
             });
 
             pipes.distance.with(distanceGroup).with(distancePass).draw(3, segments.length);
@@ -486,7 +486,7 @@ export class SDFGenerator {
                         storeOp: "store",
                     },
                 ],
-                timestampWrites: state.gpu.span?.("text:sdf-finalize"),
+                timestampWrites: world.gpu.span?.("text:sdf-finalize"),
             });
 
             // the viewport + scissor are what place this glyph in its atlas tile, and a typed pipeline

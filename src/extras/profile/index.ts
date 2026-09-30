@@ -1,4 +1,4 @@
-import type { LazyAlloc, Plugin, World, System } from "../../engine";
+import type { LazyAlloc, Plugin, System, World } from "../../engine";
 import { mountOverlay } from "../../engine";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
 import { reorderRows } from "./reorder";
@@ -28,7 +28,7 @@ export interface Profile {
      *  drain hold). For exact per-occurrence accounting, use {@link gpuTime} / {@link gpuFires}. */
     readonly gpu: ReadonlyMap<string, number>;
     /** cumulative GPU time per pass since attach, in milliseconds: summed over every actual
-     *  occurrence (a fixed-group pass once per fixed step, a draw pass once per frame). Pair with
+     *  occurrence (a fixed-group pass once per fixed step, a draw pass once per frame). Vector2Field with
      *  {@link gpuFires} to derive the per-occurrence cost: `gpuTime / gpuFires`. Immune to the
      *  greedy hold the display {@link gpu} map applies, the source of truth for the benchmark. */
     readonly gpuTime: ReadonlyMap<string, number>;
@@ -37,7 +37,7 @@ export interface Profile {
      *  render pass, ≈fixed-steps-per-frame for a per-step sim pass). */
     readonly gpuFires: ReadonlyMap<string, number>;
     /** cumulative indirect-draw count per pass since attach: summed over every frame the pass issued
-     *  draws. Pair with {@link indirectFires} for the per-frame count (`indirectCount / indirectFires`)
+     *  draws. Vector2Field with {@link indirectFires} for the per-frame count (`indirectCount / indirectFires`)
      *  and derive Dawn's injected-validation floor via `INDIRECT_FLOOR_US`. The benchmark
      *  window-diffs it like {@link gpuTime} / {@link gpuFires}, untimed by `timestampWrites`. */
     readonly indirectCount: ReadonlyMap<string, number>;
@@ -51,7 +51,7 @@ export interface Profile {
      *  instead, which return before the driver finishes compiling — so a typed pipeline's duration is
      *  near-zero and not trustworthy on its own, only its presence is (the pipeline-count golden this
      *  table backs). Where a `precompile` forcer also wraps that same
-     *  pipeline, its later `state.gpu.precompiled` completion measurement (an error-scope wrap, not a
+     *  pipeline, its later `world.gpu.precompiled` completion measurement (an error-scope wrap, not a
      *  fence — only compile-timing attribution is reported here) overwrites
      *  the sync stub under the pipeline's own label; a typed pipeline with no forcer (or one forcer
      *  covering several pipelines) keeps only the near-zero sync entry — real
@@ -132,12 +132,12 @@ const READ_RING = 4;
 
 // GPU timings are optional; CPU timings and resource tracking work without them.
 const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
-/** The profiler value owned by this State, populated by ProfilePlugin. */
+/** The profiler value owned by this World, populated by ProfilePlugin. */
 export const Profile: import("../../engine").Resource<Profile> = {
     create: () => new ProfileImpl(),
 };
 
-// timestamp queries + pipeline-compile timing + live allocation tracking. Each State owns its query set,
+// timestamp queries + pipeline-compile timing + live allocation tracking. Each World owns its query set,
 // timestamp results, counters and device hooks; staging belongs to the world pool.
 class ProfileImpl implements Profile {
     gpuTiming: Profile["gpuTiming"] = "requires timestamp-query";
@@ -406,7 +406,7 @@ class ProfileImpl implements Profile {
     // order puts the resolve and copy after every prior submission and before the next frame's writes.
     // Capture pass names with the request so later frames cannot relabel an arriving result. The world
     // pool owns staging; READ_RING bounds only the profiling metadata in flight.
-    resolve(state: World): void {
+    resolve(world: World): void {
         const querySet = this._querySet;
         const resolveBuffer = this._resolveBuffer;
         if (!querySet || !resolveBuffer) return;
@@ -416,7 +416,7 @@ class ProfileImpl implements Profile {
         if (!slot) return;
         slot.count = this._nextSlot;
         for (let i = 0; i < this._nextSlot; i++) slot.passes[i] = this._passes[i];
-        state.readback
+        world.readback
             .request(queryCount * 8, "profile-timestamps", (encoder, staging) => {
                 encoder.resolveQuerySet(querySet, 0, queryCount, resolveBuffer, 0);
                 encoder.copyBufferToBuffer(resolveBuffer, 0, staging, 0, queryCount * 8);
@@ -477,7 +477,7 @@ class ProfileImpl implements Profile {
         }
     }
 
-    /** @internal — also the `state.gpu.precompiled` sink for typed pipelines. `isPipeline` marks a call
+    /** @internal — also the `world.gpu.precompiled` sink for typed pipelines. `isPipeline` marks a call
      *  that came from an actual `create*Pipeline(Async)` constructor (real pipelines: {@link compiledPipelines}),
      *  as opposed to a `precompile` forcer-scope span observing one after the fact — membership is
      *  monotonic (only added, never revoked) so a forcer's later, non-pipeline call can still refine an
@@ -485,7 +485,7 @@ class ProfileImpl implements Profile {
     recordCompile(label: string, start: number, end: number, isPipeline = false): void {
         // A named label overwrites — this is what lets a typed pipeline's own sync-constructor patch
         // (fires first, inside the precompile forcer's dispatch, near-zero) and that same forcer's later
-        // `state.gpu.precompiled` completion measurement (an error-scope wrap, not a fence — only
+        // `world.gpu.precompiled` completion measurement (an error-scope wrap, not a fence — only
         // compile-timing attribution is reported here) converge on ONE entry under
         // the pipeline's own name, rather than the forcer's more-accurate span landing as a spurious
         // second row beside its own near-zero stub. Two genuinely different pipelines colliding on the
@@ -578,7 +578,7 @@ interface OverlayData {
 }
 
 interface Overlay {
-    update(state: World, profile: ProfileImpl): void;
+    update(world: World, profile: ProfileImpl): void;
     destroy(): void;
 }
 
@@ -979,7 +979,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
     let lastRender = 0;
 
     return {
-        update(state: World, profile: ProfileImpl) {
+        update(world: World, profile: ProfileImpl) {
             // per-frame: tick the pools straight from the live Maps (no allocation, no layout).
             // The heavy snapshot (getBoundingClientRect, map spreads, mem sort) is deferred to
             // the throttled render below, so the profiler's own per-frame CPU cost stays minimal
@@ -1000,7 +1000,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
             if (now - lastRender < 250) return;
             lastRender = now;
 
-            const data = collectStats(state, profile);
+            const data = collectStats(world, profile);
             emaFps = emaFps < 0 ? data.fps : emaFps + HERO_ALPHA * (data.fps - emaFps);
             emaFt = emaFt < 0 ? data.frameTime : emaFt + HERO_ALPHA * (data.frameTime - emaFt);
             fpsEl.textContent = pad(emaFps > 0 ? emaFps.toFixed(0) : "--", 3) + " fps";
@@ -1126,7 +1126,7 @@ const profileUi = {
 };
 // the overlay is a convenience HUD, off by default and toggled with F3 (owned here, not per-consumer).
 // it lives inside the canvas's container so it sits within the view, not over the whole window — a
-// fullscreen example reads the same; an embedded canvas stays inside its host container. Each State owns it.
+// fullscreen example reads the same; an embedded canvas stays inside its host container. Each World owns it.
 
 /**
  * show or hide the profiler overlay — the same HUD F3 toggles, driven from code. Off by default; call
@@ -1135,8 +1135,8 @@ const profileUi = {
  * @example
  * const Perf = { name: "Perf", warm(state) { showProfiler(state); } } satisfies Plugin;
  */
-export function showProfiler(state: World, show = true): void {
-    const _profileUi = state.resource(profileUi);
+export function showProfiler(world: World, show = true): void {
+    const _profileUi = world.resource(profileUi);
 
     _profileUi.visible = show;
     if (!_profileUi.visible && _profileUi.overlay) {
@@ -1153,11 +1153,11 @@ export function showProfiler(state: World, show = true): void {
 const ProfileFrameBeginSystem: System = {
     group: "setup",
     first: true,
-    update(state: World) {
-        const profiler = state.resource(Profile) as ProfileImpl;
+    update(world: World) {
+        const profiler = world.resource(Profile) as ProfileImpl;
         profiler.drain();
-        const compute = state.gpu;
-        if (compute) profiler.resolve(state);
+        const compute = world.gpu;
+        if (compute) profiler.resolve(world);
         profiler.reset();
     },
 };
@@ -1168,19 +1168,19 @@ const ProfileFrameBeginSystem: System = {
 const ProfileRenderSystem: System = {
     group: "draw",
     last: true,
-    update(state: World) {
-        const _profileUi = state.resource(profileUi);
+    update(world: World) {
+        const _profileUi = world.resource(profileUi);
 
         _profileUi.benchmarkReady = true;
         if (typeof document === "undefined" || !_profileUi.visible) return;
         if (!_profileUi.overlay) _profileUi.overlay = createOverlay();
-        _profileUi.overlay.update(state, state.resource(Profile) as ProfileImpl);
+        _profileUi.overlay.update(world, world.resource(Profile) as ProfileImpl);
     },
 };
 
 /**
  * performance profiler: an F3-toggled stats overlay (FPS, per-pass GPU/CPU timings, memory, shader
- * compile) plus the State-owned {@link Profile} view and the `window.__benchmark` measurement API. Off by
+ * compile) plus the World-owned {@link Profile} view and the `window.__benchmark` measurement API. Off by
  * default: add it and press F3 to show the overlay; the data is on `Profile` whether it's shown or not.
  * Register it first so its `createBuffer` / pipeline patches catch every allocation. Physics phase
  * timings are separate: add {@link PhysicsProfilePlugin} for `World.getProfile`, which this plugin does
@@ -1194,32 +1194,32 @@ export const ProfilePlugin: Plugin = {
     dependencies: [],
     preferredFeatures: TIMESTAMP,
 
-    initialize(state: World) {
-        const compute = state.gpu;
+    initialize(world: World) {
+        const compute = world.gpu;
         if (!compute) return;
 
-        const profiler = state.resource(Profile) as ProfileImpl;
-        const ui = state.resource(profileUi);
+        const profiler = world.resource(Profile) as ProfileImpl;
+        const ui = world.resource(profileUi);
         profiler.attach(compute.device);
 
         compute.span = (name) => profiler.span(name);
         compute.indirect = (name, count) => profiler.recordIndirect(name, count);
         compute.precompiled = (label, start, end) => profiler.recordCompile(label, start, end);
-        state.recordSink = (name, ms) => profiler.record(name, ms);
-        state.fenceWaitSink = (ms) => {
+        world.recordSink = (name, ms) => profiler.record(name, ms);
+        world.fenceWaitSink = (ms) => {
             profiler.fenceWaitMs = ms;
         };
 
-        // the overlay is a DOM mount; its removal rides the State's lifetime, so a host that calls
-        // state.dispose() directly (not App.dispose) still tears it down — the leak class this closes.
-        state.onDispose(() => {
+        // the overlay is a DOM mount; its removal rides the World's lifetime, so a host that calls
+        // world.dispose() directly (not App.dispose) still tears it down — the leak class this closes.
+        world.onDispose(() => {
             ui.overlay?.destroy();
             ui.overlay = null;
         });
 
         if (typeof window !== "undefined") {
             ui.benchmarkReady = false;
-            const measure = createMeasure(state, profiler);
+            const measure = createMeasure(world, profiler);
             window.__benchmark = ui.benchmark = {
                 get ready() {
                     return ui.benchmarkReady;
@@ -1227,33 +1227,33 @@ export const ProfilePlugin: Plugin = {
                 measure,
             };
 
-            // F3 toggle rides `state.signal` — no manual removal, no module-scoped handler ref.
+            // F3 toggle rides `world.signal` — no manual removal, no module-scoped handler ref.
             window.addEventListener(
                 "keydown",
                 (e: KeyboardEvent) => {
                     if (e.key !== "F3") return;
                     e.preventDefault();
-                    showProfiler(state, !ui.visible);
+                    showProfiler(world, !ui.visible);
                 },
-                { signal: state.signal },
+                { signal: world.signal },
             );
         }
     },
 
-    // Clear the active state.gpu hooks and the window.__benchmark global; the DOM overlay + F3 listener
-    // ride the State (initialize above), and the profiler releases its own resources below.
-    dispose(state: World) {
-        const _profileUi = state.resource(profileUi);
+    // Clear the active world.gpu hooks and the window.__benchmark global; the DOM overlay + F3 listener
+    // ride the World (initialize above), and the profiler releases its own resources below.
+    dispose(world: World) {
+        const _profileUi = world.resource(profileUi);
 
-        const profiler = state.resource(Profile) as ProfileImpl;
-        const compute = state.gpu;
+        const profiler = world.resource(Profile) as ProfileImpl;
+        const compute = world.gpu;
         if (compute) {
             compute.span = undefined;
             compute.indirect = undefined;
             compute.precompiled = undefined;
         }
-        state.recordSink = undefined;
-        state.fenceWaitSink = undefined;
+        world.recordSink = undefined;
+        world.fenceWaitSink = undefined;
         if (typeof window !== "undefined" && window.__benchmark === _profileUi.benchmark) {
             delete window.__benchmark;
         }

@@ -9,7 +9,7 @@ import {
 import type { JointDef, SpringDef } from "./index";
 
 // Spring/Joint def → physics joint marshaling — the constraint half of the ECS→physics path
-// (marshal.ts is the body half). The substrate's ConstraintSystem uploads the full authored set on
+// (marshal.ts is the body half). The substrate's SyncPhysicsConstraintsSystem uploads the full authored set on
 // change; this module diffs it against the live set by def CONTENT, so an unchanged constraint keeps
 // its live physics joint and its warm-started impulses survive a re-author. The mapping:
 // Spring → DistanceJoint-with-spring (stiffness N/m → hertz via the pair's
@@ -34,7 +34,7 @@ export function stiffnessHertz(stiffness: number, massA: number, massB: number):
         massA > 0 && massB > 0 ? (massA * massB) / (massA + massB) : Math.max(massA, massB);
     // NaN is transparent to the comparison-only guard (NaN <= 0 is false), so state finiteness explicitly —
     // defense in depth even after the authoring-layer guard, because the physics singleton escape hatch
-    // (Physics.world / imperative spawn scripts) bypasses ConstraintSystem. ∞ is a valid stiffness (rigid),
+    // (Physics.world / imperative spawn scripts) bypasses SyncPhysicsConstraintsSystem. ∞ is a valid stiffness (rigid),
     // so the finite check exempts it; -∞ is already caught by `stiffness <= 0`.
     if (
         meff <= 0 ||
@@ -185,7 +185,7 @@ function endpoints(
 }
 
 function createSpring(
-    world: SolverWorld,
+    physicsWorld: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     def: SpringDef,
     isDeferred: (eid: number) => boolean,
@@ -203,7 +203,7 @@ function createSpring(
         );
         return null;
     }
-    return world.createDistanceJoint(pair[0], pair[1], {
+    return physicsWorld.createDistanceJoint(pair[0], pair[1], {
         localFrameA: frame(def.rA),
         localFrameB: frame(def.rB),
         length: def.rest,
@@ -218,7 +218,7 @@ function createSpring(
 }
 
 function createJoint(
-    world: SolverWorld,
+    physicsWorld: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     def: JointDef,
     isDeferred: (eid: number) => boolean,
@@ -239,7 +239,7 @@ function createJoint(
         return null;
     }
     if (def.stiffnessAng === 0) {
-        return world.createSphericalJoint(ta, tb, {
+        return physicsWorld.createSphericalJoint(ta, tb, {
             localFrameA: frame(def.rA),
             localFrameB: frame(def.rB),
         });
@@ -247,7 +247,7 @@ function createJoint(
     // NaN is transparent to the comparison-only `< 0` guard (NaN < 0 is false), so state it explicitly —
     // without this, NaN reaches stiffnessHertz, whose Number.isFinite guard returns 0 → angularHertz 0 →
     // box3d's RIGID angular constraint → a rigid weld with no diagnostic (the exact defect the spec's Goal
-    // names). This is the escape-hatch defense: Physics.world / imperative spawn bypasses ConstraintSystem and
+    // names). This is the escape-hatch defense: Physics.world / imperative spawn bypasses SyncPhysicsConstraintsSystem and
     // therefore the authoring-layer guard, so createJoint must be NaN-symmetric with its own negative case.
     if (def.stiffnessAng < 0 || Number.isNaN(def.stiffnessAng)) {
         warnOnce(
@@ -262,7 +262,7 @@ function createJoint(
     // the documented backend-approximate seam)
     const angularHertz =
         def.stiffnessAng > RIGID_THRESHOLD ? 0 : stiffnessHertz(def.stiffnessAng, mA, mB);
-    return world.createWeldJoint(ta, tb, {
+    return physicsWorld.createWeldJoint(ta, tb, {
         localFrameA: frame(def.rA),
         localFrameB: { p: { x: def.rB[0], y: def.rB[1], z: def.rB[2] }, q: relRotation(ta, tb) },
         linearHertz: 0, // rigid pin, both mappings
@@ -277,7 +277,7 @@ function createJoint(
 /** reconcile the authored spring set against the live physics joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncSprings(
     cache: ConstraintCache,
-    world: SolverWorld,
+    physicsWorld: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     defs: readonly SpringDef[],
     isDeferred: (eid: number) => boolean,
@@ -285,14 +285,14 @@ export function syncSprings(
     cache.retainedSprings = defs;
     cache.warnedSprings.clear();
     syncSet(cache.liveSprings, defs, springKey, (d) =>
-        createSpring(world, bodies, d, isDeferred, cache.warnedSprings),
+        createSpring(physicsWorld, bodies, d, isDeferred, cache.warnedSprings),
     );
 }
 
 /** reconcile the authored joint set against the live physics joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncJoints(
     cache: ConstraintCache,
-    world: SolverWorld,
+    physicsWorld: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     defs: readonly JointDef[],
     isDeferred: (eid: number) => boolean,
@@ -300,7 +300,7 @@ export function syncJoints(
     cache.retainedJoints = defs;
     cache.warnedJoints.clear();
     syncSet(cache.liveJoints, defs, jointKey, (d) =>
-        createJoint(world, bodies, d, isDeferred, cache.warnedJoints),
+        createJoint(physicsWorld, bodies, d, isDeferred, cache.warnedJoints),
     );
 }
 
@@ -316,17 +316,17 @@ export function syncJoints(
  *  composite key was never banked (index.ts's never-thrash-the-frame-loop invariant). */
 export function resyncConstraints(
     cache: ConstraintCache,
-    world: SolverWorld,
+    physicsWorld: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     isDeferred: (eid: number) => boolean,
 ): void {
     if (cache.retainedSprings.length > 0)
         syncSet(cache.liveSprings, cache.retainedSprings, springKey, (d) =>
-            createSpring(world, bodies, d, isDeferred, cache.warnedSprings),
+            createSpring(physicsWorld, bodies, d, isDeferred, cache.warnedSprings),
         );
     if (cache.retainedJoints.length > 0)
         syncSet(cache.liveJoints, cache.retainedJoints, jointKey, (d) =>
-            createJoint(world, bodies, d, isDeferred, cache.warnedJoints),
+            createJoint(physicsWorld, bodies, d, isDeferred, cache.warnedJoints),
         );
 }
 

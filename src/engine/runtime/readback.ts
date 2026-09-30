@@ -28,9 +28,9 @@ export class ReadbackPool {
     private readonly _device: GPUDevice;
     private readonly _state: World;
 
-    constructor(state: World) {
-        this._device = state.gpu.device;
-        this._state = state;
+    constructor(world: World) {
+        this._device = world.gpu.device;
+        this._state = world;
         this._device.addEventListener("uncapturederror", this._onError);
     }
 

@@ -48,7 +48,7 @@ export const DirectionalLight = {
  *
  * @example
  * ```
- * <a point-light="color: 0xffd9a0; intensity: 2; range: 6" transform="pos: 0 1.8 0" />
+ * <a point-light="color: 0xffd9a0; intensity: 2; range: 6" transform="translation: 0 1.8 0" />
  * ```
  */
 export const PointLight = {
@@ -72,7 +72,7 @@ export const PointLight = {
  *
  * @example
  * ```
- * <a point-light="color: 0xffffff; intensity: 4; range: 12" spot="inner: 18; outer: 28" transform="rot: -45 0 0" />
+ * <a point-light="color: 0xffffff; intensity: 4; range: 12" spot="inner: 18; outer: 28" transform="rotation: -45 0 0" />
  * ```
  */
 export const Spot = {
@@ -91,7 +91,7 @@ export const Spot = {
  *
  * @example
  * ```
- * <a point-light="color: 0xffffff; intensity: 6; range: 14" spot="inner: 16; outer: 26" volumetric transform="pos: 0 8 0; rot: -90 0 0" />
+ * <a point-light="color: 0xffffff; intensity: 6; range: 14" spot="inner: 16; outer: 26" volumetric transform="translation: 0 8 0; rotation: -90 0 0" />
  * <a directional-light="direction: -0.4 -0.8 -0.45" volumetric shadow="distance: 80" />
  * ```
  */
@@ -152,17 +152,17 @@ function createLightingResources(): LightingResources {
     };
 }
 
-function lightingResources(state: World): LightingResources {
-    return state.resource(lightingKey);
+function lightingResources(world: World): LightingResources {
+    return world.resource(lightingKey);
 }
 
 /** Create this world's lighting state during RenderPlugin initialization. */
-export function initializeLightingState(state: World): void {
-    state.resource(lightingKey);
+export function initializeLightingState(world: World): void {
+    world.resource(lightingKey);
 }
 
 export const Lighting: import("../../engine").Resource<Lighting> = {
-    create: (state) => state.resource(lightingKey).gpu,
+    create: (world) => world.resource(lightingKey).gpu,
 };
 
 // the singleton query terms and each light's decoded color, held so the per-frame pack mints nothing: a
@@ -171,37 +171,37 @@ const AMBIENT_TERMS = [AmbientLight];
 const SUN_TERMS = [DirectionalLight];
 
 /** read the singleton AmbientLight + DirectionalLight entities and pack the Lighting UBO */
-export function writeLighting(state: World): void {
-    const _lighting = state.resource(Lighting);
+export function writeLighting(world: World): void {
+    const _lighting = world.resource(Lighting);
 
-    if (!state.gpu.device || !_lighting.buffer) return;
+    if (!world.gpu.device || !_lighting.buffer) return;
 
     // zero first; absent lights + pad lanes stay 0, so each present light just
     // writes its own fields (no sun → sunColor 0 → no contribution either way)
     const s = _lighting.staging;
     s.fill(0);
 
-    const ambient = state.only(AMBIENT_TERMS);
+    const ambient = world.only(AMBIENT_TERMS);
     if (ambient >= 0) {
-        const packed = state.of(AmbientLight).color.get(ambient);
-        if (packed !== lightingResources(state).ambientPacked) {
+        const packed = world.storage(AmbientLight).color.get(ambient);
+        if (packed !== lightingResources(world).ambientPacked) {
             const rgb = unpackColor(packed);
-            lightingResources(state).ambientRgb[0] = rgb.r;
-            lightingResources(state).ambientRgb[1] = rgb.g;
-            lightingResources(state).ambientRgb[2] = rgb.b;
-            lightingResources(state).ambientPacked = packed;
+            lightingResources(world).ambientRgb[0] = rgb.r;
+            lightingResources(world).ambientRgb[1] = rgb.g;
+            lightingResources(world).ambientRgb[2] = rgb.b;
+            lightingResources(world).ambientPacked = packed;
         }
-        s[0] = lightingResources(state).ambientRgb[0];
-        s[1] = lightingResources(state).ambientRgb[1];
-        s[2] = lightingResources(state).ambientRgb[2];
-        s[3] = state.of(AmbientLight).intensity.get(ambient);
+        s[0] = lightingResources(world).ambientRgb[0];
+        s[1] = lightingResources(world).ambientRgb[1];
+        s[2] = lightingResources(world).ambientRgb[2];
+        s[3] = world.storage(AmbientLight).intensity.get(ambient);
     }
 
-    const dir = state.only(SUN_TERMS);
+    const dir = world.only(SUN_TERMS);
     if (dir >= 0) {
-        const dx = state.of(DirectionalLight).direction.x.get(dir);
-        const dy = state.of(DirectionalLight).direction.y.get(dir);
-        const dz = state.of(DirectionalLight).direction.z.get(dir);
+        const dx = world.storage(DirectionalLight).direction.x.get(dir);
+        const dy = world.storage(DirectionalLight).direction.y.get(dir);
+        const dz = world.storage(DirectionalLight).direction.z.get(dir);
         const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1e-4) {
             s[5] = -1; // degenerate direction → straight down
@@ -210,25 +210,25 @@ export function writeLighting(state: World): void {
             s[5] = dy / len;
             s[6] = dz / len;
         }
-        const packed = state.of(DirectionalLight).color.get(dir);
-        if (packed !== lightingResources(state).sunPacked) {
+        const packed = world.storage(DirectionalLight).color.get(dir);
+        if (packed !== lightingResources(world).sunPacked) {
             const rgb = unpackColor(packed);
-            lightingResources(state).sunRgb[0] = rgb.r;
-            lightingResources(state).sunRgb[1] = rgb.g;
-            lightingResources(state).sunRgb[2] = rgb.b;
-            lightingResources(state).sunPacked = packed;
+            lightingResources(world).sunRgb[0] = rgb.r;
+            lightingResources(world).sunRgb[1] = rgb.g;
+            lightingResources(world).sunRgb[2] = rgb.b;
+            lightingResources(world).sunPacked = packed;
         }
-        const i = state.of(DirectionalLight).intensity.get(dir);
-        s[8] = lightingResources(state).sunRgb[0] * i;
-        s[9] = lightingResources(state).sunRgb[1] * i;
-        s[10] = lightingResources(state).sunRgb[2] * i;
+        const i = world.storage(DirectionalLight).intensity.get(dir);
+        s[8] = lightingResources(world).sunRgb[0] * i;
+        s[9] = lightingResources(world).sunRgb[1] * i;
+        s[10] = lightingResources(world).sunRgb[2] * i;
         // the sun's volumetric opt-in: a `Volumetric` marker flags the otherwise-pad sunDirection.w lane
         // (1 = scatter shafts in the fog march). The lit path reads only sunDirection.xyz, so the flag is
         // inert there — the analogue of the point light's radius-sign flag, no 4th vec4
-        if (state.has(dir, Volumetric)) s[7] = 1;
+        if (world.has(dir, Volumetric)) s[7] = 1;
     }
 
-    state.gpu.device.queue.writeBuffer(_lighting.buffer, 0, s as Float32Array<ArrayBuffer>);
+    world.gpu.device.queue.writeBuffer(_lighting.buffer, 0, s as Float32Array<ArrayBuffer>);
 }
 
 /** the point-light list cap. The compacted list the cull pass bins is fixed-size so sear's binding
@@ -338,11 +338,11 @@ const POINT_LIGHT_TERMS = [PointLight, GlobalTransform];
  * never writes an entry), so the overflow is loud, not silent. A count, not a
  * pack: the light data itself flows GPU-side
  */
-export function warnLightOverflow(state: World): void {
-    const _lighting = state.resource(lightingKey);
+export function warnLightOverflow(world: World): void {
+    const _lighting = world.resource(lightingKey);
 
     let count = 0;
-    for (const _ of state.query(POINT_LIGHT_TERMS)) count++;
+    for (const _ of world.query(POINT_LIGHT_TERMS)) count++;
     if (count > MAX_POINT_LIGHTS) {
         const resources = _lighting;
         if (!resources.overflowWarned) {

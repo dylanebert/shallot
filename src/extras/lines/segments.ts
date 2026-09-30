@@ -46,12 +46,12 @@ function createSegmentState(): SegmentState {
     };
 }
 
-function segmentState(state: World): SegmentState {
-    return state.resource(segmentStateKey);
+function segmentState(world: World): SegmentState {
+    return world.resource(segmentStateKey);
 }
 
-export function initializeSegmentState(state: World): void {
-    state.resource(segmentStateKey);
+export function initializeSegmentState(world: World): void {
+    world.resource(segmentStateKey);
 }
 
 // the producer's GPU publication. `count` is the segments packed this frame (reset after the upload);
@@ -64,24 +64,24 @@ interface Lines {
 }
 
 export const Lines: import("../../engine").Resource<Lines> = {
-    create: (state) => state.resource(segmentStateKey),
+    create: (world) => world.resource(segmentStateKey),
 };
 
-function grow(state: World, min: number): void {
-    let cap = segmentState(state).capacity;
+function grow(world: World, min: number): void {
+    let cap = segmentState(world).capacity;
     while (cap < min) cap *= 2;
     const next = new ArrayBuffer(cap * SEGMENT_BYTES);
     new Uint8Array(next).set(
-        new Uint8Array(segmentState(state).staging, 0, segmentState(state).count * SEGMENT_BYTES),
+        new Uint8Array(segmentState(world).staging, 0, segmentState(world).count * SEGMENT_BYTES),
     );
-    segmentState(state).staging = next;
-    segmentState(state).f32 = new Float32Array(next);
-    segmentState(state).u32 = new Uint32Array(next);
-    segmentState(state).capacity = cap;
+    segmentState(world).staging = next;
+    segmentState(world).f32 = new Float32Array(next);
+    segmentState(world).u32 = new Uint32Array(next);
+    segmentState(world).capacity = cap;
 }
 
 export function push(
-    state: World,
+    world: World,
     ax: number,
     ay: number,
     az: number,
@@ -91,24 +91,24 @@ export function push(
     width: number,
     color: number,
 ): void {
-    if (segmentState(state).count >= segmentState(state).capacity)
-        grow(state, segmentState(state).count + 1);
-    const o = segmentState(state).count * SEGMENT_FLOATS;
-    segmentState(state).f32[o] = ax;
-    segmentState(state).f32[o + 1] = ay;
-    segmentState(state).f32[o + 2] = az;
-    segmentState(state).f32[o + 3] = width;
-    segmentState(state).f32[o + 4] = bx;
-    segmentState(state).f32[o + 5] = by;
-    segmentState(state).f32[o + 6] = bz;
-    segmentState(state).u32[o + 7] = color;
-    segmentState(state).count++;
+    if (segmentState(world).count >= segmentState(world).capacity)
+        grow(world, segmentState(world).count + 1);
+    const o = segmentState(world).count * SEGMENT_FLOATS;
+    segmentState(world).f32[o] = ax;
+    segmentState(world).f32[o + 1] = ay;
+    segmentState(world).f32[o + 2] = az;
+    segmentState(world).f32[o + 3] = width;
+    segmentState(world).f32[o + 4] = bx;
+    segmentState(world).f32[o + 5] = by;
+    segmentState(world).f32[o + 6] = bz;
+    segmentState(world).u32[o + 7] = color;
+    segmentState(world).count++;
 }
 
 // four world-space fins from the tip back along the shaft. perpendicular basis off an up reference that
 // flips near-vertical shafts; fins go back `0.2 * shaftLen * size` and out half that along ±e1/±e2
 export function head(
-    state: World,
+    world: World,
     tx: number,
     ty: number,
     tz: number,
@@ -145,26 +145,26 @@ export function head(
     const bx = tx - dx * back;
     const by = ty - dy * back;
     const bz = tz - dz * back;
-    push(state, tx, ty, tz, bx + e1x * out, by + e1y * out, bz + e1z * out, width, color);
-    push(state, tx, ty, tz, bx - e1x * out, by - e1y * out, bz - e1z * out, width, color);
-    push(state, tx, ty, tz, bx + e2x * out, by + e2y * out, bz + e2z * out, width, color);
-    push(state, tx, ty, tz, bx - e2x * out, by - e2y * out, bz - e2z * out, width, color);
+    push(world, tx, ty, tz, bx + e1x * out, by + e1y * out, bz + e1z * out, width, color);
+    push(world, tx, ty, tz, bx - e1x * out, by - e1y * out, bz - e1z * out, width, color);
+    push(world, tx, ty, tz, bx + e2x * out, by + e2y * out, bz + e2z * out, width, color);
+    push(world, tx, ty, tz, bx - e2x * out, by - e2y * out, bz - e2z * out, width, color);
 }
 
 /** draw one world-space segment this frame (cleared next frame). `width` in pixels, `color` hex sRGB */
-export function segment(
-    state: World,
+export function drawLine(
+    world: World,
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
     width = 1,
 ): void {
-    push(state, a[0], a[1], a[2], b[0], b[1], b[2], width, packColor(color, 1));
+    push(world, a[0], a[1], a[2], b[0], b[1], b[2], width, packColor(color, 1));
 }
 
 /** draw the 12 wireframe edges of an axis-aligned box this frame */
-export function box(
-    state: World,
+export function drawWireBox(
+    world: World,
     min: ArrayLike<number>,
     max: ArrayLike<number>,
     color: number,
@@ -177,24 +177,24 @@ export function box(
     const x1 = max[0];
     const y1 = max[1];
     const z1 = max[2];
-    // 4 bottom edges, 4 top, 4 verticals — inlined (no per-call closure: box() is on the scale path)
-    push(state, x0, y0, z0, x1, y0, z0, width, c);
-    push(state, x1, y0, z0, x1, y0, z1, width, c);
-    push(state, x1, y0, z1, x0, y0, z1, width, c);
-    push(state, x0, y0, z1, x0, y0, z0, width, c);
-    push(state, x0, y1, z0, x1, y1, z0, width, c);
-    push(state, x1, y1, z0, x1, y1, z1, width, c);
-    push(state, x1, y1, z1, x0, y1, z1, width, c);
-    push(state, x0, y1, z1, x0, y1, z0, width, c);
-    push(state, x0, y0, z0, x0, y1, z0, width, c);
-    push(state, x1, y0, z0, x1, y1, z0, width, c);
-    push(state, x1, y0, z1, x1, y1, z1, width, c);
-    push(state, x0, y0, z1, x0, y1, z1, width, c);
+    // 4 bottom edges, 4 top, 4 verticals — inlined (no per-call closure: drawWireBox() is on the scale path)
+    push(world, x0, y0, z0, x1, y0, z0, width, c);
+    push(world, x1, y0, z0, x1, y0, z1, width, c);
+    push(world, x1, y0, z1, x0, y0, z1, width, c);
+    push(world, x0, y0, z1, x0, y0, z0, width, c);
+    push(world, x0, y1, z0, x1, y1, z0, width, c);
+    push(world, x1, y1, z0, x1, y1, z1, width, c);
+    push(world, x1, y1, z1, x0, y1, z1, width, c);
+    push(world, x0, y1, z1, x0, y1, z0, width, c);
+    push(world, x0, y0, z0, x0, y1, z0, width, c);
+    push(world, x1, y0, z0, x1, y1, z0, width, c);
+    push(world, x1, y0, z1, x1, y1, z1, width, c);
+    push(world, x0, y0, z1, x0, y1, z1, width, c);
 }
 
 /** draw a world-space arrow (shaft + a fletched head at `b`) this frame */
-export function arrow(
-    state: World,
+export function drawArrow(
+    world: World,
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
@@ -202,36 +202,36 @@ export function arrow(
     size = 1,
 ): void {
     const c = packColor(color, 1);
-    push(state, a[0], a[1], a[2], b[0], b[1], b[2], width, c);
-    head(state, b[0], b[1], b[2], a[0], a[1], a[2], size, width, c);
+    push(world, a[0], a[1], a[2], b[0], b[1], b[2], width, c);
+    head(world, b[0], b[1], b[2], a[0], a[1], a[2], size, width, c);
 }
 
 /** true once the GPU buffers are allocated (`warmSegments` ran with a device) */
-export function ready(state: World): boolean {
-    return !!segmentState(state).buffer && !!state.resource(Lines).args;
+export function ready(world: World): boolean {
+    return !!segmentState(world).buffer && !!world.resource(Lines).args;
 }
 
 /** reset the segment count without touching the GPU buffers (reload-safe pre-warm init) */
-export function resetCount(state: World): void {
-    segmentState(state).count = 0;
+export function resetCount(world: World): void {
+    segmentState(world).count = 0;
 }
 
 /** allocate the segment storage + indirect-args buffers and publish `lineSegments` */
-export function warmSegments(state: World, _device: GPUDevice): void {
-    segmentState(state).capacity = INITIAL;
-    segmentState(state).staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
-    segmentState(state).f32 = new Float32Array(segmentState(state).staging);
-    segmentState(state).u32 = new Uint32Array(segmentState(state).staging);
-    segmentState(state).count = 0;
-    const resources = segmentState(state);
-    const buffer = state.gpu.root
+export function warmSegments(world: World, _device: GPUDevice): void {
+    segmentState(world).capacity = INITIAL;
+    segmentState(world).staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
+    segmentState(world).f32 = new Float32Array(segmentState(world).staging);
+    segmentState(world).u32 = new Uint32Array(segmentState(world).staging);
+    segmentState(world).count = 0;
+    const resources = segmentState(world);
+    const buffer = world.gpu.root
         .createBuffer(d.arrayOf(Segment, INITIAL))
         .$usage("storage")
         .$name("shallot-line-segments");
     resources.buffer = buffer;
-    state.gpu.buffers.set("lineSegments", state.gpu.root.unwrap(buffer));
-    state.gpu.typed.set("lineSegments", buffer);
-    state.resource(Lines).args = state.gpu.root
+    world.gpu.buffers.set("lineSegments", world.gpu.root.unwrap(buffer));
+    world.gpu.typed.set("lineSegments", buffer);
+    world.resource(Lines).args = world.gpu.root
         .createBuffer(DrawIndexedIndirect)
         .$usage("indirect")
         .$name("shallot-line-args");
@@ -239,20 +239,20 @@ export function warmSegments(state: World, _device: GPUDevice): void {
 
 // grow the GPU buffer to match the CPU staging (rare); republish so sear re-resolves the binding, then
 // upload this frame's segments, write the indirect record (instanceCount = live count), and clear
-export function flushSegments(state: World, device: GPUDevice, quadBase: number): void {
-    const _lines = state.resource(Lines);
+export function flushSegments(world: World, device: GPUDevice, quadBase: number): void {
+    const _lines = world.resource(Lines);
 
-    const resources = segmentState(state);
+    const resources = segmentState(world);
     if (!resources.buffer || !_lines.args) return;
-    if (resources.capacity * SEGMENT_BYTES > state.gpu.root.unwrap(resources.buffer).size) {
+    if (resources.capacity * SEGMENT_BYTES > world.gpu.root.unwrap(resources.buffer).size) {
         const stale = resources.buffer;
-        const buffer = state.gpu.root
+        const buffer = world.gpu.root
             .createBuffer(d.arrayOf(Segment, resources.capacity))
             .$usage("storage")
             .$name("shallot-line-segments");
         resources.buffer = buffer;
-        state.gpu.buffers.set("lineSegments", state.gpu.root.unwrap(buffer));
-        state.gpu.typed.set("lineSegments", buffer);
+        world.gpu.buffers.set("lineSegments", world.gpu.root.unwrap(buffer));
+        world.gpu.typed.set("lineSegments", buffer);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
     const buffer = resources.buffer;
@@ -260,7 +260,7 @@ export function flushSegments(state: World, device: GPUDevice, quadBase: number)
     if (!buffer || !args) return;
     if (resources.count > 0)
         device.queue.writeBuffer(
-            state.gpu.root.unwrap(buffer),
+            world.gpu.root.unwrap(buffer),
             0,
             resources.staging,
             0,
@@ -273,15 +273,15 @@ export function flushSegments(state: World, device: GPUDevice, quadBase: number)
         baseVertex: 0,
         firstInstance: 0,
     });
-    segmentState(state).count = 0;
+    segmentState(world).count = 0;
 }
 
-export function disposeSegments(state: World): void {
-    const _lines = state.resource(Lines);
+export function disposeSegments(world: World): void {
+    const _lines = world.resource(Lines);
 
-    segmentState(state).buffer?.destroy();
+    segmentState(world).buffer?.destroy();
     _lines.args?.destroy();
-    segmentState(state).buffer = null;
+    segmentState(world).buffer = null;
     _lines.args = null;
-    segmentState(state).count = 0;
+    segmentState(world).count = 0;
 }

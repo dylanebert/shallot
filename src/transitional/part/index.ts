@@ -8,47 +8,47 @@ import {
     ColorTraits,
     initializePartState,
     initPart,
-    Part,
+    MeshInstance,
     PartSystem,
     PartTraits,
     warmPart,
 } from "./part";
 
-export { Color, Part, partTable } from "./part";
+export { Color, MeshInstance, partTable } from "./part";
 
 /**
- * the dogfooded Part producer. ECS-shaped per-entity rendering: `Part` +
+ * the dogfooded MeshInstance producer. ECS-shaped per-entity rendering: `MeshInstance` +
  * `Color` components, the built-in cube mesh, and a GPU pack pipeline that
- * groups Parts by surface and emits one indirect draw per used surface.
+ * groups MeshInstances by surface and emits one indirect draw per used surface.
  * Renderer-independent: it publishes per-instance data (`globalTransforms`,
  * `color`, `eids`) but registers no surface, so it carries no lighting model
  * and renders under any consumer. The surfaces its entities point at
- * (`Part.surface` defaults to the name `"default"`) ship with the renderer:
+ * (`MeshInstance.surface` defaults to the name `"default"`) ship with the renderer:
  * the renderer registers `default`/`unlit`/`vertex` against the `eids` + `globalTransforms`
  * instance convention and its own `lit`. Depends on {@link RenderPlugin}.
  */
 export const PartPlugin: Plugin = {
     name: "Part",
     systems: [PartSystem],
-    components: { Part, Color },
+    components: { MeshInstance, Color },
     traits: {
-        Part: PartTraits,
+        MeshInstance: PartTraits,
         Color: ColorTraits,
     },
     dependencies: [RenderPlugin],
 
-    initialize(state) {
-        initializePartState(state);
-        initPart(state);
-        initMeshes(state);
+    initialize(world) {
+        initializePartState(world);
+        initPart(world);
+        initMeshes(world);
     },
 
     warm: warmPart,
 };
 
-// Part's extension surface: the pack's GPU-output registry. `Part` (the component) + `Color` ride the main
-// barrel; `Parts` is the internal pack output — the slot-major `drawArgs` (DrawIndexedIndirect) + packed
+// MeshInstance's extension surface: the pack's GPU-output registry. `MeshInstance` (the component) + `Color` ride the main
+// barrel; `MeshInstances` is the internal pack output — the slot-major `drawArgs` (DrawIndexedIndirect) + packed
 // survivor eids a custom pipeline or a GPU-readback oracle reads. GPU handles, not author API, so it lives
 // at the extension tier like render's `Draws` / `Surfaces` registries.
 
-export { Parts } from "./part";
+export { MeshInstances } from "./part";

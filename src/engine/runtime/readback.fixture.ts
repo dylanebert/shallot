@@ -37,7 +37,7 @@ export interface ControlledSlot {
 
 /** A controllable mapping boundary for cheap pool lifecycle proofs, not GPU-content proofs. */
 export async function controlledReadback(
-    body: (state: World, slots: ControlledSlot[], errors: EventTarget) => Promise<void>,
+    body: (world: World, slots: ControlledSlot[], errors: EventTarget) => Promise<void>,
 ) {
     const descriptors = ["GPUBufferUsage", "GPUMapMode"].map(
         (name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
@@ -49,7 +49,7 @@ export async function controlledReadback(
     Object.defineProperty(globalThis, "GPUMapMode", { configurable: true, value: { READ: 1 } });
     const slots: ControlledSlot[] = [];
     const events = new EventTarget();
-    const state = new World();
+    const world = new World();
     const device = {
         limits: { maxBufferSize: 1 << 20 },
         addEventListener: events.addEventListener.bind(events),
@@ -90,12 +90,12 @@ export async function controlledReadback(
                 },
             };
             slot.buffer = buffer as unknown as GPUBuffer;
-            state.own(slot.buffer);
+            world.own(slot.buffer);
             slots.push(slot);
             return slot.buffer;
         },
     } as unknown as GPUDevice;
-    state.attachGpu({
+    world.attachGpu({
         device,
         frame: 0,
         buffers: new Map(),
@@ -112,9 +112,9 @@ export async function controlledReadback(
         },
     });
     try {
-        await body(state, slots, events);
+        await body(world, slots, events);
     } finally {
-        state.dispose();
+        world.dispose();
         for (const [name, descriptor] of descriptors) {
             if (descriptor) Object.defineProperty(globalThis, name, descriptor);
             else Reflect.deleteProperty(globalThis, name);

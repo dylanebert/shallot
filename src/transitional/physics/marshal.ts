@@ -89,38 +89,42 @@ function attachShape(
  *  pose/mass/friction off the `Body` slab and create the matching physics body + collider. `userData` carries
  *  `eid` so a `BodyMoveEvent` round-trips back to the entity without a reverse map. Deterministic given `eid`
  *  and the current `Body` field values — the dual-run marshaling gate (physics.test.ts) exercises this
- *  directly, both through a live `State` and by hand-authoring the same field values. Returns `null` when the
+ *  directly, both through a live `World` and by hand-authoring the same field values. Returns `null` when the
  *  body references an unregistered/unbuildable hull (the collider can't attach): it warns, destroys the empty
  *  body, and the caller skips this eid rather than letting the throw take down the frame loop. */
-export function marshalBody(state: World, world: SolverWorld, eid: number): SolverBody | null {
-    const kind = state.of(Body).shape.get(eid);
-    const mass = state.of(Body).mass.get(eid);
-    const tb = world.createBody({
+export function marshalBody(
+    world: World,
+    physicsWorld: SolverWorld,
+    eid: number,
+): SolverBody | null {
+    const kind = world.storage(Body).shape.get(eid);
+    const mass = world.storage(Body).mass.get(eid);
+    const tb = physicsWorld.createBody({
         type: bodyType(mass),
         position: {
-            x: state.of(Body).pos.x.get(eid),
-            y: state.of(Body).pos.y.get(eid),
-            z: state.of(Body).pos.z.get(eid),
+            x: world.storage(Body).position.x.get(eid),
+            y: world.storage(Body).position.y.get(eid),
+            z: world.storage(Body).position.z.get(eid),
         },
         rotation: {
             v: {
-                x: state.of(Body).quat.x.get(eid),
-                y: state.of(Body).quat.y.get(eid),
-                z: state.of(Body).quat.z.get(eid),
+                x: world.storage(Body).rotation.x.get(eid),
+                y: world.storage(Body).rotation.y.get(eid),
+                z: world.storage(Body).rotation.z.get(eid),
             },
-            s: state.of(Body).quat.w.get(eid),
+            s: world.storage(Body).rotation.w.get(eid),
         },
         userData: eid,
     });
     const attached = attachShape(
         tb,
         kind,
-        state.of(Body).halfExtents.x.get(eid),
-        state.of(Body).halfExtents.y.get(eid),
-        state.of(Body).halfExtents.z.get(eid),
-        state.of(Body).halfExtents.w.get(eid),
+        world.storage(Body).halfExtents.x.get(eid),
+        world.storage(Body).halfExtents.y.get(eid),
+        world.storage(Body).halfExtents.z.get(eid),
+        world.storage(Body).halfExtents.w.get(eid),
         mass,
-        state.of(Body).friction.get(eid),
+        world.storage(Body).friction.get(eid),
     );
     if (!attached) {
         tb.destroy();

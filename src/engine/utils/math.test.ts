@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
-import { aim, compose, invert, lookAt, multiply } from "./math";
+import { composeMat4, invertMat4, lookAt, lookAtRotation, multiplyMat4 } from "./math";
 
 // `aim` and `lookAt` are two readings of one orientation: `aim` returns it as a quaternion an entity is
-// posed with, `lookAt` as the view matrix a projection multiplies. Sear poses each shadow light camera with
+// posed with, `lookAt` as the view matrix a projection multiplies. StandardRenderer poses each shadow light camera with
 // `aim` and renders that light through `lookAt`, so the pack's cull frustum is the render's frustum only
-// while `invert(compose(eye, aim(...)))` is `lookAt(...)`. Nothing else in the tree reads that agreement.
+// while `invertMat4(composeMat4(eye, lookAtRotation(...)))` is `lookAt(...)`. Nothing else in the tree reads that agreement.
 
 // eye/target pairs whose direction is not parallel to the up vector each row passes. A direction that is
 // parallel is degenerate for both functions, and they resolve it differently — `aim` nudges the up vector,
-// `lookAt` substitutes an axis — so the two frames differ by a roll there. Sear never poses one: a cascade's
+// `lookAt` substitutes an axis — so the two frames differ by a roll there. StandardRenderer never poses one: a cascade's
 // up comes from the sun's own snap-plane basis, and a cube face's from its face table.
 const CASES: { eye: [number, number, number]; target: [number, number, number] }[] = [
     { eye: [0, 10, 0.001], target: [0, 0, 0] },
@@ -22,13 +22,13 @@ function viewFromAim(
     eye: [number, number, number],
     q: { x: number; y: number; z: number; w: number },
 ): Float32Array {
-    const world = compose(eye[0], eye[1], eye[2], q.x, q.y, q.z, q.w, 1, 1, 1);
-    return invert(world);
+    const world = composeMat4(eye[0], eye[1], eye[2], q.x, q.y, q.z, q.w, 1, 1, 1);
+    return invertMat4(world);
 }
 
 test("the quaternion aim returns orients a camera differently from the view matrix lookAt builds for the same eye and target, so a shadow light would cull against one frustum and render through another", () => {
     for (const { eye, target } of CASES) {
-        const q = aim(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
+        const q = lookAtRotation(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
         const view = viewFromAim(eye, q);
         const expected = lookAt(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
         for (let i = 0; i < 16; i++) expect(view[i]).toBeCloseTo(expected[i], 4);
@@ -54,7 +54,7 @@ test("aim and lookAt disagree once a caller supplies its own up vector, so a cas
             const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
             const dot = Math.abs((dx * up[0] + dy * up[1] + dz * up[2]) / len);
             if (dot > 0.999) continue;
-            const q = aim(
+            const q = lookAtRotation(
                 eye[0],
                 eye[1],
                 eye[2],
@@ -84,11 +84,11 @@ test("aim and lookAt disagree once a caller supplies its own up vector, so a cas
 
 test("the view matrix an aimed camera implies does not place the eye at the view origin, so every shadow cast from it would be offset from the light", () => {
     for (const { eye, target } of CASES) {
-        const q = aim(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
+        const q = lookAtRotation(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
         const view = viewFromAim(eye, q);
         // the eye in view space: view · [eye, 1], read from the translation the multiply produces
-        const world = compose(eye[0], eye[1], eye[2], 0, 0, 0, 1, 1, 1, 1);
-        const composed = multiply(view, world);
+        const world = composeMat4(eye[0], eye[1], eye[2], 0, 0, 0, 1, 1, 1, 1);
+        const composed = multiplyMat4(view, world);
         expect(composed[12]).toBeCloseTo(0, 4);
         expect(composed[13]).toBeCloseTo(0, 4);
         expect(composed[14]).toBeCloseTo(0, 4);

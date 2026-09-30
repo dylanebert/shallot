@@ -297,7 +297,7 @@ const DEG2RAD = Math.PI / 180;
  * a world-space pick ray through a normalized-device-coordinate point (`ndcX`/`ndcY` in [-1, 1], x right /
  * y up; (0, 0) is screen centre). Unprojects through the camera's vertical `fov` (degrees) + `aspect`,
  * rotates the camera-space ray into world by the camera `quat`, and offsets the origin to the `near` plane.
- * The returned `dir` is normalized, so a {@link RayHit} distance is world units. Pair with {@link screenToRay}
+ * The returned `dir` is normalized, so a {@link RayHit} distance is world units. Vector2Field with {@link screenToRay}
  * for pixel input.
  */
 export function generateRay(

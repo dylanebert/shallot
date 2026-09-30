@@ -15,12 +15,18 @@ import { loadScenarioCorpus, runScenario } from "../oracle/scenario";
 import { compareCase } from "../oracle/strict";
 
 test("the active collision route changes the symmetric face-B feature order, the pinned CCD and sensor intermediate bits, or the public body move record identity", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
-    const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 1, z: 0 } });
+    const physicsWorld = new PhysicsWorld({
+        gravity: { x: 0, y: -10, z: 0 },
+        enableContinuous: false,
+    });
+    const body = physicsWorld.createBody({
+        type: BodyType.Dynamic,
+        position: { x: 0, y: 1, z: 0 },
+    });
     body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
     body.applyMassFromShapes();
-    world.step(1 / 60, 1);
-    const moves = world.getBodyEvents();
+    physicsWorld.step(1 / 60, 1);
+    const moves = physicsWorld.getBodyEvents();
     expect(moves.count).toBeGreaterThan(0);
     const event = moves.moveEvents[0];
     expect(event.body.id.index1).toBe(body.id.index1);
@@ -38,9 +44,9 @@ test("the active collision route changes the symmetric face-B feature order, the
     };
     const features = [0x0112010b, 0x01070112, 0x01100107, 0x010b0110];
     let ccdChecked = false;
-    const ccdResult = runScenario(ccd, digest, false, (world, step) => {
+    const ccdResult = runScenario(ccd, digest, false, (physicsWorld, step) => {
         if (step !== 0) return;
-        const manifold = world.state.contacts[0]?.manifolds[0];
+        const manifold = physicsWorld.state.contacts[0]?.manifolds[0];
         if (!manifold) throw new Error("CCD step 0 has no contact manifold");
         expect(manifold.points.slice(0, 4).map((point) => point.featureId)).toEqual(features);
         expect(bits(manifold.points[0].anchorA.x)).toBe("3d4ccc00");
@@ -50,9 +56,9 @@ test("the active collision route changes the symmetric face-B feature order, the
     expect(ccdResult.hashes.find((hash) => hash.step === 0)?.value).toBe("0xd4475ed2139c0e45");
 
     let sensorChecked = false;
-    const sensorResult = runScenario(sensor, digest, false, (world, step) => {
+    const sensorResult = runScenario(sensor, digest, false, (physicsWorld, step) => {
         if (step !== 14) return;
-        const manifold = world.state.contacts[0]?.manifolds[0];
+        const manifold = physicsWorld.state.contacts[0]?.manifolds[0];
         if (!manifold) throw new Error("sensor step 14 has no face-B contact manifold");
         expect(bits(manifold.normal.x)).toBe("00000000");
         expect(bits(manifold.normal.y)).toBe("3f800000");

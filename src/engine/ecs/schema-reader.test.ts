@@ -6,15 +6,15 @@ test("a world-bound scalar reader stays bound when another world resolves the sa
     const first = new World();
     const second = new World();
     try {
-        const a = first.of(Value).amount;
+        const a = first.storage(Value).amount;
         a.set(1, 1.25);
-        const readA = first.of(Value).amount.get;
+        const readA = first.storage(Value).amount.get;
         expect(readA).toBe(a.get);
-        const b = second.of(Value).amount;
+        const b = second.storage(Value).amount;
         b.set(1, 2.75);
-        expect(second.of(Value).amount.get).toBe(b.get);
+        expect(second.storage(Value).amount.get).toBe(b.get);
         expect(readA(1)).toBe(1.25);
-        expect(second.of(Value).amount.get(1)).toBe(2.75);
+        expect(second.storage(Value).amount.get(1)).toBe(2.75);
     } finally {
         first.dispose();
         second.dispose();

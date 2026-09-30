@@ -43,19 +43,19 @@ test("body lifecycle records lose a sibling world's validity, generation, LIFO r
 });
 
 test("the public body id pool leaves holes in its dense range, miscounts live ids against capacity, or recycles freed ids in the wrong order", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
-    const a = world.createBody({ type: BodyType.Dynamic });
-    const b = world.createBody({ type: BodyType.Dynamic });
-    const c = world.createBody({ type: BodyType.Dynamic });
+    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const a = physicsWorld.createBody({ type: BodyType.Dynamic });
+    const b = physicsWorld.createBody({ type: BodyType.Dynamic });
+    const c = physicsWorld.createBody({ type: BodyType.Dynamic });
     expect([a.id.index1 - 1, b.id.index1 - 1, c.id.index1 - 1]).toEqual([0, 1, 2]);
-    expect(world.getCounters().bodyCount).toBe(3);
+    expect(physicsWorld.getCounters().bodyCount).toBe(3);
 
     a.destroy();
     b.destroy();
-    expect(world.getCounters().bodyCount).toBe(1);
-    const reusedB = world.createBody({ type: BodyType.Dynamic });
-    const reusedA = world.createBody({ type: BodyType.Dynamic });
+    expect(physicsWorld.getCounters().bodyCount).toBe(1);
+    const reusedB = physicsWorld.createBody({ type: BodyType.Dynamic });
+    const reusedA = physicsWorld.createBody({ type: BodyType.Dynamic });
     expect(reusedB.id.index1 - 1).toBe(1);
     expect(reusedA.id.index1 - 1).toBe(0);
-    expect(world.createBody({ type: BodyType.Dynamic }).id.index1 - 1).toBe(3);
+    expect(physicsWorld.createBody({ type: BodyType.Dynamic }).id.index1 - 1).toBe(3);
 });

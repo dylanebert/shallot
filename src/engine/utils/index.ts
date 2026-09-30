@@ -50,21 +50,28 @@ export {
     xformQuat,
     xformWgsl,
 } from "./encode";
-export { angle, degrees, type Input, radians, type Unit, units } from "./input";
 export {
-    aim,
+    angleInput,
+    degreeUnit,
+    type FieldInput,
+    type FieldUnit,
+    radianUnit,
+    unitInput,
+} from "./input";
+export {
     clamp,
-    compose,
-    decompose,
-    euler,
-    invert,
+    composeMat4,
+    decomposeMat4,
+    eulerToQuat,
+    invertMat4,
     lerp,
     lookAt,
-    multiply,
+    lookAtRotation,
+    multiplyMat4,
     orthographic,
     perspective,
-    quat,
-    rotate,
+    quatToEuler,
+    rotateQuatByEuler,
     slerp,
 } from "./math";
 export { Registry } from "./registry";

@@ -6,7 +6,7 @@ setDefaultTimeout(CEILING.gpu);
 
 import {
     Devices,
-    focus,
+    focusCanvas,
     pointerButton,
     pointerMove,
     resizeViewport,
@@ -21,44 +21,44 @@ const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [OrbitPl
 test("the public Orbit consumer consumes held, released and neutral pointer facts to produce a sensitivity-scaled camera pose without a canvas, browser producer or renderer", async () => {
     const app = subjects()[0];
     try {
-        const state = app.state;
-        const _devices = state.resource(Devices);
-        const camera = state.create();
-        state.add(camera, Transform);
-        state.add(camera, Orbit);
-        state.of(Orbit).sensitivity.set(camera, 0.01);
-        resizeViewport(state, 0, 320, 180, 2);
-        focus(state, 0);
+        const world = app.world;
+        const _devices = world.resource(Devices);
+        const camera = world.create();
+        world.add(camera, Transform);
+        world.add(camera, Orbit);
+        world.storage(Orbit).sensitivity.set(camera, 0.01);
+        resizeViewport(world, 0, 320, 180, 2);
+        focusCanvas(world, 0);
 
-        state.step(0); // initializes OrbitSmooth and produces the initial pose
-        const initialYaw = state.of(Orbit).yaw.get(camera);
-        const initialX = state.of(Transform).pos.x.get(camera);
-        const initialZ = state.of(Transform).pos.z.get(camera);
+        world.step(0); // initializes OrbitSmooth and produces the initial pose
+        const initialYaw = world.storage(Orbit).yaw.get(camera);
+        const initialX = world.storage(Transform).translation.x.get(camera);
+        const initialZ = world.storage(Transform).translation.z.get(camera);
 
-        pointerButton(state, "left", true);
-        pointerMove(state, {
+        pointerButton(world, "left", true);
+        pointerMove(world, {
             x: 160,
             y: 90,
             deltaX: 20,
             deltaY: -6,
             canvasIndex: 0,
         });
-        state.step(Time.FIXED_DT);
-        if (Math.abs(state.of(Orbit).yaw.get(camera) - (initialYaw - 20 * 0.01)) > 0.000001)
+        world.step(Time.FIXED_DT);
+        if (Math.abs(world.storage(Orbit).yaw.get(camera) - (initialYaw - 20 * 0.01)) > 0.000001)
             throw new Error("Orbit did not consume the held drag at its sensitivity");
         if (
-            state.of(Transform).pos.x.get(camera) === initialX &&
-            state.of(Transform).pos.z.get(camera) === initialZ
+            world.storage(Transform).translation.x.get(camera) === initialX &&
+            world.storage(Transform).translation.z.get(camera) === initialZ
         )
             throw new Error("Orbit did not produce a camera pose from the supplied drag");
         if (!_devices.mouse.left) throw new Error("Orbit lost the held button fact");
 
-        pointerButton(state, "left", false);
-        state.step(Time.FIXED_DT);
-        const releasedYaw = state.of(Orbit).yaw.get(camera);
+        pointerButton(world, "left", false);
+        world.step(Time.FIXED_DT);
+        const releasedYaw = world.storage(Orbit).yaw.get(camera);
         if (_devices.mouse.left) throw new Error("Orbit retained a released button");
-        state.step(Time.FIXED_DT); // neutral: no stale drag delta may be replayed
-        if (state.of(Orbit).yaw.get(camera) !== releasedYaw)
+        world.step(Time.FIXED_DT); // neutral: no stale drag delta may be replayed
+        if (world.storage(Orbit).yaw.get(camera) !== releasedYaw)
             throw new Error("Orbit replayed released drag input on a neutral step");
         if (_devices.keys.released.size !== 0)
             throw new Error("unrelated keyboard release state leaked into Orbit");

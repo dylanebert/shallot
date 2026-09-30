@@ -4,13 +4,13 @@ import type { World } from "../../engine";
 // reads. The engine names no sky concept — this plugin owns all of it. It *reads* the sun from the
 // `Lighting` singleton and writes nothing; a day-night cycle that writes the sun is a separate, deferred
 // plugin, so sky and lights never depend on each other. One `Sky` singleton holds the look; a camera opts
-// in with sear's `Backdrop` component (`backdrop="name: sky"`). Not in `DEFAULT_PLUGINS`.
+// in with sear's `CameraBackground` component (`backdrop="name: sky"`). Not in `DEFAULT_PLUGINS`.
 
 import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
 import { f32, formatHex } from "../../engine";
 
-import { ColorSystem, SearPlugin } from "../../standard/rendering";
+import { RenderMeshColorSystem, SearPlugin } from "../../standard/rendering";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 
@@ -24,7 +24,7 @@ import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
  * @example
  * ```
  * <a sky="zenith: 0x89b6e9; horizon: 0xc4cdda; sun-glow: 0.5; cloud-coverage: 0.5" />
- * <a camera sear backdrop="name: sky" transform />
+ * <a camera standard-renderer camera-background="name: sky" transform />
  * ```
  */
 export const Sky = {
@@ -65,7 +65,7 @@ interface SkyState {
 
 const skyStateKey = { create: () => createSkyState() };
 const createSkyState = (): SkyState => ({ buffer: null, staging: new Float32Array(SKY_FLOATS) });
-const skyState = (state: World) => state.resource(skyStateKey);
+const skyState = (world: World) => world.resource(skyStateKey);
 
 // writes the `Sky` uniform each frame from the scene's Sky singleton, before sear's color pass reads it for
 // the backdrop draw. No-op unless the scene has a Sky singleton.
@@ -73,14 +73,14 @@ const SkySystem: System = {
     name: "sky",
     group: "draw",
     after: [BeginFrameSystem],
-    before: [ColorSystem],
-    update(state) {
-        const device = state.gpu.device;
-        const sky = skyState(state);
+    before: [RenderMeshColorSystem],
+    update(world) {
+        const device = world.gpu.device;
+        const sky = skyState(world);
         if (!device || !sky.buffer) return;
-        const eid = state.only([Sky]);
+        const eid = world.only([Sky]);
         if (eid < 0) return;
-        packSky(state, eid, sky.staging);
+        packSky(world, eid, sky.staging);
         device.queue.writeBuffer(sky.buffer, 0, sky.staging as Float32Array<ArrayBuffer>);
     },
 };
@@ -126,34 +126,34 @@ export const SkyPlugin: Plugin = {
     // the Lighting uniform the fragment reads
     dependencies: [RenderPlugin, SearPlugin],
 
-    initialize(state) {
-        state.resource(skyStateKey);
-        // Each State owns a distinct spec identity. Reusing the module singleton here would let an old
-        // State's exact-object disposal guard mistake a later build for its own registration.
-        registerBackground(state, { ...skyBackground });
+    initialize(world) {
+        world.resource(skyStateKey);
+        // Each World owns a distinct spec identity. Reusing the module singleton here would let an old
+        // World's exact-object disposal guard mistake a later build for its own registration.
+        registerBackground(world, { ...skyBackground });
     },
 
-    warm(state: World) {
-        const { device } = state.gpu;
+    warm(world: World) {
+        const { device } = world.gpu;
         if (!device) return;
-        const sky = skyState(state);
+        const sky = skyState(world);
         sky.buffer?.destroy();
         sky.buffer = device.createBuffer({
             label: "sky-config",
             size: SKY_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        // the background bind group resolves the `sky` binding from state.gpu.buffers by name; republish every
-        // warm — the map is wiped on each build()
-        state.gpu.buffers.set("sky", sky.buffer);
-        state.gpu.typed.set(
+        // the background bind group resolves the `sky` binding from world.gpu.buffers by name; republish every
+        // warm — the map is wiped on each createApp()
+        world.gpu.buffers.set("sky", sky.buffer);
+        world.gpu.typed.set(
             "sky",
-            state.gpu.root.createBuffer(SkyGpu, sky.buffer).$usage("uniform").$name("sky-config"),
+            world.gpu.root.createBuffer(SkyGpu, sky.buffer).$usage("uniform").$name("sky-config"),
         );
     },
 
-    dispose(state) {
-        const sky = state.resource(skyStateKey);
+    dispose(world) {
+        const sky = world.resource(skyStateKey);
         sky.buffer?.destroy();
         sky.buffer = null;
     },

@@ -6,14 +6,14 @@ setDefaultTimeout(CEILING.node);
 
 import * as d from "typegpu/data";
 import { Draws, Meshes } from "../../core/rendering";
-import { LinesPlugin, segment } from "../../extras/lines";
-import { Images, image, Sprite, SpritePlugin } from "../../extras/sprite";
-import { Content, Fonts, font, Text, TextPlugin, text } from "../../extras/text";
+import { drawLine, LinesPlugin } from "../../extras/lines";
+import { Images, registerImage, Sprite, SpritePlugin } from "../../extras/sprite";
+import { Content, Fonts, internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
-import { f32, GlobalTransform, probeBuffer, requestGPU, World, Time, Transform } from "../index";
+import { f32, GlobalTransform, probeBuffer, requestGPU, Time, Transform, World } from "../index";
 import "../../standard";
-import { serialize } from "../scene";
-import { build, swap } from "./index";
+import { serializeScene } from "../scene";
+import { createApp, swapPlugins } from "./index";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -21,12 +21,12 @@ await setupGlobals();
 
 const Value = { amount: f32 };
 const resourceKey = {
-    create: (state: World) =>
-        state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
+    create: (world: World) =>
+        world.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
 };
 const textureKey = {
-    create: (state: World) =>
-        state.gpu.device.createTexture({
+    create: (world: World) =>
+        world.gpu.device.createTexture({
             size: [1, 1, 1],
             format: "rgba8unorm",
             usage: GPUTextureUsage.TEXTURE_BINDING,
@@ -34,68 +34,68 @@ const textureKey = {
 };
 const ResourcePlugin = {
     name: "WorldResourceProbe",
-    initialize(state: World) {
-        const buffer = state.resource(resourceKey);
-        const texture = state.resource(textureKey);
-        const typed = state.gpu.root.createBuffer(d.arrayOf(d.u32, 1)).$usage("storage");
-        const typedBuffer = state.gpu.root.unwrap(typed);
-        state.gpu.buffers.set("world-probe", buffer);
-        state.gpu.buffers.set("world-probe-typed", typedBuffer);
-        state.gpu.textures.set("world-probe", texture);
-        state.gpu.typed.set("world-probe-typed", typed);
+    initialize(world: World) {
+        const buffer = world.resource(resourceKey);
+        const texture = world.resource(textureKey);
+        const typed = world.gpu.root.createBuffer(d.arrayOf(d.u32, 1)).$usage("storage");
+        const typedBuffer = world.gpu.root.unwrap(typed);
+        world.gpu.buffers.set("world-probe", buffer);
+        world.gpu.buffers.set("world-probe-typed", typedBuffer);
+        world.gpu.textures.set("world-probe", texture);
+        world.gpu.typed.set("world-probe-typed", typed);
     },
 };
-let apps: Awaited<ReturnType<typeof build>>[] = [];
+let apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
 afterEach(() => {
     for (const app of apps.splice(0)) app.dispose();
 });
 
-function amount(state: World) {
-    return state.of(Value).amount;
+function amount(world: World) {
+    return world.storage(Value).amount;
 }
 
 test("live and later worlds keep component columns separate", async () => {
-    const first = await build({ defaults: false, plugins: [ResourcePlugin] });
+    const first = await createApp({ defaults: false, plugins: [ResourcePlugin] });
     apps.push(first);
-    const a = first.state.create();
-    first.state.add(a, Value);
-    amount(first.state).set(a, 11);
+    const a = first.world.create();
+    first.world.add(a, Value);
+    amount(first.world).set(a, 11);
 
-    const second = await build({ defaults: false, plugins: [ResourcePlugin] });
+    const second = await createApp({ defaults: false, plugins: [ResourcePlugin] });
     apps.push(second);
-    const b = second.state.create();
-    second.state.add(b, Value);
+    const b = second.world.create();
+    second.world.add(b, Value);
     expect(b).toBe(a);
-    expect(amount(second.state).get(b)).toBe(0);
-    amount(second.state).set(b, 22);
-    expect(amount(first.state).get(a)).toBe(11);
-    const firstBuffer = first.state.gpu.buffers.get("world-probe");
-    const secondBuffer = second.state.gpu.buffers.get("world-probe");
+    expect(amount(second.world).get(b)).toBe(0);
+    amount(second.world).set(b, 22);
+    expect(amount(first.world).get(a)).toBe(11);
+    const firstBuffer = first.world.gpu.buffers.get("world-probe");
+    const secondBuffer = second.world.gpu.buffers.get("world-probe");
     expect(firstBuffer).toBeDefined();
     expect(secondBuffer).toBeDefined();
     expect(secondBuffer).not.toBe(firstBuffer);
-    expect(second.state.gpu.textures.get("world-probe")).not.toBe(
-        first.state.gpu.textures.get("world-probe"),
+    expect(second.world.gpu.textures.get("world-probe")).not.toBe(
+        first.world.gpu.textures.get("world-probe"),
     );
-    expect(first.state.gpu.typed.get("world-probe-typed")).not.toBe(
-        second.state.gpu.typed.get("world-probe-typed"),
+    expect(first.world.gpu.typed.get("world-probe-typed")).not.toBe(
+        second.world.gpu.typed.get("world-probe-typed"),
     );
 
     first.dispose();
     apps = apps.filter((app) => app !== first);
-    const later = await build({ defaults: false, plugins: [ResourcePlugin] });
+    const later = await createApp({ defaults: false, plugins: [ResourcePlugin] });
     apps.push(later);
-    const c = later.state.create();
-    later.state.add(c, Value);
+    const c = later.world.create();
+    later.world.add(c, Value);
     expect(c).toBe(a);
-    expect(amount(later.state).get(c)).toBe(0);
-    expect(later.state.gpu.buffers.get("world-probe")).not.toBe(secondBuffer);
-    expect(later.state.gpu.textures.get("world-probe")).not.toBe(
-        second.state.gpu.textures.get("world-probe"),
+    expect(amount(later.world).get(c)).toBe(0);
+    expect(later.world.gpu.buffers.get("world-probe")).not.toBe(secondBuffer);
+    expect(later.world.gpu.textures.get("world-probe")).not.toBe(
+        second.world.gpu.textures.get("world-probe"),
     );
-    expect(later.state.gpu.typed.get("world-probe-typed")).not.toBe(
-        second.state.gpu.typed.get("world-probe-typed"),
+    expect(later.world.gpu.typed.get("world-probe-typed")).not.toBe(
+        second.world.gpu.typed.get("world-probe-typed"),
     );
 });
 
@@ -123,25 +123,25 @@ test("component registrations, defaults, exclusions, and scene enumeration belon
         components: secondComponents,
         traits: { Value: { defaults: () => ({ amount: 22 }) } },
     };
-    const first = await build({ defaults: false, plugins: [firstPlugin] });
+    const first = await createApp({ defaults: false, plugins: [firstPlugin] });
     apps.push(first);
-    const second = await build({ defaults: false, plugins: [secondPlugin] });
+    const second = await createApp({ defaults: false, plugins: [secondPlugin] });
     apps.push(second);
 
-    const firstEid = first.state.create();
-    const secondEid = second.state.create();
-    first.state.add(firstEid, firstComponents.Value);
-    second.state.add(secondEid, secondComponents.Value);
-    expect(first.state.of(firstComponents.Value).amount.get(firstEid)).toBe(11);
-    expect(second.state.of(secondComponents.Value).amount.get(secondEid)).toBe(22);
+    const firstEid = first.world.create();
+    const secondEid = second.world.create();
+    first.world.add(firstEid, firstComponents.Value);
+    second.world.add(secondEid, secondComponents.Value);
+    expect(first.world.storage(firstComponents.Value).amount.get(firstEid)).toBe(11);
+    expect(second.world.storage(secondComponents.Value).amount.get(secondEid)).toBe(22);
 
-    first.state.add(firstEid, firstComponents.Blocker);
-    expect(() => first.state.add(firstEid, firstComponents.Other)).toThrow('cannot attach "other"');
-    second.state.add(secondEid, secondComponents.Blocker);
-    expect(() => second.state.add(secondEid, secondComponents.Other)).not.toThrow();
+    first.world.add(firstEid, firstComponents.Blocker);
+    expect(() => first.world.add(firstEid, firstComponents.Other)).toThrow('cannot attach "other"');
+    second.world.add(secondEid, secondComponents.Blocker);
+    expect(() => second.world.add(secondEid, secondComponents.Other)).not.toThrow();
 
     expect(
-        serialize(first.state, [firstEid])[0]
+        serializeScene(first.world, [firstEid])[0]
             .attrs.map((attr) => attr.name)
             .sort(),
     ).toEqual(["blocker", "value"]);
@@ -181,35 +181,35 @@ test("world GPU registries and owned resources are isolated and released on disp
             return typeof value === "function" ? value.bind(target) : value;
         },
     });
-    const first = await build({
+    const first = await createApp({
         defaults: false,
         plugins: [ResourcePlugin],
         device: wrappedDevice,
     });
     apps.push(first);
-    const firstBuffer = first.state.gpu.buffers.get("world-probe");
-    const firstTypedBuffer = first.state.gpu.buffers.get("world-probe-typed");
-    const firstTexture = first.state.gpu.textures.get("world-probe");
+    const firstBuffer = first.world.gpu.buffers.get("world-probe");
+    const firstTypedBuffer = first.world.gpu.buffers.get("world-probe-typed");
+    const firstTexture = first.world.gpu.textures.get("world-probe");
     expect(firstBuffer).toBeDefined();
     expect(firstTypedBuffer).toBeDefined();
     expect(firstTexture).toBeDefined();
 
-    const second = await build({
+    const second = await createApp({
         defaults: false,
         plugins: [ResourcePlugin],
         device: wrappedDevice,
     });
     apps.push(second);
-    const secondBuffer = second.state.gpu.buffers.get("world-probe");
-    const secondTypedBuffer = second.state.gpu.buffers.get("world-probe-typed");
-    const secondTexture = second.state.gpu.textures.get("world-probe");
+    const secondBuffer = second.world.gpu.buffers.get("world-probe");
+    const secondTypedBuffer = second.world.gpu.buffers.get("world-probe-typed");
+    const secondTexture = second.world.gpu.textures.get("world-probe");
     expect(secondBuffer).toBeDefined();
     expect(secondBuffer).not.toBe(firstBuffer);
     expect(secondTypedBuffer).toBeDefined();
     expect(secondTypedBuffer).not.toBe(firstTypedBuffer);
     expect(secondTexture).toBeDefined();
     expect(secondTexture).not.toBe(firstTexture);
-    expect(first.state.gpu.buffers.get("world-probe")).toBe(firstBuffer);
+    expect(first.world.gpu.buffers.get("world-probe")).toBe(firstBuffer);
 
     first.dispose();
     apps = apps.filter((app) => app !== first);
@@ -229,19 +229,19 @@ test("world GPU registries and owned resources are isolated and released on disp
 test("frame change marks clear at the world upload point", async () => {
     const Changed = { sparse: f32, uploaded: f32 };
     const plugin = { name: "WorldChangeMarkProbe", components: { Changed } };
-    const app = await build({ defaults: false, plugins: [plugin] });
+    const app = await createApp({ defaults: false, plugins: [plugin] });
     apps.push(app);
-    const { state } = app;
-    const eid = state.create();
-    state.add(eid, Changed);
-    const storage = state.of(Changed);
+    const { world } = app;
+    const eid = world.create();
+    world.add(eid, Changed);
+    const storage = world.storage(Changed);
     storage.sparse.set(eid, 1);
     storage.uploaded.set(eid, 2);
 
-    state.step(0);
+    world.step(0);
     expect(
         ["sparse", "uploaded"].map((name) =>
-            Array.from(state.fieldStorage(Changed, name).dirty).some((word) => word !== 0),
+            Array.from(world.fieldStorage(Changed, name).dirty).some((word) => word !== 0),
         ),
     ).toEqual([false, false]);
 
@@ -249,50 +249,50 @@ test("frame change marks clear at the world upload point", async () => {
     const lateWriter = {
         group: "draw" as const,
         update(current: World) {
-            if (writeAfterUpload) current.of(Changed).uploaded.set(eid, 9);
+            if (writeAfterUpload) current.storage(Changed).uploaded.set(eid, 9);
         },
     };
-    state.addSystem(lateWriter);
+    world.addSystem(lateWriter);
     writeAfterUpload = true;
-    state.step(0);
-    expect(state.fieldStorage(Changed, "uploaded").dirty[0]).not.toBe(0);
+    world.step(0);
+    expect(world.fieldStorage(Changed, "uploaded").dirty[0]).not.toBe(0);
 
     writeAfterUpload = false;
-    state.step(0);
-    expect(state.fieldStorage(Changed, "uploaded").dirty[0]).toBe(0);
+    world.step(0);
+    expect(world.fieldStorage(Changed, "uploaded").dirty[0]).toBe(0);
 });
 
 test("entity ids and component columns grow without a configured capacity", async () => {
     const Grow = { value: f32 };
     const plugin = { name: "WorldGrowthProbe", components: { Grow } };
-    const app = await build({ defaults: false, plugins: [plugin] });
+    const app = await createApp({ defaults: false, plugins: [plugin] });
     apps.push(app);
     let eid = 0;
-    for (let i = 0; i < 4096; i++) eid = app.state.create();
-    app.state.add(eid, Grow);
-    app.state.of(Grow).value.set(eid, 73.5);
-    expect(app.state.entityHighWater).toBe(eid + 1);
-    expect(app.state.of(Grow).value.column.length).toBeGreaterThan(eid);
-    expect(app.state.of(Grow).value.get(eid)).toBe(73.5);
+    for (let i = 0; i < 4096; i++) eid = app.world.create();
+    app.world.add(eid, Grow);
+    app.world.storage(Grow).value.set(eid, 73.5);
+    expect(app.world.entityHighWater).toBe(eid + 1);
+    expect(app.world.storage(Grow).value.column.length).toBeGreaterThan(eid);
+    expect(app.world.storage(Grow).value.get(eid)).toBe(73.5);
 });
 
 test("reordered component fields swap without rebuilding their world columns", async () => {
     const firstValue = { x: f32, y: f32 };
     const firstPlugin = { name: "WorldFieldOrderProbe", components: { Value: firstValue } };
-    const app = await build({ defaults: false, plugins: [firstPlugin] });
+    const app = await createApp({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
-    const eid = app.state.create();
-    app.state.add(eid, firstValue);
-    const before = app.state.of(firstValue);
+    const eid = app.world.create();
+    app.world.add(eid, firstValue);
+    const before = app.world.storage(firstValue);
     before.x.set(eid, 17);
     const beforeX = before.x.column;
     const beforeY = before.y.column;
 
     const reloadedValue = { y: f32, x: f32 };
     const reloaded = { name: "WorldFieldOrderProbe", components: { Value: reloadedValue } };
-    expect(await swap(app.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
+    expect(await swapPlugins(app.world, [firstPlugin], [reloaded])).toEqual({ ok: true });
 
-    const after = app.state.of(reloadedValue);
+    const after = app.world.storage(reloadedValue);
     expect(after.x.column).toBe(beforeX);
     expect(after.y.column).toBe(beforeY);
     expect(after.x.get(eid)).toBe(17);
@@ -301,7 +301,7 @@ test("reordered component fields swap without rebuilding their world columns", a
 test("a same-named Type with a different array layout forces a rebuild", async () => {
     const firstValue = { amount: f32 };
     const firstPlugin = { name: "WorldTypeLayoutProbe", components: { Value: firstValue } };
-    const app = await build({ defaults: false, plugins: [firstPlugin] });
+    const app = await createApp({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
 
     const wordF32 = { ...f32, ctor: Uint32Array };
@@ -310,18 +310,18 @@ test("a same-named Type with a different array layout forces a rebuild", async (
         name: "WorldTypeLayoutProbe",
         components: { Value: reloadedValue },
     };
-    expect(await swap(app.state, [firstPlugin], [reloaded])).toEqual({
+    expect(await swapPlugins(app.world, [firstPlugin], [reloaded])).toEqual({
         ok: false,
         reason: 'WorldTypeLayoutProbe: component "Value" schema changed',
     });
-    app.state.registry.register("Value", reloadedValue);
-    expect(() => app.state.of(reloadedValue)).toThrow("schema changed");
+    app.world.registry.register("Value", reloadedValue);
+    expect(() => app.world.storage(reloadedValue)).toThrow("schema changed");
 });
 
 test("a Type's debug name does not invalidate an identical storage layout", async () => {
     const firstValue = { amount: f32 };
     const firstPlugin = { name: "WorldTypeDebugNameProbe", components: { Value: firstValue } };
-    const app = await build({ defaults: false, plugins: [firstPlugin] });
+    const app = await createApp({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
 
     const debugAlias = { ...f32, name: "f32-debug-alias" };
@@ -330,7 +330,7 @@ test("a Type's debug name does not invalidate an identical storage layout", asyn
         name: "WorldTypeDebugNameProbe",
         components: { Value: reloadedValue },
     };
-    expect(await swap(app.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
+    expect(await swapPlugins(app.world, [firstPlugin], [reloaded])).toEqual({ ok: true });
 });
 
 test("original, reloaded, and rebuilt component accessors stop rechecking bound schemas", async () => {
@@ -339,22 +339,24 @@ test("original, reloaded, and rebuilt component accessors stop rechecking bound 
         name: "WorldAccessorCacheProbe",
         components: { Value: originalValue },
     };
-    const first = await build({ defaults: false, plugins: [originalPlugin] });
+    const first = await createApp({ defaults: false, plugins: [originalPlugin] });
     apps.push(first);
-    const originalEid = first.state.create();
-    first.state.add(originalEid, originalValue);
+    const originalEid = first.world.create();
+    first.world.add(originalEid, originalValue);
 
     const reloadedValue = { amount: f32 };
     const reloadedPlugin = {
         name: "WorldAccessorCacheProbe",
         components: { Value: reloadedValue },
     };
-    expect(await swap(first.state, [originalPlugin], [reloadedPlugin])).toEqual({ ok: true });
+    expect(await swapPlugins(first.world, [originalPlugin], [reloadedPlugin])).toEqual({
+        ok: true,
+    });
 
-    const rebuilt = await build({ defaults: false, plugins: [reloadedPlugin] });
+    const rebuilt = await createApp({ defaults: false, plugins: [reloadedPlugin] });
     apps.push(rebuilt);
-    const rebuiltEid = rebuilt.state.create();
-    rebuilt.state.add(rebuiltEid, reloadedValue);
+    const rebuiltEid = rebuilt.world.create();
+    rebuilt.world.add(rebuiltEid, reloadedValue);
 
     const originalSort = Array.prototype.sort;
     let sortCalls = 0;
@@ -366,15 +368,15 @@ test("original, reloaded, and rebuilt component accessors stop rechecking bound 
         return originalSort.call(this, compareFn);
     };
     try {
-        const original = first.state.of(originalValue);
+        const original = first.world.storage(originalValue);
         original.amount.set(originalEid, 11);
         originalRead = original.amount.get(originalEid);
 
-        const reloaded = first.state.of(reloadedValue);
+        const reloaded = first.world.storage(reloadedValue);
         reloaded.amount.set(originalEid, 22);
         reloadedRead = reloaded.amount.get(originalEid);
 
-        const rebuiltStorage = rebuilt.state.of(reloadedValue);
+        const rebuiltStorage = rebuilt.world.storage(reloadedValue);
         rebuiltStorage.amount.set(rebuiltEid, 33);
         rebuiltRead = rebuiltStorage.amount.get(rebuiltEid);
     } finally {
@@ -389,94 +391,96 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     const firstPlugin = {
         name: "SwappableWorldSchema",
         components: { Value },
-        initialize(state: World) {
-            const eid = state.create();
-            state.add(eid, this.components.Value);
-            amount(state).set(eid, 7);
+        initialize(world: World) {
+            const eid = world.create();
+            world.add(eid, this.components.Value);
+            amount(world).set(eid, 7);
         },
     };
-    const first = await build({ defaults: false, plugins: [firstPlugin] });
+    const first = await createApp({ defaults: false, plugins: [firstPlugin] });
     apps.push(first);
-    const second = await build({ defaults: false, plugins: [firstPlugin] });
+    const second = await createApp({ defaults: false, plugins: [firstPlugin] });
     apps.push(second);
-    const firstEid = first.state.entities()[0];
-    const secondEid = second.state.entities()[0];
-    amount(first.state).set(firstEid, 13);
+    const firstEid = first.world.entities()[0];
+    const secondEid = second.world.entities()[0];
+    amount(first.world).set(firstEid, 13);
 
     const reloadedValue = { amount: f32 };
     const reloaded = {
         name: "SwappableWorldSchema",
         components: { Value: reloadedValue },
-        initialize(state: World) {
-            expect(state.of(reloadedValue).amount.get(firstEid)).toBe(13);
+        initialize(world: World) {
+            expect(world.storage(reloadedValue).amount.get(firstEid)).toBe(13);
         },
     };
-    expect(await swap(first.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
-    expect(amount(first.state).get(firstEid)).toBe(13);
-    expect(amount(second.state).get(secondEid)).toBe(7);
+    expect(await swapPlugins(first.world, [firstPlugin], [reloaded])).toEqual({ ok: true });
+    expect(amount(first.world).get(firstEid)).toBe(13);
+    expect(amount(second.world).get(secondEid)).toBe(7);
 
     const incompatibleValue = { amount: f32, extra: f32 };
     const incompatible = {
         name: "SwappableWorldSchema",
         components: { Value: incompatibleValue },
     };
-    expect(await swap(first.state, [reloaded], [incompatible])).toEqual({
+    expect(await swapPlugins(first.world, [reloaded], [incompatible])).toEqual({
         ok: false,
         reason: 'SwappableWorldSchema: component "Value" schema changed',
     });
-    expect(amount(first.state).get(firstEid)).toBe(13);
-    expect(amount(second.state).get(secondEid)).toBe(7);
+    expect(amount(first.world).get(firstEid)).toBe(13);
+    expect(amount(second.world).get(secondEid)).toBe(7);
 });
 
 const OWNERSHIP_FONT = `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`;
 
 async function composition(seed: string, offset: number) {
-    const app = await build({
+    const app = await createApp({
         plugins: [TextPlugin, SpritePlugin, LinesPlugin],
-        setup(state) {
-            font(state, OWNERSHIP_FONT, seed);
-            image(state, new Blob([], { type: "image/png" }), seed);
-            text(state, seed === "first" ? "isolation" : "salt");
+        setup(world) {
+            registerFont(world, OWNERSHIP_FONT, seed);
+            registerImage(world, new Blob([], { type: "image/png" }), seed);
+            internText(world, seed === "first" ? "isolation" : "salt");
         },
         scene: `<scene>
-            <a id="label" transform="pos: ${offset} 1 0" text="content: ${seed === "first" ? "isolation" : "salt"}; font: ${seed}" />
-            <a id="sprite" transform="pos: ${offset} 2 0" sprite="image: ${seed}" />
-            <a id="line" transform="pos: ${offset} 0 0" line="offset: 1 1 1" />
+            <a id="label" transform="translation: ${offset} 1 0" text="content: ${seed === "first" ? "isolation" : "salt"}; font: ${seed}" />
+            <a id="sprite" transform="translation: ${offset} 2 0" sprite="image: ${seed}" />
+            <a id="line" transform="translation: ${offset} 0 0" line="offset: 1 1 1" />
         </scene>`,
     });
     apps.push(app);
     console.info(
-        `ownership ${seed} adapter: ${app.state.gpu.adapter.class} (${app.state.gpu.adapter.identity})`,
+        `ownership ${seed} adapter: ${app.world.gpu.adapter.class} (${app.world.gpu.adapter.identity})`,
     );
     return app;
 }
 
-async function compositionFrame(state: World, offset: number, frame: number) {
-    const transform = state.of(Transform);
-    for (const eid of state.query([Transform])) transform.pos.x.set(eid, offset + frame);
-    segment(state, [offset, frame, 0], [offset + 1, frame + 1, 1], 0xffcc44);
-    state.step(Time.FIXED_DT);
-    const fields = [...state.query([Transform])].map((eid) => ({
+async function compositionFrame(world: World, offset: number, frame: number) {
+    const transform = world.storage(Transform);
+    for (const eid of world.query([Transform])) transform.translation.x.set(eid, offset + frame);
+    drawLine(world, [offset, frame, 0], [offset + 1, frame + 1, 1], 0xffcc44);
+    world.step(Time.FIXED_DT);
+    const fields = [...world.query([Transform])].map((eid) => ({
         eid,
-        pos: Array.from(transform.pos.read(eid, new Float32Array(4))),
-        global: Array.from(state.of(GlobalTransform).pos.read(eid, new Float32Array(4))),
-        text: state.has(eid, Text) ? state.of(Text).content.get(eid) : null,
-        sprite: state.has(eid, Sprite) ? state.of(Sprite).image.get(eid) : null,
+        pos: Array.from(transform.translation.read(eid, new Float32Array(4))),
+        global: Array.from(
+            world.storage(GlobalTransform).translation.read(eid, new Float32Array(4)),
+        ),
+        text: world.has(eid, Text) ? world.storage(Text).content.get(eid) : null,
+        sprite: world.has(eid, Sprite) ? world.storage(Sprite).image.get(eid) : null,
     }));
     const buffers: Record<string, number[]> = {};
     for (const name of ["global-transform", "textGlyphs", "spriteData", "lineSegments"]) {
-        const buffer = state.gpu.buffers.get(name);
+        const buffer = world.gpu.buffers.get(name);
         if (!buffer) throw new Error(`ownership composition did not publish ${name}`);
-        const probe = await probeBuffer(state, buffer, { size: Math.min(buffer.size, 2048) });
+        const probe = await probeBuffer(world, buffer, { size: Math.min(buffer.size, 2048) });
         buffers[name] = Array.from(new Uint8Array(probe.bytes));
     }
     return {
         fields,
-        fonts: [...state.resource(Fonts)].map((entry) => entry.name),
-        content: [...state.resource(Content)].map((entry) => entry.name),
-        images: [...state.resource(Images)].map((entry) => entry.name),
-        meshes: [...state.resource(Meshes)].map((entry) => entry.name),
-        draws: [...state.resource(Draws)].map((entry) => entry.name),
+        fonts: [...world.resource(Fonts)].map((entry) => entry.name),
+        content: [...world.resource(Content)].map((entry) => entry.name),
+        images: [...world.resource(Images)].map((entry) => entry.name),
+        meshes: [...world.resource(Meshes)].map((entry) => entry.name),
+        draws: [...world.resource(Draws)].map((entry) => entry.name),
         buffers,
     };
 }
@@ -484,19 +488,19 @@ async function compositionFrame(state: World, offset: number, frame: number) {
 test("interleaved default worlds with text, sprite and lines equal each world stepped alone in fields, names and GPU bytes", async () => {
     const soloA = await composition("first", 10);
     const a = [];
-    for (let i = 0; i < 3; i++) a.push(await compositionFrame(soloA.state, 10, i));
+    for (let i = 0; i < 3; i++) a.push(await compositionFrame(soloA.world, 10, i));
     soloA.dispose();
     const soloB = await composition("second", 30);
     const b = [];
-    for (let i = 0; i < 3; i++) b.push(await compositionFrame(soloB.state, 30, i));
+    for (let i = 0; i < 3; i++) b.push(await compositionFrame(soloB.world, 30, i));
     soloB.dispose();
     const first = await composition("first", 10);
     const second = await composition("second", 30);
     for (let i = 0; i < 3; i++) {
-        second.state.of(Transform);
-        expect(await compositionFrame(first.state, 10, i)).toEqual(a[i]);
-        first.state.of(Transform);
-        expect(await compositionFrame(second.state, 30, i)).toEqual(b[i]);
+        second.world.storage(Transform);
+        expect(await compositionFrame(first.world, 10, i)).toEqual(a[i]);
+        first.world.storage(Transform);
+        expect(await compositionFrame(second.world, 30, i)).toEqual(b[i]);
     }
 });
 
@@ -506,30 +510,30 @@ test("nested and asynchronous lifecycle hooks retain explicit field, resource an
     const childPlugin = {
         name: "ExplicitChild",
         components: { Value },
-        async initialize(state: World) {
-            const _declaration = state.resource(declaration);
+        async initialize(world: World) {
+            const _declaration = world.resource(declaration);
 
-            const eid = state.create();
-            state.add(eid, Value);
-            state.of(Value).amount.set(eid, 22);
+            const eid = world.create();
+            world.add(eid, Value);
+            world.storage(Value).amount.set(eid, 22);
             _declaration.value = 22;
             await Promise.resolve();
-            parent!.of(Value);
-            expect(state.of(Value).amount.get(eid)).toBe(22);
+            parent!.storage(Value);
+            expect(world.storage(Value).amount.get(eid)).toBe(22);
             expect(_declaration.value).toBe(22);
-            expect(state.gpu).not.toBe(parent!.gpu);
+            expect(world.gpu).not.toBe(parent!.gpu);
         },
     };
     const parentPlugin = {
         name: "ExplicitParent",
         components: { Value },
-        async warm(state: World) {
-            const _declaration = state.resource(declaration);
+        async warm(world: World) {
+            const _declaration = world.resource(declaration);
 
-            parent = state;
-            const eid = state.create();
-            state.add(eid, Value);
-            state.of(Value).amount.set(eid, 11);
+            parent = world;
+            const eid = world.create();
+            world.add(eid, Value);
+            world.storage(Value).amount.set(eid, 11);
             _declaration.value = 11;
             // Nested build waits for the build lock; direct lifecycle invocation exercises nesting
             // without asking that serialization contract to become reentrant.
@@ -538,14 +542,14 @@ test("nested and asynchronous lifecycle hooks retain explicit field, resource an
             try {
                 await childPlugin.initialize(child);
                 await Promise.resolve();
-                child.of(Value);
-                expect(state.of(Value).amount.get(eid)).toBe(11);
+                child.storage(Value);
+                expect(world.storage(Value).amount.get(eid)).toBe(11);
                 expect(_declaration.value).toBe(11);
             } finally {
                 child.dispose();
             }
         },
     };
-    const app = await build({ defaults: false, plugins: [parentPlugin] });
+    const app = await createApp({ defaults: false, plugins: [parentPlugin] });
     apps.push(app);
 });

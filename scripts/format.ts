@@ -1,24 +1,24 @@
 import { resolve } from "node:path";
 import { Glob } from "bun";
-import type { Node } from "../src";
+import type { SceneNode } from "../src";
 
-const { World, parse, stringify, DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin } =
+const { World, parseScene, stringifyScene, DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin } =
     await import("../src");
-const { normalizeAttr } = await import("../src/engine/scene");
+const { normalizeAttribute } = await import("../src/engine/scene");
 
 // the engine defaults plus the opt-in viz extras that add scene-authorable components,
-// so normalizeAttr knows every component schema a scene can reference
+// so normalizeAttribute knows every component schema a scene can reference
 const PLUGINS = [...DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin];
 
-const state = new World();
+const world = new World();
 for (const plugin of PLUGINS) {
     if (plugin.components) {
         for (const [name, component] of Object.entries(plugin.components)) {
-            state.registry.register(name, component, plugin.traits?.[name]);
+            world.registry.register(name, component, plugin.traits?.[name]);
         }
     }
     if (plugin.systems) {
-        for (const system of plugin.systems) state.addSystem(system, plugin.name);
+        for (const system of plugin.systems) world.addSystem(system, plugin.name);
     }
 }
 
@@ -30,11 +30,11 @@ function attrKeys(value: string): string[] {
         .filter((k) => k !== "");
 }
 
-function normalizeNodes(nodes: Node[]) {
+function normalizeNodes(nodes: SceneNode[]) {
     for (const node of nodes) {
         for (const attr of node.attrs) {
             if (!attr.value) continue;
-            const normalized = normalizeAttr(state, attr.name, attr.value);
+            const normalized = normalizeAttribute(world, attr.name, attr.value);
             if (normalized !== null) {
                 // a normalization is a parse→format round trip, and a field whose parser needs
                 // runtime state the formatter doesn't have formats back to its default and drops off
@@ -79,9 +79,9 @@ for await (const path of glob.scan({ cwd: root })) {
     try {
         const fullPath = resolve(root, path);
         const content = await Bun.file(fullPath).text();
-        const nodes = parse(content);
+        const nodes = parseScene(content);
         normalizeNodes(nodes);
-        const output = stringify(nodes) + "\n";
+        const output = stringifyScene(nodes) + "\n";
 
         if (content !== output) {
             if (checkOnly) {

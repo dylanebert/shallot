@@ -88,7 +88,7 @@ export type RayCastInput = { origin: Vec3; translation: Vec3; maxFraction: numbe
 export type BoxCastInput = { box: AABB; translation: Vec3; maxFraction: number };
 
 // A query callback receives the caller's context as its third argument (the C `void* context`), so a
-// hoisted visitor needs neither a per-call closure nor module state.
+// hoisted visitor needs neither a per-call closure nor module world.
 export type QueryCallback<C = undefined> = (
     proxyId: number,
     userData: number,

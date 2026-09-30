@@ -12,28 +12,28 @@ await (await import(peer)).setupGlobals();
 
 test("light culling clamps an overflowing index pool without readback and exposes drops only on request", async () => {
     const subject = await createRenderedSubject();
-    const state = subject.state;
+    const world = subject.world;
     try {
         for (let i = 0; i < 35; i++) {
-            const eid = state.create();
-            state.add(eid, Transform);
-            state.add(eid, PointLight);
-            state.of(PointLight).range.set(eid, 100000);
+            const eid = world.create();
+            world.add(eid, Transform);
+            world.add(eid, PointLight);
+            world.storage(PointLight).range.set(eid, 100000);
         }
         subject.step();
         await subject.wait();
-        const frame = state.gpu.frame;
-        const tick = state.time.fixedTick;
-        const result = await requestLightOverflow(state);
+        const frame = world.gpu.frame;
+        const tick = world.time.fixedTick;
+        const result = await requestLightOverflow(world);
         expect(result.frame).toBe(frame);
         expect(result.fixedTick).toBe(tick);
         expect(result.dropped).toBeGreaterThan(0);
-        const grid = await probeBuffer(state, state.gpu.buffers.get("lightGrid")!, {
+        const grid = await probeBuffer(world, world.gpu.buffers.get("lightGrid")!, {
             size: CLUSTER_COUNT * 8,
             label: "clamped light grid",
         });
         const words = new Uint32Array(grid.bytes);
-        const poolWords = state.gpu.buffers.get("lightIndices")!.size / 4;
+        const poolWords = world.gpu.buffers.get("lightIndices")!.size / 4;
         let total = 0;
         for (let i = 0; i < CLUSTER_COUNT; i++) {
             const start = words[i * 2],

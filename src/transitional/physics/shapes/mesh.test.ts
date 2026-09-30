@@ -104,14 +104,14 @@ const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
 
 /** The mesh builder remains TypeScript authoring; shape lifetime is exercised through the public path. */
 function exercisePublicMeshShape(mesh: MeshData): void {
-    const world = new PhysicsWorld();
-    const body = world.createBody({ type: BodyType.Static });
+    const physicsWorld = new PhysicsWorld();
+    const body = physicsWorld.createBody({ type: BodyType.Static });
     const shape = body.createMesh({}, mesh);
     expect(shape.isValid(), "public mesh shape is kernel-live").toBe(true);
     shape.destroy(false);
     expect(shape.isValid(), "destroyed mesh handle is stale").toBe(false);
     body.destroy();
-    world.destroy();
+    physicsWorld.destroy();
 }
 
 test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the TypeScript port builds", () => {

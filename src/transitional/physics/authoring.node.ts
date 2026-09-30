@@ -4,23 +4,23 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { build, Time } from "@dylanebert/shallot";
+import { createApp, Time } from "@dylanebert/shallot";
 import {
     Body,
-    hash,
+    hashPhysics,
     PhysicsPlugin,
     physicsStepConfig,
     physicsWorld,
-    restore,
-    snapshot,
+    restorePhysics,
+    snapshotPhysics,
 } from "@dylanebert/shallot/physics";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
-const FALLING_SCENE = `<scene><a body="shape: 1; pos: 0 3 0; half-extents: 0 0 0 0.5; mass: 1" /></scene>`;
-const EULER_SCENE = `<scene><a id="wheel" body="shape: 1; pos: 0 1.5 0; half-extents: 0 0 0 0.4; mass: 0.5; quat: 90 0 0" /></scene>`;
+const FALLING_SCENE = `<scene><a body="shape: 1; position: 0 3 0; half-extents: 0 0 0 0.5; mass: 1" /></scene>`;
+const EULER_SCENE = `<scene><a id="wheel" body="shape: 1; position: 0 1.5 0; half-extents: 0 0 0 0.4; mass: 0.5; rotation: 90 0 0" /></scene>`;
 
 function rotateY(quat: readonly [number, number, number, number]): [number, number, number] {
     const [x, y, z, w] = quat;
@@ -28,17 +28,17 @@ function rotateY(quat: readonly [number, number, number, number]): [number, numb
 }
 
 test("vehicle trajectory bounds can duplicate gravity and substeps instead of reading the initialized Physics system's fixed-step configuration", async () => {
-    const app = await build({
+    const app = await createApp({
         defaults: false,
         plugins: [PhysicsPlugin],
         scene: FALLING_SCENE,
     });
     try {
-        const config = physicsStepConfig(app.state);
-        app.state.step(config.dt);
-        const world = physicsWorld(app.state);
-        if (!world) throw new Error("Physics world did not warm");
-        const gravity = world.getGravity();
+        const config = physicsStepConfig(app.world);
+        app.world.step(config.dt);
+        const solverWorld = physicsWorld(app.world);
+        if (!solverWorld) throw new Error("Physics world did not warm");
+        const gravity = solverWorld.getGravity();
         if (
             config.dt !== Time.FIXED_DT ||
             gravity.x !== 0 ||
@@ -48,13 +48,13 @@ test("vehicle trajectory bounds can duplicate gravity and substeps instead of re
             throw new Error(
                 `reported ${JSON.stringify(config)} but the world runs ${JSON.stringify(gravity)}`,
             );
-        const before = snapshot(app.state);
-        app.state.step(config.dt);
-        const production = hash(app.state);
+        const before = snapshotPhysics(app.world);
+        app.world.step(config.dt);
+        const production = hashPhysics(app.world);
         const replay = (substeps: number) => {
-            restore(app.state, before);
-            world.step(config.dt, substeps);
-            return hash(app.state);
+            restorePhysics(app.world, before);
+            solverWorld.step(config.dt, substeps);
+            return hashPhysics(app.world);
         };
         if (replay(config.substeps) !== production)
             throw new Error(`reported ${config.substeps} substeps but the production step differs`);
@@ -66,15 +66,15 @@ test("vehicle trajectory bounds can duplicate gravity and substeps instead of re
 });
 
 test("a Body authored with +90 degrees about X stores a unit quaternion rotating local Y to world Z, so raw Euler lanes cannot reach the solver", async () => {
-    const app = await build({ defaults: false, plugins: [PhysicsPlugin], scene: EULER_SCENE });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin], scene: EULER_SCENE });
     try {
-        const eid = [...app.state.query([Body])][0];
+        const eid = [...app.world.query([Body])][0];
         if (eid === undefined) throw new Error("Euler scene did not create a Body");
         const quat: [number, number, number, number] = [
-            app.state.of(Body).quat.x.get(eid),
-            app.state.of(Body).quat.y.get(eid),
-            app.state.of(Body).quat.z.get(eid),
-            app.state.of(Body).quat.w.get(eid),
+            app.world.storage(Body).rotation.x.get(eid),
+            app.world.storage(Body).rotation.y.get(eid),
+            app.world.storage(Body).rotation.z.get(eid),
+            app.world.storage(Body).rotation.w.get(eid),
         ];
         const norm = Math.hypot(...quat);
         const yAxis = rotateY(quat);

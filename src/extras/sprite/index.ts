@@ -20,8 +20,8 @@ import {
     Draws,
     imageArray,
     Meshes,
-    mesh,
     RenderPlugin,
+    registerMesh,
     registerSurface,
 } from "../../core/rendering";
 import {
@@ -30,11 +30,11 @@ import {
     globalTransformTable,
     type Plugin,
     Registry,
-    type World,
     type System,
+    type World,
 } from "../../engine";
 
-import { PrepassSystem } from "../../standard/rendering";
+import { RenderPrepassesSystem } from "../../standard/rendering";
 import {
     BUCKETS,
     INITIAL,
@@ -64,7 +64,7 @@ function transparentPixel(): Blob {
 }
 
 /**
- * register a sprite image, returning the id stored in {@link Sprite.image}. `source` is a url or a
+ * register a sprite image, returning the id stored in {@link Sprite.registerImage}. `source` is a url or a
  * `Blob` (a procedurally-drawn `OffscreenCanvas.convertToBlob` works); `name` is the handle a
  * scene's `image:` attribute resolves (defaults to the url). Register any time up to a plugin's
  * `initialize` (`SpritePlugin` builds the `texture_2d_array` at `warm`, after every initialize), so a
@@ -72,11 +72,11 @@ function transparentPixel(): Blob {
  *
  * @example
  * ```
- * image(state, "/icons/house.png", "house");
+ * registerImage(world, "/icons/house.png", "house");
  * ```
  */
-export function image(state: World, source: string | Blob, name?: string): number {
-    const _images = state.resource(Images);
+export function registerImage(world: World, source: string | Blob, name?: string): number {
+    const _images = world.resource(Images);
 
     const key = name ?? (typeof source === "string" ? source : `image${_images.size}`);
     return _images.register({ name: key, source });
@@ -115,51 +115,51 @@ const createSpriteGpuState = (): SpriteGpuState => ({
     quadBase: 0,
     sig: -1,
 });
-const _spriteGpuState = (state: World) => state.resource(spriteGpuKey);
+const _spriteGpuState = (world: World) => world.resource(spriteGpuKey);
 
-function rebuild(state: World, device: GPUDevice): void {
-    const _spriteGpu = state.resource(spriteGpuKey);
+function rebuild(world: World, device: GPUDevice): void {
+    const _spriteGpu = world.resource(spriteGpuKey);
 
-    const { ranges, count, dataCap, f32, eids } = packSprites(state);
+    const { ranges, count, dataCap, f32, eids } = packSprites(world);
 
     // `dataCap` is eid-indexed (sized off `maxEid + 1`), not slot count — a sprite's instance data
     // lands at `eid * SPRITE_BYTES`, so the whole eid-addressable range must upload, not just the
     // first `count` records
-    if (dataCap * SPRITE_BYTES > state.gpu.root.unwrap(_spriteGpu.spriteBuf!).size) {
+    if (dataCap * SPRITE_BYTES > world.gpu.root.unwrap(_spriteGpu.spriteBuf!).size) {
         const stale = _spriteGpu.spriteBuf!;
-        _spriteGpu.spriteBuf = state.gpu.root
+        _spriteGpu.spriteBuf = world.gpu.root
             .createBuffer(d.arrayOf(SpriteData, dataCap))
             .$usage("storage")
             .$name("shallot-sprites");
-        state.gpu.buffers.set("spriteData", state.gpu.root.unwrap(_spriteGpu.spriteBuf));
-        state.gpu.typed.set("spriteData", _spriteGpu.spriteBuf);
+        world.gpu.buffers.set("spriteData", world.gpu.root.unwrap(_spriteGpu.spriteBuf));
+        world.gpu.typed.set("spriteData", _spriteGpu.spriteBuf);
         stale.destroy();
     }
     // eid-indexed, so the whole capacity uploads every rebuild — a dead eid's stale slot is never
     // read (only an eid appearing in `eids` this rebuild is), so uploading it costs bandwidth, not
     // correctness
     device.queue.writeBuffer(
-        state.gpu.root.unwrap(_spriteGpu.spriteBuf!),
+        world.gpu.root.unwrap(_spriteGpu.spriteBuf!),
         0,
         f32,
         0,
         dataCap * (SPRITE_BYTES / 4),
     );
 
-    if (eids.length * 16 > state.gpu.root.unwrap(_spriteGpu.eidsBuf!).size) {
+    if (eids.length * 16 > world.gpu.root.unwrap(_spriteGpu.eidsBuf!).size) {
         const stale = _spriteGpu.eidsBuf!;
-        _spriteGpu.eidsBuf = state.gpu.root
+        _spriteGpu.eidsBuf = world.gpu.root
             .createBuffer(d.arrayOf(d.vec4u, eids.length))
             .$usage("storage")
             .$name("shallot-sprite-eids");
-        const quad = state.resource(Meshes).get("spriteQuad");
+        const quad = world.resource(Meshes).get("spriteQuad");
         if (quad) quad.bindings = { ...quad.bindings, eids: _spriteGpu.eidsBuf };
         stale.destroy();
     }
     if (_spriteGpu.instances.length < eids.length * 4)
         _spriteGpu.instances = new Uint32Array(eids.length * 4);
     const instances = _spriteGpu.instances;
-    const globalTransforms = globalTransformTable(state);
+    const globalTransforms = globalTransformTable(world);
     for (let i = 0; i < count; i++) {
         const eid = eids[i];
         const row = globalTransforms.rowIndex(eid);
@@ -171,7 +171,7 @@ function rebuild(state: World, device: GPUDevice): void {
     }
     if (count > 0)
         device.queue.writeBuffer(
-            state.gpu.root.unwrap(_spriteGpu.eidsBuf!),
+            world.gpu.root.unwrap(_spriteGpu.eidsBuf!),
             0,
             instances,
             0,
@@ -193,14 +193,14 @@ const SpriteSystem: System = {
     name: "sprite",
     group: "draw",
     after: [BeginFrameSystem],
-    before: [PrepassSystem],
-    setup(state: World) {
-        const _spriteGpu = state.resource(spriteGpuKey);
+    before: [RenderPrepassesSystem],
+    setup(world: World) {
+        const _spriteGpu = world.resource(spriteGpuKey);
 
-        _spriteGpu.quadBase = state.resource(Meshes).get("spriteQuad")?.indexBase ?? 0;
+        _spriteGpu.quadBase = world.resource(Meshes).get("spriteQuad")?.indexBase ?? 0;
         // all six draws, unconditionally — an empty bucket packs instanceCount 0 and no-ops
         for (let b = 0; b < BUCKETS; b++) {
-            state.resource(Draws).register({
+            world.resource(Draws).register({
                 name: surfaceName(b),
                 surface: surfaceName(b),
                 mesh: "spriteQuad",
@@ -208,24 +208,24 @@ const SpriteSystem: System = {
             });
         }
     },
-    update(state) {
-        const _spriteGpu = state.resource(spriteGpuKey);
+    update(world) {
+        const _spriteGpu = world.resource(spriteGpuKey);
 
-        if (!state.gpu.device || !_spriteGpu.spriteBuf || !_spriteGpu.eidsBuf || !_spriteGpu.argBuf)
+        if (!world.gpu.device || !_spriteGpu.spriteBuf || !_spriteGpu.eidsBuf || !_spriteGpu.argBuf)
             return;
-        const sig = signature(state);
+        const sig = signature(world);
         if (sig === _spriteGpu.sig) return;
         _spriteGpu.sig = sig;
-        rebuild(state, state.gpu.device);
+        rebuild(world, world.gpu.device);
     },
 };
 
 /**
  * the sprite producer: the retained {@link Sprite} component drawn as instanced textured quads,
- * world-space icons and markers. Register images with {@link image}; they upload into one
+ * world-space icons and markers. Register images with {@link registerImage}; they upload into one
  * `texture_2d_array`, so every sprite draws in one indirect draw per (billboard, blend) variant.
  * Default `clip` blend writes depth and casts holed shadows; billboard modes are compile-time
- * surface variants. Depends on {@link RenderPlugin}; a Sear camera renders it
+ * surface variants. Depends on {@link RenderPlugin}; a StandardRenderer camera renders it
  */
 export const SpritePlugin: Plugin = {
     name: "Sprite",
@@ -248,21 +248,21 @@ export const SpritePlugin: Plugin = {
                 fillMode: SpriteFill.None,
             }),
             parse: {
-                image: (name: string, state: World) => state.resource(Images).id(name) ?? 0,
+                image: (name: string, world: World) => world.resource(Images).id(name) ?? 0,
             },
             format: {
                 color: formatHex,
-                image: (id: number, state: World) => state.resource(Images).name(id) ?? "",
+                image: (id: number, world: World) => world.resource(Images).name(id) ?? "",
             },
             enums: { billboard: SpriteBillboard, blend: SpriteBlend, fillMode: SpriteFill },
         },
     },
 
-    initialize(state) {
-        const _spriteGpu = state.resource(spriteGpuKey);
+    initialize(world) {
+        const _spriteGpu = world.resource(spriteGpuKey);
 
         _spriteGpu;
-        resetPack(state);
+        resetPack(world);
         _spriteGpu.atlas = null;
         _spriteGpu.sampler = null;
         _spriteGpu.spriteBuf = null;
@@ -271,22 +271,22 @@ export const SpritePlugin: Plugin = {
         _spriteGpu.sig = -1;
 
         for (let b = 0; b < BUCKETS; b++) {
-            registerSurface(state, spriteSurface(b));
+            registerSurface(world, spriteSurface(b));
         }
 
-        if (!state.gpu.device) return;
-        mesh(state, { name: "spriteQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        if (!world.gpu.device) return;
+        registerMesh(world, { name: "spriteQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
     },
 
     // the atlas builds in warm, not initialize: warm runs after EVERY plugin's initialize, so any plugin
     // (e.g. a gauge plugin) can register images in its own initialize with no pre-run call. Draws bind
     // the atlas at frame 1 (after warm), so the timing is safe.
-    async warm(state) {
-        const _images = state.resource(Images);
-        const _spriteGpu = state.resource(spriteGpuKey);
+    async warm(world) {
+        const _images = world.resource(Images);
+        const _spriteGpu = world.resource(spriteGpuKey);
 
-        if (!state.gpu.device) return;
-        const device = state.gpu.device;
+        if (!world.gpu.device) return;
+        const device = world.gpu.device;
 
         // fetch every registered source to a Blob (a failed fetch becomes the transparent-pixel
         // placeholder so layer indices stay aligned with image ids), then build the array. Zero
@@ -295,7 +295,7 @@ export const SpritePlugin: Plugin = {
         if (_images.size > 0 && typeof createImageBitmap !== "undefined") {
             const blobs = await Promise.all(
                 Array.from({ length: _images.size }, async (_, id) => {
-                    const _images = state.resource(Images);
+                    const _images = world.resource(Images);
 
                     const source = _images.get(_images.name(id)!)!.source;
                     if (typeof source !== "string") return source;
@@ -309,7 +309,7 @@ export const SpritePlugin: Plugin = {
                     }
                 }),
             );
-            _spriteGpu.atlas = await imageArray(state, device, blobs);
+            _spriteGpu.atlas = await imageArray(world, device, blobs);
         } else {
             _spriteGpu.atlas = device.createTexture({
                 label: "sprite-atlas-fallback",
@@ -318,7 +318,7 @@ export const SpritePlugin: Plugin = {
                 usage: GPUTextureUsage.TEXTURE_BINDING,
             });
         }
-        state.gpu.textures.set("spriteAtlas", _spriteGpu.atlas);
+        world.gpu.textures.set("spriteAtlas", _spriteGpu.atlas);
         // clamp-to-edge (the default), not repeat — a wrapping icon bleeds its opposite edge
         _spriteGpu.sampler = device.createSampler({
             label: "sprite",
@@ -326,30 +326,30 @@ export const SpritePlugin: Plugin = {
             minFilter: "linear",
             mipmapFilter: "linear",
         });
-        state.gpu.samplers.set("spriteSamp", _spriteGpu.sampler);
+        world.gpu.samplers.set("spriteSamp", _spriteGpu.sampler);
 
-        resetPack(state);
+        resetPack(world);
         _spriteGpu.sig = -1;
-        _spriteGpu.spriteBuf = state.gpu.root
+        _spriteGpu.spriteBuf = world.gpu.root
             .createBuffer(d.arrayOf(SpriteData, INITIAL))
             .$usage("storage")
             .$name("shallot-sprites");
-        state.gpu.buffers.set("spriteData", state.gpu.root.unwrap(_spriteGpu.spriteBuf));
-        state.gpu.typed.set("spriteData", _spriteGpu.spriteBuf);
-        _spriteGpu.eidsBuf = state.gpu.root
+        world.gpu.buffers.set("spriteData", world.gpu.root.unwrap(_spriteGpu.spriteBuf));
+        world.gpu.typed.set("spriteData", _spriteGpu.spriteBuf);
+        _spriteGpu.eidsBuf = world.gpu.root
             .createBuffer(d.arrayOf(d.vec4u, INITIAL))
             .$usage("storage")
             .$name("shallot-sprite-eids");
-        const quad = state.resource(Meshes).get("spriteQuad");
+        const quad = world.resource(Meshes).get("spriteQuad");
         if (quad) quad.bindings = { ...quad.bindings, eids: _spriteGpu.eidsBuf };
-        _spriteGpu.argBuf = state.gpu.root
+        _spriteGpu.argBuf = world.gpu.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, BUCKETS))
             .$usage("storage", "indirect")
             .$name("shallot-sprite-args");
     },
 
-    dispose(state: World) {
-        const _spriteGpu = state.resource(spriteGpuKey);
+    dispose(world: World) {
+        const _spriteGpu = world.resource(spriteGpuKey);
 
         _spriteGpu.spriteBuf?.destroy();
         _spriteGpu.eidsBuf?.destroy();

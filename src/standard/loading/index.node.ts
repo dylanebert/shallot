@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { build } from "../../engine";
+import { createApp } from "../../engine";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -16,7 +16,7 @@ test("build awaits an application-owned loading completion promise before cleanu
     let cleaned = false;
     let returned = false;
     const completionStarted = new Promise<void>((resolve) => (entered = resolve));
-    const built = build({
+    const built = createApp({
         defaults: false,
         plugins: [],
         loading: {

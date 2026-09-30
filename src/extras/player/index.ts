@@ -1,23 +1,20 @@
-import type { PointerLockStatus } from "../../core/input";
 import {
     Devices,
     InputPlugin,
     inputEnabled,
-    pointerLockRefusal as readPointerLockRefusal,
-    pointerLockStatus as readPointerLockStatus,
     releasePointerLock,
     requirePointerLock,
 } from "../../core/input";
 import { Camera, RenderPlugin } from "../../core/rendering";
-import { entity, f32, not, type Plugin, type World, type System, Transform } from "../../engine";
+import { entity, f32, not, type Plugin, type System, Transform, type World } from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
 import {
     Character,
     CharacterPlugin,
-    CharacterSweepSystem,
     globalTransform,
     jump,
     move,
+    SweepCharactersSystem,
 } from "../../transitional/character";
 import { Body } from "../../transitional/physics";
 import { PlayerFollow } from "./follow";
@@ -28,9 +25,9 @@ import { PlayerFollow } from "./follow";
 // `Player.camera`. The controller owns the look (yaw/pitch, instant) + the move/jump intent (driven through
 // the `character` module's eid-keyed `move`/`jump`); the CPU sweep produces fixed-tick GlobalTransform.
 // The camera follows its position with fixed-timestep interpolation: a
-// `fixed`-group system (`after: [CharacterSweepSystem]`) snapshots this tick's swept GlobalTransform (`character.globalTransform`,
-// off the CPU controller state) into prev/curr, and the camera renders `lerp(prev, curr, fixedAlpha)` — see
-// `PlayerSnapshotSystem`. Input → GlobalTransform → camera position carries no readback lag (it stops scaling with
+// `fixed`-group system (`after: [SweepCharactersSystem]`) snapshots this tick's swept GlobalTransform (`character.globalTransform`,
+// off the CPU controller world) into prev/curr, and the camera renders `lerp(prev, curr, fixedAlpha)` — see
+// `SnapshotPlayerPositionSystem`. Input → GlobalTransform → camera position carries no readback lag (it stops scaling with
 // GPU frame time, mouse-look already did); the only camera latency is the kept one-tick interpolation +
 // the irreducible display fence. Walk/jump/slope tuning lives on `Character`.
 //
@@ -40,7 +37,7 @@ import { PlayerFollow } from "./follow";
 
 const MAX_PITCH = Math.PI / 2 - 0.01;
 // the look normalizes by this fixed reference height, never the live canvas — the why is in
-// PlayerControlSystem.update (resolution-independence).
+// UpdatePlayerControlSystem.update (resolution-independence).
 const LOOK_REFERENCE_HEIGHT = 1080;
 
 /**
@@ -52,13 +49,13 @@ const LOOK_REFERENCE_HEIGHT = 1080;
  *
  * @example
  * ```
- * const body = state.create();
- * state.add(body, Body); state.add(body, Character); state.add(body, Player);   // a capsule, mass 0
+ * const body = world.create();
+ * world.add(body, Body); world.add(body, Character); world.add(body, Player);   // a capsule, mass 0
  * Body.shape.set(body, ShapeKind.Capsule);
  * Body.halfExtents.set(body, 0, 0.6, 0, 0.3); Body.mass.set(body, 0);
  * Character.jumpSpeed.set(body, 6); Character.gravity.set(body, -30);           // snappy jump/fall
- * const cam = state.create();
- * state.add(cam, Transform); state.add(cam, Camera); state.add(cam, Sear);
+ * const cam = world.create();
+ * world.add(cam, Transform); world.add(cam, Camera); world.add(cam, StandardRenderer);
  * Player.camera.set(body, cam);
  * ```
  */
@@ -82,19 +79,13 @@ export const Player = {
     camera: entity,
 };
 
-/** Pointer-lock reads are State-scoped. */
+/** Pointer-lock reads are World-scoped. */
 export type { PointerLockStatus } from "../../core/input";
-export function pointerLockStatus(state: World): PointerLockStatus {
-    return readPointerLockStatus(state);
-}
-export function pointerLockRefusal(state: World): string | null {
-    return readPointerLockRefusal(state);
-}
 
-function setupPointerLock(state: World): void {
-    requirePointerLock(state, true);
-    state.onDispose(() => {
-        releasePointerLock(state);
+function setupPointerLock(world: World): void {
+    requirePointerLock(world, true);
+    world.onDispose(() => {
+        releasePointerLock(world);
     });
 }
 
@@ -106,75 +97,78 @@ const ORPHAN_FOLLOWS = [not(Player), PlayerFollow];
 
 // Snapshot the character's fixed-tick GlobalTransform position once per tick, so the camera can
 // render-interpolate it by `fixedAlpha`, matching the engine renderer. The character controller writes
-// GlobalTransform this tick, so this system runs `after: [CharacterSweepSystem]`; it does not read back
+// GlobalTransform this tick, so this system runs `after: [SweepCharactersSystem]`; it does not read back
 // from the GPU. Capturing on the fixed clock is what keeps
 // the camera smooth at ANY render rate; the only camera lag is the kept one-tick interpolation, no readback.
-const PlayerSnapshotSystem: System = {
+const SnapshotPlayerPositionSystem: System = {
     name: "snapshot",
     group: "fixed",
-    after: [CharacterSweepSystem],
-    update(state: World) {
-        for (const eid of state.query(PLAYER_BODIES)) {
-            if (!globalTransform(state, eid, _globalTransform)) continue; // The body producer has not registered yet.
+    after: [SweepCharactersSystem],
+    update(world: World) {
+        for (const eid of world.query(PLAYER_BODIES)) {
+            if (!globalTransform(world, eid, _globalTransform)) continue; // The body producer has not registered yet.
             const x = _globalTransform[0];
             const y = _globalTransform[1];
             const z = _globalTransform[2];
-            if (state.has(eid, PlayerFollow)) {
-                state
-                    .of(PlayerFollow)
-                    .prev.set(
+            if (world.has(eid, PlayerFollow)) {
+                world
+                    .storage(PlayerFollow)
+                    .previous.set(
                         eid,
-                        state.of(PlayerFollow).curr.x.get(eid),
-                        state.of(PlayerFollow).curr.y.get(eid),
-                        state.of(PlayerFollow).curr.z.get(eid),
+                        world.storage(PlayerFollow).current.x.get(eid),
+                        world.storage(PlayerFollow).current.y.get(eid),
+                        world.storage(PlayerFollow).current.z.get(eid),
                         0,
                     );
             } else {
                 // first snapshot: prev == curr, and membership becomes the "initialized" flag
-                state.add(eid, PlayerFollow);
-                state.of(PlayerFollow).prev.set(eid, x, y, z, 0);
+                world.add(eid, PlayerFollow);
+                world.storage(PlayerFollow).previous.set(eid, x, y, z, 0);
             }
-            state.of(PlayerFollow).curr.set(eid, x, y, z, 0);
+            world.storage(PlayerFollow).current.set(eid, x, y, z, 0);
         }
         // drop the follow state when a player is gone (mirrors the derived-state cleanup in orbit)
-        for (const eid of state.query(ORPHAN_FOLLOWS)) state.remove(eid, PlayerFollow);
+        for (const eid of world.query(ORPHAN_FOLLOWS)) world.remove(eid, PlayerFollow);
     },
 };
 
 // the player's render position: lerp between the two most recent fixed-tick GlobalTransform positions by `fixedAlpha`.
 // Falls back to the authored Body spawn position until the first snapshot lands, so the first frames aren't at the origin.
-function followPos(state: World, eid: number, out: [number, number, number]): void {
-    if (state.has(eid, PlayerFollow)) {
-        const a = state.time.fixedAlpha;
+function followPos(world: World, eid: number, out: [number, number, number]): void {
+    if (world.has(eid, PlayerFollow)) {
+        const a = world.time.fixedAlpha;
         out[0] = lerp(
-            state.of(PlayerFollow).prev.x.get(eid),
-            state.of(PlayerFollow).curr.x.get(eid),
+            world.storage(PlayerFollow).previous.x.get(eid),
+            world.storage(PlayerFollow).current.x.get(eid),
             a,
         );
         out[1] = lerp(
-            state.of(PlayerFollow).prev.y.get(eid),
-            state.of(PlayerFollow).curr.y.get(eid),
+            world.storage(PlayerFollow).previous.y.get(eid),
+            world.storage(PlayerFollow).current.y.get(eid),
             a,
         );
         out[2] = lerp(
-            state.of(PlayerFollow).prev.z.get(eid),
-            state.of(PlayerFollow).curr.z.get(eid),
+            world.storage(PlayerFollow).previous.z.get(eid),
+            world.storage(PlayerFollow).current.z.get(eid),
             a,
         );
         return;
     }
-    out[0] = state.of(Body).pos.x.get(eid);
-    out[1] = state.of(Body).pos.y.get(eid);
-    out[2] = state.of(Body).pos.z.get(eid);
+    out[0] = world.storage(Body).position.x.get(eid);
+    out[1] = world.storage(Body).position.y.get(eid);
+    out[2] = world.storage(Body).position.z.get(eid);
 }
 
-function findCamera(state: World, eid: number): number {
-    const cam = state.of(Player).camera.get(eid);
-    if (!cam || !state.has(cam, Camera)) {
+function findCamera(world: World, eid: number): number {
+    const cam = world.storage(Player).camera.get(eid);
+    if (!cam || !world.has(cam, Camera)) {
         // warn once, latched on the derived PlayerFollow (added by the snapshot system); if it isn't up yet
         // (the character hasn't registered), skip — the next frame with GlobalTransform warns.
-        if (state.has(eid, PlayerFollow) && !state.of(PlayerFollow).warned.get(eid)) {
-            state.of(PlayerFollow).warned.set(eid, 1);
+        if (
+            world.has(eid, PlayerFollow) &&
+            !world.storage(PlayerFollow).missingCameraWarned.get(eid)
+        ) {
+            world.storage(PlayerFollow).missingCameraWarned.set(eid, 1);
             console.warn(
                 `[player] entity ${eid} has Player but Player.camera points at no Camera — set it to a camera eid`,
             );
@@ -186,14 +180,14 @@ function findCamera(state: World, eid: number): number {
 
 // FPS orientation from yaw (around world Y) then pitch (around the camera's right axis). Matches the
 // forward used for the move basis + the third-person offset (forward = q·(0,0,−1)).
-function setLook(state: World, cam: number, yaw: number, pitch: number): void {
+function setLook(world: World, cam: number, yaw: number, pitch: number): void {
     const hy = yaw * 0.5;
     const hp = pitch * 0.5;
     const sy = Math.sin(hy);
     const cy = Math.cos(hy);
     const sp = Math.sin(hp);
     const cp = Math.cos(hp);
-    state.of(Transform).rot.set(cam, cy * sp, sy * cp, -sy * sp, cy * cp);
+    world.storage(Transform).rotation.set(cam, cy * sp, sy * cp, -sy * sp, cy * cp);
 }
 
 const _pos: [number, number, number] = [0, 0, 0];
@@ -201,38 +195,38 @@ const _pos: [number, number, number] = [0, 0, 0];
 /**
  * the first-person controller: mouse-look + WASD/jump intent + the follow-camera Transform, run in the
  * `simulation` group. Exported as an ordering anchor: a camera-juice system that perturbs the authored camera
- * placement declares `after: [PlayerControlSystem]`, reading the base
+ * placement declares `after: [UpdatePlayerControlSystem]`, reading the base
  * `Transform` this writes before `BeginFrameSystem` (draw) consumes it.
  */
-export const PlayerControlSystem: System = {
+export const UpdatePlayerControlSystem: System = {
     name: "control",
     group: "simulation",
 
     setup: setupPointerLock,
 
-    update(state: World) {
+    update(world: World) {
         // input suspended (a menu/cutscene): release the lock so the cursor frees + mouse-look stops, and let
         // the loop run with neutral device data — every key reads up, so move resolves to 0 and the player freezes.
-        const input = state.resource(Devices);
-        const active = inputEnabled(state);
-        for (const eid of state.query(PLAYER_BODIES)) {
-            let yaw = state.of(Player).yaw.get(eid);
-            let pitch = state.of(Player).pitch.get(eid);
+        const input = world.resource(Devices);
+        const active = inputEnabled(world);
+        for (const eid of world.query(PLAYER_BODIES)) {
+            let yaw = world.storage(Player).yaw.get(eid);
+            let pitch = world.storage(Player).pitch.get(eid);
             if (active && input.pointer.lock.status === "locked") {
                 // Resolution-independent mouse-look. Pointer-lock movementX/Y is physical mouse motion in CSS
                 // px — independent of canvas size — so the angle per pixel must NOT scale with the canvas.
-                const s = state.of(Player).sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
+                const s = world.storage(Player).sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
                 yaw -= input.pointer.deltaX * s;
                 pitch = clamp(pitch - input.pointer.deltaY * s, -MAX_PITCH, MAX_PITCH);
-                state.of(Player).yaw.set(eid, yaw);
-                state.of(Player).pitch.set(eid, pitch);
+                world.storage(Player).yaw.set(eid, yaw);
+                world.storage(Player).pitch.set(eid, pitch);
             }
 
             const cy = Math.cos(yaw);
             const sy = Math.sin(yaw);
             const sprint =
                 input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight")
-                    ? state.of(Player).sprint.get(eid)
+                    ? world.storage(Player).sprint.get(eid)
                     : 1;
 
             let lx = 0;
@@ -243,36 +237,36 @@ export const PlayerControlSystem: System = {
             if (input.keys.held.has("KeyD")) lx += 1;
             const len = Math.sqrt(lx * lx + lz * lz);
             if (len > 0) {
-                const v = (state.of(Player).speed.get(eid) * sprint) / len;
-                move(state, eid, (lz * sy + lx * cy) * v, (lz * cy - lx * sy) * v);
+                const v = (world.storage(Player).speed.get(eid) * sprint) / len;
+                move(world, eid, (lz * sy + lx * cy) * v, (lz * cy - lx * sy) * v);
             } else {
-                move(state, eid, 0, 0);
+                move(world, eid, 0, 0);
             }
             // one-shot: the press edge, not the held key. A held key refills the jump buffer every
             // frame, re-firing the instant the char re-grounds (a ledge, a landing); the buffer +
             // coyote forgiveness lives in the character pass.
-            if (input.keys.pressed.has("Space")) jump(state, eid);
+            if (input.keys.pressed.has("Space")) jump(world, eid);
 
-            const cam = findCamera(state, eid);
+            const cam = findCamera(world, eid);
             if (cam < 0) continue;
 
             // pivot = the eye; the camera sits `distance` back along the look forward (0 = first-person).
-            followPos(state, eid, _pos);
+            followPos(world, eid, _pos);
             const cp = Math.cos(pitch);
             const fx = -cp * sy;
             const fy = Math.sin(pitch);
             const fz = -cp * cy;
-            const dist = state.of(Player).distance.get(eid);
-            state
-                .of(Transform)
-                .pos.set(
+            const dist = world.storage(Player).distance.get(eid);
+            world
+                .storage(Transform)
+                .translation.set(
                     cam,
                     _pos[0] - fx * dist,
-                    _pos[1] + state.of(Player).eyeHeight.get(eid) - fy * dist,
+                    _pos[1] + world.storage(Player).eyeHeight.get(eid) - fy * dist,
                     _pos[2] - fz * dist,
                     1,
                 );
-            setLook(state, cam, yaw, pitch);
+            setLook(world, cam, yaw, pitch);
         }
 
         // InputPlugin clears the shared pointer delta at the draw boundary.
@@ -285,7 +279,7 @@ export const PlayerControlSystem: System = {
  *  the character sweeps against it. Give an entity {@link Body} + {@link Character} + {@link Player}. */
 export const PlayerPlugin: Plugin = {
     name: "Player",
-    systems: [PlayerSnapshotSystem, PlayerControlSystem],
+    systems: [SnapshotPlayerPositionSystem, UpdatePlayerControlSystem],
     components: { Player },
     dependencies: [CharacterPlugin, InputPlugin, RenderPlugin],
     traits: {

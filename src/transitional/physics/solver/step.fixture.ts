@@ -29,8 +29,8 @@ import {
     type HullData,
     makeBoxHull,
     makeOffsetBoxHull,
-    type Vec3,
     PhysicsWorld,
+    type Vec3,
 } from "../api/index";
 import { computeCosSin, DEG_TO_RAD, offsetPos, quat, vec3 } from "../common/math";
 
@@ -104,9 +104,9 @@ function toHex(h: bigint): string {
 
 // Every live body's transform + velocity, in the same id order b3HashWorldState walks — mirrors the
 // generator's state dump so a divergence can be read against the fixture.
-function dumpBodies(world: PhysicsWorld): BodyDump[] {
+function dumpBodies(physicsWorld: PhysicsWorld): BodyDump[] {
     const out: BodyDump[] = [];
-    const state = world.state;
+    const state = physicsWorld.state;
     for (let i = 0; i < state.bodies.length; ++i) {
         const body = state.bodies[i];
         if (body.id !== i) {
@@ -127,22 +127,22 @@ function dumpBodies(world: PhysicsWorld): BodyDump[] {
     return out;
 }
 
-function createGround(world: PhysicsWorld, halfExtent: number): void {
-    const body = world.createBody({ position: { x: 0, y: -1, z: 0 } });
+function createGround(physicsWorld: PhysicsWorld, halfExtent: number): void {
+    const body = physicsWorld.createBody({ position: { x: 0, y: -1, z: 0 } });
     body.createHull({}, makeBoxHull(halfExtent, 1.0, halfExtent));
 }
 
 // A static grid-mesh floor in the xz-plane at y = 0 (8x8 unit cells centered on the origin).
-function createMeshFloor(world: PhysicsWorld): void {
+function createMeshFloor(physicsWorld: PhysicsWorld): void {
     const mesh = createGridMesh(8, 8, 1.0, 0, true);
-    const body = world.createBody({ position: { x: 0, y: 0, z: 0 } });
+    const body = physicsWorld.createBody({ position: { x: 0, y: 0, z: 0 } });
     body.createMesh({}, mesh, { x: 1, y: 1, z: 1 });
 }
 
 // A static flat 8x8 grid height field, offset to centre on the origin (x,z span [-3.5, 3.5]).
-function createHeightFieldFloor(world: PhysicsWorld): void {
+function createHeightFieldFloor(physicsWorld: PhysicsWorld): void {
     const hf = createGrid(8, 8, { x: 1, y: 1, z: 1 }, false);
-    const body = world.createBody({ position: { x: -3.5, y: 0, z: -3.5 } });
+    const body = physicsWorld.createBody({ position: { x: -3.5, y: 0, z: -3.5 } });
     body.createHeightField({}, hf);
 }
 
@@ -207,7 +207,7 @@ const HUMAN_BONES = loadFixture<BoneSpec[]>("human");
 // thigh_l/thigh_r filter joint. Frames are frounded to f32; joint local-frame quats are pre-normalized
 // exactly as CreateHuman does. colorize/userData are dropped (they don't affect the sim/hash).
 function createHuman(
-    world: PhysicsWorld,
+    physicsWorld: PhysicsWorld,
     position: Vec3,
     frictionTorque: number,
     hertz: number,
@@ -216,7 +216,7 @@ function createHuman(
 ): void {
     const bodies: Body[] = [];
     for (const b of HUMAN_BONES) {
-        const body = world.createBody({
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: offsetPos(position, { x: f(b.refP[0]), y: f(b.refP[1]), z: f(b.refP[2]) }),
             rotation: { v: { x: f(b.refQ[0]), y: f(b.refQ[1]), z: f(b.refQ[2]) }, s: f(b.refQ[3]) },
@@ -257,7 +257,7 @@ function createHuman(
         const enableSpring = hertz > 0;
         const twist = b.twistDeg as [number, number];
         if (b.joint === "revolute") {
-            world.createRevoluteJoint(bodyA, bodyB, {
+            physicsWorld.createRevoluteJoint(bodyA, bodyB, {
                 localFrameA,
                 localFrameB,
                 enableLimit: true,
@@ -270,7 +270,7 @@ function createHuman(
                 maxMotorTorque,
             });
         } else {
-            world.createSphericalJoint(bodyA, bodyB, {
+            physicsWorld.createSphericalJoint(bodyA, bodyB, {
                 localFrameA,
                 localFrameB,
                 enableConeLimit: true,
@@ -288,97 +288,106 @@ function createHuman(
     }
 
     // Disable thigh_l (6) / thigh_r (8) collision.
-    world.createFilterJoint(bodies[6], bodies[8]);
+    physicsWorld.createFilterJoint(bodies[6], bodies[8]);
 }
 
-const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
-    "free-fall": (world) => {
-        const body = world.createBody({
+const builders: Record<string, (physicsWorld: PhysicsWorld, fx: Fixture) => void> = {
+    "free-fall": (physicsWorld) => {
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 10, z: 0 },
             angularVelocity: { x: 2, y: 5, z: 1 },
         });
         body.createHull({}, makeBoxHull(0.5, 1.0, 1.5));
     },
-    "sphere-drop": (world) => {
-        createGround(world, 20.0);
+    "sphere-drop": (physicsWorld) => {
+        createGround(physicsWorld, 20.0);
         for (let i = 0; i < 5; ++i) {
-            const body = world.createBody({
+            const body = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: { x: 0, y: fround(1.0 + fround(1.5 * i)), z: 0 },
             });
             body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
         }
     },
-    "box-stack": (world) => {
-        createGround(world, 20.0);
+    "box-stack": (physicsWorld) => {
+        createGround(physicsWorld, 20.0);
         for (let i = 0; i < 5; ++i) {
-            const body = world.createBody({
+            const body = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: { x: 0, y: fround(0.5 + fround(1.0 * i)), z: 0 },
             });
             body.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
         }
     },
-    "wake-drop": (world) => {
-        createGround(world, 20.0);
+    "wake-drop": (physicsWorld) => {
+        createGround(physicsWorld, 20.0);
         for (let i = 0; i < 2; ++i) {
-            const body = world.createBody({
+            const body = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: { x: 0, y: fround(0.5 + fround(1.0 * i)), z: 0 },
             });
             body.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
         }
-        const drop = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 8, z: 0 } });
+        const drop = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 8, z: 0 },
+        });
         drop.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
     },
-    "split-slide": (world) => {
-        createGround(world, 20.0);
-        const left = world.createBody({
+    "split-slide": (physicsWorld) => {
+        createGround(physicsWorld, 20.0);
+        const left = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: -0.5, y: 0.5, z: 0 },
             linearVelocity: { x: -1, y: 0, z: 0 },
         });
         left.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
-        const right = world.createBody({
+        const right = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0.5, y: 0.5, z: 0 },
             linearVelocity: { x: 1, y: 0, z: 0 },
         });
         right.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
     },
-    "revolute-dd": (world) => {
-        const b1 = world.createBody({
+    "revolute-dd": (physicsWorld) => {
+        const b1 = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             angularDamping: 0.5,
         });
         b1.createHull({}, makeBoxHull(0.5, 0.25, 0.25));
-        const b2 = world.createBody({
+        const b2 = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 1, y: 5, z: 0 },
             angularDamping: 0.5,
         });
         b2.createHull({}, makeBoxHull(0.5, 0.25, 0.25));
-        world.createRevoluteJoint(b1, b2, {
+        physicsWorld.createRevoluteJoint(b1, b2, {
             localFrameA: frame(0.5, 0, 0),
             localFrameB: frame(-0.5, 0, 0),
         });
     },
-    "revolute-pendulum": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
+    "revolute-pendulum": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 1, y: 5, z: 0 },
+        });
         arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        world.createRevoluteJoint(anchor, arm, {
+        physicsWorld.createRevoluteJoint(anchor, arm, {
             localFrameA: frame(0, 0, 0),
             localFrameB: frame(-1, 0, 0),
         });
     },
-    "revolute-motor": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
+    "revolute-motor": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 1, y: 5, z: 0 },
+        });
         arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        world.createRevoluteJoint(anchor, arm, {
+        physicsWorld.createRevoluteJoint(anchor, arm, {
             localFrameA: frame(0, 0, 0),
             localFrameB: frame(-1, 0, 0),
             enableMotor: true,
@@ -386,11 +395,14 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             maxMotorTorque: 1000.0,
         });
     },
-    "revolute-limit": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
+    "revolute-limit": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 1, y: 5, z: 0 },
+        });
         arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        world.createRevoluteJoint(anchor, arm, {
+        physicsWorld.createRevoluteJoint(anchor, arm, {
             localFrameA: frame(0, 0, 0),
             localFrameB: frame(-1, 0, 0),
             enableLimit: true,
@@ -398,87 +410,87 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             upperAngle: fround(0.25 * PI),
         });
     },
-    "revolute-chain": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm1 = world.createBody({
+    "revolute-chain": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm1 = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0.5, y: 5, z: 0 },
             angularDamping: 0.5,
         });
         arm1.createHull({}, makeBoxHull(0.5, 0.15, 0.15));
-        const arm2 = world.createBody({
+        const arm2 = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 1.5, y: 5, z: 0 },
             angularDamping: 0.5,
         });
         arm2.createHull({}, makeBoxHull(0.5, 0.15, 0.15));
-        world.createRevoluteJoint(anchor, arm1, {
+        physicsWorld.createRevoluteJoint(anchor, arm1, {
             localFrameA: frame(0, 0, 0),
             localFrameB: frame(-0.5, 0, 0),
         });
-        world.createRevoluteJoint(arm1, arm2, {
+        physicsWorld.createRevoluteJoint(arm1, arm2, {
             localFrameA: frame(0.5, 0, 0),
             localFrameB: frame(-0.5, 0, 0),
         });
     },
-    "weld-dd": (world) => {
-        const b1 = world.createBody({
+    "weld-dd": (physicsWorld) => {
+        const b1 = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             angularDamping: 0.3,
         });
         b1.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
-        const b2 = world.createBody({
+        const b2 = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 1, y: 5, z: 0 },
             angularDamping: 0.3,
             angularVelocity: { x: 2, y: 0, z: 0 },
         });
         b2.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
-        world.createWeldJoint(b1, b2, {
+        physicsWorld.createWeldJoint(b1, b2, {
             localFrameA: frame(0.5, 0, 0),
             localFrameB: frame(-0.5, 0, 0),
         });
     },
-    parallel: (world) => {
-        const b1 = world.createBody({
+    parallel: (physicsWorld) => {
+        const b1 = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             angularDamping: 0.3,
         });
         b1.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-        const b2 = world.createBody({
+        const b2 = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 1, y: 5, z: 0 },
             angularDamping: 0.3,
             angularVelocity: { x: 3, y: 2, z: 0 },
         });
         b2.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-        world.createParallelJoint(b1, b2, { maxTorque: 5 });
+        physicsWorld.createParallelJoint(b1, b2, { maxTorque: 5 });
     },
     // Eight free active-collinearity parallel-jointed pairs (one color, multiple GraphJoint blocks) plus a
     // row of overlapping dynamic boxes for contacts in the same colors — mirrors fixtures/gen.c
     // SceneJointContacts.
-    "joint-contacts": (world) => {
+    "joint-contacts": (physicsWorld) => {
         for (let k = 0; k < 8; ++k) {
             const x = k * 3;
-            const a = world.createBody({
+            const a = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: { x, y: 8, z: 0 },
                 angularDamping: 0.3,
             });
             a.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-            const b = world.createBody({
+            const b = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: { x: x + 1, y: 8, z: 0 },
                 angularDamping: 0.3,
                 angularVelocity: { x: 3, y: 2, z: 0 },
             });
             b.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-            world.createParallelJoint(a, b, { maxTorque: 5 });
+            physicsWorld.createParallelJoint(a, b, { maxTorque: 5 });
         }
         for (let i = 0; i < 12; ++i) {
-            const d = world.createBody({
+            const d = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: { x: i * 0.484375, y: 5, z: 0 },
                 angularVelocity: { x: 0, y: 0, z: i % 2 === 0 ? 2 : -2 },
@@ -486,15 +498,15 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             d.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
         }
     },
-    motor: (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = world.createBody({
+    motor: (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 1, y: 5, z: 0 },
             angularDamping: 0.2,
         });
         arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        world.createMotorJoint(anchor, arm, {
+        physicsWorld.createMotorJoint(anchor, arm, {
             localFrameA: frame(0, 0, 0),
             localFrameB: frame(-1, 0, 0),
             maxVelocityForce: 1000,
@@ -502,15 +514,15 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             maxVelocityTorque: 200,
         });
     },
-    "motor-spring": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = world.createBody({
+    "motor-spring": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 1, y: 5, z: 0 },
             angularDamping: 0.2,
         });
         arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        world.createMotorJoint(anchor, arm, {
+        physicsWorld.createMotorJoint(anchor, arm, {
             localFrameA: frame(0, 0, 0),
             localFrameB: frame(-1, 0, 0),
             maxSpringForce: 1000,
@@ -521,21 +533,24 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             angularDampingRatio: 0.7,
         });
     },
-    distance: (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const ball = world.createBody({
+    distance: (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const ball = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 2, y: 5, z: 0 },
             linearDamping: 0.1,
         });
         ball.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-        world.createDistanceJoint(anchor, ball, { length: 2 });
+        physicsWorld.createDistanceJoint(anchor, ball, { length: 2 });
     },
-    "distance-spring": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const ball = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 3, z: 0 } });
+    "distance-spring": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const ball = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 3, z: 0 },
+        });
         ball.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-        world.createDistanceJoint(anchor, ball, {
+        physicsWorld.createDistanceJoint(anchor, ball, {
             length: 2,
             enableSpring: true,
             hertz: 3,
@@ -548,15 +563,15 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             maxMotorForce: 10,
         });
     },
-    prismatic: (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const slider = world.createBody({
+    prismatic: (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const slider = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             linearVelocity: { x: 3, y: 0, z: 0 },
         });
         slider.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
-        world.createPrismaticJoint(anchor, slider, {
+        physicsWorld.createPrismaticJoint(anchor, slider, {
             enableSpring: true,
             hertz: 3,
             dampingRatio: 0.3,
@@ -565,11 +580,14 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             upperTranslation: 1,
         });
     },
-    "prismatic-motor": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const slider = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
+    "prismatic-motor": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const slider = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 5, z: 0 },
+        });
         slider.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
-        world.createPrismaticJoint(anchor, slider, {
+        physicsWorld.createPrismaticJoint(anchor, slider, {
             enableMotor: true,
             motorSpeed: 2,
             maxMotorForce: 50,
@@ -578,22 +596,25 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             upperTranslation: 2,
         });
     },
-    spherical: (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
+    spherical: (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 1, y: 5, z: 0 },
+        });
         arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        world.createSphericalJoint(anchor, arm, { localFrameB: frame(-1, 0, 0) });
+        physicsWorld.createSphericalJoint(anchor, arm, { localFrameB: frame(-1, 0, 0) });
     },
-    "spherical-limits": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = world.createBody({
+    "spherical-limits": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 1, y: 5, z: 0 },
             angularVelocity: { x: 3, y: 0, z: 4 },
             angularDamping: 0.2,
         });
         arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        world.createSphericalJoint(anchor, arm, {
+        physicsWorld.createSphericalJoint(anchor, arm, {
             localFrameB: frame(-1, 0, 0),
             enableConeLimit: true,
             coneAngle: fround(fround(0.4) * PI),
@@ -602,15 +623,15 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             upperTwistAngle: fround(fround(0.3) * PI),
         });
     },
-    "spherical-motor": (world) => {
-        const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = world.createBody({
+    "spherical-motor": (physicsWorld) => {
+        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const arm = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 1, y: 5, z: 0 },
             angularDamping: 0.2,
         });
         arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        world.createSphericalJoint(anchor, arm, {
+        physicsWorld.createSphericalJoint(anchor, arm, {
             localFrameB: frame(-1, 0, 0),
             enableSpring: true,
             hertz: 5,
@@ -620,35 +641,38 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             maxMotorTorque: 100,
         });
     },
-    wheel: (world) => {
-        const chassis = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const wheel = world.createBody({
+    wheel: (physicsWorld) => {
+        const chassis = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const wheel = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             linearVelocity: { x: 2, y: 0, z: 0 },
         });
         wheel.createHull({}, makeBoxHull(0.3, 0.3, 0.3));
-        world.createWheelJoint(chassis, wheel, {});
+        physicsWorld.createWheelJoint(chassis, wheel, {});
     },
-    "wheel-spin": (world) => {
-        const chassis = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const wheel = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
+    "wheel-spin": (physicsWorld) => {
+        const chassis = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const wheel = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 5, z: 0 },
+        });
         wheel.createHull({}, makeBoxHull(0.3, 0.3, 0.3));
-        world.createWheelJoint(chassis, wheel, {
+        physicsWorld.createWheelJoint(chassis, wheel, {
             enableSpinMotor: true,
             spinSpeed: 10,
             maxSpinTorque: 50,
         });
     },
-    "wheel-steer": (world) => {
-        const chassis = world.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const wheel = world.createBody({
+    "wheel-steer": (physicsWorld) => {
+        const chassis = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
+        const wheel = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             linearVelocity: { x: 1, y: 0, z: 0 },
         });
         wheel.createHull({}, makeBoxHull(0.3, 0.3, 0.3));
-        world.createWheelJoint(chassis, wheel, {
+        physicsWorld.createWheelJoint(chassis, wheel, {
             enableSteering: true,
             targetSteeringAngle: 0.3,
             maxSteeringTorque: 50,
@@ -660,9 +684,9 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             upperSuspensionLimit: 1,
         });
     },
-    ragdoll: (world) => {
-        createGround(world, 20.0);
-        const torso = world.createBody({
+    ragdoll: (physicsWorld) => {
+        createGround(physicsWorld, 20.0);
+        const torso = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 3, z: 0 },
             angularDamping: 0.5,
@@ -670,57 +694,57 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         });
         torso.createHull({}, makeBoxHull(0.25, 0.5, 0.25));
 
-        const armL = world.createBody({
+        const armL = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: -0.75, y: 3.5, z: 0 },
             angularDamping: 0.5,
             linearDamping: 0.5,
         });
         armL.createHull({}, makeBoxHull(0.5, 0.125, 0.125));
-        const armR = world.createBody({
+        const armR = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0.75, y: 3.5, z: 0 },
             angularDamping: 0.5,
             linearDamping: 0.5,
         });
         armR.createHull({}, makeBoxHull(0.5, 0.125, 0.125));
-        world.createSphericalJoint(torso, armL, {
+        physicsWorld.createSphericalJoint(torso, armL, {
             localFrameA: frame(-0.25, 0.5, 0),
             localFrameB: frame(0.5, 0, 0),
         });
-        world.createSphericalJoint(torso, armR, {
+        physicsWorld.createSphericalJoint(torso, armR, {
             localFrameA: frame(0.25, 0.5, 0),
             localFrameB: frame(-0.5, 0, 0),
         });
 
-        const legL = world.createBody({
+        const legL = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: -0.25, y: 2.0, z: 0 },
             angularDamping: 0.5,
             linearDamping: 0.5,
         });
         legL.createHull({}, makeBoxHull(0.125, 0.5, 0.125));
-        const legR = world.createBody({
+        const legR = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0.25, y: 2.0, z: 0 },
             angularDamping: 0.5,
             linearDamping: 0.5,
         });
         legR.createHull({}, makeBoxHull(0.125, 0.5, 0.125));
-        world.createRevoluteJoint(torso, legL, {
+        physicsWorld.createRevoluteJoint(torso, legL, {
             localFrameA: frame(-0.25, -0.5, 0),
             localFrameB: frame(0, 0.5, 0),
         });
-        world.createRevoluteJoint(torso, legR, {
+        physicsWorld.createRevoluteJoint(torso, legR, {
             localFrameA: frame(0.25, -0.5, 0),
             localFrameB: frame(0, 0.5, 0),
         });
     },
-    "ccd-drop": (world) => {
+    "ccd-drop": (physicsWorld) => {
         // Thin static floor (top at y = 0); -0.05 isn't f32-exact, so fround it to match C's -0.05f.
-        const ground = world.createBody({ position: { x: 0, y: fround(-0.05), z: 0 } });
+        const ground = physicsWorld.createBody({ position: { x: 0, y: fround(-0.05), z: 0 } });
         ground.createHull({}, makeBoxHull(5.0, 0.05, 5.0));
-        const body = world.createBody({
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             linearVelocity: { x: 0, y: -40, z: 0 },
@@ -728,11 +752,14 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         });
         body.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
     },
-    "ccd-bullet": (world) => {
-        createGround(world, 20.0);
-        const wall = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 1, z: 0 } });
+    "ccd-bullet": (physicsWorld) => {
+        createGround(physicsWorld, 20.0);
+        const wall = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 1, z: 0 },
+        });
         wall.createHull({}, makeBoxHull(0.05, 1.0, 1.0));
-        const bullet = world.createBody({
+        const bullet = physicsWorld.createBody({
             type: BodyType.Dynamic,
             isBullet: true,
             position: { x: -5, y: 1, z: 0 },
@@ -740,31 +767,37 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         });
         bullet.createHull({}, makeBoxHull(0.1, 0.1, 0.1));
     },
-    "mesh-box": (world) => {
-        createMeshFloor(world);
-        const body = world.createBody({
+    "mesh-box": (physicsWorld) => {
+        createMeshFloor(physicsWorld);
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 2, z: 0 },
             angularVelocity: { x: 0.25, y: 0, z: 0.5 },
         });
         body.createHull({}, makeBoxHull(1.0, 1.0, 1.0));
     },
-    "mesh-sphere": (world) => {
-        createMeshFloor(world);
-        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 2, z: 0 } });
+    "mesh-sphere": (physicsWorld) => {
+        createMeshFloor(physicsWorld);
+        const body = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 2, z: 0 },
+        });
         body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
     },
-    "mesh-capsule": (world) => {
-        createMeshFloor(world);
-        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 2, z: 0 } });
+    "mesh-capsule": (physicsWorld) => {
+        createMeshFloor(physicsWorld);
+        const body = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 2, z: 0 },
+        });
         body.createCapsule(
             {},
             { center1: { x: -0.5, y: 0, z: 0 }, center2: { x: 0.5, y: 0, z: 0 }, radius: 0.25 },
         );
     },
-    "mesh-ccd": (world) => {
-        createMeshFloor(world);
-        const body = world.createBody({
+    "mesh-ccd": (physicsWorld) => {
+        createMeshFloor(physicsWorld);
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             linearVelocity: { x: 0, y: -40, z: 0 },
@@ -772,31 +805,37 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         });
         body.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
     },
-    "height-box": (world) => {
-        createHeightFieldFloor(world);
-        const body = world.createBody({
+    "height-box": (physicsWorld) => {
+        createHeightFieldFloor(physicsWorld);
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 2, z: 0 },
             angularVelocity: { x: 0.25, y: 0, z: 0.5 },
         });
         body.createHull({}, makeBoxHull(1.0, 1.0, 1.0));
     },
-    "height-sphere": (world) => {
-        createHeightFieldFloor(world);
-        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 2, z: 0 } });
+    "height-sphere": (physicsWorld) => {
+        createHeightFieldFloor(physicsWorld);
+        const body = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 2, z: 0 },
+        });
         body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
     },
-    "height-capsule": (world) => {
-        createHeightFieldFloor(world);
-        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 2, z: 0 } });
+    "height-capsule": (physicsWorld) => {
+        createHeightFieldFloor(physicsWorld);
+        const body = physicsWorld.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 2, z: 0 },
+        });
         body.createCapsule(
             {},
             { center1: { x: -0.5, y: 0, z: 0 }, center2: { x: 0.5, y: 0, z: 0 }, radius: 0.25 },
         );
     },
-    "height-ccd": (world) => {
-        createHeightFieldFloor(world);
-        const body = world.createBody({
+    "height-ccd": (physicsWorld) => {
+        createHeightFieldFloor(physicsWorld);
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             linearVelocity: { x: 0, y: -40, z: 0 },
@@ -804,7 +843,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         });
         body.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
     },
-    "compound-hull": (world) => {
+    "compound-hull": (physicsWorld) => {
         const mat = defaultSurfaceMaterial();
         const slab = makeBoxHull(1.5, 0.25, 1.5);
         const compound = createCompound({
@@ -821,16 +860,16 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
                 },
             ],
         });
-        const floor = world.createBody({});
+        const floor = physicsWorld.createBody({});
         floor.createCompound({}, compound as CompoundData);
-        const body = world.createBody({
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 2, z: 0 },
             angularVelocity: { x: 0.25, y: 0, z: 0.5 },
         });
         body.createHull({}, makeBoxHull(1.0, 1.0, 1.0));
     },
-    "compound-capsule": (world) => {
+    "compound-capsule": (physicsWorld) => {
         const mat = defaultSurfaceMaterial();
         const compound = createCompound({
             capsules: [
@@ -852,16 +891,16 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
                 },
             ],
         });
-        const floor = world.createBody({});
+        const floor = physicsWorld.createBody({});
         floor.createCompound({}, compound as CompoundData);
-        const body = world.createBody({
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 2, z: 0 },
             angularVelocity: { x: 0, y: 0, z: 0.3 },
         });
         body.createHull({}, makeBoxHull(1.0, 1.0, 1.0));
     },
-    "compound-sphere": (world) => {
+    "compound-sphere": (physicsWorld) => {
         const mat = defaultSurfaceMaterial();
         const spheres = [];
         for (let ix = -1; ix <= 1; ++ix) {
@@ -873,16 +912,16 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             }
         }
         const compound = createCompound({ spheres });
-        const floor = world.createBody({});
+        const floor = physicsWorld.createBody({});
         floor.createCompound({}, compound as CompoundData);
-        const body = world.createBody({
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 2, z: 0 },
             angularVelocity: { x: 0.25, y: 0, z: 0.5 },
         });
         body.createHull({}, makeBoxHull(1.0, 1.0, 1.0));
     },
-    "compound-mesh": (world) => {
+    "compound-mesh": (physicsWorld) => {
         const mat = defaultSurfaceMaterial();
         const mesh = createGridMesh(8, 8, 1.0, 0, true);
         const compound = createCompound({
@@ -896,16 +935,16 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
                 },
             ],
         });
-        const floor = world.createBody({});
+        const floor = physicsWorld.createBody({});
         floor.createCompound({}, compound as CompoundData);
-        const body = world.createBody({
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 2, z: 0 },
             angularVelocity: { x: 0.25, y: 0, z: 0.5 },
         });
         body.createHull({}, makeBoxHull(1.0, 1.0, 1.0));
     },
-    "compound-ccd": (world) => {
+    "compound-ccd": (physicsWorld) => {
         const mat = defaultSurfaceMaterial();
         const slab = makeBoxHull(1.5, 0.25, 1.5);
         const compound = createCompound({
@@ -922,9 +961,9 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
                 },
             ],
         });
-        const floor = world.createBody({});
+        const floor = physicsWorld.createBody({});
         floor.createCompound({}, compound as CompoundData);
-        const body = world.createBody({
+        const body = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 0, y: 5, z: 0 },
             linearVelocity: { x: 0, y: -40, z: 0 },
@@ -932,13 +971,13 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         });
         body.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
     },
-    sensor: (world) => {
+    sensor: (physicsWorld) => {
         // A static box-hull sensor volume (y in [1, 5]) with dynamic spheres falling through it and a
         // fast box sweeping through it. The sensor is non-solid, so the body hashes must match a
         // no-sensor run bit-for-bit — the overlap pass + continuous sensor branch leave dynamics alone.
-        createGround(world, 20.0);
+        createGround(physicsWorld, 20.0);
 
-        const sensorBody = world.createBody({ position: { x: 0, y: 3, z: 0 } });
+        const sensorBody = physicsWorld.createBody({ position: { x: 0, y: 3, z: 0 } });
         sensorBody.createHull(
             { isSensor: true, enableSensorEvents: true },
             makeBoxHull(4.0, 2.0, 4.0),
@@ -947,7 +986,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         const xs = [-1.5, 0.0, 1.5];
         const ys = [6.0, 8.0, 10.0];
         for (let i = 0; i < 3; ++i) {
-            const body = world.createBody({
+            const body = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: { x: xs[i], y: ys[i], z: 0 },
             });
@@ -957,7 +996,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             );
         }
 
-        const fast = world.createBody({
+        const fast = physicsWorld.createBody({
             type: BodyType.Dynamic,
             position: { x: 3, y: 13, z: 0 },
             linearVelocity: { x: 0, y: -55, z: 0 },
@@ -967,9 +1006,9 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
     // benchmark scenes at reduced scale (mirror fixtures/gen.c's SceneBench* exactly). They
     // extend the bit-exact contract to scale; f32 discipline follows the port rule (fround per op, one
     // op per wrap). Values fed through the ported math helpers (quat/vec3) are already f32-rounded.
-    "bench-pyramid": (world) => {
+    "bench-pyramid": (physicsWorld) => {
         const baseCount = 16;
-        const ground = world.createBody({ position: { x: 0, y: -1, z: 0 } });
+        const ground = physicsWorld.createBody({ position: { x: 0, y: -1, z: 0 } });
         ground.createHull({}, makeBoxHull(100.0, 1.0, 100.0));
 
         const h = 0.5;
@@ -983,18 +1022,21 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
                         fround(fround(i + 1.0) * shift) + fround(fround(2.0 * (j - i)) * shift),
                     ) - fround(h * baseCount),
                 );
-                const body = world.createBody({ type: BodyType.Dynamic, position: { x, y, z: 0 } });
+                const body = physicsWorld.createBody({
+                    type: BodyType.Dynamic,
+                    position: { x, y, z: 0 },
+                });
                 body.createHull({ density: 100.0 }, box);
             }
         }
     },
-    "bench-many-pyramids": (world) => {
+    "bench-many-pyramids": (physicsWorld) => {
         const baseCount = 4;
         const extent = 0.5;
         const rowCount = 3;
         const columnCount = 3;
         const groundExtent = fround(fround(extent * columnCount) * fround(baseCount + 1.0));
-        const ground = world.createBody({ position: { x: 0, y: -1, z: 0 } });
+        const ground = physicsWorld.createBody({ position: { x: 0, y: -1, z: 0 } });
         ground.createHull({}, makeBoxHull(groundExtent, 1.0, groundExtent));
 
         const box = makeBoxHull(extent, extent, extent);
@@ -1011,7 +1053,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
                             ) + centerX,
                         ) - 0.5,
                     );
-                    const body = world.createBody({
+                    const body = physicsWorld.createBody({
                         type: BodyType.Dynamic,
                         position: { x, y, z: baseZ },
                     });
@@ -1036,27 +1078,27 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             baseZ = fround(baseZ + deltaZ);
         }
     },
-    "bench-joint-grid": (world) => {
+    "bench-joint-grid": (physicsWorld) => {
         const n = 10;
         const bodies: Body[] = [];
         const filter = { categoryBits: 2n, maskBits: 0xffffffffn ^ 2n, groupIndex: 0 };
         const sphere = { center: { x: 0, y: 0, z: 0 }, radius: 0.4 };
         for (let k = 0; k < n; ++k) {
             for (let i = 0; i < n; ++i) {
-                const body = world.createBody({
+                const body = physicsWorld.createBody({
                     type: i === 0 ? BodyType.Static : BodyType.Dynamic,
                     position: { x: k, y: -i, z: 0 },
                 });
                 body.createSphere({ filter }, sphere);
                 const index = bodies.length;
                 if (i > 0) {
-                    world.createSphericalJoint(bodies[index - 1], body, {
+                    physicsWorld.createSphericalJoint(bodies[index - 1], body, {
                         localFrameA: frame(0, -0.5, 0),
                         localFrameB: frame(0, 0.5, 0),
                     });
                 }
                 if (k > 0) {
-                    world.createSphericalJoint(bodies[index - n], body, {
+                    physicsWorld.createSphericalJoint(bodies[index - n], body, {
                         localFrameA: frame(0.5, 0, 0),
                         localFrameB: frame(-0.5, 0, 0),
                     });
@@ -1065,12 +1107,12 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             }
         }
     },
-    "bench-washer": (world) => {
-        const ground = world.createBody({ position: { x: 0, y: -1, z: 0 } });
+    "bench-washer": (physicsWorld) => {
+        const ground = physicsWorld.createBody({ position: { x: 0, y: -1, z: 0 } });
         ground.createHull({}, makeBoxHull(60.0, 1.0, 60.0));
 
         const motorSpeed = 25.0;
-        const washer = world.createBody({
+        const washer = physicsWorld.createBody({
             type: BodyType.Kinematic,
             position: { x: 0, y: 21, z: 0 },
             angularVelocity: { x: 0, y: 0, z: fround(fround(PI / 180.0) * motorSpeed) },
@@ -1132,7 +1174,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             for (let j = 0; j < gridCount; ++j) {
                 let z = fround(fround(-2.0 * a) * gridCount);
                 for (let k = 0; k < gridCount; ++k) {
-                    const body = world.createBody({
+                    const body = physicsWorld.createBody({
                         type: BodyType.Dynamic,
                         position: { x, y, z },
                     });
@@ -1144,7 +1186,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             x = fround(x + step);
         }
     },
-    "bench-large-world": (world) => {
+    "bench-large-world": (physicsWorld) => {
         const cell = BENCH_LW_CELL;
         const gridCount = BENCH_LW_GRID;
         const halfSpan = fround(fround(0.5 * cell) * gridCount);
@@ -1153,12 +1195,12 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             const x = fround(-halfSpan + fround(fround(i + 0.5) * cell));
             for (let j = 0; j < gridCount; ++j) {
                 const z = fround(-halfSpan + fround(fround(j + 0.5) * cell));
-                const body = world.createBody({ position: { x, y: 0, z } });
+                const body = physicsWorld.createBody({ position: { x, y: 0, z } });
                 body.createHull({ invokeContactCreation: true }, box);
             }
         }
     },
-    "bench-trees": (world, fx) => {
+    "bench-trees": (physicsWorld, fx) => {
         // Ground: rebuild the libm-sinf wave mesh from the C-emitted vertices (option A) so the
         // dynamics stay bit-exact by the double-rounding theorem. The triangle topology is pure integer
         // grid indexing (no sinf), so the port computes it. CreateTrees uses tilt = 0, so the ground
@@ -1177,7 +1219,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         }
         const mesh = createMesh({ vertices, indices, useMedianSplit: true, identifyEdges: true });
         if (!mesh) throw new Error("bench-trees: ground mesh build failed");
-        const ground = world.createBody({ position: { x: 0, y: 0, z: 0 } });
+        const ground = physicsWorld.createBody({ position: { x: 0, y: 0, z: 0 } });
         ground.createMesh({}, mesh, { x: 1, y: 1, z: 1 });
 
         // Trees: tapering stacks of 22 cylinders (portable-trig hulls the port builds itself).
@@ -1207,7 +1249,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         let z = -15.0;
         for (let bodyIndex = 0; bodyIndex < TREES_BODIES; ++bodyIndex) {
             const pos = { x: 0, y: 1.0, z };
-            const body = world.createBody({
+            const body = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: pos,
                 sleepThreshold: fround(0.2),
@@ -1226,10 +1268,10 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             angularVelocity = -angularVelocity;
         }
     },
-    "bench-junkyard": (world) => {
+    "bench-junkyard": (physicsWorld) => {
         // Ground box (top at y = 0) with four walls, then a 3x3 rock pile near the origin. The
         // kinematic pusher is created last (matching gen.c's body order) and swept by the stepFactory.
-        const ground = world.createBody({ position: { x: 0, y: -1, z: 0 } });
+        const ground = physicsWorld.createBody({ position: { x: 0, y: -1, z: 0 } });
         ground.createHull({}, makeBoxHull(120.0, 1.0, 120.0));
         ground.createHull({}, makeOffsetBoxHull(1.0, 8.0, 50.0, { x: -50, y: 8, z: 0 }));
         ground.createHull({}, makeOffsetBoxHull(1.0, 8.0, 50.0, { x: 50, y: 8, z: 0 }));
@@ -1239,7 +1281,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
         const rockHull = createRock(1.5);
         for (let X = 0; X < JUNK_ROCK_COUNT; ++X) {
             for (let Z = 0; Z < JUNK_ROCK_COUNT; ++Z) {
-                const body = world.createBody({
+                const body = physicsWorld.createBody({
                     type: BodyType.Dynamic,
                     position: {
                         x: fround(JUNK_ROCK_BASE + fround(JUNK_ROCK_SPACING * X)),
@@ -1251,13 +1293,13 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             }
         }
 
-        junkyardPusher = world.createBody({
+        junkyardPusher = physicsWorld.createBody({
             type: BodyType.Kinematic,
             position: { x: JUNK_RADIUS, y: 0, z: 0 },
         });
         junkyardPusher.createHull({}, createCylinder(24.0, 4.0, 0.0, 16));
     },
-    "bench-rain": (world) => {
+    "bench-rain": (physicsWorld) => {
         // Static mesh ground (grid + torus, portable-trig → bit-exact). Humans spawn over time via the
         // stepFactory. One ground tile at the origin (reduced from the benchmark's grid of tiles).
         const grid = createGridMesh(
@@ -1268,7 +1310,7 @@ const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
             true,
         );
         const torus = createTorusMesh(16, 16, RAINF_TORUS_MAJOR, 1.0);
-        const ground = world.createBody({});
+        const ground = physicsWorld.createBody({});
         ground.createMesh({}, grid, { x: 1, y: 1, z: 1 });
         ground.createMesh({}, torus, { x: 1, y: 1, z: 1 });
     },
@@ -1288,7 +1330,7 @@ const sceneBuilder: Record<string, string> = {
 // Scenes that spawn bodies over time drive a per-step hook, called with the loop index before each
 // world.step (mirroring gen.c's stepFn(i) → Step). Each factory returns a fresh, stateful stepper per
 // run. Mirrors fixtures/gen.c's StepBench* exactly.
-const stepFactories: Record<string, () => (world: PhysicsWorld, step: number) => void> = {
+const stepFactories: Record<string, () => (physicsWorld: PhysicsWorld, step: number) => void> = {
     "bench-large-world": () => {
         let dropped = 0;
         let side = 1;
@@ -1297,7 +1339,7 @@ const stepFactories: Record<string, () => (world: PhysicsWorld, step: number) =>
         const inset = fround(fround(fround(0.1) * 2.0) * halfSpan);
         const usable = fround(fround(2.0 * halfSpan) - fround(2.0 * inset));
         const step = fround(usable / side);
-        return (world, stepCount) => {
+        return (physicsWorld, stepCount) => {
             if (dropped >= BENCH_LW_SPHERES) return;
             if (stepCount === 0) return;
             if (stepCount % BENCH_LW_INTERVAL !== 0) return;
@@ -1306,7 +1348,7 @@ const stepFactories: Record<string, () => (world: PhysicsWorld, step: number) =>
             const gj = Math.floor(dropped / side);
             const x = fround(fround(-halfSpan + inset) + fround(fround(gi + 0.5) * step));
             const z = fround(fround(-halfSpan + inset) + fround(fround(gj + 0.5) * step));
-            const body = world.createBody({
+            const body = physicsWorld.createBody({
                 type: BodyType.Dynamic,
                 position: { x, y: 1.5, z },
             });
@@ -1335,10 +1377,10 @@ const stepFactories: Record<string, () => (world: PhysicsWorld, step: number) =>
         // Spawn a ragdoll every RAINF_SPAWN_INTERVAL steps at descending x with a distinct group index
         // (mirrors StepBenchRain). Creating bodies AND joints mid-replay is rain's unique coverage.
         let spawned = 0;
-        return (world, stepCount) => {
+        return (physicsWorld, stepCount) => {
             if (spawned < RAINF_HUMAN_COUNT && stepCount % RAINF_SPAWN_INTERVAL === 0) {
                 const position = { x: f(-3.0 + f(3.0 * spawned)), y: 8.0, z: 0.0 };
-                createHuman(world, position, 5.0, 1.0, 0.7, spawned + 1);
+                createHuman(physicsWorld, position, 5.0, 1.0, 0.7, spawned + 1);
                 spawned += 1;
             }
         };
@@ -1354,7 +1396,11 @@ export function buildLegacyScene(
     enableSleep: boolean,
     enableContinuous: boolean,
 ): PhysicsWorld {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableSleep, enableContinuous });
+    const physicsWorld = new PhysicsWorld({
+        gravity: { x: 0, y: -10, z: 0 },
+        enableSleep,
+        enableContinuous,
+    });
     const fixture =
         scene === "bench-trees"
             ? loadFixture(scene)
@@ -1369,28 +1415,28 @@ export function buildLegacyScene(
               } as unknown as Fixture);
     const builder = builders[sceneBuilder[scene] ?? scene];
     if (!builder) throw new Error(`unknown legacy foundation scene ${scene}`);
-    builder(world, fixture);
-    return world;
+    builder(physicsWorld, fixture);
+    return physicsWorld;
 }
 
 export function runScene(scene: string, enableSleep: boolean, enableContinuous: boolean): void {
     const fx = loadFixture(scene);
     const timeStep = fround(fx.timeStep);
 
-    const world = new PhysicsWorld({
+    const physicsWorld = new PhysicsWorld({
         gravity: { x: fx.gravity[0], y: fx.gravity[1], z: fx.gravity[2] },
         enableSleep,
         enableContinuous,
     });
-    builders[sceneBuilder[scene] ?? scene](world, fx);
+    builders[sceneBuilder[scene] ?? scene](physicsWorld, fx);
     const stepFn = stepFactories[scene]?.();
 
     for (let step = 0; step < fx.stepCount; ++step) {
-        stepFn?.(world, step);
-        world.step(timeStep, fx.subStepCount);
-        const got = toHex(hashWorldState(world.state));
+        stepFn?.(physicsWorld, step);
+        physicsWorld.step(timeStep, fx.subStepCount);
+        const got = toHex(hashWorldState(physicsWorld.state));
         if (got !== fx.hashes[step]) {
-            const dump = dumpBodies(world);
+            const dump = dumpBodies(physicsWorld);
             const ref = fx.states.find((s) => s.step === step);
             let msg = `${scene}: hash diverged at step ${step}\n  got  ${got}\n  want ${fx.hashes[step]}\n`;
             msg += `  port bodies: ${JSON.stringify(dump)}\n`;
@@ -1405,5 +1451,5 @@ export function runScene(scene: string, enableSleep: boolean, enableContinuous: 
     }
 
     expectIdentityRecords();
-    world.destroy();
+    physicsWorld.destroy();
 }

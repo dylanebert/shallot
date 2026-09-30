@@ -108,7 +108,7 @@ export type WorldState = {
     hullDatabase: Map<number, { hull: HullData; refCount: number }>;
     // Set when the hull set changes; the next step re-uploads the kernel's static geometry columns.
     geometryDirty: boolean;
-    // Persistent contact-manifold columns (warm-start state, column-resident): the allocator + wasm
+    // Persistent contact-manifold columns (warm-start world, column-resident): the allocator + wasm
     // region for the manifolds keyed by contactId. Slots are tracked on contact create/destroy.
     manifoldStore: ManifoldStore;
     // Resident body-state columns (velocity/delta/flags of awake bodies), held across steps in the
@@ -119,7 +119,7 @@ export type WorldState = {
     // at shape create/destroy — no dirty set (shapecolumns.ts).
     shapeStore: ShapeStore;
 
-    // Dense array of sensor overlap-tracking state, one per sensor shape (b3World.sensors).
+    // Dense array of sensor overlap-tracking world, one per sensor shape (b3World.sensors).
     sensors: Sensor[];
     // The sensor pass's tree-query context, made by the first pass that runs a query.
     sensorQuery: SensorQueryContext | null;
@@ -234,7 +234,7 @@ function makeCapacity(c?: Capacity): Capacity {
 }
 
 function makeWorldState(
-    state: import("../../../engine").World | undefined,
+    world: import("../../../engine").World | undefined,
     def: WorldDef,
     worldId: number,
     generation: number,
@@ -244,9 +244,9 @@ function makeWorldState(
     def = froundConfig(def);
     const capacity = makeCapacity(def.capacity);
 
-    const world: WorldState = {
-        ecsState: state,
-        broadPhase: createBroadPhase(state, capacity),
+    const physicsWorld: WorldState = {
+        ecsState: world,
+        broadPhase: createBroadPhase(world, capacity),
         constraintGraph: createGraph(capacity.staticBodyCount + capacity.dynamicBodyCount),
         bodies: [],
         solverSetIdPool: createIdPool(),
@@ -262,9 +262,9 @@ function makeWorldState(
         shapes: [],
         hullDatabase: new Map(),
         geometryDirty: false,
-        manifoldStore: createManifoldStore(state),
-        bodyStore: createBodyStore(state),
-        shapeStore: createShapeStore(state, worldId),
+        manifoldStore: createManifoldStore(world),
+        bodyStore: createBodyStore(world),
+        shapeStore: createShapeStore(world, worldId),
         sensors: [],
         sensorQuery: null,
         bodyMoveCount: 0,
@@ -305,24 +305,24 @@ function makeWorldState(
 
     // Wire the broad store's back-reference so a resident-region grow can refresh the sibling stores a
     // `memory.grow` detaches (the store is created before the world literal, so it can't be passed in).
-    world.broadPhase.store.world = world;
+    physicsWorld.broadPhase.store.world = physicsWorld;
 
     // Create the three permanent sets in order so their ids land 0 (static), 1 (disabled), 2 (awake).
     for (let i = 0; i < 3; ++i) {
         const set = emptySolverSet();
-        set.setIndex = allocId(world.solverSetIdPool);
-        world.solverSets.push(set);
+        set.setIndex = allocId(physicsWorld.solverSetIdPool);
+        physicsWorld.solverSets.push(set);
     }
 
-    return world;
+    return physicsWorld;
 }
 
 /** Create a simulation world (b3CreateWorld). @returns its id. */
 export function createWorld(
-    state: import("../../../engine").World | undefined,
+    world: import("../../../engine").World | undefined,
     def: WorldDef,
 ): WorldId {
-    const owner = kernel(state);
+    const owner = kernel(world);
     let worldId = -1;
     for (let i = 0; i < MAX_WORLDS; ++i) {
         const w = worlds[i];
@@ -338,9 +338,9 @@ export function createWorld(
     initializeContactRegisters();
 
     const generation = worlds[worldId]?.generation ?? 0;
-    const world = makeWorldState(state, def, worldId, generation);
-    worlds[worldId] = world;
-    worldKernels.set(world, owner);
+    const physicsWorld = makeWorldState(world, def, worldId, generation);
+    worlds[worldId] = physicsWorld;
+    worldKernels.set(physicsWorld, owner);
     liveWorldsByKernel.set(owner, liveWorldCount(owner) + 1);
 
     return { index1: worldId + 1, generation };

@@ -1,22 +1,22 @@
 /// <reference types="@webgpu/types" />
 
 import * as d from "typegpu/data";
-import type { Plugin, World, System } from "../../engine";
+import type { Plugin, System, World } from "../../engine";
 import {
-    composeTransform,
+    composeGlobalTransform,
     formatHex,
     GlobalTransform,
     globalTransformTable,
-    invert,
+    invertMat4,
 } from "../../engine";
 
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import {
-    ClusterSystem,
+    CullLightsSystem,
     initializeClusterState,
     LightCull,
-    LightCullSystem,
     packClusterView,
+    UpdateLightClustersSystem,
     warmClusters,
     warmLightCull,
 } from "./cluster";
@@ -58,15 +58,15 @@ import {
 // the public happy path: the component contract (camera + lights) and meshes.
 // Everything else a renderer or producer touches — the Render singleton, the
 // View/Surface/Draw contract, canvas binding, the Lighting uniform, the frame
-// loop — is the extension API, exported below. A producer (Part) and a renderer
-// (Sear) meet only through that contract and neither imports the other, so a
-// custom producer is a peer of Part rather than a fork of it.
+// loop — is the extension API, exported below. A producer (MeshInstance) and a renderer
+// (StandardRenderer) meet only through that contract and neither imports the other, so a
+// custom producer is a peer of MeshInstance rather than a fork of it.
 export { Camera, CameraMode, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame } from "./capture";
 export { requestLightOverflow } from "./cluster";
 export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
 export type { Mesh } from "./mesh";
-export { mesh } from "./mesh";
+export { registerMesh } from "./mesh";
 
 const SLOT_FLOATS = VIEW_STRIDE / 4;
 const CAMERAS = [Camera];
@@ -102,12 +102,12 @@ function createRenderFrameState(): RenderFrameState {
     };
 }
 
-function _renderFrameState(state: World): RenderFrameState {
-    return state.resource(renderFrameKey);
+function _renderFrameState(world: World): RenderFrameState {
+    return world.resource(renderFrameKey);
 }
 
-function initializeRenderFrameState(state: World): void {
-    state.resource(renderFrameKey);
+function initializeRenderFrameState(world: World): void {
+    world.resource(renderFrameKey);
 }
 
 // write a world-matrix column (base = column index * 4), normalized, into `out` at `at`
@@ -127,23 +127,23 @@ function basisColumn(world: Float32Array, base: number, out: Float32Array, at: n
 // and world→view matrix — into the same slot index; a depth-only view (a shadow light's
 // off-screen camera) never does, so the cluster substrate is sized by MAX_VIEWS while the
 // cheap slots run to MAX_SLOTS
-function packView(state: World, eid: number, view: ViewSlot, shading: boolean, slot: number): void {
-    const _renderFrame = state.resource(renderFrameKey);
-    const _render = state.resource(Render);
+function packView(world: World, eid: number, view: ViewSlot, shading: boolean, slot: number): void {
+    const _renderFrame = world.resource(renderFrameKey);
+    const _render = world.resource(Render);
 
     // record the live camera's create-stamp so next frame's pruneViews detects a realias
-    view.stamp = state.stamp(eid);
+    view.stamp = world.generation(eid);
     view.slot = slot;
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
     // the viewProj is composed from, so it is read before the unchanged-slot test below
-    composeTransform(state, eid, _renderFrame.camWorld);
-    if (!slotInputsChanged(state, eid, view, shading, slot)) return;
+    composeGlobalTransform(world, eid, _renderFrame.camWorld);
+    if (!slotInputsChanged(world, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;
     const viewProj = _renderFrame.viewProjs[slot];
     // the light cull reads each shading slot's world→view matrix to bring
     // world-space lights into cluster space
     computeViewProj(
-        state,
+        world,
         eid,
         view.width / view.height,
         viewProj,
@@ -163,11 +163,11 @@ function packView(state: World, eid: number, view: ViewSlot, shading: boolean, s
     // point/spot shadow combo (its own frustum-culled depth view)
     frustumVolume(_render.cullVolumeStaging, slot, viewProj);
     // pack the view's cluster params from the same camera fields —
-    // ClusterSystem rebuilds the AABB grid only when they change.
+    // UpdateLightClustersSystem rebuilds the AABB grid only when they change.
     // View.cluster: (near, far, perspective, slot) — sear's FS maps a
     // fragment to its froxel and indexes the slot-major light grid
     if (shading) {
-        const cv = packClusterView(state, eid, view.width / view.height, slot);
+        const cv = packClusterView(world, eid, view.width / view.height, slot);
         _render.viewStaging[offset + 28] = cv.near;
         _render.viewStaging[offset + 29] = cv.far;
         _render.viewStaging[offset + 30] = cv.perspective ? 1 : 0;
@@ -188,31 +188,31 @@ function packView(state: World, eid: number, view: ViewSlot, shading: boolean, s
     // depth-only shadow view skips the 4×4 inverse — the costliest op in the pack — and zeroes the
     // slot. invert reads viewProj fully into locals before writing, so inverting into a sibling
     // view of the same staging never aliases
-    if (shading) invert(viewProj, _renderFrame.invViewProjs[slot]);
+    if (shading) invertMat4(viewProj, _renderFrame.invViewProjs[slot]);
     else _render.viewStaging.fill(0, offset + 36, offset + 52);
 }
 
 // whether this slot's pack inputs differ from the ones it was last packed with; records them when they do.
 // `_frame.camWorld` holds the camera's world matrix, composed by the caller.
 function slotInputsChanged(
-    state: World,
+    world: World,
     eid: number,
     view: ViewSlot,
     shading: boolean,
     slot: number,
 ): boolean {
-    const _renderFrame = state.resource(renderFrameKey);
+    const _renderFrame = world.resource(renderFrameKey);
 
     _renderFrame.viewKeyNext[0] = eid;
-    _renderFrame.viewKeyNext[1] = state.stamp(eid);
+    _renderFrame.viewKeyNext[1] = world.generation(eid);
     _renderFrame.viewKeyNext[2] = shading ? 1 : 0;
     _renderFrame.viewKeyNext[3] = view.width;
     _renderFrame.viewKeyNext[4] = view.height;
-    _renderFrame.viewKeyNext[5] = state.of(Camera).mode.get(eid);
-    _renderFrame.viewKeyNext[6] = state.of(Camera).fov.get(eid);
-    _renderFrame.viewKeyNext[7] = state.of(Camera).size.get(eid);
-    _renderFrame.viewKeyNext[8] = state.of(Camera).near.get(eid);
-    _renderFrame.viewKeyNext[9] = state.of(Camera).far.get(eid);
+    _renderFrame.viewKeyNext[5] = world.storage(Camera).mode.get(eid);
+    _renderFrame.viewKeyNext[6] = world.storage(Camera).fov.get(eid);
+    _renderFrame.viewKeyNext[7] = world.storage(Camera).size.get(eid);
+    _renderFrame.viewKeyNext[8] = world.storage(Camera).near.get(eid);
+    _renderFrame.viewKeyNext[9] = world.storage(Camera).far.get(eid);
     _renderFrame.viewKeyNext.set(_renderFrame.camWorld, 10);
     const at = slot * VIEW_KEY_FLOATS;
     let changed = false;
@@ -243,42 +243,42 @@ function clearTargets(view: ViewSlot): void {
 export const BeginFrameSystem: System = {
     group: "draw",
     first: true,
-    update(state) {
-        const _render = state.resource(Render);
-        const _renderFrame = state.resource(renderFrameKey);
+    update(world) {
+        const _render = world.resource(Render);
+        const _renderFrame = world.resource(renderFrameKey);
 
         _render.encoder = null;
-        const device = state.gpu.device;
+        const device = world.gpu.device;
         if (!device) return;
 
         // auto-bind's inverse. A destroyed camera leaves a stale View whose ResizeObserver leaks
         // and whose eid, once recycled, re-binds to the wrong canvas. Membership is the liveness
-        // signal (re-derived each frame, the gate Part's pack also applies) and the create-stamp
+        // signal (re-derived each frame, the gate MeshInstance's pack also applies) and the create-stamp
         // catches a same-update realias membership misses, so a View lacking a live camera — or bound
         // to a recycled eid — is dropped here.
-        pruneViews(state);
+        pruneViews(world);
 
         const encoder = device.createCommandEncoder(FRAME_ENCODER);
         _render.encoder = encoder;
-        state.beginGpuFrame(encoder);
-        writeFrame(state);
-        writeLighting(state);
+        world.beginGpuFrame(encoder);
+        writeFrame(world);
+        writeLighting(world);
 
         let count = 0;
         let depthOnly = 0;
         // shading views first, so they own the low slots the cluster + light-cull substrate is
         // sized for; depth-only views stack above them out of the cheap MAX_SLOTS budget
-        for (const eid of state.query(CAMERAS)) {
+        for (const eid of world.query(CAMERAS)) {
             // auto-bind to the first <canvas> the frame it exists; an explicitly attachCanvas'd
             // camera is already in Views, so this is a no-op for it. Retried each frame until mount
-            const view = bindCamera(eid, state);
+            const view = bindCamera(eid, world);
             if (!view) continue;
             view.framebuffer = null;
             view.framebufferFormat = undefined;
             view.present = null;
             // derive the backing store from the display size + the camera's `Resolution` pin before any
             // consumer reads view.width/height (the offscreen + present below, the cluster pack above)
-            sizeView(state, eid, view);
+            sizeView(world, eid, view);
             if (view.width === 0 || view.height === 0) {
                 view.framebuffer = null;
                 view.present = null;
@@ -308,9 +308,9 @@ export const BeginFrameSystem: System = {
             // textureStore (it encodes linear→sRGB itself); framebuffer = the offscreen the renderer
             // draws into and the composite reads (Render.format / sRGB, decoded to linear on load).
             view.present = texture.createView();
-            view.framebuffer = offscreen(state, eid, view.width, view.height);
+            view.framebuffer = offscreen(world, eid, view.width, view.height);
             view.framebufferFormat = _render.format;
-            packView(state, eid, view, true, count);
+            packView(world, eid, view, true, count);
             count++;
         }
         _render.shadeCount = count;
@@ -322,7 +322,7 @@ export const BeginFrameSystem: System = {
                 break;
             }
             packView(
-                state,
+                world,
                 _renderFrame.depthOnlyEids[i],
                 _renderFrame.depthOnlyViews[i],
                 false,
@@ -357,7 +357,7 @@ export const BeginFrameSystem: System = {
         }
 
         // Every renderer reads interpolated GlobalTransforms, independently of clustered lighting.
-        const globalTransformRuntime = state.globalTransformRuntime;
+        const globalTransformRuntime = world.globalTransformRuntime;
         const globalTransformCount =
             _render.viewCount > 0 && globalTransformRuntime?.enabled
                 ? (globalTransformRuntime.current?.count ?? 0)
@@ -372,24 +372,24 @@ export const BeginFrameSystem: System = {
     },
 };
 
-/** closes the frame: submits the encoder, advances `state.gpu.frame` */
+/** closes the frame: submits the encoder, advances `world.gpu.frame` */
 const EndFrameSystem: System = {
     group: "draw",
     terminal: true,
-    update(state) {
-        const _render = state.resource(Render);
-        const _renderFrame = state.resource(renderFrameKey);
+    update(world) {
+        const _render = world.resource(Render);
+        const _renderFrame = world.resource(renderFrameKey);
 
-        const device = state.gpu.device;
+        const device = world.gpu.device;
         if (!device) return;
         const encoder = _render.encoder;
         if (!encoder)
             throw new Error("render submission requires BeginFrameSystem to open an encoder");
         _renderFrame.submit[0] = encoder.finish();
         device.queue.submit(_renderFrame.submit);
-        state.endGpuFrame();
+        world.endGpuFrame();
         _render.encoder = null;
-        state.resource(Views).forEach(clearTargets);
+        world.resource(Views).forEach(clearTargets);
     },
 };
 
@@ -407,26 +407,26 @@ export const OverlaySystem: System = {
 };
 
 /** allocates the device-shared substrate: format, view UBO, frame UBO */
-async function initRender(state: World): Promise<void> {
-    const _render = state.resource(Render);
-    const _renderFrame = state.resource(renderFrameKey);
+async function initRender(world: World): Promise<void> {
+    const _render = world.resource(Render);
+    const _renderFrame = world.resource(renderFrameKey);
 
-    if (!state.gpu.device) return;
-    const { device } = state.gpu;
+    if (!world.gpu.device) return;
+    const { device } = world.gpu;
 
     // clear the render registries so each build re-registers from a clean slate (clear then
     // rebuild). This runs in RenderPlugin.initialize, before any producer / sear re-registers (they
     // depend on RenderPlugin), so a producer toggled off leaves no stale surface / draw /
     // mesh behind to be drawn against its torn-down buffers. A same-set rebuild is unchanged (every
     // plugin re-registers); a first build clears empty registries (a no-op).
-    state.resource(Surfaces).clear();
-    state.resource(Draws).clear();
-    clearMeshes(state);
+    world.resource(Surfaces).clear();
+    world.resource(Draws).clear();
+    clearMeshes(world);
 
     // the scene renders into an rg11b10ufloat HDR offscreen so a tonemap (glaze, default Khronos Neutral)
     // rolls off radiance >1 rather than clamping it to white at store. rg11b10 (4B) halves the MSAA
     // color-target + resolve bandwidth vs rgba16float (8B), the dominant sear:color cost at 4× MSAA, for
-    // ~3% relative precision (no alpha; over-blending doesn't need dst alpha). Single path, no flag — the
+    // ~3% relative precision (no alpha; over-blending doesn't need dst alpha). ScalarField path, no flag — the
     // swapchain stays the base canvas format (glaze encodes linear→sRGB into it); this is the offscreen +
     // sear color-target format only
     _render.format = "rg11b10ufloat";
@@ -454,10 +454,10 @@ async function initRender(state: World): Promise<void> {
         staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
     );
     _renderFrame.lightViews = Array.from({ length: MAX_VIEWS }, (_, slot) =>
-        state.resource(LightCull).viewStaging.subarray(slot * 16, slot * 16 + 16),
+        world.resource(LightCull).viewStaging.subarray(slot * 16, slot * 16 + 16),
     );
-    state.resource(Frame).buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
-    state.resource(Lighting).buffer = uniform("shallot-lighting", LIGHTING_UNIFORM_SIZE);
+    world.resource(Frame).buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
+    world.resource(Lighting).buffer = uniform("shallot-lighting", LIGHTING_UNIFORM_SIZE);
 
     // one tagged cull volume per view, packed for the GPU cull pass and published
     // by name so any producer's cull resolves it the same way it resolves slabs
@@ -469,31 +469,37 @@ async function initRender(state: World): Promise<void> {
     _render.cullVolumeStaging = new Float32Array(MAX_SLOTS * CULL_VOLUME_FLOATS);
     _render.viewCount = 0;
     _render.shadeCount = 0;
-    state.gpu.buffers.set("cullVolumes", _render.cullVolumes);
-    state.gpu.typed.set(
+    world.gpu.buffers.set("cullVolumes", _render.cullVolumes);
+    world.gpu.typed.set(
         "cullVolumes",
-        state.gpu.root
+        world.gpu.root
             .createBuffer(
                 d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4)),
                 _render.cullVolumes,
             )
             .$usage("storage"),
     );
-    state.resource(Views).clear();
-    clearOffscreens(state);
-    clearScratch(state);
+    world.resource(Views).clear();
+    clearOffscreens(world);
+    clearScratch(world);
 }
 
 /**
  * the renderer-agnostic substrate: frame loop, camera, Frame/View UBOs, and
  * the `Surfaces` / `Meshes` / `Draws` registries. Producer and consumer
- * plugins (Part, Sear, custom producers) depend on this. Users
+ * plugins (MeshInstance, StandardRenderer, custom producers) depend on this. Users
  * typically don't list it directly: `PartPlugin` pulls it transitively,
  * and either can become a default plugin
  */
 export const RenderPlugin: Plugin = {
     name: "Render",
-    systems: [BeginFrameSystem, ClusterSystem, LightCullSystem, OverlaySystem, EndFrameSystem],
+    systems: [
+        BeginFrameSystem,
+        UpdateLightClustersSystem,
+        CullLightsSystem,
+        OverlaySystem,
+        EndFrameSystem,
+    ],
     components: {
         Camera,
         Resolution,
@@ -550,43 +556,43 @@ export const RenderPlugin: Plugin = {
         },
     },
 
-    async initialize(state) {
-        initializeRenderState(state);
-        initializeViewState(state);
-        initializeClusterState(state);
-        initializeFrameState(state);
-        initializeLightingState(state);
-        initializeMeshState(state);
-        initializeImageState(state);
-        initializeRenderFrameState(state);
-        initializeDrawState(state);
-        initializeSurfaceState(state);
-        await initRender(state);
-        const globalTransformRuntime = state.globalTransformRuntime;
+    async initialize(world) {
+        initializeRenderState(world);
+        initializeViewState(world);
+        initializeClusterState(world);
+        initializeFrameState(world);
+        initializeLightingState(world);
+        initializeMeshState(world);
+        initializeImageState(world);
+        initializeRenderFrameState(world);
+        initializeDrawState(world);
+        initializeSurfaceState(world);
+        await initRender(world);
+        const globalTransformRuntime = world.globalTransformRuntime;
         if (!globalTransformRuntime)
             throw new Error("GlobalTransform is unavailable before RenderPlugin initialization");
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
-        globalTransformRuntime.params = state.resource(Frame).buffer;
-        globalTransformTable(state);
+        globalTransformRuntime.params = world.resource(Frame).buffer;
+        globalTransformTable(world);
     },
 
-    // pack the static meshes staged by `mesh()` during initialize into the
+    // pack the static meshes staged by `registerMesh()` during initialize into the
     // shared family buffer (runs after every initialize, before first render)
-    warm(state) {
-        flushMeshes(state);
-        warmClusters(state);
-        warmLightCull(state);
+    warm(world) {
+        flushMeshes(world);
+        warmClusters(world);
+        warmLightCull(world);
     },
 };
 
 // extension API for renderer + producer authors: the contract registries, the
 // per-frame uniform singletons + their WGSL structs, the vertex-pull contract,
 // canvas binding, and the frame-loop ordering anchor. The typical-user surface
-// (components, plugin, public types, mesh()) lives in the index barrel. `VIEW_STRIDE`
+// (components, plugin, public types, registerMesh()) lives in the index barrel. `VIEW_STRIDE`
 // + `MAX_VIEWS` size a per-view uniform a consumer packs slot-major (glaze's postfx
 // config); the buffer sizes and the cull-volume packer stay internal — a consumer reads
 // the packed `Render.cullVolumes` buffer, never re-packs it. A producer that runs its own
-// cull (Part's pack) reads the per-slot layout constants below to index + dispatch on the tag.
+// cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
 
 export { computeViewProj } from "./camera";
 export type { ClusterView } from "./cluster";
@@ -651,7 +657,7 @@ export {
     attachView,
     backingSize,
     detachCanvas,
-    linearToSrgb,
+    linearToSrgb3,
     linearToSrgbWgsl,
     MAX_SLOTS,
     MAX_VIEWS,
@@ -659,7 +665,8 @@ export {
     sizeView,
     VIEW_BYTES,
     VIEW_STRIDE,
-    View,
+    type View,
     Views,
+    ViewUniforms,
     viewWgsl,
 } from "./view";

@@ -24,16 +24,16 @@ export type MeshBinding =
  * WGSL, never via `setVertexBuffer` / `setIndexBuffer`.
  *
  * The registry is source-agnostic. Static producers stage typed arrays via
- * {@link mesh}, which {@link flushMeshes} packs into one shared family buffer
+ * {@link registerMesh}, which {@link flushMeshes} packs into one shared family buffer
  * set — every static mesh is a slice (its own `indexBase` + meshId) of the same
  * buffers, so sear binds geometry once and the layout is `multi-draw-indirect`
  * ready. Procedural producers (compute-driven terrain, particle ribbons) may still allocate their own
- * raw `GPUBuffer`s, but wrap them with `state.gpu.root.createBuffer(schema, raw).$usage(...)` at the
+ * raw `GPUBuffer`s, but wrap them with `world.gpu.root.createBuffer(schema, raw).$usage(...)` at the
  * registry seam. They unwrap the same allocation again wherever a raw encoder needs it. Meshes sharing
  * a buffer set share a bind group in sear.
  *
  * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
- * frustum cull GlobalTransforms per instance. {@link mesh} derives it from the staged
+ * frustum cull GlobalTransforms per instance. {@link registerMesh} derives it from the staged
  * vertices; procedural producers may supply their own or omit it (a culler then
  * treats the mesh as always-visible)
  *
@@ -63,7 +63,7 @@ export interface Mesh {
      * compute-emitting producer that materializes only its live elements supplies it so the
      * RT-shadow BLAS builds over the live triangle range each frame, not the registered cap:
      * the GPU-count contract, the count never crossing to the CPU. Omit for a fixed mesh: its
-     * `indexCount` is the live count. Pair with `dynamic: true`.
+     * `indexCount` is the live count. Vector2Field with `dynamic: true`.
      */
     count?: MeshStorage<d.U32>;
     /**
@@ -77,14 +77,14 @@ export interface Mesh {
     /**
      * per-mesh binding overrides: resources scoped to *this* mesh's draws, keyed by the surface's binding
      * name. A surface binding resolves to `mesh.bindings?.[name]` when present, else the published global
-     * (`state.gpu.*`). Per-mesh resources are shared by that mesh's draws.
+     * (`world.gpu.*`). Per-mesh resources are shared by that mesh's draws.
      */
     bindings?: Record<string, MeshBinding>;
 }
 
 /** every registered mesh, keyed by name with a stable numeric ID */
 export const Meshes: import("../../engine").Resource<Registry<Mesh>> = {
-    create: (state) => state.resource(meshResourcesKey).meshes,
+    create: (world) => world.resource(meshResourcesKey).meshes,
 };
 
 /** bytes per vertex in the **f32 staging array** producers fill (8 floats × 4 = 32 B). The lossless
@@ -95,7 +95,7 @@ export const VERTEX_STRIDE = 32;
 /** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
 export const VERTEX_FLOATS = 8;
 
-// static meshes pack into one shared family buffer pair. `mesh()` stages the
+// static meshes pack into one shared family buffer pair. `registerMesh()` stages the
 // typed arrays + a placeholder registry entry (so `Meshes.size` is final after
 // `initialize`, before any warm); `flushMeshes()` concatenates them at warm.
 interface PendingMesh {
@@ -122,13 +122,13 @@ function createMeshResources(): MeshResources {
     };
 }
 
-function meshResources(state: World): MeshResources {
-    return state.resource(meshResourcesKey);
+function meshResources(world: World): MeshResources {
+    return world.resource(meshResourcesKey);
 }
 
 /** Create this world's mesh registry and staging during RenderPlugin initialization. */
-export function initializeMeshState(state: World): void {
-    state.resource(meshResourcesKey);
+export function initializeMeshState(world: World): void {
+    world.resource(meshResourcesKey);
 }
 
 /**
@@ -190,13 +190,13 @@ export function meshBounds(vertices: Float32Array): [number, number, number, num
  * into the shared family buffer at warm by {@link flushMeshes}; the registry
  * entry is a slice of that shared buffer. Procedural producers skip this: they
  * own their `GPUBuffer`s and call `Meshes.register(...)` directly. Requires
- * `state.gpu.device`; no-ops otherwise
+ * `world.gpu.device`; no-ops otherwise
  *
  * @example
- * mesh(state, { name: "cube", vertices, indices })
+ * registerMesh(world, { name: "cube", vertices, indices })
  */
-export function mesh(
-    state: World,
+export function registerMesh(
+    world: World,
     spec: { name: string; vertices: Float32Array; indices: Uint32Array },
 ): void {
     if (spec.vertices.length % VERTEX_FLOATS !== 0) {
@@ -204,22 +204,22 @@ export function mesh(
             `mesh "${spec.name}": vertices length ${spec.vertices.length} is not a multiple of ${VERTEX_FLOATS} (one Vertex = posU + normalV)`,
         );
     }
-    const device = state.gpu.device;
+    const device = world.gpu.device;
     if (!device) return;
     // a placeholder reserves the registry entry now (fixing Meshes.size before
     // warm); flushMeshes swaps in the real shared buffer + correct indexBase
-    const resources = meshResources(state);
-    resources.placeholderVertices ??= state.gpu.root
+    const resources = meshResources(world);
+    resources.placeholderVertices ??= world.gpu.root
         .createBuffer(d.arrayOf(d.vec4u, 1))
         .$usage("storage")
         .$name("shallot-mesh-pending-vertices");
-    resources.placeholderIndices ??= state.gpu.root
+    resources.placeholderIndices ??= world.gpu.root
         .createBuffer(d.arrayOf(d.u32, 1))
         .$usage("storage", "index")
         .$name("shallot-mesh-pending-indices");
     const bounds = meshBounds(spec.vertices);
     resources.pending.push({ ...spec, bounds });
-    state.resource(Meshes).register({
+    world.resource(Meshes).register({
         name: spec.name,
         vertices: resources.placeholderVertices,
         indices: resources.placeholderIndices,
@@ -383,8 +383,8 @@ export function quantizeMeshes(
 
 // drop the staged-but-unflushed mesh data + the placeholder buffer. flushMeshes calls it after packing,
 // clearMeshes after discarding — one source of truth for the staging state to reset.
-function resetStaging(state: World): void {
-    const resources = meshResources(state);
+function resetStaging(world: World): void {
+    const resources = meshResources(world);
     resources.pending.length = 0;
     resources.placeholderVertices?.destroy();
     resources.placeholderIndices?.destroy();
@@ -395,27 +395,27 @@ function resetStaging(state: World): void {
 /**
  * pack every staged static mesh into the quantized vertex streams + a shared
  * index buffer and re-register each as a slice. Called once from
- * `RenderPlugin.warm`, after all `initialize` hooks (so every `mesh(...)` has run)
+ * `RenderPlugin.warm`, after all `initialize` hooks (so every `registerMesh(...)` has run)
  */
-export function flushMeshes(state: World): void {
-    const device = state.gpu.device;
-    const resources = meshResources(state);
+export function flushMeshes(world: World): void {
+    const device = world.gpu.device;
+    const resources = meshResources(world);
     if (!device || resources.pending.length === 0) return;
     const packed = packMeshes(resources.pending);
     const q = quantizeMeshes(packed.vertices, packed.slices);
-    const vertices = state.gpu.root
+    const vertices = world.gpu.root
         .createBuffer(d.arrayOf(d.vec4u, q.main.length / 4))
         .$usage("storage")
         .$name("shallot-mesh-main");
-    const position = state.gpu.root
+    const position = world.gpu.root
         .createBuffer(d.arrayOf(d.vec2u, q.position.length / 2))
         .$usage("storage")
         .$name("shallot-mesh-pos");
-    const quant = state.gpu.root
+    const quant = world.gpu.root
         .createBuffer(d.arrayOf(MeshQuant, q.quant.length / 12))
         .$usage("storage")
         .$name("shallot-mesh-quant");
-    const indices = state.gpu.root
+    const indices = world.gpu.root
         .createBuffer(d.arrayOf(d.u32, packed.indices.length))
         .$usage("storage", "index")
         .$name("shallot-mesh-indices");
@@ -425,7 +425,7 @@ export function flushMeshes(state: World): void {
     indices.write(packed.indices.buffer as ArrayBuffer);
     const bounds = new Map(resources.pending.map((m) => [m.name, m.bounds]));
     for (const s of packed.slices) {
-        state.resource(Meshes).register({
+        world.resource(Meshes).register({
             name: s.name,
             vertices,
             position,
@@ -436,16 +436,16 @@ export function flushMeshes(state: World): void {
             bounds: bounds.get(s.name),
         });
     }
-    resetStaging(state);
+    resetStaging(world);
 }
 
 /**
  * drop every registered mesh + any staged-but-unflushed data, resetting the registry for a fresh build
- * (`RenderPlugin.initialize`, clear then rebuild). Static producers re-stage via {@link mesh} in
+ * (`RenderPlugin.initialize`, clear then rebuild). Static producers re-stage via {@link registerMesh} in
  * their own initialize, so a producer toggled off leaves no stale slice to be paired against
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */
-export function clearMeshes(state: World): void {
-    state.resource(Meshes).clear();
-    resetStaging(state);
+export function clearMeshes(world: World): void {
+    world.resource(Meshes).clear();
+    resetStaging(world);
 }

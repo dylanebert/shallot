@@ -219,14 +219,14 @@ function buildMaterials(): CompoundData {
 // Mirrors the transforms scene: the same box hull at two instance transforms (one rotated), sharing one
 // material, plus a sphere with a second material.
 function exercisePublicCompoundShape(compound: CompoundData): void {
-    const world = new PhysicsWorld();
-    const body = world.createBody({ type: BodyType.Static });
+    const physicsWorld = new PhysicsWorld();
+    const body = physicsWorld.createBody({ type: BodyType.Static });
     const shape = body.createCompound({}, compound);
     expect(shape.isValid(), "public compound shape is kernel-live").toBe(true);
     shape.destroy(false);
     expect(shape.isValid(), "destroyed compound handle is stale").toBe(false);
     body.destroy();
-    world.destroy();
+    physicsWorld.destroy();
 }
 
 function buildTransforms(): CompoundData {

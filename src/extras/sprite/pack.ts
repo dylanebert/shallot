@@ -3,10 +3,10 @@
 // re-gather preserves only `eid`, so instance data can't be slot-major once a surface casts — see
 // surface.ts), a slot-major `eids` array parallel to the bucket-contiguous ranges (each variant's
 // draw indexes its range via firstInstance), and the FNV signature that gates the rebuild. Pure
-// over State — no GPU — so the packing contract is what sprite.test.ts exercises directly.
+// over World — no GPU — so the packing contract is what sprite.test.ts exercises directly.
 
 import * as d from "typegpu/data";
-import { f32, GlobalTransform, type World, u32, vec2 } from "../../engine";
+import { f32, GlobalTransform, u32, vec2, type World } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { SpriteData } from "./surface";
 
@@ -42,7 +42,7 @@ export const SpriteFill = {
 
 /**
  * a textured world-space quad (icon, marker) anchored to an entity's {@link Transform}. `image` is
- * a registered image id ({@link image}), `size` the world-space quad size, `anchor` the 0..1 pivot
+ * a registered image id ({@link registerImage}), `size` the world-space quad size, `anchor` the 0..1 pivot
  * (0.5 0.5 = centered), `color` a hex sRGB tint, `billboard` a {@link SpriteBillboard} mode,
  * `blend` a {@link SpriteBlend} mode. `opacity` multiplies the texture alpha; under the default
  * `clip` blend that shrinks the cutout (the sprite vanishes below 0.5);
@@ -52,11 +52,11 @@ export const SpriteFill = {
  *
  * @example
  * ```
- * <a sprite="image: house; size: 2 2; anchor: 0.5 0" transform="pos: 4 0 4" />
+ * <a sprite="image: house; size: 2 2; anchor: 0.5 0" transform="translation: 4 0 4" />
  * ```
  */
 export const Sprite = {
-    /** registered image id (see {@link image}); a scene's `image:` resolves the registered name */
+    /** registered image id (see {@link registerImage}); a scene's `image:` resolves the registered name */
     image: u32,
     /** quad size in world units, before the transform's scale */
     size: vec2,
@@ -135,8 +135,8 @@ function createSpritePackState(): SpritePackState {
     };
 }
 
-function spritePackState(state: World): SpritePackState {
-    return state.resource(spritePackKey);
+function spritePackState(world: World): SpritePackState {
+    return world.resource(spritePackKey);
 }
 
 function packFill(amount: number, mode: number): number {
@@ -155,23 +155,23 @@ function fold(h: number, x: number): number {
 // the dirty key: every visible sprite's layout-affecting state + membership, billboard + blend
 // included (they pick the bucket). The transform is deliberately absent — it flows through the
 // slab, so moving a sprite leaves the signature (and the instance buffer) untouched
-export function signature(state: World): number {
-    const scratch = spritePackState(state);
+export function signature(world: World): number {
+    const scratch = spritePackState(world);
     let h = 0x811c9dc5 | 0;
-    for (const eid of state.query([Sprite, GlobalTransform])) {
-        if (!state.of(Sprite).visible.get(eid)) continue;
+    for (const eid of world.query([Sprite, GlobalTransform])) {
+        if (!world.storage(Sprite).visible.get(eid)) continue;
         h = fold(h, eid);
-        h = fold(h, state.of(Sprite).image.get(eid));
-        h = fold(h, fbits(state.of(Sprite).size.x.get(eid), scratch));
-        h = fold(h, fbits(state.of(Sprite).size.y.get(eid), scratch));
-        h = fold(h, fbits(state.of(Sprite).anchor.x.get(eid), scratch));
-        h = fold(h, fbits(state.of(Sprite).anchor.y.get(eid), scratch));
-        h = fold(h, state.of(Sprite).color.get(eid));
-        h = fold(h, fbits(state.of(Sprite).opacity.get(eid), scratch));
-        h = fold(h, state.of(Sprite).billboard.get(eid));
-        h = fold(h, state.of(Sprite).blend.get(eid));
-        h = fold(h, fbits(state.of(Sprite).fill.get(eid), scratch));
-        h = fold(h, state.of(Sprite).fillMode.get(eid));
+        h = fold(h, world.storage(Sprite).image.get(eid));
+        h = fold(h, fbits(world.storage(Sprite).size.x.get(eid), scratch));
+        h = fold(h, fbits(world.storage(Sprite).size.y.get(eid), scratch));
+        h = fold(h, fbits(world.storage(Sprite).anchor.x.get(eid), scratch));
+        h = fold(h, fbits(world.storage(Sprite).anchor.y.get(eid), scratch));
+        h = fold(h, world.storage(Sprite).color.get(eid));
+        h = fold(h, fbits(world.storage(Sprite).opacity.get(eid), scratch));
+        h = fold(h, world.storage(Sprite).billboard.get(eid));
+        h = fold(h, world.storage(Sprite).blend.get(eid));
+        h = fold(h, fbits(world.storage(Sprite).fill.get(eid), scratch));
+        h = fold(h, world.storage(Sprite).fillMode.get(eid));
     }
     return h;
 }
@@ -197,8 +197,8 @@ function growSlots(min: number, state: SpritePackState): void {
 }
 
 /** restore the staging to its initial capacity: the producer's `warm` reset */
-export function resetPack(state: World): void {
-    const pack = spritePackState(state);
+export function resetPack(world: World): void {
+    const pack = spritePackState(world);
     pack.dataCap = INITIAL;
     pack.staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
     pack.f32 = new Float32Array(pack.staging);
@@ -208,7 +208,7 @@ export function resetPack(state: World): void {
     pack.count = 0;
 }
 
-export function packSprites(state: World): {
+export function packSprites(world: World): {
     ranges: { start: number; count: number }[];
     count: number;
     dataCap: number;
@@ -216,26 +216,32 @@ export function packSprites(state: World): {
     u32: Uint32Array<ArrayBuffer>;
     eids: Uint32Array<ArrayBuffer>;
 } {
-    const pack = spritePackState(state);
+    const pack = spritePackState(world);
     for (const bucket of pack.byBucket) bucket.length = 0;
 
     let maxEid = -1;
-    for (const eid of state.query([Sprite, GlobalTransform])) {
-        if (!state.of(Sprite).visible.get(eid)) continue;
-        const w = state.of(Sprite).size.x.get(eid);
-        const h = state.of(Sprite).size.y.get(eid);
-        const billboard = Math.min(state.of(Sprite).billboard.get(eid), 2);
-        const blend = Math.min(state.of(Sprite).blend.get(eid), 1);
+    for (const eid of world.query([Sprite, GlobalTransform])) {
+        if (!world.storage(Sprite).visible.get(eid)) continue;
+        const w = world.storage(Sprite).size.x.get(eid);
+        const h = world.storage(Sprite).size.y.get(eid);
+        const billboard = Math.min(world.storage(Sprite).billboard.get(eid), 2);
+        const blend = Math.min(world.storage(Sprite).blend.get(eid), 1);
         if (eid > maxEid) maxEid = eid;
         pack.byBucket[billboard * 2 + blend].push({
             eid,
-            ox: -w * state.of(Sprite).anchor.x.get(eid),
-            oy: -h * state.of(Sprite).anchor.y.get(eid),
+            ox: -w * world.storage(Sprite).anchor.x.get(eid),
+            oy: -h * world.storage(Sprite).anchor.y.get(eid),
             w,
             h,
-            layer: state.of(Sprite).image.get(eid),
-            color: packColor(state.of(Sprite).color.get(eid), state.of(Sprite).opacity.get(eid)),
-            fill: packFill(state.of(Sprite).fill.get(eid), state.of(Sprite).fillMode.get(eid)),
+            layer: world.storage(Sprite).image.get(eid),
+            color: packColor(
+                world.storage(Sprite).color.get(eid),
+                world.storage(Sprite).opacity.get(eid),
+            ),
+            fill: packFill(
+                world.storage(Sprite).fill.get(eid),
+                world.storage(Sprite).fillMode.get(eid),
+            ),
         });
     }
 

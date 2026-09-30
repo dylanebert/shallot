@@ -30,7 +30,7 @@ export interface PrebuiltDecision {
 }
 
 /**
- * Pure decision table for prebuilt vs lazy: given the version, target, mode, cache state, and fetch
+ * Pure decision table for prebuilt vs lazy: given the version, target, mode, cache world, and fetch
  * result, decide whether to use a prebuilt shell or fall back to cargo. Pure — no network, no
  * filesystem — so the fallback arms (not-found, checksum-mismatch, offline) are testable without
  * touching either. The caller gathers the facts (check cache, attempt fetch) and feeds them in.

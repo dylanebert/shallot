@@ -1,4 +1,4 @@
-export { composeTransform, GlobalTransform, Transform } from "../engine";
+export { composeGlobalTransform, GlobalTransform, Transform } from "../engine";
 export {
     AudioPlugin,
     type InstrumentDef,
@@ -15,9 +15,9 @@ export {
     sfx,
 } from "../transitional/audio";
 export { BvhPlugin } from "../transitional/bvh";
-export { Character, CharacterPlugin, CharacterSweepSystem } from "../transitional/character";
+export { Character, CharacterPlugin, SweepCharactersSystem } from "../transitional/character";
 export { Glaze, GlazePlugin, Tonemap } from "../transitional/glaze";
-export { Color, Part, PartPlugin } from "../transitional/part";
+export { Color, MeshInstance, PartPlugin } from "../transitional/part";
 export {
     Body,
     BodyType,
@@ -30,18 +30,19 @@ export {
     createWheelJoint,
     getContactEvents,
     getJointEvents,
-    hash,
+    hashPhysics,
     Joint,
     JointType,
     type ParallelJointConfig,
     Physics,
     PhysicsPlugin,
+    PhysicsWorld,
     physicsCounters,
     physicsStepConfig,
     physicsWorld,
     type RevoluteJointConfig,
     readBody,
-    restore,
+    restorePhysics,
     ShapeKind,
     SoftJoint,
     type SoftJointConfig,
@@ -49,9 +50,8 @@ export {
     Spring,
     setKinematic,
     setVelocity,
-    snapshot,
+    snapshotPhysics,
     type WheelJointConfig,
-    PhysicsWorld,
 } from "../transitional/physics";
 export {
     type LoadingOptions,
@@ -63,17 +63,17 @@ export {
     shallotLight,
 } from "./loading";
 export {
-    Backdrop,
-    Depth,
+    CameraBackground,
+    DepthPrepass,
     MAX_CASCADES,
     MAX_POINT_CASTERS,
     Material,
+    PickingPrepass,
     PointShadows,
-    Sear,
     SearPlugin,
     Shadow,
+    StandardRenderer,
     SunShadows,
-    Tag,
 } from "./rendering";
 
 import { BrowserInputPlugin, InputPlugin } from "../core/input";

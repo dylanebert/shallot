@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { build, Transform } from "../../engine";
+import { createApp, Transform } from "../../engine";
 import { Body, PhysicsPlugin } from "./index";
 
 setDefaultTimeout(CEILING.node);
@@ -12,16 +12,16 @@ for (const [first, second, firstProducer, secondProducer] of [
     [Body, Transform, "body", "transform"],
 ] as const) {
     test(`a second GlobalTransform producer ${secondProducer} refuses after ${firstProducer} without changing membership`, async () => {
-        const app = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        const app = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
         try {
-            const state = app.state;
-            const eid = state.create();
-            state.add(eid, first);
-            expect(() => state.add(eid, second)).toThrow(
+            const world = app.world;
+            const eid = world.create();
+            world.add(eid, first);
+            expect(() => world.add(eid, second)).toThrow(
                 new RegExp(`cannot attach "${secondProducer}".*excluded by "${firstProducer}"`),
             );
-            expect(state.has(eid, first)).toBe(true);
-            expect(state.has(eid, second)).toBe(false);
+            expect(world.has(eid, first)).toBe(true);
+            expect(world.has(eid, second)).toBe(false);
         } finally {
             app.dispose();
         }

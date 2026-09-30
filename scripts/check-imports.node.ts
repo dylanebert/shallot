@@ -28,7 +28,7 @@ const deferred = [
         "src/transitional/glaze/index.ts:1: pending roadmap migration (still red): // Destination: core/rendering; owner: presentation.md.",
     ],
     [
-        "rendering-boundary: Part leaves transitional",
+        "rendering-boundary: MeshInstance leaves transitional",
         "src/transitional/part/index.ts:1: pending roadmap migration (still red): // Destination: standard/rendering; owner: rendering-boundary.md.",
     ],
     [

@@ -130,6 +130,6 @@ export class BroadStore {
 }
 
 /** Create an empty broad store for a new world. Its trees + set are registered by `createBroadPhase`. */
-export function createBroadStore(state: World | undefined): BroadStore {
-    return new BroadStore(state);
+export function createBroadStore(world: World | undefined): BroadStore {
+    return new BroadStore(world);
 }

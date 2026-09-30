@@ -5,11 +5,11 @@
 export { Fog, FogPlugin } from "./fog";
 export {
     Arrow,
-    arrow,
-    box,
+    drawArrow,
+    drawLine,
+    drawWireBox,
     Line,
     LinesPlugin,
-    segment,
 } from "./lines";
 export {
     Orbit,
@@ -24,11 +24,9 @@ export {
 } from "./outline";
 export {
     Player,
-    PlayerControlSystem,
     PlayerPlugin,
     type PointerLockStatus,
-    pointerLockRefusal,
-    pointerLockStatus,
+    UpdatePlayerControlSystem,
 } from "./player";
 export {
     type BenchmarkAPI,
@@ -50,7 +48,7 @@ export {
 } from "./sky";
 export {
     Images,
-    image,
+    registerImage,
     Sprite,
     SpriteBillboard,
     SpriteBlend,
@@ -60,8 +58,8 @@ export {
 export {
     Content,
     Fonts,
-    font,
+    internText,
+    registerFont,
     Text,
     TextPlugin,
-    text,
 } from "./text";

@@ -183,19 +183,19 @@ const farthestPointOnAABB = (b: AABB, p: Vec3): Vec3 => ({
  * A one-material shape presents its inline material as a length-1 array; multi-material meshes own
  * a heap array. Reach both the same way (b3GetShapeMaterials). Do not cache — the shapes array moves.
  */
-export function getShapeMaterials(state: World | undefined, shape: Shape): SurfaceMaterial[] {
-    return readShapeMaterials(state, shape);
+export function getShapeMaterials(world: World | undefined, shape: Shape): SurfaceMaterial[] {
+    return readShapeMaterials(world, shape);
 }
 
 /** Authoritative live material count, read from the kernel shape record. */
-export function getShapeMaterialCount(state: World | undefined, shape: Shape): number {
-    return shapeMaterialCount(state, shape);
+export function getShapeMaterialCount(world: World | undefined, shape: Shape): number {
+    return shapeMaterialCount(world, shape);
 }
 
 /** The shape's material 0 — what a convex contact mixes — without the fresh single-element array
  * `getShapeMaterials` builds for a one-material shape. */
-export function getShapeMaterial(state: World | undefined, shape: Shape): SurfaceMaterial {
-    return getShapeMaterials(state, shape)[0];
+export function getShapeMaterial(world: World | undefined, shape: Shape): SurfaceMaterial {
+    return getShapeMaterials(world, shape)[0];
 }
 
 /**
@@ -203,12 +203,12 @@ export function getShapeMaterial(state: World | undefined, shape: Shape): Surfac
  * material for a mesh/height-field, the child's remapped slot for a compound, else material 0.
  */
 export function getShapeUserMaterialId(
-    state: World | undefined,
+    world: World | undefined,
     shape: Shape,
     childIndex: number,
     triangleIndex: number,
 ): bigint {
-    const materialCount = getShapeMaterialCount(state, shape);
+    const materialCount = getShapeMaterialCount(world, shape);
     if (materialCount === 0) {
         return 0n;
     }
@@ -233,7 +233,7 @@ export function getShapeUserMaterialId(
     }
 
     materialIndex = clampInt(materialIndex, 0, materialCount - 1);
-    return getShapeMaterials(state, shape)[materialIndex].userMaterialId;
+    return getShapeMaterials(world, shape)[materialIndex].userMaterialId;
 }
 
 function createShapeRecord(): Shape {
