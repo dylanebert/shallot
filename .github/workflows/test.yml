@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - ci/engine-gpu-core
   pull_request:
     branches:
       - main
