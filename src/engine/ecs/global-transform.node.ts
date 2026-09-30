@@ -15,7 +15,7 @@ import { field, globalTransformTable, probeBuffer, Transform, u32 } from "../ind
 import type { System } from "./scheduler";
 import { Time } from "./scheduler";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {
         ResizeObserver: class {

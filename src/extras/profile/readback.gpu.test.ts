@@ -1,10 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { build } from "../../engine";
+import { sharedGpuBuild } from "../../engine/app/gpu.fixture";
 import { ProfilePlugin, profile } from "./index";
 
 setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
+const build = await sharedGpuBuild();
 
 test("a profiler without timestamp-query runs and distinguishes missing GPU timings from zero", async () => {
     const owner = await build({ defaults: false, plugins: [] });

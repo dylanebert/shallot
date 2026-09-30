@@ -3,7 +3,8 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 
 import * as d from "typegpu/data";
-import { build, type Plugin } from "../app";
+import type { Plugin } from "../app";
+import { sharedGpuBuild } from "../app/gpu.fixture";
 import { f32, field, u32 } from "../index";
 import { probeBuffer } from "../runtime";
 import type { State } from "./state";
@@ -11,6 +12,7 @@ import type { State } from "./state";
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
+const build = await sharedGpuBuild();
 
 const apps: Awaited<ReturnType<typeof build>>[] = [];
 afterEach(() => {

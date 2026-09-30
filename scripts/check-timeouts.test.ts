@@ -28,6 +28,20 @@ test("timeout ceilings reject oversized cases, options and drifted defaults in e
     ).toHaveLength(1);
 });
 
+test("browser subjects use one categorical global backstop rather than measured tailoring", () => {
+    const config = (properties: string) => `export default { ${properties} };`;
+    expect(timeoutErrors("playwright.config.ts", config("globalTimeout: 60_000"))).toEqual([]);
+    for (const properties of [
+        "",
+        "globalTimeout: 6_000",
+        "globalTimeout: 60_001",
+        "globalTimeout: measuredRun()",
+        "globalTimeout: 60_000, globalTimeout: 60_000",
+    ]) {
+        expect(timeoutErrors("playwright.config.ts", config(properties)).length).toBeGreaterThan(0);
+    }
+});
+
 test("timeout ceilings accept lower constant budgets and leave manual oracles unbounded", () => {
     expect(timeoutErrors("subject.test.ts", `${cheap} test("cheap", () => {}, 250);`)).toEqual([]);
     expect(timeoutErrors("subject.gpu.test.ts", `${gpu} test("GPU", () => {}, 100);`)).toEqual([]);

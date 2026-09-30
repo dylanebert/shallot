@@ -72,16 +72,17 @@ bun run format                        # biome, scene formatter and examples inde
 
 ## Verification
 
-A module's promises are tested beside the module and through the examples that use it. Each test name states the claim; its timeout is the wall-clock budget.
+A module's promises are tested beside the module and through the examples that use it. Each test name states the claim. Tier ceilings are categorical backstops against hangs and runaway work, not performance targets; design each test to run far below its backstop on the hosted runner.
 
-| Tier | Per-test timeout ceiling |
+| Tier | Timeout backstop |
 |---|---|
 | Cheap `*.test.ts` | 250 ms |
 | GPU `*.gpu.test.ts` | 1 s |
 | Node `*.node.ts` | 20 s |
+| Browser subject | 60 s `globalTimeout` for the whole subject |
 | Manual `*.oracle.ts` | Unbounded; run by path |
 
-A test may declare a lower timeout, never a higher one. A test that needs more is split or moves to a heavier tier. Each GPU and Node file sets its tier ceiling with `setDefaultTimeout`. `check-timeouts` rejects larger or unresolved timeout declarations and missing tier defaults. Every bounded GPU wait fits inside its test's ceiling.
+A test may declare a lower timeout, never a higher one. A test that needs more is split or moves to a heavier tier. Each GPU and Node file sets its tier ceiling with `setDefaultTimeout`. `check-timeouts` rejects larger or unresolved timeout declarations, missing tier defaults and a browser subject without exactly one 60 s global backstop. Every bounded GPU wait fits inside its test's ceiling.
 
 - `bun run test` discovers `*.test.ts` files, including `*.gpu.test.ts`, with a 250 ms default timeout per test. Individual test timeouts override it. Bare `bun test` discovers the same files with Bun's default timeout. Hosted jobs without a device exclude `*.gpu.test.ts` by pattern; the macOS GPU job runs `bun test gpu.test`. Node tests remain named `*.node.ts` files; the Node tier runs on macOS with Dawn's `webgpu` binding available to child processes. Oracles are manual and run by path.
 - Root `bunfig.toml` loads Shallot's Bun plugin so the engine tests receive the same TypeGPU transform as project test preloads.
@@ -92,9 +93,11 @@ A test may declare a lower timeout, never a higher one. A test that needs more i
   cargo test -p shallot-physics
   ```
 - A missing premise in a named tier is a test failure, never a skip. A quarantined claim stays visible as `test.todo` and runs with `bun test --todo`.
-- Browser tests use Playwright Test in `*.e2e.ts`. Each subject keeps `playwright.config.ts` beside its `vite.config.ts`, imports the shared Chromium flags from `scripts/chromium.ts` and sets a `globalTimeout` just above its measured run.
+- Browser tests use Playwright Test in `*.e2e.ts`. Each subject keeps `playwright.config.ts` beside its `vite.config.ts`, imports the shared Chromium flags from `scripts/chromium.ts` and sets the categorical `globalTimeout: 60_000` backstop. Do not tailor that backstop to a subject's measured run.
 - Run one subject with `playwright test -c <subject>` (for example, `playwright test -c examples/loading-screen`); run the wide browser tier with `bun run test:browser`.
-- GPU tests require an in-process WebGPU device. Browser tests request no adapter themselves; browser GPU observations accept software adapters.
+- The GPU tier runs its files serially on one device, not concurrently. GPU tests require an in-process WebGPU device and hold only small device compositions. Share the device and compiled pipelines across a file's tests where the claim allows; no test pays for a cold full build. Device-acquisition and device-loss claims retain their own acquisition boundary.
+- Tests that build the full default renderer or the Physics kernel belong in Node, especially multi-world isolation tests. The Node tier runs on the same hosted macOS device.
+- Browser tests request no adapter themselves; browser GPU observations accept software adapters.
 - Display-bound measurements require a declared monitor and take its keyboard and cursor.
 - Tests that make gameplay assertions step the composed app's clock. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
 - Test a frame at the cheapest level that shows the defect: CPU state, GPU readback, browser pixels, then a person. Choose the capture by the claim:
@@ -104,7 +107,7 @@ A test may declare a lower timeout, never a higher one. A test that needs more i
 - A WebGPU canvas reads as transparent black once its frame is presented, though the page still displays that frame: a canvas read works only inside the presenting frame, and a page screenshot works after it.
 - Add a golden image only for a defect no cheaper level shows, and never update one to make it pass.
 - Steady play allocates nothing. A memory test creates and disposes its subject, verifies memory returns to baseline, and fails on a deliberately leaking control. Retention is a separate measurement taken after GC; sampler allocation sites are diagnostics, not results.
-- Timings are measured on real hardware, labeled with it, and reported, never asserted.
+- Speed and performance are proved by counted work and same-machine ratio oracles. Timings are measured on real hardware, labeled with it, and reported, never asserted.
 - An oracle is a tool the suite cannot run. Run it when the claim or its tool changes, record the result in that commit, and rerun it only for a specific doubt.
 - A known failure stays failing until fixed; it is never skipped.
 

@@ -3,7 +3,6 @@ import { setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 
 import {
-    build,
     devices,
     focus,
     pointerButton,
@@ -13,10 +12,12 @@ import {
     Transform,
 } from "@dylanebert/shallot";
 import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
+import { sharedGpuBuild } from "../../engine/app/gpu.fixture";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
+const build = await sharedGpuBuild();
 
 test("the public Orbit consumer consumes held, released and neutral pointer facts to produce a sensitivity-scaled camera pose without a canvas, browser producer or renderer", async () => {
     const app = await build({ defaults: false, plugins: [OrbitPlugin] });

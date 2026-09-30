@@ -1,10 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { build } from "../app";
+import { sharedGpuBuild } from "../app/gpu.fixture";
 import { probeBuffer, probeTexture } from "./probe";
 
 setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
+const build = await sharedGpuBuild();
 
 test("one-shot readback stamps its copy and reuses then releases world staging", async () => {
     const app = await build({ defaults: false, plugins: [] });

@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 
 import { build, type Plugin } from "@dylanebert/shallot";
 import { PhysicsProfilePlugin } from "@dylanebert/shallot/extras";

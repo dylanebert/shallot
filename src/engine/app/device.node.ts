@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 
 import {
     Body,
@@ -130,7 +130,7 @@ test("overlapping public builds serialize their setup and then coexist as indepe
     first.dispose();
     second.state.step(Time.FIXED_DT);
     second.dispose();
-}, 1000);
+});
 
 test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
     const author = (state: State, y: number) => {
@@ -203,7 +203,7 @@ test("two live Physics apps keep sibling bodies and hash unchanged when only one
         second?.dispose();
         first?.dispose();
     }
-}, 1000);
+});
 
 test("a failed plugin initialize releases its world and permits a later build", async () => {
     const broken = {
@@ -218,7 +218,7 @@ test("a failed plugin initialize releases its world and permits a later build", 
     const recovered = await build({ defaults: false, plugins: [PhysicsPlugin] });
     recovered.state.step(Time.FIXED_DT);
     recovered.dispose();
-}, 1000);
+});
 
 test("disposing a Physics build leaves slab or solver state behind, so a sequential re-entry produces a different fixed-step world", async () => {
     const author = (state: State) => {
@@ -245,4 +245,4 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
     live = await build({ defaults: false, plugins: [PhysicsPlugin] });
     author(live.state);
     expect(stepAndHash(live.state)).toBe(firstHash);
-}, 1000);
+});

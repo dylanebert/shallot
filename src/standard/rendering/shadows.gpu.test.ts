@@ -3,7 +3,8 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 
 import { Camera, CameraMode, DirectionalLight } from "../../core/rendering";
-import { build, Transform } from "../../engine";
+import { Transform } from "../../engine";
+import { sharedGpuBuild } from "../../engine/app/gpu.fixture";
 import {
     cascadeComboEids,
     cascadeCount,
@@ -17,6 +18,7 @@ import {
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
+const build = await sharedGpuBuild();
 
 // `updateCascades` rebuilds the sun's boxes only when its inputs change, so the pooled cascade cameras keep
 // the camera GlobalTransform the last build wrote. These rows pin what that skip must still restore: a rebuilt pool, and a

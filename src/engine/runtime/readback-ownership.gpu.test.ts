@@ -1,12 +1,13 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { d } from "typegpu";
-import { build } from "../app";
+import { sharedGpuBuild } from "../app/gpu.fixture";
 import { rawDevice } from "./gpu";
 import { probeBuffer, probeTexture } from "./probe";
 
 setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
+const build = await sharedGpuBuild();
 
 test("TypeGPU native buffers and textures belong to their world, and external allocations require explicit ownership", async () => {
     const app = await build({ defaults: false, plugins: [] });

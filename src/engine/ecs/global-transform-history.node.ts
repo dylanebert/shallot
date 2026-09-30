@@ -11,7 +11,7 @@ import {
     Transform,
 } from "../index";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {
         ResizeObserver: class {

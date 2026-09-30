@@ -2,11 +2,12 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(1000);
 
-import { build } from "../../engine";
+import { sharedGpuBuild } from "../../engine/app/gpu.fixture";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
+const build = await sharedGpuBuild();
 
 test("build awaits an application-owned loading completion promise before cleanup and returning the app", async () => {
     let finish!: () => void;

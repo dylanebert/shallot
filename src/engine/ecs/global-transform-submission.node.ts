@@ -3,7 +3,7 @@ import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
 import { build, type State, Time, Transform } from "../index";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {
         ResizeObserver: class {

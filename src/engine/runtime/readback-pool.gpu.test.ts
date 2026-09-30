@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { build } from "../app";
+import { sharedGpuBuild } from "../app/gpu.fixture";
 import type { State } from "../ecs";
 import { rawDevice } from "./gpu";
 import { probeBuffer } from "./probe";
@@ -7,6 +7,7 @@ import { probeBuffer } from "./probe";
 setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
+const build = await sharedGpuBuild();
 
 async function trackedPool(
     body: (

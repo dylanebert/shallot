@@ -3,7 +3,7 @@ import { build, swap } from "../app";
 import { field, snapshot, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 

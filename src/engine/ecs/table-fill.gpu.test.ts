@@ -1,12 +1,13 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import * as d from "typegpu/data";
-import { build } from "../app";
+import { sharedGpuBuild } from "../app/gpu.fixture";
 import { f32, field } from "../index";
 import { probeBuffer } from "../runtime";
 
 setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
+const build = await sharedGpuBuild();
 
 const Rows = { amount: field(f32) };
 

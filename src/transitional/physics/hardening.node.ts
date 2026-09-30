@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 
 import { build, type State, Time } from "@dylanebert/shallot";
 import {

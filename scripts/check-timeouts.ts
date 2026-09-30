@@ -2,16 +2,24 @@ import { resolve } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
 
-/** Test budgets are tier ceilings, not escape hatches for an oversized case. */
+/** Categorical backstops reject hangs and runaway work, not slow timings. */
 export function timeoutErrors(path: string, text: string): string[] {
     if (path.endsWith(".oracle.ts")) return [];
-    const ceiling = path.endsWith(".gpu.test.ts") ? 1000 : path.endsWith(".node.ts") ? 20_000 : 250;
+    const browser = path.endsWith("playwright.config.ts");
+    const ceiling = browser
+        ? 60_000
+        : path.endsWith(".gpu.test.ts")
+          ? 1000
+          : path.endsWith(".node.ts")
+            ? 20_000
+            : 250;
     const file = parse(text, { sourceType: "module", plugins: ["typescript"] });
     const errors: string[] = [];
     const tests = new Set<string>();
     const setters = new Set<string>();
     const constants = new Map<string, any>();
     let defaultSet = false;
+    let browserDefaults = 0;
     for (const statement of file.program.body) {
         if (statement.type === "ImportDeclaration" && statement.source.value === "bun:test") {
             for (const item of statement.specifiers) {
@@ -50,6 +58,15 @@ export function timeoutErrors(path: string, text: string): string[] {
         if (Array.isArray(node)) {
             for (const child of node) visit(child);
             return;
+        }
+        if (
+            browser &&
+            node.type === "ObjectProperty" &&
+            (node.key.name ?? node.key.value) === "globalTimeout"
+        ) {
+            browserDefaults++;
+            if (number(node.value) !== ceiling)
+                fail(node, "browser globalTimeout must be the categorical 60000 ms backstop");
         }
         if (node.type === "CallExpression") {
             const name = root(node.callee);
@@ -92,7 +109,10 @@ export function timeoutErrors(path: string, text: string): string[] {
                 defaultSet = true;
         }
     }
-    if (ceiling !== 250 && !defaultSet)
+    if (browser) {
+        if (browserDefaults !== 1)
+            errors.push(`${path}: exactly one globalTimeout: 60000 is required for this subject`);
+    } else if (ceiling !== 250 && !defaultSet)
         errors.push(`${path}: setDefaultTimeout(${ceiling}) is required for this tier`);
     return errors;
 }
@@ -101,7 +121,9 @@ if (import.meta.main) {
     const root = resolve(import.meta.dir, "..");
     const errors: string[] = [];
     for (const directory of ["src", "examples", "scripts", "diagnostics"]) {
-        for (const path of new Glob("**/*.{test,node}.ts").scanSync(resolve(root, directory))) {
+        for (const path of new Glob("**/{*.test.ts,*.node.ts,playwright.config.ts}").scanSync(
+            resolve(root, directory),
+        )) {
             errors.push(
                 ...timeoutErrors(
                     `${directory}/${path}`,

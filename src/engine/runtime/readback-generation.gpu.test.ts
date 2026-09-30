@@ -1,11 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
-import { build } from "../app";
+import { sharedGpuBuild } from "../app/gpu.fixture";
 import { probeBuffer } from "./probe";
 
 setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
+const build = await sharedGpuBuild();
 
 for (const kind of ["records", "active", "map"] as const) {
     test(`one-shot readback reads a table's grown ${kind} buffer without mutating a prior result`, async () => {
