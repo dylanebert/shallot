@@ -5,7 +5,7 @@
 // pair work, are observable through the public contact events.
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { BodyType, init, makeBoxHull, shutdown, World } from "../api/index";
+import { BodyType, init, makeBoxHull, shutdown, PhysicsWorld } from "../api/index";
 import { defaultFilter, type FilterBits, toFilterBits } from "../common/types";
 import { shouldShapesCollide } from "./pairs";
 
@@ -63,7 +63,7 @@ test("contact pair creation from the broad phase emits an overlapping pair once 
     // the move buffer every step. Step 1: both moved, the pair is found from both sides — dedup
     // must emit it exactly once. Step 2: the pair persists in the pair set, so the re-query must
     // reject it — no duplicate contact, no new begin.
-    const world = new World({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
     const drift = { x: 0, y: 0.5, z: 0 };
 
     const a = world.createBody({

@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 // LBVH binary BVH build + refit — sorted Morton codes → BVH2, the coherence-safe
 // builder. Replaces the
 // single-kernel H-PLOC build (and its atomic-climb refit), which relied on
@@ -606,7 +606,7 @@ export interface Build {
  * device.queue.submit([enc.finish()]);
  */
 export async function createBuild(
-    state: State,
+    state: World,
     device: GPUDevice,
     maxPrims: number,
     shared: BuildShared = {},

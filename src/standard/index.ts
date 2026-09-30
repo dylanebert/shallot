@@ -51,7 +51,7 @@ export {
     setVelocity,
     snapshot,
     type WheelJointConfig,
-    World,
+    PhysicsWorld,
 } from "../transitional/physics";
 export {
     type LoadingOptions,

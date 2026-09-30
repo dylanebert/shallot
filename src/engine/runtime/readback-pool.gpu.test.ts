@@ -2,7 +2,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { compileGpuFile } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { build } from "../app";
-import type { State } from "../ecs";
+import type { World } from "../ecs";
 import { rawDevice } from "./gpu";
 import { probeBuffer } from "./probe";
 import { countStaging } from "./readback.fixture";
@@ -29,7 +29,7 @@ let nextSubject = 0;
 
 async function trackedPool(
     body: (
-        state: State,
+        state: World,
         source: GPUBuffer,
         counts: { created: number; live: number },
     ) => Promise<void>,
@@ -47,8 +47,8 @@ async function trackedPool(
 
 // Keep the old device-only call at the baseline boundary so the native resource claims can run red
 // against pre-stage main, rather than failing only because the new State argument is absent.
-function probeOwner(state: State): State {
-    return ("readback" in (state as object) ? state : state.gpu.device) as State;
+function probeOwner(state: World): World {
+    return ("readback" in (state as object) ? state : state.gpu.device) as World;
 }
 
 test("successive one-shot ranges reuse one native staging allocation", async () => {

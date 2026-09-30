@@ -6,7 +6,7 @@ import {
     initializeGlobalTransform,
     register,
     registerGlobalTransform,
-    State,
+    World,
     type System,
     sameComponentSchema,
     type Traits,
@@ -62,7 +62,7 @@ export interface Plugin {
     readonly preferredFeatures?: readonly GPUFeatureName[];
     /** registration-only setup, run before scene parse (no entities exist yet); idempotent, may report progress */
     readonly initialize?: (
-        state: State,
+        state: World,
         onProgress?: (progress: number) => void,
     ) => void | Promise<void>;
     /**
@@ -73,7 +73,7 @@ export interface Plugin {
      * where `onDispose` doesn't fire — so also clear a warm-created mount at the top of `warm` before
      * re-creating it
      */
-    readonly warm?: (state: State, onProgress?: (progress: number) => void) => void | Promise<void>;
+    readonly warm?: (state: World, onProgress?: (progress: number) => void) => void | Promise<void>;
     /**
      * teardown, run in reverse dependency order on `App.dispose`. reserve it for process/module-lifetime
      * teardown — engine singletons, globals — not per-build external effects. tie a per-build mount,
@@ -81,7 +81,7 @@ export interface Plugin {
      * instead: a `dispose` hook fires only on the `App.dispose` path, never on a direct `state.dispose()`
      * (a host driving the State without an App), so a State-registered effect is the only one covering both.
      */
-    readonly dispose?: (state: State) => void;
+    readonly dispose?: (state: World) => void;
 }
 
 /**
@@ -122,9 +122,9 @@ export interface Config {
     /** specific default plugins to drop while keeping the rest */
     exclude?: Plugin[];
     /** hook run after registration, before any plugin `initialize` */
-    setup?: (state: State) => void;
+    setup?: (state: World) => void;
     /** mount app UI into the canvas-bounded overlay; return a cleanup. see `mountOverlay` */
-    ui?: (container: HTMLElement, state: State) => () => void;
+    ui?: (container: HTMLElement, state: World) => () => void;
     /** externally-acquired GPU device; if omitted, the engine acquires one */
     device?: GPUDevice;
     /** adapter that supplied an externally-acquired {@link device}; omitted devices are stamped unidentified */
@@ -139,7 +139,7 @@ export interface Config {
 
 /** result of {@link build} / {@link run}. owns the plugin teardown order. */
 export interface App {
-    readonly state: State;
+    readonly state: World;
     /** @deprecated compatibility field; always empty because incomplete compositions fail in {@link build}. */
     readonly skipped: readonly string[];
     dispose(): void;
@@ -148,7 +148,7 @@ export interface App {
 /** settle every started warm before closing the shared device error scope. @internal */
 export async function warmPlugins(
     device: GPUDevice,
-    state: State,
+    state: World,
     plugins: readonly Plugin[],
     onProgress?: (progress: number) => void,
 ): Promise<void> {
@@ -256,7 +256,7 @@ export function build(config: Config): Promise<App> {
 }
 
 async function buildNow(config: Config): Promise<App> {
-    let state!: State;
+    let state!: World;
     let stateCreated = false;
     let loading: Loading | undefined;
     let cleanup: (() => void) | undefined;
@@ -292,7 +292,7 @@ async function buildNow(config: Config): Promise<App> {
         }
 
         const sorted = composition.plugins;
-        state = new State({ pixelRatio: config.pixelRatio });
+        state = new World({ pixelRatio: config.pixelRatio });
         stateCreated = true;
         loading = config.loading ?? _defaultLoading?.();
         cleanup = loading?.show() ?? undefined;
@@ -454,7 +454,7 @@ async function buildNow(config: Config): Promise<App> {
  * and restores the host element's prior inline `position`, so a build that disposes cleans it up; omit
  * `state` to remove the overlay yourself, in which case the `position` is not restored.
  */
-export function mountOverlay(canvas: HTMLElement | null, state?: State): HTMLDivElement {
+export function mountOverlay(canvas: HTMLElement | null, state?: World): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
     const prior = parent.style.position;
     parent.style.position = "relative";
@@ -620,7 +620,7 @@ export interface SwapResult {
  * rebuild the caller falls back to is the recovery.
  */
 export async function swap(
-    state: State,
+    state: World,
     prev: readonly Plugin[],
     next: readonly Plugin[],
 ): Promise<SwapResult> {

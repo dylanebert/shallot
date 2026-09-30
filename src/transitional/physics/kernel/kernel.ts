@@ -12,7 +12,7 @@
 // host is missing. `init(state, { threads })` is the advanced escape — 0 forces single-thread, n overrides the
 // auto count. The MT artifact loads behind a dynamic `import()`, so a single-thread consumer never parses it.
 
-import type { State } from "../../../engine";
+import type { World } from "../../../engine";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, type Pool } from "./pool";
 
@@ -310,7 +310,7 @@ export type ParKind = (typeof ParKind)[keyof typeof ParKind];
  * drive whatever the last one left behind.
  */
 export function runPar(
-    state: State | undefined,
+    state: World | undefined,
     kind: ParKind,
     count: number,
     a: number,
@@ -367,7 +367,7 @@ function createKernelState(): KernelState {
 const kernelStateKey = { create: createKernelState };
 const standaloneKernelState = createKernelState();
 
-function kernelState(state: State | undefined): KernelState {
+function kernelState(state: World | undefined): KernelState {
     return state ? state.resource(kernelStateKey) : standaloneKernelState;
 }
 
@@ -523,7 +523,7 @@ async function boot(runtime: KernelState, threads: number | undefined): Promise<
  * @example
  * await init(state, { threads: 0 }); // force single-thread
  */
-export function init(state: State | undefined, options?: InitOptions): Promise<void> {
+export function init(state: World | undefined, options?: InitOptions): Promise<void> {
     const runtime = kernelState(state);
     runtime.booting ??= boot(runtime, normalizeThreads(options?.threads));
     return runtime.booting;
@@ -538,14 +538,14 @@ function normalizeThreads(v: number | undefined): number | undefined {
 }
 
 /** threads the kernel resolved to — 1 when it is running single-threaded. */
-export function threads(state: State | undefined): number {
+export function threads(state: World | undefined): number {
     return kernelState(state).resolved;
 }
 
 /** Stop the worker pool; the kernel keeps stepping, single-threaded. Optional: the pooled workers are
  * `unref`'d at boot, so a script that inits, steps, and ends exits on its own without this (pool.ts). Call
  * it to release the worker threads deterministically — at a test suite's teardown, say. */
-export async function shutdown(state: State | undefined): Promise<void> {
+export async function shutdown(state: World | undefined): Promise<void> {
     const runtime = kernelState(state);
     await runtime.pool?.terminate();
     runtime.pool = null;
@@ -557,7 +557,7 @@ export async function shutdown(state: State | undefined): Promise<void> {
  * deno; a browser main thread throws on a synchronous compile this large, so browser callers must
  * `await init(state)` first.
  */
-export function kernel(state: State | undefined): Kernel {
+export function kernel(state: World | undefined): Kernel {
     const runtime = kernelState(state);
     if (runtime.dead) {
         throw new Error(
@@ -581,14 +581,14 @@ export function kernel(state: State | undefined): Kernel {
  * aliasing the same backing store, so an old view still reads and writes the correct physical bytes and
  * only misses the new tail. Views over the shared path therefore key staleness on this length changing.
  */
-export function sharedBytes(state: State | undefined): number {
+export function sharedBytes(state: World | undefined): number {
     const memory = kernelState(state).sharedMemory;
     return memory === null ? 0 : memory.buffer.byteLength;
 }
 
 /** The worker pool the solve may run on, or null when the kernel is single-threaded — or when a worker
  * has faulted, which kills the kernel (`runPool`). */
-export function workers(state: State | undefined): Pool | null {
+export function workers(state: World | undefined): Pool | null {
     const pool = kernelState(state).pool;
     return pool?.alive ? pool : null;
 }
@@ -606,7 +606,7 @@ export function workers(state: State | undefined): Pool | null {
  * A trap here is a kernel bug (an out-of-bounds column access), not a condition a caller can handle —
  * there is nothing to recover to.
  */
-export function runPool(state: State | undefined, pool: Pool, orchestrate: () => void): void {
+export function runPool(state: World | undefined, pool: Pool, orchestrate: () => void): void {
     try {
         pool.run(orchestrate);
     } catch (e) {

@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 import {
     BodyType,
     createHull,
@@ -7,7 +7,7 @@ import {
     type HullData,
     makeBoxHull,
     type Body as SolverBody,
-    type World as SolverWorld,
+    type PhysicsWorld as SolverWorld,
 } from "./api";
 import { Hulls } from "./hull";
 import { Body, ShapeKind } from "./index";
@@ -92,7 +92,7 @@ function attachShape(
  *  directly, both through a live `State` and by hand-authoring the same field values. Returns `null` when the
  *  body references an unregistered/unbuildable hull (the collider can't attach): it warns, destroys the empty
  *  body, and the caller skips this eid rather than letting the throw take down the frame loop. */
-export function marshalBody(state: State, world: SolverWorld, eid: number): SolverBody | null {
+export function marshalBody(state: World, world: SolverWorld, eid: number): SolverBody | null {
     const kind = state.of(Body).shape.get(eid);
     const mass = state.of(Body).mass.get(eid);
     const tb = world.createBody({

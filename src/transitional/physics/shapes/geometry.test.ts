@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { World } from "../api/world";
+import { PhysicsWorld } from "../api/world";
 import { f32, type Transform, type Vec3, xf } from "../common/math";
 import { BodyType } from "../common/types";
 import {
@@ -60,7 +60,7 @@ const capsuleGold = (name: string) => gold.capsules.find((c) => c.name === name)
 
 /** Keep the authoring gold on its existing builders while driving shape lifetime through production. */
 function exercisePublicShapeLifecycle(): void {
-    const world = new World();
+    const world = new PhysicsWorld();
     const body = world.createBody({ type: BodyType.Dynamic });
     const stale = body.createSphere({}, { center: v(0, 0, 0), radius: 0.5 });
     const capsule = body.createCapsule(

@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { World } from "../api/world";
+import { PhysicsWorld } from "../api/world";
 import { kernel } from "../kernel/kernel";
 import { BodyType } from "./types";
 
 test("body lifecycle records lose a sibling world's validity, generation, LIFO reuse, or count when another world grows the kernel capacity", () => {
-    const growing = new World({ gravity: { x: 0, y: 0, z: 0 } });
-    const sibling = new World({ gravity: { x: 0, y: 0, z: 0 } });
+    const growing = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const survivor = sibling.createBody({ type: BodyType.Dynamic });
     const freedA = sibling.createBody({ type: BodyType.Dynamic });
     const freedB = sibling.createBody({ type: BodyType.Dynamic });
@@ -43,7 +43,7 @@ test("body lifecycle records lose a sibling world's validity, generation, LIFO r
 });
 
 test("the public body id pool leaves holes in its dense range, miscounts live ids against capacity, or recycles freed ids in the wrong order", () => {
-    const world = new World({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const a = world.createBody({ type: BodyType.Dynamic });
     const b = world.createBody({ type: BodyType.Dynamic });
     const c = world.createBody({ type: BodyType.Dynamic });

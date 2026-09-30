@@ -5,7 +5,7 @@
 
 import { Devices } from "../../core/input";
 import { Camera } from "../../core/rendering";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 import { GlobalTransform } from "../../engine";
 import { Body, type BodyState } from "./index";
 import { qRotate, type Ray, type RayBody, type RayHit, raycast, screenToRay } from "./raycast";
@@ -14,7 +14,7 @@ import { qRotate, type Ray, type RayBody, type RayHit, raycast, screenToRay } fr
  *  grabbables alike. Statics/kinematics (mass ≤ 0) are kept so the ray stops on a wall; {@link grabHit}
  *  filters the nearest hit down to a grabbable one. Empty until `read` has a live pose to report. */
 export function bodyCandidates(
-    state: State,
+    state: World,
     read: (eid: number) => BodyState | null,
     exclude?: (eid: number) => boolean,
 ): RayBody[] {
@@ -44,7 +44,7 @@ export function bodyCandidates(
  *  blocks the grab (returns null), so you can't grab through walls. `exclude` drops a body from the cast
  *  entirely (neither occludes nor grabs, e.g. the player's own capsule). */
 export function grabHit(
-    state: State,
+    state: World,
     read: (eid: number) => BodyState | null,
     ray: Ray | null,
     maxDist?: number,
@@ -72,7 +72,7 @@ export function worldToLocal(
 
 /** the first-person centre ray: camera position + its normalized forward (−Z). The player's crosshair pick.
  *  Unlike {@link cursorRay} (which offsets the origin to the near plane), the origin stays AT the camera. */
-export function forwardRay(state: State, cam: number): Ray | null {
+export function forwardRay(state: World, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, GlobalTransform)) return null;
     const global = state.of(GlobalTransform);
     const [dx, dy, dz] = qRotate(
@@ -93,7 +93,7 @@ export function forwardRay(state: State, cam: number): Ray | null {
 
 /** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick aims with it. The pick aspect derives from the State-scoped viewport row,
  * so it can diverge from the render aspect under an aspect-distorting `Resolution` override. */
-export function cursorRay(state: State, cam: number): Ray | null {
+export function cursorRay(state: World, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, GlobalTransform)) return null;
     const global = state.of(GlobalTransform);
     const input = state.resource(Devices);

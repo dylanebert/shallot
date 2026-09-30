@@ -12,7 +12,7 @@ import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { isTgpuFn } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
-import { Registry, type State } from "../../engine";
+import { Registry, type World } from "../../engine";
 import { Xform } from "../../engine/utils";
 
 // Free functions (barrel-named — `layout`/`register` are too generic for a barrel), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
@@ -337,7 +337,7 @@ export const Surfaces: import("../../engine").Resource<Registry<Surface>> = {
 };
 
 /** Create this world's surface and background registries during RenderPlugin initialization. */
-export function initializeSurfaceState(state: State): void {
+export function initializeSurfaceState(state: World): void {
     state.resource(surfacesKey);
     state.resource(backgroundsKey);
 }
@@ -375,7 +375,7 @@ export function assertOwnFn(label: string, fn: unknown): void {
 export function registerSurface<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
->(state: State, spec: Surface<B, V>): number {
+>(state: World, spec: Surface<B, V>): number {
     assertOwnFn(`registerSurface "${spec.name}" vs`, spec.vs);
     assertOwnFn(`registerSurface "${spec.name}" fs`, spec.fs);
     assertOwnFn(`registerSurface "${spec.name}" tag`, spec.tag);
@@ -422,7 +422,7 @@ export const Backgrounds: import("../../engine").Resource<Registry<Background>> 
  * @example registerBackground(state, { name: "sky", layout, fs });
  */
 export function registerBackground<B extends Record<string, Binding>>(
-    state: State,
+    state: World,
     spec: Background<B>,
 ): number {
     assertOwnFn(`registerBackground "${spec.name}" fs`, spec.fs);

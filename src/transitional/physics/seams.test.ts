@@ -1,19 +1,19 @@
 import { expect, test } from "bun:test";
-import { BodyType, makeBoxHull, type Pos, World } from "./api";
+import { BodyType, makeBoxHull, type Pos, PhysicsWorld } from "./api";
 
 const identity = (x = 0, y = 0, z = 0) => ({
     p: { x, y, z },
     q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
 });
 
-function dynamicBox(world: World, position: Pos) {
+function dynamicBox(world: PhysicsWorld, position: Pos) {
     const body = world.createBody({ type: BodyType.Dynamic, position });
     const shape = body.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
     return { body, shape };
 }
 
 test("World.getGravity fills a supplied vector so a stepped consumer can read gravity without allocating", () => {
-    const world = new World({ gravity: { x: 1, y: -10, z: 2 } });
+    const world = new PhysicsWorld({ gravity: { x: 1, y: -10, z: 2 } });
     const out = { x: 0, y: 0, z: 0 };
     expect(world.getGravity(out)).toBe(out);
     expect(out).toEqual({ x: 1, y: -10, z: 2 });
@@ -21,13 +21,13 @@ test("World.getGravity fills a supplied vector so a stepped consumer can read gr
 });
 
 test("a contact begin event omits its solved normal impulse, so an impact-driven consumer cannot distinguish a forceful contact from a grazing one", () => {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const floor = world.createBody({ position: { x: 0, y: -0.5, z: 0 } });
     floor.createHull({}, makeBoxHull(10, 0.5, 10));
     const falling = dynamicBox(world, { x: 0, y: 3, z: 0 });
     falling.shape.enableContactEvents(true);
 
-    let begin: ReturnType<World["getContactEvents"]>["beginEvents"][number] | undefined;
+    let begin: ReturnType<PhysicsWorld["getContactEvents"]>["beginEvents"][number] | undefined;
     for (let i = 0; i < 120 && !begin; ++i) {
         world.step(1 / 60, 4);
         begin = world.getContactEvents().beginEvents[0];
@@ -38,7 +38,7 @@ test("a contact begin event omits its solved normal impulse, so an impact-driven
 });
 
 test("a joint over its configured break threshold produces no public event, so a breakable constraint cannot react to overload", () => {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
     const arm = dynamicBox(world, { x: 1, y: 5, z: 0 }).body;
     const joint = world.createRevoluteJoint(anchor, arm, {
@@ -55,7 +55,7 @@ test("a joint over its configured break threshold produces no public event, so a
 });
 
 test("a soft joint requires a fabricated user body for its fixed endpoint, so a grab anchor cannot move in world space through the public API", () => {
-    const world = new World({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
     const { body } = dynamicBox(world, { x: 2, y: 0, z: 0 });
     const joint = world.createSoftJoint(
         body,
@@ -72,7 +72,7 @@ test("a soft joint requires a fabricated user body for its fixed endpoint, so a 
 });
 
 test("a revolute motor speed, wheel steering target or wheel spin motor target set on a sleeping island leaves it asleep, so the first input after a parked vehicle settles is lost", () => {
-    const wheelPair = (world: World) => {
+    const wheelPair = (world: PhysicsWorld) => {
         const chassis = world.createBody({ type: BodyType.Dynamic });
         chassis.createHull({ density: 1 }, makeBoxHull(1, 0.25, 0.5));
         const wheel = world.createBody({ type: BodyType.Dynamic });
@@ -82,7 +82,7 @@ test("a revolute motor speed, wheel steering target or wheel spin motor target s
     const cases = [
         {
             name: "revolute motor speed",
-            arrange(world: World) {
+            arrange(world: PhysicsWorld) {
                 const anchor = world.createBody({ position: { x: 0, y: 0, z: 0 } });
                 const { body } = dynamicBox(world, { x: 1, y: 0, z: 0 });
                 const joint = world.createRevoluteJoint(anchor, body, {
@@ -100,7 +100,7 @@ test("a revolute motor speed, wheel steering target or wheel spin motor target s
         },
         {
             name: "wheel steering target",
-            arrange(world: World) {
+            arrange(world: PhysicsWorld) {
                 const { chassis, wheel } = wheelPair(world);
                 const joint = world.createWheelJoint(chassis, wheel, {
                     enableSteering: true,
@@ -117,7 +117,7 @@ test("a revolute motor speed, wheel steering target or wheel spin motor target s
         },
         {
             name: "wheel spin motor target",
-            arrange(world: World) {
+            arrange(world: PhysicsWorld) {
                 const { chassis, wheel } = wheelPair(world);
                 const joint = world.createWheelJoint(chassis, wheel, {
                     enableSpinMotor: true,
@@ -133,7 +133,7 @@ test("a revolute motor speed, wheel steering target or wheel spin motor target s
         },
     ];
     for (const c of cases) {
-        const world = new World({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
+        const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
         const { sleepers, set, responded } = c.arrange(world);
         for (const body of sleepers) body.setAwake(false);
         expect(sleepers[0].isAwake(), `${c.name}: asleep before`).toBe(false);

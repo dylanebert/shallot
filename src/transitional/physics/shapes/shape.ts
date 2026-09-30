@@ -1,4 +1,4 @@
-import type { State } from "../../../engine";
+import type { World } from "../../../engine";
 // Shapes: geometry attached to a body, with a broad-phase proxy. Ported from Box3D's shape.c (Erin
 // Catto, MIT). A shape is its own record in world.shapes (id-pooled, no separate sim); it links to a
 // body through a doubly-linked shape list and to the broad-phase through a proxy key.
@@ -183,18 +183,18 @@ const farthestPointOnAABB = (b: AABB, p: Vec3): Vec3 => ({
  * A one-material shape presents its inline material as a length-1 array; multi-material meshes own
  * a heap array. Reach both the same way (b3GetShapeMaterials). Do not cache — the shapes array moves.
  */
-export function getShapeMaterials(state: State | undefined, shape: Shape): SurfaceMaterial[] {
+export function getShapeMaterials(state: World | undefined, shape: Shape): SurfaceMaterial[] {
     return readShapeMaterials(state, shape);
 }
 
 /** Authoritative live material count, read from the kernel shape record. */
-export function getShapeMaterialCount(state: State | undefined, shape: Shape): number {
+export function getShapeMaterialCount(state: World | undefined, shape: Shape): number {
     return shapeMaterialCount(state, shape);
 }
 
 /** The shape's material 0 — what a convex contact mixes — without the fresh single-element array
  * `getShapeMaterials` builds for a one-material shape. */
-export function getShapeMaterial(state: State | undefined, shape: Shape): SurfaceMaterial {
+export function getShapeMaterial(state: World | undefined, shape: Shape): SurfaceMaterial {
     return getShapeMaterials(state, shape)[0];
 }
 
@@ -203,7 +203,7 @@ export function getShapeMaterial(state: State | undefined, shape: Shape): Surfac
  * material for a mesh/height-field, the child's remapped slot for a compound, else material 0.
  */
 export function getShapeUserMaterialId(
-    state: State | undefined,
+    state: World | undefined,
     shape: Shape,
     childIndex: number,
     triangleIndex: number,

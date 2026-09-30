@@ -21,7 +21,7 @@ import {
     sceneTransform,
     Views,
 } from "../../core/rendering";
-import type { Plugin, State, System } from "../../engine";
+import type { Plugin, World, System } from "../../engine";
 import { f32, formatHex, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
@@ -100,9 +100,9 @@ const createFogState = (): FogState => ({
     lights: null,
     views: new Map(),
 });
-const fogState = (state: State) => state.resource(fogStateKey);
+const fogState = (state: World) => state.resource(fogStateKey);
 
-function initializeFogState(state: State): void {
+function initializeFogState(state: World): void {
     state.resource(fogStateKey);
 }
 
@@ -118,7 +118,7 @@ type ViewGroup = TgpuBindGroup<(typeof fogLayout0)["entries"]>;
 // write + the depth view (all three reallocate only on a resize, so the group rebuilds then, not every
 // frame) and the view slot (the per-slot View buffer it binds — a per-slot-buffer design)
 
-function fogLights(state: State): LightsGroup {
+function fogLights(state: World): LightsGroup {
     const _lightCull = state.resource(LightCull);
     const _lighting = state.resource(Lighting);
 
@@ -262,7 +262,7 @@ export const FogPlugin: Plugin = {
         initializeFogState(state);
     },
 
-    async warm(state: State) {
+    async warm(state: World) {
         const _fogState = state.resource(fogStateKey);
 
         const device = state.gpu.device;
@@ -320,7 +320,7 @@ export const FogPlugin: Plugin = {
         });
     },
 
-    dispose(state: State) {
+    dispose(state: World) {
         const _fogState = state.resource(fogStateKey);
 
         _fogState.fog.buffer?.destroy();

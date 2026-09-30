@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 import {
     composeTransform,
     f32,
@@ -76,7 +76,7 @@ const _view = new Float32Array(16);
  * transforms world-space lights into cluster space with it)
  */
 export function computeViewProj(
-    state: State,
+    state: World,
     eid: number,
     aspect: number,
     out: Float32Array,

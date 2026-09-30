@@ -20,7 +20,7 @@ import {
     requestPointerLock,
     requirePointerLock,
     resizeViewport,
-    State,
+    World,
     setInputEnabled,
     Time,
     touchPoint,
@@ -28,13 +28,13 @@ import {
 } from "@dylanebert/shallot";
 import { sizeView, type View } from "@dylanebert/shallot/rendering";
 
-function inputState(): State {
-    const state = new State();
+function inputState(): World {
+    const state = new World();
     for (const system of InputPlugin.systems ?? []) state.addSystem(system, InputPlugin.name);
     return state;
 }
 
-function browserInputState(): State {
+function browserInputState(): World {
     const state = inputState();
     for (const system of BrowserInputPlugin.systems ?? [])
         state.addSystem(system, BrowserInputPlugin.name);
@@ -611,7 +611,7 @@ test("composing the browser input producer without host globals preserves the pl
     let released = false;
     state.addSystem({
         group: "simulation",
-        update(s: State) {
+        update(s: World) {
             const keys = s.resource(Devices).keys;
             pressed ||= keys.pressed.has("KeyW");
             released ||= keys.released.has("KeyW");
@@ -638,7 +638,7 @@ test("controlled input edges depend on frame cadence rather than the independent
     const fixedSeen: string[] = [];
     state.addSystem({
         group: "fixed",
-        update(s: State) {
+        update(s: World) {
             if (s.resource(Devices).keys.tickPressed.has("KeyA")) fixedSeen.push("A");
             if (s.resource(Devices).keys.tickPressed.has("KeyB")) fixedSeen.push("B");
         },
@@ -660,7 +660,7 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     const seen: Array<{ held: boolean; pressed: boolean; released: boolean }> = [];
     const reader = {
         group: "simulation" as const,
-        update(s: State) {
+        update(s: World) {
             const keys = s.resource(Devices).keys;
             seen.push({
                 held: keys.held.has("KeyW"),
@@ -687,7 +687,7 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     releaseKey(state, "KeyW");
     const releaseReader = {
         group: "simulation" as const,
-        update(s: State) {
+        update(s: World) {
             if (
                 !s.resource(Devices).keys.released.has("KeyW") ||
                 s.resource(Devices).keys.held.has("KeyW")
@@ -706,7 +706,7 @@ test("a key press in a frame with zero fixed ticks is dropped before the next fr
     let count = 0;
     state.addSystem({
         group: "fixed",
-        update(s: State) {
+        update(s: World) {
             if (s.resource(Devices).keys.tickPressed.has("KeyA")) count++;
         },
     });
@@ -732,7 +732,7 @@ test("a press and release between frames loses an edge or leaves the key held", 
     let seen = false;
     state.addSystem({
         group: "simulation",
-        update(s: State) {
+        update(s: World) {
             const keys = s.resource(Devices).keys;
             seen = keys.pressed.has("KeyQ") && keys.released.has("KeyQ") && !keys.held.has("KeyQ");
         },
@@ -747,11 +747,11 @@ test("a press and release between frames loses an edge or leaves the key held", 
 test("the same press yields a different fixed edge count under batched and one-tick-per-frame cadence", () => {
     const batched = inputState();
     const stepped = inputState();
-    const count = (state: State) => {
+    const count = (state: World) => {
         let value = 0;
         state.addSystem({
             group: "fixed",
-            update(s: State) {
+            update(s: World) {
                 if (s.resource(Devices).keys.tickPressed.has("KeyE")) value++;
             },
         });

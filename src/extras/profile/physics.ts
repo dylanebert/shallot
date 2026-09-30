@@ -6,7 +6,7 @@ import {
     physicsWorld,
     type StepClock,
     StepSystem,
-    type World,
+    type PhysicsWorld,
     zeroProfile,
 } from "../../transitional/physics";
 
@@ -39,7 +39,7 @@ export function timingClock(): StepClock {
 }
 
 // the physics worlds already given a timing clock; a rebuild warms a new world, which gets its own
-const timed = new WeakSet<World>();
+const timed = new WeakSet<PhysicsWorld>();
 
 // installs the clock before the step, since plugin warms run concurrently and the world appears only once
 // the physics warm finishes

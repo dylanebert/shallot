@@ -75,7 +75,7 @@ export type Counters = {
 /** The simulation world state (b3World), trimmed to the lifecycle subset the port implements. */
 export type WorldState = {
     /** ECS owner; undefined only for the standalone solver API. */
-    ecsState: import("../../../engine").State | undefined;
+    ecsState: import("../../../engine").World | undefined;
     broadPhase: BroadPhase;
     constraintGraph: ConstraintGraph;
 
@@ -234,7 +234,7 @@ function makeCapacity(c?: Capacity): Capacity {
 }
 
 function makeWorldState(
-    state: import("../../../engine").State | undefined,
+    state: import("../../../engine").World | undefined,
     def: WorldDef,
     worldId: number,
     generation: number,
@@ -319,7 +319,7 @@ function makeWorldState(
 
 /** Create a simulation world (b3CreateWorld). @returns its id. */
 export function createWorld(
-    state: import("../../../engine").State | undefined,
+    state: import("../../../engine").World | undefined,
     def: WorldDef,
 ): WorldId {
     const owner = kernel(state);

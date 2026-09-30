@@ -1,4 +1,4 @@
-import { State } from "../ecs";
+import { World } from "../ecs";
 
 export function countStaging(device: GPUDevice) {
     const original = device.createBuffer.bind(device);
@@ -37,7 +37,7 @@ export interface ControlledSlot {
 
 /** A controllable mapping boundary for cheap pool lifecycle proofs, not GPU-content proofs. */
 export async function controlledReadback(
-    body: (state: State, slots: ControlledSlot[], errors: EventTarget) => Promise<void>,
+    body: (state: World, slots: ControlledSlot[], errors: EventTarget) => Promise<void>,
 ) {
     const descriptors = ["GPUBufferUsage", "GPUMapMode"].map(
         (name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
@@ -49,7 +49,7 @@ export async function controlledReadback(
     Object.defineProperty(globalThis, "GPUMapMode", { configurable: true, value: { READ: 1 } });
     const slots: ControlledSlot[] = [];
     const events = new EventTarget();
-    const state = new State();
+    const state = new World();
     const device = {
         limits: { maxBufferSize: 1 << 20 },
         addEventListener: events.addEventListener.bind(events),

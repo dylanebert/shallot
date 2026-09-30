@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { World } from "../api/world";
+import { PhysicsWorld } from "../api/world";
 import type { Vec3 } from "../common/math";
 import { BodyType } from "../common/types";
 import gold from "./geometry.gold.json";
@@ -104,7 +104,7 @@ const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
 
 /** The mesh builder remains TypeScript authoring; shape lifetime is exercised through the public path. */
 function exercisePublicMeshShape(mesh: MeshData): void {
-    const world = new World();
+    const world = new PhysicsWorld();
     const body = world.createBody({ type: BodyType.Static });
     const shape = body.createMesh({}, mesh);
     expect(shape.isValid(), "public mesh shape is kernel-live").toBe(true);

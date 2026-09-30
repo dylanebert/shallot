@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { build, type State, Time } from "@dylanebert/shallot";
+import { build, type World, Time } from "@dylanebert/shallot";
 import {
     Body,
     hash,
@@ -24,7 +24,7 @@ const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise
 await setupGlobals();
 
 function addBody(
-    state: State,
+    state: World,
     data: {
         shape: number;
         pos: [number, number, number];
@@ -119,14 +119,14 @@ function snapshotRefs(saved: WorldSnapshot): SnapshotRefs {
     };
 }
 
-function droppedSnapshotRefs(state: State, registry: FinalizationRegistry<string>): SnapshotRefs {
+function droppedSnapshotRefs(state: World, registry: FinalizationRegistry<string>): SnapshotRefs {
     const saved = snapshot(state);
     registry.register(saved, "dropped");
     return snapshotRefs(saved);
 }
 
 function retainedSnapshot(
-    state: State,
+    state: World,
     registry: FinalizationRegistry<string>,
 ): {
     saved: WorldSnapshot;

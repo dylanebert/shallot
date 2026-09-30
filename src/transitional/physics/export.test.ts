@@ -13,14 +13,14 @@ import {
     maxWorkers,
     type Pool,
     type WorkerReady,
-    World,
+    PhysicsWorld,
 } from "@dylanebert/shallot/physics";
 
 // Type-only evidence: this file stops compiling if the public subpath drops either pool type.
 export type PublicPoolTypes = [Pool["size"], WorkerReady["index"]];
 
 test("the wheel, parallel, hinge, cone/twist, soft-anchor, contact-event and joint-event seams are absent from the published physics subpath", () => {
-    expect(World).toBeFunction();
+    expect(PhysicsWorld).toBeFunction();
     expect(typeof BodyType.Dynamic).toBe("number");
     expect(typeof JointType.Wheel).toBe("number");
     expect(createWheelJoint).toBeFunction();

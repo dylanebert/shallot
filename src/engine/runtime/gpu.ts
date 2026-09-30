@@ -1,6 +1,6 @@
 import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
-import type { Resource, State } from "../ecs";
+import type { Resource, World } from "../ecs";
 import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
 import { captureGpuLog } from "./log";
 import { now } from "./platform";
@@ -864,7 +864,7 @@ function compile({ label, force }: Forcer): unknown {
  * });
  */
 export function precompile(
-    state: State,
+    state: World,
     label: string,
     force: () => unknown,
     options: { after?: readonly string[] } = {},
@@ -905,7 +905,7 @@ export function precompile(
  * const scope = precompileScope(state, "radix"); // "radix", then "radix-2", …
  * precompile(state, `${scope}-init`, () => initBound);
  */
-export function precompileScope(state: State, prefix: string): string {
+export function precompileScope(state: World, prefix: string): string {
     const _precompileState = state.resource(precompileState);
 
     const n = (_precompileState.scopes.get(prefix) ?? 0) + 1;
@@ -1032,7 +1032,7 @@ export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
  * attributing that skip as a compile is the still-unwarmed path reporting warm.
  */
 function reportCompile(
-    state: State,
+    state: World,
     forcer: Forcer,
     warmed: boolean,
     start: number,
@@ -1058,7 +1058,7 @@ function reportCompile(
 /** the serial per-forcer path: one `validateGpu` scope, one {@link compileBody}, one report. Used for
  *  a single-member level, for a late arrival past `_drained` ({@link precompile}'s own branch), and as
  *  {@link precompileAll}'s batch-then-bisect fallback when a multi-member level's shared scope fails. */
-async function compileValidated(state: State, forcer: Forcer): Promise<void> {
+async function compileValidated(state: World, forcer: Forcer): Promise<void> {
     const { warmed, start, end } = await validateGpu(state.gpu.device, forcer.label, () =>
         compileBody(forcer),
     );
@@ -1078,7 +1078,7 @@ async function compileValidated(state: State, forcer: Forcer): Promise<void> {
  * removal has no such snapshot to go stale, since it reads `_precompile`'s live contents at the
  * moment it runs, not a copy taken earlier.
  */
-function removeForcers(state: State, drained: readonly Forcer[]): void {
+function removeForcers(state: World, drained: readonly Forcer[]): void {
     const _precompileState = state.resource(precompileState);
 
     if (drained.length === 0) return;
@@ -1111,7 +1111,7 @@ function removeForcers(state: State, drained: readonly Forcer[]): void {
  * for a later {@link precompileAll} call, so nothing is silently dropped.
  * @internal
  */
-export async function precompileAll(state: State): Promise<void> {
+export async function precompileAll(state: World): Promise<void> {
     const _precompileState = state.resource(precompileState);
 
     if (_precompileState.draining) return;

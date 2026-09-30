@@ -1,4 +1,4 @@
-import type { Loading, Plugin, State } from "@dylanebert/shallot";
+import type { Loading, Plugin, World } from "@dylanebert/shallot";
 import type { HostFrame } from "./host";
 
 /** Reveal the host canvas only after the first draw has been submitted and completed. */
@@ -17,7 +17,7 @@ export function revealAfterFirstFrame(host: HostFrame, loading: Pick<Loading, "e
             {
                 name: "first-frame",
                 group: "draw",
-                update(state: State) {
+                update(state: World) {
                     if (waiting || disposed) return;
                     waiting = true;
                     // This draw system runs before the terminal submission. Ask for the queue fence only

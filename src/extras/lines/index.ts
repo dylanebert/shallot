@@ -17,7 +17,7 @@ import {
     RenderPlugin,
     registerSurface,
 } from "../../core/rendering";
-import type { Plugin, State, System } from "../../engine";
+import type { Plugin, World, System } from "../../engine";
 import { composeTransform, f32, formatHex, GlobalTransform, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
@@ -90,7 +90,7 @@ const _m = new Float32Array(16);
 // each retained Line is one segment from the entity's world pos along its rotated offset; an Arrow on it
 // adds fletched heads at the endpoints. Appended on top of this frame's immediate segments. Small counts
 // (scene annotations) — the immediate API is the scale path
-function expandRetained(state: State): void {
+function expandRetained(state: World): void {
     for (const eid of state.query([Line, GlobalTransform])) {
         if (!state.of(Line).visible.get(eid)) continue;
         composeTransform(state, eid, _m);
@@ -121,7 +121,7 @@ const LinesSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     before: [PrepassSystem],
-    setup(state: State) {
+    setup(state: World) {
         state.resource(Draws).register({
             name: "lines",
             surface: "lines",
@@ -184,12 +184,12 @@ export const LinesPlugin: Plugin = {
         });
     },
 
-    warm(state: State) {
+    warm(state: World) {
         if (!state.gpu.device) return;
         warmSegments(state, state.gpu.device);
     },
 
-    dispose(state: State) {
+    dispose(state: World) {
         disposeSegments(state);
     },
 };

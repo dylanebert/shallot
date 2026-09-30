@@ -12,7 +12,7 @@ import {
     ShapeKind,
 } from "../../transitional/physics";
 import "../../standard";
-import { globalTransformTable, type State, Time } from "../index";
+import { globalTransformTable, type World, Time } from "../index";
 import { build } from "./index";
 
 const peerModule = "bun-webgpu";
@@ -135,7 +135,7 @@ test("overlapping public builds serialize their setup and then coexist as indepe
 });
 
 test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
-    const author = (state: State, y: number) => {
+    const author = (state: World, y: number) => {
         const eid = state.create();
         state.add(eid, Body);
         const body = state.of(Body);
@@ -172,7 +172,7 @@ test("live Physics apps keep their authored component values and solver worlds i
 });
 
 test("two live Physics apps keep sibling bodies and hash unchanged when only one steps", async () => {
-    const author = (state: State, y: number) => {
+    const author = (state: World, y: number) => {
         const eid = state.create();
         state.add(eid, Body);
         const body = state.of(Body);
@@ -223,7 +223,7 @@ test("a failed plugin initialize releases its world and permits a later build", 
 });
 
 test("disposing a Physics build leaves slab or solver state behind, so a sequential re-entry produces a different fixed-step world", async () => {
-    const author = (state: State) => {
+    const author = (state: World) => {
         const eid = state.create();
         state.add(eid, Body);
         state.of(Body).shape.set(eid, ShapeKind.Box);
@@ -232,7 +232,7 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
         state.of(Body).mass.set(eid, 1);
         return eid;
     };
-    const stepAndHash = (state: State): bigint => {
+    const stepAndHash = (state: World): bigint => {
         for (let i = 0; i < 8; i++) state.step(Time.FIXED_DT);
         return hashPhysics(state);
     };

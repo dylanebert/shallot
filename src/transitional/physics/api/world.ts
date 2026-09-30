@@ -115,7 +115,7 @@ import { Contact, Shape } from "./shape";
 import { restore as restoreWorld, snapshot as snapshotWorld, type WorldSnapshot } from "./snapshot";
 
 /** A simulation world: bodies, shapes, and the broad-phase. */
-export class World {
+export class PhysicsWorld {
     /** @internal the underlying world state */
     readonly state: WorldState;
     private readonly _worldId: WorldId;
@@ -125,21 +125,21 @@ export class World {
     private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
     private readonly _moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
 
-    constructor(def: Partial<WorldDef> = {}, state?: import("../../../engine").State) {
+    constructor(def: Partial<WorldDef> = {}, state?: import("../../../engine").World) {
         this._worldId = createWorld(state, { ...defaultWorldDef(), ...def });
         // getWorld succeeds immediately after creation.
         this.state = getWorld(this._worldId) as WorldState;
     }
 
     /** @internal wrap an existing world state as a handle (e.g. Joint.getWorld). */
-    static _wrap(state: WorldState): World {
-        const world = Object.create(World.prototype) as {
+    static _wrap(state: WorldState): PhysicsWorld {
+        const world = Object.create(PhysicsWorld.prototype) as {
             state: WorldState;
             _worldId: WorldId;
         };
         world.state = state;
         world._worldId = { index1: state.worldId + 1, generation: state.generation };
-        return world as unknown as World;
+        return world as unknown as PhysicsWorld;
     }
 
     /** @returns whether this world has not been destroyed. */

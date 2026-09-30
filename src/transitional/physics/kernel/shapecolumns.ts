@@ -1,4 +1,4 @@
-import type { State } from "../../../engine";
+import type { World } from "../../../engine";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
 // can walk a body's shape list and compute its AABBs without a per-step marshal. A third low persistent
@@ -65,7 +65,7 @@ function growCap(need: number): number {
  * the current capacity. @returns true if the region grew (the caller must refresh any views over the
  * relocated regions above it, and over every region a `memory.grow` detached).
  */
-export function reserveShapes(state: State | undefined, shapeCount: number): boolean {
+export function reserveShapes(state: World | undefined, shapeCount: number): boolean {
     const cap = growCap(shapeCount);
     const fatGrew = kernel(state).reserveFatAabb(cap) !== 0;
     const shapeGrew = kernel(state).reserveShapes(cap) !== 0;
@@ -94,11 +94,11 @@ export function destroyShapeSlot(world: WorldState, shapeId: number): void {
  * its views whenever a grow detaches or relocates them.
  */
 export class ShapeStore {
-    readonly ecsState: State | undefined;
+    readonly ecsState: World | undefined;
 
     private readonly _worldId: number;
 
-    constructor(ecsState: State | undefined, worldId: number) {
+    constructor(ecsState: World | undefined, worldId: number) {
         this.ecsState = ecsState;
 
         this._worldId = worldId;
@@ -289,13 +289,13 @@ export class ShapeStore {
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
-export function createShapeStore(state: State | undefined, worldId: number): ShapeStore {
+export function createShapeStore(state: World | undefined, worldId: number): ShapeStore {
     return new ShapeStore(state, worldId);
 }
 
 /** Read live material records from the kernel-owned linked list. The returned objects are bridge values;
  * simulation decisions always re-read this column rather than a Shape.materials authoring array. */
-export function readShapeMaterials(state: State | undefined, shape: Shape): SurfaceMaterial[] {
+export function readShapeMaterials(state: World | undefined, shape: Shape): SurfaceMaterial[] {
     const k = kernel(state);
     const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
     const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
@@ -329,7 +329,7 @@ export function readShapeMaterials(state: State | undefined, shape: Shape): Surf
 }
 
 /** The authoritative live material count for a shape. */
-export function shapeMaterialCount(state: State | undefined, shape: Shape): number {
+export function shapeMaterialCount(state: World | undefined, shape: Shape): number {
     const k = kernel(state);
     const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
     const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;

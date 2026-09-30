@@ -1,5 +1,5 @@
 import { Devices } from "../../core/input";
-import { mountOverlay, type Plugin, type State, type System } from "../../engine";
+import { mountOverlay, type Plugin, type World, type System } from "../../engine";
 import { Orbit } from "./index";
 import { OrbitSmooth } from "./smooth";
 
@@ -18,7 +18,7 @@ interface Overlay {
     destroy(): void;
 }
 
-function createOverlay(canvas: HTMLElement | null, state: State): Overlay {
+function createOverlay(canvas: HTMLElement | null, state: World): Overlay {
     // the readout lives in the engine's sandboxed overlay (canvas-bounded, can't spill into an
     // embedding host page), the same surface `config.ui` hands an app. Passing `state` ties the
     // overlay's removal to `state.onDispose` (auto-registers `overlay.remove()`), so a direct
@@ -84,7 +84,7 @@ let _shownUntil = 0;
 const OrbitOverlaySystem: System = {
     group: "draw",
     last: true,
-    update(state: State) {
+    update(state: World) {
         if (typeof document === "undefined") return;
 
         // first flying camera in query order owns the readout — one shared HUD, like the profile overlay

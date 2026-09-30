@@ -16,7 +16,7 @@ import {
     Render,
     Surfaces,
 } from "../../core/rendering";
-import type { Registry, State, System } from "../../engine";
+import type { Registry, World, System } from "../../engine";
 import { GlobalTransform, globalTransformTable, u32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
@@ -135,11 +135,11 @@ const partGpuKey = { create: createPartGpuState };
 const partTableKey = { create: createPartTable };
 
 /** Dense Part records shared by the GPU pack and typed surface stages. */
-export function partTable(state: State) {
+export function partTable(state: World) {
     return state.resource(partTableKey);
 }
 
-function createPartTable(state: State) {
+function createPartTable(state: World) {
     const table = state.table("partInputs", PartRecord);
     table.enableEidLookup();
     const publishMap = (buffer: GPUBuffer) => {
@@ -181,11 +181,11 @@ function createPartGpuState(): PartGpuState {
     };
 }
 
-function _partGpuState(state: State): PartGpuState {
+function _partGpuState(state: World): PartGpuState {
     return state.resource(partGpuKey);
 }
 
-export function initializePartState(state: State): void {
+export function initializePartState(state: World): void {
     state.resource(partGpuKey);
     const table = partTable(state);
     table.bindComponent(Part, { surface: "surface", mesh: "mesh" });
@@ -291,7 +291,7 @@ function setBound(
 }
 
 // Bind dense Part and Transform tables, replacing groups only when one of their GPU buffers grows.
-function cullGroup(state: State): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
+function cullGroup(state: World): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
     const _partGpu = state.resource(partGpuKey);
 
     if (!_partGpu.cullParams || !_partGpu.meshBounds) return null;
@@ -331,7 +331,7 @@ function cullGroup(state: State): TgpuBindGroup<(typeof cullLayout)["entries"]> 
     return _partGpu.cullGroup;
 }
 
-function bindCount(state: State): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+function bindCount(state: World): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
     const _partGpu = state.resource(partGpuKey);
 
     const cull = cullGroup(state);
@@ -349,7 +349,7 @@ function bindCount(state: State): { pipeline: GPUComputePipeline; groups: GPUBin
     return _partGpu.countBound;
 }
 
-function bindScan(state: State): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+function bindScan(state: World): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
     const _partGpu = state.resource(partGpuKey);
     const _parts = state.resource(Parts);
 
@@ -372,7 +372,7 @@ function bindScan(state: State): { pipeline: GPUComputePipeline; groups: GPUBind
 }
 
 function bindScatter(
-    state: State,
+    state: World,
 ): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
     const _partGpu = state.resource(partGpuKey);
     const _parts = state.resource(Parts);
@@ -405,7 +405,7 @@ function bindScatter(
 
 // every bound pipeline names at least one buffer `syncBuffers` can reallocate, so growth drops all of
 // them together rather than tracking which buffer each one holds
-function unbind(state: State): void {
+function unbind(state: World): void {
     const _partGpu = state.resource(partGpuKey);
 
     _partGpu.cullGroup = null;
@@ -424,7 +424,7 @@ function unbind(state: State): void {
  * both dimensions from `cullParams` + `arrayLength`, never recompiling. Old
  * buffers free behind the submit fence: a prior frame may still reference them
  */
-function syncBuffers(state: State): void {
+function syncBuffers(state: World): void {
     const _partGpu = state.resource(partGpuKey);
     const _parts = state.resource(Parts);
 
@@ -490,7 +490,7 @@ function syncBuffers(state: State): void {
  * producer that didn't supply one) gets a sentinel radius so the cull keeps it
  * always-visible rather than wrongly culling it
  */
-function writeMeshBounds(state: State, device: GPUDevice): Vec4fBuffer {
+function writeMeshBounds(state: World, device: GPUDevice): Vec4fBuffer {
     const _partGpu = state.resource(partGpuKey);
     const _meshes = state.resource(Meshes);
 
@@ -520,7 +520,7 @@ type DrawRecord = {
 };
 
 export function publishPartDraws(
-    state: State,
+    state: World,
     drawArgs: DrawBuffer,
     surfaceCount: number,
     pairCount: number,
@@ -565,7 +565,7 @@ export function publishPartDraws(
     return writes;
 }
 
-function registerDraws(state: State): void {
+function registerDraws(state: World): void {
     const _parts = state.resource(Parts);
     const _partGpu = state.resource(partGpuKey);
 
@@ -590,7 +590,7 @@ function registerDraws(state: State): void {
 }
 
 /** Reset cached bind groups for a newly built world. */
-export function initPart(state: State): void {
+export function initPart(state: World): void {
     unbind(state);
 }
 
@@ -604,7 +604,7 @@ export function initPart(state: State): void {
  * (`syncBuffers`), not here: neither `Meshes.size` nor the camera count is
  * final at warm
  */
-export function warmPart(state: State): void {
+export function warmPart(state: World): void {
     const _partGpu = state.resource(partGpuKey);
     const _parts = state.resource(Parts);
 
@@ -664,7 +664,7 @@ export function warmPart(state: State): void {
 
 export const PartTraits = {
     requires: [GlobalTransform],
-    defaults: (state: State) => {
+    defaults: (state: World) => {
         const _surfaces = state.resource(Surfaces);
         const _meshes = state.resource(Meshes);
 
@@ -692,12 +692,12 @@ export const PartTraits = {
         return { surface: surface ?? 0, mesh: mesh ?? 0 };
     },
     parse: {
-        surface: (value: string, state: State) => state.resource(Surfaces).id(value),
-        mesh: (value: string, state: State) => state.resource(Meshes).id(value),
+        surface: (value: string, state: World) => state.resource(Surfaces).id(value),
+        mesh: (value: string, state: World) => state.resource(Meshes).id(value),
     },
     format: {
-        surface: (value: number, state: State) => state.resource(Surfaces).name(value),
-        mesh: (value: number, state: State) => state.resource(Meshes).name(value),
+        surface: (value: number, state: World) => state.resource(Surfaces).name(value),
+        mesh: (value: number, state: World) => state.resource(Meshes).name(value),
     },
 };
 

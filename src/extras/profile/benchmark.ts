@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 import type { Profile } from "./index";
 
@@ -272,7 +272,7 @@ export function passStats(
     };
 }
 
-export function createMeasure(state: State, profile: Profile) {
+export function createMeasure(state: World, profile: Profile) {
     return (warmup: number, frames: number): Promise<BenchmarkMeasurement> => {
         return new Promise((resolve) => {
             const frameTimes: number[] = [];

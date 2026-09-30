@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { f32, State } from "./index";
+import { f32, World } from "./index";
 
 test("a world-bound scalar reader stays bound when another world resolves the same schema", () => {
     const Value = { amount: f32 };
-    const first = new State();
-    const second = new State();
+    const first = new World();
+    const second = new World();
     try {
         const a = first.of(Value).amount;
         a.set(1, 1.25);

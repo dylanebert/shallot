@@ -1,4 +1,4 @@
-import type { State } from "../../../engine";
+import type { World } from "../../../engine";
 // Typed-array views over the kernel's shared solver columns (kernel/src/arena.rs). `reserveColumns`
 // lays out the columns in wasm linear memory for one step's counts and returns views over them.
 // Because `reserve` may `memory.grow` (which replaces the buffer and detaches every existing view),
@@ -311,7 +311,7 @@ const reservedLengths = [0, 0, 0, 0, 0];
  * `reserveColumns` (or any other call that can grow memory).
  */
 export function reserveColumns(
-    state: State | undefined,
+    state: World | undefined,
     body: number,
     contact: number,
     manifold: number,

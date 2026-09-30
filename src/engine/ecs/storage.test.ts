@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Pair, Quad, Single } from "./component";
-import { f32, State, vec2, vec4 } from "./index";
+import { f32, World, vec2, vec4 } from "./index";
 import { WorldField } from "./storage";
 
 test("bulk field writes copy typed rows, preserve other rows, publish scalar-equivalent marks and refuse mismatches", () => {
@@ -25,8 +25,8 @@ test("bulk field writes copy typed rows, preserve other rows, publish scalar-equ
 
 test("binding a component freezes its schema against later mutation", () => {
     const Component = { value: f32 };
-    const state = new State();
-    const second = new State();
+    const state = new World();
+    const second = new World();
     state.registry.register("FrozenComponent", Component);
     state.of(Component);
     second.registry.register("FrozenComponent", Component);
@@ -46,7 +46,7 @@ test("binding a component freezes its schema against later mutation", () => {
 
 test("schema field access reuses cached columns without repeating schema sorts", () => {
     const Component = { value: f32 };
-    const state = new State();
+    const state = new World();
     const eid = state.create();
     state.of(Component);
     const originalSort = Array.prototype.sort;
@@ -74,8 +74,8 @@ test("schema field access reuses cached columns without repeating schema sorts",
 
 test("resolving another world's storage cannot redirect retained or newly resolved fields", () => {
     const Component = { value: f32 };
-    const a = new State();
-    const b = new State();
+    const a = new World();
+    const b = new World();
     const eid = a.create();
     expect(b.create()).toBe(eid);
     const av = a.of(Component).value;
@@ -109,7 +109,7 @@ test("scalar and vector field writes reach columns without a temporary value arr
     const Scalar = { value: f32 };
     const Pair = { value: vec2 };
     const Quad = { value: vec4 };
-    const state = new State();
+    const state = new World();
     const eid = state.create();
     const scalar = state.of(Scalar).value;
     const pair = state.of(Pair).value;

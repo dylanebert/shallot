@@ -7,7 +7,7 @@
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { DrawIndexedIndirect } from "../../core/rendering";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 import { packColor } from "../../engine/utils";
 import { Segment } from "./surface";
@@ -46,11 +46,11 @@ function createSegmentState(): SegmentState {
     };
 }
 
-function segmentState(state: State): SegmentState {
+function segmentState(state: World): SegmentState {
     return state.resource(segmentStateKey);
 }
 
-export function initializeSegmentState(state: State): void {
+export function initializeSegmentState(state: World): void {
     state.resource(segmentStateKey);
 }
 
@@ -67,7 +67,7 @@ export const Lines: import("../../engine").Resource<Lines> = {
     create: (state) => state.resource(segmentStateKey),
 };
 
-function grow(state: State, min: number): void {
+function grow(state: World, min: number): void {
     let cap = segmentState(state).capacity;
     while (cap < min) cap *= 2;
     const next = new ArrayBuffer(cap * SEGMENT_BYTES);
@@ -81,7 +81,7 @@ function grow(state: State, min: number): void {
 }
 
 export function push(
-    state: State,
+    state: World,
     ax: number,
     ay: number,
     az: number,
@@ -108,7 +108,7 @@ export function push(
 // four world-space fins from the tip back along the shaft. perpendicular basis off an up reference that
 // flips near-vertical shafts; fins go back `0.2 * shaftLen * size` and out half that along ±e1/±e2
 export function head(
-    state: State,
+    state: World,
     tx: number,
     ty: number,
     tz: number,
@@ -153,7 +153,7 @@ export function head(
 
 /** draw one world-space segment this frame (cleared next frame). `width` in pixels, `color` hex sRGB */
 export function segment(
-    state: State,
+    state: World,
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
@@ -164,7 +164,7 @@ export function segment(
 
 /** draw the 12 wireframe edges of an axis-aligned box this frame */
 export function box(
-    state: State,
+    state: World,
     min: ArrayLike<number>,
     max: ArrayLike<number>,
     color: number,
@@ -194,7 +194,7 @@ export function box(
 
 /** draw a world-space arrow (shaft + a fletched head at `b`) this frame */
 export function arrow(
-    state: State,
+    state: World,
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
@@ -207,17 +207,17 @@ export function arrow(
 }
 
 /** true once the GPU buffers are allocated (`warmSegments` ran with a device) */
-export function ready(state: State): boolean {
+export function ready(state: World): boolean {
     return !!segmentState(state).buffer && !!state.resource(Lines).args;
 }
 
 /** reset the segment count without touching the GPU buffers (reload-safe pre-warm init) */
-export function resetCount(state: State): void {
+export function resetCount(state: World): void {
     segmentState(state).count = 0;
 }
 
 /** allocate the segment storage + indirect-args buffers and publish `lineSegments` */
-export function warmSegments(state: State, _device: GPUDevice): void {
+export function warmSegments(state: World, _device: GPUDevice): void {
     segmentState(state).capacity = INITIAL;
     segmentState(state).staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
     segmentState(state).f32 = new Float32Array(segmentState(state).staging);
@@ -239,7 +239,7 @@ export function warmSegments(state: State, _device: GPUDevice): void {
 
 // grow the GPU buffer to match the CPU staging (rare); republish so sear re-resolves the binding, then
 // upload this frame's segments, write the indirect record (instanceCount = live count), and clear
-export function flushSegments(state: State, device: GPUDevice, quadBase: number): void {
+export function flushSegments(state: World, device: GPUDevice, quadBase: number): void {
     const _lines = state.resource(Lines);
 
     const resources = segmentState(state);
@@ -276,7 +276,7 @@ export function flushSegments(state: State, device: GPUDevice, quadBase: number)
     segmentState(state).count = 0;
 }
 
-export function disposeSegments(state: State): void {
+export function disposeSegments(state: World): void {
     const _lines = state.resource(Lines);
 
     segmentState(state).buffer?.destroy();

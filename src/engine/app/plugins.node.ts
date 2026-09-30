@@ -70,7 +70,7 @@ import {
     setVelocity,
     snapshot as snapshotPhysics,
 } from "../../transitional/physics";
-import { type Plugin, probeTexture, type State, Time } from "../index";
+import { type Plugin, probeTexture, type World, Time } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { build } from "./index";
 
@@ -203,13 +203,13 @@ async function trackedDevice() {
     );
     const watch = watchDevice(device);
     const live = new Set<GPUBuffer | GPUTexture>();
-    const origins = new WeakMap<object, { owner?: State; label: string; createdAt: string }>();
-    const labels = new WeakMap<State, string>();
+    const origins = new WeakMap<object, { owner?: World; label: string; createdAt: string }>();
+    const labels = new WeakMap<World, string>();
     let checkingOwners = true;
     let buildScope = false;
-    let creationOwnerOverride: State | undefined;
+    let creationOwnerOverride: World | undefined;
     let hasCreationOwnerOverride = false;
-    const ownerAtCreation = (): State | undefined =>
+    const ownerAtCreation = (): World | undefined =>
         hasCreationOwnerOverride ? creationOwnerOverride : undefined;
     const resourceLabel = (resource: object | undefined): string => {
         if (!resource) return "missing GPU resource";
@@ -219,7 +219,7 @@ async function trackedDevice() {
     };
     const recordOrigin = <T extends object>(
         resource: T,
-        owner: State | undefined,
+        owner: World | undefined,
         label?: string,
     ): T => {
         if (checkingOwners)
@@ -392,7 +392,7 @@ async function trackedDevice() {
         live,
         watch,
         labels,
-        observeBuild(state: State): void {
+        observeBuild(state: World): void {
             creationOwnerOverride = state;
             hasCreationOwnerOverride = true;
         },
@@ -411,7 +411,7 @@ async function trackedDevice() {
                 hasCreationOwnerOverride = previousOverrideSet;
             }
         },
-        withWorld<T>(state: State, callback: () => T): T {
+        withWorld<T>(state: World, callback: () => T): T {
             const previousBuildScope = buildScope;
             const previousOverride = creationOwnerOverride;
             const previousOverrideSet = hasCreationOwnerOverride;
@@ -438,7 +438,7 @@ async function trackedDevice() {
     };
 }
 
-function addBody(state: State, y: number): number {
+function addBody(state: World, y: number): number {
     const eid = state.create();
     state.add(eid, Body);
     const body = state.of(Body);
@@ -449,7 +449,7 @@ function addBody(state: State, y: number): number {
     return eid;
 }
 
-function addSpring(state: State, a: number, b: number): void {
+function addSpring(state: World, a: number, b: number): void {
     const eid = state.create();
     state.add(eid, Spring);
     const spring = state.of(Spring);
@@ -459,7 +459,7 @@ function addSpring(state: State, a: number, b: number): void {
     spring.rest.set(eid, 1);
 }
 
-function addJoint(state: State, a: number, b: number): void {
+function addJoint(state: World, a: number, b: number): void {
     const eid = state.create();
     state.add(eid, Joint);
     const joint = state.of(Joint);
@@ -467,13 +467,13 @@ function addJoint(state: State, a: number, b: number): void {
     joint.b.set(eid, b);
 }
 
-function expectStateViews(state: State, eids: number[]): void {
+function expectStateViews(state: World, eids: number[]): void {
     expect(eids.length).toBeGreaterThan(0);
     expect(eids.every((eid) => state.resource(Views).get(eid) !== undefined)).toBe(true);
 }
 
 async function stepGpuWorld(
-    state: State,
+    state: World,
     label: string,
     tracked: Awaited<ReturnType<typeof trackedDevice>>,
 ): Promise<void> {
@@ -682,7 +682,7 @@ const SECOND_CONTENT: IsolationContent = {
 };
 
 function authorIsolationContent(
-    state: State,
+    state: World,
     resources: IsolationResources,
     content: IsolationContent,
 ): number {
@@ -701,7 +701,7 @@ function authorIsolationContent(
 }
 
 async function readRenderedFrame(
-    state: State,
+    state: World,
     resources: IsolationResources,
     label: string,
     tracked: Awaited<ReturnType<typeof trackedDevice>>,

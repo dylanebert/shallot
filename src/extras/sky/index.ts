@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 // Sky — opt-in procedural sky. A plugin behind sear's backdrop seam: it registers a `Backgrounds` recipe
 // (the bryce3d view-ray → HDR color fragment, in `./shader`) and publishes one uniform buffer the recipe
 // reads. The engine names no sky concept — this plugin owns all of it. It *reads* the sun from the
@@ -65,7 +65,7 @@ interface SkyState {
 
 const skyStateKey = { create: () => createSkyState() };
 const createSkyState = (): SkyState => ({ buffer: null, staging: new Float32Array(SKY_FLOATS) });
-const skyState = (state: State) => state.resource(skyStateKey);
+const skyState = (state: World) => state.resource(skyStateKey);
 
 // writes the `Sky` uniform each frame from the scene's Sky singleton, before sear's color pass reads it for
 // the backdrop draw. No-op unless the scene has a Sky singleton.
@@ -133,7 +133,7 @@ export const SkyPlugin: Plugin = {
         registerBackground(state, { ...skyBackground });
     },
 
-    warm(state: State) {
+    warm(state: World) {
         const { device } = state.gpu;
         if (!device) return;
         const sky = skyState(state);

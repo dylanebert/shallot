@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import * as d from "typegpu/data";
 import { build, type Plugin } from "../app";
 import { u32 } from "../index";
-import type { State } from "./state";
+import type { World } from "./state";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -30,7 +30,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 5_000): Pr
     });
 }
 
-async function waitAndValidate(state: State, label: string): Promise<void> {
+async function waitAndValidate(state: World, label: string): Promise<void> {
     const device = state.gpu.device;
     await bounded(`${label} queue completion`, device.queue.onSubmittedWorkDone());
     const error = await bounded(`${label} validation scope`, device.popErrorScope());
@@ -43,7 +43,7 @@ function median(values: number[]): number {
 }
 
 async function timestampedPass(
-    state: State,
+    state: World,
     label: string,
     pipeline: GPUComputePipeline,
     bindings: GPUBindGroup,
@@ -82,7 +82,7 @@ async function timestampedPass(
 }
 
 test("measure the opt-in eid-map cost against direct eid indexing at full population", async () => {
-    let state!: State;
+    let state!: World;
     const plugin: Plugin = {
         name: "TableMapCostProbe",
         features: ["timestamp-query"],
@@ -312,7 +312,7 @@ fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
 }, 0);
 
 test("measure struct records against per-field arrays for GlobalTransform and light", async () => {
-    let state!: State;
+    let state!: World;
     const plugin: Plugin = {
         name: "TableRecordLayoutProbe",
         features: ["timestamp-query"],
@@ -630,7 +630,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
 }, 0);
 
 test("measure dense table range uploads at 0.1%, 10%, and 100% changed", async () => {
-    let state!: State;
+    let state!: World;
     const plugin: Plugin = {
         name: "TableUploadCostProbe",
         initialize(current) {
@@ -704,7 +704,7 @@ test("measure dense table range uploads at 0.1%, 10%, and 100% changed", async (
 }, 0);
 
 test("measure dense table GPU memory at 1% and 100% population", async () => {
-    let state!: State;
+    let state!: World;
     const plugin: Plugin = {
         name: "TableMemoryProbe",
         initialize(current) {
@@ -774,7 +774,7 @@ test("measure dense table GPU memory at 1% and 100% population", async () => {
 }, 0);
 
 test("measure component setter overhead against direct column writes", async () => {
-    let state!: State;
+    let state!: World;
     const Setter = { value: u32 };
     const count = 100_000;
     const plugin: Plugin = {

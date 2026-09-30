@@ -5,7 +5,7 @@ import {
     Devices,
     reportAudioContextState,
 } from "../../core/input";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 import { byId, getParamPairs, type Instrument } from "./instrument";
 import { flushSamples } from "./sample";
 import { createWorkletURL } from "./worklet";
@@ -80,7 +80,7 @@ function contextState(state: globalThis.AudioContextState): DeviceAudioContextSt
     return state === "running" || state === "closed" ? state : "suspended";
 }
 
-function reconnect(state: State): void {
+function reconnect(state: World): void {
     const _audio = state.resource(Audio);
 
     if (!_audio.node || !_audio.ctx) return;
@@ -93,7 +93,7 @@ function reconnect(state: State): void {
  * The context may start suspended (no user gesture yet); a one-shot
  * pointer/key listener resumes it; the State-scoped audio record reports the state until then
  */
-export async function initAudio(state: State): Promise<void> {
+export async function initAudio(state: World): Promise<void> {
     const _audio = state.resource(Audio);
 
     disposeAudio(state);
@@ -192,7 +192,7 @@ export async function initAudio(state: State): Promise<void> {
 
 /** tear down the worklet, context, and all host listeners */
 export function disposeAudio(
-    state: State,
+    state: World,
     audio: Audio = state.resource(Audio),
     facts: AudioDevice = state.resource(Devices).audio,
 ): void {
@@ -220,14 +220,14 @@ export function disposeAudio(
 }
 
 /** flush pending sample uploads + the queued message batch. Once per frame */
-export function tickAudio(state: State): void {
+export function tickAudio(state: World): void {
     flushSamples(state.resource(Audio).sentSamples, (id, channel, channels, data) =>
         enqueue(state, { type: "set_sample", id, channel, channels, data }),
     );
     flush(state.resource(Audio));
 }
 
-function enqueue(state: State, msg: object): void {
+function enqueue(state: World, msg: object): void {
     state.resource(Audio).queue.push(msg);
 }
 
@@ -245,7 +245,7 @@ export function slotOf(handle: number): number {
 }
 
 /** true when the slot still belongs to this handle's generation */
-export function valid(state: State, handle: number): boolean {
+export function valid(state: World, handle: number): boolean {
     if (handle < 0) return false;
     const slot = handle & SLOT_MASK;
     return slot < MAX_VOICES && (state.resource(Audio).gen[slot] & GEN_MASK) === handle >>> 7;
@@ -256,7 +256,7 @@ export function valid(state: State, handle: number): boolean {
  * is full). The handle invalidates the moment the slot is freed or re-claimed,
  * so a caller holding a stale handle no-ops every op against it
  */
-export function alloc(state: State): number {
+export function alloc(state: World): number {
     const _audio = state.resource(Audio);
 
     const slot = _audio.free.pop();
@@ -267,7 +267,7 @@ export function alloc(state: State): number {
 }
 
 /** release a voice slot back to the pool, invalidating its handle */
-export function free(state: State, handle: number): void {
+export function free(state: World, handle: number): void {
     const _audio = state.resource(Audio);
 
     if (!valid(state, handle)) return;
@@ -282,39 +282,39 @@ export function free(state: State, handle: number): void {
 
 /** gate a voice on (`value` 1, note-on) or off (0, enters the envelope release): the musical trigger,
  *  distinct from freeing the slot. No-op on a stale handle. */
-export function gate(state: State, handle: number, value: number): void {
+export function gate(state: World, handle: number, value: number): void {
     if (!valid(state, handle)) return;
     enqueue(state, { type: "gate", voiceId: handle & SLOT_MASK, value });
 }
 
 /** set one kernel param of a voice by its `offset` in the instrument's compiled param layout: the
  *  per-frame firehose the ECS layer drives volume/pitch through. No-op on a stale handle or negative offset. */
-export function setParam(state: State, handle: number, offset: number, value: number): void {
+export function setParam(state: World, handle: number, offset: number, value: number): void {
     if (!valid(state, handle) || offset < 0) return;
     enqueue(state, { type: "params", changes: [[handle & SLOT_MASK, offset, value]] });
 }
 
 /** route a voice through the FOA + HRTF spatial path (`true`) or direct stereo (`false`) */
-export function spatialize(state: State, handle: number, on: boolean): void {
+export function spatialize(state: World, handle: number, on: boolean): void {
     if (!valid(state, handle)) return;
     enqueue(state, { type: "voice_spatial", voiceId: handle & SLOT_MASK, spatial: on });
 }
 
 /** mark a voice one-shot: the kernel auto-gates-off + idles it when its envelope completes */
-export function oneShot(state: State, handle: number): void {
+export function oneShot(state: World, handle: number): void {
     if (!valid(state, handle)) return;
     enqueue(state, { type: "voice_one_shot", voiceId: handle & SLOT_MASK });
 }
 
 /** register the slot for idle watching; `cb` fires once when the kernel reports it idle */
-export function watchIdle(state: State, handle: number, cb: () => void): void {
+export function watchIdle(state: World, handle: number, cb: () => void): void {
     if (!valid(state, handle)) return;
     const slot = handle & SLOT_MASK;
     state.resource(Audio).idle.set(slot, cb);
     enqueue(state, { type: "watch_idle", voiceId: slot });
 }
 
-function registerInstrument(state: State, id: number, inst: Instrument): void {
+function registerInstrument(state: World, id: number, inst: Instrument): void {
     const _audio = state.resource(Audio);
 
     if (_audio.sentInstruments.get(id) === inst.version) return;
@@ -331,7 +331,7 @@ function registerInstrument(state: State, id: number, inst: Instrument): void {
 }
 
 /** point a voice at an instrument: send its topology (once per version) + static param values */
-export function assign(state: State, handle: number, id: number): void {
+export function assign(state: World, handle: number, id: number): void {
     if (!valid(state, handle)) return;
     const inst = byId(id);
     if (!inst) return;
@@ -385,7 +385,7 @@ export function polar(
 
 /** queue one voice's spatial params (polar) into the per-frame batch */
 export function addSpatial(
-    state: State,
+    state: World,
     handle: number,
     az: number,
     el: number,
@@ -410,7 +410,7 @@ export function addSpatial(
 }
 
 /** flush the accumulated spatial batch as one worklet message */
-export function flushSpatial(state: State): void {
+export function flushSpatial(state: World): void {
     const _audio = state.resource(Audio);
 
     if (_audio.spatialLen === 0) return;

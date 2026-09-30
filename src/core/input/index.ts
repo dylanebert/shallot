@@ -1,4 +1,4 @@
-import type { Plugin, State, System } from "../../engine";
+import type { Plugin, World, System } from "../../engine";
 
 /** Keyboard facts owned by one {@link State}. `pressed`/`released` are the frame latches;
  * `tickPressed`/`tickReleased` are the independent fixed-clock latches. */
@@ -178,7 +178,7 @@ export const Devices: import("../../engine").Resource<Devices> = {
         return devices;
     },
 };
-const adapters = new WeakMap<State, BrowserAdapter>();
+const adapters = new WeakMap<World, BrowserAdapter>();
 
 const DEFAULT_MOUSE: Mouse = {
     deltaX: 0,
@@ -224,7 +224,7 @@ function emptyRecord(): DeviceRecord {
     };
 }
 
-function record(state: State): DeviceRecord {
+function record(state: World): DeviceRecord {
     return state.resource(Devices) as DeviceRecord;
 }
 
@@ -241,7 +241,7 @@ function releaseOwnedLock(a: BrowserAdapter, canvas: HTMLCanvasElement): void {
     if (a.lockCanvas === canvas) a.lockCanvas = null;
 }
 
-function adapter(state: State, host: InputHost): BrowserAdapter {
+function adapter(state: World, host: InputHost): BrowserAdapter {
     const existing = adapters.get(state);
     if (existing && !existing.disposed) return existing;
     const created: BrowserAdapter = {
@@ -296,7 +296,7 @@ function updateNormalized(d: DeviceRecord, index: number): void {
 
 /** Produce a viewport row from an application or test driver. */
 export function resizeViewport(
-    state: State,
+    state: World,
     index: number,
     width: number,
     height: number,
@@ -314,7 +314,7 @@ export function resizeViewport(
 
 /** Report a viewport row from a host adapter. The adapter is optional; omission is composition. */
 export function reportViewport(
-    state: State,
+    state: World,
     index: number,
     width: number,
     height: number,
@@ -324,17 +324,17 @@ export function reportViewport(
 }
 
 /** Produce the audio context state supplied by an application or test driver. */
-export function audioContextState(state: State, context: AudioContextState): void {
+export function audioContextState(state: World, context: AudioContextState): void {
     record(state).audio.context = context;
 }
 
 /** Report audio context state from a host adapter. The adapter is optional; omission is composition. */
-export function reportAudioContextState(state: State, context: AudioContextState): void {
+export function reportAudioContextState(state: World, context: AudioContextState): void {
     audioContextState(state, context);
 }
 
 /** Produce a keyboard press. Repeated presses do not retrigger an edge. */
-export function pressKey(state: State, code: string): void {
+export function pressKey(state: World, code: string): void {
     const d = record(state);
     if (d.suspended || d.keys.held.has(code)) return;
     d.keys.held.add(code);
@@ -344,7 +344,7 @@ export function pressKey(state: State, code: string): void {
 }
 
 /** Produce a keyboard release. */
-export function releaseKey(state: State, code: string): void {
+export function releaseKey(state: World, code: string): void {
     const d = record(state);
     if (d.suspended || !d.keys.held.has(code)) return;
     d.keys.held.delete(code);
@@ -355,7 +355,7 @@ export function releaseKey(state: State, code: string): void {
 /** Produce a pointer position update. The object form is used by the DOM producer; the numeric form is
  * convenient for a replay or a headless test. */
 export function pointerMove(
-    state: State,
+    state: World,
     x:
         | number
         | {
@@ -390,7 +390,7 @@ export function pointerMove(
 export type PointerButton = "left" | "right" | "middle" | 0 | 1 | 2;
 
 /** Produce one pointer-button state. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
-export function pointerButton(state: State, button: PointerButton, pressed: boolean): void {
+export function pointerButton(state: World, button: PointerButton, pressed: boolean): void {
     const d = record(state);
     if (d.suspended) return;
     const name =
@@ -403,14 +403,14 @@ export function pointerButton(state: State, button: PointerButton, pressed: bool
 }
 
 /** Produce the DOM `buttons` bitmask. */
-export function pointerButtons(state: State, buttons: number): void {
+export function pointerButtons(state: World, buttons: number): void {
     pointerButton(state, "left", (buttons & 1) !== 0);
     pointerButton(state, "right", (buttons & 2) !== 0);
     pointerButton(state, "middle", (buttons & 4) !== 0);
 }
 
 /** Produce wheel movement. */
-export function pointerWheel(state: State, delta: number): void {
+export function pointerWheel(state: World, delta: number): void {
     const d = record(state);
     if (!d.suspended) d.mouse.scroll += delta;
 }
@@ -438,7 +438,7 @@ function updatePinchBaseline(d: DeviceRecord): void {
 /** Produce a touch-point update. `active=false` removes the point. Two-finger centroid and pinch deltas are
  * accumulated in the same record as DOM touch events. */
 export function touchPoint(
-    state: State,
+    state: World,
     pointerId: number,
     x: number,
     y: number,
@@ -488,7 +488,7 @@ function setPointerLock(d: DeviceRecord, status: PointerLockStatus, refusal: str
 }
 
 /** Release every held input as the window loses focus. */
-export function blur(state: State): void {
+export function blur(state: World): void {
     const d = record(state);
     const a = adapters.get(state);
     if (a) a.canvasFocused = false;
@@ -497,7 +497,7 @@ export function blur(state: State): void {
 }
 
 /** Produce a focus transition for a bound canvas. */
-export function focus(state: State, canvasIndex = 0): void {
+export function focus(state: World, canvasIndex = 0): void {
     const d = record(state);
     if (d.suspended) return;
     const a = adapters.get(state);
@@ -508,13 +508,13 @@ export function focus(state: State, canvasIndex = 0): void {
 }
 
 /** Produce a document visibility transition. Hidden visibility has the same release-edge contract as blur. */
-export function visibilityChanged(state: State, hidden: boolean): void {
+export function visibilityChanged(state: World, hidden: boolean): void {
     if (hidden) blur(state);
 }
 
 /** Produce a pointer-lock transition. Exiting a lock is an input boundary and releases every held input. */
 export function pointerLockChanged(
-    state: State,
+    state: World,
     engaged: boolean,
     refusal: string | null = null,
 ): void {
@@ -544,7 +544,7 @@ function clearTouch(d: DeviceRecord): void {
     d.touch.deltaY = 0;
 }
 
-function releaseAll(_state: State | null, d: DeviceRecord): void {
+function releaseAll(_state: World | null, d: DeviceRecord): void {
     for (const code of [...d.keys.held]) releaseKeyForLegacy(d, code);
     pointerButtonsForRecord(d, 0);
     clearTouch(d);
@@ -571,7 +571,7 @@ function recaptureTouch(a: BrowserAdapter, d: DeviceRecord, canvas: HTMLCanvasEl
 }
 
 function canvasPosition(
-    state: State,
+    state: World,
     a: BrowserAdapter,
     target: HTMLCanvasElement,
     e: { clientX: number; clientY: number },
@@ -586,7 +586,7 @@ function canvasPosition(
     });
 }
 
-function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: State): void {
+function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: World): void {
     const { document, window } = a.host;
     a.pointerHover = (e) => {
         const target = e.target as HTMLCanvasElement;
@@ -801,7 +801,7 @@ function disposeAdapter(a: BrowserAdapter): void {
     a.lockCanvas = null;
 }
 
-function setup(state: State, canvasElements: readonly HTMLCanvasElement[], host: InputHost): void {
+function setup(state: World, canvasElements: readonly HTMLCanvasElement[], host: InputHost): void {
     const d = record(state);
     const a = adapter(state, host);
     if (a.canvases.size > 0) return;
@@ -831,7 +831,7 @@ function setup(state: State, canvasElements: readonly HTMLCanvasElement[], host:
 }
 
 /** Request pointer lock through the composed browser adapter from an engagement gesture. */
-export function requestPointerLock(state: State): void {
+export function requestPointerLock(state: World): void {
     const d = record(state);
     if (d.suspended) return;
     if (d.pointer.lock.status === "unsupported") return;
@@ -883,7 +883,7 @@ export function requestPointerLock(state: State): void {
 }
 
 function finishPointerLockRequest(
-    state: State,
+    state: World,
     a: BrowserAdapter,
     canvas: HTMLCanvasElement,
     rejected = false,
@@ -909,7 +909,7 @@ function finishPointerLockRequest(
 }
 
 /** Release this adapter's lock, if it owns the currently locked canvas. */
-export function releasePointerLock(state: State): void {
+export function releasePointerLock(state: World): void {
     const a = adapters.get(state);
     if (!a || a.disposed) return;
     const element = a.host.document.pointerLockElement as HTMLCanvasElement | null;
@@ -918,7 +918,7 @@ export function releasePointerLock(state: State): void {
 }
 
 /** Suspend or resume one State's device producers. Suspension releases held inputs with normal edges. */
-export function setInputEnabled(state: State, on: boolean): void {
+export function setInputEnabled(state: World, on: boolean): void {
     const d = record(state);
     d.suspended = !on;
     if (d.suspended) {
@@ -932,29 +932,29 @@ export function setInputEnabled(state: State, on: boolean): void {
 }
 
 /** whether one State's device producers are live. */
-export function inputEnabled(state: State): boolean {
+export function inputEnabled(state: World): boolean {
     return !record(state).suspended;
 }
 
 /** Set the pointer-button gate on one State. */
-export function requirePointerLock(state: State, on: boolean): void {
+export function requirePointerLock(state: World, on: boolean): void {
     record(state).requireLock = on;
 }
 
 /** read the pointer-lock status from one State's device record. */
-export function pointerLockStatus(state: State): PointerLockStatus {
+export function pointerLockStatus(state: World): PointerLockStatus {
     return record(state).pointer.lock.status;
 }
 
 /** read the browser's last pointer-lock refusal from one State's device record. */
-export function pointerLockRefusal(state: State): string | null {
+export function pointerLockRefusal(state: World): string | null {
     return record(state).pointer.lock.refusal;
 }
 
 const InputSystem: System = {
     name: "state",
     group: "simulation",
-    setup(state: State) {
+    setup(state: World) {
         // The data owner has no host boundary. Producers may be absent even when a DOM is present.
         record(state);
     },
@@ -985,13 +985,13 @@ export function createBrowserInputPlugin(host?: InputHost): Plugin {
     const browserSystem: System = {
         name: "browser",
         group: "simulation",
-        setup(state: State) {
+        setup(state: World) {
             const currentHost = browserHost ?? defaultInputHost();
             if (!currentHost) return;
             const elements = currentHost.queryCanvases();
             if (elements.length > 0) setup(state, elements, currentHost);
         },
-        update(state: State) {
+        update(state: World) {
             const input = record(state);
             if (input.suspended && input.pointer.lock.status === "locked")
                 releasePointerLock(state);
@@ -1008,7 +1008,7 @@ const InputTickResetSystem: System = {
     name: "tick-reset",
     group: "fixed",
     last: true,
-    update(state: State) {
+    update(state: World) {
         const keys = record(state).keys;
         // `Set.prototype.clear` mints a fresh table even on an empty set, so guard on size.
         if (keys.tickPressed.size !== 0) keys.tickPressed.clear();
@@ -1020,7 +1020,7 @@ const InputResetSystem: System = {
     name: "frame-reset",
     group: "draw",
     last: true,
-    update(state: State) {
+    update(state: World) {
         const d = record(state);
         if (d.keys.pressed.size !== 0) d.keys.pressed.clear();
         if (d.keys.released.size !== 0) d.keys.released.clear();

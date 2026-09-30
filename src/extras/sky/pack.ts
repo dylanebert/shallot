@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 import { unpackColor } from "../../engine";
 import { Sky } from "./index";
 import { SKY_AT } from "./shader";
@@ -7,7 +7,7 @@ import { SKY_AT } from "./shader";
  * pack a `Sky` singleton entity into its {@link SkyGpu} uniform. Hex colors decode to linear rgb. The sun
  * *direction* is not packed; the shader reads it from sear's `lighting` uniform.
  */
-export function packSky(state: State, eid: number, out: Float32Array): void {
+export function packSky(state: World, eid: number, out: Float32Array): void {
     out.fill(0);
     out[SKY_AT.hazeDensity] = state.of(Sky).hazeDensity.get(eid);
     out[SKY_AT.horizonBand] = state.of(Sky).band.get(eid);

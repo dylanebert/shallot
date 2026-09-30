@@ -22,7 +22,7 @@ if (typeof ResizeObserver === "undefined") {
     });
 }
 
-function attachTestCamera(state: import("../../engine").State): void {
+function attachTestCamera(state: import("../../engine").World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,

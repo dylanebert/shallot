@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
-import { build, type State, Time, Transform } from "../index";
+import { build, type World, Time, Transform } from "../index";
 
 setDefaultTimeout(CEILING.node);
 if (typeof ResizeObserver === "undefined") {
@@ -17,7 +17,7 @@ if (typeof ResizeObserver === "undefined") {
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 
-function attachTestCamera(state: State): void {
+function attachTestCamera(state: World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,

@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { eulerAlias, Xform } from "../utils";
 import { type Component, idOf, vec4 } from "./component";
-import type { State } from "./state";
+import type { World } from "./state";
 import type { ComponentStorage } from "./storage";
 import type { GpuTable } from "./table";
 
@@ -86,7 +86,7 @@ export interface GlobalTransformRuntime {
 }
 
 /** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
-export function registerGlobalTransform(state: State): void {
+export function registerGlobalTransform(state: World): void {
     state.registry.register("GlobalTransform", GlobalTransform, globalTransformTraits);
     state.registry.register("Transform", Transform, {
         defaults: () => ({ pos: [0, 0, 0, 0], rot: [0, 0, 0, 1], scale: [1, 1, 1, 1] }),
@@ -95,7 +95,7 @@ export function registerGlobalTransform(state: State): void {
     });
 }
 /** @internal Install once before scene/setup authoring. GPU residency waits for a reader. */
-export function initializeGlobalTransform(state: State): void {
+export function initializeGlobalTransform(state: World): void {
     const runtime: GlobalTransformRuntime = {
         enabled: false,
         tickCount: 0,
@@ -121,7 +121,7 @@ export function initializeGlobalTransform(state: State): void {
 }
 
 /** The engine's interpolated dense GlobalTransform rows. Request before stepping a renderer. */
-export function globalTransformTable(state: State): GpuTable<typeof Xform> {
+export function globalTransformTable(state: World): GpuTable<typeof Xform> {
     const runtime = state.globalTransformRuntime;
     if (!runtime) throw new Error("GlobalTransform is unavailable before engine initialization");
     if (!runtime.enabled) {
@@ -161,7 +161,7 @@ export function globalTransformTable(state: State): GpuTable<typeof Xform> {
 
 /** @internal Producer membership and derived-component lifetime belong to the engine. */
 export function globalTransformProducerChanged(
-    state: State,
+    state: World,
     component: Component,
     eid: number,
     present: boolean,
@@ -182,20 +182,20 @@ export function globalTransformProducerChanged(
 }
 
 /** @internal A producer cannot remove a derived row still owned by another producer. */
-export function retainsGlobalTransform(state: State, eid: number, component: Component): boolean {
+export function retainsGlobalTransform(state: World, eid: number, component: Component): boolean {
     if (component !== GlobalTransform) return false;
     return (state.globalTransformRuntime?.producers.get(eid)?.size ?? 0) > 0;
 }
 
 /** @internal Destruction clears owner state along with the entity's component membership. */
-export function forgetGlobalTransformEntity(state: State, eid: number): void {
+export function forgetGlobalTransformEntity(state: World, eid: number): void {
     const runtime = state.globalTransformRuntime;
     runtime?.producers.delete(eid);
     runtime?.pendingRemoval.delete(eid);
 }
 
 /** @internal Reconcile one-frame producer gaps before world placement is derived for draw. */
-export function reconcileGlobalTransformProducers(state: State): void {
+export function reconcileGlobalTransformProducers(state: World): void {
     const runtime = state.globalTransformRuntime;
     if (!runtime) return;
     for (const eid of runtime.pendingRemoval) {
@@ -227,14 +227,14 @@ function queueFresh(runtime: GlobalTransformRuntime, eid: number): void {
 }
 
 /** @internal Record a teleport at the current fixed-history phase. */
-export function markGlobalTransformDiscontinuity(state: State, eid: number): void {
+export function markGlobalTransformDiscontinuity(state: World, eid: number): void {
     const runtime = state.globalTransformRuntime;
     if (!runtime?.enabled || !state.has(eid, GlobalTransform)) return;
     queueDiscontinuity(runtime, eid, runtime.captureIndex);
 }
 
 /** @internal Gather authored placement into the fixed world column without per-row callbacks. */
-export function deriveTransforms(state: State): void {
+export function deriveTransforms(state: World): void {
     const runtime = state.globalTransformRuntime;
     if (!runtime) return;
     const global = runtime.global,
@@ -280,7 +280,7 @@ export function deriveTransforms(state: State): void {
     }
 }
 
-function captureCurrent(state: State, phase: number): void {
+function captureCurrent(state: World, phase: number): void {
     const runtime = state.globalTransformRuntime!;
     const current = runtime.current!;
     current.prepareUpload();
@@ -302,19 +302,19 @@ function captureCurrent(state: State, phase: number): void {
     runtime.captureIndex = phase + 1;
 }
 /** @internal Initial placement precedes this frame's fixed ticks; no reader means no GPU work. */
-export function beginGlobalTransformTick(state: State): void {
+export function beginGlobalTransformTick(state: World): void {
     deriveTransforms(state);
     const runtime = state.globalTransformRuntime;
     if (runtime?.enabled && runtime.tickCount === 0) captureCurrent(state, 0);
 }
 /** @internal Stage changed current rows; each catch-up tick has distinct immutable GPU bytes. */
-export function endGlobalTransformTick(state: State): void {
+export function endGlobalTransformTick(state: World): void {
     deriveTransforms(state);
     const runtime = state.globalTransformRuntime;
     if (runtime?.enabled) captureCurrent(state, ++runtime.tickCount);
 }
 /** @internal Gather post-simulation placement; recording waits for the renderer's frame encoder. */
-export function prepareGlobalTransform(state: State): void {
+export function prepareGlobalTransform(state: World): void {
     reconcileGlobalTransformProducers(state);
     deriveTransforms(state);
     const runtime = state.globalTransformRuntime;
@@ -323,7 +323,7 @@ export function prepareGlobalTransform(state: State): void {
     runtime.render!.upload();
 }
 
-function copyPhase(state: State, encoder: GPUCommandEncoder, phase: number): void {
+function copyPhase(state: World, encoder: GPUCommandEncoder, phase: number): void {
     const runtime = state.globalTransformRuntime!;
     const offset = runtime.ranges[phase * 2],
         size = runtime.ranges[phase * 2 + 1];
@@ -356,7 +356,7 @@ function copyPhase(state: State, encoder: GPUCommandEncoder, phase: number): voi
     }
 }
 /** @internal Record history copies and bind data before renderer compute passes. */
-export function prepareGlobalTransformFrame(state: State, encoder: GPUCommandEncoder): void {
+export function prepareGlobalTransformFrame(state: World, encoder: GPUCommandEncoder): void {
     const runtime = state.globalTransformRuntime;
     if (!runtime?.enabled) return;
     copyPhase(state, encoder, 0);
@@ -403,7 +403,7 @@ export function prepareGlobalTransformFrame(state: State, encoder: GPUCommandEnc
 }
 
 /** Compose this State's fixed-tick GlobalTransform for CPU camera and query readers. */
-export function composeTransform(state: State, eid: number, out: Float32Array): Float32Array {
+export function composeTransform(state: World, eid: number, out: Float32Array): Float32Array {
     const { pos, quat: rot, scale } = state.of(GlobalTransform);
     const px = pos.x.get(eid),
         py = pos.y.get(eid),

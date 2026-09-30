@@ -1,4 +1,4 @@
-import type { State } from "../../../engine";
+import type { World } from "../../../engine";
 // The persistent broad-phase region (kernel/src/broad.rs) — the three dynamic-tree node pools plus the
 // pair-set membership arrays, held resident in the kernel's linear memory so the in-kernel pair query +
 // tree rebuild (3d) run over them without a per-step marshal. This store owns the TS views over the six
@@ -31,9 +31,9 @@ const EMPTY_U = new Uint32Array(0);
  * so a grow can refresh the sibling stores a `memory.grow` detached.
  */
 export class BroadStore {
-    readonly ecsState: State | undefined;
+    readonly ecsState: World | undefined;
 
-    constructor(ecsState: State | undefined) {
+    constructor(ecsState: World | undefined) {
         this.ecsState = ecsState;
     }
 
@@ -130,6 +130,6 @@ export class BroadStore {
 }
 
 /** Create an empty broad store for a new world. Its trees + set are registered by `createBroadPhase`. */
-export function createBroadStore(state: State | undefined): BroadStore {
+export function createBroadStore(state: World | undefined): BroadStore {
     return new BroadStore(state);
 }

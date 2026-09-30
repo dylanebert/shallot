@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { chunk, spliceNs } from "../../engine/utils";
 import { Devices, reportViewport } from "../input";
@@ -174,7 +174,7 @@ function stateMap<K, V>(): Map<K, V> {
     });
 }
 
-function createViewResources(state: State): ViewResources {
+function createViewResources(state: World): ViewResources {
     const resources: ViewResources = {
         views: stateMap(),
         offscreen: stateMap(),
@@ -197,12 +197,12 @@ function createViewResources(state: State): ViewResources {
     return resources;
 }
 
-function _viewResources(state: State): ViewResources {
+function _viewResources(state: World): ViewResources {
     return state.resource(viewResourcesKey);
 }
 
 /** Create this world's view and target registries during RenderPlugin initialization. */
-export function initializeViewState(state: State): void {
+export function initializeViewState(state: World): void {
     state.resource(viewResourcesKey);
 }
 
@@ -213,7 +213,7 @@ export const Views: import("../../engine").Resource<Map<number, View>> = {
 
 // canvas → the State that last bound it, for the dev-only rebuild guard below. WeakMap so a collected
 // canvas drops its entry; never populated in production (the guard is dev-gated).
-const _canvasOwners: WeakMap<HTMLCanvasElement, State> = new WeakMap();
+const _canvasOwners: WeakMap<HTMLCanvasElement, World> = new WeakMap();
 
 // read `import.meta.env.DEV` typeof-safely: the engine is bundled by arbitrary consumer bundlers, and a
 // bare `import.meta.env.DEV` throws where `import.meta.env` is undefined (non-vite). Optional-chained,
@@ -234,7 +234,7 @@ export function devEnabled(): boolean {
  * record the new owner. Two apps on distinct canvases stay silent; a proper dispose flips the prior owner's
  * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the `render` barrel.
  */
-export function trackCanvasOwner(canvas: HTMLCanvasElement, state: State): void {
+export function trackCanvasOwner(canvas: HTMLCanvasElement, state: World): void {
     const prior = _canvasOwners.get(canvas);
     if (prior && prior !== state && !prior.disposed) {
         console.warn(
@@ -249,7 +249,7 @@ export function trackCanvasOwner(canvas: HTMLCanvasElement, state: State): void 
  * rebuild guard ({@link trackCanvasOwner}) — it only warns for callers that pass it, so a multi-view app
  * binding its cameras directly should pass `state` to catch a rebuild that skipped `dispose`.
  */
-export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state: State): void {
+export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state: World): void {
     const _views = state.resource(Views);
 
     if (!state.gpu.device) throw new Error("attachCanvas: RenderPlugin not initialized");
@@ -356,7 +356,7 @@ const _sizeInputs = new WeakMap<View, Float64Array>();
  * no-op for a canvas-less (off-screen) view, which sizes its own target. The Resolution read is membership-
  * gated: a recycled eid's stale field value never leaks into a camera that carries no pin.
  */
-export function sizeView(state: State, eid: number, view: View): void {
+export function sizeView(state: World, eid: number, view: View): void {
     const canvas = view.canvas;
     if (!canvas) return;
     const viewport = state.resource(Devices).viewport.get(view.viewportIndex);
@@ -403,7 +403,7 @@ export function sizeView(state: State, eid: number, view: View): void {
  * one (so is each point/spot shadow combo's depth view). 1:1 per eid, like {@link attachCanvas}; the
  * caller indexes {@link Render.viewBuffers} by its slot. Frustum-culls from its viewProj like any camera.
  */
-export function attachView(state: State, eid: number): void {
+export function attachView(state: World, eid: number): void {
     const _views = state.resource(Views);
 
     if (_views.has(eid)) throw new Error(`attachView: eid ${eid} already has a view`);
@@ -428,7 +428,7 @@ export function attachView(state: State, eid: number): void {
 }
 
 /** release a camera's view (canvas-bound or off-screen). Safe to call on unbound eids */
-export function detachCanvas(state: State, eid: number): void {
+export function detachCanvas(state: World, eid: number): void {
     const _views = state.resource(Views);
 
     _views.get(eid)?.observer?.disconnect();
@@ -445,12 +445,12 @@ export function detachCanvas(state: State, eid: number): void {
  * packed (`stamp` 0) skips the stamp arm for that frame; the next pack records its camera's live stamp.
  * {@link BeginFrameSystem} calls it at frame start, before binding.
  */
-export function pruneViews(state: State): void {
+export function pruneViews(state: World): void {
     state.resource(Views).forEach(pruneView, state);
 }
 
 // one View's liveness check for the `pruneViews` walk; the walk passes the State as `this`
-function pruneView(this: State, view: View, eid: number): void {
+function pruneView(this: World, view: View, eid: number): void {
     if (!this.has(eid, Camera) || (view.stamp !== 0 && this.stamp(eid) !== view.stamp))
         detachCanvas(this, eid);
 }
@@ -463,7 +463,7 @@ function pruneView(this: State, view: View, eid: number): void {
 /** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: sear's
  * MSAA resolve and the `Custom` single-sample draw both target it; {@link BeginFrameSystem} sets it on
  * `view.framebuffer` each frame */
-export function offscreen(state: State, eid: number, w: number, h: number): GPUTextureView {
+export function offscreen(state: World, eid: number, w: number, h: number): GPUTextureView {
     const _viewResources = state.resource(viewResourcesKey);
 
     const cached = _viewResources.offscreen.get(eid);
@@ -485,12 +485,12 @@ export function offscreen(state: State, eid: number, w: number, h: number): GPUT
 }
 
 /** @internal the State-owned texture behind a camera's rendered offscreen view. */
-export function offscreenTexture(state: State, eid: number): GPUTexture | undefined {
+export function offscreenTexture(state: World, eid: number): GPUTexture | undefined {
     return state.resource(viewResourcesKey).offscreen.get(eid)?.texture;
 }
 
 // free one camera's offscreen target (on detach). Safe on cameras that never allocated one
-function releaseOffscreen(state: State, eid: number): void {
+function releaseOffscreen(state: World, eid: number): void {
     const _viewResources = state.resource(viewResourcesKey);
 
     _viewResources.offscreen.get(eid)?.texture.destroy();
@@ -511,7 +511,7 @@ interface Scratch {
 
 const SCENE_SCRATCH_FORMAT: GPUTextureFormat = "rgba16float";
 
-function scratchTexture(state: State, eid: number, slot: "a" | "b", w: number, h: number): Scratch {
+function scratchTexture(state: World, eid: number, slot: "a" | "b", w: number, h: number): Scratch {
     const texture = state.gpu.device.createTexture({
         label: `scene-scratch-${eid}-${slot}`,
         size: { width: w, height: h },
@@ -536,7 +536,7 @@ function scratchTexture(state: State, eid: number, slot: "a" | "b", w: number, h
  * renderer resets `view.framebuffer` to the offscreen each frame, so the chain restarts every frame.
  */
 export function sceneTransform(
-    state: State,
+    state: World,
     view: View,
     eid: number,
 ): { read: GPUTextureView; write: GPUTextureView } {
@@ -560,7 +560,7 @@ export function sceneTransform(
 }
 
 // free one camera's scene-transform scratch pair (on detach). Safe on cameras that never allocated one
-function releaseScratch(state: State, eid: number): void {
+function releaseScratch(state: World, eid: number): void {
     const _viewResources = state.resource(viewResourcesKey);
 
     const pair = _viewResources.scratch.get(eid);
@@ -570,7 +570,7 @@ function releaseScratch(state: State, eid: number): void {
 }
 
 /** free every offscreen target (on render teardown / HMR re-init) */
-export function clearOffscreens(state: State): void {
+export function clearOffscreens(state: World): void {
     const _viewResources = state.resource(viewResourcesKey);
 
     for (const o of _viewResources.offscreen.values()) o.texture.destroy();
@@ -578,7 +578,7 @@ export function clearOffscreens(state: State): void {
 }
 
 /** free every scene-transform scratch pair (on render teardown / HMR re-init) */
-export function clearScratch(state: State): void {
+export function clearScratch(state: World): void {
     const _viewResources = state.resource(viewResourcesKey);
 
     for (const p of _viewResources.scratch.values()) {
@@ -594,7 +594,7 @@ export function clearScratch(state: State): void {
  * `BeginFrameSystem` retries each frame, so a late-mounted canvas binds when it appears.
  * Multi-view binds each camera explicitly via {@link attachCanvas} before its first frame.
  */
-export function bindCamera(eid: number, state: State): View | undefined {
+export function bindCamera(eid: number, state: World): View | undefined {
     const _views = state.resource(Views);
 
     const existing = _views.get(eid);

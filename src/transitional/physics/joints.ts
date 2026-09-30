@@ -3,7 +3,7 @@ import {
     type Quat,
     type Body as SolverBody,
     type Joint as SolverJoint,
-    type World as SolverWorld,
+    type PhysicsWorld as SolverWorld,
     type Transform,
 } from "./api";
 import type { JointDef, SpringDef } from "./index";

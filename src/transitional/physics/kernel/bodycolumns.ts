@@ -1,4 +1,4 @@
-import type { State } from "../../../engine";
+import type { World } from "../../../engine";
 // The persistent body region (kernel/src/bodies.rs) — the awake body columns held resident across
 // steps, first in the kernel's linear memory: velocity/delta `state` + `flags` and the
 // integrate/finalize `sim`/`fin`/`sim2` fields. The solver runs directly over these columns
@@ -75,7 +75,7 @@ function growCap(need: number): number {
  * exceeds the current capacity. @returns true if the region grew (the caller must refresh any views
  * over the relocated regions, including the body store's).
  */
-export function reserveBodies(state: State | undefined, bodyCount: number): boolean {
+export function reserveBodies(state: World | undefined, bodyCount: number): boolean {
     return kernel(state).reserveBodies(growCap(bodyCount)) !== 0;
 }
 
@@ -85,9 +85,9 @@ export function reserveBodies(state: State | undefined, bodyCount: number): bool
  * `ResidentBodyState` views over this store.
  */
 export class BodyStore {
-    readonly ecsState: State | undefined;
+    readonly ecsState: World | undefined;
 
-    constructor(ecsState: State | undefined) {
+    constructor(ecsState: World | undefined) {
         this.ecsState = ecsState;
     }
 
@@ -334,7 +334,7 @@ export class BodyStore {
 }
 
 /** Create an empty body store for a new world. Its views are derived on the first refresh. */
-export function createBodyStore(state: State | undefined): BodyStore {
+export function createBodyStore(state: World | undefined): BodyStore {
     return new BodyStore(state);
 }
 

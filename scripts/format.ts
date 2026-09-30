@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { Glob } from "bun";
 import type { Node } from "../src";
 
-const { State, parse, stringify, DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin } =
+const { World, parse, stringify, DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin } =
     await import("../src");
 const { normalizeAttr } = await import("../src/engine/scene");
 
@@ -10,7 +10,7 @@ const { normalizeAttr } = await import("../src/engine/scene");
 // so normalizeAttr knows every component schema a scene can reference
 const PLUGINS = [...DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin];
 
-const state = new State();
+const state = new World();
 for (const plugin of PLUGINS) {
     if (plugin.components) {
         for (const [name, component] of Object.entries(plugin.components)) {

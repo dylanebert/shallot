@@ -1,6 +1,6 @@
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { Registry, type State } from "../../engine";
+import { Registry, type World } from "../../engine";
 
 export { Surfaces } from "./contract";
 
@@ -86,6 +86,6 @@ export const Draws: import("../../engine").Resource<Registry<Draw>> = {
 };
 
 /** Create this world's draw registry during RenderPlugin initialization. */
-export function initializeDrawState(state: State): void {
+export function initializeDrawState(state: World): void {
     state.resource(drawsKey);
 }

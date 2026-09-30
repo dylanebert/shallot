@@ -1,7 +1,7 @@
 /// <reference types="@webgpu/types" />
 
 import * as d from "typegpu/data";
-import type { Plugin, State, System } from "../../engine";
+import type { Plugin, World, System } from "../../engine";
 import {
     composeTransform,
     formatHex,
@@ -102,11 +102,11 @@ function createRenderFrameState(): RenderFrameState {
     };
 }
 
-function _renderFrameState(state: State): RenderFrameState {
+function _renderFrameState(state: World): RenderFrameState {
     return state.resource(renderFrameKey);
 }
 
-function initializeRenderFrameState(state: State): void {
+function initializeRenderFrameState(state: World): void {
     state.resource(renderFrameKey);
 }
 
@@ -127,7 +127,7 @@ function basisColumn(world: Float32Array, base: number, out: Float32Array, at: n
 // and world→view matrix — into the same slot index; a depth-only view (a shadow light's
 // off-screen camera) never does, so the cluster substrate is sized by MAX_VIEWS while the
 // cheap slots run to MAX_SLOTS
-function packView(state: State, eid: number, view: ViewSlot, shading: boolean, slot: number): void {
+function packView(state: World, eid: number, view: ViewSlot, shading: boolean, slot: number): void {
     const _renderFrame = state.resource(renderFrameKey);
     const _render = state.resource(Render);
 
@@ -195,7 +195,7 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
 // whether this slot's pack inputs differ from the ones it was last packed with; records them when they do.
 // `_frame.camWorld` holds the camera's world matrix, composed by the caller.
 function slotInputsChanged(
-    state: State,
+    state: World,
     eid: number,
     view: ViewSlot,
     shading: boolean,
@@ -407,7 +407,7 @@ export const OverlaySystem: System = {
 };
 
 /** allocates the device-shared substrate: format, view UBO, frame UBO */
-async function initRender(state: State): Promise<void> {
+async function initRender(state: World): Promise<void> {
     const _render = state.resource(Render);
     const _renderFrame = state.resource(renderFrameKey);
 

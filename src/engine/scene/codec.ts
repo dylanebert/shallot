@@ -1,4 +1,4 @@
-import type { Component, Pair, Quad, Single, State } from "../ecs";
+import type { Component, Pair, Quad, Single, World } from "../ecs";
 import {
     camel,
     dependencies,
@@ -26,7 +26,7 @@ export interface LoadResult extends Map<Node, number> {
     readonly dropped: readonly string[];
 }
 
-function lookup(state: State, rawName: string): Registered | undefined {
+function lookup(state: World, rawName: string): Registered | undefined {
     const component = getComponent(state, rawName);
     if (!component) return undefined;
     return { component, name: kebab(rawName), traits: getTraits(state, rawName) };
@@ -110,7 +110,7 @@ function findClosestMatch(input: string, candidates: string[]): string | null {
  * @example
  * const map = load(parse(xml), state);
  */
-export function load(nodes: Node[], state: State): LoadResult {
+export function load(nodes: Node[], state: World): LoadResult {
     const nameToEntity = new Map<string, number>();
     const nodeToEntity = new Map<Node, number>();
     const errors: ParseError[] = [];
@@ -175,7 +175,7 @@ export function load(nodes: Node[], state: State): LoadResult {
  * causes.
  */
 export function readComponent(
-    state: State,
+    state: World,
     name: string,
     component: Component,
     eid: number,
@@ -213,7 +213,7 @@ export function readComponent(
  * @example
  * const xml = stringify(serialize(state));
  */
-export function serialize(state: State, eids?: Iterable<number>): Node[] {
+export function serialize(state: World, eids?: Iterable<number>): Node[] {
     const list = (eids ? [...eids] : [...state.identity.authored]).filter((e) => state.exists(e));
     const set = new Set(list);
 
@@ -288,7 +288,7 @@ interface CategorizedAttrs {
     dropped: string[];
 }
 
-function categorizeAttrs(state: State, attrs: Attr[]): CategorizedAttrs {
+function categorizeAttrs(state: World, attrs: Attr[]): CategorizedAttrs {
     const componentAttrs: { name: string; value: string; def: Registered }[] = [];
     const refs: Ref[] = [];
     const dropped: string[] = [];
@@ -311,7 +311,7 @@ function categorizeAttrs(state: State, attrs: Attr[]): CategorizedAttrs {
 }
 
 function applyComponent(
-    state: State,
+    state: World,
     eid: number,
     attr: { name: string; value: string; def: Registered },
     errors: ParseError[],
@@ -353,7 +353,7 @@ function applyComponent(
  * - `field = "pos.x"`, `value = number` — single lane of a parent Pair/Quad
  */
 export function setFieldValue(
-    state: State,
+    state: World,
     component: Component,
     field: string,
     eid: number,
@@ -493,7 +493,7 @@ function identityLaneKey(
 }
 
 function parsePropertyString(
-    state: State,
+    state: World,
     entry: Registered,
     propertyString: string,
 ): {
@@ -670,7 +670,7 @@ function parsePropertyString(
  * parseFields(state, "transform", "pos: 0 5 0"); // { "pos.x": 0, "pos.y": 5, "pos.z": 0 }
  */
 export function parseFields(
-    state: State,
+    state: World,
     componentName: string,
     attrValue: string,
 ): Record<string, number | string> {
@@ -734,7 +734,7 @@ function normalizeFields(
  * formatFields(state, "transform", { "pos.x": 0, "pos.y": 5, "pos.z": 0 }); // "pos: 0 5 0"
  */
 export function formatFields(
-    state: State,
+    state: World,
     componentName: string,
     fieldsInput: Record<string, number | string | readonly number[]>,
     options?: { stripDefaults?: boolean },
@@ -876,7 +876,7 @@ function atDefault(value: number, def: number | undefined): boolean {
  * between hand-authored and programmatically-written scenes. Returns null for an empty value, unregistered
  * component, or a value that fails to parse (left untouched).
  */
-export function normalizeAttr(state: State, name: string, value: string): string | null {
+export function normalizeAttr(state: World, name: string, value: string): string | null {
     if (!value) return null;
     if (!getComponent(state, name)) return null;
     try {
@@ -914,7 +914,7 @@ export interface Diagnostic {
  * @example
  * for (const d of diagnose(state, parse(xml))) console.warn(d.message);
  */
-export function diagnose(state: State, nodes: Node[]): Diagnostic[] {
+export function diagnose(state: World, nodes: Node[]): Diagnostic[] {
     const results: Diagnostic[] = [];
     const registered = [...entries(state)].map((e) => e.name);
     for (const node of nodes) {

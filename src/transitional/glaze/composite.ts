@@ -18,7 +18,7 @@ import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { linearToSrgb } from "../../core/rendering";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 import { tmLuma, tonemap } from "./tonemap";
 
@@ -212,10 +212,10 @@ type Composite = {
 
 const compositeCacheKey = { create: () => createCompositeCache() };
 const createCompositeCache = () => new Map<string, Composite>();
-const compositeCache = (state: State) => state.resource(compositeCacheKey);
+const compositeCache = (state: World) => state.resource(compositeCacheKey);
 
 /** Create this world's Glaze pipeline cache during plugin initialization. */
-export function initializeCompositeState(state: State): void {
+export function initializeCompositeState(state: World): void {
     state.resource(compositeCacheKey);
 }
 
@@ -226,7 +226,7 @@ export function initializeCompositeState(state: State): void {
  * a wrong storage-format string silently).
  * @internal
  */
-export function composite(state: State, format: GPUTextureFormat) {
+export function composite(state: World, format: GPUTextureFormat) {
     if (format !== "bgra8unorm" && format !== "rgba8unorm")
         throw new Error(
             `[glaze] the swapchain format ${format} is not a storage-writable canvas format — expected bgra8unorm or rgba8unorm`,

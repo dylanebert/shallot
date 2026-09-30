@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { State } from "@dylanebert/shallot";
+import type { World } from "@dylanebert/shallot";
 import { FRAME_BACKGROUND_COLOR, FRAME_ERROR_COLOR, mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
 
@@ -94,7 +94,7 @@ test("a missing device on the first stepped frame leaves a readable alert inside
             },
         });
         const system = plugin.systems?.[0];
-        system?.update?.({} as State);
+        system?.update?.({} as World);
         await Promise.resolve();
         errorLine = frame.querySelector(".frame-error");
     } finally {

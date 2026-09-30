@@ -1,4 +1,4 @@
-import type { Resource, State } from "../../engine";
+import type { Resource, World } from "../../engine";
 
 // SFX policy — a per-name instance-limit contract over play(), FMOD/Wwise style.
 // The kernel cull is the audibility half (it quiets the least-audible voice when
@@ -44,7 +44,7 @@ export function policyFor(name: string): Required<SfxPolicy> | undefined {
 
 /** true when `name` last fired inside its cooldown window; the trigger should drop. A backwards clock (a State rebuild reset elapsed) reads as expired */
 export function withinCooldown(
-    state: State,
+    state: World,
     name: string,
     cooldown: number,
     elapsed: number,
@@ -55,6 +55,6 @@ export function withinCooldown(
 }
 
 /** record an admitted trigger's time, opening the cooldown window */
-export function markCooldown(state: State, name: string, elapsed: number): void {
+export function markCooldown(state: World, name: string, elapsed: number): void {
     state.resource(Cooldowns).set(name, elapsed);
 }

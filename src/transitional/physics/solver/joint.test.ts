@@ -11,7 +11,7 @@ import {
     makeBoxHull,
     makeCubeHull,
     type Vec3,
-    World,
+    PhysicsWorld,
 } from "../api/index";
 import { LINEAR_SLOP } from "../common/constants";
 import { f32, PI } from "../common/math";
@@ -22,8 +22,8 @@ function frame(x: number, y: number, z: number) {
 
 const len = (v: Vec3): number => Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 
-function pendulum(): { world: World; joint: Joint } {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+function pendulum(): { world: PhysicsWorld; joint: Joint } {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
     const arm = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
     arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
@@ -50,7 +50,7 @@ test("the joint-connected contact filter ignores collideConnected, so two jointe
     // Two adjacent dynamic boxes that touch. With collideConnected off (default) the joint must
     // filter the contact between them; on, the contact is created.
     function twoTouching(collide: boolean): number {
-        const world = new World({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
+        const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
         const a = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
         a.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
         const b = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
@@ -89,7 +89,7 @@ test("a revolute joint does not hold its hinge point, so a pendulum arm would dr
 });
 
 test("a weld joint lets its body sag, so a welded box would fall away from its start pose under gravity", () => {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
     const box = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
     box.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
@@ -106,7 +106,7 @@ test("a weld joint lets its body sag, so a welded box would fall away from its s
 });
 
 test("a parallel joint carries no constraint torque, so a body spinning off its partner's axis would never be pulled back into alignment", () => {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const a = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
     a.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
     const b = world.createBody({
@@ -127,7 +127,7 @@ test("a motor joint's target angular velocity does not set which way its body tu
     // The arm's absolute spin mixes the motor drive with the gravity-driven swing, so assert the
     // motor's *effect*: flipping the target's sign flips which way the arm ends up spinning.
     function armSpinZ(targetZ: number): number {
-        const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+        const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
         const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
         const arm = world.createBody({
             type: BodyType.Dynamic,
@@ -151,7 +151,7 @@ test("a motor joint's target angular velocity does not set which way its body tu
 });
 
 test("a prismatic joint ignores its translation limit or lets gravity pull the slider off its axis, so a driven slider would overshoot or drop off its rail", () => {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
     const slider = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
     slider.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
@@ -175,7 +175,7 @@ test("a prismatic joint ignores its translation limit or lets gravity pull the s
 });
 
 test("a spherical joint does not pin its pivot point, so a ball-jointed arm would drift off its socket while it swings", () => {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
     const arm = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
     arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
@@ -191,7 +191,7 @@ test("a spherical joint does not pin its pivot point, so a ball-jointed arm woul
 
 test("a wheel joint's spin motor ignores the sign of its target speed, so a vehicle wheel would turn the same way in forward and reverse", () => {
     function wheelSpin(speed: number): number {
-        const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+        const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
         const chassis = world.createBody({ position: { x: 0, y: 5, z: 0 } });
         const wheel = world.createBody({
             type: BodyType.Dynamic,
@@ -215,7 +215,7 @@ test("a wheel joint's spin motor ignores the sign of its target speed, so a vehi
 test("a filter joint fails to suppress the contact between its pair, so two overlapping bodies deliberately excluded from each other would still push apart", () => {
     // A filter joint carries no constraint; it exists only to suppress the contact between its bodies.
     function twoTouching(filtered: boolean): number {
-        const world = new World({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
+        const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
         const a = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
         a.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
         const b = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
@@ -237,7 +237,7 @@ test("a filter joint fails to suppress the contact between its pair, so two over
 test("a multi-joint island never reaches sleep, so a settled ragdoll would keep every one of its bodies awake and burning solver time forever", () => {
     // A mixed-joint island (torso + 2 spherical-shouldered arms + 2 revolute-hipped legs) falls
     // onto the ground, settles, and sleeps as a unit.
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const ground = world.createBody({ position: { x: 0, y: -1, z: 0 } });
     ground.createHull({}, makeBoxHull(20, 1, 20));
     const torso = world.createBody({
@@ -286,7 +286,7 @@ test("a multi-joint island never reaches sleep, so a settled ragdoll would keep 
 });
 
 test("a rigid distance joint lets its length change under load, so a swinging ball on a fixed rope would stretch away from its anchor", () => {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const anchor = world.createBody({ position: { x: 0, y: 5, z: 0 } });
     const ball = world.createBody({ type: BodyType.Dynamic, position: { x: 2, y: 5, z: 0 } });
     ball.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
@@ -312,7 +312,7 @@ function frameP(x: number, y: number, z: number) {
 // Static ground + a dynamic box, anchored so a point-coincident joint starts satisfied. Gravity off
 // so the body stays put across the handful of steps each check takes.
 function fixture() {
-    const world = new World({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const ground = world.createBody({});
     const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
     body.createHull({ density: 1 }, makeCubeHull(0.5));
@@ -325,7 +325,7 @@ const commonFrames = {
     localFrameB: frameP(0, 0, 0),
 };
 
-function finish(joint: Joint, world: World) {
+function finish(joint: Joint, world: PhysicsWorld) {
     for (let i = 0; i < 8; ++i) world.step(1 / 60, 4);
     joint.destroy(true);
     expect(joint.isValid()).toBe(false);
@@ -333,7 +333,7 @@ function finish(joint: Joint, world: World) {
 }
 
 // Exercise the API shared by every joint type. Frames are saved and restored.
-function exerciseBase(joint: Joint, world: World, expectedType: JointType) {
+function exerciseBase(joint: Joint, world: PhysicsWorld, expectedType: JointType) {
     expect(joint.isValid()).toBe(true);
     expect(joint.getType()).toBe(expectedType);
     const [a, b] = joint.getBodies();
@@ -396,7 +396,7 @@ const motor = (speed: number): Accessor[] => [
 
 const accessorTable: {
     type: JointType;
-    create: (world: World, ground: Body, body: Body) => Joint;
+    create: (world: PhysicsWorld, ground: Body, body: Body) => Joint;
     accessors: Accessor[];
 }[] = [
     {
@@ -569,7 +569,7 @@ test("a joint type's type-specific setter does not reach the storage its getter 
 // each observable through the public getters (Box3D's b3*_SetLimits / SetLength / SetMaxSpring*).
 
 function rig() {
-    const world = new World({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const a = world.createBody({});
     const b = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
     b.createHull({ density: 1 }, makeCubeHull(0.5));

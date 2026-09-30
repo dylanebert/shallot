@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 import { unpackColor } from "../../engine";
 import { Fog } from "./index";
 import { FOG_MAX_STEPS, FOG_PARAMS } from "./march";
@@ -7,7 +7,7 @@ import { FOG_MAX_STEPS, FOG_PARAMS } from "./march";
  * to `[1, FOG_MAX_STEPS]` so the GPU loop integrates the full ray at the cap resolution. `extra` carries the
  * scattering knobs for the S2 in-scatter march: `(steps, anisotropy g, absorption, gain)`, where
  * `gain = scattering · scatterIntensity` is the combined light-shaft brightness. */
-export function packFog(state: State, eid: number, out: Float32Array): void {
+export function packFog(state: World, eid: number, out: Float32Array): void {
     out.fill(0);
     const rgb = unpackColor(state.of(Fog).color.get(eid));
     out[FOG_PARAMS.color] = rgb.r;

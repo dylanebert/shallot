@@ -121,7 +121,7 @@ export {
     type WeldJointConfig,
     WheelJoint,
     type WheelJointConfig,
-    World,
+    PhysicsWorld,
     type WorldDef,
     type WorldSnapshot,
     type WorldState,

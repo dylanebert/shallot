@@ -15,7 +15,7 @@ import {
     PhysicsPlugin,
     PlayerPlugin,
     readBody,
-    type State,
+    type World,
     Time,
 } from "@dylanebert/shallot";
 import { Demo } from "./demo";
@@ -51,7 +51,7 @@ function horizontalSpeed(velocity: readonly [number, number, number]): number {
     return Math.hypot(velocity[0], velocity[2]);
 }
 
-function placeRiderOnActualLift(state: State, player: number, lift: number): void {
+function placeRiderOnActualLift(state: World, player: number, lift: number): void {
     const body = state.of(Body);
     const liftX = body.pos.x.get(lift);
     const liftY = body.pos.y.get(lift);
@@ -62,7 +62,7 @@ function placeRiderOnActualLift(state: State, player: number, lift: number): voi
     body.pos.z.set(player, liftZ);
 }
 
-function tangentGap(state: State, player: number, lift: number): number {
+function tangentGap(state: World, player: number, lift: number): number {
     const body = state.of(Body);
     const capsuleBottom =
         body.pos.y.get(player) - body.halfExtents.y.get(player) - body.halfExtents.w.get(player);
@@ -70,7 +70,7 @@ function tangentGap(state: State, player: number, lift: number): number {
     return capsuleBottom - liftTop;
 }
 
-function extent(state: State, eid: number, axis: "x" | "z", radius = 0): readonly [number, number] {
+function extent(state: World, eid: number, axis: "x" | "z", radius = 0): readonly [number, number] {
     const body = state.of(Body);
     const center = axis === "x" ? body.pos.x.get(eid) : body.pos.z.get(eid);
     const half =

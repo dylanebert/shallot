@@ -1,7 +1,7 @@
 import type { Unit } from "../utils";
 import type { Component, Pair, Quad, Single } from "./component";
 import { entity, lanes } from "./component";
-import type { State } from "./state";
+import type { World } from "./state";
 import { entries, getComponent, getExclusions, getName, getTraits, type Traits } from "./traits";
 /** convert a name to kebab-case (`OrbitCamera` → `orbit-camera`), the canonical component-name form
  * registries and scene attributes key on */
@@ -64,7 +64,7 @@ function isColor(key: string, traits: Traits | undefined): boolean {
  * const s = schema(state, "orbit");
  * s?.fields.map((f) => f.name); // ["distance", "yaw", "pitch", ...]
  */
-export function schema(state: State, name: string): Schema | null {
+export function schema(state: World, name: string): Schema | null {
     const component = getComponent(state, name);
     if (!component) return null;
     const traits = getTraits(state, name);
@@ -129,7 +129,7 @@ export function schema(state: State, name: string): Schema | null {
     return { name: kebab(name), fields };
 }
 
-export function schemas(state: State): Schema[] {
+export function schemas(state: World): Schema[] {
     const out: Schema[] = [];
     for (const { name } of entries(state)) {
         const s = schema(state, name);
@@ -140,7 +140,7 @@ export function schemas(state: State): Schema[] {
 
 /** the component names a component requires (its `requires` trait), empty for an unknown component or
  * one with no requirements */
-export function dependencies(state: State, name: string): string[] {
+export function dependencies(state: World, name: string): string[] {
     const traits = getTraits(state, name);
     if (!traits?.requires) return [];
     const out: string[] = [];
@@ -153,7 +153,7 @@ export function dependencies(state: State, name: string): string[] {
 
 /** the components this one stands in for: an entity carrying it satisfies a `requires` of any of
  * them (`Body` provides `Transform`). empty for an unknown component or one with no `provides` trait */
-export function provides(state: State, name: string): string[] {
+export function provides(state: World, name: string): string[] {
     const traits = getTraits(state, name);
     if (!traits?.provides) return [];
     const out: string[] = [];
@@ -166,13 +166,13 @@ export function provides(state: State, name: string): string[] {
 
 /** true if the component declares the `singleton` trait: one instance per scene (lights, the active
  * camera). reflection metadata, not enforced; false for an unknown component */
-export function isSingleton(state: State, name: string): boolean {
+export function isSingleton(state: World, name: string): boolean {
     return getTraits(state, name)?.singleton ?? false;
 }
 
 /** the component names that may not coexist with this one (the symmetric `excludes` trait); empty for
  * an unknown component or one with no exclusions */
-export function exclusions(state: State, name: string): string[] {
+export function exclusions(state: World, name: string): string[] {
     const component = getComponent(state, name);
     if (!component) return [];
     const set = getExclusions(state, component);
@@ -187,7 +187,7 @@ export function exclusions(state: State, name: string): string[] {
 
 /** read every field of `component` on `eid` into a flat map, vec fields split into dotted lanes
  * (`pos.x`, `pos.y`); the row values tooling shows */
-export function readFields(state: State, component: Component, eid: number): FieldValues {
+export function readFields(state: World, component: Component, eid: number): FieldValues {
     const fields: FieldValues = {};
     const storage = state.of(component) as Record<string, unknown>;
     for (const [field, store] of Object.entries(storage)) {
@@ -217,7 +217,7 @@ export function readFields(state: State, component: Component, eid: number): Fie
  * const data = inspect(state, eid);
  * data?.components; // { transform: { "pos.x": 0, ... }, orbit: { ... } }
  */
-export function inspect(state: State, eid: number): EntityData | null {
+export function inspect(state: World, eid: number): EntityData | null {
     if (!state.exists(eid)) return null;
     const components: Record<string, FieldValues> = {};
     for (const { component, name } of entries(state)) {
@@ -233,7 +233,7 @@ export function inspect(state: State, eid: number): EntityData | null {
  * @example
  * find(state, "point-light").length; // how many point lights are in the scene
  */
-export function find(state: State, name: string): EntityData[] {
+export function find(state: World, name: string): EntityData[] {
     const component = getComponent(state, name);
     if (!component) return [];
     const out: EntityData[] = [];
@@ -246,7 +246,7 @@ export function find(state: State, name: string): EntityData[] {
 
 /** every live entity's components and values: the whole world as `EntityData`, for tooling, saves, and
  * debugging */
-export function snapshot(state: State): EntityData[] {
+export function snapshot(state: World): EntityData[] {
     const out: EntityData[] = [];
     for (const eid of state.entities()) {
         const data = inspect(state, eid);
@@ -260,7 +260,7 @@ export function snapshot(state: State): EntityData[] {
  * @example
  * console.log(dump(state, eid));
  */
-export function dump(state: State, eid: number): string {
+export function dump(state: World, eid: number): string {
     const data = inspect(state, eid);
     if (!data) return `Entity ${eid}: not found`;
 

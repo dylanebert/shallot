@@ -18,7 +18,7 @@ import {
     makeTransformedBoxHull,
     type Shape,
 } from "../api/index";
-import { World } from "../api/world";
+import { PhysicsWorld } from "../api/world";
 import { quat as mathQuat } from "../common/math";
 import { hashWorldState } from "../world/hash";
 
@@ -37,7 +37,7 @@ export type Scenario = {
 };
 
 /** Read-only white-box evidence hook; omitted by the normal scenario oracle. */
-export type ScenarioDiagnostic = (world: World, step: number) => void;
+export type ScenarioDiagnostic = (world: PhysicsWorld, step: number) => void;
 type Corpus = { schema: string; corpusVersion: number; scenarios: Scenario[] };
 export type ScenarioOutput = {
     schema: "box3d-oracle/scenario-output/v1";
@@ -158,7 +158,7 @@ export function runScenario(
     const observations: unknown[] = [];
     const hashes: { step: number; value: string; receiptId: string }[] = [];
     const sensorEvents: ScenarioOutput["sensorEvents"] = [];
-    let world: World | undefined;
+    let world: PhysicsWorld | undefined;
     let simulationStep = 0;
     let observed = false;
     const material = (value: unknown): ReturnType<typeof defaultSurfaceMaterial> => {
@@ -204,7 +204,7 @@ export function runScenario(
             case "world.create": {
                 if (world !== undefined) throw new Error("duplicate world.create");
                 const gravity = vec3(command.gravity as unknown[]);
-                world = new World({
+                world = new PhysicsWorld({
                     gravity,
                     enableSleep: command.enableSleep === true,
                     enableContinuous: command.enableContinuous === true,

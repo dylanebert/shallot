@@ -9,7 +9,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import type { Draw } from "../../core/rendering";
 import { Render, Views } from "../../core/rendering";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
@@ -115,7 +115,7 @@ interface AtlasState {
 
 const atlasStateKey = { create: createAtlasState };
 
-function createAtlasState(state: State): AtlasState {
+function createAtlasState(state: World): AtlasState {
     const paramsBuf = new ArrayBuffer(SHADOW_PARAMS_BYTES);
     const pointBuf = new ArrayBuffer(0);
     const pointShadowDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & {
@@ -201,12 +201,12 @@ function createAtlasState(state: State): AtlasState {
     };
 }
 
-function _atlasState(state: State): AtlasState {
+function _atlasState(state: World): AtlasState {
     return state.resource(atlasStateKey);
 }
 
 /** Create this world's shadow-atlas resources during Sear initialization. */
-export function initializeShadowAtlasState(state: State): void {
+export function initializeShadowAtlasState(state: World): void {
     state.resource(atlasStateKey);
 }
 
@@ -259,7 +259,7 @@ export function initializeShadowAtlasState(state: State): void {
  * the casters' shadows: the real atlas once a point/spot light casts, else the 1×1 fallback (whose empty
  * caster slots never match a light, so the march reads it as fully lit). Pairs with {@link shadowSampler}
  * + the published `"pointShadows"` caster uniform. */
-export function pointAtlasView(state: State): GPUTextureView | null {
+export function pointAtlasView(state: World): GPUTextureView | null {
     const _atlasState = state.resource(atlasStateKey);
 
     return _atlasState.pointAtlasView ?? _atlasState.fallbackView;
@@ -267,7 +267,7 @@ export function pointAtlasView(state: State): GPUTextureView | null {
 
 /** the shared shadow comparison sampler (less-equal + linear PCF): a screen-space consumer binds it to
  * comparison-sample {@link pointAtlasView} or {@link sunShadowView}. */
-export function shadowSampler(state: State): GPUSampler | null {
+export function shadowSampler(state: World): GPUSampler | null {
     return state.resource(atlasStateKey).shadowSampler;
 }
 
@@ -275,7 +275,7 @@ export function shadowSampler(state: State): GPUSampler | null {
  * to sample shadowed sun shafts: the real map once the sun casts (a `Shadow` on the directional light),
  * else the 1×1 fallback (whose `enabled: 0` params make {@link sunShadowWgsl} return 1.0, so the
  * march scatters the sun unshadowed). Pairs with {@link shadowSampler} + {@link sunShadowParams}. */
-export function sunShadowView(state: State): GPUTextureView | null {
+export function sunShadowView(state: World): GPUTextureView | null {
     const _atlasState = state.resource(atlasStateKey);
 
     return _atlasState.sunCasting ? _atlasState.cascadeAtlasView : _atlasState.fallbackView;
@@ -284,7 +284,7 @@ export function sunShadowView(state: State): GPUTextureView | null {
 /** the {@link sunStructWgsl} params uniform a screen-space consumer binds: the real
  * light viewProj + bias when the sun casts, else the all-zero `enabled: 0` fallback. Pairs with
  * {@link sunShadowView}. */
-export function sunShadowParams(state: State): GPUBuffer | null {
+export function sunShadowParams(state: World): GPUBuffer | null {
     const _atlasState = state.resource(atlasStateKey);
 
     return _atlasState.sunCasting ? _atlasState.sunParams : _atlasState.fallbackParams;
@@ -292,7 +292,7 @@ export function sunShadowParams(state: State): GPUBuffer | null {
 
 /** whether `resetShadowAtlas` has run (gates a lazy pipeline compile that references the shadow/point
  * group-1 layouts before they exist). */
-export function shadowReady(state: State): boolean {
+export function shadowReady(state: World): boolean {
     return state.resource(atlasStateKey).shadowReady;
 }
 
@@ -377,7 +377,7 @@ export const cascadeLayout = tgpu
 
 /** publish this frame's ranked point/spot casters (`ShadowCameraSystem`, from `updatePointShadows`) —
  * read by {@link renderPointShadows}. */
-export function setPointFrames(state: State, frames: PointShadowFrame[], count: number): void {
+export function setPointFrames(state: World, frames: PointShadowFrame[], count: number): void {
     const _atlasState = state.resource(atlasStateKey);
 
     _atlasState.pointFrames = frames;
@@ -420,7 +420,7 @@ export const pointRegather: import("../../engine").Resource<Regather> = {
 // the compaction staging the survivor path writes when fewer cascades carry a view than the sun declares:
 // a capacity pool over the cascade count, grown geometrically and rewritten in place
 
-function compactVPScratch(state: State, count: number): Float32Array {
+function compactVPScratch(state: World, count: number): Float32Array {
     const _atlasState = state.resource(atlasStateKey);
 
     if (_atlasState.compactVP.length < count * 16)
@@ -428,7 +428,7 @@ function compactVPScratch(state: State, count: number): Float32Array {
     return _atlasState.compactVP;
 }
 
-function compactMetaScratch(state: State, count: number): Uint32Array {
+function compactMetaScratch(state: World, count: number): Uint32Array {
     const _atlasState = state.resource(atlasStateKey);
 
     if (_atlasState.compactMeta.length < count * 4)
@@ -453,7 +453,7 @@ function compactMetaScratch(state: State, count: number): Uint32Array {
  * lockstep.
  */
 export function comboViewSlots(
-    state: State,
+    state: World,
     combos: number[],
     slots: number[],
     indices: number[],
@@ -510,7 +510,7 @@ interface CascadeBatch {
 }
 
 // every slot empty: pos.w = -1 (eids are non-negative, so nothing matches)
-function clearPointParams(state: State): void {
+function clearPointParams(state: World): void {
     const _atlasState = state.resource(atlasStateKey);
 
     _atlasState.pointF32.fill(0);
@@ -524,7 +524,7 @@ function clearPointParams(state: State): void {
  * params + point atlas /
  * caster params / tile rects, cached on the bound identities.
  */
-export function shadowGroup(state: State): GPUBindGroup {
+export function shadowGroup(state: World): GPUBindGroup {
     const _atlasState = state.resource(atlasStateKey);
 
     const map = _atlasState.sunCasting ? _atlasState.cascadeAtlasView! : _atlasState.fallbackView!;
@@ -554,7 +554,7 @@ export function shadowGroup(state: State): GPUBindGroup {
 
 // Atlas bind groups cache the three uniform resources by identity.
 
-function pointGroup1Typed(state: State): GPUBindGroup {
+function pointGroup1Typed(state: World): GPUBindGroup {
     const _atlasState = state.resource(atlasStateKey);
 
     if (
@@ -578,7 +578,7 @@ function pointGroup1Typed(state: State): GPUBindGroup {
     return group;
 }
 
-function cascadeGroup1Typed(state: State): GPUBindGroup {
+function cascadeGroup1Typed(state: World): GPUBindGroup {
     const _atlasState = state.resource(atlasStateKey);
 
     if (
@@ -609,7 +609,7 @@ function cascadeGroup1Typed(state: State): GPUBindGroup {
  * `pipelines.ts`'s `preparePipelines`). Surviving HMR re-warms; called once per `prepareSear`, before the
  * pipeline compiles that reference the TypeGPU layouts above.
  */
-export function resetShadowAtlas(state: State, device: GPUDevice): void {
+export function resetShadowAtlas(state: World, device: GPUDevice): void {
     const _atlasState = state.resource(atlasStateKey);
 
     _atlasState.shadowGroup = null;
@@ -745,7 +745,7 @@ export function resetShadowAtlas(state: State, device: GPUDevice): void {
 /** free every shadow-atlas GPU resource sear owns (at plugin dispose): both atlases + their params/buffers,
  * the fallback + comparison sampler, and both re-gather instances. The per-camera prepass/color targets are
  * `forward.ts`'s own (`disposeSear`). */
-export function disposeShadowAtlas(state: State): void {
+export function disposeShadowAtlas(state: World): void {
     const _atlasState = state.resource(atlasStateKey);
 
     _atlasState.fallbackDepth?.destroy();
@@ -788,7 +788,7 @@ export function disposeShadowAtlas(state: State): void {
 
 // the point-shadow atlas, fixed-size, allocated on the first casting frame (the bare path — no
 // `Shadow` on any point light — never allocates it)
-function ensureAtlas(state: State): void {
+function ensureAtlas(state: World): void {
     const _atlasState = state.resource(atlasStateKey);
 
     if (_atlasState.pointAtlas) return;
@@ -804,7 +804,7 @@ function ensureAtlas(state: State): void {
 
 // the cascade atlas, fixed-size (the per-cascade resolution × the grid), allocated on the first casting frame
 // — the bare path (no `Shadow` on the sun) never allocates it
-function ensureCascadeAtlas(state: State): void {
+function ensureCascadeAtlas(state: World): void {
     const _atlasState = state.resource(atlasStateKey);
 
     if (_atlasState.cascadeAtlas) return;
@@ -830,7 +830,7 @@ function ensureCascadeAtlas(state: State): void {
  * `forward.ts`'s resolved draw list (`PrepassSystem`), shared with the color pass.
  */
 export function renderPointShadows(
-    state: State,
+    state: World,
     frameDraws: { draw: Draw; r: Recorded }[],
     frameCount: number,
     capacity: number,
@@ -1047,7 +1047,7 @@ export function renderPointShadows(
  * shared with the color pass.
  */
 export function renderCascades(
-    state: State,
+    state: World,
     frameDraws: { draw: Draw; r: Recorded }[],
     frameCount: number,
     capacity: number,

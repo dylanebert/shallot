@@ -2,7 +2,7 @@ import type { Alias, Input } from "../utils";
 import type { Component } from "./component";
 import { idOf, intern, isType, lanes } from "./component";
 import { kebab } from "./reflection";
-import type { State } from "./state";
+import type { World } from "./state";
 
 /** parse-time metadata declared per component */
 export interface Traits {
@@ -38,11 +38,11 @@ export interface Traits {
      * fields (`{ pos: [0, 0, 0, 0] }`). Dotted keys (`{ "pos.x": 0 }`)
      * address a single lane of a parent Pair/Quad
      */
-    defaults?: (state: State) => Record<string, number | readonly number[]>;
+    defaults?: (state: World) => Record<string, number | readonly number[]>;
     /** per-field authoring aliases — a stored vector field edited in an alternate representation */
     aliases?: Record<string, Alias>;
-    parse?: Record<string, (value: string, state: State) => number | undefined>;
-    format?: Record<string, (value: number, state: State) => string | undefined>;
+    parse?: Record<string, (value: string, state: World) => number | undefined>;
+    format?: Record<string, (value: number, state: World) => string | undefined>;
     enums?: Record<string, Record<string, number>>;
     /** per-field input widget — a stored field shown through a richer control (a `toggle`
      * checkbox, an `angle` unit switcher). Display-only; storage is unchanged */
@@ -116,7 +116,7 @@ export class ComponentRegistry {
     }
 
     /** write default values into this world's field columns. */
-    applyDefaults(state: State, component: Component, eid: number): void {
+    applyDefaults(state: World, component: Component, eid: number): void {
         const entry = this._byId.get(idOf(component));
         if (!entry) return;
         let plan = entry.plan;
@@ -173,21 +173,21 @@ function expandEnums(t: Traits): Traits {
 }
 
 /** registration and reflection helpers always resolve through the owning State. */
-export const register = (state: State, name: string, component: Component, traits?: Traits): void =>
+export const register = (state: World, name: string, component: Component, traits?: Traits): void =>
     state.registry.register(name, component, traits);
-export const getExclusions = (state: State, component: Component) =>
+export const getExclusions = (state: World, component: Component) =>
     state.registry.getExclusions(component);
-export const getComponent = (state: State, name: string) => state.registry.getComponent(name);
-export const getTraits = (state: State, name: string) => state.registry.getTraits(name);
-export const getName = (state: State, component: Component) => state.registry.getName(component);
-export const entries = (state: State) => state.registry.entries();
-export const applyDefaults = (state: State, component: Component, eid: number) =>
+export const getComponent = (state: World, name: string) => state.registry.getComponent(name);
+export const getTraits = (state: World, name: string) => state.registry.getTraits(name);
+export const getName = (state: World, component: Component) => state.registry.getName(component);
+export const entries = (state: World) => state.registry.entries();
+export const applyDefaults = (state: World, component: Component, eid: number) =>
     state.registry.applyDefaults(state, component, eid);
-export const clear = (state: State): void => state.registry.clear();
+export const clear = (state: World): void => state.registry.clear();
 
 const LANE_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 };
 
-function compilePlan(entry: Entry, state: State): DefaultsPlan | null {
+function compilePlan(entry: Entry, state: World): DefaultsPlan | null {
     const defaults = entry.traits?.defaults;
     if (!defaults) return null;
     const dict = defaults(state);

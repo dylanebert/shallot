@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 // Radix sort — the Morton-ordering stage of the LBVH builder (transitional/bvh). Sorts
 // (key, payload) u32 pairs ascending; the builder feeds 30-bit Morton codes + prim indices.
 //
@@ -699,7 +699,7 @@ export function radixWgsl(): {
  * device.queue.submit([enc.finish()]);
  */
 export async function createRadixSort(
-    state: State,
+    state: World,
     device: GPUDevice,
     maxKeys: number,
     shared: RadixSortShared = {},

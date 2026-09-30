@@ -5,15 +5,15 @@ import {
     Devices,
     play,
     Sound,
-    State,
+    World,
     sample,
     sfx,
 } from "@dylanebert/shallot";
 import { Audio, alloc, gate, tickAudio } from "./device";
 
 test("each State uploads each sample version once to its own worklet", () => {
-    const a = new State();
-    const b = new State();
+    const a = new World();
+    const b = new World();
     const id = sample(new Float32Array([0.25]), "recipient-sample");
     const received: object[][] = [[], []];
     for (const [i, state] of [a, b].entries()) {
@@ -45,8 +45,8 @@ test("each State uploads each sample version once to its own worklet", () => {
 });
 
 test("SFX cooldown progress belongs to the State that admitted the trigger", () => {
-    const a = new State();
-    const b = new State();
+    const a = new World();
+    const b = new World();
     sample(new Float32Array([0]), "recipient-cooldown");
     sfx("recipient-cooldown", { cooldown: 1 });
     expect(play(a, "recipient-cooldown")).toBeGreaterThanOrEqual(0);
@@ -58,8 +58,8 @@ test("SFX cooldown progress belongs to the State that admitted the trigger", () 
 });
 
 test("audio voice slots and worklet queues belong to their explicit State", () => {
-    const a = new State();
-    const b = new State();
+    const a = new World();
+    const b = new World();
     const first = a.resource(Audio);
     const second = b.resource(Audio);
     const voice = alloc(a);
@@ -77,7 +77,7 @@ test("audio voice slots and worklet queues belong to their explicit State", () =
 });
 
 test("a suspended State drops a one-shot Sound while leaving a loop pending for resume", () => {
-    const state = new State();
+    const state = new World();
     for (const system of AudioPlugin.systems ?? []) state.addSystem(system, AudioPlugin.name);
     sample(new Float32Array([0]), "s4-suspended-audio");
     audioContextState(state, "suspended");

@@ -26,7 +26,7 @@ import {
     RenderPlugin,
     Views,
 } from "../../core/rendering";
-import type { Plugin, State, System } from "../../engine";
+import type { Plugin, World, System } from "../../engine";
 import { f32, u32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { composite, GlazeConfig, initializeCompositeState, WORKGROUP } from "./composite";
@@ -75,7 +75,7 @@ function createGlazeState(): GlazeState {
     };
 }
 
-function _glazeState(state: State): GlazeState {
+function _glazeState(state: World): GlazeState {
     return state.resource(glazeStateKey);
 }
 
@@ -112,7 +112,7 @@ export const Glaze = {
 // group binds a whole buffer (no offset/size, no `hasDynamicOffset`). It keeps the property the stride
 // existed for — `writeBuffer` is queue-ordered against the submit, so a single rewritten uniform would
 // clobber every camera's composite with the last camera's config, while distinct buffers never collide
-function configBuffer(state: State, slot: number) {
+function configBuffer(state: World, slot: number) {
     return state.gpu.root.createBuffer(GlazeConfig).$usage("uniform").$name(`glaze-config-${slot}`);
 }
 
@@ -145,7 +145,7 @@ const CAMERAS = [Camera];
 
 // the composite's raw handles, resolved once per build from the typegpu pipeline, layout and uniforms
 function rawComposite(
-    state: State,
+    state: World,
     built: ReturnType<typeof composite>,
 ): {
     pipeline: GPUComputePipeline;
@@ -163,7 +163,7 @@ function rawComposite(
     };
     return _glazeState.raw;
 }
-function uploadConfig(state: State, eid: number, slot: number): void {
+function uploadConfig(state: World, eid: number, slot: number): void {
     const buffer = state.resource(glazeStateKey).configs[slot];
     if (!state.has(eid, Glaze)) {
         buffer.write(DEFAULT);
@@ -281,7 +281,7 @@ export const GlazePlugin: Plugin = {
         initializeCompositeState(state);
     },
 
-    async warm(state: State) {
+    async warm(state: World) {
         const _glazeState = state.resource(glazeStateKey);
 
         const device = state.gpu.device;
@@ -324,7 +324,7 @@ export const GlazePlugin: Plugin = {
         });
     },
 
-    dispose(state: State) {
+    dispose(state: World) {
         const _glazeState = state.resource(glazeStateKey);
 
         for (const buffer of _glazeState.configs) buffer.destroy();

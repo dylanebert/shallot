@@ -39,7 +39,7 @@ import {
     VsIn,
     vsPatchSchema,
 } from "../../core/rendering";
-import type { Plugin, State, System } from "../../engine";
+import type { Plugin, World, System } from "../../engine";
 import { laneAlias, u32, unpackColor, vec4 } from "../../engine";
 
 import { Xform } from "../../engine/utils";
@@ -187,7 +187,7 @@ function createSearState(): SearState {
     };
 }
 
-function _searState(state: State): SearState {
+function _searState(state: World): SearState {
     return state.resource(searStateKey);
 }
 
@@ -247,7 +247,7 @@ const MaterialTraits = {
 // base every slot to the flat material so a Part lacking the Material component shades like the pre-PBR
 // diffuse default (an entity with Material overwrites its slot via the trait default on add). Mirrors
 // Part.initPart's magenta Color base; the pack gates each slot on membership, so stale slots never draw.
-function initMaterial(state: State): void {
+function initMaterial(state: World): void {
     partTable(state).bindFields(Material, { material: "params" });
     const seedMissingMaterial = (eid: number) => {
         if (!state.has(eid, Material)) state.of(Material).params.set(eid, ...MATERIAL_FLAT);
@@ -288,17 +288,17 @@ export const Backdrop = {
 // name ↔ Backgrounds-id at scene parse / format, the PartTraits surface pattern (id stored, name authored).
 const BackdropTraits = {
     parse: {
-        name: (value: string, state: State) => state.resource(Backgrounds).id(value),
+        name: (value: string, state: World) => state.resource(Backgrounds).id(value),
     },
     format: {
-        name: (value: number, state: State) => state.resource(Backgrounds).name(value),
+        name: (value: number, state: World) => state.resource(Backgrounds).name(value),
     },
 };
 
 // a draw resolving to null is a silent skip — usually a typo'd binding or an
 // unpublished resource. Warn once per draw so it's visible without spamming
 
-function warnSkip(state: State, draw: string, cause: string): null {
+function warnSkip(state: World, draw: string, cause: string): null {
     const _searState = state.resource(searStateKey);
 
     if (!_searState.warned.has(draw)) {
@@ -371,7 +371,7 @@ type FrameDraw = { draw: Draw; r: Recorded };
  * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
  * are stable, so untracked
  */
-function record(state: State, draw: Draw, capacity: number): FrameDraw | null {
+function record(state: World, draw: Draw, capacity: number): FrameDraw | null {
     const surface = state.resource(Surfaces).get(draw.surface);
     return surface ? recordSurface(state, draw, surface, capacity) : null;
 }
@@ -380,7 +380,7 @@ function record(state: State, draw: Draw, capacity: number): FrameDraw | null {
 // entry's kind. Returns the createBindGroup value record + the identity list + each binding's name and the
 // registry it resolved from, or the missing binding's name
 function typedResources(
-    state: State,
+    state: World,
     entries: Record<string, object>,
     override?: Record<string, BindResource>,
 ):
@@ -454,7 +454,7 @@ function sameResources(
 // authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class). A module function,
 // so the steady `recordSurface` path captures nothing and opens no context
 function surfaceGroup(
-    state: State,
+    state: World,
     values: Record<string, unknown>,
     layout: unknown,
     vertices: TgpuBuffer<AnyData>,
@@ -480,7 +480,7 @@ function surfaceGroup(
  * and the slot-0 engine group the atlas passes bind.
  */
 function recordSurface(
-    state: State,
+    state: World,
     draw: Draw,
     surface: Surface,
     capacity: number,
@@ -598,14 +598,14 @@ function recordSurface(
  * resolves it once per frame into `_sear.frameDraws` and the prepass, shadow map, and color pass all
  * render every camera against that one list
  */
-function resolveDraws(state: State, capacity: number): void {
+function resolveDraws(state: World, capacity: number): void {
     state.resource(searStateKey).frameCount = 0;
     state.resource(Draws).forEach((draw) => {
         resolveDraw(state, draw, capacity);
     });
 }
 
-function resolveDraw(state: State, draw: Draw, capacity: number): void {
+function resolveDraw(state: World, draw: Draw, capacity: number): void {
     const _searState = state.resource(searStateKey);
 
     const item = record(state, draw, capacity);
@@ -616,7 +616,7 @@ function resolveDraw(state: State, draw: Draw, capacity: number): void {
 // lane needs, but only *stored* + published as `view.depth` when the camera carries `Depth` (else the
 // store is discarded). Allocated when the prepass runs (any lane marker). TEXTURE_BINDING so a
 // screen-space consumer (AO, volumetrics) can sample it the same frame
-function depthView(state: State, eid: number, w: number, h: number): GPUTextureView {
+function depthView(state: World, eid: number, w: number, h: number): GPUTextureView {
     const _searState = state.resource(searStateKey);
 
     const cached = _searState.depth.get(eid);
@@ -639,7 +639,7 @@ function depthView(state: State, eid: number, w: number, h: number): GPUTextureV
 // (published onto `view.<lane>`) + the color-attachment view — one cache keyed `${eid}:${lane.name}`
 // that drives both, so adding a lane needs no new allocator
 function laneTarget(
-    state: State,
+    state: World,
     eid: number,
     lane: ColorLane,
     w: number,
@@ -678,7 +678,7 @@ type ColorTargets = {
 // pass end) + a 4× depth. AA off: no MSAA color (the pass renders straight into view.framebuffer) + a 1×
 // depth. The color pass owns this depth (`less` + write, cleared each frame); the prepass + shadow map
 // keep their own 1× depth (never cross-compared). Sized to the view + keyed on AA, recreated on resize/toggle
-function colorTargets(state: State, eid: number, w: number, h: number, aa: boolean): ColorTargets {
+function colorTargets(state: World, eid: number, w: number, h: number, aa: boolean): ColorTargets {
     const _searState = state.resource(searStateKey);
 
     const cached = _searState.colorTargets.get(eid);
@@ -741,7 +741,7 @@ type ViewColorAttachment = Omit<GPURenderPassColorAttachment, "view" | "resolveT
 // result (`discard` would throw away the only copy → a black frame). The depth `discard`s either way
 // (transient)
 function beginColor(
-    state: State,
+    state: World,
     label: string,
     msaaColor: GPUTextureView | null,
     depth: GPUTextureView,
@@ -775,7 +775,7 @@ function beginColor(
  * pass count; an empty draw list still clears every lane
  */
 function renderPrepass(
-    state: State,
+    state: World,
     eid: number,
     view: View,
     items: FrameDraw[],
@@ -857,7 +857,7 @@ function renderPrepass(
 // which would alias the first registered background, so the `state.has` check is what keeps the
 // no-backdrop path on the clear
 type BackdropPick = { bg: Background; ct: CompiledBackground };
-function backdrop(state: State, eid: number): BackdropPick | null {
+function backdrop(state: World, eid: number): BackdropPick | null {
     const _backgrounds = state.resource(Backgrounds);
 
     if (!state.has(eid, Backdrop)) return null;
@@ -873,7 +873,7 @@ function backdrop(state: State, eid: number): BackdropPick | null {
 // (the per-slot View rides the engine group 0). Returns null while a binding is unpublished (skip); a
 // binding-free background carries no group at all (its empty layout never enters the pipeline layout)
 function backgroundGroup(
-    state: State,
+    state: World,
     bg: Background,
     ct: CompiledBackground,
 ): GPUBindGroup | null | "none" {
@@ -914,7 +914,7 @@ function backgroundGroup(
 // one opaque or blended surface draw in a camera's color pass at its view slot, written into the
 // camera's bundle program at `at`
 function drawColor(
-    state: State,
+    state: World,
     program: BundleDraw[],
     at: number,
     item: FrameDraw,
@@ -936,7 +936,7 @@ function drawColor(
 }
 
 function renderColor(
-    state: State,
+    state: World,
     eid: number,
     view: View,
     items: FrameDraw[],
@@ -1046,7 +1046,7 @@ const SEAR_CAMERAS = [Camera, Sear];
  * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
  * params buffer — `./atlas`), surviving HMR re-warms
  */
-async function prepareSear(state: State, device: GPUDevice, capacity: number): Promise<void> {
+async function prepareSear(state: World, device: GPUDevice, capacity: number): Promise<void> {
     // the caster count + atlas size fold into the shadow WGSL at its first resolve and the uniforms below
     // size from the same schemas, so a config mutated between builds is a hard error, not a silent mismatch
     checkShadowConfig();
@@ -1296,7 +1296,7 @@ const typedVertexFs = tgpu.fn(
 // free every GPU resource sear owns (at plugin dispose): the shadow atlases (point + cascade, ./atlas) +
 // their params, and the per-camera prepass depth / lane targets / MSAA color+depth. The cascade Camera
 // entities live in a State, so destroyCascades (./shadows) tears those down separately
-function disposeSear(state: State): void {
+function disposeSear(state: World): void {
     const _searState = state.resource(searStateKey);
 
     disposeShadowAtlas(state);

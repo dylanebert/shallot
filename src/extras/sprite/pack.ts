@@ -6,7 +6,7 @@
 // over State — no GPU — so the packing contract is what sprite.test.ts exercises directly.
 
 import * as d from "typegpu/data";
-import { f32, GlobalTransform, type State, u32, vec2 } from "../../engine";
+import { f32, GlobalTransform, type World, u32, vec2 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { SpriteData } from "./surface";
 
@@ -135,7 +135,7 @@ function createSpritePackState(): SpritePackState {
     };
 }
 
-function spritePackState(state: State): SpritePackState {
+function spritePackState(state: World): SpritePackState {
     return state.resource(spritePackKey);
 }
 
@@ -155,7 +155,7 @@ function fold(h: number, x: number): number {
 // the dirty key: every visible sprite's layout-affecting state + membership, billboard + blend
 // included (they pick the bucket). The transform is deliberately absent — it flows through the
 // slab, so moving a sprite leaves the signature (and the instance buffer) untouched
-export function signature(state: State): number {
+export function signature(state: World): number {
     const scratch = spritePackState(state);
     let h = 0x811c9dc5 | 0;
     for (const eid of state.query([Sprite, GlobalTransform])) {
@@ -197,7 +197,7 @@ function growSlots(min: number, state: SpritePackState): void {
 }
 
 /** restore the staging to its initial capacity: the producer's `warm` reset */
-export function resetPack(state: State): void {
+export function resetPack(state: World): void {
     const pack = spritePackState(state);
     pack.dataCap = INITIAL;
     pack.staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
@@ -208,7 +208,7 @@ export function resetPack(state: State): void {
     pack.count = 0;
 }
 
-export function packSprites(state: State): {
+export function packSprites(state: World): {
     ranges: { start: number; count: number }[];
     count: number;
     dataCap: number;

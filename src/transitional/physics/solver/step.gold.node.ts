@@ -8,14 +8,14 @@ import { CEILING } from "../../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { World } from "../api/world";
+import { PhysicsWorld } from "../api/world";
 import { BodyType } from "../common/types";
 import { loadConsumerCorpus, runCommonInput } from "../oracle/consumer";
 import { loadScenarioCorpus, runScenario } from "../oracle/scenario";
 import { compareCase } from "../oracle/strict";
 
 test("the active collision route changes the symmetric face-B feature order, the pinned CCD and sensor intermediate bits, or the public body move record identity", () => {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 1, z: 0 } });
     body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
     body.applyMassFromShapes();

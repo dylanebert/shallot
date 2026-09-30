@@ -40,7 +40,7 @@ export {
     type Quad,
     type Resource,
     type Single,
-    State,
+    World,
     type System,
     srgb8x4,
     type TableUploadPath,

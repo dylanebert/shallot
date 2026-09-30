@@ -2,7 +2,7 @@ import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import type { Component, Type, TypedArray } from "./component";
 import { idOf, isType } from "./component";
-import type { State } from "./state";
+import type { World } from "./state";
 
 export type TableUploadPath = "none" | "writeBuffer";
 export interface GpuTableOptions {
@@ -44,7 +44,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     readonly maxRows: number;
     readonly maxEntityRows: number;
     readonly gpuOnly: boolean;
-    private readonly _state: State;
+    private readonly _state: World;
     private _capacity = 0;
     private _highWater = 1;
     private _generation = 0;
@@ -90,7 +90,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _presenceBindings: PresenceBinding[] = [];
     private _presenceUnsubscribes: (() => void)[] = [];
 
-    constructor(state: State, name: string, record: T, options: GpuTableOptions = {}) {
+    constructor(state: World, name: string, record: T, options: GpuTableOptions = {}) {
         if (!name) throw new Error("GpuTable: name must not be empty");
         this._state = state;
         this.name = name;

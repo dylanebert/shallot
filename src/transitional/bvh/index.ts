@@ -1,5 +1,5 @@
 // Destination: shallot-avbd-physics; owner: bvh-extraction.md.
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 /// <reference types="@webgpu/types" />
 // LBVH — the public extension surface. One GPU BVH2 builder, rendering-unaware and
 // unopinionated about its consumer: geometry in (primitive AABBs), BVH out — it names
@@ -120,7 +120,7 @@ export interface Bvh {
  * device.queue.submit([enc2.finish()]);
  */
 export async function createBvh(
-    state: State,
+    state: World,
     device: GPUDevice,
     maxPrims: number,
     sharedNodes?: GPUBuffer,

@@ -1,4 +1,4 @@
-import type { State } from "../../../engine";
+import type { World } from "../../../engine";
 // The persistent contact-manifold store — the warm-start state that survives across steps, held
 // column-resident in the kernel's linear memory (kernel/src/manifolds.rs) instead of as JS objects on
 // each contact. TS owns the allocator + lifecycle because the mesh narrowphase is TS and the convex one
@@ -97,9 +97,9 @@ const walkB: Vec3 = { x: 0, y: 0, z: 0 };
  * region grows (or `memory.grow` elsewhere detaches them).
  */
 export class ManifoldStore {
-    readonly ecsState: State | undefined;
+    readonly ecsState: World | undefined;
 
-    constructor(ecsState: State | undefined) {
+    constructor(ecsState: World | undefined) {
         this.ecsState = ecsState;
     }
 
@@ -610,6 +610,6 @@ class ManifoldView implements Manifold {
 }
 
 /** Create an empty manifold store for a new world. */
-export function createManifoldStore(state: State | undefined): ManifoldStore {
+export function createManifoldStore(state: World | undefined): ManifoldStore {
     return new ManifoldStore(state);
 }

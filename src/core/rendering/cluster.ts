@@ -1,7 +1,7 @@
 import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import type { State, System } from "../../engine";
+import type { World, System } from "../../engine";
 import { globalTransformTable } from "../../engine";
 import { precompile, probeBuffer } from "../../engine/runtime";
 import {
@@ -78,7 +78,7 @@ function createClusterGpuState(): ClusterGpuState {
     };
 }
 
-function _clusterGpu(state: State): ClusterGpuState {
+function _clusterGpu(state: World): ClusterGpuState {
     return state.resource(clusterGpuKey);
 }
 
@@ -99,16 +99,16 @@ const LIGHT_VOLUMETRIC = 2;
 const lightInputKey = { create: createLightInputTable };
 const lightCountData = new Uint32Array(1);
 
-function createLightInputTable(state: State) {
+function createLightInputTable(state: World) {
     return state.table("lightInputs", LightInput);
 }
 
-function lightInputTable(state: State) {
+function lightInputTable(state: World) {
     return state.resource(lightInputKey);
 }
 
 /** Create this world's cluster and dense light-input state during RenderPlugin initialization. */
-export function initializeClusterState(state: State): void {
+export function initializeClusterState(state: World): void {
     state.resource(clusterGpuKey);
     const table = lightInputTable(state);
     table.bindFields(PointLight, {
@@ -158,7 +158,7 @@ export interface ClusterView {
 }
 
 /** the camera entity's {@link ClusterView}, from its Camera fields + the view aspect */
-export function clusterView(state: State, eid: number, aspect: number): ClusterView {
+export function clusterView(state: World, eid: number, aspect: number): ClusterView {
     const perspective = state.of(Camera).mode.get(eid) !== CameraMode.Orthographic;
     const halfH = perspective
         ? Math.tan((state.of(Camera).fov.get(eid) * Math.PI) / 360)
@@ -316,7 +316,7 @@ export const Clusters: import("../../engine").Resource<Clusters> = {
  * `BeginFrameSystem`, which reuses the returned view for the View.cluster pack
  */
 export function packClusterView(
-    state: State,
+    state: World,
     eid: number,
     aspect: number,
     slot: number,
@@ -401,7 +401,7 @@ export function gridWgsl(): string {
  */
 export const ClusterSystem: System = {
     group: "draw",
-    update(state: State) {
+    update(state: World) {
         const _render = state.resource(Render);
         const _clusterGpu = state.resource(clusterGpuKey);
         const _clusters = state.resource(Clusters);
@@ -439,7 +439,7 @@ export const ClusterSystem: System = {
 // bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
 // this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
 // a wiring bug and throws, never a silently skipped frame
-function bindGrid(state: State): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
+function bindGrid(state: World): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     const _clusterGpu = state.resource(clusterGpuKey);
 
     if (_clusterGpu.bound) return _clusterGpu.bound;
@@ -458,7 +458,7 @@ function bindGrid(state: State): { pipeline: GPUComputePipeline; group: GPUBindG
 }
 
 /** allocate the cluster buffers + compile the AABB-build pipeline */
-export function warmClusters(state: State): void {
+export function warmClusters(state: World): void {
     const _clusters = state.resource(Clusters);
     const _clusterGpu = state.resource(clusterGpuKey);
 
@@ -728,7 +728,7 @@ export function lightCullWgsl(): { compact: string; cull: string } {
 }
 
 // Keep bind groups until a table buffer generation changes; row membership alone never rebuilds one.
-function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
+function bindCompact(state: World): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     const _clusterGpu = state.resource(clusterGpuKey);
 
     if (!_clusterGpu.compactPipe || !_clusterGpu.typedLights || !_clusterGpu.lightCountBuffer)
@@ -773,7 +773,7 @@ function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBi
     return _clusterGpu.compactBound;
 }
 
-function bindCull(state: State): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
+function bindCull(state: World): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     const _clusterGpu = state.resource(clusterGpuKey);
     const _lightCull = state.resource(LightCull);
 
@@ -800,7 +800,7 @@ function bindCull(state: State): { pipeline: GPUComputePipeline; group: GPUBindG
 
 /** Request the latest submitted light-pool overflow count for diagnostics.
  * The cull pass clamps its writes independently of this request. */
-export async function requestLightOverflow(state: State) {
+export async function requestLightOverflow(state: World) {
     const indices = state.resource(clusterGpuKey).lightCull.indices;
     if (!indices) throw new Error("light overflow diagnostic requested before rendering warm");
     const result = await probeBuffer(state, indices, {
@@ -874,7 +874,7 @@ export const LightCullSystem: System = {
 };
 
 /** allocate the light-cull buffers + compile the compact and cull pipelines */
-export function warmLightCull(state: State): void {
+export function warmLightCull(state: World): void {
     const _clusterGpu = state.resource(clusterGpuKey);
     const _lightCull = state.resource(LightCull);
 

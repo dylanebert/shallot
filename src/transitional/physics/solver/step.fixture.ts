@@ -30,7 +30,7 @@ import {
     makeBoxHull,
     makeOffsetBoxHull,
     type Vec3,
-    World,
+    PhysicsWorld,
 } from "../api/index";
 import { computeCosSin, DEG_TO_RAD, offsetPos, quat, vec3 } from "../common/math";
 
@@ -104,7 +104,7 @@ function toHex(h: bigint): string {
 
 // Every live body's transform + velocity, in the same id order b3HashWorldState walks — mirrors the
 // generator's state dump so a divergence can be read against the fixture.
-function dumpBodies(world: World): BodyDump[] {
+function dumpBodies(world: PhysicsWorld): BodyDump[] {
     const out: BodyDump[] = [];
     const state = world.state;
     for (let i = 0; i < state.bodies.length; ++i) {
@@ -127,20 +127,20 @@ function dumpBodies(world: World): BodyDump[] {
     return out;
 }
 
-function createGround(world: World, halfExtent: number): void {
+function createGround(world: PhysicsWorld, halfExtent: number): void {
     const body = world.createBody({ position: { x: 0, y: -1, z: 0 } });
     body.createHull({}, makeBoxHull(halfExtent, 1.0, halfExtent));
 }
 
 // A static grid-mesh floor in the xz-plane at y = 0 (8x8 unit cells centered on the origin).
-function createMeshFloor(world: World): void {
+function createMeshFloor(world: PhysicsWorld): void {
     const mesh = createGridMesh(8, 8, 1.0, 0, true);
     const body = world.createBody({ position: { x: 0, y: 0, z: 0 } });
     body.createMesh({}, mesh, { x: 1, y: 1, z: 1 });
 }
 
 // A static flat 8x8 grid height field, offset to centre on the origin (x,z span [-3.5, 3.5]).
-function createHeightFieldFloor(world: World): void {
+function createHeightFieldFloor(world: PhysicsWorld): void {
     const hf = createGrid(8, 8, { x: 1, y: 1, z: 1 }, false);
     const body = world.createBody({ position: { x: -3.5, y: 0, z: -3.5 } });
     body.createHeightField({}, hf);
@@ -207,7 +207,7 @@ const HUMAN_BONES = loadFixture<BoneSpec[]>("human");
 // thigh_l/thigh_r filter joint. Frames are frounded to f32; joint local-frame quats are pre-normalized
 // exactly as CreateHuman does. colorize/userData are dropped (they don't affect the sim/hash).
 function createHuman(
-    world: World,
+    world: PhysicsWorld,
     position: Vec3,
     frictionTorque: number,
     hertz: number,
@@ -291,7 +291,7 @@ function createHuman(
     world.createFilterJoint(bodies[6], bodies[8]);
 }
 
-const builders: Record<string, (world: World, fx: Fixture) => void> = {
+const builders: Record<string, (world: PhysicsWorld, fx: Fixture) => void> = {
     "free-fall": (world) => {
         const body = world.createBody({
             type: BodyType.Dynamic,
@@ -1288,7 +1288,7 @@ const sceneBuilder: Record<string, string> = {
 // Scenes that spawn bodies over time drive a per-step hook, called with the loop index before each
 // world.step (mirroring gen.c's stepFn(i) → Step). Each factory returns a fresh, stateful stepper per
 // run. Mirrors fixtures/gen.c's StepBench* exactly.
-const stepFactories: Record<string, () => (world: World, step: number) => void> = {
+const stepFactories: Record<string, () => (world: PhysicsWorld, step: number) => void> = {
     "bench-large-world": () => {
         let dropped = 0;
         let side = 1;
@@ -1353,8 +1353,8 @@ export function buildLegacyScene(
     scene: string,
     enableSleep: boolean,
     enableContinuous: boolean,
-): World {
-    const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableSleep, enableContinuous });
+): PhysicsWorld {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableSleep, enableContinuous });
     const fixture =
         scene === "bench-trees"
             ? loadFixture(scene)
@@ -1377,7 +1377,7 @@ export function runScene(scene: string, enableSleep: boolean, enableContinuous: 
     const fx = loadFixture(scene);
     const timeStep = fround(fx.timeStep);
 
-    const world = new World({
+    const world = new PhysicsWorld({
         gravity: { x: fx.gravity[0], y: fx.gravity[1], z: fx.gravity[2] },
         enableSleep,
         enableContinuous,

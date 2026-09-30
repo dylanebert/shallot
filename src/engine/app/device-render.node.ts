@@ -4,7 +4,7 @@ import { SearPlugin } from "../../standard/rendering";
 import "../../standard";
 
 import { CEILING } from "../../../scripts/test-tiers";
-import { type State, Time, Transform } from "../index";
+import { type World, Time, Transform } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { build } from "./index";
 
@@ -32,7 +32,7 @@ function cameraPlugin(label: string) {
     return {
         name: label,
         dependencies: [SearPlugin],
-        initialize(state: State) {
+        initialize(state: World) {
             const eid = state.create();
             state.add(eid, Transform);
             state.add(eid, Camera);

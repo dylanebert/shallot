@@ -1,7 +1,7 @@
 import type { TgpuBindGroupLayout, TgpuRenderPipeline } from "typegpu";
 import { isBuffer } from "typegpu";
 import type { Draw } from "../../core/rendering";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 // Render bundles: every sear pass is a fixed program of draws over bind groups that change only at named
 // transitions (a draw joining or leaving the set, a bind-group identity change, an antialias toggle, a
@@ -114,7 +114,7 @@ export function bundleChanged(
  * recorded from. Called only at a transition {@link changed} reports.
  */
 export function recordBundle(
-    state: State,
+    state: World,
     pass: PassBundle,
     next: readonly BundleDraw[],
     count: number,

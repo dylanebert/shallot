@@ -7,7 +7,7 @@ import {
     f32,
     GlobalTransform,
     type Plugin,
-    type State,
+    type World,
     type System,
     Time,
     Transform,
@@ -33,7 +33,7 @@ import {
     shutdown,
     snapshot as snapshotWorld,
     type WheelJointConfig,
-    World,
+    PhysicsWorld,
     type WorldSnapshot,
 } from "./api";
 import { Hulls } from "./hull";
@@ -237,11 +237,11 @@ const signatureWarningsKey = {
     }),
 };
 
-function signatureWarningsFor(state: State) {
+function signatureWarningsFor(state: World) {
     return state.resource(signatureWarningsKey);
 }
 
-export function resetSignatures(state: State): void {
+export function resetSignatures(state: World): void {
     (() => {
         const warnings = signatureWarningsFor(state);
         warnings.joints.clear();
@@ -251,7 +251,7 @@ export function resetSignatures(state: State): void {
 }
 
 /** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
-function springSignatureInState(state: State): number {
+function springSignatureInState(state: World): number {
     let h = FNV_BASIS;
     for (const eid of state.query(SPRING_TERMS)) {
         h = fold(h, eid);
@@ -277,12 +277,12 @@ function springSignatureInState(state: State): number {
 }
 
 /** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
-export function springSignature(state: State): number {
+export function springSignature(state: World): number {
     return springSignatureInState(state);
 }
 
 /** a hash of the authored {@link Joint} set, endpoint create-stamps included: the {@link springSignature} twin. */
-function jointSignatureInState(state: State): number {
+function jointSignatureInState(state: World): number {
     let h = FNV_BASIS;
     for (const eid of state.query(JOINT_TERMS)) {
         h = fold(h, eid);
@@ -305,12 +305,12 @@ function jointSignatureInState(state: State): number {
     return h;
 }
 
-export function jointSignature(state: State): number {
+export function jointSignature(state: World): number {
     return jointSignatureInState(state);
 }
 
 /** the authored {@link Spring} set as {@link SpringDef}s, dropping (and warning once for) a negative or NaN stiffness. */
-export function springDefs(state: State): SpringDef[] {
+export function springDefs(state: World): SpringDef[] {
     return (() => {
         const warnings = signatureWarningsFor(state);
         const out: SpringDef[] = [];
@@ -351,7 +351,7 @@ export function springDefs(state: State): SpringDef[] {
 }
 
 /** the authored {@link Joint} set as {@link JointDef}s, dropping (and warning once for) a negative or NaN angular stiffness. */
-export function jointDefs(state: State): JointDef[] {
+export function jointDefs(state: World): JointDef[] {
     return (() => {
         const warnings = signatureWarningsFor(state);
         const out: JointDef[] = [];
@@ -400,7 +400,7 @@ export interface PhysicsCounters {
 
 interface PhysicsRuntime {
     initialized: boolean;
-    world: World | null;
+    world: PhysicsWorld | null;
     bodies: Map<number, SolverBody>;
     stamps: Map<number, number>;
     kinPrev: Map<number, { pos: [number, number, number]; quat: [number, number, number, number] }>;
@@ -436,7 +436,7 @@ function newRuntime(): PhysicsRuntime {
     };
 }
 
-function runtimeFor(state: State): PhysicsRuntime {
+function runtimeFor(state: World): PhysicsRuntime {
     const runtime = state.resource(physicsRuntimeKey);
     if (!runtime.initialized)
         throw new Error("physics: PhysicsPlugin is not initialized for this State");
@@ -450,7 +450,7 @@ function runtimeFor(state: State): PhysicsRuntime {
 // observing another State's handles, interpolation buffers or failed marshals.
 
 function writeGlobalTransform(
-    state: State,
+    state: World,
     eid: number,
     pos: readonly [number, number, number],
     quat: readonly [number, number, number, number],
@@ -461,7 +461,7 @@ function writeGlobalTransform(
     state.of(GlobalTransform).vel.set(eid, vel[0], vel[1], vel[2], 0);
 }
 
-function seedGlobalTransform(state: State, eid: number): void {
+function seedGlobalTransform(state: World, eid: number): void {
     const shape = state.of(Body).shape.get(eid);
     const radius = state.of(Body).halfExtents.w.get(eid);
     if (shape === ShapeKind.Sphere)
@@ -529,16 +529,16 @@ function clearBodies(runtime: PhysicsRuntime): void {
  * handle (`null` before its first fixed tick). The pose functions are no-ops before warm.
  */
 
-export function physicsWorld(state: State): World | null {
+export function physicsWorld(state: World): PhysicsWorld | null {
     const world = runtimeFor(state).world;
     return world ? world : null;
 }
-export function body(state: State, eid: number): SolverBody | null {
+export function body(state: World, eid: number): SolverBody | null {
     const live = runtimeFor(state).bodies.get(eid);
     return live ? live : null;
 }
 
-function requireBody(state: State, eid: number): SolverBody {
+function requireBody(state: World, eid: number): SolverBody {
     const live = body(state, eid);
     if (!live) throw new Error(`physics: body ${eid} is not warm`);
     return live;
@@ -546,7 +546,7 @@ function requireBody(state: State, eid: number): SolverBody {
 
 /** Create a wheel joint between two State-owned bodies without exposing the solver World. */
 export function createWheelJoint(
-    state: State,
+    state: World,
     bodyA: number,
     bodyB: number,
     config: Partial<WheelJointConfig> = {},
@@ -560,7 +560,7 @@ export function createWheelJoint(
 
 /** Create a parallel joint between two State-owned bodies without exposing the solver World. */
 export function createParallelJoint(
-    state: State,
+    state: World,
     bodyA: number,
     bodyB: number,
     config: Partial<ParallelJointConfig> = {},
@@ -578,7 +578,7 @@ export function createParallelJoint(
 
 /** Create a hinge (revolute) joint between two State-owned bodies. */
 export function createRevoluteJoint(
-    state: State,
+    state: World,
     bodyA: number,
     bodyB: number,
     config: Partial<RevoluteJointConfig> = {},
@@ -596,7 +596,7 @@ export function createRevoluteJoint(
 
 /** Create a cone/twist-capable spherical joint between two State-owned bodies. */
 export function createSphericalJoint(
-    state: State,
+    state: World,
     bodyA: number,
     bodyB: number,
     config: Partial<SphericalJointConfig> = {},
@@ -614,7 +614,7 @@ export function createSphericalJoint(
 
 /** Create a soft spring from a State-owned body to a world-space anchor. */
 export function createSoftJoint(
-    state: State,
+    state: World,
     bodyEid: number,
     anchor: { x: number; y: number; z: number },
     config: Partial<SoftJointConfig> = {},
@@ -627,7 +627,7 @@ export function createSoftJoint(
 }
 
 /** Read contact-begin/end/hit events for the last State-owned fixed step. */
-export function getContactEvents(state: State): ContactEvents {
+export function getContactEvents(state: World): ContactEvents {
     return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
@@ -636,7 +636,7 @@ export function getContactEvents(state: State): ContactEvents {
 }
 
 /** Read joint break-threshold events for the last State-owned fixed step. */
-export function getJointEvents(state: State): JointEvent[] {
+export function getJointEvents(state: World): JointEvent[] {
     return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
@@ -652,7 +652,7 @@ export interface BodyStateOut {
 }
 
 /** one body's live pose + velocity, or null when `eid` has no solver body. Pass `out` to fill it instead of allocating. */
-export function readBody(state: State, eid: number, out?: BodyStateOut): BodyState | null {
+export function readBody(state: World, eid: number, out?: BodyStateOut): BodyState | null {
     const tb = runtimeFor(state).bodies.get(eid);
     if (!tb) return null;
     const global = state.of(GlobalTransform);
@@ -681,7 +681,7 @@ const kinQuat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 const kinVel = { x: 0, y: 0, z: 0 };
 
 export function setKinematic(
-    state: State,
+    state: World,
     eid: number,
     pos: readonly [number, number, number],
     quat: readonly [number, number, number, number],
@@ -757,23 +757,23 @@ export function setKinematic(
     prev.quat[2] = quat[2];
     prev.quat[3] = quat[3];
 }
-export function setVelocity(state: State, eid: number, vx: number, vy: number, vz: number): void {
+export function setVelocity(state: World, eid: number, vx: number, vy: number, vz: number): void {
     const body = runtimeFor(state).bodies.get(eid);
     if (!body) return;
     body.setLinearVelocity({ x: vx, y: vy, z: vz });
     state.of(GlobalTransform).vel.set(eid, vx, vy, vz, 0);
 }
-export function physicsCounters(state: State): PhysicsCounters {
+export function physicsCounters(state: World): PhysicsCounters {
     return { ...runtimeFor(state).counters };
 }
-export function snapshot(state: State): WorldSnapshot {
+export function snapshot(state: World): WorldSnapshot {
     return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
         return snapshotWorld(world);
     })();
 }
-export function restore(state: State, saved: WorldSnapshot): void {
+export function restore(state: World, saved: WorldSnapshot): void {
     (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
@@ -795,7 +795,7 @@ export function restore(state: State, saved: WorldSnapshot): void {
         });
     })();
 }
-export function hash(state: State): bigint {
+export function hash(state: World): bigint {
     return (() => {
         const world = runtimeFor(state).world;
         if (!world) throw new Error("physics: world is not warm");
@@ -816,7 +816,7 @@ export type PhysicsStepConfig = Readonly<{
 }>;
 
 /** The fixed-step values used by this initialized State's production physics system. */
-export function physicsStepConfig(state: State): PhysicsStepConfig {
+export function physicsStepConfig(state: World): PhysicsStepConfig {
     return (() => {
         runtimeFor(state);
         return { dt: Time.FIXED_DT, gravity: GRAVITY, substeps: SUBSTEPS };
@@ -882,14 +882,14 @@ const BODY_TERMS = [Body];
 // the stale walk's context, one per runtime: the eids of despawned bodies in the first `count` slots of a
 // list that keeps its high-water capacity (truncating it releases the backing store; the next push regrows it).
 interface StaleScan {
-    state: State | null;
+    state: World | null;
     eids: number[];
     count: number;
 }
 
 // the sync's map walks, given the State as `this`, so a steady sync mints no iterator.
 function dropDespawnedFailure(
-    this: State,
+    this: World,
     _failure: unknown,
     eid: number,
     failed: Map<number, unknown>,
@@ -908,7 +908,7 @@ const SyncSystem: System = {
     name: "physics-sync",
     group: "fixed",
     before: [ConstraintSystem, StepSystem],
-    update(state: State) {
+    update(state: World) {
         const runtime = runtimeFor(state);
         const world = runtime.world;
         if (!world) return;
@@ -984,7 +984,7 @@ export const PhysicsPlugin: Plugin = {
         const runtime = runtimeFor(state);
         await init(state); // async wasm compile — the browser main thread can't compile it synchronously
         runtime.world?.destroy();
-        runtime.world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } }, state);
+        runtime.world = new PhysicsWorld({ gravity: { x: 0, y: GRAVITY, z: 0 } }, state);
         clearBodies(runtime);
         resetSignatures(state); // the fresh world receives the authored constraint set on its first frame
     },
@@ -1012,7 +1012,7 @@ export type {
 } from "./api";
 export { BodyType, CLOCK_SLOTS, JointType, type Profile, type StepClock, zeroProfile } from "./api";
 export { SoftJoint } from "./api/joints";
-export { World } from "./api/world";
+export { PhysicsWorld } from "./api/world";
 export { nlerpShortest } from "./compose";
 export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
 export { bodyCandidates, cursorRay, forwardRay, grabHit, worldToLocal } from "./pick";

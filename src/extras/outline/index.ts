@@ -43,7 +43,7 @@ import {
     type View,
     Views,
 } from "../../core/rendering";
-import type { Plugin, State, System } from "../../engine";
+import type { Plugin, World, System } from "../../engine";
 import { f32, GlobalTransform, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { ColorSystem, DEPTH_FORMAT } from "../../standard/rendering";
@@ -122,7 +122,7 @@ interface Targets {
     w: number;
     h: number;
 }
-function targets(state: State, eid: number, w: number, h: number): Targets {
+function targets(state: World, eid: number, w: number, h: number): Targets {
     const cached = outlineState(state).targets.get(eid);
     if (cached && cached.w === w && cached.h === h) return cached;
     cached?.seedA.destroy();
@@ -198,14 +198,14 @@ const createOutlineState = (): OutlineState => ({
     targets: new Map(),
     composites: new Map(),
 });
-const outlineState = (state: State) => state.resource(outlineStateKey);
+const outlineState = (state: World) => state.resource(outlineStateKey);
 
-function initializeOutlineState(state: State): void {
+function initializeOutlineState(state: World): void {
     state.resource(outlineStateKey);
 }
 
 function compositeBind(
-    state: State,
+    state: World,
     eid: number,
     read: GPUTextureView,
     write: GPUTextureView,
@@ -231,7 +231,7 @@ function compositeBind(
     return group;
 }
 
-function ensureInstances(state: State, n: number): void {
+function ensureInstances(state: World, n: number): void {
     const _outlineState = state.resource(outlineStateKey);
 
     if (n <= _outlineState.gpu.capacity) return;
@@ -261,7 +261,7 @@ interface Group {
 }
 
 function renderOutline(
-    state: State,
+    state: World,
     camEid: number,
     view: View,
     globalTransforms: GPUBuffer,
@@ -375,7 +375,7 @@ const OutlineSystem: System = {
     // Both anchor refs drop harmlessly when their plugin isn't registered
     after: [ColorSystem, OverlaySystem],
     before: [GlazeSystem],
-    update(state: State) {
+    update(state: World) {
         const _outlineState = state.resource(outlineStateKey);
         const _meshes = state.resource(Meshes);
 
@@ -449,7 +449,7 @@ const OutlineSystem: System = {
     },
 };
 
-function prepareOutline(state: State): void {
+function prepareOutline(state: World): void {
     const _outlineState = state.resource(outlineStateKey);
 
     // the JFA + composite layouts are the typed `jfaLayout` / `compositeLayout` in passes.ts — declared
@@ -511,7 +511,7 @@ function prepareOutline(state: State): void {
  * the pipeline — it records and submits nothing, so compilation never reads the bind groups the
  * stand-ins were bound into.
  */
-function forceCompile(state: State): void {
+function forceCompile(state: World): void {
     const stand = (format: GPUTextureFormat, usage: number) =>
         state.gpu.device.createTexture({
             label: "outline-warm",
@@ -641,7 +641,7 @@ function forceCompile(state: State): void {
     });
 }
 
-function disposeOutline(state: State): void {
+function disposeOutline(state: World): void {
     const _outlineState = state.resource(outlineStateKey);
 
     _outlineState.gpu.eids?.destroy();
@@ -692,12 +692,12 @@ export const OutlinePlugin: Plugin = {
         initializeOutlineState(state);
     },
 
-    async warm(state: State) {
+    async warm(state: World) {
         if (!state.gpu.device) return;
         prepareOutline(state);
     },
 
-    dispose(state: State) {
+    dispose(state: World) {
         disposeOutline(state);
     },
 };

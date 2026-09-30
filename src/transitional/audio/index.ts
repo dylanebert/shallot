@@ -8,7 +8,7 @@ import {
     i32,
     not,
     type Plugin,
-    type State,
+    type World,
     type System,
     Transform,
     u8,
@@ -71,7 +71,7 @@ const _m = new Float32Array(16);
  * registered sample lazily registers a built-in sampler instrument (cached
  * under the same name) so the trivial case authors no DAG
  */
-function resolveInstrument(state: State, name: string): number | undefined {
+function resolveInstrument(state: World, name: string): number | undefined {
     const inst = Instruments.id(name);
     if (inst !== undefined) return inst;
     const sampleId = Samples.id(name);
@@ -87,7 +87,7 @@ function resolveInstrument(state: State, name: string): number | undefined {
 // voice cleanly (juice's registerOneShot shape). For a loop the same envelope
 // holds sustain and the sample wraps until the Sound is removed. decay falls
 // back to 2s for a sample still decoding at first play
-function sampler(state: State, name: string, sampleId: number): number {
+function sampler(state: World, name: string, sampleId: number): number {
     const s = getSample(sampleId);
     const frames = s?.channels[0]?.length ?? 0;
     const dur = frames
@@ -166,7 +166,7 @@ function sampler(state: State, name: string, sampleId: number): number {
 // (the crowd bed / music) are lifecycle-owned — stopped only by remove(Sound),
 // never culled — so a one-shot burst never steals the bed. A graceful default
 // (no crash); a Sound.priority bias is the FMOD-style follow-up
-function steal(state: State): void {
+function steal(state: World): void {
     let victim = -1;
     let oldest = Number.POSITIVE_INFINITY;
     for (const eid of state.query([Sound, Voiced])) {
@@ -190,7 +190,7 @@ function steal(state: State): void {
 // victim drops Sound — SoundSystem gates it off + frees it on the next tick,
 // the graceful loop-stop path (the cap is well under the pool, so a slot is
 // free; no hard cut needed)
-function admit(state: State, name: string, policy: Required<SfxPolicy>, id: number): boolean {
+function admit(state: World, name: string, policy: Required<SfxPolicy>, id: number): boolean {
     if (withinCooldown(state, name, policy.cooldown, state.time.elapsed)) return false;
     if (policy.max > 0) {
         let count = 0;
@@ -336,7 +336,7 @@ const SoundSystem: System = {
  * play(state, "explosion", { pos: [x, y, z] });
  */
 export function play(
-    state: State,
+    state: World,
     name: string,
     opts?: { loop?: boolean; volume?: number; pos?: readonly [number, number, number] },
 ): number {

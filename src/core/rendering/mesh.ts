@@ -1,7 +1,7 @@
 import type { IndexFlag, StorageFlag, TgpuBuffer, UniformFlag } from "typegpu";
 import type { AnyData, AnyWgslData, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
-import { Registry, type State } from "../../engine";
+import { Registry, type World } from "../../engine";
 
 import { MeshQuant, octEncode, packUnorm2 } from "../../engine/utils";
 
@@ -122,12 +122,12 @@ function createMeshResources(): MeshResources {
     };
 }
 
-function meshResources(state: State): MeshResources {
+function meshResources(state: World): MeshResources {
     return state.resource(meshResourcesKey);
 }
 
 /** Create this world's mesh registry and staging during RenderPlugin initialization. */
-export function initializeMeshState(state: State): void {
+export function initializeMeshState(state: World): void {
     state.resource(meshResourcesKey);
 }
 
@@ -196,7 +196,7 @@ export function meshBounds(vertices: Float32Array): [number, number, number, num
  * mesh(state, { name: "cube", vertices, indices })
  */
 export function mesh(
-    state: State,
+    state: World,
     spec: { name: string; vertices: Float32Array; indices: Uint32Array },
 ): void {
     if (spec.vertices.length % VERTEX_FLOATS !== 0) {
@@ -383,7 +383,7 @@ export function quantizeMeshes(
 
 // drop the staged-but-unflushed mesh data + the placeholder buffer. flushMeshes calls it after packing,
 // clearMeshes after discarding — one source of truth for the staging state to reset.
-function resetStaging(state: State): void {
+function resetStaging(state: World): void {
     const resources = meshResources(state);
     resources.pending.length = 0;
     resources.placeholderVertices?.destroy();
@@ -397,7 +397,7 @@ function resetStaging(state: State): void {
  * index buffer and re-register each as a slice. Called once from
  * `RenderPlugin.warm`, after all `initialize` hooks (so every `mesh(...)` has run)
  */
-export function flushMeshes(state: State): void {
+export function flushMeshes(state: World): void {
     const device = state.gpu.device;
     const resources = meshResources(state);
     if (!device || resources.pending.length === 0) return;
@@ -445,7 +445,7 @@ export function flushMeshes(state: State): void {
  * their own initialize, so a producer toggled off leaves no stale slice to be paired against
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */
-export function clearMeshes(state: State): void {
+export function clearMeshes(state: World): void {
     state.resource(Meshes).clear();
     resetStaging(state);
 }

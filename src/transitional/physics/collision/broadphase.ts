@@ -1,4 +1,4 @@
-import type { State } from "../../../engine";
+import type { World } from "../../../engine";
 // Broad-phase — a port of Box3D's src/broad_phase.c (Erin Catto, MIT), the container over three
 // dynamic trees (static / kinematic / dynamic) plus the move buffer that records which proxies
 // changed this step, in deterministic insertion order.
@@ -44,7 +44,7 @@ export type BroadPhase = {
 const maxInt = (a: number, b: number): number => (a > b ? a : b);
 
 export function createBroadPhase(
-    state: State | undefined,
+    state: World | undefined,
     capacity: {
         staticShapeCount: number;
         dynamicShapeCount: number;

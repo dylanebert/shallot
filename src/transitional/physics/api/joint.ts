@@ -32,7 +32,7 @@ import { makeBodyId } from "../world/body";
 import type { WorldState } from "../world/world";
 import { Body } from "./body";
 import { cloneTransform } from "./config";
-import { World } from "./world";
+import { PhysicsWorld } from "./world";
 
 /** A joint handle connecting two bodies. */
 export class Joint {
@@ -115,8 +115,8 @@ export class Joint {
     }
 
     /** @returns a handle to the world this joint belongs to. */
-    getWorld(): World {
-        return World._wrap(this.world);
+    getWorld(): PhysicsWorld {
+        return PhysicsWorld._wrap(this.world);
     }
 
     /** @returns body A's local joint frame. */

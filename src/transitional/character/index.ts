@@ -1,5 +1,5 @@
 // Destination: standard/physics; owner: physics-boundary.md.
-import { FIXED_DT, f32, type Plugin, type State, type System } from "../../engine";
+import { FIXED_DT, f32, type Plugin, type World, type System } from "../../engine";
 import {
     Body,
     type BodyStateOut,
@@ -71,7 +71,7 @@ const sigBits = (x: number): number => {
 // query terms held once, so a steady signature mints no array.
 const CHARACTER_TERMS = [Character, Body];
 
-function signature(state: State): number {
+function signature(state: World): number {
     let h = FNV_BASIS;
     for (const eid of state.query(CHARACTER_TERMS)) {
         h = fold(h, eid);
@@ -84,7 +84,7 @@ function signature(state: State): number {
 }
 
 // build a fresh controller state from a character's authored Body placement, capsule geometry and walkable-slope cutoff. Velocity / grounded / jump timers start cleared (a dropped capsule falls to rest).
-function buildState(state: State, eid: number): CharState {
+function buildState(state: World, eid: number): CharState {
     return {
         pos: [
             state.of(Body).pos.x.get(eid),
@@ -114,7 +114,7 @@ function buildState(state: State, eid: number): CharState {
 // fresh state; an existing one KEEPS its live Body position and motion (the controller owns the fixed-tick
 // GlobalTransform — a sibling spawn must not reset a walking character) and only picks up a tuning edit; a
 // removed one is dropped. A fresh State starts with `states` empty, so its first sync reads authored Body fields.
-function syncStates(state: State): void {
+function syncStates(state: World): void {
     const drive = driveFor(state);
     const sig = signature(state);
     if (sig === drive.signature) return;
@@ -122,7 +122,7 @@ function syncStates(state: State): void {
     rebuildStates(state, drive);
 }
 
-function rebuildStates(state: State, drive: ReturnType<typeof driveFor>): void {
+function rebuildStates(state: World, drive: ReturnType<typeof driveFor>): void {
     const seen = new Set<number>();
     for (const eid of state.query([Character, Body])) {
         seen.add(eid);
@@ -189,7 +189,7 @@ const hullById = (id: number): Hull | undefined => Hulls.get(Hulls.name(id) ?? "
 // through the backend read seam — the static world is unchanged by the possible one-tick lag, and one-tick-old
 // dynamic or platform data is fine), run collide-and-slide, upload the result as a kinematic body, and apply
 // full-speed pushes to shoved dynamics (variant A — the CPU writes swept velocity directly through `setVelocity`).
-function sweepEid(eid: number, st: CharState, state: State): void {
+function sweepEid(eid: number, st: CharState, state: World): void {
     let pi = 0;
     let ns = 0;
     let np = 0;
@@ -284,7 +284,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
 }
 
 // the map walk's callback, given the State as its `this`, so a steady update mints no entries iterator.
-function sweepEach(this: State, st: CharState, eid: number): void {
+function sweepEach(this: World, st: CharState, eid: number): void {
     sweepEid(eid, st, this);
 }
 
@@ -298,7 +298,7 @@ export const CharacterSweepSystem: System = {
     name: "character",
     group: "fixed",
     before: [StepSystem],
-    update(state: State) {
+    update(state: World) {
         if (!physicsWorld(state)) return;
         syncStates(state);
         const drive = driveFor(state);
@@ -326,7 +326,7 @@ export const CharacterPlugin: Plugin = {
             }),
         },
     },
-    dispose(state: State) {
+    dispose(state: World) {
         resetDrive(state);
     },
 };

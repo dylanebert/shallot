@@ -10,7 +10,7 @@ import { LinesPlugin, segment } from "../../extras/lines";
 import { Images, image, Sprite, SpritePlugin } from "../../extras/sprite";
 import { Content, Fonts, font, Text, TextPlugin, text } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
-import { f32, GlobalTransform, probeBuffer, requestGPU, State, Time, Transform } from "../index";
+import { f32, GlobalTransform, probeBuffer, requestGPU, World, Time, Transform } from "../index";
 import "../../standard";
 import { serialize } from "../scene";
 import { build, swap } from "./index";
@@ -21,11 +21,11 @@ await setupGlobals();
 
 const Value = { amount: f32 };
 const resourceKey = {
-    create: (state: State) =>
+    create: (state: World) =>
         state.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
 };
 const textureKey = {
-    create: (state: State) =>
+    create: (state: World) =>
         state.gpu.device.createTexture({
             size: [1, 1, 1],
             format: "rgba8unorm",
@@ -34,7 +34,7 @@ const textureKey = {
 };
 const ResourcePlugin = {
     name: "WorldResourceProbe",
-    initialize(state: State) {
+    initialize(state: World) {
         const buffer = state.resource(resourceKey);
         const texture = state.resource(textureKey);
         const typed = state.gpu.root.createBuffer(d.arrayOf(d.u32, 1)).$usage("storage");
@@ -51,7 +51,7 @@ afterEach(() => {
     for (const app of apps.splice(0)) app.dispose();
 });
 
-function amount(state: State) {
+function amount(state: World) {
     return state.of(Value).amount;
 }
 
@@ -248,7 +248,7 @@ test("frame change marks clear at the world upload point", async () => {
     let writeAfterUpload = false;
     const lateWriter = {
         group: "draw" as const,
-        update(current: State) {
+        update(current: World) {
             if (writeAfterUpload) current.of(Changed).uploaded.set(eid, 9);
         },
     };
@@ -389,7 +389,7 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     const firstPlugin = {
         name: "SwappableWorldSchema",
         components: { Value },
-        initialize(state: State) {
+        initialize(state: World) {
             const eid = state.create();
             state.add(eid, this.components.Value);
             amount(state).set(eid, 7);
@@ -407,7 +407,7 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     const reloaded = {
         name: "SwappableWorldSchema",
         components: { Value: reloadedValue },
-        initialize(state: State) {
+        initialize(state: World) {
             expect(state.of(reloadedValue).amount.get(firstEid)).toBe(13);
         },
     };
@@ -451,7 +451,7 @@ async function composition(seed: string, offset: number) {
     return app;
 }
 
-async function compositionFrame(state: State, offset: number, frame: number) {
+async function compositionFrame(state: World, offset: number, frame: number) {
     const transform = state.of(Transform);
     for (const eid of state.query([Transform])) transform.pos.x.set(eid, offset + frame);
     segment(state, [offset, frame, 0], [offset + 1, frame + 1, 1], 0xffcc44);
@@ -502,11 +502,11 @@ test("interleaved default worlds with text, sprite and lines equal each world st
 
 test("nested and asynchronous lifecycle hooks retain explicit field, resource and GPU ownership", async () => {
     const declaration = { create: () => ({ value: 0 }) };
-    let parent: State | undefined;
+    let parent: World | undefined;
     const childPlugin = {
         name: "ExplicitChild",
         components: { Value },
-        async initialize(state: State) {
+        async initialize(state: World) {
             const _declaration = state.resource(declaration);
 
             const eid = state.create();
@@ -523,7 +523,7 @@ test("nested and asynchronous lifecycle hooks retain explicit field, resource an
     const parentPlugin = {
         name: "ExplicitParent",
         components: { Value },
-        async warm(state: State) {
+        async warm(state: World) {
             const _declaration = state.resource(declaration);
 
             parent = state;
@@ -533,7 +533,7 @@ test("nested and asynchronous lifecycle hooks retain explicit field, resource an
             _declaration.value = 11;
             // Nested build waits for the build lock; direct lifecycle invocation exercises nesting
             // without asking that serialization contract to become reentrant.
-            const child = new State();
+            const child = new World();
             child.attachGpu(await requestGPU(parent!.gpu.device));
             try {
                 await childPlugin.initialize(child);

@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 import { f32, GlobalTransform, unpackColor, vec4 } from "../../engine";
 
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
@@ -152,12 +152,12 @@ function createLightingResources(): LightingResources {
     };
 }
 
-function lightingResources(state: State): LightingResources {
+function lightingResources(state: World): LightingResources {
     return state.resource(lightingKey);
 }
 
 /** Create this world's lighting state during RenderPlugin initialization. */
-export function initializeLightingState(state: State): void {
+export function initializeLightingState(state: World): void {
     state.resource(lightingKey);
 }
 
@@ -171,7 +171,7 @@ const AMBIENT_TERMS = [AmbientLight];
 const SUN_TERMS = [DirectionalLight];
 
 /** read the singleton AmbientLight + DirectionalLight entities and pack the Lighting UBO */
-export function writeLighting(state: State): void {
+export function writeLighting(state: World): void {
     const _lighting = state.resource(Lighting);
 
     if (!state.gpu.device || !_lighting.buffer) return;
@@ -338,7 +338,7 @@ const POINT_LIGHT_TERMS = [PointLight, GlobalTransform];
  * never writes an entry), so the overflow is loud, not silent. A count, not a
  * pack: the light data itself flows GPU-side
  */
-export function warnLightOverflow(state: State): void {
+export function warnLightOverflow(state: World): void {
     const _lighting = state.resource(lightingKey);
 
     let count = 0;

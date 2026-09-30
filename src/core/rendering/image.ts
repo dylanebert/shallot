@@ -13,7 +13,7 @@
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { checkTextureLimits, type State } from "../../engine";
+import { checkTextureLimits, type World } from "../../engine";
 
 /** mip levels for a square texture of `size` px: the full chain down to 1×1. */
 export function mipLevels(size: number): number {
@@ -69,16 +69,16 @@ const blitFs = tgpu.fragmentFn({
 // (the per-device root memo means `state.gpu.root` always matches whichever device is currently adopted).
 const blitPipelinesKey = { create: () => new Map<string, TgpuRenderPipeline>() };
 
-function blitPipelines(state: State): Map<string, TgpuRenderPipeline> {
+function blitPipelines(state: World): Map<string, TgpuRenderPipeline> {
     return state.resource(blitPipelinesKey);
 }
 
 /** Create this world's image pipeline cache during RenderPlugin initialization. */
-export function initializeImageState(state: State): void {
+export function initializeImageState(state: World): void {
     state.resource(blitPipelinesKey);
 }
 
-function blitPipeline(state: State, format: GPUTextureFormat): TgpuRenderPipeline {
+function blitPipeline(state: World, format: GPUTextureFormat): TgpuRenderPipeline {
     const cached = blitPipelines(state).get(format);
     if (cached) return cached;
     const pipeline = state.gpu.root
@@ -103,7 +103,7 @@ export function blitWgsl(): string {
 // Sampling decodes sRGB→linear and the store re-encodes, so the downsample averages in linear (gamma-correct).
 // Per-layer so a staged builder can budget a layer's blit chain as one frame's unit (the union upload spread).
 function genMipmapsLayer(
-    state: State,
+    state: World,
     device: GPUDevice,
     texture: GPUTexture,
     layer: number,
@@ -146,7 +146,7 @@ function genMipmapsLayer(
  * state.gpu.textures.set("spriteAtlas", atlas);
  */
 export async function imageArray(
-    state: State,
+    state: World,
     device: GPUDevice,
     blobs: Blob[],
     cap = 2048,
@@ -197,7 +197,7 @@ export function allocArray(
  * frame; the synchronous-uploading {@link arrayFromBitmaps} loops it.
  */
 export async function uploadLayer(
-    state: State,
+    state: World,
     device: GPUDevice,
     texture: GPUTexture,
     bitmap: ImageBitmap,
@@ -230,7 +230,7 @@ export async function uploadLayer(
  * decodes its own way. Synchronous-uploading; the glTF union stages the same primitives across frames instead.
  */
 export async function arrayFromBitmaps(
-    state: State,
+    state: World,
     device: GPUDevice,
     native: ImageBitmap[],
     cap = 2048,

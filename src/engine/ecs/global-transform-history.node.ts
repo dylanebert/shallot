@@ -7,7 +7,7 @@ import {
     GlobalTransform,
     globalTransformTable,
     probeBuffer,
-    type State,
+    type World,
     Time,
     Transform,
 } from "../index";
@@ -24,7 +24,7 @@ if (typeof ResizeObserver === "undefined") {
 }
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
-function attachTestCamera(state: State): void {
+function attachTestCamera(state: World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,

@@ -1,6 +1,6 @@
 import { kernel } from "../kernel/kernel";
 import { liveWorldCount, type WorldState } from "../world/world";
-import type { World } from "./world";
+import type { PhysicsWorld } from "./world";
 
 /** Plain, reusable snapshot data from a wasm-backed physics world. */
 export interface WorldSnapshot {
@@ -120,7 +120,7 @@ function restoreClone<T>(
 }
 
 /** Capture detached logical world state plus its own wasm linear-memory image. */
-export function snapshot(world: World): WorldSnapshot {
+export function snapshot(world: PhysicsWorld): WorldSnapshot {
     const state = world.state;
     return {
         // The ECS owner is identity, not solver data; snapshots never clone or retain it.
@@ -134,7 +134,7 @@ export function snapshot(world: World): WorldSnapshot {
 }
 
 /** Restore into a live compatible World while its kernel has no other live World. */
-export function restore(world: World, snapshot: WorldSnapshot): void {
+export function restore(world: PhysicsWorld, snapshot: WorldSnapshot): void {
     if (
         snapshot === null ||
         typeof snapshot !== "object" ||

@@ -1,7 +1,7 @@
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 // The glyph SDF generator: two raster passes per glyph, both authored in TGSL over explicit bind group
 // layouts. The distance pass rasterizes one instanced fullscreen triangle per outline segment into a
@@ -277,13 +277,13 @@ interface SdfPipelines {
 
 const sdfPipelinesKey = { create: () => createSdfPipelines() };
 const createSdfPipelines = () => ({ value: null as SdfPipelines | null });
-const sdfPipelines = (state: State) => state.resource(sdfPipelinesKey);
+const sdfPipelines = (state: World) => state.resource(sdfPipelinesKey);
 
-export function initializeSdfState(state: State): void {
+export function initializeSdfState(state: World): void {
     state.resource(sdfPipelinesKey);
 }
 
-function pipelines(state: State) {
+function pipelines(state: World) {
     const cache = sdfPipelines(state);
     if (cache.value) return cache.value;
     const root = state.gpu.root;
@@ -317,7 +317,7 @@ function pipelines(state: State) {
 }
 
 /** Drop this State's cached SDF pipeline pair. @internal */
-export function resetPipelines(state: State): void {
+export function resetPipelines(state: World): void {
     sdfPipelines(state).value = null;
 }
 
@@ -370,7 +370,7 @@ export class SDFGenerator {
         });
     }
 
-    begin(state: State): void {
+    begin(state: World): void {
         // built here, drawn from `flush` microseconds later, so there is no force-compile forcer: a
         // `precompile` thunk drains after warm, long after these draws already went out (the load-path
         // blit's refuted precompile)
@@ -389,7 +389,7 @@ export class SDFGenerator {
         this._pending.push({ path, bounds, outputTexture, outputX, outputY });
     }
 
-    flush(state: State): void {
+    flush(state: World): void {
         if (this._pending.length === 0) return;
         const pipes = this._pipelines;
         const intermediate = this._intermediateTexture;

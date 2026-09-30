@@ -27,7 +27,7 @@ import {
     Surfaces,
     VsIn,
 } from "../../core/rendering";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 import {
     decodePos,
@@ -83,20 +83,20 @@ function createPipelineState(): PipelineState {
     };
 }
 
-function pipelineState(state: State): PipelineState {
+function pipelineState(state: World): PipelineState {
     return state.resource(pipelineStateKey);
 }
 
 /** Create this world's Sear pipeline caches during plugin initialization. */
-export function initializePipelineState(state: State): void {
+export function initializePipelineState(state: World): void {
     state.resource(pipelineStateKey);
 }
 
-export function clearGroups(state: State): void {
+export function clearGroups(state: World): void {
     pipelineState(state).typedGroups.clear();
 }
 
-export function resetPipelineCaches(state: State): void {
+export function resetPipelineCaches(state: World): void {
     pipelineState(state).compiledTyped.clear();
     pipelineState(state).compiledTypedBg.clear();
     pipelineState(state).typedGroups.clear();
@@ -206,7 +206,7 @@ export type SurfaceGroupEntry = {
  * rebuilds it). Supplying the current surface also invalidates a same-name replacement: bind groups
  * are layout-object-specific even when every resolved GPU resource is unchanged. */
 export function getGroup(
-    state: State,
+    state: World,
     name: string,
     surface?: AnySurface,
 ): SurfaceGroupEntry | undefined {
@@ -219,7 +219,7 @@ export function getGroup(
 }
 
 /** cache a typed draw's resolved group-2 state (`record`, on a resource-identity change). */
-export function setGroup(state: State, name: string, entry: SurfaceGroupEntry): void {
+export function setGroup(state: World, name: string, entry: SurfaceGroupEntry): void {
     pipelineState(state).typedGroups.set(name, entry);
 }
 
@@ -229,7 +229,7 @@ export function setGroup(state: State, name: string, entry: SurfaceGroupEntry): 
  * `SurfaceGroupEntry.engineCache` or a `CompiledBackground.engineCache` — never a module map keyed on the
  * quant buffer, whose entries would outlive a churned buffer for the app's life). */
 export function engineGroup(
-    state: State,
+    state: World,
     cache: Map<number, GPUBindGroup>,
     slot: number,
     quant: GPUBuffer,
@@ -258,7 +258,7 @@ export function engineGroup(
 // slot-0 View placeholder precedent)
 
 /** the never-read `meshQuant` placeholder a typed background's engine group binds. */
-export function bgQuant(state: State): GPUBuffer {
+export function bgQuant(state: World): GPUBuffer {
     const resources = pipelineState(state);
     resources.bgQuant ??= state.gpu.device.createBuffer({
         label: "sear-bg-quant",
@@ -1429,7 +1429,7 @@ function typedVaryingTagFs(surface: AnySurface) {
 export function compileSurface<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
->(state: State, surface: Surface<B, V>, capacity: number): CompiledSurface {
+>(state: World, surface: Surface<B, V>, capacity: number): CompiledSurface {
     const _render = state.resource(Render);
 
     const key = surface.name;
@@ -1530,7 +1530,7 @@ export function compileSurface<
  * draws it (the wrapper is cheap; the real resolve+create lands at the twin's first draw). Reuses the compiled entry fns, so only
  * `multisample.count` differs.
  */
-export function ensureSingle(state: State, t: CompiledSurface): void {
+export function ensureSingle(state: World, t: CompiledSurface): void {
     const _render = state.resource(Render);
 
     if (t.single) return;
@@ -1581,7 +1581,7 @@ export function ensureSingle(state: State, t: CompiledSurface): void {
  * stays empty.
  */
 function compileTypedPrepass(
-    state: State,
+    state: World,
     surface: AnySurface,
 ): Map<string, TgpuRenderPipeline<any>> {
     const prepass = new Map<string, TgpuRenderPipeline<any>>();
@@ -2169,7 +2169,7 @@ function clipShadowFs(surface: AnySurface) {
  * resolution × grid).
  */
 function compileTypedShadow(
-    state: State,
+    state: World,
     surface: AnySurface,
     capacity: number,
 ): {
@@ -2310,7 +2310,7 @@ export function shadowWgsl(
 
 /** the compiled typed pipeline(s) for a `Surfaces` entry, or `undefined` until
  * {@link compileSurface} has run for it. */
-export function getCompiledSurface(state: State, name: string): CompiledSurface | undefined {
+export function getCompiledSurface(state: World, name: string): CompiledSurface | undefined {
     return pipelineState(state).compiledTyped.get(name);
 }
 
@@ -2463,7 +2463,7 @@ export interface CompiledBackground {
  * by name plus exact source-spec/layout identity, so a same-name replacement cannot inherit pipelines
  * or layout-bound groups from its previous owner.
  */
-export function compileBackground(state: State, bg: AnyBackground): CompiledBackground {
+export function compileBackground(state: World, bg: AnyBackground): CompiledBackground {
     const _render = state.resource(Render);
 
     const cached = pipelineState(state).compiledTypedBg.get(bg.name);
@@ -2510,7 +2510,7 @@ export function compileBackground(state: State, bg: AnyBackground): CompiledBack
 /** the compiled typed pipeline(s) for a `Backgrounds` entry, or `undefined` until
  * {@link compileBackground} has run for it. */
 export function getBackground(
-    state: State,
+    state: World,
     name: string,
     bg?: AnyBackground,
 ): CompiledBackground | undefined {
@@ -2528,7 +2528,7 @@ export function backgroundWgsl(bg: AnyBackground): string {
 }
 
 /** Compile every surface and background at warm, before the first draw. */
-export async function preparePipelines(state: State, capacity: number): Promise<void> {
+export async function preparePipelines(state: World, capacity: number): Promise<void> {
     // force each typed pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
     // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
     // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm

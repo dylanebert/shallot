@@ -1,9 +1,9 @@
-import type { State } from "../ecs";
+import type { World } from "../ecs";
 import { deviceLost } from "./gpu";
 import type { ReadbackStamp } from "./readback";
 
 const COPY_ALIGNMENT = 4;
-type ProbeOwner = State;
+type ProbeOwner = World;
 const deviceOf = (owner: ProbeOwner) => owner.gpu.device;
 function assertRequestAllowed(owner: ProbeOwner): void {
     if (owner.disposed || deviceLost(owner.gpu.device))

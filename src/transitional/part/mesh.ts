@@ -1,5 +1,5 @@
 import { mesh } from "../../core/rendering";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 /**
  * register the built-in meshes. All unit-sized (radius / half-extent 0.5),
@@ -9,7 +9,7 @@ import type { State } from "../../engine";
  * - `sphere` / `capsule` — smooth-shaded; the rounded primitives physics will
  *   collide as a point/segment + radius
  */
-export function initMeshes(state: State): void {
+export function initMeshes(state: World): void {
     mesh(state, { name: "cube", ...cube() });
     mesh(state, { name: "sphere", ...sphere() });
     mesh(state, { name: "capsule", ...capsule() });

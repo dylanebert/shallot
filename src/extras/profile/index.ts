@@ -1,4 +1,4 @@
-import type { LazyAlloc, Plugin, State, System } from "../../engine";
+import type { LazyAlloc, Plugin, World, System } from "../../engine";
 import { mountOverlay } from "../../engine";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
 import { reorderRows } from "./reorder";
@@ -406,7 +406,7 @@ class ProfileImpl implements Profile {
     // order puts the resolve and copy after every prior submission and before the next frame's writes.
     // Capture pass names with the request so later frames cannot relabel an arriving result. The world
     // pool owns staging; READ_RING bounds only the profiling metadata in flight.
-    resolve(state: State): void {
+    resolve(state: World): void {
         const querySet = this._querySet;
         const resolveBuffer = this._resolveBuffer;
         if (!querySet || !resolveBuffer) return;
@@ -578,7 +578,7 @@ interface OverlayData {
 }
 
 interface Overlay {
-    update(state: State, profile: ProfileImpl): void;
+    update(state: World, profile: ProfileImpl): void;
     destroy(): void;
 }
 
@@ -979,7 +979,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
     let lastRender = 0;
 
     return {
-        update(state: State, profile: ProfileImpl) {
+        update(state: World, profile: ProfileImpl) {
             // per-frame: tick the pools straight from the live Maps (no allocation, no layout).
             // The heavy snapshot (getBoundingClientRect, map spreads, mem sort) is deferred to
             // the throttled render below, so the profiler's own per-frame CPU cost stays minimal
@@ -1088,7 +1088,7 @@ function collectViewport(): ViewportData | null {
     };
 }
 
-function collectStats(s: State, profile: ProfileImpl): OverlayData {
+function collectStats(s: World, profile: ProfileImpl): OverlayData {
     const t = s.time;
     const rawDt = t.rawDeltaTime;
     const fenceWaitMs = profile.fenceWaitMs;
@@ -1135,7 +1135,7 @@ const profileUi = {
  * @example
  * const Perf = { name: "Perf", warm(state) { showProfiler(state); } } satisfies Plugin;
  */
-export function showProfiler(state: State, show = true): void {
+export function showProfiler(state: World, show = true): void {
     const _profileUi = state.resource(profileUi);
 
     _profileUi.visible = show;
@@ -1153,7 +1153,7 @@ export function showProfiler(state: State, show = true): void {
 const ProfileFrameBeginSystem: System = {
     group: "setup",
     first: true,
-    update(state: State) {
+    update(state: World) {
         const profiler = state.resource(Profile) as ProfileImpl;
         profiler.drain();
         const compute = state.gpu;
@@ -1168,7 +1168,7 @@ const ProfileFrameBeginSystem: System = {
 const ProfileRenderSystem: System = {
     group: "draw",
     last: true,
-    update(state: State) {
+    update(state: World) {
         const _profileUi = state.resource(profileUi);
 
         _profileUi.benchmarkReady = true;
@@ -1194,7 +1194,7 @@ export const ProfilePlugin: Plugin = {
     dependencies: [],
     preferredFeatures: TIMESTAMP,
 
-    initialize(state: State) {
+    initialize(state: World) {
         const compute = state.gpu;
         if (!compute) return;
 
@@ -1242,7 +1242,7 @@ export const ProfilePlugin: Plugin = {
 
     // Clear the active state.gpu hooks and the window.__benchmark global; the DOM overlay + F3 listener
     // ride the State (initialize above), and the profiler releases its own resources below.
-    dispose(state: State) {
+    dispose(state: World) {
         const _profileUi = state.resource(profileUi);
 
         const profiler = state.resource(Profile) as ProfileImpl;

@@ -1,4 +1,4 @@
-import type { State } from "../ecs";
+import type { World } from "../ecs";
 import { deviceLost, type LazyAlloc } from "./gpu";
 
 interface Slot {
@@ -26,9 +26,9 @@ export class ReadbackPool {
     };
 
     private readonly _device: GPUDevice;
-    private readonly _state: State;
+    private readonly _state: World;
 
-    constructor(state: State) {
+    constructor(state: World) {
         this._device = state.gpu.device;
         this._state = state;
         this._device.addEventListener("uncapturederror", this._onError);

@@ -3,7 +3,7 @@ import {
     endGlobalTransformTick,
     prepareGlobalTransform,
 } from "./global-transform";
-import type { State } from "./state";
+import type { World } from "./state";
 
 function invalidDelta(): never {
     throw new Error("step deltaTime must be a finite, non-negative number");
@@ -56,9 +56,9 @@ export type SystemGroup = "setup" | "fixed" | "simulation" | "draw";
 
 /** unit of behavior: update, setup, dispose, scheduling */
 export interface System {
-    readonly update?: (state: State) => void;
-    readonly setup?: (state: State) => void;
-    readonly dispose?: (state: State) => void;
+    readonly update?: (state: World) => void;
+    readonly setup?: (state: World) => void;
+    readonly dispose?: (state: World) => void;
     /** profiler/debug label; falls back to `pluginName/index` when omitted */
     readonly name?: string;
     readonly group?: SystemGroup;
@@ -118,7 +118,7 @@ export class Scheduler {
         this._time.scale = Math.max(0, scale);
     }
 
-    dispose(state: State): void {
+    dispose(state: World): void {
         for (const system of this._systems) {
             try {
                 system.dispose?.(state);
@@ -180,7 +180,7 @@ export class Scheduler {
         this._errored.delete(old);
     }
 
-    step(state: State, input: Readonly<{ deltaTime: number }>): void {
+    step(state: World, input: Readonly<{ deltaTime: number }>): void {
         const deltaTime = input.deltaTime;
         if (!Number.isFinite(deltaTime) || deltaTime < 0) {
             invalidDelta();
@@ -229,7 +229,7 @@ export class Scheduler {
         this.runGroup(state, "draw");
     }
 
-    private runGroup(state: State, group: SystemGroup): void {
+    private runGroup(state: World, group: SystemGroup): void {
         const record = this.record;
         const systems = this.getSorted(group);
         for (let i = 0; i < systems.length; i++) {

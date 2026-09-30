@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { World } from "../api/world";
+import { PhysicsWorld } from "../api/world";
 import type { ShapeProxy } from "../collision/distance";
 import { readNode } from "../collision/tree";
 import {
@@ -219,7 +219,7 @@ function buildMaterials(): CompoundData {
 // Mirrors the transforms scene: the same box hull at two instance transforms (one rotated), sharing one
 // material, plus a sphere with a second material.
 function exercisePublicCompoundShape(compound: CompoundData): void {
-    const world = new World();
+    const world = new PhysicsWorld();
     const body = world.createBody({ type: BodyType.Static });
     const shape = body.createCompound({}, compound);
     expect(shape.isValid(), "public compound shape is kernel-live").toBe(true);

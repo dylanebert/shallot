@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 // Morton-code assignment — primitive AABBs + scene AABB → one 30-bit spatial key
 // per prim, plus an identity payload, a stage of the LBVH builder. The pass between
 // scene-bounds (bounds.ts) and
@@ -191,7 +191,7 @@ export interface Morton {
  * device.queue.submit([enc.finish()]);
  */
 export async function createMorton(
-    state: State,
+    state: World,
     device: GPUDevice,
     maxPrims: number,
     shared: MortonShared = {},

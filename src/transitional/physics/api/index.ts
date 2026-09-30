@@ -2,7 +2,7 @@
 // A standalone 3D physics engine. The public surface grows across the port stages; see the README.
 
 // biome-ignore assist/source/organizeImports: World evaluates before the joint parts; Joint.getWorld reaches back into it, so entering them first runs `extends Joint` on an uninitialized class.
-export { World } from "./world";
+export { PhysicsWorld } from "./world";
 export type { Manifold, ManifoldPoint } from "../collision/contact";
 export type { ShapeProxy } from "../collision/distance";
 export {
@@ -79,7 +79,7 @@ export { DebugColor, type DebugDraw, defaultDebugDraw } from "../world/draw";
 import { hashWorldState } from "../world/hash";
 export { hashWorldState };
 export { restore, snapshot, type WorldSnapshot } from "./snapshot";
-export function hash(world: import("./world").World): bigint {
+export function hash(world: import("./world").PhysicsWorld): bigint {
     return hashWorldState(world.state);
 }
 export { CLOCK_SLOTS, type Profile, type StepClock, zeroProfile } from "../world/clock";

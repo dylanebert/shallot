@@ -50,7 +50,7 @@ export {
     snapshot,
 } from "./reflection";
 export { FIXED_DT, type System, Time } from "./scheduler";
-export { pixelRatio, type Resource, State } from "./state";
+export { pixelRatio, type Resource, World } from "./state";
 export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
 export {
     clear,

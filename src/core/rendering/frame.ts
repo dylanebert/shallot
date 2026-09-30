@@ -1,5 +1,5 @@
 import * as d from "typegpu/data";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 import { chunk, spliceNs } from "../../engine/utils";
 
@@ -55,7 +55,7 @@ function createFrame(): Frame {
 }
 
 /** Create this world's frame UBO state during RenderPlugin initialization. */
-export function initializeFrameState(state: State): void {
+export function initializeFrameState(state: World): void {
     state.resource(frameKey);
 }
 
@@ -64,7 +64,7 @@ export const Frame: import("../../engine").Resource<Frame> = {
 };
 
 /** Pack interpolation parameters, time, and frame counter into the shared Frame UBO. */
-export function writeFrame(state: State): void {
+export function writeFrame(state: World): void {
     const _frame = state.resource(Frame);
 
     if (!state.gpu.device || !_frame.buffer) return;

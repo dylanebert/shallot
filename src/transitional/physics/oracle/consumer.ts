@@ -6,7 +6,7 @@ import {
     type Joint,
     makeBoxHull,
     type Vec3 as PhysicsVec3,
-    World,
+    PhysicsWorld,
 } from "../api/index";
 import { ContactFlags } from "../collision/contact";
 import { emptyCache, shapeDistance } from "../collision/distance";
@@ -75,14 +75,14 @@ const i32hex = (value: number): string => u32hex(value);
 const vbits = (value: PhysicsVec3): string[] => [bits(value.x), bits(value.y), bits(value.z)];
 const zero: PhysicsVec3 = { x: 0, y: 0, z: 0 };
 
-function makeOracleWorld(): World {
-    return new World({
+function makeOracleWorld(): PhysicsWorld {
+    return new PhysicsWorld({
         gravity: { x: 0, y: -9.8, z: 0 },
         enableSleep: false,
     });
 }
 
-function contactRecords(world: World): Array<{
+function contactRecords(world: PhysicsWorld): Array<{
     manifolds: Array<{
         normal: PhysicsVec3;
         pointCount: number;
@@ -115,7 +115,7 @@ function contactRecords(world: World): Array<{
         }));
 }
 
-function writeContacts(world: World, hookVisits: number): unknown {
+function writeContacts(world: PhysicsWorld, hookVisits: number): unknown {
     const contacts = contactRecords(world);
     return {
         contactCount: i32hex(contacts.length),
@@ -156,11 +156,11 @@ function runJointCase(item: OracleCase): unknown {
     switch (name) {
         case "parallel":
             joint = world.createParallelJoint(bodyA, bodyB);
-            specific = (joint as ReturnType<World["createParallelJoint"]>).getSpringHertz();
+            specific = (joint as ReturnType<PhysicsWorld["createParallelJoint"]>).getSpringHertz();
             break;
         case "distance":
             joint = world.createDistanceJoint(bodyA, bodyB, { length: 1 });
-            specific = (joint as ReturnType<World["createDistanceJoint"]>).getLength();
+            specific = (joint as ReturnType<PhysicsWorld["createDistanceJoint"]>).getLength();
             break;
         case "motor": {
             const motor = world.createMotorJoint(bodyA, bodyB);

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { type Resource, State } from "./state";
+import { type Resource, World } from "./state";
 
-function callerTypeControl(state: State): void {
+function callerTypeControl(state: World): void {
     const number: Resource<number> = { create: () => 1 };
     // @ts-expect-error The declaration binds the result type, not the caller.
     const value: string = state.resource<string>(number);
@@ -10,7 +10,7 @@ function callerTypeControl(state: State): void {
 void callerTypeControl;
 
 test("a declaration creates once per world, including an undefined value", () => {
-    const state = new State();
+    const state = new World();
     let calls = 0;
     const declaration: Resource<undefined> = {
         create: (owner) => {
@@ -26,11 +26,11 @@ test("a declaration creates once per world, including an undefined value", () =>
 });
 
 test("worlds and declarations isolate values even with the same creator", () => {
-    const first = new State();
-    const second = new State();
+    const first = new World();
+    const second = new World();
     let calls = 0;
     let cleanups = 0;
-    const create = (state: State) => {
+    const create = (state: World) => {
         calls++;
         state.onDispose(() => cleanups++);
         return {};
@@ -49,7 +49,7 @@ test("worlds and declarations isolate values even with the same creator", () => 
 });
 
 test("disposed worlds refuse cached and fresh declarations without invoking creators or caching", () => {
-    const state = new State();
+    const state = new World();
     let calls = 0;
     const create = () => ++calls;
     const cached = { create };

@@ -30,7 +30,7 @@ import {
     GlobalTransform,
     type Plugin,
     Registry,
-    type State,
+    type World,
     type System,
     u32,
     vec2,
@@ -80,7 +80,7 @@ export const Content = {
  * font(state, "/fonts/inter.ttf", "inter");
  * ```
  */
-export function font(state: State, url: string, name?: string): number {
+export function font(state: World, url: string, name?: string): number {
     return state.resource(Fonts).register({ name: name ?? url, url });
 }
 
@@ -93,7 +93,7 @@ export function font(state: State, url: string, name?: string): number {
  * state.of(Text).content.set(eid, text(state, "Hello"));
  * ```
  */
-export function text(state: State, content: string): number {
+export function text(state: World, content: string): number {
     return state.resource(Content).register({ name: content });
 }
 
@@ -286,13 +286,13 @@ function createTextState(): TextState {
     };
 }
 
-function _textState(state: State): TextState {
+function _textState(state: World): TextState {
     return state.resource(textStateKey);
 }
 
 // bitcast scratch + an fnv-1a fold over the layout-affecting fields. The transform is deliberately absent
 // — it flows through the slab, so moving a label leaves the signature (and the glyph buffer) untouched
-function fbits(state: State, v: number): number {
+function fbits(state: World, v: number): number {
     const _textState = state.resource(textStateKey);
 
     _textState.bits[0] = v;
@@ -304,7 +304,7 @@ function fold(h: number, x: number): number {
 
 // the dirty key: every visible label's layout-affecting state + membership. Equal to last frame ⇒ the
 // glyph buffer still holds the right geometry, so the rebuild + upload are skipped
-function signature(state: State): number {
+function signature(state: World): number {
     let h = 0x811c9dc5 | 0;
     for (const eid of state.query([Text, GlobalTransform])) {
         if (!state.of(Text).visible.get(eid)) continue;
@@ -320,7 +320,7 @@ function signature(state: State): number {
     return h;
 }
 
-function grow(state: State, min: number): void {
+function grow(state: World, min: number): void {
     const _textState = state.resource(textStateKey);
 
     let cap = _textState.cap;
@@ -336,7 +336,7 @@ function grow(state: State, min: number): void {
 // lay every visible label out into per-font glyph lists, pack them into the shared staging in font-id
 // order (each font's draw indexes its contiguous range via firstInstance), grow + upload the GPU buffer,
 // and write each font's indirect record. Runs only on a signature change
-function rebuild(state: State, device: GPUDevice): void {
+function rebuild(state: World, device: GPUDevice): void {
     const _textState = state.resource(textStateKey);
 
     while (_textState.byFont.length < _textState.atlases.length) _textState.byFont.push([]);
@@ -437,7 +437,7 @@ const TextSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     before: [PrepassSystem],
-    setup(state: State) {
+    setup(state: World) {
         const _textState = state.resource(textStateKey);
 
         _textState.quadBase = state.resource(Meshes).get("textQuad")?.indexBase ?? 0;
@@ -493,12 +493,12 @@ export const TextPlugin: Plugin = {
                 color: 0xffffff,
             }),
             parse: {
-                font: (name: string, state: State) => state.resource(Fonts).id(name) ?? 0,
-                content: (raw: string, state: State) => text(state, raw),
+                font: (name: string, state: World) => state.resource(Fonts).id(name) ?? 0,
+                content: (raw: string, state: World) => text(state, raw),
             },
             format: {
                 color: formatHex,
-                content: (id: number, state: State) => state.resource(Content).name(id) ?? "",
+                content: (id: number, state: World) => state.resource(Content).name(id) ?? "",
             },
         },
     },
@@ -564,7 +564,7 @@ export const TextPlugin: Plugin = {
         }
     },
 
-    warm(state: State) {
+    warm(state: World) {
         const _textState = state.resource(textStateKey);
 
         if (!state.gpu.device) return;
@@ -587,7 +587,7 @@ export const TextPlugin: Plugin = {
         for (const atlas of _textState.atlases) if (atlas) ensureString(state, atlas, ASCII_CACHE);
     },
 
-    dispose(state: State) {
+    dispose(state: World) {
         const _textState = state.resource(textStateKey);
 
         _textState.glyphBuf?.destroy();

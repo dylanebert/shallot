@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { BodyType } from "../common/types";
-import { World } from "./world";
+import { PhysicsWorld } from "./world";
 
 test("World.restore refuses a shared-kernel snapshot that could rewind a sibling World", () => {
-    const target = new World({ gravity: { x: 0, y: 0, z: 0 } });
-    const sibling = new World({ gravity: { x: 0, y: 0, z: 0 } });
+    const target = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         target.createBody({ type: BodyType.Kinematic, linearVelocity: { x: 1, y: 0, z: 0 } });
         const siblingBody = sibling.createBody({
@@ -29,8 +29,8 @@ test("World.restore refuses a shared-kernel snapshot that could rewind a sibling
 });
 
 test("World.restore refuses a destroyed target even when a sibling is the only live World", () => {
-    const target = new World({ gravity: { x: 0, y: 0, z: 0 } });
-    const sibling = new World({ gravity: { x: 0, y: 0, z: 0 } });
+    const target = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     let targetDestroyed = false;
     try {
         target.createBody({ type: BodyType.Kinematic, linearVelocity: { x: 1, y: 0, z: 0 } });
@@ -58,8 +58,8 @@ test("World.restore refuses a destroyed target even when a sibling is the only l
 });
 
 test.todo("physics-boundary: restoring one World leaves a sibling World on the same kernel unchanged", () => {
-    const target = new World({ gravity: { x: 0, y: 0, z: 0 } });
-    const sibling = new World({ gravity: { x: 0, y: 0, z: 0 } });
+    const target = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         target.createBody({ type: BodyType.Kinematic, linearVelocity: { x: 1, y: 0, z: 0 } });
         const siblingBody = sibling.createBody({

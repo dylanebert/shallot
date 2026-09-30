@@ -30,7 +30,7 @@ import {
     globalTransformTable,
     type Plugin,
     Registry,
-    type State,
+    type World,
     type System,
 } from "../../engine";
 
@@ -75,7 +75,7 @@ function transparentPixel(): Blob {
  * image(state, "/icons/house.png", "house");
  * ```
  */
-export function image(state: State, source: string | Blob, name?: string): number {
+export function image(state: World, source: string | Blob, name?: string): number {
     const _images = state.resource(Images);
 
     const key = name ?? (typeof source === "string" ? source : `image${_images.size}`);
@@ -115,9 +115,9 @@ const createSpriteGpuState = (): SpriteGpuState => ({
     quadBase: 0,
     sig: -1,
 });
-const _spriteGpuState = (state: State) => state.resource(spriteGpuKey);
+const _spriteGpuState = (state: World) => state.resource(spriteGpuKey);
 
-function rebuild(state: State, device: GPUDevice): void {
+function rebuild(state: World, device: GPUDevice): void {
     const _spriteGpu = state.resource(spriteGpuKey);
 
     const { ranges, count, dataCap, f32, eids } = packSprites(state);
@@ -194,7 +194,7 @@ const SpriteSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     before: [PrepassSystem],
-    setup(state: State) {
+    setup(state: World) {
         const _spriteGpu = state.resource(spriteGpuKey);
 
         _spriteGpu.quadBase = state.resource(Meshes).get("spriteQuad")?.indexBase ?? 0;
@@ -248,11 +248,11 @@ export const SpritePlugin: Plugin = {
                 fillMode: SpriteFill.None,
             }),
             parse: {
-                image: (name: string, state: State) => state.resource(Images).id(name) ?? 0,
+                image: (name: string, state: World) => state.resource(Images).id(name) ?? 0,
             },
             format: {
                 color: formatHex,
-                image: (id: number, state: State) => state.resource(Images).name(id) ?? "",
+                image: (id: number, state: World) => state.resource(Images).name(id) ?? "",
             },
             enums: { billboard: SpriteBillboard, blend: SpriteBlend, fillMode: SpriteFill },
         },
@@ -348,7 +348,7 @@ export const SpritePlugin: Plugin = {
             .$name("shallot-sprite-args");
     },
 
-    dispose(state: State) {
+    dispose(state: World) {
         const _spriteGpu = state.resource(spriteGpuKey);
 
         _spriteGpu.spriteBuf?.destroy();

@@ -6,7 +6,7 @@ import {
     GlobalTransform,
     not,
     type Plugin,
-    type State,
+    type World,
     type System,
     Transform,
     u8,
@@ -123,7 +123,7 @@ function isButton(mouse: Readonly<Mouse>, button: number): boolean {
 const OrbitSystem: System = {
     group: "simulation",
 
-    update(state: State) {
+    update(state: World) {
         const input = state.resource(Devices);
         const dt = state.time.deltaTime;
 

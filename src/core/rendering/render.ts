@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 /**
  * device-level render state owned by `RenderPlugin`. `encoder` is the frame's
@@ -53,7 +53,7 @@ function createRender(): Render {
 }
 
 /** Create this world's render state during RenderPlugin initialization. */
-export function initializeRenderState(state: State): void {
+export function initializeRenderState(state: World): void {
     state.resource(renderKey);
 }
 

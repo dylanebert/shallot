@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 // Subgroup-free radix sort — the LDS sibling of the Onesweep sort in sort.ts, selected
 // when the device has no `subgroups` (WebKit: Safari / WKWebView). Same contract as
 // {@link createRadixSort}: sorts (key, payload) u32 pairs ascending, stable, the sorted
@@ -284,7 +284,7 @@ export function radixLdsWgsl(): {
  * contract; {@link createBvh} threads its shared buffers + count in.
  */
 export async function createRadixSortLds(
-    state: State,
+    state: World,
     device: GPUDevice,
     maxKeys: number,
     shared: RadixSortShared = {},

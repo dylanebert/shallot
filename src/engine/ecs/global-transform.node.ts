@@ -128,18 +128,18 @@ test("a physics camera query reads fixed-tick GlobalTransform without requiring 
     }
 });
 
-function addStaticBody(state: engine.State, eid: number, x: number): void {
+function addStaticBody(state: engine.World, eid: number, x: number): void {
     state.add(eid, Body);
     state.of(Body).pos.set(eid, x, 0, 0, 0);
     state.of(Body).mass.set(eid, 0);
 }
 
-function addTransform(state: engine.State, eid: number, x: number): void {
+function addTransform(state: engine.World, eid: number, x: number): void {
     state.add(eid, Transform);
     state.of(Transform).pos.set(eid, x, 0, 0, 0);
 }
 
-function attachTestCamera(state: engine.State): void {
+function attachTestCamera(state: engine.World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,
@@ -157,7 +157,7 @@ function attachTestCamera(state: engine.State): void {
 }
 
 async function renderedX(
-    state: engine.State,
+    state: engine.World,
     table: ReturnType<typeof globalTransformTable>,
     eid: number,
 ): Promise<number> {
@@ -169,9 +169,9 @@ async function renderedX(
 
 async function handoverApp(initial: "Body" | "Transform"): Promise<{
     app: Awaited<ReturnType<typeof build>>;
-    handover(action: (state: engine.State, eid: number) => void): void;
+    handover(action: (state: engine.World, eid: number) => void): void;
 }> {
-    let action: ((state: engine.State, eid: number) => void) | undefined;
+    let action: ((state: engine.World, eid: number) => void) | undefined;
     let eid = -1;
     const handoverSystem: System = {
         group: "simulation",

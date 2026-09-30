@@ -10,7 +10,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { DrawIndexedIndirect } from "../../core/rendering";
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 
 // one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
 // survivors, firstInstance = the mesh's base into the re-gathered list. Stride derived from the schema
@@ -36,12 +36,12 @@ const createRegatherState = (): RegatherState => ({
     pipelineCapacity: 0,
 });
 
-function regatherState(state: State): RegatherState {
+function regatherState(state: World): RegatherState {
     return state.resource(regatherStateKey);
 }
 
 /** Create this world's regather pipeline state during Sear initialization. */
-export function initializeRegatherState(state: State): void {
+export function initializeRegatherState(state: World): void {
     state.resource(regatherStateKey);
 }
 
@@ -129,7 +129,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 /** compile the shared A/B re-gather pipelines once (idempotent): called from `prepareSear`, folded into its
  * warm `Promise.all`. Every {@link Regather} instance in this State uses these layouts. */
 export async function prepareRegather(
-    state: State,
+    state: World,
     device: GPUDevice,
     capacity: number,
 ): Promise<void> {
@@ -271,7 +271,7 @@ export interface Regather {
 
 /** create a shadow-atlas re-gather instance. `label` names its GPU buffers. The A/B pipelines must be
  * compiled once via {@link prepareRegather} before {@link Regather.run}. */
-export function createRegather(state: State, label: string): Regather {
+export function createRegather(state: World, label: string): Regather {
     let _eids: GPUBuffer | null = null;
     let _eidCapacity = 0;
     let _eidCombos = 0;
@@ -300,7 +300,7 @@ export function createRegather(state: State, label: string): Regather {
 
     // (re)allocate the per-mesh indirect args (one DrawIndexedIndirect record per casting draw); grows as the
     // casting-draw count rises, invalidating the bind groups on grow
-    function ensureArgs(state: State, count: number): void {
+    function ensureArgs(state: World, count: number): void {
         if (_args && _argsCap >= count) return;
         _args?.destroy();
         _argsCap = Math.max(count, 8);
@@ -314,7 +314,7 @@ export function createRegather(state: State, label: string): Regather {
     }
 
     // (re)allocate the meta buffer to hold `combos + draws` u32 (the combo slots then the draw pairs)
-    function ensureMeta(state: State, n: number, runIndex: number): GPUBuffer {
+    function ensureMeta(state: World, n: number, runIndex: number): GPUBuffer {
         if (_meta[runIndex] && _metaCap[runIndex] >= n) return _meta[runIndex];
         _meta[runIndex]?.destroy();
         const cap = Math.max(n, 64);
@@ -331,7 +331,7 @@ export function createRegather(state: State, label: string): Regather {
         return buffer;
     }
 
-    function params(state: State, runIndex: number): GPUBuffer {
+    function params(state: World, runIndex: number): GPUBuffer {
         let buffer = _params[runIndex];
         if (buffer) return buffer;
         buffer = state.gpu.device.createBuffer({
@@ -346,7 +346,7 @@ export function createRegather(state: State, label: string): Regather {
     // Pass A bind group (drawArgs + meta → args). `drawArgs` is the Part pack's shared indirect buffer (read
     // from a casting Draw — sear stays part-agnostic), which reallocs on pack growth
     function aGroup(
-        state: State,
+        state: World,
         drawArgs: GPUBuffer,
         meta: GPUBuffer,
         runIndex: number,
@@ -376,7 +376,7 @@ export function createRegather(state: State, label: string): Regather {
 
     // Pass B bind group (drawArgs + packedEids + args + meta → eids)
     function bGroup(
-        state: State,
+        state: World,
         drawArgs: GPUBuffer,
         packed: GPUBuffer,
         meta: GPUBuffer,

@@ -8,7 +8,7 @@ import * as d from "typegpu/data";
 import { build, type Plugin } from "../app";
 import { f32, u32 } from "../index";
 import { probeBuffer } from "../runtime";
-import type { State } from "./state";
+import type { World } from "./state";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -38,7 +38,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 750): Prom
     });
 }
 
-async function stepAndValidate(state: State, label: string): Promise<void> {
+async function stepAndValidate(state: World, label: string): Promise<void> {
     const device = state.gpu.device;
     device.pushErrorScope("validation");
     state.step(0);
@@ -52,8 +52,8 @@ const Rows = { amount: f32, tag: u32 };
 
 for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
     test(`dense tables upload ${range} ranges with writeBuffer and skip unchanged rows`, async () => {
-        let state!: State;
-        let table!: ReturnType<State["table"]>;
+        let state!: World;
+        let table!: ReturnType<World["table"]>;
         const plugin: Plugin = {
             name: "TableUploadProbe",
             components: { Rows },
@@ -130,8 +130,8 @@ for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
 }
 
 test("tables combine source fields, optional presence, and several row owners", async () => {
-    let state!: State;
-    let table!: ReturnType<State["table"]>;
+    let state!: World;
+    let table!: ReturnType<World["table"]>;
     const Core = { x: f32 };
     const Optional = { y: f32 };
     const Flag = {};
@@ -178,9 +178,9 @@ test("tables combine source fields, optional presence, and several row owners", 
 });
 
 test("component fields bulk-upload through a dense struct table and release their slots", async () => {
-    let state!: State;
+    let state!: World;
     const Bound = { x: f32, y: f32 };
-    let table!: ReturnType<State["table"]>;
+    let table!: ReturnType<World["table"]>;
     const plugin: Plugin = {
         name: "BoundTableProbe",
         components: { Bound },
@@ -230,8 +230,8 @@ test("component fields bulk-upload through a dense struct table and release thei
 });
 
 test("dense tables reuse free-list slots, lazily publish eid mappings, and expose active rows", async () => {
-    let state!: State;
-    let table!: ReturnType<State["table"]>;
+    let state!: World;
+    let table!: ReturnType<World["table"]>;
     const plugin: Plugin = {
         name: "DenseTableProbe",
         initialize(current) {
@@ -310,7 +310,7 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
 });
 
 test("table growth changes generation and refuses beyond the named device limit", async () => {
-    let table!: ReturnType<State["table"]>;
+    let table!: ReturnType<World["table"]>;
     const plugin: Plugin = {
         name: "TableGrowthProbe",
         initialize(state) {

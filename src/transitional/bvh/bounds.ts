@@ -1,4 +1,4 @@
-import type { State } from "../../engine";
+import type { World } from "../../engine";
 // Scene-bounds reduction — primitive AABBs → one scene AABB, the first stage of the
 // LBVH builder. The build's first pass: Morton
 // normalization needs the scene extent before any code is computed.
@@ -301,7 +301,7 @@ export interface SceneBounds {
  * device.queue.submit([enc.finish()]);
  */
 export async function createSceneBounds(
-    state: State,
+    state: World,
     device: GPUDevice,
     maxPrims: number,
     shared: SceneBoundsShared = {},

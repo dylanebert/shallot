@@ -10,14 +10,14 @@ import {
     pointerLockRefusal,
     pointerLockStatus,
     type Resource,
-    type State,
+    type World,
     type System,
     setKinematic,
 } from "@dylanebert/shallot";
 
 // The built-in Player keeps its default WASD, look, and jump controls. These two Character values make the
 // ascent's step rhythm and lift transfer feel deliberate without replacing the controller.
-function tune(state: State): void {
+function tune(state: World): void {
     for (const eid of state.query([Character])) {
         if (state.identity.id(eid) !== "player") continue;
         state.of(Character).jumpSpeed.set(eid, 7);
@@ -41,13 +41,13 @@ type DemoBag = {
     panel: HTMLDivElement | null;
     look: HTMLDivElement | null;
 };
-function stateBag(state: State): DemoBag {
+function stateBag(state: World): DemoBag {
     return state.resource(RECIPE_STATE);
 }
 
 // The bag's creation, apart from the per-frame lookup: its dispose closure would otherwise make every
 // lookup allocate a context.
-function createBag(state: State): DemoBag {
+function createBag(state: World): DemoBag {
     const bag: DemoBag = {
         liftEids: [],
         liftBases: [],
@@ -75,7 +75,7 @@ const lift: System = {
     before: [CharacterSweepSystem],
     // Every lift shares one trajectory, so the phase, the rise and the velocity are the tick's, not each
     // lift's: they are computed once here and the slot walk only adds each lift's base to them.
-    update(state: State): void {
+    update(state: World): void {
         const bag = stateBag(state);
         const phase = 2 * (state.time.elapsed * RATE);
         const rise = 0.5 * TRAVEL * (1 - Math.cos(phase));
@@ -90,7 +90,7 @@ const lift: System = {
     },
 };
 
-function mountControls(state: State): void {
+function mountControls(state: World): void {
     if (typeof document === "undefined") return;
     const bag = stateBag(state);
     if (bag.panel) return;
@@ -149,7 +149,7 @@ export const Demo = {
     name: "Demo",
     components: { Lift },
     dependencies: [CharacterPlugin, InputPlugin, PhysicsPlugin],
-    warm(state: State) {
+    warm(state: World) {
         tune(state);
         const bag = stateBag(state);
         bag.liftCount = 0;

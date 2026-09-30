@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { State, stampAdapter } from "../index";
+import { World, stampAdapter } from "../index";
 import { diagnose, load, parse } from "../scene";
 
 const fallbackAdapter = {
@@ -25,7 +25,7 @@ test("an externally supplied GPU device without its adapter can be mistaken for 
 });
 
 test("a CPU scene silently loses render-only attrs when those plugins are absent, so authors cannot see what the composition dropped", () => {
-    const state = new State();
+    const state = new World();
     const nodes = parse('<scene><a mesh="name: cube" material="name: default" /></scene>');
     const messages = diagnose(state, nodes);
     expect(messages.map((diagnostic) => diagnostic.message)).toEqual([

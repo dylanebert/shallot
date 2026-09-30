@@ -9,7 +9,7 @@ import {
     requirePointerLock,
 } from "../../core/input";
 import { Camera, RenderPlugin } from "../../core/rendering";
-import { entity, f32, not, type Plugin, type State, type System, Transform } from "../../engine";
+import { entity, f32, not, type Plugin, type World, type System, Transform } from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
 import {
     Character,
@@ -84,14 +84,14 @@ export const Player = {
 
 /** Pointer-lock reads are State-scoped. */
 export type { PointerLockStatus } from "../../core/input";
-export function pointerLockStatus(state: State): PointerLockStatus {
+export function pointerLockStatus(state: World): PointerLockStatus {
     return readPointerLockStatus(state);
 }
-export function pointerLockRefusal(state: State): string | null {
+export function pointerLockRefusal(state: World): string | null {
     return readPointerLockRefusal(state);
 }
 
-function setupPointerLock(state: State): void {
+function setupPointerLock(state: World): void {
     requirePointerLock(state, true);
     state.onDispose(() => {
         releasePointerLock(state);
@@ -113,7 +113,7 @@ const PlayerSnapshotSystem: System = {
     name: "snapshot",
     group: "fixed",
     after: [CharacterSweepSystem],
-    update(state: State) {
+    update(state: World) {
         for (const eid of state.query(PLAYER_BODIES)) {
             if (!globalTransform(state, eid, _globalTransform)) continue; // The body producer has not registered yet.
             const x = _globalTransform[0];
@@ -143,7 +143,7 @@ const PlayerSnapshotSystem: System = {
 
 // the player's render position: lerp between the two most recent fixed-tick GlobalTransform positions by `fixedAlpha`.
 // Falls back to the authored Body spawn position until the first snapshot lands, so the first frames aren't at the origin.
-function followPos(state: State, eid: number, out: [number, number, number]): void {
+function followPos(state: World, eid: number, out: [number, number, number]): void {
     if (state.has(eid, PlayerFollow)) {
         const a = state.time.fixedAlpha;
         out[0] = lerp(
@@ -168,7 +168,7 @@ function followPos(state: State, eid: number, out: [number, number, number]): vo
     out[2] = state.of(Body).pos.z.get(eid);
 }
 
-function findCamera(state: State, eid: number): number {
+function findCamera(state: World, eid: number): number {
     const cam = state.of(Player).camera.get(eid);
     if (!cam || !state.has(cam, Camera)) {
         // warn once, latched on the derived PlayerFollow (added by the snapshot system); if it isn't up yet
@@ -186,7 +186,7 @@ function findCamera(state: State, eid: number): number {
 
 // FPS orientation from yaw (around world Y) then pitch (around the camera's right axis). Matches the
 // forward used for the move basis + the third-person offset (forward = q·(0,0,−1)).
-function setLook(state: State, cam: number, yaw: number, pitch: number): void {
+function setLook(state: World, cam: number, yaw: number, pitch: number): void {
     const hy = yaw * 0.5;
     const hp = pitch * 0.5;
     const sy = Math.sin(hy);
@@ -210,7 +210,7 @@ export const PlayerControlSystem: System = {
 
     setup: setupPointerLock,
 
-    update(state: State) {
+    update(state: World) {
         // input suspended (a menu/cutscene): release the lock so the cursor frees + mouse-look stops, and let
         // the loop run with neutral device data — every key reads up, so move resolves to 0 and the player freezes.
         const input = state.resource(Devices);

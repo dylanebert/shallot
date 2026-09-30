@@ -38,7 +38,7 @@ const INITIAL_CAPACITY = 16;
 export const pixelRatio: number | "auto" = "auto";
 
 /** A world-owned value identified by this declaration object, not its creator or a name. */
-export type Resource<T> = { readonly create: (state: State) => T };
+export type Resource<T> = { readonly create: (state: World) => T };
 
 /**
  * ecs state passed to every system
@@ -50,7 +50,7 @@ export type Resource<T> = { readonly create: (state: State) => T };
  *     },
  * };
  */
-export class State {
+export class World {
     /** this world's component registrations, defaults, exclusions, and reflection data. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
