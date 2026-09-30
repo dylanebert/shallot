@@ -14,7 +14,9 @@ export interface ReadbackStamp {
     readonly fixedTick: number;
 }
 
-/** World-owned one-shot staging pool. No request means no mapping. */
+/** World-owned one-shot staging pool. No request means no mapping or readback allocation.
+ * Staging is reused, but each request allocates mapping promises and independent result bytes.
+ * Results carry copy-time stamps; arrival timing is not deterministic simulation input. */
 export class ReadbackPool {
     private readonly _slots: Slot[] = [];
     private _disposed = false;

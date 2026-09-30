@@ -225,7 +225,8 @@ export class State {
         return this._gpuResources.has(resource);
     }
 
-    /** Declare one dense-slot GPU table with a single record layout. */
+    /** Declare a world-owned dense-slot table with one TypeGPU record layout.
+     * Names are unique within this world; disposal releases its buffers. */
     table<T extends d.AnyWgslData>(
         name: string,
         record: T,
@@ -351,7 +352,9 @@ export class State {
         if (!this._fieldUploadSeen && !this._changesClearedAtUpload) this.clearChanges();
     }
 
-    /** resolve a component schema to its world-owned columns. Call once at system setup, then retain the result. */
+    /** Resolve a schema to this world's storage. Retain these accessors at system setup,
+     * not their `column` arrays: growth replaces arrays, while accessors remain valid.
+     * Setters and bulk `write` publish frame-scoped field marks for table upload. */
     of<T extends Component>(component: T): ComponentStorage<T> {
         useState(this);
         const id = idOf(component);

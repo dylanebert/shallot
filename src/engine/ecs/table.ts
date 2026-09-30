@@ -33,7 +33,10 @@ type PresenceBinding = {
     readonly mask: number;
 };
 
-/** Dense-slot storage with stable free-list allocation and one typed record layout. */
+/** World-owned dense slots with stable free-list allocation and one typed record layout.
+ * Eids resolve to slots; iteration uses the compact active-row list. CPU-backed tables
+ * upload the range spanning changed records, or nothing when unchanged. Buffer growth
+ * changes generation; consumers must rebuild bindings without recompiling shaders. */
 export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     readonly name: string;
     readonly record: T;

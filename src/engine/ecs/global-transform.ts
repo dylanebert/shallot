@@ -10,7 +10,9 @@ import type { GpuTable } from "./table";
 
 /** Authored world placement. A simulated body excludes this producer. There is no hierarchy. */
 export const Transform = { pos: field(vec4), rot: field(vec4), scale: field(vec4) };
-/** Derived fixed-tick world placement. Gameplay and physics queries read this, never Transform. */
+/** Derived fixed-tick world placement, never scene-authored. Gameplay and physics queries
+ * read this, never Transform. Exactly one component provides it per entity through traits;
+ * rendering reads `globalTransformTable(state)` instead of these fixed-tick columns. */
 export const GlobalTransform = {
     pos: field(vec4),
     quat: field(vec4),

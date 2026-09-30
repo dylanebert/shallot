@@ -8,6 +8,46 @@ Shallot is a WebGPU game engine for TypeScript, built on an entity component sys
 
 A plugin is how behavior gets into a game: a named bundle of components, systems and lifecycle hooks (`initialize`, `warm`, `dispose`), plus the plugins it needs. A project lists its plugins in `shallot.json`, and `build()` composes them into an app. Games and tests run the same composed app on the same stepped clock.
 
+### Device and world ownership
+
+Every built app requires a WebGPU device, even without rendering plugins. Acquisition requests the engine's required features and the active plugins' feature union, grants preferred features where available, and reports missing capabilities with their cause. It does not forward adapter maxima. The current storage-binding requirement is ten per shader stage; the accepted eight-binding target and removal of mandatory BGRA storage still await rendering and presentation changes.
+
+Apps can share a device by passing it through `config.device`; omitting it acquires a device for that build. Each app owns a separate `State`, TypeGPU root, component storage, typed resources, GPU registries, tables and readback pool. Builds serialize registration and warm-up, but completed apps coexist. Disposing one releases its resources, not the shared device or another app's data.
+
+A component declares named typed fields, not storage or GPU residency. Its world owns one eid-indexed typed-array column per field. Columns grow by doubling to cover the entity high-water mark and do not shrink during play. Resolve storage once with `state.of(Component)` and retain the returned accessors, not a column array that growth can replace. Schema-compatible hot reload reuses that world's storage; an incompatible schema requires a rebuild.
+
+Setters and bulk `write(eids, source)` mark changed entities for that field. Every table consuming those marks reads them at the frame's upload point, before they clear; writes after it remain for the next frame. Direct column writes must publish the same marks. There are no per-component change ticks.
+
+Keep plugin state in `state.resource` and use `state.gpu` for the world's GPU context, not module globals. Buffers and textures created through that context or its TypeGPU root are owned automatically; register other raw GPU allocations with `state.own` and non-GPU cleanup with `state.onDispose`. Legacy component accessors and `Compute` still resolve an ambient world during callbacks; they are compatibility syntax, not process-owned storage, and their removal belongs to the authoring-syntax work.
+
+### GPU tables
+
+A GPU consumer declares its rows, one TypeGPU struct record per row, and how the records are filled through `state.table`. Pipelines bind consumer-shaped tables, not individual authoring fields. Group records by access, update frequency and lifetime; a pass needing only a few fields reads a narrower table, not a second engine-wide layout.
+
+- Rows are stable dense slots allocated from a free list, not entity ids. Shaders starting from an eid opt into the uploaded eid-to-row map; zero means absent and other entries encode row + 1. Draws and dispatches iterate a compact active-row or instance list, never the sparse eid range.
+- CPU fill uses bound component columns or bulk byte ranges, including WASM memory, not a per-row JavaScript callback. A compute producer can derive a table's records from uploaded inputs. GPU-only tables have no CPU backing or record upload; a GPU pass owns their writes.
+- Unchanged records upload nothing. Changed records upload the contiguous range spanning the changed rows with `writeBuffer`; mapped-staging scatter was measured and not retained. Uploads inside an open frame encoder use a staging copy to preserve command order after buffer growth.
+- Growth replaces the buffer, preserves its contents and changes its generation. Consumers subscribe or track generations to rebuild bind groups when a buffer changes, not when its contents change. Use runtime-sized shader arrays so capacity growth does not require recompiling the pipeline. Table capacity is bounded by device buffer and storage-binding size limits, with refusal naming the cause.
+- Fixed simulation writes precede the head-of-draw upload and GPU passes. Engine GPU work records into the renderer's frame encoder rather than opening a separate steady-play submission.
+
+TypeGPU is the GPU language for the engine and extensions: it describes records, shader types and typed bind-group layouts. Raw WGSL uses its sanctioned escape hatch. Steady updates use raw handles and byte ranges rather than allocating object-form TypeGPU writes. TypeGPU upgrades remain subject to the pin rule.
+
+### Readback
+
+Steady play reads nothing back. GPU values that size later GPU work stay on the GPU as indirect dispatch or draw arguments; diagnostics such as overflow counts clamp safely without CPU observation and are read only on request. Shipped shaders do not use TypeGPU's shader `console.log`, which triggers readback.
+
+`probeBuffer` and `probeTexture` request one owned snapshot of a world-owned resource, optionally encoding the work to capture before its copy. Each request submits its copy and returns independent bytes stamped with the copy-time frame and fixed tick, not the arrival time. Staging is pooled per world and released after `state.readback.maxUnusedFrames` idle frames. No request means no mapping or readback allocation; a request still allocates because WebGPU mapping creates a promise and a mapped buffer that unmapping detaches. There is no continuous-readback mode.
+
+Arrival timing and GPU floating-point results vary across adapters. A deterministic plugin never consumes readback in `fixed`; one that does declares `deterministic: false`. This is a declaration proved by replay, not runtime enforcement of access to retained bytes.
+
+### GlobalTransform
+
+`GlobalTransform` is derived world placement, never scene-authored data. CPU gameplay and physics queries read its fixed-tick columns; rendering reads the engine's interpolated dense rows through `globalTransformTable(state)`. GPU history and interpolation become resident only when requested by a reader. A teleport uses `state.teleport(eid)` to discard interpolation across the discontinuity.
+
+Exactly one producer provides an entity's `GlobalTransform`, declared through the `provides` trait and enforced by producer exclusion: `Transform` for authored placement, a body for simulation, or a domain's skeleton or attachment. Readers never treat `Transform` as the shared world-space result. Producers write through world storage; they do not write the renderer's interpolated output.
+
+Hierarchy is not an engine structure. A domain needing relative placement owns the relation and derives world placement from it. A general attachment relation enters core only when two examples need the same one.
+
 ## Layout
 
 Shallot is layered like an onion: `engine` at the center, then `core`, `standard` and `extras`, then external packages outside the repo. Dependencies point inward. Outer layers make more choices for a game, so games are more likely to replace or remove them.
@@ -108,7 +148,7 @@ A test that needs more is split or moves to a heavier tier. Each GPU and Node fi
 - The GPU tier runs its files serially on one device, not concurrently. GPU tests hold only small device compositions. Each file acquires its in-process device and warms its independent worlds once in `beforeAll`; each test times only its own work. Do not share compiled pipelines across worlds. Device-loss claims prepare the separate devices they destroy during that file's compile step.
 - When touching a built-in composition, add an exact counted claim for the native pipelines it compiles. Compile time is reported, never asserted: `bun test ./scripts/compile.oracle.ts` reports composition durations, and `bun scripts/gpu-compile.oracle.ts` runs the serial GPU files and reports each file's `beforeAll` duration.
 - Tests that build the full default renderer or the Physics kernel belong in Node, especially multi-world isolation tests. The Node tier runs on the same hosted macOS device.
-- Browser tests request no adapter themselves; browser GPU observations accept software adapters.
+- A device-backed check records its adapter classification. Only a hardware claim requires a real adapter; browser GPU observations accept software adapters, and browser tests request no adapter themselves.
 - Display-bound measurements require a declared monitor and take its keyboard and cursor.
 - Tests that make gameplay assertions step the composed app's clock. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
 - Test a frame at the cheapest level that shows the defect: CPU state, GPU readback, browser pixels, then a person. Choose the capture by the claim:
