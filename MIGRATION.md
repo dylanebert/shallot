@@ -22,7 +22,6 @@ These changes require updates to a 0.9.5 app.
 | `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
 | `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
 | `build`, `run`, `Config`, `swap`, `SwapResult` | `createApp`, `runApp`, `AppConfig`, `swapPlugins`, `PluginSwapResult` |
-| `Node`, `Attr`, `parse`, `load`, `serialize`, `stringify`, `normalizeAttr` | `SceneNode`, `SceneAttribute`, `parseScene`, `loadScene`, `serializeScene`, `stringifyScene`, `normalizeAttribute` |
 | `Input`, `Unit`, `units`, `angle`, `degrees`, `radians` | `FieldInput`, `FieldUnit`, `unitInput`, `angleInput`, `degreeUnit`, `radianUnit` |
 | `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
 | `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
@@ -59,7 +58,6 @@ Resolve storage once in a system's setup or a lifecycle hook, then retain it for
 
 Remove `capacity` from `createApp()` configuration and `new World()` options. The exported global `capacity` is gone; columns and tables grow as needed.
 
-Scene helpers `diagnose`, `parseFields`, `formatFields` and `normalizeAttribute` take World first.
 
 ## Component fields no longer expose `.gpu`
 
@@ -227,11 +225,18 @@ There is no animation plugin in this release line. Implement animation in app co
 
 ## `/document` and edit mode are gone
 
-`Document`, `History`, `Session` and `ReadbackSystem` are removed, with no replacement for undo, redo or editor sessions. Remove `State.mode`, the app's `mode` option and `annotations.mode`: every system always runs. Saving and loading scenes still works:
+`Document`, `History`, `Session` and `ReadbackSystem` are removed, with no replacement for undo, redo or editor sessions. Remove `State.mode`, the app's `mode` option and `annotations.mode`: every system always runs.
+
+## Scene format and save/restore are removed
+
+The `.scene` format, `parseScene`, `loadScene`, `serializeScene`, `stringifyScene` and `normalizeAttribute` are removed with no replacement. Remove the app's and manifest's `scene` option. A game saves the component values it needs from `snapshot(world)` and restores them itself.
+
+Author worlds in code:
 
 ```ts
-import { serializeScene, stringifyScene } from "@dylanebert/shallot";
-const saved = stringifyScene(serializeScene(world));
+import { Transform } from "@dylanebert/shallot";
+const eid = world.create();
+world.add(eid, Transform, { translation: [0, 1, 0, 0] });
 ```
 
 ## `/harness` helpers are removed

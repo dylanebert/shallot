@@ -16,7 +16,6 @@ const arms: [string, string[]][] = [
         ["bun", resolve(import.meta.dir, file)],
     ]),
     ["examples index", ["bun", resolve(import.meta.dir, "examples-index.ts"), "--check"]],
-    ["scene format", ["bun", resolve(import.meta.dir, "format.ts"), "--check"]],
     ["cargo fmt", ["cargo", "fmt", "--all", "--check"]],
     [
         "cargo clippy (physics)",

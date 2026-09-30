@@ -118,13 +118,11 @@ function orphanedAssets(bundle: Rollup.OutputBundle): string[] {
 }
 
 /**
- * classify a changed scene or manifest under the project dir (`"project"`), or neither (`null`).
- * The watcher signals the reload; the HMR hook invalidates and swallows default HMR so a scene
- * change fires one reload, not two.
+ * classify a changed manifest (`"project"`), or neither (`null`).
+ * The watcher signals the reload; the HMR hook swallows default HMR to avoid a second reload.
  */
 function classifyProjectFile(file: string, absDir: string): "project" | null {
-    if (file.startsWith(absDir) && (file.endsWith(".scene") || file === manifestPath(absDir)))
-        return "project";
+    if (file === manifestPath(absDir)) return "project";
     return null;
 }
 
@@ -177,7 +175,7 @@ export function shallot(projectDir?: string): Plugin[] {
             }
         },
         // generate the `virtual:project` module from the project's `shallot.json` — static imports for each
-        // enabled plugin (engine via the barrel, locals via their specifier) + the scene + manifest.
+        // enabled plugin (engine via the barrel, locals via their specifier) + the manifest.
         load(id) {
             if (id !== resolvedId) return;
             return generateModuleFromPlan(readProject(absProjectDir));
@@ -187,13 +185,8 @@ export function shallot(projectDir?: string): Plugin[] {
             configureServer(server, absProjectDir);
             const absDir = absProjectDir;
             server.watcher.add(absDir);
-            // a `.scene` add/remove changes the scene list; a `shallot.json` edit changes the plugin
-            // set — both re-generate `virtual:project`, so invalidate + reload. Local plugin `.ts`
-            // edits ride HMR instead. The watcher path is the sole signaler — handleHotUpdate only
-            // invalidates + swallows default HMR, so a single `.scene` change fires one reload, not
-            // two (the two paths fire independently on the same change event — handleHotUpdate
-            // runs only for update/change events in Vite 8, so add/unlink were always single-fire
-            // via the watcher path alone).
+            // Manifest changes regenerate virtual:project. The watcher alone signals reload;
+            // handleHotUpdate swallows default HMR. Local plugin edits ride HMR instead.
             const onProjectFile = (file: string) => {
                 const kind = classifyProjectFile(file, absDir);
                 if (kind === "project") {
@@ -214,7 +207,6 @@ export function shallot(projectDir?: string): Plugin[] {
                 if (mod) viteServer.moduleGraph.invalidateModule(mod);
                 // no signalChange here — the watcher's onProjectFile already sent the full-reload, so
                 // signaling from both paths double-fires. Returning [] swallows vite's default HMR
-                // (a .scene is not a module, so default HMR would error on it).
                 return [];
             }
             // a project src/*.ts edit falls through to vite's default HMR: `virtual:project` imports the

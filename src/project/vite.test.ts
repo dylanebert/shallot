@@ -73,18 +73,17 @@ test("a project can load duplicate engine, typegpu or manifest plugin instances,
         }
     });
 
-test("a project's virtual:project module reflects its shallot.json manifest and scene", () => {
+test("a project's virtual:project module reflects its shallot.json manifest", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-virtual-project-"));
         try {
             writeFileSync(
                 join(root, "shallot.json"),
-                JSON.stringify({ scene: "scenes/arena.scene", plugins: { Physics: true } }),
+                JSON.stringify({ plugins: { Physics: true } }),
             );
             const plugin = shallotProject(root);
             const load = plugin.load as unknown as (id: string) => string | undefined;
             const source = load("\0virtual:project");
             expect(source).toContain("PhysicsPlugin");
-            expect(source).toContain('const scene = "scenes/arena.scene";');
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
@@ -122,7 +121,7 @@ test("a Vite build does not ship scanner-emitted assets without a surviving bund
         expect(messages[0]).toContain("pruned 1 orphaned asset(s)");
     });
 
-test("dev clients fully reload when a scene or shallot.json changes", () => {
+test("dev clients fully reload when shallot.json changes", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-watch-"));
         try {
             const publicDir = join(root, "public");
@@ -151,9 +150,9 @@ test("dev clients fully reload when a scene or shallot.json changes", () => {
             const changed = listeners.get("change");
             if (!changed) throw new Error("shallot plugin did not install its file watcher");
             changed(join(root, "shallot.json"));
-            changed(join(root, "arena.scene"));
-            expect(reloads).toHaveLength(2);
-            expect(invalidations).toBe(2);
+            changed(join(root, "other.json"));
+            expect(reloads).toHaveLength(1);
+            expect(invalidations).toBe(1);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }

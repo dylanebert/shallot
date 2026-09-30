@@ -15,12 +15,10 @@ import {
     now,
     precompileAll,
     Runtime,
-    readFile,
     requestFrame,
     requestGPU,
     validateGpu,
 } from "../runtime";
-import { diagnose, loadScene, parseScene } from "../scene";
 import { coalesce, frameDelta, median } from "./coalesce";
 import { resolvePlugins } from "./compose";
 
@@ -38,7 +36,7 @@ export interface Plugin {
     readonly deterministic?: boolean;
     /** systems this plugin adds to the scheduler */
     readonly systems?: readonly System[];
-    /** components this plugin registers, keyed by scene-attribute name */
+    /** components this plugin registers, keyed by registry name */
     readonly components?: Record<string, Component>;
     /** per-component traits (requires/excludes/singleton/defaults), keyed like `components` */
     readonly traits?: Record<string, Traits>;
@@ -58,13 +56,13 @@ export interface Plugin {
      * its bounds reduction + radix sort, falling back to an LDS arm on a device without it.
      */
     readonly preferredFeatures?: readonly GPUFeatureName[];
-    /** registration-only setup, run before scene parse (no entities exist yet); idempotent, may report progress */
+    /** initial setup, run before warm-up; idempotent, may report progress */
     readonly initialize?: (
         world: World,
         onProgress?: (progress: number) => void,
     ) => void | Promise<void>;
     /**
-     * post-scene GPU setup and derived spawns, run once entities exist; may report progress.
+     * GPU setup and derived spawns after initialization; may report progress.
      * idempotent: entity spawns need nothing (they live in the `World`). Tie any external effect
      * (a DOM mount, listener, or rAF loop) to the World via `world.onDispose` / `world.signal` so it
      * unwinds at dispose. warm also re-runs on an in-place rebuild with no `dispose` first (`swapPlugins()`),
@@ -91,7 +89,7 @@ export interface Plugin {
 export interface Loading {
     /** display the screen; return a cleanup called once the build finishes, or nothing to leave it up */
     show(): (() => void) | void;
-    /** report build progress, `0`–`1` across initialize, scene load, and warm */
+    /** report build progress, `0`–`1` across initialize and warm */
     update(progress: number): void;
     /**
      * progress reached `1`; return a promise to hold the screen (an outro, a minimum dwell) until
@@ -105,14 +103,12 @@ export interface Loading {
 }
 
 /**
- * the {@link createApp} / {@link runApp} configuration: plugins, scene, and startup behavior.
+ * the {@link createApp} / {@link runApp} configuration: plugins and startup behavior.
  * @expand
  */
 export interface AppConfig {
     /** plugins to load, unioned with the built-in defaults unless `defaults` is `false` */
     plugins: Plugin[];
-    /** `.scene` file path(s), or an inline XML string (any value starting with `<`) */
-    scene?: string | string[];
     /** startup screen; defaults to the one set by `setDefaultLoading` */
     loading?: Loading;
     /** `false` skips the built-in default plugins entirely */
@@ -233,13 +229,13 @@ export function setDefaultLoading(factory: () => Loading): void {
 }
 
 /**
- * build the app: collect plugins, acquire the GPU device, register, run `initialize`, load scenes, and
+ * build the app: collect plugins, acquire the GPU device, register, run `initialize`, and
  * `warm`, returning a live {@link World} without starting a frame loop. Build setup is serialized, and
  * completed Apps may coexist with separate World-owned storage and GPU registries. Plugin resources retained
  * in module globals are not isolated by this guarantee. Drive `world.step(dt)` yourself, or use {@link runApp}
  * for the managed loop.
  * @example
- * const app = await createApp({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
+ * const app = await createApp({ plugins: [MyPlugin] });
  * app.world.step(1 / 60);
  */
 let buildTail: Promise<void> = Promise.resolve();
@@ -334,14 +330,8 @@ async function buildNow(config: AppConfig): Promise<App> {
             world.storage(component);
         }
 
-        const scenes = config.scene
-            ? Array.isArray(config.scene)
-                ? config.scene
-                : [config.scene]
-            : [];
-
         const warmable = sorted.filter((p) => p.warm);
-        const total = sorted.length + warmable.length + scenes.length;
+        const total = sorted.length + warmable.length;
 
         (() => {
             initializeGlobalTransform(world);
@@ -362,16 +352,7 @@ async function buildNow(config: AppConfig): Promise<App> {
             loading?.update((i + 1) / total);
         }
 
-        for (let i = 0; i < scenes.length; i++) {
-            const scene = scenes[i];
-            const xml = scene.startsWith("<") ? scene : await readFile(scene);
-            const nodes = parseScene(xml);
-            for (const d of diagnose(world, nodes)) console.warn(`[shallot] ${d.message}`);
-            loadScene(nodes, world);
-            loading?.update((sorted.length + i + 1) / total);
-        }
-
-        const warmBase = sorted.length + scenes.length;
+        const warmBase = sorted.length;
         await warmPlugins(world.gpu.device, world, warmable, (progress) => {
             loading?.update((warmBase + progress) / total);
         });
@@ -469,7 +450,7 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
  * build the app and start the `requestAnimationFrame` frame loop, mounting `config.ui` (web only). the
  * loop drives `world.step(dt)` each frame, GPU-fence backpressured so it never runs far ahead of the GPU.
  * @example
- * const app = await runApp({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
+ * const app = await runApp({ plugins: [MyPlugin] });
  * // later: app.dispose();
  */
 export async function runApp(config: AppConfig): Promise<App> {
@@ -606,7 +587,7 @@ export interface PluginSwapResult {
  * preserved), and re-runs `initialize` to repopulate module singletons with the
  * reloaded code. A schema / system-set / ordering / dependency / feature change
  * it can't carry safely returns `{ ok: false, reason }`; the caller then rebuilds
- * from the serialized scene. A `warm`- or `setup`-body edit is undetectable (a closure body can't
+ * from the world's component values. A `warm`- or `setup`-body edit is undetectable (a closure body can't
  * be diffed) and lands on the next rebuild rather than this swap. A live host
  * drives this from its HMR seam; `prev`/`next` are the project's own plugins
  * before and after the reload.

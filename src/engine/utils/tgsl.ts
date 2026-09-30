@@ -205,8 +205,8 @@ export const spliceNs = tgpu["~unstable"].namespace({ names: "strict" });
  * and a raw-WGSL splice site can call them.
  *
  * Lazy on purpose. Resolution needs the build transform, so resolving at module scope would make
- * *importing* a codec module fail in any tool that never touches the GPU (the scene formatter is the
- * live case). Pass the items as a thunk when a schema's shape depends on a config value that is only
+ * importing a module fail in tools that never touch the GPU. Pass the items as a thunk when a
+ * schema's shape depends on a config value that is only
  * final after this module loads (the standard renderer's caster-count-sized uniforms). Pass a shared `ns` when two
  * chunks are always spliced together and must not both emit a shared dependency — the namespace emits
  * it into whichever chunk resolves first ({@link spliceNs} is the engine-wide one).

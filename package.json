@@ -1,7 +1,7 @@
 {
     "name": "@dylanebert/shallot",
     "version": "0.10.0-next.2",
-    "description": "WebGPU game engine for TypeScript: scenes as data, behavior as plugins, web and native desktop builds.",
+    "description": "WebGPU game engine for TypeScript: component data and plugins, web and native desktop builds.",
     "sideEffects": [
         "./src/standard/index.ts"
     ],
@@ -39,7 +39,6 @@
         "./ecs": "./src/engine/ecs/index.ts",
         "./utils": "./src/engine/utils/index.ts",
         "./app": "./src/engine/app/index.ts",
-        "./scene": "./src/engine/scene/index.ts",
         "./input": "./src/core/input/index.ts",
         "./rendering": "./src/core/rendering/index.ts",
         "./standard/rendering": "./src/standard/rendering/index.ts",
@@ -82,7 +81,7 @@
         "build": "bun run ./scripts/build.ts",
         "prepare": "bun run ./scripts/tooling.ts",
         "check": "bun run scripts/check.ts",
-        "format": "biome check --write && bun run scripts/format.ts && bun run scripts/examples-index.ts",
+        "format": "biome check --write && bun run scripts/examples-index.ts",
         "test": "bun test --timeout=250",
         "test:browser": "sh scripts/browser.sh"
     },

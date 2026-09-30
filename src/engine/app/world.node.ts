@@ -12,7 +12,6 @@ import { Content, Fonts, internText, registerFont, Text, TextPlugin } from "../.
 import { isolationFont } from "../../extras/text/font.fixture";
 import { f32, GlobalTransform, probeBuffer, requestGPU, Time, Transform, World } from "../index";
 import "../../standard";
-import { serializeScene } from "../scene";
 import { createApp, swapPlugins } from "./index";
 
 const peerModule = "bun-webgpu";
@@ -139,12 +138,6 @@ test("component registrations, defaults, exclusions, and scene enumeration belon
     expect(() => first.world.add(firstEid, firstComponents.Other)).toThrow('cannot attach "other"');
     second.world.add(secondEid, secondComponents.Blocker);
     expect(() => second.world.add(secondEid, secondComponents.Other)).not.toThrow();
-
-    expect(
-        serializeScene(first.world, [firstEid])[0]
-            .attrs.map((attr) => attr.name)
-            .sort(),
-    ).toEqual(["blocker", "value"]);
 });
 
 test("world GPU registries and owned resources are isolated and released on dispose", async () => {

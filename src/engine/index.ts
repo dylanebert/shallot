@@ -83,18 +83,6 @@ export {
     validateGpu,
 } from "./runtime";
 export {
-    type Diagnostic,
-    diagnose,
-    type LoadResult,
-    loadScene,
-    type ParseError,
-    parseScene,
-    type SceneAttribute,
-    type SceneNode,
-    serializeScene,
-    stringifyScene,
-} from "./scene";
-export {
     type Alias,
     angleInput,
     clamp,

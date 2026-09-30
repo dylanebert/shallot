@@ -6,8 +6,8 @@
 // (Bun loaders resolve the complete entry set again at load time). That split
 // is what lets a dependency mistake fail with an exit code instead of a half-imported project.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { manifestPath, readManifest } from "./assets";
 import { DEFAULT_PLUGIN_NAMES } from "./engine";
 import { localOf, type Manifest, normalize } from "./manifest";
@@ -21,12 +21,11 @@ export interface PlannedLocal {
     readonly path: string;
 }
 
-/** a project directory reduced to what both consumers need: its manifest, its scenes, and the plugin
+/** a project directory reduced to what both consumers need: its manifest and the plugin
  *  set the manifest enables. */
 export interface ProjectPlan {
     readonly dir: string;
     readonly manifest: Manifest;
-    readonly scenes: readonly string[];
     /** engine plugin names to resolve as `${name}Plugin` (enabled defaults + declared extras) */
     readonly engine: readonly string[];
     readonly locals: readonly PlannedLocal[];
@@ -37,9 +36,8 @@ export interface ProjectPlan {
 /** the reads a plan is allowed to make, injectable so a test can pin the read set (the seam takes a
  *  project root and reads inside it — never this package's own layout or export map). */
 export interface ProjectIo {
-    /** the file's text, or null when it does not exist (a scene-only project has no manifest) */
+    /** the file's text, or null when it does not exist */
     readFile(path: string): string | null;
-    discoverScenes(dir: string): string[];
 }
 
 // a local specifier resolved for its consumers: project-relative → project-absolute (the generated
@@ -81,39 +79,6 @@ export function plan(
     return { engine, locals, disabled };
 }
 
-/** every `.scene` under `dir`, project-relative and sorted. */
-export function discoverScenes(dir: string): string[] {
-    const scenes: string[] = [];
-    // per-directory try/catch, not one around the whole walk: an unreadable subtree (permissions, a
-    // broken symlink) used to throw out of the recursive `walk`, which the outer catch swallowed —
-    // silently truncating every sibling not yet visited at every ancestor level, not just the bad
-    // subtree, with no warning that the scene list was incomplete.
-    function walk(current: string) {
-        let entries: string[];
-        try {
-            entries = readdirSync(current);
-        } catch (e) {
-            console.warn(`  ! scene discovery: skipping unreadable directory "${current}": ${e}`);
-            return;
-        }
-        for (const entry of entries) {
-            if (entry === "node_modules" || entry === "dist") continue;
-            const full = join(current, entry);
-            let isDirectory: boolean;
-            try {
-                isDirectory = statSync(full).isDirectory();
-            } catch (e) {
-                console.warn(`  ! scene discovery: skipping unreadable entry "${full}": ${e}`);
-                continue;
-            }
-            if (isDirectory) walk(full);
-            else if (entry.endsWith(".scene")) scenes.push(relative(dir, full));
-        }
-    }
-    walk(dir);
-    return scenes.sort();
-}
-
 const REAL_IO: ProjectIo = {
     readFile(path) {
         try {
@@ -122,17 +87,15 @@ const REAL_IO: ProjectIo = {
             return null;
         }
     },
-    discoverScenes,
 };
 
-/** read a project directory into a plan: its manifest (absent → a scene-only project's empty one), its
- *  scenes, and the classified plugin set. Reads only inside `dir`. */
+/** read a project directory into a plan: its manifest (empty when absent) and the classified plugin
+ *  set. Reads only inside `dir`. */
 export function readProject(dir: string, io: ProjectIo = REAL_IO): ProjectPlan {
     // the real path goes through `readManifest`, which also emits the manifest-boundary warnings; an
     // injected io (a test pinning the read set) parses the same text through the same `normalize`.
     const manifest = io === REAL_IO ? readManifest(dir) : normalize(io.readFile(manifestPath(dir)));
-    const scenes = io.discoverScenes(dir);
-    return { dir, manifest, scenes, ...plan(manifest, dir) };
+    return { dir, manifest, ...plan(manifest, dir) };
 }
 
 /** resolve a module specifier from the project root, or null when nothing resolves. */

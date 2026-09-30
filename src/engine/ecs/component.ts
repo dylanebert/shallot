@@ -102,10 +102,8 @@ export const u32: FieldType<Uint32Array> & { readonly lanes: 1 } = {
 };
 
 /**
- * a u32 that holds an entity id, a `@name` reference in scene files (`Joint.a`,
- * `Spring.b`). Storage is identical to {@link u32}; the distinct descriptor lets the field
- * declare itself a ref, so `serializeScene` round-trips it by the target's scene id rather than the
- * recycled, creation-order eid, with no side list to keep in sync. {@link refs} enumerates them.
+ * a u32 that holds an entity id (`Joint.a`, `Spring.b`). Storage is identical to {@link u32};
+ * {@link refs} enumerates fields with this descriptor.
  */
 export const entity: FieldType<Uint32Array> & { readonly lanes: 1 } = {
     ctor: Uint32Array,
@@ -383,8 +381,7 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
 
 /**
  * the fields holding an entity ref: those declared with the bare `entity` type.
- * `serializeScene` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it
- * can't drift from a separate list. A sibling of {@link fields}.
+ * A sibling of {@link fields}.
  */
 export function refs(component: Component): string[] {
     const out: string[] = [];

@@ -1,5 +1,5 @@
 // The `shallot.json` project manifest: the single source of truth for plugin enablement, read by the CLI
-// toolchain and the production boot. A committed data file the toolchain reads (like a scene file), never
+// toolchain and the production boot. A committed data file the toolchain reads (shallot.json), never
 // code it rewrites. These are the pure parse helpers, `bun test`-covered.
 
 /**
@@ -22,7 +22,6 @@ export interface Manifest {
     /** JSON Schema pointer for IDE autocomplete/validation (`@dylanebert/shallot/shallot.schema.json`);
      *  preserved by `normalize`, ignored by `plan()`. */
     $schema?: string;
-    scene?: string;
     plugins?: Record<string, PluginValue>;
     pixelRatio?: number | "auto";
     /** the bundle identifier for native builds (mac `CFBundleIdentifier`). Omit for the default
@@ -45,7 +44,6 @@ export function normalize(raw: string | null): Manifest {
     const obj = parsed as Record<string, unknown>;
     const manifest: Manifest = {};
     if (typeof obj.$schema === "string") manifest.$schema = obj.$schema;
-    if (typeof obj.scene === "string") manifest.scene = obj.scene;
     if (typeof obj.plugins === "object" && obj.plugins !== null && !Array.isArray(obj.plugins)) {
         manifest.plugins = obj.plugins as Record<string, PluginValue>;
     }

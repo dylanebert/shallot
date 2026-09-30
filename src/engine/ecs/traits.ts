@@ -19,9 +19,8 @@ export interface Traits {
     singleton?: boolean;
     /**
      * runtime-derived decoration — a system owns its membership and values (for example
-     * `GlobalTransform`), so scenes never author it: `serializeScene` skips it, authoring tooling
-     * hides it, and `diagnose` flags an authored attr. Registration
-     * still allocates its columns. Runtime code manages its membership and values;
+     * `GlobalTransform`). Registration still allocates its columns. Runtime code manages its
+     * membership and values;
      * `GlobalTransform` membership is managed by the engine's provider lifecycle
      */
     derived?: boolean;

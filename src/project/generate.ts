@@ -1,7 +1,7 @@
 import type { ProjectPlan } from "./host";
 
 // Generates the `virtual:project` module source from a `shallot.json` manifest — the one place a manifest
-// becomes static imports. Pure over (manifest, absDir, scenes), so `generate.test.ts` pins the emitted
+// becomes static imports. Pure over (manifest, absDir), so `generate.test.ts` pins the emitted
 // import lines without a running vite. Engine plugins resolve to a lean named import from the main
 // barrel (`import { OrbitPlugin } from "@dylanebert/shallot"`, tree-shaken); a local/external plugin is a module whose **default export** is the Plugin
 // (Expo / Obsidian / Babel convention — the package declares its entry, e.g. a subpath `my-plugin/grid`
@@ -12,7 +12,7 @@ const ENGINE = "@dylanebert/shallot";
 
 /** Generate the virtual module from its resolved project plan. */
 export function generateModuleFromPlan(project: ProjectPlan): string {
-    const { dir, manifest, scenes, engine, locals } = project;
+    const { dir, manifest, engine, locals } = project;
     const idents = engine.map((n) => `${n}Plugin`);
     const lines: string[] = [];
 
@@ -37,12 +37,10 @@ export function generateModuleFromPlan(project: ProjectPlan): string {
         `for (const l of locals) if (!l.plugin || typeof l.plugin.name !== "string") throw new Error("shallot.json plugin \\"" + l.name + "\\": its module must default-export a Plugin");`,
     );
     lines.push(`const manifest = ${JSON.stringify(manifest)};`);
-    lines.push(`const scenes = ${JSON.stringify(scenes)};`);
-    lines.push(`const scene = ${JSON.stringify(manifest.scene ?? null)};`);
     lines.push(`const pixelRatio = ${JSON.stringify(manifest.pixelRatio ?? null)};`);
     lines.push(`const dir = ${JSON.stringify(dir)};`);
     lines.push(
-        `const project = { dir, scene, pixelRatio, scenes, manifest, locals, plugins: [...engine, ...locals.map((l) => l.plugin)] };`,
+        `const project = { dir, pixelRatio, manifest, locals, plugins: [...engine, ...locals.map((l) => l.plugin)] };`,
     );
     lines.push(`export default project;`);
 

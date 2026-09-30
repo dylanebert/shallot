@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-import { stampAdapter, World } from "../index";
-import { diagnose, loadScene, parseScene } from "../scene";
+import { stampAdapter } from "../index";
 
 const fallbackAdapter = {
     info: {
@@ -22,17 +21,4 @@ test("an externally supplied GPU device without its adapter can be mistaken for 
     const verdict = stampAdapter();
     expect(verdict.class).toBe("unidentified");
     expect(verdict.identity).toBe("unidentified");
-});
-
-test("a CPU scene silently loses render-only attrs when those plugins are absent, so authors cannot see what the composition dropped", () => {
-    const world = new World();
-    const nodes = parseScene('<scene><a mesh="name: cube" material="name: default" /></scene>');
-    const messages = diagnose(world, nodes);
-    expect(messages.map((diagnostic) => diagnostic.message)).toEqual([
-        '"mesh" has no active plugin registration; dropped',
-        '"material" has no active plugin registration; dropped',
-    ]);
-    const result = loadScene(nodes, world);
-    expect(result.dropped).toEqual(["mesh", "material"]);
-    world.dispose();
 });

@@ -33,7 +33,7 @@ A deterministic plugin never consumes readback in `fixed`; one that does declare
 
 ### GlobalTransform
 
-`GlobalTransform` is derived world placement, never scene-authored. Gameplay and physics queries read its fixed-tick columns; rendering reads the engine's interpolated table, resident only when requested. Teleports discard interpolation across the discontinuity.
+`GlobalTransform` is derived world placement, never authored. Gameplay and physics queries read its fixed-tick columns; rendering reads the engine's interpolated table, resident only when requested. Teleports discard interpolation across the discontinuity.
 
 Exactly one component provides it per entity, through `provides` and producer exclusion: `Transform` for authored placement, or a domain's body, skeleton or attachment. Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
 
@@ -74,7 +74,7 @@ bun test gpu.test                # GPU tier
 bun test ./examples/first-person/src/demo.node.ts # selected Node file
 bun node_modules/playwright/cli.js test -c examples/loading-screen # selected browser subject
 bun test --todo                  # quarantined claims
-bun run format                   # biome, scenes, examples index
+bun run format                   # biome, examples index
 ```
 
 Iterate on selected files or subjects. Wide runs confirm the final candidate before landing or release; CI runs them on every push. The wide Node command is in [CI](.github/workflows/test.yml); `bun run test:browser` runs all browser subjects. Manual oracles run by path.
@@ -109,7 +109,7 @@ GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.
 
 | Claim | Tool / tier |
 |---|---|
-| Deterministic work and owned counts | Stepped scene-derived assertions, engine counters, `FinalizationRegistry` under `Bun.gc(true)` / cheap |
+| Deterministic work and owned counts | Stepped world assertions, engine counters, `FinalizationRegistry` under `Bun.gc(true)` / cheap |
 | WASM memory | Feature-gated counting allocator and `memory.buffer.byteLength` / Cargo |
 | Native heap per step | `dhat`, one profiler per process / Cargo |
 | Steady JavaScript allocation | V8 sampling heap profiler over a GPU-backed Node child with Dawn's `webgpu` / Node, macOS |
@@ -119,6 +119,10 @@ GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.
 ### CI coverage
 
 [CI](.github/workflows/test.yml) owns host and tier commands. Rust suites run with `cargo test -p shallot-audio` and `cargo test -p shallot-physics`. Display-bound allocation remains manual. This does not qualify Windows or native packaging.
+
+## Code-authored worlds
+
+Write a one-off entity straight out: create, then adds. Where content repeats, use a typed table and a function that creates one entity and returns its eid. Keep needed eids as variables or return values, never names. See `route` in [first-person's Demo](examples/first-person/src/demo.ts).
 
 ## Examples
 

@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://raw.githubusercontent.com/dylanebert/shallot/main/shallot.schema.json",
     "title": "Shallot project manifest",
-    "description": "The committed source of truth for a shallot project's scene + plugin enablement (shallot.json). Read identically by every boot host.",
+    "description": "The committed source of truth for a shallot project's plugin enablement (shallot.json). Read identically by every boot host.",
     "type": "object",
     "additionalProperties": false,
     "properties": {
@@ -21,10 +21,6 @@
         "problem": {
             "type": "string",
             "description": "Examples only: the user's problem in their own words; the examples index prints it in place of description. Ignored by dev, build and run."
-        },
-        "scene": {
-            "type": "string",
-            "description": "Path to the project's scene file, relative to the manifest (e.g. \"scenes/main.scene\")."
         },
         "capacity": {
             "type": "integer",

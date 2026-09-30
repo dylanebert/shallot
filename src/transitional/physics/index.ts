@@ -971,7 +971,7 @@ const SyncSystem: System = {
  *
  * @example
  * ```
- * export const config: AppConfig = { plugins: [PhysicsPlugin], scene: "scenes/scene.scene" };
+ * export const config: AppConfig = { plugins: [PhysicsPlugin] };
  * ```
  */
 export const PhysicsPlugin: Plugin = {

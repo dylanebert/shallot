@@ -18,7 +18,6 @@
             import project from "virtual:project";
             await runApp({
                 plugins: [BrowserInputPlugin, ...project.plugins],
-                scene: project.scene ?? undefined,
                 defaults: false,
                 capacity: project.capacity ?? undefined,
                 pixelRatio: project.pixelRatio ?? undefined,

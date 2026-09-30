@@ -41,7 +41,7 @@ export function manifestWarnings(raw: string, known: ReadonlySet<string>): strin
 }
 
 /**
- * read + parse a project's manifest, tolerating its absence (a scene-only project → {}); warn loudly on
+ * read + parse a project's manifest, tolerating its absence (→ {}); warn loudly on
  * a corrupt file or an unknown-plugin key before `normalize` normalizes the mistake away.
  */
 export function readManifest(absDir: string): Manifest {
@@ -50,7 +50,7 @@ export function readManifest(absDir: string): Manifest {
     try {
         text = readFileSync(path, "utf-8");
     } catch {
-        return {}; // no manifest — a scene-only project
+        return {}; // no manifest
     }
     for (const w of manifestWarnings(text, KNOWN_ENGINE_PLUGINS)) console.warn(`  ! ${path}: ${w}`);
     return normalize(text);
@@ -68,7 +68,6 @@ const MIME: Record<string, string> = {
     gif: "image/gif",
     ico: "image/x-icon",
     json: "application/json",
-    scene: "text/plain; charset=utf-8",
     wasm: "application/wasm",
     glb: "model/gltf-binary",
     gltf: "model/gltf+json",
