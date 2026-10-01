@@ -8,7 +8,6 @@ import {
     writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { PROJECT_GITIGNORE } from "./add-fragments";
 
 // `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/`; running
@@ -19,6 +18,7 @@ import { PROJECT_GITIGNORE } from "./add-fragments";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const ENGINE = "@dylanebert/shallot";
+const PROJECT_GITIGNORE = "node_modules/\ndist/\nbuild/\n.artifacts/\n";
 const ADD_USAGE = `
   shallot add [name] [dir]
 
@@ -54,7 +54,10 @@ interface Recipe {
 function listRecipeEntries(recipesDir: string): Recipe[] {
     if (!existsSync(recipesDir)) return [];
     return readdirSync(recipesDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
+        .filter(
+            (entry) =>
+                entry.isDirectory() && existsSync(resolve(recipesDir, entry.name, "index.html")),
+        )
         .map((entry) => {
             const page = readFileSync(resolve(recipesDir, entry.name, "index.html"), "utf8");
             const meta = page.match(/<meta\b[^>]*\bname=["']description["'][^>]*>/i)?.[0];
@@ -64,7 +67,7 @@ function listRecipeEntries(recipesDir: string): Recipe[] {
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Every directory under examples is available to copy. */
+/** Every directory under examples with an index.html is available to copy. */
 export function listRecipes(recipesDir: string): string[] {
     return listRecipeEntries(recipesDir).map((recipe) => recipe.name);
 }
@@ -197,10 +200,8 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     writeFileSync(pkgPath, pinEngine(pkgText, version));
 
     // Bun pack drops `.gitignore`; preserve an example's own ignore when present.
-    for (const [file, content] of [[".gitignore", PROJECT_GITIGNORE]] as const) {
-        const path = resolve(dest, file);
-        if (!existsSync(path)) writeFileSync(path, content);
-    }
+    const ignore = resolve(dest, ".gitignore");
+    if (!existsSync(ignore)) writeFileSync(ignore, PROJECT_GITIGNORE);
     const preload = resolve(dest, "tests/preload.ts");
     const bunfig = resolve(dest, "bunfig.toml");
     if (!existsSync(preload)) {

@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAdd } from "./add";
-import { PROJECT_GITIGNORE } from "./add-fragments";
 
 function recipes(): string {
     const root = mkdtempSync(join(tmpdir(), "shallot-add-"));
@@ -104,6 +103,25 @@ test("shallot add lists every example directory in stable name order with its me
     }
 });
 
+test("shallot add skips directories without a page without breaking the listing", async () => {
+    const root = recipes();
+    mkdirSync(join(root, "examples/no-page/node_modules"), { recursive: true });
+    try {
+        const output = await captureOutput(() =>
+            runAdd([], {
+                recipesDir: join(root, "examples"),
+                version: "0.0.0",
+            }),
+        );
+        expect(output.value).toBe(0);
+        expect(output.stderr).toBe("");
+        expect(output.stdout).toContain("  demo — Demo");
+        expect(output.stdout).not.toContain("no-page");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("shallot add refuses an occupied destination and preserves its contents", async () => {
     const root = recipes();
     const dest = join(root, "out");
@@ -190,7 +208,9 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
         expect(output.stdout).toBe(
             `copied example demo → ${dest}\n  cd ${dest} && bun install && bunx shallot dev`,
         );
-        expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(PROJECT_GITIGNORE);
+        expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(
+            "node_modules/\ndist/\nbuild/\n.artifacts/\n",
+        );
         expect(existsSync(join(dest, "tests/preload.ts"))).toBe(true);
         expect(readFileSync(join(dest, "bunfig.toml"), "utf8")).toContain(
             'preload = ["./tests/preload.ts"]',
