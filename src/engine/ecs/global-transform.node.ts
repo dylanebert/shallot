@@ -13,9 +13,9 @@ import { createApp } from "../app";
 import { CanvasContext } from "../app/canvas.fixture";
 import * as engine from "../index";
 import { globalTransformTable, probeBuffer, Transform, u32 } from "../index";
+import { registration } from "./registration";
 import type { System } from "./scheduler";
 import { Time } from "./scheduler";
-import { registration } from "./traits";
 
 setDefaultTimeout(CEILING.node);
 if (typeof ResizeObserver === "undefined") {

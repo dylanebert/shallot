@@ -3,7 +3,7 @@ import {
     endGlobalTransformTick,
     prepareGlobalTransform,
 } from "./global-transform";
-import type { World } from "./state";
+import type { World } from "./world";
 
 function invalidDelta(): never {
     throw new Error("step deltaTime must be a finite, non-negative number");

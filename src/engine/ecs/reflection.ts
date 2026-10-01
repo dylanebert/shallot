@@ -1,6 +1,6 @@
 import type { Component, ScalarField, Vector2Field, Vector4Field } from "./component";
 import { lanes } from "./component";
-import type { World } from "./state";
+import type { World } from "./world";
 
 /** Declared field names with scalar numbers and vector arrays. */
 export interface FieldValues {

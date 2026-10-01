@@ -7,7 +7,7 @@ export type Entity = number;
 export class Entities {
     private _dense: number[] = [];
     private _sparse: number[] = [];
-    private _stamp: number[] = [];
+    private _generation: number[] = [];
     private _count = 0;
     private _nextId = 1;
     // freed ids in the first `_freeCount` slots; a pop or `length` write would release the backing store
@@ -19,13 +19,13 @@ export class Entities {
         const eid = this._freeCount > 0 ? this._freelist[--this._freeCount] : this._nextId++;
         this._sparse[eid] = this._count;
         this._dense[this._count++] = eid;
-        // bump on every allocation (fresh or recycled) so a held (eid, stamp) pair detects a realias
-        this._stamp[eid] = (this._stamp[eid] ?? 0) + 1;
+        // bump on every allocation (fresh or recycled) so a held (eid, generation) pair detects a realias
+        this._generation[eid] = (this._generation[eid] ?? 0) + 1;
         return eid;
     }
 
-    stamp(eid: Entity): number {
-        return this._stamp[eid] ?? 0;
+    generation(eid: Entity): number {
+        return this._generation[eid] ?? 0;
     }
 
     remove(eid: Entity): void {

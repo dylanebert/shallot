@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Scheduler } from "./scheduler";
-import type { World } from "./state";
+import type { World } from "./world";
 
 test("the scheduler consumes each updated duration from its lifetime frame input", () => {
     const scheduler = new Scheduler();

@@ -3,10 +3,10 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Xform } from "../utils";
 import { vec4 } from "./component";
-import type { World } from "./state";
+import { registration } from "./registration";
 import type { ComponentStorage } from "./storage";
 import type { GpuTable } from "./table";
-import { registration } from "./traits";
+import type { World } from "./world";
 
 /** Authored world placement. There is no hierarchy. */
 export const Transform = { translation: vec4, rotation: vec4, scale: vec4 };

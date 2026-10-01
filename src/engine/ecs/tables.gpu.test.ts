@@ -5,8 +5,8 @@ import { CEILING } from "../../../scripts/test-tiers";
 import type { createApp, Plugin } from "../app";
 import { f32, u32 } from "../index";
 import { probeBuffer } from "../runtime";
-import type { World } from "./state";
-import { type Registration, registration } from "./traits";
+import { type Registration, registration } from "./registration";
+import type { World } from "./world";
 
 setDefaultTimeout(CEILING.gpu);
 

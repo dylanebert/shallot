@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type Resource, World } from "./state";
+import { type Resource, World } from "./world";
 
 function callerTypeControl(world: World): void {
     const number: Resource<number> = { create: () => 1 };

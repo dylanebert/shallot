@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { f32, vec2, vec4 } from "./component";
 import { GlobalTransform } from "./global-transform";
 import { dump, inspect, readFields, snapshot } from "./reflection";
-import { World } from "./state";
-import { registration } from "./traits";
+import { registration } from "./registration";
+import { World } from "./world";
 
 const Component = { scalarValue: f32, pair: vec2, vectorValue: vec4 };
 

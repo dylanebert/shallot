@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import type { ScalarField, Vector2Field, Vector4Field } from "./component";
 import { f32, vec2, vec4, World } from "./index";
+import { registration } from "./registration";
 import { WorldField } from "./storage";
-import { registration } from "./traits";
 
 test("bulk field writes copy typed rows, preserve other rows, publish scalar-equivalent marks and refuse mismatches", () => {
     const column = new WorldField(vec4, 16);

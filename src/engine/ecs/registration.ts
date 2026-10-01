@@ -1,6 +1,6 @@
 import type { Component, ComponentValues } from "./component";
 import { idOf, intern, isType, lanes } from "./component";
-import type { World } from "./state";
+import type { World } from "./world";
 
 /** A component registered under an exact stable key, with defaults and enforced relationships. */
 export interface Registration<C extends Component = Component> {

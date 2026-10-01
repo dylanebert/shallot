@@ -4,7 +4,7 @@ import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { f32, vec2 } from "../index";
 import { probeBuffer } from "../runtime";
-import { registration } from "./traits";
+import { registration } from "./registration";
 
 setDefaultTimeout(CEILING.gpu);
 const Rows = { amount: f32, vector: vec2 };

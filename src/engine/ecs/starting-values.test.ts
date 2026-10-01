@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { f16, f32, vec2, vec4, World } from "./index";
-import { registration } from "./traits";
+import { registration } from "./registration";
 
 const Component = { scalar: f32, pair: vec2, quad: vec4, half: f16, omitted: f32 };
 

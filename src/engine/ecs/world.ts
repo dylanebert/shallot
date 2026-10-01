@@ -19,10 +19,10 @@ import {
     prepareGlobalTransformFrame,
 } from "./global-transform";
 import { Queries } from "./query";
+import { ComponentRegistry } from "./registration";
 import { Scheduler, type System, Time } from "./scheduler";
 import { type ComponentStorage, WorldField } from "./storage";
 import { GpuTable, type GpuTableOptions } from "./table";
-import { ComponentRegistry } from "./traits";
 
 const INITIAL_CAPACITY = 16;
 
@@ -434,14 +434,14 @@ export class World {
     }
 
     /**
-     * create-stamp for an entity id, bumped on every allocation (`create`), fresh or recycled. A
-     * consumer holding an eid across frames caches the stamp beside it and compares alongside a
-     * membership check: `has(eid, Component)` catches a plain despawn (destroy leaves the stamp
-     * unchanged), the stamp catches a same-update destroy+create realias that membership misses.
+     * generation of an entity id, bumped on every allocation (`create`), fresh or recycled. A
+     * consumer holding an eid across frames caches the generation beside it and compares alongside a
+     * membership check: `has(eid, Component)` catches a plain despawn (destroy leaves the generation
+     * unchanged), the generation catches a same-update destroy+create realias that membership misses.
      * Neither alone suffices. `0` for an eid never created.
      */
     generation(eid: number): number {
-        return this._entities.stamp(eid);
+        return this._entities.generation(eid);
     }
 
     /**

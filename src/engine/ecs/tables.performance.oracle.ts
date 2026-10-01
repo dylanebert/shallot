@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import * as d from "typegpu/data";
 import { createApp, type Plugin } from "../app";
 import { u32 } from "../index";
-import type { World } from "./state";
-import { registration } from "./traits";
+import { registration } from "./registration";
+import type { World } from "./world";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };

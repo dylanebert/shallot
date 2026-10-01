@@ -39,8 +39,8 @@ export {
     readFields,
     snapshot,
 } from "./reflection";
+export type { Registration } from "./registration";
+export { registration } from "./registration";
 export { type System, Time } from "./scheduler";
-export { type Resource, World } from "./state";
 export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
-export type { Registration } from "./traits";
-export { registration } from "./traits";
+export { type Resource, World } from "./world";
