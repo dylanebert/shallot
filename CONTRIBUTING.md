@@ -1,6 +1,6 @@
 # Contributing
 
-For modifying the engine; for using it, see the [README](README.md). API details live in JSDoc. This guide holds the rules the code, CLI and checks don't explain.
+For modifying the engine; for using it, see the [README](README.md). API contracts live in JSDoc. This guide holds the rules the code, CLI and checks don't explain.
 
 ## Architecture
 
@@ -119,6 +119,14 @@ GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.
 ### CI coverage
 
 [CI](.github/workflows/test.yml) owns host and tier commands. Rust suites run with `cargo test -p shallot-audio` and `cargo test -p shallot-physics`. Display-bound allocation remains manual. This does not qualify Windows or native packaging.
+
+## Code
+
+Names come from the domain's precedent: Bevy for the ECS, WebGPU and TypeGPU for the GPU, glTF for assets. A name means one thing across the tree, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
+
+One fact has one name, one producer and one path. A second spelling or a forwarding wrapper goes.
+
+JSDoc states the contract the signature cannot: units, ownership, lifetime, frame timing and what is refused. It carries no `@example`; examples live in `examples/`. A `//` comment says why the code is as it is. Neither restates the code or its history ([Google TypeScript Style](https://google.github.io/styleguide/tsguide.html#comments-documentation), Comments and documentation).
 
 ## Code-authored worlds
 
