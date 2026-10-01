@@ -122,11 +122,10 @@ export interface WorldGpu {
     /** classification of the adapter that supplied {@link device}; fallback and masked adapters remain visible */
     readonly adapter: AdapterVerdict;
     /**
-     * TypeGPU root adopting {@link device} — the handle every typed buffer, bind group, and pipeline
-     * is created through, and the reach-back out (`root.unwrap(...)`) to the raw WebGPU handle.
-     * Created by {@link requestGPU} for the owning World (never at import time — the module stays
-     * side-effect free), so two Worlds sharing a device still own distinct typed handles. It has no
-     * teardown of its own; GPU resources are tracked and released with the World.
+     * TypeGPU root adopting {@link device}, through which typed buffers, bind groups and pipelines are
+     * created; `root.unwrap(...)` returns the raw WebGPU handle. {@link requestGPU} creates one per
+     * owning World, so two Worlds sharing a device own distinct typed handles. It has no teardown of
+     * its own; the World releases the GPU resources created through it.
      */
     readonly root: TgpuRoot;
     /** monotonically incremented per frame */
@@ -690,17 +689,11 @@ export const tgslCanary = tgpu.fn(
     return x + 1;
 });
 
-// two copies in one bundle share the `__TYPEGPU_META__` global AND delete from it, so they race.
-// typegpu's own module top level (`typegpu/shared/meta.js`) writes `__TYPEGPU_VERSION__`
-// UNCONDITIONALLY on every distinct module evaluation — including a same-version duplicate, where it
-// only console.warns, never throws — so a value comparison alone can't see a same-version double-load:
-// two copies of a minor-pinned typegpu stamp identical text. The key is redefined as an accessor that
-// counts writes: the count crosses 1 when a second module evaluation (ours duplicated, or a bystander
-// consumer's own `typegpu/data` import producing an independent copy) writes this key *after* this
-// block runs, regardless of what value it writes — a version-differing duplicate still trips it too.
-// It only catches that direction, same as the value comparison it replaced; see checkTgsl's JSDoc for
-// the reachable case where it doesn't (a duplicate's write landing first) and why that's not fixable
-// from here.
+// Two copies in one bundle share the `__TYPEGPU_META__` global and delete from it, so they race.
+// typegpu's module top level writes `__TYPEGPU_VERSION__` on every evaluation, a same-version
+// duplicate included, so comparing values cannot see two copies of one version. Counting writes can:
+// the key becomes an accessor, and any later evaluation, whatever version it stamps, pushes the count
+// past 1. A write that lands before this block runs is folded into the baseline and goes unseen.
 const _globals = globalThis as unknown as Record<string, unknown>;
 const _typegpuVersion = _globals.__TYPEGPU_VERSION__ as string | undefined;
 if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
@@ -718,56 +711,24 @@ if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
 }
 
 /**
- * fail loud when the engine's own TGSL carries no build metadata, the one failure mode of the mandatory
- * build plugin and otherwise a silent wrong-answer class. {@link requestGPU} calls it before touching
- * the adapter.
+ * Throws when a second typegpu copy has written `__TYPEGPU_VERSION__` since this module loaded, or when
+ * {@link tgslCanary} fails to resolve because the bundle skipped the typegpu transform.
+ * {@link requestGPU} calls it before touching the adapter.
  *
- * It proves exactly one thing: the engine's `.ts` modules went through the transform. It says nothing
- * about *your* TGSL — a config that reaches `node_modules` but skips your source (or a `.svelte` /
- * `.vue` block outside the transform's file filter) still passes here and fails at your own kernel.
+ * It proves only that the engine's own modules went through the transform, not the caller's: source
+ * outside the transform's file filter still fails at its own kernel.
  *
- * **The duplicate-identity check counts writes to `__TYPEGPU_VERSION__`, not its value** (found
- * 2026-08-04 diagnosing a zero-config registry install): typegpu's own module top level stamps that
- * key unconditionally on every distinct evaluation, including a same-version duplicate — a value
- * comparison alone is blind to two copies of a minor-pinned typegpu, which stamp identical text. A
- * consumer's own direct `typegpu/data` import (a second, independent entry into a bundler's dep graph,
- * not just the engine's) is exactly this shape.
+ * It does not refuse:
  *
- * **This still only catches a duplicate whose write lands *after* this module installs the counter —
- * a real, reachable ordering, not a theoretical one.** Instrumented directly (2026-08-04, a packed
- * consumer project with only `typegpu` un-excluded from the dev config, so the duplicate this
- * paragraph names actually occurred): typegpu's own "Found duplicate TypeGPU version" warning fired
- * *before* this module's install block ever ran, meaning the second copy's write landed on the plain
- * property and was silently folded into the seeded baseline (`__SHALLOT_TYPEGPU_WRITES__` read back
- * `1`, not `2`) — under Vite's dev optimizer, a prebundled `typegpu` chunk can evaluate ahead of this
- * (non-prebundled, individually-transformed) engine module regardless of import-statement order in the
- * consumer's own source, so this isn't specific to that one project. **In that same run `checkTgsl`
- * never got the chance to matter anyway**: the corruption crashed at *module-evaluation* time, inside
- * `core/rendering/image.ts`'s top-level `tgpu.fragmentFn(...)` call — a plain `const`, evaluated as
- * part of the import graph — and `checkTgsl` only runs later, inside {@link requestGPU} at actual boot
- * time, well after every module (image.ts included) has already finished evaluating. No pre-device
- * check, however placed, can preempt a crash that happens earlier in program execution than the check
- * itself ever runs. The counter is still a genuine improvement over the old value comparison for the
- * orderings it *does* reach (proven in `gpu.test.ts`'s unit tests) — it is not a completeness guarantee,
- * and only a real-device boot of a packed, installed project observes this class end to end, the same
- * as for the two gaps below.
+ * - a duplicate typegpu that evaluates before this module, such as a dev-optimizer prebundled chunk;
+ *   its write lands before the counter exists;
+ * - a bundle without metadata whose canary still resolves. typegpu's runtime fallback derives WGSL
+ *   from the canary's plain function body, and a plain `tgpu.fn` lacks the entry-point output-struct
+ *   cast that the fallback gets wrong, so the failure surfaces only when a real pipeline compiles.
  *
- * **What it structurally cannot see: a bundle whose metadata is missing but whose {@link tgslCanary}
- * still resolves.** It runs pre-device (`requestGPU` calls it before acquiring an adapter), so it can
- * only prove `tgpu.resolve()` didn't throw on the CPU — never that the WGSL a real pipeline compiles is
- * valid, which is a GPU-compile-time property outside its reach by construction. Two structural gaps
- * this canary can't close, found 2026-08-04 diagnosing the same zero-config install (a missing-
- * transform bundle, `unplugin-typegpu` never ran, no consumer misconfiguration involved — a different
- * failure than the duplicate-identity case above): (1) TypeGPU's `resolve()` has a runtime fallback
- * that derives WGSL from a metadata-free function's raw JS body, and `tgslCanary`'s one-expression
- * shape is exactly what that fallback resolves correctly — so `resolve()` doesn't throw even with zero
- * build metadata anywhere in the bundle. (2) A plain `tgpu.fn` (what the canary is) never emits the
- * entry-point output-struct cast (`vertexFn`/`fragmentFn`/`computeFn` wrap a returned struct into a
- * synthesized `..._Output` type) — the exact shape that fallback resolution gets wrong, surfacing only
- * downstream as a device error ("Cannot resolve struct cast from '…' to '…_Output'") once a real
- * pipeline warms. No metadata-free canary shape closes this without creating a real pipeline pre-
- * device, which the "before touching the adapter" contract above rules out — only a real-device
- * boot of an installed project catches this class, not this function.
+ * The first is invisible to any counter this module installs, and the second needs a compiled
+ * pipeline, which a check that runs before the adapter cannot create. Only booting an installed
+ * project on a real device observes them.
  */
 export function checkTgsl(): void {
     const writes = _globals.__SHALLOT_TYPEGPU_WRITES__ as number;
@@ -877,8 +838,6 @@ export function precompile(
     return Promise.resolve();
 }
 
-// per-prefix instance counts for `precompileScope`, cleared with the label set they keep unique
-
 /**
  * a unique {@link precompile} label prefix for a factory an app can instantiate more than once (the
  * BVH stages: a scene builds one BVH, the physics broadphase another). The first instance keeps the
@@ -898,14 +857,10 @@ export function precompileScope(world: World, prefix: string): string {
 }
 
 /**
- * partition {@link _precompile} into dependency **levels** (Kahn's algorithm, one level per step):
- * level 0 is every forcer with no unresolved `after` predecessor, level 1 is every forcer whose only
- * predecessors are in level 0, and so on. The `after` edges are real but sparse — most forcers declare
- * none — so this is a genuine level-wise partial order, not a linear chain; {@link precompileAll} drains
- * each level concurrently rather than one forcer at a time, batching each level under one shared
- * `validateGpu` scope (batch-then-bisect, below). Within a level, forcers are ordered by registration
- * `order` — stable, but no longer load-bearing for *when* they run, only for the label-join order a
- * level's shared scope reports and the order `Promise.all` starts them in.
+ * Partitions forcers into dependency levels (Kahn's algorithm): level 0 has no queued `after`
+ * predecessor, level n depends only on earlier levels. {@link precompileAll} drains each level
+ * concurrently under one shared validation scope. Within a level, registration `order` fixes the
+ * order members start in and the label order the shared scope reports. Throws on a cycle.
  */
 function ordered(forcers: readonly Forcer[]): Forcer[][] {
     const byLabel = new Map(forcers.map((forcer) => [forcer.label, forcer]));
@@ -947,14 +902,8 @@ function ordered(forcers: readonly Forcer[]): Forcer[][] {
 }
 
 /**
- * the actual compile work for one forcer — {@link compile} plus the exhaustive `initAsync` await
- * classification — with no error scope of its own. Split out of {@link compileValidated} so a level's
- * batch attempt ({@link precompileAll}) can run N of these concurrently inside one shared
- * `validateGpu` scope; the serial per-forcer path wraps this in its own scope via
- * {@link compileValidated}. Timing is scoped tightly around this function's own work (start just
- * before {@link compile}, end just after the await classification resolves) rather than around the
- * caller's error-scope push/pop, which is now shared across a whole level and would attribute
- * scope-management overhead to whichever forcer happened to be timed.
+ * Compiles one forcer with no error scope of its own, so a level's batch can run several inside one
+ * shared scope. Timing brackets only this forcer's work, not the shared scope's push and pop.
  */
 async function compileBody(
     forcer: Forcer,
@@ -1010,10 +959,9 @@ async function compileBody(
 export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
 
 /**
- * report one forcer's compile timing — {@link world.gpu.precompiled} plus the paired
- * `performance.measure` entry — once {@link compileBody} has resolved. A forcer that never awaited a
- * real `initAsync` (the standard renderer's raw-pipeline array, or `[]`) is not warmed, so nothing is reported;
- * attributing that skip as a compile is the still-unwarmed path reporting warm.
+ * Reports one forcer's compile span through `world.gpu.precompiled` and a paired
+ * `performance.measure` entry. A forcer that awaited no `initAsync` compiled nothing here, so it
+ * reports nothing.
  */
 function reportCompile(
     world: World,
@@ -1039,9 +987,8 @@ function reportCompile(
     }
 }
 
-/** the serial per-forcer path: one `validateGpu` scope, one {@link compileBody}, one report. Used for
- *  a single-member level, for a late arrival past `_drained` ({@link precompile}'s own branch), and as
- *  {@link precompileAll}'s batch-then-bisect fallback when a multi-member level's shared scope fails. */
+/** Compiles one forcer under its own validation scope, so a failure names it. Used for a
+ *  single-member level, for a forcer registered after the drain, and to re-drain a failed batch. */
 async function compileValidated(world: World, forcer: Forcer): Promise<void> {
     const { warmed, start, end } = await validateGpu(world.gpu.device, forcer.label, () =>
         compileBody(forcer),
@@ -1050,17 +997,9 @@ async function compileValidated(world: World, forcer: Forcer): Promise<void> {
 }
 
 /**
- * remove exactly `drained` from {@link _precompile}, by identity, leaving every other entry —
- * including anything a concurrent {@link precompile} call appended — untouched and in place.
- * {@link precompileAll}'s multi-member paths never remove a level's members before awaiting the
- * batch (unlike the single-member path, which splices before its one await and is immune by
- * construction), so a `precompile()` call landing mid-await pushes onto the live array and must
- * survive whatever bookkeeping runs after that await resolves. Reconstructing the queue from a
- * `Forcer[][]` snapshot taken *before* the await — the bug this replaces — silently erases exactly
- * that push: its own registration call already returned a resolved promise (the `!_drained`
- * branch), so nothing retries it, and it never drains, on this call or any later one. Identity
- * removal has no such snapshot to go stale, since it reads `_precompile`'s live contents at the
- * moment it runs, not a copy taken earlier.
+ * Removes `drained` from the queue by identity. A {@link precompile} call during a batch's await
+ * appends to the live queue and has already returned, so nothing would retry it; rebuilding the queue
+ * from a snapshot taken before the await would drop it.
  */
 function removeForcers(world: World, drained: readonly Forcer[]): void {
     const _precompileState = world.resource(precompileState);
@@ -1073,26 +1012,14 @@ function removeForcers(world: World, drained: readonly Forcer[]): void {
 }
 
 /**
- * drain the {@link precompile} queue level by level ({@link ordered}'s `Forcer[][]` partition).
- * `createApp` calls it after every plugin `warm`; a forcer registered afterwards runs on arrival (a
- * different code path, {@link precompile}'s own `_drained` branch) — unless it lands mid-await
- * while a multi-member level is in flight, in which case it lands directly in `_precompile` and is
- * picked up by this function's own next iteration; see {@link removeForcers}.
+ * Drains the {@link precompile} queue level by level; `createApp` calls it after every plugin's
+ * `warm`. A forcer registered during a drain joins the queue and drains in a later iteration.
  *
- * A single-member level runs the serial per-forcer path directly. A multi-member level runs
- * **batch-then-bisect**: one `validateGpu` scope shared across the whole level, `Promise.all` over
- * each member's {@link compileBody} inside it — the fast path, paying nothing beyond one scope.
- * WebGPU error scopes are a per-device stack, so two concurrent validated operations pop each
- * other's scopes and per-forcer attribution is lost; when the shared scope pops non-null, or the
- * `Promise.all` itself rejects, none of the batch attempt's results are trusted (the pop can't say
- * *which* member failed), and the whole level re-drains **serially** through {@link compileValidated}
- * from its start, so the throw still names a specific forcer. Every member of a failing level
- * therefore compiles twice — batch, then serial — a recompile spent only in the failure case:
- * concurrency is free on the fast path and costs one extra compile per member only when a level's
- * shared scope fails. The serial
- * re-drain stops at the first throw (matching {@link compileValidated}'s own single-forcer contract);
- * whatever it didn't reach — the untried remainder of the level, plus every later level — stays queued
- * for a later {@link precompileAll} call, so nothing is silently dropped.
+ * A multi-member level compiles concurrently under one shared validation scope. Error scopes are a
+ * per-device stack, so a failed shared scope cannot say which member failed: the level then
+ * re-drains serially from its start, so the throw names a forcer, and each member of a failing level
+ * compiles twice. The serial re-drain stops at the first throw; the rest of the level and every
+ * later level stay queued for a later call.
  * @internal
  */
 export async function precompileAll(world: World): Promise<void> {
@@ -1190,14 +1117,12 @@ export function stampAdapter(
 }
 
 /**
- * create a world GPU context. With no argument, acquire a device
- * via `navigator.gpu` and enforces shallot's feature floor (the base floor plus
- * any `features` the active plugins require), throwing {@link UnsupportedError}
- * otherwise. `preferred` features are requested only where the adapter has them
- * (never gating the device). Pass an external device to adopt it as-is; the caller
- * is responsible for feature support. Either way the device is adopted by {@link world.gpu.root}, the
- * TypeGPU handle typed resources are created through — one root belongs to the owning World, even when
- * two Worlds adopt the same device.
+ * Creates a world GPU context. Without `device`, acquires one through `navigator.gpu` and enforces
+ * the feature floor (the base floor plus the active plugins' `features`), throwing
+ * {@link UnsupportedError} otherwise; `preferred` features are requested only where the adapter has
+ * them. A supplied device is adopted as-is, and the caller owns its feature support. Either way the
+ * context's {@link WorldGpu.root} adopts the device, one root per owning World even when two Worlds
+ * share a device.
  */
 export async function requestGPU(
     device?: GPUDevice,
