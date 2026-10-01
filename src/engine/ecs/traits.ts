@@ -58,10 +58,6 @@ export class ComponentRegistry {
         return this._byId.get(idOf(component))?.requires ?? [];
     }
 
-    getName(component: Component): string | undefined {
-        return this._byId.get(idOf(component))?.key;
-    }
-
     /** iterate every component registered in this world with its key and options */
     entries(): IterableIterator<Entry> {
         return this._byName.values();
@@ -86,13 +82,6 @@ export class ComponentRegistry {
         this._byId.clear();
     }
 }
-
-/** registration and reflection helpers always resolve through the owning World. */
-
-export const getName = (world: World, component: Component) => world.registry.getName(component);
-
-export const applyDefaults = (world: World, component: Component, eid: number) =>
-    world.registry.applyDefaults(world, component, eid);
 
 function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
     const defaults = entry.defaults;

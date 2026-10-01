@@ -242,7 +242,6 @@ export function createApp(config: AppConfig): Promise<App> {
 
 async function buildNow(config: AppConfig): Promise<App> {
     let world!: World;
-    let stateCreated = false;
     let loading: Loading | undefined;
     let cleanup: (() => void) | undefined;
     const initialized: Plugin[] = [];
@@ -278,7 +277,6 @@ async function buildNow(config: AppConfig): Promise<App> {
 
         const sorted = composition.plugins;
         world = new World({ pixelRatio: config.pixelRatio });
-        stateCreated = true;
         loading = config.loading ?? _defaultLoading?.();
         cleanup = loading?.show() ?? undefined;
 
@@ -314,10 +312,8 @@ async function buildNow(config: AppConfig): Promise<App> {
         const warmable = sorted.filter((p) => p.warm);
         const total = sorted.length + warmable.length;
 
-        (() => {
-            initializeGlobalTransform(world);
-            config.setup?.(world);
-        })();
+        initializeGlobalTransform(world);
+        config.setup?.(world);
 
         for (let i = 0; i < sorted.length; i++) {
             const currentLoading = loading;
@@ -353,21 +349,17 @@ async function buildNow(config: AppConfig): Promise<App> {
             dispose() {
                 if (disposed) return;
                 disposed = true;
-                try {
-                    for (let i = sorted.length - 1; i >= 0; i--) {
-                        try {
-                            sorted[i].dispose?.(world);
-                        } catch (err) {
-                            console.error(`Plugin "${sorted[i].name}" threw during dispose:`, err);
-                        }
-                    }
+                for (let i = sorted.length - 1; i >= 0; i--) {
                     try {
-                        world.dispose();
+                        sorted[i].dispose?.(world);
                     } catch (err) {
-                        console.error("World dispose threw:", err);
+                        console.error(`Plugin "${sorted[i].name}" threw during dispose:`, err);
                     }
-                } finally {
-                    // World disposal releases the world's owned resources.
+                }
+                try {
+                    world.dispose();
+                } catch (err) {
+                    console.error("World dispose threw:", err);
                 }
             },
         };
@@ -375,27 +367,23 @@ async function buildNow(config: AppConfig): Promise<App> {
         // a failed build leaves nothing live: plugins that started initialize dispose in
         // reverse, then the World, so a retry builds against clean module singletons. A dispose
         // throw here is reported, never allowed to mask the build error.
+        for (let i = initialized.length - 1; i >= 0; i--) {
+            try {
+                initialized[i].dispose?.(world);
+            } catch (err) {
+                console.error(`Plugin "${initialized[i].name}" threw during cleanup:`, err);
+            }
+        }
         try {
-            for (let i = initialized.length - 1; i >= 0; i--) {
-                try {
-                    initialized[i].dispose?.(world);
-                } catch (err) {
-                    console.error(`Plugin "${initialized[i].name}" threw during cleanup:`, err);
-                }
-            }
-            try {
-                if (stateCreated) world.dispose();
-            } catch (err) {
-                console.error("World dispose threw during cleanup:", err);
-            }
-            try {
-                if (loading?.error) loading.error(e);
-                else cleanup?.();
-            } catch (err) {
-                console.error("Loading cleanup threw during build failure:", err);
-            }
-        } finally {
-            // Build-local resources are released by World.dispose above.
+            world?.dispose();
+        } catch (err) {
+            console.error("World dispose threw during cleanup:", err);
+        }
+        try {
+            if (loading?.error) loading.error(e);
+            else cleanup?.();
+        } catch (err) {
+            console.error("Loading cleanup threw during build failure:", err);
         }
         throw e;
     }

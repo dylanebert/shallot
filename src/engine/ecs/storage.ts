@@ -1,5 +1,4 @@
 import type { FieldType, ScalarField, TypedArray, Vector2Field, Vector4Field } from "./component";
-import { sameComponentSchema } from "./component";
 
 export type FieldStorage<T extends FieldType> = T["lanes"] extends 1
     ? ScalarField
@@ -8,7 +7,6 @@ export type FieldStorage<T extends FieldType> = T["lanes"] extends 1
       : Vector4Field;
 
 type Column = {
-    schema: FieldType;
     array: TypedArray;
     dirty: Uint32Array;
 };
@@ -22,7 +20,6 @@ export class WorldField<T extends FieldType = FieldType> {
     constructor(schema: T, initialCapacity: number) {
         this.type = schema;
         this.#column = {
-            schema,
             array: new schema.ctor(initialCapacity * schema.lanes),
             dirty: new Uint32Array((initialCapacity + 31) >>> 5),
         };
@@ -206,7 +203,3 @@ function identity(value: number): number {
 export type ComponentStorage<T> = {
     [K in keyof T]: T[K] extends FieldType ? FieldStorage<T[K]> : T[K];
 };
-
-export function sameSchema(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
-    return sameComponentSchema(a, b);
-}

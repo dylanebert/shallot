@@ -8,6 +8,7 @@ import {
     freezeComponent,
     idOf,
     type ScalarField,
+    sameComponentSchema,
     type Vector2Field,
     type Vector4Field,
 } from "./component";
@@ -19,7 +20,7 @@ import {
 } from "./global-transform";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
-import { type ComponentStorage, sameSchema, WorldField } from "./storage";
+import { type ComponentStorage, WorldField } from "./storage";
 import { GpuTable, type GpuTableOptions } from "./table";
 import { ComponentRegistry } from "./traits";
 
@@ -327,7 +328,7 @@ export class World {
         const existing = this._storage.get(id);
         if (existing) {
             if (existing.schemas.has(component)) return existing.storage as ComponentStorage<T>;
-            if (!sameSchema(existing.schema, component)) {
+            if (!sameComponentSchema(existing.schema, component)) {
                 throw new Error(
                     `world.storage: component schema changed for "${String(id)}"; rebuild this world`,
                 );

@@ -3,19 +3,9 @@ import { deviceLost } from "./gpu";
 import type { ReadbackStamp } from "./readback";
 
 const COPY_ALIGNMENT = 4;
-type ProbeOwner = World;
-const deviceOf = (owner: ProbeOwner) => owner.gpu.device;
-function assertRequestAllowed(owner: ProbeOwner): void {
+function assertRequestAllowed(owner: World): void {
     if (owner.disposed || deviceLost(owner.gpu.device))
         throw new Error("readback world or device is disposed");
-}
-async function request(
-    owner: ProbeOwner,
-    size: number,
-    label: string,
-    encode: (encoder: GPUCommandEncoder, staging: GPUBuffer) => void,
-) {
-    return owner.readback.request(size, label, encode);
 }
 const ROW_ALIGNMENT = 256;
 
@@ -195,12 +185,11 @@ function copyAspect(
 }
 
 /**
- * Request one raw buffer range after an optional encoded trigger. Pass a World to share world staging
- * and stamp the copy's frame and tick.
+ * Request one raw buffer range after an optional encoded trigger, stamped with the copy's frame and tick.
  * Returned bytes are owned by this result. Readback is not deterministic simulation input.
  */
 export async function probeBuffer(
-    owner: ProbeOwner,
+    owner: World,
     source: GPUBuffer,
     options: BufferProbeOptions = {},
 ): Promise<BufferProbe> {
@@ -209,7 +198,7 @@ export async function probeBuffer(
         throw new Error(
             `probeBuffer: buffer "${source.label || "unlabeled buffer"}" is not owned by this world`,
         );
-    const device = deviceOf(owner);
+    const device = owner.gpu.device;
     if ((source.usage & GPUBufferUsage.COPY_SRC) === 0) {
         throw new Error("probeBuffer: source is missing GPUBufferUsage.COPY_SRC");
     }
@@ -234,8 +223,7 @@ export async function probeBuffer(
     if (copySize > device.limits.maxBufferSize) {
         throw new RangeError("probeBuffer: staging copy exceeds device.limits.maxBufferSize");
     }
-    const result = await request(
-        owner,
+    const result = await owner.readback.request(
         copySize,
         options.label ?? "buffer-probe",
         (encoder, staging) => {
@@ -261,7 +249,7 @@ export async function probeBuffer(
  * optional encoded trigger. WebGPU row padding is stripped from the owned result.
  */
 export async function probeTexture(
-    owner: ProbeOwner,
+    owner: World,
     source: GPUTexture,
     options: TextureProbeOptions = {},
 ): Promise<TextureProbe> {
@@ -270,7 +258,7 @@ export async function probeTexture(
         throw new Error(
             `probeTexture: texture "${source.label || "unlabeled texture"}" is not owned by this world`,
         );
-    const device = deviceOf(owner);
+    const device = owner.gpu.device;
     if ((source.usage & GPUTextureUsage.COPY_SRC) === 0) {
         throw new Error("probeTexture: source is missing GPUTextureUsage.COPY_SRC");
     }
@@ -325,8 +313,7 @@ export async function probeTexture(
     if (!Number.isSafeInteger(stagingSize) || stagingSize > device.limits.maxBufferSize) {
         throw new RangeError("probeTexture: staging copy exceeds device.limits.maxBufferSize");
     }
-    const result = await request(
-        owner,
+    const result = await owner.readback.request(
         stagingSize,
         options.label ?? "texture-probe",
         (encoder, staging) => {

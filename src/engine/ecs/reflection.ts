@@ -27,8 +27,6 @@ export function readFields(world: World, component: Component, eid: number): Fie
             fields[field] = [p.x.get(eid), p.y.get(eid)];
         } else if (n === 1) {
             fields[field] = (store as ScalarField).get(eid);
-        } else if (ArrayBuffer.isView(store) || Array.isArray(store)) {
-            fields[field] = (store as number[])[eid] ?? 0;
         }
     }
     return fields;

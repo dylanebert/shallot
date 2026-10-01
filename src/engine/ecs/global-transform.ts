@@ -118,7 +118,7 @@ export function initializeGlobalTransform(world: World): void {
     };
     world.globalTransformRuntime = runtime;
     world.observeMembership(GlobalTransform, (eid, present) => {
-        if (present && runtime.enabled) queueFresh(runtime, eid);
+        if (present && runtime.enabled) queueDiscontinuity(runtime, eid, runtime.captureIndex);
     });
 }
 
@@ -160,7 +160,8 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         runtime.pipeline = world.gpu.root.unwrap(
             world.gpu.root.createComputePipeline({ compute: kernel }),
         );
-        for (const eid of world.query(globalTransformTerms)) queueFresh(runtime, eid);
+        for (const eid of world.query(globalTransformTerms))
+            queueDiscontinuity(runtime, eid, runtime.captureIndex);
     }
     return runtime.render!;
 }
@@ -179,10 +180,6 @@ function queueDiscontinuity(runtime: GlobalTransformRuntime, eid: number, phase:
     }
     runtime.discontinuities[runtime.discontinuityCount] = eid;
     runtime.discontinuityPhases[runtime.discontinuityCount++] = phase;
-}
-
-function queueFresh(runtime: GlobalTransformRuntime, eid: number): void {
-    queueDiscontinuity(runtime, eid, runtime.captureIndex);
 }
 
 /** @internal Record a teleport at the current fixed-history phase. */
@@ -302,14 +299,15 @@ function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): voi
     }
     for (let i = 0; i < runtime.discontinuityCount; i++) {
         if (runtime.discontinuityPhases[i] !== phase) continue;
-        const row = runtime.current!.rowIndex(runtime.discontinuities[i]);
+        const current = runtime.current!;
+        const row = current.rowIndex(runtime.discontinuities[i]);
         if (row >= 0)
             encoder.copyBufferToBuffer(
-                runtime.current!.buffer,
-                row * 48,
+                current.buffer,
+                row * current.rowBytes,
                 runtime.previous!.buffer,
-                row * 48,
-                48,
+                row * current.rowBytes,
+                current.rowBytes,
             );
     }
 }

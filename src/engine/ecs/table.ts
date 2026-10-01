@@ -57,7 +57,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _disposed = false;
     private _lastUploadPath: TableUploadPath = "none";
     private _lastUploadOffset = 0;
-    private _lastUploadSourceOffset = 0;
     private _lastUploadSize = 0;
     private _boundFieldsPrepared = false;
     private _consumers: Consumer[] = [];
@@ -493,22 +492,15 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             : (this._dirtyLast - this._dirtyFirst + 1) * this.rowBytes;
     }
 
-    /** Byte range written by the last upload, for recording a staged copy. @internal */
+    /** Byte offset of the range written by the last upload, for recording a staged copy. @internal */
     get lastUploadOffset(): number {
         return this._lastUploadOffset;
-    }
-    get lastUploadSourceOffset(): number {
-        return this._lastUploadSourceOffset;
-    }
-    get lastUploadSize(): number {
-        return this._lastUploadSize;
     }
 
     /** Gather marked records and upload their range; an engine producer may stage it for the frame. */
     upload(destination: GPUBuffer = this._buffer, packedRange = false): void {
         if (this._disposed) return;
         this._lastUploadOffset = 0;
-        this._lastUploadSourceOffset = 0;
         this._lastUploadSize = 0;
         this._lastMapUploadBytes = 0;
         if (this._boundFieldsPrepared) this._boundFieldsPrepared = false;
@@ -518,14 +510,13 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         } else {
             if (!this._bytes) throw new Error(`GpuTable "${this.name}" is GPU-only`);
             this._lastUploadOffset = this._dirtyFirst * this.rowBytes;
-            this._lastUploadSourceOffset = this._lastUploadOffset;
             this._lastUploadSize = (this._dirtyLast - this._dirtyFirst + 1) * this.rowBytes;
             if (packedRange) {
                 this._world.gpu.device.queue.writeBuffer(
                     destination,
                     0,
                     this._bytes.buffer,
-                    this._lastUploadSourceOffset,
+                    this._lastUploadOffset,
                     this._lastUploadSize,
                 );
             } else if (destination === this._buffer) {
@@ -540,7 +531,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                     destination,
                     this._lastUploadOffset,
                     this._bytes.buffer,
-                    this._lastUploadSourceOffset,
+                    this._lastUploadOffset,
                     this._lastUploadSize,
                 );
             }
