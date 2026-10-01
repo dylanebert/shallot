@@ -1,23 +1,47 @@
-import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "../../../scripts/test-tiers";
-import { registration } from "./traits";
-
-setDefaultTimeout(CEILING.node);
-
+import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
-import { createApp, type Plugin } from "../app";
+import { gpuApps } from "../../../scripts/gpu.fixture";
+import { CEILING } from "../../../scripts/test-tiers";
+import type { createApp, Plugin } from "../app";
 import { f32, u32 } from "../index";
 import { probeBuffer } from "../runtime";
 import type { World } from "./state";
+import { type Registration, registration } from "./traits";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
-await setupGlobals();
+setDefaultTimeout(CEILING.gpu);
 
-const apps: Awaited<ReturnType<typeof createApp>>[] = [];
-afterEach(() => {
-    for (const app of apps.splice(0)) app.dispose();
-});
+type App = Awaited<ReturnType<typeof createApp>>;
+interface Subject {
+    app: App;
+    world: World;
+    table: ReturnType<World["table"]>;
+}
+
+const configs: Parameters<typeof createApp>[0][] = [];
+const apps = gpuApps(import.meta.path, configs);
+
+/** Declare one independent world, built in the file's beforeAll; its table is declared at initialize. */
+function subject(
+    name: string,
+    components: Registration[],
+    declare?: (world: World) => ReturnType<World["table"]>,
+): () => Subject {
+    const index = configs.length;
+    const current = {} as Subject;
+    const plugin: Plugin = {
+        name,
+        components,
+        initialize(world) {
+            current.world = world;
+            if (declare) current.table = declare(world);
+        },
+    };
+    configs.push({ defaults: false, plugins: [plugin] });
+    return () => {
+        current.app = apps()[index];
+        return current;
+    };
+}
 
 function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 750): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -51,19 +75,11 @@ const Record = d.struct({ amount: d.f32, tag: d.u32 });
 const Rows = { amount: f32, tag: u32 };
 
 for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
+    const upload = subject("TableUploadProbe", [registration("Rows", Rows)], (world) =>
+        world.table("table-upload-probe", Record),
+    );
     test(`dense tables upload ${range} ranges with writeBuffer and skip unchanged rows`, async () => {
-        let world!: World;
-        let table!: ReturnType<World["table"]>;
-        const plugin: Plugin = {
-            name: "TableUploadProbe",
-            components: [registration("Rows", Rows)],
-            initialize(current) {
-                world = current;
-                table = current.table("table-upload-probe", Record);
-            },
-        };
-        const app = await createApp({ defaults: false, plugins: [plugin] });
-        apps.push(app);
+        const { world, table } = upload();
 
         const count = range === "full" ? 1000 : 100;
         const eids = Array.from({ length: count }, () => world.create());
@@ -129,32 +145,28 @@ for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
     });
 }
 
+const Core = { x: f32 };
+const Optional = { y: f32 };
+const Flag = {};
+const presence = subject(
+    "TablePresenceProbe",
+    [registration("Core", Core), registration("Optional", Optional), registration("Flag", Flag)],
+    (world) => {
+        const table = world.table(
+            "table-presence-probe",
+            d.struct({ x: d.f32, y: d.f32, flags: d.u32 }),
+        );
+        table.bindComponent(Core, { x: "x" });
+        table.bindFields(Optional, { y: "y" });
+        table.bindMembership(Optional);
+        table.bindPresence(Optional, "flags", 1);
+        table.bindPresence(Flag, "flags", 2);
+        return table;
+    },
+);
+
 test("tables combine source fields, optional presence, and several row owners", async () => {
-    let world!: World;
-    let table!: ReturnType<World["table"]>;
-    const Core = { x: f32 };
-    const Optional = { y: f32 };
-    const Flag = {};
-    const Record = d.struct({ x: d.f32, y: d.f32, flags: d.u32 });
-    const plugin: Plugin = {
-        name: "TablePresenceProbe",
-        components: [
-            registration("Core", Core),
-            registration("Optional", Optional),
-            registration("Flag", Flag),
-        ],
-        initialize(current) {
-            world = current;
-            table = current.table("table-presence-probe", Record);
-            table.bindComponent(Core, { x: "x" });
-            table.bindFields(Optional, { y: "y" });
-            table.bindMembership(Optional);
-            table.bindPresence(Optional, "flags", 1);
-            table.bindPresence(Flag, "flags", 2);
-        },
-    };
-    const app = await createApp({ defaults: false, plugins: [plugin] });
-    apps.push(app);
+    const { world, table } = presence();
     const eid = world.create();
     world.add(eid, Core);
     world.add(eid, Optional);
@@ -181,21 +193,15 @@ test("tables combine source fields, optional presence, and several row owners", 
     expect(table.count).toBe(0);
 });
 
+const Bound = { x: f32, y: f32 };
+const bound = subject("BoundTableProbe", [registration("Bound", Bound)], (world) => {
+    const table = world.table("bound-table-probe", d.struct({ x: d.f32, y: d.f32 }));
+    table.bindComponent(Bound, { x: "x", y: "y" });
+    return table;
+});
+
 test("component fields bulk-upload through a dense struct table and release their slots", async () => {
-    let world!: World;
-    const Bound = { x: f32, y: f32 };
-    let table!: ReturnType<World["table"]>;
-    const plugin: Plugin = {
-        name: "BoundTableProbe",
-        components: [registration("Bound", Bound)],
-        initialize(current) {
-            world = current;
-            table = current.table("bound-table-probe", d.struct({ x: d.f32, y: d.f32 }));
-            table.bindComponent(Bound, { x: "x", y: "y" });
-        },
-    };
-    const app = await createApp({ defaults: false, plugins: [plugin] });
-    apps.push(app);
+    const { world, table } = bound();
 
     const eid = world.create();
     world.add(eid, Bound);
@@ -233,18 +239,12 @@ test("component fields bulk-upload through a dense struct table and release thei
     expect(table.count).toBe(0);
 });
 
+const dense = subject("DenseTableProbe", [], (world) =>
+    world.table("dense-table-probe", d.struct({ value: d.u32 })),
+);
+
 test("dense tables reuse free-list slots, lazily publish eid mappings, and expose active rows", async () => {
-    let world!: World;
-    let table!: ReturnType<World["table"]>;
-    const plugin: Plugin = {
-        name: "DenseTableProbe",
-        initialize(current) {
-            world = current;
-            table = current.table("dense-table-probe", d.struct({ value: d.u32 }));
-        },
-    };
-    const app = await createApp({ defaults: false, plugins: [plugin] });
-    apps.push(app);
+    const { world, table } = dense();
 
     let recordBinds = 0;
     let mapBinds = 0;
@@ -313,16 +313,12 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
     expect(Array.from(new Uint32Array(data.bytes))).toEqual([333, 222]);
 });
 
+const growth = subject("TableGrowthProbe", [], (world) =>
+    world.table("table-growth-probe", Record),
+);
+
 test("table growth changes generation and refuses beyond the named device limit", async () => {
-    let table!: ReturnType<World["table"]>;
-    const plugin: Plugin = {
-        name: "TableGrowthProbe",
-        initialize(world) {
-            table = world.table("table-growth-probe", Record);
-        },
-    };
-    const app = await createApp({ defaults: false, plugins: [plugin] });
-    apps.push(app);
+    const { app, table } = growth();
 
     let reboundBuffer: GPUBuffer | undefined;
     let reboundGeneration = 0;
@@ -343,4 +339,39 @@ test("table growth changes generation and refuses beyond the named device limit"
     expect(() => table.reserveSlots(table.maxRows + 1)).toThrow(
         `maxStorageBufferBindingSize (${app.world.gpu.device.limits.maxStorageBufferBindingSize} bytes)`,
     );
+});
+
+const Changed = { sparse: f32, uploaded: f32 };
+const changeMarks = subject("WorldChangeMarkProbe", [registration("Changed", Changed)]);
+
+test("frame change marks clear at the world upload point", async () => {
+    const { world } = changeMarks();
+    const eid = world.create();
+    world.add(eid, Changed);
+    const storage = world.storage(Changed);
+    storage.sparse.set(eid, 1);
+    storage.uploaded.set(eid, 2);
+
+    world.step(0);
+    expect(
+        ["sparse", "uploaded"].map((name) =>
+            Array.from(world.fieldStorage(Changed, name).dirty).some((word) => word !== 0),
+        ),
+    ).toEqual([false, false]);
+
+    let writeAfterUpload = false;
+    const lateWriter = {
+        group: "draw" as const,
+        update(current: World) {
+            if (writeAfterUpload) current.storage(Changed).uploaded.set(eid, 9);
+        },
+    };
+    world.addSystem(lateWriter);
+    writeAfterUpload = true;
+    world.step(0);
+    expect(world.fieldStorage(Changed, "uploaded").dirty[0]).not.toBe(0);
+
+    writeAfterUpload = false;
+    world.step(0);
+    expect(world.fieldStorage(Changed, "uploaded").dirty[0]).toBe(0);
 });

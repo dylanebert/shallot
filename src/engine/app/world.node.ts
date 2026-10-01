@@ -209,42 +209,6 @@ test("world GPU registries and owned resources are isolated and released on disp
     device.destroy();
 });
 
-test("frame change marks clear at the world upload point", async () => {
-    const Changed = { sparse: f32, uploaded: f32 };
-    const plugin = { name: "WorldChangeMarkProbe", components: [registration("Changed", Changed)] };
-    const app = await createApp({ defaults: false, plugins: [plugin] });
-    apps.push(app);
-    const { world } = app;
-    const eid = world.create();
-    world.add(eid, Changed);
-    const storage = world.storage(Changed);
-    storage.sparse.set(eid, 1);
-    storage.uploaded.set(eid, 2);
-
-    world.step(0);
-    expect(
-        ["sparse", "uploaded"].map((name) =>
-            Array.from(world.fieldStorage(Changed, name).dirty).some((word) => word !== 0),
-        ),
-    ).toEqual([false, false]);
-
-    let writeAfterUpload = false;
-    const lateWriter = {
-        group: "draw" as const,
-        update(current: World) {
-            if (writeAfterUpload) current.storage(Changed).uploaded.set(eid, 9);
-        },
-    };
-    world.addSystem(lateWriter);
-    writeAfterUpload = true;
-    world.step(0);
-    expect(world.fieldStorage(Changed, "uploaded").dirty[0]).not.toBe(0);
-
-    writeAfterUpload = false;
-    world.step(0);
-    expect(world.fieldStorage(Changed, "uploaded").dirty[0]).toBe(0);
-});
-
 test("entity ids and component columns grow without a configured capacity", async () => {
     const Grow = { value: f32 };
     const plugin = { name: "WorldGrowthProbe", components: [registration("Grow", Grow)] };
