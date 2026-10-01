@@ -623,9 +623,9 @@ export class World {
         this._controller?.abort();
         this._readback?.dispose();
         this._readback = undefined;
-        // the list now carries user cleanups (a Svelte unmount, an app rAF stop) that throw more readily
+        // the list carries user cleanups (a Svelte unmount, an app rAF stop) that throw more readily
         // than engine hooks, and LIFO runs them first — a throw must not skip the remaining callbacks or
-        // the scheduler/query teardown below, or it re-opens the leak this list closes. Report, never mask.
+        // the scheduler/query teardown below, or their resources leak. Report, never mask.
         for (let i = this._disposals.length - 1; i >= 0; i--) {
             try {
                 this._disposals[i]();

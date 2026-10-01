@@ -39,8 +39,8 @@ export function packColor(hex: number, opacity: number): number {
  * (Björn Ottosson's matrices). Splice into a surface preamble for perceptual
  * color work (hue/lightness perturbation around a base color); pair with
  * {@link oklabToLinearWgsl} to come back. One source so every shader
- * agrees on the matrices. Lazily resolved so the string isn't built until
- * first call (the `*Wgsl()` chunk pattern).
+ * agrees on the matrices. Resolves on every call; nothing is built at import
+ * and nothing is cached.
  */
 export function linearToOklabWgsl(): string {
     return tgpu.resolve({
@@ -68,7 +68,8 @@ fn linearToOklab(c: vec3<f32>) -> vec3<f32> {
  * WGSL `oklabToLinear(lab: vec3<f32>) -> vec3<f32>`: OkLab back to linear
  * sRGB (out-of-gamut values are NOT clamped; clamp at the call site if the
  * input can leave gamut). Counterpart of {@link linearToOklabWgsl}; each
- * direction is its own chunk so a shader splices only what it calls.
+ * direction is its own function so a shader splices only what it calls.
+ * Resolves on every call.
  */
 export function oklabToLinearWgsl(): string {
     return tgpu.resolve({

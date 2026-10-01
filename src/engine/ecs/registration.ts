@@ -10,7 +10,7 @@ export interface Registration<C extends Component = Component> {
     requires?: Component[];
     /**
      * default field values, applied on `world.add`. Values are scalars for
-     * ScalarField fields and per-lane arrays for direct {@link Vector2Field}/{@link Vector4Field}
+     * ScalarField fields and per-lane arrays for direct `Vector2Field`/`Vector4Field`
      * fields (`{ translation: [0, 0, 0, 0] }`).
      */
     defaults?: (world: World) => ComponentValues<C>;

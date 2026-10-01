@@ -27,9 +27,8 @@ import {
 
 // The GPU storage codecs, each a single TGSL function: one source that runs on the CPU
 // (a `bun test` calls it directly) and resolves to the WGSL a shader splices. Lattice drift between a
-// CPU packer and a GPU unpacker is the failure this shape makes unrepresentable — the 2026-05-08
-// settled-stack torque was exactly that, a CPU oct encoder on a unorm16 lattice against a GPU decoder
-// on snorm16.
+// CPU packer and a GPU unpacker is the failure this shape makes unrepresentable: a CPU oct encoder on
+// a unorm16 lattice against a GPU decoder on snorm16 puts a steady torque on settled stacks.
 //
 // The `*Wgsl()` chunks below are the splice surface for a raw-WGSL shader, resolved with `names:
 // "strict"` so the emitted function names are the ones documented here. Two rules govern them:
@@ -63,11 +62,11 @@ export const MeshQuant = d.struct({
     uvScale: d.vec4f,
 });
 
-// snorm16 mapping (pack2x16snorm): (-1, 1) ↔ (-32767, 32767), with 0 ↔ 0 exact. The earlier unorm16
-// mapping (-1, 1) ↔ (0, 65535) puts 0 between two integer rails, so axis-aligned vectors decoded as
-// (0, ±1, 0) round-tripped to (0, 1, ±1.5e-5). For contact normals on a flat ground, that asymmetric
-// z-bias produced a non-cancelling residual torque on the four corner contacts and a steady-state
-// quaternion drift on settled boxes (validated 2026-05-08). snorm16 makes ±1 and 0 round-trip exactly.
+// snorm16 mapping (pack2x16snorm): (-1, 1) ↔ (-32767, 32767), with 0 ↔ 0 exact. A unorm16 mapping
+// (-1, 1) ↔ (0, 65535) puts 0 between two integer rails, so axis-aligned vectors decoded as (0, ±1, 0)
+// round-trip to (0, 1, ±1.5e-5). For contact normals on a flat ground, that asymmetric z-bias gives a
+// non-cancelling residual torque on the four corner contacts and a steady quaternion drift on settled
+// boxes. snorm16 makes ±1 and 0 round-trip exactly.
 
 /** octahedral-encode a unit normal to an snorm16x2 `u32` (the storage normal, 12 B → 4 B;
  *  Cigolle et al. 2014). **Never for an interpolated or filtered normal** — the octahedral seam breaks
@@ -219,12 +218,12 @@ export const encodeUv = tgpu.fn(
     return packUnorm2x16(d.vec2f(clamp(nu, 0, 1), clamp(nv, 0, 1)));
 });
 
+const packChunk = chunk("posQuantPackWgsl", [encodePos, encodeUv], quantNs);
+
 /** WGSL `encodePos(p, meshId, q) -> vec2<u32>` + `encodeUv(uv, q) -> u32`: the {@link posQuantWgsl}
  *  encode half, for a GPU producer (compute-emitted terrain / meshing) that writes the quantized streams
  *  directly. Splice **after** {@link posQuantWgsl} — that chunk defines the shared `MeshQuant` struct. The
  *  producer supplies its mesh's analytic AABB as the `MeshQuant`. */
-const packChunk = chunk("posQuantPackWgsl", [encodePos, encodeUv], quantNs);
-
 export function posQuantPackWgsl(): string {
     // resolve the decode half first, unconditionally: the shared `MeshQuant` lands in whichever chunk
     // resolves first, and pinning that to the decode half keeps both chunks the same text whatever
@@ -466,8 +465,8 @@ export const smallest3Wgsl = chunk("smallest3Wgsl", [packQuatSmallest3, unpackQu
 //
 // So the two hot packers get a plain-JS mirror, over the same lattice primitives, and encode.test.ts
 // pins each against the TGSL function it mirrors across a sweep — bit-identical on the packed word.
-// That differential is the point: the hand-paired CPU/WGSL twins this file used to carry were held in
-// step by a comment, and these are held in step by a gate.
+// That differential is the point: a hand-paired CPU/WGSL twin is held in step only by a comment, and
+// these are held in step by a gate.
 
 /** {@link octEncodeNormal} over three loose lanes — the mesh builder's per-vertex form. */
 export function octEncode(x: number, y: number, z: number): number {

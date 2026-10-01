@@ -52,7 +52,8 @@ export interface FieldType<TArray extends TypedArray = TypedArray> {
     /** scalar = 1, vec2 = 2, vec4 = 4. stride into the backing array per eid */
     readonly lanes: 1 | 2 | 4;
     readonly name: string;
-    /** WGSL element type for GPU storage bindings. null for types without native WGSL storage (u8, u16) */
+    /** WGSL element type, or null for u8 and u16, which WGSL cannot store. Tables bind TypeGPU
+     * records, not this; it is part of the layout that hot reload compares. */
     readonly wgsl: string | null;
     /** JS number → array-slot value. omit for identity-mapped types */
     readonly encode?: (v: number) => number;
@@ -204,17 +205,16 @@ export const vec4: FieldType<Float32Array> & { readonly lanes: 4 } = {
 
 /**
  * per-entity scalar storage. one value per entity, read/written by eid.
- * Component fields that need dirty tracking, GPU mirroring, or other
- * lifecycle behavior expose this instead of a bare typed array. `world.add`
- * routes default values through `.set`, so defaults flow into dirty bits
- * automatically. GPU consumers declare record tables separately.
+ * Component fields expose this instead of a bare typed array so writes
+ * publish change marks and survive storage growth. `world.add`
+ * writes defaults through `.set`, so defaults publish marks too. GPU
+ * consumers declare record tables separately.
  */
 export interface ScalarField {
     /** Copy encoded typed rows in eid order; source must match this lane's element type. */
     writeEncoded(eids: Uint32Array, source: TypedArray): void;
     set(eid: number, value: number): void;
     get(eid: number): number;
-    /** type descriptor — needed for surface binding (WGSL element type) */
     readonly type: FieldType;
     /** world-owned CPU column, including each vector lane in field order */
     readonly column: TypedArray;

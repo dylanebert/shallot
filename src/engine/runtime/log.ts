@@ -35,7 +35,7 @@ function text(args: unknown[]): string {
  *
  * **Call it before any pipeline resolves.** typegpu captures the `console` method *at shader-generation
  * time* and calls that captured reference at readback, so a patch installed after a logging kernel
- * resolves never sees its lines. {@link requestGPU} calls this first thing, which is early enough for
+ * resolves never sees its lines. `requestGPU` calls this first thing, which is early enough for
  * every engine pipeline.
  * @internal
  */

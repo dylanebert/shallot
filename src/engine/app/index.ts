@@ -41,7 +41,7 @@ export interface Plugin {
     /**
      * GPU features this plugin's shaders require beyond the engine's base floor. The active
      * plugins' features are unioned and requested at device acquisition; a device missing one
-     * fails with {@link UnsupportedError} before any plugin loads.
+     * fails with `UnsupportedError` before any plugin loads.
      */
     readonly features?: readonly GPUFeatureName[];
     /**
@@ -79,7 +79,7 @@ export interface Plugin {
 /**
  * a startup/error screen driven by the build's progress. the engine calls `show` before loading,
  * `update` across every lifecycle step, `complete` once progress reaches `1`, and `error` instead
- * if the build throws. see the built-in {@link shallotDark} family.
+ * if the build throws. see the built-in `shallotDark` family in `standard`.
  */
 export interface Loading {
     /** display the screen; return a cleanup called once the build finishes, or nothing to leave it up */
@@ -216,7 +216,7 @@ export function setDefaultPlugins(plugins: readonly Plugin[]): void {
 
 /**
  * set the global default {@link Loading} screen every {@link createApp} uses when `config.loading` is omitted.
- * `standard` calls this at import with {@link shallotDark}.
+ * `standard` calls this at import with its `shallotDark` screen.
  */
 export function setDefaultLoading(factory: () => Loading): void {
     _defaultLoading = factory;
