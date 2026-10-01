@@ -307,7 +307,7 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
                 name: "SpawnedPlacement",
                 components: [
                     registration("SpawnedPlacement", SpawnedPlacement, {
-                        provides: [GlobalTransform],
+                        requires: [GlobalTransform],
                     }),
                 ],
 

@@ -34,7 +34,7 @@ The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wr
 
 ## Component editor metadata and name lookups are removed
 
-Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. `defaults`, `excludes` and runtime `provides` remain; system annotations remain.
+Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. Registrations keep `defaults` and add-only `requires`; `excludes` is removed and runtime `provides` becomes `requires`. System annotations remain.
 
 The reflection exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `requiredComponents` (formerly `dependencies`), `provides`, `exclusions` and `kebab` are removed. The `getComponent` and `getTraits` wrappers and registry methods are removed too. Query imported component handles with `world.query([Component])`; a game resolves components and enum values by import, not by name.
 
@@ -42,7 +42,7 @@ Remove `Alias`, `laneAlias`, `eulerAlias`, `formatHex` and the input metadata he
 
 ## Register components as one list under exact keys
 
-`Plugin.components` is now a list of registrations, not a component map. `Plugin.traits` and the `Traits` type are removed. Put `defaults`, `excludes` and `provides` directly on each registration:
+`Plugin.components` is now a list of registrations, not a component map. `Plugin.traits` and the `Traits` type are removed. Put `defaults` and `requires` directly on each registration:
 
 ```ts
 // 0.9.5
@@ -131,7 +131,7 @@ Change shaders from entity-indexed scalar arrays to struct records addressed by 
 
 ## Authored Transform and world GlobalTransform are separate
 
-`Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Those producers exclude each other, and `Body` satisfies rendering requirements for `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, cannot be authored in a scene, and has no hierarchy.
+`Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, cannot be authored in a scene, and has no hierarchy.
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 

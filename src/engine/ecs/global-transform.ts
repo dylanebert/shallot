@@ -2,16 +2,16 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Xform } from "../utils";
-import { type Component, idOf, vec4 } from "./component";
+import { vec4 } from "./component";
 import type { World } from "./state";
 import type { ComponentStorage } from "./storage";
 import type { GpuTable } from "./table";
 import { registration } from "./traits";
 
-/** Authored world placement. A simulated body excludes this producer. There is no hierarchy. */
+/** Authored world placement. There is no hierarchy. */
 export const Transform = { translation: vec4, rotation: vec4, scale: vec4 };
 /** Derived fixed-tick world placement, never scene-authored. Gameplay and physics queries
- * read this, never Transform. Exactly one component provides it per entity through traits;
+ * read this, never Transform. Producers require it on insertion;
  * rendering reads `globalTransformTable(world)` instead of these fixed-tick columns. */
 export const GlobalTransform = {
     translation: vec4,
@@ -69,8 +69,6 @@ export interface GlobalTransformRuntime {
     params?: GPUBuffer;
     placement: ComponentStorage<typeof Transform>;
     global: ComponentStorage<typeof GlobalTransform>;
-    producers: Map<number, Set<number>>;
-    pendingRemoval: Set<number>;
     discontinuities: Uint32Array;
     discontinuityPhases: Uint8Array;
     discontinuityCount: number;
@@ -96,7 +94,7 @@ export function registerGlobalTransform(world: World): void {
                 rotation: [0, 0, 0, 1],
                 scale: [1, 1, 1, 1],
             }),
-            provides: [GlobalTransform],
+            requires: [GlobalTransform],
         }),
     );
 }
@@ -113,8 +111,6 @@ export function initializeGlobalTransform(world: World): void {
         generation: -1,
         placement: world.storage(Transform),
         global: world.storage(GlobalTransform),
-        producers: new Map(),
-        pendingRemoval: new Set(),
         discontinuities: new Uint32Array(1),
         discontinuityPhases: new Uint8Array(1),
         discontinuityCount: 0,
@@ -167,53 +163,6 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         for (const eid of world.query(globalTransformTerms)) queueFresh(runtime, eid);
     }
     return runtime.render!;
-}
-
-/** @internal Producer membership and derived-component lifetime belong to the engine. */
-export function globalTransformProducerChanged(
-    world: World,
-    component: Component,
-    eid: number,
-    present: boolean,
-): void {
-    if (!world.registry.provides(component, GlobalTransform)) return;
-    const runtime = world.globalTransformRuntime;
-    if (!runtime) return;
-    let producers = runtime.producers.get(eid);
-    if (present) {
-        if (!producers) runtime.producers.set(eid, (producers = new Set()));
-        producers.add(idOf(component));
-        runtime.pendingRemoval.delete(eid);
-        if (!world.has(eid, GlobalTransform)) world.add(eid, GlobalTransform);
-    } else {
-        producers?.delete(idOf(component));
-        if (producers?.size === 0) runtime.pendingRemoval.add(eid);
-    }
-}
-
-/** @internal A producer cannot remove a derived row still owned by another producer. */
-export function retainsGlobalTransform(world: World, eid: number, component: Component): boolean {
-    if (component !== GlobalTransform) return false;
-    return (world.globalTransformRuntime?.producers.get(eid)?.size ?? 0) > 0;
-}
-
-/** @internal Destruction clears owner state along with the entity's component membership. */
-export function forgetGlobalTransformEntity(world: World, eid: number): void {
-    const runtime = world.globalTransformRuntime;
-    runtime?.producers.delete(eid);
-    runtime?.pendingRemoval.delete(eid);
-}
-
-/** @internal Reconcile one-frame producer gaps before world placement is derived for draw. */
-export function reconcileGlobalTransformProducers(world: World): void {
-    const runtime = world.globalTransformRuntime;
-    if (!runtime) return;
-    for (const eid of runtime.pendingRemoval) {
-        if (runtime.producers.get(eid)?.size) continue;
-        runtime.pendingRemoval.delete(eid);
-        runtime.producers.delete(eid);
-        if (world.has(eid, GlobalTransform)) world.remove(eid, GlobalTransform);
-    }
 }
 
 function queueDiscontinuity(runtime: GlobalTransformRuntime, eid: number, phase: number): void {
@@ -325,7 +274,6 @@ export function endGlobalTransformTick(world: World): void {
 }
 /** @internal Gather post-simulation placement; recording waits for the renderer's frame encoder. */
 export function prepareGlobalTransform(world: World): void {
-    reconcileGlobalTransformProducers(world);
     deriveTransforms(world);
     const runtime = world.globalTransformRuntime;
     if (!runtime?.enabled) return;

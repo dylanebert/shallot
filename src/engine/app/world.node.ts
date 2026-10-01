@@ -98,31 +98,23 @@ test("live and later worlds keep component columns separate", async () => {
     );
 });
 
-test("component registrations, defaults, exclusions, and scene enumeration belong to each world", async () => {
+test("component registrations and defaults belong to each world", async () => {
     const firstComponents = {
         Value: { amount: f32 },
-        Blocker: { value: f32 },
-        Other: { value: f32 },
     };
     const secondComponents = {
         Value: { amount: f32, extra: f32 },
-        Blocker: { value: f32 },
-        Other: { value: f32 },
     };
     const firstPlugin = {
         name: "WorldRegistryProbe",
         components: [
             registration("Value", firstComponents.Value, { defaults: () => ({ amount: 11 }) }),
-            registration("Blocker", firstComponents.Blocker, { excludes: [firstComponents.Other] }),
-            registration("Other", firstComponents.Other),
         ],
     };
     const secondPlugin = {
         name: "WorldRegistryProbe",
         components: [
             registration("Value", secondComponents.Value, { defaults: () => ({ amount: 22 }) }),
-            registration("Blocker", secondComponents.Blocker),
-            registration("Other", secondComponents.Other),
         ],
     };
     const first = await createApp({ defaults: false, plugins: [firstPlugin] });
@@ -136,11 +128,6 @@ test("component registrations, defaults, exclusions, and scene enumeration belon
     second.world.add(secondEid, secondComponents.Value);
     expect(first.world.storage(firstComponents.Value).amount.get(firstEid)).toBe(11);
     expect(second.world.storage(secondComponents.Value).amount.get(secondEid)).toBe(22);
-
-    first.world.add(firstEid, firstComponents.Blocker);
-    expect(() => first.world.add(firstEid, firstComponents.Other)).toThrow('cannot attach "Other"');
-    second.world.add(secondEid, secondComponents.Blocker);
-    expect(() => second.world.add(secondEid, secondComponents.Other)).not.toThrow();
 });
 
 test("world GPU registries and owned resources are isolated and released on dispose", async () => {

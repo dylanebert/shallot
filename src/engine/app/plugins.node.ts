@@ -520,7 +520,7 @@ function featurePlugin(subject: Plugin): Plugin {
                 !uses(subject, PhysicsPlugin) &&
                 !uses(subject, CharacterPlugin)
             ) {
-                return { ...entry, provides: undefined };
+                return { ...entry, requires: undefined };
             }
             return entry;
         });

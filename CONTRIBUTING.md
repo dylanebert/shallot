@@ -35,7 +35,7 @@ A deterministic plugin never consumes readback in `fixed`; one that does declare
 
 `GlobalTransform` is derived world placement, never authored. Gameplay and physics queries read its fixed-tick columns; rendering reads the engine's interpolated table, resident only when requested. Teleports discard interpolation across the discontinuity.
 
-Exactly one component provides it per entity, through `provides` and producer exclusion: `Transform` for authored placement, or a domain's body, skeleton or attachment. Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
+A placement producer requires `GlobalTransform`, adding it when missing without removing it on detachment: `Transform` for authored placement, or a domain's body, skeleton or attachment. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
 
 Hierarchy belongs to the domain deriving placement, not the engine. A general attachment relation enters core only when two examples need the same one.
 

@@ -6,19 +6,8 @@ import type { World } from "./state";
 export interface Registration<C extends Component = Component> {
     key: string;
     component: C;
-    /**
-     * derived outputs this component produces. `Transform` and `Body` provide `GlobalTransform`.
-     * Adding a provider with `world.add` attaches `GlobalTransform`; removing a provider with
-     * `world.remove` retains it while another provider owns it, otherwise deferring removal until
-     * reconciliation.
-     */
-    provides?: Component[];
-    /**
-     * components that cannot coexist on the same entity. Symmetric — declaring
-     * `A.excludes = [B]` is equivalent to declaring `B.excludes = [A]`; both
-     * directions are enforced at `world.add`
-     */
-    excludes?: Component[];
+    /** Components added when missing on insertion; removing this component removes nothing. */
+    requires?: Component[];
     /**
      * default field values, applied on `world.add`. Values are scalars for
      * ScalarField fields and per-lane arrays for direct {@link Vector2Field}/{@link Vector4Field}
@@ -36,8 +25,7 @@ export function registration<
     component: C,
     options?: {
         defaults?: (world: World) => V & Record<Exclude<keyof V, keyof C>, never>;
-        excludes?: Component[];
-        provides?: Component[];
+        requires?: Component[];
     },
 ): Registration<C> {
     return { key, component, ...options };
@@ -56,7 +44,6 @@ export class ComponentRegistry {
     private readonly _byName = new Map<string, Entry>();
     // keyed by stable component id, so a handle held across reloads resolves this world's registration
     private readonly _byId = new Map<number, Entry>();
-    private _exclusions: Map<number, Set<Component>> | null = null;
 
     /** register a component under its exact stable key */
     register(registration: Registration): void {
@@ -65,22 +52,11 @@ export class ComponentRegistry {
         const entry: Entry = { ...registration };
         this._byName.set(key, entry);
         this._byId.set(id, entry);
-        this._exclusions = null;
     }
 
-    /** components that may not coexist with `component`. Symmetric over all declarations */
-    getExclusions(component: Component): ReadonlySet<Component> | undefined {
-        this._exclusions ??= this.buildExclusions();
-        return this._exclusions.get(idOf(component));
-    }
-
-    /** whether this component declares the given component as a runtime producer output. */
-    provides(component: Component, output: Component): boolean {
-        return (
-            this._byId
-                .get(idOf(component))
-                ?.provides?.some((item) => idOf(item) === idOf(output)) ?? false
-        );
+    /** Required companions for insertion. */
+    getRequirements(component: Component): readonly Component[] {
+        return this._byId.get(idOf(component))?.requires ?? [];
     }
 
     getName(component: Component): string | undefined {
@@ -110,24 +86,6 @@ export class ComponentRegistry {
     clear(): void {
         this._byName.clear();
         this._byId.clear();
-        this._exclusions = null;
-    }
-
-    private buildExclusions(): Map<number, Set<Component>> {
-        const map = new Map<number, Set<Component>>();
-        const link = (id: number, other: Component) => {
-            let set = map.get(id);
-            if (!set) map.set(id, (set = new Set()));
-            set.add(other);
-        };
-        for (const entry of this._byName.values()) {
-            for (const declared of entry.excludes ?? []) {
-                const other = this._byId.get(idOf(declared))?.component ?? declared;
-                link(idOf(entry.component), other);
-                link(idOf(other), entry.component);
-            }
-        }
-        return map;
     }
 }
 

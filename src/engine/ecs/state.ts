@@ -13,12 +13,9 @@ import {
 } from "./component";
 import { Entities } from "./entity";
 import {
-    forgetGlobalTransformEntity,
     type GlobalTransformRuntime,
-    globalTransformProducerChanged,
     markGlobalTransformDiscontinuity,
     prepareGlobalTransformFrame,
-    retainsGlobalTransform,
 } from "./global-transform";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
@@ -254,7 +251,6 @@ export class World {
         this._membershipObservers.get(idOf(component))?.forEach((observer) => {
             observer(eid, present);
         });
-        globalTransformProducerChanged(this, component, eid, present);
     }
 
     /** @internal Resolve the world-owned column for engine change consumers. */
@@ -424,7 +420,6 @@ export class World {
     /** destroy an entity */
     destroy(eid: number): void {
         if (!this._entities.exists(eid)) return;
-        forgetGlobalTransformEntity(this, eid);
         this._queries.onEntityRemoved(eid);
         for (const tables of this._tablesByComponent.values()) {
             for (const table of tables) table.release(eid);
@@ -462,24 +457,12 @@ export class World {
 
     /**
      * Attach a component with optional field values (vectors are arrays).
-     * Missing fields keep `Traits.defaults`. Defaults and starting values go through
+     * Missing fields keep registration defaults. Defaults and starting values go through
      * field setters, publishing changes. An already attached component is unchanged.
      * @example
      * world.add(eid, Health, { current: 100 });
      */
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
-        const excluded = this.registry.getExclusions(component as Component);
-        if (excluded) {
-            for (const other of excluded) {
-                if (this._components.has(eid, other)) {
-                    const a = this.registry.getName(component as Component) ?? "?";
-                    const b = this.registry.getName(other) ?? "?";
-                    throw new Error(
-                        `world.add: cannot attach "${a}" to entity ${eid} — excluded by "${b}"`,
-                    );
-                }
-            }
-        }
         const storage = this.storage(component as Component);
         if (this._components.add(eid, component)) {
             this.notifyMembership(component as Component, eid, true);
@@ -499,6 +482,9 @@ export class World {
                 throw error;
             }
             this._queries.onComponentChanged(eid, component, this._components);
+            for (const required of this.registry.getRequirements(component as Component)) {
+                if (!this.has(eid, required)) this.add(eid, required);
+            }
             this.registry.applyDefaults(this, component as Component, eid);
             if (values) {
                 for (const name in values) {
@@ -519,7 +505,6 @@ export class World {
 
     /** detach a component from an entity */
     remove(eid: number, component: any): void {
-        if (retainsGlobalTransform(this, eid, component)) return;
         if (this._components.remove(eid, component)) {
             this.notifyMembership(component as Component, eid, false);
             const tables = this._tablesByComponent.get(idOf(component as Component));

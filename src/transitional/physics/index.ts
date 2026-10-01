@@ -352,6 +352,7 @@ interface PhysicsRuntime {
     physicsWorld: PhysicsWorld | null;
     bodies: Map<number, SolverBody>;
     stamps: Map<number, number>;
+    placementWarnings: Map<number, number>;
     kinPrev: Map<number, { pos: [number, number, number]; quat: [number, number, number, number] }>;
     failed: Map<number, { stamp: number; hulls: number }>;
     constraints: ConstraintCache;
@@ -373,6 +374,7 @@ function newRuntime(): PhysicsRuntime {
         physicsWorld: null,
         bodies: new Map(),
         stamps: new Map(),
+        placementWarnings: new Map(),
         kinPrev: new Map(),
         failed,
         constraints: createConstraintCache(),
@@ -877,6 +879,12 @@ const SyncSystem: System = {
         for (const eid of world.query(BODY_TERMS)) {
             runtime.counters.bodiesVisited += 1;
             const stamp = world.generation(eid);
+            if (world.has(eid, Transform) && runtime.placementWarnings.get(eid) !== stamp) {
+                console.warn(
+                    `physics-sync: entity ${eid} carries both Body and Transform; both write GlobalTransform`,
+                );
+                runtime.placementWarnings.set(eid, stamp);
+            }
             if (runtime.bodies.has(eid)) {
                 if (runtime.stamps.get(eid) === stamp) continue;
                 forget(runtime, eid); // recycled to a new Body in one update
@@ -935,8 +943,7 @@ export const PhysicsPlugin: Plugin = {
                 mass: 1,
                 friction: 0.5,
             }),
-            excludes: [Transform],
-            provides: [GlobalTransform],
+            requires: [GlobalTransform],
         }),
         registration("Spring", Spring, {
             defaults: () => ({

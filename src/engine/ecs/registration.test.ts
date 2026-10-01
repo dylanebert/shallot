@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { f32, vec2, vec4 } from "./component";
+import { GlobalTransform } from "./global-transform";
 import { dump, inspect, readFields, snapshot } from "./reflection";
 import { World } from "./state";
 import { registration } from "./traits";
@@ -11,15 +12,13 @@ test("registrations are plain data with flat options and schema-typed defaults",
     expect(
         registration("ExactKey", Component, {
             defaults,
-            excludes: [Component],
-            provides: [Component],
+            requires: [Component],
         }),
     ).toEqual({
         key: "ExactKey",
         component: Component,
         defaults,
-        excludes: [Component],
-        provides: [Component],
+        requires: [Component],
     });
     registration("TypedDefaults", Component, {
         // @ts-expect-error defaults cannot name an undeclared field, even alongside a declared one
@@ -29,6 +28,22 @@ test("registrations are plain data with flat options and schema-typed defaults",
         // @ts-expect-error vec4 defaults must have four lanes
         defaults: () => ({ vectorValue: [1, 2, 3] }),
     });
+});
+
+test("required GlobalTransform is inserted when missing and remains after its requirer is removed", () => {
+    const world = new World();
+    world.registry.register(registration("Producer", Component, { requires: [GlobalTransform] }));
+    const eid = world.create();
+    world.add(eid, Component);
+    expect(world.has(eid, GlobalTransform)).toBe(true);
+    world.storage(GlobalTransform).translation.set(eid, 7, 8, 9, 0);
+    world.remove(eid, Component);
+    world.add(eid, Component);
+    expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(7);
+    world.remove(eid, Component);
+    world.step(0);
+    expect(world.has(eid, GlobalTransform)).toBe(true);
+    world.dispose();
 });
 
 test("snapshot reports exact registration keys and declared scalar and vector fields", () => {
