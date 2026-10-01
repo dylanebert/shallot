@@ -11,7 +11,7 @@ import {
 
 /**
  * a camera's projection model: `Perspective` (fov-based, the default) or `Orthographic` (size-based).
- * Set via the `mode` field on the `camera` attribute (`camera="mode: perspective"` / `camera="mode: orthographic"`).
+ * Stored in {@link Camera} `mode`: `world.add(eid, Camera, { mode: CameraMode.Orthographic })`.
  */
 export const CameraMode = {
     Perspective: 0,
@@ -27,11 +27,13 @@ export const CameraMode = {
  *
  * @example
  * ```
- * <a camera="mode: perspective; fov: 60; clear-color: 0x5cbfbf" transform="translation: 4 3 4" />
+ * const camera = world.create();
+ * world.add(camera, Camera, { mode: CameraMode.Perspective, fov: 60, clearColor: 0x5cbfbf });
+ * world.add(camera, Transform, { translation: [4, 3, 4, 0] });
  * ```
  */
 export const Camera = {
-    /** perspective (0) or orthographic (1) projection, set via the `mode` scene attribute */
+    /** a {@link CameraMode}: perspective (0) or orthographic (1) projection */
     mode: u32,
     /** field of view in degrees (perspective mode) */
     fov: f32,
@@ -56,7 +58,9 @@ export const Camera = {
  *
  * @example
  * ```
- * <a camera resolution="height: 360" />
+ * const camera = world.create();
+ * world.add(camera, Camera, { antialias: 0 });
+ * world.add(camera, Resolution, { height: 360 });
  * ```
  */
 export const Resolution = {

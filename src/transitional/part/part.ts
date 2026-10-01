@@ -46,12 +46,20 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
  * geometry. A dense struct table feeds the GPU pack, which groups MeshInstances by
  * `(surface, mesh)` and emits one indirect draw per used pair, so a surface is
  * shading only and renders any mesh. `surface` defaults to `"default"`, `mesh`
- * to `"cube"`; scenes pick others via `<a mesh-instance="surface: checker; mesh: wall" />`
+ * to `"cube"`; pick others by their registry ids.
  *
  * @example
  * ```
- * <a mesh-instance transform="translation: 0 0 0" color="rgba: 1 0.5 0.2 1" />
- * <a mesh-instance="surface: checker; mesh: wall" transform="translation: 2 0 0" />
+ * const cube = world.create();
+ * world.add(cube, MeshInstance);
+ * world.add(cube, Transform, { translation: [0, 0, 0, 0] });
+ * world.add(cube, Color, { rgba: [1, 0.5, 0.2, 1] });
+ * const wall = world.create();
+ * world.add(wall, MeshInstance, {
+ *     surface: world.resource(Surfaces).id("checker") ?? 0,
+ *     mesh: world.resource(Meshes).id("wall") ?? 0,
+ * });
+ * world.add(wall, Transform, { translation: [2, 0, 0, 0] });
  * ```
  */
 export const MeshInstance = {

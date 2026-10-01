@@ -13,7 +13,7 @@ import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/
  *
  * @example
  * ```
- * <a ambient-light="color: 0xd0dcec; intensity: 1.13" />
+ * world.add(world.create(), AmbientLight, { color: 0xd0dcec, intensity: 1.13 });
  * ```
  */
 export const AmbientLight = {
@@ -29,7 +29,11 @@ export const AmbientLight = {
  *
  * @example
  * ```
- * <a directional-light="direction: -0.3 -0.8 -0.55; color: 0xfff4e0; intensity: 1.2" />
+ * world.add(world.create(), DirectionalLight, {
+ *     direction: [-0.3, -0.8, -0.55, 0],
+ *     color: 0xfff4e0,
+ *     intensity: 1.2,
+ * });
  * ```
  */
 export const DirectionalLight = {
@@ -48,7 +52,9 @@ export const DirectionalLight = {
  *
  * @example
  * ```
- * <a point-light="color: 0xffd9a0; intensity: 2; range: 6" transform="translation: 0 1.8 0" />
+ * const lamp = world.create();
+ * world.add(lamp, PointLight, { color: 0xffd9a0, intensity: 2, range: 6 });
+ * world.add(lamp, Transform, { translation: [0, 1.8, 0, 0] });
  * ```
  */
 export const PointLight = {
@@ -72,7 +78,11 @@ export const PointLight = {
  *
  * @example
  * ```
- * <a point-light="color: 0xffffff; intensity: 4; range: 12" spot="inner: 18; outer: 28" transform="rotation: -45 0 0" />
+ * const spot = world.create();
+ * world.add(spot, PointLight, { color: 0xffffff, intensity: 4, range: 12 });
+ * world.add(spot, Spot, { inner: 18, outer: 28 });
+ * const q = eulerToQuat(-45, 0, 0);
+ * world.add(spot, Transform, { rotation: [q.x, q.y, q.z, q.w] });
  * ```
  */
 export const Spot = {
@@ -91,8 +101,16 @@ export const Spot = {
  *
  * @example
  * ```
- * <a point-light="color: 0xffffff; intensity: 6; range: 14" spot="inner: 16; outer: 26" volumetric transform="translation: 0 8 0; rotation: -90 0 0" />
- * <a directional-light="direction: -0.4 -0.8 -0.45" volumetric shadow="distance: 80" />
+ * const spot = world.create();
+ * world.add(spot, PointLight, { color: 0xffffff, intensity: 6, range: 14 });
+ * world.add(spot, Spot, { inner: 16, outer: 26 });
+ * world.add(spot, Volumetric);
+ * const q = eulerToQuat(-90, 0, 0);
+ * world.add(spot, Transform, { translation: [0, 8, 0, 0], rotation: [q.x, q.y, q.z, q.w] });
+ * const sun = world.create();
+ * world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.45, 0] });
+ * world.add(sun, Volumetric);
+ * world.add(sun, Shadow, { distance: 80 });
  * ```
  */
 export const Volumetric = {};

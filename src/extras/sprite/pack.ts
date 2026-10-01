@@ -52,11 +52,13 @@ export const SpriteFill = {
  *
  * @example
  * ```
- * <a sprite="image: house; size: 2 2; anchor: 0.5 0" transform="translation: 4 0 4" />
+ * const marker = world.create();
+ * world.add(marker, Sprite, { image: registerImage(world, "/icons/house.png"), size: [2, 2], anchor: [0.5, 0] });
+ * world.add(marker, Transform, { translation: [4, 0, 4, 0] });
  * ```
  */
 export const Sprite = {
-    /** registered image id (see {@link registerImage}); a scene's `image:` resolves the registered name */
+    /** registered image id (see {@link registerImage}) */
     image: u32,
     /** quad size in world units, before the transform's scale */
     size: vec2,

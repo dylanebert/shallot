@@ -5,7 +5,7 @@ import { registration } from "../../engine";
 // reads. The engine names no sky concept — this plugin owns all of it. It *reads* the sun from the
 // `Lighting` singleton and writes nothing; a day-night cycle that writes the sun is a separate, deferred
 // plugin, so sky and lights never depend on each other. One `Sky` singleton holds the look; a camera opts
-// in with sear's `CameraBackground` component (`backdrop="name: sky"`). Not in `DEFAULT_PLUGINS`.
+// in with sear's `CameraBackground` component. Not in `DEFAULT_PLUGINS`.
 
 import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
@@ -17,15 +17,19 @@ import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 
 /**
  * the scene's procedural sky, one per scene (a singleton). A camera shows it by selecting the registered
- * `sky` backdrop (`backdrop="name: sky"`). The look is a layered recipe: an elevation gradient from
+ * `sky` background with `CameraBackground`. The look is a layered recipe: an elevation gradient from
  * `horizon` up to `zenith`, a sun glow + disk (positioned by the scene's directional light, tinted
- * `sun-color`), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. The sun's direction
+ * `sunColor`), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. The sun's direction
  * follows the directional light; this component sets only its appearance.
  *
  * @example
  * ```
- * <a sky="zenith: 0x89b6e9; horizon: 0xc4cdda; sun-glow: 0.5; cloud-coverage: 0.5" />
- * <a camera standard-renderer camera-background="name: sky" transform />
+ * world.add(world.create(), Sky, { zenith: 0x89b6e9, horizon: 0xc4cdda, sunGlow: 0.5, cloudCoverage: 0.5 });
+ * const camera = world.create();
+ * world.add(camera, Camera);
+ * world.add(camera, StandardRenderer);
+ * world.add(camera, CameraBackground, { name: world.resource(Backgrounds).id("sky") ?? 0 });
+ * world.add(camera, Transform);
  * ```
  */
 export const Sky = {
@@ -88,7 +92,7 @@ const SkySystem: System = {
 
 /**
  * procedural sky (the bryce3d look). Opt-in: add `SkyPlugin` to the plugin set, give the scene one
- * {@link Sky} singleton, and select the `sky` backdrop on the rendering camera (`backdrop="name: sky"`).
+ * {@link Sky} singleton, and select the `sky` background on the rendering camera with `CameraBackground`.
  * The sky reads the scene's directional light for the sun's position and writes nothing.
  */
 export const SkyPlugin: Plugin = {

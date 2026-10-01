@@ -72,8 +72,8 @@ export const Content = {
 };
 
 /**
- * register a font by url, returning its id. `name` (optional) is the handle a scene's `font:` attribute
- * resolves; unnamed fonts key by url. Register in the owning World during `setup` so the atlas loads at init
+ * register a font by url, returning the id stored in {@link Text.font}. `name` (optional) is its
+ * {@link Fonts} key; unnamed fonts key by url. Register in the owning World during `setup` so the atlas loads at init
  *
  * @example
  * ```
@@ -86,7 +86,7 @@ export function registerFont(world: World, url: string, name?: string): number {
 
 /**
  * intern a label string, returning the id stored in {@link Text.content}. Identical strings dedupe to one
- * id. Scene `content:` attributes intern through here; programmatic authors call it directly
+ * id.
  *
  * @example
  * ```
@@ -104,11 +104,18 @@ export function internText(world: World, content: string): number {
  *
  * @example
  * ```
- * <a text="content: Score; font-size: 0.5; anchor: 0.5 0.5; color: 0xffcc44" transform />
+ * const label = world.create();
+ * world.add(label, Text, {
+ *     content: internText(world, "Score"),
+ *     fontSize: 0.5,
+ *     anchor: [0.5, 0.5],
+ *     color: 0xffcc44,
+ * });
+ * world.add(label, Transform);
  * ```
  */
 export const Text = {
-    /** interned string id (see {@link internText}); a scene's `content:` interns the raw string */
+    /** interned string id (see {@link internText}) */
     content: u32,
     /** registered font id (see {@link registerFont}); 0 is the default face */
     font: u32,

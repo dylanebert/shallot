@@ -43,7 +43,9 @@ export { drawArrow, drawLine, drawWireBox } from "./segments";
  *
  * @example
  * ```
- * <a line="offset: 0 1 0; thickness: 3; color: 0x44ff88" transform />
+ * const eid = world.create();
+ * world.add(eid, Line, { offset: [0, 1, 0, 0], thickness: 3, color: 0x44ff88 });
+ * world.add(eid, Transform);
  * ```
  */
 export const Line = {
@@ -65,7 +67,10 @@ export const Line = {
  *
  * @example
  * ```
- * <a arrow="size: 1.5" line="offset: 2 0 0; color: 0xffcc00" transform />
+ * const eid = world.create();
+ * world.add(eid, Line, { offset: [2, 0, 0, 0], color: 0xffcc00 });
+ * world.add(eid, Arrow, { size: 1.5 });
+ * world.add(eid, Transform);
  * ```
  */
 export const Arrow = {

@@ -10,7 +10,7 @@ import { registration } from "./traits";
 
 /** Authored world placement. There is no hierarchy. */
 export const Transform = { translation: vec4, rotation: vec4, scale: vec4 };
-/** Derived fixed-tick world placement, never scene-authored. Gameplay and physics queries
+/** Derived fixed-tick world placement, never authored. Gameplay and physics queries
  * read this, never Transform. Producers require it on insertion;
  * rendering reads `globalTransformTable(world)` instead of these fixed-tick columns. */
 export const GlobalTransform = {
@@ -98,7 +98,7 @@ export function registerGlobalTransform(world: World): void {
         }),
     );
 }
-/** @internal Install once before scene/setup authoring. GPU residency waits for a reader. */
+/** @internal Install once before setup authoring. GPU residency waits for a reader. */
 export function initializeGlobalTransform(world: World): void {
     const runtime: GlobalTransformRuntime = {
         enabled: false,

@@ -56,7 +56,9 @@ import {
  *
  * @example
  * ```
- * <a directional-light="direction: -0.3 -0.8 -0.55" shadow="distance: 80" />
+ * const sun = world.create();
+ * world.add(sun, DirectionalLight, { direction: [-0.3, -0.8, -0.55, 0] });
+ * world.add(sun, Shadow, { distance: 80 });
  * ```
  */
 export const Shadow = {
@@ -68,7 +70,7 @@ export const Shadow = {
     normalBias: f32,
 };
 
-/** the {@link Shadow} field defaults: applied on add, overridden per-attribute. `normalBias` matches
+/** the {@link Shadow} field defaults: applied on add, overridden by `world.add` values. `normalBias` matches
  * Bevy's directional default (1.8); `depthBias` is a small residual now the normal offset carries acne */
 export const SHADOW_DEFAULTS = {
     distance: 50,

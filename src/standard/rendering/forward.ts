@@ -207,7 +207,10 @@ function _searState(world: World): SearState {
  *
  * @example
  * ```
- * <a camera standard-renderer transform />
+ * const camera = world.create();
+ * world.add(camera, Camera);
+ * world.add(camera, StandardRenderer);
+ * world.add(camera, Transform);
  * ```
  */
 export const StandardRenderer = {};
@@ -221,7 +224,11 @@ export const StandardRenderer = {};
  *
  * @example
  * ```
- * <a camera standard-renderer depth-prepass transform />
+ * const camera = world.create();
+ * world.add(camera, Camera);
+ * world.add(camera, StandardRenderer);
+ * world.add(camera, DepthPrepass);
+ * world.add(camera, Transform);
  * ```
  */
 export const DepthPrepass = {};
@@ -237,11 +244,14 @@ export const DepthPrepass = {};
  *
  * @example
  * ```
- * <a mesh-instance material="metallic: 1; roughness: 0.2" transform />
+ * const eid = world.create();
+ * world.add(eid, MeshInstance);
+ * world.add(eid, Material, { params: [1, 0.2, 0, 1] });
+ * world.add(eid, Transform);
  * ```
  */
 export const Material = {
-    /** the four PBR lanes `(metallic, roughness, emissive, occlusion)`, authored named via the `material` attribute (`material="metallic: 1; roughness: 0.2"`). */
+    /** the four PBR lanes `(metallic, roughness, emissive, occlusion)`. */
     params: vec4,
 };
 
@@ -252,7 +262,7 @@ const MaterialTraits = {
 };
 
 // base every slot to the flat material so a MeshInstance lacking the Material component shades like the pre-PBR
-// diffuse default (an entity with Material overwrites its slot via the trait default on add). Mirrors
+// diffuse default (an entity with Material overwrites its slot via its registration default on add). Mirrors
 // MeshInstance.initPart's magenta Color base; the pack gates each slot on membership, so stale slots never draw.
 function initMaterial(world: World): void {
     partTable(world).bindFields(Material, { material: "params" });
@@ -284,11 +294,15 @@ function initMaterial(world: World): void {
  *
  * @example
  * ```
- * <a camera standard-renderer camera-background="name: gradient" transform />
+ * const camera = world.create();
+ * world.add(camera, Camera);
+ * world.add(camera, StandardRenderer);
+ * world.add(camera, CameraBackground, { name: world.resource(Backgrounds).id("gradient") ?? 0 });
+ * world.add(camera, Transform);
  * ```
  */
 export const CameraBackground = {
-    /** the registered background drawn behind the scene (selected by name) */
+    /** the {@link Backgrounds} id drawn behind the scene */
     name: u32,
 };
 
@@ -944,8 +958,8 @@ function renderColor(
     const _searState = world.resource(searStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
-    // per-camera AA: 4× MSAA when `Camera.antialias` is on (the default the Camera trait seeds), else
-    // single-sample. A scene attribute or a runtime `world.storage(Camera).antialias.set(eid, 0)` flips it live
+    // per-camera AA: 4× MSAA when `Camera.antialias` is on (the Camera registration default), else
+    // single-sample. `world.storage(Camera).antialias.set(eid, 0)` flips it live
     const aa = world.storage(Camera).antialias.get(eid) !== 0;
     const packed = world.storage(Camera).clearColor.get(eid);
     if (packed !== _searState.clearPacked) {

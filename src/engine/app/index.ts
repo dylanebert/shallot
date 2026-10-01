@@ -28,14 +28,14 @@ export * from "./compose";
  * @expand
  */
 export interface Plugin {
-    /** unique name; the manifest enables the plugin by this name, and `swapPlugins` pairs reloads by it */
+    /** unique name; `swapPlugins` pairs reloads by it */
     readonly name: string;
     /** Declares whether fixed simulation replays deterministically (default true).
      * Fixed consumers of GPU readback declare false. Byte access is not guarded. */
     readonly deterministic?: boolean;
     /** systems this plugin adds to the scheduler */
     readonly systems?: readonly System[];
-    /** components registered under exact stable keys, with their runtime traits */
+    /** components registered under exact stable keys, with their defaults and requirements */
     readonly components?: readonly Registration[];
     /** other plugins that must load first; every dependency must be present in the composition */
     readonly dependencies?: readonly Plugin[];
@@ -414,10 +414,10 @@ async function buildNow(config: AppConfig): Promise<App> {
  * paint` makes it the containing block for absolute *and* fixed descendants and clips paint to its
  * box, so app UI is bounded to the canvas region and can never spill into an embedding host (a
  * host page), even a stray `position: fixed`. `pointer-events: none` lets input
- * reach the canvas; UI panels re-enable it. Returns the overlay. Pass `state` to tie the overlay's
+ * reach the canvas; UI panels re-enable it. Returns the overlay. Pass `world` to tie the overlay's
  * removal to the World's lifetime — it auto-registers `overlay.remove()` via {@link World.onDispose}
  * and restores the host element's prior inline `position`, so a build that disposes cleans it up; omit
- * `state` to remove the overlay yourself, in which case the `position` is not restored.
+ * `world` to remove the overlay yourself, in which case the `position` is not restored.
  */
 export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
@@ -447,9 +447,9 @@ export async function runApp(config: AppConfig): Promise<App> {
         const world = app.world;
         const { device, pending, sync } = world.gpu;
         // UI teardown is World-owned: the overlay auto-registers its removal (mountOverlay above), and the
-        // ui cleanup registers beside it. Both run at state.dispose() — after the plugin dispose hooks on the
+        // ui cleanup registers beside it. Both run at world.dispose() — after the plugin dispose hooks on the
         // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
-        // covers a host that calls state.dispose() directly (the flows apps).
+        // covers a host that calls world.dispose() directly.
         if (config.ui && Runtime === "web") {
             const overlay = mountOverlay(document.querySelector("canvas"), world);
             const uiCleanup = config.ui(overlay, world);
@@ -457,8 +457,8 @@ export async function runApp(config: AppConfig): Promise<App> {
         }
 
         let disposed = false;
-        // stop the rAF loop when the World tears down, so a host that calls state.dispose() directly (the
-        // flows path) halts the loop too — not only the returned App.dispose(). Without this the loop keeps
+        // stop the rAF loop when the World tears down, so a host that calls world.dispose() directly
+        // halts the loop too — not only the returned App.dispose(). Without this the loop keeps
         // stepping a torn-down World every frame (the stacked-rAF leak). App.dispose sets it first; this is
         // idempotent with that.
         world.onDispose(() => {

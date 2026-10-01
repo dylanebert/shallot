@@ -64,10 +64,14 @@ export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
  *
  * @example
  * ```
- * <a body="shape: 0; position: 0 5 0; half-extents: 0.5 0.5 0.5; mass: 1; friction: 0.5" />
- * <a body="shape: 1; position: 0 5 0; half-extents: 0 0 0 0.5; mass: 1" />            <!-- sphere, radius 0.5 -->
- * <a body="shape: 2; position: 0 5 0; half-extents: 0 0.5 0 0.3; mass: 1" />          <!-- capsule, half-height 0.5, radius 0.3 -->
- * <a body="shape: 3; position: 0 5 0; half-extents: 1 1 1 2; mass: 1" />              <!-- hull id 2, AABB half 1×1×1 -->
+ * const box = world.create();
+ * world.add(box, Body, { shape: ShapeKind.Box, position: [0, 5, 0, 0], halfExtents: [0.5, 0.5, 0.5, 0], friction: 0.5 });
+ * // sphere, radius 0.5
+ * world.add(world.create(), Body, { shape: ShapeKind.Sphere, position: [0, 5, 0, 0], halfExtents: [0, 0, 0, 0.5] });
+ * // capsule, half-height 0.5, radius 0.3
+ * world.add(world.create(), Body, { shape: ShapeKind.Capsule, position: [0, 5, 0, 0], halfExtents: [0, 0.5, 0, 0.3] });
+ * // hull id 2, AABB half 1×1×1
+ * world.add(world.create(), Body, { shape: ShapeKind.Hull, position: [0, 5, 0, 0], halfExtents: [1, 1, 1, 2] });
  * ```
  */
 export const Body = {
@@ -75,7 +79,7 @@ export const Body = {
     shape: u32,
     /** spawn position; physics owns it after spawn. */
     position: vec4,
-    /** spawn orientation, authored as euler degrees like `Transform.rotation`; physics-owned after spawn. */
+    /** spawn orientation as a quaternion `(x, y, z, w)`, like `Transform.rotation`; physics-owned after spawn. */
     rotation: vec4,
     /** box/AABB half-extents in `xyz`; `w` doubles as the rounding radius (sphere/capsule) or the `Hull` id (a hull has radius 0, so the lane is free). */
     halfExtents: vec4,
@@ -86,17 +90,19 @@ export const Body = {
 };
 
 /**
- * a soft distance spring linking two bodies, pulling them toward a rest length; its own entity, referencing the bodies by `@name`.
+ * a soft distance spring linking two bodies, pulling them toward a rest length; its own entity, holding both bodies' eids.
  *
  * @example
  * ```
- * <a id="anchor" body="mass: 0; position: 0 10 0" />
- * <a body="mass: 1; position: 0 6 0" />
- * <a spring="a: @anchor; b: @block; rest: 4; stiffness: 100" />
+ * const anchor = world.create();
+ * world.add(anchor, Body, { mass: 0, position: [0, 10, 0, 0] });
+ * const block = world.create();
+ * world.add(block, Body, { mass: 1, position: [0, 6, 0, 0] });
+ * world.add(world.create(), Spring, { a: anchor, b: block, rest: 4, stiffness: 100 });
  * ```
  */
 export const Spring = {
-    /** the first body (a `@name` reference). */
+    /** the first body's eid. */
     a: entity,
     /** the second body. */
     b: entity,
@@ -111,21 +117,27 @@ export const Spring = {
 };
 
 /**
- * a hard joint pinning two bodies together: a rigid linear pin plus an optional angular lock, referencing both by `@name`.
+ * a hard joint pinning two bodies together: a rigid linear pin plus an optional angular lock, holding both bodies' eids.
  *
- * the anchors must start coincident at the scene pose (join a dynamic body to a static/kinematic anchor),
+ * the anchors must start coincident at the bodies' spawn poses (join a dynamic body to a static/kinematic anchor),
  * or construction rejects the joint.
  *
  * @example
  * ```
- * <a id="pivot" body="mass: 0; position: 0 10 0" />
- * <a body="mass: 1; position: 2 8 0" />
- * <a joint="a: @pivot; b: @bob; r-a: 0 0 0; r-b: 0 2.5 0" />                              <!-- spherical -->
- * <a joint="a: @pivot; b: @link; r-a: 0.5 0 0; r-b: -0.5 0 0; stiffness-ang: fixed" />   <!-- fixed -->
+ * const pivot = world.create();
+ * world.add(pivot, Body, { mass: 0, position: [0, 10, 0, 0] });
+ * const bob = world.create();
+ * world.add(bob, Body, { mass: 1, position: [0, 7.5, 0, 0] });
+ * // spherical
+ * world.add(world.create(), Joint, { a: pivot, b: bob, rA: [0, 0, 0, 0], rB: [0, 2.5, 0, 0] });
+ * const link = world.create();
+ * world.add(link, Body, { mass: 1, position: [1, 10, 0, 0] });
+ * // fixed
+ * world.add(world.create(), Joint, { a: pivot, b: link, rA: [0.5, 0, 0, 0], rB: [-0.5, 0, 0, 0], stiffnessAng: Infinity });
  * ```
  */
 export const Joint = {
-    /** the first body (a `@name` reference). */
+    /** the first body's eid. */
     a: entity,
     /** the second body. */
     b: entity,
@@ -133,11 +145,11 @@ export const Joint = {
     rA: vec4,
     /** the pin's anchor on body `b`, in its local frame. */
     rB: vec4,
-    /** angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation (author `stiffness-ang: fixed`). */
+    /** angular lock: `0` (default) leaves rotation free (spherical); `Infinity` locks orientation. */
     stiffnessAng: f32,
 };
 
-/** an authored spring: two body eids + local anchors + stiffness/rest, derived from a scene's {@link Spring} entities by {@link springDefs}. */
+/** an authored spring: two body eids + local anchors + stiffness/rest, derived from the world's {@link Spring} entities by {@link springDefs}. */
 export interface SpringDef {
     a: number;
     b: number;
@@ -147,7 +159,7 @@ export interface SpringDef {
     rest: number;
 }
 
-/** an authored joint: two body eids + local anchors + the angular lock, derived from a scene's {@link Joint} entities by {@link jointDefs}. Richer joints (motors, limits, the nine solver joint types) ride {@link physicsWorld}. */
+/** an authored joint: two body eids + local anchors + the angular lock, derived from the world's {@link Joint} entities by {@link jointDefs}. Richer joints (motors, limits, the nine solver joint types) ride {@link physicsWorld}. */
 export interface JointDef {
     a: number;
     b: number;

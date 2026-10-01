@@ -48,7 +48,7 @@ import { fogKernel, fogLayout0, fogLayout1 } from "./pipeline";
  *
  * @example
  * ```
- * <a fog="density: 0.04; color: 0xb5c4d8; height-base: 0; height-falloff: 0.15" />
+ * world.add(world.create(), Fog, { density: 0.04, color: 0xb5c4d8, heightBase: 0, heightFalloff: 0.15 });
  * ```
  */
 export const Fog = {

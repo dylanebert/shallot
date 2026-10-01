@@ -57,9 +57,9 @@ function transparentPixel(): Blob {
 }
 
 /**
- * register a sprite image, returning the id stored in {@link Sprite.registerImage}. `source` is a url or a
- * `Blob` (a procedurally-drawn `OffscreenCanvas.convertToBlob` works); `name` is the handle a
- * scene's `image:` attribute resolves (defaults to the url). Register any time up to a plugin's
+ * register a sprite image, returning the id stored in {@link Sprite.image}. `source` is a url or a
+ * `Blob` (a procedurally-drawn `OffscreenCanvas.convertToBlob` works); `name` is its {@link Images}
+ * key (defaults to the url). Register any time up to a plugin's
  * `initialize` (`SpritePlugin` builds the `texture_2d_array` at `warm`, after every initialize), so a
  * plugin can register its own images (no pre-`createApp` call needed); all images share one array, layer-per-image
  *

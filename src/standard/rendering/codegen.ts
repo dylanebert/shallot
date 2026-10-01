@@ -49,7 +49,11 @@ export const PICKING_ID_NONE = 0xffffffff;
  *
  * @example
  * ```
- * <a camera standard-renderer picking-prepass transform />
+ * const camera = world.create();
+ * world.add(camera, Camera);
+ * world.add(camera, StandardRenderer);
+ * world.add(camera, PickingPrepass);
+ * world.add(camera, Transform);
  * ```
  */
 export const PickingPrepass = {};

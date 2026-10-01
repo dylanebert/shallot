@@ -92,7 +92,15 @@ function _glazeState(world: World): GlazeState {
  * @example
  * ```
  * // warm, crushed, slightly desaturated
- * <a camera standard-renderer glaze="slope: 1.05 1 0.9; offset: -0.02 -0.02 -0.02; power: 1.2 1.2 1.2; saturation: 0.85" />
+ * const camera = world.create();
+ * world.add(camera, Camera);
+ * world.add(camera, StandardRenderer);
+ * world.add(camera, Glaze, {
+ *     slope: [1.05, 1, 0.9, 0],
+ *     offset: [-0.02, -0.02, -0.02, 0],
+ *     power: [1.2, 1.2, 1.2, 0],
+ *     saturation: 0.85,
+ * });
  * ```
  */
 export const Glaze = {

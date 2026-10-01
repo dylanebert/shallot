@@ -85,7 +85,7 @@ function attachShape(
     return true;
 }
 
-/** marshal a scene's `eid` (a live `Body`) into a fresh physics body in `world`: read the authored shape/
+/** marshal `eid` (a live `Body`) into a fresh physics body in `world`: read the authored shape/
  *  pose/mass/friction off the `Body` slab and create the matching physics body + collider. `userData` carries
  *  `eid` so a `BodyMoveEvent` round-trips back to the entity without a reverse map. Deterministic given `eid`
  *  and the current `Body` field values — the dual-run marshaling gate (physics.test.ts) exercises this

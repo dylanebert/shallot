@@ -238,16 +238,15 @@ export function trackCanvasOwner(canvas: HTMLCanvasElement, world: World): void 
     const prior = _canvasOwners.get(canvas);
     if (prior && prior !== world && !prior.disposed) {
         console.warn(
-            "attachCanvas: canvas already bound to a live World — did an app rebuild without disposing the previous one? dispose it first (app.dispose() / state.dispose())",
+            "attachCanvas: canvas already bound to a live World — did an app rebuild without disposing the previous one? dispose it first (app.dispose() / world.dispose())",
         );
     }
     _canvasOwners.set(canvas, world);
 }
 
 /**
- * bind a canvas to a camera entity, 1:1: each camera owns one canvas. Pass `state` to arm the dev-only
- * rebuild guard ({@link trackCanvasOwner}) — it only warns for callers that pass it, so a multi-view app
- * binding its cameras directly should pass `state` to catch a rebuild that skipped `dispose`.
+ * bind a canvas to a camera entity, 1:1: each camera owns one canvas. In dev builds it arms the
+ * rebuild guard ({@link trackCanvasOwner}), which catches a rebuild that skipped `dispose`.
  */
 export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: World): void {
     const _views = world.resource(Views);
