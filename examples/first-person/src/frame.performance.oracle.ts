@@ -13,25 +13,14 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { attachCanvas } from "@dylanebert/shallot/rendering";
+import { attachTexture } from "@dylanebert/shallot/rendering";
 import { Demo } from "./demo";
 
 const peerModule = "bun-webgpu";
 const peer = (await import(peerModule)) as Record<string, unknown> & {
     setupGlobals(): Promise<void>;
 };
-const createCanvasContext = peer.GPUCanvasContextMock as new (
-    canvas: HTMLCanvasElement,
-    width: number,
-    height: number,
-) => GPUCanvasContext;
 await bounded("frame probe WebGPU setup", peer.setupGlobals());
-if (typeof ResizeObserver === "undefined") {
-    globalThis.ResizeObserver = class {
-        observe() {}
-        disconnect() {}
-    } as unknown as typeof ResizeObserver;
-}
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`${label} timed out after 5000 ms`)), 5000);
@@ -150,16 +139,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
             try {
                 const camera = [...app.world.query([Camera])][0];
                 if (camera === undefined) throw new Error(`${name} has no camera`);
-                let context: GPUCanvasContext;
-                const canvas = {
-                    width: 1280,
-                    height: 720,
-                    style: { imageRendering: "auto" },
-                    getContext: () => context,
-                    getBoundingClientRect: () => ({ width: 1280, height: 720 }),
-                } as unknown as HTMLCanvasElement;
-                context = new createCanvasContext(canvas, 1280, 720);
-                attachCanvas(camera, canvas, app.world);
+                attachTexture(app.world, camera, { width: 1280, height: 720 });
                 for (let frame = 0; frame < 30; frame++) app.world.step(Time.FIXED_DT);
                 await bounded(`${name} warmup completion`, device.queue.onSubmittedWorkDone());
                 for (let run = 0; run < 3; run++) {
