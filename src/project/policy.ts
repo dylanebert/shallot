@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { relative, resolve, sep } from "node:path";
 import { Glob } from "bun";
 
 const SKIP = new Set([".git", ".cache", "node_modules", "fixtures", "target", "dist", "coverage"]);
@@ -12,24 +12,11 @@ function relativeFile(root: string, path: string): string {
 
 function recipeSourceViolations(root: string): string[] {
     const violations: string[] = [];
-    const manifests = new Glob("**/shallot.json").scanSync({ cwd: root, dot: false });
-    for (const relativeManifest of manifests) {
-        if (relativeManifest.split("/").some((part) => SKIP.has(part))) continue;
-        const manifestPath = resolve(root, relativeManifest);
-        let manifest: unknown;
-        try {
-            manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-        } catch {
-            continue;
-        }
-        if (
-            !manifest ||
-            typeof manifest !== "object" ||
-            (manifest as { kind?: unknown }).kind !== "recipe"
-        )
-            continue;
-
-        const sourceRoot = resolve(dirname(manifestPath), "src");
+    const examples = resolve(root, "examples");
+    if (!existsSync(examples)) return violations;
+    for (const entry of readdirSync(examples, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const sourceRoot = resolve(examples, entry.name, "src");
         if (!existsSync(sourceRoot)) continue;
         for (const match of new Glob("**/*.ts").scanSync({ cwd: sourceRoot, dot: false })) {
             const path = resolve(sourceRoot, match);

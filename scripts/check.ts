@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { Glob } from "bun";
+import { readProjectPolicy } from "../src/project/policy";
 
 // `bun run check`: every read-only gate in order, one line per arm, stopping at the first red.
 // `bun run` puts node_modules/.bin on PATH, so `tsc` and `biome` resolve to the pinned copies.
@@ -15,7 +16,6 @@ const arms: [string, string[]][] = [
         file.replace(/\.ts$/, ""),
         ["bun", resolve(import.meta.dir, file)],
     ]),
-    ["examples index", ["bun", resolve(import.meta.dir, "examples-index.ts"), "--check"]],
     ["cargo fmt", ["cargo", "fmt", "--all", "--check"]],
     [
         "cargo clippy (physics)",
@@ -23,7 +23,13 @@ const arms: [string, string[]][] = [
     ],
 ];
 
-let failed = false;
+const policyViolations = readProjectPolicy(root);
+let failed = policyViolations.length > 0;
+if (failed) {
+    for (const violation of policyViolations) console.error(`✗ ${violation}`);
+} else {
+    console.log("✓ project policy");
+}
 for (const [name, command] of arms) {
     const start = performance.now();
     const proc = Bun.spawnSync(command, { cwd: root, stdout: "pipe", stderr: "pipe" });

@@ -74,7 +74,6 @@ test("a Vite project built from the packed Shallot captures through its public r
                 },
             }),
         );
-        writeFileSync(join(project, "shallot.json"), JSON.stringify({ plugins: {} }));
         writeFileSync(
             join(project, "vite.config.ts"),
             readFileSync(join(SUBJECT, "vite.config.ts"), "utf8"),

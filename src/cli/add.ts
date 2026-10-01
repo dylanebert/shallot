@@ -8,7 +8,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { CLAUDE_IMPORT, PROJECT_GITIGNORE, recipeDoc } from "./add-fragments";
+import { PROJECT_GITIGNORE } from "./add-fragments";
 
 // `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/`; running
@@ -51,34 +51,20 @@ interface Recipe {
     intent?: string;
 }
 
-function manifestText(value: unknown): string | undefined {
-    return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
-}
-
 function listRecipeEntries(recipesDir: string): Recipe[] {
     if (!existsSync(recipesDir)) return [];
-    return readdirSync(recipesDir)
-        .sort()
-        .flatMap((name): Recipe[] => {
-            const manifest = resolve(recipesDir, name, "shallot.json");
-            if (!existsSync(manifest)) return [];
-            try {
-                const parsed = JSON.parse(readFileSync(manifest, "utf8"));
-                if (parsed.kind !== "recipe") return [];
-                return [
-                    {
-                        name,
-                        intent: manifestText(parsed.problem) ?? manifestText(parsed.description),
-                    },
-                ];
-            } catch {
-                return [];
-            }
-        });
+    return readdirSync(recipesDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => {
+            const page = readFileSync(resolve(recipesDir, entry.name, "index.html"), "utf8");
+            const meta = page.match(/<meta\b[^>]*\bname=["']description["'][^>]*>/i)?.[0];
+            const intent = meta?.match(/\bcontent=(["'])(.*?)\1/i)?.[2];
+            return { name: entry.name, intent };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** recipe directory names available to copy — a dir is a recipe when its `shallot.json` declares
- *  `"kind": "recipe"`; the directory layout says nothing. */
+/** Every directory under examples is available to copy. */
 export function listRecipes(recipesDir: string): string[] {
     return listRecipeEntries(recipesDir).map((recipe) => recipe.name);
 }
@@ -210,14 +196,8 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         : recipePackage(dest, resolve(recipesDir, name));
     writeFileSync(pkgPath, pinEngine(pkgText, version));
 
-    // Emit scaffolding absent from the copied directory: the agent-surface pointer (AGENTS.md, imported
-    // by CLAUDE.md), the project ignore (bun pack drops `.gitignore`), and the Bun transform preload used
-    // by project tests. Don't clobber a recipe that ships its own.
-    for (const [file, content] of [
-        ["AGENTS.md", recipeDoc(name)],
-        ["CLAUDE.md", CLAUDE_IMPORT],
-        [".gitignore", PROJECT_GITIGNORE],
-    ] as const) {
+    // Bun pack drops `.gitignore`; preserve an example's own ignore when present.
+    for (const [file, content] of [[".gitignore", PROJECT_GITIGNORE]] as const) {
         const path = resolve(dest, file);
         if (!existsSync(path)) writeFileSync(path, content);
     }

@@ -30,7 +30,6 @@ test("project policy rejects private engine imports and physics-world escapes", 
         const tree = mkdtempSync(join(tmpdir(), "shallot-project-policy-recipe-"));
         const recipe = join(tree, "examples/demo");
         mkdirSync(join(recipe, "src"), { recursive: true });
-        writeFileSync(join(recipe, "shallot.json"), JSON.stringify({ kind: "recipe" }));
         writeFileSync(
             join(recipe, "src/game.ts"),
             'import { thing } from "@dylanebert/shallot/src/engine";\nPhysics.world();\n',

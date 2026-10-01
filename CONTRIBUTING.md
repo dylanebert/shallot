@@ -74,7 +74,7 @@ bun test gpu.test                # GPU tier
 bun test ./examples/first-person/src/demo.node.ts # selected Node file
 bun node_modules/playwright/cli.js test -c examples/loading-screen # selected browser subject
 bun test --todo                  # quarantined claims
-bun run format                   # biome, examples index
+bun run format                   # biome
 ```
 
 Iterate on selected files or subjects. Wide runs confirm the final candidate before landing or release; CI runs them on every push. The wide Node command is in [CI](.github/workflows/test.yml); `bun run test:browser` runs all browser subjects. Manual oracles run by path.
@@ -126,7 +126,7 @@ Write a one-off entity straight out: create, then adds. Where content repeats, u
 
 ## Examples
 
-Examples are the outer loop: a user's problem exposes an engine gap; the owning module fixes and proves it, never the example. Each lives in its promise's repository, under `examples/<name>`, in the shape of a copied user project. Its manifest's `problem` names a piece of a game the user wants.
+Examples are the outer loop: a user's problem exposes an engine gap; the owning module fixes and proves it, never the example. Each lives in its promise's repository, under `examples/<name>`, in the shape of a copied user project. Its `index.html` carries one `<meta name="description">` describing the example.
 
 - One problem per example; only `first-person` composes many.
 - Every public promise has an example whose answer depends on it.

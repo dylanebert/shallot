@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { Glob } from "bun";
 import { resolve } from "path";
 
@@ -71,13 +71,9 @@ for (const file of files.filter((file) => /^examples\/[^/]+\/package\.json$/.tes
     violations.push(`${file} (example package manifest)`);
 
 const examplesDir = resolve(pkgDir, "examples");
-const recipes = readdirSync(examplesDir)
-    .filter((name) => existsSync(resolve(examplesDir, name, "shallot.json")))
-    .filter(
-        (name) =>
-            JSON.parse(readFileSync(resolve(examplesDir, name, "shallot.json"), "utf8")).kind ===
-            "recipe",
-    )
+const recipes = readdirSync(examplesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
     .sort();
 
 const required = [
@@ -123,8 +119,7 @@ for (const entry of ["./bun", "./tsconfig.json"]) {
         violations.push(`${entry} (missing package export)`);
 }
 for (const entry of missingNegations) violations.push(`${entry} (missing files negation)`);
-// The shipped example set is exactly the `kind: "recipe"` manifests: `files` negates showcases by
-// name, so a new showcase that misses its negation (or a recipe caught by one) reds here.
+// Every example directory must be declared and shipped.
 const declaredExamples = packageFiles
     .filter((entry) => /^examples\/[^/]+$/.test(entry))
     .map((entry) => entry.slice("examples/".length))

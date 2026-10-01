@@ -8,22 +8,24 @@ import { PROJECT_GITIGNORE } from "./add-fragments";
 function recipes(): string {
     const root = mkdtempSync(join(tmpdir(), "shallot-add-"));
     mkdirSync(join(root, "examples/demo"), { recursive: true });
-    writeFileSync(join(root, "examples/demo/shallot.json"), '{"kind":"recipe"}\n');
+    writeFileSync(
+        join(root, "examples/demo/index.html"),
+        '<meta name="description" content="Demo">\n',
+    );
     return root;
 }
 
 function discoveryRecipes(): string {
     const root = mkdtempSync(join(tmpdir(), "shallot-add-discovery-"));
-    const manifests: Record<string, string> = {
-        zeta: '{"kind":"recipe","description":"description fallback"}\n',
-        alpha: '{"kind":"recipe","description":"unused description","problem":"declared problem"}\n',
-        legacy: '{"kind":"recipe"}\n',
-        showcase: '{"kind":"showcase","problem":"not a recipe"}\n',
-    };
-    for (const [name, manifest] of Object.entries(manifests)) {
+    const descriptions = { zeta: "Zeta example", alpha: "Alpha example", legacy: "Legacy example" };
+    for (const [name, description] of Object.entries(descriptions)) {
         mkdirSync(join(root, "examples", name), { recursive: true });
-        writeFileSync(join(root, "examples", name, "shallot.json"), manifest);
+        writeFileSync(
+            join(root, "examples", name, "index.html"),
+            `<meta name="description" content="${description}">\n`,
+        );
     }
+    writeFileSync(join(root, "examples", "not-a-directory"), "ignored");
     return root;
 }
 
@@ -82,7 +84,7 @@ test("shallot add help succeeds with no recipe catalogue or destination writes",
     }
 });
 
-test("shallot add lists every recipe in stable name order with problem, description, or name-only fallback", async () => {
+test("shallot add lists every example directory in stable name order with its meta description", async () => {
     const root = discoveryRecipes();
     try {
         const output = await captureOutput(() =>
@@ -94,9 +96,31 @@ test("shallot add lists every recipe in stable name order with problem, descript
         expect(output.value).toBe(0);
         expect(output.stderr).toBe("");
         expect(output.stdout).toContain(
-            "Available examples:\n\n  alpha — declared problem\n  legacy\n  zeta — description fallback\n\nCopy an example with:\n  bunx shallot add <name> [dir]",
+            "Available examples:\n\n  alpha — Alpha example\n  legacy — Legacy example\n  zeta — Zeta example\n\nCopy an example with:\n  bunx shallot add <name> [dir]",
         );
-        expect(output.stdout).not.toContain("showcase");
+        expect(output.stdout).not.toContain("not-a-directory");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("shallot add refuses an occupied destination and preserves its contents", async () => {
+    const root = recipes();
+    const dest = join(root, "out");
+    mkdirSync(dest);
+    const page = join(dest, "index.html");
+    writeFileSync(page, "existing project\n");
+    try {
+        const output = await captureOutput(() =>
+            runAdd(["demo", dest], {
+                recipesDir: join(root, "examples"),
+                version: "0.0.0",
+            }),
+        );
+        expect(readFileSync(page, "utf8")).toBe("existing project\n");
+        expect(output.value).toBe(1);
+        expect(output.stderr).toBe(`refusing to copy into ${dest}: directory is not empty`);
+        expect(existsSync(join(dest, "package.json"))).toBe(false);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
@@ -182,11 +206,8 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
         expect(pkg.devDependencies.typescript).toBeDefined();
         expect(pkg.devDependencies["@types/bun"]).toBeDefined();
         expect(pkg.devDependencies.typegpu).toBeUndefined();
-        const agents = readFileSync(join(dest, "AGENTS.md"), "utf8");
-        expect(agents).toContain("A Shallot example — a minimal project demonstrating one concept");
-        expect(agents).toContain("The examples live at");
-        expect(agents).toContain("bun test");
-        expect(agents).not.toContain("recipe");
+        expect(existsSync(join(dest, "AGENTS.md"))).toBe(false);
+        expect(existsSync(join(dest, "CLAUDE.md"))).toBe(false);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }

@@ -176,13 +176,9 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         );
         expect(packedProjectTests).toContain("2 pass");
 
-        const recipes = readdirSync(join(ROOT, "examples"))
-            .filter((name) => existsSync(join(ROOT, "examples", name, "shallot.json")))
-            .filter(
-                (name) =>
-                    JSON.parse(readFileSync(join(ROOT, "examples", name, "shallot.json"), "utf8"))
-                        .kind === "recipe",
-            )
+        const recipes = readdirSync(join(ROOT, "examples"), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name)
             .sort();
         expect(recipes).toEqual(["first-person", "loading-screen"]);
         expect(existsSync(join(scratch, "package.json"))).toBe(false);

@@ -60,7 +60,6 @@
         "dist",
         "examples/first-person",
         "examples/loading-screen",
-        "!examples/AGENTS.md",
         "!examples/*/node_modules",
         "!examples/*/build",
         "!examples/*/dist",
@@ -80,7 +79,7 @@
         "build": "bun run ./scripts/build.ts",
         "prepare": "bun run ./scripts/tooling.ts",
         "check": "bun run scripts/check.ts",
-        "format": "biome check --write && bun run scripts/examples-index.ts",
+        "format": "biome check --write",
         "test": "bun test --timeout=250",
         "test:browser": "sh scripts/browser.sh"
     },

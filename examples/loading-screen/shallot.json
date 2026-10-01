@@ -1,8 +1,0 @@
-{
-    "kind": "recipe",
-    "description": "Show a static Shallot scene inside the host page.",
-    "problem": "I want the host page to stay visible while a dedicated scene area loads and reveals its first frame.",
-    "plugins": {
-        "Orbit": true
-    }
-}
