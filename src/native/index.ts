@@ -37,11 +37,6 @@ export function dropSwiftshader(): boolean {
     return process.env.SHALLOT_DROP_SWIFTSHADER != null;
 }
 
-/** The bundle identifier for a native build. */
-export function bundleIdentifier(_projectDir: string, name: string): string {
-    return `com.shallot.${name}`;
-}
-
 /**
  * a native build's output dir: `build/<platform>/<profile>-<mode>`. The mode segment keeps a portable
  * (CEF) and a system-webview build of the same project + profile in separate dirs (they'd otherwise
@@ -492,7 +487,7 @@ export async function bundleNativeMac(
     mkdirSync(macosDir, { recursive: true });
     mkdirSync(resourcesDir, { recursive: true });
 
-    const identifier = bundleIdentifier(projectDir, name);
+    const identifier = `com.shallot.${name}`;
     writeFileSync(
         resolve(contentsDir, "Info.plist"),
         macInfoPlist({ executable: name, bundleName: name, identifier, helper: false, icon: true }),

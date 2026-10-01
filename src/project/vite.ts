@@ -26,7 +26,7 @@ function pluginPackages(projectDir: string): string[] {
     if (!existsSync(projectManifest)) return [];
     const project = JSON.parse(readFileSync(projectManifest, "utf8"));
     const require = createRequire(projectManifest);
-    return Object.keys(project.dependencies ?? {}).filter((name) => {
+    return Object.keys({ ...project.dependencies, ...project.devDependencies }).filter((name) => {
         const path = require.resolve.paths(name)
             ?.map((directory) => join(directory, name, "package.json"))
             .find((path) => existsSync(path));

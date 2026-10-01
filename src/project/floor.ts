@@ -8,7 +8,7 @@ export function verdict(target: string, portable: boolean): string[] {
 }
 
 /** Refuse before native emission or launch when the selected backend cannot run the project. */
-export async function requireBackend(_projectDir: string, target: string, portable: boolean) {
+export function requireBackend(target: string, portable: boolean) {
     const lines = verdict(target, portable);
     if (lines.length === 0) return;
     for (const line of lines) console.error(`  ${line}`);

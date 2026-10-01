@@ -36,12 +36,13 @@ function shallotProject(projectDir?: string) {
     return plugin;
 }
 
-test("dependencies consuming Shallot are deduped and excluded, unlike unrelated packages", () => {
+test("dependencies and devDependencies consuming Shallot are deduped and excluded, unlike unrelated packages", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-project-plugin-"));
         try {
             const dependencies = { "peer-plugin": "1", "direct-plugin": "1", unrelated: "1" };
-            writeFileSync(join(root, "package.json"), JSON.stringify({ dependencies }));
-            for (const [name, engineSection] of [["peer-plugin", "peerDependencies"], ["direct-plugin", "dependencies"], ["unrelated", "devDependencies"]]) {
+            const devDependencies = { "dev-plugin": "1" };
+            writeFileSync(join(root, "package.json"), JSON.stringify({ dependencies, devDependencies }));
+            for (const [name, engineSection] of [["peer-plugin", "peerDependencies"], ["direct-plugin", "dependencies"], ["dev-plugin", "peerDependencies"], ["unrelated", "devDependencies"]]) {
                 const directory = join(root, "node_modules", name);
                 mkdirSync(directory, { recursive: true });
                 writeFileSync(join(directory, "package.json"), JSON.stringify({ name, main: "index.js", [engineSection]: { "@dylanebert/shallot": "*" } }));
@@ -60,7 +61,7 @@ test("dependencies consuming Shallot are deduped and excluded, unlike unrelated 
                 optimizeDeps?: { exclude?: string[] };
                 server?: { headers?: Record<string, string> };
             };
-            const expected = ["@dylanebert/shallot", "typegpu", "peer-plugin", "direct-plugin"];
+            const expected = ["@dylanebert/shallot", "typegpu", "peer-plugin", "direct-plugin", "dev-plugin"];
             expect(config.resolve?.dedupe).toEqual(expected);
             expect(config.optimizeDeps?.exclude).toEqual(expected);
             expect(config.server?.headers).toEqual({

@@ -19,7 +19,7 @@ export async function buildProject(
 
     const release = opts.release ?? false;
     const portable = opts.portable ?? false;
-    await requireBackend(projectDir, target, portable);
+    requireBackend(target, portable);
 
     if (!opts.dev) await buildWeb(projectDir, {}, opts.args);
 
