@@ -57,7 +57,7 @@ import {
 // (StandardRenderer) meet only through that contract and neither imports the other, so a
 // custom producer is a peer of MeshInstance rather than a fork of it.
 export { Camera, CameraMode, Resolution } from "./camera";
-export { CAPTURE_CONTRACT, type Capture, captureFrame } from "./capture";
+export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
 export { requestLightOverflow } from "./cluster";
 export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
 export type { Mesh } from "./mesh";
@@ -279,7 +279,7 @@ export const BeginFrameSystem: System = {
                 view.present = null;
                 continue;
             }
-            if (!view.context) {
+            if (!view.context && !view.texture) {
                 // a canvas-less view (a shadow light's off-screen camera): it takes a cull slot and
                 // packs its viewProj, but draws no framebuffer — its owner renders it to its own target
                 view.framebuffer = null;
@@ -293,7 +293,7 @@ export const BeginFrameSystem: System = {
                 console.warn(`shallot: ${MAX_VIEWS} camera cap reached; entity ${eid} skipped`);
                 continue;
             }
-            const texture = view.context.getCurrentTexture();
+            const texture = view.texture ?? view.context!.getCurrentTexture();
             if (!texture) {
                 view.framebuffer = null;
                 view.present = null;
@@ -382,6 +382,9 @@ const EndFrameSystem: System = {
             throw new Error("render submission requires BeginFrameSystem to open an encoder");
         _renderFrame.submit[0] = encoder.finish();
         device.queue.submit(_renderFrame.submit);
+        for (const view of world.resource(Views).values()) {
+            if (view.texture && view.present) view.presented = true;
+        }
         world.endGpuFrame();
         _render.encoder = null;
         world.resource(Views).forEach(clearTargets);
@@ -629,6 +632,7 @@ export { DrawIndexedIndirect, Draws } from "./registry";
 export { Render } from "./render";
 export {
     attachCanvas,
+    attachTexture,
     attachView,
     backingSize,
     detachCanvas,

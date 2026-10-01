@@ -2,11 +2,15 @@
 // boundary and tightly packed RGBA semantics, so every consumer reads the same geometry. `captureFrame`
 // runs IN THE PAGE; the driver fixes the viewport that makes the geometry hold and never re-implements the read.
 
+import type { World } from "../../engine";
+import { probeTexture } from "../../engine/runtime";
+import { Views } from "./view";
+
 interface CaptureIdentity {
     width: number;
     height: number;
     deviceScale: number;
-    surface: "final-canvas";
+    surface: "final-canvas" | "final-texture";
     encoding: "rgba8-tight";
 }
 
@@ -29,6 +33,39 @@ function assertCaptureGeometry(width: number, height: number): void {
             `capture refused: surface is ${width}x${height}, not the declared contract ${captureIdentityLabel(CAPTURE_CONTRACT)}`,
         );
     }
+}
+
+/**
+ * Read a camera's world-owned final texture after a submitted presenting frame. Call after stepping;
+ * queue order places the copy after that submission, without requiring another frame. Refuses an
+ * unbound/non-texture camera or a target never presented to. Returns independent tight RGBA bytes
+ * that outlive the target; detachment or disposal before the copy completes may reject the read.
+ */
+export async function captureTexture(world: World, eid: number): Promise<Capture> {
+    const view = world.resource(Views).get(eid);
+    if (!view?.texture) throw new Error("captureTexture: camera has no texture target");
+    if (!view.presented) throw new Error("captureTexture: no frame has presented to target");
+    const snapshot = await probeTexture(world, view.texture);
+    const rgba = new Uint8ClampedArray(snapshot.bytes);
+    if (snapshot.format === "bgra8unorm") {
+        for (let i = 0; i < rgba.length; i += 4) {
+            const red = rgba[i + 2];
+            rgba[i + 2] = rgba[i];
+            rgba[i] = red;
+        }
+    }
+    return {
+        rgba,
+        width: snapshot.width,
+        height: snapshot.height,
+        identity: {
+            width: snapshot.width,
+            height: snapshot.height,
+            deviceScale: 1,
+            surface: "final-texture",
+            encoding: "rgba8-tight",
+        },
+    };
 }
 
 /** one capture: tightly packed RGBA at the declared identity. */

@@ -124,6 +124,10 @@ export const linearToSrgbWgsl = chunk("linearToSrgbWgsl", [linearToSrgb3], splic
 export interface View {
     canvas: HTMLCanvasElement | null;
     context: GPUCanvasContext | null;
+    /** World-owned fixed-size final surface, absent on canvas and depth-only views. */
+    texture?: GPUTexture;
+    /** True after a frame acquired this surface and submitted its encoder. */
+    presented?: boolean;
     // the render backing-store size (device px). Derived each frame by `sizeView` from the display size
     // below + the camera's `Resolution` pin (or the world's pixelRatio). Every consumer — offscreen,
     // present, glaze, the cluster grid — reads these, so a low-res pin flows through by sizing them alone
@@ -182,6 +186,7 @@ function createViewResources(world: World): ViewResources {
     };
     world.onDispose(() => {
         for (const view of resources.views.values()) {
+            view.texture?.destroy();
             view.observer?.disconnect();
             view.context?.unconfigure();
         }
@@ -396,11 +401,44 @@ export function sizeView(world: World, eid: number, view: View): void {
 }
 
 /**
- * register a camera entity as a canvas-less, off-screen view: it takes a cull slot and its viewProj
- * is packed from its `Camera` + `Transform` like any camera, but it has no canvas and `framebuffer`
- * stays null; the caller renders it to its own target. A directional shadow's light-space camera is
- * one (so is each point/spot shadow combo's depth view). 1:1 per eid, like {@link attachCanvas}; the
- * caller indexes {@link Render.viewBuffers} by its slot. Frustum-culls from its viewProj like any camera.
+ * Bind a camera to a world-owned final texture in device pixels. Dimensions stay fixed even with
+ * Resolution. Detachment, camera pruning or world disposal destroys it. Refuses non-cameras,
+ * duplicate bindings, uninitialized rendering and dimensions outside the device's texture limit.
+ * BeginFrameSystem acquires it on the next draw; the final pass writes the same base format as a canvas.
+ */
+export function attachTexture(
+    world: World,
+    eid: number,
+    size: { width: number; height: number },
+): void {
+    const device = world.gpu.device;
+    if (!device || !world.resource(Render).format)
+        throw new Error("attachTexture: RenderPlugin not initialized");
+    if (!world.has(eid, Camera)) throw new Error("attachTexture: eid is not a camera");
+    for (const value of [size.width, size.height]) {
+        if (!Number.isInteger(value) || value <= 0 || value > device.limits.maxTextureDimension2D)
+            throw new RangeError(
+                "attachTexture: dimensions must be positive integers within maxTextureDimension2D",
+            );
+    }
+    attachView(world, eid);
+    const view = world.resource(Views).get(eid)!;
+    const texture = rawDevice(device).createTexture({
+        label: "camera final texture",
+        size: [size.width, size.height],
+        format: navigator.gpu.getPreferredCanvasFormat(),
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
+    });
+    world.own(texture);
+    view.texture = texture;
+    view.width = size.width;
+    view.height = size.height;
+}
+
+/**
+ * Register a depth-only view: it takes a cull slot and packs Camera + Transform, but has no
+ * framebuffer or presenting surface. Its caller renders to its own target. Refuses duplicate
+ * bindings; detachCanvas, camera pruning and disposal release the view registration.
  */
 export function attachView(world: World, eid: number): void {
     const _views = world.resource(Views);
@@ -426,11 +464,12 @@ export function attachView(world: World, eid: number): void {
     });
 }
 
-/** release a camera's view (canvas-bound or off-screen). Safe to call on unbound eids */
+/** Release a camera's view and owned targets (canvas, texture or depth-only). Safe on unbound eids. */
 export function detachCanvas(world: World, eid: number): void {
     const _views = world.resource(Views);
 
     _views.get(eid)?.observer?.disconnect();
+    _views.get(eid)?.texture?.destroy();
     _views.delete(eid);
     releaseOffscreen(world, eid);
     releaseScratch(world, eid);
