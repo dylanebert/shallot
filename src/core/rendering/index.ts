@@ -126,8 +126,6 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     const _renderFrame = world.resource(renderFrameKey);
     const _render = world.resource(Render);
 
-    // record the live camera's create-stamp so next frame's pruneViews detects a realias
-    view.stamp = world.generation(eid);
     view.slot = slot;
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
     // the viewProj is composed from, so it is read before the unchanged-slot test below

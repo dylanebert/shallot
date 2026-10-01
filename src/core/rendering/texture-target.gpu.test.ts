@@ -74,6 +74,17 @@ test("texture final frames capture tight RGBA and refuse missing presentation; o
     world.add(eid, Camera);
     world.add(eid, Transform);
     await expect(captureTexture(world, eid)).rejects.toThrow("no texture target");
+    attachTexture(world, eid, { width: 2, height: 2 });
+    const oldTexture = world.resource(Views).get(eid)!.texture!;
+    const recycledTarget = spyOn(oldTexture, "destroy");
+    world.destroy(eid);
+    const recycled = world.create();
+    expect(recycled).toBe(eid);
+    world.add(recycled, Camera);
+    world.add(recycled, Transform);
+    world.step(0);
+    expect(recycledTarget).toHaveBeenCalledTimes(1);
+    await expect(captureTexture(world, recycled)).rejects.toThrow("no texture target");
     attachTexture(world, eid, { width: 7, height: 3 });
     world.add(eid, Resolution);
     world.storage(Resolution).width.set(eid, 1);

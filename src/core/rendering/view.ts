@@ -148,7 +148,7 @@ export interface View {
     pickingId: GPUTexture | null;
     slot: number;
     observer: ResizeObserver | null;
-    // the create-stamp of the camera this view was last packed for (`world.generation`, `0` until first packed).
+    // The camera generation at attachment; an eid recycled before its first frame must not inherit it.
     // Membership catches a plain despawn; the stamp catches a same-update destroy+create realias that keeps
     // Camera membership, so a recycled eid doesn't inherit the dead camera's canvas. See {@link pruneViews}
     stamp: number;
@@ -299,7 +299,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
         pickingId: null,
         slot: 0,
         observer: null!,
-        stamp: 0,
+        stamp: world.generation(eid),
     };
     // the observer is the DOM producer for the World-scoped viewport row. `sizeView` derives the backing
     // from that row each frame, so a runtime `Resolution` edit re-sizes (the observer never fires for that)
@@ -460,7 +460,7 @@ export function attachView(world: World, eid: number): void {
         pickingId: null,
         slot: 0,
         observer: null,
-        stamp: 0,
+        stamp: world.generation(eid),
     });
 }
 
@@ -479,8 +479,8 @@ export function detachCanvas(world: World, eid: number): void {
  * drop the auto-bind's inverse: a View whose camera despawned, or whose eid was recycled to a new camera.
  * `world.has(eid, Camera)` catches a plain despawn (the destroy dropped Camera); the create-stamp catches a
  * same-update destroy+create realias that *keeps* Camera membership — without it the recycled eid keeps the
- * dead camera's View (its canvas + leaked ResizeObserver, re-binding to the wrong canvas). A View not yet
- * packed (`stamp` 0) skips the stamp arm for that frame; the next pack records its camera's live stamp.
+ * dead camera's View (its canvas + leaked ResizeObserver, re-binding to the wrong canvas).
+ * Attachment records the generation, so recycling before the first frame is caught too.
  * {@link BeginFrameSystem} calls it at frame start, before binding.
  */
 export function pruneViews(world: World): void {
@@ -489,8 +489,7 @@ export function pruneViews(world: World): void {
 
 // one View's liveness check for the `pruneViews` walk; the walk passes the World as `this`
 function pruneView(this: World, view: View, eid: number): void {
-    if (!this.has(eid, Camera) || (view.stamp !== 0 && this.generation(eid) !== view.stamp))
-        detachCanvas(this, eid);
+    if (!this.has(eid, Camera) || this.generation(eid) !== view.stamp) detachCanvas(this, eid);
 }
 
 // per-camera offscreen scene-color target — the `view.framebuffer` a renderer draws (or resolves)
