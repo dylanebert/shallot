@@ -160,6 +160,10 @@ Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs
 
 The Bun entry is a factory, not an import side effect. In `tests/preload.ts`, import `plugin` from `bun` and `shallot` from `@dylanebert/shallot/bun`, then register `plugin(shallot({ root: import.meta.dir }))`. Configure `[test] preload = ["./tests/preload.ts"]` in `bunfig.toml`. Root resolution walks from that preload to the nearest `package.json`, not from cwd; `shallot add` writes this setup.
 
+### Plugin packages
+
+A plugin package declares `@dylanebert/shallot` as a peer: the range is its compatibility, and `shallot()` shares the project's engine instance only with packages that declare it. It carries the npm keyword `shallot-plugin`, and its README shows the install and the one import and `plugins` entry that enable it.
+
 ### Changing and publishing
 
 - A pin is the last verified version. Update every occurrence in one commit; until the release-candidate bump, move it only for a named defect.
