@@ -40,7 +40,7 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { laneAlias, u32, unpackColor, vec4 } from "../../engine";
+import { u32, unpackColor, vec4 } from "../../engine";
 
 import { Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
@@ -248,7 +248,6 @@ const MATERIAL_FLAT: [number, number, number, number] = [0, 1, 0, 1];
 
 const MaterialTraits = {
     defaults: () => ({ params: MATERIAL_FLAT }),
-    aliases: { params: laneAlias("params", ["metallic", "roughness", "emissive", "occlusion"]) },
 };
 
 // base every slot to the flat material so a MeshInstance lacking the Material component shades like the pre-PBR
@@ -290,16 +289,6 @@ function initMaterial(world: World): void {
 export const CameraBackground = {
     /** the registered background drawn behind the scene (selected by name) */
     name: u32,
-};
-
-// name ↔ Backgrounds-id at scene parse / format, the PartTraits surface pattern (id stored, name authored).
-const BackdropTraits = {
-    parse: {
-        name: (value: string, world: World) => world.resource(Backgrounds).id(value),
-    },
-    format: {
-        name: (value: number, world: World) => world.resource(Backgrounds).name(value),
-    },
 };
 
 // a draw resolving to null is a silent skip — usually a typo'd binding or an
@@ -1339,7 +1328,6 @@ export function createSearPlugin(): Plugin {
         traits: {
             Shadow: { defaults: () => ({ ...SHADOW_DEFAULTS }) },
             Material: MaterialTraits,
-            CameraBackground: BackdropTraits,
         },
 
         // sear's default materials, shading per-instance `color` + `material` at three lighting modes. They

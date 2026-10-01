@@ -373,9 +373,8 @@ export const AudioPlugin: Plugin = {
     traits: {
         Sound: {
             defaults: () => ({ instrument: -1, loop: 0, volume: 1, pitch: 0, voice: -1 }),
-            parse: { instrument: (name, world) => resolveInstrument(world, name) },
         },
-        Listener: { requires: [GlobalTransform] },
+        Listener: {},
     },
     async initialize(world) {
         // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the World's

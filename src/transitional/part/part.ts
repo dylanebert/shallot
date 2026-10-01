@@ -17,7 +17,7 @@ import {
     Surfaces,
 } from "../../core/rendering";
 import type { Registry, System, World } from "../../engine";
-import { GlobalTransform, globalTransformTable, u32, vec4 } from "../../engine";
+import { globalTransformTable, u32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
     CullParams,
@@ -663,7 +663,6 @@ export function warmPart(world: World): void {
 }
 
 export const PartTraits = {
-    requires: [GlobalTransform],
     defaults: (world: World) => {
         const _surfaces = world.resource(Surfaces);
         const _meshes = world.resource(Meshes);
@@ -690,14 +689,6 @@ export const PartTraits = {
                 '[part] default mesh "cube" is not registered — PartPlugin.initialize() registers it via initMeshes(); MeshInstance entities will bind whatever mesh holds registry id 0',
             );
         return { surface: surface ?? 0, mesh: mesh ?? 0 };
-    },
-    parse: {
-        surface: (value: string, world: World) => world.resource(Surfaces).id(value),
-        mesh: (value: string, world: World) => world.resource(Meshes).id(value),
-    },
-    format: {
-        surface: (value: number, world: World) => world.resource(Surfaces).name(value),
-        mesh: (value: number, world: World) => world.resource(Meshes).name(value),
     },
 };
 

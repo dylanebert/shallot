@@ -286,7 +286,6 @@ export const PlayerPlugin: Plugin = {
     dependencies: [CharacterPlugin, InputPlugin, RenderPlugin],
     traits: {
         Player: {
-            requires: [Body, Character],
             defaults: () => ({
                 yaw: 0,
                 pitch: 0,

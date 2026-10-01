@@ -113,11 +113,9 @@ test("a physics camera query reads fixed-tick GlobalTransform without requiring 
     const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
     try {
         const world = app.world;
-        const camera = world.registry.getComponent("camera");
-        if (!camera) throw new Error("RenderPlugin must register Camera");
         const eid = world.create();
         world.add(eid, Body);
-        world.add(eid, camera);
+        world.add(eid, Camera);
         world.storage(Body).position.set(eid, 12, 7, -3, 0);
         world.storage(Body).mass.set(eid, 0);
         world.step(Time.FIXED_DT);

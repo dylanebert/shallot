@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { eulerAlias, Xform } from "../utils";
+import { Xform } from "../utils";
 import { type Component, idOf, vec4 } from "./component";
 import type { World } from "./state";
 import type { ComponentStorage } from "./storage";
@@ -93,7 +93,6 @@ export function registerGlobalTransform(world: World): void {
             rotation: [0, 0, 0, 1],
             scale: [1, 1, 1, 1],
         }),
-        aliases: { rotation: eulerAlias("rotation") },
         provides: [GlobalTransform],
     });
 }

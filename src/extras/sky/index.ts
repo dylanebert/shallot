@@ -8,7 +8,7 @@ import type { World } from "../../engine";
 
 import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
-import { f32, formatHex } from "../../engine";
+import { f32 } from "../../engine";
 
 import { RenderMeshColorSystem, SearPlugin } from "../../standard/rendering";
 import { packSky } from "./pack";
@@ -95,7 +95,6 @@ export const SkyPlugin: Plugin = {
     components: { Sky },
     traits: {
         Sky: {
-            singleton: true,
             defaults: () => ({
                 zenith: 0x89b6e9,
                 horizon: 0xc4cdda,
@@ -112,13 +111,6 @@ export const SkyPlugin: Plugin = {
                 hazeColor: 0xbcc5d4,
                 hazeDensity: 0.005,
             }),
-            format: {
-                zenith: formatHex,
-                horizon: formatHex,
-                sunColor: formatHex,
-                cloudColor: formatHex,
-                hazeColor: formatHex,
-            },
         },
     },
     systems: [SkySystem],

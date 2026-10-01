@@ -44,7 +44,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { f32, GlobalTransform, vec4 } from "../../engine";
+import { f32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { DEPTH_FORMAT, RenderMeshColorSystem } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
@@ -683,7 +683,6 @@ export const OutlinePlugin: Plugin = {
     dependencies: [RenderPlugin, PartPlugin],
     traits: {
         Outline: {
-            requires: [MeshInstance, GlobalTransform],
             defaults: () => ({
                 color: [1, 0.85, 0.2, 1],
                 width: 4,

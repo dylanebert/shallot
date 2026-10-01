@@ -24,15 +24,7 @@ import {
     registerMesh,
     registerSurface,
 } from "../../core/rendering";
-import {
-    formatHex,
-    GlobalTransform,
-    globalTransformTable,
-    type Plugin,
-    Registry,
-    type System,
-    type World,
-} from "../../engine";
+import { globalTransformTable, type Plugin, Registry, type System, type World } from "../../engine";
 
 import { RenderPrepassesSystem } from "../../standard/rendering";
 import {
@@ -234,7 +226,6 @@ export const SpritePlugin: Plugin = {
     dependencies: [RenderPlugin],
     traits: {
         Sprite: {
-            requires: [GlobalTransform],
             defaults: () => ({
                 image: 0,
                 size: [1, 1],
@@ -247,14 +238,6 @@ export const SpritePlugin: Plugin = {
                 fill: 1,
                 fillMode: SpriteFill.None,
             }),
-            parse: {
-                image: (name: string, world: World) => world.resource(Images).id(name) ?? 0,
-            },
-            format: {
-                color: formatHex,
-                image: (id: number, world: World) => world.resource(Images).name(id) ?? "",
-            },
-            enums: { billboard: SpriteBillboard, blend: SpriteBlend, fillMode: SpriteFill },
         },
     },
 

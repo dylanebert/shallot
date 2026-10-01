@@ -12,7 +12,7 @@ import {
     vec4,
     type World,
 } from "../../engine";
-import { angleInput, clamp, lookAtRotation } from "../../engine/utils";
+import { clamp, lookAtRotation } from "../../engine/utils";
 import { OrbitSmooth } from "./smooth";
 
 const Tau = Math.PI * 2;
@@ -453,7 +453,6 @@ export const OrbitPlugin: Plugin = {
     components: { Orbit },
     traits: {
         Orbit: {
-            requires: [Transform],
             defaults: () => ({
                 yaw: Math.PI / 6,
                 pitch: Math.PI / 9,
@@ -488,13 +487,6 @@ export const OrbitPlugin: Plugin = {
                 mode: 0,
                 target: 0,
             }),
-            enums: { mode: OrbitMode },
-            inputs: {
-                yaw: angleInput,
-                pitch: angleInput,
-                minPitch: angleInput,
-                maxPitch: angleInput,
-            },
         },
     },
     dependencies: [InputPlugin],

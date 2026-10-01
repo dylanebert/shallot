@@ -1,26 +1,21 @@
-import type { Alias, FieldInput } from "../utils";
 import type { Component } from "./component";
 import { idOf, intern, isType, lanes } from "./component";
 import { kebab } from "./reflection";
 import type { World } from "./state";
 
-/** parse-time metadata declared per component */
+/** defaults and enforced relationships declared per component */
 export interface Traits {
-    requires?: Component[];
     /**
      * derived outputs this component produces. `Transform` and `Body` provide `GlobalTransform`.
      * Adding a provider with `world.add` attaches `GlobalTransform`; removing a provider with
      * `world.remove` retains it while another provider owns it, otherwise deferring removal until
-     * reconciliation. Scene validation counts each output as satisfying `requires` on the same entity.
+     * reconciliation.
      */
     provides?: Component[];
-    /** one instance per scene (lights, the active camera). Informational — surfaced through
-     * reflection, not enforced at `world.add` */
-    singleton?: boolean;
     /**
      * components that cannot coexist on the same entity. Symmetric — declaring
      * `A.excludes = [B]` is equivalent to declaring `B.excludes = [A]`; both
-     * directions are enforced at `world.add` and during scene validation
+     * directions are enforced at `world.add`
      */
     excludes?: Component[];
     /**
@@ -30,15 +25,6 @@ export interface Traits {
      * address a single lane of a parent Vector2Field/Vector4Field
      */
     defaults?: (world: World) => Record<string, number | readonly number[]>;
-    /** per-field authoring aliases — a stored vector field edited in an alternate representation */
-    aliases?: Record<string, Alias>;
-    parse?: Record<string, (value: string, world: World) => number | undefined>;
-    format?: Record<string, (value: number, world: World) => string | undefined>;
-    enums?: Record<string, Record<string, number>>;
-    /** per-field input widget — a stored field shown through a richer control (a `toggle`
-     * checkbox, an `angle` unit switcher). Display-only; storage is unchanged */
-    inputs?: Record<string, FieldInput>;
-    annotations?: Record<string, unknown>;
 }
 
 interface DefaultsPlan {
@@ -63,10 +49,7 @@ export class ComponentRegistry {
     register(name: string, component: Component, traits?: Traits): void {
         const k = kebab(name);
         const id = intern(component, k);
-        const expanded = traits ? expandEnums(traits) : undefined;
-        const entry: Entry = expanded
-            ? { component, name: k, traits: expanded }
-            : { component, name: k };
+        const entry: Entry = traits ? { component, name: k, traits } : { component, name: k };
         this._byName.set(k, entry);
         this._byId.set(id, entry);
         this._exclusions = null;
@@ -76,16 +59,6 @@ export class ComponentRegistry {
     getExclusions(component: Component): ReadonlySet<Component> | undefined {
         this._exclusions ??= this.buildExclusions();
         return this._exclusions.get(idOf(component));
-    }
-
-    /** the registered component handle for a name, or `undefined` if none is registered under it */
-    getComponent(name: string): Component | undefined {
-        return this._byName.get(kebab(name))?.component;
-    }
-
-    /** the parse-time `Traits` registered with a component name, or `undefined` if none */
-    getTraits(name: string): Traits | undefined {
-        return this._byName.get(kebab(name))?.traits;
     }
 
     /** whether this component declares the given component as a runtime producer output. */
@@ -143,24 +116,6 @@ export class ComponentRegistry {
         }
         return map;
     }
-}
-
-function expandEnums(t: Traits): Traits {
-    if (!t.enums) return t;
-    const parse: NonNullable<Traits["parse"]> = { ...t.parse };
-    const format: NonNullable<Traits["format"]> = { ...t.format };
-    for (const [field, enumObj] of Object.entries(t.enums)) {
-        const fwd = new Map<string, number>();
-        const rev = new Map<number, string>();
-        for (const [key, val] of Object.entries(enumObj)) {
-            const k = kebab(key);
-            fwd.set(k, val);
-            rev.set(val, k);
-        }
-        parse[field] ??= (value: string) => fwd.get(value);
-        format[field] ??= (value: number) => rev.get(value);
-    }
-    return { ...t, parse, format };
 }
 
 /** registration and reflection helpers always resolve through the owning World. */

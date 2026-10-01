@@ -257,7 +257,6 @@ export const GlazePlugin: Plugin = {
     components: { Glaze },
     traits: {
         Glaze: {
-            requires: [Camera],
             defaults: () => ({
                 exposure: 1,
                 tonemap: 0,

@@ -18,7 +18,7 @@ import {
     registerSurface,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { composeGlobalTransform, f32, formatHex, GlobalTransform, vec4 } from "../../engine";
+import { composeGlobalTransform, f32, GlobalTransform, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { RenderPrepassesSystem } from "../../standard/rendering";
 import {
@@ -157,7 +157,6 @@ export const LinesPlugin: Plugin = {
     dependencies: [RenderPlugin],
     traits: {
         Line: {
-            requires: [GlobalTransform],
             defaults: () => ({
                 offset: [1, 0, 0, 0],
                 thickness: 2,
@@ -165,10 +164,8 @@ export const LinesPlugin: Plugin = {
                 opacity: 1,
                 visible: 1,
             }),
-            format: { color: formatHex },
         },
         Arrow: {
-            requires: [Line],
             defaults: () => ({ start: 0, end: 1, size: 1 }),
         },
     },

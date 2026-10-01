@@ -22,16 +22,23 @@ These changes require updates to a 0.9.5 app.
 | `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
 | `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
 | `build`, `run`, `Config`, `swap`, `SwapResult` | `createApp`, `runApp`, `AppConfig`, `swapPlugins`, `PluginSwapResult` |
-| `Input`, `Unit`, `units`, `angle`, `degrees`, `radians` | `FieldInput`, `FieldUnit`, `unitInput`, `angleInput`, `degreeUnit`, `radianUnit` |
 | `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
 | `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
-| `composeTransform`, `dependencies` | `composeGlobalTransform`, `requiredComponents` |
+| `composeTransform` | `composeGlobalTransform` |
 | `state.stamp`, `state.timescale`, `state.swap` | `world.generation`, `world.setTimeScale`, `world.swapSystem` |
 | `PrepassSystem`, `ColorSystem`, `ClusterSystem`, `LightCullSystem` | `RenderPrepassesSystem`, `RenderMeshColorSystem`, `UpdateLightClustersSystem`, `CullLightsSystem` |
 | `CharacterSweepSystem`, `PlayerControlSystem` | `SweepCharactersSystem`, `UpdatePlayerControlSystem` |
 | Physics `StepSystem`, `ConstraintSystem` | `StepPhysicsSystem`, `SyncPhysicsConstraintsSystem` |
 
-Removed without replacement names: the `pixelRatio` constant (set `AppConfig.pixelRatio`), and the `/ecs` wrappers `register`, `getComponent`, `getTraits`, `getExclusions`, `entries` and `clear` (use `world.registry`).
+The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wrappers `register`, `getExclusions`, `entries` and `clear` are removed; use `world.registry`.
+
+## Component editor metadata and name lookups are removed
+
+Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. `defaults`, `excludes` and runtime `provides` remain; system annotations remain.
+
+The reflection exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `requiredComponents` (formerly `dependencies`), `provides`, `exclusions` and `kebab` are removed. The `getComponent` and `getTraits` wrappers and registry methods are removed too. Query imported component handles with `world.query([Component])`; a game resolves components and enum values by import, not by name.
+
+Remove `Alias`, `laneAlias`, `eulerAlias`, `formatHex` and the input metadata helpers (`Input`, `Unit`, `units`, `angle`, `degrees`, `radians`; also named `FieldInput`, `FieldUnit`, `unitInput`, `angleInput`, `degreeUnit`, `radianUnit` during 0.10 development). Quaternion conversion helpers remain.
 
 ## Import app plugins in the entry page
 

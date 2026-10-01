@@ -1,4 +1,10 @@
-import { CharacterPlugin, createApp, InputPlugin, PhysicsPlugin } from "@dylanebert/shallot";
+import {
+    CharacterPlugin,
+    createApp,
+    GlobalTransform,
+    InputPlugin,
+    PhysicsPlugin,
+} from "@dylanebert/shallot";
 
 import { Demo } from "./demo";
 
@@ -20,8 +26,6 @@ export default async function create() {
         plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
     });
     const world = app.world;
-    const global = world.registry.getComponent("global-transform");
-    if (!global) throw new Error("allocation entry: the composition registers no GlobalTransform");
     let eid = 0;
     return {
         step: () => world.step(FIXED_DT),
@@ -30,7 +34,7 @@ export default async function create() {
         // composition's non-Body slab component, step its frame, destroy it, step its frame.
         spawn: () => {
             eid = world.create();
-            world.add(eid, global);
+            world.add(eid, GlobalTransform);
             world.step(FIXED_DT);
         },
         despawn: () => {

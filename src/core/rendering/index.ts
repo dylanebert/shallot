@@ -2,13 +2,7 @@
 
 import * as d from "typegpu/data";
 import type { Plugin, System, World } from "../../engine";
-import {
-    composeGlobalTransform,
-    formatHex,
-    GlobalTransform,
-    globalTransformTable,
-    invertMat4,
-} from "../../engine";
+import { composeGlobalTransform, globalTransformTable, invertMat4 } from "../../engine";
 
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import {
@@ -511,7 +505,6 @@ export const RenderPlugin: Plugin = {
     },
     traits: {
         Camera: {
-            requires: [GlobalTransform],
             defaults: () => ({
                 mode: CameraMode.Perspective,
                 fov: 60,
@@ -521,34 +514,24 @@ export const RenderPlugin: Plugin = {
                 clearColor: 0x2e2b28,
                 antialias: 1,
             }),
-            format: { clearColor: formatHex },
-            enums: { mode: CameraMode },
         },
         Resolution: {
-            requires: [Camera],
             defaults: () => ({ width: 0, height: 0 }),
         },
         AmbientLight: {
-            singleton: true,
             defaults: () => ({ color: 0xffffff, intensity: 0.5 }),
-            format: { color: formatHex },
         },
         DirectionalLight: {
-            singleton: true,
             defaults: () => ({
                 color: 0xffffff,
                 intensity: 1.5,
                 direction: [-0.6, -1.0, -0.8, 0],
             }),
-            format: { color: formatHex },
         },
         PointLight: {
-            requires: [GlobalTransform],
             defaults: () => ({ color: 0xffffff, intensity: 1, range: 10, radius: 0.1 }),
-            format: { color: formatHex },
         },
         Spot: {
-            requires: [PointLight],
             defaults: () => ({ inner: 20, outer: 30 }),
         },
         Volumetric: {

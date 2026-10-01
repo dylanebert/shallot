@@ -22,7 +22,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { f32, formatHex, u32 } from "../../engine";
+import { f32, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
     DEPTH_FORMAT,
@@ -239,7 +239,6 @@ export const FogPlugin: Plugin = {
     components: { Fog },
     traits: {
         Fog: {
-            singleton: true,
             defaults: () => ({
                 density: 0.02,
                 color: 0xb5c4d8,
@@ -252,7 +251,6 @@ export const FogPlugin: Plugin = {
                 jitter: 1,
                 scatterIntensity: 1,
             }),
-            format: { color: formatHex },
         },
     },
     systems: [FogSystem],

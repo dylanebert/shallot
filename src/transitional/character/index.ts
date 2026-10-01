@@ -324,7 +324,6 @@ export const CharacterPlugin: Plugin = {
     systems: [SweepCharactersSystem],
     traits: {
         Character: {
-            requires: [Body],
             defaults: () => ({
                 maxSlope: 45,
                 jumpSpeed: 0, // no jump

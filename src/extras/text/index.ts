@@ -26,7 +26,6 @@ import {
 } from "../../core/rendering";
 import {
     f32,
-    formatHex,
     GlobalTransform,
     type Plugin,
     Registry,
@@ -498,7 +497,6 @@ export const TextPlugin: Plugin = {
     dependencies: [RenderPlugin],
     traits: {
         Text: {
-            requires: [GlobalTransform],
             defaults: () => ({
                 content: 0,
                 font: 0,
@@ -508,14 +506,6 @@ export const TextPlugin: Plugin = {
                 anchor: [0, 0],
                 color: 0xffffff,
             }),
-            parse: {
-                font: (name: string, world: World) => world.resource(Fonts).id(name) ?? 0,
-                content: (raw: string, world: World) => internText(world, raw),
-            },
-            format: {
-                color: formatHex,
-                content: (id: number, world: World) => world.resource(Content).name(id) ?? "",
-            },
         },
     },
 

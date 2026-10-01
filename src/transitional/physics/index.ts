@@ -14,8 +14,6 @@ import {
     type World,
 } from "../../engine";
 
-import { eulerAlias } from "../../engine/utils";
-
 export { GlobalTransform, globalTransformTraits } from "../../engine";
 
 import {
@@ -155,8 +153,6 @@ export const bodyTraits = {
     excludes: [Transform],
     // Body produces GlobalTransform instead of authored Transform; a MeshInstance accepts either producer.
     provides: [GlobalTransform],
-    // a Body's orientation is stored as a quaternion but authored as euler degrees, like Transform.rotation
-    aliases: { rotation: eulerAlias("rotation") },
 };
 
 /** {@link Spring}'s traits: field defaults. Shared by every plugin that registers `Spring`. */
@@ -180,12 +176,6 @@ export const jointTraits = {
         rB: [0, 0, 0, 0],
         stiffnessAng: 0, // spherical; ∞ = fixed
     }),
-    // author a fixed joint's angular lock as `stiffness-ang: fixed` (∞) — a number parses normally,
-    // so only the keyword needs the hook; the default 0 is the spherical (free-rotation) joint.
-    parse: {
-        stiffnessAng: (v: string) =>
-            v === "fixed" || v === "inf" ? Number.POSITIVE_INFINITY : undefined,
-    },
 };
 
 /** an authored spring: two body eids + local anchors + stiffness/rest, derived from a scene's {@link Spring} entities by {@link springDefs}. */

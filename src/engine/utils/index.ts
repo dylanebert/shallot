@@ -1,10 +1,8 @@
-export { type Alias, eulerAlias, laneAlias } from "./alias";
 // engine/utils extension surface: the GPU storage codecs — each a TGSL function callable on the CPU and
 // resolvable into a shader — plus the pre-resolved WGSL chunks a raw-WGSL producer or surface splices,
 // and the escape vocabulary for the WGSL constructs TGSL has no binding for. The author math + color +
-// trait-authoring helpers ride the main barrel; this is what an extender building a pipeline reaches for.
+// helpers ride the main barrel; this is what an extender building a pipeline reaches for.
 export {
-    formatHex,
     linearToOklabWgsl,
     linearToSrgb,
     oklabToLinearWgsl,
@@ -50,14 +48,6 @@ export {
     xformQuat,
     xformWgsl,
 } from "./encode";
-export {
-    angleInput,
-    degreeUnit,
-    type FieldInput,
-    type FieldUnit,
-    radianUnit,
-    unitInput,
-} from "./input";
 export {
     clamp,
     composeMat4,
