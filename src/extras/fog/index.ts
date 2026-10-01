@@ -22,7 +22,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { f32, u32 } from "../../engine";
+import { f32, registration, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
     DEPTH_FORMAT,
@@ -236,9 +236,8 @@ export const FogSystem: System = {
  */
 export const FogPlugin: Plugin = {
     name: "Fog",
-    components: { Fog },
-    traits: {
-        Fog: {
+    components: [
+        registration("Fog", Fog, {
             defaults: () => ({
                 density: 0.02,
                 color: 0xb5c4d8,
@@ -251,8 +250,9 @@ export const FogPlugin: Plugin = {
                 jitter: 1,
                 scatterIntensity: 1,
             }),
-        },
-    },
+        }),
+    ],
+
     systems: [FogSystem],
     dependencies: [RenderPlugin, SearPlugin],
 

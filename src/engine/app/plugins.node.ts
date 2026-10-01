@@ -511,13 +511,22 @@ function uses(subject: Plugin, dependency: Plugin): boolean {
 }
 
 function featurePlugin(subject: Plugin): Plugin {
-    const traits = Object.assign({}, ...everyPlugin.map((plugin) => plugin.traits));
-    // Body only produces placement when the physics systems that sync it are composed.
-    if (!uses(subject, PhysicsPlugin) && !uses(subject, CharacterPlugin)) delete traits.Body;
+    const components = everyPlugin
+        .flatMap((plugin) => plugin.components ?? [])
+        .map((entry) => {
+            // Body only produces placement when the physics systems that sync it are composed.
+            if (
+                entry.key === "Body" &&
+                !uses(subject, PhysicsPlugin) &&
+                !uses(subject, CharacterPlugin)
+            ) {
+                return { ...entry, provides: undefined };
+            }
+            return entry;
+        });
     return {
         name: "GpuIsolationFeatureSeed",
-        components: Object.assign({}, ...everyPlugin.map((plugin) => plugin.components)),
-        traits,
+        components,
         // Character's app composes Physics explicitly; this fixture is that app.
         dependencies: [
             ...DEFAULT_PLUGINS,

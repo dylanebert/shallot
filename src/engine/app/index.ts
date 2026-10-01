@@ -1,12 +1,11 @@
 /// <reference types="@webgpu/types" />
 
 import {
-    type Component,
     initializeGlobalTransform,
+    type Registration,
     registerGlobalTransform,
     type System,
     sameComponentSchema,
-    type Traits,
     World,
 } from "../ecs";
 import {
@@ -36,10 +35,8 @@ export interface Plugin {
     readonly deterministic?: boolean;
     /** systems this plugin adds to the scheduler */
     readonly systems?: readonly System[];
-    /** components this plugin registers, keyed by registry name */
-    readonly components?: Record<string, Component>;
-    /** per-component traits (requires/excludes/singleton/defaults), keyed like `components` */
-    readonly traits?: Record<string, Traits>;
+    /** components registered under exact stable keys, with their runtime traits */
+    readonly components?: readonly Registration[];
     /** other plugins that must load first; every dependency must be present in the composition */
     readonly dependencies?: readonly Plugin[];
     /**
@@ -305,18 +302,9 @@ async function buildNow(config: AppConfig): Promise<App> {
         if (world.gpu.adapter.class !== "real") loading?.notice?.(world.gpu.adapter);
 
         for (const plugin of sorted) {
-            const components = plugin.components ?? {};
-            const traits = plugin.traits ?? {};
-            for (const [name, component] of Object.entries(components)) {
-                world.registry.register(name, component, traits[name]);
-                world.storage(component);
-            }
-            for (const name of Object.keys(traits)) {
-                if (!components[name]) {
-                    console.warn(
-                        `Plugin "${plugin.name}": traits["${name}"] has no matching component`,
-                    );
-                }
+            for (const entry of plugin.components ?? []) {
+                world.registry.register(entry);
+                world.storage(entry.component);
             }
             for (const system of plugin.systems ?? []) {
                 world.addSystem(system, plugin.name);
@@ -635,11 +623,9 @@ export async function swapPlugins(
 
     for (const [name, nextPlugin] of nextByName) {
         const prevPlugin = prevByName.get(name)!;
-        const components = nextPlugin.components ?? {};
-        const traits = nextPlugin.traits ?? {};
-        for (const [cname, component] of Object.entries(components)) {
-            world.registry.register(cname, component, traits[cname]);
-            world.storage(component);
+        for (const entry of nextPlugin.components ?? []) {
+            world.registry.register(entry);
+            world.storage(entry.component);
         }
         const prevSystems = prevPlugin.systems ?? [];
         const nextSystems = nextPlugin.systems ?? [];
@@ -671,8 +657,12 @@ function shapeDiff(
     prevIndex: Map<System, number>,
     nextIndex: Map<System, number>,
 ): string | null {
-    const pc = prev.components ?? {};
-    const nc = next.components ?? {};
+    const pc = Object.fromEntries(
+        (prev.components ?? []).map(({ key, component }) => [key, component]),
+    );
+    const nc = Object.fromEntries(
+        (next.components ?? []).map(({ key, component }) => [key, component]),
+    );
     const pcKeys = Object.keys(pc).sort();
     const ncKeys = Object.keys(nc).sort();
     if (pcKeys.join(",") !== ncKeys.join(",")) return "component set changed";

@@ -187,7 +187,9 @@ test("the actual first-person scene gives the player a tangent spawn, a containe
         // The eye is authored where Player would pose it at spawn: the capsule centre raised by
         // the default eye height, since the player entity authors no tuning of its own.
         const eyeHeight = (
-            PlayerPlugin.traits?.Player?.defaults?.(app.world) as { eyeHeight: number } | undefined
+            PlayerPlugin.components
+                ?.find(({ component }) => component === Player)
+                ?.defaults?.(app.world) as { eyeHeight: number } | undefined
         )?.eyeHeight;
         if (eyeHeight === undefined) throw new Error("Player declares no default eyeHeight");
         const eyeTransform = app.world.storage(Transform).translation;

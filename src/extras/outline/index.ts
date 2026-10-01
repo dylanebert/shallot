@@ -1,3 +1,4 @@
+import { registration } from "../../engine";
 // Outline — the drop-in screen-space highlight. Add the `Outline` component to a MeshInstance entity and a
 // uniform-width band hugs its silhouette: hover/select feedback, the player's grab highlight. The
 // technique is mask → jump-flood distance field → threshold (Ben Golus, "The Quest for Very Wide
@@ -678,18 +679,17 @@ function disposeOutline(world: World): void {
  */
 export const OutlinePlugin: Plugin = {
     name: "Outline",
-    components: { Outline },
-    systems: [OutlineSystem],
-    dependencies: [RenderPlugin, PartPlugin],
-    traits: {
-        Outline: {
+    components: [
+        registration("Outline", Outline, {
             defaults: () => ({
                 color: [1, 0.85, 0.2, 1],
                 width: 4,
                 occlude: 0,
             }),
-        },
-    },
+        }),
+    ],
+    systems: [OutlineSystem],
+    dependencies: [RenderPlugin, PartPlugin],
 
     initialize(world) {
         initializeOutlineState(world);

@@ -15,6 +15,7 @@ import {
     pointerLockRefusal,
     pointerLockStatus,
     type Resource,
+    registration,
     Shadow,
     ShapeKind,
     StandardRenderer,
@@ -217,7 +218,7 @@ const controls: System = {
 
 export const Demo = {
     name: "Demo",
-    components: { Lift },
+    components: [registration("Lift", Lift)],
     dependencies: [CharacterPlugin, InputPlugin, PhysicsPlugin],
     initialize(world: World) {
         const state = world.resource(Route);

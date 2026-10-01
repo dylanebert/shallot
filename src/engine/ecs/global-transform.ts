@@ -6,6 +6,7 @@ import { type Component, idOf, vec4 } from "./component";
 import type { World } from "./state";
 import type { ComponentStorage } from "./storage";
 import type { GpuTable } from "./table";
+import { registration } from "./traits";
 
 /** Authored world placement. A simulated body excludes this producer. There is no hierarchy. */
 export const Transform = { translation: vec4, rotation: vec4, scale: vec4 };
@@ -17,14 +18,6 @@ export const GlobalTransform = {
     rotation: vec4,
     scale: vec4,
     linearVelocity: vec4,
-};
-export const globalTransformTraits = {
-    defaults: () => ({
-        translation: [0, 0, 0, 0],
-        rotation: [0, 0, 0, 1],
-        scale: [1, 1, 1, 0],
-        linearVelocity: [0, 0, 0, 0],
-    }),
 };
 const transformTerms = [Transform];
 const globalTransformTerms = [GlobalTransform];
@@ -86,15 +79,26 @@ export interface GlobalTransformRuntime {
 
 /** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
 export function registerGlobalTransform(world: World): void {
-    world.registry.register("GlobalTransform", GlobalTransform, globalTransformTraits);
-    world.registry.register("Transform", Transform, {
-        defaults: () => ({
-            translation: [0, 0, 0, 0],
-            rotation: [0, 0, 0, 1],
-            scale: [1, 1, 1, 1],
+    world.registry.register(
+        registration("GlobalTransform", GlobalTransform, {
+            defaults: () => ({
+                translation: [0, 0, 0, 0],
+                rotation: [0, 0, 0, 1],
+                scale: [1, 1, 1, 0],
+                linearVelocity: [0, 0, 0, 0],
+            }),
         }),
-        provides: [GlobalTransform],
-    });
+    );
+    world.registry.register(
+        registration("Transform", Transform, {
+            defaults: () => ({
+                translation: [0, 0, 0, 0],
+                rotation: [0, 0, 0, 1],
+                scale: [1, 1, 1, 1],
+            }),
+            provides: [GlobalTransform],
+        }),
+    );
 }
 /** @internal Install once before scene/setup authoring. GPU residency waits for a reader. */
 export function initializeGlobalTransform(world: World): void {

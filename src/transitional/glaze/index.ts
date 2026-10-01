@@ -1,4 +1,5 @@
 // Destination: core/rendering; owner: presentation.md.
+import { registration } from "../../engine";
 /// <reference types="@webgpu/types" />
 // Glaze — the default postfx composite + the postfx chain. A renderer draws into each camera's offscreen
 // scene-color target (`view.framebuffer`); glaze runs one compute dispatch per camera that reads it and
@@ -254,9 +255,8 @@ export const GlazeSystem: System = {
  */
 export const GlazePlugin: Plugin = {
     name: "Glaze",
-    components: { Glaze },
-    traits: {
-        Glaze: {
+    components: [
+        registration("Glaze", Glaze, {
             defaults: () => ({
                 exposure: 1,
                 tonemap: 0,
@@ -270,8 +270,9 @@ export const GlazePlugin: Plugin = {
                 posterize: 0,
                 dither: 0,
             }),
-        },
-    },
+        }),
+    ],
+
     systems: [GlazeSystem],
     dependencies: [RenderPlugin],
 

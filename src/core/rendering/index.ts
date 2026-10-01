@@ -1,3 +1,4 @@
+import { registration } from "../../engine";
 /// <reference types="@webgpu/types" />
 
 import * as d from "typegpu/data";
@@ -494,17 +495,8 @@ export const RenderPlugin: Plugin = {
         OverlaySystem,
         EndFrameSystem,
     ],
-    components: {
-        Camera,
-        Resolution,
-        AmbientLight,
-        DirectionalLight,
-        PointLight,
-        Spot,
-        Volumetric,
-    },
-    traits: {
-        Camera: {
+    components: [
+        registration("Camera", Camera, {
             defaults: () => ({
                 mode: CameraMode.Perspective,
                 fov: 60,
@@ -514,30 +506,30 @@ export const RenderPlugin: Plugin = {
                 clearColor: 0x2e2b28,
                 antialias: 1,
             }),
-        },
-        Resolution: {
+        }),
+        registration("Resolution", Resolution, {
             defaults: () => ({ width: 0, height: 0 }),
-        },
-        AmbientLight: {
+        }),
+        registration("AmbientLight", AmbientLight, {
             defaults: () => ({ color: 0xffffff, intensity: 0.5 }),
-        },
-        DirectionalLight: {
+        }),
+        registration("DirectionalLight", DirectionalLight, {
             defaults: () => ({
                 color: 0xffffff,
                 intensity: 1.5,
                 direction: [-0.6, -1.0, -0.8, 0],
             }),
-        },
-        PointLight: {
+        }),
+        registration("PointLight", PointLight, {
             defaults: () => ({ color: 0xffffff, intensity: 1, range: 10, radius: 0.1 }),
-        },
-        Spot: {
+        }),
+        registration("Spot", Spot, {
             defaults: () => ({ inner: 20, outer: 30 }),
-        },
-        Volumetric: {
+        }),
+        registration("Volumetric", Volumetric, {
             defaults: () => ({}),
-        },
-    },
+        }),
+    ],
 
     async initialize(world) {
         initializeRenderState(world);

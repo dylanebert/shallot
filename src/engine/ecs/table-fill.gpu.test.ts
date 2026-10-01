@@ -4,13 +4,14 @@ import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { f32, vec2 } from "../index";
 import { probeBuffer } from "../runtime";
+import { registration } from "./traits";
 
 setDefaultTimeout(CEILING.gpu);
 const Rows = { amount: f32, vector: vec2 };
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
-        plugins: [{ name: "BoundFill", components: { Rows } }],
+        plugins: [{ name: "BoundFill", components: [registration("Rows", Rows)] }],
     },
 ]);
 

@@ -1,10 +1,11 @@
-import type { Component } from "./component";
+import type { Component, ComponentValues } from "./component";
 import { idOf, intern, isType, lanes } from "./component";
-import { kebab } from "./reflection";
 import type { World } from "./state";
 
-/** defaults and enforced relationships declared per component */
-export interface Traits {
+/** A component registered under an exact stable key, with defaults and enforced relationships. */
+export interface Registration<C extends Component = Component> {
+    key: string;
+    component: C;
     /**
      * derived outputs this component produces. `Transform` and `Body` provide `GlobalTransform`.
      * Adding a provider with `world.add` attaches `GlobalTransform`; removing a provider with
@@ -21,20 +22,32 @@ export interface Traits {
     /**
      * default field values, applied on `world.add`. Values are scalars for
      * ScalarField fields and per-lane arrays for direct {@link Vector2Field}/{@link Vector4Field}
-     * fields (`{ translation: [0, 0, 0, 0] }`). Dotted keys (`{ "translation.x": 0 }`)
-     * address a single lane of a parent Vector2Field/Vector4Field
+     * fields (`{ translation: [0, 0, 0, 0] }`).
      */
-    defaults?: (world: World) => Record<string, number | readonly number[]>;
+    defaults?: (world: World) => ComponentValues<C>;
+}
+
+/** Bind defaults to the component's declared field types. Options are flat on the registration. */
+export function registration<
+    C extends Component,
+    const V extends ComponentValues<C> = ComponentValues<C>,
+>(
+    key: string,
+    component: C,
+    options?: {
+        defaults?: (world: World) => V & Record<Exclude<keyof V, keyof C>, never>;
+        excludes?: Component[];
+        provides?: Component[];
+    },
+): Registration<C> {
+    return { key, component, ...options };
 }
 
 interface DefaultsPlan {
     fields: { name: string; values: number[] }[];
 }
 
-interface Entry {
-    component: Component;
-    name: string;
-    traits?: Traits;
+interface Entry extends Registration {
     /** lazy-compiled defaults writer. undefined = unbuilt, null = no defaults. */
     plan?: DefaultsPlan | null;
 }
@@ -45,12 +58,12 @@ export class ComponentRegistry {
     private readonly _byId = new Map<number, Entry>();
     private _exclusions: Map<number, Set<Component>> | null = null;
 
-    /** register a component under a name, with optional traits */
-    register(name: string, component: Component, traits?: Traits): void {
-        const k = kebab(name);
-        const id = intern(component, k);
-        const entry: Entry = traits ? { component, name: k, traits } : { component, name: k };
-        this._byName.set(k, entry);
+    /** register a component under its exact stable key */
+    register(registration: Registration): void {
+        const { key, component } = registration;
+        const id = intern(component, key);
+        const entry: Entry = { ...registration };
+        this._byName.set(key, entry);
         this._byId.set(id, entry);
         this._exclusions = null;
     }
@@ -66,15 +79,15 @@ export class ComponentRegistry {
         return (
             this._byId
                 .get(idOf(component))
-                ?.traits?.provides?.some((item) => idOf(item) === idOf(output)) ?? false
+                ?.provides?.some((item) => idOf(item) === idOf(output)) ?? false
         );
     }
 
     getName(component: Component): string | undefined {
-        return this._byId.get(idOf(component))?.name;
+        return this._byId.get(idOf(component))?.key;
     }
 
-    /** iterate every component registered in this world with its name and traits */
+    /** iterate every component registered in this world with its key and options */
     entries(): IterableIterator<Entry> {
         return this._byName.values();
     }
@@ -108,7 +121,7 @@ export class ComponentRegistry {
             set.add(other);
         };
         for (const entry of this._byName.values()) {
-            for (const declared of entry.traits?.excludes ?? []) {
+            for (const declared of entry.excludes ?? []) {
                 const other = this._byId.get(idOf(declared))?.component ?? declared;
                 link(idOf(entry.component), other);
                 link(idOf(other), entry.component);
@@ -125,47 +138,18 @@ export const getName = (world: World, component: Component) => world.registry.ge
 export const applyDefaults = (world: World, component: Component, eid: number) =>
     world.registry.applyDefaults(world, component, eid);
 
-const LANE_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 };
-
 function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
-    const defaults = entry.traits?.defaults;
+    const defaults = entry.defaults;
     if (!defaults) return null;
     const dict = defaults(world);
     const schema = entry.component as Record<string, unknown>;
     const fields = new Map<string, number[]>();
 
     for (const [key, value] of Object.entries(dict)) {
-        const dot = key.indexOf(".");
-        if (dot >= 0) {
-            const name = key.slice(0, dot);
-            const target = schema[name];
-            const width = lanes(target);
-            const lane = LANE_INDEX[key.slice(dot + 1)];
-            if (
-                !isType(target) ||
-                (width !== 2 && width !== 4) ||
-                lane === undefined ||
-                lane >= width
-            ) {
-                throw new Error(
-                    `defaults key "${key}" on component "${entry.name}" does not target a valid vector lane`,
-                );
-            }
-            if (typeof value !== "number") {
-                throw new Error(
-                    `defaults value for "${key}" on component "${entry.name}" is not a number`,
-                );
-            }
-            const values = fields.get(name) ?? new Array(width).fill(0);
-            values[lane] = value;
-            fields.set(name, values);
-            continue;
-        }
-
         const target = schema[key];
         if (!isType(target)) {
             throw new Error(
-                `defaults key "${key}" on component "${entry.name}" does not match a typed field`,
+                `defaults key "${key}" on component "${entry.key}" does not match a typed field`,
             );
         }
         const width = lanes(target);
@@ -179,7 +163,7 @@ function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
             fields.set(key, values);
         } else {
             throw new Error(
-                `defaults value for "${key}" on component "${entry.name}" is not numeric`,
+                `defaults value for "${key}" on component "${entry.key}" is not numeric`,
             );
         }
     }

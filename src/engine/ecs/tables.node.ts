@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-
 import { CEILING } from "../../../scripts/test-tiers";
+import { registration } from "./traits";
 
 setDefaultTimeout(CEILING.node);
 
@@ -56,7 +56,7 @@ for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
         let table!: ReturnType<World["table"]>;
         const plugin: Plugin = {
             name: "TableUploadProbe",
-            components: { Rows },
+            components: [registration("Rows", Rows)],
             initialize(current) {
                 world = current;
                 table = current.table("table-upload-probe", Record);
@@ -138,7 +138,11 @@ test("tables combine source fields, optional presence, and several row owners", 
     const Record = d.struct({ x: d.f32, y: d.f32, flags: d.u32 });
     const plugin: Plugin = {
         name: "TablePresenceProbe",
-        components: { Core, Optional, Flag },
+        components: [
+            registration("Core", Core),
+            registration("Optional", Optional),
+            registration("Flag", Flag),
+        ],
         initialize(current) {
             world = current;
             table = current.table("table-presence-probe", Record);
@@ -183,7 +187,7 @@ test("component fields bulk-upload through a dense struct table and release thei
     let table!: ReturnType<World["table"]>;
     const plugin: Plugin = {
         name: "BoundTableProbe",
-        components: { Bound },
+        components: [registration("Bound", Bound)],
         initialize(current) {
             world = current;
             table = current.table("bound-table-probe", d.struct({ x: d.f32, y: d.f32 }));

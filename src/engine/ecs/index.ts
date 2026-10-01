@@ -28,7 +28,6 @@ export {
     composeGlobalTransform,
     GlobalTransform,
     globalTransformTable,
-    globalTransformTraits,
     initializeGlobalTransform,
     registerGlobalTransform,
     Transform,
@@ -45,4 +44,5 @@ export {
 export { type System, Time } from "./scheduler";
 export { type Resource, World } from "./state";
 export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
-export type { Traits } from "./traits";
+export type { Registration } from "./traits";
+export { registration } from "./traits";

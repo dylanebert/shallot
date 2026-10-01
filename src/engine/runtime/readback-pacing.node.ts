@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp, swapPlugins } from "../app";
-import { snapshot, u32 } from "../ecs";
+import { registration, snapshot, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 
 setDefaultTimeout(CEILING.node);
@@ -19,7 +19,7 @@ test("a deterministic composition hashes identically under two frame pacings wit
             plugins: [
                 {
                     name: "DeterministicCounter",
-                    components: { Counter },
+                    components: [registration("Counter", Counter)],
                     initialize(world) {
                         eid = world.create();
                         world.add(eid, Counter);

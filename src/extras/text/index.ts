@@ -1,3 +1,4 @@
+import { registration } from "../../engine";
 // Text — the shallot SDF-text producer. A retained `Text` component (string content, font, size,
 // anchor, color) lays each label out into instanced glyph quads, drawn as a sear `"alpha"` world-space
 // surface (one draw per font atlas). The glyph buffer holds glyph-local positions + the owning entity id;
@@ -492,11 +493,8 @@ const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456
  */
 export const TextPlugin: Plugin = {
     name: "Text",
-    components: { Text },
-    systems: [TextSystem],
-    dependencies: [RenderPlugin],
-    traits: {
-        Text: {
+    components: [
+        registration("Text", Text, {
             defaults: () => ({
                 content: 0,
                 font: 0,
@@ -506,8 +504,10 @@ export const TextPlugin: Plugin = {
                 anchor: [0, 0],
                 color: 0xffffff,
             }),
-        },
-    },
+        }),
+    ],
+    systems: [TextSystem],
+    dependencies: [RenderPlugin],
 
     async initialize(world) {
         const _textState = world.resource(textStateKey);

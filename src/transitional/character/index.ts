@@ -1,5 +1,5 @@
 // Destination: standard/physics; owner: physics-boundary.md.
-import { f32, type Plugin, type System, Time, type World } from "../../engine";
+import { f32, type Plugin, registration, type System, Time, type World } from "../../engine";
 import {
     Body,
     type BodyStateOut,
@@ -320,17 +320,17 @@ export const SweepCharactersSystem: System = {
  *  {@link Player} for a ready first-person controller. */
 export const CharacterPlugin: Plugin = {
     name: "Character",
-    components: { Character },
-    systems: [SweepCharactersSystem],
-    traits: {
-        Character: {
+    components: [
+        registration("Character", Character, {
             defaults: () => ({
                 maxSlope: 45,
                 jumpSpeed: 0, // no jump
                 gravity: 0, // = the configured world gravity
             }),
-        },
-    },
+        }),
+    ],
+    systems: [SweepCharactersSystem],
+
     dispose(world: World) {
         resetDrive(world);
     },

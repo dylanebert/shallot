@@ -1,3 +1,4 @@
+import { registration } from "../../engine";
 // Lines — the shallot debug-line producer. One shared segment buffer, two feeders: an immediate API
 // (`drawLine` / `drawWireBox` / `drawArrow`, appended and cleared each frame — the scale path) and the retained
 // `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
@@ -152,11 +153,8 @@ const LinesSystem: System = {
  */
 export const LinesPlugin: Plugin = {
     name: "Lines",
-    components: { Line, Arrow },
-    systems: [LinesSystem],
-    dependencies: [RenderPlugin],
-    traits: {
-        Line: {
+    components: [
+        registration("Line", Line, {
             defaults: () => ({
                 offset: [1, 0, 0, 0],
                 thickness: 2,
@@ -164,11 +162,13 @@ export const LinesPlugin: Plugin = {
                 opacity: 1,
                 visible: 1,
             }),
-        },
-        Arrow: {
+        }),
+        registration("Arrow", Arrow, {
             defaults: () => ({ start: 0, end: 1, size: 1 }),
-        },
-    },
+        }),
+    ],
+    systems: [LinesSystem],
+    dependencies: [RenderPlugin],
 
     initialize(world) {
         initializeSegmentState(world);

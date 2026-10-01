@@ -1,13 +1,16 @@
 import { expect, test } from "bun:test";
 import { f16, f32, vec2, vec4, World } from "./index";
+import { registration } from "./traits";
 
 const Component = { scalar: f32, pair: vec2, quad: vec4, half: f16, omitted: f32 };
 
 test("add writes starting values through world storage and keeps omitted defaults", () => {
     const world = new World();
-    world.registry.register("starting-values", Component, {
-        defaults: () => ({ scalar: 10, omitted: 42 }),
-    });
+    world.registry.register(
+        registration("starting-values", Component, {
+            defaults: () => ({ scalar: 10, omitted: 42 }),
+        }),
+    );
     const eid = world.create();
     world.add(eid, Component, { scalar: 3, pair: [4, 5], quad: [6, 7, 8, 9], half: 1.5 });
     const storage = world.storage(Component);
@@ -26,9 +29,11 @@ test("add writes starting values through world storage and keeps omitted default
 
 test("add treats undefined starting values as omitted and keeps their defaults", () => {
     const world = new World();
-    world.registry.register("undefined-values", Component, {
-        defaults: () => ({ scalar: 10, pair: [2, 3], quad: [4, 5, 6, 7] }),
-    });
+    world.registry.register(
+        registration("undefined-values", Component, {
+            defaults: () => ({ scalar: 10, pair: [2, 3], quad: [4, 5, 6, 7] }),
+        }),
+    );
     const eid = world.create();
     try {
         world.add(eid, Component, {

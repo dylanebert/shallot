@@ -8,6 +8,7 @@ import {
     i32,
     not,
     type Plugin,
+    registration,
     type System,
     Transform,
     u8,
@@ -368,14 +369,15 @@ export { Instruments, instrument };
  */
 export const AudioPlugin: Plugin = {
     name: "Audio",
-    components: { Sound, Listener, Voiced },
-    systems: [SoundSystem],
-    traits: {
-        Sound: {
+    components: [
+        registration("Sound", Sound, {
             defaults: () => ({ instrument: -1, loop: 0, volume: 1, pitch: 0, voice: -1 }),
-        },
-        Listener: {},
-    },
+        }),
+        registration("Listener", Listener, {}),
+        registration("Voiced", Voiced),
+    ],
+    systems: [SoundSystem],
+
     async initialize(world) {
         // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the World's
         // lifetime — registered up front so a partial init that then throws still tears down; disposeAudio

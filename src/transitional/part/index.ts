@@ -1,18 +1,10 @@
 // Destination: standard/rendering; owner: rendering-boundary.md.
 
-import { RenderPlugin } from "../../core/rendering";
+import { Meshes, RenderPlugin, Surfaces } from "../../core/rendering";
 import type { Plugin } from "../../engine";
+import { registration } from "../../engine";
 import { initMeshes } from "./mesh";
-import {
-    Color,
-    ColorTraits,
-    initializePartState,
-    initPart,
-    MeshInstance,
-    PartSystem,
-    PartTraits,
-    warmPart,
-} from "./part";
+import { Color, initializePartState, initPart, MeshInstance, PartSystem, warmPart } from "./part";
 
 export { Color, MeshInstance, partTable } from "./part";
 
@@ -30,11 +22,28 @@ export { Color, MeshInstance, partTable } from "./part";
 export const PartPlugin: Plugin = {
     name: "Part",
     systems: [PartSystem],
-    components: { MeshInstance, Color },
-    traits: {
-        MeshInstance: PartTraits,
-        Color: ColorTraits,
-    },
+    components: [
+        registration("MeshInstance", MeshInstance, {
+            defaults: (world) => {
+                const surfaces = world.resource(Surfaces);
+                const meshes = world.resource(Meshes);
+                const surface = surfaces.id("default");
+                const mesh = meshes.id("cube");
+                // Empty registries are valid without a surface producer; populated registries need the defaults.
+                if (surfaces.size > 0 && surface === undefined)
+                    console.warn(
+                        '[part] default surface "default" is not registered — a SearPlugin or surface owner must register it; MeshInstance entities will bind whatever surface holds registry id 0',
+                    );
+                if (meshes.size > 0 && mesh === undefined)
+                    console.warn(
+                        '[part] default mesh "cube" is not registered — PartPlugin.initialize() registers it via initMeshes(); MeshInstance entities will bind whatever mesh holds registry id 0',
+                    );
+                return { surface: surface ?? 0, mesh: mesh ?? 0 };
+            },
+        }),
+        registration("Color", Color, { defaults: () => ({ rgba: [1, 1, 1, 1] }) }),
+    ],
+
     dependencies: [RenderPlugin],
 
     initialize(world) {

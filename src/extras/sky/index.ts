@@ -1,4 +1,5 @@
 import type { World } from "../../engine";
+import { registration } from "../../engine";
 // Sky — opt-in procedural sky. A plugin behind sear's backdrop seam: it registers a `Backgrounds` recipe
 // (the bryce3d view-ray → HDR color fragment, in `./shader`) and publishes one uniform buffer the recipe
 // reads. The engine names no sky concept — this plugin owns all of it. It *reads* the sun from the
@@ -92,9 +93,8 @@ const SkySystem: System = {
  */
 export const SkyPlugin: Plugin = {
     name: "Sky",
-    components: { Sky },
-    traits: {
-        Sky: {
+    components: [
+        registration("Sky", Sky, {
             defaults: () => ({
                 zenith: 0x89b6e9,
                 horizon: 0xc4cdda,
@@ -111,8 +111,9 @@ export const SkyPlugin: Plugin = {
                 hazeColor: 0xbcc5d4,
                 hazeDensity: 0.005,
             }),
-        },
-    },
+        }),
+    ],
+
     systems: [SkySystem],
     // SearPlugin so this initialize runs after SearPlugin clears the Backgrounds registry; RenderPlugin for
     // the Lighting uniform the fragment reads

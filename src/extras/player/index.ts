@@ -6,7 +6,16 @@ import {
     requirePointerLock,
 } from "../../core/input";
 import { Camera, RenderPlugin } from "../../core/rendering";
-import { entity, f32, not, type Plugin, type System, Transform, type World } from "../../engine";
+import {
+    entity,
+    f32,
+    not,
+    type Plugin,
+    registration,
+    type System,
+    Transform,
+    type World,
+} from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
 import {
     Character,
@@ -282,10 +291,8 @@ export const UpdatePlayerControlSystem: System = {
 export const PlayerPlugin: Plugin = {
     name: "Player",
     systems: [SnapshotPlayerPositionSystem, UpdatePlayerControlSystem],
-    components: { Player },
-    dependencies: [CharacterPlugin, InputPlugin, RenderPlugin],
-    traits: {
-        Player: {
+    components: [
+        registration("Player", Player, {
             defaults: () => ({
                 yaw: 0,
                 pitch: 0,
@@ -296,6 +303,7 @@ export const PlayerPlugin: Plugin = {
                 distance: 0,
                 camera: 0,
             }),
-        },
-    },
+        }),
+    ],
+    dependencies: [CharacterPlugin, InputPlugin, RenderPlugin],
 };

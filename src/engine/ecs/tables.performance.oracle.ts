@@ -3,6 +3,7 @@ import * as d from "typegpu/data";
 import { createApp, type Plugin } from "../app";
 import { u32 } from "../index";
 import type { World } from "./state";
+import { registration } from "./traits";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -779,7 +780,7 @@ test("measure component setter overhead against direct column writes", async () 
     const count = 100_000;
     const plugin: Plugin = {
         name: "TableSetterCostProbe",
-        components: { Setter },
+        components: [registration("Setter", Setter)],
         initialize(current) {
             world = current;
         },

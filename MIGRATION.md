@@ -40,6 +40,32 @@ The reflection exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `Field
 
 Remove `Alias`, `laneAlias`, `eulerAlias`, `formatHex` and the input metadata helpers (`Input`, `Unit`, `units`, `angle`, `degrees`, `radians`; also named `FieldInput`, `FieldUnit`, `unitInput`, `angleInput`, `degreeUnit`, `radianUnit` during 0.10 development). Quaternion conversion helpers remain.
 
+## Register components as one list under exact keys
+
+`Plugin.components` is now a list of registrations, not a component map. `Plugin.traits` and the `Traits` type are removed. Put `defaults`, `excludes` and `provides` directly on each registration:
+
+```ts
+// 0.9.5
+const GamePlugin = {
+    name: "Game",
+    components: { Health },
+    traits: { Health: { defaults: () => ({ value: 100 }) } },
+};
+```
+
+```ts
+// 0.10
+import { registration, type Plugin } from "@dylanebert/shallot";
+const GamePlugin: Plugin = {
+    name: "Game",
+    components: [registration("Health", Health, { defaults: () => ({ value: 100 }) })],
+};
+```
+
+Defaults use declaration field names and vector arrays, as `world.add` does; replace dotted-lane defaults with complete vectors. Remove imports of `globalTransformTraits`, `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits` and `ColorTraits`; options now live on their plugins' registrations.
+
+`inspect`, `snapshot`, `readFields` and `dump` preserve exact registration keys and declaration field names. A component registered as `"GlobalTransform"` is no longer reported as `"global-transform"`; vectors are arrays such as `{ translation: [0, 0, 0, 0] }`, not dotted lanes. Update saved data and consumers of this output.
+
 ## Import app plugins in the entry page
 
 `virtual:project` and `shallot.schema.json` are removed. `shallot.json` no longer supplies app plugins or `pixelRatio`. Import the plugins and pass them directly to `runApp`; set `pixelRatio` there if needed:
@@ -251,7 +277,7 @@ There is no animation plugin in this release line. Implement animation in app co
 
 ## Scene format and save/restore are removed
 
-The `.scene` format, `parseScene`, `loadScene`, `serializeScene`, `stringifyScene` and `normalizeAttribute` are removed with no replacement. Remove the app's and manifest's `scene` option. A game saves the component values it needs from `snapshot(world)` and restores them itself.
+The `.scene` format, `parseScene`, `loadScene`, `serializeScene`, `stringifyScene` and `normalizeAttribute` are removed with no replacement. Remove the app's and manifest's `scene` option. A game saves the component values it needs from `snapshot(world)`, using exact registration keys and declaration field names with vector arrays, and restores them itself.
 
 `Identity`, `world.identity`, `refs()` and the `derived` component trait are removed. Keep the eids returned by `world.create()` instead of naming entities. The `entity` field type still stores a plain eid; save and restore references yourself. `GlobalTransform` remains engine-managed through its providers without the trait.
 

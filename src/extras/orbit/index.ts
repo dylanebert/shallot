@@ -6,6 +6,7 @@ import {
     GlobalTransform,
     not,
     type Plugin,
+    registration,
     type System,
     Transform,
     u8,
@@ -450,9 +451,8 @@ const OrbitSystem: System = {
 export const OrbitPlugin: Plugin = {
     name: "Orbit",
     systems: [OrbitSystem],
-    components: { Orbit },
-    traits: {
-        Orbit: {
+    components: [
+        registration("Orbit", Orbit, {
             defaults: () => ({
                 yaw: Math.PI / 6,
                 pitch: Math.PI / 9,
@@ -487,8 +487,9 @@ export const OrbitPlugin: Plugin = {
                 mode: 0,
                 target: 0,
             }),
-        },
-    },
+        }),
+    ],
+
     dependencies: [InputPlugin],
 };
 

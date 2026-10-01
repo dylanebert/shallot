@@ -1,4 +1,5 @@
 // Destination: core/physics and standard/physics; owner: physics-boundary.md.
+import { registration } from "../../engine";
 /// <reference types="@webgpu/types" />
 
 import {
@@ -14,7 +15,7 @@ import {
     type World,
 } from "../../engine";
 
-export { GlobalTransform, globalTransformTraits } from "../../engine";
+export { GlobalTransform } from "../../engine";
 
 import {
     type ContactEvents,
@@ -134,48 +135,6 @@ export const Joint = {
     rB: vec4,
     /** angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation (author `stiffness-ang: fixed`). */
     stiffnessAng: f32,
-};
-
-// Authoring metadata for the three components above, shared with any extension solver that registers
-// them. `Body`/`Spring`/`Joint` are the same objects across plugins (idempotent registration
-// keeps component ids stable), so their traits live here once.
-
-/** {@link Body}'s traits: defaults, its exclusion of {@link Transform}, and the euler-degree `rotation` alias. Shared by every plugin that registers `Body`. */
-export const bodyTraits = {
-    defaults: () => ({
-        shape: ShapeKind.Box,
-        position: [0, 0, 0, 0],
-        rotation: [0, 0, 0, 1],
-        halfExtents: [0.5, 0.5, 0.5, 0], // .w = rounding radius (0 for a box)
-        mass: 1,
-        friction: 0.5,
-    }),
-    excludes: [Transform],
-    // Body produces GlobalTransform instead of authored Transform; a MeshInstance accepts either producer.
-    provides: [GlobalTransform],
-};
-
-/** {@link Spring}'s traits: field defaults. Shared by every plugin that registers `Spring`. */
-export const springTraits = {
-    defaults: () => ({
-        a: 0,
-        b: 0,
-        rA: [0, 0, 0, 0],
-        rB: [0, 0, 0, 0],
-        stiffness: 100,
-        rest: 1,
-    }),
-};
-
-/** {@link Joint}'s traits: field defaults plus the `stiffness-ang: fixed` parse hook. Shared by every plugin that registers `Joint`. */
-export const jointTraits = {
-    defaults: () => ({
-        a: 0,
-        b: 0,
-        rA: [0, 0, 0, 0],
-        rB: [0, 0, 0, 0],
-        stiffnessAng: 0, // spherical; ∞ = fixed
-    }),
 };
 
 /** an authored spring: two body eids + local anchors + stiffness/rest, derived from a scene's {@link Spring} entities by {@link springDefs}. */
@@ -966,13 +925,34 @@ const SyncSystem: System = {
  */
 export const PhysicsPlugin: Plugin = {
     name: "Physics",
-    components: { Body, Spring, Joint },
+    components: [
+        registration("Body", Body, {
+            defaults: () => ({
+                shape: ShapeKind.Box,
+                position: [0, 0, 0, 0],
+                rotation: [0, 0, 0, 1],
+                halfExtents: [0.5, 0.5, 0.5, 0], // .w = rounding radius (0 for a box)
+                mass: 1,
+                friction: 0.5,
+            }),
+            excludes: [Transform],
+            provides: [GlobalTransform],
+        }),
+        registration("Spring", Spring, {
+            defaults: () => ({
+                a: 0,
+                b: 0,
+                rA: [0, 0, 0, 0],
+                rB: [0, 0, 0, 0],
+                stiffness: 100,
+                rest: 1,
+            }),
+        }),
+        registration("Joint", Joint, {
+            defaults: () => ({ a: 0, b: 0, rA: [0, 0, 0, 0], rB: [0, 0, 0, 0], stiffnessAng: 0 }),
+        }),
+    ],
     systems: [SyncSystem, SyncPhysicsConstraintsSystem, StepPhysicsSystem],
-    traits: {
-        Body: bodyTraits,
-        Spring: springTraits,
-        Joint: jointTraits,
-    },
 
     initialize(world) {
         world.resource(physicsRuntimeKey).initialized = true;
