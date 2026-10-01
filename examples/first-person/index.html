@@ -14,13 +14,10 @@
     <body>
         <canvas id="canvas"></canvas>
         <script type="module">
-            import { BrowserInputPlugin, runApp } from "@dylanebert/shallot";
-            import project from "virtual:project";
+            import { PhysicsPlugin, CharacterPlugin, PlayerPlugin, runApp } from "@dylanebert/shallot";
+            import { Demo } from "./src/demo";
             await runApp({
-                plugins: [BrowserInputPlugin, ...project.plugins],
-                defaults: false,
-                capacity: project.capacity ?? undefined,
-                pixelRatio: project.pixelRatio ?? undefined,
+                plugins: [PhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo],
             });
         </script>
     </body>

@@ -4,7 +4,6 @@ import {
     existsSync,
     lstatSync,
     mkdirSync,
-    readdirSync,
     readFileSync,
     renameSync,
     rmSync,
@@ -13,19 +12,18 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { normalize } from "../src/project/manifest";
 import { compose, DARK, fromBlocks, MARK, toSvg } from "../src/standard/loading/brand";
 import { toPng } from "./png";
 
-// Each asset links under the `public/` of every example whose `shallot.json` names it in `assets`, so
-// a recipe copied out by `shallot add` carries both its files and the declaration that fetches them.
-// An asset no example declares is fetched into the cache only, for the generators.
+// Each asset links under the public/ of the examples named in its assets.json entry.
+// An asset with no examples is fetched into the cache only, for the generators.
 
 /** one pinned asset in `assets.json`: a single file (`sha256`/`bytes`, `url` and `dest` name the file)
  *  or a directory (`files`, `url` and `dest` name the directory each `path` joins). `dest` is relative to
  *  the consumer's public directory. */
 export interface Asset {
     name: string;
+    examples: string[];
     url: string;
     dest: string;
     sha256?: string;
@@ -44,11 +42,11 @@ export interface Pin {
 
 export interface Paths {
     cache: string;
-    /** one subdirectory per example, each declaring its assets in `shallot.json`. */
+    /** One subdirectory per example. */
     examples: string;
 }
 
-/** one example that loads fetched assets: its `public/` and the `assets.json` names it declares. */
+/** One example that loads fetched assets: its public/ and asset names. */
 export interface Consumer {
     name: string;
     publicDir: string;
@@ -68,18 +66,14 @@ export function load(path = MANIFEST): Asset[] {
     return JSON.parse(readFileSync(path, "utf8"));
 }
 
-/** every example that declares at least one asset, by directory name. */
-export function consumers(paths: Paths = PATHS): Consumer[] {
-    if (!existsSync(paths.examples)) return [];
-    return readdirSync(paths.examples)
-        .sort()
-        .flatMap((name) => {
-            const manifest = join(paths.examples, name, "shallot.json");
-            if (!existsSync(manifest)) return [];
-            const assets = normalize(readFileSync(manifest, "utf8")).assets ?? [];
-            if (assets.length === 0) return [];
-            return [{ name, publicDir: join(paths.examples, name, "public"), assets }];
-        });
+/** Every example named by the asset entries, by directory name. */
+export function consumers(paths: Paths = PATHS, assets: Asset[] = load()): Consumer[] {
+    const names = [...new Set(assets.flatMap((asset) => asset.examples))].sort();
+    return names.map((name) => ({
+        name,
+        publicDir: join(paths.examples, name, "public"),
+        assets: assets.filter((asset) => asset.examples.includes(name)).map((asset) => asset.name),
+    }));
 }
 
 /** the files an asset pins, flattened to one shape. */
@@ -144,7 +138,7 @@ export function missing(
     assets: Asset[],
     paths: Paths = PATHS,
 ): { consumer: string; name: string }[] {
-    return consumers(paths).flatMap((c) =>
+    return consumers(paths, assets).flatMap((c) =>
         assets
             .filter((a) => c.assets.includes(a.name))
             .filter((a) => !pins(a).every((p) => present(p, c.publicDir)))
@@ -271,14 +265,7 @@ async function main(argv: string[]): Promise<number> {
         all,
         argv.filter((a) => a !== "--check"),
     );
-    const users = consumers();
-    const unknown = users.flatMap((c) =>
-        c.assets
-            .filter((n) => !all.some((a) => a.name === n))
-            .map((n) => `examples/${c.name}/shallot.json: unknown asset ${n}`),
-    );
-    for (const line of unknown) console.error(line);
-    if (unknown.length > 0) return 1;
+    const users = consumers(PATHS, all);
     if (check) {
         const placements = users.reduce(
             (n, c) => n + assets.filter((a) => c.assets.includes(a.name)).length,

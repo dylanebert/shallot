@@ -5,13 +5,11 @@ import {
     existsSync,
     mkdirSync,
     readdirSync,
-    readFileSync,
     rmSync,
     statSync,
     writeFileSync,
 } from "node:fs";
 import { basename, resolve } from "node:path";
-import { manifestPath, normalize } from "../project";
 import { tryPrebuilt } from "./prebuilt";
 
 const RUST_CRATE = resolve(import.meta.dir, "../../crates/native");
@@ -39,15 +37,9 @@ export function dropSwiftshader(): boolean {
     return process.env.SHALLOT_DROP_SWIFTSHADER != null;
 }
 
-/** the bundle identifier for a native build: the manifest's `identifier` field, or the default
- *  `com.shallot.<basename>` when omitted. */
-export function bundleIdentifier(projectDir: string, name: string): string {
-    try {
-        const manifest = normalize(readFileSync(manifestPath(projectDir), "utf-8"));
-        return manifest.identifier ?? `com.shallot.${name}`;
-    } catch {
-        return `com.shallot.${name}`;
-    }
+/** The bundle identifier for a native build. */
+export function bundleIdentifier(_projectDir: string, name: string): string {
+    return `com.shallot.${name}`;
 }
 
 /**

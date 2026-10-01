@@ -33,6 +33,21 @@ These changes require updates to a 0.9.5 app.
 
 Removed without replacement names: the `pixelRatio` constant (set `AppConfig.pixelRatio`), and the `/ecs` wrappers `register`, `getComponent`, `getTraits`, `getExclusions`, `entries` and `clear` (use `world.registry`).
 
+## Import app plugins in the entry page
+
+`virtual:project` and `shallot.schema.json` are removed. `shallot.json` no longer supplies app plugins or `pixelRatio`. Import the plugins and pass them directly to `runApp`; set `pixelRatio` there if needed:
+
+```ts
+import { OrbitPlugin, runApp } from "@dylanebert/shallot";
+import { GamePlugin } from "./src/game";
+
+await runApp({ plugins: [OrbitPlugin, GamePlugin], pixelRatio: "auto" });
+```
+
+Default plugins remain enabled unless `defaults: false` is set. Remove manifest-only default exports and import a plugin's named export instead.
+
+The manifest's `identifier` override is removed. Native bundles take `com.shallot.<name>`.
+
 ## Request non-default GPU limits explicitly
 
 0.9.5 requested the adapter's maximum limits automatically. The engine now requests default device limits. If your application needs larger buffers or other non-default limits, acquire a device with those limits and pass it through the existing `config.device` option.

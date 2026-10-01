@@ -36,18 +36,17 @@ function shallotProject(projectDir?: string) {
     return plugin;
 }
 
-test("a project can load duplicate engine, typegpu or manifest plugin instances, and its dev or preview server lacks isolation headers", () => {
+test("dependencies consuming Shallot are deduped and excluded, unlike unrelated packages", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-project-plugin-"));
         try {
-            writeFileSync(
-                join(root, "shallot.json"),
-                JSON.stringify({
-                    plugins: {
-                        Grid: "@dylanebert/shallot-grid/core",
-                        Local: "./src/local.ts",
-                    },
-                }),
-            );
+            const dependencies = { "peer-plugin": "1", "direct-plugin": "1", unrelated: "1" };
+            writeFileSync(join(root, "package.json"), JSON.stringify({ dependencies }));
+            for (const [name, engineSection] of [["peer-plugin", "peerDependencies"], ["direct-plugin", "dependencies"], ["unrelated", "devDependencies"]]) {
+                const directory = join(root, "node_modules", name);
+                mkdirSync(directory, { recursive: true });
+                writeFileSync(join(directory, "package.json"), JSON.stringify({ name, main: "index.js", [engineSection]: { "@dylanebert/shallot": "*" } }));
+                writeFileSync(join(directory, "index.js"), "export {};");
+            }
             const plugins = shallot(root);
             expect(plugins.map(({ name }) => name)).toEqual(["unplugin-typegpu", "shallot"]);
             const plugin = plugins.find(({ name }) => name === "shallot");
@@ -61,29 +60,13 @@ test("a project can load duplicate engine, typegpu or manifest plugin instances,
                 optimizeDeps?: { exclude?: string[] };
                 server?: { headers?: Record<string, string> };
             };
-            const expected = ["@dylanebert/shallot", "typegpu", "@dylanebert/shallot-grid"];
+            const expected = ["@dylanebert/shallot", "typegpu", "peer-plugin", "direct-plugin"];
             expect(config.resolve?.dedupe).toEqual(expected);
             expect(config.optimizeDeps?.exclude).toEqual(expected);
             expect(config.server?.headers).toEqual({
                 "Cross-Origin-Opener-Policy": "same-origin",
                 "Cross-Origin-Embedder-Policy": "require-corp",
             });
-        } finally {
-            rmSync(root, { recursive: true, force: true });
-        }
-    });
-
-test("a project's virtual:project module reflects its shallot.json manifest", () => {
-        const root = mkdtempSync(join(tmpdir(), "shallot-virtual-project-"));
-        try {
-            writeFileSync(
-                join(root, "shallot.json"),
-                JSON.stringify({ plugins: { Physics: true } }),
-            );
-            const plugin = shallotProject(root);
-            const load = plugin.load as unknown as (id: string) => string | undefined;
-            const source = load("\0virtual:project");
-            expect(source).toContain("PhysicsPlugin");
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
@@ -119,41 +102,4 @@ test("a Vite build does not ship scanner-emitted assets without a surviving bund
         expect(Object.hasOwn(bundle, "orphan.png")).toBe(false);
         expect(Object.hasOwn(bundle, "used.png")).toBe(true);
         expect(messages[0]).toContain("pruned 1 orphaned asset(s)");
-    });
-
-test("dev clients fully reload when shallot.json changes", () => {
-        const root = mkdtempSync(join(tmpdir(), "shallot-watch-"));
-        try {
-            const publicDir = join(root, "public");
-            mkdirSync(publicDir);
-            writeFileSync(join(root, "shallot.json"), "{}");
-            const listeners = new Map<string, (file: string) => void>();
-            const reloads: unknown[] = [];
-            let invalidations = 0;
-            const server = {
-                middlewares: { use() {} },
-                watcher: {
-                    add() {},
-                    on(event: string, listener: (file: string) => void) {
-                        listeners.set(event, listener);
-                    },
-                },
-                ws: { send(message: unknown) { reloads.push(message); } },
-                moduleGraph: {
-                    getModuleById() { return {}; },
-                    invalidateModule() { invalidations++; },
-                },
-            };
-            const plugin = shallotProject(root);
-            const configure = plugin.configureServer as unknown as (server: unknown) => void;
-            configure(server);
-            const changed = listeners.get("change");
-            if (!changed) throw new Error("shallot plugin did not install its file watcher");
-            changed(join(root, "shallot.json"));
-            changed(join(root, "other.json"));
-            expect(reloads).toHaveLength(1);
-            expect(invalidations).toBe(1);
-        } finally {
-            rmSync(root, { recursive: true, force: true });
-        }
     });

@@ -1,61 +1,7 @@
-// The project's pure manifest and static-asset readers. Internal to `src/project/`; sibling modules
-// import this file directly. Nothing here touches vite, a server, or a hook.
+// Static-asset readers shared by project tooling.
 
-import { existsSync, readFileSync, statSync } from "fs";
+import { existsSync, statSync } from "fs";
 import { join, sep } from "path";
-import { KNOWN_ENGINE_PLUGINS } from "./engine";
-import { type Manifest, normalize } from "./manifest";
-
-/** a project's `shallot.json` manifest path — the project descriptor the toolchain reads. */
-export function manifestPath(dir: string): string {
-    return join(dir, "shallot.json");
-}
-
-/**
- * the toolchain-boundary warnings for a project's raw `shallot.json` text: an unparseable file (else
- * `normalize` silently swallows it to `{}`), and a bool key naming no engine plugin (else it surfaces
- * only as a cryptic esbuild "no export named ${name}Plugin" at bundle time). Pure over (raw, known) so
- * the project test pins both paths without touching disk or spying on the console. `readManifest` emits
- * each with the file path prefixed.
- */
-export function manifestWarnings(raw: string, known: ReadonlySet<string>): string[] {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(raw);
-    } catch {
-        return ["not valid JSON, ignored (the project runs with default plugins)"];
-    }
-    const plugins = (parsed as { plugins?: unknown })?.plugins;
-    if (typeof plugins !== "object" || plugins === null || Array.isArray(plugins)) return [];
-    const warnings: string[] = [];
-    for (const [name, value] of Object.entries(plugins)) {
-        // a bool declares an engine plugin (a local uses a specifier); a bool outside the known set names
-        // no engine plugin, so the generator's `${name}Plugin` import would miss
-        if (typeof value === "boolean" && !known.has(name)) {
-            warnings.push(
-                `"${name}" is not a known engine plugin (use a module specifier for a local plugin)`,
-            );
-        }
-    }
-    return warnings;
-}
-
-/**
- * read + parse a project's manifest, tolerating its absence (→ {}); warn loudly on
- * a corrupt file or an unknown-plugin key before `normalize` normalizes the mistake away.
- */
-export function readManifest(absDir: string): Manifest {
-    const path = manifestPath(absDir);
-    let text: string;
-    try {
-        text = readFileSync(path, "utf-8");
-    } catch {
-        return {}; // no manifest
-    }
-    for (const w of manifestWarnings(text, KNOWN_ENGINE_PLUGINS)) console.warn(`  ! ${path}: ${w}`);
-    return normalize(text);
-}
-
 // MIME for project public assets. Without it `res.end(data)` sends no Content-Type, so an SVG served
 // at `/icon.svg` (a project's icon) is rejected as a favicon and the tab falls back to a generic
 // icon. Covers the asset types a project's public/ holds.

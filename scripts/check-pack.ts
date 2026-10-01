@@ -92,7 +92,6 @@ const required = [
     "crates/native/Cargo.toml",
     "crates/native/Cargo.lock",
     "assets/icon-1024.png",
-    "shallot.schema.json",
     "crates/audio/pkg/shallot_audio.js",
     "crates/audio/pkg/shallot_audio.d.ts",
     "crates/audio/pkg/shallot_audio.wasm",

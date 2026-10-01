@@ -237,5 +237,3 @@ export const Demo = {
     },
     systems: [lift, controls],
 } satisfies Plugin;
-
-export default Demo;
