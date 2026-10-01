@@ -21,7 +21,7 @@ test("browser exports load without Bun- or Node-only modules", async () => {
     const result = await Bun.build({
         entrypoints: [resolve(ROOT, "scripts/capture-page.ts")],
         target: "browser",
-        format: "iife",
+        format: "esm",
         outdir: resolve(ROOT, ".artifacts/entry-browser"),
         metafile: true,
     });

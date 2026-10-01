@@ -55,7 +55,7 @@ test("a browser capture preserves the declared page geometry and shows its color
     expect(pixels.height, "the page screenshot uses the declared height").toBe(720);
     expect(pixels.ink, "the real page's color-tag description remains visible").toBeGreaterThan(20);
 
-    await page.addScriptTag({ path: CAPTURE_ENTRY });
+    await page.addScriptTag({ path: CAPTURE_ENTRY, type: "module" });
     await page.addStyleTag({
         content: "#frame { width: 1280px !important; height: 720px !important; }",
     });

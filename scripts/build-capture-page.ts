@@ -9,7 +9,7 @@ const result = await Bun.build({
     entrypoints: [resolve(import.meta.dir, "capture-page.ts")],
     outdir,
     target: "browser",
-    format: "iife",
+    format: "esm",
     naming: "capture-page.js",
     metafile: true,
 });
