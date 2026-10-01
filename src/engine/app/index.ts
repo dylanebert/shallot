@@ -25,7 +25,6 @@ export * from "./compose";
 
 /**
  * bundle of components, systems, and lifecycle hooks: the unit of behavior a project enables.
- * @expand
  */
 export interface Plugin {
     /** unique name; `swapPlugins` pairs reloads by it */
@@ -81,7 +80,6 @@ export interface Plugin {
  * a startup/error screen driven by the build's progress. the engine calls `show` before loading,
  * `update` across every lifecycle step, `complete` once progress reaches `1`, and `error` instead
  * if the build throws. see the built-in {@link shallotDark} family.
- * @expand
  */
 export interface Loading {
     /** display the screen; return a cleanup called once the build finishes, or nothing to leave it up */
@@ -101,7 +99,6 @@ export interface Loading {
 
 /**
  * the {@link createApp} / {@link runApp} configuration: plugins and startup behavior.
- * @expand
  */
 export interface AppConfig {
     /** plugins to load, unioned with the built-in defaults unless `defaults` is `false` */
@@ -225,19 +222,15 @@ export function setDefaultLoading(factory: () => Loading): void {
     _defaultLoading = factory;
 }
 
+let buildTail: Promise<void> = Promise.resolve();
+
 /**
  * build the app: collect plugins, acquire the GPU device, register, run `initialize`, and
  * `warm`, returning a live {@link World} without starting a frame loop. Build setup is serialized, and
  * completed Apps may coexist with separate World-owned storage and GPU registries. Plugin resources retained
  * in module globals are not isolated by this guarantee. Drive `world.step(dt)` yourself, or use {@link runApp}
  * for the managed loop.
- * @example
- * const app = await createApp({ plugins: [MyPlugin] });
- * app.world.step(1 / 60);
  */
-let buildTail: Promise<void> = Promise.resolve();
-
-/** Builds serialize their registration and warm phases; completed Apps remain independent and may coexist. */
 export function createApp(config: AppConfig): Promise<App> {
     const pending = buildTail.then(() => buildNow(config));
     buildTail = pending.then(
@@ -311,9 +304,9 @@ async function buildNow(config: AppConfig): Promise<App> {
             }
         }
 
-        // Assign registered components their world-owned columns before loading.
         world.addSystem(ClearChangeMarksSystem, "Engine");
 
+        // Assign registered components their world-owned columns before loading.
         for (const { component } of world.registry.entries()) {
             world.storage(component);
         }
@@ -437,9 +430,6 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
 /**
  * build the app and start the `requestAnimationFrame` frame loop, mounting `config.ui` (web only). the
  * loop drives `world.step(dt)` each frame, GPU-fence backpressured so it never runs far ahead of the GPU.
- * @example
- * const app = await runApp({ plugins: [MyPlugin] });
- * // later: app.dispose();
  */
 export async function runApp(config: AppConfig): Promise<App> {
     const app = await createApp(config);
@@ -521,10 +511,7 @@ export async function runApp(config: AppConfig): Promise<App> {
                 // the swapchain queue → input latency). This is the present-pacing mechanism; MAX_FRAMES_IN_FLIGHT is
                 // only the runaway backstop below.
                 if (coalesce(t, lastTime, median(intervals, intervalCount, scratch))) return;
-                // backstop only: under genuine GPU saturation the CPU would queue unboundedly past the GPU, so cap
-                // the in-flight depth. The bound sits well above a present-throttled pipeline's depth (~3 frames),
-                // since `onSubmittedWorkDone` is present-gated and a tighter cap would drop frames Chrome is ready to
-                // present (a 60Hz fullscreen throttle reads ~3 in flight with the GPU idle).
+                // Runaway backstop; MAX_FRAMES_IN_FLIGHT says why it sits above a throttled present's depth.
                 if ((pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
                 const dt = frameDelta(t, lastTime);
                 lastTime = t;

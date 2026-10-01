@@ -36,9 +36,6 @@ export function readFields(world: World, component: Component, eid: number): Fie
 
 /**
  * every component on a live entity with its field values, or `null` if the entity isn't alive.
- * @example
- * const data = inspect(world, eid);
- * data?.components; // { Transform: { translation: [0, 0, 0, 0], ... }, Orbit: { ... } }
  */
 export function inspect(world: World, eid: number): EntityData | null {
     if (!world.exists(eid)) return null;
@@ -64,8 +61,6 @@ export function snapshot(world: World): EntityData[] {
 
 /**
  * format an entity's components and field values as a human-readable string, for logging.
- * @example
- * console.log(dump(world, eid));
  */
 export function dump(world: World, eid: number): string {
     const data = inspect(world, eid);

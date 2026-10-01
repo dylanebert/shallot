@@ -29,17 +29,11 @@ const INITIAL_CAPACITY = 16;
 export type Resource<T> = { readonly create: (world: World) => T };
 
 /**
- * ecs world passed to every system
- * @expand
- * @example
- * const MySystem: System = {
- *     update(world) {
- *         // world passed in every frame
- *     },
- * };
+ * Owns its entity storage, resources, GPU tables and allocations registered with {@link own};
+ * {@link dispose} releases them, never the GPU device.
  */
 export class World {
-    /** this world's component registrations, defaults, exclusions, and reflection data. @internal */
+    /** this world's component registrations, with their defaults and requirements. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
     /** @internal Fixed world placement and renderer-only GPU history, owned by this world. */
@@ -360,12 +354,11 @@ export class World {
         return storage as ComponentStorage<T>;
     }
 
-    /** current frame time and delta */
     get time(): Readonly<Time> {
         return this._scheduler.time;
     }
 
-    /** advance one frame */
+    /** Advance one frame by `deltaTime` seconds; throws on a negative or non-finite delta. */
     step(deltaTime = Time.DEFAULT_DT): void {
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
@@ -407,7 +400,6 @@ export class World {
         markGlobalTransformDiscontinuity(this, eid);
     }
 
-    /** create a new entity, returns its ID */
     create(): number {
         const eid = this._entities.add();
         if (eid + 1 > this._highWater) this._highWater = eid + 1;
@@ -417,7 +409,7 @@ export class World {
         return eid;
     }
 
-    /** destroy an entity */
+    /** Remove every component and free the eid; no-op for an eid that is not alive. */
     destroy(eid: number): void {
         if (!this._entities.exists(eid)) return;
         this._queries.onEntityRemoved(eid);
@@ -431,7 +423,6 @@ export class World {
         this._entities.remove(eid);
     }
 
-    /** true if entity ID is alive */
     exists(eid: number): boolean {
         return this._entities.exists(eid);
     }
@@ -447,9 +438,6 @@ export class World {
      * membership check: `has(eid, Component)` catches a plain despawn (destroy leaves the stamp
      * unchanged), the stamp catches a same-update destroy+create realias that membership misses.
      * Neither alone suffices. `0` for an eid never created.
-     * @example
-     * const stamp = world.generation(eid); // cache beside the held eid
-     * if (!world.has(eid, Body) || world.generation(eid) !== stamp) evict(); // despawn or realias
      */
     generation(eid: number): number {
         return this._entities.stamp(eid);
@@ -459,8 +447,6 @@ export class World {
      * Attach a component with optional field values (vectors are arrays).
      * Missing fields keep registration defaults. Defaults and starting values go through
      * field setters, publishing changes. An already attached component is unchanged.
-     * @example
-     * world.add(eid, Health, { current: 100 });
      */
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
         const storage = this.storage(component as Component);
@@ -503,7 +489,6 @@ export class World {
         }
     }
 
-    /** detach a component from an entity */
     remove(eid: number, component: any): void {
         if (this._components.remove(eid, component)) {
             this.notifyMembership(component as Component, eid, false);
@@ -514,18 +499,12 @@ export class World {
         }
     }
 
-    /** true if entity has the component */
     has<T>(eid: number, component: T): boolean {
         return this._components.has(eid, component);
     }
 
     /**
      * find entities matching component terms
-     * @example
-     * const health = world.storage(Health);
-     * for (const eid of world.query([Health, not(Dead)])) {
-     *     health.current.set(eid, health.current.get(eid) - 1);
-     * }
      */
     query(terms: any[]): Iterable<number> {
         return this._queries.find(terms, this._components, this._entities);
@@ -533,8 +512,6 @@ export class World {
 
     /**
      * find exactly one entity, warns if multiple match, returns -1 when nothing matches
-     * @example
-     * const player = world.only([Player]);
      */
     only(terms: any[]): number {
         let result = -1;
@@ -550,12 +527,10 @@ export class World {
         return result;
     }
 
-    /** wire a system into the scheduler */
     addSystem(system: System, pluginName?: string): void {
         this._scheduler.register(system, pluginName);
     }
 
-    /** remove a previously-added system */
     removeSystem(system: System): void {
         this._scheduler.unregister(system);
     }
@@ -620,10 +595,6 @@ export class World {
      * registered, first run) at {@link dispose}, so a DOM mount, listener, or rAF loop keeps its cleanup
      * beside its creation site. A callback registered after dispose has already run fires immediately
      * (paired with {@link signal}, already aborted), so a late async step never leaks silently.
-     * @example
-     * const el = document.createElement("div");
-     * container.appendChild(el);
-     * world.onDispose(() => el.remove());
      */
     onDispose(fn: () => void): void {
         if (this._disposed) {
@@ -637,8 +608,6 @@ export class World {
      * an {@link AbortSignal} tied to this World's lifetime, aborted when {@link dispose} runs (already
      * aborted if read afterward). Pass it as `{ signal }` to `addEventListener`, `fetch`, or any
      * abortable API to detach on teardown with zero removal code. Lazily created on first read.
-     * @example
-     * window.addEventListener("resize", onResize, { signal: world.signal });
      */
     get signal(): AbortSignal {
         if (!this._controller) this._controller = new AbortController();

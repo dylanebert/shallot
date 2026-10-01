@@ -11,7 +11,6 @@ function invalidDelta(): never {
 
 /**
  * frame timing constants and per-frame data
- * @expand
  */
 export const Time = {
     FIXED_DT: 1 / 60,

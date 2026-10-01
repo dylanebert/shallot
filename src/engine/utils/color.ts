@@ -23,9 +23,6 @@ export function unpackColor(packed: number): { r: number; g: number; b: number }
  * pack a 0xRRGGBB sRGB color + a 0..1 opacity into an RGBA8 `u32`, byte 0 = r,
  * byte 3 = a, the `unpack4x8unorm` layout a shader reads. sRGB bytes are kept
  * verbatim (linearize on unpack); opacity clamps to [0, 1] and rounds to a byte
- *
- * @example
- * const word = packColor(0xff8040, 0.5); // 0x80_40_80_ff, half alpha
  */
 export function packColor(hex: number, opacity: number): number {
     if (!Number.isFinite(opacity))

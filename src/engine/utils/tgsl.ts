@@ -83,8 +83,7 @@ function f32Bits(v: number): number {
 }
 
 /** pack two [-1,1] lanes into an snorm16x2 `u32` (lane x → low 16 bits): WGSL `pack2x16snorm`.
- *  The (-1,1) ↔ (-32767,32767) lattice puts 0 ↔ 0 and ±1 ↔ ±32767 on exact rails.
- *  @example const enc = packSnorm2x16(vec2f(0, -1)); // 0x80010000 */
+ *  The (-1,1) ↔ (-32767,32767) lattice puts 0 ↔ 0 and ±1 ↔ ±32767 on exact rails. */
 export const packSnorm2x16 = tgpu.fn(
     [d.vec2f],
     d.u32,
@@ -94,8 +93,7 @@ export const packSnorm2x16 = tgpu.fn(
 });
 
 /** unpack an snorm16x2 `u32` to two [-1,1] lanes (low 16 bits → x): WGSL `unpack2x16snorm`, the inverse
- *  of {@link packSnorm2x16}.
- *  @example const v = unpackSnorm2x16(enc); // vec2f */
+ *  of {@link packSnorm2x16}. */
 export const unpackSnorm2x16 = tgpu.fn(
     [d.u32],
     d.vec2f,
@@ -107,8 +105,7 @@ export const unpackSnorm2x16 = tgpu.fn(
 });
 
 /** pack two [0,1] lanes into a unorm16x2 `u32` (lane x → low 16 bits): WGSL `pack2x16unorm`. Uniform
- *  1.5e-5 spacing across the range, so it beats f16 in any bounded range.
- *  @example const enc = packUnorm2x16(vec2f(1, 0)); // 0x0000ffff */
+ *  1.5e-5 spacing across the range, so it beats f16 in any bounded range. */
 export const packUnorm2x16 = tgpu.fn(
     [d.vec2f],
     d.u32,
@@ -118,8 +115,7 @@ export const packUnorm2x16 = tgpu.fn(
 });
 
 /** unpack a unorm16x2 `u32` to two [0,1] lanes (low 16 bits → x): WGSL `unpack2x16unorm`, the inverse
- *  of {@link packUnorm2x16}.
- *  @example const v = unpackUnorm2x16(enc); // vec2f */
+ *  of {@link packUnorm2x16}. */
 export const unpackUnorm2x16 = tgpu.fn(
     [d.u32],
     d.vec2f,
@@ -134,8 +130,7 @@ export const unpackUnorm2x16 = tgpu.fn(
  *  Rounds and clamps, exactly like the intrinsic — unlike `typegpu/std`'s CPU implementation, which
  *  truncates and wraps. Named lane-count-first like its 2×16 siblings, and **not** `pack4x8unorm`: an
  *  authored name that collides with a WGSL builtin resolves to `pack4x8unorm_1` even under strict
- *  naming, so a raw splice site could not call it (asserted in tgsl.test.ts).
- *  @example const enc = packUnorm4x8(vec4f(1, 0, 0.5, 1)); // 0xff8000ff */
+ *  naming, so a raw splice site could not call it (asserted in tgsl.test.ts). */
 export const packUnorm4x8 = tgpu.fn(
     [d.vec4f],
     d.u32,
@@ -147,8 +142,7 @@ export const packUnorm4x8 = tgpu.fn(
 });
 
 /** reinterpret an `f32`'s bits as a `u32`: WGSL `bitcast<u32>(e)`. The f32→u32 direction only;
- *  `typegpu/std` binds the u32→f32 one as `bitcastU32toF32`.
- *  @example const bits = bitcastF32toU32(1); // 0x3f800000 */
+ *  `typegpu/std` binds the u32→f32 one as `bitcastU32toF32`. */
 export const bitcastF32toU32 = tgpu.fn(
     [d.f32],
     d.u32,
@@ -161,8 +155,7 @@ export const bitcastF32toU32 = tgpu.fn(
  *  transpiles to `f32(a) / f32(b)`: a *fractional* quotient, so it is wrong for any inexact division
  *  (not merely above 2²⁴, where even an exact quotient loses bits). Audit every `/` in a ported kernel.
  *  A zero divisor is the one input the two arms disagree on: WGSL's `u32` `/` returns the dividend, the
- *  CPU arm returns `Infinity`. Don't divide by a value that can be zero.
- *  @example const lane = idiv(index, 32); */
+ *  CPU arm returns `Infinity`. Don't divide by a value that can be zero. */
 export const idiv = tgpu.fn(
     [d.u32, d.u32],
     d.u32,
@@ -180,8 +173,7 @@ export const idiv = tgpu.fn(
  *  Inline rather than a shared `fn(p: ptr<workgroup, u32>)` leaf: WGSL 1.0 forbids workgroup-address-
  *  space pointer parameters, and only Tint admits them (`unrestricted_pointer_parameters`). naga —
  *  Firefox's front end — rejects such a function outright, so the pointer-parameter spelling made every
- *  shader reaching it uncompilable off Chromium.
- *  @example const n = wgCountUniform.$; */
+ *  shader reaching it uncompilable off Chromium. */
 export const uniformLoad = (flag: TgpuVar<"workgroup", d.U32>) =>
     tgpu["~unstable"]
         .rawCodeSnippet(/* wgsl */ `workgroupUniformLoad(&flag)`, d.u32, "runtime", true)
@@ -249,8 +241,7 @@ export function chunk(
  *  the directive rides a no-argument WGSL-bodied `tgpu.fn` called as the kernel's *first* statement:
  *  typegpu emits declarations in first-use order and WGSL requires every directive ahead of every global
  *  declaration, so anything later emits invalid WGSL. `uniformityOptOut` in `transitional/bvh/sort.ts` is
- *  the worked case.
- *  @example tgpu.resolve([subgroupUniformityOff, myKernel]) // resolve only — see above for a pipeline */
+ *  the worked case. */
 export const subgroupUniformityOff = tgpu["~unstable"].declare(
     "diagnostic(off, subgroup_uniformity);",
 );

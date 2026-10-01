@@ -45,7 +45,6 @@ export class ComponentRegistry {
     // keyed by stable component id, so a handle held across reloads resolves this world's registration
     private readonly _byId = new Map<number, Entry>();
 
-    /** register a component under its exact stable key */
     register(registration: Registration): void {
         const { key, component } = registration;
         const id = intern(component, key);
@@ -82,7 +81,6 @@ export class ComponentRegistry {
         for (const { name, values } of plan.fields) storage[name].set(eid, ...values);
     }
 
-    /** clear registrations owned by this world. */
     clear(): void {
         this._byName.clear();
         this._byId.clear();

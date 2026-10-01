@@ -71,8 +71,7 @@ export const MeshQuant = d.struct({
 
 /** octahedral-encode a unit normal to an snorm16x2 `u32` (the storage normal, 12 B → 4 B;
  *  Cigolle et al. 2014). **Never for an interpolated or filtered normal** — the octahedral seam breaks
- *  under interpolation; cross those as a plain `vec3` and renormalize.
- *  @example const w2 = octEncodeNormal(vec3f(0, 1, 0)); */
+ *  under interpolation; cross those as a plain `vec3` and renormalize. */
 export const octEncodeNormal = tgpu.fn(
     [d.vec3f],
     d.u32,
@@ -88,8 +87,7 @@ export const octEncodeNormal = tgpu.fn(
 });
 
 /** decode an snorm16x2 `u32` back to a unit normal: the inverse of {@link octEncodeNormal}. Cardinals
- *  round-trip exactly (0 ↔ 0, ±1 ↔ ±32767).
- *  @example const n = octDecodeNormal(w2); */
+ *  round-trip exactly (0 ↔ 0, ±1 ↔ ±32767). */
 export const octDecodeNormal = tgpu.fn(
     [d.u32],
     d.vec3f,
@@ -114,8 +112,7 @@ export const octEncodeWgsl = chunk("octEncodeWgsl", [octEncodeNormal, octDecodeN
 // quantization into a unit quat — downstream quatMul/quatRotate expect unit input. Cardinal exactness
 // plus the per-component and worst-case angular bounds are validated in encode.test.ts.
 
-/** pack a quaternion into two snorm16x2 `u32` lanes (xy, zw), 16 B → 8 B.
- *  @example const [lo, hi] = packQuatSnorm16x4(quat); */
+/** pack a quaternion into two snorm16x2 `u32` lanes (xy, zw), 16 B → 8 B. */
 export const packQuatSnorm16x4 = tgpu.fn(
     [d.vec4f],
     d.vec2u,
@@ -125,8 +122,7 @@ export const packQuatSnorm16x4 = tgpu.fn(
 });
 
 /** unpack two snorm16x2 `u32` lanes back to a unit quaternion, renormalizing to absorb the per-component
- *  quantization — `quatMul` / `quatRotate` downstream expect unit input.
- *  @example const q = unpackQuatSnorm16x4(vec2u(lo, hi)); */
+ *  quantization — `quatMul` / `quatRotate` downstream expect unit input. */
 export const unpackQuatSnorm16x4 = tgpu.fn(
     [d.vec2u],
     d.vec4f,
@@ -152,8 +148,7 @@ export function quatSnorm16x4Wgsl(): string {
     return quatChunk();
 }
 
-/** the per-mesh dequant table selector: a quantized vertex's `w1` carries `meshId` in its high 16 bits.
- *  @example let q = meshQuant[meshIdOf(w1)]; */
+/** the per-mesh dequant table selector: a quantized vertex's `w1` carries `meshId` in its high 16 bits. */
 export const meshIdOf = tgpu.fn(
     [d.u32],
     d.u32,
@@ -166,8 +161,7 @@ export const meshIdOf = tgpu.fn(
 
 /** decode a quantized vertex position: `w0` = unorm16 pos.xy, `w1` = unorm16 pos.z | (meshId << 16),
  *  dequantized against the mesh's {@link MeshQuant} AABB. A degenerate axis (extent 0) has scale 0, so
- *  the decode returns the offset there.
- *  @example let pos = decodePos(v.x, v.y, meshQuant[meshIdOf(v.y)]); */
+ *  the decode returns the offset there. */
 export const decodePos = tgpu.fn(
     [d.u32, d.u32, MeshQuant],
     d.vec3f,
@@ -182,8 +176,7 @@ export const decodePos = tgpu.fn(
     );
 });
 
-/** decode a quantized vertex uv (`w3` = unorm16 uv) against the mesh's uv AABB.
- *  @example let uv = decodeUv(v.w, meshQuant[meshIdOf(v.y)]); */
+/** decode a quantized vertex uv (`w3` = unorm16 uv) against the mesh's uv AABB. */
 export const decodeUv = tgpu.fn(
     [d.u32, MeshQuant],
     d.vec2f,
@@ -200,8 +193,7 @@ export const decodeUv = tgpu.fn(
 export const posQuantWgsl = chunk("posQuantWgsl", [meshIdOf, decodePos, decodeUv], quantNs);
 
 /** encode a world/object-space position into the quantized vertex words: `.x` = unorm16 pos.xy,
- *  `.y` = unorm16 pos.z | (meshId << 16). A zero-extent axis normalizes to 0, never a divide by zero.
- *  @example let w = encodePos(p, meshId, q); */
+ *  `.y` = unorm16 pos.z | (meshId << 16). A zero-extent axis normalizes to 0, never a divide by zero. */
 export const encodePos = tgpu.fn(
     [d.vec3f, d.u32, MeshQuant],
     d.vec2u,
@@ -216,8 +208,7 @@ export const encodePos = tgpu.fn(
     return d.vec2u(packUnorm2x16(d.vec2f(clamp(nx, 0, 1), clamp(ny, 0, 1))), z16 | (meshId << 16));
 });
 
-/** encode a uv into the quantized vertex's `w3` word, against the mesh's uv AABB.
- *  @example let w3 = encodeUv(uv, q); */
+/** encode a uv into the quantized vertex's `w3` word, against the mesh's uv AABB. */
 export const encodeUv = tgpu.fn(
     [d.vec2f, MeshQuant],
     d.u32,
@@ -242,8 +233,7 @@ export function posQuantPackWgsl(): string {
     return packChunk();
 }
 
-/** rotate `v` by the quaternion `q` (xyzw).
- *  @example let world = xformQuat(x.quat, local); */
+/** rotate `v` by the quaternion `q` (xyzw). */
 export const xformQuat = tgpu.fn(
     [d.vec4f, d.vec3f],
     d.vec3f,
@@ -256,8 +246,7 @@ export const xformQuat = tgpu.fn(
     return d.vec3f(v.x + q.w * t.x + u.x, v.y + q.w * t.y + u.y, v.z + q.w * t.z + u.z);
 });
 
-/** apply T·R·S to a local-space point.
- *  @example let world = xformPoint(x, localPos); */
+/** apply T·R·S to a local-space point. */
 export const xformPoint = tgpu.fn(
     [Xform, d.vec3f],
     d.vec3f,
@@ -269,8 +258,7 @@ export const xformPoint = tgpu.fn(
 
 /** apply the inverse-transpose `R·S⁻¹` to a local-space normal — correct under non-uniform scale, where
  *  `(R·S)·n` tilts the normal wrong. A flattened (zero-scale) axis would divide 0/0 → NaN and poison every
- *  normal on the entity, so that lane drops to a finite 0 (a degenerate normal the oct codec tolerates).
- *  @example let n = xformNormal(x, localNormal); */
+ *  normal on the entity, so that lane drops to a finite 0 (a degenerate normal the oct codec tolerates). */
 export const xformNormal = tgpu.fn(
     [Xform, d.vec3f],
     d.vec3f,
@@ -285,8 +273,7 @@ export const xformNormal = tgpu.fn(
 });
 
 /** rebuild the world matrix, for a reader that needs columns or a matmul (the billboard / glyph
- *  surfaces). Bit-identical to the prior compose's matrix, so column-extracted scale is unchanged.
- *  @example let m = xformMat(x); */
+ *  surfaces). Bit-identical to the prior compose's matrix, so column-extracted scale is unchanged. */
 export const xformMat = tgpu.fn(
     [Xform],
     d.mat4x4f,
@@ -341,8 +328,7 @@ export const linearToSrgb1 = tgpu.fn(
     return select(1.055 * pow(max(c, 0), 1 / 2.4) - 0.055, c * 12.92, c <= 0.0031308);
 });
 
-/** decode an sRGB-packed LDR color to linear rgb + linear alpha.
- *  @example let c = unpackLdrColor(color[eid]); */
+/** decode an sRGB-packed LDR color to linear rgb + linear alpha. */
 export const unpackLdrColor = tgpu.fn(
     [d.u32],
     d.vec4f,
@@ -352,8 +338,7 @@ export const unpackLdrColor = tgpu.fn(
     return d.vec4f(srgbToLinear1(v.x), srgbToLinear1(v.y), srgbToLinear1(v.z), v.w);
 });
 
-/** sRGB-encode linear `rgb` + linear `alpha` into a `pack4x8unorm` u32.
- *  @example const packed = packLdrColor(vec3f(1, 0, 0), 1); */
+/** sRGB-encode linear `rgb` + linear `alpha` into a `pack4x8unorm` u32. */
 export const packLdrColor = tgpu.fn(
     [d.vec3f, d.f32],
     d.u32,
@@ -380,8 +365,7 @@ export const ldrColorPackWgsl = chunk("ldrColorPackWgsl", [packLdrColor]);
 // mantissa overflow. ~3% relative precision per channel — well below the visible threshold for additive
 // HDR emission.
 
-/** decode an r11g11b10ufloat-packed HDR color.
- *  @example let rgb = unpackHdrColor(emissive[eid]); */
+/** decode an r11g11b10ufloat-packed HDR color. */
 export const unpackHdrColor = tgpu.fn(
     [d.u32],
     d.vec3f,
@@ -395,8 +379,7 @@ export const unpackHdrColor = tgpu.fn(
     return d.vec3f(rgv.x, rgv.y, bbv.x);
 });
 
-/** encode an HDR color to r11g11b10ufloat, clamped to the format's [0, 65024] range.
- *  @example let packed = packHdrColor(rgb); */
+/** encode an HDR color to r11g11b10ufloat, clamped to the format's [0, 65024] range. */
 export const packHdrColor = tgpu.fn(
     [d.vec3f],
     d.u32,
@@ -420,8 +403,7 @@ export const hdrColorPackWgsl = chunk("hdrColorPackWgsl", [packHdrColor]);
 // 2-bit index, 16 B → 4 B, ~0.1° max error. Fine for narrowphase + per-pair neighbour reads (no
 // compounding); NOT for iter-mutated state a downstream pass finite-differences.
 
-/** pack a quaternion as smallest-3 (10-10-10-2 in one `u32`).
- *  @example let p = packQuatSmallest3(q); */
+/** pack a quaternion as smallest-3 (10-10-10-2 in one `u32`). */
 export const packQuatSmallest3 = tgpu.fn(
     [d.vec4f],
     d.u32,
@@ -451,8 +433,7 @@ export const packQuatSmallest3 = tgpu.fn(
          | (largest << 30u);
 }`);
 
-/** unpack a smallest-3 `u32` back to a unit quaternion, reconstructing the dropped component.
- *  @example let q = unpackQuatSmallest3(p); */
+/** unpack a smallest-3 `u32` back to a unit quaternion, reconstructing the dropped component. */
 export const unpackQuatSmallest3 = tgpu.fn(
     [d.u32],
     d.vec4f,
@@ -488,8 +469,7 @@ export const smallest3Wgsl = chunk("smallest3Wgsl", [packQuatSmallest3, unpackQu
 // That differential is the point: the hand-paired CPU/WGSL twins this file used to carry were held in
 // step by a comment, and these are held in step by a gate.
 
-/** {@link octEncodeNormal} over three loose lanes — the mesh builder's per-vertex form.
- *  @example const w2 = octEncode(nx, ny, nz); */
+/** {@link octEncodeNormal} over three loose lanes — the mesh builder's per-vertex form. */
 export function octEncode(x: number, y: number, z: number): number {
     // `Math.fround` marks every point the TGSL body builds a vector, and so stores f32 — the mirror
     // has to round where the schema would, or the two disagree on values near a lattice midpoint.
@@ -512,8 +492,7 @@ export function octEncode(x: number, y: number, z: number): number {
     return packSnorm2(px, py);
 }
 
-/** {@link packUnorm2x16} over two loose lanes — the mesh builder's per-vertex form.
- *  @example const w0 = packUnorm2(u, v); */
+/** {@link packUnorm2x16} over two loose lanes — the mesh builder's per-vertex form. */
 export function packUnorm2(x: number, y: number): number {
     return ((unorm16(y) << 16) | unorm16(x)) >>> 0;
 }
@@ -522,8 +501,7 @@ function packSnorm2(x: number, y: number): number {
     return ((snorm16(y) << 16) | snorm16(x)) >>> 0;
 }
 
-/** {@link packLdrColor} over four loose lanes.
- *  @example const packed = packColor4(r, g, b, a); */
+/** {@link packLdrColor} over four loose lanes. */
 export function packColor4(r: number, g: number, b: number, a: number): number {
     return (
         (unorm8(srgb(r)) | (unorm8(srgb(g)) << 8) | (unorm8(srgb(b)) << 16) | (unorm8(a) << 24)) >>>

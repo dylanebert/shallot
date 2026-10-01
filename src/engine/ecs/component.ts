@@ -43,8 +43,6 @@ export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array |
  * typed-array storage descriptor. Shared between {@link ScalarField}/{@link Vector2Field}/{@link Vector4Field}
  * fields so a consumer can change the type without
  * changing the type spelling. Metadata only. Descriptors don't carry state.
- *
- * @expand
  */
 export interface FieldType<TArray extends TypedArray = TypedArray> {
     /** typed-array constructor used to back CPU storage */
@@ -54,7 +52,6 @@ export interface FieldType<TArray extends TypedArray = TypedArray> {
     };
     /** scalar = 1, vec2 = 2, vec4 = 4. stride into the backing array per eid */
     readonly lanes: 1 | 2 | 4;
-    /** debug label */
     readonly name: string;
     /** WGSL element type for GPU storage bindings. null for types without native WGSL storage (u8, u16) */
     readonly wgsl: string | null;

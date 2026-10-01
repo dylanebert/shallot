@@ -4,13 +4,6 @@
  * stable for the lifetime of the registry (re-registering reuses the prior
  * ID; deleting an entry keeps the ID slot reserved). Producers consume IDs
  * for compact GPU-side routing; consumers reference entries by name
- *
- * @example
- * const Items = new Registry<{ name: string; value: number }>();
- * const id = Items.register({ name: "answer", value: 42 });
- * Items.get("answer");      // the value
- * Items.id("answer");       // the ID
- * Items.name(id);            // "answer"
  */
 export class Registry<T extends { name: string }> {
     private readonly _ids = new Map<string, number>();

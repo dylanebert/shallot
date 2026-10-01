@@ -300,9 +300,6 @@ export function composeMat4(
  * (Shepperd). Exact only for a similarity transform (T·R·scale); shear / non-uniform-scale-under-rotation
  * can't be captured by a TRS triple, so a caller that may see either measures the residual against a
  * recomposed matrix.
- *
- * @example
- * const trs = decomposeMat4(composeMat4(1, 2, 3, 0, 0, 0, 1, 2, 2, 2)); // → [1,2,3, 0,0,0,1, 2,2,2]
  */
 export function decomposeMat4(m: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(10);

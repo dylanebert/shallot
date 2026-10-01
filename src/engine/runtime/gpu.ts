@@ -43,9 +43,6 @@ const mb = (bytes: number): string => `${(bytes / (1 << 20)).toFixed(0)} MB`;
  * seam — never inferred from the label string, which would silently miss the next such pool.
  * `Profile.lazyBytes` sums every allocation marked `lazy` separately
  * from the exact `bufferBytes` / `textureBytes` totals a byte-budget gate reads.
- * @example
- * const desc: GPUBufferDescriptor & LazyAlloc = { label: "my-pool-slot", size, usage, lazy: true };
- * device.createBuffer(desc);
  */
 export interface LazyAlloc {
     /** true when this allocation call is a lazily-grown pool entry (see the interface doc). Omitted or
@@ -119,10 +116,8 @@ export function checkTextureLimits(
 
 /**
  * active GPU device with per-frame fence sync
- * @expand
  */
 export interface WorldGpu {
-    /** active GPU device */
     readonly device: GPUDevice;
     /** classification of the adapter that supplied {@link device}; fallback and masked adapters remain visible */
     readonly adapter: AdapterVerdict;
@@ -686,8 +681,6 @@ export function resolveFeatures(
  * `unplugin-typegpu` (typegpu parses nothing at runtime), so a bundle built without the plugin carries
  * no metadata at all — resolution throws deep inside a pipeline and CPU-called kernels silently return
  * NaN. Resolve it to prove your build ran the transform; {@link checkTgsl} does exactly that.
- * @example
- * const wgsl = tgpu.resolve([tgslCanary]); // "fn canary(x: u32) -> u32 { return (x + 1u); }"
  */
 export const tgslCanary = tgpu.fn(
     [u32],
@@ -856,12 +849,6 @@ function compile({ label, force }: Forcer): unknown {
  * every plugin's warm, which is the point. `label` names the pipeline in either failure and must be
  * unique within the build. `options.after` names other queued labels that must drain first. Unknown
  * labels are ignored because the plugin that owns a predecessor may be absent.
- * @example
- * precompile(world, "narrowphase", () => {
- *     return bind();
- * }, {
- *     after: ["publish-inputs"],
- * });
  */
 export function precompile(
     world: World,
@@ -901,9 +888,6 @@ export function precompile(
  * A scoped label is therefore not a fixed string, so it can't be named by another forcer's `after`
  * (which would silently degrade to the missing-predecessor case). Scope only a factory nothing
  * orders against.
- * @example
- * const scope = precompileScope(world, "radix"); // "radix", then "radix-2", …
- * precompile(world, `${scope}-init`, () => initBound);
  */
 export function precompileScope(world: World, prefix: string): string {
     const _precompileState = world.resource(precompileState);

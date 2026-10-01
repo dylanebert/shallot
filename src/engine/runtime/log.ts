@@ -94,9 +94,6 @@ async function drain(trigger: () => void, timeoutMs: number): Promise<string[]> 
  * A timeout rejects and permanently poisons this page's capture session. Every queued or later call then
  * rejects before its trigger, so a late callback can never be returned as a trustworthy later batch. A
  * fresh page/module instance is the recovery boundary; there is deliberately no in-page reset.
- * @example
- * const lines = await drainLog(() => pipeline.dispatchThreads()); // ["hit count 42"]
- * const fragment = await drainLog(() => pipeline.withColorAttachment(target).draw(3));
  * @internal
  */
 export function drainLog(trigger: () => void, timeoutMs = 1000): Promise<string[]> {
