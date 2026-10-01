@@ -9,7 +9,6 @@ export type {
 export {
     entity,
     f16,
-    f16x4,
     f32,
     fields,
     i32,
@@ -17,7 +16,6 @@ export {
     lanes,
     sameComponentSchema,
     sameTypeLayout,
-    srgb8x4,
     u8,
     u16,
     u32,

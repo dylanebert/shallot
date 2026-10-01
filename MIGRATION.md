@@ -129,6 +129,21 @@ const gpuRows = table.buffer;
 
 Change shaders from entity-indexed scalar arrays to struct records addressed by dense row slots. `table.rowIndex(eid)` gives the CPU slot; enable the table's eid lookup when a shader starts from an eid. Rebind when the table's buffer generation changes. Built-in Body, GlobalTransform and light fields no longer publish their old per-field `.gpu` buffers either.
 
+`f16x4`, `srgb8x4` and `FieldType.gpu` are removed; no table packs a field. Declare `vec4` and bind it as a 16-byte `d.vec4f`. For a 4-byte color, store `packColor4(r, g, b, a)` from `/utils` in a `u32` field, bind it as `d.u32` and read it in the shader with `unpackLdrColor`:
+
+```ts
+// 0.9.5
+const Material = { params: slab(f16x4, "material"), color: slab(srgb8x4, "color") };
+```
+
+```ts
+// 0.10
+const Material = { params: vec4, color: u32 };
+const table = world.table("material", d.struct({ params: d.vec4f, color: d.u32 }));
+table.bindComponent(Material, { params: "params", color: "color" });
+world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
+```
+
 ## Authored Transform and world GlobalTransform are separate
 
 `Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, never authored, and has no hierarchy.

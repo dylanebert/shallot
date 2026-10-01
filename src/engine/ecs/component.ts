@@ -1,4 +1,3 @@
-import { packColor4 } from "../utils";
 import type { Entity } from "./entity";
 
 /** SoA component schema: each field names a type; worlds own the columns. */
@@ -59,19 +58,6 @@ export interface FieldType<TArray extends TypedArray = TypedArray> {
     readonly encode?: (v: number) => number;
     /** array-slot value → JS number. omit for identity-mapped types */
     readonly decode?: (raw: number) => number;
-    /**
-     * a packed GPU mirror: the CPU storage stays the full `ctor`×`lanes` (so `.set` / lane accessors /
-     * `read` / serialize see lossless floats). A GPU producer may use the `pack(...)` form:
-     * what the per-lane {@link encode} can't express, since it folds across lanes (4 lanes → an `srgb8x4`
-     * u32, or → an `f16x4` `vec2<u32>` pair). Quantization is a storage-boundary concern: the
-     * pack runs once at the per-frame flush, the CPU side never sees it. The reader shader binds `wgsl`.
-     */
-    readonly gpu?: {
-        readonly wgsl: string;
-        readonly bytes: number;
-        /** write `bytes / 4` u32 words at `out[at..]` from the four CPU lanes */
-        pack(out: Uint32Array, at: number, x: number, y: number, z: number, w: number): void;
-    };
 }
 
 /** 32-bit IEEE float. */
@@ -120,9 +106,6 @@ export function sameTypeLayout(a: FieldType, b: FieldType): boolean {
     ) {
         return false;
     }
-    const ag = a.gpu;
-    const bg = b.gpu;
-    if (ag?.wgsl !== bg?.wgsl || ag?.bytes !== bg?.bytes || ag?.pack !== bg?.pack) return false;
     return a !== entity && b !== entity ? true : a === b;
 }
 
@@ -185,11 +168,9 @@ function f16decode(bits: number): number {
 }
 
 /**
- * 16-bit IEEE float. CPU storage uses `Uint16Array` of bit patterns; reads
- * and writes go through the half-float codec. The reader shader binds a native
- * `f16`, which needs an `enable f16` directive — `shader-f16` is NOT on the
- * platform floor, so a native-f16 GPU consumer declares it in its own
- * `Plugin.features`. For four half lanes with no feature at all, use {@link f16x4}.
+ * 16-bit IEEE float, stored as `Uint16Array` bit patterns; reads and writes
+ * convert through the half-float codec. A GPU table refuses to bind it, as it
+ * refuses every encoded field.
  */
 export const f16: FieldType<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
@@ -219,53 +200,6 @@ export const vec4: FieldType<Float32Array> & { readonly lanes: 4 } = {
     lanes: 4,
     name: "vec4",
     wgsl: "vec4<f32>",
-};
-
-/**
- * a GPU mirror of four lanes as two u32 words holding two f16 each (16 B → 8 B) — the byte layout of
- * WebGPU's `float16x4`. The CPU surface is identical to {@link vec4} and sees lossless f32 (`set`,
- * `.x/.y/.z/.w`, `read`, serialize); only the mirror packs to half-floats at flush, and the reader shader
- * binds `vec2<u32>` and decodes with `unpack2x16float` — core WGSL, no `enable f16` and no `shader-f16`
- * feature (those gate the `f16` *type*, not the pack/unpack builtins). HDR-capable (range to 65504) and
- * finer than unorm8 across [0,1] (~15k representable values vs 256), so it suits PBR material params
- * (metallic / roughness / occlusion) alongside an unbounded emissive glow strength.
- */
-export const f16x4: FieldType<Float32Array> & { readonly lanes: 4 } = {
-    ctor: Float32Array,
-    lanes: 4,
-    name: "f16x4",
-    wgsl: "vec2<u32>",
-    gpu: {
-        wgsl: "vec2<u32>",
-        bytes: 8,
-        // low 16 bits of a word hold the earlier of its two lanes, so the reader's
-        // `unpack2x16float(word0)` recovers lanes 0+1 and `unpack2x16float(word1)` lanes 2+3
-        pack: (out, at, x, y, z, w) => {
-            out[at] = (f16encode(x) | (f16encode(y) << 16)) >>> 0;
-            out[at + 1] = (f16encode(z) | (f16encode(w) << 16)) >>> 0;
-        },
-    },
-};
-
-/**
- * an LDR color mirrored to one u32: four 8-bit lanes, sRGB transfer on rgb + linear alpha (WebGPU's
- * `rgba8unorm-srgb` semantics), 16 B → 4 B. The CPU surface is identical to {@link vec4} and sees
- * lossless linear floats; only the GPU mirror packs (sRGB-encoding rgb on store), and the reader shader
- * binds a `u32` and decodes with `unpackLdrColor` (`engine/utils/encode.ts`). For `MeshInstance.Color` and any
- * LDR per-entity color: sRGB storage keeps perceptual precision in 8 bits.
- */
-export const srgb8x4: FieldType<Float32Array> & { readonly lanes: 4 } = {
-    ctor: Float32Array,
-    lanes: 4,
-    name: "srgb8x4",
-    wgsl: "u32",
-    gpu: {
-        wgsl: "u32",
-        bytes: 4,
-        pack: (out, at, r, g, b, a) => {
-            out[at] = packColor4(r, g, b, a);
-        },
-    },
 };
 
 /**
