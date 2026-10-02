@@ -3,17 +3,18 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "../../core/rendering";
 import { Xform, xformPoint } from "../../engine/utils";
-import { MeshInstanceInput } from "./contract";
+import { Mesh3dInput } from "./contract";
+import { MaterialInput } from "./material";
 import { DrawIndexedIndirect } from "./registry";
 
-// The pack kernels: cull → count → scan → scatter, the compute half of the MeshInstance producer. Count and
+// The pack kernels: cull → count → scan → scatter, the compute half of the Mesh3d producer. Count and
 // scatter share the same cull inputs, so those are ONE bind group layout both kernels reference (and the
 // shared `visible` test closes over), and the prefix needs no re-declaration. The scan is a third pipeline
 // with no cull inputs at all. Each layout pins its group index with `$idx`: the dispatches are issued on a
 // raw compute pass, which addresses a bind group by index, so the index is declared here rather than left
 // to resolution order. This displaces the note that the group index is invisible to the CPU side.
 
-/** dense MeshInstance row counts and view/pair dimensions, written once per changed frame @internal */
+/** dense Mesh3d row counts and view/pair dimensions, written once per changed frame @internal */
 export const CullParams = d.struct({
     viewCount: d.u32,
     pairCount: d.u32,
@@ -21,14 +22,15 @@ export const CullParams = d.struct({
     partCapacity: d.u32,
 });
 
-/** one dense record per MeshInstance row, shared with typed surface vertex stages @internal */
-export const PartRecord = MeshInstanceInput;
+/** one dense record per Mesh3d row, shared with typed surface vertex stages @internal */
+export const PartRecord = Mesh3dInput;
 
 /** shared dense inputs for count + scatter, plus mesh bounds and per-view cull volumes @internal */
 export const cullLayout = tgpu
     .bindGroupLayout({
         partRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
         parts: { storage: d.arrayOf(PartRecord), access: "readonly" },
+        materials: { storage: d.arrayOf(MaterialInput), access: "readonly" },
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
@@ -121,7 +123,8 @@ function pairFactory(surfaceCount: number) {
             const part = cullLayout.$.parts[row];
             const encodedGlobalTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
-            if (part.surface >= surfaceCount || encodedGlobalTransform === 0) {
+            const surface = cullLayout.$.materials[part.material].surface;
+            if (surface >= surfaceCount || encodedGlobalTransform === 0) {
                 return Pair({
                     pair: invalidPair,
                     mid: part.mesh,
@@ -131,7 +134,7 @@ function pairFactory(surfaceCount: number) {
                 });
             }
             return Pair({
-                pair: part.mesh * surfaceCount + part.surface,
+                pair: part.mesh * surfaceCount + surface,
                 mid: part.mesh,
                 eid,
                 row,
@@ -141,7 +144,7 @@ function pairFactory(surfaceCount: number) {
         .$name("partPair");
 }
 
-/** Tally frustum-visible active MeshInstance rows per (view slot, pair); no entity-capacity scan. @internal */
+/** Tally frustum-visible active Mesh3d rows per (view slot, pair); no entity-capacity scan. @internal */
 export function countKernel(surfaceCount: number) {
     const pair = pairFactory(surfaceCount);
     return tgpu
@@ -230,7 +233,7 @@ export function scanKernel() {
     });
 }
 
-/** Scatter visible identities and MeshInstance rows into matching dense per-view draw lists. @internal */
+/** Scatter visible identities and Mesh3d rows into matching dense per-view draw lists. @internal */
 export function scatterKernel(surfaceCount: number) {
     const pair = pairFactory(surfaceCount);
     return tgpu

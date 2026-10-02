@@ -4,10 +4,10 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { MeshInstance } from "../../core/mesh";
+import { Mesh3d } from "../../core/mesh";
 import { createApp, globalTransformTable, Transform } from "../../engine";
 import { Surfaces } from "./contract";
-import { Material } from "./forward";
+import { Materials, MeshMaterial3d, StandardMaterial } from "./material";
 import { partTable } from "./part";
 import { Draws } from "./registry";
 import "../../standard";
@@ -32,7 +32,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     });
 }
 
-test("MeshInstance compaction carries independent dense GlobalTransform and MeshInstance slots with each logical eid", async () => {
+test("Mesh3d compaction carries independent dense GlobalTransform and Mesh3d slots with each logical eid", async () => {
     const app = await createApp({ plugins: [] });
     const world = app.world;
     const device = world.gpu.device;
@@ -49,21 +49,21 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
         world.add(a, Transform);
         world.add(b, Transform);
         // Different membership order forces unrelated row slots.
-        world.add(b, MeshInstance);
-        world.add(a, MeshInstance);
+        world.add(b, Mesh3d);
+        world.add(a, Mesh3d);
         const globalTransforms = globalTransformTable(world);
         const parts = partTable(world);
         expect(globalTransforms.rowIndex(b)).not.toBe(parts.rowIndex(b));
         device.pushErrorScope("validation");
         world.step();
         const instances = world.gpu.buffers.get("eids");
-        if (!instances) throw new Error("MeshInstance did not publish its instance list");
+        if (!instances) throw new Error("Mesh3d did not publish its instance list");
         const encoder = device.createCommandEncoder();
         encoder.copyBufferToBuffer(instances, 0, readback, 0, 32);
         device.queue.submit([encoder.finish()]);
-        const error = await bounded("MeshInstance payload validation", device.popErrorScope());
+        const error = await bounded("Mesh3d payload validation", device.popErrorScope());
         if (error) throw new Error(error.message);
-        await bounded("MeshInstance payload readback", readback.mapAsync(GPUMapMode.READ));
+        await bounded("Mesh3d payload readback", readback.mapAsync(GPUMapMode.READ));
         const words = new Uint32Array(readback.getMappedRange());
         const records = [Array.from(words.subarray(0, 4)), Array.from(words.subarray(4, 8))].sort(
             (x, y) => x[0]! - y[0]!,
@@ -78,7 +78,7 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
     }
 });
 
-test("mesh instances return to default draws when Material is removed", async () => {
+test("mesh instances return to default draws when MeshMaterial3d is removed", async () => {
     const app = await createApp({ plugins: [] });
     const world = app.world;
     const device = world.gpu.device;
@@ -89,7 +89,7 @@ test("mesh instances return to default draws when Material is removed", async ()
     try {
         const eid = world.create();
         world.add(eid, Transform);
-        world.add(eid, MeshInstance);
+        world.add(eid, Mesh3d);
         async function counts() {
             device.pushErrorScope("validation");
             world.step();
@@ -118,11 +118,29 @@ test("mesh instances return to default draws when Material is removed", async ()
         }
         expect(await counts()).toEqual([1, 0, 0]);
         for (const [index, surface] of ["unlit", "vertex"].entries()) {
-            world.add(eid, Material, { surface: world.resource(Surfaces).id(surface)! });
+            const material = world.resource(Materials).register({
+                name: surface,
+                ...StandardMaterial({ surface: world.resource(Surfaces).id(surface)! }),
+            });
+            world.add(eid, MeshMaterial3d, { material });
             expect(await counts()).toEqual(index === 0 ? [0, 1, 0] : [0, 0, 1]);
-            world.remove(eid, Material);
+            world.remove(eid, MeshMaterial3d);
             expect(await counts()).toEqual([1, 0, 0]);
         }
+        const materials = world.resource(Materials);
+        const material = materials.id("unlit")!;
+        world.add(eid, MeshMaterial3d, { material });
+        expect(await counts()).toEqual([0, 1, 0]);
+        world.storage(MeshMaterial3d).material.set(eid, materials.id("vertex")!);
+        expect(await counts()).toEqual([0, 0, 1]);
+        world.storage(MeshMaterial3d).material.set(eid, material);
+        materials.register({
+            ...materials.get("unlit")!,
+            surface: world.resource(Surfaces).id("default")!,
+        });
+        expect(await counts()).toEqual([1, 0, 0]);
+        world.remove(eid, MeshMaterial3d);
+        expect(await counts()).toEqual([1, 0, 0]);
     } finally {
         readback.destroy();
         app.dispose();

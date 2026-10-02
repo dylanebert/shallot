@@ -9,7 +9,7 @@
 //
 // The light's view is a real **off-screen ortho Camera entity** — no canvas (`attachView`), so it takes
 // a cull slot and packs its viewProj through render's own `computeViewProj` like any camera. That means
-// the MeshInstance pack culls casters into it as one more view, and any producer's draws bind it — no
+// the Mesh3d pack culls casters into it as one more view, and any producer's draws bind it — no
 // shadow-side view math, no producer-side caster code. The camera is created lazily on the first frame
 // a casting light exists, so a scene with no `Shadow` never allocates it (matching `PickingPrepass`).
 //
@@ -386,7 +386,7 @@ export function orthoFootprintFit(
 // ---- CSM: the cascade combo-camera pool (the sun's analogue of the point combo pool) ----
 //
 // The single sun box is split into N depth slices along the camera's view range, each its own
-// frustum-culled ortho depth view — a pooled off-screen camera the MeshInstance pack culls casters into through the
+// frustum-culled ortho depth view — a pooled off-screen camera the Mesh3d pack culls casters into through the
 // same `cull → count → scan → scatter` spine every view uses (the sun joining the unified culled-combo
 // path). Each cascade renders into a tile of a dedicated atlas (the fixed grid below — cascades are
 // equal-resolution, so no importance sizing), the tile placement folded into its viewProj (`tileTransform`).
@@ -774,7 +774,7 @@ export function updateCascades(world: World, main: number): void {
 // important with a non-silent warn.
 //
 // Each combo (a point caster's cube face, a spot's cone) is its own **frustum-culled depth view** — a
-// pooled off-screen camera the MeshInstance pack culls casters into, the same `cull → count → scan → scatter` spine
+// pooled off-screen camera the Mesh3d pack culls casters into, the same `cull → count → scan → scatter` spine
 // every camera uses. So a member rasterizes only the faces it actually hits, not all six (no
 // over-amplification). The viewProjs are computed here CPU-side (one per combo, the tile placement folded
 // in — {@link tileTransform}); sear re-gathers the per-combo culled members into one contiguous run per

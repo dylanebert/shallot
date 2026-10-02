@@ -2,7 +2,7 @@
 
 // StandardRenderer's author barrel — the game-author surface of the default renderer. The renderer itself is
 // `forward.ts` (the GPU-driven forward pass); this file re-exports only what a scene author touches: the
-// `StandardRenderer` camera marker, the `Material` / `CameraBackground`
+// `StandardRenderer` camera marker, the `MeshMaterial3d` / `CameraBackground`
 // components, the `Shadow` cast opt-in + its `SunShadows` / `PointShadows` config, and `StandardRenderingPlugin`. The
 // extension surface (surface codegen, the relocatable shading chunks, the backdrop registry, the ordering
 // anchors) follows below, drawn from the same `forward.ts` impl.
@@ -13,7 +13,7 @@
 import type { Plugin } from "../../engine";
 import { createSearPlugin } from "./forward";
 
-export { CameraBackground, Material, StandardRenderer } from "./forward";
+export { CameraBackground, StandardRenderer } from "./forward";
 /**
  * StandardRenderer: the one shallot renderer. A GPU-driven raster forward pass: a 4× MSAA color pass (opaque draws
  * then `blend` draws composited over them, fused into one render pass) and an opt-in single-sample
@@ -73,7 +73,7 @@ export {
     backgroundLayout,
     fsCtxSchema,
     InstanceInput,
-    MeshInstanceInput,
+    Mesh3dInput,
     registerBackground,
     registerSurface,
     SURFACE_GROUP,
@@ -111,7 +111,8 @@ export {
     spotFactor,
     spotParams,
 } from "./lighting";
-export { Color, MeshInstances, partTable } from "./part";
+export { Materials, MeshMaterial3d, StandardMaterial } from "./material";
+export { MeshInstances, partTable } from "./part";
 export { PartPlugin } from "./part-plugin";
 /** compiled surface-variant cache introspection for renderer diagnostics and real-device gates. */
 export { getCompiledSurface } from "./pipelines";

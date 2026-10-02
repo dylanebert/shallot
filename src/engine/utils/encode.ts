@@ -306,7 +306,7 @@ export const xformMat = tgpu.fn(
 export const xformWgsl = chunk("xformWgsl", [xformPoint, xformNormal, xformMat]);
 
 // LDR colors store sRGB-encoded RGB + linear alpha as a `pack4x8unorm` u32. sRGB encoding gives uniform
-// perceptual precision across the range and lets hex inputs (`MeshInstance.color = 0xRRGGBB`) round-trip exactly
+// perceptual precision across the range and lets hex inputs (`0xRRGGBB`) round-trip exactly
 // through the byte form. Alpha is linear in [0,1]; the sRGB transfer applies only to color channels.
 
 /** sRGB → linear transfer on one channel (IEC 61966-2-1). */

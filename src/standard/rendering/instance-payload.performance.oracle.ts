@@ -25,7 +25,7 @@ function median(values: number[]): number {
 }
 
 // Paired prototypes isolate the changed payload: both use the same independent row permutations,
-// GlobalTransform and MeshInstance records, vertex arithmetic, survivor order and shadow combo. Not a scene benchmark.
+// GlobalTransform and Mesh3d records, vertex arithmetic, survivor order and shadow combo. Not a scene benchmark.
 test("measure vertex and compaction/regather costs of the approved instance payload", async () => {
     const app = await createApp({
         defaults: false,

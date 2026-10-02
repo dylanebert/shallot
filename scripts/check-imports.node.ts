@@ -255,7 +255,7 @@ test("engine runtime imports ECS APIs through the ECS barrel", () => {
     });
 });
 
-test("rendering-boundary: MeshInstance leaves transitional", () => {
+test("rendering-boundary: Mesh3d leaves transitional", () => {
     expect(existsSync(resolve(import.meta.dir, "../src/transitional/part"))).toBe(false);
     expect(repositoryFindings.filter((finding) => finding.includes("transitional/part"))).toEqual(
         [],

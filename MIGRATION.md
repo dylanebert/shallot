@@ -38,7 +38,7 @@ Register view-specific passes in `world.resource(EffectPasses)` under the camera
 | `Single`, `Pair`, `Quad`, field `Type` | `ScalarField`, `Vector2Field`, `Vector4Field`, `FieldType` |
 | `Transform.pos`, `.rot` | `translation`, `rotation` |
 | `Body.pos`, `.quat` | `position`, `rotation` |
-| `Part` | `MeshInstance` |
+| `Part` | `Mesh3d` |
 | `RenderPlugin` | `RenderingPlugin` for the frame/view substrate; add `CorePipelinePlugin` for shared targets and phases (`StandardRenderingPlugin` includes it) |
 | `SearPlugin` | `StandardRenderingPlugin` |
 | `Sear`, `Depth`, `Tag`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `PickingPrepass`, `CameraBackground` |
@@ -181,7 +181,7 @@ Custom typed surfaces change their instance binding from `transforms` to `global
 
 ## Instanced surfaces read a row payload, not a list of eids
 
-For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, globalTransformSlot, encodedMeshInstanceSlot, shadowCombo)`: the MeshInstance slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
+For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, globalTransformSlot, encodedMesh3dSlot, shadowCombo)`: the Mesh3d slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
 
 The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity.
 
@@ -256,13 +256,21 @@ import { engineLayout } from "@dylanebert/shallot/standard/rendering";
 import { Xform } from "@dylanebert/shallot/utils";
 ```
 
-`MeshInstance` (formerly `Part`) now contains only `mesh`. Move `Part.surface` / `MeshInstance.surface` values to `Material.surface`; entities without `Material` use the `default` surface with flat params.
+`Mesh3d` contains only `mesh`. Register material values once with `world.resource(Materials).register({ name, ...StandardMaterial(values) })`, then add `MeshMaterial3d` with `{ material: id }`. Meshes without `MeshMaterial3d` draw with the shared default `StandardMaterial`.
 
-| Previous import | 0.10 import |
+| Previous name or value | 0.10 replacement |
 |---|---|
-| Root `Part` | Root or `/mesh` `MeshInstance` |
-| Root `Color`, `PartPlugin` | Root or `/standard/rendering`, same names |
+| Root `Part` (prerelease `MeshInstance`) | Root or `/mesh` `Mesh3d` |
+| `Part.surface` (prerelease `MeshInstance.surface`) | Registered material's `surface`, a `Surfaces` id |
+| `Color.rgba` | Registered material's linear `base_color` |
+| `Material.params` `(metallic, roughness, emissiveStrength, occlusion)` | `StandardMaterial({ metallic, perceptual_roughness, emissive: [base_color[0] * emissiveStrength, base_color[1] * emissiveStrength, base_color[2] * emissiveStrength], occlusion })` |
+| `Material` component | Root or `/standard/rendering` `MeshMaterial3d` referencing a registered material |
+| Root `PartPlugin` | Root or `/standard/rendering` `PartPlugin` |
 | `/part/core` `Parts` | `/standard/rendering` `MeshInstances` |
+
+`StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuse_wrap` 1. Set `base_color: [1, 0, 1, 1]` and `perceptual_roughness: 1` to express the former bare mesh values. `diffuse_wrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Replace a named registration to publish changed values at the same id; set `world.storage(MeshMaterial3d).material` to switch an entity's material.
+
+Custom surfaces still receive linear `color`; their `material` lanes are now `(metallic, perceptual_roughness, materialId, occlusion)`, not scalar emissive strength. The standard instance table's `Mesh3dInput` is `{ mesh: u32, material: u32 }`; colour and shading values live in the `materials` table, bound in `engineLayout`. `Pbr` inputs now include `diffuse_wrap`; use 1 to retain the former diffuse lobe.
 
 Mesh data has its own `/mesh` module. Update mesh imports as follows (root imports remain available):
 
@@ -277,7 +285,8 @@ Surface, background and draw contracts belong to `/standard/rendering`. Update i
 | Before | After |
 | --- | --- |
 | `/render/core` `Binding`, `SurfaceLayout`, `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface`, `SURFACE_GROUP` | `/standard/rendering`, same names |
-| `/render/core` `InstanceInput`, `MeshInstanceInput`, `VsIn`, `vsPatchSchema`, `fsCtxSchema`, `VsFn`, `FsFn`, `PickingIdFn`, `assertOwnFn` | `/standard/rendering`, same names |
+| `/render/core` `MeshInstanceInput` | `/standard/rendering` `Mesh3dInput` |
+| `/render/core` `InstanceInput`, `VsIn`, `vsPatchSchema`, `fsCtxSchema`, `VsFn`, `FsFn`, `PickingIdFn`, `assertOwnFn` | `/standard/rendering`, same names |
 | `/render/core` `BackgroundLayout`, `backgroundLayout`, `BackgroundContext`, `BackgroundFn`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
 | `/render/core` `Draw`, `DrawIndirectBuffer`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
 | `/render/core` `ClusterView`, `CLUSTER_COUNT`, `CLUSTER_X`, `CLUSTER_Y`, `CLUSTER_Z`, `Clusters`, `clusterAabb`, `clusterCell`, `clusterCoord`, `clusterIndex`, `clusterView`, `LIGHT_POOL`, `LightCull`, `lightClusters`, `sliceDepth`, `zSlice` | `/standard/rendering`, same names |

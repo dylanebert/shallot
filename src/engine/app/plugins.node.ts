@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { MeshInstance } from "../../core/mesh";
+import { Mesh3d } from "../../core/mesh";
 import {
     AmbientLight,
     attachCanvas,
@@ -48,12 +48,17 @@ import {
     VignettePlugin,
 } from "../../extras";
 import { isolationFont } from "../../extras/text/font.fixture";
-import { Color, DEFAULT_PLUGINS, Transform } from "../../standard";
+import {
+    DEFAULT_PLUGINS,
+    Materials,
+    MeshMaterial3d,
+    StandardMaterial,
+    Transform,
+} from "../../standard";
 import {
     Backgrounds,
     CameraBackground,
     cascadeComboEids,
-    Material,
     pointComboEids,
     Shadow,
     StandardRenderer,
@@ -610,13 +615,19 @@ function featurePlugin(subject: Plugin): Plugin {
             const part = world.create();
             resources.part = part;
             world.add(part, Transform);
-            world.add(part, MeshInstance);
-            world.add(part, Color);
-            world.add(part, Material);
+            world.add(part, Mesh3d);
+            world.add(part, MeshMaterial3d, {
+                material: world.resource(Materials).register({
+                    name: "isolation",
+                    ...StandardMaterial({
+                        base_color: [0.8, 0.25, 0.1, 1],
+                        metallic: 0.1,
+                        perceptual_roughness: 0.6,
+                    }),
+                }),
+            });
             world.add(part, Outline);
             world.storage(Transform).translation.set(part, 0, 1, 0, 0);
-            world.storage(Color).rgba.set(part, 0.8, 0.25, 0.1, 1);
-            world.storage(Material).params.set(part, 0.1, 0.6, 0, 1);
 
             const line = world.create();
             world.add(line, Transform);
@@ -721,7 +732,8 @@ function authorIsolationContent(
         world.storage(Camera).clearColor.set(resources.camera, content.clearColor);
         world.storage(Sky).zenith.set(resources.sky, content.skyZenith);
         world.storage(Sky).horizon.set(resources.sky, content.skyHorizon);
-        world.storage(Color).rgba.set(resources.part, ...content.color);
+        const materials = world.resource(Materials);
+        materials.register({ ...materials.get("isolation")!, base_color: content.color });
     })();
     return a;
 }

@@ -387,7 +387,7 @@ export function setPointFrames(world: World, frames: PointShadowFrame[], count: 
 // uniforms. The tile placement is folded into the viewProjs, so the VS's rect read is only for the seam
 // discard; the per-instance (eid, combo) rides the re-gathered list at the surface's `eids` lane
 
-// the point atlas's re-gather instance: concatenates each casting mesh's per-combo culled members (the MeshInstance
+// the point atlas's re-gather instance: concatenates each casting mesh's per-combo culled members (the Mesh3d
 // pack output) into one contiguous run + a per-instance combo index, so the atlas renders in one indirect
 // draw per mesh. Its packed list (`pointRegather.eids()`) binds at the point pass's `eids` lane. The CSM
 // cascade atlas owns a second instance (`regather.ts`); both share the singleton A/B pipelines.
@@ -818,7 +818,7 @@ function ensureCascadeAtlas(world: World): void {
 
 /**
  * render every shadowed caster's depth into the atlas in **one pass, one indirect draw per casting mesh**.
- * Each combo (cube face / spot cone) culled independently through the MeshInstance pack into its own depth-only
+ * Each combo (cube face / spot cone) culled independently through the Mesh3d pack into its own depth-only
  * view slot (the per-combo cull, `updatePointShadows` poses the cameras), then a two-pass **re-gather**
  * concatenates each casting mesh's per-combo culled members into one contiguous mesh-major run + a
  * per-instance combo index: so one indirect draw per mesh covers all its combos (the property the deleted
@@ -934,9 +934,9 @@ export function renderPointShadows(
         );
     }
 
-    // the casting draws (a compiled point pipeline + its point bind group) sharing the MeshInstance pack's one
-    // indirect buffer — read from the Draws, not MeshInstance (sear stays part-agnostic). A producer owning its own
-    // indirect buffer can't ride the shared-buffer re-gather, so it's skipped (a non-MeshInstance caster is unusual)
+    // the casting draws (a compiled point pipeline + its point bind group) sharing the Mesh3d pack's one
+    // indirect buffer — read from the Draws, not Mesh3d (sear stays part-agnostic). A producer owning its own
+    // indirect buffer can't ride the shared-buffer re-gather, so it's skipped (a non-Mesh3d caster is unusual)
     let D = 0;
     let drawArgs: GPUBuffer | null = null;
     let pairCount = 0;
@@ -1126,7 +1126,7 @@ export function renderCascades(
         COriginal * 4,
     );
 
-    // Group culled draws by the MeshInstance pack's slot-major source, and view-independent producer draws by
+    // Group culled draws by the Mesh3d pack's slot-major source, and view-independent producer draws by
     // their own indirect/eids source. Regather's pairCount=0 arm duplicates the latter across cascades.
     for (let b = 0; b < _atlasState.cascadeBatches.length; b++)
         _atlasState.cascadeBatches[b].count = 0;

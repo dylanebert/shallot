@@ -4,10 +4,11 @@ import {
     Camera,
     Character,
     CharacterPlugin,
-    Color,
     DirectionalLight,
     InputPlugin,
-    MeshInstance,
+    Materials,
+    Mesh3d,
+    MeshMaterial3d,
     mountOverlay,
     PhysicsPlugin,
     Player,
@@ -18,6 +19,7 @@ import {
     registration,
     Shadow,
     ShapeKind,
+    StandardMaterial,
     StandardRenderer,
     SweepCharactersSystem,
     type System,
@@ -36,8 +38,12 @@ const PERCH_COLOR = [0.39, 0.45, 0.43, 1] as const;
 function block(world: World, at: Vec4, size: Vec4, rgba: Vec4): number {
     const eid = world.create();
     world.add(eid, Body, { position: at, halfExtents: size, mass: 0 });
-    world.add(eid, MeshInstance);
-    world.add(eid, Color, { rgba });
+    world.add(eid, Mesh3d);
+    world.add(eid, MeshMaterial3d, {
+        material: world
+            .resource(Materials)
+            .register({ name: `material-${eid}`, ...StandardMaterial({ base_color: rgba }) }),
+    });
     return eid;
 }
 

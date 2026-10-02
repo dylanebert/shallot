@@ -15,6 +15,7 @@ import {
     PointLights,
     spotFactor,
 } from "./lighting";
+import { MaterialInput } from "./material";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 
 /**
@@ -40,6 +41,11 @@ export const engineLayout = tgpu
         },
         lightIndices: {
             storage: d.arrayOf(d.u32),
+            access: "readonly",
+            visibility: ["vertex", "fragment"],
+        },
+        materials: {
+            storage: d.arrayOf(MaterialInput),
             access: "readonly",
             visibility: ["vertex", "fragment"],
         },

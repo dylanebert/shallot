@@ -183,7 +183,7 @@ export const BeginFrameSystem: System = {
 
         // auto-bind's inverse. A destroyed camera leaves a stale View whose ResizeObserver leaks
         // and whose eid, once recycled, re-binds to the wrong canvas. Membership is the liveness
-        // signal (re-derived each frame, the gate MeshInstance's pack also applies) and the create-stamp
+        // signal (re-derived each frame, the gate Mesh3d's pack also applies) and the create-stamp
         // catches a same-update realias membership misses, so a View lacking a live camera — or bound
         // to a recycled eid — is dropped here.
         pruneViews(world);
@@ -457,7 +457,7 @@ export const RenderingPlugin: Plugin = {
 // (components, plugin, public types) lives in the index barrel. `VIEW_STRIDE`
 // + `MAX_VIEWS` size the per-view uniforms; the buffer sizes and the cull-volume packer stay internal — a consumer reads
 // the packed `Render.cullVolumes` buffer, never re-packs it. A producer that runs its own
-// cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
+// cull (Mesh3d's pack) reads the per-slot layout constants below to index + dispatch on the tag.
 
 export { computeViewProj } from "./camera";
 export { Frame, FrameGpu, frameWgsl } from "./frame";

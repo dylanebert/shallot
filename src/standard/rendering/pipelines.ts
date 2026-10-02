@@ -1,3 +1,4 @@
+import { materialTable } from "./material";
 // StandardRenderer's pipeline compilation: the compiled-surface / compiled-background caches and the async
 // TypeGPU pipeline factories that fill them. `atlas.ts` supplies the shadow-atlas bind-group layouts every color +
 // point + cascade pipeline binds group 1 against. `forward.ts` owns bind-group *resolution* per draw
@@ -215,9 +216,11 @@ export function setGroup(world: World, name: string, entry: SurfaceGroupEntry): 
     pipelineState(world).typedGroups.set(name, entry);
 }
 
+const engineMaterialBuffers = { create: () => new WeakMap<Map<number, GPUBindGroup>, GPUBuffer>() };
+
 /** the engine group-0 bind group for a view slot against one meshQuant buffer — the shared live
  * `engineLayout` instance a typed draw at that slot binds (frame / per-slot View / lighting /
- * light-cull outputs / the dequant table), built lazily into the caller-owned `cache` (a
+ * light-cull outputs / materials / the dequant table), built lazily into the caller-owned `cache` (a
  * `SurfaceGroupEntry.engineCache` or a `CompiledBackground.engineCache` — never a module map keyed on the
  * quant buffer, whose entries would outlive a churned buffer for the app's life). */
 export function engineGroup(
@@ -228,6 +231,12 @@ export function engineGroup(
 ): GPUBindGroup {
     const _lightCull = world.resource(LightCull);
 
+    const materials = materialTable(world).buffer;
+    const buffers = world.resource(engineMaterialBuffers);
+    if (buffers.get(cache) !== materials) {
+        cache.clear();
+        buffers.set(cache, materials);
+    }
     const cached = cache.get(slot);
     if (cached) return cached;
     const group = world.gpu.root.unwrap(
@@ -239,6 +248,7 @@ export function engineGroup(
             lightGrid: _lightCull.grid!,
             lightIndices: _lightCull.indices!,
             meshQuant: quant,
+            materials,
         }),
     );
     cache.set(slot, group);
@@ -359,8 +369,8 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
                 const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(part.color);
-                    material = d.vec4f(part.material);
+                    color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                    material = d.vec4f(engineLayout.$.materials[part.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
@@ -413,7 +423,7 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
     };
     const uv = !!surface.fragmentInputs?.uv;
     const localPos = !!surface.fragmentInputs?.localPos;
@@ -508,7 +518,7 @@ function typedColorFs(surface: AnySurface) {
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
         ...fragmentInterstage(surface),
     };
     return tgpu
@@ -618,8 +628,8 @@ function typedPrepassVs(surface: AnySurface) {
                 const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(part.color);
-                    material = d.vec4f(part.material);
+                    color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                    material = d.vec4f(engineLayout.$.materials[part.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
@@ -681,7 +691,7 @@ function typedTagVs(surface: AnySurface) {
                 pos: d.builtin.position,
                 eid: d.interpolate("flat", d.u32),
                 color: d.vec4f,
-                material: d.vec4f,
+                material: d.interpolate("flat", d.vec4f),
             },
         })((input) => {
             "use gpu";
@@ -703,8 +713,8 @@ function typedTagVs(surface: AnySurface) {
                 const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(part.color);
-                    material = d.vec4f(part.material);
+                    color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                    material = d.vec4f(engineLayout.$.materials[part.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
@@ -772,7 +782,7 @@ function typedAuthoredTagFs(surface: AnySurface) {
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
         ...fragmentInterstage(surface),
     };
     return tgpu
@@ -803,7 +813,7 @@ function typedClipFs(surface: AnySurface, tag: boolean) {
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
         ...fragmentInterstage(surface),
     };
     if (tag) {
@@ -879,7 +889,7 @@ function varyingClipFs(surface: AnySurface, tag: boolean) {
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
         ...fragmentInterstage(surface),
         v0: d.location(VARYING_BASE, varyingSchema as d.Vec3f),
     };
@@ -1011,7 +1021,7 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
                 color: d.vec4f,
-                material: d.vec4f,
+                material: d.interpolate("flat", d.vec4f),
                 ...fragmentFields,
                 // no type-directed `@interpolate(flat)` insertion — an INTEGER varying is unsupported
                 // and fails loudly at resolve/device compile; every shipped varying is float-typed.
@@ -1036,8 +1046,8 @@ ${
     let partEncoded = instance.z;
     if (partEncoded != 0u) {
         let part = bound.partInputs[partEncoded - 1u];
-        color = part.color;
-        material = part.material;
+        color = engine.materials[part.material].base_color;
+        material = engine.materials[part.material].params;
     }
     xform = bound.globalTransforms[instance.y];
     world = vec4f(xformPoint(xform, world.xyz), world.w);
@@ -1165,7 +1175,7 @@ function typedVaryingFs(surface: AnySurface) {
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
         ...fragmentInterstage(surface),
     };
     const name = `${surface.name}Fs`;
@@ -1306,7 +1316,7 @@ function typedVaryingTagFs(surface: AnySurface) {
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
         ...fragmentInterstage(surface),
     };
     const name = `${surface.name}PrepassTagFs`;
@@ -1661,7 +1671,7 @@ const typedShadowFs = tgpu
 /**
  * the typed point/cascade shadow-atlas vertex entry: the former string shadow pipeline's VS, pinned
  * statement-for-statement — pulls the 8 B position-only vertex from `layout.depthVariant` (the
- * `typedPrepassVs` shape), reads the re-gathered `(eid, globalTransformRow, encodedMeshInstanceSlot, combo)` instance at the
+ * `typedPrepassVs` shape), reads the re-gathered `(eid, globalTransformRow, encodedMesh3dSlot, combo)` instance at the
  * surface's `eids` lane, applies the instance transform, splices the surface's own `vs` chunk when present,
  * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
  * `tileBox` seam-discard bounds from `shadowLayout.$.tileRects` (indexed `slot·6+face` for the point atlas,
@@ -1712,8 +1722,8 @@ function typedShadowVs(
             const partEncoded = instance.z;
             if (partEncoded !== 0) {
                 const part = bound.partInputs[partEncoded - 1];
-                color = d.vec4f(part.color);
-                material = d.vec4f(part.material);
+                color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                material = d.vec4f(engineLayout.$.materials[part.material].params);
             }
             const xform = Xform(bound.globalTransforms[instance.y]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
@@ -1803,8 +1813,8 @@ function typedClipShadowVertex(
             const partEncoded = instance.z;
             if (partEncoded !== 0) {
                 const part = bound.partInputs[partEncoded - 1];
-                color = d.vec4f(part.color);
-                material = d.vec4f(part.material);
+                color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                material = d.vec4f(engineLayout.$.materials[part.material].params);
             }
             const xform = Xform(bound.globalTransforms[instance.y]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
@@ -1864,7 +1874,7 @@ function clipShadowVs(
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
     };
     const uv = !!surface.fragmentInputs?.uv;
     const localPos = !!surface.fragmentInputs?.localPos;
@@ -1998,8 +2008,8 @@ function varyingShadowVs(
     var material = vec4f(0.0, 1.0, 0.0, 1.0);
     if (partEncoded != 0u) {
         let part = bound.partInputs[partEncoded - 1u];
-        color = part.color;
-        material = part.material;
+        color = engine.materials[part.material].base_color;
+        material = engine.materials[part.material].params;
     }
     let xform = bound.globalTransforms[instance.y];
     var world = vec4f(xformPoint(xform, localPos), 1.0);
@@ -2056,7 +2066,7 @@ ${assigns}
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
                 color: d.vec4f,
-                material: d.vec4f,
+                material: d.interpolate("flat", d.vec4f),
                 ...fragmentFields,
                 ...located,
             },
@@ -2079,7 +2089,7 @@ function varyingShadowFs(surface: AnySurface) {
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
-        material: d.vec4f,
+        material: d.interpolate("flat", d.vec4f),
         ...fragmentInterstage(surface),
         v0: d.location(VARYING_BASE, varyingSchema as d.Vec3f),
     };
@@ -2125,7 +2135,7 @@ function clipShadowFs(surface: AnySurface) {
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
                 color: d.vec4f,
-                material: d.vec4f,
+                material: d.interpolate("flat", d.vec4f),
                 ...fragmentInterstage(surface),
             },
             out: d.Void,

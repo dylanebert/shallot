@@ -62,13 +62,14 @@ export {
 } from "./loading";
 export {
     CameraBackground,
-    Color,
     MAX_CASCADES,
     MAX_POINT_CASTERS,
-    Material,
+    Materials,
+    MeshMaterial3d,
     PartPlugin,
     PointShadows,
     Shadow,
+    StandardMaterial,
     StandardRenderer,
     StandardRenderingPlugin,
     SunShadows,

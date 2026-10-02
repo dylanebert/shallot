@@ -1,4 +1,4 @@
-import { createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, Color } from "../../src/index";
+import { createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, Mesh3d } from "../../src/index";
 import { Render } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
@@ -31,7 +31,7 @@ export default async function create(_input = "", device?: GPUDevice) {
     attachCanvas(camera, canvas, world);
     const ambient = world.create(); world.add(ambient, AmbientLight);
     const light = world.create(); world.add(light, Transform); world.add(light, PointLight);
-    const part = world.create(); world.add(part, Transform); world.add(part, MeshInstance); world.add(part, Color);
+    const part = world.create(); world.add(part, Transform); world.add(part, Mesh3d);
     world.step(1 / 60);
     if (world.resource(Render).shadeCount === 0) throw new Error("allocation subject did not render a shaded view");
     return {

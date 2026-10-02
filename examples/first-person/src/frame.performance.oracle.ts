@@ -3,11 +3,13 @@ import {
     AmbientLight,
     Camera,
     CharacterPlugin,
-    Color,
     createApp,
-    MeshInstance,
+    Materials,
+    Mesh3d,
+    MeshMaterial3d,
     PhysicsPlugin,
     PlayerPlugin,
+    StandardMaterial,
     StandardRenderer,
     Time,
     Transform,
@@ -118,12 +120,17 @@ test("report production frame GPU time for first-person and a 10k-instance scene
         world.add(ambient, AmbientLight, { intensity: 0.8 });
         for (let i = 0; i < 10000; i++) {
             const eid = world.create();
-            world.add(eid, MeshInstance);
+            world.add(eid, Mesh3d);
             world.add(eid, Transform, {
                 translation: [((i % 100) - 50) * 0.4, Math.floor(i / 100 - 50) * 0.4, 0, 0],
                 scale: [0.15, 0.15, 0.15, 1],
             });
-            world.add(eid, Color, { rgba: [0.3, 0.6, 0.8, 1] });
+            world.add(eid, MeshMaterial3d, {
+                material: world.resource(Materials).register({
+                    name: `material-${eid}`,
+                    ...StandardMaterial({ base_color: [0.3, 0.6, 0.8, 1] }),
+                }),
+            });
         }
     };
     try {

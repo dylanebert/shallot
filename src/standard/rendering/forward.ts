@@ -42,13 +42,7 @@ import tgpu, { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import {
-    type MeshBinding,
-    Meshes,
-    type MeshIndex,
-    MeshInstance,
-    MeshPlugin,
-} from "../../core/mesh";
+import { type MeshBinding, Meshes, type MeshIndex, MeshPlugin } from "../../core/mesh";
 import type { View } from "../../core/rendering";
 import {
     BeginFrameSystem,
@@ -60,7 +54,7 @@ import {
     SAMPLE_COUNT,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { u32, vec4 } from "../../engine";
+import { u32 } from "../../engine";
 import { Xform } from "../../engine/utils";
 import {
     cascadeRegather,
@@ -90,7 +84,6 @@ import {
     vsPatchSchema,
 } from "./contract";
 import { engineLayout, litPbr } from "./engine";
-import { partTable } from "./part";
 import {
     type BindResource,
     bgQuant,
@@ -188,50 +181,6 @@ function _searState(world: World): SearState {
  * ```
  */
 export const StandardRenderer = {};
-
-/**
- * Selects a surface by its Surfaces registry ID and supplies its material parameters.
- * Defaults to the "default" surface. Mesh instances without Material use that surface
- * with flat params. The default and vertex surfaces read params as
- * `(metallic, roughness, emissive, occlusion)`; Color supplies linear base albedo.
- * Metallic, roughness and occlusion are in [0,1]; emissive is base-color glow strength.
- */
-export const Material = {
-    surface: u32,
-    params: vec4,
-};
-
-const MATERIAL_FLAT: [number, number, number, number] = [0, 1, 0, 1];
-
-const MaterialTraits = {
-    defaults: (world: World) => ({
-        surface: world.resource(Surfaces).id("default") ?? 0,
-        params: MATERIAL_FLAT,
-    }),
-};
-
-// base every slot to the flat material so a MeshInstance lacking the Material component shades like the pre-PBR
-// diffuse default (an entity with Material overwrites its slot via its registration default on add). Mirrors
-// MeshInstance.initPart's magenta Color base; the pack gates each slot on membership, so stale slots never draw.
-function initMaterial(world: World): void {
-    partTable(world).bindFields(Material, { surface: "surface", material: "params" });
-    const seedMissingMaterial = (eid: number) => {
-        if (!world.has(eid, Material)) {
-            const storage = world.storage(Material);
-            storage.surface.set(eid, world.resource(Surfaces).id("default") ?? 0);
-            storage.params.set(eid, ...MATERIAL_FLAT);
-        }
-    };
-    const removeMissingMaterialDefault = world.observeMembership(MeshInstance, (eid, present) => {
-        if (present) seedMissingMaterial(eid);
-    });
-    const removeMaterialFallback = world.observeMembership(Material, (eid, present) => {
-        if (!present && world.has(eid, MeshInstance)) seedMissingMaterial(eid);
-    });
-    for (const eid of world.query([MeshInstance])) seedMissingMaterial(eid);
-    world.onDispose(removeMissingMaterialDefault);
-    world.onDispose(removeMaterialFallback);
-}
 
 /**
  * a registered background: a renderer-agnostic *view-ray → HDR color* recipe sear draws as a fullscreen
@@ -827,7 +776,7 @@ const SEAR_CAMERAS = [Camera, StandardRenderer];
  * across opaque / `clip` / `alpha`: no MRT; the tag is its own single-sample lane. Color samples the
  * sun shadow inline (group 1 = the map + comparison sampler + light params); the tag + depth pipelines
  * omit group 1. StandardRenderer declares the vertex-pull bindings itself; each draw selects its mesh via
- * `Draw.mesh`. Uniform across surfaces: no "MeshInstance-shaped" detection. Also (re)creates the sun-shadow
+ * `Draw.mesh`. Uniform across surfaces: no "Mesh3d-shaped" detection. Also (re)creates the sun-shadow
  * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
  * params buffer — `./atlas`), surviving HMR re-warms
  */
@@ -875,7 +824,7 @@ const ResolveDrawsSystem: System = {
 
 /**
  * pose the sun's CSM cascade cameras + the point/spot combo cameras from the casting lights + the main StandardRenderer
- * camera, so `BeginFrameSystem` packs their viewProjs this frame and the MeshInstance pack culls casters into each
+ * camera, so `BeginFrameSystem` packs their viewProjs this frame and the Mesh3d pack culls casters into each
  * slot as one more view (the unified culled-combo spine). `simulation` group, before the draw frame opens.
  * No-op for the sun when no directional light carries a {@link Shadow} (the zero-cost off path): the atlas
  * pass is skipped and sear falls back to fully lit
@@ -937,7 +886,7 @@ const typedDefaultLayout = typedLayout({
     globalTransforms: { type: "storage", element: Xform },
 });
 
-// The dense MeshInstance record carries linear base color and `(metallic, roughness, emissive, occlusion)`.
+// The shader scaffold resolves each Mesh3d's material id to linear base color and material lanes.
 // `litPbr` (`sear/engine.ts`) reads the fs-scaffold privates the typed pipeline
 // builder (`pipelines.ts`) fills before calling this.
 const typedDefaultFs = tgpu.fn(
@@ -952,8 +901,9 @@ const typedDefaultFs = tgpu.fn(
         roughness: ctx.material.y,
         occlusion: ctx.material.w,
         dielectric: 0,
+        diffuse_wrap: engineLayout.$.materials[d.u32(ctx.material.z)].diffuse_wrap,
     });
-    const emissive = std.mul(albedo, ctx.material.z);
+    const emissive = engineLayout.$.materials[d.u32(ctx.material.z)].emissive;
     return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), 1);
 });
 
@@ -963,7 +913,7 @@ const typedColorLayout = typedLayout({
     globalTransforms: { type: "storage", element: Xform },
 });
 
-// The unlit surface reads the same linear color carried in the dense MeshInstance record.
+// The unlit surface reads the resolved material's linear base color.
 const typedUnlitFs = tgpu.fn(
     [fsCtxSchema()],
     d.vec4f,
@@ -991,8 +941,9 @@ const typedVertexVs = tgpu.fn(
         roughness: vsIn.material.y,
         occlusion: vsIn.material.w,
         dielectric: 0,
+        diffuse_wrap: engineLayout.$.materials[d.u32(vsIn.material.z)].diffuse_wrap,
     });
-    const emissive = std.mul(albedo, vsIn.material.z);
+    const emissive = engineLayout.$.materials[d.u32(vsIn.material.z)].emissive;
     const litColor = std.add(
         litPbr(pbr, std.normalize(vsIn.worldNormal), vsIn.world.xyz),
         emissive,
@@ -1031,7 +982,6 @@ export function createSearPlugin(): Plugin {
         components: [
             registration("StandardRenderer", StandardRenderer),
             registration("Shadow", Shadow, { defaults: () => ({ ...SHADOW_DEFAULTS }) }),
-            registration("Material", Material, MaterialTraits),
             registration("CameraBackground", CameraBackground),
         ],
         systems: [
@@ -1044,13 +994,6 @@ export function createSearPlugin(): Plugin {
         ],
         dependencies: [CorePipelinePlugin, MeshPlugin],
 
-        // sear's default materials, shading per-instance `color` + `material` at three lighting modes. They
-        // ship with the renderer, not MeshInstance: MeshInstance publishes the data (`eids` + `color`), sear adds its own
-        // `Material` slab and shades with its metallic-roughness `litPbr`. `Material.surface` defaults to
-        // "default" (per-pixel); "vertex" (per-vertex Gouraud) and "unlit" are picked per-MeshInstance. The instance
-        // transform is sear's convention — these declare the bindings and omit a transform vs chunk. `pbr()`
-        // builds the Pbr struct from the packed `material` lanes; the engine default has no specular until a
-        // Material sets metallic > 0 (dielectric 0), so a bare MeshInstance shades exactly like the pre-PBR diffuse.
         initialize(world) {
             world.resource(RenderPhases).push({
                 prepass(world, eid, view, pass, lanes) {
@@ -1106,12 +1049,7 @@ export function createSearPlugin(): Plugin {
             // a prior build so this re-run never aliases recycled entities (the module-scope contract)
             resetPointShadows(world);
             resetCascades(world);
-            initMaterial(world);
-            // build the Pbr struct + the emissive tint (Color.rgb * the emissive strength lane) from the
-            // f16 material lanes: word x holds (metallic, roughness), word y (emissive, occlusion), each
-            // unpacked to f32 for the shading math. emissive is an unbounded HDR glow strength;
-            // dielectric 0 → metallic 0 is specular-free (the flat shallot default)
-            // The three built-ins share the same schema-backed instance/material layout.
+            // Dielectric reflectance stays zero to preserve Shallot's specular-free diffuse default.
             typedRegister(world, {
                 name: "default",
                 layout: typedDefaultLayout,

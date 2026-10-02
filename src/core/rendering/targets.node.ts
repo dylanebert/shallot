@@ -12,10 +12,13 @@ import {
     BackgroundContext,
     backgroundLayout,
     CameraBackground,
+    Materials,
+    MeshMaterial3d,
     registerBackground,
+    StandardMaterial,
     StandardRenderer,
 } from "../../standard/rendering";
-import { MeshInstance } from "../mesh";
+import { Mesh3d } from "../mesh";
 import {
     AmbientLight,
     attachTexture,
@@ -74,7 +77,12 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     attachTexture(world, camera, { width: 64, height: 64 });
     const mesh = world.create();
     world.add(mesh, Transform);
-    world.add(mesh, MeshInstance);
+    const material = world.resource(Materials).register({
+        name: "target-proof",
+        ...StandardMaterial({ base_color: [1, 0, 1, 1], perceptual_roughness: 1 }),
+    });
+    world.add(mesh, Mesh3d);
+    world.add(mesh, MeshMaterial3d, { material });
     world.add(mesh, Outline, { width: 3, color: [0.1, 1, 0.2, 1] });
     const edgeMesh = world.create();
     world.add(edgeMesh, Transform, {
@@ -82,7 +90,8 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
         rotation: [0.0996005, 0.199201, 0, 0.974884],
         scale: [0.65, 0.65, 0.65, 0],
     });
-    world.add(edgeMesh, MeshInstance);
+    world.add(edgeMesh, Mesh3d);
+    world.add(edgeMesh, MeshMaterial3d, { material });
     world.add(world.create(), AmbientLight, { intensity: 0.2 });
     const sun = world.create();
     world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });

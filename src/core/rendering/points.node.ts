@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { MeshInstance } from "../../core/mesh";
+import { Mesh3d } from "../../core/mesh";
 import type { Resource, System } from "../../engine";
 import { Transform } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
@@ -229,7 +229,7 @@ test("points beside a mesh share the view depth: side and front points show, the
     attachTexture(world, camera, { width: 64, height: 64 });
     const mesh = world.create();
     world.add(mesh, Transform);
-    world.add(mesh, MeshInstance);
+    world.add(mesh, Mesh3d);
     world.storage(Transform).translation.set(mesh, 0, 0, 1, 0);
     world.gpu.device.pushErrorScope("validation");
     world.step(0);

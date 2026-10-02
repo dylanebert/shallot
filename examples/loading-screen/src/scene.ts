@@ -1,10 +1,12 @@
 import {
     AmbientLight,
     Camera,
-    Color,
     DirectionalLight,
-    MeshInstance,
+    Materials,
+    Mesh3d,
+    MeshMaterial3d,
     type Plugin,
+    StandardMaterial,
     StandardRenderer,
     Tonemapping,
     TonemappingMethod,
@@ -30,9 +32,14 @@ export function authorWorld(world: World): void {
     world.add(camera, Orbit, { distance: 5, yaw: 0.6, pitch: 0.25 });
     world.add(camera, Transform);
     const cube = world.create();
-    world.add(cube, MeshInstance);
+    world.add(cube, Mesh3d);
     world.add(cube, Transform, { translation: [0, 0, 0, 0] });
-    world.add(cube, Color, { rgba: [0.85, 0.55, 0.35, 1] });
+    world.add(cube, MeshMaterial3d, {
+        material: world.resource(Materials).register({
+            name: `material-${cube}`,
+            ...StandardMaterial({ base_color: [0.85, 0.55, 0.35, 1] }),
+        }),
+    });
 }
 
 export const LoadingWorld: Plugin = {
