@@ -12,8 +12,9 @@ import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { isTgpuFn } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
-import { Registry, type World } from "../../engine";
+import type { Registry, World } from "../../engine";
 import { Xform } from "../../engine/utils";
+import { backgroundsKey, surfacesKey } from "./contract-state";
 
 // Free functions (barrel-named — `layout`/`register` are too generic for a barrel), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
 // `Registry<T>` (`engine/utils/registry.ts`) is generic infra shared by `Draws`/`Meshes`, so it must stay
@@ -329,10 +330,6 @@ export interface Surface<
     screen?: boolean;
 }
 
-/** every schema-backed surface, keyed by name with a stable renderer-owned id. */
-export const surfacesKey = { create: () => createSurfaces() };
-const createSurfaces = () => new Registry<Surface>();
-
 /** every registered surface in the active world's registry. */
 export const Surfaces: import("../../engine").Resource<Registry<Surface>> = {
     create: (world) => world.resource(surfacesKey),
@@ -409,10 +406,6 @@ export interface Background<B extends Record<string, Binding> = Record<string, B
     /** fragment shader returning linear HDR RGB for the reconstructed view ray. */
     fs: BackgroundFn;
 }
-
-/** every registered background, keyed by name. */
-export const backgroundsKey = { create: () => createBackgrounds() };
-const createBackgrounds = () => new Registry<Background>();
 
 /** every registered background in the active world's registry. */
 export const Backgrounds: import("../../engine").Resource<Registry<Background>> = {

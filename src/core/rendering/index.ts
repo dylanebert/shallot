@@ -17,6 +17,8 @@ import {
 } from "./cluster";
 import { initializeSurfaceState } from "./contract";
 import { FRAME_UNIFORM_SIZE, Frame, initializeFrameState, writeFrame } from "./frame";
+import { EndFrameSystem } from "./frame-end";
+import { initializeRenderFrameState, renderFrameKey, VIEW_KEY_FLOATS } from "./frame-state";
 import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
 import { initializeImageState } from "./image";
 import {
@@ -67,44 +69,6 @@ const SLOT_FLOATS = VIEW_STRIDE / 4;
 const CAMERAS = [Camera];
 const FRAME_ENCODER: GPUCommandEncoderDescriptor = { label: "shallot-frame" };
 const GLOBAL_TRANSFORM_PASS: GPUComputePassDescriptor = {};
-const VIEW_KEY_FLOATS = 26;
-
-interface RenderFrameState {
-    camWorld: Float32Array;
-    submit: GPUCommandBuffer[];
-    depthOnlyEids: number[];
-    depthOnlyViews: ViewSlot[];
-    viewProjs: Float32Array[];
-    invViewProjs: Float32Array[];
-    lightViews: Float32Array[];
-    viewKeys: Float64Array;
-    viewKeyNext: Float64Array;
-}
-
-export const renderFrameKey = { create: createRenderFrameState };
-
-function createRenderFrameState(): RenderFrameState {
-    return {
-        camWorld: new Float32Array(16),
-        submit: [],
-        depthOnlyEids: [],
-        depthOnlyViews: [],
-        viewProjs: [],
-        invViewProjs: [],
-        lightViews: [],
-        viewKeys: new Float64Array(MAX_SLOTS * VIEW_KEY_FLOATS).fill(Number.NaN),
-        viewKeyNext: new Float64Array(VIEW_KEY_FLOATS),
-    };
-}
-
-function _renderFrameState(world: World): RenderFrameState {
-    return world.resource(renderFrameKey);
-}
-
-function initializeRenderFrameState(world: World): void {
-    world.resource(renderFrameKey);
-}
-
 // write a world-matrix column (base = column index * 4), normalized, into `out` at `at`
 function basisColumn(world: Float32Array, base: number, out: Float32Array, at: number): void {
     const x = world[base];
@@ -217,12 +181,6 @@ function slotInputsChanged(
     }
     if (changed) _renderFrame.viewKeys.set(_renderFrame.viewKeyNext, at);
     return changed;
-}
-
-function clearTargets(view: ViewSlot): void {
-    view.framebuffer = null;
-    view.framebufferFormat = undefined;
-    view.present = null;
 }
 
 /**
@@ -362,30 +320,6 @@ export const BeginFrameSystem: System = {
             pass.dispatchWorkgroups(Math.ceil(globalTransformCount / 64));
             pass.end();
         }
-    },
-};
-
-/** closes the frame: submits the encoder, advances `world.gpu.frame` */
-export const EndFrameSystem: System = {
-    group: "draw",
-    terminal: true,
-    update(world) {
-        const _render = world.resource(Render);
-        const _renderFrame = world.resource(renderFrameKey);
-
-        const device = world.gpu.device;
-        if (!device) return;
-        const encoder = _render.encoder;
-        if (!encoder)
-            throw new Error("render submission requires BeginFrameSystem to open an encoder");
-        _renderFrame.submit[0] = encoder.finish();
-        device.queue.submit(_renderFrame.submit);
-        for (const view of world.resource(Views).values()) {
-            if (view.texture && view.present) view.presented = true;
-        }
-        world.endGpuFrame();
-        _render.encoder = null;
-        world.resource(Views).forEach(clearTargets);
     },
 };
 

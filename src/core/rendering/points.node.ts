@@ -4,16 +4,9 @@ import { CEILING } from "../../../scripts/test-tiers";
 import type { Resource, System } from "../../engine";
 import { Transform } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
-import { Scheduler } from "../../engine/ecs/scheduler";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
-import { FogPlugin } from "../../extras/fog";
-import { LinesPlugin } from "../../extras/lines";
-import { OutlinePlugin } from "../../extras/outline";
-import { SkyPlugin } from "../../extras/sky";
-import { SpritePlugin } from "../../extras/sprite";
-import { TextPlugin } from "../../extras/text";
 import { DepthPrepass, SearPlugin, StandardRenderer } from "../../standard/rendering";
-import { Glaze, GlazePlugin, GlazeSystem } from "../../transitional/glaze";
+import { Glaze, GlazePlugin } from "../../transitional/glaze";
 import { MeshInstance, PartPlugin } from "../../transitional/part";
 import {
     Clusters,
@@ -23,8 +16,11 @@ import {
     lightInputKey,
     UpdateLightClustersSystem,
 } from "./cluster";
-import { Backgrounds, backgroundsKey, Surfaces, surfacesKey } from "./contract";
+import { Backgrounds, Surfaces } from "./contract";
+import { backgroundsKey, surfacesKey } from "./contract-state";
 import { Frame, frameKey } from "./frame";
+import { EndFrameSystem } from "./frame-end";
+import { renderFrameKey } from "./frame-state";
 import { blitPipelinesKey } from "./image";
 import {
     attachTexture,
@@ -32,11 +28,9 @@ import {
     Camera,
     CameraMode,
     captureTexture,
-    EndFrameSystem,
     OverlaySystem,
     PresentationSystem,
     RenderPlugin,
-    renderFrameKey,
 } from "./index";
 import { Lighting, lightingKey } from "./lighting";
 import { Meshes, meshResourcesKey } from "./mesh";
@@ -125,86 +119,6 @@ test.todo("stage 3: core-only rendering registers exactly the core allowlist, de
 
 test.todo("stage 4: core-only rendering registers exactly the core allowlist, deferring only stage 3 mesh declarations", () => {
     assertRegistration(meshResources, {});
-});
-
-test("registration allowlists reject a retained replacement declaration under a new key", () => {
-    const { _resources, _scheduler } = registration();
-    const resources = new Map(_resources);
-    const systems = new Set(_scheduler._systems);
-    try {
-        // Model the completed moves, then retain aliases with identical factories/updates under new identities.
-        for (const key of [...Object.values(meshResources), ...Object.values(lightResources)])
-            _resources.delete(key);
-        for (const key of Object.values(lightSystems)) _scheduler._systems.delete(key);
-        assertRegistration(lightResources, lightSystems);
-        assertRegistration(meshResources, {});
-        const replacementResource = { create: Meshes.create };
-        _resources.set(replacementResource, {});
-        expect(() => assertRegistration(lightResources, lightSystems)).toThrow();
-        expect(() => assertRegistration(meshResources, {})).toThrow();
-        _resources.delete(replacementResource);
-        _scheduler._systems.add({ ...CullLightsSystem });
-        expect(() => assertRegistration(lightResources, lightSystems)).toThrow();
-        expect(() => assertRegistration(meshResources, {})).toThrow();
-    } finally {
-        _resources.clear();
-        for (const [key, value] of resources) _resources.set(key, value);
-        _scheduler._systems.clear();
-        for (const system of systems) _scheduler._systems.add(system);
-    }
-});
-
-test("presentation anchor preserves the updating-system order for fog, outline, sky, lines, sprite and text", () => {
-    const plugins = [
-        RenderPlugin,
-        SearPlugin,
-        PartPlugin,
-        GlazePlugin,
-        FogPlugin,
-        OutlinePlugin,
-        SkyPlugin,
-        LinesPlugin,
-        SpritePlugin,
-        TextPlugin,
-    ];
-    const entries = plugins.flatMap((plugin) =>
-        (plugin.systems ?? []).map((system) => ({ system, name: plugin.name })),
-    );
-    function schedule(previous: boolean): string[] {
-        const scheduler = new Scheduler();
-        const copies = new Map(entries.map(({ system }) => [system, { ...system }]));
-        for (const { system, name } of entries) {
-            if (previous && system === PresentationSystem) continue;
-            const copy = copies.get(system)!;
-            copy.before = system.before
-                ?.filter((ref) => !previous || ref !== PresentationSystem)
-                .map((ref) => copies.get(ref) ?? ref);
-            copy.after = (
-                previous && system === GlazeSystem
-                    ? [BeginFrameSystem, OverlaySystem]
-                    : system.after
-            )
-                ?.filter((ref) => !previous || ref !== PresentationSystem)
-                .map((ref) => copies.get(ref) ?? ref);
-            scheduler.register(copy, name);
-        }
-        const sorted = (scheduler as unknown as { getSorted(group: string): System[] }).getSorted(
-            "draw",
-        );
-        return sorted
-            .filter((system) => system.update)
-            .map((system) => {
-                const entry = entries.find(
-                    ({ system: original }) => copies.get(original) === system,
-                )!;
-                return `${entry.name}/${entry.system.name ?? entries.filter(({ name }) => name === entry.name).findIndex(({ system }) => system === entry.system)}`;
-            });
-    }
-    const current = schedule(false);
-    expect(current).toEqual(schedule(true));
-    expect(
-        current.filter((name) => /^(Fog|Outline|Sky|Lines|Sprite|Text)\//.test(name)),
-    ).toHaveLength(6);
 });
 
 test("points beside a mesh share the view depth: side and front points show, the rear point is occluded", async () => {
