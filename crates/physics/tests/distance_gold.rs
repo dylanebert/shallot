@@ -5,7 +5,9 @@
 //! port bit-for-bit before the narrowphase (which consumes it) is verified on top.
 
 use serde_json::Value;
-use shallot_physics::distance::{shape_distance, DistanceInput, ShapeProxy, SimplexCache};
+use shallot_physics::distance::{
+    shape_cast, shape_distance, DistanceInput, ShapeCastPairInput, ShapeProxy, SimplexCache,
+};
 use shallot_physics::math::{Quat, Transform, Vec3};
 
 const GOLD: &str = include_str!("../../../src/standard/physics/collision/distance.gold.json");
@@ -78,6 +80,47 @@ fn points(name: &str) -> Vec<Vec3> {
         "seg0" => vec![v(0.0, -1.0, 0.0), v(0.0, 1.0, 0.0)],
         "pt1" => vec![v(0.0, 0.0, 0.0)],
         _ => panic!("unknown proxy {name}"),
+    }
+}
+
+#[test]
+fn shape_cast_bit_exact() {
+    let gold: Value = serde_json::from_str(GOLD).expect("parse distance.gold.json");
+    for g in gold["cast"].as_array().unwrap() {
+        let name = g["name"].as_str().unwrap();
+        let pa = points(g["proxyA"].as_str().unwrap());
+        let pb = points(g["proxyB"].as_str().unwrap());
+        let translation = g["translationB"].as_array().unwrap();
+        let out = shape_cast(&ShapeCastPairInput {
+            proxy_a: ShapeProxy {
+                points: &pa,
+                count: pa.len(),
+                radius: from_bits(g["radiusA"].as_str().unwrap()),
+            },
+            proxy_b: ShapeProxy {
+                points: &pb,
+                count: pb.len(),
+                radius: from_bits(g["radiusB"].as_str().unwrap()),
+            },
+            transform: xf_from_hex(&g["transform"]),
+            translation_b: Vec3::new(
+                from_bits(translation[0].as_str().unwrap()),
+                from_bits(translation[1].as_str().unwrap()),
+                from_bits(translation[2].as_str().unwrap()),
+            ),
+            max_fraction: from_bits(g["maxFraction"].as_str().unwrap()),
+            can_encroach: g["canEncroach"].as_bool().unwrap(),
+        });
+        let want = &g["out"];
+        assert_eq!(out.hit, want["hit"].as_bool().unwrap(), "{name} hit");
+        assert_bits(out.fraction, want["fraction"].as_str().unwrap(), name);
+        assert_vec(out.point, &want["point"], name);
+        assert_vec(out.normal, &want["normal"], name);
+        assert_eq!(
+            out.iterations as i64,
+            want["iterations"].as_i64().unwrap(),
+            "{name} iterations"
+        );
     }
 }
 

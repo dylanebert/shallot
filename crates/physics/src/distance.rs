@@ -1,6 +1,6 @@
 //! GJK closest-point distance, ported op-for-op from box3d's `distance.c` (Erin Catto, MIT) via the
-//! upstream TS port (`src/distance.ts`). Only the `shape_distance` path lives here — the narrowphase
-//! (hull/sphere, hull/capsule) consumes it; shape-cast and time-of-impact are CCD and stay TS-side.
+//! upstream TS port (`src/distance.ts`). Closest-point distance serves narrowphase and conservative
+//! advancement serves shape queries; time-of-impact remains TS-side.
 //!
 //! Rust `f32` is native IEEE-754 with no FMA contraction, so each TS `f32(...)`-wrapped op maps to one
 //! Rust op with the same operand order (see `math.rs`).
@@ -550,6 +550,102 @@ fn compute_witness_points(simplex: &Simplex) -> (Vec3, Vec3) {
         }
         _ => (Vec3::ZERO, Vec3::ZERO),
     }
+}
+
+/// Input for conservative advancement of B relative to A (b3ShapeCastPairInput).
+pub struct ShapeCastPairInput<'a> {
+    pub proxy_a: ShapeProxy<'a>,
+    pub proxy_b: ShapeProxy<'a>,
+    pub transform: Transform,
+    pub translation_b: Vec3,
+    pub max_fraction: f32,
+    pub can_encroach: bool,
+}
+
+/// Cast result in shape A's frame. Indices identify mesh triangles and compound children.
+#[derive(Clone, Copy, Debug)]
+pub struct CastOutput {
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub fraction: f32,
+    pub iterations: i32,
+    pub hit: bool,
+    pub triangle_index: i32,
+    pub child_index: i32,
+    pub material_index: i32,
+}
+
+impl CastOutput {
+    pub const MISS: Self = Self {
+        point: Vec3::ZERO,
+        normal: Vec3::ZERO,
+        fraction: 0.0,
+        iterations: 0,
+        hit: false,
+        triangle_index: -1,
+        child_index: 0,
+        material_index: 0,
+    };
+}
+
+/// Conservative advancement in A's local frame (b3ShapeCast). Initial overlap is a hit at zero
+/// fraction; `can_encroach` permits advancing into an initially overlapping radius shell.
+pub fn shape_cast(input: &ShapeCastPairInput) -> CastOutput {
+    let linear_slop = 0.005;
+    let total_radius = input.proxy_a.radius + input.proxy_b.radius;
+    let mut target = crate::math::maxf(linear_slop, total_radius - linear_slop);
+    let tolerance = 0.25 * linear_slop;
+    let mut cache = SimplexCache::empty();
+    let mut alpha = 0.0;
+    let mut distance_input = DistanceInput {
+        proxy_a: input.proxy_a,
+        proxy_b: input.proxy_b,
+        transform: input.transform,
+        use_radii: false,
+    };
+    let mut output = CastOutput::MISS;
+    for iteration in 0..20 {
+        output.iterations += 1;
+        let distance = shape_distance(&distance_input, &mut cache);
+        if distance.distance < target + tolerance {
+            if iteration == 0 {
+                if input.can_encroach && distance.distance > 2.0 * linear_slop {
+                    target = distance.distance - linear_slop;
+                } else {
+                    output.hit = true;
+                    let c1 = distance
+                        .point_a
+                        .mul_add(input.proxy_a.radius, distance.normal);
+                    let c2 = distance
+                        .point_b
+                        .mul_add(-input.proxy_b.radius, distance.normal);
+                    output.point = c1.lerp(c2, 0.5);
+                    return output;
+                }
+            } else {
+                if distance.distance > 0.0 && !distance.normal.is_normalized() {
+                    return output;
+                }
+                output.fraction = alpha;
+                output.point = distance
+                    .point_a
+                    .mul_add(input.proxy_a.radius, distance.normal);
+                output.normal = distance.normal;
+                output.hit = true;
+                return output;
+            }
+        }
+        let denominator = input.translation_b.dot(distance.normal);
+        if denominator >= 0.0 {
+            return output;
+        }
+        alpha += (target - distance.distance) / denominator;
+        if alpha >= input.max_fraction {
+            return output;
+        }
+        distance_input.transform.p = input.transform.p.mul_add(alpha, input.translation_b);
+    }
+    output
 }
 
 // --- shape distance -------------------------------------------------------------------------
