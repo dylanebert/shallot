@@ -28,20 +28,15 @@ Register view-specific passes in `world.resource(EffectPasses)` under the camera
 
 ## Rendering extension exports
 
-The rendering modules publish the layouts and shader functions used across their boundaries, not the standard pipeline's implementation helpers. Remove direct imports from internal files; they are not replacement public paths. The following names are removed from their module's barrel (and any layer/root re-export).
+These 0.9.5 exports are removed or renamed in 0.10. They shipped through the rendering extension subpaths or the former `/src/*` subpath. Remove direct imports from internal files; they are not replacement public paths.
 
 ### `/rendering`
 
 | Removed name | Replacement |
 |---|---|
 | `Render` | `RenderContext`, the world-owned shared GPU context. |
-| `PhaseRenderer` | Infer the record type from `world.resource(RenderPhases).push`. |
 | `backingSize` | Use `Resolution` to pin a view's render size; viewport sizing is internal. |
 | `COLOR_LANES` | Core owns the lane set; match `PICKING_ID_FORMAT` for the picking output. |
-| `colorPassDescriptor` | Record into `RenderPhases`; core opens the pass. |
-| `colorTargets` | Read the supplied view in `RenderPhases`. |
-| `prepassDescriptor` | Record into `RenderPhases`; core opens the pass. |
-| `prepassLanes` | Read the lanes supplied to the prepass callback. |
 | `frameWgsl` | Resolve the `FrameGpu` TypeGPU schema. |
 | `FRUSTUM_FLOATS` | Read `CullVolumes` with `CULL_VOLUME_FLOATS`. |
 | `frustumPlanes` | No public replacement; consume the packed `CullVolumes`. |
@@ -72,8 +67,6 @@ The rendering modules publish the layouts and shader functions used across their
 | Removed name | Replacement |
 |---|---|
 | `PartPlugin` | `MeshRenderPlugin`. |
-| `RenderMeshColorSystem` | `MainPassSystem` from `/rendering`. |
-| `RenderPrepassesSystem` | `PrepassSystem` from `/rendering`. |
 | `ClusterView` | No public replacement; standard owns light-cluster view packing. |
 | `CLUSTER_COUNT` | No public replacement; standard owns light-grid sizing. |
 | `CLUSTER_X` | No public replacement; standard owns light-grid sizing. |
@@ -85,18 +78,13 @@ The rendering modules publish the layouts and shader functions used across their
 | `clusterView` | No public replacement; standard owns light-cluster view packing. |
 | `LIGHT_POOL` | No public replacement; standard owns light-grid capacity. |
 | `lightClusters` | Read the `LightCull` resource and `LightClusters` schema. |
-| `requestLightOverflow` | No public replacement; this diagnostic is internal. |
 | `sliceDepth` | No public replacement; light-grid construction is internal. |
 | `zSlice` | Use `clusterCell` to address the shared light grid. |
-| `BackgroundFn` | Infer from `Background` or `registerBackground`. |
-| `BackgroundLayout` | Infer from `backgroundLayout`. |
 | `Binding` | Infer bindings from `surfaceLayout` or `backgroundLayout`. |
 | `FsFn` | Infer from `Surface` or `registerSurface`. |
-| `PickingIdFn` | Infer from `Surface` or `registerSurface`. |
 | `SurfaceLayout` | Infer from `surfaceLayout`. |
 | `VsFn` | Infer from `Surface` or `registerSurface`. |
 | `assertOwnFn` | Registration validates shader ownership. |
-| `InstanceInput` | Infer the instance layout from `surfaceLayout`. |
 | `SURFACE_GROUP` | `surfaceLayout` owns the bind-group index. |
 | `clusterOf` | Use `clusterCell` for grid addressing or `lit` for surface lighting. |
 | `engineScaffoldWgsl` | Use `surfaceLayout`, shader functions and `registerSurface`. |
@@ -112,8 +100,6 @@ The rendering modules publish the layouts and shader functions used across their
 | `MAX_POINT_LIGHTS` | No public replacement; standard owns light capacity. |
 | `PointLights` | Use the shared `LightClusters` schema for light/grid input. |
 | `spotParams` | Use `spotFactor` with the packed light record. |
-| `MeshDrawBuffers` | No public replacement; instance packing is internal. |
-| `partTable` | No public replacement; instance packing is internal. |
 | `getCompiledSurface` | No public replacement; compiled-pipeline diagnostics are internal. |
 | `DrawIndirectBuffer` | Infer from `Draw.args.indirect`; allocate with `DrawIndexedIndirect`. |
 | `casterWgsl` | No public replacement; shadow-caster code is internal. |
@@ -126,7 +112,7 @@ The rendering modules publish the layouts and shader functions used across their
 | `pointAtlasSize` | Read `PointShadows` settings. |
 | `pointComboCount` | No public replacement; shadow-camera diagnostics are internal. |
 
-### `/fog` and `/text`
+### `/fog`
 
 | Removed name | Replacement |
 |---|---|
@@ -152,7 +138,6 @@ The rendering modules publish the layouts and shader functions used across their
 | `sunInScatter` | No public replacement; fog integration is internal. |
 | `WORKGROUP` | No public replacement; fog dispatch sizing is internal. |
 | `packFog` | Set `Fog` fields; the pass owns packing. |
-| `typedTextSurface` | No public replacement; glyph shader construction is internal. |
 
 ## Renamed exports
 
