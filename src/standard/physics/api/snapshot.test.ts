@@ -57,7 +57,7 @@ test("World.restore refuses a destroyed target even when a sibling is the only l
     }
 });
 
-test.todo("physics-boundary: restoring one World leaves a sibling World on the same kernel unchanged", () => {
+test.todo("physics-hardening: restoring one World leaves a sibling World on the same kernel unchanged", () => {
     const target = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
