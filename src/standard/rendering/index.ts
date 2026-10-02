@@ -28,7 +28,7 @@ export {
     spotFactor,
 } from "./lighting";
 export { Materials, MeshMaterial, StandardMaterial } from "./material";
-export { MeshRenderPlugin } from "./part-plugin";
+export { MeshRenderPlugin } from "./mesh-render";
 export type { Draw } from "./registry";
 export { DrawIndexedIndirect, Draws } from "./registry";
 export {

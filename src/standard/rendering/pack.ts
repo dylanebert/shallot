@@ -18,18 +18,15 @@ import { DrawIndexedIndirect } from "./registry";
 export const CullParams = d.struct({
     viewCount: d.u32,
     pairCount: d.u32,
-    partCount: d.u32,
-    partCapacity: d.u32,
+    instanceCount: d.u32,
+    instanceCapacity: d.u32,
 });
-
-/** one dense record per MeshInstance row, shared with typed surface vertex stages @internal */
-export const PartRecord = MeshInstanceInput;
 
 /** shared dense inputs for count + scatter, plus mesh bounds and per-view cull volumes @internal */
 export const cullLayout = tgpu
     .bindGroupLayout({
-        partRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
-        parts: { storage: d.arrayOf(PartRecord), access: "readonly" },
+        instanceRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
+        instances: { storage: d.arrayOf(MeshInstanceInput), access: "readonly" },
         materials: { storage: d.arrayOf(MaterialInput), access: "readonly" },
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
@@ -120,31 +117,31 @@ function pairFactory(surfaceCount: number) {
             Pair,
         )((index) => {
             "use gpu";
-            const entry = cullLayout.$.partRows[index];
+            const entry = cullLayout.$.instanceRows[index];
             const eid = entry.x;
             const row = entry.y;
-            const part = cullLayout.$.parts[row];
+            const instance = cullLayout.$.instances[row];
             const encodedGlobalTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
-            const surface = cullLayout.$.materials[part.material].surface;
+            const surface = cullLayout.$.materials[instance.material].surface;
             if (surface >= surfaceCount || encodedGlobalTransform === 0) {
                 return Pair({
                     pair: invalidPair,
-                    mid: part.mesh,
+                    mid: instance.mesh,
                     eid,
                     row,
                     globalTransformRow: 0,
                 });
             }
             return Pair({
-                pair: part.mesh * surfaceCount + surface,
-                mid: part.mesh,
+                pair: instance.mesh * surfaceCount + surface,
+                mid: instance.mesh,
                 eid,
                 row,
                 globalTransformRow: encodedGlobalTransform - 1,
             });
         })
-        .$name("partPair");
+        .$name("instancePair");
 }
 
 /** Tally frustum-visible active MeshInstance rows per (view slot, pair); no entity-capacity scan. @internal */
@@ -158,18 +155,18 @@ export function countKernel(surfaceCount: number) {
             "use gpu";
             const index = input.gid.x;
             const slot = input.gid.y;
-            if (index >= cullLayout.$.params.partCount) return;
+            if (index >= cullLayout.$.params.instanceCount) return;
             const g = pair(index);
             if (g.pair >= cullLayout.$.params.pairCount) return;
             if (
-                (cullLayout.$.parts[g.row].flags & 1) !== 0 &&
+                (cullLayout.$.instances[g.row].flags & 1) !== 0 &&
                 cullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0
             )
                 return;
             if (!visible(g.mid, g.globalTransformRow, slot)) return;
             std.atomicAdd(countLayout.$.counts[slot * cullLayout.$.params.pairCount + g.pair], 1);
         })
-        .$name("partCount");
+        .$name("meshPreprocessCount");
 }
 
 const SCAN_WG = 256;
@@ -180,7 +177,7 @@ const carry = tgpu.workgroupVar(d.u32);
 /**
  * exclusive prefix sum, one workgroup per view slot. Each slot's row is scanned in parallel: a `SCAN_WG`-wide
  * LDS Hillis-Steele scan walks the row in tiles, a `carry` threading the running offset across tiles, so the
- * slot's packedEids region starts at `slot * partCapacity`. Writes instanceCount + the compacted firstInstance,
+ * slot's packedEids region starts at `slot * instanceCapacity`. Writes instanceCount + the compacted firstInstance,
  * resets the tallies for the next count pass, and leaves indexCount / firstIndex (lanes 0, 2) alone.
  * baseVertex temporarily saves the tally; scatter restores it to zero and restores instanceCount.
  * Pure LDS (no subgroup ops) — the instance pack stays inside the base feature floor, so a
@@ -230,7 +227,7 @@ export function scanKernel() {
             if (inRange) {
                 scanLayout.$.drawArgs[idx].instanceCount = c;
                 scanLayout.$.drawArgs[idx].firstInstance =
-                    slot * scanLayout.$.params.partCapacity + carry.$ + excl;
+                    slot * scanLayout.$.params.instanceCapacity + carry.$ + excl;
                 // Packed mesh indices require baseVertex = 0 at draw time. Until scatter finishes,
                 // the word preserves the tally while instanceCount serves as the reverse cursor.
                 scanLayout.$.drawArgs[idx].baseVertex = d.i32(c);
@@ -256,11 +253,11 @@ export function scatterKernel(surfaceCount: number) {
             "use gpu";
             const index = input.gid.x;
             const slot = input.gid.y;
-            if (index >= cullLayout.$.params.partCount) return;
+            if (index >= cullLayout.$.params.instanceCount) return;
             const g = pair(index);
             if (g.pair >= cullLayout.$.params.pairCount) return;
             if (
-                (cullLayout.$.parts[g.row].flags & 1) !== 0 &&
+                (cullLayout.$.instances[g.row].flags & 1) !== 0 &&
                 cullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0
             )
                 return;
@@ -277,7 +274,7 @@ export function scatterKernel(surfaceCount: number) {
                 std.atomicStore(scatterLayout.$.drawArgs[idx].instanceCount, count);
             }
         })
-        .$name("partScatter");
+        .$name("meshPreprocessScatter");
 }
 
 /** the emitted pack WGSL — the device-free structural seam the pack tests resolve. @internal */

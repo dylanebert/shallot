@@ -13,14 +13,13 @@ import type { Registry, System, World } from "../../engine";
 import { globalTransformTable } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import type { Surface } from "./contract";
-import { Surfaces } from "./contract";
+import { MeshInstanceInput, Surfaces } from "./contract";
 import { MeshMaterial, materialTable } from "./material";
 import {
     CullParams,
     countKernel,
     countLayout,
     cullLayout,
-    PartRecord,
     scanKernel,
     scanLayout,
     scatterKernel,
@@ -38,11 +37,11 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
     StorageFlag & { usableAsIndirect: true };
 
 // Pack is cull → count → scan → scatter, run per active view: count tallies the
-// frustum-visible parts per (view, pair), the single-thread scan turns counts
+// frustum-visible instances per (view, pair), the single-thread scan turns counts
 // into each (view, pair)'s instanceCount + compacted firstInstance (written
 // into drawArgs), scatter appends each surviving eid into its slice of
 // packedEids. The cull test (instance bound vs the slot's `cullVolumes[slot]`) gates both
-// count and scatter, so off-screen parts never reach the indirect args — this
+// count and scatter, so off-screen instances never reach the indirect args — this
 // is niagara's cull → compact → drawIndirect spine. Output is slot-major: each
 // camera owns its own drawArgs records + packedEids region, so the four-up
 // example culls each view independently and the shadow pass reuses
@@ -70,12 +69,12 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
 export interface MeshDrawBuffers {
     /** `DrawIndexedIndirect` records, slot-major (`slot * pairCount + pair`); null until the first frame's `syncBuffers` */
     drawArgs: DrawBuffer | null;
-    /** packed entity identities, one dense list per view slot; null until `warmPart` */
+    /** packed entity identities, one dense list per view slot; null until `warmMeshPreprocess` */
     packedEids: InstanceBuffer | null;
 }
 
-interface PartGpuState {
-    parts: MeshDrawBuffers;
+interface MeshPreprocessState {
+    meshDraws: MeshDrawBuffers;
     counts: AtomicU32Buffer | null;
     meshBounds: Vec4fBuffer | null;
     cullParams: (TgpuBuffer<typeof CullParams> & UniformFlag) | null;
@@ -96,22 +95,22 @@ interface PartGpuState {
     paramsTarget: (TgpuBuffer<typeof CullParams> & UniformFlag) | null;
     paramsViewCount: number;
     paramsPairCount: number;
-    paramsPartCount: number;
-    paramsPartCapacity: number;
+    paramsInstanceCount: number;
+    paramsInstanceCapacity: number;
     rowCapacity: number;
     inputGeneration: Int32Array;
 }
 
-const partGpuKey = { create: createPartGpuState };
-const partTableKey = { create: createPartTable };
+const meshPreprocessKey = { create: createMeshPreprocessState };
+const meshInstanceTableKey = { create: createMeshInstanceTable };
 
 /** Dense MeshInstance records shared by the GPU pack and typed surface stages. */
-export function partTable(world: World) {
-    return world.resource(partTableKey);
+export function meshInstanceTable(world: World) {
+    return world.resource(meshInstanceTableKey);
 }
 
-function createPartTable(world: World) {
-    const table = world.table("partInputs", PartRecord);
+function createMeshInstanceTable(world: World) {
+    const table = world.table("meshInstances", MeshInstanceInput);
     table.enableEidLookup();
     const publishMap = (buffer: GPUBuffer) => {
         world.gpu.buffers.set("partRowMap", buffer);
@@ -122,9 +121,9 @@ function createPartTable(world: World) {
     return table;
 }
 
-function createPartGpuState(): PartGpuState {
+function createMeshPreprocessState(): MeshPreprocessState {
     return {
-        parts: { drawArgs: null, packedEids: null },
+        meshDraws: { drawArgs: null, packedEids: null },
         counts: null,
         meshBounds: null,
         cullParams: null,
@@ -139,26 +138,26 @@ function createPartGpuState(): PartGpuState {
         meshCount: 0,
         pairCount: 0,
         viewDim: 1,
-        packPass: { label: "shallot-part-pack" },
+        packPass: { label: "shallot-mesh-preprocess" },
         countsUnwrapped: null,
         countsRaw: null,
         paramsTarget: null,
         paramsViewCount: -1,
         paramsPairCount: -1,
-        paramsPartCount: -1,
-        paramsPartCapacity: -1,
+        paramsInstanceCount: -1,
+        paramsInstanceCapacity: -1,
         rowCapacity: 0,
         inputGeneration: new Int32Array(5).fill(-1),
     };
 }
 
-function _partGpuState(world: World): PartGpuState {
-    return world.resource(partGpuKey);
+function _meshPreprocessState(world: World): MeshPreprocessState {
+    return world.resource(meshPreprocessKey);
 }
 
-export function initializePartState(world: World): void {
-    world.resource(partGpuKey);
-    const table = partTable(world);
+export function initializeMeshPreprocess(world: World): void {
+    world.resource(meshPreprocessKey);
+    const table = meshInstanceTable(world);
     table.bindComponent(MeshInstance, { mesh: "mesh" });
     materialTable(world);
     table.bindFields(MeshMaterial, { material: "material" });
@@ -180,7 +179,7 @@ export function initializePartState(world: World): void {
 }
 
 export const MeshDrawBuffers: import("../../engine").Resource<MeshDrawBuffers> = {
-    create: (world) => world.resource(partGpuKey).parts,
+    create: (world) => world.resource(meshPreprocessKey).meshDraws,
 };
 
 /**
@@ -191,17 +190,22 @@ export const MeshDrawBuffers: import("../../engine").Resource<MeshDrawBuffers> =
  * slot); the scan dispatches one workgroup per slot, each scanning its row in
  * parallel
  */
-export const PartSystem: System = {
+export const MeshPreprocessSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(world) {
         const _render = world.resource(RenderContext);
-        const _partGpu = world.resource(partGpuKey);
+        const _meshPreprocess = world.resource(meshPreprocessKey);
 
-        if (!_render.encoder || !_partGpu.countPipe || !_partGpu.scanPipe || !_partGpu.scatterPipe)
+        if (
+            !_render.encoder ||
+            !_meshPreprocess.countPipe ||
+            !_meshPreprocess.scanPipe ||
+            !_meshPreprocess.scatterPipe
+        )
             return;
         syncBuffers(world);
-        if (_partGpu.pairCount === 0) return;
+        if (_meshPreprocess.pairCount === 0) return;
         const count = bindCount(world);
         const scan = bindScan(world);
         const scatter = bindScatter(world);
@@ -215,43 +219,43 @@ export const PartSystem: System = {
         // a two-word uniform written when either word changes: the typed write is the idiomatic path here.
         // The "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
         // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
-        const partCount = partTable(world).count;
+        const instanceCount = meshInstanceTable(world).count;
         if (
-            _partGpu.paramsTarget !== _partGpu.cullParams ||
-            _partGpu.paramsViewCount !== _render.viewCount ||
-            _partGpu.paramsPairCount !== _partGpu.pairCount ||
-            _partGpu.paramsPartCount !== partCount ||
-            _partGpu.paramsPartCapacity !== _partGpu.rowCapacity
+            _meshPreprocess.paramsTarget !== _meshPreprocess.cullParams ||
+            _meshPreprocess.paramsViewCount !== _render.viewCount ||
+            _meshPreprocess.paramsPairCount !== _meshPreprocess.pairCount ||
+            _meshPreprocess.paramsInstanceCount !== instanceCount ||
+            _meshPreprocess.paramsInstanceCapacity !== _meshPreprocess.rowCapacity
         ) {
-            _partGpu.cullParams!.write({
+            _meshPreprocess.cullParams!.write({
                 viewCount: _render.viewCount,
-                pairCount: _partGpu.pairCount,
-                partCount,
-                partCapacity: _partGpu.rowCapacity,
+                pairCount: _meshPreprocess.pairCount,
+                instanceCount,
+                instanceCapacity: _meshPreprocess.rowCapacity,
             });
-            _partGpu.paramsTarget = _partGpu.cullParams;
-            _partGpu.paramsViewCount = _render.viewCount;
-            _partGpu.paramsPairCount = _partGpu.pairCount;
-            _partGpu.paramsPartCount = partCount;
-            _partGpu.paramsPartCapacity = _partGpu.rowCapacity;
+            _meshPreprocess.paramsTarget = _meshPreprocess.cullParams;
+            _meshPreprocess.paramsViewCount = _render.viewCount;
+            _meshPreprocess.paramsPairCount = _meshPreprocess.pairCount;
+            _meshPreprocess.paramsInstanceCount = instanceCount;
+            _meshPreprocess.paramsInstanceCapacity = _meshPreprocess.rowCapacity;
         }
 
-        if (_partGpu.countsUnwrapped !== _partGpu.counts) {
-            _partGpu.countsUnwrapped = _partGpu.counts;
-            _partGpu.countsRaw = world.gpu.root.unwrap(_partGpu.counts!);
+        if (_meshPreprocess.countsUnwrapped !== _meshPreprocess.counts) {
+            _meshPreprocess.countsUnwrapped = _meshPreprocess.counts;
+            _meshPreprocess.countsRaw = world.gpu.root.unwrap(_meshPreprocess.counts!);
         }
-        _render.encoder.clearBuffer(_partGpu.countsRaw!);
-        _partGpu.packPass.timestampWrites = world.gpu.span?.("part:pack");
-        const pass = _render.encoder.beginComputePass(_partGpu.packPass);
-        const rows = Math.ceil(partCount / 64);
+        _render.encoder.clearBuffer(_meshPreprocess.countsRaw!);
+        _meshPreprocess.packPass.timestampWrites = world.gpu.span?.("mesh:preprocess");
+        const pass = _render.encoder.beginComputePass(_meshPreprocess.packPass);
+        const rows = Math.ceil(instanceCount / 64);
         if (rows > 0) {
             setBound(pass, count);
             pass.dispatchWorkgroups(rows, views);
         }
-        // one workgroup per allocated view slot (the counts buffer spans _part.viewDim ×
+        // one workgroup per allocated view slot (the counts buffer spans _meshPreprocess.viewDim ×
         // pairCount); slots past the active views carry zero counts → zero instanceCount
         setBound(pass, scan);
-        pass.dispatchWorkgroups(_partGpu.viewDim);
+        pass.dispatchWorkgroups(_meshPreprocess.viewDim);
         if (rows > 0) {
             setBound(pass, scatter);
             pass.dispatchWorkgroups(rows, views);
@@ -271,129 +275,134 @@ function setBound(
 
 // Bind dense MeshInstance and Transform tables, replacing groups only when one of their GPU buffers grows.
 function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
-    const _partGpu = world.resource(partGpuKey);
+    const _meshPreprocess = world.resource(meshPreprocessKey);
 
-    if (!_partGpu.cullParams || !_partGpu.meshBounds) return null;
-    const parts = partTable(world);
+    if (!_meshPreprocess.cullParams || !_meshPreprocess.meshBounds) return null;
+    const meshInstances = meshInstanceTable(world);
     const globalTransforms = globalTransformTable(world);
     const materials = materialTable(world);
-    const generation = _partGpu.inputGeneration;
+    const generation = _meshPreprocess.inputGeneration;
     if (
-        generation[0] !== parts.generation ||
-        generation[1] !== parts.activeGeneration ||
+        generation[0] !== meshInstances.generation ||
+        generation[1] !== meshInstances.activeGeneration ||
         generation[2] !== globalTransforms.generation ||
         generation[3] !== globalTransforms.mapGeneration ||
         generation[4] !== materials.generation
     ) {
         unbind(world);
-        generation[0] = parts.generation;
-        generation[1] = parts.activeGeneration;
+        generation[0] = meshInstances.generation;
+        generation[1] = meshInstances.activeGeneration;
         generation[2] = globalTransforms.generation;
         generation[3] = globalTransforms.mapGeneration;
         generation[4] = materials.generation;
     }
-    if (_partGpu.cullGroup) return _partGpu.cullGroup;
+    if (_meshPreprocess.cullGroup) return _meshPreprocess.cullGroup;
     const cullVolumes = world.gpu.buffers.get("cullVolumes");
-    const partRows = parts.activeRowsBuffer;
+    const instanceRows = meshInstances.activeRowsBuffer;
     const globalTransformRows = globalTransforms.eidToRowBuffer;
-    if (!cullVolumes || !partRows || !globalTransformRows) {
+    if (!cullVolumes || !instanceRows || !globalTransformRows) {
         throw new Error(
-            "[part] dense table inputs missing: cull volumes, MeshInstance rows or GlobalTransform row lookup",
+            "[mesh-preprocess] dense table inputs missing: cull volumes, MeshInstance rows or GlobalTransform row lookup",
         );
     }
-    _partGpu.cullGroup = world.gpu.root.createBindGroup(cullLayout, {
-        partRows,
-        parts: parts.buffer,
+    _meshPreprocess.cullGroup = world.gpu.root.createBindGroup(cullLayout, {
+        instanceRows,
+        instances: meshInstances.buffer,
         materials: materials.buffer,
         globalTransforms: globalTransforms.buffer,
         globalTransformRows,
-        meshBounds: _partGpu.meshBounds,
+        meshBounds: _meshPreprocess.meshBounds,
         cullVolumes,
-        params: _partGpu.cullParams,
+        params: _meshPreprocess.cullParams,
     });
-    return _partGpu.cullGroup;
+    return _meshPreprocess.cullGroup;
 }
 
 function bindCount(world: World): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
-    const _partGpu = world.resource(partGpuKey);
+    const _meshPreprocess = world.resource(meshPreprocessKey);
 
     const cull = cullGroup(world);
-    if (_partGpu.countBound) return _partGpu.countBound;
-    if (!_partGpu.countPipe || !cull || !_partGpu.counts) return null;
-    _partGpu.countBound = {
-        pipeline: world.gpu.root.unwrap(_partGpu.countPipe),
+    if (_meshPreprocess.countBound) return _meshPreprocess.countBound;
+    if (!_meshPreprocess.countPipe || !cull || !_meshPreprocess.counts) return null;
+    _meshPreprocess.countBound = {
+        pipeline: world.gpu.root.unwrap(_meshPreprocess.countPipe),
         groups: [
             world.gpu.root.unwrap(cull),
             world.gpu.root.unwrap(
-                world.gpu.root.createBindGroup(countLayout, { counts: _partGpu.counts }),
+                world.gpu.root.createBindGroup(countLayout, { counts: _meshPreprocess.counts }),
             ),
         ],
     };
-    return _partGpu.countBound;
+    return _meshPreprocess.countBound;
 }
 
 function bindScan(world: World): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
-    const _partGpu = world.resource(partGpuKey);
-    const _parts = world.resource(MeshDrawBuffers);
+    const _meshPreprocess = world.resource(meshPreprocessKey);
+    const _meshDraws = world.resource(MeshDrawBuffers);
 
-    if (_partGpu.scanBound) return _partGpu.scanBound;
-    if (!_partGpu.scanPipe || !_partGpu.counts || !_parts.drawArgs || !_partGpu.cullParams)
+    if (_meshPreprocess.scanBound) return _meshPreprocess.scanBound;
+    if (
+        !_meshPreprocess.scanPipe ||
+        !_meshPreprocess.counts ||
+        !_meshDraws.drawArgs ||
+        !_meshPreprocess.cullParams
+    )
         return null;
-    _partGpu.scanBound = {
-        pipeline: world.gpu.root.unwrap(_partGpu.scanPipe),
+    _meshPreprocess.scanBound = {
+        pipeline: world.gpu.root.unwrap(_meshPreprocess.scanPipe),
         groups: [
             world.gpu.root.unwrap(
                 world.gpu.root.createBindGroup(scanLayout, {
-                    counts: _partGpu.counts,
-                    drawArgs: _parts.drawArgs,
-                    params: _partGpu.cullParams,
+                    counts: _meshPreprocess.counts,
+                    drawArgs: _meshDraws.drawArgs,
+                    params: _meshPreprocess.cullParams,
                 }),
             ),
         ],
     };
-    return _partGpu.scanBound;
+    return _meshPreprocess.scanBound;
 }
 
 function bindScatter(
     world: World,
 ): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
-    const _partGpu = world.resource(partGpuKey);
-    const _parts = world.resource(MeshDrawBuffers);
+    const _meshPreprocess = world.resource(meshPreprocessKey);
+    const _meshDraws = world.resource(MeshDrawBuffers);
 
     const cull = cullGroup(world);
-    if (_partGpu.scatterBound) return _partGpu.scatterBound;
+    if (_meshPreprocess.scatterBound) return _meshPreprocess.scatterBound;
     if (
-        !_partGpu.scatterPipe ||
+        !_meshPreprocess.scatterPipe ||
         !cull ||
-        !_partGpu.counts ||
-        !_parts.drawArgs ||
-        !_parts.packedEids
+        !_meshPreprocess.counts ||
+        !_meshDraws.drawArgs ||
+        !_meshDraws.packedEids
     )
         return null;
-    _partGpu.scatterBound = {
-        pipeline: world.gpu.root.unwrap(_partGpu.scatterPipe),
+    _meshPreprocess.scatterBound = {
+        pipeline: world.gpu.root.unwrap(_meshPreprocess.scatterPipe),
         groups: [
             world.gpu.root.unwrap(cull),
             world.gpu.root.unwrap(
                 world.gpu.root.createBindGroup(scatterLayout, {
-                    drawArgs: world.gpu.root.unwrap(_parts.drawArgs),
-                    packedEids: _parts.packedEids,
+                    drawArgs: world.gpu.root.unwrap(_meshDraws.drawArgs),
+                    packedEids: _meshDraws.packedEids,
                 }),
             ),
         ],
     };
-    return _partGpu.scatterBound;
+    return _meshPreprocess.scatterBound;
 }
 
 // every bound pipeline names at least one buffer `syncBuffers` can reallocate, so growth drops all of
 // them together rather than tracking which buffer each one holds
 function unbind(world: World): void {
-    const _partGpu = world.resource(partGpuKey);
+    const _meshPreprocess = world.resource(meshPreprocessKey);
 
-    _partGpu.cullGroup = null;
-    _partGpu.countBound = null;
-    _partGpu.scanBound = null;
-    _partGpu.scatterBound = null;
+    _meshPreprocess.cullGroup = null;
+    _meshPreprocess.countBound = null;
+    _meshPreprocess.scanBound = null;
+    _meshPreprocess.scatterBound = null;
 }
 
 /**
@@ -407,55 +416,55 @@ function unbind(world: World): void {
  * buffers free behind the submit fence: a prior frame may still reference them
  */
 function syncBuffers(world: World): void {
-    const _partGpu = world.resource(partGpuKey);
-    const _parts = world.resource(MeshDrawBuffers);
+    const _meshPreprocess = world.resource(meshPreprocessKey);
+    const _meshDraws = world.resource(MeshDrawBuffers);
 
-    if (_partGpu.surfaceCount === 0) return;
+    if (_meshPreprocess.surfaceCount === 0) return;
     const meshCount = world.resource(Meshes).size;
     const viewDim = Math.max(1, world.resource(RenderContext).viewCount);
-    const rowCapacity = partTable(world).capacity;
-    const growMesh = meshCount > _partGpu.meshCount;
-    const growView = viewDim > _partGpu.viewDim;
-    const growRows = rowCapacity > _partGpu.rowCapacity;
-    if (!growMesh && !growView && !growRows && _parts.drawArgs) return;
+    const rowCapacity = meshInstanceTable(world).capacity;
+    const growMesh = meshCount > _meshPreprocess.meshCount;
+    const growView = viewDim > _meshPreprocess.viewDim;
+    const growRows = rowCapacity > _meshPreprocess.rowCapacity;
+    if (!growMesh && !growView && !growRows && _meshDraws.drawArgs) return;
 
     const device = world.gpu.device;
-    _partGpu.meshCount = Math.max(_partGpu.meshCount, meshCount);
-    _partGpu.viewDim = Math.max(_partGpu.viewDim, viewDim);
-    _partGpu.rowCapacity = Math.max(_partGpu.rowCapacity, rowCapacity);
-    _partGpu.pairCount = _partGpu.surfaceCount * _partGpu.meshCount;
-    const records = _partGpu.viewDim * _partGpu.pairCount;
+    _meshPreprocess.meshCount = Math.max(_meshPreprocess.meshCount, meshCount);
+    _meshPreprocess.viewDim = Math.max(_meshPreprocess.viewDim, viewDim);
+    _meshPreprocess.rowCapacity = Math.max(_meshPreprocess.rowCapacity, rowCapacity);
+    _meshPreprocess.pairCount = _meshPreprocess.surfaceCount * _meshPreprocess.meshCount;
+    const records = _meshPreprocess.viewDim * _meshPreprocess.pairCount;
 
     const staleArgs: (DrawBuffer | AtomicU32Buffer | null)[] = [];
-    if (growMesh || growView || !_parts.drawArgs) {
-        staleArgs.push(_parts.drawArgs, _partGpu.counts);
-        _parts.drawArgs = world.gpu.root
+    if (growMesh || growView || !_meshDraws.drawArgs) {
+        staleArgs.push(_meshDraws.drawArgs, _meshPreprocess.counts);
+        _meshDraws.drawArgs = world.gpu.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
             .$usage("storage", "indirect")
             .$name("shallot-draw-args");
-        _partGpu.counts = world.gpu.root
+        _meshPreprocess.counts = world.gpu.root
             .createBuffer(d.arrayOf(d.atomic(d.u32), records))
             .$usage("storage")
-            .$name("shallot-part-counts");
+            .$name("shallot-mesh-preprocess-counts");
     }
 
     let stalePacked: InstanceBuffer | null = null;
-    if (growView || growRows || !_parts.packedEids) {
-        stalePacked = _parts.packedEids;
-        const listCapacity = _partGpu.viewDim * _partGpu.rowCapacity;
-        _parts.packedEids = world.gpu.root
+    if (growView || growRows || !_meshDraws.packedEids) {
+        stalePacked = _meshDraws.packedEids;
+        const listCapacity = _meshPreprocess.viewDim * _meshPreprocess.rowCapacity;
+        _meshDraws.packedEids = world.gpu.root
             .createBuffer(d.arrayOf(d.vec4u, listCapacity))
             .$usage("storage")
             .$name("shallot-packed-eids");
-        world.gpu.buffers.set("eids", world.gpu.root.unwrap(_parts.packedEids));
-        world.gpu.typed.set("eids", _parts.packedEids);
+        world.gpu.buffers.set("eids", world.gpu.root.unwrap(_meshDraws.packedEids));
+        world.gpu.typed.set("eids", _meshDraws.packedEids);
     }
 
     // meshBounds is indexed by mesh id — rebuild only when a mesh registers
     let staleBounds: Vec4fBuffer | null = null;
-    if (growMesh || !_partGpu.meshBounds) {
-        staleBounds = _partGpu.meshBounds;
-        _partGpu.meshBounds = writeMeshBounds(world, device);
+    if (growMesh || !_meshPreprocess.meshBounds) {
+        staleBounds = _meshPreprocess.meshBounds;
+        _meshPreprocess.meshBounds = writeMeshBounds(world, device);
     }
 
     unbind(world);
@@ -473,14 +482,14 @@ function syncBuffers(world: World): void {
  * always-visible rather than wrongly culling it
  */
 function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
-    const _partGpu = world.resource(partGpuKey);
+    const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshes = world.resource(Meshes);
 
     const buffer = world.gpu.root
-        .createBuffer(d.arrayOf(d.vec4f, _partGpu.meshCount))
+        .createBuffer(d.arrayOf(d.vec4f, _meshPreprocess.meshCount))
         .$usage("storage")
         .$name("shallot-mesh-bounds");
-    const data = new Float32Array(_partGpu.meshCount * 4);
+    const data = new Float32Array(_meshPreprocess.meshCount * 4);
     for (const m of _meshes) {
         const id = _meshes.id(m.name)!;
         if (m.bounds) data.set(m.bounds, id * 4);
@@ -501,7 +510,7 @@ type DrawRecord = {
     firstInstance: number;
 };
 
-export function publishPartDraws(
+export function publishMeshInstanceDraws(
     world: World,
     drawArgs: DrawBuffer,
     surfaceCount: number,
@@ -537,7 +546,7 @@ export function publishPartDraws(
             };
             writes.push({ offset, args });
             draws.register({
-                name: `part:${surface.name}:${m.name}`,
+                name: `mesh:${surface.name}:${m.name}`,
                 surface: surface.name,
                 mesh: m.name,
                 args: { indirect: drawArgs, offset, viewStride },
@@ -548,22 +557,22 @@ export function publishPartDraws(
 }
 
 function registerDraws(world: World): void {
-    const _parts = world.resource(MeshDrawBuffers);
-    const _partGpu = world.resource(partGpuKey);
+    const _meshDraws = world.resource(MeshDrawBuffers);
+    const _meshPreprocess = world.resource(meshPreprocessKey);
 
-    if (!world.gpu.device || !_parts.drawArgs || _partGpu.pairCount === 0) return;
-    const viewStride = _partGpu.pairCount * DRAW_ARG_STRIDE;
-    for (const { offset, args } of publishPartDraws(
+    if (!world.gpu.device || !_meshDraws.drawArgs || _meshPreprocess.pairCount === 0) return;
+    const viewStride = _meshPreprocess.pairCount * DRAW_ARG_STRIDE;
+    for (const { offset, args } of publishMeshInstanceDraws(
         world,
-        _parts.drawArgs,
-        _partGpu.surfaceCount,
-        _partGpu.pairCount,
+        _meshDraws.drawArgs,
+        _meshPreprocess.surfaceCount,
+        _meshPreprocess.pairCount,
     )) {
         const bytes = new ArrayBuffer(DRAW_ARG_STRIDE);
         writeToArrayBuffer(bytes, DrawIndexedIndirect, args);
-        for (let slot = 0; slot < _partGpu.viewDim; slot++) {
+        for (let slot = 0; slot < _meshPreprocess.viewDim; slot++) {
             world.gpu.device.queue.writeBuffer(
-                world.gpu.root.unwrap(_parts.drawArgs),
+                world.gpu.root.unwrap(_meshDraws.drawArgs),
                 slot * viewStride + offset,
                 bytes,
             );
@@ -572,7 +581,7 @@ function registerDraws(world: World): void {
 }
 
 /** Reset cached bind groups for a newly built world. */
-export function initPart(world: World): void {
+export function initMeshPreprocess(world: World): void {
     unbind(world);
 }
 
@@ -586,59 +595,59 @@ export function initPart(world: World): void {
  * (`syncBuffers`), not here: neither `Meshes.size` nor the camera count is
  * final at warm
  */
-export function warmPart(world: World): void {
-    const _partGpu = world.resource(partGpuKey);
-    const _parts = world.resource(MeshDrawBuffers);
+export function warmMeshPreprocess(world: World): void {
+    const _meshPreprocess = world.resource(meshPreprocessKey);
+    const _meshDraws = world.resource(MeshDrawBuffers);
 
     if (!world.gpu.device) return;
     const root = world.gpu.root;
-    _partGpu.surfaceCount = world.resource(Surfaces).size;
-    _partGpu.meshCount = 0;
-    _partGpu.pairCount = 0;
-    _partGpu.viewDim = 1;
-    _parts.drawArgs = null;
-    _parts.packedEids = null;
-    _partGpu.counts = null;
-    _partGpu.meshBounds = null;
-    _partGpu.rowCapacity = 0;
-    _partGpu.inputGeneration.fill(-1);
-    _partGpu.paramsViewCount = -1;
-    _partGpu.paramsPairCount = -1;
-    _partGpu.paramsPartCount = -1;
-    _partGpu.paramsPartCapacity = -1;
+    _meshPreprocess.surfaceCount = world.resource(Surfaces).size;
+    _meshPreprocess.meshCount = 0;
+    _meshPreprocess.pairCount = 0;
+    _meshPreprocess.viewDim = 1;
+    _meshDraws.drawArgs = null;
+    _meshDraws.packedEids = null;
+    _meshPreprocess.counts = null;
+    _meshPreprocess.meshBounds = null;
+    _meshPreprocess.rowCapacity = 0;
+    _meshPreprocess.inputGeneration.fill(-1);
+    _meshPreprocess.paramsViewCount = -1;
+    _meshPreprocess.paramsPairCount = -1;
+    _meshPreprocess.paramsInstanceCount = -1;
+    _meshPreprocess.paramsInstanceCapacity = -1;
     unbind(world);
 
-    _partGpu.cullParams = root
+    _meshPreprocess.cullParams = root
         .createBuffer(CullParams)
         .$usage("uniform")
-        .$name("shallot-part-cull-params");
-    if (_partGpu.surfaceCount === 0) return;
+        .$name("shallot-mesh-preprocess-cull-params");
+    if (_meshPreprocess.surfaceCount === 0) return;
 
-    _partGpu.countPipe = root
-        .createComputePipeline({ compute: countKernel(_partGpu.surfaceCount) })
-        .$name("shallot-part-count");
-    _partGpu.scanPipe = root
+    _meshPreprocess.countPipe = root
+        .createComputePipeline({ compute: countKernel(_meshPreprocess.surfaceCount) })
+        .$name("shallot-mesh-preprocess-count");
+    _meshPreprocess.scanPipe = root
         .createComputePipeline({ compute: scanKernel() })
-        .$name("shallot-part-scan");
-    _partGpu.scatterPipe = root
-        .createComputePipeline({ compute: scatterKernel(_partGpu.surfaceCount) })
-        .$name("shallot-part-scatter");
+        .$name("shallot-mesh-preprocess-scan");
+    _meshPreprocess.scatterPipe = root
+        .createComputePipeline({ compute: scatterKernel(_meshPreprocess.surfaceCount) })
+        .$name("shallot-mesh-preprocess-scatter");
 
     // both the allocation and the bind are deferred into the forcers, not done here. The drain runs
     // after every plugin's warm has resolved (warm hooks run under `Promise.all`), which is the first
     // moment meshes, dense table buffers, the transform lookup, and cull volumes are published — so
     // `syncBuffers` can size the pack's buffers there, and the pipeline that forces the compile has
     // something to bind. One forcer per pipeline, so each gets its own row in the compile table
-    precompile(world, "shallot-part-count", () => {
+    precompile(world, "shallot-mesh-preprocess-count", () => {
         syncBuffers(world);
         const bound = bindCount(world);
         return bound && [bound.pipeline];
     });
-    precompile(world, "shallot-part-scan", () => {
+    precompile(world, "shallot-mesh-preprocess-scan", () => {
         const bound = bindScan(world);
         return bound && [bound.pipeline];
     });
-    precompile(world, "shallot-part-scatter", () => {
+    precompile(world, "shallot-mesh-preprocess-scatter", () => {
         const bound = bindScatter(world);
         return bound && [bound.pipeline];
     });

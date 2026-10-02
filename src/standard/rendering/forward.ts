@@ -120,7 +120,7 @@ import {
     updatePointShadows,
 } from "./shadows";
 
-interface SearState {
+interface StandardRendererState {
     warned: Set<string>;
     frameDraws: FrameDraw[];
     frameCount: number;
@@ -133,9 +133,9 @@ interface SearState {
     pointFrames: PointShadowFrame[];
 }
 
-const searStateKey = { create: createSearState };
+const standardRendererStateKey = { create: createStandardRendererState };
 
-function createSearState(): SearState {
+function createStandardRendererState(): StandardRendererState {
     return {
         warned: new Set(),
         frameDraws: [],
@@ -160,8 +160,8 @@ function createSearState(): SearState {
     };
 }
 
-function _searState(world: World): SearState {
-    return world.resource(searStateKey);
+function _standardRendererState(world: World): StandardRendererState {
+    return world.resource(standardRendererStateKey);
 }
 
 /**
@@ -213,10 +213,10 @@ export const CameraBackground = {
 // unpublished resource. Warn once per draw so it's visible without spamming
 
 function warnSkip(world: World, draw: string, cause: string): null {
-    const _searState = world.resource(searStateKey);
+    const _standardRendererState = world.resource(standardRendererStateKey);
 
-    if (!_searState.warned.has(draw)) {
-        _searState.warned.add(draw);
+    if (!_standardRendererState.warned.has(draw)) {
+        _standardRendererState.warned.add(draw);
         console.warn(`standard: draw "${draw}" skipped — ${cause}`);
     }
     return null;
@@ -500,7 +500,7 @@ function recordSurface(
     return entry.item;
 }
 
-// the frame's resolved draws (the first `_sear.frameCount`), resolved once by ResolveDrawsSystem and shared across
+// the frame's resolved draws (the first `_standardRendererState.frameCount`), resolved once by ResolveDrawsSystem and shared across
 // the prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving
 // per-pass (the old 3×) was wasted work
 
@@ -508,21 +508,21 @@ function recordSurface(
  * the frame's draw list: every registered {@link Draw} with a compiled surface + published
  * bindings, paired with its cached group-0 state. Camera-independent (the per-slot bind groups it builds
  * against are cached lazily by slot, not baked per camera), so {@link PrepassSystem}
- * resolves it once per frame into `_sear.frameDraws` and the prepass, shadow map, and color pass all
+ * resolves it once per frame into `_standardRendererState.frameDraws` and the prepass, shadow map, and color pass all
  * render every camera against that one list
  */
 function resolveDraws(world: World, capacity: number): void {
-    world.resource(searStateKey).frameCount = 0;
+    world.resource(standardRendererStateKey).frameCount = 0;
     world.resource(Draws).forEach((draw) => {
         resolveDraw(world, draw, capacity);
     });
 }
 
 function resolveDraw(world: World, draw: Draw, capacity: number): void {
-    const _searState = world.resource(searStateKey);
+    const _standardRendererState = world.resource(standardRendererStateKey);
 
     const item = record(world, draw, capacity);
-    if (item) _searState.frameDraws[_searState.frameCount++] = item;
+    if (item) _standardRendererState.frameDraws[_standardRendererState.frameCount++] = item;
 }
 
 /**
@@ -546,7 +546,7 @@ function renderPrepass(
     pass: GPURenderPassEncoder,
 ): void {
     const _render = world.resource(RenderContext);
-    const _searState = world.resource(searStateKey);
+    const _standardRendererState = world.resource(standardRendererStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
     const key = laneKey(lanes);
@@ -559,7 +559,7 @@ function renderPrepass(
         const pipe = r.t.prepass.get(key);
         const group = tagLane ? (r.g.tag ?? r.g.depth) : r.g.depth;
         if (pipe && group) {
-            const step = bundleDraw(_searState.prepassProgram, draws);
+            const step = bundleDraw(_standardRendererState.prepassProgram, draws);
             step.pipeline = boundPipeline(r.g, pipe, group, true, r.index) as never;
             step.layout0 = engineLayout;
             step.group0 = engineGroup(world, r.g.engineCache, view.slot, r.g.quant);
@@ -574,16 +574,29 @@ function renderPrepass(
     }
     // the prepass runs only for a camera carrying a lane marker; its lane set, and so its attachment
     // shape, is per camera, so each camera keeps its own recording
-    let bundle = _searState.prepassBundles.get(eid);
+    let bundle = _standardRendererState.prepassBundles.get(eid);
     if (!bundle) {
         bundle = newPassBundle();
-        _searState.prepassBundles.set(eid, bundle);
+        _standardRendererState.prepassBundles.set(eid, bundle);
     }
-    _searState.prepassBundleDesc.colorFormats.length = 0;
+    _standardRendererState.prepassBundleDesc.colorFormats.length = 0;
     for (let l = 0; l < lanes.length; l++)
-        _searState.prepassBundleDesc.colorFormats.push(lanes[l].format);
-    if (bundleChanged(bundle, _searState.prepassProgram, draws, _searState.prepassBundleDesc)) {
-        recordBundle(world, bundle, _searState.prepassProgram, draws, _searState.prepassBundleDesc);
+        _standardRendererState.prepassBundleDesc.colorFormats.push(lanes[l].format);
+    if (
+        bundleChanged(
+            bundle,
+            _standardRendererState.prepassProgram,
+            draws,
+            _standardRendererState.prepassBundleDesc,
+        )
+    ) {
+        recordBundle(
+            world,
+            bundle,
+            _standardRendererState.prepassProgram,
+            draws,
+            _standardRendererState.prepassBundleDesc,
+        );
     }
     if (bundle.bundle) pass.executeBundles(bundle.replay);
     world.gpu.indirect?.("standard:prepass", draws);
@@ -683,7 +696,7 @@ function renderColor(
     bg: BackdropPick | null = null,
 ): void {
     const _render = world.resource(RenderContext);
-    const _searState = world.resource(searStateKey);
+    const _standardRendererState = world.resource(standardRendererStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the Camera registration default), else
@@ -700,7 +713,15 @@ function renderColor(
         if (!aa) ensureSingle(world, item.r.t);
         const pipe = !transparent ? (aa ? item.r.t.color : item.r.t.single?.color) : null;
         if (pipe) {
-            drawColor(world, _searState.colorProgram, draws++, item, pipe, view.slot, shadow);
+            drawColor(
+                world,
+                _standardRendererState.colorProgram,
+                draws++,
+                item,
+                pipe,
+                view.slot,
+                shadow,
+            );
             indirect++;
         }
     }
@@ -714,7 +735,7 @@ function renderColor(
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
         const group = backgroundGroup(world, bg.bg, bg.ct);
         if (group) {
-            const step = bundleDraw(_searState.colorProgram, draws++);
+            const step = bundleDraw(_standardRendererState.colorProgram, draws++);
             step.pipeline = (aa ? bg.ct.color : bg.ct.single) as never;
             step.layout0 = engineLayout;
             step.group0 = engineGroup(world, bg.ct.engineCache, view.slot, bgQuant(world));
@@ -734,21 +755,42 @@ function renderColor(
                 : item.r.t.single?.transparent
             : null;
         if (pipe) {
-            drawColor(world, _searState.colorProgram, draws++, item, pipe, view.slot, shadow);
+            drawColor(
+                world,
+                _standardRendererState.colorProgram,
+                draws++,
+                item,
+                pipe,
+                view.slot,
+                shadow,
+            );
             indirect++;
         }
     }
 
     const bundleKey = eid * 2 + Number(transparent);
-    let pass = _searState.colorBundles.get(bundleKey);
+    let pass = _standardRendererState.colorBundles.get(bundleKey);
     if (!pass) {
         pass = newPassBundle();
-        _searState.colorBundles.set(bundleKey, pass);
+        _standardRendererState.colorBundles.set(bundleKey, pass);
     }
-    _searState.colorBundleDesc.colorFormats[0] = _render.format;
-    _searState.colorBundleDesc.sampleCount = aa ? SAMPLE_COUNT : 1;
-    if (bundleChanged(pass, _searState.colorProgram, draws, _searState.colorBundleDesc)) {
-        recordBundle(world, pass, _searState.colorProgram, draws, _searState.colorBundleDesc);
+    _standardRendererState.colorBundleDesc.colorFormats[0] = _render.format;
+    _standardRendererState.colorBundleDesc.sampleCount = aa ? SAMPLE_COUNT : 1;
+    if (
+        bundleChanged(
+            pass,
+            _standardRendererState.colorProgram,
+            draws,
+            _standardRendererState.colorBundleDesc,
+        )
+    ) {
+        recordBundle(
+            world,
+            pass,
+            _standardRendererState.colorProgram,
+            draws,
+            _standardRendererState.colorBundleDesc,
+        );
     }
 
     if (pass.bundle) encoded.executeBundles(pass.replay);
@@ -761,7 +803,7 @@ function renderColor(
 
 // the StandardRenderer camera query terms, and the point caster frames `ShadowCameraSystem` ranks into (a capacity pool
 // `updatePointShadows` grows and rewrites in place)
-const SEAR_CAMERAS = [Camera, StandardRenderer];
+const STANDARD_RENDERER_CAMERAS = [Camera, StandardRenderer];
 
 /**
  * compile the forward pipelines for every registered surface, sharing one shader module: a 4× MSAA
@@ -776,12 +818,16 @@ const SEAR_CAMERAS = [Camera, StandardRenderer];
  * GPU resources standard owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
  * params buffer — `./atlas`), surviving HMR re-warms
  */
-async function prepareSear(world: World, device: GPUDevice, capacity: number): Promise<void> {
+async function prepareStandardRenderer(
+    world: World,
+    device: GPUDevice,
+    capacity: number,
+): Promise<void> {
     // the caster count + atlas size fold into the shadow WGSL at its first resolve and the uniforms below
     // size from the same schemas, so a config mutated between builds is a hard error, not a silent mismatch
     checkShadowConfig();
     resetPipelineCaches(world);
-    world.resource(searStateKey).warned.clear();
+    world.resource(standardRendererStateKey).warned.clear();
     resetShadowAtlas(world, device);
     // the lazily-allocated packed list binds at each atlas pipeline's `eids` lane, so allocating it clears
     // the resolved-bind-group cache to rebuild with it
@@ -816,15 +862,15 @@ const ShadowCameraSystem: System = {
     name: "shadow-camera",
     group: "simulation",
     update(world) {
-        const _searState = world.resource(searStateKey);
+        const _standardRendererState = world.resource(standardRendererStateKey);
 
         let main = -1;
-        for (const eid of world.query(SEAR_CAMERAS)) {
+        for (const eid of world.query(STANDARD_RENDERER_CAMERAS)) {
             main = eid;
             break;
         }
-        const casters = updatePointShadows(world, main, _searState.pointFrames);
-        setPointFrames(world, _searState.pointFrames, casters);
+        const casters = updatePointShadows(world, main, _standardRendererState.pointFrames);
+        setPointFrames(world, _standardRendererState.pointFrames, casters);
         updateCascades(world, main);
         // allocate each atlas's re-gather list here, before record() (PrepassSystem) builds the cast bind
         // groups that bind it — so the first casting frame's groups include it (the alloc clears the
@@ -840,7 +886,7 @@ const ShadowCameraSystem: System = {
 /**
  * render the casters' depth into the shadow atlases (the point/spot tiles + the CSM cascades) and publish the
  * seams for standard's color pass to sample inline. `after: [PrepassSystem]` so every position-writing producer
- * (pinned before the anchor) has emitted and `_sear.frameDraws` is resolved; `before: [MainPassSystem]` so the
+ * (pinned before the anchor) has emitted and `_standardRendererState.frameDraws` is resolved; `before: [MainPassSystem]` so the
  * atlases + seams are ready before standard shades. No casting light → no pass, standard falls back to fully lit.
  * Bevy's shape: the shadow maps are light-data-gated, sampled inline, no separate shadow plugin
  */
@@ -850,15 +896,20 @@ const ShadowMapSystem: System = {
     after: [PrepassSystem],
     before: [MainPassSystem],
     update(world) {
-        const _searState = world.resource(searStateKey);
+        const _standardRendererState = world.resource(standardRendererStateKey);
 
         renderPointShadows(
             world,
-            _searState.frameDraws,
-            _searState.frameCount,
+            _standardRendererState.frameDraws,
+            _standardRendererState.frameCount,
             world.entityHighWater,
         );
-        renderCascades(world, _searState.frameDraws, _searState.frameCount, world.entityHighWater);
+        renderCascades(
+            world,
+            _standardRendererState.frameDraws,
+            _standardRendererState.frameCount,
+            world.entityHighWater,
+        );
     },
 };
 
@@ -948,7 +999,7 @@ const typedVertexFs = tgpu.fn(
 
 // Standard owns shadow atlases and their params; core releases view targets.
 // destroyCascades tears down the off-screen Camera entities separately.
-function disposeSear(world: World): void {
+function disposeStandardRenderer(world: World): void {
     disposeShadowAtlas(world);
 }
 
@@ -983,12 +1034,12 @@ export const StandardRenderingPlugin: Plugin = {
         world.resource(RenderPhases).push({
             prepass(world, eid, view, pass, lanes) {
                 if (!world.has(eid, StandardRenderer)) return;
-                const state = world.resource(searStateKey);
+                const state = world.resource(standardRendererStateKey);
                 renderPrepass(world, eid, view, state.frameDraws, state.frameCount, lanes, pass);
             },
             opaque(world, eid, view, pass) {
                 if (!world.has(eid, StandardRenderer)) return;
-                const state = world.resource(searStateKey);
+                const state = world.resource(standardRendererStateKey);
                 renderColor(
                     world,
                     eid,
@@ -1002,7 +1053,7 @@ export const StandardRenderingPlugin: Plugin = {
             },
             transparent(world, eid, view, pass) {
                 if (!world.has(eid, StandardRenderer)) return;
-                const state = world.resource(searStateKey);
+                const state = world.resource(standardRendererStateKey);
                 renderColor(world, eid, view, state.frameDraws, state.frameCount, pass, true);
             },
         });
@@ -1018,7 +1069,7 @@ export const StandardRenderingPlugin: Plugin = {
         world.resource(Surfaces).clear();
         world.resource(Backgrounds).clear();
         world.resource(Draws).clear();
-        world.resource(searStateKey);
+        world.resource(standardRendererStateKey);
         initializeShadowAtlasState(world);
         initializePipelineState(world);
         initializeRegatherState(world);
@@ -1054,12 +1105,12 @@ export const StandardRenderingPlugin: Plugin = {
         if (!world.gpu.device) return;
         warmClusters(world);
         warmLightCull(world);
-        await prepareSear(world, world.gpu.device, world.entityHighWater);
+        await prepareStandardRenderer(world, world.gpu.device, world.entityHighWater);
     },
 
     dispose(world) {
         destroyPointShadows(world);
         destroyCascades(world);
-        disposeSear(world);
+        disposeStandardRenderer(world);
     },
 };

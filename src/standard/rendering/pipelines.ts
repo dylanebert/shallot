@@ -340,7 +340,7 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
         globalTransforms: any[];
         globalTransformRows: any[];
         partRowMap: any[];
-        partInputs: any[];
+        meshInstances: any[];
     };
     return tgpu
         .fn(
@@ -362,11 +362,11 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
             if (instanced) {
                 const instance = bound.eids[iid];
                 eid = instance.x;
-                const partEncoded = instance.z;
-                if (partEncoded !== 0) {
-                    const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
-                    material = d.vec4f(engineLayout.$.materials[part.material].params);
+                const encodedMeshInstance = instance.z;
+                if (encodedMeshInstance !== 0) {
+                    const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
+                    color = d.vec4f(engineLayout.$.materials[meshInstance.material].baseColor);
+                    material = d.vec4f(engineLayout.$.materials[meshInstance.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
@@ -595,7 +595,7 @@ function typedPrepassVs(surface: AnySurface) {
         globalTransforms: any[];
         globalTransformRows: any[];
         partRowMap: any[];
-        partInputs: any[];
+        meshInstances: any[];
     };
     return tgpu
         .vertexFn({
@@ -621,11 +621,11 @@ function typedPrepassVs(surface: AnySurface) {
             if (instanced) {
                 const instance = bound.eids[input.iid];
                 eid = instance.x;
-                const partEncoded = instance.z;
-                if (partEncoded !== 0) {
-                    const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
-                    material = d.vec4f(engineLayout.$.materials[part.material].params);
+                const encodedMeshInstance = instance.z;
+                if (encodedMeshInstance !== 0) {
+                    const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
+                    color = d.vec4f(engineLayout.$.materials[meshInstance.material].baseColor);
+                    material = d.vec4f(engineLayout.$.materials[meshInstance.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
@@ -678,7 +678,7 @@ function typedTagVs(surface: AnySurface) {
         globalTransforms: any[];
         globalTransformRows: any[];
         partRowMap: any[];
-        partInputs: any[];
+        meshInstances: any[];
     };
     return tgpu
         .vertexFn({
@@ -706,11 +706,11 @@ function typedTagVs(surface: AnySurface) {
             if (instanced) {
                 const instance = bound.eids[input.iid];
                 eid = instance.x;
-                const partEncoded = instance.z;
-                if (partEncoded !== 0) {
-                    const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
-                    material = d.vec4f(engineLayout.$.materials[part.material].params);
+                const encodedMeshInstance = instance.z;
+                if (encodedMeshInstance !== 0) {
+                    const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
+                    color = d.vec4f(engineLayout.$.materials[meshInstance.material].baseColor);
+                    material = d.vec4f(engineLayout.$.materials[meshInstance.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
@@ -1039,11 +1039,11 @@ ${
     instanced
         ? `    let instance = bound.eids[in.iid];
     eid = instance.x;
-    let partEncoded = instance.z;
-    if (partEncoded != 0u) {
-        let part = bound.partInputs[partEncoded - 1u];
-        color = engine.materials[part.material].baseColor;
-        material = engine.materials[part.material].params;
+    let encodedMeshInstance = instance.z;
+    if (encodedMeshInstance != 0u) {
+        let meshInstance = bound.meshInstances[encodedMeshInstance - 1u];
+        color = engine.materials[meshInstance.material].baseColor;
+        material = engine.materials[meshInstance.material].params;
     }
     xform = bound.globalTransforms[instance.y];
     world = vec4f(xformPoint(xform, world.xyz), world.w);
@@ -1690,7 +1690,7 @@ function typedShadowVs(
         globalTransforms: any[];
         globalTransformRows: any[];
         partRowMap: any[];
-        partInputs: any[];
+        meshInstances: any[];
     };
     const shadowBound = shadowGroup.$ as unknown as {
         faceVP: { m: any[] };
@@ -1715,11 +1715,11 @@ function typedShadowVs(
             const combo = instance.w;
             let color = d.vec4f(1);
             let material = d.vec4f(0, 1, 0, 1);
-            const partEncoded = instance.z;
-            if (partEncoded !== 0) {
-                const part = bound.partInputs[partEncoded - 1];
-                color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
-                material = d.vec4f(engineLayout.$.materials[part.material].params);
+            const encodedMeshInstance = instance.z;
+            if (encodedMeshInstance !== 0) {
+                const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
+                color = d.vec4f(engineLayout.$.materials[meshInstance.material].baseColor);
+                material = d.vec4f(engineLayout.$.materials[meshInstance.material].params);
             }
             const xform = Xform(bound.globalTransforms[instance.y]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
@@ -1783,7 +1783,7 @@ function typedClipShadowVertex(
         globalTransforms: any[];
         globalTransformRows: any[];
         partRowMap: any[];
-        partInputs: any[];
+        meshInstances: any[];
     };
     const shadowBound = shadowGroup.$ as unknown as {
         faceVP: { m: any[] };
@@ -1806,11 +1806,11 @@ function typedClipShadowVertex(
             const combo = instance.w;
             let color = d.vec4f(1);
             let material = d.vec4f(0, 1, 0, 1);
-            const partEncoded = instance.z;
-            if (partEncoded !== 0) {
-                const part = bound.partInputs[partEncoded - 1];
-                color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
-                material = d.vec4f(engineLayout.$.materials[part.material].params);
+            const encodedMeshInstance = instance.z;
+            if (encodedMeshInstance !== 0) {
+                const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
+                color = d.vec4f(engineLayout.$.materials[meshInstance.material].baseColor);
+                material = d.vec4f(engineLayout.$.materials[meshInstance.material].params);
             }
             const xform = Xform(bound.globalTransforms[instance.y]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
@@ -1999,13 +1999,13 @@ function varyingShadowVs(
     let instance = bound.eids[iid];
     let eid = instance.x;
     let combo = instance.w;
-    let partEncoded = instance.z;
+    let encodedMeshInstance = instance.z;
     var color = vec4f(1.0);
     var material = vec4f(0.0, 1.0, 0.0, 1.0);
-    if (partEncoded != 0u) {
-        let part = bound.partInputs[partEncoded - 1u];
-        color = engine.materials[part.material].baseColor;
-        material = engine.materials[part.material].params;
+    if (encodedMeshInstance != 0u) {
+        let meshInstance = bound.meshInstances[encodedMeshInstance - 1u];
+        color = engine.materials[meshInstance.material].baseColor;
+        material = engine.materials[meshInstance.material].params;
     }
     let xform = bound.globalTransforms[instance.y];
     var world = vec4f(xformPoint(xform, localPos), 1.0);

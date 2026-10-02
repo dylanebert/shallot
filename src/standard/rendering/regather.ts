@@ -126,7 +126,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }`,
     });
 
-/** compile the shared A/B re-gather pipelines once (idempotent): called from `prepareSear`, folded into its
+/** compile the shared A/B re-gather pipelines once (idempotent): called from `prepareStandardRenderer`, folded into its
  * warm `Promise.all`. Every {@link Regather} instance in this World uses these layouts. */
 export async function prepareRegather(
     world: World,

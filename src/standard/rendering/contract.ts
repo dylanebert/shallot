@@ -139,7 +139,7 @@ export const MeshInstanceInput = d
         flags: d.u32,
     })
     .$name("MeshInstanceInput");
-const partInputsEntry = {
+const meshInstancesEntry = {
     storage: d.arrayOf(MeshInstanceInput),
     access: "readonly" as const,
     visibility: VS_FS,
@@ -151,13 +151,13 @@ const partInputsEntry = {
  *  between them per pass, the same way `uniformWgsl(pass)` does today. */
 export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<
     { [K in keyof B]: EntryFor<B[K]> } & {
-        partInputs: typeof partInputsEntry;
+        meshInstances: typeof meshInstancesEntry;
         vertices: typeof verticesColor;
     }
 > & {
     readonly depthVariant: TgpuBindGroupLayout<
         { [K in keyof B]: EntryFor<B[K]> } & {
-            partInputs: typeof partInputsEntry;
+            meshInstances: typeof meshInstancesEntry;
             vertices: typeof verticesDepth;
         }
     >;
@@ -189,14 +189,14 @@ export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): S
     const color = tgpu
         .bindGroupLayout({
             ...own,
-            partInputs: partInputsEntry,
+            meshInstances: meshInstancesEntry,
             vertices: verticesColor,
         })
         .$idx(SURFACE_GROUP);
     const depth = tgpu
         .bindGroupLayout({
             ...own,
-            partInputs: partInputsEntry,
+            meshInstances: meshInstancesEntry,
             vertices: verticesDepth,
         })
         .$idx(SURFACE_GROUP);

@@ -21,7 +21,7 @@ import { fsCtxSchema, registerSurface, Surfaces, surfaceLayout } from "./contrac
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
 import { Materials, MeshMaterial, materialTable, StandardMaterial } from "./material";
-import { MeshRenderPlugin } from "./part-plugin";
+import { MeshRenderPlugin } from "./mesh-render";
 
 setDefaultTimeout(CEILING.node);
 const cutout: Plugin = {

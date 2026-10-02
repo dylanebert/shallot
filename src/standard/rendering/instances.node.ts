@@ -8,7 +8,7 @@ import { MeshInstance } from "../../core/mesh";
 import { createApp, globalTransformTable, Transform } from "../../engine";
 import { Surfaces } from "./contract";
 import { Materials, MeshMaterial, StandardMaterial } from "./material";
-import { partTable } from "./part";
+import { meshInstanceTable } from "./preprocess";
 import { Draws } from "./registry";
 import "../../standard";
 
@@ -52,8 +52,8 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
         world.add(b, MeshInstance);
         world.add(a, MeshInstance);
         const globalTransforms = globalTransformTable(world);
-        const parts = partTable(world);
-        expect(globalTransforms.rowIndex(b)).not.toBe(parts.rowIndex(b));
+        const meshInstances = meshInstanceTable(world);
+        expect(globalTransforms.rowIndex(b)).not.toBe(meshInstances.rowIndex(b));
         device.pushErrorScope("validation");
         world.step();
         const instances = world.gpu.buffers.get("eids");
@@ -69,7 +69,12 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
             (x, y) => x[0]! - y[0]!,
         );
         expect(records).toEqual(
-            [a, b].map((eid) => [eid, globalTransforms.rowIndex(eid), parts.rowIndex(eid) + 1, 0]),
+            [a, b].map((eid) => [
+                eid,
+                globalTransforms.rowIndex(eid),
+                meshInstances.rowIndex(eid) + 1,
+                0,
+            ]),
         );
         readback.unmap();
     } finally {

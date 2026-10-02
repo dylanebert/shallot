@@ -417,6 +417,7 @@ import { Xform } from "@dylanebert/shallot/utils";
 | `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material's id |
 | Root `PartPlugin` | Root or `/standard/rendering` `MeshRenderPlugin` |
 | `/part/core` `Parts` | Removed; mesh-instance packing is internal to `MeshRenderPlugin`. |
+| `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:<surface>:<mesh>`, `mesh:preprocess` |
 
 `StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuseWrap` 1. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(id, values)`; omitted fields retain their values. Set `world.storage(MeshMaterial).material` to switch an entity's material. Material ids belong to the World that added them.
 

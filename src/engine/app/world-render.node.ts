@@ -50,9 +50,13 @@ test("MeshInstance and StandardRenderer warm and compact a component-bound dense
         ).toBeNull();
         const packed = await probeBuffer(world, world.gpu.buffers.get("eids")!, { size: 4 });
         expect(new Uint32Array(packed.bytes)[0]).toBe(eid);
-        const active = await probeBuffer(world, world.gpu.buffers.get("partInputs:active-rows")!, {
-            size: 8,
-        });
+        const active = await probeBuffer(
+            world,
+            world.gpu.buffers.get("meshInstances:active-rows")!,
+            {
+                size: 8,
+            },
+        );
         const [activeEid, row] = new Uint32Array(active.bytes);
         expect(activeEid).toBe(eid);
         const recordSize = d.sizeOf(MeshInstanceInput);
@@ -60,7 +64,7 @@ test("MeshInstance and StandardRenderer warm and compact a component-bound dense
             MeshInstanceInput,
             (value) => value.material,
         ).offset;
-        const record = await probeBuffer(world, world.gpu.buffers.get("partInputs")!, {
+        const record = await probeBuffer(world, world.gpu.buffers.get("meshInstances")!, {
             offset: row * recordSize,
             size: recordSize,
         });

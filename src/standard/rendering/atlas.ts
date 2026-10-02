@@ -604,8 +604,8 @@ function cascadeGroup1Typed(world: World): GPUBindGroup {
 /**
  * (re)allocate every shadow-atlas GPU resource standard owns — the sun-shadow seam (comparison sampler, 1×1
  * fallback, the real params buffer), the point atlas's params/tile-rects/group-1 layout+buffers, and the
- * cascade atlas's group-1 buffers — the atlas half of `prepareSear` (the pipeline-compilation half is
- * `pipelines.ts`'s `preparePipelines`). Surviving HMR re-warms; called once per `prepareSear`, before the
+ * cascade atlas's group-1 buffers — the atlas half of `prepareStandardRenderer` (the pipeline-compilation half is
+ * `pipelines.ts`'s `preparePipelines`). Surviving HMR re-warms; called once per `prepareStandardRenderer`, before the
  * pipeline compiles that reference the TypeGPU layouts above.
  */
 export function resetShadowAtlas(world: World, device: GPUDevice): void {
@@ -743,7 +743,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
 
 /** free every shadow-atlas GPU resource standard owns (at plugin dispose): both atlases + their params/buffers,
  * the fallback + comparison sampler, and both re-gather instances. The per-camera prepass/color targets are
- * `forward.ts`'s own (`disposeSear`). */
+ * `forward.ts`'s own (`disposeStandardRenderer`). */
 export function disposeShadowAtlas(world: World): void {
     const _atlasState = world.resource(atlasStateKey);
 
