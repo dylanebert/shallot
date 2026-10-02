@@ -76,10 +76,10 @@ import {
     type Background,
     Backgrounds,
     fsCtxSchema,
+    registerSurface,
     type Surface,
     Surfaces,
-    surfaceLayout as typedLayout,
-    registerSurface as typedRegister,
+    surfaceLayout,
     VsIn,
     vsPatchSchema,
 } from "./contract";
@@ -259,10 +259,10 @@ function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
     return surface ? recordSurface(world, draw, surface, capacity) : null;
 }
 
-// resolve a typed layout's own bindings (never the standard-injected `vertices`) to live resources by the
+// resolve a layout's own bindings (never the standard-injected `vertices`) to live resources by the
 // entry's kind. Returns the createBindGroup value record + the identity list + each binding's name and the
 // registry it resolved from, or the missing binding's name
-function typedResources(
+function layoutResources(
     world: World,
     entries: Record<string, object>,
     override?: Record<string, BindResource>,
@@ -385,11 +385,7 @@ function recordSurface(
         try {
             t = compileSurface(world, surface, capacity);
         } catch (e) {
-            return warnSkip(
-                world,
-                draw.name,
-                `typed surface "${surface.name}" failed to compile: ${e}`,
-            );
+            return warnSkip(world, draw.name, `surface "${surface.name}" failed to compile: ${e}`);
         }
     }
 
@@ -403,7 +399,7 @@ function recordSurface(
         return prev.item;
     }
 
-    const resolved = typedResources(
+    const resolved = layoutResources(
         world,
         surface.layout.entries as Record<string, object>,
         mesh.bindings as Record<string, MeshBinding> | undefined,
@@ -588,7 +584,7 @@ function backdrop(world: World, eid: number): BackdropPick | null {
     return { bg, ct };
 }
 
-// build (and cache on the CompiledBackground) a typed background's own group-2 bind group — slot-invariant
+// build (and cache on the CompiledBackground) a background's own group-2 bind group — slot-invariant
 // (the per-slot View rides the engine group 0). Returns null while a binding is unpublished (skip); a
 // binding-free background carries no group at all (its empty layout never enters the pipeline layout)
 function backgroundGroup(
@@ -598,7 +594,7 @@ function backgroundGroup(
 ): GPUBindGroup | null | "none" {
     const entries = bg.layout.entries as Record<string, object>;
     if (Object.keys(entries).length === 0) return "none";
-    const resolved = typedResources(world, entries);
+    const resolved = layoutResources(world, entries);
     if (typeof resolved === "string") {
         return warnSkip(world, `background:${bg.name}`, `binding "${resolved}" not published`);
     }
@@ -699,8 +695,8 @@ function renderColor(
     // carries the shadow group 1 in its layout (unused) like every color pipeline, so the group bound at
     // the pass top survives the switch for the blend draws after it
     if (bg && !transparent) {
-        // a typed backdrop: the shared engine group 0 (a never-read `bgQuant()` fills the meshQuant
-        // slot — a background pulls no mesh), the typed shadow group 1 (declared-but-unused, the
+        // a backdrop: the shared engine group 0 (a never-read `bgQuant()` fills the meshQuant
+        // slot — a background pulls no mesh), the shadow group 1 (declared-but-unused, the
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
         const group = backgroundGroup(world, bg.bg, bg.ct);
         if (group) {
@@ -884,15 +880,15 @@ const ShadowMapSystem: System = {
 
 // the `default` and `vertex` surfaces' group 2 (`layout()`'s $idx(2) synthesis): `eids`, the
 // per-instance `vec4u` rows, and `globalTransforms`.
-const typedDefaultLayout = typedLayout({
+const defaultSurfaceLayout = surfaceLayout({
     eids: { type: "storage", element: d.vec4u },
     globalTransforms: { type: "storage", element: Xform },
 });
 
 // The shader scaffold resolves each MeshInstance's material id to linear base color and material lanes.
-// `litPbr` (`standard/engine.ts`) reads the fs-scaffold privates the typed pipeline
+// `litPbr` (`standard/engine.ts`) reads the fs-scaffold privates the pipeline
 // builder (`pipelines.ts`) fills before calling this.
-const typedDefaultFs = tgpu.fn(
+const defaultSurfaceFs = tgpu.fn(
     [fsCtxSchema()],
     d.vec4f,
 )((ctx) => {
@@ -911,13 +907,13 @@ const typedDefaultFs = tgpu.fn(
 });
 
 // the `unlit` surface's group 2: the same bindings as `default`'s, read without shading.
-const typedColorLayout = typedLayout({
+const unlitSurfaceLayout = surfaceLayout({
     eids: { type: "storage", element: d.vec4u },
     globalTransforms: { type: "storage", element: Xform },
 });
 
 // The unlit surface reads the resolved material's linear base color.
-const typedUnlitFs = tgpu.fn(
+const unlitSurfaceFs = tgpu.fn(
     [fsCtxSchema()],
     d.vec4f,
 )((ctx) => {
@@ -926,15 +922,15 @@ const typedUnlitFs = tgpu.fn(
 });
 
 // the `vertex` surface (per-vertex Gouraud): `litColor` crosses vs→fs as a custom
-// varying through the `typedVaryingVs`/`typedVaryingFs` copier pair (`pipelines.ts`), so this `vs` runs
+// varying through the `varyingVs`/`varyingFs` copier pair (`pipelines.ts`), so this `vs` runs
 // `litPbr` once per vertex. `sunVisibility`/`pointScale`/`fragWorld` sit at their defaults here (per-vertex
 // shading runs before the fs scaffold fills them), so it shades with a fully-lit sun and no point
 // contribution.
-const typedVertexVaryings = { litColor: d.vec3f };
-const typedVertexPatch = vsPatchSchema(typedVertexVaryings);
-const typedVertexVs = tgpu.fn(
+const vertexSurfaceVaryings = { litColor: d.vec3f };
+const vertexSurfacePatch = vsPatchSchema(vertexSurfaceVaryings);
+const vertexSurfaceVs = tgpu.fn(
     [VsIn],
-    typedVertexPatch,
+    vertexSurfacePatch,
 )((vsIn) => {
     "use gpu";
     const albedo = vsIn.color.xyz;
@@ -951,15 +947,15 @@ const typedVertexVs = tgpu.fn(
         litPbr(pbr, std.normalize(vsIn.worldNormal), vsIn.world.xyz),
         emissive,
     );
-    return typedVertexPatch({
+    return vertexSurfacePatch({
         world: vsIn.world,
         worldNormal: vsIn.worldNormal,
         clip: d.vec4f(0),
         litColor,
     });
 });
-const typedVertexFs = tgpu.fn(
-    [fsCtxSchema(typedVertexVaryings)],
+const vertexSurfaceFs = tgpu.fn(
+    [fsCtxSchema(vertexSurfaceVaryings)],
     d.vec4f,
 )((ctx) => {
     "use gpu";
@@ -1047,24 +1043,24 @@ export const StandardRenderingPlugin: Plugin = {
         resetPointShadows(world);
         resetCascades(world);
         // Dielectric reflectance stays zero to preserve Shallot's specular-free diffuse default.
-        typedRegister(world, {
+        registerSurface(world, {
             name: "default",
-            layout: typedDefaultLayout,
-            fs: typedDefaultFs,
+            layout: defaultSurfaceLayout,
+            fs: defaultSurfaceFs,
         });
         // standard's own varyings consumer (`litColor` crosses vs→fs through
-        // `typedVaryingVs`/`typedVaryingFs`'s per-surface copier, `pipelines.ts`).
-        typedRegister(world, {
+        // `varyingVs`/`varyingFs`'s per-surface copier, `pipelines.ts`).
+        registerSurface(world, {
             name: "vertex",
-            layout: typedDefaultLayout,
-            varyings: typedVertexVaryings,
-            vs: typedVertexVs,
-            fs: typedVertexFs,
+            layout: defaultSurfaceLayout,
+            varyings: vertexSurfaceVaryings,
+            vs: vertexSurfaceVs,
+            fs: vertexSurfaceFs,
         });
-        typedRegister(world, {
+        registerSurface(world, {
             name: "unlit",
-            layout: typedColorLayout,
-            fs: typedUnlitFs,
+            layout: unlitSurfaceLayout,
+            fs: unlitSurfaceFs,
         });
     },
 

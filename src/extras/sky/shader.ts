@@ -1,5 +1,5 @@
 // The procedural sky shader. The full view-ray recipe is one pure TGSL graph: production calls it from
-// the typed background with the Sky uniform + engine lighting, and unit tests call the same function on
+// the background with the Sky uniform + engine lighting, and unit tests call the same function on
 // the CPU. The background wrapper is the only resource-reading leaf.
 
 import tgpu from "typegpu";
@@ -302,7 +302,7 @@ const skyFs = tgpu
     })
     .$name("skyFs");
 
-/** the typed `sky` background registration. @internal */
+/** the `sky` background registration. @internal */
 export const skyBackground: Background<{ sky: { type: "uniform"; struct: typeof SkyGpu } }> = {
     name: "sky",
     layout: skyLayout,

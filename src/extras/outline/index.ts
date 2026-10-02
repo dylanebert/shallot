@@ -449,7 +449,7 @@ const OutlineSystem: System = {
 function prepareOutline(world: World): void {
     const _outlineState = world.resource(outlineStateKey);
 
-    // the JFA + composite layouts are the typed `jfaLayout` / `compositeLayout` in passes.ts — declared
+    // the JFA + composite layouts are the `jfaLayout` / `compositeLayout` in passes.ts — declared
     // beside the kernels that read them, bound by layout object, never by group index. Only the per-pass
     // step uniforms are this module's: rebuilt here (not reused) so a re-warm on a fresh device can't hold a
     // buffer from the old one, and the prior set is freed rather than leaked
@@ -477,7 +477,7 @@ function prepareOutline(world: World): void {
         .createComputePipeline({ compute: compositeKernel })
         .$name("outline-composite");
     // the two mask variants: same vs/fs shape over the plain / occlude layout (`maskVertex`/`maskFragment`
-    // re-emit per layout), splicing the already-typed `decodePos` /
+    // re-emit per layout), splicing the TGSL `decodePos` /
     // `xformPoint` real references (the resolve-call-graph precedent — no chunk splice needed)
     _outlineState.gpu.maskPlain = world.gpu.root
         .createRenderPipeline({
@@ -500,7 +500,7 @@ function prepareOutline(world: World): void {
 }
 
 /**
- * force the two typed pipelines to compile under the loading screen. typegpu creates pipelines
+ * force the two pipelines to compile under the loading screen. typegpu creates pipelines
  * synchronously, so Dawn defers the real compile — and the outline's passes run every frame a
  * highlight exists, which would put that stall on whichever frame the first hover lands. Their real bind
  * groups need per-camera targets that don't exist until a view attaches, so each forcer allocates its own

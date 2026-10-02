@@ -1,7 +1,7 @@
 // The renderer-neutral schema-backed surface/background contract. Layouts are created before their TGSL functions so
 // shader code can close over `layout.$.name`; registration binds exact spec identity to a World lifetime.
 //
-// Group split: a typed surface's own bindings + the standard-injected `vertices` slot pin
+// Group split: a surface's own bindings + the standard-injected `vertices` slot pin
 // to **group 2** (engine 0 / shadow-or-atlas 1 / surface 2) — `surfaceLayout()`'s `$idx(SURFACE_GROUP)`. The
 // `vertices` slot is pass-variant (color pass reads the 16 B main stream, prepass/shadow the 8 B
 // position-only stream, same physical slot) — `surfaceLayout()` synthesizes both variants; typegpu resolves only
@@ -28,7 +28,7 @@ type ShaderStage = "compute" | "vertex" | "fragment";
 /** the default visibility for an immutable surface resource. */
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
 
-/** group 2 (engine 0 / shadow-or-atlas 1 / surface 2) — where a typed surface's own
+/** group 2 (engine 0 / shadow-or-atlas 1 / surface 2) — where a surface's own
  *  bindings + the standard-injected `vertices` slot pin. */
 export const SURFACE_GROUP = 2;
 
@@ -56,7 +56,7 @@ export type Binding =
     | { type: "sampler" }
     | { type: "sampler-comparison" };
 
-/** the typed-layout entry a {@link Binding} converts to, discriminated the same way `Binding` itself is —
+/** the layout entry a {@link Binding} converts to, discriminated the same way `Binding` itself is —
  *  so `SurfaceLayout<B>['$'][K]` recovers the precise per-binding value type (`layout.$.items` reads as
  *  an array of the declared element, not the widened `TgpuLayoutEntry` union every case would collapse
  *  to). Mirrors {@link layoutEntry}'s runtime shape exactly. */
@@ -87,7 +87,7 @@ function layoutEntry<B extends Binding>(b: B): EntryFor<B> {
             return { uniform: b.struct, visibility: VS_FS } as EntryFor<B>;
         case "storage":
             return {
-                // a storage binding is always `array<element>` — the typed contract keeps that
+                // a storage binding is always `array<element>` — the contract keeps that
                 // shape, so a bound name reads an array
                 storage: d.arrayOf(b.element),
                 access: b.access === "read_write" ? ("mutable" as const) : ("readonly" as const),
@@ -131,7 +131,7 @@ const verticesDepth = {
 /** Per-draw instance: eid, Transform slot, MeshInstance slot + 1 (zero if absent), shadow combo. */
 export const InstanceInput = d.vec4u;
 
-/** Dense per-MeshInstance fields read by instanced typed surfaces. */
+/** Dense per-MeshInstance fields read by instanced surfaces. */
 export const MeshInstanceInput = d
     .struct({
         mesh: d.u32,
@@ -145,9 +145,9 @@ const meshInstancesEntry = {
     visibility: VS_FS,
 };
 
-/** a synthesized typed surface layout: group 2, a consumer's own bindings by name (`layout.$.name`) plus
+/** a synthesized surface layout: group 2, a consumer's own bindings by name (`layout.$.name`) plus
  *  the standard-injected `vertices` slot (color-pass shape). {@link depthVariant} is the same bindings at the
- *  same `$idx`, `vertices` swapped to the prepass/shadow shape — the typed pipeline builder selects
+ *  same `$idx`, `vertices` swapped to the prepass/shadow shape — the pipeline builder selects
  *  between them per pass, the same way `uniformWgsl(pass)` does today. */
 export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<
     { [K in keyof B]: EntryFor<B[K]> } & {
@@ -175,8 +175,8 @@ function ownEntries<B extends Record<string, Binding>>(
 }
 
 /**
- * step one of the two-step typed registration: synthesize a surface's group-2 layout
- * from its own bindings, so a typed `vs`/`fs` can close over `layout.$.name` while it's being authored —
+ * step one of the two-step registration: synthesize a surface's group-2 layout
+ * from its own bindings, so a `vs`/`fs` can close over `layout.$.name` while it's being authored —
  * before {@link registerSurface} exists to call. Layouts are shareable across surfaces declaring the same
  * bindings (sprite ×6 — register the same layout object on each).
  */
@@ -199,7 +199,7 @@ export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): S
     return Object.assign(color, { depthVariant: depth }) as SurfaceLayout<B>;
 }
 
-/** a synthesized typed background layout: group 2 (the same group a surface's own bindings pin to — the
+/** a synthesized background layout: group 2 (the same group a surface's own bindings pin to — the
  *  Backgrounds bindings lock), a background's own bindings by name (`layout.$.name`), through the SAME
  *  {@link layoutEntry} synthesis {@link surfaceLayout} uses — minus the `vertices` slot (a background pulls no
  *  mesh) and with no `depthVariant` (a background draws only in the color pass). */
@@ -208,9 +208,9 @@ export type BackgroundLayout<B extends Record<string, Binding>> = TgpuBindGroupL
 }>;
 
 /**
- * step one of a typed background's two-step registration, {@link surfaceLayout}'s twin for the Backgrounds seam:
+ * step one of a background's two-step registration, {@link surfaceLayout}'s twin for the Backgrounds seam:
  * synthesize a background's group-2 layout from its own
- * bindings, so its typed `fs` can close over `layout.$.name` while it's being authored.
+ * bindings, so its `fs` can close over `layout.$.name` while it's being authored.
  */
 export function backgroundLayout<B extends Record<string, Binding>>(
     bindings: B,
@@ -267,19 +267,19 @@ export function fsCtxSchema<V extends Record<string, AnyWgslData> = Record<strin
     });
 }
 
-/** a surface's typed vertex chunk: `VsIn` in, its own `vsPatchSchema(varyings)` out. Optional — a surface
+/** a surface's vertex chunk: `VsIn` in, its own `vsPatchSchema(varyings)` out. Optional — a surface
  *  with no `vs` leaves `world`/`worldNormal` at `VsIn`'s (the identity transform, or the instance
  *  transform's result). */
 export type VsFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
     (vsIn: typeof VsIn) => ReturnType<typeof vsPatchSchema<V>>
 >;
 
-/** a surface's typed fragment chunk: its own `fsCtxSchema(varyings)` in, the shaded RGBA out. */
+/** a surface's fragment chunk: its own `fsCtxSchema(varyings)` in, the shaded RGBA out. */
 export type FsFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
     (ctx: ReturnType<typeof fsCtxSchema<V>>) => d.Vec4f
 >;
 
-/** a surface's optional typed id-lane hook: the same fragment context as {@link FsFn}, plus the
+/** a surface's optional id-lane hook: the same fragment context as {@link FsFn}, plus the
  * renderer's default (`eid` for an instanced surface, the no-surface sentinel otherwise), returning
  * the u32 written to `view.pickingId`. */
 export type PickingIdFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
@@ -287,7 +287,7 @@ export type PickingIdFn<V extends Record<string, AnyWgslData> = Record<string, n
 >;
 
 /**
- * a surface authored against the typed contract: TGSL fns as the code (a synthesized `surfaceLayout()` is what
+ * a surface authored against the contract: TGSL fns as the code (a synthesized `surfaceLayout()` is what
  * lets `vs`/`fs` close over `layout.$.name`, the accessor chicken-egg {@link surfaceLayout} solves). Structural
  * facts (`blend`/`screen`) route the renderer, they're not code.
  */

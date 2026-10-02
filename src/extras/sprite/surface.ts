@@ -1,4 +1,4 @@
-// The typed sprite surface: six per-bucket registrations — (screen | y | world) billboard × (clip |
+// The sprite surface: six per-bucket registrations — (screen | y | world) billboard × (clip |
 // alpha) blend — sharing one `surfaceLayout`. Sprite adopts the
 // `eids`+`globalTransforms` instancing convention (its own layout declares both), so `VsIn.eid`/`VsIn.xform`
 // replace the hand-rolled `globalTransforms[spriteData[iid].eid]` lookup and the engine's instanced
@@ -141,7 +141,7 @@ function spriteVs(variant: (typeof VARIANTS)[number]) {
 // unlit icon shading: texture × sRGB-decoded tint, masked by the per-instance fill. Clip discards below
 // the 0.5 cutout (opacity shrinks the cutout); alpha has no discard. The uv override the string contract
 // authored in the vs (`uv = (localPos.x, 1 - localPos.y)`) needs no varying — it's a pure function of
-// `ctx.localPos`, which the typed ctx already carries.
+// `ctx.localPos`, which the ctx already carries.
 export function spriteFs(alpha: boolean) {
     return tgpu
         .fn(

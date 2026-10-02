@@ -1,4 +1,4 @@
-// The canonical typed engine substrate: the pass-invariant group-0 layout every typed standard pipeline binds,
+// The canonical engine substrate: the pass-invariant group-0 layout every standard pipeline binds,
 // plus `lit` / `litPbr` / `lightFactor` / `pointFactor` / `clusterOf` and their four private seams, authored
 // once against that layout.
 

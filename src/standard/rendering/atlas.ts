@@ -106,8 +106,8 @@ interface AtlasState {
         atlas: GPUTextureView;
         group: GPUBindGroup;
     } | null;
-    pointGroup1Typed: { faceVP: GPUBuffer; combo: GPUBuffer; group: GPUBindGroup } | null;
-    cascadeGroup1Typed: { faceVP: GPUBuffer; combo: GPUBuffer; group: GPUBindGroup } | null;
+    pointGroup1: { faceVP: GPUBuffer; combo: GPUBuffer; group: GPUBindGroup } | null;
+    cascadeGroup1: { faceVP: GPUBuffer; combo: GPUBuffer; group: GPUBindGroup } | null;
     pointRegather: Regather;
     cascadeRegather: Regather;
 }
@@ -193,8 +193,8 @@ function createAtlasState(world: World): AtlasState {
         cascadeRectsBuf: null,
         cascadeBatches: [],
         shadowGroup: null,
-        pointGroup1Typed: null,
-        cascadeGroup1Typed: null,
+        pointGroup1: null,
+        cascadeGroup1: null,
         pointRegather: createRegather(world, "point"),
         cascadeRegather: createRegather(world, "cascade"),
     };
@@ -293,7 +293,7 @@ export function shadowReady(world: World): boolean {
 
 // The shared shadow layout exposes the same resources to every color/background pipeline, so the
 // WGSL-bodied real references `sampleSunShadow` / `pointShadowOf` (shade.ts) — which read them as free
-// names, the relocatable-global law — resolve against it once a typed color pipeline references it (the
+// names, the relocatable-global law — resolve against it once a color pipeline references it (the
 // fog `fogLayout1` precedent, `extras/fog/pipeline.ts`). The sampler + point-shadow bindings are
 // vertex-visible too, because a per-vertex
 // surface's vs chunk (`vertex`) calls `litPbr` → `pointShadowOf`, statically reaching them from the
@@ -301,18 +301,18 @@ export function shadowReady(world: World): boolean {
 // vertex-legal); the sun map + params stay fragment-only — `sampleSunShadow` is scaffold-called, never
 // reachable from a vs chunk.
 // One module-scope instance, built once (the fog `_pointCastersGpu`/`_tileRectsGpu` shape) — a fresh
-// `pointCastersSchema()`/`tileRectsSchema()` call mints a new struct object each time, and this typed
+// `pointCastersSchema()`/`tileRectsSchema()` call mints a new struct object each time, and this
 // pipeline's own resolve must stay pinned to one. It remains independent from fog's schema instance and
 // safe because neither resolves alongside the other in one `tgpu.resolve`
 // call (a same-resolve collision would suffix the second `PointCasters`/`TileRects` name) — that
 // invariant isn't machine-checked (not in `splice.test.ts`'s pairwise matrix), so a future consumer that
 // tries to combine two of these resolves in one shader module must give one a fresh, deliberately-shared
 // instance instead.
-const _shadowTypedCasters = pointCastersSchema();
-const _shadowTypedRects = tileRectsSchema(pointCasters() * 6);
+const _shadowCasters = pointCastersSchema();
+const _shadowRects = tileRectsSchema(pointCasters() * 6);
 
 /**
- * the typed group-1 shadow layout a typed color pipeline references to force `shadowMap` / `shadowSamp` /
+ * the group-1 shadow layout a color pipeline references to force `shadowMap` / `shadowSamp` /
  * `sunShadow` / `pointAtlas` / `pointShadows` / `tileRects` into scope (the forcing-touch law — the free
  * names inside `sampleSunShadow`/`pointShadowOf`'s WGSL bodies are invisible to `tgpu.resolve`'s call-graph
  * walk otherwise). The runtime bind group is {@link shadowGroup}.
@@ -323,8 +323,8 @@ export const shadowLayout = tgpu
         shadowSamp: { sampler: "comparison", visibility: ["vertex", "fragment"] },
         sunShadow: { uniform: SunShadow, visibility: ["fragment"] },
         pointAtlas: { texture: d.textureDepth2d(), visibility: ["vertex", "fragment"] },
-        pointShadows: { uniform: _shadowTypedCasters, visibility: ["vertex", "fragment"] },
-        tileRects: { uniform: _shadowTypedRects, visibility: ["vertex", "fragment"] },
+        pointShadows: { uniform: _shadowCasters, visibility: ["vertex", "fragment"] },
+        tileRects: { uniform: _shadowRects, visibility: ["vertex", "fragment"] },
     })
     .$idx(1);
 
@@ -335,14 +335,14 @@ export const shadowLayout = tgpu
 // `MAX_CASCADES` for the cascade atlas), and a schema is sized once at first resolve. A single shared layout
 // could only carry one slot count. Both layouts are vertex-only because their VS is the sole reader.
 //
-// Each is its own self-contained schema instance (the `_shadowTypedCasters`/`_shadowTypedRects` discipline
+// Each is its own self-contained schema instance (the `_shadowCasters`/`_shadowRects` discipline
 // above): a `FaceVPs`/`ComboMeta`/`TileRects`-named struct can't be resolved twice under the same name in one
 // `tgpu.resolve` call, so the point layout's instances and the cascade layout's instances must never land in
 // the same pipeline's resolve — true here, since `compileSurface`'s point pipeline and cascade pipeline
 // are two independent `world.gpu.root.createRenderPipeline` calls (pipelines.ts), never combined.
-const _pointTypedFaceVP = faceVPsSchema(pointCasters() * 6);
-const _pointTypedCombo = comboMetaSchema(pointCasters() * 6);
-const _pointTypedRects = tileRectsSchema(pointCasters() * 6);
+const _pointFaceVP = faceVPsSchema(pointCasters() * 6);
+const _pointCombo = comboMetaSchema(pointCasters() * 6);
+const _pointRects = tileRectsSchema(pointCasters() * 6);
 
 /** the point-atlas pipeline's group-1 layout: the combo-major face viewProjs, the per-combo (caster
  * slot, face) meta, and the per-(caster, face) tile rects — all vertex-only uniforms.
@@ -350,23 +350,23 @@ const _pointTypedRects = tileRectsSchema(pointCasters() * 6);
  * before `createApp()`, like `capacity` — `checkShadowConfig`'s law). */
 export const pointLayout = tgpu
     .bindGroupLayout({
-        faceVP: { uniform: _pointTypedFaceVP, visibility: ["vertex"] },
-        comboMeta: { uniform: _pointTypedCombo, visibility: ["vertex"] },
-        tileRects: { uniform: _pointTypedRects, visibility: ["vertex"] },
+        faceVP: { uniform: _pointFaceVP, visibility: ["vertex"] },
+        comboMeta: { uniform: _pointCombo, visibility: ["vertex"] },
+        tileRects: { uniform: _pointRects, visibility: ["vertex"] },
     })
     .$idx(1);
 
-const _cascadeTypedFaceVP = faceVPsSchema(MAX_CASCADES);
-const _cascadeTypedCombo = comboMetaSchema(MAX_CASCADES);
-const _cascadeTypedRects = tileRectsSchema(MAX_CASCADES);
+const _cascadeFaceVP = faceVPsSchema(MAX_CASCADES);
+const _cascadeCombo = comboMetaSchema(MAX_CASCADES);
+const _cascadeRects = tileRectsSchema(MAX_CASCADES);
 
-/** the typed cascade-atlas pipeline's group-1 layout — {@link pointLayout}'s twin, config-folded to
+/** the cascade-atlas pipeline's group-1 layout — {@link pointLayout}'s twin, config-folded to
  * `MAX_CASCADES` slots (fixed, unlike the point atlas's live caster count). */
 export const cascadeLayout = tgpu
     .bindGroupLayout({
-        faceVP: { uniform: _cascadeTypedFaceVP, visibility: ["vertex"] },
-        comboMeta: { uniform: _cascadeTypedCombo, visibility: ["vertex"] },
-        tileRects: { uniform: _cascadeTypedRects, visibility: ["vertex"] },
+        faceVP: { uniform: _cascadeFaceVP, visibility: ["vertex"] },
+        comboMeta: { uniform: _cascadeCombo, visibility: ["vertex"] },
+        tileRects: { uniform: _cascadeRects, visibility: ["vertex"] },
     })
     .$idx(1);
 
@@ -549,14 +549,14 @@ export function shadowGroup(world: World): GPUBindGroup {
 
 // Atlas bind groups cache the three uniform resources by identity.
 
-function pointGroup1Typed(world: World): GPUBindGroup {
+function pointGroup1(world: World): GPUBindGroup {
     const _atlasState = world.resource(atlasStateKey);
 
     if (
-        _atlasState.pointGroup1Typed?.faceVP === _atlasState.faceVP &&
-        _atlasState.pointGroup1Typed?.combo === _atlasState.comboMeta
+        _atlasState.pointGroup1?.faceVP === _atlasState.faceVP &&
+        _atlasState.pointGroup1?.combo === _atlasState.comboMeta
     ) {
-        return _atlasState.pointGroup1Typed!.group;
+        return _atlasState.pointGroup1!.group;
     }
     const group = world.gpu.root.unwrap(
         world.gpu.root.createBindGroup(pointLayout, {
@@ -565,7 +565,7 @@ function pointGroup1Typed(world: World): GPUBindGroup {
             tileRects: _atlasState.pointTileRects!,
         }),
     );
-    _atlasState.pointGroup1Typed = {
+    _atlasState.pointGroup1 = {
         faceVP: _atlasState.faceVP!,
         combo: _atlasState.comboMeta!,
         group,
@@ -573,14 +573,14 @@ function pointGroup1Typed(world: World): GPUBindGroup {
     return group;
 }
 
-function cascadeGroup1Typed(world: World): GPUBindGroup {
+function cascadeGroup1(world: World): GPUBindGroup {
     const _atlasState = world.resource(atlasStateKey);
 
     if (
-        _atlasState.cascadeGroup1Typed?.faceVP === _atlasState.cascadeVPBuf &&
-        _atlasState.cascadeGroup1Typed?.combo === _atlasState.cascadeMetaBuf
+        _atlasState.cascadeGroup1?.faceVP === _atlasState.cascadeVPBuf &&
+        _atlasState.cascadeGroup1?.combo === _atlasState.cascadeMetaBuf
     ) {
-        return _atlasState.cascadeGroup1Typed!.group;
+        return _atlasState.cascadeGroup1!.group;
     }
     const group = world.gpu.root.unwrap(
         world.gpu.root.createBindGroup(cascadeLayout, {
@@ -589,7 +589,7 @@ function cascadeGroup1Typed(world: World): GPUBindGroup {
             tileRects: _atlasState.cascadeRectsBuf!,
         }),
     );
-    _atlasState.cascadeGroup1Typed = {
+    _atlasState.cascadeGroup1 = {
         faceVP: _atlasState.cascadeVPBuf!,
         combo: _atlasState.cascadeMetaBuf!,
         group,
@@ -608,8 +608,8 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     const _atlasState = world.resource(atlasStateKey);
 
     _atlasState.shadowGroup = null;
-    _atlasState.pointGroup1Typed = null;
-    _atlasState.cascadeGroup1Typed = null;
+    _atlasState.pointGroup1 = null;
+    _atlasState.cascadeGroup1 = null;
     // drop any seam a prior World left behind (module-level survives HMR)
     _atlasState.sunCasting = false;
     // the comparison sampler — `greater-equal` (reverse-Z: a lit receiver is at or in front of the
@@ -673,7 +673,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     world.gpu.typed.set(
         "pointShadows",
         world.gpu.root
-            .createBuffer(_shadowTypedCasters, _atlasState.pointParams)
+            .createBuffer(_shadowCasters, _atlasState.pointParams)
             .$usage("uniform")
             .$name("standard-point-shadow-params"),
     );
@@ -695,7 +695,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     world.gpu.typed.set(
         "pointTileRects",
         world.gpu.root
-            .createBuffer(_shadowTypedRects, _atlasState.pointTileRects)
+            .createBuffer(_shadowRects, _atlasState.pointTileRects)
             .$usage("uniform")
             .$name("standard-point-tilerects"),
     );
@@ -763,8 +763,8 @@ export function disposeShadowAtlas(world: World): void {
     _atlasState.cascadeMetaBuf = null;
     _atlasState.cascadeRectsBuf = null;
     _atlasState.shadowGroup = null;
-    _atlasState.pointGroup1Typed = null;
-    _atlasState.cascadeGroup1Typed = null;
+    _atlasState.pointGroup1 = null;
+    _atlasState.cascadeGroup1 = null;
     _atlasState.faceVP = null;
     _atlasState.comboMeta = null;
     _atlasState.pointAtlas = null;
@@ -992,7 +992,7 @@ export function renderPointShadows(
     // at slot 0 is an unread placeholder
     _atlasState.pointShadowDepth.view = _atlasState.pointAtlasView!;
     _atlasState.pointShadowPass.timestampWrites = world.gpu.span?.("standard:pointshadow");
-    const group1 = pointGroup1Typed(world);
+    const group1 = pointGroup1(world);
     const args = _pointRegather.args()!;
     for (let i = 0; i < D; i++) {
         const { r } = _atlasState.castDraws[i];
@@ -1176,7 +1176,7 @@ export function renderCascades(
         maxBatchDraws = Math.max(maxBatchDraws, _atlasState.cascadeBatches[b].count);
     }
     _cascadeRegather.reserve(maxBatchDraws);
-    const group1 = cascadeGroup1Typed(world);
+    const group1 = cascadeGroup1(world);
     const args = _cascadeRegather.args()!;
     let totalDraws = 0;
     for (let b = 0; b < batchCount; b++) {

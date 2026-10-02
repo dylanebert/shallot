@@ -14,7 +14,7 @@ export const atlasName = (id: number) => `textAtlas${id}`;
 // constant, so it interpolates exactly) rather than crossing the packed u32 and unpacking per-fragment.
 export const textVaryings = { uvSize: d.vec4f, gcolor: d.vec4f };
 
-// per-font typed surface: a fresh `surfaceLayout` per id (the atlas texture binding's name carries the
+// per-font surface: a fresh `surfaceLayout` per id (the atlas texture binding's name carries the
 // id, so each font gets its own layout object, and a vs/fs built against one layout can't be shared with
 // another's). localPos.xy is the quad corner (0,0)..(1,1); signed-distance edge AA decodes the SDF to a
 // world-space signed distance, faded over one screen-space derivative either side of the glyph edge
@@ -31,7 +31,7 @@ export function textSurface(id: number) {
     });
     // `vsPatchSchema`/`fsCtxSchema` are plain host functions (no "use gpu"), so they must be called OUTSIDE
     // any traced body — a call from inside a "use gpu" closure throws "not marked with the 'use gpu'
-    // directive" at pipeline-resolution time (`standard/rendering/forward.ts`'s `typedVertexPatch` is the
+    // directive" at pipeline-resolution time (`standard/rendering/forward.ts`'s `vertexSurfacePatch` is the
     // reference pattern). Hoisted once here, the vs body below references the constructor only
     const VertexPatch = vsPatchSchema(textVaryings);
     const vs = tgpu

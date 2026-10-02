@@ -1,4 +1,4 @@
-// The fog march's typed pipeline: the two bind-group layouts (group 0 — the per-camera scene/depth/output
+// The fog march's pipeline: the two bind-group layouts (group 0 — the per-camera scene/depth/output
 // + the ViewUniforms/Fog uniforms; group 1 — the camera-independent light + shadow service) and the compute kernel
 // over them. The march primitives themselves (`fogDensity`, `fogTransmittance`, the in-scatter terms) are
 // pure TGSL fns in `./march`, spliced by both this pipeline and the CPU oracles — this file is the
@@ -80,7 +80,7 @@ export const fogLayout1 = tgpu
     })
     .$idx(1);
 
-// `pointShadowRef()` is a plain host-side getter (its factory memoizes one instance for every typed
+// `pointShadowRef()` is a plain host-side getter (its factory memoizes one instance for every
 // consumer, `standard/shade.ts`), not itself a TGSL value — calling it *inside* the kernel body
 // reads as an untranspiled function to the resolver ("not marked with 'use gpu'"). Resolve it once here,
 // in ordinary module-scope JS, so the kernel body below closes over the real `tgpu.fn` value directly.

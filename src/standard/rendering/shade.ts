@@ -10,7 +10,7 @@
 //     `brdf` at radius 0, `pointReceiver` matching the projection the atlas renders through.
 //   - **WGSL-bodied `tgpu.fn`.** The two shadow samplers read their atlas, sampler, and caster uniform as
 //     module-scope globals *the consumer declares by name* — that is the relocatable contract standard's color
-//     FS and the fog march share, and it has no TGSL spelling until the surface contract itself is typed.
+//     FS and the fog march share, and it has no TGSL spelling.
 //     A WGSL body still resolves under strict naming (the emitted name is the authored one) and still
 //     takes its struct parameters from the schemas below, so the layout has one source of truth even
 //     where the body doesn't.
@@ -382,14 +382,14 @@ function pointShadowFn() {
             // `pointFaceOf`/`pointReceiver` are its only *function* dependencies (portable across any consumer,
             // unlike the atlas/sampler/caster/rect bindings below, which differ by consumer layout and stay
             // free names for the caller to declare) — naming them here is what lets a real-reference caller
-            // (a typed pipeline) pull them in via `tgpu.resolve`'s call
+            // (a pipeline) pull them in via `tgpu.resolve`'s call
             // graph without also re-listing them by hand
             .$uses({ pointFaceOf, pointReceiver })
             .$name("pointShadowOf")
     );
 }
 
-// the real reference, memoized so every typed pipeline calling it (standard's color FS, the fog march)
+// the real reference, memoized so every pipeline calling it (standard's color FS, the fog march)
 // shares the exact same object — `pointShadowFn()` is a factory only because its body folds the `PointShadows` config (the atlas
 // size + caster cap), which must stay fixed to one instance regardless of caller.
 let _pointShadowOf: ReturnType<typeof pointShadowFn> | undefined;

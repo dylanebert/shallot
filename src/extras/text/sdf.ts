@@ -480,7 +480,7 @@ export class SDFGenerator {
                 timestampWrites: world.gpu.span?.("text:sdf-finalize"),
             });
 
-            // the viewport + scissor are what place this glyph in its atlas tile, and a typed pipeline
+            // the viewport + scissor are what place this glyph in its atlas tile, and a pipeline
             // exposes neither — `.with(pass)` records into the pass this file already owns, so they stay
             // raw calls on it, set before the draw
             finalizePass.setViewport(

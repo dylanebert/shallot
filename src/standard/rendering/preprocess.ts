@@ -102,7 +102,7 @@ interface MeshPreprocessState {
 const meshPreprocessKey = { create: createMeshPreprocessState };
 const meshInstanceTableKey = { create: createMeshInstanceTable };
 
-/** Dense MeshInstance records shared by the GPU pack and typed surface stages. */
+/** Dense MeshInstance records shared by the GPU pack and surface stages. */
 export function meshInstanceTable(world: World) {
     return world.resource(meshInstanceTableKey);
 }

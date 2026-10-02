@@ -6,7 +6,7 @@
 // It runs through the `sceneTransform` seam after the main pass and before tonemapping.
 // A scene opts in with one `Fog` singleton; a camera opts in with core's `DepthPrepass` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
-// uniform schema live in `./march`; the typed pipeline (the two bind-group layouts + the compute kernel
+// uniform schema live in `./march`; the pipeline (the two bind-group layouts + the compute kernel
 // calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle
 // are the same TGSL source (extinction + clustered + sun in-scatter) — this file is the ECS/system/
 // plugin half: the component, the per-frame uniform pack, and the per-camera dispatch.
