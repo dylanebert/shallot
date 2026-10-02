@@ -41,6 +41,7 @@ export {
     CameraMode,
     ColorGrading,
     CorePipelinePlugin,
+    CustomPresentation,
     DirectionalLight,
     type EffectPass,
     EffectPasses,

@@ -20,6 +20,13 @@ export { TonemappingMethod } from "./tonemap";
 /** Per-camera operator; absent cameras use TonyMcMapface. None accepts display-ready linear images. */
 export const Tonemapping = { method: u32 };
 
+/** Camera marker: core skips this view's tonemapping and EffectPasses.
+ * The replacement owns grading and encoding and must write every presented pixel
+ * on Render.encoder after PresentationSystem and before EndFrameSystem.
+ * Removing the marker resumes core presentation on the next draw.
+ */
+export const CustomPresentation = {};
+
 /** An effect records commands on the frame encoder. Input and output never alias.
  * Before-tonemapping passes receive linear HDR; after-tonemapping passes receive
  * encoded display-referred values in an rgba8unorm intermediate. The last pass
@@ -125,7 +132,7 @@ export const TonemappingSystem: System = {
         const methods = world.storage(Tonemapping);
         for (const eid of world.query(CAMERAS)) {
             const view = world.resource(Views).get(eid);
-            if (!view?.present || !view.framebuffer) continue;
+            if (!view?.present || !view.framebuffer || world.has(eid, CustomPresentation)) continue;
             const effects = world.resource(EffectPasses).get(eid);
             const before = effects?.before.length ?? 0;
             const after = effects?.after.length ?? 0;
@@ -201,6 +208,7 @@ export const TonemappingPlugin: Plugin = {
     dependencies: [RenderingPlugin],
     components: [
         registration("Tonemapping", Tonemapping),
+        registration("CustomPresentation", CustomPresentation),
         registration("ColorGrading", ColorGrading, { defaults: () => gradingDefaults }),
     ],
     initialize(world) {

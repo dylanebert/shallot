@@ -10,6 +10,7 @@ export { TonemappingMethod } from "./tonemap";
 export { fullscreenVertex } from "./tonemapping";
 export {
     ColorGrading,
+    CustomPresentation,
     type EffectPass,
     EffectPasses,
     Tonemapping,
