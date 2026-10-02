@@ -40,6 +40,7 @@
         "./utils": "./src/engine/utils/index.ts",
         "./app": "./src/engine/app/index.ts",
         "./input": "./src/core/input/index.ts",
+        "./mesh": "./src/core/mesh/index.ts",
         "./rendering": "./src/core/rendering/index.ts",
         "./standard/rendering": "./src/standard/rendering/index.ts",
         "./glaze": "./src/transitional/glaze/index.ts",

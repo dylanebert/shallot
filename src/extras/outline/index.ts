@@ -33,10 +33,9 @@ import type {
     UniformFlag,
 } from "typegpu";
 import * as d from "typegpu/data";
+import { type Mesh, Meshes } from "../../core/mesh";
 import {
     Camera,
-    type Mesh,
-    Meshes,
     OverlaySystem,
     PresentationSystem,
     Render,

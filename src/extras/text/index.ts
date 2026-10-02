@@ -12,14 +12,13 @@ import type { StorageFlag, TgpuBuffer } from "typegpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
 import {
     BeginFrameSystem,
     DrawIndexedIndirect,
     Draws,
     fsCtxSchema,
-    Meshes,
     RenderingPlugin,
-    registerMesh,
     registerSurface,
     surfaceLayout,
     VsIn,
@@ -514,7 +513,7 @@ export const TextPlugin: Plugin = {
         }),
     ],
     systems: [TextSystem],
-    dependencies: [RenderingPlugin],
+    dependencies: [MeshPlugin, RenderingPlugin],
 
     async initialize(world) {
         const _textState = world.resource(textStateKey);

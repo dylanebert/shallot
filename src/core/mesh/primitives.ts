@@ -1,5 +1,5 @@
-import { registerMesh } from "../../core/rendering";
 import type { World } from "../../engine";
+import { registerMesh } from "./mesh";
 
 /**
  * register the built-in meshes. All unit-sized (radius / half-extent 0.5),

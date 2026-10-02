@@ -36,7 +36,6 @@ import {
     Volumetric,
     writeLighting,
 } from "./lighting";
-import { clearMeshes, flushMeshes, initializeMeshState } from "./mesh";
 import { Draws, initializeDrawState, Surfaces } from "./registry";
 import { initializeRenderState, Render } from "./render";
 import {
@@ -56,7 +55,7 @@ import {
     Views,
 } from "./view";
 
-// the public happy path: the component contract (camera + lights) and meshes.
+// the public happy path: the component contract (camera + lights).
 // Everything else a renderer or producer touches — the Render singleton, the
 // View/Surface/Draw contract, canvas binding, the Lighting uniform, the frame
 // loop — is the extension API, exported below. A producer (MeshInstance) and a renderer
@@ -66,8 +65,6 @@ export { Camera, CameraMode, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
 export { requestLightOverflow } from "./cluster";
 export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
-export type { Mesh } from "./mesh";
-export { registerMesh } from "./mesh";
 
 const SLOT_FLOATS = VIEW_STRIDE / 4;
 const CAMERAS = [Camera];
@@ -361,12 +358,11 @@ async function initRender(world: World): Promise<void> {
 
     // clear the render registries so each build re-registers from a clean slate (clear then
     // rebuild). This runs in RenderingPlugin.initialize, before any producer / sear re-registers (they
-    // depend on RenderingPlugin), so a producer toggled off leaves no stale surface / draw /
-    // mesh behind to be drawn against its torn-down buffers. A same-set rebuild is unchanged (every
+    // depend on RenderingPlugin), so a producer toggled off leaves no stale surface / draw
+    // behind to be drawn against its torn-down buffers. A same-set rebuild is unchanged (every
     // plugin re-registers); a first build clears empty registries (a no-op).
     world.resource(Surfaces).clear();
     world.resource(Draws).clear();
-    clearMeshes(world);
 
     // the scene renders into an rg11b10ufloat HDR offscreen so a tonemap (glaze, default Khronos Neutral)
     // rolls off radiance >1 rather than clamping it to white at store. rg11b10 (4B) halves the MSAA
@@ -431,7 +427,7 @@ async function initRender(world: World): Promise<void> {
 
 /**
  * the renderer-agnostic substrate: frame loop, camera, Frame/ViewUniforms UBOs, and
- * the `Surfaces` / `Meshes` / `Draws` registries. Producer and consumer
+ * the `Surfaces` / `Draws` registries. Producer and consumer
  * plugins (MeshInstance, StandardRenderer, custom producers) depend on this. Users
  * typically don't list it directly: `PartPlugin` pulls it transitively,
  * and either can become a default plugin
@@ -488,7 +484,6 @@ export const RenderingPlugin: Plugin = {
         initializeClusterState(world);
         initializeFrameState(world);
         initializeLightingState(world);
-        initializeMeshState(world);
         initializeImageState(world);
         initializeRenderFrameState(world);
         initializeDrawState(world);
@@ -502,10 +497,7 @@ export const RenderingPlugin: Plugin = {
         globalTransformTable(world);
     },
 
-    // pack the static meshes staged by `registerMesh()` during initialize into the
-    // shared family buffer (runs after every initialize, before first render)
     warm(world) {
-        flushMeshes(world);
         warmClusters(world);
         warmLightCull(world);
     },
@@ -514,7 +506,7 @@ export const RenderingPlugin: Plugin = {
 // extension API for renderer + producer authors: the contract registries, the
 // per-frame uniform singletons + their WGSL structs, the vertex-pull contract,
 // canvas binding, and the frame-loop ordering anchor. The typical-user surface
-// (components, plugin, public types, registerMesh()) lives in the index barrel. `VIEW_STRIDE`
+// (components, plugin, public types) lives in the index barrel. `VIEW_STRIDE`
 // + `MAX_VIEWS` size a per-view uniform a consumer packs slot-major (glaze's postfx
 // config); the buffer sizes and the cull-volume packer stay internal — a consumer reads
 // the packed `Render.cullVolumes` buffer, never re-packs it. A producer that runs its own
@@ -566,15 +558,6 @@ export {
     spotFactor,
     spotParams,
 } from "./lighting";
-export type { MeshBinding, MeshIndex, MeshStorage, QuantStreams } from "./mesh";
-export {
-    Meshes,
-    meshBounds,
-    packMeshes,
-    quantizeMeshes,
-    VERTEX_FLOATS,
-    VERTEX_STRIDE,
-} from "./mesh";
 export type { Draw, DrawIndirectBuffer } from "./registry";
 export { DrawIndexedIndirect, Draws } from "./registry";
 export { Render } from "./render";

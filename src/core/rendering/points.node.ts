@@ -8,6 +8,7 @@ import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
 import { DepthPrepass, StandardRenderer, StandardRenderingPlugin } from "../../standard/rendering";
 import { Glaze, GlazePlugin } from "../../transitional/glaze";
 import { MeshInstance, PartPlugin } from "../../transitional/part";
+import { Meshes, meshResourcesKey } from "../mesh/mesh";
 import {
     Clusters,
     CullLightsSystem,
@@ -32,7 +33,6 @@ import {
     RenderingPlugin,
 } from "./index";
 import { Lighting, lightingKey } from "./lighting";
-import { Meshes, meshResourcesKey } from "./mesh";
 import { PointsPlugin, PointsSystem } from "./points.fixture";
 import { Draws, drawsKey } from "./registry";
 import { Render, renderKey } from "./render";
@@ -62,6 +62,8 @@ const coreResources = {
 const meshResources = {
     meshResourcesKey,
     Meshes,
+};
+const contractResources = {
     surfacesKey,
     Surfaces,
     backgroundsKey,
@@ -115,12 +117,19 @@ function assertRegistration(
     });
 }
 
-test.todo("stage 3: core-only rendering registers exactly the core allowlist, deferring only stage 4 light declarations", () => {
+test("stage 3: core-only rendering registers no mesh resources", () => {
+    for (const key of Object.values(meshResources)) {
+        expect(registration()._resources.has(key)).toBe(false);
+    }
+    assertRegistration({ ...contractResources, ...lightResources }, lightSystems);
+});
+
+test.todo("stage 4: core-only rendering registers no surface, background or draw resources", () => {
     assertRegistration(lightResources, lightSystems);
 });
 
-test.todo("stage 4: core-only rendering registers exactly the core allowlist, deferring only stage 3 mesh declarations", () => {
-    assertRegistration(meshResources, {});
+test.todo("stage 6: core-only rendering registers no cluster or light-cull declarations", () => {
+    assertRegistration(contractResources, {});
 });
 
 test("points beside a mesh share the view depth: side and front points show, the rear point is occluded", async () => {

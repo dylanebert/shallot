@@ -1,9 +1,9 @@
 // Destination: standard/rendering; owner: rendering-boundary.md.
 
-import { Meshes, RenderingPlugin, Surfaces } from "../../core/rendering";
+import { Meshes, MeshPlugin } from "../../core/mesh";
+import { RenderingPlugin, Surfaces } from "../../core/rendering";
 import type { Plugin } from "../../engine";
 import { registration } from "../../engine";
-import { initMeshes } from "./mesh";
 import { Color, initializePartState, initPart, MeshInstance, PartSystem, warmPart } from "./part";
 
 export { Color, MeshInstance, partTable } from "./part";
@@ -36,7 +36,7 @@ export const PartPlugin: Plugin = {
                     );
                 if (meshes.size > 0 && mesh === undefined)
                     console.warn(
-                        '[part] default mesh "cube" is not registered — PartPlugin.initialize() registers it via initMeshes(); MeshInstance entities will bind whatever mesh holds registry id 0',
+                        '[part] default mesh "cube" is not registered — MeshPlugin registers it; MeshInstance entities will bind whatever mesh holds registry id 0',
                     );
                 return { surface: surface ?? 0, mesh: mesh ?? 0 };
             },
@@ -44,12 +44,11 @@ export const PartPlugin: Plugin = {
         registration("Color", Color, { defaults: () => ({ rgba: [1, 1, 1, 1] }) }),
     ],
 
-    dependencies: [RenderingPlugin],
+    dependencies: [RenderingPlugin, MeshPlugin],
 
     initialize(world) {
         initializePartState(world);
         initPart(world);
-        initMeshes(world);
     },
 
     warm: warmPart,

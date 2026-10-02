@@ -21,7 +21,8 @@ import tgpu, { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import type { Draw, MeshBinding, MeshIndex, View } from "../../core/rendering";
+import { type MeshBinding, Meshes, type MeshIndex, MeshPlugin } from "../../core/mesh";
+import type { Draw, View } from "../../core/rendering";
 import {
     type Background,
     Backgrounds,
@@ -29,7 +30,6 @@ import {
     Camera,
     Draws,
     fsCtxSchema,
-    Meshes,
     OverlaySystem,
     Render,
     RenderingPlugin,
@@ -1340,7 +1340,7 @@ export function createSearPlugin(): Plugin {
             ShadowCameraSystem,
             ShadowMapSystem,
         ],
-        dependencies: [RenderingPlugin],
+        dependencies: [RenderingPlugin, MeshPlugin],
 
         // sear's default materials, shading per-instance `color` + `material` at three lighting modes. They
         // ship with the renderer, not MeshInstance: MeshInstance publishes the data (`eids` + `color`), sear adds its own

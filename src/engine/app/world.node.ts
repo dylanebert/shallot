@@ -5,7 +5,8 @@ import { registration } from "../ecs";
 setDefaultTimeout(CEILING.node);
 
 import * as d from "typegpu/data";
-import { Draws, Meshes } from "../../core/rendering";
+import { Meshes } from "../../core/mesh";
+import { Draws } from "../../core/rendering";
 import { drawLine, Line, LinesPlugin } from "../../extras/lines";
 import { Images, registerImage, Sprite, SpritePlugin } from "../../extras/sprite";
 import { Content, Fonts, internText, registerFont, Text, TextPlugin } from "../../extras/text";

@@ -26,7 +26,7 @@ export { CameraBackground, DepthPrepass, Material, StandardRenderer } from "./fo
  * plugin, no coordination singleton: sear owns its own shadow map and binds it (Bevy's clustered-forward
  * shape). StandardRenderer renders into the offscreen (`view.framebuffer`) and never the swapchain; presenting it is
  * a separate **composite** the consumer picks: glaze (the default postfx composite) or a custom one. So
- * sear depends only on {@link RenderingPlugin}; list a composite alongside it or nothing reaches the
+ * sear depends on RenderingPlugin and MeshPlugin; list a composite alongside it or nothing reaches the
  * swapchain. `RenderMeshColorSystem` still orders before glaze so glaze, when present, composites after the resolve.
  */
 export const StandardRenderingPlugin: Plugin = createSearPlugin();

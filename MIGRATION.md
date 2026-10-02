@@ -231,6 +231,16 @@ import { engineLayout } from "@dylanebert/shallot/standard/rendering";
 import { Xform } from "@dylanebert/shallot/utils";
 ```
 
+Mesh data has its own `/mesh` module. Update mesh imports as follows (root imports remain available):
+
+| 0.9.5 import | 0.10 import |
+|---|---|
+| Root `mesh` | Root or `/mesh` `registerMesh` |
+| `/render/core` `Mesh`, `MeshBinding`, `MeshIndex`, `MeshStorage`, `QuantStreams` | `/mesh`, same names |
+| `/render/core` `Meshes`, `meshBounds`, `packMeshes`, `quantizeMeshes`, `VERTEX_FLOATS`, `VERTEX_STRIDE` | `/mesh`, same names |
+
+Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. Standard rendering and Part include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
+
 Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is `/character` and `/bvh/core` is `/bvh`. `/scene/core` is removed with the scene format. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
 
 ## `Inputs` is now `world.resource(Devices)`

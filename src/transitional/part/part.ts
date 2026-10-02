@@ -7,12 +7,12 @@ import type {
 } from "typegpu";
 import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import type { Draw, Mesh, Surface } from "../../core/rendering";
+import { type Mesh, Meshes } from "../../core/mesh";
+import type { Draw, Surface } from "../../core/rendering";
 import {
     BeginFrameSystem,
     DrawIndexedIndirect,
     Draws,
-    Meshes,
     Render,
     Surfaces,
 } from "../../core/rendering";

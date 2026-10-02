@@ -126,7 +126,7 @@ function meshResources(world: World): MeshResources {
     return world.resource(meshResourcesKey);
 }
 
-/** Create this world's mesh registry and staging during RenderingPlugin initialization. */
+/** Create this world's mesh registry and staging during MeshPlugin initialization. */
 export function initializeMeshState(world: World): void {
     world.resource(meshResourcesKey);
 }
@@ -191,9 +191,6 @@ export function meshBounds(vertices: Float32Array): [number, number, number, num
  * entry is a slice of that shared buffer. Procedural producers skip this: they
  * own their `GPUBuffer`s and call `Meshes.register(...)` directly. Requires
  * `world.gpu.device`; no-ops otherwise
- *
- * @example
- * registerMesh(world, { name: "cube", vertices, indices })
  */
 export function registerMesh(
     world: World,
@@ -395,7 +392,7 @@ function resetStaging(world: World): void {
 /**
  * pack every staged static mesh into the quantized vertex streams + a shared
  * index buffer and re-register each as a slice. Called once from
- * `RenderingPlugin.warm`, after all `initialize` hooks (so every `registerMesh(...)` has run)
+ * `MeshPlugin.warm`, after all `initialize` hooks (so every `registerMesh(...)` has run)
  */
 export function flushMeshes(world: World): void {
     const device = world.gpu.device;

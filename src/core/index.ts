@@ -34,16 +34,15 @@ export {
     type Viewport,
     visibilityChanged,
 } from "./input";
+export * from "./mesh";
 export {
     AmbientLight,
     Camera,
     CameraMode,
     DirectionalLight,
-    type Mesh,
     PointLight,
     RenderingPlugin,
     Resolution,
-    registerMesh,
     Spot,
     Volumetric,
 } from "./rendering";

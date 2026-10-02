@@ -10,14 +10,8 @@ import { registration } from "../../engine";
 // primitive. The segment staging + upload + immediate API live in `segments.ts`, the surface in
 // `surface.ts`.
 
-import {
-    BeginFrameSystem,
-    Draws,
-    Meshes,
-    RenderingPlugin,
-    registerMesh,
-    registerSurface,
-} from "../../core/rendering";
+import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
+import { BeginFrameSystem, Draws, RenderingPlugin, registerSurface } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
 import { composeGlobalTransform, f32, GlobalTransform, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
@@ -173,7 +167,7 @@ export const LinesPlugin: Plugin = {
         }),
     ],
     systems: [LinesSystem],
-    dependencies: [RenderingPlugin],
+    dependencies: [MeshPlugin, RenderingPlugin],
 
     initialize(world) {
         initializeSegmentState(world);

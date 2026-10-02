@@ -15,14 +15,13 @@ import { registration } from "../../engine";
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
+import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
 import {
     BeginFrameSystem,
     DrawIndexedIndirect,
     Draws,
     imageArray,
-    Meshes,
     RenderingPlugin,
-    registerMesh,
     registerSurface,
 } from "../../core/rendering";
 import { globalTransformTable, type Plugin, Registry, type System, type World } from "../../engine";
@@ -239,7 +238,7 @@ export const SpritePlugin: Plugin = {
         }),
     ],
     systems: [SpriteSystem],
-    dependencies: [RenderingPlugin],
+    dependencies: [MeshPlugin, RenderingPlugin],
 
     initialize(world) {
         const _spriteGpu = world.resource(spriteGpuKey);

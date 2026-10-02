@@ -1,5 +1,5 @@
 import type { TgpuRenderPipeline } from "typegpu";
-import type { MeshIndex } from "../../core/rendering";
+import type { MeshIndex } from "../../core/mesh";
 import type { SurfaceGroupEntry } from "./pipelines";
 
 // The one form every sear pass records a draw through. It lives in its own module because both callers —
