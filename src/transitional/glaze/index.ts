@@ -23,7 +23,7 @@ import {
     BeginFrameSystem,
     Camera,
     MAX_VIEWS,
-    OverlaySystem,
+    PresentationSystem,
     Render,
     RenderPlugin,
     Views,
@@ -220,7 +220,7 @@ function uploadConfig(world: World, eid: number, slot: number): void {
 export const GlazeSystem: System = {
     name: "glaze",
     group: "draw",
-    after: [BeginFrameSystem, OverlaySystem],
+    after: [BeginFrameSystem, PresentationSystem],
     update(world) {
         const _glazeState = world.resource(glazeStateKey);
 

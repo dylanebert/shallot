@@ -44,7 +44,7 @@ interface ClusterGpuState {
     cullPass: GPUComputePassDescriptor;
 }
 
-const clusterGpuKey = { create: createClusterGpuState };
+export const clusterGpuKey = { create: createClusterGpuState };
 
 function createClusterGpuState(): ClusterGpuState {
     return {
@@ -96,7 +96,7 @@ const LightInput = d
     .$name("LightInput");
 const LIGHT_SPOT = 1;
 const LIGHT_VOLUMETRIC = 2;
-const lightInputKey = { create: createLightInputTable };
+export const lightInputKey = { create: createLightInputTable };
 const lightCountData = new Uint32Array(1);
 
 function createLightInputTable(world: World) {

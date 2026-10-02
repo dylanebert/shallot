@@ -156,7 +156,7 @@ interface LightingResources {
     overflowWarned: boolean;
 }
 
-const lightingKey = { create: createLightingResources };
+export const lightingKey = { create: createLightingResources };
 
 function createLightingResources(): LightingResources {
     const backing = new ArrayBuffer(LIGHTING_UNIFORM_SIZE);

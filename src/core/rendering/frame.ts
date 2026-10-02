@@ -43,7 +43,7 @@ export interface Frame {
     stagingU32: Uint32Array;
 }
 
-const frameKey = { create: createFrame };
+export const frameKey = { create: createFrame };
 
 function createFrame(): Frame {
     const backing = new ArrayBuffer(FRAME_UNIFORM_SIZE);

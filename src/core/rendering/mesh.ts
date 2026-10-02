@@ -111,7 +111,7 @@ interface MeshResources {
     placeholderIndices: MeshIndex | null;
 }
 
-const meshResourcesKey = { create: createMeshResources };
+export const meshResourcesKey = { create: createMeshResources };
 
 function createMeshResources(): MeshResources {
     return {

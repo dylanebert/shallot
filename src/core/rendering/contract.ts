@@ -330,7 +330,7 @@ export interface Surface<
 }
 
 /** every schema-backed surface, keyed by name with a stable renderer-owned id. */
-const surfacesKey = { create: () => createSurfaces() };
+export const surfacesKey = { create: () => createSurfaces() };
 const createSurfaces = () => new Registry<Surface>();
 
 /** every registered surface in the active world's registry. */
@@ -411,7 +411,7 @@ export interface Background<B extends Record<string, Binding> = Record<string, B
 }
 
 /** every registered background, keyed by name. */
-const backgroundsKey = { create: () => createBackgrounds() };
+export const backgroundsKey = { create: () => createBackgrounds() };
 const createBackgrounds = () => new Registry<Background>();
 
 /** every registered background in the active world's registry. */

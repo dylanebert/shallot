@@ -77,7 +77,7 @@ class DrawRegistry extends Registry<Draw> {
     }
 }
 
-const drawsKey = { create: () => createDraws() };
+export const drawsKey = { create: () => createDraws() };
 const createDraws = () => new DrawRegistry();
 
 /** every registered draw in the active world's registry, keyed by name */

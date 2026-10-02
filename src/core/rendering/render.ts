@@ -37,7 +37,7 @@ export interface Render {
     shadeCount: number;
 }
 
-const renderKey = { create: createRender };
+export const renderKey = { create: createRender };
 
 function createRender(): Render {
     return {

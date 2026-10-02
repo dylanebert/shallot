@@ -193,7 +193,7 @@ const MAX_FRAMES_IN_FLIGHT = 6;
 // the recent rAF-callback intervals the double-fire coalescer's median reads
 const MEDIAN_WINDOW = 20;
 
-const ClearChangeMarksSystem: System = {
+export const ClearChangeMarksSystem: System = {
     group: "draw",
     first: true,
     name: "clear-component-changes",

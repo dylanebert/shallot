@@ -761,7 +761,7 @@ interface Forcer {
 
 // pipelines queued for a forced compile at the end of warm, and whether that drain has already run for
 // this build (see `precompile`)
-const precompileState = {
+export const precompileState = {
     create: () => ({
         precompile: [] as Forcer[],
         labels: new Set<string>(),
@@ -1083,7 +1083,7 @@ export async function precompileAll(world: World): Promise<void> {
 }
 
 // TypeGPU's root and resource handles belong to the World using them, even when two Worlds share a device.
-const typegpuRoot: Resource<{ root?: TgpuRoot }> = { create: () => ({}) };
+export const typegpuRoot: Resource<{ root?: TgpuRoot }> = { create: () => ({}) };
 
 function adopt(
     device: GPUDevice,

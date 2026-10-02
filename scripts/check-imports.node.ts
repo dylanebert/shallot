@@ -125,7 +125,10 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
         put(root, "core/input/index.ts", "export interface Input {}\n");
         put(root, "core/input/fixtures/page.ts", 'import "@dylanebert/shallot/rendering";\n');
         put(root, "core/input/fixtures/support.ts", 'import "./page";\n');
-        put(root, "core/input/check.fixture.ts", 'import "@dylanebert/shallot/rendering";\n');
+        put(root, "core/input/check.fixture.ts", 'import "./internal";\n');
+        put(root, "core/input/internal.ts", "export {};\n");
+        put(root, "standard/rendering/index.ts", "export {};\n");
+        put(root, "core/rendering/points.fixture.ts", 'import "../../standard/rendering";\n');
         put(
             root,
             "core/input/product.ts",
@@ -180,12 +183,14 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
         );
 
         expect(checkImports(root)).toEqual([
+            "src/core/input/fixtures/page.ts:1: sibling import core/input → core/rendering",
             "src/core/input/product.ts:1: product module imports private fixture core/input/fixtures/page.ts",
             "src/core/input/product.ts:2: product module imports private fixture core/input/check.fixture.ts",
             "src/core/rendering/alias.ts:1: sibling import core/rendering → core/input",
             "src/core/rendering/index.ts:1: sibling import core/rendering → core/input",
             "src/core/rendering/js-path.ts:1: sibling import core/rendering → core/input",
             'src/core/rendering/missing.d.ts:1: unresolved import "not-installed"',
+            "src/core/rendering/points.fixture.ts:1: core imports outward to standard/rendering",
             "src/core/rendering/tooling.ts:1: game module core/rendering imports tooling module project",
             "src/core/rendering/types.d.ts:1: sibling import core/rendering → core/input",
             "src/core/rendering/view.cts:1: sibling import core/rendering → core/input",

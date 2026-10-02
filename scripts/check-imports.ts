@@ -239,22 +239,6 @@ export function checkImports(root: string): string[] {
                 continue;
             }
             if (transition) continue;
-            if (fixtureSource) {
-                if (
-                    sourceModule &&
-                    targetModule &&
-                    sourceModule.directory !== targetModule.directory &&
-                    !isModuleEntry(targetModule, target) &&
-                    !DIRECT_LEAVES.has(targetPath) &&
-                    PUBLIC_ENTRIES.get(reference.specifier) !== targetPath &&
-                    packageExportTarget(root, reference.specifier) !== target
-                ) {
-                    violations.push(
-                        `${location}: import past ${modulePath(targetModule)}/index.ts → ${targetPath}`,
-                    );
-                }
-                continue;
-            }
             if (sourceTier && targetModule?.kind === "tooling") {
                 violations.push(
                     `${location}: game module ${sourceModule ? modulePath(sourceModule) : sourceTier} imports tooling module ${targetModule.name}`,
@@ -301,7 +285,8 @@ export function checkImports(root: string): string[] {
                 sourceModule.directory !== targetModule.directory &&
                 !isModuleEntry(targetModule, target) &&
                 !DIRECT_LEAVES.has(targetPath) &&
-                PUBLIC_ENTRIES.get(reference.specifier) !== targetPath
+                PUBLIC_ENTRIES.get(reference.specifier) !== targetPath &&
+                (!fixtureSource || packageExportTarget(root, reference.specifier) !== target)
             ) {
                 violations.push(
                     `${location}: import past ${modulePath(targetModule)}/index.ts → ${relative(src, target).split(sep).join("/")}`,

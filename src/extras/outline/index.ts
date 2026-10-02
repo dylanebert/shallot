@@ -38,6 +38,7 @@ import {
     type Mesh,
     Meshes,
     OverlaySystem,
+    PresentationSystem,
     Render,
     RenderPlugin,
     sceneTransform,
@@ -377,7 +378,7 @@ const OutlineSystem: System = {
     // anchor, which fog runs before), so the band composites on top of the haze; before glaze presents it.
     // Both anchor refs drop harmlessly when their plugin isn't registered
     after: [RenderMeshColorSystem, OverlaySystem],
-    before: [GlazeSystem],
+    before: [GlazeSystem, PresentationSystem],
     update(world: World) {
         const _outlineState = world.resource(outlineStateKey);
         const _meshes = world.resource(Meshes);

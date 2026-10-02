@@ -67,7 +67,7 @@ const blitFs = tgpu.fragmentFn({
 // pipelines bind to the root that created them (device-scoped, memoized — `engine/runtime/gpu.ts`), so a
 // stale entry from a torn-down device must not be reused; keyed like the pre-port cache, by format alone
 // (the per-device root memo means `world.gpu.root` always matches whichever device is currently adopted).
-const blitPipelinesKey = { create: () => new Map<string, TgpuRenderPipeline>() };
+export const blitPipelinesKey = { create: () => new Map<string, TgpuRenderPipeline>() };
 
 function blitPipelines(world: World): Map<string, TgpuRenderPipeline> {
     return world.resource(blitPipelinesKey);

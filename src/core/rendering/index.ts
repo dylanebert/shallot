@@ -81,7 +81,7 @@ interface RenderFrameState {
     viewKeyNext: Float64Array;
 }
 
-const renderFrameKey = { create: createRenderFrameState };
+export const renderFrameKey = { create: createRenderFrameState };
 
 function createRenderFrameState(): RenderFrameState {
     return {
@@ -366,7 +366,7 @@ export const BeginFrameSystem: System = {
 };
 
 /** closes the frame: submits the encoder, advances `world.gpu.frame` */
-const EndFrameSystem: System = {
+export const EndFrameSystem: System = {
     group: "draw",
     terminal: true,
     update(world) {
@@ -394,12 +394,23 @@ const EndFrameSystem: System = {
  * screen-space overlays (outline) run `after` it, so an overlay composites on top of the transformed
  * scene. Both reference it by name, so neither imports the other (the scene-transform / overlay pair
  * stays decoupled). It carries no `update`: pure scheduling, invisible to the profiler. Sits in `draw`
- * with the rest of the seam. Scene color is complete before this anchor; presentation runs after it.
+ * with the rest of the seam. Scene color is complete before this anchor. Overlays run between
+ * this anchor and PresentationSystem; presentation runs after PresentationSystem.
  * Renderers and presentation systems bound the seam without core importing either implementation.
  */
 export const OverlaySystem: System = {
     name: "overlay",
     group: "draw",
+};
+
+/**
+ * Closes the overlay seam: scene color is complete before OverlaySystem, overlays run between
+ * the two anchors, and presentation runs after this anchor. No update work is performed.
+ */
+export const PresentationSystem: System = {
+    name: "presentation",
+    group: "draw",
+    after: [OverlaySystem],
 };
 
 /** allocates the device-shared substrate: format, view UBO, frame UBO */
@@ -494,6 +505,7 @@ export const RenderPlugin: Plugin = {
         UpdateLightClustersSystem,
         CullLightsSystem,
         OverlaySystem,
+        PresentationSystem,
         EndFrameSystem,
     ],
     components: [

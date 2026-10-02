@@ -1,13 +1,14 @@
 import type { Plugin, System } from "../../engine";
-import { OverlaySystem, Render, Views } from "./index";
+import { OverlaySystem, PresentationSystem, Render, Views } from "./index";
 
 const state = {
     create: () => ({ pipelines: new Map<string, GPURenderPipeline>() }),
 };
 
-const PointsSystem: System = {
+export const PointsSystem: System = {
     group: "draw",
     after: [OverlaySystem],
+    before: [PresentationSystem],
     update(world) {
         const render = world.resource(Render);
         for (const view of world.resource(Views).values()) {

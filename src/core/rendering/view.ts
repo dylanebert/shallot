@@ -160,7 +160,7 @@ interface ViewResources {
     scratch: Map<number, { a: Scratch | null; b: Scratch | null; w: number; h: number }>;
 }
 
-const viewResourcesKey = { create: createViewResources };
+export const viewResourcesKey = { create: createViewResources };
 
 function stateMap<K, V>(): Map<K, V> {
     const map = new Map<K, V>();
