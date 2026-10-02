@@ -527,11 +527,19 @@ registers `Body`, `Spring` and `Joint` with their defaults but installs no solve
 `createApp` includes that dependency automatically.
 
 Import shared components, `ShapeKind`, `Hulls`, `Hull`, `HullFace`, `UNIT_CUBE_ID`,
-`BodyState`, CPU raycasts and pick helpers from `@dylanebert/shallot/physics`.
-Import simulation operations, constraint definitions and signatures, systems,
-`PhysicsWorld`, joint configs, events, profiles, worker-pool helpers and the
-`solver` escape hatch from `@dylanebert/shallot/standard/physics`. Both subpaths
-are also exported by the root barrel.
+`BodyState` and `RayBody` from `@dylanebert/shallot/physics`. Import
+`StandardPhysicsPlugin`, `StepPhysicsSystem`, `PhysicsWorld`, `physicsWorld`,
+`readBody`, `setKinematic`, `setVelocity`, `snapshotPhysics`, `restorePhysics`
+and `hashPhysics` from `@dylanebert/shallot/standard/physics`. Both subpaths
+are also exported by the root barrel. Import `GlobalTransform` from the root,
+not `/physics`.
+
+On `Spring` and `Joint`, rename `rA` and `rB` to `localAnchorA` and
+`localAnchorB`; these are points in each body's local frame.
+The constraint definitions, signatures and sync system are internal; author
+`Spring` and `Joint` entities instead. CPU raycast and pick helpers are no
+longer public. Read body poses with `readBody` and use the solver world's
+`castRayClosest` for simulation ray queries.
 
 `Physics.backend` is gone. Read and drive bodies through World-first functions:
 
@@ -543,12 +551,16 @@ const b = Tumble.body(eid);
 
 ```ts
 // 0.10
-import { body, setKinematic } from "@dylanebert/shallot/standard/physics";
+import { readBody, setKinematic } from "@dylanebert/shallot/standard/physics";
 setKinematic(world, eid, position, rotation);
-const b = body(world, eid);
+const b = readBody(world, eid);
 ```
 
-`Tumble.world` becomes `physicsWorld(world)`.
+`Tumble.world` becomes `physicsWorld(world)`. `Tumble.body` has no public
+solver-handle replacement: `readBody` returns pose and velocity, not a mutable
+solver body. Read gravity through `physicsWorld(world)!.getGravity(out)` after
+warm-up and use `Time.FIXED_DT` for the step duration. There is no public
+substep setting.
 
 ## `/avbd` is gone
 

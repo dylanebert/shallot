@@ -44,16 +44,16 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         expect(s.a.get(spring)).toBe(0);
         expect(s.b.get(spring)).toBe(0);
         expect([
-            s.rA.x.get(spring),
-            s.rA.y.get(spring),
-            s.rA.z.get(spring),
-            s.rA.w.get(spring),
+            s.localAnchorA.x.get(spring),
+            s.localAnchorA.y.get(spring),
+            s.localAnchorA.z.get(spring),
+            s.localAnchorA.w.get(spring),
         ]).toEqual([0, 0, 0, 0]);
         expect([
-            s.rB.x.get(spring),
-            s.rB.y.get(spring),
-            s.rB.z.get(spring),
-            s.rB.w.get(spring),
+            s.localAnchorB.x.get(spring),
+            s.localAnchorB.y.get(spring),
+            s.localAnchorB.z.get(spring),
+            s.localAnchorB.w.get(spring),
         ]).toEqual([0, 0, 0, 0]);
         expect(s.stiffness.get(spring)).toBe(100);
         expect(s.rest.get(spring)).toBe(1);
@@ -63,16 +63,16 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         expect(j.a.get(joint)).toBe(0);
         expect(j.b.get(joint)).toBe(0);
         expect([
-            j.rA.x.get(joint),
-            j.rA.y.get(joint),
-            j.rA.z.get(joint),
-            j.rA.w.get(joint),
+            j.localAnchorA.x.get(joint),
+            j.localAnchorA.y.get(joint),
+            j.localAnchorA.z.get(joint),
+            j.localAnchorA.w.get(joint),
         ]).toEqual([0, 0, 0, 0]);
         expect([
-            j.rB.x.get(joint),
-            j.rB.y.get(joint),
-            j.rB.z.get(joint),
-            j.rB.w.get(joint),
+            j.localAnchorB.x.get(joint),
+            j.localAnchorB.y.get(joint),
+            j.localAnchorB.z.get(joint),
+            j.localAnchorB.w.get(joint),
         ]).toEqual([0, 0, 0, 0]);
         expect(j.stiffnessAng.get(joint)).toBe(0);
         expect(world.resource(Hulls).id("__unit_cube__")).toBe(UNIT_CUBE_ID);

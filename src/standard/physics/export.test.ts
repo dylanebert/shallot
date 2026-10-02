@@ -1,38 +1,32 @@
 import { expect, test } from "bun:test";
-import {
-    BodyType,
-    createParallelJoint,
-    createPool,
-    createRevoluteJoint,
-    createSoftJoint,
-    createSphericalJoint,
-    createWheelJoint,
-    getContactEvents,
-    getJointEvents,
-    JointType,
-    maxWorkers,
-    PhysicsWorld,
-    type Pool,
-    type WorkerReady,
-} from "@dylanebert/shallot/standard/physics";
+import * as physics from "@dylanebert/shallot/physics";
+import * as standard from "@dylanebert/shallot/standard/physics";
 
-// Type-only evidence: this file stops compiling if the public subpath drops either pool type.
-export type PublicPoolTypes = [Pool["size"], WorkerReady["index"]];
-
-test("the wheel, parallel, hinge, cone/twist, soft-anchor, contact-event and joint-event seams are absent from the published physics subpath", () => {
-    expect(PhysicsWorld).toBeFunction();
-    expect(typeof BodyType.Dynamic).toBe("number");
-    expect(typeof JointType.Wheel).toBe("number");
-    expect(createWheelJoint).toBeFunction();
-    expect(createParallelJoint).toBeFunction();
-    expect(createRevoluteJoint).toBeFunction();
-    expect(createSphericalJoint).toBeFunction();
-    expect(createSoftJoint).toBeFunction();
-    expect(getContactEvents).toBeFunction();
-    expect(getJointEvents).toBeFunction();
+test("core physics exports shared authoring data without engine aliases or unused observation helpers", () => {
+    expect(Object.keys(physics).sort()).toEqual([
+        "Body",
+        "Hulls",
+        "Joint",
+        "PhysicsPlugin",
+        "ShapeKind",
+        "Spring",
+        "UNIT_CUBE_ID",
+    ]);
 });
 
-test("the physics pool helpers and worker-ready types compile through the public physics export", () => {
-    expect(typeof createPool).toBe("function");
-    expect(typeof maxWorkers).toBe("function");
+test("standard physics exports consumed world operations and profiling without solver internals", () => {
+    expect(Object.keys(standard).sort()).toEqual([
+        "CLOCK_SLOTS",
+        "PhysicsWorld",
+        "StandardPhysicsPlugin",
+        "StepPhysicsSystem",
+        "hashPhysics",
+        "physicsWorld",
+        "readBody",
+        "restorePhysics",
+        "setKinematic",
+        "setVelocity",
+        "snapshotPhysics",
+        "zeroStepProfile",
+    ]);
 });

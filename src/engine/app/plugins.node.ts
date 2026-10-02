@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { MeshInstance } from "../../core/mesh";
-import { Body, GlobalTransform, Joint, ShapeKind, Spring } from "../../core/physics";
+import { Body, Joint, ShapeKind, Spring } from "../../core/physics";
 import {
     AmbientLight,
     attachCanvas,
@@ -75,7 +75,7 @@ import {
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
 import { Character, CharacterPlugin, globalTransform } from "../../transitional/character";
-import { type Plugin, probeTexture, Time, type World } from "../index";
+import { GlobalTransform, type Plugin, probeTexture, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { createApp } from "./index";
 

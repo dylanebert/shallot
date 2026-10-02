@@ -1,6 +1,5 @@
 import { entity, f32, GlobalTransform, type Plugin, registration, u32, vec4 } from "../../engine";
 
-export { GlobalTransform } from "../../engine";
 /** collision-shape tag for {@link Body}. Box collides as an OBB; sphere/capsule as a core + radius; hull as a convex polytope (geometry registered in `Hulls`, referenced by `halfExtents.w` = the hull id). */
 export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
 
@@ -53,9 +52,9 @@ export const Spring = {
     /** the second body. */
     b: entity,
     /** anchor point on body `a`, in its local frame. */
-    rA: vec4,
+    localAnchorA: vec4,
     /** anchor point on body `b`, in its local frame. */
-    rB: vec4,
+    localAnchorB: vec4,
     /** pull strength; higher is stiffer. */
     stiffness: f32,
     /** the target distance the spring pulls the anchors toward. */
@@ -75,11 +74,11 @@ export const Spring = {
  * const bob = world.create();
  * world.add(bob, Body, { mass: 1, position: [0, 7.5, 0, 0] });
  * // spherical
- * world.add(world.create(), Joint, { a: pivot, b: bob, rA: [0, 0, 0, 0], rB: [0, 2.5, 0, 0] });
+ * world.add(world.create(), Joint, { a: pivot, b: bob, localAnchorA: [0, 0, 0, 0], localAnchorB: [0, 2.5, 0, 0] });
  * const link = world.create();
  * world.add(link, Body, { mass: 1, position: [1, 10, 0, 0] });
  * // fixed
- * world.add(world.create(), Joint, { a: pivot, b: link, rA: [0.5, 0, 0, 0], rB: [-0.5, 0, 0, 0], stiffnessAng: Infinity });
+ * world.add(world.create(), Joint, { a: pivot, b: link, localAnchorA: [0.5, 0, 0, 0], localAnchorB: [-0.5, 0, 0, 0], stiffnessAng: Infinity });
  * ```
  */
 export const Joint = {
@@ -88,9 +87,9 @@ export const Joint = {
     /** the second body. */
     b: entity,
     /** the pin's anchor on body `a`, in its local frame. */
-    rA: vec4,
+    localAnchorA: vec4,
     /** the pin's anchor on body `b`, in its local frame. */
-    rB: vec4,
+    localAnchorB: vec4,
     /** angular lock: `0` (default) leaves rotation free (spherical); `Infinity` locks orientation. */
     stiffnessAng: f32,
 };
@@ -121,25 +120,22 @@ export const PhysicsPlugin: Plugin = {
             defaults: () => ({
                 a: 0,
                 b: 0,
-                rA: [0, 0, 0, 0],
-                rB: [0, 0, 0, 0],
+                localAnchorA: [0, 0, 0, 0],
+                localAnchorB: [0, 0, 0, 0],
                 stiffness: 100,
                 rest: 1,
             }),
         }),
         registration("Joint", Joint, {
-            defaults: () => ({ a: 0, b: 0, rA: [0, 0, 0, 0], rB: [0, 0, 0, 0], stiffnessAng: 0 }),
+            defaults: () => ({
+                a: 0,
+                b: 0,
+                localAnchorA: [0, 0, 0, 0],
+                localAnchorB: [0, 0, 0, 0],
+                stiffnessAng: 0,
+            }),
         }),
     ],
 };
 export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
-export { bodyCandidates, grabHit, worldToLocal } from "./pick";
-export {
-    qRotate,
-    type RayBody,
-    type RayHit,
-    rayCapsule,
-    raycast,
-    rayOBB,
-    raySphere,
-} from "./raycast";
+export type { RayBody } from "./raycast";

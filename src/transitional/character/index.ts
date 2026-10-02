@@ -4,7 +4,6 @@ import { Body, type Hull, Hulls, ShapeKind } from "../../core/physics";
 import { f32, type Plugin, registration, type System, Time, type World } from "../../engine";
 import {
     type BodyStateOut,
-    Physics,
     physicsWorld,
     readBody,
     StepPhysicsSystem,
@@ -258,8 +257,7 @@ function sweepEid(eid: number, st: CharState, world: World): void {
     input[0] = m ? m[0] : 0;
     input[2] = m ? m[1] : 0;
     const g = world.storage(Character).gravity.get(eid);
-    const gravity =
-        g !== 0 ? g : (physicsWorld(world)?.getGravity(_worldGravity).y ?? Physics.gravity);
+    const gravity = g !== 0 ? g : physicsWorld(world)!.getGravity(_worldGravity).y;
 
     // snapshot the dynamics' velocities so we can tell which the sweep actually shoved (the push loop only
     // mutates a touched dynamic's `vel`) — a no-op velocity rewrite would wake every nearby resting body.

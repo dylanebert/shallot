@@ -8,7 +8,7 @@
 // finalize, so its cost lands in `transforms`.
 
 /** One step's phase timings in milliseconds (b3Profile). Read via {@link World.getProfile}. */
-export type Profile = {
+export type StepProfile = {
     step: number;
     pairs: number;
     collide: number;
@@ -50,15 +50,15 @@ export interface StepClock {
     /** Mark `slot` as starting now. */
     mark(slot: number): void;
     /** Set `field` to the time since `slot` was marked. */
-    span(field: keyof Profile, slot: number): void;
+    span(field: keyof StepProfile, slot: number): void;
     /** Add the time since `slot` was marked to `field`, then re-mark `slot`. */
-    lap(field: keyof Profile, slot: number): void;
+    lap(field: keyof StepProfile, slot: number): void;
     /** @returns a copy of the last step's phase timings. */
-    read(): Profile;
+    read(): StepProfile;
 }
 
 /** A fresh zeroed profile (world->profile = (b3Profile){0}). */
-export function zeroProfile(): Profile {
+export function zeroStepProfile(): StepProfile {
     return {
         step: 0,
         pairs: 0,
@@ -92,5 +92,5 @@ export const NO_CLOCK: StepClock = {
     mark() {},
     span() {},
     lap() {},
-    read: zeroProfile,
+    read: zeroStepProfile,
 };

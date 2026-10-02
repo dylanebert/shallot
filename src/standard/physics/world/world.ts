@@ -22,7 +22,7 @@ import type { StepContext } from "../solver/contactsolver";
 import { type ConstraintGraph, createGraph } from "../solver/graph";
 import type { Joint } from "../solver/joint";
 import type { Body } from "./body";
-import { NO_CLOCK, type Profile, type StepClock } from "./clock";
+import { NO_CLOCK, type StepClock, type StepProfile } from "./clock";
 import type { Island } from "./island";
 import type { Sensor, SensorBeginTouchEvent, SensorQueryContext } from "./sensor";
 import { destroySolverSet, emptySolverSet, type SolverSet } from "./solverset";
@@ -419,6 +419,6 @@ export function worldCounters(world: WorldState): Counters {
 }
 
 /** @returns a copy of the last step's phase timings (b3World_GetProfile); zeros unless a timing clock is installed. */
-export function worldProfile(world: WorldState): Profile {
+export function worldProfile(world: WorldState): StepProfile {
     return world.clock.read();
 }

@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { Body, GlobalTransform } from "../../core/physics";
+import { Body } from "../../core/physics";
 import {
     attachCanvas,
     Camera,
@@ -12,7 +12,7 @@ import { StandardPhysicsPlugin, StepPhysicsSystem, setKinematic } from "../../st
 import { createApp } from "../app";
 import { CanvasContext } from "../app/canvas.fixture";
 import * as engine from "../index";
-import { globalTransformTable, probeBuffer, Transform, u32 } from "../index";
+import { GlobalTransform, globalTransformTable, probeBuffer, Transform, u32 } from "../index";
 import { registration } from "./registration";
 import type { System } from "./scheduler";
 import { Time } from "./scheduler";

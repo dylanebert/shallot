@@ -1,7 +1,7 @@
 # physics fixtures — frozen historical regression evidence
 
 The 53 `*.json` files here are frozen historical regression evidence: per-step FNV-1a world-state hashes
-plus periodic body-state dumps. `src/transitional/physics/solver/step.fixture.ts` rebuilds each scene through
+plus periodic body-state dumps. `src/standard/physics/solver/step.fixture.ts` rebuilds each scene through
 the engine's public API, steps it, and asserts its hash equals the retained value at every step — at
 single-thread and every thread count. The values are intentionally preserved as reviewed history; they are
 not an authority or a minting input for new expected values.

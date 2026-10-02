@@ -8,7 +8,6 @@ import { createApp, Time, type World } from "@dylanebert/shallot";
 import { Body, ShapeKind } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
-    physicsCounters,
     physicsWorld,
     readBody,
     restorePhysics,
@@ -17,6 +16,7 @@ import {
     snapshotPhysics,
     type WorldSnapshot,
 } from "@dylanebert/shallot/standard/physics";
+import { physicsCounters } from "./runtime";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };

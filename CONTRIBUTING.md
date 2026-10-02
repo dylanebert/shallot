@@ -59,7 +59,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Gameplay and physics read its fixed-tick columns; rendering reads the engine's interpolated table, resident only when requested.
 - A teleport discards interpolation across the discontinuity.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
-- Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`.
+- Standard physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`.
+- A body's simulation owns its `GlobalTransform` pose, velocity and collider-derived scale; no other producer writes that body's scale.
 - Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
 - Hierarchy belongs to the domain deriving placement. A general attachment relation enters core only when two examples need the same one.
 
@@ -99,6 +100,15 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - `standard/rendering` is the one clustered forward mesh pipeline over both core modules: surfaces, materials, light packing, culling, indirect draws, backgrounds and shadow passes. It records into core's phases.
 - Standard contains no effects; they belong in extras.
 - Custom surfaces and backgrounds extend standard through `registerSurface` and `registerBackground`, never a second standard pipeline.
+
+### Physics
+
+- `PhysicsPlugin` (`core/physics`) registers shared `Body`, `Spring` and `Joint` authoring data with their defaults; it installs no simulation.
+- Core owns `ShapeKind`, the world-owned `Hulls` registry and solver-neutral observation of caller-supplied body poses; it knows no rendering, input or solver.
+- `StandardPhysicsPlugin` (`standard/physics`) depends on `PhysicsPlugin` and owns the whole Box3D-based simulation: body and constraint synchronization, stepping, events and world operations.
+- A body belongs to one simulation. A replacement backend consumes core's data and replaces all of standard physics, not individual solver phases.
+- Standard physics steps at `Time.FIXED_DT`; gravity belongs to its solver world and the substep count is internal.
+- Camera rays belong to rendering's `viewportToWorld`, not physics; callers supply pointer or viewport coordinates, and `Ray` belongs to engine math.
 
 ## Commands
 

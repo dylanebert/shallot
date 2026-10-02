@@ -6,7 +6,7 @@ import {
     type PhysicsWorld as SolverWorld,
     type Transform,
 } from "./api";
-import type { JointDef, SpringDef } from "./index";
+import type { JointDef, SpringDef } from "./runtime";
 
 // Spring/Joint def → physics joint marshaling — the constraint half of the ECS→physics path
 // (marshal.ts is the body half). The substrate's SyncPhysicsConstraintsSystem uploads the full authored set on
@@ -75,8 +75,9 @@ const dynMass = (tb: SolverBody): number =>
     tb.getType() === BodyType.Dynamic ? tb.getMassData().mass : 0;
 
 const springKey = (d: SpringDef): string =>
-    `${d.a}|${d.b}|${d.rA}|${d.rB}|${d.stiffness}|${d.rest}`;
-const jointKey = (d: JointDef): string => `${d.a}|${d.b}|${d.rA}|${d.rB}|${d.stiffnessAng}`;
+    `${d.a}|${d.b}|${d.localAnchorA}|${d.localAnchorB}|${d.stiffness}|${d.rest}`;
+const jointKey = (d: JointDef): string =>
+    `${d.a}|${d.b}|${d.localAnchorA}|${d.localAnchorB}|${d.stiffnessAng}`;
 
 // The authored defs, live handles, and diagnostics belong to one Physics world. Arrays are needed because
 // identical defs are legal (two equal springs both pull); a destroyed Body takes its joints with it, so a
@@ -204,8 +205,8 @@ function createSpring(
         return null;
     }
     return physicsWorld.createDistanceJoint(pair[0], pair[1], {
-        localFrameA: frame(def.rA),
-        localFrameB: frame(def.rB),
+        localFrameA: frame(def.localAnchorA),
+        localFrameB: frame(def.localAnchorB),
         length: def.rest,
         enableSpring: true,
         hertz,
@@ -240,8 +241,8 @@ function createJoint(
     }
     if (def.stiffnessAng === 0) {
         return physicsWorld.createSphericalJoint(ta, tb, {
-            localFrameA: frame(def.rA),
-            localFrameB: frame(def.rB),
+            localFrameA: frame(def.localAnchorA),
+            localFrameB: frame(def.localAnchorB),
         });
     }
     // NaN is transparent to the comparison-only `< 0` guard (NaN < 0 is false), so state it explicitly —
@@ -263,8 +264,11 @@ function createJoint(
     const angularHertz =
         def.stiffnessAng > RIGID_THRESHOLD ? 0 : stiffnessHertz(def.stiffnessAng, mA, mB);
     return physicsWorld.createWeldJoint(ta, tb, {
-        localFrameA: frame(def.rA),
-        localFrameB: { p: { x: def.rB[0], y: def.rB[1], z: def.rB[2] }, q: relRotation(ta, tb) },
+        localFrameA: frame(def.localAnchorA),
+        localFrameB: {
+            p: { x: def.localAnchorB[0], y: def.localAnchorB[1], z: def.localAnchorB[2] },
+            q: relRotation(ta, tb),
+        },
         linearHertz: 0, // rigid pin, both mappings
         angularHertz,
         // critically damped, matching the spring path (joints.ts createSpring) and the swap-parity rule

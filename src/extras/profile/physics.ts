@@ -2,20 +2,20 @@ import type { Plugin, System } from "../../engine";
 import {
     CLOCK_SLOTS,
     type PhysicsWorld,
-    type Profile,
     physicsWorld,
     StandardPhysicsPlugin,
     type StepClock,
     StepPhysicsSystem,
-    zeroProfile,
+    type StepProfile,
+    zeroStepProfile,
 } from "../../standard/physics";
 
 /** A wall-clock physics step clock (b3GetTicks / b3GetMillisecondsAndReset), read back through
  * `World.getProfile`. Only the profiler composes it, so the default step does no timing work. */
 export function timingClock(): StepClock {
     const starts = new Float64Array(CLOCK_SLOTS);
-    const profile = zeroProfile();
-    const fields = Object.keys(profile) as (keyof Profile)[];
+    const profile = zeroStepProfile();
+    const fields = Object.keys(profile) as (keyof StepProfile)[];
     return {
         begin(slot) {
             for (const field of fields) profile[field] = 0;

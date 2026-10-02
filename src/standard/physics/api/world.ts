@@ -62,7 +62,7 @@ import { step as stepWorld } from "../solver/step";
 import { createWeldJoint, defaultWeldJointDef, type WeldJointDef } from "../solver/weldJoint";
 import { createWheelJoint, defaultWheelJointDef, type WheelJointDef } from "../solver/wheelJoint";
 import { createBody, getBodySim, makeBodyId } from "../world/body";
-import type { Profile, StepClock } from "../world/clock";
+import type { StepClock, StepProfile } from "../world/clock";
 import { type DebugDraw, worldDraw } from "../world/draw";
 import {
     type Counters,
@@ -573,7 +573,7 @@ export class PhysicsWorld {
      * `PhysicsProfilePlugin` in a composition).
      * @example world.setClock(timingClock()); world.step(1 / 60, 4); console.log(world.getProfile().collide)
      */
-    getProfile(): Profile {
+    getProfile(): StepProfile {
         return worldProfile(this.state);
     }
 
