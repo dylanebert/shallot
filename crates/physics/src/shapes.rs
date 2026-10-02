@@ -42,8 +42,9 @@ const PAGE: usize = 65536;
 /// sphere uses center(3) radius(1), a hull its local AABB lower(3) upper(3) (the only hull field the
 /// AABB path reads, `src/shape.ts` hull branch of `computeShapeAABBOut`). The refit output is the
 /// finalize pass's per-shape write-back: the candidate fat AABB (6, f32) + the escaped flag (1, u32).
-/// Mesh/height-field/compound records carry only the type code + list link (the kernel skips them; TS
-/// computes their AABB at their list position). Attachment lanes 16 and 17 sit outside the refit
+/// Mesh/height-field/compound records carry a geometry-pool reference in lane 8; meshes also carry
+/// scale in lanes 2..4. The finalize kernel still skips them; TS computes their AABB at their list
+/// position. Hull lane 8 holds the hull record index. Attachment lanes 16 and 17 sit outside the refit
 /// output and survive every shape write. No other padding — the record is read scalar, one shape at a
 /// time.
 pub const SHAPE_STRIDE: usize = 18;
@@ -54,6 +55,8 @@ pub const SHAPE_STRIDE: usize = 18;
 pub const S_TYPE: usize = 0;
 pub const S_NEXT: usize = 1;
 pub const S_GEOM: usize = 2;
+/// Hull record index or non-convex geometry word offset; capsule uses this lane for its radius.
+pub const S_GEO_REFERENCE: usize = 8;
 /// Finalize refit output (written per convex shape by `arena::refit_block`, read by TS `finalizeBodies`):
 /// the candidate fat AABB `[lower.xyz, upper.xyz]` (6 f32) + the escaped flag (u32, 0/1).
 pub const S_CAND: usize = 9;

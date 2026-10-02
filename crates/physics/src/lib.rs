@@ -27,6 +27,7 @@ pub mod contact;
 pub mod contact_wide;
 pub mod distance;
 pub mod finalize;
+pub mod height_query;
 pub mod hull;
 pub mod integrate;
 pub mod joint;
@@ -34,6 +35,7 @@ pub mod joint_abi;
 pub mod manifold;
 pub mod manifold_abi;
 pub mod math;
+pub mod mesh_query;
 // The convex-manifold bridge (b3ComputeConvexManifold). Native `cargo test` gold-verifies it; the wasm
 // build dispatches it over the geometry + manifold columns through `arena::dispatch_convex` (3c.3).
 pub mod narrowphase;
@@ -94,6 +96,8 @@ mod bodies;
 #[cfg(target_arch = "wasm32")]
 mod broad;
 #[cfg(target_arch = "wasm32")]
+mod compound_query;
+#[cfg(target_arch = "wasm32")]
 mod fataabb;
 #[cfg(target_arch = "wasm32")]
 mod geo;
@@ -101,6 +105,8 @@ mod geo;
 mod manifolds;
 #[cfg(target_arch = "wasm32")]
 mod pairwork;
+#[cfg(target_arch = "wasm32")]
+mod query_abi;
 #[cfg(target_arch = "wasm32")]
 mod shapes;
 // The staged solve's wasm entries (`solveBuild` / `solveMt` / `workerMain`), over the arena columns —

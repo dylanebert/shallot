@@ -1,5 +1,5 @@
-//! Static geometry columns: the convex-hull pools the narrowphase reads, uploaded once per interned
-//! hull (TS `hullDatabase`) rather than per step. Wasm-only — the pools alias linear memory, and
+//! Static geometry columns: hull topology for narrowphase and mesh, height-field and compound
+//! records for queries, uploaded on shape-set changes rather than per step. Wasm-only — the pools alias linear memory, and
 //! `hull_view` reinterprets them into the borrowed `HullData` view (kernel/src/hull.rs) the narrowphase
 //! consumes. Native `cargo test` drives `HullData` over owned `Vec`s instead.
 //!
@@ -10,12 +10,12 @@
 //! [body_end, fataabb_end)     persistent fat-AABB column (fataabb.rs)
 //! [fataabb_end, shape_end)    persistent shape column (shapes.rs)
 //! [shape_end, manifold_end)   persistent manifold columns (manifolds.rs)
-//! [manifold_end, geo_end)     static geometry pools (persist across steps; TS rewrites on a hull-set change)
+//! [manifold_end, geo_end)     static geometry pools (persist across steps; TS rewrites on a shape-set change)
 //! [geo_end, ...)              per-step solver columns (arena::reserve lays these out from geo_end)
 //! ```
 //! The geometry region sits after the manifold region and before the per-step solver columns, so a
 //! `reserve` never overwrites it; it re-uploads when the manifold region grows and shifts it.
-//! TS is the source of truth: on any hull add/remove it re-uploads every hull compactly, so growth and
+//! TS is the source of truth: on a shape-set change it re-uploads the resident world's geometry compactly, so growth and
 //! renumbering need no in-place preservation here. A body or fat-AABB region grow below shifts this
 //! region up too — `relocate` rebases its offsets (the caller memmoves the bytes; no re-upload).
 
@@ -36,7 +36,8 @@ const VERTICES: usize = 2;
 const EDGES: usize = 3;
 const FACES: usize = 4;
 const PLANES: usize = 5;
-const N_GEO: usize = 6;
+const EXTRA: usize = 6;
+const N_GEO: usize = 7;
 
 static mut GEO_LAYOUT: [u32; N_GEO] = [0; N_GEO];
 /// First free byte past the geometry region — the base `arena::reserve` lays the solver columns from.
@@ -101,12 +102,18 @@ pub extern "C" fn geo_layout_ptr() -> *const u32 {
     &raw const GEO_LAYOUT as *const u32
 }
 
-/// Lay out the geometry pools for the given totals across all hulls, growing memory to fit, and record
+/// Lay out the hull pools and `extra_words` of non-convex records, growing memory to fit, and record
 /// `geo_end` so the next `reserve` places the solver columns after them. `verts` sizes both the point
 /// pool (3 f32 each) and the vertex pool (1 u32 each); `faces` sizes both the face pool (1 u32 each)
 /// and the plane pool (4 f32 each). TS then rewrites every hull's record + pool data.
 #[export_name = "reserveGeometry"]
-pub extern "C" fn reserve_geometry(hulls: usize, verts: usize, edges: usize, faces: usize) {
+pub extern "C" fn reserve_geometry(
+    hulls: usize,
+    verts: usize,
+    edges: usize,
+    faces: usize,
+    extra_words: usize,
+) {
     unsafe {
         // Start past the persistent broad-phase region (empty until the first `reserveBroad`).
         let mut off = crate::broad::region_top();
@@ -122,6 +129,8 @@ pub extern "C" fn reserve_geometry(hulls: usize, verts: usize, edges: usize, fac
         off += faces * 4;
         GEO_LAYOUT[PLANES] = off as u32;
         off += faces * 4 * 4;
+        GEO_LAYOUT[EXTRA] = off as u32;
+        off += extra_words * 4;
         // 4-align the solver base (pool sizes are already word multiples, so this is a no-op, but keep
         // the invariant explicit).
         GEO_END = ((off + 3) & !3) as u32;
@@ -179,6 +188,56 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
         edges,
         faces,
         planes,
+    }
+}
+
+/// Address a word in the non-convex geometry pool. References within the pool are word offsets,
+/// so relocation rebases only GEO_LAYOUT, just as it does for the hull pools.
+pub(crate) unsafe fn extra_ptr(index: usize) -> *const u32 {
+    (GEO_LAYOUT[EXTRA] as *const u32).add(index)
+}
+
+pub(crate) unsafe fn mesh_view(index: usize, scale: Vec3) -> crate::mesh_query::Mesh<'static> {
+    use crate::mesh_query::{Mesh, MeshNode, MeshTriangle};
+    let r = extra_ptr(index);
+    Mesh {
+        nodes: core::slice::from_raw_parts(
+            extra_ptr(*r.add(3) as usize) as *const MeshNode,
+            *r as usize,
+        ),
+        vertices: core::slice::from_raw_parts(
+            extra_ptr(*r.add(4) as usize) as *const Vec3,
+            *r.add(1) as usize,
+        ),
+        triangles: core::slice::from_raw_parts(
+            extra_ptr(*r.add(5) as usize) as *const MeshTriangle,
+            *r.add(2) as usize,
+        ),
+        materials: core::slice::from_raw_parts(extra_ptr(*r.add(7) as usize), *r.add(2) as usize),
+        scale,
+    }
+}
+
+pub(crate) unsafe fn height_view(index: usize) -> crate::height_query::HeightField<'static> {
+    use crate::height_query::HeightField;
+    let r = extra_ptr(index);
+    let f = r as *const f32;
+    let columns = *r.add(12) as usize;
+    let rows = *r.add(13) as usize;
+    HeightField {
+        lower: *(f as *const Vec3),
+        upper: *(f.add(3) as *const Vec3),
+        min_height: *f.add(6),
+        height_scale: *f.add(8),
+        scale: *(f.add(9) as *const Vec3),
+        columns,
+        rows,
+        clockwise: *r.add(14) != 0,
+        heights: core::slice::from_raw_parts(extra_ptr(*r.add(15) as usize), columns * rows),
+        materials: core::slice::from_raw_parts(
+            extra_ptr(*r.add(16) as usize),
+            (columns - 1) * (rows - 1),
+        ),
     }
 }
 

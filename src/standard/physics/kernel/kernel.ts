@@ -21,6 +21,23 @@ export type Kernel = {
     memory: WebAssembly.Memory;
     /** Toolchain smoke buffer offset + scale, the standing wasm-simd128 cliff gate (kernel.test.ts). */
     scratchPtr(): number;
+    /** Per-shape scratch input: transform(7), count/radius, translation(3), fraction/encroach,
+     * then up to 128 xyz points. Cast output: hit, fraction, point(3), normal(3), iterations,
+     * triangle, child, material. Mover output is caller-owned: normal(3), offset, point(3),
+     * then three i32 indices, 40 bytes per plane. `local` selects per-kind dispatch without a
+     * shape transform, preserving the local oracle's signed zeros. */
+    shapeQueryInputPtr(): number;
+    shapeQueryOutputPtr(): number;
+    shapeQueryRay(world: number, shape: number, local: number): void;
+    shapeQueryCast(world: number, shape: number, local: number): void;
+    shapeQueryOverlap(world: number, shape: number): number;
+    shapeQueryMover(
+        world: number,
+        shape: number,
+        output: number,
+        capacity: number,
+        local: number,
+    ): number;
     smokeScale(len: number, k: number): void;
 
     // Shared-column arena (kernel/src/arena.rs). `reserve` lays out the columns for one step's counts
@@ -137,7 +154,13 @@ export type Kernel = {
     // for the given totals; `geoLayoutPtr` returns the byte-offset header TS writes the hulls through
     // (geocolumns.ts). `collideHullsGeo` runs the hull-hull narrowphase over two column-backed hulls,
     // writing the manifold to the buffer at `geoOutPtr` — the geometry-read verification.
-    reserveGeometry(hulls: number, verts: number, edges: number, faces: number): void;
+    reserveGeometry(
+        hulls: number,
+        verts: number,
+        edges: number,
+        faces: number,
+        extraWords: number,
+    ): void;
     geoLayoutPtr(): number;
 
     // Persistent contact-manifold columns (kernel/src/manifolds.rs) — the warm-start state that

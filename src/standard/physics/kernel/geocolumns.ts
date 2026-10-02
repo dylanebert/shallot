@@ -1,13 +1,17 @@
 import type { World } from "../../../engine";
-// Upload of interned convex hulls into the kernel's static geometry columns (kernel/src/geo.rs). The
-// narrowphase reads hull topology from wasm linear memory; TS owns hull construction (hull.ts) and the
-// interning database (world.ts `hullDatabase`), so on any change to the hull set it re-uploads every
-// hull compactly through this module. Upload is per hull-set change (shape create/destroy), never per
-// step. The strides + record layout MIRROR kernel/src/geo.rs — the wasm side is the contract.
+// Upload of the resident world's geometry into kernel/src/geo.rs. TS owns construction; the kernel
+// reads hull topology and non-convex query records from linear memory. A shape-set change, region move
+// or residency transfer rewrites the pool. Unchanged single-world steps upload nothing.
 
+import { ShapeType } from "../common/types";
+import { type CompoundData, getCompoundChild } from "../shapes/compound";
+import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
+import type { MeshData } from "../shapes/mesh";
 import type { WorldState } from "../world/world";
+import { geometryUploaded } from "./bodycolumns";
 import { kernel } from "./kernel";
+import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 
 /** u32 words per hull record (RECORD_STRIDE in geo.rs): center.xyz + v/e/f counts + 5 pool offsets. */
 const RECORD_STRIDE = 12;
@@ -19,7 +23,8 @@ const VERTICES = 2;
 const EDGES = 3;
 const FACES = 4;
 const PLANES = 5;
-const N_GEO = 6;
+const EXTRA = 6;
+const N_GEO = 7;
 
 /** The subset of a hull the geometry upload reads (and `geoIndex`, which it writes). `HullData`
  * satisfies it structurally. */
@@ -42,7 +47,11 @@ export type UploadHull = Pick<
  * hull's `geoIndex` to its record index. A full rewrite — the pools are sized to the exact totals and
  * every hull's data is written fresh, so growth and renumbering need no in-place preservation.
  */
-export function uploadGeometry(world: World | undefined, hulls: UploadHull[]): void {
+export function uploadGeometry(
+    world: World | undefined,
+    hulls: UploadHull[],
+    extra: readonly number[] = [],
+): void {
     let verts = 0;
     let edges = 0;
     let faces = 0;
@@ -53,9 +62,10 @@ export function uploadGeometry(world: World | undefined, hulls: UploadHull[]): v
     }
 
     const k = kernel(world);
-    k.reserveGeometry(hulls.length, verts, edges, faces);
+    k.reserveGeometry(hulls.length, verts, edges, faces, extra.length);
     const buf = k.memory.buffer;
     const layout = new Uint32Array(buf, k.geoLayoutPtr(), N_GEO);
+    new Uint32Array(buf, layout[EXTRA], extra.length).set(extra);
 
     // Two views over the record pool: center is f32 bits, counts + offsets are u32, at disjoint slots.
     const recU = new Uint32Array(buf, layout[REC], hulls.length * RECORD_STRIDE);
@@ -120,13 +130,132 @@ export function uploadGeometry(world: World | undefined, hulls: UploadHull[]): v
     }
 }
 
-/** Re-upload every interned hull after a change to the hull database (add of a new content hash, or
- * removal of the last reference). Insertion-ordered; the compact renumbering refreshes every hull's
- * `geoIndex`, which shapes read fresh each step. */
+/** Rebuild the resident world's geometry after a shape-set change, region move or owner change.
+ * Hull references are record indices; non-convex references are word offsets within EXTRA. Mesh
+ * records hold counts and offsets to 11-word nodes, xyz vertices, index triples, flags and materials.
+ * Height records hold bounds, quantization, scale, dimensions, winding and array offsets. Compound
+ * records hold the tree root, node/child counts and offsets to 12-word tree nodes and 19-word children
+ * (kind, transform, four material indices, seven geometry words). All offsets survive relocation. */
 export function rebuildGeometry(world: WorldState): void {
-    const hulls: HullData[] = [];
-    for (const entry of world.hullDatabase.values()) {
-        hulls.push(entry.hull);
+    const hulls = new Set<HullData>();
+    const meshes = new Set<MeshData>();
+    const fields = new Set<HeightFieldData>();
+    const compounds = new Set<CompoundData>();
+    for (const entry of world.hullDatabase.values()) hulls.add(entry.hull);
+    for (const s of world.shapes) {
+        if (s.id < 0) continue;
+        if (s.mesh) meshes.add(s.mesh.data);
+        if (s.heightField) fields.add(s.heightField);
+        if (s.compound) {
+            compounds.add(s.compound);
+            for (const h of s.compound.hulls) hulls.add(h.hull);
+            for (const m of s.compound.meshes) meshes.add(m.meshData);
+        }
     }
-    uploadGeometry(world.ecsState, hulls);
+    const hullArray = [...hulls];
+    for (let i = 0; i < hullArray.length; ++i) hullArray[i].geoIndex = i;
+
+    // All references in these records are word offsets in EXTRA, never absolute addresses. This
+    // keeps the body's relocation chain independent of the kind-specific record layouts.
+    const words: number[] = [];
+    const append = (values: Iterable<number>): void => {
+        for (const value of values) words.push(value);
+    };
+    const float = new DataView(new ArrayBuffer(4));
+    const bits = (x: number): number => {
+        float.setFloat32(0, x, true);
+        return float.getUint32(0, true);
+    };
+    const vec = (p: { x: number; y: number; z: number }): void => {
+        words.push(bits(p.x), bits(p.y), bits(p.z));
+    };
+    const indices = new Map<MeshData | HeightFieldData | CompoundData, number>();
+    for (const m of meshes) {
+        const record = words.length;
+        indices.set(m, record);
+        words.push(m.nodes.length, m.vertices.length, m.triangles.length, 0, 0, 0, 0, 0);
+        words[record + 3] = words.length;
+        for (const n of m.nodes) {
+            vec(n.lowerBound);
+            vec(n.upperBound);
+            words.push(Number(n.leaf), n.axis, n.childOffset, n.triangleCount, n.triangleOffset);
+        }
+        words[record + 4] = words.length;
+        for (const p of m.vertices) vec(p);
+        words[record + 5] = words.length;
+        for (const t of m.triangles) words.push(t.index1, t.index2, t.index3);
+        words[record + 6] = words.length;
+        append(m.flags);
+        words[record + 7] = words.length;
+        append(m.materialIndices);
+    }
+    for (const h of fields) {
+        const record = words.length;
+        indices.set(h, record);
+        vec(h.aabb.lowerBound);
+        vec(h.aabb.upperBound);
+        words.push(bits(h.minHeight), bits(h.maxHeight), bits(h.heightScale));
+        vec(h.scale);
+        words.push(h.columnCount, h.rowCount, Number(h.clockwise), 0, 0, 0);
+        words[record + 15] = words.length;
+        append(h.compressedHeights);
+        words[record + 16] = words.length;
+        append(h.materialIndices);
+        words[record + 17] = words.length;
+        append(h.flags);
+    }
+    for (const c of compounds) {
+        const record = words.length;
+        indices.set(c, record);
+        const count = c.capsules.length + c.hulls.length + c.meshes.length + c.spheres.length;
+        words.push(c.tree.root, c.tree.nodeCapacity, count, 0, 0);
+        words[record + 3] = words.length;
+        // The compound tree retains the exact dynamic-tree node layout and leaf user data.
+        append(new Uint32Array(c.tree.ni.buffer, c.tree.ni.byteOffset, c.tree.ni.length));
+        words[record + 4] = words.length;
+        for (let i = 0; i < count; ++i) {
+            const child = getCompoundChild(c, i);
+            words.push(child.type);
+            vec(child.transform.p);
+            vec(child.transform.q.v);
+            words.push(bits(child.transform.q.s));
+            words.push(...child.materialIndices);
+            const start = words.length;
+            if (child.capsule) {
+                vec(child.capsule.center1);
+                vec(child.capsule.center2);
+                words.push(bits(child.capsule.radius));
+            } else if (child.sphere) {
+                vec(child.sphere.center);
+                words.push(bits(child.sphere.radius));
+            } else if (child.hull) words.push(child.hull.geoIndex);
+            else if (child.mesh) {
+                words.push(indices.get(child.mesh.data) as number);
+                vec(child.mesh.scale);
+            }
+            while (words.length < start + 7) words.push(0);
+        }
+    }
+    uploadGeometry(world.ecsState, hullArray, words);
+    world.shapeStore.refreshViews();
+    world.bodyStore.refreshViews();
+    world.manifoldStore.refreshViews();
+    for (const s of world.shapes) {
+        if (s.id < 0) continue;
+        const offset = s.id * SHAPE_STRIDE;
+        if (s.type === ShapeType.Hull)
+            world.shapeStore.shapeU[offset + S_GEO_REFERENCE] = (s.hull as HullData).geoIndex;
+        else if (s.mesh) {
+            world.shapeStore.shapeU[offset + S_GEO_REFERENCE] = indices.get(s.mesh.data) as number;
+            world.shapeStore.shapeF[offset + 2] = s.mesh.scale.x;
+            world.shapeStore.shapeF[offset + 3] = s.mesh.scale.y;
+            world.shapeStore.shapeF[offset + 4] = s.mesh.scale.z;
+        } else if (s.heightField)
+            world.shapeStore.shapeU[offset + S_GEO_REFERENCE] = indices.get(
+                s.heightField,
+            ) as number;
+        else if (s.compound)
+            world.shapeStore.shapeU[offset + S_GEO_REFERENCE] = indices.get(s.compound) as number;
+    }
+    geometryUploaded(world);
 }

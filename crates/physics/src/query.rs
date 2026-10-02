@@ -4,12 +4,16 @@ use crate::distance::{
     shape_cast, shape_distance, CastOutput, DistanceInput, ShapeCastPairInput, ShapeProxy,
     SimplexCache,
 };
+use crate::height_query::{
+    collide_mover_height, overlap_height, ray_cast_height, shape_cast_height, HeightField,
+};
 use crate::hull::HullData;
 use crate::manifold::{Capsule, Sphere};
 use crate::math::{
     clampf, get_length_and_normalize, point_to_segment_distance, segment_distance, Plane,
     Transform, Vec3, FLT_EPSILON,
 };
+use crate::mesh_query::{collide_mover_mesh, overlap_mesh, ray_cast_mesh, shape_cast_mesh, Mesh};
 
 #[derive(Clone, Copy)]
 pub struct RayCastInput {
@@ -25,6 +29,7 @@ pub struct ShapeCastInput<'a> {
     pub can_encroach: bool,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PlaneResult {
     pub plane: Plane,
@@ -32,6 +37,195 @@ pub struct PlaneResult {
     pub triangle_index: i32,
     pub child_index: i32,
     pub material_index: i32,
+}
+
+impl PlaneResult {
+    pub const ZERO: Self = Self {
+        plane: Plane {
+            normal: Vec3::ZERO,
+            offset: 0.0,
+        },
+        point: Vec3::ZERO,
+        triangle_index: 0,
+        child_index: 0,
+        material_index: 0,
+    };
+}
+
+pub enum Shape<'a> {
+    Sphere(Sphere),
+    Capsule(Capsule),
+    Hull(HullData<'a>),
+    Mesh(Mesh<'a>),
+    Height(HeightField<'a>),
+    #[cfg(target_arch = "wasm32")]
+    Compound(crate::compound_query::Compound<'a>),
+}
+
+pub fn ray_cast_shape(shape: &Shape, transform: Transform, input: &RayCastInput) -> CastOutput {
+    let local = RayCastInput {
+        origin: transform.inv_point(input.origin),
+        translation: transform.q.inv_rotate(input.translation),
+        max_fraction: input.max_fraction,
+    };
+    let mut out = ray_cast_local(shape, &local);
+    out.point = transform.point(out.point);
+    out.normal = transform.q.rotate(out.normal);
+    out
+}
+
+pub(crate) fn ray_cast_local(shape: &Shape, input: &RayCastInput) -> CastOutput {
+    match shape {
+        Shape::Sphere(s) => ray_cast_sphere(s, input),
+        Shape::Capsule(s) => ray_cast_capsule(s, input),
+        Shape::Hull(s) => ray_cast_hull(s, input),
+        Shape::Mesh(s) => ray_cast_mesh(*s, input),
+        Shape::Height(s) => ray_cast_height(*s, input),
+        #[cfg(target_arch = "wasm32")]
+        Shape::Compound(s) => crate::compound_query::ray_cast_compound(*s, input),
+    }
+}
+
+pub fn shape_cast_shape(shape: &Shape, transform: Transform, input: &ShapeCastInput) -> CastOutput {
+    let mut points = [Vec3::ZERO; 128];
+    let count = input.proxy.count.min(128);
+    for (i, p) in points[..count].iter_mut().enumerate() {
+        *p = transform.inv_point(input.proxy.points[i]);
+    }
+    let local = ShapeCastInput {
+        proxy: ShapeProxy {
+            points: &points,
+            count,
+            radius: input.proxy.radius,
+        },
+        translation: transform.q.inv_rotate(input.translation),
+        max_fraction: input.max_fraction,
+        can_encroach: input.can_encroach,
+    };
+    let mut out = shape_cast_local(shape, &local);
+    out.point = transform.point(out.point);
+    out.normal = transform.q.rotate(out.normal);
+    out
+}
+
+pub(crate) fn shape_cast_local(shape: &Shape, input: &ShapeCastInput) -> CastOutput {
+    match shape {
+        Shape::Sphere(s) => shape_cast_convex(
+            ShapeProxy {
+                points: core::slice::from_ref(&s.center),
+                count: 1,
+                radius: s.radius,
+            },
+            input,
+        ),
+        Shape::Capsule(s) => shape_cast_convex(
+            ShapeProxy {
+                points: &[s.center1, s.center2],
+                count: 2,
+                radius: s.radius,
+            },
+            input,
+        ),
+        Shape::Hull(s) => shape_cast_convex(
+            ShapeProxy {
+                points: s.points,
+                count: s.vertex_count,
+                radius: 0.0,
+            },
+            input,
+        ),
+        Shape::Mesh(s) => shape_cast_mesh(*s, input),
+        Shape::Height(s) => shape_cast_height(*s, input),
+        #[cfg(target_arch = "wasm32")]
+        Shape::Compound(s) => crate::compound_query::shape_cast_compound(*s, input),
+    }
+}
+
+pub fn overlap_shape(shape: &Shape, transform: Transform, proxy: ShapeProxy) -> bool {
+    match shape {
+        Shape::Sphere(s) => overlap_convex(
+            ShapeProxy {
+                points: core::slice::from_ref(&s.center),
+                count: 1,
+                radius: s.radius,
+            },
+            transform,
+            proxy,
+        ),
+        Shape::Capsule(s) => overlap_convex(
+            ShapeProxy {
+                points: &[s.center1, s.center2],
+                count: 2,
+                radius: s.radius,
+            },
+            transform,
+            proxy,
+        ),
+        Shape::Hull(s) => overlap_convex(
+            ShapeProxy {
+                points: s.points,
+                count: s.vertex_count,
+                radius: 0.0,
+            },
+            transform,
+            proxy,
+        ),
+        Shape::Mesh(s) => overlap_mesh(*s, transform, proxy),
+        Shape::Height(s) => overlap_height(*s, transform, proxy),
+        #[cfg(target_arch = "wasm32")]
+        Shape::Compound(s) => crate::compound_query::overlap_compound(*s, transform, proxy),
+    }
+}
+
+pub fn collide_mover(
+    planes: &mut [PlaneResult],
+    shape: &Shape,
+    transform: Transform,
+    mover: &Capsule,
+    material_count: i32,
+) -> usize {
+    if planes.is_empty() {
+        return 0;
+    }
+    let local = Capsule {
+        center1: transform.inv_point(mover.center1),
+        center2: transform.inv_point(mover.center2),
+        radius: mover.radius,
+    };
+    let count = collide_mover_local(planes, shape, &local);
+    for p in &mut planes[..count] {
+        p.plane.normal = transform.q.rotate(p.plane.normal);
+        p.point = transform.point(p.point);
+        p.material_index = p.material_index.max(0).min(material_count - 1);
+    }
+    count
+}
+
+pub(crate) fn collide_mover_local(
+    planes: &mut [PlaneResult],
+    shape: &Shape,
+    mover: &Capsule,
+) -> usize {
+    if planes.is_empty() {
+        return 0;
+    }
+    let result = match shape {
+        Shape::Sphere(s) => collide_mover_sphere(s, mover),
+        Shape::Capsule(s) => collide_mover_capsule(s, mover),
+        Shape::Hull(s) => collide_mover_hull(s, mover),
+        Shape::Mesh(s) => return collide_mover_mesh(planes, *s, mover),
+        Shape::Height(s) => return collide_mover_height(planes, *s, mover),
+        #[cfg(target_arch = "wasm32")]
+        Shape::Compound(s) => {
+            return crate::compound_query::collide_mover_compound(planes, *s, mover)
+        }
+    };
+    if let Some(result) = result {
+        planes[0] = result;
+        1
+    } else {
+        0
+    }
 }
 
 pub fn overlap_convex(shape: ShapeProxy, transform: Transform, proxy: ShapeProxy) -> bool {

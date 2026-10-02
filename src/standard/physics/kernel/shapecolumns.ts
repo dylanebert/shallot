@@ -33,6 +33,8 @@ export const S_NEXT = 1;
 /** Local geometry the AABB compute needs: sphere center(3)+radius(1), capsule center1(3)+center2(3)+
  * radius(1), hull local-AABB lower(3)+upper(3). Unwritten for the fallback types. */
 export const S_GEOM = 2;
+/** Hull record index or non-convex geometry word offset; capsule uses this lane for its radius. */
+export const S_GEO_REFERENCE = 8;
 /** Finalize-refit output the kernel writes per convex shape and TS reads in `finalizeBodies`: the
  * candidate fat AABB (`[lower.xyz, upper.xyz]`, 6 f32) then the escaped flag (u32, 0/1). */
 export const S_CAND = 9;

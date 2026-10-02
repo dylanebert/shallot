@@ -5,7 +5,7 @@ import { test } from "bun:test";
 // The gold is a reference fixture: never edited to match.
 
 import { type Transform, type Vec3, xf } from "../common/math";
-import { defaultSurfaceMaterial } from "../common/types";
+import { defaultSurfaceMaterial, ShapeType } from "../common/types";
 import {
     type CompoundData,
     createCompound,
@@ -38,6 +38,7 @@ import {
 import { createGridMesh, type Mesh, overlapMesh, rayCastMesh, shapeCastMesh } from "../shapes/mesh";
 import type { CastOutput, ShapeProxy } from "./distance";
 import gold from "./query.gold.json";
+import { kernelCast, kernelOverlap, kernelRay } from "./shape_query_gold";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -307,5 +308,229 @@ test("the compound overlap predicate misses a proxy that touches only one child,
     for (const g of gold.overlapCompound) {
         const proxy = proxyFrom(g.proxyPoint, g.proxyRadius);
         sameValue(overlapCompound(compound, identityAt(g.xfp), proxy), g.out, `${g.name} overlap`);
+    }
+});
+
+// The per-kind level is the frozen authority; shape-level rotation canonicalizes -0 as Box3D does.
+test("world-created kernel shapes answer every immutable per-shape query vector bit-exactly", () => {
+    for (const g of gold.raySphere) {
+        const sphere: Sphere = { center: vecFromHex(g.center), radius: fromBits(g.radius) };
+        outEqual(
+            kernelRay(ShapeType.Sphere, sphere, ray(g.origin, g.translation, g.maxFraction)),
+            g.out,
+            g.name,
+        );
+    }
+    for (const g of gold.rayCapsule) {
+        const capsule: Capsule = {
+            center1: vecFromHex(g.center1),
+            center2: vecFromHex(g.center2),
+            radius: fromBits(g.radius),
+        };
+        outEqual(
+            kernelRay(ShapeType.Capsule, capsule, ray(g.origin, g.translation, g.maxFraction)),
+            g.out,
+            g.name,
+        );
+    }
+    for (const g of gold.rayHull)
+        outEqual(
+            kernelRay(ShapeType.Hull, cube, ray(g.origin, g.translation, g.maxFraction)),
+            g.out,
+            g.name,
+        );
+    for (const g of gold.shapeCast) {
+        const input = {
+            proxy: originProxy(g.proxyRadius),
+            translation: vecFromHex(g.translation),
+            maxFraction: fromBits(g.maxFraction),
+            canEncroach: g.canEncroach,
+        };
+        const geometry =
+            g.shape === "cube"
+                ? cube
+                : {
+                      center: vecFromHex(g.center as string[]),
+                      radius: fromBits(g.radius as string),
+                  };
+        outEqual(
+            kernelCast(g.shape === "cube" ? ShapeType.Hull : ShapeType.Sphere, geometry, input),
+            g.out,
+            g.name,
+        );
+    }
+    for (const g of gold.overlap) {
+        const geometry =
+            g.shape === "cube"
+                ? cube
+                : {
+                      center: vecFromHex(g.center as string[]),
+                      radius: fromBits(g.radius as string),
+                  };
+        sameValue(
+            kernelOverlap(
+                g.shape === "cube" ? ShapeType.Hull : ShapeType.Sphere,
+                geometry,
+                identityAt(g.xfp),
+                originProxy(g.proxyRadius),
+            ),
+            g.out,
+            g.name,
+        );
+    }
+    for (const [kind, geometry, rays, casts, overlaps] of [
+        [ShapeType.Mesh, gridMesh, gold.rayMesh, gold.shapeCastMesh, gold.overlapMesh],
+        [
+            ShapeType.HeightField,
+            gridField,
+            gold.rayHeight,
+            gold.shapeCastHeight,
+            gold.overlapHeight,
+        ],
+        [
+            ShapeType.Compound,
+            compound,
+            gold.rayCompound,
+            gold.shapeCastCompound,
+            gold.overlapCompound,
+        ],
+    ] as const) {
+        for (const g of rays)
+            outFullEqual(
+                kernelRay(kind, geometry, ray(g.origin, g.translation, g.maxFraction)),
+                g.out,
+                g.name,
+            );
+        for (const g of casts)
+            outFullEqual(
+                kernelCast(
+                    kind,
+                    geometry,
+                    castInput(proxyFrom(g.proxyPoint, g.proxyRadius), g.translation, g.maxFraction),
+                ),
+                g.out,
+                g.name,
+            );
+        for (const g of overlaps)
+            sameValue(
+                kernelOverlap(
+                    kind,
+                    geometry,
+                    identityAt(g.xfp),
+                    proxyFrom(g.proxyPoint, g.proxyRadius),
+                ),
+                g.out,
+                g.name,
+            );
+    }
+});
+
+test("rotated and translated kernel shape ray, cast and overlap dispatch equals TypeScript bit for bit for every query vector", () => {
+    for (const g of gold.raySphere)
+        kernelRay(
+            ShapeType.Sphere,
+            { center: vecFromHex(g.center), radius: fromBits(g.radius) },
+            ray(g.origin, g.translation, g.maxFraction),
+            true,
+        );
+    for (const g of gold.rayCapsule) {
+        const capsule = {
+            center1: vecFromHex(g.center1),
+            center2: vecFromHex(g.center2),
+            radius: fromBits(g.radius),
+        };
+        const input = ray(g.origin, g.translation, g.maxFraction);
+        kernelRay(ShapeType.Capsule, capsule, input, true);
+        kernelCast(
+            ShapeType.Capsule,
+            capsule,
+            {
+                proxy: { points: [input.origin], count: 1, radius: 0.2 },
+                translation: input.translation,
+                maxFraction: input.maxFraction,
+                canEncroach: false,
+            },
+            true,
+        );
+        kernelOverlap(
+            ShapeType.Capsule,
+            capsule,
+            xf.identity(),
+            { points: [input.origin], count: 1, radius: 0.2 },
+            true,
+        );
+    }
+    for (const g of gold.rayHull)
+        kernelRay(ShapeType.Hull, cube, ray(g.origin, g.translation, g.maxFraction), true);
+    for (const g of gold.shapeCast) {
+        const geometry =
+            g.shape === "cube"
+                ? cube
+                : {
+                      center: vecFromHex(g.center as string[]),
+                      radius: fromBits(g.radius as string),
+                  };
+        kernelCast(
+            g.shape === "cube" ? ShapeType.Hull : ShapeType.Sphere,
+            geometry,
+            {
+                proxy: originProxy(g.proxyRadius),
+                translation: vecFromHex(g.translation),
+                maxFraction: fromBits(g.maxFraction),
+                canEncroach: g.canEncroach,
+            },
+            true,
+        );
+    }
+    for (const g of gold.overlap) {
+        const geometry =
+            g.shape === "cube"
+                ? cube
+                : {
+                      center: vecFromHex(g.center as string[]),
+                      radius: fromBits(g.radius as string),
+                  };
+        kernelOverlap(
+            g.shape === "cube" ? ShapeType.Hull : ShapeType.Sphere,
+            geometry,
+            identityAt(g.xfp),
+            originProxy(g.proxyRadius),
+            true,
+        );
+    }
+    for (const [kind, geometry, rays, casts, overlaps] of [
+        [ShapeType.Mesh, gridMesh, gold.rayMesh, gold.shapeCastMesh, gold.overlapMesh],
+        [
+            ShapeType.HeightField,
+            gridField,
+            gold.rayHeight,
+            gold.shapeCastHeight,
+            gold.overlapHeight,
+        ],
+        [
+            ShapeType.Compound,
+            compound,
+            gold.rayCompound,
+            gold.shapeCastCompound,
+            gold.overlapCompound,
+        ],
+    ] as const) {
+        for (const g of rays)
+            kernelRay(kind, geometry, ray(g.origin, g.translation, g.maxFraction), true);
+        for (const g of casts)
+            kernelCast(
+                kind,
+                geometry,
+                castInput(proxyFrom(g.proxyPoint, g.proxyRadius), g.translation, g.maxFraction),
+                true,
+            );
+        for (const g of overlaps)
+            kernelOverlap(
+                kind,
+                geometry,
+                identityAt(g.xfp),
+                proxyFrom(g.proxyPoint, g.proxyRadius),
+                true,
+            );
     }
 });

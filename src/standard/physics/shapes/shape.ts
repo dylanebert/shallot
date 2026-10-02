@@ -743,6 +743,7 @@ export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void
 }
 
 export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
+    world.geometryDirty = true;
     if (shape.type === ShapeType.Hull) {
         removeHullFromDatabase(world, shape.hull as HullData);
         shape.hull = undefined;
@@ -803,6 +804,7 @@ function createShapeInternal(
             throw new Error(`physics: unknown shape type ${shapeType}`);
     }
 
+    world.geometryDirty = true;
     shape.id = shapeId;
     shape.bodyId = body.id;
     shape.type = shapeType;

@@ -6,7 +6,7 @@
 
 import { expect, test } from "bun:test";
 import { type Transform, type Vec3, xf } from "../common/math";
-import { defaultSurfaceMaterial } from "../common/types";
+import { defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { type CompoundData, collideMoverAndCompound, createCompound } from "../shapes/compound";
 import {
     type Capsule,
@@ -19,6 +19,7 @@ import { collideMoverAndHull, createHull, type HullData, makeBoxHull } from "../
 import { collideMoverAndMesh, createGridMesh, type Mesh } from "../shapes/mesh";
 import { type CollisionPlane, clipVector, type PlaneResult, solvePlanes } from "./mover";
 import gold from "./mover.gold.json";
+import { kernelMover } from "./shape_query_gold";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -186,4 +187,59 @@ test("mover-versus-compound collision drifts from the Box3D C reference in its p
         planesEqual(collideMoverAndCompound(compound, 16, moverFrom(g.mover)), g, g.name);
     }
     expect(gold.compound.length).toBeGreaterThan(0);
+});
+
+// The per-kind level is the frozen authority; shape-level rotation canonicalizes -0 as Box3D does.
+test("world-created kernel shapes answer every immutable mover collision vector bit-exactly", () => {
+    for (const g of gold.sphere) {
+        const sphere: Sphere = { center: vecFromHex(g.center), radius: fromBits(g.radius) };
+        planesEqual(kernelMover(ShapeType.Sphere, sphere, moverFrom(g.mover)), g, g.name);
+    }
+    for (const g of gold.capsule) {
+        const capsule: Capsule = {
+            center1: vecFromHex(g.center1),
+            center2: vecFromHex(g.center2),
+            radius: fromBits(g.radius),
+        };
+        planesEqual(kernelMover(ShapeType.Capsule, capsule, moverFrom(g.mover)), g, g.name);
+    }
+    for (const g of gold.hull)
+        planesEqual(kernelMover(ShapeType.Hull, box, moverFrom(g.mover)), g, g.name);
+    for (const [kind, geometry, cases] of [
+        [ShapeType.Mesh, gridMesh, gold.mesh],
+        [ShapeType.HeightField, gridField, gold.height],
+        [ShapeType.Compound, compound, gold.compound],
+    ] as const) {
+        for (const g of cases)
+            planesEqual(kernelMover(kind, geometry, moverFrom(g.mover)), g, g.name);
+    }
+});
+
+test("rotated and translated kernel mover dispatch equals TypeScript bit for bit for every mover collision vector", () => {
+    for (const g of gold.sphere)
+        kernelMover(
+            ShapeType.Sphere,
+            { center: vecFromHex(g.center), radius: fromBits(g.radius) },
+            moverFrom(g.mover),
+            true,
+        );
+    for (const g of gold.capsule)
+        kernelMover(
+            ShapeType.Capsule,
+            {
+                center1: vecFromHex(g.center1),
+                center2: vecFromHex(g.center2),
+                radius: fromBits(g.radius),
+            },
+            moverFrom(g.mover),
+            true,
+        );
+    for (const [kind, geometry, cases] of [
+        [ShapeType.Hull, box, gold.hull],
+        [ShapeType.Mesh, gridMesh, gold.mesh],
+        [ShapeType.HeightField, gridField, gold.height],
+        [ShapeType.Compound, compound, gold.compound],
+    ] as const) {
+        for (const g of cases) kernelMover(kind, geometry, moverFrom(g.mover), true);
+    }
 });

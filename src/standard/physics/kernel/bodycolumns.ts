@@ -821,11 +821,18 @@ export function residentRemove(
 // test / sample shape — never re-step the evicted one, so they keep working.
 
 let owner: object | null = null;
+let geometryOwner: object | null = null;
+
+export function geometryUploaded(world: WorldState): void {
+    geometryOwner = world;
+}
+
 const evicted = new WeakSet<object>();
 
 /** Claim the resident region for `token` (a world) at step entry. Throws if `token` was evicted by a
  * later world taking the region over — its resident body state is gone. */
-export function claimResident(token: object): void {
+export function claimResident(token: WorldState): void {
+    if (geometryOwner !== token) token.geometryDirty = true;
     if (owner === token) return;
     // A World-owned physics runtime restores its last snapshot before claiming the shared resident
     // columns. The old throw made two clean Worlds impossible to twin-step; the snapshot boundary is the
@@ -837,5 +844,6 @@ export function claimResident(token: object): void {
 /** Release the resident region on world destroy, so a later world can claim it without eviction. */
 export function releaseResident(token: object): void {
     if (owner === token) owner = null;
+    if (geometryOwner === token) geometryOwner = null;
     evicted.delete(token);
 }
