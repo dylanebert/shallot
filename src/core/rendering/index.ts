@@ -394,8 +394,8 @@ const EndFrameSystem: System = {
  * screen-space overlays (outline) run `after` it, so an overlay composites on top of the transformed
  * scene. Both reference it by name, so neither imports the other (the scene-transform / overlay pair
  * stays decoupled). It carries no `update`: pure scheduling, invisible to the profiler. Sits in `draw`
- * with the rest of the seam; `BeginFrameSystem`/`EndFrameSystem` and the per-effect Color/Glaze edges
- * still bound it, so it needs no Color/Glaze edge of its own (render must not import sear/glaze).
+ * with the rest of the seam. Scene color is complete before this anchor; presentation runs after it.
+ * Renderers and presentation systems bound the seam without core importing either implementation.
  */
 export const OverlaySystem: System = {
     name: "overlay",

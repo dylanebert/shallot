@@ -30,6 +30,7 @@ import {
     Draws,
     fsCtxSchema,
     Meshes,
+    OverlaySystem,
     Render,
     RenderPlugin,
     type Surface,
@@ -1145,7 +1146,7 @@ export const RenderMeshColorSystem: System = {
     name: "color",
     group: "draw",
     after: [RenderPrepassesSystem],
-    before: [GlazeSystem],
+    before: [GlazeSystem, OverlaySystem],
     update(world) {
         const _searState = world.resource(searStateKey);
 
