@@ -17,8 +17,12 @@ import {
 } from "./cluster";
 import { initializeSurfaceState } from "./contract";
 import { FRAME_UNIFORM_SIZE, Frame, initializeFrameState, writeFrame } from "./frame";
-import { EndFrameSystem } from "./frame-end";
-import { initializeRenderFrameState, renderFrameKey, VIEW_KEY_FLOATS } from "./frame-state";
+import {
+    EndFrameSystem,
+    initializeRenderFrameState,
+    renderFrameKey,
+    VIEW_KEY_FLOATS,
+} from "./frame-state";
 import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
 import { initializeImageState } from "./image";
 import {
@@ -356,8 +360,8 @@ async function initRender(world: World): Promise<void> {
     const { device } = world.gpu;
 
     // clear the render registries so each build re-registers from a clean slate (clear then
-    // rebuild). This runs in RenderPlugin.initialize, before any producer / sear re-registers (they
-    // depend on RenderPlugin), so a producer toggled off leaves no stale surface / draw /
+    // rebuild). This runs in RenderingPlugin.initialize, before any producer / sear re-registers (they
+    // depend on RenderingPlugin), so a producer toggled off leaves no stale surface / draw /
     // mesh behind to be drawn against its torn-down buffers. A same-set rebuild is unchanged (every
     // plugin re-registers); a first build clears empty registries (a no-op).
     world.resource(Surfaces).clear();
@@ -432,8 +436,8 @@ async function initRender(world: World): Promise<void> {
  * typically don't list it directly: `PartPlugin` pulls it transitively,
  * and either can become a default plugin
  */
-export const RenderPlugin: Plugin = {
-    name: "Render",
+export const RenderingPlugin: Plugin = {
+    name: "Rendering",
     systems: [
         BeginFrameSystem,
         UpdateLightClustersSystem,
@@ -492,7 +496,7 @@ export const RenderPlugin: Plugin = {
         await initRender(world);
         const globalTransformRuntime = world.globalTransformRuntime;
         if (!globalTransformRuntime)
-            throw new Error("GlobalTransform is unavailable before RenderPlugin initialization");
+            throw new Error("GlobalTransform is unavailable before RenderingPlugin initialization");
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
         globalTransformRuntime.params = world.resource(Frame).buffer;
         globalTransformTable(world);

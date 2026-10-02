@@ -25,7 +25,7 @@ import {
     MAX_VIEWS,
     PresentationSystem,
     Render,
-    RenderPlugin,
+    RenderingPlugin,
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
@@ -258,7 +258,7 @@ export const GlazeSystem: System = {
 /**
  * the default postfx composite. A renderer draws into `view.framebuffer` and glaze composites it to the
  * swapchain (`view.present`) via one compute dispatch per camera. Presenting is a composite the consumer
- * picks ({@link SearPlugin} depends only on `RenderPlugin`): register `GlazePlugin` for the zero-config
+ * picks ({@link StandardRenderingPlugin} depends only on `RenderingPlugin`): register `GlazePlugin` for the zero-config
  * postfx chain, or ship a custom composite instead. Add a {@link Glaze} component to a camera to pick a
  * tonemap, dial a color grade, or enable vignette / posterize / dither.
  */
@@ -283,7 +283,7 @@ export const GlazePlugin: Plugin = {
     ],
 
     systems: [GlazeSystem],
-    dependencies: [RenderPlugin],
+    dependencies: [RenderingPlugin],
 
     initialize(world) {
         world.resource(glazeStateKey);

@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { attachCanvas, Camera } from "../../core/rendering";
-import { SearPlugin } from "../../standard/rendering";
+import { StandardRenderingPlugin } from "../../standard/rendering";
 import "../../standard";
 
 import { CEILING } from "../../../scripts/test-tiers";
@@ -31,7 +31,7 @@ function cameraPlugin(label: string) {
         kind === "webgpu" ? context : null) as typeof canvas.getContext;
     return {
         name: label,
-        dependencies: [SearPlugin],
+        dependencies: [StandardRenderingPlugin],
         initialize(world: World) {
             const eid = world.create();
             world.add(eid, Transform);

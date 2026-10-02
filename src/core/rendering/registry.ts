@@ -85,7 +85,7 @@ export const Draws: import("../../engine").Resource<Registry<Draw>> = {
     create: (world) => world.resource(drawsKey),
 };
 
-/** Create this world's draw registry during RenderPlugin initialization. */
+/** Create this world's draw registry during RenderingPlugin initialization. */
 export function initializeDrawState(world: World): void {
     world.resource(drawsKey);
 }

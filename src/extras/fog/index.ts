@@ -17,7 +17,7 @@ import {
     Lighting,
     OverlaySystem,
     Render,
-    RenderPlugin,
+    RenderingPlugin,
     sceneTransform,
     Views,
 } from "../../core/rendering";
@@ -28,8 +28,8 @@ import {
     DEPTH_FORMAT,
     pointAtlasView,
     RenderMeshColorSystem,
-    SearPlugin,
     StandardRenderer,
+    StandardRenderingPlugin,
     shadowSampler,
     sunShadowParams,
     sunShadowView,
@@ -254,7 +254,7 @@ export const FogPlugin: Plugin = {
     ],
 
     systems: [FogSystem],
-    dependencies: [RenderPlugin, SearPlugin],
+    dependencies: [RenderingPlugin, StandardRenderingPlugin],
 
     initialize(world) {
         initializeFogState(world);

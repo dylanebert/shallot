@@ -41,7 +41,7 @@ export {
     DirectionalLight,
     type Mesh,
     PointLight,
-    RenderPlugin,
+    RenderingPlugin,
     Resolution,
     registerMesh,
     Spot,

@@ -7,11 +7,11 @@ import { registration } from "../../engine";
 // plugin, so sky and lights never depend on each other. One `Sky` singleton holds the look; a camera opts
 // in with sear's `CameraBackground` component. Not in `DEFAULT_PLUGINS`.
 
-import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../core/rendering";
+import { BeginFrameSystem, RenderingPlugin, registerBackground } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
 import { f32 } from "../../engine";
 
-import { RenderMeshColorSystem, SearPlugin } from "../../standard/rendering";
+import { RenderMeshColorSystem, StandardRenderingPlugin } from "../../standard/rendering";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 
@@ -119,9 +119,9 @@ export const SkyPlugin: Plugin = {
     ],
 
     systems: [SkySystem],
-    // SearPlugin so this initialize runs after SearPlugin clears the Backgrounds registry; RenderPlugin for
+    // StandardRenderingPlugin so this initialize runs after StandardRenderingPlugin clears the Backgrounds registry; RenderingPlugin for
     // the Lighting uniform the fragment reads
-    dependencies: [RenderPlugin, SearPlugin],
+    dependencies: [RenderingPlugin, StandardRenderingPlugin],
 
     initialize(world) {
         world.resource(skyStateKey);

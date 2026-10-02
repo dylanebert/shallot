@@ -174,7 +174,7 @@ function lightingResources(world: World): LightingResources {
     return world.resource(lightingKey);
 }
 
-/** Create this world's lighting state during RenderPlugin initialization. */
+/** Create this world's lighting state during RenderingPlugin initialization. */
 export function initializeLightingState(world: World): void {
     world.resource(lightingKey);
 }

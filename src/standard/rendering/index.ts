@@ -3,7 +3,7 @@
 // StandardRenderer's author barrel — the game-author surface of the default renderer. The renderer itself is
 // `forward.ts` (the GPU-driven forward pass); this file re-exports only what a scene author touches: the
 // `StandardRenderer` camera marker + its opt-in prepass lanes (`PickingPrepass` / `DepthPrepass`), the `Material` / `CameraBackground`
-// components, the `Shadow` cast opt-in + its `SunShadows` / `PointShadows` config, and `SearPlugin`. The
+// components, the `Shadow` cast opt-in + its `SunShadows` / `PointShadows` config, and `StandardRenderingPlugin`. The
 // extension surface (surface codegen, the relocatable shading chunks, the backdrop registry, the ordering
 // anchors) follows below, drawn from the same `forward.ts` impl.
 // re-export each name from its definition site (one hop, so the reference generator resolves the JSDoc):
@@ -19,17 +19,17 @@ export { CameraBackground, DepthPrepass, Material, StandardRenderer } from "./fo
  * StandardRenderer: the one shallot renderer. A GPU-driven raster forward pass: a 4× MSAA color pass (opaque draws
  * then `blend` draws composited over them, fused into one render pass) and an opt-in single-sample
  * prepass emitting per-camera lanes (the {@link PickingPrepass} → `view.pickingId` id lane, the {@link DepthPrepass} →
- * `view.depth` lane), with sun shadows sampled inline in the FS. Add `SearPlugin` and give a Camera the
+ * `view.depth` lane), with sun shadows sampled inline in the FS. Add `StandardRenderingPlugin` and give a Camera the
  * {@link StandardRenderer} marker and the happy path renders. Sun shadows are data-gated on the {@link Shadow}
  * component on a `DirectionalLight`: add it to cast (and tune), omit it for the fully-lit bare path (no
  * shadow map allocated), exactly like a camera without a lane marker runs no prepass. No separate shadow
  * plugin, no coordination singleton: sear owns its own shadow map and binds it (Bevy's clustered-forward
  * shape). StandardRenderer renders into the offscreen (`view.framebuffer`) and never the swapchain; presenting it is
  * a separate **composite** the consumer picks: glaze (the default postfx composite) or a custom one. So
- * sear depends only on {@link RenderPlugin}; list a composite alongside it or nothing reaches the
+ * sear depends only on {@link RenderingPlugin}; list a composite alongside it or nothing reaches the
  * swapchain. `RenderMeshColorSystem` still orders before glaze so glaze, when present, composites after the resolve.
  */
-export const SearPlugin: Plugin = createSearPlugin();
+export const StandardRenderingPlugin: Plugin = createSearPlugin();
 export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, Shadow, SunShadows } from "./shadows";
 
 // sear's non-public extension surface: the surface chunk environment, the backdrop seam, the opt-in

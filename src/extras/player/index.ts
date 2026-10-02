@@ -5,7 +5,7 @@ import {
     releasePointerLock,
     requirePointerLock,
 } from "../../core/input";
-import { Camera, RenderPlugin } from "../../core/rendering";
+import { Camera, RenderingPlugin } from "../../core/rendering";
 import {
     entity,
     f32,
@@ -305,5 +305,5 @@ export const PlayerPlugin: Plugin = {
             }),
         }),
     ],
-    dependencies: [CharacterPlugin, InputPlugin, RenderPlugin],
+    dependencies: [CharacterPlugin, InputPlugin, RenderingPlugin],
 };

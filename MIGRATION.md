@@ -15,6 +15,8 @@ These changes require updates to a 0.9.5 app.
 | `Transform.pos`, `.rot` | `translation`, `rotation` |
 | `Body.pos`, `.quat` | `position`, `rotation` |
 | `Part` | `MeshInstance` |
+| `RenderPlugin` | `RenderingPlugin` |
+| `SearPlugin` | `StandardRenderingPlugin` |
 | `Sear`, `Depth`, `Tag`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `PickingPrepass`, `CameraBackground` |
 | `TAG_FORMAT`, `TAG_NONE`, `TagFn`, `view.tag` | `PICKING_ID_FORMAT`, `PICKING_ID_NONE`, `PickingIdFn`, `view.pickingId` |
 | `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |

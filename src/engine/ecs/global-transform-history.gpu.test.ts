@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { attachCanvas, Camera, PointLight, RenderPlugin } from "../../core/rendering";
+import { attachCanvas, Camera, PointLight, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
 import {
     type createApp,
@@ -68,7 +68,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     configs.push({
         defaults: false,
         plugins: [
-            RenderPlugin,
+            RenderingPlugin,
             {
                 name: "FixedPlacement",
                 systems: [
@@ -139,7 +139,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     configs.push({
         defaults: false,
         plugins: [
-            RenderPlugin,
+            RenderingPlugin,
             {
                 name: "CatchupSpawn",
                 systems: [
@@ -185,7 +185,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     configs.push({
         defaults: false,
         plugins: [
-            RenderPlugin,
+            RenderingPlugin,
             {
                 name: "CatchupTeleport",
                 systems: [
@@ -237,7 +237,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     configs.push({
         defaults: false,
         plugins: [
-            RenderPlugin,
+            RenderingPlugin,
             {
                 name: "FastPlacement",
                 systems: [

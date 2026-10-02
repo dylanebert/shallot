@@ -10,7 +10,7 @@ import {
     captureTexture,
     detachCanvas,
     Render,
-    RenderPlugin,
+    RenderingPlugin,
     Resolution,
     Views,
 } from "./index";
@@ -20,7 +20,7 @@ const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [
-            RenderPlugin,
+            RenderingPlugin,
             {
                 name: "Pattern",
                 warm(world) {

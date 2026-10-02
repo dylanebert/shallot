@@ -1,6 +1,6 @@
 // Destination: standard/rendering; owner: rendering-boundary.md.
 
-import { Meshes, RenderPlugin, Surfaces } from "../../core/rendering";
+import { Meshes, RenderingPlugin, Surfaces } from "../../core/rendering";
 import type { Plugin } from "../../engine";
 import { registration } from "../../engine";
 import { initMeshes } from "./mesh";
@@ -17,7 +17,7 @@ export { Color, MeshInstance, partTable } from "./part";
  * and renders under any consumer. The surfaces its entities point at
  * (`MeshInstance.surface` defaults to the name `"default"`) ship with the renderer:
  * the renderer registers `default`/`unlit`/`vertex` against the `eids` + `globalTransforms`
- * instance convention and its own `lit`. Depends on {@link RenderPlugin}.
+ * instance convention and its own `lit`. Depends on {@link RenderingPlugin}.
  */
 export const PartPlugin: Plugin = {
     name: "Part",
@@ -32,7 +32,7 @@ export const PartPlugin: Plugin = {
                 // Empty registries are valid without a surface producer; populated registries need the defaults.
                 if (surfaces.size > 0 && surface === undefined)
                     console.warn(
-                        '[part] default surface "default" is not registered — a SearPlugin or surface owner must register it; MeshInstance entities will bind whatever surface holds registry id 0',
+                        '[part] default surface "default" is not registered — a StandardRenderingPlugin or surface owner must register it; MeshInstance entities will bind whatever surface holds registry id 0',
                     );
                 if (meshes.size > 0 && mesh === undefined)
                     console.warn(
@@ -44,7 +44,7 @@ export const PartPlugin: Plugin = {
         registration("Color", Color, { defaults: () => ({ rgba: [1, 1, 1, 1] }) }),
     ],
 
-    dependencies: [RenderPlugin],
+    dependencies: [RenderingPlugin],
 
     initialize(world) {
         initializePartState(world);

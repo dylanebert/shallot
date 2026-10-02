@@ -1,7 +1,7 @@
 import { registration } from "../../engine";
 // StandardRenderer — the one shallot renderer. A GPU-driven raster *forward* pass (Aaltonen-Haar / niagara
 // submission spine, primary visibility only) with sun shadows sampled inline in the FS, matching Bevy's
-// clustered-forward shape. One renderer, one plugin (`SearPlugin`), no layers behind seams: one color
+// clustered-forward shape. One renderer, one plugin (`StandardRenderingPlugin`), no layers behind seams: one color
 // pass (opaque draws then `blend` draws composited over them in a single `beginRenderPass`), an
 // opt-in single-sample **prepass** emitting per-camera lanes (the `PickingPrepass` / `DepthPrepass` markers, Bevy's
 // `DepthPrepass` / `NormalPrepass` shape), and sun shadows (the `Shadow` component on a directional
@@ -32,7 +32,7 @@ import {
     Meshes,
     OverlaySystem,
     Render,
-    RenderPlugin,
+    RenderingPlugin,
     type Surface,
     Surfaces,
     surfaceLayout as typedLayout,
@@ -1325,7 +1325,7 @@ function disposeSear(world: World): void {
 
 export function createSearPlugin(): Plugin {
     return {
-        name: "Sear",
+        name: "StandardRendering",
         components: [
             registration("StandardRenderer", StandardRenderer),
             registration("PickingPrepass", PickingPrepass),
@@ -1340,7 +1340,7 @@ export function createSearPlugin(): Plugin {
             ShadowCameraSystem,
             ShadowMapSystem,
         ],
-        dependencies: [RenderPlugin],
+        dependencies: [RenderingPlugin],
 
         // sear's default materials, shading per-instance `color` + `material` at three lighting modes. They
         // ship with the renderer, not MeshInstance: MeshInstance publishes the data (`eids` + `color`), sear adds its own

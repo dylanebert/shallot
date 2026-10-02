@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
+import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
 import { Time, Transform, type World } from "../index";
 
@@ -19,7 +19,7 @@ import { gpuApps } from "../../../scripts/gpu.fixture";
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [] },
-    { defaults: false, plugins: [RenderPlugin] },
+    { defaults: false, plugins: [RenderingPlugin] },
 ]);
 
 function attachTestCamera(world: World): void {

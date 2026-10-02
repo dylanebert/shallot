@@ -206,7 +206,7 @@ function _viewResources(world: World): ViewResources {
     return world.resource(viewResourcesKey);
 }
 
-/** Create this world's view and target registries during RenderPlugin initialization. */
+/** Create this world's view and target registries during RenderingPlugin initialization. */
 export function initializeViewState(world: World): void {
     world.resource(viewResourcesKey);
 }
@@ -256,7 +256,7 @@ export function trackCanvasOwner(canvas: HTMLCanvasElement, world: World): void 
 export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: World): void {
     const _views = world.resource(Views);
 
-    if (!world.gpu.device) throw new Error("attachCanvas: RenderPlugin not initialized");
+    if (!world.gpu.device) throw new Error("attachCanvas: RenderingPlugin not initialized");
     if (!world.resource(Render).format) throw new Error("attachCanvas: Render.format not set");
     if (_views.has(eid)) throw new Error(`attachCanvas: eid ${eid} already bound`);
 
@@ -413,7 +413,7 @@ export function attachTexture(
 ): void {
     const device = world.gpu.device;
     if (!device || !world.resource(Render).format)
-        throw new Error("attachTexture: RenderPlugin not initialized");
+        throw new Error("attachTexture: RenderingPlugin not initialized");
     if (!world.has(eid, Camera)) throw new Error("attachTexture: eid is not a camera");
     for (const value of [size.width, size.height]) {
         if (!Number.isInteger(value) || value <= 0 || value > device.limits.maxTextureDimension2D)

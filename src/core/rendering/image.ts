@@ -73,7 +73,7 @@ function blitPipelines(world: World): Map<string, TgpuRenderPipeline> {
     return world.resource(blitPipelinesKey);
 }
 
-/** Create this world's image pipeline cache during RenderPlugin initialization. */
+/** Create this world's image pipeline cache during RenderingPlugin initialization. */
 export function initializeImageState(world: World): void {
     world.resource(blitPipelinesKey);
 }

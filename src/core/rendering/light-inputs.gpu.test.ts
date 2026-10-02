@@ -3,10 +3,10 @@ import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Transform } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
-import { PointLight, RenderPlugin } from "./index";
+import { PointLight, RenderingPlugin } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [RenderPlugin] }]);
+const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [RenderingPlugin] }]);
 
 test("render light inputs upload as active dense table rows", async () => {
     const app = subjects()[0];

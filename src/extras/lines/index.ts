@@ -14,7 +14,7 @@ import {
     BeginFrameSystem,
     Draws,
     Meshes,
-    RenderPlugin,
+    RenderingPlugin,
     registerMesh,
     registerSurface,
 } from "../../core/rendering";
@@ -154,7 +154,7 @@ const LinesSystem: System = {
  * the shallot debug-line producer: an immediate {@link drawLine} / {@link drawWireBox} / {@link drawArrow} API plus
  * the retained {@link Line} / {@link Arrow} components, both feeding one instanced-quad draw rendered
  * as a sear `"alpha"` surface (screen-space constant-pixel width, no overlay pass). Depends on
- * {@link RenderPlugin}; a StandardRenderer camera renders it
+ * {@link RenderingPlugin}; a StandardRenderer camera renders it
  */
 export const LinesPlugin: Plugin = {
     name: "Lines",
@@ -173,7 +173,7 @@ export const LinesPlugin: Plugin = {
         }),
     ],
     systems: [LinesSystem],
-    dependencies: [RenderPlugin],
+    dependencies: [RenderingPlugin],
 
     initialize(world) {
         initializeSegmentState(world);

@@ -7,17 +7,17 @@ import {
     PhysicsProfilePlugin,
     PlayerPlugin,
     ProfilePlugin,
-    RenderPlugin,
+    RenderingPlugin,
 } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
 
 export const compileSubjects = [
     { name: "engine-only", config: { defaults: false, plugins: [] } },
-    { name: "core rendering", config: { defaults: false, plugins: [RenderPlugin] } },
+    { name: "core rendering", config: { defaults: false, plugins: [RenderingPlugin] } },
     { name: "Physics", config: { defaults: false, plugins: [PhysicsPlugin] } },
     {
         name: "Physics with core rendering",
-        config: { defaults: false, plugins: [PhysicsPlugin, RenderPlugin] },
+        config: { defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] },
     },
     {
         name: "Character gameplay",

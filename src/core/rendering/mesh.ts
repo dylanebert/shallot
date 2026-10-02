@@ -126,7 +126,7 @@ function meshResources(world: World): MeshResources {
     return world.resource(meshResourcesKey);
 }
 
-/** Create this world's mesh registry and staging during RenderPlugin initialization. */
+/** Create this world's mesh registry and staging during RenderingPlugin initialization. */
 export function initializeMeshState(world: World): void {
     world.resource(meshResourcesKey);
 }
@@ -395,7 +395,7 @@ function resetStaging(world: World): void {
 /**
  * pack every staged static mesh into the quantized vertex streams + a shared
  * index buffer and re-register each as a slice. Called once from
- * `RenderPlugin.warm`, after all `initialize` hooks (so every `registerMesh(...)` has run)
+ * `RenderingPlugin.warm`, after all `initialize` hooks (so every `registerMesh(...)` has run)
  */
 export function flushMeshes(world: World): void {
     const device = world.gpu.device;
@@ -441,7 +441,7 @@ export function flushMeshes(world: World): void {
 
 /**
  * drop every registered mesh + any staged-but-unflushed data, resetting the registry for a fresh build
- * (`RenderPlugin.initialize`, clear then rebuild). Static producers re-stage via {@link registerMesh} in
+ * (`RenderingPlugin.initialize`, clear then rebuild). Static producers re-stage via {@link registerMesh} in
  * their own initialize, so a producer toggled off leaves no stale slice to be paired against
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */

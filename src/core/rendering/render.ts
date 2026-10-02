@@ -1,7 +1,7 @@
 import type { World } from "../../engine";
 
 /**
- * device-level render state owned by `RenderPlugin`. `encoder` is the frame's
+ * device-level render state owned by `RenderingPlugin`. `encoder` is the frame's
  * raw `GPUCommandEncoder`, opened by `BeginFrameSystem`: every pass in the
  * frame is a raw pass on it, replaying render bundles recorded at transitions
  * and dispatching compute over unwrapped pipelines and bind groups, so no
@@ -52,7 +52,7 @@ function createRender(): Render {
     };
 }
 
-/** Create this world's render state during RenderPlugin initialization. */
+/** Create this world's render state during RenderingPlugin initialization. */
 export function initializeRenderState(world: World): void {
     world.resource(renderKey);
 }

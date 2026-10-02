@@ -70,27 +70,27 @@ export {
     Material,
     PickingPrepass,
     PointShadows,
-    SearPlugin,
     Shadow,
     StandardRenderer,
+    StandardRenderingPlugin,
     SunShadows,
 } from "./rendering";
 
 import { BrowserInputPlugin, InputPlugin } from "../core/input";
-import { RenderPlugin } from "../core/rendering";
+import { RenderingPlugin } from "../core/rendering";
 import type { Plugin } from "../engine";
 import { setDefaultLoading, setDefaultPlugins } from "../engine/app";
 import { GlazePlugin } from "../transitional/glaze";
 import { PartPlugin } from "../transitional/part";
 import { shallotDark } from "./loading";
-import { SearPlugin } from "./rendering";
+import { StandardRenderingPlugin } from "./rendering";
 
 export const DEFAULT_PLUGINS: readonly Plugin[] = [
     InputPlugin,
     BrowserInputPlugin,
-    RenderPlugin,
+    RenderingPlugin,
     PartPlugin,
-    SearPlugin,
+    StandardRenderingPlugin,
     GlazePlugin,
 ];
 

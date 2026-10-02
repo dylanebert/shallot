@@ -40,7 +40,7 @@ import {
     OverlaySystem,
     PresentationSystem,
     Render,
-    RenderPlugin,
+    RenderingPlugin,
     sceneTransform,
     type View,
     Views,
@@ -673,7 +673,7 @@ function disposeOutline(world: World): void {
 }
 
 /**
- * the screen-space outline composite: add it alongside `SearPlugin` + `GlazePlugin`, then add `Outline` to a MeshInstance entity to highlight it.
+ * the screen-space outline composite: add it alongside `StandardRenderingPlugin` + `GlazePlugin`, then add `Outline` to a MeshInstance entity to highlight it.
  *
  * The band is a mask → jump-flood distance field → composite over the scene color. Cost scales with the
  * highlighted-object count + screen × log(width), not scene geometry; nothing highlighted runs no passes.
@@ -690,7 +690,7 @@ export const OutlinePlugin: Plugin = {
         }),
     ],
     systems: [OutlineSystem],
-    dependencies: [RenderPlugin, PartPlugin],
+    dependencies: [RenderingPlugin, PartPlugin],
 
     initialize(world) {
         initializeOutlineState(world);

@@ -18,7 +18,7 @@ import {
     Draws,
     fsCtxSchema,
     Meshes,
-    RenderPlugin,
+    RenderingPlugin,
     registerMesh,
     registerSurface,
     surfaceLayout,
@@ -496,7 +496,7 @@ const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456
 /**
  * the shallot text producer: the retained {@link Text} component laid out into instanced SDF glyph quads,
  * drawn as a sear `"alpha"` world-space surface (one draw per font). Register fonts with {@link registerFont} and
- * label strings with {@link internText}. Depends on {@link RenderPlugin}; a StandardRenderer camera renders it
+ * label strings with {@link internText}. Depends on {@link RenderingPlugin}; a StandardRenderer camera renders it
  */
 export const TextPlugin: Plugin = {
     name: "Text",
@@ -514,7 +514,7 @@ export const TextPlugin: Plugin = {
         }),
     ],
     systems: [TextSystem],
-    dependencies: [RenderPlugin],
+    dependencies: [RenderingPlugin],
 
     async initialize(world) {
         const _textState = world.resource(textStateKey);

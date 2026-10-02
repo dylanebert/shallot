@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
+import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import {
     Body,
     forwardRay,
@@ -56,7 +56,7 @@ test("GlobalTransform is an engine-owned public schema, independent of Physics",
 });
 
 test("Transform placement lands in the fixed-tick GlobalTransform column and the renderer table", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
     try {
         const world = app.world;
         const eid = world.create();
@@ -84,7 +84,7 @@ test("Transform placement lands in the fixed-tick GlobalTransform column and the
 });
 
 test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriving it only in renderer rows", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
     try {
         const world = app.world;
         const eid = world.create();
@@ -111,7 +111,7 @@ test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriv
 });
 
 test("a physics camera query reads fixed-tick GlobalTransform without requiring Transform", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
     try {
         const world = app.world;
         const eid = world.create();
@@ -281,7 +281,7 @@ test("Transform to Body keeps its GlobalTransform row when handover crosses a fi
 });
 
 test("the first Body spawn renders at its placement at half a fixed step", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
     try {
         const { world } = app;
         attachTestCamera(world);
@@ -302,7 +302,7 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
     const app = await createApp({
         defaults: false,
         plugins: [
-            RenderPlugin,
+            RenderingPlugin,
             {
                 name: "SpawnedPlacement",
                 components: [
@@ -338,7 +338,7 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
 });
 
 test("an author-marked Transform jump of any size snaps instead of interpolating", async () => {
-    const app = await createApp({ defaults: false, plugins: [RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [RenderingPlugin] });
     try {
         const { world } = app;
         const eid = world.create();
@@ -357,7 +357,7 @@ test("an author-marked Transform jump of any size snaps instead of interpolating
 });
 
 test("setKinematic publishes moved body placement to the fixed GlobalTransform table after one step", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
     try {
         const { world } = app;
         const eid = world.create();
@@ -381,7 +381,7 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
 });
 
 test("a kinematic teleport renders at its new placement at half a fixed step", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderPlugin] });
+    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
     try {
         const { world } = app;
         const eid = world.create();

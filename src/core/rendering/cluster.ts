@@ -107,7 +107,7 @@ function lightInputTable(world: World) {
     return world.resource(lightInputKey);
 }
 
-/** Create this world's cluster and dense light-input state during RenderPlugin initialization. */
+/** Create this world's cluster and dense light-input state during RenderingPlugin initialization. */
 export function initializeClusterState(world: World): void {
     world.resource(clusterGpuKey);
     const table = lightInputTable(world);

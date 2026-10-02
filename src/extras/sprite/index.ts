@@ -21,7 +21,7 @@ import {
     Draws,
     imageArray,
     Meshes,
-    RenderPlugin,
+    RenderingPlugin,
     registerMesh,
     registerSurface,
 } from "../../core/rendering";
@@ -218,7 +218,7 @@ const SpriteSystem: System = {
  * world-space icons and markers. Register images with {@link registerImage}; they upload into one
  * `texture_2d_array`, so every sprite draws in one indirect draw per (billboard, blend) variant.
  * Default `clip` blend writes depth and casts holed shadows; billboard modes are compile-time
- * surface variants. Depends on {@link RenderPlugin}; a StandardRenderer camera renders it
+ * surface variants. Depends on {@link RenderingPlugin}; a StandardRenderer camera renders it
  */
 export const SpritePlugin: Plugin = {
     name: "Sprite",
@@ -239,7 +239,7 @@ export const SpritePlugin: Plugin = {
         }),
     ],
     systems: [SpriteSystem],
-    dependencies: [RenderPlugin],
+    dependencies: [RenderingPlugin],
 
     initialize(world) {
         const _spriteGpu = world.resource(spriteGpuKey);

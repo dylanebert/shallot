@@ -335,7 +335,7 @@ export const Surfaces: import("../../engine").Resource<Registry<Surface>> = {
     create: (world) => world.resource(surfacesKey),
 };
 
-/** Create this world's surface and background registries during RenderPlugin initialization. */
+/** Create this world's surface and background registries during RenderingPlugin initialization. */
 export function initializeSurfaceState(world: World): void {
     world.resource(surfacesKey);
     world.resource(backgroundsKey);

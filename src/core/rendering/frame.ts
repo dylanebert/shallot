@@ -54,7 +54,7 @@ function createFrame(): Frame {
     };
 }
 
-/** Create this world's frame UBO state during RenderPlugin initialization. */
+/** Create this world's frame UBO state during RenderingPlugin initialization. */
 export function initializeFrameState(world: World): void {
     world.resource(frameKey);
 }

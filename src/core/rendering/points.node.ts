@@ -5,7 +5,7 @@ import type { Resource, System } from "../../engine";
 import { Transform } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
-import { DepthPrepass, SearPlugin, StandardRenderer } from "../../standard/rendering";
+import { DepthPrepass, StandardRenderer, StandardRenderingPlugin } from "../../standard/rendering";
 import { Glaze, GlazePlugin } from "../../transitional/glaze";
 import { MeshInstance, PartPlugin } from "../../transitional/part";
 import {
@@ -19,8 +19,7 @@ import {
 import { Backgrounds, Surfaces } from "./contract";
 import { backgroundsKey, surfacesKey } from "./contract-state";
 import { Frame, frameKey } from "./frame";
-import { EndFrameSystem } from "./frame-end";
-import { renderFrameKey } from "./frame-state";
+import { EndFrameSystem, renderFrameKey } from "./frame-state";
 import { blitPipelinesKey } from "./image";
 import {
     attachTexture,
@@ -30,7 +29,7 @@ import {
     captureTexture,
     OverlaySystem,
     PresentationSystem,
-    RenderPlugin,
+    RenderingPlugin,
 } from "./index";
 import { Lighting, lightingKey } from "./lighting";
 import { Meshes, meshResourcesKey } from "./mesh";
@@ -41,8 +40,11 @@ import { Views, viewResourcesKey } from "./view";
 
 setDefaultTimeout(CEILING.node);
 const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [RenderPlugin, PointsPlugin] },
-    { defaults: false, plugins: [RenderPlugin, SearPlugin, PartPlugin, GlazePlugin, PointsPlugin] },
+    { defaults: false, plugins: [RenderingPlugin, PointsPlugin] },
+    {
+        defaults: false,
+        plugins: [RenderingPlugin, StandardRenderingPlugin, PartPlugin, GlazePlugin, PointsPlugin],
+    },
 ]);
 
 const coreResources = {
