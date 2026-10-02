@@ -104,7 +104,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### Physics
 
 - `PhysicsPlugin` (`core/physics`) registers shared `Body`, `Spring` and `Joint` authoring data with their defaults; it installs no simulation.
-- Core owns `ShapeKind`, the world-owned `Hulls` registry and solver-neutral observation of caller-supplied body poses; it knows no rendering, input or solver.
+- Core owns `ShapeKind`, the world-owned `Hulls` registry and solver-neutral observation of caller-supplied body poses; it knows no solver.
+- Neither core nor standard physics imports rendering or input.
 - `StandardPhysicsPlugin` (`standard/physics`) depends on `PhysicsPlugin` and owns the whole Box3D-based simulation: body and constraint synchronization, stepping, events and world operations.
 - A body belongs to one simulation. A replacement backend consumes core's data and replaces all of standard physics, not individual solver phases.
 - Standard physics steps at `Time.FIXED_DT`; gravity belongs to its solver world and the substep count is internal.
