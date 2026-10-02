@@ -6,6 +6,8 @@ import {
     MeshInstance,
     type Plugin,
     StandardRenderer,
+    Tonemapping,
+    TonemappingMethod,
     Transform,
     type World,
 } from "@dylanebert/shallot";
@@ -23,6 +25,7 @@ export function authorWorld(world: World): void {
     const camera = world.create();
     // Neutral + sRGB inverse for --bg2 (#1c1917): one red level lower after 8-bit quantization.
     world.add(camera, Camera, { clearColor: 0x383736 });
+    world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
     world.add(camera, StandardRenderer);
     world.add(camera, Orbit, { distance: 5, yaw: 0.6, pitch: 0.25 });
     world.add(camera, Transform);
