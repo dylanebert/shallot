@@ -189,7 +189,10 @@ function poolBody(i: number): SweepBody {
     return b;
 }
 
-const hullById = (id: number): Hull | undefined => Hulls.get(Hulls.name(id) ?? "");
+const hullById = (world: World, id: number): Hull | undefined => {
+    const hulls = world.resource(Hulls);
+    return hulls.get(hulls.name(id) ?? "");
+};
 
 // one character's sweep: gather candidates (geometry from authored Body fields, live Body placement + velocity
 // through the backend read seam — the static world is unchanged by the possible one-tick lag, and one-tick-old
@@ -210,7 +213,7 @@ function sweepEid(eid: number, st: CharState, world: World): void {
         const hw = world.storage(Body).halfExtents.w.get(b); // a rounding radius (sphere/capsule) OR a hull id (shape 3)
         if (shape === ShapeKind.Hull) {
             sb.radius = 0;
-            sb.hull = hullById(hw);
+            sb.hull = hullById(world, hw);
         } else {
             sb.radius = hw;
             sb.hull = undefined;

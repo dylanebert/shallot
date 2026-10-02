@@ -2,7 +2,7 @@
 // builds its own colliders from it (marshal.ts; an outside solver through the physics barrel). No GJK/EPA; no
 // quickhull build here — authored hulls come from explicit geometry until a mesh→hull path lands.
 
-import { Registry } from "../../engine";
+import { Registry, type Resource } from "../../engine";
 
 type Vec3 = [number, number, number];
 
@@ -21,8 +21,14 @@ export interface Hull {
     edges: Vec3[];
 }
 
-/** the registered convex hulls. A `Body` with `ShapeKind.Hull` references one by id; a backend packs them into its own GPU format. Register geometry with `Hulls.register({ name, verts, faces, edges })`; re-registering a name reuses the id. */
-export const Hulls = new Registry<Hull>();
+/** World-owned convex hulls. Register geometry through `world.resource(Hulls)`; re-registering a name reuses its id. A `Body` references an id in its own world's registry. */
+export const Hulls: Resource<Registry<Hull>> = {
+    create: () => {
+        const hulls = new Registry<Hull>();
+        hulls.register({ name: "__unit_cube__", ...structuredClone(UNIT_CUBE) });
+        return hulls;
+    },
+};
 
 // the built-in unit cube (full-size 2, verts ±1) reserved at id 0 — a box collider is THIS hull scaled by
 // its half-extents, so a hull SAT reads box and hull through ONE branch-free accessor path. Vertex/face/
@@ -53,4 +59,4 @@ const UNIT_CUBE: Omit<Hull, "name"> = {
     ],
 };
 /** the reserved hull id of the built-in unit cube: a box reads this hull scaled by its half-extents. */
-export const UNIT_CUBE_ID = Hulls.register({ name: "__unit_cube__", ...UNIT_CUBE });
+export const UNIT_CUBE_ID = 0;

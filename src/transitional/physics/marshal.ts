@@ -27,9 +27,10 @@ function bodyType(mass: number): BodyType {
 // null (not throw) on a missing/unbuildable hull: an unregistered hull id must not take down the whole
 // SyncSystem frame loop — the caller warns + skips that one body, mirroring joints.ts's skip-a-bad-
 // constraint convention. Point the warning at the diagnostic (the missing id), never the brand.
-function hullFromRegistry(hullId: number): HullData | null {
-    const name = Hulls.name(hullId);
-    const entry = name ? Hulls.get(name) : undefined;
+function hullFromRegistry(world: World, hullId: number): HullData | null {
+    const hulls = world.resource(Hulls);
+    const name = hulls.name(hullId);
+    const entry = name ? hulls.get(name) : undefined;
     if (!entry) {
         console.warn(`[physics] no hull registered for id ${hullId} — skipping body`);
         return null;
@@ -49,6 +50,7 @@ function hullFromRegistry(hullId: number): HullData | null {
  *  `mass` (physics computes body mass FROM shape density × volume; a static/kinematic body's density is
  *  irrelevant — physics never derives mass for a non-dynamic body). */
 function attachShape(
+    world: World,
     tb: SolverBody,
     kind: number,
     hx: number,
@@ -79,7 +81,7 @@ function attachShape(
         );
         return true;
     }
-    const hull = kind === ShapeKind.Hull ? hullFromRegistry(w) : makeBoxHull(hx, hy, hz);
+    const hull = kind === ShapeKind.Hull ? hullFromRegistry(world, w) : makeBoxHull(hx, hy, hz);
     if (!hull) return false; // unregistered/unbuildable hull — the caller skips this body
     tb.createHull({ baseMaterial, density: density(hull.volume) }, hull);
     return true;
@@ -117,6 +119,7 @@ export function marshalBody(
         userData: eid,
     });
     const attached = attachShape(
+        world,
         tb,
         kind,
         world.storage(Body).halfExtents.x.get(eid),

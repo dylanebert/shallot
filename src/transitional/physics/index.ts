@@ -902,10 +902,10 @@ const SyncSystem: System = {
                 forget(runtime, eid); // recycled to a new Body in one update
             }
             const f = runtime.failed.get(eid);
-            if (f && f.stamp === stamp && f.hulls === Hulls.size) continue;
+            if (f && f.stamp === stamp && f.hulls === world.resource(Hulls).size) continue;
             const tb = marshalBody(world, physicsWorld, eid);
             if (!tb) {
-                runtime.failed.set(eid, { stamp, hulls: Hulls.size });
+                runtime.failed.set(eid, { stamp, hulls: world.resource(Hulls).size });
                 continue;
             }
             runtime.failed.delete(eid);

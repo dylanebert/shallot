@@ -2,6 +2,13 @@
 
 These changes require updates to a 0.9.5 app.
 
+## Hull registries belong to worlds
+
+Replace `Hulls.register(...)` and other registry calls with
+`world.resource(Hulls).register(...)` (or the corresponding registry method).
+Hull ids belong to that world; register geometry in each world that uses it.
+Every world's registry starts with the unit cube at `UNIT_CUBE_ID` (0).
+
 ## Glaze becomes camera grading and effect passes
 
 Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/glaze` imports. `CorePipelinePlugin` presents views and registers `Tonemapping` and `ColorGrading`, exported from `/rendering` and the root. Default plugins already include it. Add `VignettePlugin` from `/vignette` (or the root) for cameras carrying `Vignette`.
