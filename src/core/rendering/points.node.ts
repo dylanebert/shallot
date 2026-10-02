@@ -6,7 +6,11 @@ import type { Resource, System } from "../../engine";
 import { Transform } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
-import { PartPlugin, StandardRenderer, StandardRenderingPlugin } from "../../standard/rendering";
+import {
+    MeshRenderPlugin,
+    StandardRenderer,
+    StandardRenderingPlugin,
+} from "../../standard/rendering";
 import {
     Clusters,
     CullLightsSystem,
@@ -41,7 +45,7 @@ import {
     TonemappingMethod,
 } from "./index";
 import { PointsPlugin, pointsState } from "./points.fixture";
-import { Render, renderKey } from "./render";
+import { RenderContext, renderKey } from "./render";
 import { viewTargetsKey } from "./targets";
 import { compositeCacheKey } from "./tonemapping";
 import { TonemappingSystem, tonemappingStateKey } from "./tonemapping-state";
@@ -56,7 +60,7 @@ const subjects = gpuApps(import.meta.path, [
             RenderingPlugin,
             PointsPlugin,
             StandardRenderingPlugin,
-            PartPlugin,
+            MeshRenderPlugin,
             CorePipelinePlugin,
         ],
     },
@@ -70,7 +74,7 @@ const coreResources = {
     renderKey,
     viewTargetsKey,
     RenderPhases,
-    Render,
+    RenderContext,
     renderFrameKey,
     viewResourcesKey,
     Views,
@@ -192,7 +196,7 @@ test("warmed unchanged points frames create no bind groups", async () => {
         world.storage(Camera).antialias.set(camera, 0);
         world.step(0);
         expect(creations).toBe(0);
-        const render = world.resource(Render);
+        const render = world.resource(RenderContext);
         const view = world.resource(Views).get(camera)!;
         const original = render.viewBuffers[view.slot];
         const replacement = device.createBuffer({

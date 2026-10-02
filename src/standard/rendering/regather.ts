@@ -3,8 +3,8 @@
 // contiguous, mesh-major run per casting mesh + a per-instance combo index. Each shadow atlas (the
 // point/spot tiles, the CSM cascade tiles) instantiates its own `Regather`; the two A/B compute pipelines
 // are geometry-blind (they read slot-major counts + the instance pool alone, with no projection or mesh
-// knowledge). Each World owns the shared pipeline pair; each atlas owns its output buffers. The re-gather is a *consumer* of the cull spine's output (`render` owns the spine that
-// feeds it); it knows sear-private concepts (the packing convention below, the atlas record shape, the
+// knowledge). Each World owns the shared pipeline pair; each atlas owns its output buffers. The re-gather is a consumer of standard's instance-cull output (the instance pack
+// feeds it); it knows standard-private concepts (the packing convention below, the atlas record shape, the
 // `eids`-lane swap), so it lives here, not in render (render stays renderer-agnostic).
 
 import tgpu from "typegpu";
@@ -150,7 +150,7 @@ export async function prepareRegather(
     // record (instanceCount = the sum, firstInstance = the base; the static indexCount/firstIndex from any
     // combo slot, which the pack seeds per slot). D + C are tiny, so a serial single thread is free
     regatherState(world).aLayout = device.createBindGroupLayout({
-        label: "sear-regather-a",
+        label: "standard-regather-a",
         entries: [
             {
                 binding: 0,
@@ -172,7 +172,7 @@ export async function prepareRegather(
     // count; a per-instance dispatch is the deferred optimization if a mesh ever owns a large
     // per-combo count
     regatherState(world).bLayout = device.createBindGroupLayout({
-        label: "sear-regather-b",
+        label: "standard-regather-b",
         entries: [
             {
                 binding: 0,
@@ -203,25 +203,25 @@ export async function prepareRegather(
 
     const [a, b] = await Promise.all([
         device.createComputePipelineAsync({
-            label: "sear-regather-a",
+            label: "standard-regather-a",
             layout: device.createPipelineLayout({
                 bindGroupLayouts: [regatherState(world).aLayout],
             }),
             compute: {
                 module: device.createShaderModule({
-                    label: "sear-regather-a",
+                    label: "standard-regather-a",
                     code: aWgsl,
                 }),
                 entryPoint: "main",
             },
         }),
         device.createComputePipelineAsync({
-            label: "sear-regather-b",
+            label: "standard-regather-b",
             layout: device.createPipelineLayout({
                 bindGroupLayouts: [regatherState(world).bLayout],
             }),
             compute: {
-                module: device.createShaderModule({ label: "sear-regather-b", code: bWgsl }),
+                module: device.createShaderModule({ label: "standard-regather-b", code: bWgsl }),
                 entryPoint: "main",
             },
         }),
@@ -241,7 +241,7 @@ export interface Regather {
     args(): GPUBuffer | null;
     /** lazily allocate the packed list (sized `maxCombos × capacity`, the provably-safe bound: each combo
      * view slot holds ≤ capacity culled eids). Fires the `onAlloc` callback registered via
-     * {@link Regather.reset} (sear rebuilds the bind groups that bind this lane). Idempotent once allocated. */
+     * {@link Regather.reset} (standard rebuilds the bind groups that bind this lane). Idempotent once allocated. */
     ensure(maxCombos: number, capacity: number): void;
     /** preflight the largest batch before recording any run into an encoder. A run never reallocates this
      * shared output: earlier GPU commands in the same unsubmitted encoder must keep the buffer they captured. */
@@ -262,7 +262,7 @@ export interface Regather {
         pairCount: number,
         runIndex?: number,
     ): void;
-    /** (re)create the per-instance params buffer + clear the caches on a (re)build; `onAlloc` is the sear
+    /** (re)create the per-instance params buffer + clear the caches on a (re)build; `onAlloc` is the standard
      * side-effect run when `ensure` allocates the packed list (clear the bind-group cache + bump the gen). */
     reset(onAlloc: () => void): void;
     /** destroy every GPU buffer this instance owns (at plugin dispose). */
@@ -305,7 +305,7 @@ export function createRegather(world: World, label: string): Regather {
         _args?.destroy();
         _argsCap = Math.max(count, 8);
         _args = world.gpu.device.createBuffer({
-            label: `sear-${label}-shadow-args`,
+            label: `standard-${label}-shadow-args`,
             size: _argsCap * SHADOW_ARG_STRIDE,
             usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
@@ -319,7 +319,7 @@ export function createRegather(world: World, label: string): Regather {
         _meta[runIndex]?.destroy();
         const cap = Math.max(n, 64);
         const buffer = world.gpu.device.createBuffer({
-            label: `sear-${label}-regather-meta-${runIndex}`,
+            label: `standard-${label}-regather-meta-${runIndex}`,
             size: cap * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
@@ -335,7 +335,7 @@ export function createRegather(world: World, label: string): Regather {
         let buffer = _params[runIndex];
         if (buffer) return buffer;
         buffer = world.gpu.device.createBuffer({
-            label: `sear-${label}-regather-params-${runIndex}`,
+            label: `standard-${label}-regather-params-${runIndex}`,
             size: 16,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
@@ -344,7 +344,7 @@ export function createRegather(world: World, label: string): Regather {
     }
 
     // Pass A bind group (drawArgs + meta → args). `drawArgs` is the MeshInstance pack's shared indirect buffer (read
-    // from a casting Draw — sear stays part-agnostic), which reallocs on pack growth
+    // from a casting Draw — the atlas stays producer-agnostic), which reallocs on pack growth
     function aGroup(
         world: World,
         drawArgs: GPUBuffer,
@@ -361,7 +361,7 @@ export function createRegather(world: World, label: string): Regather {
             return cached.group;
         }
         const group = world.gpu.device.createBindGroup({
-            label: `sear-${label}-regather-a`,
+            label: `standard-${label}-regather-a`,
             layout: regatherState(world).aLayout!,
             entries: [
                 { binding: 0, resource: { buffer: drawArgs } },
@@ -394,7 +394,7 @@ export function createRegather(world: World, label: string): Regather {
             return cached.group;
         }
         const group = world.gpu.device.createBindGroup({
-            label: `sear-${label}-regather-b`,
+            label: `standard-${label}-regather-b`,
             layout: regatherState(world).bLayout!,
             entries: [
                 { binding: 0, resource: { buffer: drawArgs } },
@@ -425,7 +425,7 @@ export function createRegather(world: World, label: string): Regather {
             _eidCapacity = capacity;
             _eidCombos = maxCombos;
             _eids = world.gpu.device.createBuffer({
-                label: `sear-${label}-regather-eids`,
+                label: `standard-${label}-regather-eids`,
                 size: maxCombos * capacity * 16,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
@@ -449,7 +449,7 @@ export function createRegather(world: World, label: string): Regather {
             const D = drawCount;
             if (!_args || _argsCap < D) {
                 throw new Error(
-                    `sear ${label} re-gather run has ${D} draws after a ${_argsCap}-draw reserve`,
+                    `standard ${label} re-gather run has ${D} draws after a ${_argsCap}-draw reserve`,
                 );
             }
             const meta = ensureMeta(world, C + D, runIndex);

@@ -12,7 +12,7 @@ import {
     captureTexture,
     detachCanvas,
     EffectPasses,
-    Render,
+    RenderContext,
     RenderPhases,
     Tonemapping,
     TonemappingMethod,
@@ -271,7 +271,7 @@ test("after-tonemapping pass transforms the presented image; no registration add
                     });
                     groups.set(input, group);
                 }
-                const pass = world.resource(Render).encoder!.beginRenderPass({
+                const pass = world.resource(RenderContext).encoder!.beginRenderPass({
                     colorAttachments: [{ view: output, loadOp: "clear", storeOp: "store" }],
                 });
                 pass.setPipeline(pipeline);

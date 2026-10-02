@@ -57,9 +57,15 @@ Name modules for what they own, not their technique. Core and standard use the s
 
 ### Rendering
 
-`core/rendering` supports any way of making an image in shared views. It owns cameras, projection, targets, coordinates, shared GPU layouts, frame state, color space and presentation—not meshes, materials or draw submission. `standard/rendering` is the extensible mesh pipeline over it; it publishes effect inputs such as depth, but contains no post-processing.
+`core/rendering`'s `RenderingPlugin` owns cameras, shared views, canvas binding, projection, view and frame uniforms, capture, light components and frame ordering anchors. It knows no meshes or materials. Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor.
 
-Each view has one replaceable final pass. It tonemaps images marked HDR, then grades and encodes for the screen; display-ready images skip tonemapping. Per-pixel effects are stages before or after tonemapping and may read their own textures. Effects reading other pixels are separate passes before the final pass.
+`CorePipelinePlugin` adds each view's clear, depth and multisampled color targets, resolve, opt-in `DepthPrepass` and `PickingPrepass` lanes, and `RenderPhases`. Core opens the prepass and one main render pass per view; renderers record opaque then transparent work into the main pass with core's formats and sample count. A renderer contributes to an effect's depth or picking input only by recording into that prepass lane. Transparent ordering is by renderer, not by object across renderers: standard submits GPU-driven indirect draws per surface.
+
+`CorePipelinePlugin` also owns the tonemapping pass. `Tonemapping` selects the operator (TonyMcMapface by default); `ColorGrading` grades the image, and presentation encodes it for the screen. `TonemappingMethod.None` skips the operator for display-ready linear images, not grading or encoding. Effects are separate passes. Register per-camera passes in `EffectPasses` before or after tonemapping; before passes read linear HDR, after passes read encoded display-referred intermediates. `CustomPresentation` replaces the built-in presentation for a camera.
+
+`core/mesh` owns mesh data, GPU storage, built-in primitives and `MeshInstance`, independent of rendering. `standard/rendering` builds the clustered forward mesh pipeline over both core modules: registered surfaces and materials, `MeshMaterial`, `StandardMaterial`, light packing, culling, indirect draws, backgrounds and shadow passes. It records into core's phases and includes `CorePipelinePlugin`; effects belong in extras, not standard. `MeshRenderPlugin` packs mesh instances and registers `MeshMaterial`.
+
+A custom standard surface uses `surfaceLayout`, `VsIn`, `vsPatchSchema` and `fsCtxSchema`, and registers with `registerSurface`; `engineLayout` supplies the shared frame/view bindings and `lit` supplies the standard lighting response. A custom background uses `backgroundLayout`, `BackgroundContext` and `registerBackground`. These extend standard's pipeline, not a second standard pipeline.
 
 ## Commands
 
@@ -124,7 +130,7 @@ GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.
 
 ## Code
 
-Names come from the domain's precedent: Bevy for the ECS, WebGPU and TypeGPU for the GPU, glTF for assets. A name means one thing across the tree, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
+Names and techniques come from the domain's precedent: Bevy for the ECS and rendering where they carry meaning in Shallot, WebGPU and TypeGPU for the GPU, glTF for assets. Each rendering divergence names its referent or the Bevy structure Shallot lacks in `strategy/shallot/referents.md`'s `bevy` ledger in the harness. A name means one thing across the tree, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
 
 One fact has one name, one producer and one path. A second spelling or a forwarding wrapper goes.
 

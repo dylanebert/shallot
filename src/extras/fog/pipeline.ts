@@ -5,8 +5,8 @@
 // pipeline/layout half `march.ts`'s header describes.
 //
 // Six of the ten group-1 bindings (`pointAtlas`/`shadowSamp`/`pointShadows`/`tileRects` for the point path,
-// `shadowMap`/`sunShadow` for the sun path) are read only inside sear's relocatable shadow receivers
-// (`pointShadowOf` / `sampleSunShadow`, `sear`), which are WGSL-bodied and read those six as free
+// `shadowMap`/`sunShadow` for the sun path) are read only inside standard's relocatable shadow receivers
+// (`pointShadowOf` / `sampleSunShadow`, `standard`), which are WGSL-bodied and read those six as free
 // names — a real-reference call into them reaches `tgpu.resolve`'s call graph (the call itself is tracked),
 // but the free names inside their bodies are not (the same forcing-touch pattern the AVBD solver's `hullData` uses), so
 // nothing here would otherwise force their WGSL declarations. `fogKernel` below forces them into scope with
@@ -58,13 +58,13 @@ export const fogLayout0 = tgpu
     .$idx(0);
 
 // group 1's caster-cap-sized uniforms are built once here (a schema instance is exactly one WGSL struct
-// declaration per resolve, and this pipeline's resolve is independent of sear's own raw one — `chunk()`'s
+// declaration per resolve, and this pipeline's resolve is independent of standard's own raw one — `chunk()`'s
 // duplicate-name suffixing only matters *within* one resolve, so a second `PointCasters`/`TileRects`
-// instance here doesn't collide with sear's).
+// instance here doesn't collide with standard's).
 const _pointCastersGpu = pointCastersSchema();
 const _tileRectsGpu = tileRectsSchema(pointCasters() * 6);
 
-/** group 1: the camera-independent light + shadow service — render's compacted lights + light grid, sear's
+/** group 1: the camera-independent light + shadow service — render's compacted lights + light grid, standard's
  *  point atlas + caster uniform + comparison sampler + sun shadow map + params, and the `Lighting` UBO.
  *  Cached across cameras on resource identity (`index.ts`'s `_lights`). @internal */
 export const fogLayout1 = tgpu
@@ -81,14 +81,14 @@ export const fogLayout1 = tgpu
     .$idx(1);
 
 // `pointShadowRef()` is a plain host-side getter (its factory memoizes across the real-reference /
-// raw-splice consumers, `sear/shade.ts`), not itself a TGSL value — calling it *inside* the kernel body
+// raw-splice consumers, `standard/shade.ts`), not itself a TGSL value — calling it *inside* the kernel body
 // reads as an untranspiled function to the resolver ("not marked with 'use gpu'"). Resolve it once here,
 // in ordinary module-scope JS, so the kernel body below closes over the real `tgpu.fn` value directly.
 const pointShadowOf = pointShadowRef();
 
 /** the fog march compute kernel: per pixel, reconstruct the camera→fragment segment, then fuse the
  *  extinction march ({@link fogDensity} / `fogComposite`) with the clustered point/spot + sun in-scatter
- *  ({@link inScatterContribution} / {@link sunInScatter}), shadowed by sear's point atlas
+ *  ({@link inScatterContribution} / {@link sunInScatter}), shadowed by standard's point atlas
  *  ({@link pointShadowOf}) and sun cascade map ({@link sampleSunShadow}). @internal */
 export const fogKernel = tgpu
     .computeFn({
@@ -125,7 +125,7 @@ export const fogKernel = tgpu
         const offset = std.mix(0.5, ign(d.vec2f(input.gid.xy)), jitter);
 
         // the froxel lookup along this pixel's ray: tile-xy is the pixel, the z-slice is the step's view
-        // depth (matches sear's clusterOf for the same world point, perspective + ortho alike)
+        // depth (matches standard's clusterOf for the same world point, perspective + ortho alike)
         const camView = fogLayout0.$.view;
         const near = camView.projection.x;
         const far = camView.projection.y;

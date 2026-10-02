@@ -9,7 +9,7 @@ import { probeTexture } from "../../engine/runtime";
 import { encodePos } from "../../engine/utils";
 import { VsIn } from "../../standard/rendering";
 import { maskLayoutPlain, maskVertex } from "../outline/passes";
-import { typedTextSurface } from "./index";
+import { textSurface } from "./surface";
 
 setDefaultTimeout(CEILING.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
@@ -72,7 +72,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     const view = new Float32Array(52);
     for (const i of [0, 5, 10, 15]) view[i] = 1;
     buffer("view", view, true);
-    const text = typedTextSurface(0);
+    const text = textSurface(0);
     const textCode = tgpu.resolve({
         names: "strict",
         externals: { VsIn, textVs: text.vs },

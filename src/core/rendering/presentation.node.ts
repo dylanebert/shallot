@@ -14,7 +14,7 @@ import {
     Camera,
     captureTexture,
     EffectPasses,
-    Render,
+    RenderContext,
     Views,
 } from "./index";
 import { PointsPlugin } from "./points.fixture";
@@ -106,11 +106,13 @@ test("standard composition, vignette, after-tonemap and points present and captu
                                     layout: pipeline.getBindGroupLayout(0),
                                     entries: [{ binding: 0, resource: input }],
                                 });
-                                const pass = world.resource(Render).encoder!.beginRenderPass({
-                                    colorAttachments: [
-                                        { view: output, loadOp: "clear", storeOp: "store" },
-                                    ],
-                                });
+                                const pass = world
+                                    .resource(RenderContext)
+                                    .encoder!.beginRenderPass({
+                                        colorAttachments: [
+                                            { view: output, loadOp: "clear", storeOp: "store" },
+                                        ],
+                                    });
                                 pass.setPipeline(pipeline);
                                 pass.setBindGroup(0, group);
                                 pass.draw(3);

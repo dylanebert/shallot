@@ -20,11 +20,8 @@ export type DrawIndirectBuffer = TgpuBuffer<
     typeof DrawIndexedIndirect | d.WgslArray<typeof DrawIndexedIndirect>
 > & { usableAsIndirect: true };
 
-// the render-contract registries a producer registers into and a consumer
-// renderer iterates: Surfaces (shading recipes) and Draws (draw calls). Meshes
-// (geometry) lives in mesh.ts alongside its packing logic. Render defines these
-// but never iterates them — they're the bridge between any producer and any
-// renderer.
+// Producers register shading recipes and indirect draw records for standard's forward pipeline.
+// Geometry belongs to core/mesh; core rendering knows none of these registries.
 
 /**
  * draw arguments: always indirect. `indirect` is a GPU buffer holding the

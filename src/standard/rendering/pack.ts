@@ -183,7 +183,7 @@ const carry = tgpu.workgroupVar(d.u32);
  * slot's packedEids region starts at `slot * partCapacity`. Writes instanceCount + the compacted firstInstance,
  * resets the tallies for the next count pass, and leaves indexCount / firstIndex (lanes 0, 2) alone.
  * baseVertex temporarily saves the tally; scatter restores it to zero and restores instanceCount.
- * Pure LDS (no subgroup ops) — the part pack stays inside the base feature floor, so a
+ * Pure LDS (no subgroup ops) — the instance pack stays inside the base feature floor, so a
  * physics-free app never needs `subgroups`. One workgroup per slot keeps the pass independent of the
  * view-slot count. Compaction is this GPU prefix-sum scan, never a CPU gather.
  * @internal
@@ -231,7 +231,7 @@ export function scanKernel() {
                 scanLayout.$.drawArgs[idx].instanceCount = c;
                 scanLayout.$.drawArgs[idx].firstInstance =
                     slot * scanLayout.$.params.partCapacity + carry.$ + excl;
-                // Part's rebased indices require baseVertex = 0 at draw time. Until scatter finishes,
+                // Packed mesh indices require baseVertex = 0 at draw time. Until scatter finishes,
                 // the word preserves the tally while instanceCount serves as the reverse cursor.
                 scanLayout.$.drawArgs[idx].baseVertex = d.i32(c);
                 std.atomicStore(scanLayout.$.counts[idx], 0);

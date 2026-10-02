@@ -1,4 +1,4 @@
-// The canonical typed engine substrate: the pass-invariant group-0 layout every typed sear pipeline binds,
+// The canonical typed engine substrate: the pass-invariant group-0 layout every typed standard pipeline binds,
 // plus `lit` / `litPbr` / `lightFactor` / `pointFactor` / `clusterOf` and their four private seams, authored
 // once against that layout. `engineScaffoldWgsl()` is the device-free structural seam for those same refs.
 
@@ -13,7 +13,7 @@ import { MaterialInput } from "./material";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 
 /**
- * the canonical engine group-0 layout: every pass-invariant binding a sear pipeline reads — frame / view /
+ * the canonical engine group-0 layout: every pass-invariant binding a standard pipeline reads — frame / view /
  * lighting uniforms and three storage tables: clustered lights, materials and mesh dequantization. `vertices` is deliberately absent: it's pass-variant (color binds the 16 B main stream,
  * prepass/shadow the 8 B position stream) and moves into the surface group (2). Pinned at group 0.
  */

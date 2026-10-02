@@ -66,7 +66,7 @@ export {
     MAX_POINT_CASTERS,
     Materials,
     MeshMaterial,
-    PartPlugin,
+    MeshRenderPlugin,
     PointShadows,
     StandardMaterial,
     StandardRenderer,
@@ -79,13 +79,13 @@ import { CorePipelinePlugin, RenderingPlugin } from "../core/rendering";
 import type { Plugin } from "../engine";
 import { setDefaultLoading, setDefaultPlugins } from "../engine/app";
 import { shallotDark } from "./loading";
-import { PartPlugin, StandardRenderingPlugin } from "./rendering";
+import { MeshRenderPlugin, StandardRenderingPlugin } from "./rendering";
 
 export const DEFAULT_PLUGINS: readonly Plugin[] = [
     InputPlugin,
     BrowserInputPlugin,
     RenderingPlugin,
-    PartPlugin,
+    MeshRenderPlugin,
     StandardRenderingPlugin,
     CorePipelinePlugin,
 ];

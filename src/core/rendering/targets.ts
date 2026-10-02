@@ -1,7 +1,7 @@
 import type { World } from "../../engine";
 import { unpackColor } from "../../engine";
 import { Camera } from "./camera";
-import { Render } from "./render";
+import { RenderContext } from "./render";
 import type { View } from "./view";
 
 /** Reverse-Z depth format shared by view passes and matching renderer pipelines. */
@@ -139,7 +139,7 @@ function depthView(world: World, eid: number, w: number, h: number): GPUTextureV
     if (cached && cached.w === w && cached.h === h) return cached.view;
     cached?.texture.destroy();
     const texture = world.gpu.device.createTexture({
-        label: `sear-depth-${eid}`,
+        label: `standard-depth-${eid}`,
         size: { width: w, height: h },
         format: DEPTH_FORMAT,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
@@ -184,8 +184,8 @@ export function prepassDescriptor(
     const depth = depthView(world, eid, view.width, view.height);
     view.depth = storeDepth ? depth : null;
     return {
-        label: `sear-prepass/${eid}`,
-        timestampWrites: world.gpu.span?.("sear:prepass"),
+        label: `standard-prepass/${eid}`,
+        timestampWrites: world.gpu.span?.("standard:prepass"),
         colorAttachments: lanes.map((lane) => {
             const target = laneTarget(world, eid, lane, view.width, view.height);
             lane.set(view, target.texture);
@@ -208,7 +208,7 @@ function laneTarget(world: World, eid: number, lane: ColorLane, w: number, h: nu
     if (cached && cached.w === w && cached.h === h) return cached;
     cached?.texture.destroy();
     const texture = world.gpu.device.createTexture({
-        label: `sear-${lane.name}-${eid}`,
+        label: `standard-${lane.name}-${eid}`,
         size: { width: w, height: h },
         format: lane.format,
         usage: lane.usage,
@@ -233,15 +233,15 @@ export function colorTargets(
     cached?.depth.destroy();
     const color = aa
         ? world.gpu.device.createTexture({
-              label: `sear-color-msaa-${eid}`,
+              label: `standard-color-msaa-${eid}`,
               size: { width: w, height: h },
-              format: world.resource(Render).format,
+              format: world.resource(RenderContext).format,
               sampleCount: SAMPLE_COUNT,
               usage: GPUTextureUsage.RENDER_ATTACHMENT,
           })
         : null;
     const depth = world.gpu.device.createTexture({
-        label: `sear-color-depth-${eid}`,
+        label: `standard-color-depth-${eid}`,
         size: { width: w, height: h },
         format: DEPTH_FORMAT,
         sampleCount: aa ? SAMPLE_COUNT : 1,
@@ -255,7 +255,7 @@ export function colorTargets(
         w,
         h,
         aa,
-        label: `sear-color/${eid}`,
+        label: `standard-color/${eid}`,
     };
     state.colorTargets.set(eid, entry);
     return entry;
@@ -287,6 +287,6 @@ export function colorPassDescriptor(
     }
     state.colorDepth.view = targets.depthView;
     state.colorPass.label = targets.label;
-    state.colorPass.timestampWrites = world.gpu.span?.("sear:color");
+    state.colorPass.timestampWrites = world.gpu.span?.("standard:color");
     return state.colorPass;
 }

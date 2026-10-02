@@ -21,12 +21,12 @@ import { fsCtxSchema, registerSurface, Surfaces, surfaceLayout } from "./contrac
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
 import { Materials, MeshMaterial, materialTable, StandardMaterial } from "./material";
-import { PartPlugin } from "./part-plugin";
+import { MeshRenderPlugin } from "./part-plugin";
 
 setDefaultTimeout(CEILING.node);
 const cutout: Plugin = {
     name: "MaterialShadowProof",
-    dependencies: [PartPlugin, StandardRenderingPlugin],
+    dependencies: [MeshRenderPlugin, StandardRenderingPlugin],
     initialize(world) {
         const layout = surfaceLayout({
             eids: { type: "storage", element: d.vec4u },

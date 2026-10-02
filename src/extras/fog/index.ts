@@ -1,10 +1,10 @@
 // Fog — opt-in volumetric atmosphere. A compute pass marches each pixel camera→scene-depth, fusing
 // **extinction** (uniform haze + exponential height fog, fading the scene toward the haze color) with
 // **in-scatter** — the light shafts a `VolumetricLight` opts into: the clustered point/spot cones
-// shadowed by sear's point atlas, plus the directional sun shaft shadowed by sear's sun map (the same
-// froxel grid + shadow service sear's lit path uses, bound through `render` + `sear`), so
-// occluders cast dark shafts. It runs through the `sceneTransform` seam (after sear's color pass, before
-// tonemapping), so the result is part of the HDR scene the tonemap rolls off. A scene opts in with one `Fog` singleton; a camera opts in with sear's `DepthPrepass` lane
+// shadowed by standard's point atlas, plus the directional sun shaft shadowed by its sun map (the same
+// light grid + shadow service standard's lit path uses), so occluders cast dark shafts.
+// It runs through the `sceneTransform` seam after the main pass and before tonemapping.
+// A scene opts in with one `Fog` singleton; a camera opts in with core's `DepthPrepass` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
 // uniform schema live in `./march`; the typed pipeline (the two bind-group layouts + the compute kernel
 // calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle
@@ -14,8 +14,9 @@ import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from
 import {
     Camera,
     DEPTH_FORMAT,
+    MainPassSystem,
     OverlaySystem,
-    Render,
+    RenderContext,
     RenderingPlugin,
     sceneTransform,
     TonemappingSystem,
@@ -28,7 +29,6 @@ import {
     LightCull,
     Lighting,
     pointAtlasView,
-    RenderMeshColorSystem,
     StandardRenderer,
     StandardRenderingPlugin,
     shadowSampler,
@@ -110,9 +110,9 @@ type LightsGroup = TgpuBindGroup<(typeof fogLayout1)["entries"]>;
 type ViewGroup = TgpuBindGroup<(typeof fogLayout0)["entries"]>;
 
 // the camera-independent light + shadow service group (group 1), cached on the identities of the resources
-// it binds. The cull already binned every shading view this frame, so one group serves all cameras; sear's
+// it binds. The cull already binned every shading view this frame, so one group serves all cameras; standard's
 // shadow resources can flip identity (the atlas allocates lazily, the sun map toggles with a casting frame),
-// so rebuild only when one changes — sear's `shadowGroup` idiom, not a per-frame allocation
+// so rebuild only when one changes — standard's `shadowGroup` idiom, not a per-frame allocation
 
 // per-camera group 0 (scene / depth / output / view / fog), cached per eid on the `sceneTransform` read +
 // write + the depth view (all three reallocate only on a resize, so the group rebuilds then, not every
@@ -158,18 +158,18 @@ function fogLights(world: World): LightsGroup {
  * the fog march, per camera: reads the resolved scene (`view.framebuffer`) + the camera's depth lane,
  * marches each pixel through the atmosphere, and writes the haze-composited scene back through the
  * `sceneTransform` scratch so tonemapping reads it. No-op unless the scene has a {@link Fog} singleton and the
- * camera carries sear's `DepthPrepass` lane (the march needs scene depth, no auto-add). Ordered after sear's
+ * camera carries core's `DepthPrepass` lane (the march needs scene depth, no auto-add). Ordered after the main
  * color pass and before tonemapping.
  */
-export const FogSystem: System = {
+const FogSystem: System = {
     name: "fog",
     group: "draw",
-    after: [RenderMeshColorSystem],
+    after: [MainPassSystem],
     // a scene-transform effect runs before the overlay anchor, so a screen-space overlay (outline)
     // composites on top of the haze rather than getting marched over by it
     before: [TonemappingSystem, OverlaySystem],
     update(world) {
-        const _render = world.resource(Render);
+        const _render = world.resource(RenderContext);
         const _fogState = world.resource(fogStateKey);
 
         const encoder = _render.encoder;
@@ -227,7 +227,7 @@ export const FogSystem: System = {
 
 /**
  * volumetric atmosphere (fog + height fog). Opt-in: add `FogPlugin` to the plugin set, give the scene one
- * {@link Fog} singleton, and give the rendering camera sear's `DepthPrepass` lane. The march composites before tonemapping
+ * {@link Fog} singleton, and give the rendering camera core's `DepthPrepass` lane. The march composites before tonemapping
  * via the `sceneTransform` seam.
  */
 export const FogPlugin: Plugin = {
@@ -303,7 +303,7 @@ export const FogPlugin: Plugin = {
                 sceneTex: src.createView(),
                 depthTex: depth.createView(),
                 output: dst.createView(),
-                view: world.resource(Render).viewBuffers[0],
+                view: world.resource(RenderContext).viewBuffers[0],
                 fog: _fogState.fog.buffer!,
             });
             const bound = _fogState.fog.pipeline!.with(group0).with(fogLights(world));
@@ -324,33 +324,3 @@ export const FogPlugin: Plugin = {
         fogState(world).views.clear();
     },
 };
-
-// fog's extension + diagnostics surface. The march WGSL chunks (so a custom pass — or the fog probe —
-// splices the same integration the production `FogSystem` runs), the `Fog` uniform layout + `packFog`, and
-// the CPU-side march oracles the GPU readback is diffed against. Every march primitive is one TGSL function
-// that resolves to the spliced WGSL and runs on the CPU, so the chunks and the oracle are the same source.
-// The extinction half (`fogMarchWgsl` / `fogTransmittance`), the clustered in-scatter half (light
-// shafts — `fogInScatterWgsl` / `henyeyGreenstein` / `fogInScatter`), and the sun half (the directional
-// shaft — `sunInScatter` / `fogSunInScatter`). The happy path (`Fog`, `FogPlugin`) is on the index barrel.
-export type { FogScatter, FogSun } from "./march";
-export {
-    FOG_BYTES,
-    FOG_FLOATS,
-    FOG_MAX_STEPS,
-    FogGpu,
-    fogComposite,
-    fogDensity,
-    fogInScatter,
-    fogInScatterWgsl,
-    fogMarchWgsl,
-    fogStructWgsl,
-    fogSunInScatter,
-    fogTransmittance,
-    heightOpticalDepth,
-    henyeyGreenstein,
-    inScatterContribution,
-    reconstructWorld,
-    sunInScatter,
-    WORKGROUP,
-} from "./march";
-export { packFog } from "./pack";

@@ -26,11 +26,11 @@ export type MeshBinding =
  * The registry is source-agnostic. Static producers stage typed arrays via
  * {@link registerMesh}, which {@link flushMeshes} packs into one shared family buffer
  * set — every static mesh is a slice (its own `indexBase` + meshId) of the same
- * buffers, so sear binds geometry once and the layout is `multi-draw-indirect`
+ * buffers, so standard binds geometry once and the layout is `multi-draw-indirect`
  * ready. Procedural producers (compute-driven terrain, particle ribbons) may still allocate their own
  * raw `GPUBuffer`s, but wrap them with `world.gpu.root.createBuffer(schema, raw).$usage(...)` at the
  * registry seam. They unwrap the same allocation again wherever a raw encoder needs it. Meshes sharing
- * a buffer set share a bind group in sear.
+ * a buffer set share a bind group in standard.
  *
  * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
  * frustum cull GlobalTransforms per instance. {@link registerMesh} derives it from the staged
@@ -42,7 +42,7 @@ export type MeshBinding =
 export interface Mesh {
     name: string;
     vertices: MeshStorage<d.Vec4u>;
-    /** the 8 B/vertex position-only stream the depth + shadow passes pull (sear binds this in the prepass group) */
+    /** the 8 B/vertex position-only stream the depth + shadow passes pull (standard binds this in the prepass group) */
     position?: MeshStorage<d.Vec2u>;
     /** the per-mesh `MeshQuant` dequant table (position + uv AABB), indexed by the meshId packed in the stream */
     quant?: MeshStorage<typeof MeshQuant>;

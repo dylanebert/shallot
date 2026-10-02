@@ -2,12 +2,12 @@
 // the 1×1 fallback + comparison sampler bound when nothing casts. Owns every buffer/texture/bind-group
 // these need, the two atlas render passes (`renderPointShadows` / `renderCascades`), the color pass's
 // group-1 bind group, and the getters a screen-space consumer (the fog march) binds to
-// sample the same shadows sear's color pass does. `forward.ts` resolves the frame's draw list and passes
+// sample the same shadows standard's color pass does. `forward.ts` resolves the frame's draw list and passes
 // it in; this module never reaches back into `forward.ts` at runtime (only for the `Recorded` type).
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { DEPTH_FORMAT, Render, Views } from "../../core/rendering";
+import { DEPTH_FORMAT, RenderContext, Views } from "../../core/rendering";
 import type { World } from "../../engine";
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
@@ -159,16 +159,16 @@ function createAtlasState(world: World): AtlasState {
         comboSlots: [],
         comboIndices: [],
         drawPairs: [],
-        pointRegatherPass: { label: "sear:pointregather" },
+        pointRegatherPass: { label: "standard:pointregather" },
         pointShadowDepth,
         pointShadowPass: {
-            label: "sear-pointshadow",
+            label: "standard-pointshadow",
             colorAttachments: [],
             depthStencilAttachment: pointShadowDepth,
         },
-        cascadeRegatherPass: { label: "sear:cascaderegather" },
+        cascadeRegatherPass: { label: "standard:cascaderegather" },
         shadowBundleDesc: {
-            label: "sear-shadow",
+            label: "standard-shadow",
             colorFormats: [],
             depthStencilFormat: DEPTH_FORMAT,
             sampleCount: 1,
@@ -181,7 +181,7 @@ function createAtlasState(world: World): AtlasState {
         cascadeProgram: [],
         cascadeShadowDepth,
         cascadeShadowPass: {
-            label: "sear-cascadeshadow",
+            label: "standard-cascadeshadow",
             colorAttachments: [],
             depthStencilAttachment: cascadeShadowDepth,
         },
@@ -213,7 +213,7 @@ export function initializeShadowAtlasState(world: World): void {
 // ./shadows). The single directional map is gone: the sun renders through the cascade atlas like the point
 // atlas, and the receiver selects a cascade by view-z ----
 
-// the sun-shadow seam, sear-internal: while live, the cascade atlas view + the per-cascade SunShadow params
+// the sun-shadow seam, standard-internal: while live, the cascade atlas view + the per-cascade SunShadow params
 // (`_atlas.sunParams`) the color pass's opaque + transparent draws sample inline via group 1. Set by
 // `renderCascades` after it renders the caster depth, cleared when no sun casts (fallback → fully lit). StandardRenderer
 // owns the atlas and reads its own state directly — no cross-module seam
@@ -222,7 +222,7 @@ export function initializeShadowAtlasState(world: World): void {
 // in the all-zero params short-circuits `sampleSunShadow`) + that params buffer. StandardRenderer owns the
 // comparison sampler too — one config, shared by the fallback and the real map
 
-// the real SunShadow params sear writes each casting frame (created at warm); `shadowReady()` gates the
+// the real SunShadow params standard writes each casting frame (created at warm); `shadowReady()` gates the
 // render until warm has run
 
 // the SunShadow params staging: MAX_CASCADES Cascade rows (CASCADE_FLOATS each) then the globals tail,
@@ -475,7 +475,7 @@ export function comboViewSlots(
         if (!_atlasState.comboMissWarned) {
             _atlasState.comboMissWarned = true;
             console.warn(
-                `sear: ${missed} combo view(s) missing — skipping combo(s) (wiring bug: the combo camera pool should have attached a view per combo)`,
+                `standard: ${missed} combo view(s) missing — skipping combo(s) (wiring bug: the combo camera pool should have attached a view per combo)`,
             );
         }
     } else {
@@ -602,7 +602,7 @@ function cascadeGroup1Typed(world: World): GPUBindGroup {
 }
 
 /**
- * (re)allocate every shadow-atlas GPU resource sear owns — the sun-shadow seam (comparison sampler, 1×1
+ * (re)allocate every shadow-atlas GPU resource standard owns — the sun-shadow seam (comparison sampler, 1×1
  * fallback, the real params buffer), the point atlas's params/tile-rects/group-1 layout+buffers, and the
  * cascade atlas's group-1 buffers — the atlas half of `prepareSear` (the pipeline-compilation half is
  * `pipelines.ts`'s `preparePipelines`). Surviving HMR re-warms; called once per `prepareSear`, before the
@@ -620,7 +620,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     // stored occluder, i.e. ≥ its depth) + linear filtering, so each `textureSampleCompareLevel` tap is
     // a 2×2 hardware PCF. Shared by the fallback and a real shadow map
     _atlasState.shadowSampler = device.createSampler({
-        label: "sear-shadow-cmp",
+        label: "standard-shadow-cmp",
         compare: "greater-equal",
         magFilter: "linear",
         minFilter: "linear",
@@ -629,7 +629,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     // sampled (the enabled gate short-circuits), so its undefined contents don't matter
     _atlasState.fallbackDepth?.destroy();
     _atlasState.fallbackDepth = device.createTexture({
-        label: "sear-shadow-fallback",
+        label: "standard-shadow-fallback",
         size: { width: 1, height: 1 },
         format: DEPTH_FORMAT,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
@@ -637,7 +637,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     _atlasState.fallbackView = _atlasState.fallbackDepth.createView();
     _atlasState.fallbackParams?.destroy();
     _atlasState.fallbackParams = device.createBuffer({
-        label: "sear-shadow-fallback-params",
+        label: "standard-shadow-fallback-params",
         size: SHADOW_PARAMS_BYTES,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
@@ -646,10 +646,10 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
         0,
         new Float32Array(SHADOW_PARAMS_BYTES / 4),
     );
-    // the real params buffer sear writes each shadowed frame (viewProj + texel + depth/normal bias)
+    // the real params buffer standard writes each shadowed frame (viewProj + texel + depth/normal bias)
     _atlasState.sunParams?.destroy();
     _atlasState.sunParams = device.createBuffer({
-        label: "sear-shadow-params",
+        label: "standard-shadow-params",
         size: SHADOW_PARAMS_BYTES,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
@@ -666,7 +666,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     _atlasState.pointBuf = new ArrayBuffer(d.sizeOf(pointCastersSchema()));
     _atlasState.pointF32 = new Float32Array(_atlasState.pointBuf);
     _atlasState.pointParams = device.createBuffer({
-        label: "sear-point-shadow-params",
+        label: "standard-point-shadow-params",
         size: _atlasState.pointBuf.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
@@ -679,14 +679,14 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
         world.gpu.root
             .createBuffer(_shadowTypedCasters, _atlasState.pointParams)
             .$usage("uniform")
-            .$name("sear-point-shadow-params"),
+            .$name("standard-point-shadow-params"),
     );
     // the per-(caster, face) tile rects — bound on both the color shadow group (the receiver) and the point
     // group (the atlas VS's discard bounds). Always exists (cleared to zero), COPY_SRC + published for the
     // probe. 6 vec4 per caster
     _atlasState.pointTileRects?.destroy();
     _atlasState.pointTileRects = device.createBuffer({
-        label: "sear-point-tilerects",
+        label: "standard-point-tilerects",
         size: d.sizeOf(tileRectsSchema(pointCasters() * 6)),
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
@@ -701,20 +701,20 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
         world.gpu.root
             .createBuffer(_shadowTypedRects, _atlasState.pointTileRects)
             .$usage("uniform")
-            .$name("sear-point-tilerects"),
+            .$name("standard-point-tilerects"),
     );
 
     // the point pipeline's group 1 buffers: the combo-major face viewProjs + the per-combo meta (the tile
     // rects bind alongside, all uniforms the point VS reads)
     _atlasState.faceVP?.destroy();
     _atlasState.faceVP = device.createBuffer({
-        label: "sear-point-facevp",
+        label: "standard-point-facevp",
         size: pointCasters() * 6 * 64,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _atlasState.comboMeta?.destroy();
     _atlasState.comboMeta = device.createBuffer({
-        label: "sear-point-combometa",
+        label: "standard-point-combometa",
         size: pointCasters() * 6 * 16, // vec4<u32> per combo
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
@@ -722,26 +722,26 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     // per-cascade folded tile viewProjs, the per-cascade meta, and the tile rects — all MAX_CASCADES-sized
     _atlasState.cascadeVPBuf?.destroy();
     _atlasState.cascadeVPBuf = device.createBuffer({
-        label: "sear-cascade-vp",
+        label: "standard-cascade-vp",
         size: MAX_CASCADES * 64,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _atlasState.cascadeMetaBuf?.destroy();
     _atlasState.cascadeMetaBuf = device.createBuffer({
-        label: "sear-cascade-meta",
+        label: "standard-cascade-meta",
         size: MAX_CASCADES * 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _atlasState.cascadeRectsBuf?.destroy();
     _atlasState.cascadeRectsBuf = device.createBuffer({
-        label: "sear-cascade-rects",
+        label: "standard-cascade-rects",
         size: MAX_CASCADES * 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _atlasState.shadowReady = true;
 }
 
-/** free every shadow-atlas GPU resource sear owns (at plugin dispose): both atlases + their params/buffers,
+/** free every shadow-atlas GPU resource standard owns (at plugin dispose): both atlases + their params/buffers,
  * the fallback + comparison sampler, and both re-gather instances. The per-camera prepass/color targets are
  * `forward.ts`'s own (`disposeSear`). */
 export function disposeShadowAtlas(world: World): void {
@@ -793,7 +793,7 @@ function ensureAtlas(world: World): void {
     if (_atlasState.pointAtlas) return;
     const side = pointAtlasSize();
     _atlasState.pointAtlas = world.gpu.device.createTexture({
-        label: "sear-point-shadow-atlas",
+        label: "standard-point-shadow-atlas",
         size: { width: side, height: side },
         format: DEPTH_FORMAT,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
@@ -809,7 +809,7 @@ function ensureCascadeAtlas(world: World): void {
     if (_atlasState.cascadeAtlas) return;
     const side = cascadeAtlasSize(sunResolution(), sunCascades());
     _atlasState.cascadeAtlas = world.gpu.device.createTexture({
-        label: "sear-cascade-shadow-atlas",
+        label: "standard-cascade-shadow-atlas",
         size: { width: side, height: side },
         format: DEPTH_FORMAT,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
@@ -826,7 +826,7 @@ function ensureCascadeAtlas(world: World): void {
  * amplify trick bought, now reading per-combo *culled* counts, no over-amplification). The VS reads the
  * re-gathered packed list at the eids lane. Writes the PointCaster params the FS matches lights against,
  * uploads the CPU face viewProjs. No casters → params cleared, no pass, no atlas allocated. `frameDraws` is
- * `forward.ts`'s resolved draw list (`RenderPrepassesSystem`), shared with the color pass.
+ * `forward.ts`'s resolved draw list (`PrepassSystem`), shared with the color pass.
  */
 export function renderPointShadows(
     world: World,
@@ -837,7 +837,7 @@ export function renderPointShadows(
     const _atlasState = world.resource(atlasStateKey);
     const _pointRegather = world.resource(pointRegather);
 
-    const encoder = world.resource(Render).encoder;
+    const encoder = world.resource(RenderContext).encoder;
     if (!encoder || !_atlasState.shadowReady) return;
     if (_atlasState.pointFrameCount === 0) {
         if (!_atlasState.pointCleared) {
@@ -936,7 +936,7 @@ export function renderPointShadows(
     }
 
     // the casting draws (a compiled point pipeline + its point bind group) sharing the MeshInstance pack's one
-    // indirect buffer — read from the Draws, not MeshInstance (sear stays part-agnostic). A producer owning its own
+    // indirect buffer — read from the Draws, not MeshInstance (the atlas stays producer-agnostic). A producer owning its own
     // indirect buffer can't ride the shared-buffer re-gather, so it's skipped (a non-MeshInstance caster is unusual)
     let D = 0;
     let drawArgs: GPUBuffer | null = null;
@@ -960,7 +960,7 @@ export function renderPointShadows(
         if (!_atlasState.batchDropWarned) {
             _atlasState.batchDropWarned = true;
             console.warn(
-                `sear: ${batchDropped} point-shadow caster(s) dropped — their producer's indirect buffer differs from the first casting draw's, and renderPointShadows batches only one indirect-buffer source per frame`,
+                `standard: ${batchDropped} point-shadow caster(s) dropped — their producer's indirect buffer differs from the first casting draw's, and renderPointShadows batches only one indirect-buffer source per frame`,
             );
         }
     } else {
@@ -977,7 +977,7 @@ export function renderPointShadows(
         _atlasState.drawPairs[i] = Math.floor(
             (_atlasState.castDraws[i].draw.args.offset ?? 0) / SHADOW_ARG_STRIDE,
         );
-    _atlasState.pointRegatherPass.timestampWrites = world.gpu.span?.("sear:pointregather");
+    _atlasState.pointRegatherPass.timestampWrites = world.gpu.span?.("standard:pointregather");
     const cpass = encoder.beginComputePass(_atlasState.pointRegatherPass);
     _pointRegather.run(
         cpass,
@@ -995,7 +995,7 @@ export function renderPointShadows(
     // instance into its combo's tile. The point VS projects by faceVP (not view), so the ViewUniforms buffer bound
     // at slot 0 is an unread placeholder
     _atlasState.pointShadowDepth.view = _atlasState.pointAtlasView!;
-    _atlasState.pointShadowPass.timestampWrites = world.gpu.span?.("sear:pointshadow");
+    _atlasState.pointShadowPass.timestampWrites = world.gpu.span?.("standard:pointshadow");
     const group1 = pointGroup1Typed(world);
     const args = _pointRegather.args()!;
     for (let i = 0; i < D; i++) {
@@ -1032,7 +1032,7 @@ export function renderPointShadows(
     pass.end();
     // one indirect draw per casting mesh — the Dawn indirect-validation floor; the per-combo
     // fan-out is collapsed by the re-gather, not amplified
-    world.gpu.indirect?.("sear:pointshadow", D);
+    world.gpu.indirect?.("standard:pointshadow", D);
 }
 
 /**
@@ -1042,7 +1042,7 @@ export function renderPointShadows(
  * cameras); the cascade {@link Regather} concatenates each casting mesh's per-cascade culled members into one
  * indirect draw per mesh, the cascade VS projecting each into its atlas tile. No casting sun
  * ({@link cascadeCount} 0) or no casting geometry → the seam is cleared (the fully-lit fallback), no atlas
- * allocated. `frameDraws` is `forward.ts`'s resolved draw list (`RenderPrepassesSystem`, the first `frameCount`),
+ * allocated. `frameDraws` is `forward.ts`'s resolved draw list (`PrepassSystem`, the first `frameCount`),
  * shared with the color pass.
  */
 export function renderCascades(
@@ -1054,7 +1054,7 @@ export function renderCascades(
     const _atlasState = world.resource(atlasStateKey);
     const _cascadeRegather = world.resource(cascadeRegather);
 
-    const encoder = world.resource(Render).encoder;
+    const encoder = world.resource(RenderContext).encoder;
     if (!encoder || !_atlasState.shadowReady) return;
     const COriginal = cascadeCount(world);
     if (COriginal === 0) {
@@ -1190,7 +1190,9 @@ export function renderCascades(
             _atlasState.drawPairs[i] = Math.floor(
                 (batch.draws[i].draw.args.offset ?? 0) / SHADOW_ARG_STRIDE,
             );
-        _atlasState.cascadeRegatherPass.timestampWrites = world.gpu.span?.("sear:cascaderegather");
+        _atlasState.cascadeRegatherPass.timestampWrites = world.gpu.span?.(
+            "standard:cascaderegather",
+        );
         const cpass = encoder.beginComputePass(_atlasState.cascadeRegatherPass);
         _cascadeRegather.run(
             cpass,
@@ -1207,7 +1209,7 @@ export function renderCascades(
 
         _atlasState.cascadeShadowDepth.view = _atlasState.cascadeAtlasView!;
         _atlasState.cascadeShadowDepth.depthLoadOp = b === 0 ? "clear" : "load";
-        _atlasState.cascadeShadowPass.timestampWrites = world.gpu.span?.("sear:cascadeshadow");
+        _atlasState.cascadeShadowPass.timestampWrites = world.gpu.span?.("standard:cascadeshadow");
         for (let i = 0; i < D; i++) {
             const { r } = batch.draws[i];
             const step = bundleDraw(_atlasState.cascadeProgram, i);
@@ -1242,7 +1244,7 @@ export function renderCascades(
         pass.end();
         totalDraws += D;
     }
-    world.gpu.indirect?.("sear:cascadeshadow", totalDraws);
+    world.gpu.indirect?.("standard:cascadeshadow", totalDraws);
 
     // write the per-cascade SunShadow params + publish the seam: the receiver selects a cascade by view-z and
     // samples the cascade atlas (`sampleSunShadow`). One atlas pixel in uv (`texel`) is the PCF tap step; each

@@ -26,6 +26,134 @@ Cameras without settings now use `TonyMcMapface`, not Khronos PBR Neutral. Add `
 
 Register view-specific passes in `world.resource(EffectPasses)` under the camera eid, with `before` and `after` arrays. Each callback receives `(world, eid, view, input, output)` and records on the frame encoder. Before passes operate on linear HDR; after passes operate on encoded display-referred intermediates. With no after pass, tonemapping writes the presented target directly. Remove registrations when their camera or owner leaves.
 
+## Rendering extension exports
+
+The rendering modules publish the layouts and shader functions used across their boundaries, not the standard pipeline's implementation helpers. Remove direct imports from internal files; they are not replacement public paths. The following names are removed from their module's barrel (and any layer/root re-export).
+
+### `/rendering`
+
+| Removed name | Replacement |
+|---|---|
+| `Render` | `RenderContext`, the world-owned shared GPU context. |
+| `PhaseRenderer` | Infer the record type from `world.resource(RenderPhases).push`. |
+| `backingSize` | Use `Resolution` to pin a view's render size; viewport sizing is internal. |
+| `COLOR_LANES` | Core owns the lane set; match `PICKING_ID_FORMAT` for the picking output. |
+| `colorPassDescriptor` | Record into `RenderPhases`; core opens the pass. |
+| `colorTargets` | Read the supplied view in `RenderPhases`. |
+| `prepassDescriptor` | Record into `RenderPhases`; core opens the pass. |
+| `prepassLanes` | Read the lanes supplied to the prepass callback. |
+| `frameWgsl` | Resolve the `FrameGpu` TypeGPU schema. |
+| `FRUSTUM_FLOATS` | Read `CullVolumes` with `CULL_VOLUME_FLOATS`. |
+| `frustumPlanes` | No public replacement; consume the packed `CullVolumes`. |
+| `allocArray` | Use `imageArray` for image-array upload. |
+| `arrayFromBitmaps` | Use `imageArray` for image-array upload. |
+| `commonSize` | No public replacement; image-array sizing is internal. |
+| `mipLevels` | No public replacement; mip allocation is internal. |
+| `uploadLayer` | Use `imageArray` for image-array upload. |
+| `linearToSrgbWgsl` | Resolve `linearToSrgb3` through TypeGPU. |
+| `VIEW_BYTES` | Derive layout size from `ViewUniforms` with TypeGPU. |
+| `VIEW_STRIDE` | Read the view's own uniform buffer, not staging offsets. |
+| `viewWgsl` | Resolve the `ViewUniforms` TypeGPU schema. |
+
+### `/mesh`
+
+| Removed name | Replacement |
+|---|---|
+| `meshBounds` | Register mesh vertices; `MeshPlugin` computes culling bounds. |
+| `MeshStorage` | Infer storage from the registered `Mesh`. |
+| `QuantStreams` | No public replacement; mesh quantization is internal. |
+| `packMeshes` | Register with `registerMesh`; `MeshPlugin` packs at warm-up. |
+| `quantizeMeshes` | Register with `registerMesh`; quantization is internal. |
+| `VERTEX_FLOATS` | Author the vertex data accepted by `registerMesh`; packing is internal. |
+| `VERTEX_STRIDE` | Read the registered mesh's GPU bindings; packing is internal. |
+
+### `/standard/rendering`
+
+| Removed name | Replacement |
+|---|---|
+| `PartPlugin` | `MeshRenderPlugin`. |
+| `RenderMeshColorSystem` | `MainPassSystem` from `/rendering`. |
+| `RenderPrepassesSystem` | `PrepassSystem` from `/rendering`. |
+| `ClusterView` | No public replacement; standard owns light-cluster view packing. |
+| `CLUSTER_COUNT` | No public replacement; standard owns light-grid sizing. |
+| `CLUSTER_X` | No public replacement; standard owns light-grid sizing. |
+| `CLUSTER_Y` | No public replacement; standard owns light-grid sizing. |
+| `CLUSTER_Z` | No public replacement; standard owns light-grid sizing. |
+| `clusterAabb` | No public replacement; light-grid construction is internal. |
+| `clusterCoord` | Use `clusterCell` to address the shared light grid. |
+| `clusterIndex` | Use `clusterCell` to address the shared light grid. |
+| `clusterView` | No public replacement; standard owns light-cluster view packing. |
+| `LIGHT_POOL` | No public replacement; standard owns light-grid capacity. |
+| `lightClusters` | Read the `LightCull` resource and `LightClusters` schema. |
+| `requestLightOverflow` | No public replacement; this diagnostic is internal. |
+| `sliceDepth` | No public replacement; light-grid construction is internal. |
+| `zSlice` | Use `clusterCell` to address the shared light grid. |
+| `BackgroundFn` | Infer from `Background` or `registerBackground`. |
+| `BackgroundLayout` | Infer from `backgroundLayout`. |
+| `Binding` | Infer bindings from `surfaceLayout` or `backgroundLayout`. |
+| `FsFn` | Infer from `Surface` or `registerSurface`. |
+| `PickingIdFn` | Infer from `Surface` or `registerSurface`. |
+| `SurfaceLayout` | Infer from `surfaceLayout`. |
+| `VsFn` | Infer from `Surface` or `registerSurface`. |
+| `assertOwnFn` | Registration validates shader ownership. |
+| `InstanceInput` | Infer the instance layout from `surfaceLayout`. |
+| `SURFACE_GROUP` | `surfaceLayout` owns the bind-group index. |
+| `clusterOf` | Use `clusterCell` for grid addressing or `lit` for surface lighting. |
+| `engineScaffoldWgsl` | Use `surfaceLayout`, shader functions and `registerSurface`. |
+| `fragCoord` | Use the fragment context supplied to the surface function. |
+| `fragWorld` | Use the fragment context supplied to the surface function. |
+| `lightFactor` | Use `lit` for the standard lighting response. |
+| `litPbr` | Use `StandardMaterial` or `lit`. |
+| `pointFactor` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
+| `pointScale` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
+| `sunVisibility` | Use `lit` or the shared `sampleSunShadow` function. |
+| `LIGHTING_UNIFORM_SIZE` | Derive layout size from `LightingGpu` with TypeGPU. |
+| `lightingWgsl` | Resolve the `LightingGpu` TypeGPU schema. |
+| `MAX_POINT_LIGHTS` | No public replacement; standard owns light capacity. |
+| `PointLights` | Use the shared `LightClusters` schema for light/grid input. |
+| `spotParams` | Use `spotFactor` with the packed light record. |
+| `MeshDrawBuffers` | No public replacement; instance packing is internal. |
+| `partTable` | No public replacement; instance packing is internal. |
+| `getCompiledSurface` | No public replacement; compiled-pipeline diagnostics are internal. |
+| `DrawIndirectBuffer` | Infer from `Draw.args.indirect`; allocate with `DrawIndexedIndirect`. |
+| `casterWgsl` | No public replacement; shadow-caster code is internal. |
+| `Pbr` | Use `StandardMaterial` or `lit`. |
+| `pointShadowWgsl` | Resolve `pointShadowRef()` through TypeGPU. |
+| `SHADOW_PARAMS_BYTES` | Derive layout size from `SunShadow` with TypeGPU. |
+| `sunShadowWgsl` | Resolve `sampleSunShadow` through TypeGPU. |
+| `sunStructWgsl` | Resolve the `SunShadow` TypeGPU schema. |
+| `cascadeCount` | Read `SunShadows` settings. |
+| `pointAtlasSize` | Read `PointShadows` settings. |
+| `pointComboCount` | No public replacement; shadow-camera diagnostics are internal. |
+
+### `/fog` and `/text`
+
+| Removed name | Replacement |
+|---|---|
+| `FogSystem` | Depend on `FogPlugin`; order scene effects with core's phase and overlay anchors. |
+| `FogScatter` | No public replacement; fog integration is internal. |
+| `FogSun` | No public replacement; fog integration is internal. |
+| `FOG_BYTES` | No public replacement; fog uniforms are internal. |
+| `FOG_FLOATS` | No public replacement; fog uniforms are internal. |
+| `FOG_MAX_STEPS` | Use `Fog.steps`; the pass clamps it. |
+| `FogGpu` | Author `Fog`; the pass owns its GPU layout. |
+| `fogComposite` | No public replacement; fog integration is internal. |
+| `fogDensity` | No public replacement; fog integration is internal. |
+| `fogInScatter` | No public replacement; fog integration is internal. |
+| `fogInScatterWgsl` | No public replacement; fog integration is internal. |
+| `fogMarchWgsl` | No public replacement; fog integration is internal. |
+| `fogStructWgsl` | No public replacement; fog uniforms are internal. |
+| `fogSunInScatter` | No public replacement; fog integration is internal. |
+| `fogTransmittance` | No public replacement; fog integration is internal. |
+| `heightOpticalDepth` | No public replacement; fog integration is internal. |
+| `henyeyGreenstein` | No public replacement; fog integration is internal. |
+| `inScatterContribution` | No public replacement; fog integration is internal. |
+| `reconstructWorld` | No public replacement; fog integration is internal. |
+| `sunInScatter` | No public replacement; fog integration is internal. |
+| `WORKGROUP` | No public replacement; fog dispatch sizing is internal. |
+| `packFog` | Set `Fog` fields; the pass owns packing. |
+| `typedTextSurface` | No public replacement; glyph shader construction is internal. |
+
 ## Renamed exports
 
 0.10 renames these 0.9.5 names, with no compatibility aliases:
@@ -53,7 +181,7 @@ Register view-specific passes in `world.resource(EffectPasses)` under the camera
 | `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
 | `composeTransform` | `composeGlobalTransform` |
 | `state.stamp`, `state.timescale`, `state.swap` | `world.generation`, `world.setTimeScale`, `world.swapSystem` |
-| `/sear/core` `PrepassSystem`, `ColorSystem` | `/standard/rendering` `RenderPrepassesSystem`, `RenderMeshColorSystem` |
+| `/sear/core` `PrepassSystem`, `ColorSystem` | `/rendering` `PrepassSystem`, `MainPassSystem` |
 | `/src/standard/render/cluster.ts` `ClusterSystem`, `LightCullSystem` | Remove direct imports; these systems are now internal to `StandardRenderingPlugin`. |
 | `CharacterSweepSystem`, `PlayerControlSystem` | `SweepCharactersSystem`, `UpdatePlayerControlSystem` |
 | Physics `StepSystem`, `ConstraintSystem` | `StepPhysicsSystem`, `SyncPhysicsConstraintsSystem` |
@@ -237,7 +365,7 @@ Replace the process-level `Compute` registries with the owning `world.gpu`. Help
 These helpers use the owning World:
 
 - `Profile` data is read with `world.resource(Profile)`.
-- `cascadeCount()`, `cascadeComboEids()`, `pointComboCount()` and `pointComboEids()` take World first.
+- `cascadeComboEids()` and `pointComboEids()` take World first; `cascadeCount()` and `pointComboCount()` are removed.
 - Character helpers `move`, `jump`, `globalTransform`, `teleport` and `grounded` take World before the entity id.
 
 ## Replace Mirror with explicit snapshot requests
@@ -302,35 +430,38 @@ import { Xform } from "@dylanebert/shallot/utils";
 | `Color.rgba` | Material's linear `baseColor` |
 | `Material.params` `(metallic, roughness, emissiveStrength, occlusion)` | `StandardMaterial({ metallic, perceptualRoughness, emissive: [baseColor[0] * emissiveStrength, baseColor[1] * emissiveStrength, baseColor[2] * emissiveStrength], occlusion })` |
 | `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material's id |
-| Root `PartPlugin` | Root or `/standard/rendering` `PartPlugin` |
-| `/part/core` `Parts` | `/standard/rendering` `MeshDrawBuffers` (`drawArgs` and `packedEids`) |
+| Root `PartPlugin` | Root or `/standard/rendering` `MeshRenderPlugin` |
+| `/part/core` `Parts` | Removed; mesh-instance packing is internal to `MeshRenderPlugin`. |
 
 `StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuseWrap` 1. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(id, values)`; omitted fields retain their values. Set `world.storage(MeshMaterial).material` to switch an entity's material. Material ids belong to the World that added them.
 
-Custom surfaces still receive linear `color`; their `material` lanes are now `(metallic, perceptualRoughness, materialId, occlusion)`, not scalar emissive strength. The standard instance table's `MeshInstanceInput` is `{ mesh: u32, material: u32, flags: u32 }` (`flags` bit 0 excludes the mesh from shadow views); colour and shading values live in the `materials` table, bound in `engineLayout`. `Pbr` inputs now include `diffuseWrap`; use 1 to retain the former diffuse lobe.
+Custom surfaces still receive linear `color`; their `material` lanes are now `(metallic, perceptualRoughness, materialId, occlusion)`, not scalar emissive strength. The standard instance table's `MeshInstanceInput` is `{ mesh: u32, material: u32, flags: u32 }` (`flags` bit 0 excludes the mesh from shadow views); colour and shading values live in the `materials` table, bound in `engineLayout`. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
 
 Mesh data has its own `/mesh` module. Update mesh imports as follows; these names are also exported from the root in 0.10:
 
 | 0.9.5 import | 0.10 import |
 |---|---|
 | Root `mesh` | Root or `/mesh` `registerMesh` |
-| `/render/core` `Mesh`, `MeshBinding`, `MeshIndex`, `MeshStorage`, `QuantStreams` | `/mesh`, same names |
-| `/render/core` `Meshes`, `meshBounds`, `packMeshes`, `quantizeMeshes`, `VERTEX_FLOATS`, `VERTEX_STRIDE` | `/mesh`, same names |
+| `/render/core` `Mesh`, `MeshBinding`, `MeshIndex` | `/mesh`, same names |
+| `/render/core` `Meshes` | `/mesh`, same name |
+
+Mesh packing and layout helpers not listed here are removed; see the rendering extension export table above.
 
 Surface, background and draw contracts belong to `/standard/rendering`. Update imports as follows; contracts re-exported by `/sear/core` use the same mappings:
 
 | 0.9.5 import | 0.10 import |
 | --- | --- |
-| `/render/core` `Binding`, `SurfaceLayout`, `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface`, `SURFACE_GROUP` | `/standard/rendering`, same names |
-| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema`, `VsFn`, `FsFn`, `assertOwnFn` | `/standard/rendering`, same names |
-| `/render/core` `TagFn` | `/standard/rendering` `PickingIdFn` |
-| `/render/core` `BgLayout`, `BgCtx`, `BgFn` | `/standard/rendering` `BackgroundLayout`, `BackgroundContext`, `BackgroundFn` |
+| `/render/core` `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface` | `/standard/rendering`, same names |
+| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | `/standard/rendering`, same names |
+| `/render/core` `TagFn` | Removed; infer the picking function from `Surface` or `registerSurface`. |
+| `/render/core` `BgCtx` | `/standard/rendering` `BackgroundContext` |
+| `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |
 | `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
-| `/render/core` `Draw`, `DrawIndirectBuffer`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
-| `/render/core` `ClusterView`, `CLUSTER_COUNT`, `CLUSTER_X`, `CLUSTER_Y`, `CLUSTER_Z`, `Clusters`, `clusterAabb`, `clusterCell`, `clusterCoord`, `clusterIndex`, `clusterView`, `LIGHT_POOL`, `LightCull`, `lightClusters`, `sliceDepth`, `zSlice` | `/standard/rendering`, same names |
-| `/render/core` `LIGHTING_UNIFORM_SIZE`, `Lighting`, `LightingGpu`, `lightingWgsl`, `MAX_POINT_LIGHTS`, `PointLightGpu`, `PointLights`, `pointLightsWgsl`, `distanceAttenuation`, `spotFactor`, `spotParams` | `/standard/rendering`, same names |
+| `/render/core` `Draw`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
+| `/render/core` `Clusters`, `clusterCell`, `LightCull` | `/standard/rendering`, same names |
+| `/render/core` `Lighting`, `LightingGpu`, `PointLightGpu`, `pointLightsWgsl`, `distanceAttenuation`, `spotFactor` | `/standard/rendering`, same names |
 
-`InstanceInput` and `MeshInstanceInput` from `/standard/rendering` are new exports in 0.10, not renamed 0.9.5 exports. The former describes the packed per-draw instance; the latter describes a dense mesh-component row. `StandardMaterial`, `Materials` and `MeshPlugin` are also new exports, replacing the former component-only material values and the mesh registration owned by `RenderPlugin`/`PartPlugin`.
+Other implementation helpers in these contracts are removed; see the rendering extension export table above. `MeshInstanceInput` from `/standard/rendering` is new in 0.10 and describes a dense mesh-component row. `StandardMaterial`, `Materials` and `MeshPlugin` are also new exports, replacing the former component-only material values and mesh registration owned by `RenderPlugin`/`PartPlugin`.
 
 Camera prepass markers and attachment constants are imported from `/rendering`:
 
@@ -345,7 +476,7 @@ Custom surface, background and draw producers depend on `StandardRenderingPlugin
 
 `RenderingPlugin` still registers the light components (`AmbientLight`, `DirectionalLight`, `PointLight`, `SpotLight`, `VolumetricLight`), but no longer packs GPU lights or builds clusters. Compositions using those GPU resources need `StandardRenderingPlugin`.
 
-Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. Standard rendering and Part include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
+Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. `StandardRenderingPlugin` and `MeshRenderPlugin` include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
 
 Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is `/character` and `/bvh/core` is `/bvh`. `/scene/core` is removed with the scene format. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
 

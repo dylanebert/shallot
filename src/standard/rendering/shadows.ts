@@ -33,7 +33,7 @@ export const MAX_CASCADES = 4;
  * the sun's cascaded-shadow-map (CSM) budget. The single directional shadow box is split into `cascades`
  * depth slices along the camera's view range so near geometry gets fine shadow texels without a giant box:
  * the practical/PSSM split ({@link cascadeSplits}), each cascade its own frustum-slice-fit ortho view
- * ({@link cascadeFit}). `cascades` + `resolution` are fixed before `createApp()` (sear compiles the cascade count
+ * ({@link cascadeFit}). `cascades` + `resolution` are fixed before `createApp()` (standard compiles the cascade count
  * into its shaders and sizes the cascade atlas, `ceil(√cascades)·resolution` square, like
  * {@link PointShadows}); `resolution` is the per-cascade shadow map size: a fixed config (Bevy's
  * directional-shadow-map size), since the atlas texture + the compiled shader bake it. (Point/spot tiles are
@@ -337,7 +337,7 @@ export function orthoFootprintFit(
 // same `cull → count → scan → scatter` spine every view uses (the sun joining the unified culled-combo
 // path). Each cascade renders into a tile of a dedicated atlas (the fixed grid below — cascades are
 // equal-resolution, so no importance sizing), the tile placement folded into its viewProj (`tileTransform`).
-// sear re-gathers the per-cascade culled members into one indirect draw per casting mesh (the point path's
+// standard re-gathers the per-cascade culled members into one indirect draw per casting mesh (the point path's
 // shared `Regather`), and the receiver selects a cascade by view-depth + blends across the overlap band.
 
 /** the atlas-UV tile rect `[u0, v0, du, dv]` for cascade `k` of `n` in the fixed cascade grid, written into
@@ -724,7 +724,7 @@ export function updateCascades(world: World, main: number): void {
 // pooled off-screen camera the MeshInstance pack culls casters into, the same `cull → count → scan → scatter` spine
 // every camera uses. So a member rasterizes only the faces it actually hits, not all six (no
 // over-amplification). The viewProjs are computed here CPU-side (one per combo, the tile placement folded
-// in — {@link tileTransform}); sear re-gathers the per-combo culled members into one contiguous run per
+// in — {@link tileTransform}); standard re-gathers the per-combo culled members into one contiguous run per
 // casting mesh + a per-instance combo index, so the atlas still renders in **one indirect draw per casting
 // mesh** (the Dawn ~1µs/indirect-draw floor), now reading per-combo
 // *culled* counts. The face/cone frustum is widened by a constant texel margin (the PlayCanvas seam fix)
@@ -750,7 +750,7 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
 }
 
 /**
- * the point-shadow budget. `atlas` + `casters` are fixed before `createApp()` (sear compiles the caster array
+ * the point-shadow budget. `atlas` + `casters` are fixed before `createApp()` (standard compiles the caster array
  * size and atlas resolution into its shaders + textures at warm, like `capacity`, don't change them on a
  * live app). `atlas` is the square depth atlas's side in pixels (snapped to a power of two in [256, 4096],
  * default 2048 ≈ 16 MB of depth), sub-allocated by importance. `casters` is how many shadowed point/spot
@@ -792,7 +792,7 @@ export function pointAtlasSize(): number {
 // PlayCanvas shadow-renderer-local.js). EDGE_TEXELS is constant in *texels*, so a tile's widened tangent
 // scales with its own pixel size to keep the world margin the same fraction of every tile.
 const MIN_TILE = 64;
-/** the PCF seam margin in face texels: sear's FS recomputes the widened tangent (`1 + 2·EDGE/tilePx`)
+/** the PCF seam margin in face texels: standard's FS recomputes the widened tangent (`1 + 2·EDGE/tilePx`)
  * per matched tile, so this is the one source for both the projection ({@link pointTanHalf}) and the receiver */
 export const EDGE_TEXELS = 3;
 
@@ -1033,7 +1033,7 @@ export function pointComboMeta(world: World): Uint32Array {
 
 /** the per-(caster, face) allocated atlas-UV rects (`[u0, v0, du, dv]`, square), sparse and indexed
  * `slot·6 + face`: what the receiver samples and the atlas VS reads for its tile-discard bounds. Sized to
- * `cap·6` vec4. Filled by {@link updatePointShadows}, uploaded by sear as the `"pointTileRects"` uniform */
+ * `cap·6` vec4. Filled by {@link updatePointShadows}, uploaded by standard as the `"pointTileRects"` uniform */
 export function pointTileRects(world: World): Float32Array {
     return shadows(world).tileRects;
 }
@@ -1254,7 +1254,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         if (!shadow.capWarned) {
             shadow.capWarned = true;
             console.warn(
-                `sear: ${cap + extra} shadowed point lights exceed the ${cap} caster cap; the ${extra} least important cast no shadow (raise PointShadows.casters, max ${MAX_POINT_CASTERS})`,
+                `standard: ${cap + extra} shadowed point lights exceed the ${cap} caster cap; the ${extra} least important cast no shadow (raise PointShadows.casters, max ${MAX_POINT_CASTERS})`,
             );
         }
     } else {
@@ -1309,7 +1309,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         if (!shadow.overflowWarned) {
             shadow.overflowWarned = true;
             console.warn(
-                `sear: ${dropped} shadowed point light(s) dropped — the ${atlas}×${atlas} shadow atlas is full (raise PointShadows.atlas or lower PointShadows.casters)`,
+                `standard: ${dropped} shadowed point light(s) dropped — the ${atlas}×${atlas} shadow atlas is full (raise PointShadows.atlas or lower PointShadows.casters)`,
             );
         }
     } else {
@@ -1328,7 +1328,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         if (!shadow.slotWarned) {
             shadow.slotWarned = true;
             console.warn(
-                `sear: ${slotDropped} shadowed light(s) dropped — combo views exceed the ${MAX_COMBO_SLOTS}-slot budget (lower PointShadows.casters)`,
+                `standard: ${slotDropped} shadowed light(s) dropped — combo views exceed the ${MAX_COMBO_SLOTS}-slot budget (lower PointShadows.casters)`,
             );
         }
     } else {

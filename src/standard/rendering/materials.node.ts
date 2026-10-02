@@ -15,7 +15,7 @@ import {
 } from "../../core/rendering";
 import { Transform } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
-import { DEFAULT_PLUGINS, PartPlugin, StandardRenderingPlugin } from "../index";
+import { DEFAULT_PLUGINS, MeshRenderPlugin, StandardRenderingPlugin } from "../index";
 import { Surfaces } from "./contract";
 import { StandardRenderer } from "./forward";
 import {
@@ -29,7 +29,7 @@ import {
 setDefaultTimeout(CEILING.node);
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS] },
-    { defaults: false, plugins: [PartPlugin, StandardRenderingPlugin] },
+    { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] },
 ]);
 
 test("anonymous materials preserve every built-in surface frame including coloured emission", async () => {

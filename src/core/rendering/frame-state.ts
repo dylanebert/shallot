@@ -1,5 +1,5 @@
 import type { System, World } from "../../engine";
-import { Render } from "./render";
+import { RenderContext } from "./render";
 import { MAX_SLOTS, type View, Views } from "./view";
 
 export const VIEW_KEY_FLOATS = 26;
@@ -32,7 +32,7 @@ export const EndFrameSystem: System = {
     group: "draw",
     terminal: true,
     update(world) {
-        const _render = world.resource(Render);
+        const _render = world.resource(RenderContext);
         const _renderFrame = world.resource(renderFrameKey);
 
         const device = world.gpu.device;

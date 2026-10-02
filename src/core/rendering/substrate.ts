@@ -23,7 +23,7 @@ import {
     SpotLight,
     VolumetricLight,
 } from "./lighting";
-import { initializeRenderState, Render } from "./render";
+import { initializeRenderState, RenderContext } from "./render";
 
 import {
     bindCamera,
@@ -46,7 +46,7 @@ import {
 export const CullVolumes = d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4));
 
 // the public happy path: the component contract (camera + lights).
-// Everything else a renderer or producer touches — the Render singleton, the
+// Everything else a renderer or producer touches — the RenderContext singleton, the
 // View contract, canvas binding and the frame
 // loop — is the extension API, exported below.
 export { Camera, CameraMode, Resolution } from "./camera";
@@ -60,18 +60,13 @@ export {
     VolumetricLight,
 } from "./lighting";
 export {
-    COLOR_LANES,
     type ColorLane,
-    colorPassDescriptor,
-    colorTargets,
     DEPTH_FORMAT,
     DepthPrepass,
     laneKey,
     PICKING_ID_FORMAT,
     PICKING_ID_NONE,
     PickingPrepass,
-    prepassDescriptor,
-    prepassLanes,
     SAMPLE_COUNT,
 } from "./targets";
 
@@ -95,7 +90,7 @@ function basisColumn(world: Float32Array, base: number, out: Float32Array, at: n
 // and the inverse view-projection matrix; depth-only views use the cheaper MAX_SLOTS budget.
 function packView(world: World, eid: number, view: ViewSlot, shading: boolean, slot: number): void {
     const _renderFrame = world.resource(renderFrameKey);
-    const _render = world.resource(Render);
+    const _render = world.resource(RenderContext);
 
     view.slot = slot;
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
@@ -192,7 +187,7 @@ export const BeginFrameSystem: System = {
     group: "draw",
     first: true,
     update(world) {
-        const _render = world.resource(Render);
+        const _render = world.resource(RenderContext);
         const _renderFrame = world.resource(renderFrameKey);
 
         _render.encoder = null;
@@ -253,7 +248,7 @@ export const BeginFrameSystem: System = {
             }
             // present = the swapchain as a base-format storage view a compute composite writes via
             // textureStore (it encodes linear→sRGB itself); framebuffer = the offscreen the renderer
-            // draws into and the composite reads (Render.format / sRGB, decoded to linear on load).
+            // draws into and the composite reads (RenderContext.format / sRGB, decoded to linear on load).
             view.present = texture.createView();
             view.framebuffer = offscreen(world, eid, view.width, view.height);
             view.framebufferFormat = _render.format;
@@ -345,7 +340,7 @@ export const PresentationSystem: System = {
 
 /** allocates the device-shared substrate: format, view UBO, frame UBO */
 async function initRender(world: World): Promise<void> {
-    const _render = world.resource(Render);
+    const _render = world.resource(RenderContext);
     const _renderFrame = world.resource(renderFrameKey);
 
     if (!world.gpu.device) return;
@@ -353,10 +348,10 @@ async function initRender(world: World): Promise<void> {
 
     // the scene renders into an rg11b10ufloat HDR offscreen so tonemapping
     // rolls off radiance >1 rather than clamping it to white at store. rg11b10 (4B) halves the MSAA
-    // color-target + resolve bandwidth vs rgba16float (8B), the dominant sear:color cost at 4× MSAA, for
+    // color-target + resolve bandwidth vs rgba16float (8B) at 4× MSAA, for
     // ~3% relative precision (no alpha; over-blending doesn't need dst alpha). Single path, no flag — the
     // swapchain stays the base canvas format (tonemapping encodes linear→sRGB); this is the offscreen +
-    // sear color-target format only
+    // main-pass color-target format only
     _render.format = "rg11b10ufloat";
 
     const uniform = (label: string, size: number) =>
@@ -406,7 +401,7 @@ async function initRender(world: World): Promise<void> {
 /**
  * the renderer-agnostic substrate: frame loop, camera and Frame/ViewUniforms UBOs.
  * Producer and consumer plugins depend on this. Users
- * typically don't list it directly: `PartPlugin` pulls it transitively,
+ * typically don't list it directly: `MeshRenderPlugin` pulls it transitively,
  * and either can become a default plugin
  */
 export const RenderingPlugin: Plugin = {
@@ -488,42 +483,28 @@ export const RenderingPlugin: Plugin = {
 // extension API for renderer + producer authors: the
 // per-frame uniform singletons + their WGSL structs,
 // canvas binding, and the frame-loop ordering anchor. The typical-user surface
-// (components, plugin, public types) lives in the index barrel. `VIEW_STRIDE`
-// + `MAX_VIEWS` size the per-view uniforms; the buffer sizes and the cull-volume packer stay internal — a consumer reads
-// the packed `Render.cullVolumes` buffer, never re-packs it. A producer that runs its own
+// (components, plugin, public types) lives in the index barrel. `MAX_VIEWS`
+// bounds the per-view uniforms; the buffer sizes and the cull-volume packer stay internal — a consumer reads
+// the packed `RenderContext.cullVolumes` buffer, never re-packs it. A producer that runs its own
 // cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
 
 export { computeViewProj } from "./camera";
-export { Frame, FrameGpu, frameWgsl } from "./frame";
-export { CULL_FRUSTUM, CULL_VOLUME_FLOATS, FRUSTUM_FLOATS, frustumPlanes } from "./frustum";
-// the shared image→`texture_2d_array` upload path — the producer substrate glTF baseColor + the sprite atlas
-// both sample, inward of both extras so neither reaches sideways into the other
-export {
-    allocArray,
-    arrayFromBitmaps,
-    commonSize,
-    imageArray,
-    mipLevels,
-    uploadLayer,
-} from "./image";
+export { Frame, FrameGpu } from "./frame";
+export { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "./frustum";
+export { imageArray } from "./image";
 
-export { Render } from "./render";
+export { RenderContext } from "./render";
 export {
     attachCanvas,
     attachTexture,
     attachView,
-    backingSize,
     detachCanvas,
     linearToSrgb3,
-    linearToSrgbWgsl,
     MAX_SLOTS,
     MAX_VIEWS,
     sceneTransform,
     sizeView,
-    VIEW_BYTES,
-    VIEW_STRIDE,
     type View,
     Views,
     ViewUniforms,
-    viewWgsl,
 } from "./view";

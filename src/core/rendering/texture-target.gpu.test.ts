@@ -9,7 +9,7 @@ import {
     Camera,
     captureTexture,
     detachCanvas,
-    Render,
+    RenderContext,
     RenderingPlugin,
     Resolution,
     Views,
@@ -53,11 +53,17 @@ const subjects = gpuApps(import.meta.path, [
                             const pipeline = world.resource(pipelineKey).pipeline!;
                             for (const view of world.resource(Views).values()) {
                                 if (!view.present) continue;
-                                const pass = world.resource(Render).encoder!.beginRenderPass({
-                                    colorAttachments: [
-                                        { view: view.present, loadOp: "clear", storeOp: "store" },
-                                    ],
-                                });
+                                const pass = world
+                                    .resource(RenderContext)
+                                    .encoder!.beginRenderPass({
+                                        colorAttachments: [
+                                            {
+                                                view: view.present,
+                                                loadOp: "clear",
+                                                storeOp: "store",
+                                            },
+                                        ],
+                                    });
                                 pass.setPipeline(pipeline);
                                 pass.draw(3);
                                 pass.end();

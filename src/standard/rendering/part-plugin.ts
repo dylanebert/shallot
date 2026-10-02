@@ -5,8 +5,8 @@ import { MeshMaterial } from "./material";
 import { initializePartState, initPart, PartSystem, warmPart } from "./part";
 
 /** Packs mesh instances into per-view, per-surface indirect draws. */
-export const PartPlugin: Plugin = {
-    name: "Part",
+export const MeshRenderPlugin: Plugin = {
+    name: "MeshRender",
     systems: [PartSystem],
     components: [registration("MeshMaterial", MeshMaterial, { defaults: () => ({ material: 0 }) })],
     dependencies: [RenderingPlugin, MeshPlugin],

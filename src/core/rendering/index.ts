@@ -1,7 +1,6 @@
 export {
     CorePipelinePlugin,
     MainPassSystem,
-    type PhaseRenderer,
     PrepassSystem,
     RenderPhases,
 } from "./phases";

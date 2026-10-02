@@ -9,7 +9,7 @@
 //     splices. That is what makes the invariants its comments claim testable — `brdfSphere` reducing to
 //     `brdf` at radius 0, `pointReceiver` matching the projection the atlas renders through.
 //   - **WGSL-bodied `tgpu.fn`.** The two shadow samplers read their atlas, sampler, and caster uniform as
-//     module-scope globals *the consumer declares by name* — that is the relocatable contract sear's color
+//     module-scope globals *the consumer declares by name* — that is the relocatable contract standard's color
 //     FS and the fog march share, and it has no TGSL spelling until the surface contract itself is typed.
 //     A WGSL body still resolves under strict naming (the emitted name is the authored one) and still
 //     takes its struct parameters from the schemas below, so the layout has one source of truth even
@@ -181,7 +181,7 @@ export const brdfSphere = tgpu.fn(
     return std.mul(std.add(diffuse, std.mul(spec, ndl)), PI);
 });
 
-/** the metallic-roughness lobe sear's `lit` / `litPbr` helpers are built from: the {@link Pbr} struct,
+/** the metallic-roughness lobe standard's `lit` / `litPbr` helpers are built from: the {@link Pbr} struct,
  *  {@link halfLambert}, the GGX / Smith / Schlick terms, and the punctual + sphere-source BRDFs. Spliced
  *  into every surface module; a surface's own preamble must not redefine any of them. */
 export const pbrWgsl = chunk(
@@ -245,7 +245,7 @@ export function checkShadowConfig(): void {
 /**
  * the per-(caster, face) allocated atlas-UV rects (`[u0, v0, du, dv]`, square), indexed `slot·6 + face`:
  * a point caster's six face tiles, a spot's lone tile at face 0. The receiver samples its matched
- * caster's rect; the importance allocator (`sear/shadows.ts`) sizes + packs them each frame.
+ * caster's rect; the importance allocator (`standard/shadows.ts`) sizes + packs them each frame.
  */
 export function tileRectsSchema(slots: number) {
     return d.struct({ rects: d.arrayOf(d.vec4f, slots) }).$name("TileRects");
@@ -281,7 +281,7 @@ export const PointFace = d.struct({
 
 /**
  * the cube face a light→fragment direction `dir` falls in, plus its face-camera coordinates. One source
- * for the receiver (sear's color FS, the fog march) and the CPU: the six face bases are axis-aligned, so
+ * for the receiver (standard's color FS, the fog march) and the CPU: the six face bases are axis-aligned, so
  * each dot product folds to a signed component pick. Pinned to the `POINT_FACES` table the atlas render's
  * viewProjs come from (`shadows.test.ts`), which is what keeps the two halves of the projection agreeing.
  *
@@ -339,7 +339,7 @@ export const casterWgsl = chunk(
 );
 
 // the receiver — relocatable, so it takes the world position as a parameter and reads `pointAtlas` /
-// `shadowSamp` / `pointShadows` / `tileRects` as globals the consumer declares (sear's color group 1, the
+// `shadowSamp` / `pointShadows` / `tileRects` as globals the consumer declares (standard's color group 1, the
 // fog march's). Match the light to a caster slot by source entity id (`color.a`, baked by the light
 // compact pass; `pos.w` is -1 for an empty slot, so a non-caster never matches), pick the cube face (or
 // spot tile) from the light→fragment direction, project into the atlas tile, and 3×3 PCF-compare.
@@ -435,7 +435,7 @@ const pointShadowChunk = chunk(
 );
 
 /** returns the point/spot shadow WGSL: `pointShadowOf(light, normal, fragWorld)` (world pos a parameter,
- *  atlas / sampler / casters / tile-rects referenced by name), the per-light shadow factor sear's clustered
+ *  atlas / sampler / casters / tile-rects referenced by name), the per-light shadow factor standard's clustered
  *  loop and a relocatable consumer both call, plus the {@link pointFaceOf} / {@link pointReceiver} math it
  *  routes through. Splice **after** {@link casterWgsl} + the group-1 declarations. */
 export function pointShadowWgsl(): string {
@@ -515,7 +515,7 @@ export const SUN_PARAMS = {
 } as const;
 
 /** the WGSL {@link SunShadow} + {@link Cascade} structs, relocatable so a screen-space consumer declares
- *  the same binding sear's color FS reads. Splice **before** that declaration, and
+ *  the same binding standard's color FS reads. Splice **before** that declaration, and
  *  {@link sunShadowWgsl} after it. */
 export const sunStructWgsl = chunk("sunStructWgsl", [SunShadow], spliceNs);
 

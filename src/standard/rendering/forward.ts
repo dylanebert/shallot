@@ -30,7 +30,7 @@ import { initializeDrawState } from "./registry";
 // not composed plugins coordinating through a singleton.
 //
 // Sun shadows: the CPU/ECS half (the off-screen light camera + placement) lives in ./shadows; the GPU half
-// (the shadow map, its render through sear's compiled prepass depth pipelines, and the group-1 binding the
+// (the shadow map, its render through standard's compiled prepass depth pipelines, and the group-1 binding the
 // FS samples) lives in ./atlas. This file owns the WGSL-scaffold-agnostic renderer plumbing: components +
 // registries, per-draw bind-group resolution, pass opening, the systems, and the plugin — the pure
 // codegen lives in ./codegen, pipeline compilation in ./pipelines. StandardRenderer renders its own map and reads its
@@ -50,7 +50,7 @@ import {
     type ColorLane,
     DEPTH_FORMAT,
     laneKey,
-    Render,
+    RenderContext,
     SAMPLE_COUNT,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
@@ -141,7 +141,7 @@ function createSearState(): SearState {
         frameDraws: [],
         frameCount: 0,
         colorBundleDesc: {
-            label: "sear-color",
+            label: "standard-color",
             colorFormats: [],
             depthStencilFormat: DEPTH_FORMAT,
             sampleCount: 1,
@@ -149,7 +149,7 @@ function createSearState(): SearState {
         colorBundles: new Map(),
         colorProgram: [],
         prepassBundleDesc: {
-            label: "sear-prepass",
+            label: "standard-prepass",
             colorFormats: [],
             depthStencilFormat: DEPTH_FORMAT,
             sampleCount: 1,
@@ -166,9 +166,8 @@ function _searState(world: World): SearState {
 
 /**
  * marker selecting StandardRenderer as the active renderer on a Camera entity. A camera carrying it renders through
- * sear's color pass, plus the opt-in prepass lanes its {@link PickingPrepass} / {@link DepthPrepass} markers request.
- * Lives in the renderer impl with the systems that query it; the thin `sear` barrel re-exports it to the
- * game author, the `sear` barrel exports the systems to an extender.
+ * standard's opaque and transparent records, plus core's opt-in prepass lanes requested by
+ * {@link PickingPrepass} and {@link DepthPrepass}.
  *
  * @example
  * ```
@@ -181,10 +180,10 @@ function _searState(world: World): SearState {
 export const StandardRenderer = {};
 
 /**
- * a registered background: a renderer-agnostic *view-ray → HDR color* recipe sear draws as a fullscreen
+ * a registered background: a renderer-agnostic *view-ray → HDR color* recipe standard draws as a fullscreen
  * backdrop on the un-rendered pixels (the standard infinite-skybox technique). Its `layout` comes from
  * {@link backgroundLayout} and names the schema-backed resources its TGSL `fs` closes over. The `fs`
- * receives `BackgroundContext.dir`, the normalized world-space view ray sear reconstructs from `view.invViewProj`,
+ * receives `BackgroundContext.dir`, the normalized world-space view ray standard reconstructs from `view.invViewProj`,
  * and returns an HDR `vec3f`; it may also close over the canonical engine layout's view, lighting, and
  * frame resources. Modeled on {@link Surface}, but backdrop-only: no mesh, instancing, interpolators, or
  * blend modes; the engine names no sky concept, a plugin owns its own sky math.
@@ -218,7 +217,7 @@ function warnSkip(world: World, draw: string, cause: string): null {
 
     if (!_searState.warned.has(draw)) {
         _searState.warned.add(draw);
-        console.warn(`sear: draw "${draw}" skipped — ${cause}`);
+        console.warn(`standard: draw "${draw}" skipped — ${cause}`);
     }
     return null;
 }
@@ -280,9 +279,9 @@ export type Recorded = RecordedSurface;
 type FrameDraw = { draw: Draw; r: Recorded };
 
 /**
- * the color + transparent + per-lane-set prepass pipelines and the bind-group state sear records a draw
+ * the color + transparent + per-lane-set prepass pipelines and the bind-group state standard records a draw
  * with, or null to skip it. All pipelines share one bind group (same group-0 layout). A surface with
- * no compiled pipeline isn't sear's (silent skip); a missing mesh or unpublished binding warns once.
+ * no compiled pipeline isn't standard's (silent skip); a missing mesh or unpublished binding warns once.
  * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
  * are stable, so untracked
  */
@@ -291,7 +290,7 @@ function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
     return surface ? recordSurface(world, draw, surface, capacity) : null;
 }
 
-// resolve a typed layout's own bindings (never the sear-injected `vertices`) to live resources by the
+// resolve a typed layout's own bindings (never the standard-injected `vertices`) to live resources by the
 // entry's kind. Returns the createBindGroup value record + the identity list + each binding's name and the
 // registry it resolved from, or the missing binding's name
 function typedResources(
@@ -501,14 +500,14 @@ function recordSurface(
     return entry.item;
 }
 
-// the frame's resolved draws (the first `_sear.frameCount`), resolved once by RenderPrepassesSystem and shared across
+// the frame's resolved draws (the first `_sear.frameCount`), resolved once by ResolveDrawsSystem and shared across
 // the prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving
 // per-pass (the old 3×) was wasted work
 
 /**
  * the frame's draw list: every registered {@link Draw} with a compiled surface + published
  * bindings, paired with its cached group-0 state. Camera-independent (the per-slot bind groups it builds
- * against are cached lazily by slot, not baked per camera), so {@link RenderPrepassesSystem}
+ * against are cached lazily by slot, not baked per camera), so {@link PrepassSystem}
  * resolves it once per frame into `_sear.frameDraws` and the prepass, shadow map, and color pass all
  * render every camera against that one list
  */
@@ -546,7 +545,7 @@ function renderPrepass(
     lanes: ColorLane[],
     pass: GPURenderPassEncoder,
 ): void {
-    const _render = world.resource(Render);
+    const _render = world.resource(RenderContext);
     const _searState = world.resource(searStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
@@ -587,7 +586,7 @@ function renderPrepass(
         recordBundle(world, bundle, _searState.prepassProgram, draws, _searState.prepassBundleDesc);
     }
     if (bundle.bundle) pass.executeBundles(bundle.replay);
-    world.gpu.indirect?.("sear:prepass", draws);
+    world.gpu.indirect?.("standard:prepass", draws);
 }
 
 // the camera's selected backdrop — or null (no `CameraBackground` component, or its name
@@ -644,7 +643,7 @@ function backgroundGroup(
  * single-sample straight into the offscreen (and binds the surfaces' single-sample pipeline twins,
  * compiled lazily by {@link ensureSingle}). Opaque and transparent share one `beginRenderPass` (nothing
  * reads the color between them, so they fuse into one tile round-trip). Group 1 is the sun shadow seam:
- * sear's own shadow map + light params, or its 1×1 fallback (fully lit) when no light casts. An empty
+ * standard's own shadow map + light params, or its 1×1 fallback (fully lit) when no light casts. An empty
  * draw list still clears the framebuffer. `bg` (the camera's {@link CameraBackground} selection) draws a fullscreen
  * backdrop between the opaque and blend draws: masked to far-plane pixels by the depth test, so geometry
  * overdraws it and blended draws composite over it; null leaves the flat clear color as the only backdrop
@@ -683,7 +682,7 @@ function renderColor(
     transparent: boolean,
     bg: BackdropPick | null = null,
 ): void {
-    const _render = world.resource(Render);
+    const _render = world.resource(RenderContext);
     const _searState = world.resource(searStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
@@ -757,7 +756,7 @@ function renderColor(
     // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
     // validation floor; the honest count is post the `if (pipe)` skip, and excludes the backdrop's
     // three-vertex draw, which is not indirect
-    world.gpu.indirect?.("sear:color", indirect);
+    world.gpu.indirect?.("standard:color", indirect);
 }
 
 // the StandardRenderer camera query terms, and the point caster frames `ShadowCameraSystem` ranks into (a capacity pool
@@ -774,7 +773,7 @@ const SEAR_CAMERAS = [Camera, StandardRenderer];
  * sun shadow inline (group 1 = the map + comparison sampler + light params); the tag + depth pipelines
  * omit group 1. StandardRenderer declares the vertex-pull bindings itself; each draw selects its mesh via
  * `Draw.mesh`. Uniform across surfaces: no "MeshInstance-shaped" detection. Also (re)creates the sun-shadow
- * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
+ * GPU resources standard owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
  * params buffer — `./atlas`), surviving HMR re-warms
  */
 async function prepareSear(world: World, device: GPUDevice, capacity: number): Promise<void> {
@@ -795,27 +794,14 @@ async function prepareSear(world: World, device: GPUDevice, capacity: number): P
     ]);
 }
 
-/**
- * sear's geometry-emit ordering anchor **and** prepass, per camera carrying a lane marker
- * ({@link PickingPrepass} / {@link DepthPrepass}). It collapses the old empty depth anchor + the tag pass into one
- * single-sample pass that emits the camera's opt-in lanes (the id lane → `view.pickingId`, the depth lane →
- * `view.depth`), the shape Bevy's prepass takes. It's also the **anchor**: a producer whose per-frame
- * compute writes the geometry sear reads (vertices / indices, or an instanced surface's `globalTransforms` /
- * `eids`) declares `before: [RenderPrepassesSystem]` so its emit precedes every geometry-reading pass (the
- * prepass, the shadow map, and the color pass all read it within the frame; an emit landing between them
- * would desync the reads). It runs first among the geometry passes (`after: [BeginFrameSystem]`), so it
- * follows standard's draw-list resolve for the shadow map + color pass to share. A
- * screen-space effect still slots into the `after: [RenderPrepassesSystem], before: [RenderMeshColorSystem]` seam. A camera
- * carrying no lane marker runs no prepass (the bare path), but the anchor + resolve still run
- */
-export const RenderPrepassesSystem = PrepassSystem;
-export const RenderMeshColorSystem = MainPassSystem;
+// Resolve once before core's prepass; the prepass, shadow maps and main pass share this draw list.
+
 const ResolveDrawsSystem: System = {
     group: "draw",
     after: [BeginFrameSystem, CullLightsSystem],
     before: [PrepassSystem],
     update(world) {
-        if (world.resource(Render).encoder) resolveDraws(world, world.entityHighWater);
+        if (world.resource(RenderContext).encoder) resolveDraws(world, world.entityHighWater);
     },
 };
 
@@ -824,7 +810,7 @@ const ResolveDrawsSystem: System = {
  * camera, so `BeginFrameSystem` packs their viewProjs this frame and the MeshInstance pack culls casters into each
  * slot as one more view (the unified culled-combo spine). `simulation` group, before the draw frame opens.
  * No-op for the sun when shadowMapsEnabled is off (the zero-cost off path): the atlas
- * pass is skipped and sear falls back to fully lit
+ * pass is skipped and standard falls back to fully lit
  */
 const ShadowCameraSystem: System = {
     name: "shadow-camera",
@@ -840,7 +826,7 @@ const ShadowCameraSystem: System = {
         const casters = updatePointShadows(world, main, _searState.pointFrames);
         setPointFrames(world, _searState.pointFrames, casters);
         updateCascades(world, main);
-        // allocate each atlas's re-gather list here, before record() (RenderPrepassesSystem) builds the cast bind
+        // allocate each atlas's re-gather list here, before record() (PrepassSystem) builds the cast bind
         // groups that bind it — so the first casting frame's groups include it (the alloc clears the
         // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
         // again harmlessly
@@ -853,16 +839,16 @@ const ShadowCameraSystem: System = {
 
 /**
  * render the casters' depth into the shadow atlases (the point/spot tiles + the CSM cascades) and publish the
- * seams for sear's color pass to sample inline. `after: [RenderPrepassesSystem]` so every position-writing producer
- * (pinned before the anchor) has emitted and `_sear.frameDraws` is resolved; `before: [RenderMeshColorSystem]` so the
- * atlases + seams are ready before sear shades. No casting light → no pass, sear falls back to fully lit.
+ * seams for standard's color pass to sample inline. `after: [PrepassSystem]` so every position-writing producer
+ * (pinned before the anchor) has emitted and `_sear.frameDraws` is resolved; `before: [MainPassSystem]` so the
+ * atlases + seams are ready before standard shades. No casting light → no pass, standard falls back to fully lit.
  * Bevy's shape: the shadow maps are light-data-gated, sampled inline, no separate shadow plugin
  */
 const ShadowMapSystem: System = {
     name: "shadowmap",
     group: "draw",
-    after: [RenderPrepassesSystem],
-    before: [RenderMeshColorSystem],
+    after: [PrepassSystem],
+    before: [MainPassSystem],
     update(world) {
         const _searState = world.resource(searStateKey);
 
@@ -884,7 +870,7 @@ const typedDefaultLayout = typedLayout({
 });
 
 // The shader scaffold resolves each MeshInstance's material id to linear base color and material lanes.
-// `litPbr` (`sear/engine.ts`) reads the fs-scaffold privates the typed pipeline
+// `litPbr` (`standard/engine.ts`) reads the fs-scaffold privates the typed pipeline
 // builder (`pipelines.ts`) fills before calling this.
 const typedDefaultFs = tgpu.fn(
     [fsCtxSchema()],
@@ -973,113 +959,107 @@ const PackLightingSystem: System = {
     update: writeLighting,
 };
 
-export function createSearPlugin(): Plugin {
-    return {
-        name: "StandardRendering",
-        components: [
-            registration("StandardRenderer", StandardRenderer),
-            registration("CameraBackground", CameraBackground),
-        ],
-        systems: [
-            PackLightingSystem,
-            UpdateLightClustersSystem,
-            CullLightsSystem,
-            ResolveDrawsSystem,
-            ShadowCameraSystem,
-            ShadowMapSystem,
-        ],
-        dependencies: [CorePipelinePlugin, MeshPlugin],
+/** Clustered forward mesh renderer recording into core's prepass and main pass.
+ * Includes CorePipelinePlugin; cameras opt in with StandardRenderer. Shadows are
+ * sampled inline, and presentation follows the color resolve in core's tonemapping pass.
+ */
+export const StandardRenderingPlugin: Plugin = {
+    name: "StandardRendering",
+    components: [
+        registration("StandardRenderer", StandardRenderer),
+        registration("CameraBackground", CameraBackground),
+    ],
+    systems: [
+        PackLightingSystem,
+        UpdateLightClustersSystem,
+        CullLightsSystem,
+        ResolveDrawsSystem,
+        ShadowCameraSystem,
+        ShadowMapSystem,
+    ],
+    dependencies: [CorePipelinePlugin, MeshPlugin],
 
-        initialize(world) {
-            world.resource(RenderPhases).push({
-                prepass(world, eid, view, pass, lanes) {
-                    if (!world.has(eid, StandardRenderer)) return;
-                    const state = world.resource(searStateKey);
-                    renderPrepass(
-                        world,
-                        eid,
-                        view,
-                        state.frameDraws,
-                        state.frameCount,
-                        lanes,
-                        pass,
-                    );
-                },
-                opaque(world, eid, view, pass) {
-                    if (!world.has(eid, StandardRenderer)) return;
-                    const state = world.resource(searStateKey);
-                    renderColor(
-                        world,
-                        eid,
-                        view,
-                        state.frameDraws,
-                        state.frameCount,
-                        pass,
-                        false,
-                        backdrop(world, eid),
-                    );
-                },
-                transparent(world, eid, view, pass) {
-                    if (!world.has(eid, StandardRenderer)) return;
-                    const state = world.resource(searStateKey);
-                    renderColor(world, eid, view, state.frameDraws, state.frameCount, pass, true);
-                },
-            });
-            initializeClusterState(world);
-            initializeLightingState(world);
-            world.resource(Lighting).buffer = world.gpu.device.createBuffer({
-                label: "shallot-lighting",
-                size: LIGHTING_UNIFORM_SIZE,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            });
-            initializeSurfaceState(world);
-            initializeDrawState(world);
-            world.resource(Surfaces).clear();
-            world.resource(Backgrounds).clear();
-            world.resource(Draws).clear();
-            world.resource(searStateKey);
-            initializeShadowAtlasState(world);
-            initializePipelineState(world);
-            initializeRegatherState(world);
-            // a fresh World recreates its own off-screen shadow cameras lazily — drop any eids cached by
-            // a prior build so this re-run never aliases recycled entities (the module-scope contract)
-            resetPointShadows(world);
-            resetCascades(world);
-            // Dielectric reflectance stays zero to preserve Shallot's specular-free diffuse default.
-            typedRegister(world, {
-                name: "default",
-                layout: typedDefaultLayout,
-                fs: typedDefaultFs,
-            });
-            // the typed twin — the varyings mechanism's first live consumer (`litColor` crosses vs→fs
-            // through `typedVaryingVs`/`typedVaryingFs`'s per-surface copier, `pipelines.ts`); drawn typed
-            // in every pass, like `default` above.
-            typedRegister(world, {
-                name: "vertex",
-                layout: typedDefaultLayout,
-                varyings: typedVertexVaryings,
-                vs: typedVertexVs,
-                fs: typedVertexFs,
-            });
-            // the typed twin, drawn typed in every pass like `default` above.
-            typedRegister(world, {
-                name: "unlit",
-                layout: typedColorLayout,
-                fs: typedUnlitFs,
-            });
-        },
+    initialize(world) {
+        world.resource(RenderPhases).push({
+            prepass(world, eid, view, pass, lanes) {
+                if (!world.has(eid, StandardRenderer)) return;
+                const state = world.resource(searStateKey);
+                renderPrepass(world, eid, view, state.frameDraws, state.frameCount, lanes, pass);
+            },
+            opaque(world, eid, view, pass) {
+                if (!world.has(eid, StandardRenderer)) return;
+                const state = world.resource(searStateKey);
+                renderColor(
+                    world,
+                    eid,
+                    view,
+                    state.frameDraws,
+                    state.frameCount,
+                    pass,
+                    false,
+                    backdrop(world, eid),
+                );
+            },
+            transparent(world, eid, view, pass) {
+                if (!world.has(eid, StandardRenderer)) return;
+                const state = world.resource(searStateKey);
+                renderColor(world, eid, view, state.frameDraws, state.frameCount, pass, true);
+            },
+        });
+        initializeClusterState(world);
+        initializeLightingState(world);
+        world.resource(Lighting).buffer = world.gpu.device.createBuffer({
+            label: "shallot-lighting",
+            size: LIGHTING_UNIFORM_SIZE,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        initializeSurfaceState(world);
+        initializeDrawState(world);
+        world.resource(Surfaces).clear();
+        world.resource(Backgrounds).clear();
+        world.resource(Draws).clear();
+        world.resource(searStateKey);
+        initializeShadowAtlasState(world);
+        initializePipelineState(world);
+        initializeRegatherState(world);
+        // a fresh World recreates its own off-screen shadow cameras lazily — drop any eids cached by
+        // a prior build so this re-run never aliases recycled entities (the module-scope contract)
+        resetPointShadows(world);
+        resetCascades(world);
+        // Dielectric reflectance stays zero to preserve Shallot's specular-free diffuse default.
+        typedRegister(world, {
+            name: "default",
+            layout: typedDefaultLayout,
+            fs: typedDefaultFs,
+        });
+        // the typed twin — the varyings mechanism's first live consumer (`litColor` crosses vs→fs
+        // through `typedVaryingVs`/`typedVaryingFs`'s per-surface copier, `pipelines.ts`); drawn typed
+        // in every pass, like `default` above.
+        typedRegister(world, {
+            name: "vertex",
+            layout: typedDefaultLayout,
+            varyings: typedVertexVaryings,
+            vs: typedVertexVs,
+            fs: typedVertexFs,
+        });
+        // the typed twin, drawn typed in every pass like `default` above.
+        typedRegister(world, {
+            name: "unlit",
+            layout: typedColorLayout,
+            fs: typedUnlitFs,
+        });
+    },
 
-        async warm(world) {
-            if (!world.gpu.device) return;
-            warmClusters(world);
-            warmLightCull(world);
-            await prepareSear(world, world.gpu.device, world.entityHighWater);
-        },
+    async warm(world) {
+        if (!world.gpu.device) return;
+        warmClusters(world);
+        warmLightCull(world);
+        await prepareSear(world, world.gpu.device, world.entityHighWater);
+    },
 
-        dispose(world) {
-            destroyPointShadows(world);
-            destroyCascades(world);
-            disposeSear(world);
-        },
-    };
-}
+    dispose(world) {
+        destroyPointShadows(world);
+        destroyCascades(world);
+        disposeSear(world);
+    },
+};

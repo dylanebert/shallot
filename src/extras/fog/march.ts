@@ -183,7 +183,7 @@ export const henyeyGreenstein = tgpu.fn(
 
 /**
  * one volumetric point/spot light's in-scatter radiance at a march point: `color · distanceAttenuation ·
- * spotFactor · phase`, the same per-light terms sear's lit path uses (it calls the same two functions).
+ * spotFactor · phase`, the same per-light terms standard's lit path uses (it calls the same two functions).
  * Shadow-free — the caller multiplies the shadow factor. `params.x`'s magnitude is the source radius; its
  * sign is the `VolumetricLight` flag, squared away here.
  *
@@ -223,7 +223,7 @@ export const sunInScatter = tgpu.fn(
  * the in-scatter primitives, spliced by the production fog shader and the fog probe:
  * {@link henyeyGreenstein}, the clustered {@link inScatterContribution}, and the directional
  * {@link sunInScatter}. Splice **after** `pointLightsWgsl()` + `octEncodeWgsl()` + `lightEvalWgsl()`
- * (`sear`) — the contribution calls their `distanceAttenuation` / `spotFactor`.
+ * (`standard`) — the contribution calls their `distanceAttenuation` / `spotFactor`.
  */
 export function fogInScatterWgsl(): string {
     // force the base chunks first, so `PointLightGpu` and the light-eval primitives land in the chunks that

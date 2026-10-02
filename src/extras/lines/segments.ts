@@ -236,7 +236,7 @@ export function warmSegments(world: World, _device: GPUDevice): void {
         .$name("shallot-line-args");
 }
 
-// grow the GPU buffer to match the CPU staging (rare); republish so sear re-resolves the binding, then
+// grow the GPU buffer to match the CPU staging (rare); republish so standard re-resolves the binding, then
 // upload this frame's segments, write the indirect record (instanceCount = live count), and clear
 export function flushSegments(world: World, device: GPUDevice, quadBase: number): void {
     const _lines = world.resource(Lines);

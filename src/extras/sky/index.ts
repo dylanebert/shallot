@@ -1,20 +1,16 @@
 import type { World } from "../../engine";
 import { registration } from "../../engine";
-// Sky — opt-in procedural sky. A plugin behind sear's backdrop seam: it registers a `Backgrounds` recipe
+// Sky — opt-in procedural sky. A plugin behind standard's background seam: it registers a `Backgrounds` recipe
 // (the bryce3d view-ray → HDR color fragment, in `./shader`) and publishes one uniform buffer the recipe
 // reads. The engine names no sky concept — this plugin owns all of it. It *reads* the sun from the
 // `Lighting` singleton and writes nothing; a day-night cycle that writes the sun is a separate, deferred
 // plugin, so sky and lights never depend on each other. One `Sky` singleton holds the look; a camera opts
-// in with sear's `CameraBackground` component. Not in `DEFAULT_PLUGINS`.
+// in with standard's `CameraBackground` component. Not in `DEFAULT_PLUGINS`.
 
-import { BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
+import { BeginFrameSystem, MainPassSystem, RenderingPlugin } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
 import { f32 } from "../../engine";
-import {
-    RenderMeshColorSystem,
-    registerBackground,
-    StandardRenderingPlugin,
-} from "../../standard/rendering";
+import { registerBackground, StandardRenderingPlugin } from "../../standard/rendering";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 
@@ -75,13 +71,13 @@ const skyStateKey = { create: () => createSkyState() };
 const createSkyState = (): SkyState => ({ buffer: null, staging: new Float32Array(SKY_FLOATS) });
 const skyState = (world: World) => world.resource(skyStateKey);
 
-// writes the `Sky` uniform each frame from the scene's Sky singleton, before sear's color pass reads it for
+// writes the `Sky` uniform each frame from the scene's Sky singleton, before the main pass reads it for
 // the backdrop draw. No-op unless the scene has a Sky singleton.
 const SkySystem: System = {
     name: "sky",
     group: "draw",
     after: [BeginFrameSystem],
-    before: [RenderMeshColorSystem],
+    before: [MainPassSystem],
     update(world) {
         const device = world.gpu.device;
         const sky = skyState(world);

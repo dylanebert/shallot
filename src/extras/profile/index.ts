@@ -145,7 +145,7 @@ class ProfileImpl implements Profile {
     readonly gpu = new Map<string, number>();
     readonly gpuTime = new Map<string, number>();
     readonly gpuFires = new Map<string, number>();
-    // this frame's per-pass indirect-draw tally (summed across a pass's occurrences — sear:color reports
+    // this frame's per-pass indirect-draw tally (summed across a pass's occurrences — standard:color reports
     // once per camera), cleared at frame begin like `cpu`. The overlay reads it for the live floor; `reset`
     // folds it into the cumulative counters first (one fire per pass per frame), the benchmark's window-diff
     // unit. Synchronous per-frame data — no readback delay, so no greedy hold like the timed `gpu` map

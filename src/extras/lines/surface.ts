@@ -1,4 +1,4 @@
-// The `lines` sear surface: the segment schema, its group-2 layout, and the screen-space quad expansion
+// The `lines` standard surface: the segment schema, its group-2 layout, and the screen-space quad expansion
 // as TGSL. Sibling of `index.ts` because that module holds the ECS/system/plugin half (kernels live
 // beside, not inside, registry code); the CPU staging + upload live in `segments.ts`.
 //

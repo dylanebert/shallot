@@ -1,6 +1,6 @@
 import { type Plugin, registration, type System, type World } from "../../engine";
 import { Camera } from "./camera";
-import { Render } from "./render";
+import { RenderContext } from "./render";
 import { BeginFrameSystem, OverlaySystem, RenderingPlugin } from "./substrate";
 import {
     type ColorLane,
@@ -33,7 +33,7 @@ export const PrepassSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(world) {
-        const encoder = world.resource(Render).encoder;
+        const encoder = world.resource(RenderContext).encoder;
         if (!encoder) return;
         for (const [eid, view] of world.resource(Views)) {
             if (!view.framebuffer) continue;
@@ -53,7 +53,7 @@ export const MainPassSystem: System = {
     after: [PrepassSystem],
     before: [OverlaySystem],
     update(world) {
-        const encoder = world.resource(Render).encoder;
+        const encoder = world.resource(RenderContext).encoder;
         if (!encoder) return;
         for (const [eid, view] of world.resource(Views)) {
             if (!view.framebuffer) continue;

@@ -1,7 +1,7 @@
 // The renderer-neutral schema-backed surface/background contract. Layouts are created before their TGSL functions so
 // shader code can close over `layout.$.name`; registration binds exact spec identity to a World lifetime.
 //
-// Group split: a typed surface's own bindings + the sear-injected `vertices` slot pin
+// Group split: a typed surface's own bindings + the standard-injected `vertices` slot pin
 // to **group 2** (engine 0 / shadow-or-atlas 1 / surface 2) — `surfaceLayout()`'s `$idx(SURFACE_GROUP)`. The
 // `vertices` slot is pass-variant (color pass reads the 16 B main stream, prepass/shadow the 8 B
 // position-only stream, same physical slot) — `surfaceLayout()` synthesizes both variants; typegpu resolves only
@@ -18,7 +18,7 @@ import { backgroundsKey, surfacesKey } from "./contract-state";
 
 // Free functions (barrel-named — `layout`/`register` are too generic for a barrel), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
 // `Registry<T>` (`engine/utils/registry.ts`) is generic infra shared by `Draws`/`Meshes`, so it must stay
-// free of typegpu types and sear's group scheme — a method on it would leak both into every registry
+// free of typegpu types and standard's group scheme — a method on it would leak both into every registry
 // consumer. `surfaceLayout`/`registerSurface` live here instead, against the plain surface registry.
 
 /** typegpu's shader-stage literal, re-declared locally — `TgpuShaderStage` isn't re-exported from the
@@ -29,7 +29,7 @@ type ShaderStage = "compute" | "vertex" | "fragment";
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
 
 /** group 2 (engine 0 / shadow-or-atlas 1 / surface 2) — where a typed surface's own
- *  bindings + the sear-injected `vertices` slot pin. */
+ *  bindings + the standard-injected `vertices` slot pin. */
 export const SURFACE_GROUP = 2;
 
 /**
@@ -114,7 +114,7 @@ function layoutEntry<B extends Binding>(b: B): EntryFor<B> {
     }
 }
 
-/** the sear-injected `vertices` slot's two pass variants — the color pass's 16 B main stream
+/** the standard-injected `vertices` slot's two pass variants — the color pass's 16 B main stream
  *  (`array<vec4u>`: pos + meshId / oct normal / uv) and the prepass/shadow passes' 8 B position-only
  *  stream (`array<vec2u>`: pos + meshId). Same physical binding slot, distinct element type per pass —
  *  the `uniformWgsl(pass)` split, moved from the engine group into the surface group here. */
@@ -146,7 +146,7 @@ const partInputsEntry = {
 };
 
 /** a synthesized typed surface layout: group 2, a consumer's own bindings by name (`layout.$.name`) plus
- *  the sear-injected `vertices` slot (color-pass shape). {@link depthVariant} is the same bindings at the
+ *  the standard-injected `vertices` slot (color-pass shape). {@link depthVariant} is the same bindings at the
  *  same `$idx`, `vertices` swapped to the prepass/shadow shape — the typed pipeline builder selects
  *  between them per pass, the same way `uniformWgsl(pass)` does today. */
 export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<
@@ -249,7 +249,7 @@ export const VsIn = d
     .$name("VsIn");
 
 /** a `vs` chunk's output schema, folding a surface's own `varyings` in beside the fixed patch fields
- *  (`world`/`worldNormal` override, `clip` for a `screen` surface's own projection) — sear builds this
+ *  (`world`/`worldNormal` override, `clip` for a `screen` surface's own projection) — standard builds this
  *  struct per surface rather than carrying one fixed shape, since the varying set is per-surface. */
 export function vsPatchSchema<V extends Record<string, AnyWgslData> = Record<string, never>>(
     varyings: V = {} as V,
@@ -257,8 +257,8 @@ export function vsPatchSchema<V extends Record<string, AnyWgslData> = Record<str
     return d.struct({ world: d.vec4f, worldNormal: d.vec3f, clip: d.vec4f, ...varyings });
 }
 
-/** an `fs` chunk's input schema: the built-in fields sear rebinds as locals today (`eid`/`world`/
- *  `worldNormal`/`uv`/`localPos`) plus the surface's own `varyings` — the sear-rebuilt
+/** an `fs` chunk's input schema: the built-in fields standard rebinds as locals today (`eid`/`world`/
+ *  `worldNormal`/`uv`/`localPos`) plus the surface's own `varyings` — the standard-rebuilt
  *  fragment context, built per surface for the same reason as
  *  {@link vsPatchSchema}. */
 export function fsCtxSchema<V extends Record<string, AnyWgslData> = Record<string, never>>(

@@ -9,7 +9,7 @@ import {
     type EffectPass,
     EffectPasses,
     fullscreenVertex,
-    Render,
+    RenderContext,
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
@@ -151,7 +151,9 @@ export const VignettePlugin: Plugin = {
                             (
                                 state.pass.colorAttachments as GPURenderPassColorAttachment[]
                             )[0].view = output;
-                            const pass = w.resource(Render).encoder!.beginRenderPass(state.pass);
+                            const pass = w
+                                .resource(RenderContext)
+                                .encoder!.beginRenderPass(state.pass);
                             pass.setPipeline(state.pipeline!);
                             pass.setBindGroup(0, group);
                             pass.draw(3);

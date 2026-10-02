@@ -3,7 +3,7 @@ export const FRUSTUM_FLOATS = 24;
 
 /**
  * floats per packed cull volume: a leading header `vec4` (the tag in `.x`) + the 6 frustum planes. Each
- * slot of `Render.cullVolumes` is one of these; the producer pack indexes a slot at `slot *
+ * slot of `RenderContext.cullVolumes` is one of these; the producer pack indexes a slot at `slot *
  * CULL_VOLUME_FLOATS` and tests the planes after the header vec4. Every view culls by frustum: cameras,
  * the sun, and each point/spot shadow combo (its own frustum-culled depth view).
  */

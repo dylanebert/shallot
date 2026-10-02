@@ -2,25 +2,20 @@ import { registration } from "../../engine";
 // Lines — the shallot debug-line producer. One shared segment buffer, two feeders: an immediate API
 // (`drawLine` / `drawWireBox` / `drawArrow`, appended and cleared each frame — the scale path) and the retained
 // `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
-// Everything draws as one instanced 6-vertex quad per segment, rendered as a sear `"alpha"` surface
+// Everything draws as one instanced 6-vertex quad per segment, rendered as a standard `"alpha"` surface
 // inside the color pass — translucent, depth-tested, depth-write off, no overlay pass. Screen-space
-// constant-pixel width: the surface projects each segment's endpoints itself (sear's `screen` mode)
+// constant-pixel width: the surface projects each segment's endpoints itself (the surface's `screen` mode)
 // and writes its own clip position, expanding the quad by a pixel half-width read from `view.resolution`.
 // Bevy's gizmo model; arrows are folded in (a shaft segment + segment-fletched head), no separate
 // primitive. The segment staging + upload + immediate API live in `segments.ts`, the surface in
 // `surface.ts`.
 
 import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
-import { BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
+import { BeginFrameSystem, PrepassSystem, RenderingPlugin } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
 import { composeGlobalTransform, f32, GlobalTransform, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
-import {
-    Draws,
-    RenderPrepassesSystem,
-    registerSurface,
-    StandardRenderingPlugin,
-} from "../../standard/rendering";
+import { Draws, registerSurface, StandardRenderingPlugin } from "../../standard/rendering";
 import {
     disposeSegments,
     flushSegments,
@@ -81,7 +76,7 @@ export const Arrow = {
     size: f32,
 };
 
-// the canonical quad: posU.xyz = (t, edge, 0); normalV unused. sear pulls these as localPos, the
+// the canonical quad: posU.xyz = (t, edge, 0); normalV unused. Standard pulls these as localPos, the
 // chunk expands. 4 corners, 6 indices (two triangles)
 // prettier-ignore
 const QUAD_VERTS = new Float32Array([
@@ -123,13 +118,13 @@ function expandRetained(world: World): void {
     }
 }
 
-// runs after the immediate appends (simulation systems) and before sear reads the segment buffer
-// (RenderPrepassesSystem resolves the draw's bind group): expands retained components, then uploads + clears
+// runs after the immediate appends (simulation systems) and before standard reads the segment buffer
+// (PrepassSystem consumes the resolved draw's bind group): expands retained components, then uploads + clears
 const LinesSystem: System = {
     name: "lines",
     group: "draw",
     after: [BeginFrameSystem],
-    before: [RenderPrepassesSystem],
+    before: [PrepassSystem],
     setup(world: World) {
         world.resource(Draws).register({
             name: "lines",
@@ -152,7 +147,7 @@ const LinesSystem: System = {
 /**
  * the shallot debug-line producer: an immediate {@link drawLine} / {@link drawWireBox} / {@link drawArrow} API plus
  * the retained {@link Line} / {@link Arrow} components, both feeding one instanced-quad draw rendered
- * as a sear `"alpha"` surface (screen-space constant-pixel width, no overlay pass). Depends on
+ * as a standard `"alpha"` surface (screen-space constant-pixel width, no overlay pass). Depends on
  * {@link RenderingPlugin}; a StandardRenderer camera renders it
  */
 export const LinesPlugin: Plugin = {

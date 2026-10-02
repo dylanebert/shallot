@@ -1,5 +1,12 @@
 import type { Plugin } from "../../engine";
-import { Camera, CorePipelinePlugin, Render, RenderPhases, SAMPLE_COUNT, type View } from "./index";
+import {
+    Camera,
+    CorePipelinePlugin,
+    RenderContext,
+    RenderPhases,
+    SAMPLE_COUNT,
+    type View,
+} from "./index";
 
 export const pointsState = {
     create: () => ({
@@ -40,7 +47,7 @@ export const PointsPlugin: Plugin = {
         cached.descriptor.entries = [{ binding: 0, resource: cached.binding }];
         world.resource(RenderPhases).push({
             opaque(world, eid, view, pass) {
-                const render = world.resource(Render);
+                const render = world.resource(RenderContext);
                 const samples = world.storage(Camera).antialias.get(eid) ? SAMPLE_COUNT : 1;
                 const format = view.framebufferFormat ?? render.format;
                 let record = cached.views.get(view);

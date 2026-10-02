@@ -5,7 +5,7 @@ import { SKY_AT } from "./shader";
 
 /**
  * pack a `Sky` singleton entity into its {@link SkyGpu} uniform. Hex colors decode to linear rgb. The sun
- * *direction* is not packed; the shader reads it from sear's `lighting` uniform.
+ * *direction* is not packed; the shader reads it from standard's `lighting` uniform.
  */
 export function packSky(world: World, eid: number, out: Float32Array): void {
     out.fill(0);

@@ -1,32 +1,17 @@
 import type { World } from "../../engine";
 
 /**
- * device-level render state owned by `RenderingPlugin`. `encoder` is the frame's
- * raw `GPUCommandEncoder`, opened by `BeginFrameSystem`: every pass in the
- * frame is a raw pass on it, replaying render bundles recorded at transitions
- * and dispatching compute over unwrapped pipelines and bind groups, so no
- * per-draw wrapper state runs in a steady frame. It is transient per-frame
- * state. `viewBuffers` is one static
- * `ViewUniforms`-struct uniform buffer per shading slot (`MAX_VIEWS` of them — the
- * per-slot-buffer design, replacing the old single dynamic-offset UBO: a
- * depth-only slot's shadow-atlas passes never read `view`, so only the shading
- * prefix needs a real buffer). `viewStaging` stays the full per-slot pack
- * (shading + depth-only), unchanged — the writer sources each shading slot's
- * 208 B from the same subrange it always did. `cullVolumes` packs one per-slot cull
- * volume per active view (a tagged descriptor carrying a frustum's six clip-space planes;
- * published to `world.gpu.buffers` as `"cullVolumes"`); a GPU cull pass tests instance bounds
- * for `cullVolumes[slot]`.
- * `viewCount` is how many slots `BeginFrameSystem` populated this frame: the
- * view dimension a producer's cull dispatches over. `shadeCount` is the shading
- * prefix of those slots (presenting cameras, the views that carry clustered-light
- * world); depth-only views (shadow light cameras) fill `[shadeCount, viewCount)`,
- * so the cluster + light-cull passes dispatch over `shadeCount` alone.
- * Renderer-agnostic: knows
- * nothing about how draws are issued. Lives as a leaf (no intra-module imports)
- * so the frame loop and the view binding both depend on it inward
+ * World-owned GPU context shared by renderers. BeginFrameSystem opens `encoder`;
+ * every frame pass records on it before the terminal submission.
+ * `viewBuffers` holds one 208-byte ViewUniforms buffer per presenting slot, bounded
+ * by MAX_VIEWS. Depth-only slots have staging and cull volumes but no view buffer.
+ * `cullVolumes`, published under that name in world.gpu.buffers, contains one
+ * tagged six-plane frustum per active slot for producers to test their bounds.
+ * `viewCount` is the populated slot count; `shadeCount` is its presenting prefix.
+ * Depth-only views occupy [shadeCount, viewCount). No draw or light layout is assumed.
  * @expand
  */
-export interface Render {
+export interface RenderContext {
     format: GPUTextureFormat;
     encoder: GPUCommandEncoder | null;
     viewBuffers: GPUBuffer[];
@@ -39,7 +24,7 @@ export interface Render {
 
 export const renderKey = { create: createRender };
 
-function createRender(): Render {
+function createRender(): RenderContext {
     return {
         format: "" as GPUTextureFormat,
         encoder: null,
@@ -57,7 +42,7 @@ export function initializeRenderState(world: World): void {
     world.resource(renderKey);
 }
 
-/** World-owned rendering state, resolved with `world.resource(Render)`. */
-export const Render: import("../../engine").Resource<Render> = {
+/** World-owned rendering state, resolved with `world.resource(RenderContext)`. */
+export const RenderContext: import("../../engine").Resource<RenderContext> = {
     create: (world) => world.resource(renderKey),
 };

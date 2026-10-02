@@ -8,7 +8,7 @@ import type {
 import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
-import { BeginFrameSystem, NotShadowCaster, Render } from "../../core/rendering";
+import { BeginFrameSystem, NotShadowCaster, RenderContext } from "../../core/rendering";
 import type { Registry, System, World } from "../../engine";
 import { globalTransformTable } from "../../engine";
 import { precompile } from "../../engine/runtime";
@@ -52,7 +52,7 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
 // Culling lives here, in the producer's per-view compaction, shadow slots
 // included, because a consumer that culled would already have paid for every
 // instance it never draws.
-// Per-world GPU pack state is created by PartPlugin.initialize below.
+// Per-world GPU pack state is created by MeshRenderPlugin.initialize below.
 
 /**
  * GPU-resident MeshInstance draw publication. `drawArgs` holds `DrawIndexedIndirect` entries
@@ -195,7 +195,7 @@ export const PartSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(world) {
-        const _render = world.resource(Render);
+        const _render = world.resource(RenderContext);
         const _partGpu = world.resource(partGpuKey);
 
         if (!_render.encoder || !_partGpu.countPipe || !_partGpu.scanPipe || !_partGpu.scatterPipe)
@@ -412,7 +412,7 @@ function syncBuffers(world: World): void {
 
     if (_partGpu.surfaceCount === 0) return;
     const meshCount = world.resource(Meshes).size;
-    const viewDim = Math.max(1, world.resource(Render).viewCount);
+    const viewDim = Math.max(1, world.resource(RenderContext).viewCount);
     const rowCapacity = partTable(world).capacity;
     const growMesh = meshCount > _partGpu.meshCount;
     const growView = viewDim > _partGpu.viewDim;

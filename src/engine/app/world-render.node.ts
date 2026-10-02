@@ -3,7 +3,11 @@ import * as d from "typegpu/data";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import { RenderingPlugin } from "../../core/rendering";
-import { MeshInstanceInput, PartPlugin, StandardRenderingPlugin } from "../../standard/rendering";
+import {
+    MeshInstanceInput,
+    MeshRenderPlugin,
+    StandardRenderingPlugin,
+} from "../../standard/rendering";
 import { Transform } from "../index";
 import { probeBuffer } from "../runtime";
 import { createApp } from "./index";
@@ -31,7 +35,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
 test("MeshInstance and StandardRenderer warm and compact a component-bound dense instance", async () => {
     const app = await createApp({
         defaults: false,
-        plugins: [RenderingPlugin, PartPlugin, StandardRenderingPlugin],
+        plugins: [RenderingPlugin, MeshRenderPlugin, StandardRenderingPlugin],
     });
     const { world } = app;
     try {

@@ -10,7 +10,7 @@ import { registration } from "../../engine";
 // Three passes per camera, single-sample at framebuffer resolution — two render, then one compute:
 //   1. mask — draw only the `Outline` entities (a scoped instanced draw, grouped by mesh) into a seed
 //      texture (each covered pixel seeds its own coordinate) + an attribute texture (per-entity color +
-//      width). Always-on-top by default; `Outline.occlude` depth-tests against sear's `view.depth` lane
+//      width). Always-on-top by default; `Outline.occlude` depth-tests against core's `view.depth` lane
 //      so an occluded object's outline hides (needs `DepthPrepass` on the camera).
 //   2. JFA — ping-pong fullscreen passes (`jfaSteps(maxWidth)` of them) that flood the nearest seed
 //      coordinate outward, producing a distance field within `width` pixels of every silhouette.
@@ -18,12 +18,12 @@ import { registration } from "../../engine";
 //      resolved scene (format-agnostic — the offscreen, or the fog scratch), the JFA distance field, and
 //      the seed's color/width, blends the band over the scene in linear, and writes the rgba16float scratch.
 //
-// Runs in the post-color seam, ordered `after: [RenderMeshColorSystem, OverlaySystem]` (an overlay — on top of any
+// Runs in the post-color seam, ordered `after: [MainPassSystem, OverlaySystem]` (an overlay — on top of any
 // scene-transform effect like fog) `before: [TonemappingSystem]`. The
 // composite goes through `sceneTransform` (a compute pass) rather than a render pass into
 // `view.framebuffer`, so it never assumes the framebuffer's format/usage — a fog scratch is rgba16float
 // storage, not a render attachment — which is what let the two effects collide. Both anchor refs drop
-// harmlessly when their plugin isn't registered. Targets the standard rendering path (reads sear's `DepthPrepass` lane).
+// harmlessly when their plugin isn't registered. Targets the standard rendering path (reads core's `DepthPrepass` lane).
 
 import type {
     TgpuBindGroup,
@@ -37,9 +37,10 @@ import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
 import {
     Camera,
     DEPTH_FORMAT,
+    MainPassSystem,
     OverlaySystem,
     PresentationSystem,
-    Render,
+    RenderContext,
     RenderingPlugin,
     sceneTransform,
     TonemappingSystem,
@@ -49,7 +50,7 @@ import {
 import type { Plugin, System, World } from "../../engine";
 import { f32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { PartPlugin, RenderMeshColorSystem } from "../../standard/rendering";
+import { MeshRenderPlugin } from "../../standard/rendering";
 import {
     compositeKernel,
     compositeLayout,
@@ -84,7 +85,7 @@ export const Outline = {
     color: vec4,
     /** band thickness in pixels, clamped to 64 */
     width: f32,
-    /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs sear's `DepthPrepass` on the camera) */
+    /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs core's `DepthPrepass` on the camera) */
     occlude: f32,
 };
 
@@ -111,7 +112,7 @@ type StepBuffer = TgpuBuffer<typeof d.f32> & UniformFlag;
 type MaskTargets = { seed: d.Vec4u; attr: d.Vec4f };
 
 // per-camera screen-space targets: two ping-pong seed textures + the static attr texture, sized to the
-// view and recreated on resize (sear's _laneTargets pattern). Keyed by camera eid so multi-view never
+// view and recreated on resize (standard's _laneTargets pattern). Keyed by camera eid so multi-view never
 // shares one set
 interface Targets {
     seedA: GPUTexture;
@@ -270,7 +271,7 @@ function renderOutline(
     steps: number[],
     occlude: boolean,
 ): void {
-    const _render = world.resource(Render);
+    const _render = world.resource(RenderContext);
     const _outlineState = world.resource(outlineStateKey);
 
     const encoder = _render.encoder;
@@ -373,16 +374,16 @@ function renderOutline(
 const OutlineSystem: System = {
     name: "outline",
     group: "draw",
-    // an overlay: after the scene color (RenderMeshColorSystem) and after any scene-transform effect (the OverlaySystem
+    // an overlay: after the scene color (MainPassSystem) and after any scene-transform effect (the OverlaySystem
     // anchor, which fog runs before), so the band composites on top of the haze; before tonemapping presents it.
     // Both anchor refs drop harmlessly when their plugin isn't registered
-    after: [RenderMeshColorSystem, OverlaySystem],
+    after: [MainPassSystem, OverlaySystem],
     before: [TonemappingSystem, PresentationSystem],
     update(world: World) {
         const _outlineState = world.resource(outlineStateKey);
         const _meshes = world.resource(Meshes);
 
-        if (!world.resource(Render).encoder || !_outlineState.gpu.maskPlain) return;
+        if (!world.resource(RenderContext).encoder || !_outlineState.gpu.maskPlain) return;
         const eids = [...world.query([Outline, MeshInstance])];
         if (eids.length === 0) return; // bare path — no passes
         const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
@@ -438,7 +439,7 @@ const OutlineSystem: System = {
         for (const camEid of world.query([Camera])) {
             const view = world.resource(Views).get(camEid);
             if (!view?.framebuffer) continue;
-            // occlusion needs sear's DepthPrepass lane; without it, degrade to always-on-top
+            // occlusion needs standard's DepthPrepass lane; without it, degrade to always-on-top
             renderOutline(
                 world,
                 camEid,
@@ -578,7 +579,7 @@ function forceCompile(world: World): void {
         const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
         const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
         const group = world.gpu.root.createBindGroup(maskLayoutPlain, {
-            view: world.resource(Render).viewBuffers[0],
+            view: world.resource(RenderContext).viewBuffers[0],
             position,
             indices,
             globalTransforms: globalTransformsBuffer,
@@ -616,7 +617,7 @@ function forceCompile(world: World): void {
         const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
         const depth = stand(DEPTH_FORMAT, 0);
         const group = world.gpu.root.createBindGroup(maskLayoutOcclude, {
-            view: world.resource(Render).viewBuffers[0],
+            view: world.resource(RenderContext).viewBuffers[0],
             position,
             indices,
             globalTransforms: globalTransformsBuffer,
@@ -689,7 +690,7 @@ export const OutlinePlugin: Plugin = {
         }),
     ],
     systems: [OutlineSystem],
-    dependencies: [RenderingPlugin, PartPlugin],
+    dependencies: [RenderingPlugin, MeshRenderPlugin],
 
     initialize(world) {
         initializeOutlineState(world);

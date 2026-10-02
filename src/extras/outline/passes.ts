@@ -61,7 +61,7 @@ export const maskLayoutPlain = tgpu.bindGroupLayout({
 });
 
 /** the occlusion-aware mask layout: {@link maskLayoutPlain}'s entries (duplicated, not spread — the
- *  visibility-array literal types don't survive a factory-returned intermediate) plus sear's `view.depth`
+ *  visibility-array literal types don't survive a factory-returned intermediate) plus standard's `view.depth`
  *  lane, so the fs can discard a fragment behind the visible scene. A second layout, not a 1×1 dummy depth
  *  on the plain one: an out-of-bounds `textureLoad` returns 0 = far under reverse-Z, which would silently
  *  read every fragment as un-occluded. @internal */

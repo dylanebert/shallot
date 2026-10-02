@@ -22,7 +22,7 @@ export const CameraMode = {
  * camera component. Placement comes from the engine's fixed-tick GlobalTransform (looks down its local -Z). A lone camera
  * auto-binds to the first `<canvas>` in the document, so the single-view case needs no wiring;
  * multi-view (or a dynamically-created canvas) binds each camera explicitly via `attachCanvas`
- * from `render`. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); sear unpacks to linear
+ * from the view. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); core unpacks to linear
  * when recording the camera's render pass
  *
  * @example
@@ -77,7 +77,7 @@ const _view = new Float32Array(16);
 /**
  * compute viewProj for a camera entity. `aspect` is the bound surface's width / height.
  * `viewOut` optionally receives the world→view matrix alone (the light cull
- * transforms world-space lights into cluster space with it)
+ * transforms world-space lights into view space with it)
  */
 export function computeViewProj(
     world: World,

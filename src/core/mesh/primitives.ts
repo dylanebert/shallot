@@ -48,7 +48,7 @@ function pack(verts: Vert[]): Float32Array {
 /**
  * unit cube (half-extent 0.5), flat-shaded: four vertices per face for
  * per-face normals, each face's uv running (0,0)→(1,0)→(1,1)→(0,1) over its
- * BL→BR→TR→TL corners. Winding is CCW outward, matching sear's back-face cull
+ * BL→BR→TR→TL corners. Winding is CCW outward, matching standard's back-face cull
  */
 export function cube(): { vertices: Float32Array; indices: Uint32Array } {
     const uv = [
@@ -140,7 +140,7 @@ export function cube(): { vertices: Float32Array; indices: Uint32Array } {
 /**
  * UV sphere of radius 0.5, smooth-shaded (vertex normal = surface direction).
  * `segments` divisions around the axis, `rings` from pole to pole. Winding is
- * CCW outward, matching sear's back-face cull
+ * CCW outward, matching standard's back-face cull
  */
 export function sphere(
     segments = 32,

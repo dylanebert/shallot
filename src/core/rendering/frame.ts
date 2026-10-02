@@ -28,7 +28,7 @@ const TIME_F32 = d.memoryLayoutOf(FrameGpu, (s) => s.time).offset / 4;
 const DT_F32 = d.memoryLayoutOf(FrameGpu, (s) => s.dt).offset / 4;
 const FRAME_U32 = d.memoryLayoutOf(FrameGpu, (s) => s.frame).offset / 4;
 
-/** the per-frame `Frame` UBO's WGSL struct text, spliced by sear for every surface and by any
+/** the per-frame `Frame` UBO's WGSL struct text, spliced by standard for every surface and by any
  * relocatable consumer that binds `frame`; emitted from {@link FrameGpu} under strict naming so the
  * struct text and the schema can never drift. */
 export const frameWgsl = chunk("frameWgsl", [FrameGpu], spliceNs);

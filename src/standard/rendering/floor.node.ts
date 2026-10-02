@@ -14,7 +14,7 @@ import {
     EffectPasses,
     PickingPrepass,
     PointLight,
-    Render,
+    RenderContext,
     SpotLight,
     Views,
 } from "../../core/rendering";
@@ -166,12 +166,12 @@ test("the standard composition and points render every variant on default eight-
     try {
         app = await createApp({ device, plugins: [proof] });
         const { world } = app;
-        expect(world.resource(Render).cullVolumes.size).toBe(7168);
+        expect(world.resource(RenderContext).cullVolumes.size).toBe(7168);
         expect(world.resource(LightCull).lights!.size).toBe(
             LIGHT_INDICES_OFFSET + (LIGHT_POOL + 2) * 4,
         );
         console.log("floor storage bytes", {
-            cullVolumes: world.resource(Render).cullVolumes.size,
+            cullVolumes: world.resource(RenderContext).cullVolumes.size,
             lightList: LIGHT_GRID_OFFSET,
             grid: LIGHT_INDICES_OFFSET - LIGHT_GRID_OFFSET,
             pool: (LIGHT_POOL + 2) * 4,
@@ -329,7 +329,7 @@ test("the standard composition and points render every variant on default eight-
                 });
                 groups.set(input, group);
             }
-            const pass = world.resource(Render).encoder!.beginRenderPass({
+            const pass = world.resource(RenderContext).encoder!.beginRenderPass({
                 colorAttachments: [{ view: output, loadOp: "clear", storeOp: "store" }],
             });
             pass.setPipeline(pipeline);

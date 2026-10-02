@@ -6,13 +6,13 @@ import { resizeViewport, Viewports } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { chunk, spliceNs } from "../../engine/utils";
 import { Camera, Resolution } from "./camera";
-import { Render } from "./render";
+import { RenderContext } from "./render";
 
 /**
  * the per-camera `ViewUniforms` UBO schema — the single source of truth for both sides of the layout
  * (`d.sizeOf` / `d.memoryLayoutOf` size {@link VIEW_BYTES} and every CPU staging write, `view.test.ts`
  * red-proven against a field reorder, the `Step` precedent). One instance per shading slot lives in its
- * own static uniform buffer ({@link Render.viewBuffers}); a raw-WGSL splice site (sear, the backdrop)
+ * own static uniform buffer ({@link RenderContext.viewBuffers}); a raw-WGSL splice site (standard's background)
  * still needs the struct text, so {@link viewWgsl} resolves it lazily under strict naming.
  */
 export const ViewUniforms = d
@@ -41,7 +41,7 @@ export const MAX_VIEWS = 8;
 
 /** total view slots per frame: shading cameras + depth-only views (the sun's light camera + the
  * point-shadow member-compaction "union" camera). Sizes only the cheap per-slot state
- * (`Render.viewStaging`, `Render.cullVolumes` — depth-only slots allocate no {@link Render.viewBuffers}
+ * (`RenderContext.viewStaging`, `RenderContext.cullVolumes` — depth-only slots allocate no {@link RenderContext.viewBuffers}
  * entry, only the shading prefix does), so it's generous */
 export const MAX_SLOTS = 64;
 
@@ -57,12 +57,12 @@ export const VIEW_UNIFORM_SIZE = VIEW_STRIDE * MAX_SLOTS;
  * the shadow light camera packs through the same path, so a billboard in the shadow pass faces the
  * light (Godot-consistent). Then `invViewProj` at byte 144 (the inverse of `viewProj`). A screen-space
  * pass (fog / volumetrics) reconstructs a fragment's world position from its depth: `ndc(uv, depth)`
- * → `invViewProj` → world. Each shading slot binds its own whole {@link Render.viewBuffers} buffer of
+ * → `invViewProj` → world. Each shading slot binds its own whole {@link RenderContext.viewBuffers} buffer of
  * exactly this size — no dynamic offset, no `minBindingSize` needed.
  */
 export const VIEW_BYTES = d.sizeOf(ViewUniforms);
 
-/** the per-camera `ViewUniforms` UBO's WGSL struct text, spliced by sear + the backdrop (still raw-layout this
+/** the per-camera `ViewUniforms` UBO's WGSL struct text, spliced by standard's background (raw-layout this
  * stage) and any other relocatable screen-space consumer that reads `view` by name; emitted under
  * strict naming from {@link ViewUniforms} so the struct text and the schema can never drift. */
 export const viewWgsl = chunk("viewWgsl", [ViewUniforms], spliceNs);
@@ -91,10 +91,10 @@ export const linearToSrgbWgsl = chunk("linearToSrgbWgsl", [linearToSrgb3], splic
 /**
  * a camera's per-frame view state. `framebuffer` + `present` + `slot` are set by `BeginFrameSystem`
  * each frame and read by the renderers. `slot` is the camera's index into the packed ViewUniforms UBO; use it
- * to index {@link Render.viewBuffers} (`Render.viewBuffers[slot]`) when binding. `framebuffer` is the
+ * to index {@link RenderContext.viewBuffers} (`RenderContext.viewBuffers[slot]`) when binding. `framebuffer` is the
  * per-camera **offscreen**
- * scene-color target the renderer draws into (sear resolves its MSAA color into it; the `Custom` renderer
- * draws straight into it single-sample): sampleable (`TEXTURE_BINDING`), in `Render.format`, sized to
+ * scene-color target the renderer draws into (core resolves its MSAA color into it; a custom renderer
+ * draws straight into it single-sample): sampleable (`TEXTURE_BINDING`), in `RenderContext.format`, sized to
  * the view; a composite `textureLoad`s it and writes the result into `present`. `present` is the swapchain
  * backbuffer, as a render attachment in the base canvas format (not sRGB). The final pass
  * writes it, encoding linear→sRGB once. The split from `framebuffer` exists so postfx
@@ -123,7 +123,7 @@ export interface View {
     presented?: boolean;
     // the render backing-store size (device px). Derived each frame by `sizeView` from the display size
     // below + the camera's `Resolution` pin (or the world's pixelRatio). Every consumer — offscreen,
-    // presentation and the cluster grid read these, so a low-res pin flows through by sizing them alone
+    // Consumers read this view size, so a low-res pin flows through by sizing it here.
     width: number;
     height: number;
     // the canvas CSS display size (px), mirrored from the World-scoped viewport row for compatibility.
@@ -216,7 +216,7 @@ const _canvasOwners: WeakMap<HTMLCanvasElement, World> = new WeakMap();
 // read `import.meta.env.DEV` typeof-safely: the engine is bundled by arbitrary consumer bundlers, and a
 // bare `import.meta.env.DEV` throws where `import.meta.env` is undefined (non-vite). Optional-chained,
 // wrapped so an exotic `import.meta` shape can't take down attachCanvas. Exported as a test seam (pins the
-// false-not-throw contract off a vite build) — not on the `render` barrel.
+// false-not-throw contract off a vite build) — not on the rendering barrel.
 export function devEnabled(): boolean {
     try {
         const env = import.meta.env as Record<string, unknown> | undefined;
@@ -230,7 +230,7 @@ export function devEnabled(): boolean {
  * dev-only rebuild guard, canvas-keyed: warn when `canvas` is still held by a live, undisposed *different*
  * World — an app rebuilt without disposing the prior one (the leak class `World.onDispose` closes), then
  * record the new owner. Two apps on distinct canvases stay silent; a proper dispose flips the prior owner's
- * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the `render` barrel.
+ * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the rendering barrel.
  */
 export function trackCanvasOwner(canvas: HTMLCanvasElement, world: World): void {
     const prior = _canvasOwners.get(canvas);
@@ -250,7 +250,8 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
     const _views = world.resource(Views);
 
     if (!world.gpu.device) throw new Error("attachCanvas: RenderingPlugin not initialized");
-    if (!world.resource(Render).format) throw new Error("attachCanvas: Render.format not set");
+    if (!world.resource(RenderContext).format)
+        throw new Error("attachCanvas: RenderContext.format not set");
     if (_views.has(eid)) throw new Error(`attachCanvas: eid ${eid} already bound`);
 
     const context = canvas.getContext("webgpu") as unknown as GPUCanvasContext | null;
@@ -402,7 +403,7 @@ export function attachTexture(
     size: { width: number; height: number },
 ): void {
     const device = world.gpu.device;
-    if (!device || !world.resource(Render).format)
+    if (!device || !world.resource(RenderContext).format)
         throw new Error("attachTexture: RenderingPlugin not initialized");
     if (!world.has(eid, Camera)) throw new Error("attachTexture: eid is not a camera");
     for (const value of [size.width, size.height]) {
@@ -483,11 +484,11 @@ function pruneView(this: World, view: View, eid: number): void {
 }
 
 // per-camera offscreen scene-color target — the `view.framebuffer` a renderer draws (or resolves)
-// into and tonemapping presents. `Render.format` is rg11b10ufloat (HDR): a renderer writes
+// into and tonemapping presents. `RenderContext.format` is rg11b10ufloat (HDR): a renderer writes
 // linear and tonemapping reads it linear, keeping radiance >1 alive for the operator. Sized to
 // the view, recreated on resize; one per camera so multi-view never last-camera-wins a single shared texture
 
-/** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: sear's
+/** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: the main pass's
  * MSAA resolve and the `Custom` single-sample draw both target it; {@link BeginFrameSystem} sets it on
  * `view.framebuffer` each frame */
 export function offscreen(world: World, eid: number, w: number, h: number): GPUTextureView {
@@ -499,7 +500,7 @@ export function offscreen(world: World, eid: number, w: number, h: number): GPUT
     const texture = world.gpu.device.createTexture({
         label: `shallot-offscreen-${eid}`,
         size: { width: w, height: h },
-        format: world.resource(Render).format,
+        format: world.resource(RenderContext).format,
         // Keep the actual scene target readable by `probeTexture` without inserting a render pass.
         usage:
             GPUTextureUsage.RENDER_ATTACHMENT |
@@ -556,7 +557,7 @@ function scratchTexture(world: World, eid: number, slot: "a" | "b", w: number, h
  * `read` (the current `view.framebuffer`: the renderer's resolved scene, or the prior effect's output) and
  * `write` (a lazily-allocated scratch, the *other* half of the ping-pong pair from `read`), and repoints
  * `view.framebuffer` at `write` so the next effect, or tonemapping, reads this
- * one's output. Call from a compute system in the post-color seam (`after: [RenderMeshColorSystem]`, scene effects
+ * one's output. Call from a compute system in the post-color seam (`after: [MainPassSystem]`, scene effects
  * `before: [OverlaySystem]`, overlays `after: [OverlaySystem]`): bind `read` as input, `write` as the
  * storage output, dispatch once. `write` is always the pair slot `read` isn't, so two effects chain
  * (fog reads the offscreen → writes `a`; outline reads `a` → writes `b`) and `read` is never `write`. The

@@ -8,15 +8,10 @@ export { MeshInstance } from "./instance";
 import { clearMeshes, flushMeshes, initializeMeshState } from "./mesh";
 import { initMeshes } from "./primitives";
 
-export type { Mesh, MeshBinding, MeshIndex, MeshStorage, QuantStreams } from "./mesh";
+export type { Mesh, MeshBinding, MeshIndex } from "./mesh";
 export {
     Meshes,
-    meshBounds,
-    packMeshes,
-    quantizeMeshes,
     registerMesh,
-    VERTEX_FLOATS,
-    VERTEX_STRIDE,
 } from "./mesh";
 
 /** Owns this world's mesh registry and GPU storage, including the unit cube, sphere and capsule.

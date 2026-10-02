@@ -2,7 +2,7 @@ import type { TgpuRenderPipeline } from "typegpu";
 import type { MeshIndex } from "../../core/mesh";
 import type { SurfaceGroupEntry } from "./pipelines";
 
-// The one form every sear pass records a draw through. It lives in its own module because both callers —
+// The one form every standard pass records a draw through. It lives in its own module because both callers —
 // the color and prepass passes in ./forward and the shadow-atlas passes in ./atlas — would otherwise need a
 // value import of the other's module, and ./pipelines already imports ./atlas for its layouts. The imports
 // here are type-only, so this module pulls in nothing at runtime.

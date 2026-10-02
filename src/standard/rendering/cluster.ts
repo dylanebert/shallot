@@ -8,7 +8,7 @@ import {
     computeViewProj,
     MAX_VIEWS,
     PointLight,
-    Render,
+    RenderContext,
     SpotLight,
     Views,
     VolumetricLight,
@@ -136,7 +136,7 @@ export function initializeClusterState(world: World): void {
 
 // The froxel cluster substrate: the grid (per-view view-space cluster AABBs)
 // and the per-frame light passes that bin into it (compact + cull, below) —
-// what sear's clustered loop reads and what volumetric fog / decals / probes
+// what standard's clustered loop reads and what volumetric fog / decals / probes
 // read later. 16×9×24 with logarithmic Z-slicing (DOOM 2016 / Olsson 2012):
 // log slicing counters NDC depth non-linearity, where linear slicing bands
 // everything near the camera into one slice. The view-space AABB per cluster
@@ -215,7 +215,7 @@ export function sliceDepth(view: ClusterView, z: number): number {
  * the light cull binned into. Tile `(0, 0)` is NDC `(-1, -1)` — bottom-left — so the y tile flips from
  * the top-down screen y. StandardRenderer's color FS passes fragCoord-derived args; the fog march passes its pixel
  * plus the per-step view depth (the tile xy is fixed along the ray, the z slice moves per step).
- * Relocatable, spliced by both (`lightEvalWgsl`, `sear`).
+ * Relocatable, spliced by both (`lightEvalWgsl`, `standard`).
  *
  * @example let cell = clusterCell(fx, fy, viewZ, near, far, slot);
  */
@@ -415,7 +415,7 @@ export const UpdateLightClustersSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(world: World) {
-        const _render = world.resource(Render);
+        const _render = world.resource(RenderContext);
         const _clusterGpu = world.resource(clusterGpuKey);
         const _clusters = world.resource(Clusters);
 
@@ -684,7 +684,7 @@ const cullKernel = tgpu.computeFn({
     "use gpu";
     const cluster = input.gid.x;
     // the dispatch's y covers the shading slots alone (depth-only shadow views sit above
-    // Render.shadeCount and never bin — binning them would overflow the shared index pool)
+    // RenderContext.shadeCount and never bin — binning them would overflow the shared index pool)
     const slot = input.gid.y;
     const live = cluster < CLUSTER_COUNT;
     if (input.lid.x === 0)
@@ -869,7 +869,7 @@ export const CullLightsSystem: System = {
     group: "draw",
     after: [UpdateLightClustersSystem],
     update(world) {
-        const _render = world.resource(Render);
+        const _render = world.resource(RenderContext);
         const _clusterGpu = world.resource(clusterGpuKey);
         const _lightCull = world.resource(LightCull);
 

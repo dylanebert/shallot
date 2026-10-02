@@ -14,7 +14,7 @@ import {
     Frame,
     PICKING_ID_FORMAT,
     PICKING_ID_NONE,
-    Render,
+    RenderContext,
     SAMPLE_COUNT,
 } from "../../core/rendering";
 import type { World } from "../../engine";
@@ -104,7 +104,7 @@ export function resetPipelineCaches(world: World): void {
 // opaque color / transparent pipelines, the prepass depth + tag pipelines, and the point/cascade
 // shadow-atlas pipelines. A surface in `Surfaces` DRAWS through these in every pass — `record()`
 // consults the typed registry first (the built-in flip), and `forward.ts`/`atlas.ts` issue the
-// draws via `.with(pass)` on sear's own render passes. `screen` surfaces project through their own `vs`
+// draws via `.with(pass)` on standard's own render passes. `screen` surfaces project through their own `vs`
 // chunk's `patch.clip` and draw un-culled.
 //
 // Cached by name and spec identity. `preparePipelines` compiles every
@@ -240,7 +240,7 @@ export function engineGroup(
     const group = world.gpu.root.unwrap(
         world.gpu.root.createBindGroup(engineLayout, {
             frame: world.resource(Frame).buffer!,
-            view: world.resource(Render).viewBuffers[slot],
+            view: world.resource(RenderContext).viewBuffers[slot],
             lighting: world.resource(Lighting).buffer!,
             pointLights: _lightCull.lights!,
             meshQuant: quant,
@@ -259,7 +259,7 @@ export function engineGroup(
 export function bgQuant(world: World): GPUBuffer {
     const resources = pipelineState(world);
     resources.bgQuant ??= world.gpu.device.createBuffer({
-        label: "sear-bg-quant",
+        label: "standard-bg-quant",
         size: d.sizeOf(MeshQuant),
         usage: GPUBufferUsage.STORAGE,
     });
@@ -492,11 +492,11 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
 }
 
 /**
- * the typed color-pass fragment entry: fills the four `sear/engine.ts` shading-seam privateVars exactly
+ * the typed color-pass fragment entry: fills the four `standard/engine.ts` shading-seam privateVars exactly
  * as the raw scaffold does (`sunVisibility` via a real {@link sampleSunShadow} call —
  * matching the raw path's inline sample — `fragWorld`, `fragCoord`, `pointScale`), builds the surface's
  * `fsCtxSchema` context (`uv`/`localPos` cross for real from the vs), and returns the surface's own
- * `fs` chunk's result verbatim (sear's `col` return,
+ * `fs` chunk's result verbatim (standard's `col` return,
  * unwrapped — a typed `fs` already returns `vec4f`, no lane locals: the prepass tag/depth lanes are a
  * separate pipeline, still unported).
  */
@@ -855,7 +855,7 @@ function clipVaryingCopier(surface: AnySurface) {
     const keys = Object.keys(varyings);
     if (keys.length !== 1) {
         throw new Error(
-            `sear: typed surface "${surface.name}" declares ${keys.length} varyings — the typed clip copier carries exactly one custom varying`,
+            `standard: typed surface "${surface.name}" declares ${keys.length} varyings — the typed clip copier carries exactly one custom varying`,
         );
     }
     const varyingSchema = varyings[keys[0]];
@@ -947,12 +947,12 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     const vsFn = surface.vs;
     if (Object.keys(varyings).length === 0) {
         throw new Error(
-            `sear: typed surface "${surface.name}" reached the raw varying copier without a custom varying`,
+            `standard: typed surface "${surface.name}" reached the raw varying copier without a custom varying`,
         );
     }
     if (!vsFn) {
         throw new Error(
-            `sear: typed surface "${surface.name}" declares varyings with no vs — a varying can only be written by the surface's own vs chunk`,
+            `standard: typed surface "${surface.name}" declares varyings with no vs — a varying can only be written by the surface's own vs chunk`,
         );
     }
     const hasVs = !!vsFn;
@@ -1135,7 +1135,7 @@ function typedVaryingFs(surface: AnySurface) {
     const varyingKeys = Object.keys(varyings);
     if (varyingKeys.length < 1 || varyingKeys.length > MAX_VARYINGS) {
         throw new Error(
-            `sear: typed surface "${surface.name}" declares ${varyingKeys.length} varyings — the typed fs entry carries 1 to ${MAX_VARYINGS} (gpu.md rule 9's custom interpolator budget)`,
+            `standard: typed surface "${surface.name}" declares ${varyingKeys.length} varyings — the typed fs entry carries 1 to ${MAX_VARYINGS} (gpu.md rule 9's custom interpolator budget)`,
         );
     }
     const schemas = varyingKeys.map((k) => varyings[k]);
@@ -1284,7 +1284,7 @@ function typedVaryingTagFs(surface: AnySurface) {
     const keys = Object.keys(varyings);
     if (keys.length < 1 || keys.length > MAX_VARYINGS) {
         throw new Error(
-            `sear: typed surface "${surface.name}" declares ${keys.length} varyings — the typed tag entry carries 1 to ${MAX_VARYINGS} (gpu.md rule 9's custom interpolator budget)`,
+            `standard: typed surface "${surface.name}" declares ${keys.length} varyings — the typed tag entry carries 1 to ${MAX_VARYINGS} (gpu.md rule 9's custom interpolator budget)`,
         );
     }
     const schemas = keys.map((key) => varyings[key]);
@@ -1428,7 +1428,7 @@ export function compileSurface<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
 >(world: World, surface: Surface<B, V>, capacity: number): CompiledSurface {
-    const _render = world.resource(Render);
+    const _render = world.resource(RenderContext);
 
     const key = surface.name;
     const cached = pipelineState(world).compiledTyped.get(key);
@@ -1438,7 +1438,7 @@ export function compileSurface<
     // else — with no `vs` every vertex would collapse to the origin, silently drawing nothing
     if (resolved.screen && !resolved.vs) {
         throw new Error(
-            `sear: typed surface "${surface.name}" is a screen surface with no vs — only its own vs chunk can supply the clip position`,
+            `standard: typed surface "${surface.name}" is a screen surface with no vs — only its own vs chunk can supply the clip position`,
         );
     }
     const primitive = surfacePrimitive(resolved.screen);
@@ -1472,7 +1472,7 @@ export function compileSurface<
                 },
                 multisample: { count: SAMPLE_COUNT },
             })
-            .$name(`sear-typed-transparent-${args.name}`);
+            .$name(`standard-typed-transparent-${args.name}`);
         // `blend: "alpha"` casts nothing (a transparent pixel has no single owner, `compileSurface`'s own
         // rule) — the same reason its prepass map stays empty
         compiled = {
@@ -1500,7 +1500,7 @@ export function compileSurface<
                 },
                 multisample: { count: SAMPLE_COUNT },
             })
-            .$name(`sear-typed-${args.name}`);
+            .$name(`standard-typed-${args.name}`);
         compiled = {
             owner: surface as AnySurface,
             layout: surface.layout as SurfaceLayout<Record<string, Binding>>,
@@ -1529,7 +1529,7 @@ export function compileSurface<
  * `multisample.count` differs.
  */
 export function ensureSingle(world: World, t: CompiledSurface): void {
-    const _render = world.resource(Render);
+    const _render = world.resource(RenderContext);
 
     if (t.single) return;
     const { vertex, fragment, blend, primitive, name } = t.args;
@@ -1547,7 +1547,7 @@ export function ensureSingle(world: World, t: CompiledSurface): void {
                 },
                 multisample: { count: 1 },
             })
-            .$name(`sear-typed-transparent-${name}-1x`);
+            .$name(`standard-typed-transparent-${name}-1x`);
         t.single = { color: null, transparent };
         return;
     }
@@ -1564,7 +1564,7 @@ export function ensureSingle(world: World, t: CompiledSurface): void {
             },
             multisample: { count: 1 },
         })
-        .$name(`sear-typed-${name}-1x`);
+        .$name(`standard-typed-${name}-1x`);
     t.single = { color, transparent: null };
 }
 
@@ -1614,7 +1614,7 @@ function compileTypedPrepass(
             primitive,
             depthStencil,
         })
-        .$name(`sear-typed-prepass-${surface.name}`);
+        .$name(`standard-typed-prepass-${surface.name}`);
     prepass.set("", depthOnly);
     const tag = root
         .createRenderPipeline({
@@ -1636,7 +1636,7 @@ function compileTypedPrepass(
             primitive,
             depthStencil,
         })
-        .$name(`sear-typed-prepass-tag-${surface.name}`);
+        .$name(`standard-typed-prepass-tag-${surface.name}`);
     prepass.set("tag", tag);
     return prepass;
 }
@@ -1960,7 +1960,7 @@ function varyingShadowVs(
     const keys = Object.keys(varyings);
     if (keys.length !== 1 || !surface.vs) {
         throw new Error(
-            `sear: typed surface "${surface.name}" needs at most one authored varying for its clip shadow copier`,
+            `standard: typed surface "${surface.name}" needs at most one authored varying for its clip shadow copier`,
         );
     }
     const hasVs = !!surface.vs;
@@ -2201,7 +2201,7 @@ function compileTypedShadow(
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`sear-typed-point-${surface.name}`);
+        .$name(`standard-typed-point-${surface.name}`);
     const cascade = root
         .createRenderPipeline({
             vertex: clip
@@ -2234,7 +2234,7 @@ function compileTypedShadow(
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`sear-typed-cascade-${surface.name}`);
+        .$name(`standard-typed-cascade-${surface.name}`);
     return { point, cascade };
 }
 
@@ -2462,7 +2462,7 @@ export interface CompiledBackground {
  * or layout-bound groups from its previous owner.
  */
 export function compileBackground(world: World, bg: AnyBackground): CompiledBackground {
-    const _render = world.resource(Render);
+    const _render = world.resource(RenderContext);
 
     const cached = pipelineState(world).compiledTypedBg.get(bg.name);
     if (cached?.owner === bg && cached.layout === bg.layout) return cached;
@@ -2482,7 +2482,7 @@ export function compileBackground(world: World, bg: AnyBackground): CompiledBack
             depthStencil,
             multisample: { count: SAMPLE_COUNT },
         })
-        .$name(`sear-typed-bg-${bg.name}`);
+        .$name(`standard-typed-bg-${bg.name}`);
     const single = world.gpu.root
         .createRenderPipeline({
             vertex: typedBgVs,
@@ -2492,7 +2492,7 @@ export function compileBackground(world: World, bg: AnyBackground): CompiledBack
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`sear-typed-bg-${bg.name}-1x`);
+        .$name(`standard-typed-bg-${bg.name}-1x`);
     const compiled: CompiledBackground = {
         owner: bg,
         layout: bg.layout,

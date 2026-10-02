@@ -16,7 +16,7 @@ import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/
  * (the fog march) sizes its `lighting` binding to match. */
 export const LIGHTING_UNIFORM_SIZE = 48;
 
-/** the `Lighting` UBO's typegpu schema — the single source of truth for the layout; sear's own pipeline
+/** the `Lighting` UBO's typegpu schema — the single source of truth for the layout; standard's own pipeline
  * splices its emitted text ({@link lightingWgsl}) rather than a hand-written struct. */
 export const LightingGpu = d
     .struct({
@@ -26,7 +26,7 @@ export const LightingGpu = d
     })
     .$name("Lighting");
 
-/** the `Lighting` UBO's WGSL struct text, spliced by sear for every surface and by any relocatable
+/** the `Lighting` UBO's WGSL struct text, spliced by standard for every surface and by any relocatable
  * consumer that binds `lighting`; emitted from {@link LightingGpu} under strict naming so the struct
  * text and the schema can never drift. */
 export const lightingWgsl = chunk("lightingWgsl", [LightingGpu], spliceNs);
@@ -146,13 +146,13 @@ export function writeLighting(world: World): void {
     world.gpu.device.queue.writeBuffer(_lighting.buffer, 0, s as Float32Array<ArrayBuffer>);
 }
 
-/** the point-light list cap. The compacted list the cull pass bins is fixed-size so sear's binding
+/** the point-light list cap. The compacted list the cull pass bins is fixed-size so standard's binding
  * exists for every surface; overflow warns, never silently truncates. */
 export const MAX_POINT_LIGHTS = 256;
 
 /**
  * one compacted point light. `posRange` is xyz world position, w = 1/range²; `color` is linear rgb with
- * intensity baked in, `a` = the source entity id as f32 (the per-entity hook sear matches shadowed casters
+ * intensity baked in, `a` = the source entity id as f32 (the per-entity hook standard matches shadowed casters
  * on); `params` is x = source radius, y = the spot cone axis oct-packed via bitcast, z/w = the Frostbite
  * spot angular scale/offset (a non-spot writes `(radius, 0, 0, 1)` so the angular factor is 1)
  */
@@ -165,7 +165,7 @@ export const PointLightGpu = d.struct({
 /**
  * the compacted point-light list: a count header plus the fixed-cap light array, GPU-written by the light
  * compact pass (`cluster.ts`) from the PointLight/SpotLight table + GlobalTransform, and read by
- * sear's clustered loop and the fog march. There is no CPU light list.
+ * standard's clustered loop and the fog march. There is no CPU light list.
  */
 export const PointLights = d.struct({
     count: d.vec4u,
@@ -184,7 +184,7 @@ export const PointLightsRw = d.struct({
 });
 
 /**
- * the compacted point-light list's WGSL, spliced by sear's clustered loop and the fog march: the
+ * the compacted point-light list's WGSL, spliced by standard's clustered loop and the fog march: the
  * {@link PointLightGpu} + {@link PointLights} struct declarations, emitted under strict naming so a raw
  * splice site reads `lights.count.x` / `lights.lights[i].posRange` by those exact names.
  */
@@ -195,8 +195,8 @@ export const pointLightsWgsl = chunk("pointLightsWgsl", [PointLights], spliceNs)
  * window (`smooth = saturate(1 − (d²/r²)²)`, attenuation `smooth² / max(d², radiusSq)`),
  * exactly zero at and past the range, and flat at `1/radiusSq` inside the source sphere
  * (Karis representative point: `radiusSq = 0` would spike toward ∞ at the bulb). One
- * function, both sides: sear's clustered loop and the fog march splice it (`lightEvalWgsl`,
- * `sear`), the CPU oracles call it directly — there is no WGSL twin to drift from.
+ * function, both sides: standard's clustered loop and the fog march splice it (`lightEvalWgsl`,
+ * `standard`), the CPU oracles call it directly — there is no WGSL twin to drift from.
  *
  * @example const atten = distanceAttenuation(distSq, 1 / (range * range), radius * radius);
  */

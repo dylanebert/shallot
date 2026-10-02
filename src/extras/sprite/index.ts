@@ -16,12 +16,11 @@ import { registration } from "../../engine";
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
-import { BeginFrameSystem, imageArray, RenderingPlugin } from "../../core/rendering";
+import { BeginFrameSystem, imageArray, PrepassSystem, RenderingPlugin } from "../../core/rendering";
 import { globalTransformTable, type Plugin, Registry, type System, type World } from "../../engine";
 import {
     DrawIndexedIndirect,
     Draws,
-    RenderPrepassesSystem,
     registerSurface,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
@@ -72,7 +71,7 @@ export function registerImage(world: World, source: string | Blob, name?: string
     return _images.register({ name: key, source });
 }
 
-// the unit quad sear instances per sprite: posU.xyz = (corner.x, corner.y, 0); normal +Z so the
+// the unit quad standard instances per sprite: posU.xyz = (corner.x, corner.y, 0); normal +Z so the
 // world variant's worldNormal is meaningful
 // prettier-ignore
 const QUAD_VERTS = new Float32Array([
@@ -183,7 +182,7 @@ const SpriteSystem: System = {
     name: "sprite",
     group: "draw",
     after: [BeginFrameSystem],
-    before: [RenderPrepassesSystem],
+    before: [PrepassSystem],
     setup(world: World) {
         const _spriteGpu = world.resource(spriteGpuKey);
 
