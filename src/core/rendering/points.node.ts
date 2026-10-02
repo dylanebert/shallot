@@ -1,16 +1,21 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
+import { MeshInstance } from "../../core/mesh";
 import type { Resource, System } from "../../engine";
 import { Transform } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
-import { DepthPrepass, StandardRenderer, StandardRenderingPlugin } from "../../standard/rendering";
+import {
+    DepthPrepass,
+    PartPlugin,
+    StandardRenderer,
+    StandardRenderingPlugin,
+} from "../../standard/rendering";
 import { Backgrounds, Surfaces } from "../../standard/rendering/contract";
 import { backgroundsKey, surfacesKey } from "../../standard/rendering/contract-state";
 import { Draws, drawsKey } from "../../standard/rendering/registry";
 import { Glaze, GlazePlugin } from "../../transitional/glaze";
-import { MeshInstance, PartPlugin } from "../../transitional/part";
 import { Meshes, meshResourcesKey } from "../mesh/mesh";
 import {
     Clusters,

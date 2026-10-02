@@ -7,13 +7,13 @@ import type {
 } from "typegpu";
 import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { type Mesh, Meshes } from "../../core/mesh";
+import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
 import { BeginFrameSystem, Render } from "../../core/rendering";
 import type { Registry, System, World } from "../../engine";
-import { globalTransformTable, u32, vec4 } from "../../engine";
+import { globalTransformTable, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import type { Draw, Surface } from "../../standard/rendering";
-import { DrawIndexedIndirect, Draws, Surfaces } from "../../standard/rendering";
+import type { Surface } from "./contract";
+import { Surfaces } from "./contract";
 import {
     CullParams,
     countKernel,
@@ -25,6 +25,7 @@ import {
     scatterKernel,
     scatterLayout,
 } from "./pack";
+import { type Draw, DrawIndexedIndirect, Draws } from "./registry";
 
 // stride derived from the schema (a second hand-authored stride is layout drift waiting to
 // happen).
@@ -34,33 +35,6 @@ type AtomicU32Buffer = TgpuBuffer<d.WgslArray<d.Atomic<d.U32>>> & StorageFlag;
 type Vec4fBuffer = TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag;
 type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
     StorageFlag & { usableAsIndirect: true };
-
-/**
- * ECS-shaped opt-in for MeshInstance rendering. `surface` holds the {@link Surfaces}
- * ID for the entity's shading; `mesh` holds the {@link Meshes} ID for its
- * geometry. A dense struct table feeds the GPU pack, which groups MeshInstances by
- * `(surface, mesh)` and emits one indirect draw per used pair, so a surface is
- * shading only and renders any mesh. `surface` defaults to `"default"`, `mesh`
- * to `"cube"`; pick others by their registry ids.
- *
- * @example
- * ```
- * const cube = world.create();
- * world.add(cube, MeshInstance);
- * world.add(cube, Transform, { translation: [0, 0, 0, 0] });
- * world.add(cube, Color, { rgba: [1, 0.5, 0.2, 1] });
- * const wall = world.create();
- * world.add(wall, MeshInstance, {
- *     surface: world.resource(Surfaces).id("checker") ?? 0,
- *     mesh: world.resource(Meshes).id("wall") ?? 0,
- * });
- * world.add(wall, Transform, { translation: [2, 0, 0, 0] });
- * ```
- */
-export const MeshInstance = {
-    surface: u32,
-    mesh: u32,
-};
 
 /**
  * per-entity base color, authored and stored as linear RGBA in its MeshInstance table record. Alpha is reserved for transparency.
@@ -191,7 +165,7 @@ function _partGpuState(world: World): PartGpuState {
 export function initializePartState(world: World): void {
     world.resource(partGpuKey);
     const table = partTable(world);
-    table.bindComponent(MeshInstance, { surface: "surface", mesh: "mesh" });
+    table.bindComponent(MeshInstance, { mesh: "mesh" });
     table.bindFields(Color, { color: "rgba" });
     const seedMissingColor = (eid: number) => {
         if (!world.has(eid, Color)) world.storage(Color).rgba.set(eid, 1, 0, 1, 1);

@@ -23,7 +23,13 @@ import tgpu, { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { type MeshBinding, Meshes, type MeshIndex, MeshPlugin } from "../../core/mesh";
+import {
+    type MeshBinding,
+    Meshes,
+    type MeshIndex,
+    MeshInstance,
+    MeshPlugin,
+} from "../../core/mesh";
 import type { View } from "../../core/rendering";
 import {
     BeginFrameSystem,
@@ -37,7 +43,6 @@ import type { Plugin, System, World } from "../../engine";
 import { u32, unpackColor, vec4 } from "../../engine";
 import { Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
-import { MeshInstance, partTable } from "../../transitional/part";
 import {
     cascadeRegather,
     disposeShadowAtlas,
@@ -74,6 +79,7 @@ import {
     vsPatchSchema,
 } from "./contract";
 import { engineLayout, litPbr } from "./engine";
+import { partTable } from "./part";
 import {
     type BindResource,
     bgQuant,
@@ -239,40 +245,37 @@ export const StandardRenderer = {};
 export const DepthPrepass = {};
 
 /**
- * per-entity PBR material the `default` / `vertex` surfaces read (alongside `Color`, the base albedo).
- * One table `vec4`, lanes `(metallic, roughness, emissive, occlusion)`:
- * `metallic` and `roughness` are the metallic-roughness knobs ([0,1]); `emissive` is a glow **strength**
- * tinting the base color (`Color.rgb * emissive`); `occlusion` dims ambient ([0,1]). Defaults are flat
- * (metallic 0, roughness 1, emissive 0, occlusion 1), so a MeshInstance without it shades exactly like the
- * pre-PBR diffuse `lit`. Independent (non-tinted) emissive + texture-driven maps are the glTF importer's
- * job (it drives sear's `litPbr` from its own per-material palette).
- *
- * @example
- * ```
- * const eid = world.create();
- * world.add(eid, MeshInstance);
- * world.add(eid, Material, { params: [1, 0.2, 0, 1] });
- * world.add(eid, Transform);
- * ```
+ * Selects a surface by its Surfaces registry ID and supplies its material parameters.
+ * Defaults to the "default" surface. Mesh instances without Material use that surface
+ * with flat params. The default and vertex surfaces read params as
+ * `(metallic, roughness, emissive, occlusion)`; Color supplies linear base albedo.
+ * Metallic, roughness and occlusion are in [0,1]; emissive is base-color glow strength.
  */
 export const Material = {
-    /** the four PBR lanes `(metallic, roughness, emissive, occlusion)`. */
+    surface: u32,
     params: vec4,
 };
 
 const MATERIAL_FLAT: [number, number, number, number] = [0, 1, 0, 1];
 
 const MaterialTraits = {
-    defaults: () => ({ params: MATERIAL_FLAT }),
+    defaults: (world: World) => ({
+        surface: world.resource(Surfaces).id("default") ?? 0,
+        params: MATERIAL_FLAT,
+    }),
 };
 
 // base every slot to the flat material so a MeshInstance lacking the Material component shades like the pre-PBR
 // diffuse default (an entity with Material overwrites its slot via its registration default on add). Mirrors
 // MeshInstance.initPart's magenta Color base; the pack gates each slot on membership, so stale slots never draw.
 function initMaterial(world: World): void {
-    partTable(world).bindFields(Material, { material: "params" });
+    partTable(world).bindFields(Material, { surface: "surface", material: "params" });
     const seedMissingMaterial = (eid: number) => {
-        if (!world.has(eid, Material)) world.storage(Material).params.set(eid, ...MATERIAL_FLAT);
+        if (!world.has(eid, Material)) {
+            const storage = world.storage(Material);
+            storage.surface.set(eid, world.resource(Surfaces).id("default") ?? 0);
+            storage.params.set(eid, ...MATERIAL_FLAT);
+        }
     };
     const removeMissingMaterialDefault = world.observeMembership(MeshInstance, (eid, present) => {
         if (present) seedMissingMaterial(eid);
@@ -1348,7 +1351,7 @@ export function createSearPlugin(): Plugin {
 
         // sear's default materials, shading per-instance `color` + `material` at three lighting modes. They
         // ship with the renderer, not MeshInstance: MeshInstance publishes the data (`eids` + `color`), sear adds its own
-        // `Material` slab and shades with its metallic-roughness `litPbr`. `MeshInstance.surface` defaults to
+        // `Material` slab and shades with its metallic-roughness `litPbr`. `Material.surface` defaults to
         // "default" (per-pixel); "vertex" (per-vertex Gouraud) and "unlit" are picked per-MeshInstance. The instance
         // transform is sear's convention — these declare the bindings and omit a transform vs chunk. `pbr()`
         // builds the Pbr struct from the packed `material` lanes; the engine default has no specular until a

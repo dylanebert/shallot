@@ -33,7 +33,7 @@ import type {
     UniformFlag,
 } from "typegpu";
 import * as d from "typegpu/data";
-import { type Mesh, Meshes } from "../../core/mesh";
+import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
 import {
     Camera,
     OverlaySystem,
@@ -47,9 +47,8 @@ import {
 import type { Plugin, System, World } from "../../engine";
 import { f32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { DEPTH_FORMAT, RenderMeshColorSystem } from "../../standard/rendering";
+import { DEPTH_FORMAT, PartPlugin, RenderMeshColorSystem } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
-import { MeshInstance, PartPlugin } from "../../transitional/part";
 import {
     compositeKernel,
     compositeLayout,

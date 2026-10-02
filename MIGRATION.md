@@ -231,6 +231,13 @@ import { engineLayout } from "@dylanebert/shallot/standard/rendering";
 import { Xform } from "@dylanebert/shallot/utils";
 ```
 
+`MeshInstance` (formerly `Part`) now contains only `mesh`. Move `Part.surface` / `MeshInstance.surface` values to `Material.surface`; entities without `Material` use the `default` surface with flat params.
+
+| Previous import | 0.10 import |
+|---|---|
+| Root `Part` | Root or `/mesh` `MeshInstance` |
+| Root `Color`, `PartPlugin` | Root or `/standard/rendering`, same names |
+
 Mesh data has its own `/mesh` module. Update mesh imports as follows (root imports remain available):
 
 | 0.9.5 import | 0.10 import |

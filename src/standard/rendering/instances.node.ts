@@ -4,8 +4,12 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
+import { MeshInstance } from "../../core/mesh";
 import { createApp, globalTransformTable, Transform } from "../../engine";
-import { MeshInstance, partTable } from "./part";
+import { Surfaces } from "./contract";
+import { Material } from "./forward";
+import { partTable } from "./part";
+import { Draws } from "./registry";
 import "../../standard";
 
 const peerModule = "bun-webgpu";
@@ -67,6 +71,53 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
         expect(records).toEqual(
             [a, b].map((eid) => [eid, globalTransforms.rowIndex(eid), parts.rowIndex(eid) + 1, 0]),
         );
+        readback.unmap();
+    } finally {
+        readback.destroy();
+        app.dispose();
+    }
+});
+
+test("mesh instances without Material draw with default; Material selects another surface", async () => {
+    const app = await createApp({ plugins: [] });
+    const world = app.world;
+    const device = world.gpu.device;
+    const readback = device.createBuffer({
+        size: 40,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+        const bare = world.create();
+        world.add(bare, Transform);
+        world.add(bare, MeshInstance);
+        const unlit = world.create();
+        world.add(unlit, Transform);
+        world.add(unlit, MeshInstance);
+        world.add(unlit, Material, { surface: world.resource(Surfaces).id("unlit")! });
+        expect(world.has(bare, Material)).toBe(false);
+        device.pushErrorScope("validation");
+        world.step();
+        const draws = world.resource(Draws);
+        const encoder = device.createCommandEncoder();
+        for (const [index, surface] of ["default", "unlit"].entries()) {
+            const draw = Array.from(draws).find(
+                (draw) => draw.surface === surface && draw.mesh === "cube",
+            )!;
+            encoder.copyBufferToBuffer(
+                world.gpu.root.unwrap(draw.args.indirect),
+                draw.args.offset ?? 0,
+                readback,
+                index * 20,
+                20,
+            );
+        }
+        device.queue.submit([encoder.finish()]);
+        const error = await bounded("surface selection validation", device.popErrorScope());
+        expect(error).toBeNull();
+        await bounded("surface selection readback", readback.mapAsync(GPUMapMode.READ));
+        const words = new Uint32Array(readback.getMappedRange());
+        expect(words[1]).toBe(1);
+        expect(words[6]).toBe(1);
         readback.unmap();
     } finally {
         readback.destroy();

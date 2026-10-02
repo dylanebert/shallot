@@ -4,7 +4,7 @@ import { CEILING } from "./test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { checkImports } from "./check-imports";
@@ -26,10 +26,6 @@ const deferred = [
     [
         "presentation: Glaze leaves transitional",
         "src/transitional/glaze/index.ts:1: pending roadmap migration (still red): // Destination: core/rendering; owner: presentation.md.",
-    ],
-    [
-        "rendering-boundary: MeshInstance leaves transitional",
-        "src/transitional/part/index.ts:1: pending roadmap migration (still red): // Destination: standard/rendering; owner: rendering-boundary.md.",
     ],
     [
         "physics-boundary: physics leaves transitional",
@@ -257,4 +253,11 @@ test("engine runtime imports ECS APIs through the ECS barrel", () => {
         put(root, "engine/runtime/gpu.ts", 'import { useState } from "../ecs";\nvoid useState;\n');
         expect(checkImports(root)).toEqual([]);
     });
+});
+
+test("rendering-boundary: MeshInstance leaves transitional", () => {
+    expect(existsSync(resolve(import.meta.dir, "../src/transitional/part"))).toBe(false);
+    expect(repositoryFindings.filter((finding) => finding.includes("transitional/part"))).toEqual(
+        [],
+    );
 });

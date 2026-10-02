@@ -82,6 +82,8 @@ export {
     sunVisibility,
 } from "./engine";
 export { RenderMeshColorSystem, RenderPrepassesSystem } from "./forward";
+export { Color, MeshInstances, partTable } from "./part";
+export { PartPlugin } from "./part-plugin";
 /** compiled surface-variant cache introspection for renderer diagnostics and real-device gates. */
 export { getCompiledSurface } from "./pipelines";
 export type { Draw, DrawIndirectBuffer } from "./registry";

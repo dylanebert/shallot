@@ -4,6 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
+import { MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
     attachCanvas,
@@ -42,7 +43,7 @@ import {
     TextPlugin,
 } from "../../extras";
 import { isolationFont } from "../../extras/text/font.fixture";
-import { Color, DEFAULT_PLUGINS, Glaze, MeshInstance, Transform } from "../../standard";
+import { Color, DEFAULT_PLUGINS, Glaze, Transform } from "../../standard";
 import {
     Backgrounds,
     CameraBackground,

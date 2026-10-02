@@ -17,7 +17,6 @@ export {
 export { BvhPlugin } from "../transitional/bvh";
 export { Character, CharacterPlugin, SweepCharactersSystem } from "../transitional/character";
 export { Glaze, GlazePlugin, Tonemap } from "../transitional/glaze";
-export { Color, MeshInstance, PartPlugin } from "../transitional/part";
 export {
     Body,
     BodyType,
@@ -64,10 +63,12 @@ export {
 } from "./loading";
 export {
     CameraBackground,
+    Color,
     DepthPrepass,
     MAX_CASCADES,
     MAX_POINT_CASTERS,
     Material,
+    PartPlugin,
     PickingPrepass,
     PointShadows,
     Shadow,
@@ -81,9 +82,8 @@ import { RenderingPlugin } from "../core/rendering";
 import type { Plugin } from "../engine";
 import { setDefaultLoading, setDefaultPlugins } from "../engine/app";
 import { GlazePlugin } from "../transitional/glaze";
-import { PartPlugin } from "../transitional/part";
 import { shallotDark } from "./loading";
-import { StandardRenderingPlugin } from "./rendering";
+import { PartPlugin, StandardRenderingPlugin } from "./rendering";
 
 export const DEFAULT_PLUGINS: readonly Plugin[] = [
     InputPlugin,
