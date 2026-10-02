@@ -30,12 +30,14 @@ import {
     Camera,
     CameraMode,
     captureTexture,
-    DepthPrepass,
+    MainPassSystem,
     OverlaySystem,
+    PrepassSystem,
     PresentationSystem,
     RenderingPlugin,
+    RenderPhases,
 } from "./index";
-import { PointsPlugin, PointsSystem } from "./points.fixture";
+import { PointsPlugin } from "./points.fixture";
 import { Render, renderKey } from "./render";
 import { viewTargetsKey } from "./targets";
 import { Views, viewResourcesKey } from "./view";
@@ -45,8 +47,9 @@ const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [RenderingPlugin, PointsPlugin] },
     {
         defaults: false,
-        plugins: [RenderingPlugin, StandardRenderingPlugin, PartPlugin, GlazePlugin, PointsPlugin],
+        plugins: [RenderingPlugin, PointsPlugin, StandardRenderingPlugin, PartPlugin, GlazePlugin],
     },
+    { defaults: false, plugins: [RenderingPlugin] },
 ]);
 
 const coreResources = {
@@ -54,6 +57,7 @@ const coreResources = {
     precompileState,
     renderKey,
     viewTargetsKey,
+    RenderPhases,
     Render,
     renderFrameKey,
     viewResourcesKey,
@@ -80,7 +84,8 @@ const coreSystems = {
     OverlaySystem,
     PresentationSystem,
     EndFrameSystem,
-    PointsSystem,
+    MainPassSystem,
+    PrepassSystem,
     ClearChangeMarksSystem,
 };
 const lightSystems = { UpdateLightClustersSystem, CullLightsSystem };
@@ -135,17 +140,31 @@ test("stage 6: core-only rendering registers no cluster or light-cull declaratio
     assertRegistration(contractResources, {});
 });
 
+test("RenderingPlugin without CorePipelinePlugin builds and steps an attached view without validation errors", async () => {
+    const { world } = subjects()[2];
+    const resources = world as unknown as { _resources: Map<Resource<unknown>, unknown> };
+    expect(resources._resources.has(viewTargetsKey)).toBe(false);
+    expect(resources._resources.has(RenderPhases)).toBe(false);
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera);
+    attachTexture(world, camera, { width: 8, height: 8 });
+    world.gpu.device.pushErrorScope("validation");
+    world.step(0);
+    expect(await world.gpu.device.popErrorScope()).toBeNull();
+});
+
 test("points beside a mesh share the view depth: side and front points show, the rear point is occluded", async () => {
     const { world } = subjects()[1];
     const camera = world.create();
     world.add(camera, Transform);
     world.add(camera, Camera);
     world.add(camera, StandardRenderer);
-    world.add(camera, DepthPrepass);
     world.add(camera, Glaze);
     world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
     world.storage(Camera).mode.set(camera, CameraMode.Orthographic);
     world.storage(Camera).size.set(camera, 4);
+    world.storage(Camera).antialias.set(camera, 0);
     attachTexture(world, camera, { width: 64, height: 64 });
     const mesh = world.create();
     world.add(mesh, Transform);

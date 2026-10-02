@@ -40,6 +40,18 @@ const subjects = gpuApps(import.meta.path, [
 
 test("view targets preserve non-uniform lit background, fog and outline frames for every AA and lane set", async () => {
     const { world } = subjects()[0];
+    let renderPasses = 0;
+    const device = world.gpu.device;
+    const createEncoder = device.createCommandEncoder.bind(device);
+    device.createCommandEncoder = (descriptor) => {
+        const encoder = createEncoder(descriptor);
+        const begin = encoder.beginRenderPass.bind(encoder);
+        encoder.beginRenderPass = (descriptor) => {
+            renderPasses++;
+            return begin(descriptor);
+        };
+        return encoder;
+    };
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera, { clearColor: 0x204060 });
@@ -99,7 +111,9 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
             }
             world.gpu.device.pushErrorScope("validation");
             world.step(0);
+            renderPasses = 0;
             world.step(0);
+            expect(renderPasses).toBe(lanes ? 6 : 5);
             const { rgba } = await captureTexture(world, camera);
             frames[aa][lanes] = rgba;
             expect(await world.gpu.device.popErrorScope()).toBeNull();
@@ -118,7 +132,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
                 else expect(Buffer.from(rgba).equals(await readFile(path))).toBe(true);
             }
             console.log(
-                `targets AA=${aa} lanes=${lanes}: ${colors.size} distinct RGB values; ${outlinePixels} green outline pixels${directory ? (process.env.SHALLOT_RECORD_TARGET_FRAMES ? "; frame recorded" : "; matches parent bytes") : ""}`,
+                `targets AA=${aa} lanes=${lanes}: ${colors.size} distinct RGB values; ${outlinePixels} green outline pixels; ${renderPasses} render passes${directory ? (process.env.SHALLOT_RECORD_TARGET_FRAMES ? "; frame recorded" : "; matches parent bytes") : ""}`,
             );
         }
     }

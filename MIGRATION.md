@@ -15,7 +15,7 @@ These changes require updates to a 0.9.5 app.
 | `Transform.pos`, `.rot` | `translation`, `rotation` |
 | `Body.pos`, `.quat` | `position`, `rotation` |
 | `Part` | `MeshInstance` |
-| `RenderPlugin` | `RenderingPlugin` |
+| `RenderPlugin` | `RenderingPlugin` for the frame/view substrate; add `CorePipelinePlugin` for shared targets and phases (`StandardRenderingPlugin` includes it) |
 | `SearPlugin` | `StandardRenderingPlugin` |
 | `Sear`, `Depth`, `Tag`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `PickingPrepass`, `CameraBackground` |
 | `TAG_FORMAT`, `TAG_NONE`, `TagFn`, `view.tag` | `PICKING_ID_FORMAT`, `PICKING_ID_NONE`, `PickingIdFn`, `view.pickingId` |
@@ -266,7 +266,7 @@ Camera prepass markers and attachment constants belong to `/rendering` (root imp
 | `/sear` or `/sear/core` `Depth`, `Tag` | `/rendering` `DepthPrepass`, `PickingPrepass` |
 | `/sear/core` `DEPTH_FORMAT`, `TAG_FORMAT`, `TAG_NONE` | `/rendering` `DEPTH_FORMAT`, `PICKING_ID_FORMAT`, `PICKING_ID_NONE` |
 
-`RenderingPlugin` registers both prepass markers. Each marker requests its own camera output; neither requires the other.
+`CorePipelinePlugin` from `/rendering` registers both prepass markers and owns view targets, clear, resolve and prepass/opaque/transparent phases. `StandardRenderingPlugin` includes it as a dependency. Custom renderers using these phases depend on `CorePipelinePlugin` and register records in `RenderPhases`; records do not end the shared pass. `RenderingPlugin` alone supplies views and frame/presentation anchors without the shared pipeline. Each marker requests its own camera output; neither requires the other.
 
 Custom surface, background and draw producers depend on `StandardRenderingPlugin`; `RenderingPlugin` alone no longer initializes their registries.
 

@@ -1,3 +1,9 @@
+import {
+    CorePipelinePlugin,
+    MainPassSystem,
+    PrepassSystem,
+    RenderPhases,
+} from "../../core/rendering";
 import { registration } from "../../engine";
 import {
     CullLightsSystem,
@@ -48,22 +54,14 @@ import {
     BeginFrameSystem,
     Camera,
     type ColorLane,
-    colorPassDescriptor,
-    colorTargets,
     DEPTH_FORMAT,
     laneKey,
-    OverlaySystem,
-    prepassDescriptor,
-    prepassLanes,
     Render,
-    RenderingPlugin,
     SAMPLE_COUNT,
-    Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
 import { u32, vec4 } from "../../engine";
 import { Xform } from "../../engine/utils";
-import { GlazeSystem } from "../../transitional/glaze";
 import {
     cascadeRegather,
     disposeShadowAtlas,
@@ -583,7 +581,7 @@ function resolveDraw(world: World, draw: Draw, capacity: number): void {
 }
 
 /**
- * one camera's prepass (`sear:prepass`) recorded onto `Render.encoder`: a single single-sample pass
+ * Records standard's prepass bundles into core's single-sample pass,
  * emitting the camera's opt-in lanes into core's targets (cleared + `less` + write, so only the
  * front-most opaque / `clip` fragment writes each lane); that depth is *stored* + published as
  * `view.depth` when the camera carries {@link DepthPrepass}, otherwise discarded (TBDR: it stays in tile memory,
@@ -600,16 +598,14 @@ function renderPrepass(
     items: FrameDraw[],
     count: number,
     lanes: ColorLane[],
-    storeDepth: boolean,
+    pass: GPURenderPassEncoder,
 ): void {
     const _render = world.resource(Render);
     const _searState = world.resource(searStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
     const key = laneKey(lanes);
-    const pass = _render.encoder.beginRenderPass(
-        prepassDescriptor(world, eid, view, lanes, storeDepth),
-    );
+
     let draws = 0;
     const tagLane = lanes.some((lane) => lane.name === "tag");
     const shadow = shadowGroup(world);
@@ -645,7 +641,6 @@ function renderPrepass(
         recordBundle(world, bundle, _searState.prepassProgram, draws, _searState.prepassBundleDesc);
     }
     if (bundle.bundle) pass.executeBundles(bundle.replay);
-    pass.end();
     world.gpu.indirect?.("sear:prepass", draws);
 }
 
@@ -695,7 +690,7 @@ function backgroundGroup(
 }
 
 /**
- * one camera's geometry pass (`sear:color`) recorded onto `Render.encoder`: shades every opaque draw,
+ * Records standard's geometry bundles into core's main pass: shades every opaque draw,
  * then composites every `blend` draw over them (`less-equal` depth-tested against the opaque depth,
  * depth-write off) in core's targets: one HDR color target, no MRT (the screen-space lanes are {@link renderPrepass}'s),
  * because each extra target costs bandwidth on every pixel and tile-based GPUs pay it hardest. With
@@ -738,6 +733,8 @@ function renderColor(
     view: View,
     items: FrameDraw[],
     count: number,
+    encoded: GPURenderPassEncoder,
+    transparent: boolean,
     bg: BackdropPick | null = null,
 ): void {
     const _render = world.resource(Render);
@@ -747,16 +744,16 @@ function renderColor(
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the Camera registration default), else
     // single-sample. `world.storage(Camera).antialias.set(eid, 0)` flips it live
     const aa = world.storage(Camera).antialias.get(eid) !== 0;
-    const targets = colorTargets(world, eid, view.width, view.height, aa);
+
     const shadow = shadowGroup(world);
-    // the camera's draw program: opaque, then the backdrop, then blend. Building it reads only cached
+    // Each phase has its own bundle: opaque plus backdrop, or blend. Building it reads only cached
     // identities, so a steady frame allocates nothing here and the compare below reports no transition
     let draws = 0;
     let indirect = 0;
     for (let i = 0; i < count; i++) {
         const item = items[i];
         if (!aa) ensureSingle(world, item.r.t);
-        const pipe = aa ? item.r.t.color : item.r.t.single?.color;
+        const pipe = !transparent ? (aa ? item.r.t.color : item.r.t.single?.color) : null;
         if (pipe) {
             drawColor(world, _searState.colorProgram, draws++, item, pipe, view.slot, shadow);
             indirect++;
@@ -766,7 +763,7 @@ function renderColor(
     // un-rendered pixels) and before blend (so transparent draws composite over it). The bg pipeline
     // carries the shadow group 1 in its layout (unused) like every color pipeline, so the group bound at
     // the pass top survives the switch for the blend draws after it
-    if (bg) {
+    if (bg && !transparent) {
         // a typed backdrop: the shared engine group 0 (a never-read `bgQuant()` fills the meshQuant
         // slot — a background pulls no mesh), the typed shadow group 1 (declared-but-unused, the
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
@@ -786,28 +783,31 @@ function renderColor(
     }
     for (let i = 0; i < count; i++) {
         const item = items[i];
-        const pipe = aa ? item.r.t.transparent : item.r.t.single?.transparent;
+        const pipe = transparent
+            ? aa
+                ? item.r.t.transparent
+                : item.r.t.single?.transparent
+            : null;
         if (pipe) {
             drawColor(world, _searState.colorProgram, draws++, item, pipe, view.slot, shadow);
             indirect++;
         }
     }
 
-    let pass = _searState.colorBundles.get(eid);
+    const bundleKey = eid * 2 + Number(transparent);
+    let pass = _searState.colorBundles.get(bundleKey);
     if (!pass) {
         pass = newPassBundle();
-        _searState.colorBundles.set(eid, pass);
+        _searState.colorBundles.set(bundleKey, pass);
     }
     _searState.colorBundleDesc.colorFormats[0] = _render.format;
     _searState.colorBundleDesc.sampleCount = aa ? SAMPLE_COUNT : 1;
     if (bundleChanged(pass, _searState.colorProgram, draws, _searState.colorBundleDesc)) {
         recordBundle(world, pass, _searState.colorProgram, draws, _searState.colorBundleDesc);
     }
-    const encoded = _render.encoder.beginRenderPass(
-        colorPassDescriptor(world, eid, targets, view.framebuffer),
-    );
+
     if (pass.bundle) encoded.executeBundles(pass.replay);
-    encoded.end();
+
     // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
     // validation floor; the honest count is post the `if (pipe)` skip, and excludes the backdrop's
     // three-vertex draw, which is not indirect
@@ -858,69 +858,18 @@ async function prepareSear(world: World, device: GPUDevice, capacity: number): P
  * `eids`) declares `before: [RenderPrepassesSystem]` so its emit precedes every geometry-reading pass (the
  * prepass, the shadow map, and the color pass all read it within the frame; an emit landing between them
  * would desync the reads). It runs first among the geometry passes (`after: [BeginFrameSystem]`), so it
- * resolves the frame's draw list **once** into `_sear.frameDraws` for the shadow map + color pass to share. A
+ * follows standard's draw-list resolve for the shadow map + color pass to share. A
  * screen-space effect still slots into the `after: [RenderPrepassesSystem], before: [RenderMeshColorSystem]` seam. A camera
  * carrying no lane marker runs no prepass (the bare path), but the anchor + resolve still run
  */
-export const RenderPrepassesSystem: System = {
-    name: "prepass",
+export const RenderPrepassesSystem = PrepassSystem;
+export const RenderMeshColorSystem = MainPassSystem;
+const ResolveDrawsSystem: System = {
     group: "draw",
     after: [BeginFrameSystem, CullLightsSystem],
+    before: [PrepassSystem],
     update(world) {
-        const _searState = world.resource(searStateKey);
-
-        if (!world.resource(Render).encoder) return;
-        // resolve once for the prepass + shadow map + color pass (they all run after this)
-        resolveDraws(world, world.entityHighWater);
-        for (const eid of world.query(SEAR_CAMERAS)) {
-            const view = world.resource(Views).get(eid);
-            if (!view?.framebuffer) continue;
-            const requested = prepassLanes(world, eid, view);
-            if (!requested) continue;
-            const { lanes, storeDepth } = requested;
-            renderPrepass(
-                world,
-                eid,
-                view,
-                _searState.frameDraws,
-                _searState.frameCount,
-                lanes,
-                storeDepth,
-            );
-        }
-    },
-};
-
-/**
- * sear's geometry pass, per camera: shades every opaque draw then composites every `blend` draw over
- * them in one 4× MSAA pass (core's 4× color + depth), resolved into the offscreen once. Binds the sun
- * shadow seam (group 1): sear's own shadow map + light params it samples inline, or its fallback (fully
- * lit) when no light casts. Renders the shared `_sear.frameDraws` (resolved once by {@link RenderPrepassesSystem}).
- * Runs after every screen-space effect ordered `before: [RenderMeshColorSystem]`; `before: [GlazeSystem]` makes it
- * sear's terminal offscreen write, so glaze reads `view.framebuffer` only after the resolve lands (glaze
- * never imports sear)
- */
-export const RenderMeshColorSystem: System = {
-    name: "color",
-    group: "draw",
-    after: [RenderPrepassesSystem],
-    before: [GlazeSystem, OverlaySystem],
-    update(world) {
-        const _searState = world.resource(searStateKey);
-
-        if (!world.resource(Render).encoder) return;
-        for (const eid of world.query(SEAR_CAMERAS)) {
-            const view = world.resource(Views).get(eid);
-            if (!view?.framebuffer) continue;
-            renderColor(
-                world,
-                eid,
-                view,
-                _searState.frameDraws,
-                _searState.frameCount,
-                backdrop(world, eid),
-            );
-        }
+        if (world.resource(Render).encoder) resolveDraws(world, world.entityHighWater);
     },
 };
 
@@ -1089,12 +1038,11 @@ export function createSearPlugin(): Plugin {
             PackLightingSystem,
             UpdateLightClustersSystem,
             CullLightsSystem,
-            RenderPrepassesSystem,
-            RenderMeshColorSystem,
+            ResolveDrawsSystem,
             ShadowCameraSystem,
             ShadowMapSystem,
         ],
-        dependencies: [RenderingPlugin, MeshPlugin],
+        dependencies: [CorePipelinePlugin, MeshPlugin],
 
         // sear's default materials, shading per-instance `color` + `material` at three lighting modes. They
         // ship with the renderer, not MeshInstance: MeshInstance publishes the data (`eids` + `color`), sear adds its own
@@ -1104,6 +1052,40 @@ export function createSearPlugin(): Plugin {
         // builds the Pbr struct from the packed `material` lanes; the engine default has no specular until a
         // Material sets metallic > 0 (dielectric 0), so a bare MeshInstance shades exactly like the pre-PBR diffuse.
         initialize(world) {
+            world.resource(RenderPhases).push({
+                prepass(world, eid, view, pass, lanes) {
+                    if (!world.has(eid, StandardRenderer)) return;
+                    const state = world.resource(searStateKey);
+                    renderPrepass(
+                        world,
+                        eid,
+                        view,
+                        state.frameDraws,
+                        state.frameCount,
+                        lanes,
+                        pass,
+                    );
+                },
+                opaque(world, eid, view, pass) {
+                    if (!world.has(eid, StandardRenderer)) return;
+                    const state = world.resource(searStateKey);
+                    renderColor(
+                        world,
+                        eid,
+                        view,
+                        state.frameDraws,
+                        state.frameCount,
+                        pass,
+                        false,
+                        backdrop(world, eid),
+                    );
+                },
+                transparent(world, eid, view, pass) {
+                    if (!world.has(eid, StandardRenderer)) return;
+                    const state = world.resource(searStateKey);
+                    renderColor(world, eid, view, state.frameDraws, state.frameCount, pass, true);
+                },
+            });
             initializeClusterState(world);
             initializeLightingState(world);
             world.resource(Lighting).buffer = world.gpu.device.createBuffer({
