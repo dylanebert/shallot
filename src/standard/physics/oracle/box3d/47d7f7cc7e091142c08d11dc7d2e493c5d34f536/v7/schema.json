@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "box3d-oracle/v7",
+  "type": "object",
+  "required": ["schema", "cases"],
+  "properties": {
+    "schema": { "const": "box3d-oracle/v7" },
+    "cases": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "required": ["id", "family", "symbol", "input", "output"],
+        "properties": {
+          "id": { "type": "string" },
+          "family": { "const": "mover" },
+          "symbol": { "const": "CharacterMover::SolveMove" },
+          "input": { "type": "object" },
+          "output": { "type": "object" }
+        }
+      }
+    }
+  }
+}

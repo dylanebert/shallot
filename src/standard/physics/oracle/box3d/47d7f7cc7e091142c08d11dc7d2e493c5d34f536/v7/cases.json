@@ -1,0 +1,1610 @@
+{
+  "schema": "box3d-oracle/v7",
+  "cases": [
+    {
+      "id": "m1.floor.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.floor.v1",
+        "name": "floor",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r0",
+            "halfExtents": [
+              "0x41200000",
+              "0x3f000000",
+              "0x41200000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "box"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x00000000",
+              "0x3fa66666",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40400000",
+              "0xc1000000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.floor.v1",
+        "name": "floor",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3e99999a",
+              "0x3f4b851e",
+              "0x3dcccccd"
+            ],
+            "velocity": [
+              "0x40400000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3f19f72b",
+            "onGround": "0x3f800000",
+            "planeCount": "0x3f800000",
+            "passes": 3,
+            "solverIterations": 2,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.wall.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.wall.v1",
+        "name": "wall",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r0",
+            "halfExtents": [
+              "0x41200000",
+              "0x3f000000",
+              "0x41200000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "box"
+          },
+          {
+            "op": "body.create",
+            "id": "b1",
+            "type": "static",
+            "position": [
+              "0x3f800000",
+              "0x3fc00000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r1",
+            "halfExtents": [
+              "0x3f000000",
+              "0x3fc00000",
+              "0x40400000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s1",
+            "body": "b1",
+            "resource": "r1",
+            "kind": "box",
+            "density": "0x3f800000"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x3dcccccd",
+              "0x3fa66666",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40c00000",
+              "0xbf800000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.wall.v1",
+        "name": "wall",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3e51eb82",
+              "0x3fa14c5b",
+              "0x3dcccccd"
+            ],
+            "velocity": [
+              "0x00000000",
+              "0xbf800000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3f19f72b",
+            "onGround": "0x3f800000",
+            "planeCount": "0x3f800000",
+            "passes": 3,
+            "solverIterations": 2,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "b1",
+            "r1",
+            "s1",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.step-low.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.step-low.v1",
+        "name": "step-low",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r0",
+            "halfExtents": [
+              "0x41200000",
+              "0x3f000000",
+              "0x41200000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "box"
+          },
+          {
+            "op": "body.create",
+            "id": "b1",
+            "type": "static",
+            "position": [
+              "0x3f800000",
+              "0x3e4ccccd",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r1",
+            "halfExtents": [
+              "0x3f000000",
+              "0x3e4ccccd",
+              "0x40400000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s1",
+            "body": "b1",
+            "resource": "r1",
+            "kind": "box",
+            "density": "0x3f800000"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x3f0ccccd",
+              "0x3fa66666",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40c00000",
+              "0xbf800000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.step-low.v1",
+        "name": "step-low",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3f933334",
+              "0x3fbf2573",
+              "0x3dcccccd"
+            ],
+            "velocity": [
+              "0x40c00000",
+              "0xbf800000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x403bbb42",
+            "onGround": "0x3f800000",
+            "planeCount": "0x00000000",
+            "passes": 2,
+            "solverIterations": 0,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "b1",
+            "r1",
+            "s1",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.step-high.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.step-high.v1",
+        "name": "step-high",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r0",
+            "halfExtents": [
+              "0x41200000",
+              "0x3f000000",
+              "0x41200000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "box"
+          },
+          {
+            "op": "body.create",
+            "id": "b1",
+            "type": "static",
+            "position": [
+              "0x3f800000",
+              "0x3f19999a",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r1",
+            "halfExtents": [
+              "0x3f000000",
+              "0x3f19999a",
+              "0x40400000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s1",
+            "body": "b1",
+            "resource": "r1",
+            "kind": "box",
+            "density": "0x3f800000"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x3dcccccd",
+              "0x3fa66666",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40c00000",
+              "0xbf800000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.step-high.v1",
+        "name": "step-high",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3e51eb82",
+              "0x3fa14c5b",
+              "0x3dcccccd"
+            ],
+            "velocity": [
+              "0x00000000",
+              "0xbf800000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3f19f72b",
+            "onGround": "0x3f800000",
+            "planeCount": "0x3f800000",
+            "passes": 3,
+            "solverIterations": 2,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "b1",
+            "r1",
+            "s1",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.slope-hull.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.slope-hull.v1",
+        "name": "slope-hull",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.hull",
+            "id": "r0",
+            "points": [
+              [
+                "0xc0800000",
+                "0xbf800000",
+                "0xc0800000"
+              ],
+              [
+                "0x40800000",
+                "0xbf800000",
+                "0xc0800000"
+              ],
+              [
+                "0xc0800000",
+                "0x00000000",
+                "0xc0800000"
+              ],
+              [
+                "0x40800000",
+                "0x40000000",
+                "0xc0800000"
+              ],
+              [
+                "0xc0800000",
+                "0xbf800000",
+                "0x40800000"
+              ],
+              [
+                "0x40800000",
+                "0xbf800000",
+                "0x40800000"
+              ],
+              [
+                "0xc0800000",
+                "0x00000000",
+                "0x40800000"
+              ],
+              [
+                "0x40800000",
+                "0x40000000",
+                "0x40800000"
+              ]
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "hull"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x00000000",
+              "0x3fe66666",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40400000",
+              "0xc0400000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.slope-hull.v1",
+        "name": "slope-hull",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3e964afa",
+              "0x3ff050c0",
+              "0x3dcccccd"
+            ],
+            "velocity": [
+              "0x40078788",
+              "0x3f078788",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x40610aa1",
+            "onGround": "0x3f800000",
+            "planeCount": "0x3f800000",
+            "passes": 2,
+            "solverIterations": 2,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.mesh.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.mesh.v1",
+        "name": "mesh",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.mesh",
+            "id": "r0",
+            "vertices": [
+              "0xc0800000",
+              "0x00000000",
+              "0xc0800000",
+              "0xc0800000",
+              "0x00000000",
+              "0x40800000",
+              "0x40800000",
+              "0x00000000",
+              "0x40800000",
+              "0x40800000",
+              "0x00000000",
+              "0xc0800000"
+            ],
+            "indices": [
+              0,
+              1,
+              2,
+              0,
+              2,
+              3
+            ],
+            "vertexCount": 4,
+            "triangleCount": 2,
+            "identifyEdges": true
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "mesh"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x00000000",
+              "0x3fa66666",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40400000",
+              "0xc1000000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.mesh.v1",
+        "name": "mesh",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3e99999a",
+              "0x3f4b851f",
+              "0x3dcccccd"
+            ],
+            "velocity": [
+              "0x40400000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3f19f72b",
+            "onGround": "0x3f800000",
+            "planeCount": "0x3f800000",
+            "passes": 3,
+            "solverIterations": 2,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.heightfield.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.heightfield.v1",
+        "name": "heightfield",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.height-field",
+            "id": "r0",
+            "countX": 3,
+            "countZ": 3,
+            "samples": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "scaleX": "0x40800000",
+            "scaleY": "0x3f800000",
+            "scaleZ": "0x40800000",
+            "globalMinimumHeight": "0x00000000",
+            "globalMaximumHeight": "0x00000000"
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "height-field"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x40000000",
+              "0x3fa66666",
+              "0x40000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40400000",
+              "0xc1000000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.heightfield.v1",
+        "name": "heightfield",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x40133333",
+              "0x3f4b851f",
+              "0x40066666"
+            ],
+            "velocity": [
+              "0x40400000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3f19f72b",
+            "onGround": "0x3f800000",
+            "planeCount": "0x3f800000",
+            "passes": 3,
+            "solverIterations": 2,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.dynamic-sphere.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.dynamic-sphere.v1",
+        "name": "dynamic-sphere",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r0",
+            "halfExtents": [
+              "0x41200000",
+              "0x3f000000",
+              "0x41200000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "box"
+          },
+          {
+            "op": "body.create",
+            "id": "b1",
+            "type": "dynamic",
+            "position": [
+              "0x3f666666",
+              "0x40000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.sphere",
+            "id": "r1",
+            "radius": "0x3f000000"
+          },
+          {
+            "op": "shape.create",
+            "id": "s1",
+            "body": "b1",
+            "resource": "r1",
+            "kind": "sphere",
+            "density": "0x3f800000"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x00000000",
+              "0x40000000",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40c00000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.dynamic-sphere.v1",
+        "name": "dynamic-sphere",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3dd70a38",
+              "0x40000000",
+              "0x00000000"
+            ],
+            "velocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "pogoVelocity": "0x00000000",
+            "onGround": "0x00000000",
+            "planeCount": "0x3f800000",
+            "passes": 2,
+            "solverIterations": 1,
+            "impulses": [
+              {
+                "body": "b1",
+                "impulse": [
+                  "0x40490fdb",
+                  "0x00000000",
+                  "0x00000000"
+                ]
+              }
+            ]
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "b1",
+            "r1",
+            "s1",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.wall-unclipped.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.wall-unclipped.v1",
+        "name": "wall-unclipped",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r0",
+            "halfExtents": [
+              "0x41200000",
+              "0x3f000000",
+              "0x41200000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "box"
+          },
+          {
+            "op": "body.create",
+            "id": "b1",
+            "type": "static",
+            "position": [
+              "0x3f800000",
+              "0x3fc00000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r1",
+            "halfExtents": [
+              "0x3f000000",
+              "0x3fc00000",
+              "0x40400000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s1",
+            "body": "b1",
+            "resource": "r1",
+            "kind": "box",
+            "density": "0x3f800000"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x3dcccccd",
+              "0x3fa66666",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40c00000",
+              "0xbf800000",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": false
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.wall-unclipped.v1",
+        "name": "wall-unclipped",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3e51eb82",
+              "0x3fa14c5b",
+              "0x3dcccccd"
+            ],
+            "velocity": [
+              "0x3f866662",
+              "0xbecc11b8",
+              "0x3f800000"
+            ],
+            "pogoVelocity": "0x3f19f72b",
+            "onGround": "0x3f800000",
+            "planeCount": "0x3f800000",
+            "passes": 3,
+            "solverIterations": 2,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "b1",
+            "r1",
+            "s1",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    },
+    {
+      "id": "m1.rising.v1",
+      "family": "mover",
+      "symbol": "CharacterMover::SolveMove",
+      "input": {
+        "id": "m1.rising.v1",
+        "name": "rising",
+        "commands": [
+          {
+            "op": "world.create",
+            "id": "world",
+            "gravity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "body.create",
+            "id": "b0",
+            "type": "static",
+            "position": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "linearVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "angularVelocity": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ]
+          },
+          {
+            "op": "resource.box",
+            "id": "r0",
+            "halfExtents": [
+              "0x41200000",
+              "0x3f000000",
+              "0x41200000"
+            ]
+          },
+          {
+            "op": "shape.create",
+            "id": "s0",
+            "body": "b0",
+            "resource": "r0",
+            "kind": "box"
+          },
+          {
+            "op": "mover.solve",
+            "id": "move",
+            "position": [
+              "0x00000000",
+              "0x3fa66666",
+              "0x00000000"
+            ],
+            "rotation": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x3f800000"
+            ],
+            "center1": [
+              "0x00000000",
+              "0xbf000000",
+              "0x00000000"
+            ],
+            "center2": [
+              "0x00000000",
+              "0x3f000000",
+              "0x00000000"
+            ],
+            "radius": "0x3e99999a",
+            "velocity": [
+              "0x40000000",
+              "0x40a00000",
+              "0x00000000"
+            ],
+            "pogoVelocity": "0x3e4ccccd",
+            "timeStep": "0x3dcccccd",
+            "clipVelocity": true
+          }
+        ],
+        "stepCount": 0
+      },
+      "output": {
+        "schema": "box3d-oracle/scenario-output/v1",
+        "id": "m1.rising.v1",
+        "name": "rising",
+        "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+        "observations": [
+          {
+            "receiptId": "move",
+            "position": [
+              "0x3e4ccccd",
+              "0x3fe66666",
+              "0x00000000"
+            ],
+            "velocity": [
+              "0x40000000",
+              "0x40a00000",
+              "0x00000000"
+            ],
+            "pogoVelocity": "0x00000000",
+            "onGround": "0x00000000",
+            "planeCount": "0x00000000",
+            "passes": 2,
+            "solverIterations": 0,
+            "impulses": []
+          }
+        ],
+        "hashes": [],
+        "sensorEvents": [],
+        "receipt": {
+          "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+          "consumedCommands": [
+            "world",
+            "b0",
+            "r0",
+            "s0",
+            "move"
+          ],
+          "observationIds": [
+            "move"
+          ]
+        }
+      }
+    }
+  ]
+}

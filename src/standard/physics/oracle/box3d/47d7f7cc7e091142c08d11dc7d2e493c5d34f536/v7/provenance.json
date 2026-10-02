@@ -1,0 +1,29 @@
+{
+  "adapter": "adapter/scenario.c",
+  "transcription": "adapter/mover_sample.h",
+  "transcriptionSha256": "8f139d7ed22b97c654cfd8ba0f2e2b5c6001475f9113b1b704c6f55713b2c638",
+  "corpusDigest": "a430e808652618780cedded165980ff047fce545385314d168e7dc856125dffb",
+  "executableSha256": "adfb5a122481fc38005bfaa968c20ce123584ec4d334e4401bb566038e00e813",
+  "cmake": [
+    "-S",
+    "<patched-official-source>",
+    "-B",
+    "<scenario-build>",
+    "-G",
+    "Ninja",
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DBOX3D_DISABLE_SIMD=ON",
+    "-DBOX3D_DOUBLE_PRECISION:BOOL=OFF",
+    "-DBOX3D_SAMPLES=OFF",
+    "-DBOX3D_BENCHMARKS=OFF",
+    "-DBOX3D_DOCS=OFF",
+    "-DBOX3D_UNIT_TESTS=ON",
+    "-DBOX3D_VALIDATE=ON",
+    "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS"
+  ],
+  "compiler": {
+    "executable": "cc",
+    "version": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+    "sha256": "8d50be9d2d5749332f48a244b12446a94940c46d71ef2d2f2eeb4fad19b2e17c"
+  }
+}

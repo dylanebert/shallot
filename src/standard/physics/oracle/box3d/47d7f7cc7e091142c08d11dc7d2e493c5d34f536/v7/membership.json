@@ -1,0 +1,16 @@
+{
+  "schema": "box3d-oracle/v7",
+  "caseCount": 10,
+  "roster": [
+    "m1.floor.v1",
+    "m1.wall.v1",
+    "m1.step-low.v1",
+    "m1.step-high.v1",
+    "m1.slope-hull.v1",
+    "m1.mesh.v1",
+    "m1.heightfield.v1",
+    "m1.dynamic-sphere.v1",
+    "m1.wall-unclipped.v1",
+    "m1.rising.v1"
+  ]
+}
