@@ -280,8 +280,12 @@ function initMaterial(world: World): void {
     const removeMissingMaterialDefault = world.observeMembership(MeshInstance, (eid, present) => {
         if (present) seedMissingMaterial(eid);
     });
+    const removeMaterialFallback = world.observeMembership(Material, (eid, present) => {
+        if (!present && world.has(eid, MeshInstance)) seedMissingMaterial(eid);
+    });
     for (const eid of world.query([MeshInstance])) seedMissingMaterial(eid);
     world.onDispose(removeMissingMaterialDefault);
+    world.onDispose(removeMaterialFallback);
 }
 
 /**

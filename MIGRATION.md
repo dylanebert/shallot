@@ -237,6 +237,7 @@ import { Xform } from "@dylanebert/shallot/utils";
 |---|---|
 | Root `Part` | Root or `/mesh` `MeshInstance` |
 | Root `Color`, `PartPlugin` | Root or `/standard/rendering`, same names |
+| `/part/core` `Parts` | `/standard/rendering` `MeshInstances` |
 
 Mesh data has its own `/mesh` module. Update mesh imports as follows (root imports remain available):
 

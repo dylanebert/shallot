@@ -78,47 +78,51 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
     }
 });
 
-test("mesh instances without Material draw with default; Material selects another surface", async () => {
+test("mesh instances return to default draws when Material is removed", async () => {
     const app = await createApp({ plugins: [] });
     const world = app.world;
     const device = world.gpu.device;
     const readback = device.createBuffer({
-        size: 40,
+        size: 60,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     try {
-        const bare = world.create();
-        world.add(bare, Transform);
-        world.add(bare, MeshInstance);
-        const unlit = world.create();
-        world.add(unlit, Transform);
-        world.add(unlit, MeshInstance);
-        world.add(unlit, Material, { surface: world.resource(Surfaces).id("unlit")! });
-        expect(world.has(bare, Material)).toBe(false);
-        device.pushErrorScope("validation");
-        world.step();
-        const draws = world.resource(Draws);
-        const encoder = device.createCommandEncoder();
-        for (const [index, surface] of ["default", "unlit"].entries()) {
-            const draw = Array.from(draws).find(
-                (draw) => draw.surface === surface && draw.mesh === "cube",
-            )!;
-            encoder.copyBufferToBuffer(
-                world.gpu.root.unwrap(draw.args.indirect),
-                draw.args.offset ?? 0,
-                readback,
-                index * 20,
-                20,
-            );
+        const eid = world.create();
+        world.add(eid, Transform);
+        world.add(eid, MeshInstance);
+        async function counts() {
+            device.pushErrorScope("validation");
+            world.step();
+            const encoder = device.createCommandEncoder();
+            for (const [index, surface] of ["default", "unlit", "vertex"].entries()) {
+                const draw = Array.from(world.resource(Draws)).find(
+                    (draw) => draw.surface === surface && draw.mesh === "cube",
+                )!;
+                encoder.copyBufferToBuffer(
+                    world.gpu.root.unwrap(draw.args.indirect),
+                    draw.args.offset ?? 0,
+                    readback,
+                    index * 20,
+                    20,
+                );
+            }
+            device.queue.submit([encoder.finish()]);
+            expect(
+                await bounded("surface selection validation", device.popErrorScope()),
+            ).toBeNull();
+            await bounded("surface selection readback", readback.mapAsync(GPUMapMode.READ));
+            const words = new Uint32Array(readback.getMappedRange());
+            const result = [words[1], words[6], words[11]];
+            readback.unmap();
+            return result;
         }
-        device.queue.submit([encoder.finish()]);
-        const error = await bounded("surface selection validation", device.popErrorScope());
-        expect(error).toBeNull();
-        await bounded("surface selection readback", readback.mapAsync(GPUMapMode.READ));
-        const words = new Uint32Array(readback.getMappedRange());
-        expect(words[1]).toBe(1);
-        expect(words[6]).toBe(1);
-        readback.unmap();
+        expect(await counts()).toEqual([1, 0, 0]);
+        for (const [index, surface] of ["unlit", "vertex"].entries()) {
+            world.add(eid, Material, { surface: world.resource(Surfaces).id(surface)! });
+            expect(await counts()).toEqual(index === 0 ? [0, 1, 0] : [0, 0, 1]);
+            world.remove(eid, Material);
+            expect(await counts()).toEqual([1, 0, 0]);
+        }
     } finally {
         readback.destroy();
         app.dispose();
