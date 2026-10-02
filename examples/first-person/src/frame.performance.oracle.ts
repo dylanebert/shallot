@@ -58,7 +58,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
     const device = await bounded(
         "frame probe device",
         adapter.requestDevice({
-            requiredFeatures: ["timestamp-query", "bgra8unorm-storage", "rg11b10ufloat-renderable"],
+            requiredFeatures: ["timestamp-query", "rg11b10ufloat-renderable"],
             requiredLimits,
         }),
     );

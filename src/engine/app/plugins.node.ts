@@ -203,7 +203,7 @@ async function trackedDevice() {
     const device = await withTimeout(
         "Dawn device request",
         adapter.requestDevice({
-            requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable"],
+            requiredFeatures: ["rg11b10ufloat-renderable"],
             requiredLimits,
         }),
         5000,

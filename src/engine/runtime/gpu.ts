@@ -645,9 +645,6 @@ export function observeDevice(
 // physics app, on the LDS arm.
 export const BASE_FEATURES = [
     "indirect-first-instance",
-    // a fused postfx composite writes the swapchain from a compute pass; on Mac/Windows the
-    // preferred canvas format is bgra8unorm, and a storage view of it needs this feature
-    "bgra8unorm-storage",
     // the default HDR scene offscreen + the standard renderer's MSAA color target are rg11b10ufloat:
     // grants it render-attachment + multisample + resolve. Half the bandwidth of rgba16float at
     // 4× MSAA, on the whole floor (desktop / Steam Deck / recent Android all support it)

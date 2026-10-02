@@ -84,7 +84,7 @@ export const linearToSrgb3 = tgpu.fn(
     return std.select(hi, lo, std.le(c, d.vec3f(0.0031308)));
 });
 
-/** WGSL `linearToSrgb3(c: vec3f) -> vec3f`: the present-gamma encode a compute composite writing the
+/** WGSL `linearToSrgb3(c: vec3f) -> vec3f`: the present-gamma encode a final pass writing the
  *  swapchain splices. */
 export const linearToSrgbWgsl = chunk("linearToSrgbWgsl", [linearToSrgb3], spliceNs);
 
@@ -265,10 +265,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
         device: rawDevice(world.gpu.device),
         format: linearFormat,
         alphaMode: "premultiplied",
-        // the present path is a compute composite writing the swapchain via textureStore, so it needs
-        // STORAGE_BINDING and the base (non-srgb) format — a storage view can't be sRGB. No sRGB
-        // viewFormat: the composite encodes sRGB itself. RENDER_ATTACHMENT keeps it a presentable surface.
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
     const rect = canvas.getBoundingClientRect();
@@ -420,10 +417,7 @@ export function attachTexture(
         label: "camera final texture",
         size: [size.width, size.height],
         format: navigator.gpu.getPreferredCanvasFormat(),
-        usage:
-            GPUTextureUsage.RENDER_ATTACHMENT |
-            GPUTextureUsage.STORAGE_BINDING |
-            GPUTextureUsage.COPY_SRC,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
     world.own(texture);
     view.texture = texture;

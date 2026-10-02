@@ -27,14 +27,22 @@ const subjects = gpuApps(import.meta.path, [
                     const device = rawDevice(world.gpu.device);
                     const module = device.createShaderModule({
                         code: `
-            @group(0) @binding(0) var outputImage: texture_storage_2d<${navigator.gpu.getPreferredCanvasFormat()}, write>;
-            @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) p: vec3u) {
-                textureStore(outputImage, p.xy, vec4f(f32(p.x + 17u), f32(p.y + 31u), 193.0, 255.0) / 255.0);
+            @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+                let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+                return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+            }
+            @fragment fn fragment(@builtin(position) p: vec4f) -> @location(0) vec4f {
+                return vec4f(f32(u32(p.x) + 17u), f32(u32(p.y) + 31u), 193.0, 255.0) / 255.0;
             }`,
                     });
-                    world.resource(pipelineKey).pipeline = device.createComputePipeline({
+                    world.resource(pipelineKey).pipeline = device.createRenderPipeline({
                         layout: "auto",
-                        compute: { module },
+                        vertex: { module, entryPoint: "vertex" },
+                        fragment: {
+                            module,
+                            entryPoint: "fragment",
+                            targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+                        },
                     });
                 },
                 systems: [
@@ -45,17 +53,13 @@ const subjects = gpuApps(import.meta.path, [
                             const pipeline = world.resource(pipelineKey).pipeline!;
                             for (const view of world.resource(Views).values()) {
                                 if (!view.present) continue;
-                                const device = rawDevice(world.gpu.device);
-                                const pass = world.resource(Render).encoder!.beginComputePass();
+                                const pass = world.resource(Render).encoder!.beginRenderPass({
+                                    colorAttachments: [
+                                        { view: view.present, loadOp: "clear", storeOp: "store" },
+                                    ],
+                                });
                                 pass.setPipeline(pipeline);
-                                pass.setBindGroup(
-                                    0,
-                                    device.createBindGroup({
-                                        layout: pipeline.getBindGroupLayout(0),
-                                        entries: [{ binding: 0, resource: view.present }],
-                                    }),
-                                );
-                                pass.dispatchWorkgroups(view.width, view.height);
+                                pass.draw(3);
                                 pass.end();
                             }
                         },
@@ -65,7 +69,7 @@ const subjects = gpuApps(import.meta.path, [
         ],
     },
 ]);
-const pipelineKey = { create: () => ({ pipeline: null as GPUComputePipeline | null }) };
+const pipelineKey = { create: () => ({ pipeline: null as GPURenderPipeline | null }) };
 
 test("texture final frames capture tight RGBA and refuse missing presentation; owned targets release", async () => {
     const app = subjects()[0];

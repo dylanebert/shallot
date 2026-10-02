@@ -65,11 +65,7 @@ test("no adapter has its own acquisition refusal", async () => {
 test("device creation failure names both the stage and its cause", async () => {
     const cause = "fixture device creation failed";
     const adapter = {
-        features: new Set<GPUFeatureName>([
-            "indirect-first-instance",
-            "bgra8unorm-storage",
-            "rg11b10ufloat-renderable",
-        ]),
+        features: new Set<GPUFeatureName>(["indirect-first-instance", "rg11b10ufloat-renderable"]),
         limits: { maxStorageBuffersPerShaderStage: 10 },
         requestDevice: async () => {
             throw new Error(cause);
