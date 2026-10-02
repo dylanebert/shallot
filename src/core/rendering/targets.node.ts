@@ -13,12 +13,12 @@ import {
     backgroundLayout,
     CameraBackground,
     Materials,
-    MeshMaterial3d,
+    MeshMaterial,
     registerBackground,
     StandardMaterial,
     StandardRenderer,
 } from "../../standard/rendering";
-import { Mesh3d } from "../mesh";
+import { MeshInstance } from "../mesh";
 import {
     AmbientLight,
     attachTexture,
@@ -28,10 +28,10 @@ import {
     DirectionalLight,
     PickingPrepass,
     PointLight,
-    Spot,
+    SpotLight,
     Tonemapping,
     TonemappingMethod,
-    Volumetric,
+    VolumetricLight,
 } from "./index";
 
 setDefaultTimeout(CEILING.node);
@@ -80,8 +80,8 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     const material = world
         .resource(Materials)
         .add(StandardMaterial({ baseColor: [1, 0, 1, 1], perceptualRoughness: 1 }));
-    world.add(mesh, Mesh3d);
-    world.add(mesh, MeshMaterial3d, { material });
+    world.add(mesh, MeshInstance);
+    world.add(mesh, MeshMaterial, { material });
     world.add(mesh, Outline, { width: 3, color: [0.1, 1, 0.2, 1] });
     const edgeMesh = world.create();
     world.add(edgeMesh, Transform, {
@@ -89,21 +89,29 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
         rotation: [0.0996005, 0.199201, 0, 0.974884],
         scale: [0.65, 0.65, 0.65, 0],
     });
-    world.add(edgeMesh, Mesh3d);
-    world.add(edgeMesh, MeshMaterial3d, { material });
+    world.add(edgeMesh, MeshInstance);
+    world.add(edgeMesh, MeshMaterial, { material });
     world.add(world.create(), AmbientLight, { intensity: 0.2 });
     const sun = world.create();
     world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });
-    world.add(sun, Volumetric);
+    world.add(sun, VolumetricLight);
+    world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const point = world.create();
     world.add(point, Transform, { translation: [1, 1, 2, 0] });
     world.add(point, PointLight, { intensity: 8, range: 10, color: 0xff8844 });
-    world.add(point, Volumetric);
+    world.add(point, VolumetricLight);
+    world.storage(PointLight).shadowMapsEnabled.set(point, 1);
     const spot = world.create();
     world.add(spot, Transform, { translation: [-1, 1, 3, 0] });
-    world.add(spot, PointLight, { intensity: 12, range: 10, color: 0x4488ff });
-    world.add(spot, Spot, { inner: 20, outer: 40 });
-    world.add(spot, Volumetric);
+    world.add(spot, SpotLight, {
+        intensity: 12,
+        range: 10,
+        color: 0x4488ff,
+        innerAngle: (20 * Math.PI) / 180,
+        outerAngle: (40 * Math.PI) / 180,
+        shadowMapsEnabled: 1,
+    });
+    world.add(spot, VolumetricLight);
     world.add(world.create(), Fog);
     const directory = process.env.SHALLOT_TARGET_FRAMES;
     const frames: Uint8ClampedArray[][] = [[], []];
@@ -122,7 +130,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
             world.step(0);
             renderPasses = 0;
             world.step(0);
-            expect(renderPasses).toBe(lanes ? 7 : 6);
+            expect(renderPasses).toBe(lanes ? 9 : 8);
             const { rgba } = await captureTexture(world, camera);
             frames[aa][lanes] = rgba;
             expect(await world.gpu.device.popErrorScope()).toBeNull();

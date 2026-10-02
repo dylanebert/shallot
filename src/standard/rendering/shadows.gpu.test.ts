@@ -13,7 +13,6 @@ import {
     cascadeCovers,
     destroyCascades,
     resetCascades,
-    Shadow,
     updateCascades,
 } from "./shadows";
 
@@ -54,11 +53,11 @@ async function sunScene() {
     world.storage(Camera).far.set(main, 500);
     const sun = world.create();
     world.add(sun, DirectionalLight);
-    world.add(sun, Shadow);
+    world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     world.storage(DirectionalLight).direction.set(sun, -0.3, -0.8, -0.55, 0);
-    world.storage(Shadow).distance.set(sun, 80);
-    world.storage(Shadow).depthBias.set(sun, 0);
-    world.storage(Shadow).normalBias.set(sun, 0);
+    world.storage(DirectionalLight).maximumDistance.set(sun, 80);
+    world.storage(DirectionalLight).shadowDepthBias.set(sun, 0);
+    world.storage(DirectionalLight).shadowNormalBias.set(sun, 0);
     world.step(0);
     return { world, main, sun };
 }

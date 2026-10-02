@@ -1,4 +1,4 @@
-// The shadow-atlas re-gather: concatenate the per-combo *culled* regions the Mesh3d pack wrote (slot-major
+// The shadow-atlas re-gather: concatenate the per-combo *culled* regions the MeshInstance pack wrote (slot-major
 // `drawArgs` + the `packedEids` pool), or duplicate a view-independent producer's direct range, into one
 // contiguous, mesh-major run per casting mesh + a per-instance combo index. Each shadow atlas (the
 // point/spot tiles, the CSM cascade tiles) instantiates its own `Regather`; the two A/B compute pipelines
@@ -233,7 +233,7 @@ export async function prepareRegather(
 /** one shadow atlas's re-gather instance: its own packed list + indirect args + meta, sharing the
  * World-owned A/B pipelines. The point atlas and the CSM cascade atlas each own one. */
 export interface Regather {
-    /** the re-gathered instance list (`eid, globalTransformRow, encodedMesh3dSlot, combo`), bound at the consumer
+    /** the re-gathered instance list (`eid, globalTransformRow, encodedMeshInstanceSlot, combo`), bound at the consumer
      * pipeline's `eids` lane. `null` until {@link Regather.ensure} allocates it (the first casting frame). */
     eids(): GPUBuffer | null;
     /** the indirect buffer the atlas render pass draws from: one DrawIndexedIndirect record per casting
@@ -247,7 +247,7 @@ export interface Regather {
      * shared output: earlier GPU commands in the same unsubmitted encoder must keep the buffer they captured. */
     reserve(maxDraws: number): void;
     /** upload the per-frame meta + run Pass A then Pass B on `cpass` (one compute pass, the intra-pass
-     * dispatch ordering the Mesh3d pack relies on). `comboSlots` = the view slot each dense combo packed into
+     * dispatch ordering the MeshInstance pack relies on). `comboSlots` = the view slot each dense combo packed into
      * (the first `comboCount`); `drawPairs` = the source indirect-record indices (the first `drawCount`);
      * `pairCount` = the pack's pair stride, or zero for a
      * view-independent producer whose direct range is duplicated across combos. */
@@ -343,7 +343,7 @@ export function createRegather(world: World, label: string): Regather {
         return buffer;
     }
 
-    // Pass A bind group (drawArgs + meta → args). `drawArgs` is the Mesh3d pack's shared indirect buffer (read
+    // Pass A bind group (drawArgs + meta → args). `drawArgs` is the MeshInstance pack's shared indirect buffer (read
     // from a casting Draw — sear stays part-agnostic), which reallocs on pack growth
     function aGroup(
         world: World,
@@ -474,7 +474,7 @@ export function createRegather(world: World, label: string): Regather {
                 _paramsStaging as Uint32Array<ArrayBuffer>,
             );
             // Pass A (per-mesh args, 1 thread) → Pass B (scatter, one thread per (mesh, combo)) in one pass —
-            // the same intra-pass dispatch-ordering the Mesh3d pack relies on, so B sees A's args writes
+            // the same intra-pass dispatch-ordering the MeshInstance pack relies on, so B sees A's args writes
             //. The atlas render then sees the compute output by in-encoder ordering
             cpass.setPipeline(regatherState(world).aPipe!);
             cpass.setBindGroup(0, aGroup(world, drawArgs, meta, runIndex));

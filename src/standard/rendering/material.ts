@@ -2,8 +2,8 @@ import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { u32 } from "../../engine";
 
-/** A Mesh3d without MeshMaterial3d draws with the default StandardMaterial (the three.js Mesh fallback convention). */
-export const MeshMaterial3d = { material: u32 };
+/** A MeshInstance without MeshMaterial draws with the default StandardMaterial (the three.js Mesh fallback convention). */
+export const MeshMaterial = { material: u32 };
 
 export interface StandardMaterial {
     /** Surfaces registry id in the same World; zero selects the built-in default surface. */

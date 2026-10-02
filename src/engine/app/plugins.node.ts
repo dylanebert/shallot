@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { Mesh3d } from "../../core/mesh";
+import { MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
     attachCanvas,
@@ -12,13 +12,12 @@ import {
     DepthPrepass,
     DirectionalLight,
     PickingPrepass,
-    PointLight,
     RenderingPlugin,
     Resolution,
-    Spot,
+    SpotLight,
     Tonemapping,
     Views,
-    Volumetric,
+    VolumetricLight,
 } from "../../core/rendering";
 import { offscreenTexture } from "../../core/rendering/view";
 import {
@@ -51,7 +50,7 @@ import { isolationFont } from "../../extras/text/font.fixture";
 import {
     DEFAULT_PLUGINS,
     Materials,
-    MeshMaterial3d,
+    MeshMaterial,
     StandardMaterial,
     Transform,
 } from "../../standard";
@@ -60,7 +59,6 @@ import {
     CameraBackground,
     cascadeComboEids,
     pointComboEids,
-    Shadow,
     StandardRenderer,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
@@ -590,20 +588,18 @@ function featurePlugin(subject: Plugin): Plugin {
             ) {
                 const sun = world.create();
                 world.add(sun, DirectionalLight);
-                world.add(sun, Shadow);
-                world.add(sun, Volumetric);
+                world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
+                world.add(sun, VolumetricLight);
                 const point = world.create();
                 world.add(point, Transform);
-                world.add(point, PointLight);
-                world.add(point, Spot);
-                world.add(point, Shadow);
-                world.add(point, Volumetric);
+                world.add(point, SpotLight, { shadowMapsEnabled: 1 });
+                world.add(point, VolumetricLight);
                 world.storage(Transform).translation.set(point, 1, 2, 1, 0);
             }
 
             if (subject === RenderingPlugin || subject === StandardRenderingPlugin) {
-                expect([...world.query([DirectionalLight, Shadow, Volumetric])]).toHaveLength(1);
-                expect([...world.query([PointLight, Spot, Shadow, Volumetric])]).toHaveLength(1);
+                expect([...world.query([DirectionalLight, VolumetricLight])]).toHaveLength(1);
+                expect([...world.query([SpotLight, VolumetricLight])]).toHaveLength(1);
             }
 
             const sky = world.create();
@@ -615,8 +611,8 @@ function featurePlugin(subject: Plugin): Plugin {
             const part = world.create();
             resources.part = part;
             world.add(part, Transform);
-            world.add(part, Mesh3d);
-            world.add(part, MeshMaterial3d, {
+            world.add(part, MeshInstance);
+            world.add(part, MeshMaterial, {
                 material: world.resource(Materials).add(
                     StandardMaterial({
                         baseColor: [0.8, 0.25, 0.1, 1],
@@ -732,7 +728,7 @@ function authorIsolationContent(
         world.storage(Sky).zenith.set(resources.sky, content.skyZenith);
         world.storage(Sky).horizon.set(resources.sky, content.skyHorizon);
         const materials = world.resource(Materials);
-        const material = world.storage(MeshMaterial3d).material.get(resources.part);
+        const material = world.storage(MeshMaterial).material.get(resources.part);
         materials.update(material, { baseColor: content.color });
     })();
     return a;

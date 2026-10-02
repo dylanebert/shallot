@@ -75,7 +75,8 @@ export function frustumPlanes(viewProj: Float32Array, out: Float32Array, base = 
 
 /**
  * pack a frustum cull volume into `out` at view `slot`: the tag word ({@link CULL_FRUSTUM}) in the header
- * vec4, then the camera's 6 planes ({@link frustumPlanes}). One source for the per-slot layout: the pack
+ * vec4, then the camera's 6 planes ({@link frustumPlanes}). The view pack sets header.y to one for a
+ * depth-only view and zero for a shading view. One source for the per-slot layout: the pack
  * reads the slot at `slot * CULL_VOLUME_FLOATS` and tests the planes after the header vec4.
  */
 export function frustumVolume(out: Float32Array, slot: number, viewProj: Float32Array): void {

@@ -1,20 +1,5 @@
-// StandardRenderer's shadow feature, the CPU/ECS half: the off-screen light cameras + their placement math.
-// Shadows are sear-internal and data-gated on the `Shadow` component — like the `PickingPrepass` marker, presence
-// on a light turns them on (and tunes them), absence is the zero-cost off path. On the directional
-// light it's the sun shadow map; on a `PointLight` it's six cube faces rendered as tiles into a shared
-// depth atlas (the point-shadow half, bottom of this file). The renderer (sear/index.ts) owns the GPU
-// half — the map/atlas textures, their render through sear's depth pipelines, and the group-1 bindings
-// sear's FS samples inline. This file owns only what's CPU-shaped: the light camera entities, where to
-// aim + size them each frame, and the `Shadow` tuning component.
-//
-// The light's view is a real **off-screen ortho Camera entity** — no canvas (`attachView`), so it takes
-// a cull slot and packs its viewProj through render's own `computeViewProj` like any camera. That means
-// the Mesh3d pack culls casters into it as one more view, and any producer's draws bind it — no
-// shadow-side view math, no producer-side caster code. The camera is created lazily on the first frame
-// a casting light exists, so a scene with no `Shadow` never allocates it (matching `PickingPrepass`).
-//
-// Bevy's shape: the directional light owns a shadow map in the view's lighting bindings, light-data-
-// gated, sampled inline — no separate shadow pass module, no coordination singleton.
+// Shadow cameras share core's view/projection and frustum packing. They are created lazily for lights
+// with shadowMapsEnabled; the mesh producer culls into their depth-only view slots.
 
 import {
     attachView,
@@ -25,12 +10,11 @@ import {
     MAX_SLOTS,
     MAX_VIEWS,
     PointLight,
-    Spot,
+    SpotLight,
     Views,
 } from "../../core/rendering";
 import {
     composeGlobalTransform,
-    f32,
     GlobalTransform,
     lookAt,
     lookAtRotation,
@@ -40,43 +24,6 @@ import {
     Transform,
     type World,
 } from "../../engine";
-
-/**
- * shadow tuning, on a light entity: presence is the switch (like {@link PickingPrepass} on a camera), the
- * fields are the tuning. On the {@link DirectionalLight} it casts the sun's cascaded shadow map; on a
- * {@link PointLight} the light's six cube faces render into the shared depth atlas (`distance` doesn't
- * apply there: coverage is the light's `range`, and the tile size is importance-sized from the
- * {@link PointShadows} atlas budget). `distance` is the directional sun's **max shadow distance**: the
- * camera's view range is split into cascades out to it ({@link SunShadows}); raise it to shadow farther,
- * lower it for finer near texels. `normalBias` is the primary acne fix: the receiver is shifted along its
- * surface normal by `normalBias` shadow-map texels (in world size) before the depth compare, so grazing
- * faces (where acne is worst) get more offset (raise it if acne shows, lower it if shadows detach from
- * contact edges). `depthBias` is a small residual depth bias toward the light the normal offset can't
- * cover (flat faces dead-on to the light).
- *
- * @example
- * ```
- * const sun = world.create();
- * world.add(sun, DirectionalLight, { direction: [-0.3, -0.8, -0.55, 0] });
- * world.add(sun, Shadow, { distance: 80 });
- * ```
- */
-export const Shadow = {
-    /** the sun's max shadow distance: the camera view range is split into cascades out to it; raise to shadow farther, lower for finer near texels. Ignored on a point light (coverage is its `range`). */
-    distance: f32,
-    /** a small residual depth bias toward the light, covering flat faces dead-on to it the normal offset can't. */
-    depthBias: f32,
-    /** the primary acne fix: shifts the receiver along its surface normal by this many shadow texels before the depth compare. Raise if acne shows, lower if shadows detach at contact edges. */
-    normalBias: f32,
-};
-
-/** the {@link Shadow} field defaults: applied on add, overridden by `world.add` values. `normalBias` matches
- * Bevy's directional default (1.8); `depthBias` is a small residual now the normal offset carries acne */
-export const SHADOW_DEFAULTS = {
-    distance: 50,
-    depthBias: 0.0005,
-    normalBias: 1.8,
-};
 
 /** the directional shadow's cascade ceiling: each cascade takes one of the depth view slots reserved out
  * of the point-shadow combo budget, so the count can't exceed it. Four is the three.js / Bevy default. */
@@ -386,7 +333,7 @@ export function orthoFootprintFit(
 // ---- CSM: the cascade combo-camera pool (the sun's analogue of the point combo pool) ----
 //
 // The single sun box is split into N depth slices along the camera's view range, each its own
-// frustum-culled ortho depth view — a pooled off-screen camera the Mesh3d pack culls casters into through the
+// frustum-culled ortho depth view — a pooled off-screen camera the MeshInstance pack culls casters into through the
 // same `cull → count → scan → scatter` spine every view uses (the sun joining the unified culled-combo
 // path). Each cascade renders into a tile of a dedicated atlas (the fixed grid below — cascades are
 // equal-resolution, so no importance sizing), the tile placement folded into its viewProj (`tileTransform`).
@@ -608,30 +555,30 @@ export function resetCascades(world: World): void {
 /**
  * pose the sun's cascade light cameras + fill the dense per-cascade viewProjs + meta + rects + far-bounds +
  * covers the atlas render + the receiver read. Runs in the `simulation` group, before the draw frame opens.
- * Casts nothing (sets `_cascadeCount = 0`) when no directional light carries a {@link Shadow} or there's no
+ * Casts nothing (sets `_cascadeCount = 0`) when the directional light has shadowMapsEnabled off or there's no
  * main camera. Two paths by main-camera projection:
  *
- * - **perspective** — split `[near, Shadow.distance]` into {@link sunCascades} depth slices, fit one ortho box
+ * - **perspective** — split `[near, DirectionalLight.maximumDistance]` into {@link sunCascades} depth slices, fit one ortho box
  *   per slice ({@link cascadeFit}); the receiver selects a cascade by view-z and blends across the overlap band.
  * - **orthographic** — uniform texel density means depth cascades buy nothing, so a **single** box fit to the
  *   visible ground footprint ({@link orthoFootprintFit}); its far-bound is a sentinel so the receiver always
  *   selects it (count = 1, no blend). The frustum-slice fit doesn't reach an ortho camera's visible ground.
  *
- * `Shadow.distance` is the CSM max shadow distance (Bevy's `maximum_distance`) and doubles as the near-plane
+ * `DirectionalLight.maximumDistance` is the CSM max shadow distance and doubles as the near-plane
  * margin every box extends toward the light ({@link placeFromCenter}), so a caster within shadow range above a
  * slice is captured, not clipped. The boxes texel-snap per cascade so the edges don't crawl.
  */
 export function updateCascades(world: World, main: number): void {
     const shadow = shadows(world);
     const light = world.only(SUN_TERMS);
-    if (light < 0 || !world.has(light, Shadow) || main < 0) {
+    if (light < 0 || !world.storage(DirectionalLight).shadowMapsEnabled.get(light) || main < 0) {
         shadow.cascadeCount = 0;
         return;
     }
     const resolution = sunResolution();
-    const maxDist = Math.max(1e-3, world.storage(Shadow).distance.get(light));
-    shadow.sunBias[0] = world.storage(Shadow).depthBias.get(light);
-    shadow.sunBias[1] = world.storage(Shadow).normalBias.get(light);
+    const maxDist = Math.max(1e-3, world.storage(DirectionalLight).maximumDistance.get(light));
+    shadow.sunBias[0] = world.storage(DirectionalLight).shadowDepthBias.get(light);
+    shadow.sunBias[1] = world.storage(DirectionalLight).shadowNormalBias.get(light);
     _sunDir[0] = world.storage(DirectionalLight).direction.x.get(light);
     _sunDir[1] = world.storage(DirectionalLight).direction.y.get(light);
     _sunDir[2] = world.storage(DirectionalLight).direction.z.get(light);
@@ -768,13 +715,13 @@ export function updateCascades(world: World, main: number): void {
 // light-texture-atlas.js model) — the same `texture_depth_2d` + comparison-sampler binding shape the sun
 // shadow uses, so it needs no cube-array support and fits the integrated/WebGL floor. Each shadowed light
 // claims power-of-two square tiles sized from its apparent contribution (`intensity·range²/dist²`): a
-// point caster six face tiles, a `Spot` caster one cone tile. Tile *area* tracks the score (the hero light
+// point caster six face tiles, a `SpotLight` caster one cone tile. Tile *area* tracks the score (the hero light
 // large, distant lights small), and the tiles are buddy/quadtree-packed so power-of-two squares pack with
 // no fragmentation. Over-budget (the smallest uniform tiling still overflows the square) drops the least
 // important with a non-silent warn.
 //
 // Each combo (a point caster's cube face, a spot's cone) is its own **frustum-culled depth view** — a
-// pooled off-screen camera the Mesh3d pack culls casters into, the same `cull → count → scan → scatter` spine
+// pooled off-screen camera the MeshInstance pack culls casters into, the same `cull → count → scan → scatter` spine
 // every camera uses. So a member rasterizes only the faces it actually hits, not all six (no
 // over-amplification). The viewProjs are computed here CPU-side (one per combo, the tile placement folded
 // in — {@link tileTransform}); sear re-gathers the per-combo culled members into one contiguous run per
@@ -1034,7 +981,9 @@ export interface PointShadowFrame {
 }
 
 // the shadowed point-light query terms and the ranked candidates, a capacity pool reused in place
-const POINT_CASTER_TERMS = [PointLight, Shadow, GlobalTransform];
+const POINT_CASTER_TERMS = [PointLight, GlobalTransform];
+const SPOT_CASTER_TERMS = [SpotLight, GlobalTransform];
+const LIGHT_CASTER_TERMS = [POINT_CASTER_TERMS, SPOT_CASTER_TERMS];
 const _cands: { light: number; range: number; score: number; rank: number }[] = [];
 
 // one caster frame record for a caller's pool, written in place each frame by `updatePointShadows`
@@ -1233,7 +1182,7 @@ export function packCasters(
 /**
  * rank the shadowed point/spot lights, size + pack their atlas tiles by importance, and compute the
  * per-combo tile viewProjs + rects the atlas render projects by. Runs in the `simulation` group. Casters
- * are the `PointLight` entities carrying a {@link Shadow}, capped at {@link pointCasters} with a non-silent
+ * are the PointLight and SpotLight entities with shadowMapsEnabled, capped at {@link pointCasters} with a non-silent
  * warn. Over the cap the **highest-importance** lights win (apparent contribution at the `main` camera,
  * `intensity · range² / dist²`, scale-invariant), so a far dim light never steals a slot from the hero by
  * query order; a hysteresis margin keeps an incumbent its slot so the set doesn't flicker. {@link packCasters}
@@ -1254,30 +1203,36 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
     const cy = main >= 0 ? world.storage(GlobalTransform).translation.y.get(main) : 0;
     const cz = main >= 0 ? world.storage(GlobalTransform).translation.z.get(main) : 0;
     let candCount = 0;
-    for (const light of world.query(POINT_CASTER_TERMS)) {
-        const range = world.storage(PointLight).range.get(light);
-        if (range <= 0) continue;
-        const dx = world.storage(GlobalTransform).translation.x.get(light) - cx;
-        const dy = world.storage(GlobalTransform).translation.y.get(light) - cy;
-        const dz = world.storage(GlobalTransform).translation.z.get(light) - cz;
-        const distSq = main >= 0 ? Math.max(dx * dx + dy * dy + dz * dz, 1) : 1;
-        const score = (world.storage(PointLight).intensity.get(light) * range * range) / distSq;
-        // an incumbent (cast last frame) ranks with the hysteresis margin so a sub-margin challenger can't
-        // evict it — the set stays put under small camera moves, killing the shadow flicker
-        const rank = shadow.lastCasters.has(light)
-            ? score * (1 + Math.max(0, PointShadows.hysteresis))
-            : score;
-        let cand = _cands[candCount];
-        if (!cand) {
-            cand = { light: 0, range: 0, score: 0, rank: 0 };
-            _cands[candCount] = cand;
+    for (const terms of LIGHT_CASTER_TERMS)
+        for (const light of world.query(terms)) {
+            if (terms === POINT_CASTER_TERMS && world.has(light, SpotLight)) continue;
+            const source = world.has(light, SpotLight)
+                ? world.storage(SpotLight)
+                : world.storage(PointLight);
+            if (!source.shadowMapsEnabled.get(light)) continue;
+            const range = source.range.get(light);
+            if (range <= 0) continue;
+            const dx = world.storage(GlobalTransform).translation.x.get(light) - cx;
+            const dy = world.storage(GlobalTransform).translation.y.get(light) - cy;
+            const dz = world.storage(GlobalTransform).translation.z.get(light) - cz;
+            const distSq = main >= 0 ? Math.max(dx * dx + dy * dy + dz * dz, 1) : 1;
+            const score = (source.intensity.get(light) * range * range) / distSq;
+            // an incumbent (cast last frame) ranks with the hysteresis margin so a sub-margin challenger can't
+            // evict it — the set stays put under small camera moves, killing the shadow flicker
+            const rank = shadow.lastCasters.has(light)
+                ? score * (1 + Math.max(0, PointShadows.hysteresis))
+                : score;
+            let cand = _cands[candCount];
+            if (!cand) {
+                cand = { light: 0, range: 0, score: 0, rank: 0 };
+                _cands[candCount] = cand;
+            }
+            cand.light = light;
+            cand.range = range;
+            cand.score = score;
+            cand.rank = rank;
+            candCount++;
         }
-        cand.light = light;
-        cand.range = range;
-        cand.score = score;
-        cand.rank = rank;
-        candCount++;
-    }
     // highest rank first, ties by light eid: an insertion sort over the pooled records
     for (let i = 1; i < candCount; i++) {
         const cand = _cands[i];
@@ -1322,9 +1277,12 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         f.pos[2] = world.storage(GlobalTransform).translation.z.get(c.light);
         f.near = c.range / 1000;
         f.far = c.range;
-        f.depthBias = world.storage(Shadow).depthBias.get(c.light);
-        f.normalBias = world.storage(Shadow).normalBias.get(c.light);
-        f.spot = world.has(c.light, Spot);
+        const source = world.has(c.light, SpotLight)
+            ? world.storage(SpotLight)
+            : world.storage(PointLight);
+        f.depthBias = source.shadowDepthBias.get(c.light);
+        f.normalBias = source.shadowNormalBias.get(c.light);
+        f.spot = world.has(c.light, SpotLight);
         f.fwd[0] = 0;
         f.fwd[1] = 0;
         f.fwd[2] = -1;
@@ -1391,7 +1349,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
                 world.storage(GlobalTransform).rotation.y.get(f.light),
                 world.storage(GlobalTransform).rotation.z.get(f.light),
                 world.storage(GlobalTransform).rotation.w.get(f.light),
-                world.storage(Spot).outer.get(f.light),
+                (world.storage(SpotLight).outerAngle.get(f.light) * 180) / Math.PI,
                 f.tilePx,
             );
             f.fwd = b.fwd;

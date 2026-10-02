@@ -1669,7 +1669,7 @@ const typedShadowFs = tgpu
 /**
  * the typed point/cascade shadow-atlas vertex entry: the former string shadow pipeline's VS, pinned
  * statement-for-statement — pulls the 8 B position-only vertex from `layout.depthVariant` (the
- * `typedPrepassVs` shape), reads the re-gathered `(eid, globalTransformRow, encodedMesh3dSlot, combo)` instance at the
+ * `typedPrepassVs` shape), reads the re-gathered `(eid, globalTransformRow, encodedMeshInstanceSlot, combo)` instance at the
  * surface's `eids` lane, applies the instance transform, splices the surface's own `vs` chunk when present,
  * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
  * `tileBox` seam-discard bounds from `shadowLayout.$.tileRects` (indexed `slot·6+face` for the point atlas,

@@ -156,7 +156,7 @@ export const fogKernel = tgpu
                 const light = PointLightGpu(
                     fogLayout1.$.pointLights.lights[fogLayout1.$.lightIndices[entry.x + j]],
                 );
-                // params.x < 0 is the Volumetric flag; a plain light has no shaft (skip it) — the for-loop
+                // params.x < 0 is the VolumetricLight flag; a plain light has no shaft (skip it) — the for-loop
                 // `continue` becomes an early increment + `continue` under the dynamic-bound `while` shape
                 // (the "loop{} emits as while(true)" class), never a reassociation
                 if (light.params.x >= 0) {

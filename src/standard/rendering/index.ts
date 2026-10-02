@@ -2,12 +2,12 @@
 
 // StandardRenderer's author barrel — the game-author surface of the default renderer. The renderer itself is
 // `forward.ts` (the GPU-driven forward pass); this file re-exports only what a scene author touches: the
-// `StandardRenderer` camera marker, the `MeshMaterial3d` / `CameraBackground`
-// components, the `Shadow` cast opt-in + its `SunShadows` / `PointShadows` config, and `StandardRenderingPlugin`. The
+// `StandardRenderer` camera marker, the `MeshMaterial` / `CameraBackground`
+// components, the `SunShadows` / `PointShadows` config, and `StandardRenderingPlugin`. The
 // extension surface (surface codegen, the relocatable shading chunks, the backdrop registry, the ordering
 // anchors) follows below, drawn from the same `forward.ts` impl.
 // re-export each name from its definition site (one hop, so the reference generator resolves the JSDoc):
-// The renderer components live in forward.ts and shadow components in shadows.ts.
+// The renderer components live in forward.ts and shadow config in shadows.ts.
 // Camera prepass markers and targets belong to core/rendering.
 
 import type { Plugin } from "../../engine";
@@ -19,15 +19,15 @@ export { CameraBackground, StandardRenderer } from "./forward";
  * then `blend` draws composited over them, fused into one render pass) and an opt-in single-sample
  * prepass emitting per-camera lanes (the {@link PickingPrepass} → `view.pickingId` id lane, the {@link DepthPrepass} →
  * `view.depth` lane), with sun shadows sampled inline in the FS. Add `StandardRenderingPlugin` and give a Camera the
- * {@link StandardRenderer} marker and the happy path renders. Sun shadows are data-gated on the {@link Shadow}
- * component on a `DirectionalLight`: add it to cast (and tune), omit it for the fully-lit bare path (no
+ * {@link StandardRenderer} marker and the happy path renders. Set DirectionalLight.shadowMapsEnabled to 1
+ * to cast and tune shadows on that light; leave it at 0 for the fully-lit bare path (no
  * shadow map allocated), exactly like a camera without a lane marker runs no prepass. No separate shadow
  * plugin, no coordination singleton: sear owns its own shadow map and binds it (Bevy's clustered-forward
  * shape). StandardRenderer renders into the offscreen (`view.framebuffer`) and never the swapchain; presenting it is
  * CorePipelinePlugin's tonemapping pass, after the color resolve. This plugin includes CorePipelinePlugin.
  */
 export const StandardRenderingPlugin: Plugin = createSearPlugin();
-export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, Shadow, SunShadows } from "./shadows";
+export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, SunShadows } from "./shadows";
 
 // sear's non-public extension surface: the surface chunk environment, the backdrop seam, the opt-in
 // draw passes, and the relocatable shading chunks a screen-space consumer splices. Rendering's
@@ -73,7 +73,7 @@ export {
     backgroundLayout,
     fsCtxSchema,
     InstanceInput,
-    Mesh3dInput,
+    MeshInstanceInput,
     registerBackground,
     registerSurface,
     SURFACE_GROUP,
@@ -111,8 +111,8 @@ export {
     spotFactor,
     spotParams,
 } from "./lighting";
-export { Materials, MeshMaterial3d, StandardMaterial } from "./material";
-export { MeshInstances, partTable } from "./part";
+export { Materials, MeshMaterial, StandardMaterial } from "./material";
+export { MeshDrawBuffers, partTable } from "./part";
 export { PartPlugin } from "./part-plugin";
 /** compiled surface-variant cache introspection for renderer diagnostics and real-device gates. */
 export { getCompiledSurface } from "./pipelines";

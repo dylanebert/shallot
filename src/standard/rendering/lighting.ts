@@ -1,7 +1,13 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { AmbientLight, DirectionalLight, PointLight, Volumetric } from "../../core/rendering";
+import {
+    AmbientLight,
+    DirectionalLight,
+    PointLight,
+    SpotLight,
+    VolumetricLight,
+} from "../../core/rendering";
 import type { World } from "../../engine";
 import { GlobalTransform, unpackColor } from "../../engine";
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
@@ -131,10 +137,10 @@ export function writeLighting(world: World): void {
         s[8] = lightingResources(world).sunRgb[0] * i;
         s[9] = lightingResources(world).sunRgb[1] * i;
         s[10] = lightingResources(world).sunRgb[2] * i;
-        // the sun's volumetric opt-in: a `Volumetric` marker flags the otherwise-pad sunDirection.w lane
+        // the sun's volumetric opt-in: a `VolumetricLight` marker flags the otherwise-pad sunDirection.w lane
         // (1 = scatter shafts in the fog march). The lit path reads only sunDirection.xyz, so the flag is
         // inert there — the analogue of the point light's radius-sign flag, no 4th vec4
-        if (world.has(dir, Volumetric)) s[7] = 1;
+        if (world.has(dir, VolumetricLight)) s[7] = 1;
     }
 
     world.gpu.device.queue.writeBuffer(_lighting.buffer, 0, s as Float32Array<ArrayBuffer>);
@@ -158,7 +164,7 @@ export const PointLightGpu = d.struct({
 
 /**
  * the compacted point-light list: a count header plus the fixed-cap light array, GPU-written by the light
- * compact pass (`cluster.ts`) from the PointLight + Spot slabs + GlobalTransform, and read by
+ * compact pass (`cluster.ts`) from the PointLight/SpotLight table + GlobalTransform, and read by
  * sear's clustered loop and the fog march. There is no CPU light list.
  */
 export const PointLights = d.struct({
@@ -240,6 +246,7 @@ export function spotParams(innerDeg: number, outerDeg: number): { scale: number;
 }
 
 const POINT_LIGHT_TERMS = [PointLight, GlobalTransform];
+const SPOT_LIGHT_TERMS = [SpotLight, GlobalTransform];
 
 /**
  * warn once per episode when more PointLight entities exist than the list cap:
@@ -251,7 +258,8 @@ export function warnLightOverflow(world: World): void {
     const _lighting = world.resource(lightingKey);
 
     let count = 0;
-    for (const _ of world.query(POINT_LIGHT_TERMS)) count++;
+    for (const eid of world.query(POINT_LIGHT_TERMS)) if (!world.has(eid, SpotLight)) count++;
+    for (const _ of world.query(SPOT_LIGHT_TERMS)) count++;
     if (count > MAX_POINT_LIGHTS) {
         const resources = _lighting;
         if (!resources.overflowWarned) {

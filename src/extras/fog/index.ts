@@ -1,6 +1,6 @@
 // Fog — opt-in volumetric atmosphere. A compute pass marches each pixel camera→scene-depth, fusing
 // **extinction** (uniform haze + exponential height fog, fading the scene toward the haze color) with
-// **in-scatter** — the light shafts a `Volumetric` light opts into: the clustered point/spot cones
+// **in-scatter** — the light shafts a `VolumetricLight` opts into: the clustered point/spot cones
 // shadowed by sear's point atlas, plus the directional sun shaft shadowed by sear's sun map (the same
 // froxel grid + shadow service sear's lit path uses, bound through `render` + `sear`), so
 // occluders cast dark shafts. It runs through the `sceneTransform` seam (after sear's color pass, before

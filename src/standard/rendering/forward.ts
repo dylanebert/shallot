@@ -25,7 +25,7 @@ import { initializeDrawState } from "./registry";
 // clustered-forward shape. One renderer, one plugin (`StandardRenderingPlugin`), no layers behind seams: one color
 // pass (opaque draws then `blend` draws composited over them in a single `beginRenderPass`), an
 // opt-in single-sample **prepass** emitting per-camera lanes (the `PickingPrepass` / `DepthPrepass` markers, Bevy's
-// `DepthPrepass` / `NormalPrepass` shape), and sun shadows (the `Shadow` component on a directional
+// `DepthPrepass` / `NormalPrepass` shape), and sun shadows (shadowMapsEnabled on a directional
 // light) are gated by camera and light data; core owns the view targets and lane markers —
 // not composed plugins coordinating through a singleton.
 //
@@ -34,7 +34,7 @@ import { initializeDrawState } from "./registry";
 // FS samples) lives in ./atlas. This file owns the WGSL-scaffold-agnostic renderer plumbing: components +
 // registries, per-draw bind-group resolution, pass opening, the systems, and the plugin — the pure
 // codegen lives in ./codegen, pipeline compilation in ./pipelines. StandardRenderer renders its own map and reads its
-// own shadow state directly — nothing publishes into it. Add a `Shadow` to the sun to cast; omit it for the
+// own shadow state directly — nothing publishes into it. Enable the sun's shadowMapsEnabled to cast; disable it for the
 // fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
 
 import type { TgpuBindGroupLayout, TgpuBuffer, TgpuRenderPipeline } from "typegpu";
@@ -116,8 +116,6 @@ import {
     pointCasters,
     resetCascades,
     resetPointShadows,
-    SHADOW_DEFAULTS,
-    Shadow,
     updateCascades,
     updatePointShadows,
 } from "./shadows";
@@ -775,7 +773,7 @@ const SEAR_CAMERAS = [Camera, StandardRenderer];
  * across opaque / `clip` / `alpha`: no MRT; the tag is its own single-sample lane. Color samples the
  * sun shadow inline (group 1 = the map + comparison sampler + light params); the tag + depth pipelines
  * omit group 1. StandardRenderer declares the vertex-pull bindings itself; each draw selects its mesh via
- * `Draw.mesh`. Uniform across surfaces: no "Mesh3d-shaped" detection. Also (re)creates the sun-shadow
+ * `Draw.mesh`. Uniform across surfaces: no "MeshInstance-shaped" detection. Also (re)creates the sun-shadow
  * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
  * params buffer — `./atlas`), surviving HMR re-warms
  */
@@ -823,9 +821,9 @@ const ResolveDrawsSystem: System = {
 
 /**
  * pose the sun's CSM cascade cameras + the point/spot combo cameras from the casting lights + the main StandardRenderer
- * camera, so `BeginFrameSystem` packs their viewProjs this frame and the Mesh3d pack culls casters into each
+ * camera, so `BeginFrameSystem` packs their viewProjs this frame and the MeshInstance pack culls casters into each
  * slot as one more view (the unified culled-combo spine). `simulation` group, before the draw frame opens.
- * No-op for the sun when no directional light carries a {@link Shadow} (the zero-cost off path): the atlas
+ * No-op for the sun when shadowMapsEnabled is off (the zero-cost off path): the atlas
  * pass is skipped and sear falls back to fully lit
  */
 const ShadowCameraSystem: System = {
@@ -885,7 +883,7 @@ const typedDefaultLayout = typedLayout({
     globalTransforms: { type: "storage", element: Xform },
 });
 
-// The shader scaffold resolves each Mesh3d's material id to linear base color and material lanes.
+// The shader scaffold resolves each MeshInstance's material id to linear base color and material lanes.
 // `litPbr` (`sear/engine.ts`) reads the fs-scaffold privates the typed pipeline
 // builder (`pipelines.ts`) fills before calling this.
 const typedDefaultFs = tgpu.fn(
@@ -980,7 +978,6 @@ export function createSearPlugin(): Plugin {
         name: "StandardRendering",
         components: [
             registration("StandardRenderer", StandardRenderer),
-            registration("Shadow", Shadow, { defaults: () => ({ ...SHADOW_DEFAULTS }) }),
             registration("CameraBackground", CameraBackground),
         ],
         systems: [

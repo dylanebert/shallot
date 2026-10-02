@@ -9,9 +9,9 @@ import {
     MAX_VIEWS,
     PointLight,
     Render,
-    Spot,
+    SpotLight,
     Views,
-    Volumetric,
+    VolumetricLight,
 } from "../../core/rendering";
 import type { System, World } from "../../engine";
 import { globalTransformTable } from "../../engine";
@@ -125,10 +125,17 @@ export function initializeClusterState(world: World): void {
         radius: "radius",
     });
     table.bindMembership(PointLight);
-    table.bindFields(Spot, { spotInner: "inner", spotOuter: "outer" });
-    table.bindMembership(Spot);
-    table.bindPresence(Spot, "flags", LIGHT_SPOT);
-    table.bindPresence(Volumetric, "flags", LIGHT_VOLUMETRIC);
+    table.bindFields(SpotLight, {
+        color: "color",
+        intensity: "intensity",
+        range: "range",
+        radius: "radius",
+        spotInner: "innerAngle",
+        spotOuter: "outerAngle",
+    });
+    table.bindMembership(SpotLight);
+    table.bindPresence(SpotLight, "flags", LIGHT_SPOT);
+    table.bindPresence(VolumetricLight, "flags", LIGHT_VOLUMETRIC);
 }
 
 // The froxel cluster substrate: the grid (per-view view-space cluster AABBs)
@@ -621,8 +628,8 @@ function compactKernel() {
             let params = d.vec4f(radius, 0, 0, 1);
             if ((record.flags & LIGHT_SPOT) !== 0) {
                 const dir = std.normalize(xformQuat(globalTransform.quat, d.vec3f(0, 0, -1)));
-                const cosInner = std.cos(std.radians(record.spotInner));
-                const cosOuter = std.cos(std.radians(record.spotOuter));
+                const cosInner = std.cos(record.spotInner);
+                const cosOuter = std.cos(record.spotOuter);
                 const scale = 1 / std.max(cosInner - cosOuter, 1e-4);
                 params = d.vec4f(
                     radius,

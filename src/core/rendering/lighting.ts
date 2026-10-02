@@ -1,110 +1,56 @@
-import { f32, vec4 } from "../../engine";
+import { f32, u32, vec4 } from "../../engine";
 
-/**
- * ambient light component. sear's `lit` / `lightFactor` helpers
- * read it via the shallot Lighting uniform. `color` is hex sRGB (e.g.
- * `0xd0dcec`); `intensity` is a linear multiplier
- *
- * @example
- * ```
- * world.add(world.create(), AmbientLight, { color: 0xd0dcec, intensity: 1.13 });
- * ```
- */
-export const AmbientLight = {
-    color: f32,
-    intensity: f32,
-};
+/** Ambient illumination. color is hex sRGB; intensity is a linear multiplier. */
+export const AmbientLight = { color: f32, intensity: f32 };
 
-/**
- * directional light component. sear's `lit` / `lightFactor`
- * helpers read it via the shallot Lighting uniform. `direction` is the light's
- * travel direction (down-pointing for a sun overhead); auto-normalized when
- * packed
- *
- * @example
- * ```
- * world.add(world.create(), DirectionalLight, {
- *     direction: [-0.3, -0.8, -0.55, 0],
- *     color: 0xfff4e0,
- *     intensity: 1.2,
- * });
- * ```
+/** Directional illumination. direction is the normalized travel direction when packed.
+ * intensity remains a linear multiplier, not lux. maximumDistance bounds the shadow cascades in world units.
+ * shadowMapsEnabled is zero when disabled, one when enabled.
+ * Shadow normal bias is measured in shadow texels; depth bias is a residual depth offset.
  */
 export const DirectionalLight = {
     color: f32,
     intensity: f32,
     direction: vec4,
+    shadowMapsEnabled: u32,
+    maximumDistance: f32,
+    shadowDepthBias: f32,
+    shadowNormalBias: f32,
 };
 
-/**
- * point light component. Position comes from the entity's `Transform`; sear's
- * `lit` / `lightFactor` helpers accumulate the fragment's cluster's point
- * lights: inverse-square falloff windowed smoothly to exactly zero at
- * `range`. `color` is hex sRGB; `intensity` is a linear multiplier. Dense table
- * fields: the light-cull compute pass reads them from struct records (no
- * CPU light list)
- *
- * @example
- * ```
- * const lamp = world.create();
- * world.add(lamp, PointLight, { color: 0xffd9a0, intensity: 2, range: 6 });
- * world.add(lamp, Transform, { translation: [0, 1.8, 0, 0] });
- * ```
+/** Spherical light. Placement comes from GlobalTransform. color is hex sRGB;
+ * intensity is a linear multiplier. range and radius are metres; falloff reaches zero at range.
+ * shadowMapsEnabled is zero when disabled, one when enabled.
+ * Shadow normal bias is measured in shadow texels; depth bias is a residual depth offset.
  */
 export const PointLight = {
-    /** the light's hex sRGB color (e.g. 0xffd9a0) */
     color: f32,
-    /** linear brightness multiplier */
     intensity: f32,
-    /** the distance (metres) the falloff smoothly reaches zero at: the cull cutoff */
     range: f32,
-    /** the physical source radius (metres): a soft sphere, not a point. Larger softens the near-field
-     * bulb and widens the specular highlight; 0.01 reproduces the old bare-filament hotspot */
     radius: f32,
+    shadowMapsEnabled: u32,
+    shadowDepthBias: f32,
+    shadowNormalBias: f32,
 };
 
-/**
- * spot add-on for a {@link PointLight}: presence narrows the light into a cone (like {@link Shadow},
- * presence is the switch). The cone points along the entity's forward axis (its `Transform` rotation), so
- * aim it by rotating the entity. `inner` / `outer` are half-angles in degrees (axis to edge): full
- * brightness inside `inner`, smoothly to dark at `outer`. The light still falls off + culls by the
- * PointLight's `range`.
- *
- * @example
- * ```
- * const spot = world.create();
- * world.add(spot, PointLight, { color: 0xffffff, intensity: 4, range: 12 });
- * world.add(spot, Spot, { inner: 18, outer: 28 });
- * const q = eulerToQuat(-45, 0, 0);
- * world.add(spot, Transform, { rotation: [q.x, q.y, q.z, q.w] });
- * ```
+/** Cone light pointing down its GlobalTransform's local -Z. Units match PointLight;
+ * innerAngle and outerAngle are half-angles in radians, with smooth attenuation between them.
+ * A SpotLight takes precedence over a PointLight on the same entity.
  */
-export const Spot = {
-    /** the cone's inner half-angle (degrees, axis→edge): full brightness inside it */
-    inner: f32,
-    /** the cone's outer half-angle (degrees, axis→edge): dark past it, smooth between inner and outer */
-    outer: f32,
+export const SpotLight = {
+    color: f32,
+    intensity: f32,
+    range: f32,
+    radius: f32,
+    innerAngle: f32,
+    outerAngle: f32,
+    shadowMapsEnabled: u32,
+    shadowDepthBias: f32,
+    shadowNormalBias: f32,
 };
 
-/**
- * opt a light ({@link PointLight}, {@link Spot}, or the {@link DirectionalLight} sun) into volumetric
- * light shafts; presence is the switch, like {@link Spot}. On a point/spot light the light-compact pass
- * flags its compacted entry; on the sun it flags the Lighting uniform. The `fog` march then scatters that
- * light through the haze (a visible cone or sun shaft, shadowed by occluders if the light also carries a
- * `Shadow`). With no `FogPlugin` / `Fog` singleton the flag is inert. The lit path is unchanged.
- *
- * @example
- * ```
- * const spot = world.create();
- * world.add(spot, PointLight, { color: 0xffffff, intensity: 6, range: 14 });
- * world.add(spot, Spot, { inner: 16, outer: 26 });
- * world.add(spot, Volumetric);
- * const q = eulerToQuat(-90, 0, 0);
- * world.add(spot, Transform, { translation: [0, 8, 0, 0], rotation: [q.x, q.y, q.z, q.w] });
- * const sun = world.create();
- * world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.45, 0] });
- * world.add(sun, Volumetric);
- * world.add(sun, Shadow, { distance: 80 });
- * ```
- */
-export const Volumetric = {};
+/** Opt a light into FogPlugin's volumetric scattering. Without fog this marker is inert. */
+export const VolumetricLight = {};
+
+/** Exclude a mesh from shadow views without removing it from the main view. */
+export const NotShadowCaster = {};

@@ -1,13 +1,15 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { PointLight } from "../../core/rendering";
+import { PointLight, SpotLight, VolumetricLight } from "../../core/rendering";
 import { Transform } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
+import { lightInputKey } from "./cluster";
 import { StandardRenderingPlugin } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
 const subjects = gpuApps(import.meta.path, [
+    { defaults: false, plugins: [StandardRenderingPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin] },
 ]);
 
@@ -45,4 +47,56 @@ test("render light inputs upload as active dense table rows", async () => {
     } finally {
         app.dispose();
     }
+});
+
+test("a standalone spot light owns and updates a dense row, then releases it on removal", async () => {
+    const { world } = subjects()[1];
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, SpotLight, {
+        color: 0xff8844,
+        intensity: 3,
+        range: 8,
+        radius: 0.2,
+        innerAngle: 0.3,
+        outerAngle: 0.6,
+    });
+    expect(world.has(eid, PointLight)).toBe(false);
+    const table = world.resource(lightInputKey);
+    async function record() {
+        world.gpu.device.pushErrorScope("validation");
+        world.step(0);
+        const result = await probeBuffer(world, table.buffer, {
+            offset: table.rowIndex(eid) * 32,
+            size: 32,
+        });
+        expect(await world.gpu.device.popErrorScope()).toBeNull();
+        return new DataView(result.bytes);
+    }
+    const initial = await record();
+    expect(table.count).toBe(1);
+    expect(initial.getFloat32(0, true)).toBe(Math.fround(0xff8844));
+    expect(initial.getFloat32(4, true)).toBe(3);
+    expect(initial.getFloat32(8, true)).toBe(8);
+    expect(initial.getFloat32(12, true)).toBe(Math.fround(0.2));
+    expect(initial.getFloat32(16, true)).toBe(Math.fround(0.3));
+    expect(initial.getFloat32(20, true)).toBe(Math.fround(0.6));
+    expect(initial.getUint32(24, true)).toBe(1);
+    world.add(eid, PointLight, { intensity: 99 });
+    expect((await record()).getFloat32(4, true)).toBe(3);
+    expect(table.count).toBe(1);
+    world.remove(eid, PointLight);
+    world.storage(SpotLight).outerAngle.set(eid, 0.7);
+    world.add(eid, VolumetricLight);
+    const changed = await record();
+    expect(changed.getFloat32(20, true)).toBe(Math.fround(0.7));
+    expect(changed.getUint32(24, true)).toBe(3);
+    world.remove(eid, SpotLight);
+    world.step(0);
+    expect(table.count).toBe(0);
+    world.add(eid, PointLight, { intensity: 5 });
+    const point = await record();
+    expect(table.count).toBe(1);
+    expect(point.getFloat32(4, true)).toBe(5);
+    expect(point.getUint32(24, true)).toBe(2);
 });

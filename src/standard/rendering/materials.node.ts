@@ -4,7 +4,7 @@ import { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { Mesh3d } from "../../core/mesh";
+import { MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
     attachTexture,
@@ -21,7 +21,7 @@ import { StandardRenderer } from "./forward";
 import {
     MaterialInput,
     Materials,
-    MeshMaterial3d,
+    MeshMaterial,
     materialTable,
     StandardMaterial,
 } from "./material";
@@ -46,8 +46,8 @@ test("anonymous materials preserve every built-in surface frame including colour
     world.add(point, PointLight, { intensity: 8, range: 10 });
     const eid = world.create();
     world.add(eid, Transform, { rotation: [0.0996005, 0.199201, 0, 0.974884] });
-    world.add(eid, Mesh3d);
-    world.add(eid, MeshMaterial3d);
+    world.add(eid, MeshInstance);
+    world.add(eid, MeshMaterial);
     for (const surface of ["default", "unlit", "vertex"]) {
         const material = world.resource(Materials).add(
             StandardMaterial({
@@ -59,7 +59,7 @@ test("anonymous materials preserve every built-in surface frame including colour
                 occlusion: 0.75,
             }),
         );
-        world.storage(MeshMaterial3d).material.set(eid, material);
+        world.storage(MeshMaterial).material.set(eid, material);
         world.gpu.device.pushErrorScope("validation");
         world.step(0);
         world.step(0);
@@ -88,10 +88,10 @@ test("steady mesh rendering adds no materials and creates no bind groups", () =>
     attachTexture(world, camera, { width: 16, height: 16 });
     const eid = world.create();
     world.add(eid, Transform);
-    world.add(eid, Mesh3d);
+    world.add(eid, MeshInstance);
     const materials = world.resource(Materials);
     const material = materials.add(StandardMaterial({ metallic: 0.25 }));
-    world.add(eid, MeshMaterial3d, { material });
+    world.add(eid, MeshMaterial, { material });
     world.step(0);
     world.step(0);
     const add = materials.add.bind(materials);

@@ -1,5 +1,5 @@
 import { registration } from "../../engine";
-// Outline — the drop-in screen-space highlight. Add the `Outline` component to a Mesh3d entity and a
+// Outline — the drop-in screen-space highlight. Add the `Outline` component to a MeshInstance entity and a
 // uniform-width band hugs its silhouette: hover/select feedback, the player's grab highlight. The
 // technique is mask → jump-flood distance field → threshold (Ben Golus, "The Quest for Very Wide
 // Outlines"; Bevy's JFA outline crates), NOT an inverted hull (stylistic, non-uniform width). Cost
@@ -33,7 +33,7 @@ import type {
     UniformFlag,
 } from "typegpu";
 import * as d from "typegpu/data";
-import { type Mesh, Mesh3d, Meshes } from "../../core/mesh";
+import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
 import {
     Camera,
     DEPTH_FORMAT,
@@ -69,7 +69,7 @@ import {
 /**
  * outline highlight: a colored band hugs the object's silhouette for hover, selection, or grab feedback.
  *
- * Add it to a Mesh3d entity to highlight it; remove it to clear. Fields are per-entity, so different
+ * Add it to a MeshInstance entity to highlight it; remove it to clear. Fields are per-entity, so different
  * highlights coexist in one pass.
  *
  * @example
@@ -366,7 +366,7 @@ function renderOutline(
 }
 
 /**
- * draw every camera's outline, after the scene color is resolved. Collects the highlighted Mesh3d entities,
+ * draw every camera's outline, after the scene color is resolved. Collects the highlighted MeshInstance entities,
  * groups them by mesh into one instance buffer, then runs mask → JFA → composite per camera. Nothing
  * highlighted → returns before any GPU pass (zero cost on the bare path)
  */
@@ -383,13 +383,13 @@ const OutlineSystem: System = {
         const _meshes = world.resource(Meshes);
 
         if (!world.resource(Render).encoder || !_outlineState.gpu.maskPlain) return;
-        const eids = [...world.query([Outline, Mesh3d])];
+        const eids = [...world.query([Outline, MeshInstance])];
         if (eids.length === 0) return; // bare path — no passes
         const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
         if (!globalTransforms) return;
 
         ensureInstances(world, eids.length);
-        const byMesh = groupByMesh(eids, (eid) => world.storage(Mesh3d).mesh.get(eid));
+        const byMesh = groupByMesh(eids, (eid) => world.storage(MeshInstance).mesh.get(eid));
         const groups: Group[] = [];
         let cursor = 0;
         let maxWidth = 1;
@@ -672,7 +672,7 @@ function disposeOutline(world: World): void {
 }
 
 /**
- * the screen-space outline composite: add it alongside `StandardRenderingPlugin`, then add `Outline` to a Mesh3d entity to highlight it.
+ * the screen-space outline composite: add it alongside `StandardRenderingPlugin`, then add `Outline` to a MeshInstance entity to highlight it.
  *
  * The band is a mask → jump-flood distance field → composite over the scene color. Cost scales with the
  * highlighted-object count + screen × log(width), not scene geometry; nothing highlighted runs no passes.

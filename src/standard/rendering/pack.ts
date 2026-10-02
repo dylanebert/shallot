@@ -3,18 +3,18 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "../../core/rendering";
 import { Xform, xformPoint } from "../../engine/utils";
-import { Mesh3dInput } from "./contract";
+import { MeshInstanceInput } from "./contract";
 import { MaterialInput } from "./material";
 import { DrawIndexedIndirect } from "./registry";
 
-// The pack kernels: cull → count → scan → scatter, the compute half of the Mesh3d producer. Count and
+// The pack kernels: cull → count → scan → scatter, the compute half of the MeshInstance producer. Count and
 // scatter share the same cull inputs, so those are ONE bind group layout both kernels reference (and the
 // shared `visible` test closes over), and the prefix needs no re-declaration. The scan is a third pipeline
 // with no cull inputs at all. Each layout pins its group index with `$idx`: the dispatches are issued on a
 // raw compute pass, which addresses a bind group by index, so the index is declared here rather than left
 // to resolution order. This displaces the note that the group index is invisible to the CPU side.
 
-/** dense Mesh3d row counts and view/pair dimensions, written once per changed frame @internal */
+/** dense MeshInstance row counts and view/pair dimensions, written once per changed frame @internal */
 export const CullParams = d.struct({
     viewCount: d.u32,
     pairCount: d.u32,
@@ -22,8 +22,8 @@ export const CullParams = d.struct({
     partCapacity: d.u32,
 });
 
-/** one dense record per Mesh3d row, shared with typed surface vertex stages @internal */
-export const PartRecord = Mesh3dInput;
+/** one dense record per MeshInstance row, shared with typed surface vertex stages @internal */
+export const PartRecord = MeshInstanceInput;
 
 /** shared dense inputs for count + scatter, plus mesh bounds and per-view cull volumes @internal */
 export const cullLayout = tgpu
@@ -144,7 +144,7 @@ function pairFactory(surfaceCount: number) {
         .$name("partPair");
 }
 
-/** Tally frustum-visible active Mesh3d rows per (view slot, pair); no entity-capacity scan. @internal */
+/** Tally frustum-visible active MeshInstance rows per (view slot, pair); no entity-capacity scan. @internal */
 export function countKernel(surfaceCount: number) {
     const pair = pairFactory(surfaceCount);
     return tgpu
@@ -158,6 +158,11 @@ export function countKernel(surfaceCount: number) {
             if (index >= cullLayout.$.params.partCount) return;
             const g = pair(index);
             if (g.pair >= cullLayout.$.params.pairCount) return;
+            if (
+                (cullLayout.$.parts[g.row].flags & 1) !== 0 &&
+                cullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0
+            )
+                return;
             if (!visible(g.mid, g.globalTransformRow, slot)) return;
             std.atomicAdd(countLayout.$.counts[slot * cullLayout.$.params.pairCount + g.pair], 1);
         })
@@ -233,7 +238,7 @@ export function scanKernel() {
     });
 }
 
-/** Scatter visible identities and Mesh3d rows into matching dense per-view draw lists. @internal */
+/** Scatter visible identities and MeshInstance rows into matching dense per-view draw lists. @internal */
 export function scatterKernel(surfaceCount: number) {
     const pair = pairFactory(surfaceCount);
     return tgpu
@@ -247,6 +252,11 @@ export function scatterKernel(surfaceCount: number) {
             if (index >= cullLayout.$.params.partCount) return;
             const g = pair(index);
             if (g.pair >= cullLayout.$.params.pairCount) return;
+            if (
+                (cullLayout.$.parts[g.row].flags & 1) !== 0 &&
+                cullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0
+            )
+                return;
             if (!visible(g.mid, g.globalTransformRow, slot)) return;
             const idx = slot * cullLayout.$.params.pairCount + g.pair;
             const local = std.atomicAdd(scatterLayout.$.counts[idx], 1);

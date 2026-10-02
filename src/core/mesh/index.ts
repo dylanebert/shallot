@@ -1,9 +1,9 @@
 import type { Plugin } from "../../engine";
 import { registration } from "../../engine";
-import { Mesh3d } from "./instance";
+import { MeshInstance } from "./instance";
 import { Meshes } from "./mesh";
 
-export { Mesh3d } from "./instance";
+export { MeshInstance } from "./instance";
 
 import { clearMeshes, flushMeshes, initializeMeshState } from "./mesh";
 import { initMeshes } from "./primitives";
@@ -25,7 +25,7 @@ export {
 export const MeshPlugin: Plugin = {
     name: "Mesh",
     components: [
-        registration("Mesh3d", Mesh3d, {
+        registration("MeshInstance", MeshInstance, {
             defaults: (world) => ({ mesh: world.resource(Meshes).id("cube") ?? 0 }),
         }),
     ],

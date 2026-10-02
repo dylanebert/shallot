@@ -185,7 +185,7 @@ export const henyeyGreenstein = tgpu.fn(
  * one volumetric point/spot light's in-scatter radiance at a march point: `color · distanceAttenuation ·
  * spotFactor · phase`, the same per-light terms sear's lit path uses (it calls the same two functions).
  * Shadow-free — the caller multiplies the shadow factor. `params.x`'s magnitude is the source radius; its
- * sign is the `Volumetric` flag, squared away here.
+ * sign is the `VolumetricLight` flag, squared away here.
  *
  * @example lstep += inScatterContribution(light, p, dir, g) * shadow;
  */

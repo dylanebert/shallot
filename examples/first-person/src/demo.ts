@@ -7,8 +7,8 @@ import {
     DirectionalLight,
     InputPlugin,
     Materials,
-    Mesh3d,
-    MeshMaterial3d,
+    MeshInstance,
+    MeshMaterial,
     mountOverlay,
     PhysicsPlugin,
     Player,
@@ -17,7 +17,6 @@ import {
     pointerLockStatus,
     type Resource,
     registration,
-    Shadow,
     ShapeKind,
     StandardMaterial,
     StandardRenderer,
@@ -38,8 +37,8 @@ const PERCH_COLOR = [0.39, 0.45, 0.43, 1] as const;
 function block(world: World, at: Vec4, size: Vec4, rgba: Vec4): number {
     const eid = world.create();
     world.add(eid, Body, { position: at, halfExtents: size, mass: 0 });
-    world.add(eid, Mesh3d);
-    world.add(eid, MeshMaterial3d, {
+    world.add(eid, MeshInstance);
+    world.add(eid, MeshMaterial, {
         material: world.resource(Materials).add(StandardMaterial({ baseColor: rgba })),
     });
     return eid;
@@ -58,7 +57,7 @@ export function route(world: World) {
         color: 0xffe8c7,
         intensity: 1.1,
     });
-    world.add(sun, Shadow);
+    world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const eye = world.create();
     world.add(eye, Camera);
     world.add(eye, StandardRenderer);

@@ -128,18 +128,19 @@ const verticesDepth = {
     access: "readonly" as const,
     visibility: VS_FS,
 };
-/** Per-draw instance: eid, Transform slot, Mesh3d slot + 1 (zero if absent), shadow combo. */
+/** Per-draw instance: eid, Transform slot, MeshInstance slot + 1 (zero if absent), shadow combo. */
 export const InstanceInput = d.vec4u;
 
-/** Dense per-Mesh3d fields read by instanced typed surfaces. */
-export const Mesh3dInput = d
+/** Dense per-MeshInstance fields read by instanced typed surfaces. */
+export const MeshInstanceInput = d
     .struct({
         mesh: d.u32,
         material: d.u32,
+        flags: d.u32,
     })
-    .$name("Mesh3dInput");
+    .$name("MeshInstanceInput");
 const partInputsEntry = {
-    storage: d.arrayOf(Mesh3dInput),
+    storage: d.arrayOf(MeshInstanceInput),
     access: "readonly" as const,
     visibility: VS_FS,
 };

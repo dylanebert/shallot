@@ -15,7 +15,14 @@ import {
 } from "./frame-state";
 import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
 import { initializeImageState } from "./image";
-import { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
+import {
+    AmbientLight,
+    DirectionalLight,
+    NotShadowCaster,
+    PointLight,
+    SpotLight,
+    VolumetricLight,
+} from "./lighting";
 import { initializeRenderState, Render } from "./render";
 
 import {
@@ -41,7 +48,14 @@ import {
 // loop — is the extension API, exported below.
 export { Camera, CameraMode, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
-export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
+export {
+    AmbientLight,
+    DirectionalLight,
+    NotShadowCaster,
+    PointLight,
+    SpotLight,
+    VolumetricLight,
+} from "./lighting";
 export {
     COLOR_LANES,
     type ColorLane,
@@ -101,6 +115,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     // cullVolumes[slot]'s 6 planes. Every view culls by frustum: cameras, the sun, and each
     // point/spot shadow combo (its own frustum-culled depth view)
     frustumVolume(_render.cullVolumeStaging, slot, viewProj);
+    _render.cullVolumeStaging[slot * CULL_VOLUME_FLOATS + 1] = shading ? 0 : 1;
     // ViewUniforms.projection: near, far, perspective flag, slot.
     if (shading) {
         const camera = world.storage(Camera);
@@ -183,7 +198,7 @@ export const BeginFrameSystem: System = {
 
         // auto-bind's inverse. A destroyed camera leaves a stale View whose ResizeObserver leaks
         // and whose eid, once recycled, re-binds to the wrong canvas. Membership is the liveness
-        // signal (re-derived each frame, the gate Mesh3d's pack also applies) and the create-stamp
+        // signal (re-derived each frame, the gate MeshInstance's pack also applies) and the create-stamp
         // catches a same-update realias membership misses, so a View lacking a live camera — or bound
         // to a recycled eid — is dropped here.
         pruneViews(world);
@@ -422,17 +437,38 @@ export const RenderingPlugin: Plugin = {
                 color: 0xffffff,
                 intensity: 1.5,
                 direction: [-0.6, -1.0, -0.8, 0],
+                shadowMapsEnabled: 0,
+                maximumDistance: 50,
+                shadowDepthBias: 0.0005,
+                shadowNormalBias: 1.8,
             }),
         }),
         registration("PointLight", PointLight, {
-            defaults: () => ({ color: 0xffffff, intensity: 1, range: 10, radius: 0.1 }),
+            defaults: () => ({
+                color: 0xffffff,
+                intensity: 1,
+                range: 10,
+                radius: 0.1,
+                shadowMapsEnabled: 0,
+                shadowDepthBias: 0.0005,
+                shadowNormalBias: 1.8,
+            }),
         }),
-        registration("Spot", Spot, {
-            defaults: () => ({ inner: 20, outer: 30 }),
+        registration("SpotLight", SpotLight, {
+            defaults: () => ({
+                color: 0xffffff,
+                intensity: 1,
+                range: 10,
+                radius: 0.1,
+                innerAngle: Math.PI / 9,
+                outerAngle: Math.PI / 6,
+                shadowMapsEnabled: 0,
+                shadowDepthBias: 0.0005,
+                shadowNormalBias: 1.8,
+            }),
         }),
-        registration("Volumetric", Volumetric, {
-            defaults: () => ({}),
-        }),
+        registration("VolumetricLight", VolumetricLight),
+        registration("NotShadowCaster", NotShadowCaster),
     ],
 
     async initialize(world) {
@@ -457,7 +493,7 @@ export const RenderingPlugin: Plugin = {
 // (components, plugin, public types) lives in the index barrel. `VIEW_STRIDE`
 // + `MAX_VIEWS` size the per-view uniforms; the buffer sizes and the cull-volume packer stay internal — a consumer reads
 // the packed `Render.cullVolumes` buffer, never re-packs it. A producer that runs its own
-// cull (Mesh3d's pack) reads the per-slot layout constants below to index + dispatch on the tag.
+// cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
 
 export { computeViewProj } from "./camera";
 export { Frame, FrameGpu, frameWgsl } from "./frame";

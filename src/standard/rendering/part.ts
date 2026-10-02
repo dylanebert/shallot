@@ -7,14 +7,14 @@ import type {
 } from "typegpu";
 import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { type Mesh, Mesh3d, Meshes } from "../../core/mesh";
-import { BeginFrameSystem, Render } from "../../core/rendering";
+import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
+import { BeginFrameSystem, NotShadowCaster, Render } from "../../core/rendering";
 import type { Registry, System, World } from "../../engine";
 import { globalTransformTable } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import type { Surface } from "./contract";
 import { Surfaces } from "./contract";
-import { MeshMaterial3d, materialTable } from "./material";
+import { MeshMaterial, materialTable } from "./material";
 import {
     CullParams,
     countKernel,
@@ -55,7 +55,7 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
 // Per-world GPU pack state is created by PartPlugin.initialize below.
 
 /**
- * GPU-resident Mesh3d draw publication. `drawArgs` holds `DrawIndexedIndirect` entries
+ * GPU-resident MeshInstance draw publication. `drawArgs` holds `DrawIndexedIndirect` entries
  * (20 bytes) laid out slot-major (`slot * pairCount + pair`), so each camera
  * has its own per-pair records: static indexCount/firstIndex/baseVertex from
  * `registerDraws`, per-frame instanceCount/firstInstance from the pack. StandardRenderer
@@ -67,7 +67,7 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
  *
  * @expand
  */
-export interface MeshInstances {
+export interface MeshDrawBuffers {
     /** `DrawIndexedIndirect` records, slot-major (`slot * pairCount + pair`); null until the first frame's `syncBuffers` */
     drawArgs: DrawBuffer | null;
     /** packed entity identities, one dense list per view slot; null until `warmPart` */
@@ -75,7 +75,7 @@ export interface MeshInstances {
 }
 
 interface PartGpuState {
-    parts: MeshInstances;
+    parts: MeshDrawBuffers;
     counts: AtomicU32Buffer | null;
     meshBounds: Vec4fBuffer | null;
     cullParams: (TgpuBuffer<typeof CullParams> & UniformFlag) | null;
@@ -105,7 +105,7 @@ interface PartGpuState {
 const partGpuKey = { create: createPartGpuState };
 const partTableKey = { create: createPartTable };
 
-/** Dense Mesh3d records shared by the GPU pack and typed surface stages. */
+/** Dense MeshInstance records shared by the GPU pack and typed surface stages. */
 export function partTable(world: World) {
     return world.resource(partTableKey);
 }
@@ -159,33 +159,34 @@ function _partGpuState(world: World): PartGpuState {
 export function initializePartState(world: World): void {
     world.resource(partGpuKey);
     const table = partTable(world);
-    table.bindComponent(Mesh3d, { mesh: "mesh" });
+    table.bindComponent(MeshInstance, { mesh: "mesh" });
     materialTable(world);
-    table.bindFields(MeshMaterial3d, { material: "material" });
+    table.bindFields(MeshMaterial, { material: "material" });
+    table.bindPresence(NotShadowCaster, "flags", 1);
     const seedDefault = (eid: number) => {
-        if (!world.has(eid, MeshMaterial3d)) world.storage(MeshMaterial3d).material.set(eid, 0);
+        if (!world.has(eid, MeshMaterial)) world.storage(MeshMaterial).material.set(eid, 0);
     };
     world.onDispose(
-        world.observeMembership(Mesh3d, (eid, present) => {
+        world.observeMembership(MeshInstance, (eid, present) => {
             if (present) seedDefault(eid);
         }),
     );
     world.onDispose(
-        world.observeMembership(MeshMaterial3d, (eid, present) => {
-            if (!present && world.has(eid, Mesh3d)) seedDefault(eid);
+        world.observeMembership(MeshMaterial, (eid, present) => {
+            if (!present && world.has(eid, MeshInstance)) seedDefault(eid);
         }),
     );
-    for (const eid of world.query([Mesh3d])) seedDefault(eid);
+    for (const eid of world.query([MeshInstance])) seedDefault(eid);
 }
 
-export const MeshInstances: import("../../engine").Resource<MeshInstances> = {
+export const MeshDrawBuffers: import("../../engine").Resource<MeshDrawBuffers> = {
     create: (world) => world.resource(partGpuKey).parts,
 };
 
 /**
- * per-frame Mesh3d pack. Clears the counts, then cull → count → scan → scatter
- * over active Mesh3d table rows and view slots. No CPU iteration over
- * MeshInstances: every thread culls an active row against the view's frustum. The
+ * per-frame MeshInstance pack. Clears the counts, then cull → count → scan → scatter
+ * over active MeshInstance table rows and view slots. No CPU iteration over
+ * mesh instances: every thread culls an active row against the view's frustum. The
  * count + scatter dispatch a row of workgroups per active view (`gid.y` =
  * slot); the scan dispatches one workgroup per slot, each scanning its row in
  * parallel
@@ -268,7 +269,7 @@ function setBound(
     for (let i = 0; i < bound.groups.length; i++) pass.setBindGroup(i, bound.groups[i]);
 }
 
-// Bind dense Mesh3d and Transform tables, replacing groups only when one of their GPU buffers grows.
+// Bind dense MeshInstance and Transform tables, replacing groups only when one of their GPU buffers grows.
 function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
     const _partGpu = world.resource(partGpuKey);
 
@@ -297,7 +298,7 @@ function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> 
     const globalTransformRows = globalTransforms.eidToRowBuffer;
     if (!cullVolumes || !partRows || !globalTransformRows) {
         throw new Error(
-            "[part] dense table inputs missing: cull volumes, Mesh3d rows or GlobalTransform row lookup",
+            "[part] dense table inputs missing: cull volumes, MeshInstance rows or GlobalTransform row lookup",
         );
     }
     _partGpu.cullGroup = world.gpu.root.createBindGroup(cullLayout, {
@@ -333,7 +334,7 @@ function bindCount(world: World): { pipeline: GPUComputePipeline; groups: GPUBin
 
 function bindScan(world: World): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
     const _partGpu = world.resource(partGpuKey);
-    const _parts = world.resource(MeshInstances);
+    const _parts = world.resource(MeshDrawBuffers);
 
     if (_partGpu.scanBound) return _partGpu.scanBound;
     if (!_partGpu.scanPipe || !_partGpu.counts || !_parts.drawArgs || !_partGpu.cullParams)
@@ -357,7 +358,7 @@ function bindScatter(
     world: World,
 ): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
     const _partGpu = world.resource(partGpuKey);
-    const _parts = world.resource(MeshInstances);
+    const _parts = world.resource(MeshDrawBuffers);
 
     const cull = cullGroup(world);
     if (_partGpu.scatterBound) return _partGpu.scatterBound;
@@ -398,7 +399,7 @@ function unbind(world: World): void {
 
 /**
  * size the pack's buffers to the live mesh count (the pair dimension) and
- * active Mesh3d table row capacity and camera count, growing when any axis rises
+ * active MeshInstance table row capacity and camera count, growing when any axis rises
  * after warm. `drawArgs` + `counts` scale with `viewDim × pairCount`; dense
  * output lists scale with `viewDim × rowCapacity`; mesh bounds scale with mesh count.
  * Pair growth only appends slots
@@ -408,7 +409,7 @@ function unbind(world: World): void {
  */
 function syncBuffers(world: World): void {
     const _partGpu = world.resource(partGpuKey);
-    const _parts = world.resource(MeshInstances);
+    const _parts = world.resource(MeshDrawBuffers);
 
     if (_partGpu.surfaceCount === 0) return;
     const meshCount = world.resource(Meshes).size;
@@ -490,7 +491,7 @@ function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
     return buffer;
 }
 
-/** publish Mesh3d's `(surface, mesh)` draw pairs and return the indirect records the GPU buffer needs.
+/** publish MeshInstance's `(surface, mesh)` draw pairs and return the indirect records the GPU buffer needs.
  * Device-free so ordering tests can exercise the production publication seam without an adapter.
  * @internal */
 type DrawRecord = {
@@ -548,7 +549,7 @@ export function publishPartDraws(
 }
 
 function registerDraws(world: World): void {
-    const _parts = world.resource(MeshInstances);
+    const _parts = world.resource(MeshDrawBuffers);
     const _partGpu = world.resource(partGpuKey);
 
     if (!world.gpu.device || !_parts.drawArgs || _partGpu.pairCount === 0) return;
@@ -588,7 +589,7 @@ export function initPart(world: World): void {
  */
 export function warmPart(world: World): void {
     const _partGpu = world.resource(partGpuKey);
-    const _parts = world.resource(MeshInstances);
+    const _parts = world.resource(MeshDrawBuffers);
 
     if (!world.gpu.device) return;
     const root = world.gpu.root;
