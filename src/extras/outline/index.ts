@@ -36,6 +36,7 @@ import * as d from "typegpu/data";
 import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
 import {
     Camera,
+    DEPTH_FORMAT,
     OverlaySystem,
     PresentationSystem,
     Render,
@@ -47,7 +48,7 @@ import {
 import type { Plugin, System, World } from "../../engine";
 import { f32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { DEPTH_FORMAT, PartPlugin, RenderMeshColorSystem } from "../../standard/rendering";
+import { PartPlugin, RenderMeshColorSystem } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
 import {
     compositeKernel,

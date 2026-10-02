@@ -6,12 +6,7 @@ import type { Resource, System } from "../../engine";
 import { Transform } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
-import {
-    DepthPrepass,
-    PartPlugin,
-    StandardRenderer,
-    StandardRenderingPlugin,
-} from "../../standard/rendering";
+import { PartPlugin, StandardRenderer, StandardRenderingPlugin } from "../../standard/rendering";
 import {
     Clusters,
     CullLightsSystem,
@@ -35,12 +30,14 @@ import {
     Camera,
     CameraMode,
     captureTexture,
+    DepthPrepass,
     OverlaySystem,
     PresentationSystem,
     RenderingPlugin,
 } from "./index";
 import { PointsPlugin, PointsSystem } from "./points.fixture";
 import { Render, renderKey } from "./render";
+import { viewTargetsKey } from "./targets";
 import { Views, viewResourcesKey } from "./view";
 
 setDefaultTimeout(CEILING.node);
@@ -56,6 +53,7 @@ const coreResources = {
     typegpuRoot,
     precompileState,
     renderKey,
+    viewTargetsKey,
     Render,
     renderFrameKey,
     viewResourcesKey,

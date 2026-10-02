@@ -259,6 +259,15 @@ Surface, background and draw contracts belong to `/standard/rendering`. Update i
 | `/render/core` `ClusterView`, `CLUSTER_COUNT`, `CLUSTER_X`, `CLUSTER_Y`, `CLUSTER_Z`, `Clusters`, `clusterAabb`, `clusterCell`, `clusterCoord`, `clusterIndex`, `clusterView`, `LIGHT_POOL`, `LightCull`, `lightClusters`, `sliceDepth`, `zSlice` | `/standard/rendering`, same names |
 | `/render/core` `LIGHTING_UNIFORM_SIZE`, `Lighting`, `LightingGpu`, `lightingWgsl`, `MAX_POINT_LIGHTS`, `PointLightGpu`, `PointLights`, `pointLightsWgsl`, `distanceAttenuation`, `spotFactor`, `spotParams` | `/standard/rendering`, same names |
 
+Camera prepass markers and attachment constants belong to `/rendering` (root imports remain available):
+
+| 0.9.5 import | 0.10 import |
+| --- | --- |
+| `/sear` or `/sear/core` `Depth`, `Tag` | `/rendering` `DepthPrepass`, `PickingPrepass` |
+| `/sear/core` `DEPTH_FORMAT`, `TAG_FORMAT`, `TAG_NONE` | `/rendering` `DEPTH_FORMAT`, `PICKING_ID_FORMAT`, `PICKING_ID_NONE` |
+
+`RenderingPlugin` registers both prepass markers. Each marker requests its own camera output; neither requires the other.
+
 Custom surface, background and draw producers depend on `StandardRenderingPlugin`; `RenderingPlugin` alone no longer initializes their registries.
 
 `RenderingPlugin` still registers the light components (`AmbientLight`, `DirectionalLight`, `PointLight`, `Spot`, `Volumetric`), but no longer packs GPU lights or builds clusters. Compositions using those GPU resources need `StandardRenderingPlugin`.

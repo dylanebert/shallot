@@ -64,12 +64,10 @@ export {
 export {
     CameraBackground,
     Color,
-    DepthPrepass,
     MAX_CASCADES,
     MAX_POINT_CASTERS,
     Material,
     PartPlugin,
-    PickingPrepass,
     PointShadows,
     Shadow,
     StandardRenderer,

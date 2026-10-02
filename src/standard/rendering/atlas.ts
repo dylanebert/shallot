@@ -7,12 +7,11 @@
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { Render, Views } from "../../core/rendering";
+import { DEPTH_FORMAT, Render, Views } from "../../core/rendering";
 import type { World } from "../../engine";
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
 import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
-import { DEPTH_FORMAT } from "./codegen";
 import { engineLayout } from "./engine";
 import type { Recorded } from "./forward";
 import { createRegather, type Regather, SHADOW_ARG_STRIDE } from "./regather";

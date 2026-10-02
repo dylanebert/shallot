@@ -102,7 +102,7 @@ export const linearToSrgbWgsl = chunk("linearToSrgbWgsl", [linearToSrgb3], splic
  * sees. A compute composite (glaze, or a consumer's own fused pass) `textureStore`s into it, encoding
  * linear→sRGB itself since a storage view can't be sRGB. The split from `framebuffer` exists so postfx
  * has a rendered color to read: writing the swapchain in place leaves nothing to read back. `depth` + `pickingId`
- * are the renderer's opt-in **prepass lanes**, each gated by a per-camera marker (sear's `DepthPrepass` / `PickingPrepass`).
+ * are core's opt-in **prepass lanes**, each gated by a per-camera marker (`DepthPrepass` / `PickingPrepass`).
  * `depth` is the camera's single-sample depth, *stored* + published by the prepass only when the camera
  * carries `DepthPrepass`, read by screen-space consumers (AO, fog). `null` otherwise (a tag-only camera tests
  * depth but discards it). `pickingId` is the screen-space surface-tag (object-id) target, written by the same

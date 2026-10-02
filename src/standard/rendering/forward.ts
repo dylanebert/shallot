@@ -20,13 +20,13 @@ import { initializeDrawState } from "./registry";
 // pass (opaque draws then `blend` draws composited over them in a single `beginRenderPass`), an
 // opt-in single-sample **prepass** emitting per-camera lanes (the `PickingPrepass` / `DepthPrepass` markers, Bevy's
 // `DepthPrepass` / `NormalPrepass` shape), and sun shadows (the `Shadow` component on a directional
-// light) are all sear-internal features, gated by data the way Bevy gates a shadow map on light data —
+// light) are gated by camera and light data; core owns the view targets and lane markers —
 // not composed plugins coordinating through a singleton.
 //
 // Sun shadows: the CPU/ECS half (the off-screen light camera + placement) lives in ./shadows; the GPU half
 // (the shadow map, its render through sear's compiled prepass depth pipelines, and the group-1 binding the
 // FS samples) lives in ./atlas. This file owns the WGSL-scaffold-agnostic renderer plumbing: components +
-// registries, per-draw bind-group resolution, per-camera targets, the systems, and the plugin — the pure
+// registries, per-draw bind-group resolution, pass opening, the systems, and the plugin — the pure
 // codegen lives in ./codegen, pipeline compilation in ./pipelines. StandardRenderer renders its own map and reads its
 // own shadow state directly — nothing publishes into it. Add a `Shadow` to the sun to cast; omit it for the
 // fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
@@ -47,13 +47,21 @@ import type { View } from "../../core/rendering";
 import {
     BeginFrameSystem,
     Camera,
+    type ColorLane,
+    colorPassDescriptor,
+    colorTargets,
+    DEPTH_FORMAT,
+    laneKey,
     OverlaySystem,
+    prepassDescriptor,
+    prepassLanes,
     Render,
     RenderingPlugin,
+    SAMPLE_COUNT,
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { u32, unpackColor, vec4 } from "../../engine";
+import { u32, vec4 } from "../../engine";
 import { Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
 import {
@@ -72,14 +80,6 @@ import {
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
 import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
-import {
-    COLOR_LANES,
-    type ColorLane,
-    DEPTH_FORMAT,
-    laneKey,
-    PickingPrepass,
-    SAMPLE_COUNT,
-} from "./codegen";
 import {
     type Background,
     Backgrounds,
@@ -131,22 +131,10 @@ import {
     updatePointShadows,
 } from "./shadows";
 
-export { DEPTH_FORMAT, PICKING_ID_FORMAT, PICKING_ID_NONE, PickingPrepass } from "./codegen";
-
 interface SearState {
     warned: Set<string>;
     frameDraws: FrameDraw[];
     frameCount: number;
-    depth: Map<number, { texture: GPUTexture; view: GPUTextureView; w: number; h: number }>;
-    laneTargets: Map<string, { texture: GPUTexture; view: GPUTextureView; w: number; h: number }>;
-    colorTargets: Map<number, ColorTargets>;
-    clearValue: { r: number; g: number; b: number; a: number };
-    clearPacked: number;
-    msaaColor: ViewColorAttachment;
-    directColor: ViewColorAttachment;
-    colorAttachments: ViewColorAttachment[];
-    colorDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & { view: GPUTextureView };
-    colorPass: GPURenderPassDescriptor;
     colorBundleDesc: GPURenderBundleEncoderDescriptor & { colorFormats: GPUTextureFormat[] };
     colorBundles: Map<number, PassBundle>;
     colorProgram: BundleDraw[];
@@ -159,46 +147,10 @@ interface SearState {
 const searStateKey = { create: createSearState };
 
 function createSearState(): SearState {
-    const clearValue = { r: 0, g: 0, b: 0, a: 1 };
-    const msaaColor: ViewColorAttachment = {
-        view: null!,
-        resolveTarget: null!,
-        loadOp: "clear",
-        storeOp: "discard",
-        clearValue,
-    };
-    const directColor: ViewColorAttachment = {
-        view: null!,
-        loadOp: "clear",
-        storeOp: "store",
-        clearValue,
-    };
-    const colorAttachments = [msaaColor];
-    const colorDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & { view: GPUTextureView } =
-        {
-            view: null!,
-            depthLoadOp: "clear",
-            depthStoreOp: "discard",
-            depthClearValue: 0,
-        };
     return {
         warned: new Set(),
         frameDraws: [],
         frameCount: 0,
-        depth: new Map(),
-        laneTargets: new Map(),
-        colorTargets: new Map(),
-        clearValue,
-        clearPacked: -1,
-        msaaColor,
-        directColor,
-        colorAttachments,
-        colorDepth,
-        colorPass: {
-            label: "",
-            colorAttachments,
-            depthStencilAttachment: colorDepth,
-        },
         colorBundleDesc: {
             label: "sear-color",
             colorFormats: [],
@@ -238,24 +190,6 @@ function _searState(world: World): SearState {
  * ```
  */
 export const StandardRenderer = {};
-
-/**
- * opt a StandardRenderer camera into the **depth lane**: the prepass *stores* its single-sample depth and publishes
- * it as `view.depth` (without this marker the prepass depth is discarded, never reaching main memory).
- * Requestable on its own (a depth-only consumer needs no id) or alongside {@link PickingPrepass} (one prepass writes
- * both). Bevy's `DepthPrepass`. A screen-space consumer (AO, fog, volumetrics) adds it to read
- * `view.depth`.
- *
- * @example
- * ```
- * const camera = world.create();
- * world.add(camera, Camera);
- * world.add(camera, StandardRenderer);
- * world.add(camera, DepthPrepass);
- * world.add(camera, Transform);
- * ```
- */
-export const DepthPrepass = {};
 
 /**
  * Selects a surface by its Surfaces registry ID and supplies its material parameters.
@@ -648,160 +582,9 @@ function resolveDraw(world: World, draw: Draw, capacity: number): void {
     if (item) _searState.frameDraws[_searState.frameCount++] = item;
 }
 
-// the per-camera single-sample depth the prepass writes — always the front-most-fragment test the id
-// lane needs, but only *stored* + published as `view.depth` when the camera carries `DepthPrepass` (else the
-// store is discarded). Allocated when the prepass runs (any lane marker). TEXTURE_BINDING so a
-// screen-space consumer (AO, volumetrics) can sample it the same frame
-function depthView(world: World, eid: number, w: number, h: number): GPUTextureView {
-    const _searState = world.resource(searStateKey);
-
-    const cached = _searState.depth.get(eid);
-    if (cached && cached.w === w && cached.h === h) return cached.view;
-    cached?.texture.destroy();
-    const texture = world.gpu.device.createTexture({
-        label: `sear-depth-${eid}`,
-        size: { width: w, height: h },
-        format: DEPTH_FORMAT,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-    });
-    const view = texture.createView();
-    _searState.depth.set(eid, { texture, view, w, h });
-    return view;
-}
-
-// the per-(camera, color-lane) screen-space target, sibling to depthView — filled by the prepass.
-// Sized to the framebuffer, recreated on resize; the format + usage are the lane's (the id lane is
-// r32uint + COPY_SRC for a hover readback + TEXTURE_BINDING for an outline sample). Returns the texture
-// (published onto `view.<lane>`) + the color-attachment view — one cache keyed `${eid}:${lane.name}`
-// that drives both, so adding a lane needs no new allocator
-function laneTarget(
-    world: World,
-    eid: number,
-    lane: ColorLane,
-    w: number,
-    h: number,
-): { texture: GPUTexture; view: GPUTextureView } {
-    const _searState = world.resource(searStateKey);
-
-    const key = `${eid}:${lane.name}`;
-    const cached = _searState.laneTargets.get(key);
-    if (cached && cached.w === w && cached.h === h) return cached;
-    cached?.texture.destroy();
-    const texture = world.gpu.device.createTexture({
-        label: `sear-${lane.name}-${eid}`,
-        size: { width: w, height: h },
-        format: lane.format,
-        usage: lane.usage,
-    });
-    const entry = { texture, view: texture.createView(), w, h };
-    _searState.laneTargets.set(key, entry);
-    return entry;
-}
-
-type ColorTargets = {
-    color: GPUTexture | null;
-    colorView: GPUTextureView | null;
-    depth: GPUTexture;
-    depthView: GPUTextureView;
-    w: number;
-    h: number;
-    aa: boolean;
-    /** the camera's color pass label */
-    label: string;
-};
-
-// the per-camera color-pass targets, by AA mode. AA on: a 4× MSAA color (resolved into the offscreen at
-// pass end) + a 4× depth. AA off: no MSAA color (the pass renders straight into view.framebuffer) + a 1×
-// depth. The color pass owns this depth (`less` + write, cleared each frame); the prepass + shadow map
-// keep their own 1× depth (never cross-compared). Sized to the view + keyed on AA, recreated on resize/toggle
-function colorTargets(world: World, eid: number, w: number, h: number, aa: boolean): ColorTargets {
-    const _searState = world.resource(searStateKey);
-
-    const cached = _searState.colorTargets.get(eid);
-    if (cached && cached.w === w && cached.h === h && cached.aa === aa) return cached;
-    cached?.color?.destroy();
-    cached?.depth.destroy();
-    const samples = aa ? SAMPLE_COUNT : 1;
-    const color = aa
-        ? world.gpu.device.createTexture({
-              label: `sear-color-msaa-${eid}`,
-              size: { width: w, height: h },
-              format: world.resource(Render).format,
-              sampleCount: SAMPLE_COUNT,
-              usage: GPUTextureUsage.RENDER_ATTACHMENT,
-          })
-        : null;
-    const depth = world.gpu.device.createTexture({
-        label: `sear-color-depth-${eid}`,
-        size: { width: w, height: h },
-        format: DEPTH_FORMAT,
-        sampleCount: samples,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    const entry = {
-        color,
-        colorView: color?.createView() ?? null,
-        depth,
-        depthView: depth.createView(),
-        w,
-        h,
-        aa,
-        label: `sear-color/${eid}`,
-    };
-    _searState.colorTargets.set(eid, entry);
-    return entry;
-}
-
-// the color pass's clear color, its two color attachment shapes and its descriptor, rewritten per camera so
-// opening the pass mints only its WebGPU objects
-type ViewColorAttachment = Omit<GPURenderPassColorAttachment, "view" | "resolveTarget"> & {
-    view: GPUTextureView;
-    resolveTarget?: GPUTextureView;
-};
-// the color pass's clear value, and the packed sRGB it was decoded from: a camera's clear color is
-// unpacked only on the frame it changes
-
-// the color bundle's encoder descriptor and per-camera recordings. The bundle holds the camera's whole
-// draw program — opaque, backdrop, blend — and is recorded again only when that program or the pass shape
-// changes; a steady frame begins the pass and replays it
-// per-world color bundle state is retained in `_sear`.
-
-// the prepass bundle's encoder descriptor (its color formats are the camera's lane set, rewritten per
-// camera), its per-camera recordings and this frame's program
-// per-world prepass bundle state is retained in `_sear`.
-
-// the geometry pass (one color target — the prepass lanes ride their own pass), cleared to `_sear.clearValue`.
-// AA on: the opaque draws clear + write `msaaColor`, the transparent draws blend over, and it resolves into
-// the offscreen once at pass end (`discard` — the resolve fires regardless and nothing reads the MSAA target
-// after). AA off: `msaaColor` is null — render straight into the offscreen, no resolve, **`store`** the
-// result (`discard` would throw away the only copy → a black frame). The depth `discard`s either way
-// (transient)
-function beginColor(
-    world: World,
-    label: string,
-    msaaColor: GPUTextureView | null,
-    depth: GPUTextureView,
-    framebuffer: GPUTextureView,
-): GPURenderPassEncoder {
-    const _searState = world.resource(searStateKey);
-
-    if (msaaColor) {
-        _searState.msaaColor.view = msaaColor;
-        _searState.msaaColor.resolveTarget = framebuffer;
-        _searState.colorAttachments[0] = _searState.msaaColor;
-    } else {
-        _searState.directColor.view = framebuffer;
-        _searState.colorAttachments[0] = _searState.directColor;
-    }
-    _searState.colorDepth.view = depth;
-    _searState.colorPass.label = label;
-    _searState.colorPass.timestampWrites = world.gpu.span?.("sear:color");
-    return world.resource(Render).encoder!.beginRenderPass(_searState.colorPass);
-}
-
 /**
  * one camera's prepass (`sear:prepass`) recorded onto `Render.encoder`: a single single-sample pass
- * emitting the camera's opt-in lanes. It owns its own depth (cleared + `less` + write, so only the
+ * emitting the camera's opt-in lanes into core's targets (cleared + `less` + write, so only the
  * front-most opaque / `clip` fragment writes each lane); that depth is *stored* + published as
  * `view.depth` when the camera carries {@link DepthPrepass}, otherwise discarded (TBDR: it stays in tile memory,
  * never reaching main RAM). Each requested color lane is one MRT attachment cleared to the lane's clear
@@ -823,31 +606,10 @@ function renderPrepass(
     const _searState = world.resource(searStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
-    const depth = depthView(world, eid, view.width, view.height);
     const key = laneKey(lanes);
-    const colorAttachments = lanes.map((lane) => {
-        const target = laneTarget(world, eid, lane, view.width, view.height);
-        lane.set(view, target.texture); // publish `view.<lane>`
-        return {
-            view: target.view,
-            loadOp: "clear" as const,
-            storeOp: "store" as const,
-            clearValue: lane.clear,
-        };
-    });
-    const pass = _render.encoder.beginRenderPass({
-        label: `sear-prepass/${eid}`,
-        timestampWrites: world.gpu.span?.("sear:prepass"),
-        colorAttachments,
-        depthStencilAttachment: {
-            view: depth,
-            depthLoadOp: "clear",
-            // store the depth only for a `DepthPrepass` consumer; the id lane needs the test, not the stored
-            // result, so a tag-only camera discards it (TBDR keeps it in tile memory)
-            depthStoreOp: storeDepth ? "store" : "discard",
-            depthClearValue: 0,
-        },
-    });
+    const pass = _render.encoder.beginRenderPass(
+        prepassDescriptor(world, eid, view, lanes, storeDepth),
+    );
     let draws = 0;
     const tagLane = lanes.some((lane) => lane.name === "tag");
     const shadow = shadowGroup(world);
@@ -885,7 +647,6 @@ function renderPrepass(
     if (bundle.bundle) pass.executeBundles(bundle.replay);
     pass.end();
     world.gpu.indirect?.("sear:prepass", draws);
-    view.depth = storeDepth ? depth : null;
 }
 
 // the camera's selected backdrop — or null (no `CameraBackground` component, or its name
@@ -936,7 +697,7 @@ function backgroundGroup(
 /**
  * one camera's geometry pass (`sear:color`) recorded onto `Render.encoder`: shades every opaque draw,
  * then composites every `blend` draw over them (`less-equal` depth-tested against the opaque depth,
- * depth-write off): one HDR color target, no MRT (the screen-space lanes are {@link renderPrepass}'s),
+ * depth-write off) in core's targets: one HDR color target, no MRT (the screen-space lanes are {@link renderPrepass}'s),
  * because each extra target costs bandwidth on every pixel and tile-based GPUs pay it hardest. With
  * `Camera.antialias` on (the default) it's a 4× MSAA pass resolved into the offscreen; off, it renders
  * single-sample straight into the offscreen (and binds the surfaces' single-sample pipeline twins,
@@ -986,14 +747,6 @@ function renderColor(
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the Camera registration default), else
     // single-sample. `world.storage(Camera).antialias.set(eid, 0)` flips it live
     const aa = world.storage(Camera).antialias.get(eid) !== 0;
-    const packed = world.storage(Camera).clearColor.get(eid);
-    if (packed !== _searState.clearPacked) {
-        const clear = unpackColor(packed);
-        _searState.clearValue.r = clear.r;
-        _searState.clearValue.g = clear.g;
-        _searState.clearValue.b = clear.b;
-        _searState.clearPacked = packed;
-    }
     const targets = colorTargets(world, eid, view.width, view.height, aa);
     const shadow = shadowGroup(world);
     // the camera's draw program: opaque, then the backdrop, then blend. Building it reads only cached
@@ -1050,12 +803,8 @@ function renderColor(
     if (bundleChanged(pass, _searState.colorProgram, draws, _searState.colorBundleDesc)) {
         recordBundle(world, pass, _searState.colorProgram, draws, _searState.colorBundleDesc);
     }
-    const encoded = beginColor(
-        world,
-        targets.label,
-        targets.colorView,
-        targets.depthView,
-        view.framebuffer,
+    const encoded = _render.encoder.beginRenderPass(
+        colorPassDescriptor(world, eid, targets, view.framebuffer),
     );
     if (pass.bundle) encoded.executeBundles(pass.replay);
     encoded.end();
@@ -1126,24 +875,9 @@ export const RenderPrepassesSystem: System = {
         for (const eid of world.query(SEAR_CAMERAS)) {
             const view = world.resource(Views).get(eid);
             if (!view?.framebuffer) continue;
-            // markers → the requested lanes. The id lane is a color attachment; depth is the
-            // depth-stencil, stored only when the camera carries `DepthPrepass`. Reset both each frame so a
-            // camera that drops a marker stops publishing its lane
-            view.pickingId = null;
-            view.depth = null;
-            const storeDepth = world.has(eid, DepthPrepass);
-            let marked = false;
-            for (let l = 0; l < COLOR_LANES.length; l++) {
-                if (world.has(eid, COLOR_LANES[l].marker)) {
-                    marked = true;
-                    break;
-                }
-            }
-            if (!marked && !storeDepth) continue; // no lane requested — bare path
-            const lanes: ColorLane[] = [];
-            for (let l = 0; l < COLOR_LANES.length; l++) {
-                if (world.has(eid, COLOR_LANES[l].marker)) lanes.push(COLOR_LANES[l]);
-            }
+            const requested = prepassLanes(world, eid, view);
+            if (!requested) continue;
+            const { lanes, storeDepth } = requested;
             renderPrepass(
                 world,
                 eid,
@@ -1159,7 +893,7 @@ export const RenderPrepassesSystem: System = {
 
 /**
  * sear's geometry pass, per camera: shades every opaque draw then composites every `blend` draw over
- * them in one 4× MSAA pass (its own 4× color + depth), resolved into the offscreen once. Binds the sun
+ * them in one 4× MSAA pass (core's 4× color + depth), resolved into the offscreen once. Binds the sun
  * shadow seam (group 1): sear's own shadow map + light params it samples inline, or its fallback (fully
  * lit) when no light casts. Renders the shared `_sear.frameDraws` (resolved once by {@link RenderPrepassesSystem}).
  * Runs after every screen-space effect ordered `before: [RenderMeshColorSystem]`; `before: [GlazeSystem]` makes it
@@ -1329,22 +1063,10 @@ const typedVertexFs = tgpu.fn(
     return d.vec4f(ctx.litColor, 1);
 });
 
-// free every GPU resource sear owns (at plugin dispose): the shadow atlases (point + cascade, ./atlas) +
-// their params, and the per-camera prepass depth / lane targets / MSAA color+depth. The cascade Camera
-// entities live in a World, so destroyCascades (./shadows) tears those down separately
+// Standard owns shadow atlases and their params; core releases view targets.
+// destroyCascades tears down the off-screen Camera entities separately.
 function disposeSear(world: World): void {
-    const _searState = world.resource(searStateKey);
-
     disposeShadowAtlas(world);
-    for (const c of _searState.depth.values()) c.texture.destroy();
-    for (const c of _searState.laneTargets.values()) c.texture.destroy();
-    for (const c of _searState.colorTargets.values()) {
-        c.color?.destroy();
-        c.depth.destroy();
-    }
-    _searState.depth.clear();
-    _searState.laneTargets.clear();
-    _searState.colorTargets.clear();
 }
 
 const PackLightingSystem: System = {
@@ -1359,8 +1081,6 @@ export function createSearPlugin(): Plugin {
         name: "StandardRendering",
         components: [
             registration("StandardRenderer", StandardRenderer),
-            registration("PickingPrepass", PickingPrepass),
-            registration("DepthPrepass", DepthPrepass),
             registration("Shadow", Shadow, { defaults: () => ({ ...SHADOW_DEFAULTS }) }),
             registration("Material", Material, MaterialTraits),
             registration("CameraBackground", CameraBackground),

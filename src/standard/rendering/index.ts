@@ -2,19 +2,18 @@
 
 // StandardRenderer's author barrel — the game-author surface of the default renderer. The renderer itself is
 // `forward.ts` (the GPU-driven forward pass); this file re-exports only what a scene author touches: the
-// `StandardRenderer` camera marker + its opt-in prepass lanes (`PickingPrepass` / `DepthPrepass`), the `Material` / `CameraBackground`
+// `StandardRenderer` camera marker, the `Material` / `CameraBackground`
 // components, the `Shadow` cast opt-in + its `SunShadows` / `PointShadows` config, and `StandardRenderingPlugin`. The
 // extension surface (surface codegen, the relocatable shading chunks, the backdrop registry, the ordering
 // anchors) follows below, drawn from the same `forward.ts` impl.
 // re-export each name from its definition site (one hop, so the reference generator resolves the JSDoc):
-// the renderer + most of its components live in forward.ts, `PickingPrepass` in codegen.ts (it's part of the
-// COLOR_LANES table there), the shadow config + cast opt-in in shadows.ts.
+// The renderer components live in forward.ts and shadow components in shadows.ts.
+// Camera prepass markers and targets belong to core/rendering.
 
 import type { Plugin } from "../../engine";
 import { createSearPlugin } from "./forward";
 
-export { PickingPrepass } from "./codegen";
-export { CameraBackground, DepthPrepass, Material, StandardRenderer } from "./forward";
+export { CameraBackground, Material, StandardRenderer } from "./forward";
 /**
  * StandardRenderer: the one shallot renderer. A GPU-driven raster forward pass: a 4× MSAA color pass (opaque draws
  * then `blend` draws composited over them, fused into one render pass) and an opt-in single-sample
@@ -33,7 +32,7 @@ export const StandardRenderingPlugin: Plugin = createSearPlugin();
 export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, Shadow, SunShadows } from "./shadows";
 
 // sear's non-public extension surface: the surface chunk environment, the backdrop seam, the opt-in
-// prepass lanes, and the relocatable shading chunks a screen-space consumer splices. Rendering's
+// draw passes, and the relocatable shading chunks a screen-space consumer splices. Rendering's
 // contract (custom producers, renderers, the registries) lives here alongside what makes a surface
 // shade — and what a screen-space effect samples — under the default renderer.
 
@@ -57,7 +56,7 @@ export {
     sliceDepth,
     zSlice,
 } from "./cluster";
-export { DEPTH_FORMAT, lightEvalWgsl, PICKING_ID_FORMAT, PICKING_ID_NONE } from "./codegen";
+export { lightEvalWgsl } from "./codegen";
 export type {
     Background,
     BackgroundFn,

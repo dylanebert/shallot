@@ -17,6 +17,7 @@ import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
 import { initializeImageState } from "./image";
 import { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
 import { initializeRenderState, Render } from "./render";
+import { DepthPrepass, disposeViewTargets, initializeViewTargets, PickingPrepass } from "./targets";
 import {
     bindCamera,
     clearOffscreens,
@@ -41,6 +42,21 @@ import {
 export { Camera, CameraMode, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
 export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
+export {
+    COLOR_LANES,
+    type ColorLane,
+    colorPassDescriptor,
+    colorTargets,
+    DEPTH_FORMAT,
+    DepthPrepass,
+    laneKey,
+    PICKING_ID_FORMAT,
+    PICKING_ID_NONE,
+    PickingPrepass,
+    prepassDescriptor,
+    prepassLanes,
+    SAMPLE_COUNT,
+} from "./targets";
 
 const SLOT_FLOATS = VIEW_STRIDE / 4;
 const CAMERAS = [Camera];
@@ -395,6 +411,8 @@ export const RenderingPlugin: Plugin = {
                 antialias: 1,
             }),
         }),
+        registration("DepthPrepass", DepthPrepass),
+        registration("PickingPrepass", PickingPrepass),
         registration("Resolution", Resolution, {
             defaults: () => ({ width: 0, height: 0 }),
         }),
@@ -419,9 +437,11 @@ export const RenderingPlugin: Plugin = {
         }),
     ],
 
+    dispose: disposeViewTargets,
     async initialize(world) {
         initializeRenderState(world);
         initializeViewState(world);
+        initializeViewTargets(world);
         initializeFrameState(world);
         initializeImageState(world);
         initializeRenderFrameState(world);
