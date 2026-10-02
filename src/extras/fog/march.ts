@@ -75,8 +75,7 @@ export const FOG_PARAMS = {
 // ---- extinction: the midpoint march + the haze composite + the per-pixel ray setup ----
 
 /** exponential height fog's density at a world point: `density · exp(-falloff · (p.y - base))`. Height-only,
- *  so the x/z lanes are unread — the point is the parameter because the in-scatter loop already has one.
- *  @example let dens = fogDensity(p, density, base, falloff); */
+ *  so the x/z lanes are unread — the point is the parameter because the in-scatter loop already has one. */
 export const fogDensity = tgpu.fn(
     [d.vec3f, d.f32, d.f32, d.f32],
     d.f32,
@@ -89,8 +88,6 @@ export const fogDensity = tgpu.fn(
  * transmittance `exp(-τ)` along `origin + dir·[0, dist]`: the midpoint Riemann sum of optical depth through
  * Beer-Lambert (`sampleOffset` 0.5 = midpoint, per-pixel-jittered on screen). The loop runs to the constant
  * {@link FOG_MAX_STEPS} and breaks at the runtime `steps` — the DXC constant-bound shape.
- *
- * @example let t = fogTransmittance(nearWorld, dir, dist, density, base, falloff, steps, offset);
  */
 export const fogTransmittance = tgpu.fn(
     [d.vec3f, d.vec3f, d.f32, d.f32, d.f32, d.f32, d.u32, d.f32],
@@ -109,8 +106,7 @@ export const fogTransmittance = tgpu.fn(
     return std.exp(-tau);
 });
 
-/** composite the marched extinction over the scene color: `scene·T + fogColor·(1−T)`.
- *  @example let outc = fogComposite(scn, fog.color.rgb, t); */
+/** composite the marched extinction over the scene color: `scene·T + fogColor·(1−T)`. */
 export const fogComposite = tgpu.fn(
     [d.vec3f, d.vec3f, d.f32],
     d.vec3f,
@@ -124,8 +120,6 @@ export const fogComposite = tgpu.fn(
  * the camera's inverse view-projection. The matrix is a parameter, not a `view` global, so the function
  * stays pure and its round-trip against a `viewProj` is a unit test — the production march calls it with
  * `view.invViewProj`.
- *
- * @example let fragWorld = reconstructWorld(view.invViewProj, uv, depth);
  */
 export const reconstructWorld = tgpu.fn(
     [d.mat4x4f, d.vec2f, d.f32],
@@ -138,8 +132,7 @@ export const reconstructWorld = tgpu.fn(
 });
 
 /** interleaved gradient noise (Jimenez 2014) — the cheap per-pixel offset that turns march banding into
- *  noise.
- *  @example let offset = mix(0.5, ign(vec2f(gid.xy)), jitter); */
+ *  noise. */
 export const ign = tgpu.fn(
     [d.vec2f],
     d.f32,
@@ -165,8 +158,7 @@ export const fogMarchWgsl = chunk(
 
 /** the Henyey-Greenstein single-scatter phase function. `g` in [-1,1]: 0 isotropic (1/4π), →1 forward-peaked
  *  (a bright halo toward a light), →-1 back-scatter. `cosTheta` is the cosine between the view ray and the
- *  direction toward the light.
- *  @example let phase = henyeyGreenstein(g, dot(dir, L)); */
+ *  direction toward the light. */
 export const henyeyGreenstein = tgpu.fn(
     [d.f32, d.f32],
     d.f32,
@@ -182,8 +174,6 @@ export const henyeyGreenstein = tgpu.fn(
  * spotFactor · phase`, the same per-light terms standard's lit path uses (it calls the same two functions).
  * Shadow-free — the caller multiplies the shadow factor. `params.x`'s magnitude is the source radius; its
  * sign is the `VolumetricLight` flag, squared away here.
- *
- * @example lstep += inScatterContribution(light, p, dir, g) * shadow;
  */
 export const inScatterContribution = tgpu.fn(
     [PointLightGpu, d.vec3f, d.vec3f, d.f32],
@@ -204,8 +194,6 @@ export const inScatterContribution = tgpu.fn(
  * `sunDir` is the sun's travel direction (`lighting.sunDirection.xyz`), so `-sunDir` is toward the light; no
  * distance falloff or cone (directional, infinitely far). Shadow-free — the caller multiplies the per-step
  * sun shadow. Additive with the clustered cones on the same march.
- *
- * @example lstep += sunInScatter(lighting.sunColor.rgb, lighting.sunDirection.xyz, dir, g) * shadow;
  */
 export const sunInScatter = tgpu.fn(
     [d.vec3f, d.vec3f, d.vec3f, d.f32],

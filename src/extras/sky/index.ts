@@ -20,16 +20,6 @@ import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
  * `horizon` up to `zenith`, a sun glow + disk (positioned by the scene's directional light, tinted
  * `sunColor`), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. The sun's direction
  * follows the directional light; this component sets only its appearance.
- *
- * @example
- * ```
- * world.add(world.create(), Sky, { zenith: 0x89b6e9, horizon: 0xc4cdda, sunGlow: 0.5, cloudCoverage: 0.5 });
- * const camera = world.create();
- * world.add(camera, Camera);
- * world.add(camera, StandardRenderer);
- * world.add(camera, CameraBackground, { name: world.resource(Backgrounds).id("sky") ?? 0 });
- * world.add(camera, Transform);
- * ```
  */
 export const Sky = {
     /** hex sRGB color overhead, at the zenith (e.g. 0x89b6e9) */

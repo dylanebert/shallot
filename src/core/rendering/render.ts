@@ -9,7 +9,6 @@ import type { World } from "../../engine";
  * tagged six-plane frustum per active slot for producers to test their bounds.
  * `viewCount` is the populated slot count; `shadeCount` is its presenting prefix.
  * Depth-only views occupy [shadeCount, viewCount). No draw or light layout is assumed.
- * @expand
  */
 export interface RenderContext {
     format: GPUTextureFormat;

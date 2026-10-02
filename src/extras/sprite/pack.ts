@@ -49,13 +49,6 @@ export const SpriteFill = {
  * a smooth fade needs `blend: alpha`. The quad scales by the transform's scale on top of `size`.
  * `fill` shows only the leading 0..1 fraction of the image along a {@link SpriteFill} `fillMode`:
  * a radial fill over a ring icon is a progress ring, a vertical fill over a bar icon a gauge
- *
- * @example
- * ```
- * const marker = world.create();
- * world.add(marker, Sprite, { image: registerImage(world, "/icons/house.png"), size: [2, 2], anchor: [0.5, 0] });
- * world.add(marker, Transform, { translation: [4, 0, 4, 0] });
- * ```
  */
 export const Sprite = {
     /** registered image id (see {@link registerImage}) */

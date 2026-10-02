@@ -49,8 +49,6 @@ const PI = Math.PI;
  * McTaggart, "Shading in Valve's Source Engine", GDC 2004). The square (not the bare remap) keeps form:
  * the remap alone flattens, squaring restores midtone contrast. Diffuse-only — the specular cosine stays
  * physical, so metals + glTF dielectrics are unchanged. Deliberately not energy-conserving.
- *
- * @example let diffuse = halfLambert(dot(normal, L));
  */
 export const halfLambert = tgpu.fn(
     [d.f32],
@@ -62,8 +60,7 @@ export const halfLambert = tgpu.fn(
 });
 
 /** the GGX / Trowbridge-Reitz normal distribution over the half-vector cosine `ndh` and the squared
- *  roughness `a`.
- *  @example let D = distributionGGX(ndh, a); */
+ *  roughness `a`. */
 export const distributionGGX = tgpu.fn(
     [d.f32, d.f32],
     d.f32,
@@ -74,8 +71,7 @@ export const distributionGGX = tgpu.fn(
     return a2 / std.max(PI * den * den, 1e-7);
 });
 
-/** Smith height-correlated visibility (`G / (4·ndl·ndv)`), Heitz 2014.
- *  @example let V = visSmithGGX(ndl, ndv, a); */
+/** Smith height-correlated visibility (`G / (4·ndl·ndv)`), Heitz 2014. */
 export const visSmithGGX = tgpu.fn(
     [d.f32, d.f32, d.f32],
     d.f32,
@@ -89,8 +85,7 @@ export const visSmithGGX = tgpu.fn(
 
 /** Schlick Fresnel with f90 derived from F0 (Frostbite, Lagarde 2014): a true zero-reflectance material
  *  (F0 = 0) gets f90 = 0, so its specular vanishes entirely — grazing included. F0 ≥ ~0.02 saturates to
- *  the standard f90 = 1. This is what makes `dielectric = 0` mean literally no specular.
- *  @example let F = fresnelSchlick(vdh, f0); */
+ *  the standard f90 = 1. This is what makes `dielectric = 0` mean literally no specular. */
 export const fresnelSchlick = tgpu.fn(
     [d.f32, d.vec3f],
     d.vec3f,
@@ -107,8 +102,6 @@ export const fresnelSchlick = tgpu.fn(
  * diffuse term matches `lit` exactly. The diffuse cosine is {@link halfLambert} (the soft default); the
  * specular keeps the physical clamped cosine, so it vanishes on back faces and metals / glTF dielectrics
  * stay correct.
- *
- * @example let radiance = brdf(surface, N, V, L);
  */
 export const brdf = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f, d.vec3f],
@@ -142,8 +135,6 @@ export const brdf = tgpu.fn(
  * `(a/aPrime)²`, so total specular energy is conserved (the highlight spreads, it doesn't brighten). At
  * radius 0 the representative point is `Lc`, `aPrime = a`, norm = 1, so this reduces to `brdf(s, N, V, Lc)`
  * exactly (pinned by unit test).
- *
- * @example let radiance = brdfSphere(surface, N, V, L, dist, light.params.x);
  */
 export const brdfSphere = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f, d.vec3f, d.f32, d.f32],
@@ -284,8 +275,6 @@ export const PointFace = d.struct({
  * for the receiver (standard's color FS, the fog march) and the CPU: the six face bases are axis-aligned, so
  * each dot product folds to a signed component pick. Pinned to the `POINT_FACES` table the atlas render's
  * viewProjs come from (`shadows.test.ts`), which is what keeps the two halves of the projection agreeing.
- *
- * @example let f = pointFaceOf(fragWorld - casterPos);
  */
 export const pointFaceOf = tgpu.fn(
     [d.vec3f],
@@ -314,8 +303,6 @@ export const pointFaceOf = tgpu.fn(
  * depth being linear) instead grows with z² and detaches far contact shadows (peter-panning). The remap is
  * reverse-Z (near→1, far→0), matching the `perspective` the atlas renders through — pinned to it by unit
  * test, so the hardware depth the atlas wrote compares exactly.
- *
- * @example let receiver = pointReceiver(z, near, far, depthBias);
  */
 export const pointReceiver = tgpu.fn(
     [d.f32, d.f32, d.f32, d.f32],
@@ -556,8 +543,6 @@ const sampleCascade = tgpu
  * the camera-forward distance from the eye (forward = `-cross(right, up)`) — the linear view-z the CSM
  * receiver selects a cascade by, Bevy's `get_cascade_index` axis. Pure, so the cascade fit's CPU half and
  * the receiver agree on the axis by construction.
- *
- * @example let viewZ = viewDepth(view.right.xyz, view.up.xyz, view.eye.xyz, worldPos);
  */
 export const viewDepth = tgpu.fn(
     [d.vec3f, d.vec3f, d.vec3f, d.vec3f],

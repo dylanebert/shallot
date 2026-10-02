@@ -81,12 +81,6 @@ export interface Capture {
  * reads as transparent black once its frame is presented, so the read runs in the next animation frame,
  * after the engine's callback presents. A held app presents no next frame; capture its page with a
  * Playwright page screenshot.
- *
- * @example
- * ```
- * const shot = await captureFrame(document.querySelector("canvas")!);
- * console.log(shot.width, shot.height, shot.identity);
- * ```
  */
 export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> {
     assertCaptureGeometry(canvas.width, canvas.height);

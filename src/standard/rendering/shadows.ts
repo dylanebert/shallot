@@ -764,14 +764,6 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
  * shader): when more shadowed lights exist than `casters`, a light that cast last frame keeps its slot
  * unless a challenger's importance beats it by this fraction. It stops a light's shadow flickering on/off
  * as the camera moves and re-ranks the winners by distance (set 0 for the raw nearest-wins behavior).
- *
- * @example
- * ```ts
- * import { PointShadows } from "@dylanebert/shallot";
- * PointShadows.casters = 8;
- * PointShadows.atlas = 2048;
- * await runApp({ ... });
- * ```
  */
 export const PointShadows = { atlas: 2048, casters: 8, hysteresis: 0.25 };
 

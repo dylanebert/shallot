@@ -164,41 +164,14 @@ function createStandardRendererState(): StandardRendererState {
  * marker selecting StandardRenderer as the active renderer on a Camera entity. A camera carrying it renders through
  * standard's opaque and transparent records, plus core's opt-in prepass lanes requested by
  * {@link PickingPrepass} and {@link DepthPrepass}.
- *
- * @example
- * ```
- * const camera = world.create();
- * world.add(camera, Camera);
- * world.add(camera, StandardRenderer);
- * world.add(camera, Transform);
- * ```
  */
 export const StandardRenderer = {};
-
-/**
- * a registered background: a renderer-agnostic *view-ray → HDR color* recipe standard draws as a fullscreen
- * backdrop on the un-rendered pixels (the standard infinite-skybox technique). Its `layout` comes from
- * {@link backgroundLayout} and names the schema-backed resources its TGSL `fs` closes over. The `fs`
- * receives `BackgroundContext.dir`, the normalized world-space view ray standard reconstructs from `view.invViewProj`,
- * and returns an HDR `vec3f`; it may also close over the canonical engine layout's view, lighting, and
- * frame resources. Modeled on {@link Surface}, but backdrop-only: no mesh, instancing, interpolators, or
- * blend modes; the engine names no sky concept, a plugin owns its own sky math.
- */
 
 /**
  * select a StandardRenderer camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen
  * view-ray → color fill on the un-rendered pixels. Without it the camera shows the flat `Camera.clearColor`
  * (the opt-in fallback). The recipe is registered in code with `registerBackground`; this picks one per
  * camera by name.
- *
- * @example
- * ```
- * const camera = world.create();
- * world.add(camera, Camera);
- * world.add(camera, StandardRenderer);
- * world.add(camera, CameraBackground, { name: world.resource(Backgrounds).id("gradient") ?? 0 });
- * world.add(camera, Transform);
- * ```
  */
 export const CameraBackground = {
     /** the {@link Backgrounds} id drawn behind the scene */
@@ -384,7 +357,7 @@ function surfaceGroup(
 }
 
 /**
- * the typed twin of {@link record}: compiled typed pipelines + the per-draw group-2 state cached by
+ * {@link record}'s surface path: compiled pipelines + the per-draw group-2 state cached by
  * layout name — `color` against `layout`; opaque depth-side groups against `layout.depthVariant`; clip
  * depth-side groups against the full layout so cutoff sees material UVs — plus the atlas `eids` swaps
  * used by the atlas passes. Their slot-0 engine group resolves through the same live cache as each view.
@@ -498,7 +471,7 @@ function recordSurface(
 
 // the frame's resolved draws (the first `_standardRendererState.frameCount`), resolved once by ResolveDrawsSystem and shared across
 // the prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving
-// per-pass (the old 3×) was wasted work
+// per pass would repeat the work
 
 /**
  * the frame's draw list: every registered {@link Draw} with a compiled surface + published
@@ -643,20 +616,6 @@ function backgroundGroup(
     return group;
 }
 
-/**
- * Records standard's geometry bundles into core's main pass: shades every opaque draw,
- * then composites every `blend` draw over them (`less-equal` depth-tested against the opaque depth,
- * depth-write off) in core's targets: one HDR color target, no MRT (the screen-space lanes are {@link renderPrepass}'s),
- * because each extra target costs bandwidth on every pixel and tile-based GPUs pay it hardest. With
- * `Camera.antialias` on (the default) it's a 4× MSAA pass resolved into the offscreen; off, it renders
- * single-sample straight into the offscreen (and binds the surfaces' single-sample pipeline twins,
- * compiled lazily by {@link ensureSingle}). Opaque and transparent share one `beginRenderPass` (nothing
- * reads the color between them, so they fuse into one tile round-trip). Group 1 is the sun shadow seam:
- * standard's own shadow map + light params, or its 1×1 fallback (fully lit) when no light casts. An empty
- * draw list still clears the framebuffer. `bg` (the camera's {@link CameraBackground} selection) draws a fullscreen
- * backdrop between the opaque and blend draws: masked to far-plane pixels by the depth test, so geometry
- * overdraws it and blended draws composite over it; null leaves the flat clear color as the only backdrop
- */
 // one opaque or blended surface draw in a camera's color pass at its view slot, written into the
 // camera's bundle program at `at`
 function drawColor(
@@ -681,6 +640,20 @@ function drawColor(
     step.offset = (draw.args.offset ?? 0) + slot * (draw.args.viewStride ?? 0);
 }
 
+/**
+ * Records standard's geometry bundles into core's main pass: shades every opaque draw,
+ * then composites every `blend` draw over them (`less-equal` depth-tested against the opaque depth,
+ * depth-write off) in core's targets: one HDR color target, no MRT (the screen-space lanes are {@link renderPrepass}'s),
+ * because each extra target costs bandwidth on every pixel and tile-based GPUs pay it hardest. With
+ * `Camera.antialias` on (the default) it's a 4× MSAA pass resolved into the offscreen; off, it renders
+ * single-sample straight into the offscreen (and binds the surfaces' single-sample pipeline twins,
+ * compiled lazily by {@link ensureSingle}). Opaque and transparent share one `beginRenderPass` (nothing
+ * reads the color between them, so they fuse into one tile round-trip). Group 1 is the sun shadow seam:
+ * standard's own shadow map + light params, or its 1×1 fallback (fully lit) when no light casts. An empty
+ * draw list still clears the framebuffer. `bg` (the camera's {@link CameraBackground} selection) draws a fullscreen
+ * backdrop between the opaque and blend draws: masked to far-plane pixels by the depth test, so geometry
+ * overdraws it and blended draws composite over it; null leaves the flat clear color as the only backdrop
+ */
 function renderColor(
     world: World,
     eid: number,
@@ -909,8 +882,8 @@ const ShadowMapSystem: System = {
     },
 };
 
-// the typed twin of `litBindings`, group 2 (`layout()`'s $idx(2) synthesis) — same four bindings, same
-// element shapes, feeding the typed `default` surface.
+// the `default` and `vertex` surfaces' group 2 (`layout()`'s $idx(2) synthesis): `eids`, the
+// per-instance `vec4u` rows, and `globalTransforms`.
 const typedDefaultLayout = typedLayout({
     eids: { type: "storage", element: d.vec4u },
     globalTransforms: { type: "storage", element: Xform },
@@ -937,7 +910,7 @@ const typedDefaultFs = tgpu.fn(
     return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), 1);
 });
 
-// the typed twin of `colorBindings` — `unlit`'s three bindings, no `material` (it never shades).
+// the `unlit` surface's group 2: the same bindings as `default`'s, read without shading.
 const typedColorLayout = typedLayout({
     eids: { type: "storage", element: d.vec4u },
     globalTransforms: { type: "storage", element: Xform },
@@ -952,11 +925,11 @@ const typedUnlitFs = tgpu.fn(
     return d.vec4f(ctx.color.xyz, 1);
 });
 
-// the typed twin of the raw `vertex` surface (per-vertex Gouraud): `litColor` crosses vs→fs as a custom
+// the `vertex` surface (per-vertex Gouraud): `litColor` crosses vs→fs as a custom
 // varying through the `typedVaryingVs`/`typedVaryingFs` copier pair (`pipelines.ts`), so this `vs` runs
 // `litPbr` once per vertex. `sunVisibility`/`pointScale`/`fragWorld` sit at their defaults here (per-vertex
-// shading runs before the fs scaffold fills them) — the same fully-lit sun / zero-point-contribution the
-// raw path's per-vertex mode gets.
+// shading runs before the fs scaffold fills them), so it shades with a fully-lit sun and no point
+// contribution.
 const typedVertexVaryings = { litColor: d.vec3f };
 const typedVertexPatch = vsPatchSchema(typedVertexVaryings);
 const typedVertexVs = tgpu.fn(
@@ -1079,9 +1052,8 @@ export const StandardRenderingPlugin: Plugin = {
             layout: typedDefaultLayout,
             fs: typedDefaultFs,
         });
-        // the typed twin — the varyings mechanism's first live consumer (`litColor` crosses vs→fs
-        // through `typedVaryingVs`/`typedVaryingFs`'s per-surface copier, `pipelines.ts`); drawn typed
-        // in every pass, like `default` above.
+        // standard's own varyings consumer (`litColor` crosses vs→fs through
+        // `typedVaryingVs`/`typedVaryingFs`'s per-surface copier, `pipelines.ts`).
         typedRegister(world, {
             name: "vertex",
             layout: typedDefaultLayout,
@@ -1089,7 +1061,6 @@ export const StandardRenderingPlugin: Plugin = {
             vs: typedVertexVs,
             fs: typedVertexFs,
         });
-        // the typed twin, drawn typed in every pass like `default` above.
         typedRegister(world, {
             name: "unlit",
             layout: typedColorLayout,

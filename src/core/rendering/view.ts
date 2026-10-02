@@ -64,8 +64,6 @@ export const VIEW_BYTES = d.sizeOf(ViewUniforms);
  * Linear→sRGB encode (IEC 61966-2-1) for presentation into a non-sRGB target.
  * Tonemapping and replacement passes encode exactly once. The per-channel scalar twin is
  * `linearToSrgb1` (`utils`), which the LDR color codec packs through.
- *
- * @example let encoded = linearToSrgb3(max(color, vec3f()));
  */
 export const linearToSrgb3 = tgpu.fn(
     [d.vec3f],
@@ -101,7 +99,6 @@ export const linearToSrgb3 = tgpu.fn(
  * no `canvas` / `context` / `observer` and a null `framebuffer` / `present`. It still takes a cull slot
  * (a shadow light's off-screen camera renders to its own target, not the screen). Every view
  * frustum-culls from its viewProj: cameras, the sun, and each point/spot shadow combo's depth view.
- * @expand
  */
 export interface View {
     canvas: HTMLCanvasElement | null;

@@ -128,7 +128,7 @@ export interface CompiledSurface {
     // key space — holding both depth and tag pipelines under a single key namespace (a
     // bare `GPURenderPipeline` has no output type parameter either)
     prepass: Map<string, TgpuRenderPipeline<any>>;
-    // the point/cascade shadow-atlas pipelines — the former string shadow pipeline's typed twin. `null` for a
+    // the point/cascade shadow-atlas pipelines. `null` for a
     // non-instanced surface (only an instanced surface casts) —
     // never a silent gap, since a non-instanced typed surface has no per-instance `eids`/`globalTransforms` to
     // re-gather against in the first place.
@@ -492,9 +492,8 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
 }
 
 /**
- * the typed color-pass fragment entry: fills the four `standard/engine.ts` shading-seam privateVars exactly
- * as the raw scaffold does (`sunVisibility` via a real {@link sampleSunShadow} call —
- * matching the raw path's inline sample — `fragWorld`, `fragCoord`, `pointScale`), builds the surface's
+ * the typed color-pass fragment entry: fills the four `standard/engine.ts` shading-seam privateVars
+ * (`sunVisibility` via a real {@link sampleSunShadow} call, `fragWorld`, `fragCoord`, `pointScale`), builds the surface's
  * `fsCtxSchema` context (`uv`/`localPos` cross for real from the vs), and returns the surface's own
  * `fs` chunk's result verbatim (standard's `col` return,
  * unwrapped — a typed `fs` already returns `vec4f`, no lane locals: the prepass tag/depth lanes are a
@@ -576,8 +575,7 @@ function typedColorFs(surface: AnySurface) {
 /**
  * the position-only typed prepass vertex entry (empty lane set — the shadow map's own shape too): pulls
  * the 8 B position-only vertex from the surface's `layout.depthVariant` (a DISTINCT `TgpuBindGroupLayout`
- * instance from `layout`), decodes position alone (normal defaults `+Z`, uv `0`
- * — the raw prepass's own shape), applies the
+ * instance from `layout`), decodes position alone (normal defaults `+Z`, uv `0`), applies the
  * standard instance transform, then splices the surface's own `vs` chunk when present. Inlined rather than
  * factored through a shared helper (probed live: a plain function marked `"use gpu"` can't take a host
  * object like `surface` as an argument — "Shellless functions can only accept arguments representing WGSL
@@ -606,10 +604,9 @@ function typedPrepassVs(surface: AnySurface) {
             const v = layout.$.vertices[input.vidx];
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
             const localPos = decodePos(v.x, v.y, mq);
-            // the raw prepass's own default — pinned
-            // for the life of the vs, never touched by the instance transform below; a `vs` chunk reading `vsIn.localNormal` must see this default,
-            // not the transformed `worldNormal` (a real bug caught in review — passing `worldNormal` here
-            // silently fed world-space data into a field the raw path documents as local-space)
+            // the depth-only default, pinned
+            // for the life of the vs, never touched by the instance transform below; a `vs` chunk reading `vsIn.localNormal` sees this default,
+            // not the transformed `worldNormal`
             const localNormal = d.vec3f(0, 0, 1);
             const uv = d.vec2f(0, 0);
             let eid = d.u32(0);
@@ -665,8 +662,8 @@ function typedPrepassVs(surface: AnySurface) {
 }
 
 /** the id-lane typed prepass vertex entry: {@link typedPrepassVs}'s twin, crossing the flat `eid` varying
- * the tag fragment ({@link typedTagFs}) writes verbatim — `instanced ? eid : PICKING_ID_NONE`, `COLOR_LANES`'s
- * own tag default (`codegen.ts`). */
+ * the tag fragment ({@link typedTagFs}) writes verbatim — `instanced ? eid : PICKING_ID_NONE`, the tag
+ * lane's clear value in `COLOR_LANES`. */
 function typedTagVs(surface: AnySurface) {
     const instanced = typedInstanced(surface);
     const screen = !!surface.screen;
@@ -748,8 +745,7 @@ function typedTagVs(surface: AnySurface) {
 
 /**
  * the typed tag-lane fragment entry: the front-most fragment's `eid` verbatim ({@link typedTagVs}'s
- * varying already resolved the instanced/non-instanced default — `COLOR_LANES`'s own tag-init shape,
- * `codegen.ts`). Outputs `vec4u` rather than the raw path's bare `u32` — typegpu's `fragmentFn` constrains
+ * varying already resolved the instanced/non-instanced default). Outputs `vec4u` rather than a bare `u32` — typegpu's `fragmentFn` constrains
  * every color output to a `vec4` family type (`FragmentOutConstrained`'s `FragmentColorValue = Vec4f |
  * Vec4i | Vec4u`, probed live: a bare `d.u32` fails the type constraint before the body even resolves), so
  * the eid rides lane 0 with the other three padded zero — WebGPU spec-legal against the single-channel
@@ -1419,7 +1415,7 @@ function typedVaryingTagFs(surface: AnySurface) {
 /**
  * compile a `Surface`'s color-pass pipeline(s): the opaque `color` pipeline, or — for a `blend:
  * "alpha"` surface — the single blended `transparent` pipeline instead (exactly one of the two
- * compiles, never both, matching the raw path's "one non-opaque pipeline" shape). Cached by name +
+ * compiles, never both). Cached by name +
  * exact source-surface/layout identity, so replacing a
  * registry entry after warm cannot inherit the previous owner's pipelines. A `screen` surface projects
  * through its own `vs` chunk (`patch.clip`) and rasterizes un-culled.
@@ -1571,7 +1567,7 @@ export function ensureSingle(world: World, t: CompiledSurface): void {
 /**
  * compile a `Surface`'s prepass pipelines: the position-only depth pipeline (key `""`,
  * vertex-only except for a `clip` surface's cutoff fragment) and the id-lane pipeline (key `"tag"`, the
- * raw `COLOR_LANES` id lane). Opaque depth-only surfaces compile off `layout.depthVariant`; clipped
+ * `COLOR_LANES` tag lane). Opaque depth-only surfaces compile off `layout.depthVariant`; clipped
  * surfaces execute their authored cutoff and therefore use the full layout/main vertex stream. An
  * authored tag hook also uses the full stream, independently of the depth-only pipeline, through
  * `SurfaceGroupEntry.tag`. A `blend: "alpha"` surface casts no prepass at all — same rule
@@ -1592,7 +1588,7 @@ function compileTypedPrepass(
     };
     // the receiver stub bound per pipeline (`pointShadowStub`): a vs-chunk surface's
     // `litPbr` statically reaches `pointShadowOf`, whose free names the depth passes never declare or
-    // bind — the stub keeps these modules group-0/2-only, exactly like the raw prepass module
+    // bind — the stub keeps these modules group-0/2-only
     const root = world.gpu.root.with(pointShadowSlot, pointShadowStub);
     const clip = surface.blend === "clip";
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
@@ -1665,8 +1661,7 @@ const typedShadowFs = tgpu
     .$name("shadowAtlasFs");
 
 /**
- * the typed point/cascade shadow-atlas vertex entry: the former string shadow pipeline's VS, pinned
- * statement-for-statement — pulls the 8 B position-only vertex from `layout.depthVariant` (the
+ * the typed point/cascade shadow-atlas vertex entry: pulls the 8 B position-only vertex from `layout.depthVariant` (the
  * `typedPrepassVs` shape), reads the re-gathered `(eid, globalTransformRow, encodedMeshInstanceSlot, combo)` instance at the
  * surface's `eids` lane, applies the instance transform, splices the surface's own `vs` chunk when present,
  * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
@@ -1706,7 +1701,7 @@ function typedShadowVs(
             const v = layout.$.vertices[input.vidx];
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
             const localPos = decodePos(v.x, v.y, mq);
-            // the raw prepass/point default — never touched by the instance transform, matching
+            // the depth-only default — never touched by the instance transform, matching
             // `typedPrepassVs`'s pinned law
             const localNormal = d.vec3f(0, 0, 1);
             const uv = d.vec2f(0, 0);
@@ -2182,8 +2177,7 @@ function compileTypedShadow(
         depthCompare: "greater",
     };
     // the receiver stub, as in `compileTypedPrepass` — doubly load-bearing here: the real receiver
-    // would sample the very atlas this pipeline renders into (a usage hazard the raw path's stubs
-    // exist to prevent)
+    // would sample the very atlas this pipeline renders into (a usage hazard)
     const root = world.gpu.root.with(pointShadowSlot, pointShadowStub);
     const clip = surface.blend === "clip";
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
@@ -2260,8 +2254,7 @@ type AnyBackground = Background<Record<string, Binding>>;
 /**
  * the engine-owned fullscreen-triangle vertex entry every typed background shares — no per-background
  * variance (no mesh, no varyings, per the Backgrounds bindings lock), so ONE instance serves every typed
- * background's pipeline. Statement-for-statement the former string background pipeline's raw vs:
- * the three corners come from `@builtin(vertex_index)` alone, emitted at the reverse-Z far plane (clip z = 0)
+ * background's pipeline. The three corners come from `@builtin(vertex_index)` alone, emitted at the reverse-Z far plane (clip z = 0)
  * so {@link compileBackground}'s `depthCompare: "greater-equal"` + no-depth-write test admits only
  * un-rendered pixels.
  */
@@ -2277,8 +2270,7 @@ const typedBgVs = tgpu
 
 /**
  * a typed background's fragment entry: reconstructs the normalized world-space view ray `dir` from
- * `@builtin(position)` + `engineLayout`'s `view.invViewProj` — operand-for-operand the former string
- * background pipeline's raw reconstruct, not an interstage varying — forces
+ * `@builtin(position)` + `engineLayout`'s `view.invViewProj`, not an interstage varying — forces
  * `shadowLayout`'s group-1 bindings into scope via the `forcedZero` fold (`typedColorFs`'s precedent, same
  * reason: `sampleSunShadow`/`pointShadowOf`'s free names are invisible to `tgpu.resolve`'s call-graph walk
  * otherwise), then calls the background's own `fs` chunk and wraps its `vec3f` result opaque (`vec4f(col, 1)`).
@@ -2339,7 +2331,7 @@ export interface CompiledBackground {
  * compile one typed background's color pipelines — both the 4× MSAA + single-sample twins, eagerly
  * (`compileBackground`'s own reason: backgrounds are few, the camera's AA mode is known only at draw
  * time). `depthCompare: "greater-equal"` + no depth write: at clip z = 0 an un-rendered pixel (cleared
- * depth 0) passes `0 >= 0`, a geometry pixel (depth > 0) fails, matching the raw pipeline's shape. Cached
+ * depth 0) passes `0 >= 0`, a geometry pixel (depth > 0) fails. Cached
  * by name plus exact source-spec/layout identity, so a same-name replacement cannot inherit pipelines
  * or layout-bound groups from its previous owner.
  */

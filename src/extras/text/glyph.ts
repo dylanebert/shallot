@@ -49,8 +49,6 @@ export const GLYPH_AT = {
  * positive outside, 0 exactly on the edge. The atlas stores the falloff exponent-encoded and folded
  * about 0.5 (`sdf > 0.5` is inside), so the decode unfolds it, takes the {@link SDF_EXPONENT}-th root,
  * and rescales by the glyph's largest world dimension. Valve "Improved Alpha-Tested Magnification".
- *
- * @example let signedDist = sdfToSignedDistance(sdf, max(size.x, size.y));
  */
 export const sdfToSignedDistance = tgpu.fn(
     [d.f32, d.f32],
@@ -65,8 +63,7 @@ export const sdfToSignedDistance = tgpu.fn(
 });
 
 /** the sRGB→linear transfer function (the exact piecewise form, not the γ-2.2 approximation): the packed
- *  glyph color is sRGB-encoded and the color target is linear, so it decodes before the blend.
- *  @example col = vec4f(textSrgbToLinear(unp.rgb), unp.a * alpha); */
+ *  glyph color is sRGB-encoded and the color target is linear, so it decodes before the blend. */
 export const textSrgbToLinear = tgpu.fn(
     [d.vec3f],
     d.vec3f,

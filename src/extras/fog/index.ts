@@ -45,11 +45,6 @@ import { fogKernel, fogLayout0, fogLayout1 } from "./pipeline";
  * base haze thickness; `heightFalloff` makes it an exponential height fog (denser low, thinning with
  * altitude above `heightBase`); `steps` / `jitter` trade march cost for banding. The scattering knobs
  * (`absorption` / `scattering` / `anisotropy` / `scatterIntensity`) shape volumetric light shafts.
- *
- * @example
- * ```
- * world.add(world.create(), Fog, { density: 0.04, color: 0xb5c4d8, heightBase: 0, heightFalloff: 0.15 });
- * ```
  */
 export const Fog = {
     /** base extinction coefficient: how fast the scene fades into haze with distance (0 = clear) */

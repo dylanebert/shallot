@@ -28,7 +28,6 @@ const FRAME_U32 = d.memoryLayoutOf(FrameGpu, (s) => s.frame).offset / 4;
 
 /**
  * GPU Frame UBO + CPU staging mirror, written once per frame by {@link writeFrame}
- * @expand
  */
 export interface Frame {
     buffer: GPUBuffer;

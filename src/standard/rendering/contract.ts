@@ -179,10 +179,6 @@ function ownEntries<B extends Record<string, Binding>>(
  * from its own bindings, so a typed `vs`/`fs` can close over `layout.$.name` while it's being authored —
  * before {@link registerSurface} exists to call. Layouts are shareable across surfaces declaring the same
  * bindings (sprite ×6 — register the same layout object on each).
- *
- * @example
- * const layout = surfaceLayout({ eids: { type: "storage", element: InstanceInput }, globalTransforms: { type: "storage", element: Xform } });
- * const fs = tgpu.fn([fsCtxSchema()], d.vec4f)((ctx) => ctx.color);
  */
 export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): SurfaceLayout<B> {
     const own = ownEntries(bindings);
@@ -215,11 +211,6 @@ export type BackgroundLayout<B extends Record<string, Binding>> = TgpuBindGroupL
  * step one of a typed background's two-step registration, {@link surfaceLayout}'s twin for the Backgrounds seam:
  * synthesize a background's group-2 layout from its own
  * bindings, so its typed `fs` can close over `layout.$.name` while it's being authored.
- *
- * @example
- * const Tint = d.struct({ value: d.vec4f });
- * const layout = backgroundLayout({ tint: { type: "uniform", struct: Tint } });
- * const fs = tgpu.fn([BackgroundContext], d.vec3f)((ctx) => std.mul(layout.$.tint.value.xyz, ctx.dir));
  */
 export function backgroundLayout<B extends Record<string, Binding>>(
     bindings: B,
@@ -368,7 +359,6 @@ export function assertOwnFn(label: string, fn: unknown): void {
 /**
  * register a surface for the lifetime of its owning World. Disposal removes it only while this exact
  * spec still owns the name, so a rebuilt World cannot delete its replacement.
- * @example registerSurface(world, { name: "tinted", layout, fs });
  */
 export function registerSurface<
     B extends Record<string, Binding>,
@@ -413,7 +403,6 @@ export const Backgrounds: import("../../engine").Resource<Registry<Background>> 
 
 /**
  * register a background for the lifetime of its owning World.
- * @example registerBackground(world, { name: "sky", layout, fs });
  */
 export function registerBackground<B extends Record<string, Binding>>(
     world: World,

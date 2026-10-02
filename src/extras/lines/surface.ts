@@ -63,8 +63,6 @@ const NEAR_W = 1e-5;
  * the two clip-space endpoints, the viewport resolution, and the corner). Both endpoints behind the
  * camera collapses to an off-screen vertex with a zero tint; otherwise the endpoint nearer than the near
  * plane is pulled onto it before the perpendicular offset.
- *
- * @example const q = lineQuad(sClip, eClip, vec2f(1920, 1080), 0, -1, 2);
  */
 export const lineQuad = tgpu
     .fn(

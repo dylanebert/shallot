@@ -157,7 +157,6 @@ export const CLUSTER_COUNT = CLUSTER_X * CLUSTER_Y * CLUSTER_Z;
  * `halfW`/`halfH` are the view-space frustum half-extents: at unit view depth
  * for a perspective camera (`tan(fov/2)`, aspect-widened), absolute for an
  * orthographic one (`size`, aspect-widened)
- * @expand
  */
 export interface ClusterView {
     perspective: boolean;
@@ -216,8 +215,6 @@ export function sliceDepth(view: ClusterView, z: number): number {
  * the top-down screen y. StandardRenderer's color FS passes fragCoord-derived args; the fog march passes its pixel
  * plus the per-step view depth (the tile xy is fixed along the ray, the z slice moves per step).
  * Relocatable, spliced by both (`lightEvalWgsl`, `standard`).
- *
- * @example let cell = clusterCell(fx, fy, viewZ, near, far, slot);
  */
 export const clusterCell = tgpu.fn(
     [d.f32, d.f32, d.f32, d.f32, d.f32, d.u32],
@@ -311,7 +308,6 @@ const CLUSTER_VIEW_FLOATS = 8;
  * `(slot · CLUSTER_COUNT + cluster) · 2`, published to `world.gpu.buffers` as
  * `"clusterAabbs"`. Rebuilt by {@link UpdateLightClustersSystem} only when a view's
  * projection changes
- * @expand
  */
 export interface Clusters {
     aabbs: GPUBuffer | null;
@@ -554,7 +550,6 @@ export const LIGHT_INDICES_OFFSET = LIGHT_GRID_OFFSET + MAX_VIEWS * CLUSTER_COUN
  * in command order. `viewMats` is the
  * per-slot world→view matrix, staged by `BeginFrameSystem`: the cull pass
  * transforms world-space lights into each view's cluster space with it
- * @expand
  */
 export interface LightCull {
     lights: GPUBuffer | null;

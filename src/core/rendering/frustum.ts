@@ -20,9 +20,6 @@ export const CULL_FRUSTUM = 0;
  * `dot(n, p) + w` is in world units. A sphere of radius `r` is outside when
  * that distance drops below `-r`. Pure; the cull pass reads the packed planes
  * per view, the producer pack tests instance bounds against them
- *
- * @example
- * const planes = frustumPlanes(viewProj, new Float32Array(FRUSTUM_FLOATS));
  */
 export function frustumPlanes(viewProj: Float32Array, out: Float32Array, base = 0): Float32Array {
     const m = viewProj;

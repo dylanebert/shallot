@@ -34,13 +34,6 @@ export { drawArrow, drawLine, drawWireBox } from "./segments";
 /**
  * a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated
  * offset. A retained scene annotation, expanded into one screen-space segment each frame
- *
- * @example
- * ```
- * const eid = world.create();
- * world.add(eid, Line, { offset: [0, 1, 0, 0], thickness: 3, color: 0x44ff88 });
- * world.add(eid, Transform);
- * ```
  */
 export const Line = {
     /** line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up) */
@@ -58,14 +51,6 @@ export const Line = {
 /**
  * an arrowhead on a {@link Line}: four world-space fins (Bevy's fletched shape) at the line's endpoints.
  * Requires a {@link Line} on the same entity
- *
- * @example
- * ```
- * const eid = world.create();
- * world.add(eid, Line, { offset: [2, 0, 0, 0], color: 0xffcc00 });
- * world.add(eid, Arrow, { size: 1.5 });
- * world.add(eid, Transform);
- * ```
  */
 export const Arrow = {
     /** a head at the start endpoint when nonzero */

@@ -63,8 +63,6 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
  * into per-pair slices, read by the VS at `instance_index`. The slot dimension
  * grows with the active camera count, the pair dimension (`Surfaces.size ×
  * Meshes.size`) with mesh registration: no fixed upper bound on either
- *
- * @expand
  */
 export interface MeshDrawBuffers {
     /** `DrawIndexedIndirect` records, slot-major (`slot * pairCount + pair`); null until the first frame's `syncBuffers` */

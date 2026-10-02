@@ -31,7 +31,6 @@ export const LightingGpu = d
  * `ambientColor.rgb` is linear color, `ambientColor.a` is intensity (shader
  * multiplies); `sunColor.rgb` has intensity pre-baked; `sunDirection.xyz` is
  * the normalized travel direction (light-to-surface)
- * @expand
  */
 export interface Lighting {
     buffer: GPUBuffer;
@@ -191,8 +190,6 @@ export const pointLightsWgsl = chunk("pointLightsWgsl", [PointLights], spliceNs)
  * (Karis representative point: `radiusSq = 0` would spike toward ∞ at the bulb). One
  * function, both sides: standard's clustered loop and the fog march splice it (`lightEvalWgsl`,
  * `standard`), the CPU oracles call it directly — there is no WGSL twin to drift from.
- *
- * @example const atten = distanceAttenuation(distSq, 1 / (range * range), radius * radius);
  */
 export const distanceAttenuation = tgpu.fn(
     [d.f32, d.f32, d.f32],
@@ -210,8 +207,6 @@ export const distanceAttenuation = tgpu.fn(
  * the outer. A plain point light carries `(0, 1)` in `params.zw`, so the early-out returns 1 and the
  * multiply is a no-op. `cd` is the cosine between the oct-packed cone axis (`params.y`) and `-L`.
  * {@link spotParams} is the CPU twin that bakes the `(scale, offset)` pair the compact pass stores.
- *
- * @example let f = spotFactor(light, L);
  */
 export const spotFactor = tgpu.fn(
     [PointLightGpu, d.vec3f],

@@ -24,13 +24,6 @@ export const CameraMode = {
  * multi-view (or a dynamically-created canvas) binds each camera explicitly via `attachCanvas`
  * from the view. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); core unpacks to linear
  * when recording the camera's render pass
- *
- * @example
- * ```
- * const camera = world.create();
- * world.add(camera, Camera, { mode: CameraMode.Perspective, fov: 60, clearColor: 0x5cbfbf });
- * world.add(camera, Transform, { translation: [4, 3, 4, 0] });
- * ```
  */
 export const Camera = {
     /** a {@link CameraMode}: perspective (0) or orthographic (1) projection */
@@ -55,13 +48,6 @@ export const Camera = {
  * derives it from the other to keep the canvas aspect, so `height: 360` alone renders 360 lines tall and
  * as wide as the canvas shape needs; set both for an exact (possibly aspect-distorting) target. Per camera,
  * so each canvas in a multi-view scene pins its own. Pairs with {@link Camera} `antialias` off.
- *
- * @example
- * ```
- * const camera = world.create();
- * world.add(camera, Camera, { antialias: 0 });
- * world.add(camera, Resolution, { height: 360 });
- * ```
  */
 export const Resolution = {
     /** render width in pixels; 0 = derive from height to keep the canvas aspect */

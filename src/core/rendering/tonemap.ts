@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
-/** Tonemapping operators. AgX retains Glaze's analytic Filament/three.js fit. */
+/** Tonemapping operators. AgX uses the analytic Filament/three.js fit. */
 export const TonemappingMethod = {
     TonyMcMapface: 0,
     None: 1,
@@ -14,8 +14,7 @@ export const TonemappingMethod = {
     KhronosPbrNeutral: 7,
 } as const;
 
-/** Rec. 709 relative luminance.
- *  @example let y = tmLuma(color); */
+/** Rec. 709 relative luminance. */
 export const tmLuma = tgpu.fn(
     [d.vec3f],
     d.f32,
@@ -25,8 +24,7 @@ export const tmLuma = tgpu.fn(
 });
 
 /** Khronos PBR Neutral (three.js `NeutralToneMapping` / modelviewer.dev) — preserves authored color,
- *  desaturating only past the compression knee. The default operator.
- *  @example let display = tmNeutral(radiance); */
+ *  desaturating only past the compression knee. The default operator. */
 export const tmNeutral = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -47,8 +45,7 @@ export const tmNeutral = tgpu.fn(
     return std.mix(c, d.vec3f(newPeak), g);
 });
 
-/** plain Reinhard — oversaturates, the simple baseline.
- *  @example let display = tmReinhard(radiance); */
+/** plain Reinhard — oversaturates, the simple baseline. */
 export const tmReinhard = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -57,8 +54,7 @@ export const tmReinhard = tgpu.fn(
     return std.div(c, std.add(d.vec3f(1), c));
 });
 
-/** luminance-space Reinhard — preserves hue (Bevy `tonemapping_reinhard_luminance`).
- *  @example let display = tmReinhardLuminance(radiance); */
+/** luminance-space Reinhard — preserves hue (Bevy `tonemapping_reinhard_luminance`). */
 export const tmReinhardLuminance = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -69,8 +65,7 @@ export const tmReinhardLuminance = tgpu.fn(
     return std.mul(c, lNew / std.max(lOld, 1e-5));
 });
 
-/** the Stephen Hill RRT+ODT rational fit {@link tmAces} applies between its two ACES matrices.
- *  @example let fit = tmRrtOdtFit(acesInput); */
+/** the Stephen Hill RRT+ODT rational fit {@link tmAces} applies between its two ACES matrices. */
 export const tmRrtOdtFit = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -81,8 +76,7 @@ export const tmRrtOdtFit = tgpu.fn(
     return std.div(a, b);
 });
 
-/** ACES Fitted (Stephen Hill RRT+ODT fit, via three.js / Godot) — contrasty, saturation-boosting.
- *  @example let display = tmAces(radiance); */
+/** ACES Fitted (Stephen Hill RRT+ODT fit, via three.js / Godot) — contrasty, saturation-boosting. */
 export const tmAces = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -106,8 +100,7 @@ export const tmAces = tgpu.fn(
     return std.clamp(std.mul(acesOut, c), d.vec3f(0), d.vec3f(1));
 });
 
-/** the AgX sigmoid, a degree-6 polynomial on the log-encoded value.
- *  @example let contrasted = tmAgxContrast(logEncoded); */
+/** the AgX sigmoid, a degree-6 polynomial on the log-encoded value. */
 export const tmAgxContrast = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -133,8 +126,7 @@ export const tmAgxContrast = tgpu.fn(
     );
 });
 
-/** iolite/Filament analytic AgX (three.js `AgXToneMapping`) — soft, neutral, gentle desaturation.
- *  @example let display = tmAgx(radiance); */
+/** iolite/Filament analytic AgX (three.js `AgXToneMapping`) — soft, neutral, gentle desaturation. */
 export const tmAgx = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -173,8 +165,7 @@ export const tmAgx = tgpu.fn(
     return std.clamp(std.mul(rec2020ToSrgb, c), d.vec3f(0), d.vec3f(1));
 });
 
-/** Rec. 709 RGB → YCbCr, the chroma basis {@link tmSomewhatBoring} desaturates in.
- *  @example let ycbcr = tmRgbToYcbcr(color); */
+/** Rec. 709 RGB → YCbCr, the chroma basis {@link tmSomewhatBoring} desaturates in. */
 export const tmRgbToYcbcr = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -184,8 +175,7 @@ export const tmRgbToYcbcr = tgpu.fn(
     return std.mul(c, m);
 });
 
-/** the `1 - exp(-v)` roll-off {@link tmSomewhatBoring} curves through.
- *  @example let y = tmSbCurve(luma); */
+/** the `1 - exp(-v)` roll-off {@link tmSomewhatBoring} curves through. */
 export const tmSbCurve = tgpu.fn(
     [d.f32],
     d.f32,
@@ -194,8 +184,7 @@ export const tmSbCurve = tgpu.fn(
     return 1 - std.exp(-v);
 });
 
-/** {@link tmSbCurve} per channel.
- *  @example let rolled = tmSbCurve3(color); */
+/** {@link tmSbCurve} per channel. */
 export const tmSbCurve3 = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -204,8 +193,7 @@ export const tmSbCurve3 = tgpu.fn(
     return d.vec3f(tmSbCurve(v.x), tmSbCurve(v.y), tmSbCurve(v.z));
 });
 
-/** SomewhatBoringDisplayTransform (Stachowiak, via Bevy) — chroma-aware highlight desaturation.
- *  @example let display = tmSomewhatBoring(radiance); */
+/** SomewhatBoringDisplayTransform (Stachowiak, via Bevy) — chroma-aware highlight desaturation. */
 export const tmSomewhatBoring = tgpu.fn(
     [d.vec3f],
     d.vec3f,

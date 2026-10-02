@@ -58,11 +58,6 @@ function transparentPixel(): Blob {
  * key (defaults to the url). Register any time up to a plugin's
  * `initialize` (`SpritePlugin` builds the `texture_2d_array` at `warm`, after every initialize), so a
  * plugin can register its own images (no pre-`createApp` call needed); all images share one array, layer-per-image
- *
- * @example
- * ```
- * registerImage(world, "/icons/house.png", "house");
- * ```
  */
 export function registerImage(world: World, source: string | Blob, name?: string): number {
     const _images = world.resource(Images);

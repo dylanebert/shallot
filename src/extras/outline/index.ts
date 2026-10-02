@@ -72,13 +72,6 @@ import {
  *
  * Add it to a MeshInstance entity to highlight it; remove it to clear. Fields are per-entity, so different
  * highlights coexist in one pass.
- *
- * @example
- * ```
- * // hover feedback driven by a pick (the cast hands you the hovered eid)
- * if (mode === "hover") world.add(hovered, Outline);
- * else state.remove(hovered, Outline);
- * ```
  */
 export const Outline = {
     /** band color, linear rgb (alpha unused in v1) */

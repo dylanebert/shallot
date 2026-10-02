@@ -36,8 +36,6 @@ export type MeshBinding =
  * frustum cull GlobalTransforms per instance. {@link registerMesh} derives it from the staged
  * vertices; procedural producers may supply their own or omit it (a culler then
  * treats the mesh as always-visible)
- *
- * @expand
  */
 export interface Mesh {
     name: string;

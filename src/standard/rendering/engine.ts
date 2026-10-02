@@ -77,17 +77,14 @@ export const pointShadowStub = tgpu
     })
     .$name("pointShadowOf");
 
-/** the receiver seam the scaffold calls through: defaults to the real {@link pointShadowRef} (color
- *  pipelines emit exactly the raw path's sampling receiver); a depth pipeline binds
- *  {@link pointShadowStub} instead (`root.with(pointShadowSlot, pointShadowStub)` — the typed twin of
- *  the raw prepass module's shadow stubs). */
+/** the receiver seam the scaffold calls through: defaults to the real {@link pointShadowRef}, which
+ *  color pipelines sample; a depth pipeline binds {@link pointShadowStub} instead
+ *  (`root.with(pointShadowSlot, pointShadowStub)`). */
 export const pointShadowSlot = tgpu.slot(pointShadowOf).$name("pointShadowSlot");
 
 /** the fragment's slot-major cluster index ({@link clusterCell}). ViewUniforms depth recovers from the position
  *  builtin: perspective clip.w is the view depth (`fragCoord.w = 1/clip.w`); orthographic depth is
  *  linear in `fragCoord.z`.
- *
- * @example let cluster = clusterOf();
  */
 export const clusterOf = tgpu.fn(
     [],
@@ -112,8 +109,6 @@ export const clusterOf = tgpu.fn(
 
 /** the clustered point/spot diffuse sum for one fragment normal. Zero when {@link pointScale} is 0
  *  (the vs / prepass entries).
- *
- * @example let sum = pointFactor(worldNormal);
  */
 export const pointFactor = tgpu.fn(
     [d.vec3f],
@@ -153,8 +148,6 @@ export const pointFactor = tgpu.fn(
 /** ambient + sun·halfLambert·shadow + the clustered point sum, callable in a vs for per-vertex shading
  *  (where {@link sunVisibility} /
  *  {@link pointScale} sit at their defaults: fully-lit sun, zero point contribution).
- *
- * @example let factor = lightFactor(worldNormal);
  */
 export const lightFactor = tgpu.fn(
     [d.vec3f],
@@ -178,8 +171,6 @@ export const lightFactor = tgpu.fn(
 });
 
 /** `baseColor * lightFactor(normal)`.
- *
- * @example let col = lit(albedo, worldNormal);
  */
 export const lit = tgpu.fn(
     [d.vec3f, d.vec3f],
@@ -194,8 +185,6 @@ export const lit = tgpu.fn(
  *  {@link pointScale} / {@link fragWorld} are the same fs-scaffold privates, so a vs-side call gets
  *  neither point lights nor sun shadows, same as the diffuse path. At metallic 0 / roughness 1 /
  *  dielectric 0 this reduces to `lit(s.albedo, normal)` exactly.
- *
- * @example let radiance = litPbr(surface, worldNormal, world);
  */
 export const litPbr = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f],

@@ -59,11 +59,6 @@ export const Content = {
 /**
  * register a font by url, returning the id stored in {@link Text.font}. `name` (optional) is its
  * {@link Fonts} key; unnamed fonts key by url. Register in the owning World during `setup` so the atlas loads at init
- *
- * @example
- * ```
- * registerFont(world, "/fonts/inter.ttf", "inter");
- * ```
  */
 export function registerFont(world: World, url: string, name?: string): number {
     return world.resource(Fonts).register({ name: name ?? url, url });
@@ -72,11 +67,6 @@ export function registerFont(world: World, url: string, name?: string): number {
 /**
  * intern a label string, returning the id stored in {@link Text.content}. Identical strings dedupe to one
  * id.
- *
- * @example
- * ```
- * world.storage(Text).content.set(eid, internText(world, "Hello"));
- * ```
  */
 export function internText(world: World, content: string): number {
     return world.resource(Content).register({ name: content });
@@ -86,18 +76,6 @@ export function internText(world: World, content: string): number {
  * a world-space text label anchored to an entity's {@link Transform}. Register the string with
  * {@link internText} and, optionally, a face with {@link registerFont}; the glyphs lay out once and ride the entity's
  * transform, so moving a label triggers no rebuild
- *
- * @example
- * ```
- * const label = world.create();
- * world.add(label, Text, {
- *     content: internText(world, "Score"),
- *     fontSize: 0.5,
- *     anchor: [0.5, 0.5],
- *     color: 0xffcc44,
- * });
- * world.add(label, Transform);
- * ```
  */
 export const Text = {
     /** interned string id (see {@link internText}) */
