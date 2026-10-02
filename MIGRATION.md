@@ -22,7 +22,7 @@ Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/gla
 
 Cameras without settings now use `TonyMcMapface`, not Khronos PBR Neutral. Add `Tonemapping` with `method: TonemappingMethod.KhronosPbrNeutral` to keep the former operator. `None` skips the operator for display-ready **linear** images; grading and the screen encode still apply. `AgX` retains the former analytic Filament/three.js approximation, rather than Bevy's LUT.
 
-`ColorGrading` applies exposure, temperature, tint and hue globally; `postSaturation` applies after tonemapping. The `saturation`, `contrast`, `gamma`, `gain` and `lift` vectors hold shadows, midtones and highlights in x/y/z (w unused). Defaults are identity; `midtonesRange` defaults to `[0.2, 0.7]`.
+`ColorGrading` applies exposure, temperature, tint and hue (in degrees) globally; `postSaturation` applies after tonemapping. The `saturation`, `contrast`, `gamma`, `gain` and `lift` vectors hold shadows, midtones and highlights in x/y/z (w unused). Defaults are identity; `midtonesRange` defaults to `[0.2, 0.7]`.
 
 Register view-specific passes in `world.resource(EffectPasses)` under the camera eid, with `before` and `after` arrays. Each callback receives `(world, eid, view, input, output)` and records on the frame encoder. Before passes operate on linear HDR; after passes operate on encoded display-referred intermediates. With no after pass, tonemapping writes the presented target directly. Remove registrations when their camera or owner leaves.
 
@@ -44,7 +44,7 @@ Register view-specific passes in `world.resource(EffectPasses)` under the camera
 | `Sear`, `Depth`, `Tag`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `PickingPrepass`, `CameraBackground` |
 | `TAG_FORMAT`, `TAG_NONE`, `TagFn`, `view.tag` | `PICKING_ID_FORMAT`, `PICKING_ID_NONE`, `PickingIdFn`, `view.pickingId` |
 | `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |
-| GPU `View` schema; `/rendering` `linearToSrgb` | `ViewUniforms`; `linearToSrgb3` |
+| `/render/core` GPU `View` schema and `linearToSrgb` | `/rendering` `ViewUniforms` and `linearToSrgb3` |
 | GPU `View.cluster` | `ViewUniforms.projection` (near, far, perspective flag, slot; unchanged byte layout) |
 | `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
 | `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
@@ -53,7 +53,8 @@ Register view-specific passes in `world.resource(EffectPasses)` under the camera
 | `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
 | `composeTransform` | `composeGlobalTransform` |
 | `state.stamp`, `state.timescale`, `state.swap` | `world.generation`, `world.setTimeScale`, `world.swapSystem` |
-| `PrepassSystem`, `ColorSystem`, `ClusterSystem`, `LightCullSystem` | `RenderPrepassesSystem`, `RenderMeshColorSystem`, `UpdateLightClustersSystem`, `CullLightsSystem` |
+| `/sear/core` `PrepassSystem`, `ColorSystem` | `/standard/rendering` `RenderPrepassesSystem`, `RenderMeshColorSystem` |
+| `/src/standard/render/cluster.ts` `ClusterSystem`, `LightCullSystem` | Remove direct imports; these systems are now internal to `StandardRenderingPlugin`. |
 | `CharacterSweepSystem`, `PlayerControlSystem` | `SweepCharactersSystem`, `UpdatePlayerControlSystem` |
 | Physics `StepSystem`, `ConstraintSystem` | `StepPhysicsSystem`, `SyncPhysicsConstraintsSystem` |
 
@@ -91,7 +92,7 @@ world.add(lamp, SpotLight, {
 world.add(lamp, VolumetricLight);
 ```
 
-Add `NotShadowCaster` to a mesh entity to keep it visible without casting shadows. Removing it restores casting. `SunShadows` and `PointShadows` retain their settings. Light brightness units have not changed to lux or lumens.
+`NotShadowCaster` is new in 0.10. Add it to a mesh entity to keep it visible without casting shadows. Removing it restores casting. `SunShadows` and `PointShadows` retain their settings. Light brightness units have not changed to lux or lumens.
 
 `Camera` remains one component: `mode`, `fov`, `near`, `far`, `size`, `clearColor` and `antialias` are unchanged, including `fov` in degrees and `antialias: 1` for 4× MSAA. `CameraMode` and `Resolution.width`/`.height` are unchanged.
 
@@ -287,8 +288,8 @@ import { Xform } from "@dylanebert/shallot/utils/core";
 
 ```ts
 // 0.10
-import { FrameGpu, registerSurface, surfaceLayout } from "@dylanebert/shallot/rendering";
-import { engineLayout } from "@dylanebert/shallot/standard/rendering";
+import { FrameGpu } from "@dylanebert/shallot/rendering";
+import { engineLayout, registerSurface, surfaceLayout } from "@dylanebert/shallot/standard/rendering";
 import { Xform } from "@dylanebert/shallot/utils";
 ```
 
@@ -308,7 +309,7 @@ import { Xform } from "@dylanebert/shallot/utils";
 
 Custom surfaces still receive linear `color`; their `material` lanes are now `(metallic, perceptualRoughness, materialId, occlusion)`, not scalar emissive strength. The standard instance table's `MeshInstanceInput` is `{ mesh: u32, material: u32, flags: u32 }` (`flags` bit 0 excludes the mesh from shadow views); colour and shading values live in the `materials` table, bound in `engineLayout`. `Pbr` inputs now include `diffuseWrap`; use 1 to retain the former diffuse lobe.
 
-Mesh data has its own `/mesh` module. Update mesh imports as follows (root imports remain available):
+Mesh data has its own `/mesh` module. Update mesh imports as follows; these names are also exported from the root in 0.10:
 
 | 0.9.5 import | 0.10 import |
 |---|---|
@@ -316,23 +317,26 @@ Mesh data has its own `/mesh` module. Update mesh imports as follows (root impor
 | `/render/core` `Mesh`, `MeshBinding`, `MeshIndex`, `MeshStorage`, `QuantStreams` | `/mesh`, same names |
 | `/render/core` `Meshes`, `meshBounds`, `packMeshes`, `quantizeMeshes`, `VERTEX_FLOATS`, `VERTEX_STRIDE` | `/mesh`, same names |
 
-Surface, background and draw contracts belong to `/standard/rendering`. Update imports as follows (root imports remain available):
+Surface, background and draw contracts belong to `/standard/rendering`. Update imports as follows; contracts re-exported by `/sear/core` use the same mappings:
 
-| Before | After |
+| 0.9.5 import | 0.10 import |
 | --- | --- |
 | `/render/core` `Binding`, `SurfaceLayout`, `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface`, `SURFACE_GROUP` | `/standard/rendering`, same names |
-| `/render/core` `MeshInstanceInput` | `/standard/rendering` `MeshInstanceInput` |
-| `/render/core` `InstanceInput`, `VsIn`, `vsPatchSchema`, `fsCtxSchema`, `VsFn`, `FsFn`, `PickingIdFn`, `assertOwnFn` | `/standard/rendering`, same names |
-| `/render/core` `BackgroundLayout`, `backgroundLayout`, `BackgroundContext`, `BackgroundFn`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
+| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema`, `VsFn`, `FsFn`, `assertOwnFn` | `/standard/rendering`, same names |
+| `/render/core` `TagFn` | `/standard/rendering` `PickingIdFn` |
+| `/render/core` `BgLayout`, `BgCtx`, `BgFn` | `/standard/rendering` `BackgroundLayout`, `BackgroundContext`, `BackgroundFn` |
+| `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
 | `/render/core` `Draw`, `DrawIndirectBuffer`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
 | `/render/core` `ClusterView`, `CLUSTER_COUNT`, `CLUSTER_X`, `CLUSTER_Y`, `CLUSTER_Z`, `Clusters`, `clusterAabb`, `clusterCell`, `clusterCoord`, `clusterIndex`, `clusterView`, `LIGHT_POOL`, `LightCull`, `lightClusters`, `sliceDepth`, `zSlice` | `/standard/rendering`, same names |
 | `/render/core` `LIGHTING_UNIFORM_SIZE`, `Lighting`, `LightingGpu`, `lightingWgsl`, `MAX_POINT_LIGHTS`, `PointLightGpu`, `PointLights`, `pointLightsWgsl`, `distanceAttenuation`, `spotFactor`, `spotParams` | `/standard/rendering`, same names |
 
-Camera prepass markers and attachment constants belong to `/rendering` (root imports remain available):
+`InstanceInput` and `MeshInstanceInput` from `/standard/rendering` are new exports in 0.10, not renamed 0.9.5 exports. The former describes the packed per-draw instance; the latter describes a dense mesh-component row. `StandardMaterial`, `Materials` and `MeshPlugin` are also new exports, replacing the former component-only material values and the mesh registration owned by `RenderPlugin`/`PartPlugin`.
+
+Camera prepass markers and attachment constants are imported from `/rendering`:
 
 | 0.9.5 import | 0.10 import |
 | --- | --- |
-| `/sear` or `/sear/core` `Depth`, `Tag` | `/rendering` `DepthPrepass`, `PickingPrepass` |
+| Root or `/sear/core` `Depth`, `Tag` | `/rendering` `DepthPrepass`, `PickingPrepass` |
 | `/sear/core` `DEPTH_FORMAT`, `TAG_FORMAT`, `TAG_NONE` | `/rendering` `DEPTH_FORMAT`, `PICKING_ID_FORMAT`, `PICKING_ID_NONE` |
 
 `CorePipelinePlugin` from `/rendering` registers both prepass markers and owns view targets, clear, resolve and prepass/opaque/transparent phases. `StandardRenderingPlugin` includes it as a dependency. Custom renderers using these phases depend on `CorePipelinePlugin` and register records in `RenderPhases`; records do not end the shared pass. `RenderingPlugin` alone supplies views and frame/presentation anchors without the shared pipeline. Each marker requests its own camera output; neither requires the other.

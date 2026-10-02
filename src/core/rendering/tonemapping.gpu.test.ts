@@ -76,7 +76,7 @@ struct ColorGrading { balance: mat3x3f, saturation: vec3f, contrast: vec3f, gamm
 ${bevyGrading}
 fn reference_grade(input: vec3f) -> vec3f {
     var color = max(input, vec3f(0.0));
-    if (g.hue != 0.0) { var hsv = rgb_to_hsv(color); hsv.r = (hsv.r + g.hue) % 6.283185307179586; color = hsv_to_rgb(hsv); }
+    if (g.hue != 0.0) { var hsv = rgb_to_hsv(color); hsv.r = (hsv.r + radians(g.hue)) % 6.283185307179586; color = hsv_to_rgb(hsv); }
     if (g.temperature != 0.0 || g.tint != 0.0) {
         let xy = vec2f(0.31272 - g.temperature, 0.32903 + g.tint);
         let white = vec3f(0.701634, 1.15856, -0.904175) + (vec3f(-0.051461, 0.045854, 0.953127) + vec3f(0.452749, -0.296122, -0.955206) * xy.x) / xy.y;
@@ -177,7 +177,7 @@ test("ColorGrading matches extracted corrected Bevy WGSL on the same HDR inputs"
         exposure: -1.3,
         temperature: 0.015,
         tint: -0.007,
-        hue: 0.4,
+        hue: 24,
         postSaturation: 0.85,
         saturation: [0.6, 1.1, 0.8, 0],
         contrast: [0.9, 1.2, 0.8, 0],

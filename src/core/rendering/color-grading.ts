@@ -6,7 +6,7 @@ import * as std from "typegpu/std";
 import { f32, vec2, vec4 } from "../../engine";
 import { tmLuma } from "./tonemap";
 
-/** Camera grading in Bevy's model. Exposure is an offset in stops; hue is in radians.
+/** Camera grading in Bevy's model. Exposure is an offset in stops; hue is in degrees.
  * Temperature and tint adjust the D65 CIE xy white point. Section vectors contain
  * shadows, midtones, highlights in xyz; w is unused. All sections default to identity.
  * midtonesRange defaults to [0.2, 0.7], with a 0.1 crossfade on either side.
@@ -15,6 +15,7 @@ export const ColorGrading = {
     exposure: f32,
     temperature: f32,
     tint: f32,
+    /** Hue rotation in degrees. */
     hue: f32,
     postSaturation: f32,
     midtonesRange: vec2,
@@ -98,7 +99,7 @@ export const grade = tgpu.fn(
 )((input, g) => {
     "use gpu";
     let color = std.max(input, d.vec3f(0));
-    if (g.hue !== 0) color = rotateHue(color, g.hue);
+    if (g.hue !== 0) color = rotateHue(color, std.radians(g.hue));
     if (g.temperature !== 0 || g.tint !== 0) {
         const xy = d.vec2f(0.31272 - g.temperature, 0.32903 + g.tint);
         const white = std.add(
