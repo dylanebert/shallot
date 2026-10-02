@@ -33,7 +33,6 @@ interface ClusterGpuState {
     bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
     typedViews: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null;
     typedAabbs: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null;
-    typedLights: (TgpuBuffer<typeof PointLightsRw> & StorageFlag) | null;
     compactPipe: TgpuComputePipeline | null;
     cullPipe: TgpuComputePipeline | null;
     compactBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
@@ -60,8 +59,6 @@ function createClusterGpuState(): ClusterGpuState {
         },
         lightCull: {
             lights: null,
-            grid: null,
-            indices: null,
             viewMats: null,
             viewStaging: new Float32Array(MAX_VIEWS * 16),
         },
@@ -69,7 +66,6 @@ function createClusterGpuState(): ClusterGpuState {
         bound: null,
         typedViews: null,
         typedAabbs: null,
-        typedLights: null,
         compactPipe: null,
         cullPipe: null,
         compactBound: null,
@@ -542,20 +538,32 @@ export const LIGHT_POOL = CLUSTER_COUNT * 32;
 // the same binding without offset arithmetic
 const POOL_HEADER = 2;
 
+/** GPU-written light list, per-view grid and index pool in one binding. The runtime tail
+ * preserves the pool's exact size without end padding; offsets are unchanged within each table. */
+export const LightClusters = d.struct({
+    lights: PointLights,
+    grid: d.arrayOf(d.vec2u, MAX_VIEWS * CLUSTER_COUNT),
+    indices: d.arrayOf(d.u32, 0),
+});
+const LightClustersRw = d.struct({
+    lights: PointLightsRw,
+    grid: d.arrayOf(d.vec2u, MAX_VIEWS * CLUSTER_COUNT),
+    indices: d.arrayOf(d.atomic(d.u32), 0),
+});
+export const LIGHT_GRID_OFFSET = d.sizeOf(PointLights);
+export const LIGHT_INDICES_OFFSET = LIGHT_GRID_OFFSET + MAX_VIEWS * CLUSTER_COUNT * 8;
+
 /**
- * GPU light-cull state. `lights` is the compacted world-space light list
- * (POINT_LIGHTS_STRUCT_WGSL: count header + posRange/color entries), GPU-written
- * each frame by the compact pass. `grid` holds an (offset, count) entry per
- * (view slot, cluster), slot-major; `indices` is the flat index pool the offsets
- * point into ([0] counter, [1] overflow, data from element 2). `viewMats` is the
+ * GPU light-cull state. `lights` holds {@link LightClusters}: the compacted light list,
+ * slot-major grid and flat index pool. The pool starts with a counter and overflow word;
+ * grid offsets address its data from element 2. Compact and cull write the same allocation
+ * in command order. `viewMats` is the
  * per-slot world→view matrix, staged by `BeginFrameSystem`: the cull pass
  * transforms world-space lights into each view's cluster space with it
  * @expand
  */
 export interface LightCull {
     lights: GPUBuffer | null;
-    grid: GPUBuffer | null;
-    indices: GPUBuffer | null;
     viewMats: GPUBuffer | null;
     viewStaging: Float32Array;
 }
@@ -571,17 +579,15 @@ const compactLayout = tgpu
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         lightCount: { uniform: d.u32 },
-        lights: { storage: PointLightsRw, access: "mutable" },
+        lights: { storage: LightClustersRw, access: "mutable" },
     })
     .$idx(0);
 
 const cullLayout = tgpu
     .bindGroupLayout({
         aabbs: { storage: d.arrayOf(d.vec4f), access: "readonly" },
-        lights: { storage: PointLights, access: "readonly" },
+        lights: { storage: LightClustersRw, access: "mutable" },
         viewMats: { storage: d.arrayOf(d.mat4x4f), access: "readonly" },
-        grid: { storage: d.arrayOf(d.vec2u), access: "mutable" },
-        pool: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
     })
     .$idx(0);
 
@@ -602,7 +608,7 @@ function compactKernel() {
             const globalTransformEncoded = compactLayout.$.globalTransformRows[eid];
             if (globalTransformEncoded === 0 || record.range <= 0) return;
             const globalTransform = compactLayout.$.globalTransforms[globalTransformEncoded - 1];
-            const i = std.atomicAdd(compactLayout.$.lights.count[0], 1);
+            const i = std.atomicAdd(compactLayout.$.lights.lights.count[0], 1);
             if (i >= MAX_POINT_LIGHTS) return;
             const hex = d.u32(record.color);
             const rgb = std.mul(
@@ -614,14 +620,19 @@ function compactKernel() {
                 record.intensity,
             );
             const pos = globalTransform.pos;
-            compactLayout.$.lights.lights[i].posRange = d.vec4f(
+            compactLayout.$.lights.lights.lights[i].posRange = d.vec4f(
                 pos.x,
                 pos.y,
                 pos.z,
                 1 / (record.range * record.range),
             );
             // color.a carries the source entity id for per-entity light extensions.
-            compactLayout.$.lights.lights[i].color = d.vec4f(rgb.x, rgb.y, rgb.z, d.f32(eid));
+            compactLayout.$.lights.lights.lights[i].color = d.vec4f(
+                rgb.x,
+                rgb.y,
+                rgb.z,
+                d.f32(eid),
+            );
 
             let radius = record.radius;
             if ((record.flags & LIGHT_VOLUMETRIC) !== 0) radius = -std.max(radius, 1e-4);
@@ -638,7 +649,7 @@ function compactKernel() {
                     -cosOuter * scale,
                 );
             }
-            compactLayout.$.lights.lights[i].params = d.vec4f(params);
+            compactLayout.$.lights.lights.lights[i].params = d.vec4f(params);
         })
         .$name("lightCompact");
 }
@@ -676,7 +687,8 @@ const cullKernel = tgpu.computeFn({
     // Render.shadeCount and never bin — binning them would overflow the shared index pool)
     const slot = input.gid.y;
     const live = cluster < CLUSTER_COUNT;
-    if (input.lid.x === 0) wgCount.$ = std.min(cullLayout.$.lights.count.x, MAX_POINT_LIGHTS);
+    if (input.lid.x === 0)
+        wgCount.$ = std.min(std.atomicLoad(cullLayout.$.lights.lights.count[0]), MAX_POINT_LIGHTS);
     const n = wgCountUniform.$;
     const base = (slot * CLUSTER_COUNT + std.min(cluster, CLUSTER_COUNT - 1)) * 2;
     const lo = cullLayout.$.aabbs[base];
@@ -690,7 +702,7 @@ const cullKernel = tgpu.computeFn({
     while (b < n) {
         const li = b + input.lid.x;
         if (li < n) {
-            const l = cullLayout.$.lights.lights[li];
+            const l = cullLayout.$.lights.lights.lights[li];
             const v = std.mul(viewMat, d.vec4f(l.posRange.x, l.posRange.y, l.posRange.z, 1));
             batch.$[input.lid.x] = d.vec4f(v.x, v.y, v.z, l.posRange.w);
         }
@@ -710,10 +722,10 @@ const cullKernel = tgpu.computeFn({
     let off = d.u32(0);
     let take = d.u32(0);
     if (live && cnt > 0) {
-        off = std.atomicAdd(cullLayout.$.pool[0], cnt);
+        off = std.atomicAdd(cullLayout.$.lights.indices[0], cnt);
         const avail = std.select(d.u32(0), LIGHT_POOL - off, off < LIGHT_POOL);
         take = std.min(cnt, avail);
-        if (cnt > take) std.atomicAdd(cullLayout.$.pool[1], cnt - take);
+        if (cnt > take) std.atomicAdd(cullLayout.$.lights.indices[1], cnt - take);
     }
 
     let w = d.u32(0);
@@ -721,7 +733,7 @@ const cullKernel = tgpu.computeFn({
     while (b2 < n) {
         const li = b2 + input.lid.x;
         if (li < n) {
-            const l = cullLayout.$.lights.lights[li];
+            const l = cullLayout.$.lights.lights.lights[li];
             const v = std.mul(viewMat, d.vec4f(l.posRange.x, l.posRange.y, l.posRange.z, 1));
             batch.$[input.lid.x] = d.vec4f(v.x, v.y, v.z, l.posRange.w);
         }
@@ -731,7 +743,7 @@ const cullKernel = tgpu.computeFn({
             let j = d.u32(0);
             while (j < m) {
                 if (w < take && hits(mn, mx, batch.$[j])) {
-                    std.atomicStore(cullLayout.$.pool[POOL_HEADER + off + w], b2 + j);
+                    std.atomicStore(cullLayout.$.lights.indices[POOL_HEADER + off + w], b2 + j);
                     w = w + 1;
                 }
                 j = j + 1;
@@ -742,7 +754,7 @@ const cullKernel = tgpu.computeFn({
     }
 
     if (live) {
-        cullLayout.$.grid[slot * CLUSTER_COUNT + cluster] = d.vec2u(POOL_HEADER + off, take);
+        cullLayout.$.lights.grid[slot * CLUSTER_COUNT + cluster] = d.vec2u(POOL_HEADER + off, take);
     }
 });
 
@@ -759,7 +771,8 @@ export function lightCullWgsl(): { compact: string; cull: string } {
 function bindCompact(world: World): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     const _clusterGpu = world.resource(clusterGpuKey);
 
-    if (!_clusterGpu.compactPipe || !_clusterGpu.typedLights || !_clusterGpu.lightCountBuffer)
+    const buffer = world.resource(LightCull).lights;
+    if (!_clusterGpu.compactPipe || !buffer || !_clusterGpu.lightCountBuffer)
         throw new Error("[render] light compact used before warmLightCull");
     const lights = lightInputTable(world);
     const globalTransforms = globalTransformTable(world);
@@ -790,7 +803,7 @@ function bindCompact(world: World): { pipeline: GPUComputePipeline; group: GPUBi
         group: world.gpu.root.unwrap(
             world.gpu.root.createBindGroup(compactLayout, {
                 ...(inputs as Required<{ [K in keyof typeof inputs]: GPUBuffer }>),
-                lights: _clusterGpu.typedLights,
+                lights: buffer,
             }),
         ),
     };
@@ -818,8 +831,6 @@ function bindCull(world: World): { pipeline: GPUComputePipeline; group: GPUBindG
                 aabbs: _clusterGpu.typedAabbs,
                 lights: _lightCull.lights,
                 viewMats: _lightCull.viewMats!,
-                grid: _lightCull.grid!,
-                pool: _lightCull.indices!,
             }),
         ),
     };
@@ -829,10 +840,10 @@ function bindCull(world: World): { pipeline: GPUComputePipeline; group: GPUBindG
 /** Request the latest submitted light-pool overflow count for diagnostics.
  * The cull pass clamps its writes independently of this request. */
 export async function requestLightOverflow(world: World) {
-    const indices = world.resource(clusterGpuKey).lightCull.indices;
+    const indices = world.resource(clusterGpuKey).lightCull.lights;
     if (!indices) throw new Error("light overflow diagnostic requested before rendering warm");
     const result = await probeBuffer(world, indices, {
-        offset: 4,
+        offset: LIGHT_INDICES_OFFSET + 4,
         size: 4,
         label: "light-pool-overflow",
     });
@@ -879,7 +890,7 @@ export const CullLightsSystem: System = {
             _render.shadeCount * 16,
         );
         _render.encoder.clearBuffer(_lightCull.lights!, 0, 16);
-        _render.encoder.clearBuffer(_lightCull.indices!, 0, POOL_HEADER * 4);
+        _render.encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
         _clusterGpu.cullPass.timestampWrites = world.gpu.span?.("light:cull");
         const lightCount = lightInputTable(world).count;
         if (lightCount !== _clusterGpu.lightCountValue) {
@@ -917,23 +928,13 @@ export function warmLightCull(world: World): void {
     _clusterGpu.compactGeneration.fill(-1);
     _clusterGpu.cullBound = null;
 
-    _clusterGpu.typedLights = root
-        .createBuffer(PointLightsRw)
-        .$usage("storage")
-        .$name("shallot-lights");
-    _lightCull.lights = root.unwrap(_clusterGpu.typedLights);
+    _lightCull.lights = device.createBuffer({
+        label: "shallot-light-clusters",
+        size: LIGHT_INDICES_OFFSET + (POOL_HEADER + LIGHT_POOL) * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
     // COPY_SRC throughout for requested readback (typegpu grants it on the
     // buffers it creates)
-    _lightCull.grid = device.createBuffer({
-        label: "shallot-light-grid",
-        size: MAX_VIEWS * CLUSTER_COUNT * 8,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    _lightCull.indices = device.createBuffer({
-        label: "shallot-light-indices",
-        size: (POOL_HEADER + LIGHT_POOL) * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-    });
     _lightCull.viewMats = device.createBuffer({
         label: "shallot-light-views",
         size: MAX_VIEWS * 64,
@@ -945,21 +946,8 @@ export function warmLightCull(world: World): void {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _clusterGpu.lightCountValue = -1;
-    world.gpu.buffers.set("lightGrid", _lightCull.grid);
-    world.gpu.buffers.set("lightIndices", _lightCull.indices);
+    world.gpu.buffers.set("lightClusters", _lightCull.lights);
     world.gpu.buffers.set("lightCount", _clusterGpu.lightCountBuffer);
-    world.gpu.typed.set(
-        "lightGrid",
-        root
-            .createBuffer(d.arrayOf(d.vec2u, MAX_VIEWS * CLUSTER_COUNT), _lightCull.grid)
-            .$usage("storage"),
-    );
-    world.gpu.typed.set(
-        "lightIndices",
-        root
-            .createBuffer(d.arrayOf(d.u32, POOL_HEADER + LIGHT_POOL), _lightCull.indices)
-            .$usage("storage"),
-    );
 
     _clusterGpu.compactPipe = root
         .createComputePipeline({ compute: compactKernel() })

@@ -18,9 +18,9 @@ import * as std from "typegpu/std";
 import { ViewUniforms } from "../../core/rendering";
 import {
     clusterCell,
+    LightClusters,
     LightingGpu,
     PointLightGpu,
-    PointLights,
     pointCasters,
     pointCastersSchema,
     pointShadowRef,
@@ -69,9 +69,7 @@ const _tileRectsGpu = tileRectsSchema(pointCasters() * 6);
  *  Cached across cameras on resource identity (`index.ts`'s `_lights`). @internal */
 export const fogLayout1 = tgpu
     .bindGroupLayout({
-        pointLights: { storage: PointLights, access: "readonly", visibility: ["compute"] },
-        lightGrid: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["compute"] },
-        lightIndices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["compute"] },
+        pointLights: { storage: LightClusters, access: "readonly", visibility: ["compute"] },
         pointAtlas: { texture: d.textureDepth2d(), visibility: ["compute"] },
         pointShadows: { uniform: _pointCastersGpu, visibility: ["compute"] },
         shadowSamp: { sampler: "comparison", visibility: ["compute"] },
@@ -147,14 +145,17 @@ export const fogKernel = tgpu
             const dens = fogDensity(p, density, base, falloff);
             const sampleTrans = std.exp(-dens * ds);
             const viewZ = std.max(std.dot(std.sub(p, camView.eye.xyz), forward), near);
-            const entry = fogLayout1.$.lightGrid[clusterCell(uv.x, uv.y, viewZ, near, far, slot)];
+            const entry =
+                fogLayout1.$.pointLights.grid[clusterCell(uv.x, uv.y, viewZ, near, far, slot)];
             let lstep = d.vec3f(0);
             let j = d.u32(0);
             while (j < entry.y) {
                 // the array-element read is a pointer, not a copy — wrap in the element schema to
                 // pass it by value into inScatterContribution / pointShadowRef
                 const light = PointLightGpu(
-                    fogLayout1.$.pointLights.lights[fogLayout1.$.lightIndices[entry.x + j]],
+                    fogLayout1.$.pointLights.lights.lights[
+                        fogLayout1.$.pointLights.indices[entry.x + j]
+                    ],
                 );
                 // params.x < 0 is the VolumetricLight flag; a plain light has no shaft (skip it) — the for-loop
                 // `continue` becomes an early increment + `continue` under the dynamic-bound `while` shape

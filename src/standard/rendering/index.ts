@@ -48,6 +48,7 @@ export {
     clusterIndex,
     clusterView,
     LIGHT_POOL,
+    LightClusters,
     LightCull,
     lightClusters,
     requestLightOverflow,

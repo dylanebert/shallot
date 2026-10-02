@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "../../core/rendering";
+import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, CullVolumes } from "../../core/rendering";
 import { Xform, xformPoint } from "../../engine/utils";
 import { MeshInstanceInput } from "./contract";
 import { MaterialInput } from "./material";
@@ -34,7 +34,7 @@ export const cullLayout = tgpu
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
-        cullVolumes: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        cullVolumes: { uniform: CullVolumes },
         params: { uniform: CullParams },
     })
     .$idx(0);
@@ -55,12 +55,15 @@ export const scanLayout = tgpu
     })
     .$idx(0);
 
-/** the scatter pass's own I/O: the scanned args it reads bases from, the counts it reuses as a cursor,
- *  and the compacted survivor list it appends into @internal */
+/** Scatter reuses the indirect instance count as its cursor, restoring the draw record before rendering.
+ * The atomic view has the canonical indirect record's byte layout. @internal */
+const ScatterArgs = d.struct({
+    ...DrawIndexedIndirect.propTypes,
+    instanceCount: d.atomic(d.u32),
+});
 export const scatterLayout = tgpu
     .bindGroupLayout({
-        drawArgs: { storage: d.arrayOf(DrawIndexedIndirect), access: "readonly" },
-        counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        drawArgs: { storage: d.arrayOf(ScatterArgs), access: "mutable" },
         packedEids: { storage: d.arrayOf(d.vec4u), access: "mutable" },
     })
     .$idx(1);
@@ -178,8 +181,9 @@ const carry = tgpu.workgroupVar(d.u32);
  * exclusive prefix sum, one workgroup per view slot. Each slot's row is scanned in parallel: a `SCAN_WG`-wide
  * LDS Hillis-Steele scan walks the row in tiles, a `carry` threading the running offset across tiles, so the
  * slot's packedEids region starts at `slot * partCapacity`. Writes instanceCount + the compacted firstInstance,
- * resets counts so scatter reuses them as a cursor, and leaves the static indexCount / firstIndex (lanes 0,
- * 2) alone. Pure LDS (no subgroup ops) — the part pack stays inside the base feature floor, so a
+ * resets the tallies for the next count pass, and leaves indexCount / firstIndex (lanes 0, 2) alone.
+ * baseVertex temporarily saves the tally; scatter restores it to zero and restores instanceCount.
+ * Pure LDS (no subgroup ops) — the part pack stays inside the base feature floor, so a
  * physics-free app never needs `subgroups`. One workgroup per slot keeps the pass independent of the
  * view-slot count. Compaction is this GPU prefix-sum scan, never a CPU gather.
  * @internal
@@ -227,6 +231,9 @@ export function scanKernel() {
                 scanLayout.$.drawArgs[idx].instanceCount = c;
                 scanLayout.$.drawArgs[idx].firstInstance =
                     slot * scanLayout.$.params.partCapacity + carry.$ + excl;
+                // Part's rebased indices require baseVertex = 0 at draw time. Until scatter finishes,
+                // the word preserves the tally while instanceCount serves as the reverse cursor.
+                scanLayout.$.drawArgs[idx].baseVertex = d.i32(c);
                 std.atomicStore(scanLayout.$.counts[idx], 0);
             }
             std.workgroupBarrier();
@@ -259,9 +266,16 @@ export function scatterKernel(surfaceCount: number) {
                 return;
             if (!visible(g.mid, g.globalTransformRow, slot)) return;
             const idx = slot * cullLayout.$.params.pairCount + g.pair;
-            const local = std.atomicAdd(scatterLayout.$.counts[idx], 1);
-            const target = scatterLayout.$.drawArgs[idx].firstInstance + local;
+            const remaining = std.atomicSub(scatterLayout.$.drawArgs[idx].instanceCount, 1);
+            const target = scatterLayout.$.drawArgs[idx].firstInstance + remaining - 1;
             scatterLayout.$.packedEids[target] = d.vec4u(g.eid, g.globalTransformRow, g.row + 1, 0);
+            if (remaining === 1) {
+                // Every survivor has already decremented the cursor. Only this invocation reads
+                // the saved tally, restoring both indirect words before any render pass consumes them.
+                const count = d.u32(scatterLayout.$.drawArgs[idx].baseVertex);
+                scatterLayout.$.drawArgs[idx].baseVertex = 0;
+                std.atomicStore(scatterLayout.$.drawArgs[idx].instanceCount, count);
+            }
         })
         .$name("partScatter");
 }

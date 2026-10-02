@@ -16,6 +16,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 GPU consumers bind tables, not authoring fields. Each table has one TypeGPU struct per row, shaped by access, update frequency and lifetime. A pass needing fewer fields reads a narrower table, not a second engine-wide layout.
 
+Built-in rendering layouts fit WebGPU's default eight storage-buffer bindings per shader stage. Count declared visibility across all bind groups, including bindings a shader does not read. The standard composition requires `indirect-first-instance` and `rg11b10ufloat-renderable`. Qualification supplies `config.device` requested with only the composition's required features and default limits, and records the resulting capabilities. Layout repairs preserve precision and capacity; measure uploads, passes and dispatches on named hardware.
+
 - Rows are stable dense slots from a free list. Draws and dispatches read compact active-row or instance lists, never the sparse eid range. Eid-based lookups opt into the uploaded map.
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback. GPU-only tables have no CPU record source or upload.
 - Unchanged records upload nothing; changed records upload their spanning range. Uploads preserve command order across buffer growth. Growth preserves contents and changes generation; consumers rebuild affected bind groups, not pipelines. Use runtime-sized shader arrays. Device buffer limits bound table capacity; refusal names the cause.

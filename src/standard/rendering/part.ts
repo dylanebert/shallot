@@ -376,8 +376,7 @@ function bindScatter(
             world.gpu.root.unwrap(cull),
             world.gpu.root.unwrap(
                 world.gpu.root.createBindGroup(scatterLayout, {
-                    drawArgs: _parts.drawArgs,
-                    counts: _partGpu.counts,
+                    drawArgs: world.gpu.root.unwrap(_parts.drawArgs),
                     packedEids: _parts.packedEids,
                 }),
             ),

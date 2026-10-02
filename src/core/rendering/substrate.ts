@@ -42,6 +42,9 @@ import {
     Views,
 } from "./view";
 
+/** Fixed read-only cull table, shared by camera and shadow slots. */
+export const CullVolumes = d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4));
+
 // the public happy path: the component contract (camera + lights).
 // Everything else a renderer or producer touches — the Render singleton, the
 // View contract, canvas binding and the frame
@@ -385,7 +388,7 @@ async function initRender(world: World): Promise<void> {
     _render.cullVolumes = device.createBuffer({
         label: "shallot-cull-volumes",
         size: MAX_SLOTS * CULL_VOLUME_FLOATS * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _render.cullVolumeStaging = new Float32Array(MAX_SLOTS * CULL_VOLUME_FLOATS);
     _render.viewCount = 0;
@@ -393,12 +396,7 @@ async function initRender(world: World): Promise<void> {
     world.gpu.buffers.set("cullVolumes", _render.cullVolumes);
     world.gpu.typed.set(
         "cullVolumes",
-        world.gpu.root
-            .createBuffer(
-                d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4)),
-                _render.cullVolumes,
-            )
-            .$usage("storage"),
+        world.gpu.root.createBuffer(CullVolumes, _render.cullVolumes).$usage("uniform"),
     );
     world.resource(Views).clear();
     clearOffscreens(world);

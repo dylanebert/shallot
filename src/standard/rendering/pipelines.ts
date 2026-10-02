@@ -243,8 +243,6 @@ export function engineGroup(
             view: world.resource(Render).viewBuffers[slot],
             lighting: world.resource(Lighting).buffer!,
             pointLights: _lightCull.lights!,
-            lightGrid: _lightCull.grid!,
-            lightIndices: _lightCull.indices!,
             meshQuant: quant,
             materials,
         }),

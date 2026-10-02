@@ -7,21 +7,14 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { FrameGpu, ViewUniforms } from "../../core/rendering";
 import { MeshQuant } from "../../engine/utils";
-import { clusterCell } from "./cluster";
-import {
-    distanceAttenuation,
-    LightingGpu,
-    PointLightGpu,
-    PointLights,
-    spotFactor,
-} from "./lighting";
+import { clusterCell, LightClusters } from "./cluster";
+import { distanceAttenuation, LightingGpu, PointLightGpu, spotFactor } from "./lighting";
 import { MaterialInput } from "./material";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 
 /**
  * the canonical engine group-0 layout: every pass-invariant binding a sear pipeline reads — frame / view /
- * lighting uniforms, the compacted point-light list, the froxel light grid + index pool, and the per-mesh
- * dequant table. `vertices` is deliberately absent: it's pass-variant (color binds the 16 B main stream,
+ * lighting uniforms and three storage tables: clustered lights, materials and mesh dequantization. `vertices` is deliberately absent: it's pass-variant (color binds the 16 B main stream,
  * prepass/shadow the 8 B position stream) and moves into the surface group (2). Pinned at group 0.
  */
 export const engineLayout = tgpu
@@ -30,17 +23,7 @@ export const engineLayout = tgpu
         view: { uniform: ViewUniforms, visibility: ["vertex", "fragment"] },
         lighting: { uniform: LightingGpu, visibility: ["vertex", "fragment"] },
         pointLights: {
-            storage: PointLights,
-            access: "readonly",
-            visibility: ["vertex", "fragment"],
-        },
-        lightGrid: {
-            storage: d.arrayOf(d.vec2u),
-            access: "readonly",
-            visibility: ["vertex", "fragment"],
-        },
-        lightIndices: {
-            storage: d.arrayOf(d.u32),
+            storage: LightClusters,
             access: "readonly",
             visibility: ["vertex", "fragment"],
         },
@@ -139,10 +122,12 @@ export const pointFactor = tgpu.fn(
     "use gpu";
     let sum = d.vec3f(0);
     if (pointScale.$ === 0) return sum;
-    const entry = engineLayout.$.lightGrid[clusterOf()];
+    const entry = engineLayout.$.pointLights.grid[clusterOf()];
     for (let i = d.u32(0); i < entry.y; i++) {
         const light = PointLightGpu(
-            engineLayout.$.pointLights.lights[engineLayout.$.lightIndices[entry.x + i]],
+            engineLayout.$.pointLights.lights.lights[
+                engineLayout.$.pointLights.indices[entry.x + i]
+            ],
         );
         const toLight = std.sub(light.posRange.xyz, fragWorld.$);
         const distSq = std.dot(toLight, toLight);
@@ -241,10 +226,12 @@ export const litPbr = tgpu.fn(
         ),
     );
     if (pointScale.$ !== 0) {
-        const entry = engineLayout.$.lightGrid[clusterOf()];
+        const entry = engineLayout.$.pointLights.grid[clusterOf()];
         for (let i = d.u32(0); i < entry.y; i++) {
             const light = PointLightGpu(
-                engineLayout.$.pointLights.lights[engineLayout.$.lightIndices[entry.x + i]],
+                engineLayout.$.pointLights.lights.lights[
+                    engineLayout.$.pointLights.indices[entry.x + i]
+                ],
             );
             const toLight = std.sub(light.posRange.xyz, fragWorld.$);
             const distSq = std.dot(toLight, toLight);

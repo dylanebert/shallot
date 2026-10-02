@@ -130,8 +130,6 @@ function fogLights(world: World): LightsGroup {
     const sunParams = sunShadowParams(world)!;
     const keys = [
         _lightCull.lights!,
-        _lightCull.grid!,
-        _lightCull.indices!,
         atlas,
         casters,
         sampler,
@@ -144,8 +142,6 @@ function fogLights(world: World): LightsGroup {
     if (cached && keys.every((k, i) => cached.keys[i] === k)) return cached.group;
     const group = world.gpu.root.createBindGroup(fogLayout1, {
         pointLights: _lightCull.lights!,
-        lightGrid: _lightCull.grid!,
-        lightIndices: _lightCull.indices!,
         pointAtlas: atlas,
         pointShadows: casters,
         shadowSamp: sampler,

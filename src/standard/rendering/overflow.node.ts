@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { PointLight } from "../../core/rendering";
 import { Transform } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
-import { CLUSTER_COUNT, LIGHT_POOL, requestLightOverflow } from "./cluster";
+import { CLUSTER_COUNT, LIGHT_GRID_OFFSET, LIGHT_POOL, requestLightOverflow } from "./cluster";
 
 setDefaultTimeout(CEILING.node);
 const peer = "bun-webgpu";
@@ -28,12 +28,13 @@ test("light culling clamps an overflowing index pool without readback and expose
         expect(result.frame).toBe(frame);
         expect(result.fixedTick).toBe(tick);
         expect(result.dropped).toBeGreaterThan(0);
-        const grid = await probeBuffer(world, world.gpu.buffers.get("lightGrid")!, {
+        const grid = await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
+            offset: LIGHT_GRID_OFFSET,
             size: CLUSTER_COUNT * 8,
             label: "clamped light grid",
         });
         const words = new Uint32Array(grid.bytes);
-        const poolWords = world.gpu.buffers.get("lightIndices")!.size / 4;
+        const poolWords = LIGHT_POOL + 2;
         let total = 0;
         for (let i = 0; i < CLUSTER_COUNT; i++) {
             const start = words[i * 2],
