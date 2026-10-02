@@ -1,3 +1,4 @@
+// Comparison fixture from Shallot 90c7be7b; never used by the presenting pipeline.
 // Glaze's composite kernel and the layout it binds: the per-camera postfx chain as pure TGSL math beside
 // the schema that defines its uniform, sitting next to the ECS/system/plugin code in `index.ts` (the
 // kernel-sibling convention).
@@ -17,10 +18,9 @@
 import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { linearToSrgb3 } from "../../core/rendering";
-import type { World } from "../../engine";
-
-import { tmLuma, tonemap } from "./tonemap";
+import type { World } from "../../../engine";
+import { linearToSrgb3 } from "../view";
+import { tmLuma, tonemap } from "./glaze-tonemap";
 
 /** the compute workgroup edge — one thread per swapchain pixel. @internal */
 export const WORKGROUP = 8;

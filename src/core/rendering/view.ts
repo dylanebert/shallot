@@ -423,7 +423,10 @@ export function attachTexture(
         label: "camera final texture",
         size: [size.width, size.height],
         format: navigator.gpu.getPreferredCanvasFormat(),
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
+        usage:
+            GPUTextureUsage.RENDER_ATTACHMENT |
+            GPUTextureUsage.STORAGE_BINDING |
+            GPUTextureUsage.COPY_SRC,
     });
     world.own(texture);
     view.texture = texture;

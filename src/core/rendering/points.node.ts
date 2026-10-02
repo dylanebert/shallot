@@ -40,6 +40,8 @@ import {
 import { PointsPlugin, pointsState } from "./points.fixture";
 import { Render, renderKey } from "./render";
 import { viewTargetsKey } from "./targets";
+import { compositeCacheKey } from "./tonemapping";
+import { GlazeSystem, glazeStateKey } from "./tonemapping-state";
 import { Views, viewResourcesKey } from "./view";
 
 setDefaultTimeout(CEILING.node);
@@ -66,6 +68,8 @@ const coreResources = {
     frameKey,
     Frame,
     blitPipelinesKey,
+    compositeCacheKey,
+    glazeStateKey,
 };
 const meshResources = {
     meshResourcesKey,
@@ -87,6 +91,7 @@ const coreSystems = {
     EndFrameSystem,
     MainPassSystem,
     PrepassSystem,
+    GlazeSystem,
     ClearChangeMarksSystem,
 };
 const lightSystems = { UpdateLightClustersSystem, CullLightsSystem };

@@ -13,6 +13,7 @@ import {
     prepassDescriptor,
     prepassLanes,
 } from "./targets";
+import { GlazePlugin, GlazeSystem } from "./tonemapping-state";
 import { type View, Views } from "./view";
 
 /** Records into a core-owned pass. Records must not end the pass. Order within each phase is registration order. */
@@ -79,14 +80,20 @@ export const MainPassSystem: System = {
 export const CorePipelinePlugin: Plugin = {
     name: "CorePipeline",
     dependencies: [RenderingPlugin],
-    systems: [PrepassSystem, MainPassSystem],
+    systems: [PrepassSystem, MainPassSystem, GlazeSystem],
     components: [
+        ...(GlazePlugin.components ?? []),
         registration("DepthPrepass", DepthPrepass),
         registration("PickingPrepass", PickingPrepass),
     ],
     initialize(world) {
         initializeViewTargets(world);
         world.resource(RenderPhases);
+        GlazePlugin.initialize?.(world);
     },
-    dispose: disposeViewTargets,
+    warm: GlazePlugin.warm,
+    dispose(world) {
+        disposeViewTargets(world);
+        GlazePlugin.dispose?.(world);
+    },
 };
