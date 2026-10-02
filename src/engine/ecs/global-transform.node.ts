@@ -1,9 +1,14 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
+import {
+    attachCanvas,
+    Camera,
+    RenderingPlugin,
+    Views,
+    viewportToWorld,
+} from "../../core/rendering";
 import {
     Body,
-    forwardRay,
     GlobalTransform,
     PhysicsPlugin,
     StepPhysicsSystem,
@@ -110,7 +115,7 @@ test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriv
     }
 });
 
-test("a physics camera query reads fixed-tick GlobalTransform without requiring Transform", async () => {
+test("viewportToWorld reads a body camera's fixed-tick GlobalTransform without requiring Transform", async () => {
     const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
     try {
         const world = app.world;
@@ -121,7 +126,15 @@ test("a physics camera query reads fixed-tick GlobalTransform without requiring 
         world.storage(Body).mass.set(eid, 0);
         world.step(Time.FIXED_DT);
         expect(world.has(eid, Transform)).toBe(false);
-        expect(forwardRay(world, eid)).toEqual({ origin: [12, 7, -3], dir: [0, 0, -1] });
+        const bound = attachTestCamera(world, eid);
+        const viewport = world
+            .resource(engine.Viewports)
+            .get(world.resource(Views).get(bound)!.viewportIndex)!;
+        const near = world.storage(Camera).near.get(eid);
+        expect(viewportToWorld(world, eid, viewport.cssWidth / 2, viewport.cssHeight / 2)).toEqual({
+            origin: [12, 7, -3 - near],
+            dir: [0, 0, -1],
+        });
     } finally {
         app.dispose();
     }
@@ -138,7 +151,7 @@ function addTransform(world: engine.World, eid: number, x: number): void {
     world.storage(Transform).translation.set(eid, x, 0, 0, 0);
 }
 
-function attachTestCamera(world: engine.World): void {
+function attachTestCamera(world: engine.World, existing?: number): number {
     let context: CanvasContext;
     const canvas = {
         width: 32,
@@ -148,11 +161,14 @@ function attachTestCamera(world: engine.World): void {
         getBoundingClientRect: () => ({ width: 32, height: 24 }),
     } as unknown as HTMLCanvasElement;
     context = new CanvasContext(canvas, 32, 24);
-    const camera = world.create();
-    world.add(camera, Transform);
-    world.add(camera, Camera);
-    world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
+    const camera = existing ?? world.create();
+    if (existing === undefined) {
+        world.add(camera, Transform);
+        world.add(camera, Camera);
+        world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
+    }
     attachCanvas(camera, canvas, world);
+    return camera;
 }
 
 async function renderedX(

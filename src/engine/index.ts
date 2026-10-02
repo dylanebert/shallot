@@ -95,6 +95,7 @@ export {
     orthographic,
     perspective,
     quatToEuler,
+    type Ray,
     Registry,
     rotateQuatByEuler,
     slerp,

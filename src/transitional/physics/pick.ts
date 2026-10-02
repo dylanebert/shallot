@@ -1,15 +1,6 @@
-import { Viewports } from "../../engine";
-// Pick utilities — the layer binding the pose-agnostic raycast to live ECS + backend state: candidate
-// gathering off the installed backend's live pose, world↔body-local conversion for joint anchors, and
-// the two pick rays (first-person centre, screen cursor). Consumers build their own pick/drag state
-// machines on these (the sandbox gravity gun).
-
-import { Devices } from "../../core/input";
-import { Camera } from "../../core/rendering";
-import type { World } from "../../engine";
-import { GlobalTransform } from "../../engine";
+import type { Ray, World } from "../../engine";
 import { Body, type BodyState } from "./index";
-import { qRotate, type Ray, type RayBody, type RayHit, raycast, screenToRay } from "./raycast";
+import { qRotate, type RayBody, type RayHit, raycast } from "./raycast";
 
 /** the raycast candidates: every Body at its live pose (`read`, usually `Physics.readBody`), minus `exclude`, occluders and
  *  grabbables alike. Statics/kinematics (mass ≤ 0) are kept so the ray stops on a wall; {@link grabHit}
@@ -69,58 +60,4 @@ export function worldToLocal(
     const [qx, qy, qz, qw] = live.rotation;
     const [px, py, pz] = live.position;
     return qRotate(-qx, -qy, -qz, qw, point[0] - px, point[1] - py, point[2] - pz);
-}
-
-/** the first-person centre ray: camera position + its normalized forward (−Z). The player's crosshair pick.
- *  Unlike {@link cursorRay} (which offsets the origin to the near plane), the origin stays AT the camera. */
-export function forwardRay(world: World, cam: number): Ray | null {
-    if (cam < 0 || !world.has(cam, Camera) || !world.has(cam, GlobalTransform)) return null;
-    const global = world.storage(GlobalTransform);
-    const [dx, dy, dz] = qRotate(
-        global.rotation.x.get(cam),
-        global.rotation.y.get(cam),
-        global.rotation.z.get(cam),
-        global.rotation.w.get(cam),
-        0,
-        0,
-        -1,
-    );
-    const len = Math.hypot(dx, dy, dz) || 1;
-    return {
-        origin: [
-            global.translation.x.get(cam),
-            global.translation.y.get(cam),
-            global.translation.z.get(cam),
-        ],
-        dir: [dx / len, dy / len, dz / len],
-    };
-}
-
-/** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick aims with it. The pick aspect derives from the World-scoped viewport row,
- * so it can diverge from the render aspect under an aspect-distorting `Resolution` override. */
-export function cursorRay(world: World, cam: number): Ray | null {
-    if (cam < 0 || !world.has(cam, Camera) || !world.has(cam, GlobalTransform)) return null;
-    const global = world.storage(GlobalTransform);
-    const input = world.resource(Devices);
-    if (!input.pointer.hover) return null;
-    const viewport = world.resource(Viewports).get(input.focused);
-    return screenToRay(
-        input.pointer.x,
-        input.pointer.y,
-        viewport?.cssWidth ?? 0,
-        viewport?.cssHeight ?? 0,
-        world.storage(Camera).fov.get(cam),
-        world.storage(Camera).near.get(cam),
-        [
-            global.translation.x.get(cam),
-            global.translation.y.get(cam),
-            global.translation.z.get(cam),
-        ],
-        [
-            global.rotation.x.get(cam),
-            global.rotation.y.get(cam),
-            global.rotation.z.get(cam),
-            global.rotation.w.get(cam),
-        ],
-    );
 }

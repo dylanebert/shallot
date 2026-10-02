@@ -1,17 +1,7 @@
-// CPU raycast — analytic ray-vs-shape tests + a nearest-hit query over a body list, plus a
-// screen-cursor → world ray for picking (`screenToRay`/`generateRay`). The shared pick primitive for player
-// grab + god-mode pick/drag + acoustics. CPU over poses the caller passes in (from
-// the GPU `bodies` for live bodies, the authored slab for statics) — the right call for grab's low volume
-// + latency tolerance, vs a GPU LBVH traverse. Gold-tested closed-form
-// (`raycast.test.ts`). No GJK — each shape is a closed-form solve.
+// CPU raycast over caller-supplied body poses.
 
+import type { Ray } from "../../engine";
 import { ShapeKind } from "./index";
-
-/** a world-space ray. `dir` MUST be normalized; the returned `distance` is then world units along it. */
-export interface Ray {
-    origin: readonly [number, number, number];
-    dir: readonly [number, number, number];
-}
 
 /** one candidate body for {@link raycast}: its world pose + collider shape (the fields the analytic tests
  * read). `half` is the box half-extents (or a hull's AABB half); `radius` the sphere/capsule rounding
@@ -288,70 +278,6 @@ function hitShape(ray: Ray, b: RayBody): ShapeHit | null {
         qy,
         qz,
         qw,
-    );
-}
-
-const DEG2RAD = Math.PI / 180;
-
-/**
- * a world-space pick ray through a normalized-device-coordinate point (`ndcX`/`ndcY` in [-1, 1], x right /
- * y up; (0, 0) is screen centre). Unprojects through the camera's vertical `fov` (degrees) + `aspect`,
- * rotates the camera-space ray into world by the camera `quat`, and offsets the origin to the `near` plane.
- * The returned `dir` is normalized, so a {@link RayHit} distance is world units. Pair with {@link screenToRay}
- * for pixel input.
- */
-export function generateRay(
-    ndcX: number,
-    ndcY: number,
-    aspect: number,
-    fov: number,
-    near: number,
-    origin: readonly [number, number, number],
-    quat: readonly [number, number, number, number],
-): Ray {
-    const t = Math.tan((fov * DEG2RAD) / 2);
-    const [dx, dy, dz] = qRotate(
-        quat[0],
-        quat[1],
-        quat[2],
-        quat[3],
-        ndcX * aspect * t,
-        ndcY * t,
-        -1,
-    );
-    const len = Math.hypot(dx, dy, dz) || 1;
-    const nx = dx / len;
-    const ny = dy / len;
-    const nz = dz / len;
-    return {
-        origin: [origin[0] + nx * near, origin[1] + ny * near, origin[2] + nz * near],
-        dir: [nx, ny, nz],
-    };
-}
-
-/**
- * a world-space pick ray through a canvas pixel (`screenX`/`screenY` in [0, width]×[0, height], origin
- * top-left). Converts the pixel to NDC + aspect and defers to {@link generateRay}: the cursor-driven pick
- * primitive (god-mode pick/drag). `origin`/`quat` are the camera's world pose, `fov`/`near` its params.
- */
-export function screenToRay(
-    screenX: number,
-    screenY: number,
-    width: number,
-    height: number,
-    fov: number,
-    near: number,
-    origin: readonly [number, number, number],
-    quat: readonly [number, number, number, number],
-): Ray {
-    return generateRay(
-        (screenX / width) * 2 - 1,
-        1 - (screenY / height) * 2,
-        width / height,
-        fov,
-        near,
-        origin,
-        quat,
     );
 }
 

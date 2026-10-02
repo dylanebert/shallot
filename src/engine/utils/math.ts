@@ -1,3 +1,9 @@
+/** a world-space ray. `dir` MUST be normalized; the returned `distance` is then world units along it. */
+export interface Ray {
+    origin: readonly [number, number, number];
+    dir: readonly [number, number, number];
+}
+
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 

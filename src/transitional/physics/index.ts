@@ -1012,18 +1012,15 @@ export { SoftJoint } from "./api/joints";
 export { PhysicsWorld } from "./api/world";
 export { nlerpShortest } from "./compose";
 export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
-export { bodyCandidates, cursorRay, forwardRay, grabHit, worldToLocal } from "./pick";
+export { bodyCandidates, grabHit, worldToLocal } from "./pick";
 export {
-    generateRay,
     qRotate,
-    type Ray,
     type RayBody,
     type RayHit,
     rayCapsule,
     raycast,
     rayOBB,
     raySphere,
-    screenToRay,
 } from "./raycast";
 // Physics extension surface: what an outside solver or custom tooling needs past the author happy path.
 // An outside solver registers the shared components with these traits, derives the authored constraint

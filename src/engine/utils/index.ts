@@ -61,6 +61,7 @@ export {
     orthographic,
     perspective,
     quatToEuler,
+    type Ray,
     rotateQuatByEuler,
     slerp,
 } from "./math";

@@ -5,9 +5,9 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
-import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../../engine";
-import { CanvasContext } from "../../engine/app/canvas.fixture";
-import { Body, PhysicsPlugin, readBody } from "./index";
+import { Body, PhysicsPlugin, readBody } from "../../transitional/physics";
+import { CanvasContext } from "../app/canvas.fixture";
+import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../index";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -22,7 +22,7 @@ if (typeof ResizeObserver === "undefined") {
     });
 }
 
-function attachTestCamera(world: import("../../engine").World): void {
+function attachTestCamera(world: import("../index").World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,

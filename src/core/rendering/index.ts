@@ -15,3 +15,4 @@ export {
     Tonemapping,
     TonemappingSystem,
 } from "./tonemapping-state";
+export { viewportToWorld } from "./viewport-to-world";
