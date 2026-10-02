@@ -141,27 +141,11 @@ interface ViewResources {
 
 export const viewResourcesKey = { create: createViewResources };
 
-function stateMap<K, V>(): Map<K, V> {
-    const map = new Map<K, V>();
-    const methods = new Map<PropertyKey, (...args: never[]) => unknown>();
-    for (const key of Reflect.ownKeys(Map.prototype)) {
-        const value = Reflect.get(map, key, map) as unknown;
-        if (typeof value === "function") {
-            methods.set(key, value.bind(map) as (...args: never[]) => unknown);
-        }
-    }
-    return new Proxy(map, {
-        get(target, key) {
-            return methods.get(key) ?? Reflect.get(target, key, target);
-        },
-    });
-}
-
 function createViewResources(world: World): ViewResources {
     const resources: ViewResources = {
-        views: stateMap(),
-        offscreen: stateMap(),
-        scratch: stateMap(),
+        views: new Map(),
+        offscreen: new Map(),
+        scratch: new Map(),
     };
     world.onDispose(() => {
         for (const view of resources.views.values()) {
@@ -241,7 +225,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
 
     // record ownership only after the attach is validated — a failed attach must not claim the canvas, or a
     // later legitimate attach from a different live World warns spuriously.
-    if (world && devEnabled()) trackCanvasOwner(canvas, world);
+    if (devEnabled()) trackCanvasOwner(canvas, world);
 
     const linearFormat = navigator.gpu.getPreferredCanvasFormat();
     context.configure({
@@ -257,7 +241,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
             ? 0
             : Math.max(0, Array.from(document.querySelectorAll("canvas")).indexOf(canvas));
     const dpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
-    if (world) resizeViewport(world, viewportIndex, rect.width, rect.height, dpr);
+    resizeViewport(world, viewportIndex, rect.width, rect.height, dpr);
     const view: View = {
         canvas,
         context,
@@ -282,7 +266,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
         view.clientWidth = r.width;
         view.clientHeight = r.height;
         const nextDpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
-        if (world) resizeViewport(world, viewportIndex, r.width, r.height, nextDpr);
+        resizeViewport(world, viewportIndex, r.width, r.height, nextDpr);
     });
     view.observer.observe(canvas);
     _views.set(eid, view);
