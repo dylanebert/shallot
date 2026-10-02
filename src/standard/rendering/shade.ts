@@ -15,14 +15,13 @@
 //     takes its struct parameters from the schemas below, so the layout has one source of truth even
 //     where the body doesn't.
 //
-// The chunks are lazily-resolved thunks (`chunk`) sharing the engine-wide `spliceNs`, each forcing the
-// base chunks it depends on first so a shared dependency always lands in the lower chunk.
+// The one raw-WGSL chunk, `casterWgsl`, is a lazily-resolved thunk (`chunk`) in the engine-wide `spliceNs`.
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { chunk, spliceNs } from "../../engine/utils";
-import { PointLightGpu, pointLightsWgsl } from "./lighting";
+import { PointLightGpu } from "./lighting";
 import { EDGE_TEXELS, MAX_CASCADES, pointAtlasSize, pointCasters } from "./shadows";
 
 // ---- the metallic-roughness shading model (glTF 2.0), the `default` / `vertex` / glTF surfaces' lobe ----
@@ -172,15 +171,6 @@ export const brdfSphere = tgpu.fn(
     return std.mul(std.add(diffuse, std.mul(spec, ndl)), PI);
 });
 
-/** the metallic-roughness lobe standard's `lit` / `litPbr` helpers are built from: the {@link Pbr} struct,
- *  {@link halfLambert}, the GGX / Smith / Schlick terms, and the punctual + sphere-source BRDFs. Spliced
- *  into every surface module; a surface's own preamble must not redefine any of them. */
-export const pbrWgsl = chunk(
-    "pbrWgsl",
-    [halfLambert, distributionGGX, visSmithGGX, fresnelSchlick, brdf, brdfSphere],
-    spliceNs,
-);
-
 // ---- point / spot shadows: the caster uniform layout + the receiver math ----
 
 /**
@@ -314,8 +304,7 @@ export const pointReceiver = tgpu.fn(
 });
 
 /** returns the point/spot caster WGSL: the {@link PointCaster} / `PointCasters` / `TileRects` structs a
- *  consumer declares its group-1 shadow bindings over. Splice **before** those declarations, and
- *  {@link pointShadowWgsl} after them. */
+ *  consumer declares its group-1 shadow bindings over. Splice **before** those declarations. */
 export const casterWgsl = chunk(
     "casterWgsl",
     () => {
@@ -393,16 +382,15 @@ function pointShadowFn() {
             // `pointFaceOf`/`pointReceiver` are its only *function* dependencies (portable across any consumer,
             // unlike the atlas/sampler/caster/rect bindings below, which differ by consumer layout and stay
             // free names for the caller to declare) — naming them here is what lets a real-reference caller
-            // (a typed pipeline, not just the raw-splice chunk below) pull them in via `tgpu.resolve`'s call
+            // (a typed pipeline) pull them in via `tgpu.resolve`'s call
             // graph without also re-listing them by hand
             .$uses({ pointFaceOf, pointReceiver })
             .$name("pointShadowOf")
     );
 }
 
-// the real reference, memoized so a raw-splice consumer (`pointShadowChunk` below) and a real-reference
-// consumer (a typed pipeline's kernel calling it as a function, not splicing text) share the exact same
-// object — `pointShadowFn()` is a factory only because its body folds the `PointShadows` config (the atlas
+// the real reference, memoized so every typed pipeline calling it (standard's color FS, the fog march)
+// shares the exact same object — `pointShadowFn()` is a factory only because its body folds the `PointShadows` config (the atlas
 // size + caster cap), which must stay fixed to one instance regardless of caller.
 let _pointShadowOf: ReturnType<typeof pointShadowFn> | undefined;
 
@@ -413,24 +401,6 @@ let _pointShadowOf: ReturnType<typeof pointShadowFn> | undefined;
  * forcing touch), while `pointFaceOf`/`pointReceiver` resolve for free via the `$uses` above. */
 export function pointShadowRef() {
     return (_pointShadowOf ??= pointShadowFn());
-}
-
-const pointShadowChunk = chunk(
-    "pointShadowWgsl",
-    () => [pointFaceOf, pointReceiver, pointShadowRef()],
-    spliceNs,
-);
-
-/** returns the point/spot shadow WGSL: `pointShadowOf(light, normal, fragWorld)` (world pos a parameter,
- *  atlas / sampler / casters / tile-rects referenced by name), the per-light shadow factor standard's clustered
- *  loop and a relocatable consumer both call, plus the {@link pointFaceOf} / {@link pointReceiver} math it
- *  routes through. Splice **after** {@link casterWgsl} + the group-1 declarations. */
-export function pointShadowWgsl(): string {
-    // force the base chunks first, so `PointLightGpu` + the caster structs land in the chunks that own
-    // them whatever order a consumer asks in (they are spliced ahead of this one either way)
-    pointLightsWgsl();
-    casterWgsl();
-    return pointShadowChunk();
 }
 
 // ---- sun (directional) shadows: the CSM params layout + the cascade sampler ----
@@ -500,11 +470,6 @@ export const SUN_PARAMS = {
         texel: at(SunShadow, (s) => s.texel),
     },
 } as const;
-
-/** the WGSL {@link SunShadow} + {@link Cascade} structs, relocatable so a screen-space consumer declares
- *  the same binding standard's color FS reads. Splice **before** that declaration, and
- *  {@link sunShadowWgsl} after it. */
-export const sunStructWgsl = chunk("sunStructWgsl", [SunShadow], spliceNs);
 
 const sampleCascade = tgpu
     .fn(
@@ -591,18 +556,3 @@ export const sampleSunShadow = tgpu
     // real-reference caller forces it into scope itself, same as the point-shadow path above
     .$uses({ viewDepth, sampleCascade })
     .$name("sampleSunShadow");
-
-const sunShadowChunk = chunk(
-    "sunShadowWgsl",
-    [viewDepth, sampleCascade, sampleSunShadow],
-    spliceNs,
-);
-
-/** returns the sun-shadow sampler WGSL: `sampleSunShadow(worldPos, normal)` selects a cascade by linear
- *  view-z, PCF-samples its atlas tile, and blends across the overlap band; the `enabled: 0` fallback
- *  returns fully lit. `shadowMap` / `shadowSamp` / `sunShadow` / `view` are referenced by name. Splice
- *  **after** {@link sunStructWgsl} + the group-1 declarations. */
-export function sunShadowWgsl(): string {
-    sunStructWgsl();
-    return sunShadowChunk();
-}

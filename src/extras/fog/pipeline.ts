@@ -80,8 +80,8 @@ export const fogLayout1 = tgpu
     })
     .$idx(1);
 
-// `pointShadowRef()` is a plain host-side getter (its factory memoizes across the real-reference /
-// raw-splice consumers, `standard/shade.ts`), not itself a TGSL value — calling it *inside* the kernel body
+// `pointShadowRef()` is a plain host-side getter (its factory memoizes one instance for every typed
+// consumer, `standard/shade.ts`), not itself a TGSL value — calling it *inside* the kernel body
 // reads as an untranspiled function to the resolver ("not marked with 'use gpu'"). Resolve it once here,
 // in ordinary module-scope JS, so the kernel body below closes over the real `tgpu.fn` value directly.
 const pointShadowOf = pointShadowRef();

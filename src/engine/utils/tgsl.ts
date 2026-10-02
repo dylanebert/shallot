@@ -181,8 +181,8 @@ export const uniformLoad = (flag: TgpuVar<"workgroup", d.U32>) =>
 
 /**
  * the shared dedup scope for the chunks a raw-WGSL consumer splices *together*: the storage codecs
- * (`octEncodeWgsl` / `quatSnorm16x4Wgsl`), the clustered-light primitives (`pointLightsWgsl` /
- * `lightEvalWgsl`), and the standard renderer's relocatable shadow chunks. A shared dependency is emitted into whichever
+ * (`octEncodeWgsl` / `quatSnorm16x4Wgsl`), the BVH traversal chunks and the standard renderer's
+ * shadow-caster chunk. A shared dependency is emitted into whichever
  * chunk resolves first, so every chunk in here **forces its base chunks first** — then a dependency
  * always lands in the lowest chunk of the dependency order, and a consumer splicing a chunk already
  * splices the base that carries the dependency. Without the shared scope each chunk would re-emit the

@@ -268,7 +268,7 @@ export function shadowSampler(world: World): GPUSampler | null {
 
 /** the sun (directional) shadow map depth view a screen-space consumer (the fog volumetric march) binds
  * to sample shadowed sun shafts: the real map once the directional light's shadowMapsEnabled is on,
- * else the 1×1 fallback (whose `enabled: 0` params make {@link sunShadowWgsl} return 1.0, so the
+ * else the 1×1 fallback (whose `enabled: 0` params make `sampleSunShadow` return 1.0, so the
  * march scatters the sun unshadowed). Pairs with {@link shadowSampler} + {@link sunShadowParams}. */
 export function sunShadowView(world: World): GPUTextureView | null {
     const _atlasState = world.resource(atlasStateKey);
@@ -276,7 +276,7 @@ export function sunShadowView(world: World): GPUTextureView | null {
     return _atlasState.sunCasting ? _atlasState.cascadeAtlasView : _atlasState.fallbackView;
 }
 
-/** the {@link sunStructWgsl} params uniform a screen-space consumer binds: the real
+/** the {@link SunShadow} params uniform a screen-space consumer binds: the real
  * light viewProj + bias when the sun casts, else the all-zero `enabled: 0` fallback. Pairs with
  * {@link sunShadowView}. */
 export function sunShadowParams(world: World): GPUBuffer | null {

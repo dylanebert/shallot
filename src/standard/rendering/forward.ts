@@ -32,8 +32,8 @@ import { initializeDrawState } from "./registry";
 // Sun shadows: the CPU/ECS half (the off-screen light camera + placement) lives in ./shadows; the GPU half
 // (the shadow map, its render through standard's compiled prepass depth pipelines, and the group-1 binding the
 // FS samples) lives in ./atlas. This file owns the WGSL-scaffold-agnostic renderer plumbing: components +
-// registries, per-draw bind-group resolution, pass opening, the systems, and the plugin — the pure
-// codegen lives in ./codegen, pipeline compilation in ./pipelines. StandardRenderer renders its own map and reads its
+// registries, per-draw bind-group resolution, pass opening, the systems, and the plugin — the shading
+// functions live in ./shade, pipeline compilation in ./pipelines. StandardRenderer renders its own map and reads its
 // own shadow state directly — nothing publishes into it. Enable the sun's shadowMapsEnabled to cast; disable it for the
 // fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
 

@@ -2,7 +2,6 @@
 
 export { pointAtlasView, shadowSampler, sunShadowParams, sunShadowView } from "./atlas";
 export { Clusters, clusterCell, LightClusters, LightCull } from "./cluster";
-export { lightEvalWgsl } from "./codegen";
 export type { Background, Surface } from "./contract";
 export {
     BackgroundContext,
@@ -24,7 +23,6 @@ export {
     Lighting,
     LightingGpu,
     PointLightGpu,
-    pointLightsWgsl,
     spotFactor,
 } from "./lighting";
 export { Materials, MeshMaterial, StandardMaterial } from "./material";

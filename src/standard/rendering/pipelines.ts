@@ -1642,7 +1642,7 @@ function compileTypedPrepass(
  * `layout.depthVariant` position + the `tileBox` varying its matching vs writes.
  * Atlas-size-independent (the vs bakes the atlas scale into `tileBox` already), so ONE instance serves every
  * typed surface's point pipeline AND every typed surface's cascade pipeline (the VS's rect-index formula
- * and atlas constants differ per atlas, from codegen.ts). A `clip` surface uses the wider per-surface
+ * and atlas constants differ per atlas, passed to its builder). A `clip` surface uses the wider per-surface
  * fragment below so the same material cutoff holes its atlas depth.
  */
 const typedShadowFs = tgpu

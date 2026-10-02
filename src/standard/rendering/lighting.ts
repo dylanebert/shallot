@@ -10,7 +10,7 @@ import {
 } from "../../core/rendering";
 import type { World } from "../../engine";
 import { GlobalTransform, unpackColor } from "../../engine";
-import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
+import { bitcastF32toU32, octDecodeNormal } from "../../engine/utils";
 
 /** the Lighting UBO byte size (three vec4s: ambient, sun direction, sun color); a relocatable consumer
  * (the fog march) sizes its `lighting` binding to match. */
@@ -177,19 +177,12 @@ export const PointLightsRw = d.struct({
 });
 
 /**
- * the compacted point-light list's WGSL, spliced by standard's clustered loop and the fog march: the
- * {@link PointLightGpu} + {@link PointLights} struct declarations, emitted under strict naming so a raw
- * splice site reads `lights.count.x` / `lights.lights[i].posRange` by those exact names.
- */
-export const pointLightsWgsl = chunk("pointLightsWgsl", [PointLights], spliceNs);
-
-/**
  * the point-light falloff (Bevy `getDistanceAttenuation`): inverse-square with a smooth
  * window (`smooth = saturate(1 − (d²/r²)²)`, attenuation `smooth² / max(d², radiusSq)`),
  * exactly zero at and past the range, and flat at `1/radiusSq` inside the source sphere
  * (Karis representative point: `radiusSq = 0` would spike toward ∞ at the bulb). One
- * function, both sides: standard's clustered loop and the fog march splice it (`lightEvalWgsl`,
- * `standard`), the CPU oracles call it directly — there is no WGSL twin to drift from.
+ * function, both sides: standard's clustered loop and the fog march call it on the GPU, the CPU
+ * oracles call it directly — there is no WGSL twin to drift from.
  */
 export const distanceAttenuation = tgpu.fn(
     [d.f32, d.f32, d.f32],

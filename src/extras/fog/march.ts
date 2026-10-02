@@ -13,14 +13,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils";
-import {
-    distanceAttenuation,
-    lightEvalWgsl,
-    PointLightGpu,
-    pointLightsWgsl,
-    spotFactor,
-} from "../../standard/rendering";
+import { distanceAttenuation, PointLightGpu, spotFactor } from "../../standard/rendering";
 
 /** Compute workgroup tile: 8×8 = 64 threads. */
 export const WORKGROUP = 8;
@@ -141,19 +134,6 @@ export const ign = tgpu.fn(
     return std.fract(52.9829189 * std.fract(std.dot(p, d.vec2f(0.06711056, 0.00583715))));
 });
 
-/**
- * the march primitives, spliced by both the production screen march and the fog probe so there is one GPU
- * source of truth: {@link fogDensity} (exponential height fog, reused by the S2 in-scatter loop),
- * {@link fogTransmittance} (the midpoint optical-depth sum → Beer-Lambert transmittance),
- * {@link fogComposite} (fade the scene toward the haze color by extinction), plus the per-pixel ray setup
- * {@link reconstructWorld} + {@link ign}. Needs no bindings — every input is a parameter.
- */
-export const fogMarchWgsl = chunk(
-    "fogMarchWgsl",
-    [fogDensity, fogTransmittance, fogComposite, reconstructWorld, ign],
-    spliceNs,
-);
-
 // ---- in-scatter (clustered lights + sun) ----
 
 /** the Henyey-Greenstein single-scatter phase function. `g` in [-1,1]: 0 isotropic (1/4π), →1 forward-peaked
@@ -202,27 +182,6 @@ export const sunInScatter = tgpu.fn(
     "use gpu";
     return std.mul(sunColor, henyeyGreenstein(g, std.dot(dir, std.neg(sunDir))));
 });
-
-/**
- * the in-scatter primitives, spliced by the production fog shader and the fog probe:
- * {@link henyeyGreenstein}, the clustered {@link inScatterContribution}, and the directional
- * {@link sunInScatter}. Splice **after** `pointLightsWgsl()` + `octEncodeWgsl()` + `lightEvalWgsl()`
- * (`standard`) — the contribution calls their `distanceAttenuation` / `spotFactor`.
- */
-export function fogInScatterWgsl(): string {
-    // force the base chunks first, so `PointLightGpu` and the light-eval primitives land in the chunks that
-    // own them whatever order a consumer asks in (they are spliced ahead of this one either way)
-    pointLightsWgsl();
-    octEncodeWgsl();
-    lightEvalWgsl();
-    return inScatterChunk();
-}
-
-const inScatterChunk = chunk(
-    "fogInScatterWgsl",
-    [henyeyGreenstein, inScatterContribution, sunInScatter],
-    spliceNs,
-);
 
 // ---- the CPU-only tier: the analytic ground truth + the two single-light march oracles ----
 

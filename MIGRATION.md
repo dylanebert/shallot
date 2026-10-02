@@ -97,8 +97,10 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `sunVisibility` | Use `lit` or the shared `sampleSunShadow` function. |
 | `LIGHTING_UNIFORM_SIZE` | Derive layout size from `LightingGpu` with TypeGPU. |
 | `lightingWgsl` | Resolve the `LightingGpu` TypeGPU schema. |
+| `lightEvalWgsl` | Resolve `distanceAttenuation`, `spotFactor` and `clusterCell` through TypeGPU. |
 | `MAX_POINT_LIGHTS` | No public replacement; standard owns light capacity. |
 | `PointLights` | Use the shared `LightClusters` schema for light/grid input. |
+| `pointLightsWgsl` | Resolve the `LightClusters` schema through TypeGPU. |
 | `spotParams` | Use `spotFactor` with the packed light record. |
 | `getCompiledSurface` | No public replacement; compiled-pipeline diagnostics are internal. |
 | `DrawIndirectBuffer` | Infer from `Draw.args.indirect`; allocate with `DrawIndexedIndirect`. |
@@ -445,7 +447,7 @@ Surface, background and draw contracts belong to `/standard/rendering`. Update i
 | `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
 | `/render/core` `Draw`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
 | `/render/core` `Clusters`, `clusterCell`, `LightCull` | `/standard/rendering`, same names |
-| `/render/core` `Lighting`, `LightingGpu`, `PointLightGpu`, `pointLightsWgsl`, `distanceAttenuation`, `spotFactor` | `/standard/rendering`, same names |
+| `/render/core` `Lighting`, `LightingGpu`, `PointLightGpu`, `distanceAttenuation`, `spotFactor` | `/standard/rendering`, same names |
 
 Other implementation helpers in these contracts are removed; see the rendering extension export table above. `MeshInstanceInput` from `/standard/rendering` is new in 0.10 and describes a dense mesh-component row. `StandardMaterial`, `Materials` and `MeshPlugin` are also new exports, replacing the former component-only material values and mesh registration owned by `RenderPlugin`/`PartPlugin`.
 
