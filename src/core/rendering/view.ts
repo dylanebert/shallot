@@ -68,10 +68,8 @@ export const VIEW_BYTES = d.sizeOf(ViewUniforms);
 export const viewWgsl = chunk("viewWgsl", [ViewUniforms], spliceNs);
 
 /**
- * linear→sRGB encode (IEC 61966-2-1) for a compute composite writing `view.present`. The swapchain is a
- * base-format storage view (a storage view can't be sRGB), so the composite encodes the transfer the
- * hardware would apply on a render-attachment write. One source of truth so every composite (glaze +
- * consumer-fused) agrees, and the present gamma can't drift between them. The per-channel scalar twin is
+ * Linear→sRGB encode (IEC 61966-2-1) for presentation into a non-sRGB target.
+ * Tonemapping and replacement passes encode exactly once. The per-channel scalar twin is
  * `linearToSrgb1` (`utils`), which the LDR color codec packs through.
  *
  * @example let encoded = linearToSrgb3(max(color, vec3f()));
@@ -98,9 +96,8 @@ export const linearToSrgbWgsl = chunk("linearToSrgbWgsl", [linearToSrgb3], splic
  * scene-color target the renderer draws into (sear resolves its MSAA color into it; the `Custom` renderer
  * draws straight into it single-sample): sampleable (`TEXTURE_BINDING`), in `Render.format`, sized to
  * the view; a composite `textureLoad`s it and writes the result into `present`. `present` is the swapchain
- * backbuffer, as a **storage** view in the base canvas format (not sRGB). The only target the user ever
- * sees. A compute composite (glaze, or a consumer's own fused pass) `textureStore`s into it, encoding
- * linear→sRGB itself since a storage view can't be sRGB. The split from `framebuffer` exists so postfx
+ * backbuffer, as a render attachment in the base canvas format (not sRGB). The final pass
+ * writes it, encoding linear→sRGB once. The split from `framebuffer` exists so postfx
  * has a rendered color to read: writing the swapchain in place leaves nothing to read back. `depth` + `pickingId`
  * are core's opt-in **prepass lanes**, each gated by a per-camera marker (`DepthPrepass` / `PickingPrepass`).
  * `depth` is the camera's single-sample depth, *stored* + published by the prepass only when the camera
@@ -126,7 +123,7 @@ export interface View {
     presented?: boolean;
     // the render backing-store size (device px). Derived each frame by `sizeView` from the display size
     // below + the camera's `Resolution` pin (or the world's pixelRatio). Every consumer — offscreen,
-    // present, glaze, the cluster grid — reads these, so a low-res pin flows through by sizing them alone
+    // presentation and the cluster grid read these, so a low-res pin flows through by sizing them alone
     width: number;
     height: number;
     // the canvas CSS display size (px), mirrored from the World-scoped viewport row for compatibility.
@@ -492,8 +489,8 @@ function pruneView(this: World, view: View, eid: number): void {
 }
 
 // per-camera offscreen scene-color target — the `view.framebuffer` a renderer draws (or resolves)
-// into and glaze composites to the swapchain. `Render.format` is rg11b10ufloat (HDR): a renderer writes
-// linear and glaze's `textureLoad` reads it linear, keeping radiance >1 alive for the tonemap. Sized to
+// into and tonemapping presents. `Render.format` is rg11b10ufloat (HDR): a renderer writes
+// linear and tonemapping reads it linear, keeping radiance >1 alive for the operator. Sized to
 // the view, recreated on resize; one per camera so multi-view never last-camera-wins a single shared texture
 
 /** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: sear's
@@ -564,7 +561,7 @@ function scratchTexture(world: World, eid: number, slot: "a" | "b", w: number, h
  * the scene-transform seam: redirect a camera's scene color through a postfx compute effect. Returns
  * `read` (the current `view.framebuffer`: the renderer's resolved scene, or the prior effect's output) and
  * `write` (a lazily-allocated scratch, the *other* half of the ping-pong pair from `read`), and repoints
- * `view.framebuffer` at `write` so the next effect, or the compositor ({@link GlazeSystem}), reads this
+ * `view.framebuffer` at `write` so the next effect, or tonemapping, reads this
  * one's output. Call from a compute system in the post-color seam (`after: [RenderMeshColorSystem]`, scene effects
  * `before: [OverlaySystem]`, overlays `after: [OverlaySystem]`): bind `read` as input, `write` as the
  * storage output, dispatch once. `write` is always the pair slot `read` isn't, so two effects chain

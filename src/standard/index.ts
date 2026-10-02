@@ -16,7 +16,6 @@ export {
 } from "../transitional/audio";
 export { BvhPlugin } from "../transitional/bvh";
 export { Character, CharacterPlugin, SweepCharactersSystem } from "../transitional/character";
-export { Glaze, GlazePlugin, Tonemap } from "../transitional/glaze";
 export {
     Body,
     BodyType,
@@ -76,10 +75,9 @@ export {
 } from "./rendering";
 
 import { BrowserInputPlugin, InputPlugin } from "../core/input";
-import { RenderingPlugin } from "../core/rendering";
+import { CorePipelinePlugin, RenderingPlugin } from "../core/rendering";
 import type { Plugin } from "../engine";
 import { setDefaultLoading, setDefaultPlugins } from "../engine/app";
-import { GlazePlugin } from "../transitional/glaze";
 import { shallotDark } from "./loading";
 import { PartPlugin, StandardRenderingPlugin } from "./rendering";
 
@@ -89,7 +87,7 @@ export const DEFAULT_PLUGINS: readonly Plugin[] = [
     RenderingPlugin,
     PartPlugin,
     StandardRenderingPlugin,
-    GlazePlugin,
+    CorePipelinePlugin,
 ];
 
 setDefaultPlugins(DEFAULT_PLUGINS);

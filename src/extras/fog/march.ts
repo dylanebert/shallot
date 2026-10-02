@@ -22,7 +22,7 @@ import {
     spotFactor,
 } from "../../standard/rendering";
 
-/** compute workgroup tile: 8×8 = 64 threads, matching glaze's screen-space composite. */
+/** Compute workgroup tile: 8×8 = 64 threads. */
 export const WORKGROUP = 8;
 
 /** the march's constant loop cap. DXC chokes on a fully-dynamic loop bound, so the marched loop runs to this

@@ -16,6 +16,7 @@ import {
     RenderingPlugin,
     Resolution,
     Spot,
+    Tonemapping,
     Views,
     Volumetric,
 } from "../../core/rendering";
@@ -43,9 +44,11 @@ import {
     SpritePlugin,
     Text,
     TextPlugin,
+    Vignette,
+    VignettePlugin,
 } from "../../extras";
 import { isolationFont } from "../../extras/text/font.fixture";
-import { Color, DEFAULT_PLUGINS, Glaze, Transform } from "../../standard";
+import { Color, DEFAULT_PLUGINS, Transform } from "../../standard";
 import {
     Backgrounds,
     CameraBackground,
@@ -94,6 +97,7 @@ const everyPlugin: readonly Plugin[] = [
     SkyPlugin,
     SpritePlugin,
     TextPlugin,
+    VignettePlugin,
 ];
 
 const peerModule = "bun-webgpu";
@@ -561,7 +565,8 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(camera, PickingPrepass);
             world.add(camera, DepthPrepass);
             world.add(camera, CameraBackground);
-            world.add(camera, Glaze);
+            world.add(camera, Tonemapping);
+            world.add(camera, Vignette, { intensity: 0.1 });
             world.add(camera, Orbit);
             world.add(camera, Listener);
             world.storage(Transform).translation.set(camera, 0, 4, 12, 0);
@@ -575,7 +580,7 @@ function featurePlugin(subject: Plugin): Plugin {
             if (
                 subject === RenderingPlugin ||
                 subject === StandardRenderingPlugin ||
-                subject.name === "Glaze" ||
+                subject.name === "CorePipeline" ||
                 uses(subject, SkyPlugin)
             ) {
                 const sun = world.create();

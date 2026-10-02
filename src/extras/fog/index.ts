@@ -4,7 +4,7 @@
 // shadowed by sear's point atlas, plus the directional sun shaft shadowed by sear's sun map (the same
 // froxel grid + shadow service sear's lit path uses, bound through `render` + `sear`), so
 // occluders cast dark shafts. It runs through the `sceneTransform` seam (after sear's color pass, before
-// glaze's tonemap), so the result is part of the HDR scene the tonemap rolls off. A scene opts in with one `Fog` singleton; a camera opts in with sear's `DepthPrepass` lane
+// tonemapping), so the result is part of the HDR scene the tonemap rolls off. A scene opts in with one `Fog` singleton; a camera opts in with sear's `DepthPrepass` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
 // uniform schema live in `./march`; the typed pipeline (the two bind-group layouts + the compute kernel
 // calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle
@@ -18,6 +18,7 @@ import {
     Render,
     RenderingPlugin,
     sceneTransform,
+    TonemappingSystem,
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
@@ -34,7 +35,6 @@ import {
     sunShadowParams,
     sunShadowView,
 } from "../../standard/rendering";
-import { GlazeSystem } from "../../transitional/glaze";
 import { FOG_FLOATS, FogGpu, WORKGROUP } from "./march";
 import { packFog } from "./pack";
 import { fogKernel, fogLayout0, fogLayout1 } from "./pipeline";
@@ -161,9 +161,9 @@ function fogLights(world: World): LightsGroup {
 /**
  * the fog march, per camera: reads the resolved scene (`view.framebuffer`) + the camera's depth lane,
  * marches each pixel through the atmosphere, and writes the haze-composited scene back through the
- * `sceneTransform` scratch so glaze tonemaps it. No-op unless the scene has a {@link Fog} singleton and the
+ * `sceneTransform` scratch so tonemapping reads it. No-op unless the scene has a {@link Fog} singleton and the
  * camera carries sear's `DepthPrepass` lane (the march needs scene depth, no auto-add). Ordered after sear's
- * color pass and before glaze.
+ * color pass and before tonemapping.
  */
 export const FogSystem: System = {
     name: "fog",
@@ -171,7 +171,7 @@ export const FogSystem: System = {
     after: [RenderMeshColorSystem],
     // a scene-transform effect runs before the overlay anchor, so a screen-space overlay (outline)
     // composites on top of the haze rather than getting marched over by it
-    before: [GlazeSystem, OverlaySystem],
+    before: [TonemappingSystem, OverlaySystem],
     update(world) {
         const _render = world.resource(Render);
         const _fogState = world.resource(fogStateKey);
@@ -231,7 +231,7 @@ export const FogSystem: System = {
 
 /**
  * volumetric atmosphere (fog + height fog). Opt-in: add `FogPlugin` to the plugin set, give the scene one
- * {@link Fog} singleton, and give the rendering camera sear's `DepthPrepass` lane. The march composites pre-glaze
+ * {@link Fog} singleton, and give the rendering camera sear's `DepthPrepass` lane. The march composites before tonemapping
  * via the `sceneTransform` seam.
  */
 export const FogPlugin: Plugin = {
@@ -281,7 +281,7 @@ export const FogPlugin: Plugin = {
         // the march runs every frame `Fog` + `DepthPrepass` are both present, so an unfired compile would land the
         // stall on whichever frame that is. Group 1's real resources (the light/shadow service) exist by the
         // time this runs (deferred past every plugin's `warm`); group 0 is genuinely per-camera,
-        // so the forcer stands in 1×1 throwaways, like glaze's / outline's
+        // so the forcer stands in 1×1 throwaways, like tonemapping's / outline's
         precompile(world, "fog", () => {
             const _fogState = world.resource(fogStateKey);
 

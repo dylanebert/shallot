@@ -19,11 +19,11 @@ import { registration } from "../../engine";
 //      the seed's color/width, blends the band over the scene in linear, and writes the rgba16float scratch.
 //
 // Runs in the post-color seam, ordered `after: [RenderMeshColorSystem, OverlaySystem]` (an overlay — on top of any
-// scene-transform effect like fog) `before: [GlazeSystem]`. The
-// composite goes through `sceneTransform` (a compute pass, like glaze) rather than a render pass into
+// scene-transform effect like fog) `before: [TonemappingSystem]`. The
+// composite goes through `sceneTransform` (a compute pass) rather than a render pass into
 // `view.framebuffer`, so it never assumes the framebuffer's format/usage — a fog scratch is rgba16float
 // storage, not a render attachment — which is what let the two effects collide. Both anchor refs drop
-// harmlessly when their plugin isn't registered. Targets the sear + glaze path (reads sear's `DepthPrepass` lane).
+// harmlessly when their plugin isn't registered. Targets the standard rendering path (reads sear's `DepthPrepass` lane).
 
 import type {
     TgpuBindGroup,
@@ -42,6 +42,7 @@ import {
     Render,
     RenderingPlugin,
     sceneTransform,
+    TonemappingSystem,
     type View,
     Views,
 } from "../../core/rendering";
@@ -49,7 +50,6 @@ import type { Plugin, System, World } from "../../engine";
 import { f32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { PartPlugin, RenderMeshColorSystem } from "../../standard/rendering";
-import { GlazeSystem } from "../../transitional/glaze";
 import {
     compositeKernel,
     compositeLayout,
@@ -350,7 +350,7 @@ function renderOutline(
     }
 
     // 3. composite — blend the band over the resolved scene through the sceneTransform seam. A compute pass
-    // (TBDR-friendly, like glaze): reads the scene format-agnostically (offscreen, or fog's scratch) + the
+    // reads the scene format-agnostically (offscreen, or fog's scratch) + the
     // JFA field, writes the rgba16float scratch, repoints `view.framebuffer`. `sceneTransform` is called here,
     // last — the caller's early-outs already ran, so the framebuffer is never repointed at an unwritten scratch
     const { read, write } = sceneTransform(world, view, camEid);
@@ -374,10 +374,10 @@ const OutlineSystem: System = {
     name: "outline",
     group: "draw",
     // an overlay: after the scene color (RenderMeshColorSystem) and after any scene-transform effect (the OverlaySystem
-    // anchor, which fog runs before), so the band composites on top of the haze; before glaze presents it.
+    // anchor, which fog runs before), so the band composites on top of the haze; before tonemapping presents it.
     // Both anchor refs drop harmlessly when their plugin isn't registered
     after: [RenderMeshColorSystem, OverlaySystem],
-    before: [GlazeSystem, PresentationSystem],
+    before: [TonemappingSystem, PresentationSystem],
     update(world: World) {
         const _outlineState = world.resource(outlineStateKey);
         const _meshes = world.resource(Meshes);
@@ -672,7 +672,7 @@ function disposeOutline(world: World): void {
 }
 
 /**
- * the screen-space outline composite: add it alongside `StandardRenderingPlugin` + `GlazePlugin`, then add `Outline` to a MeshInstance entity to highlight it.
+ * the screen-space outline composite: add it alongside `StandardRenderingPlugin`, then add `Outline` to a MeshInstance entity to highlight it.
  *
  * The band is a mask → jump-flood distance field → composite over the scene color. Cost scales with the
  * highlighted-object count + screen × log(width), not scene geometry; nothing highlighted runs no passes.

@@ -63,3 +63,4 @@ export {
     Text,
     TextPlugin,
 } from "./text";
+export { Vignette, VignettePlugin } from "./vignette";

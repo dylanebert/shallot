@@ -15,7 +15,6 @@ import {
     registerBackground,
     StandardRenderer,
 } from "../../standard/rendering";
-import { Glaze } from "../../transitional/glaze";
 import { MeshInstance } from "../mesh";
 import {
     AmbientLight,
@@ -27,6 +26,8 @@ import {
     PickingPrepass,
     PointLight,
     Spot,
+    Tonemapping,
+    TonemappingMethod,
     Volumetric,
 } from "./index";
 
@@ -56,7 +57,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera, { clearColor: 0x204060 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Glaze);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
     const layout = backgroundLayout({});
     const id = registerBackground(world, {
         name: "target-proof",
@@ -113,7 +114,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
             world.step(0);
             renderPasses = 0;
             world.step(0);
-            expect(renderPasses).toBe(lanes ? 6 : 5);
+            expect(renderPasses).toBe(lanes ? 7 : 6);
             const { rgba } = await captureTexture(world, camera);
             frames[aa][lanes] = rgba;
             expect(await world.gpu.device.popErrorScope()).toBeNull();

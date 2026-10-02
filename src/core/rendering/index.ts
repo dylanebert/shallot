@@ -6,3 +6,12 @@ export {
     RenderPhases,
 } from "./phases";
 export * from "./substrate";
+export { TonemappingMethod } from "./tonemap";
+export { fullscreenVertex } from "./tonemapping";
+export {
+    ColorGrading,
+    type EffectPass,
+    EffectPasses,
+    Tonemapping,
+    TonemappingSystem,
+} from "./tonemapping-state";

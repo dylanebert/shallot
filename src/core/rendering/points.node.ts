@@ -19,7 +19,6 @@ import { Backgrounds, Surfaces } from "../../standard/rendering/contract";
 import { backgroundsKey, surfacesKey } from "../../standard/rendering/contract-state";
 import { Lighting, lightingKey } from "../../standard/rendering/lighting";
 import { Draws, drawsKey } from "../../standard/rendering/registry";
-import { Glaze, GlazePlugin } from "../../transitional/glaze";
 import { Meshes, meshResourcesKey } from "../mesh/mesh";
 import { Frame, frameKey } from "./frame";
 import { EndFrameSystem, renderFrameKey } from "./frame-state";
@@ -29,19 +28,23 @@ import {
     BeginFrameSystem,
     Camera,
     CameraMode,
+    CorePipelinePlugin,
     captureTexture,
+    EffectPasses,
     MainPassSystem,
     OverlaySystem,
     PrepassSystem,
     PresentationSystem,
     RenderingPlugin,
     RenderPhases,
+    Tonemapping,
+    TonemappingMethod,
 } from "./index";
 import { PointsPlugin, pointsState } from "./points.fixture";
 import { Render, renderKey } from "./render";
 import { viewTargetsKey } from "./targets";
 import { compositeCacheKey } from "./tonemapping";
-import { GlazeSystem, glazeStateKey } from "./tonemapping-state";
+import { TonemappingSystem, tonemappingStateKey } from "./tonemapping-state";
 import { Views, viewResourcesKey } from "./view";
 
 setDefaultTimeout(CEILING.node);
@@ -49,7 +52,13 @@ const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [RenderingPlugin, PointsPlugin] },
     {
         defaults: false,
-        plugins: [RenderingPlugin, PointsPlugin, StandardRenderingPlugin, PartPlugin, GlazePlugin],
+        plugins: [
+            RenderingPlugin,
+            PointsPlugin,
+            StandardRenderingPlugin,
+            PartPlugin,
+            CorePipelinePlugin,
+        ],
     },
     { defaults: false, plugins: [RenderingPlugin] },
 ]);
@@ -69,7 +78,8 @@ const coreResources = {
     Frame,
     blitPipelinesKey,
     compositeCacheKey,
-    glazeStateKey,
+    tonemappingStateKey,
+    EffectPasses,
 };
 const meshResources = {
     meshResourcesKey,
@@ -91,7 +101,7 @@ const coreSystems = {
     EndFrameSystem,
     MainPassSystem,
     PrepassSystem,
-    GlazeSystem,
+    TonemappingSystem,
     ClearChangeMarksSystem,
 };
 const lightSystems = { UpdateLightClustersSystem, CullLightsSystem };
@@ -211,7 +221,7 @@ test("points beside a mesh share the view depth: side and front points show, the
     world.add(camera, Transform);
     world.add(camera, Camera);
     world.add(camera, StandardRenderer);
-    world.add(camera, Glaze);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
     world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
     world.storage(Camera).mode.set(camera, CameraMode.Orthographic);
     world.storage(Camera).size.set(camera, 4);

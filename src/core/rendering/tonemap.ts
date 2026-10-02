@@ -1,39 +1,18 @@
-// Display-transform tonemap operators — the curve glaze applies to HDR scene radiance before the
-// sRGB encode. Analytic only (no LUT): the Khronos PBR Neutral default plus the Bevy set (Reinhard,
-// Reinhard-luminance, ACES Fitted, SomewhatBoring) and the iolite/Filament analytic AgX. Khronos
-// Neutral + AgX are ported from three.js (NeutralToneMapping / AgXToneMapping — already column-major,
-// so the matrices land in `d.mat3x3f` verbatim); Reinhard-luminance + SomewhatBoring from Bevy
-// (`tonemapping_shared.wgsl`). The `Tonemap` indices are the one source of truth, paired with the
-// dispatch in {@link tonemap} — index 0 (Neutral) is the zero-config default, so a camera with no
-// `Glaze` (a zeroed config → mode 0) tonemaps Neutral.
-//
-// Every operator is a TGSL function: one source that runs on the CPU (its unit tests call it directly)
-// and resolves into the WGSL a composite splices ({@link tonemapWgsl}). The operand order is the shipped
-// shader's, term for term — reassociating a float product changes the last bits, and the bench's
-// framebuffer probes compare against the pre-port baseline.
-
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { chunk, spliceNs } from "../../engine/utils";
 
-/**
- * tonemap operator for the {@link Glaze} `tonemap` field. `Neutral` (0) is the zero-config default:
- * color-faithful, rolls off only the highlights. `None` is a raw passthrough.
- *
- * @example
- * ```
- * world.storage(Glaze).tonemap.set(camera, Tonemap.Aces);
- * ```
- */
-export const Tonemap = {
-    Neutral: 0,
+/** Tonemapping operators. AgX retains Glaze's analytic Filament/three.js fit. */
+export const TonemappingMethod = {
+    TonyMcMapface: 0,
     None: 1,
-    Aces: 2,
+    AcesFitted: 2,
     Reinhard: 3,
     ReinhardLuminance: 4,
-    Agx: 5,
-    SomewhatBoring: 6,
+    AgX: 5,
+    SomewhatBoringDisplayTransform: 6,
+    KhronosPbrNeutral: 7,
 } as const;
 
 /** Rec. 709 relative luminance.
@@ -243,20 +222,12 @@ export const tmSomewhatBoring = tgpu.fn(
     return std.mul(std.mix(tm0, tm1, d.vec3f(bt * bt)), 0.97);
 });
 
-/**
- * apply the {@link Tonemap} operator `mode` selects. Index 0 — and any unknown index — is Neutral, the
- * zero-config default, so a camera with no `Glaze` (a zeroed config) still gets a display transform.
- * An if-chain rather than a `switch`: TGSL has no `switch` spelling, and the dispatch is over a
- * uniform-valued mode, so the branches fold.
- *
- * @example let display = tonemap(glaze.tonemapMode, radiance);
- */
+/** Analytic operators; TonyMcMapface is sampled by the presentation pass. */
 export const tonemap = tgpu.fn(
     [d.u32, d.vec3f],
     d.vec3f,
 )((mode, c) => {
     "use gpu";
-    // `std.copy` because typegpu refuses to return a reference to a parameter
     if (mode === 1) return std.copy(c);
     if (mode === 2) return tmAces(c);
     if (mode === 3) return tmReinhard(c);
@@ -266,7 +237,4 @@ export const tonemap = tgpu.fn(
     return tmNeutral(c);
 });
 
-/** the tonemap operators as one WGSL chunk: `tonemap(mode, color)` dispatching over the {@link Tonemap}
- *  indices, spliced into glaze's composite. A custom composite that wants the same display transforms
- *  splices this and dispatches on its own operator field. */
 export const tonemapWgsl = chunk("tonemapWgsl", [tonemap], spliceNs);

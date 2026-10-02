@@ -2,6 +2,30 @@
 
 These changes require updates to a 0.9.5 app.
 
+## Glaze becomes camera grading and effect passes
+
+Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/glaze` imports. `CorePipelinePlugin` presents views and registers `Tonemapping` and `ColorGrading`, exported from `/rendering` and the root. Default plugins already include it. Add `VignettePlugin` from `/vignette` (or the root) for cameras carrying `Vignette`.
+
+| Glaze field | Replacement |
+|---|---|
+| `tonemap` | `Tonemapping.method`, using `TonemappingMethod`: `Neutral` → `KhronosPbrNeutral`, `None` → `None`, `Aces` → `AcesFitted`, `Reinhard` → `Reinhard`, `ReinhardLuminance` → `ReinhardLuminance`, `Agx` → `AgX`, `SomewhatBoring` → `SomewhatBoringDisplayTransform`. Do not carry numeric indices forward. |
+| `exposure` | Positive multiplier `m` → `ColorGrading.exposure: Math.log2(m)` (stops). |
+| `saturation` | `ColorGrading.postSaturation`. |
+| `slope` | No per-channel CDL equivalent. Retune using sectional `gain` and global `temperature`/`tint`. |
+| `offset` | No per-channel CDL equivalent. Retune using sectional `lift`. |
+| `power` | No per-channel CDL equivalent. Retune using sectional `gamma` (inverse exponent). |
+| `vignette` | `Vignette.intensity`. Now applied to HDR before tonemapping; the look is not identical. |
+| `vignetteInner` | No exact equivalent; retune `Vignette.radius`. |
+| `vignetteOuter` | No exact equivalent; retune `Vignette.radius` and `smoothness`. |
+| `posterize` | Removed; no built-in replacement. Implement an after-tonemapping pass in an external postprocessing package. |
+| `dither` | Removed with posterize; no built-in replacement. |
+
+Cameras without settings now use `TonyMcMapface`, not Khronos PBR Neutral. Add `Tonemapping` with `method: TonemappingMethod.KhronosPbrNeutral` to keep the former operator. `None` skips the operator for display-ready **linear** images; grading and the screen encode still apply. `AgX` retains the former analytic Filament/three.js approximation, rather than Bevy's LUT.
+
+`ColorGrading` applies exposure, temperature, tint and hue globally; `postSaturation` applies after tonemapping. The `saturation`, `contrast`, `gamma`, `gain` and `lift` vectors hold shadows, midtones and highlights in x/y/z (w unused). Defaults are identity; `midtonesRange` defaults to `[0.2, 0.7]`.
+
+Register view-specific passes in `world.resource(EffectPasses)` under the camera eid, with `before` and `after` arrays. Each callback receives `(world, eid, view, input, output)` and records on the frame encoder. Before passes operate on linear HDR; after passes operate on encoded display-referred intermediates. With no after pass, tonemapping writes the presented target directly. Remove registrations when their camera or owner leaves.
+
 ## Renamed exports
 
 0.10 renames these 0.9.5 names, with no compatibility aliases:

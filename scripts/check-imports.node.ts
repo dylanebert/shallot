@@ -24,10 +24,6 @@ const deferred = [
         "src/transitional/character/index.ts:1: pending roadmap migration (still red): // Destination: standard/physics; owner: physics-boundary.md.",
     ],
     [
-        "presentation: Glaze leaves transitional",
-        "src/transitional/glaze/index.ts:1: pending roadmap migration (still red): // Destination: core/rendering; owner: presentation.md.",
-    ],
-    [
         "physics-boundary: physics leaves transitional",
         "src/transitional/physics/index.ts:1: pending roadmap migration (still red): // Destination: core/physics and standard/physics; owner: physics-boundary.md.",
     ],
@@ -53,6 +49,10 @@ beforeAll(() => {
 
 test("repository imports have no violations outside the deferred claims", () => {
     expect(unexpected(repositoryFindings)).toEqual([]);
+});
+
+test("presentation: Glaze leaves transitional", () => {
+    expect(existsSync(resolve(import.meta.dir, "../src/transitional/glaze"))).toBe(false);
 });
 
 test.todo.each(deferred)("%s", (_claim, finding) => {

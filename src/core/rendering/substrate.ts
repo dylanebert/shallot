@@ -333,11 +333,11 @@ async function initRender(world: World): Promise<void> {
     if (!world.gpu.device) return;
     const { device } = world.gpu;
 
-    // the scene renders into an rg11b10ufloat HDR offscreen so a tonemap (glaze, default Khronos Neutral)
+    // the scene renders into an rg11b10ufloat HDR offscreen so tonemapping
     // rolls off radiance >1 rather than clamping it to white at store. rg11b10 (4B) halves the MSAA
     // color-target + resolve bandwidth vs rgba16float (8B), the dominant sear:color cost at 4× MSAA, for
     // ~3% relative precision (no alpha; over-blending doesn't need dst alpha). Single path, no flag — the
-    // swapchain stays the base canvas format (glaze encodes linear→sRGB into it); this is the offscreen +
+    // swapchain stays the base canvas format (tonemapping encodes linear→sRGB); this is the offscreen +
     // sear color-target format only
     _render.format = "rg11b10ufloat";
 
@@ -455,8 +455,7 @@ export const RenderingPlugin: Plugin = {
 // per-frame uniform singletons + their WGSL structs,
 // canvas binding, and the frame-loop ordering anchor. The typical-user surface
 // (components, plugin, public types) lives in the index barrel. `VIEW_STRIDE`
-// + `MAX_VIEWS` size a per-view uniform a consumer packs slot-major (glaze's postfx
-// config); the buffer sizes and the cull-volume packer stay internal — a consumer reads
+// + `MAX_VIEWS` size the per-view uniforms; the buffer sizes and the cull-volume packer stay internal — a consumer reads
 // the packed `Render.cullVolumes` buffer, never re-packs it. A producer that runs its own
 // cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
 

@@ -150,7 +150,7 @@ export function maskWgsl(occlude: boolean): string {
     return tgpu.resolve([maskVertex(layout), maskFragment(layout, occlude)], { names: "strict" });
 }
 
-/** compute workgroup tile — 8×8 = 64 threads, matching glaze/fog's screen-space composite @internal */
+/** compute workgroup tile — 8×8 = 64 threads, matching fog's screen-space composite @internal */
 export const WORKGROUP = 8;
 
 /** the JFA flood pass's I/O: the seed field it reads (ping-ponged per pass) and this pass's jump step. The
@@ -232,7 +232,7 @@ export const jfaFs = tgpu.fragmentFn({
  * coordinate. `mix(scene, band, alpha)` is straight (non-premultiplied) alpha `over`, in linear scene space
  * (the offscreen + scratch are linear HDR) — the analytic twin of the old hardware ALPHA_BLEND. It writes
  * *every* pixel (scene-through where there's no band) because the ping-pong target is a separate texture, so
- * there's no in-place `discard`; glaze tonemaps the result.
+ * there's no in-place `discard`; tonemapping reads the result.
  * @internal
  */
 export const compositeKernel = tgpu.computeFn({

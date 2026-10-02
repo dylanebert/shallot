@@ -24,9 +24,7 @@ export { CameraBackground, Material, StandardRenderer } from "./forward";
  * shadow map allocated), exactly like a camera without a lane marker runs no prepass. No separate shadow
  * plugin, no coordination singleton: sear owns its own shadow map and binds it (Bevy's clustered-forward
  * shape). StandardRenderer renders into the offscreen (`view.framebuffer`) and never the swapchain; presenting it is
- * a separate **composite** the consumer picks: glaze (the default postfx composite) or a custom one. So
- * sear depends on RenderingPlugin and MeshPlugin; list a composite alongside it or nothing reaches the
- * swapchain. `RenderMeshColorSystem` still orders before glaze so glaze, when present, composites after the resolve.
+ * CorePipelinePlugin's tonemapping pass, after the color resolve. This plugin includes CorePipelinePlugin.
  */
 export const StandardRenderingPlugin: Plugin = createSearPlugin();
 export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, Shadow, SunShadows } from "./shadows";
