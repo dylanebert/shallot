@@ -90,18 +90,18 @@ export function push(
     width: number,
     color: number,
 ): void {
-    if (segmentState(world).count >= segmentState(world).capacity)
-        grow(world, segmentState(world).count + 1);
-    const o = segmentState(world).count * SEGMENT_FLOATS;
-    segmentState(world).f32[o] = ax;
-    segmentState(world).f32[o + 1] = ay;
-    segmentState(world).f32[o + 2] = az;
-    segmentState(world).f32[o + 3] = width;
-    segmentState(world).f32[o + 4] = bx;
-    segmentState(world).f32[o + 5] = by;
-    segmentState(world).f32[o + 6] = bz;
-    segmentState(world).u32[o + 7] = color;
-    segmentState(world).count++;
+    const state = segmentState(world);
+    if (state.count >= state.capacity) grow(world, state.count + 1);
+    const o = state.count * SEGMENT_FLOATS;
+    state.f32[o] = ax;
+    state.f32[o + 1] = ay;
+    state.f32[o + 2] = az;
+    state.f32[o + 3] = width;
+    state.f32[o + 4] = bx;
+    state.f32[o + 5] = by;
+    state.f32[o + 6] = bz;
+    state.u32[o + 7] = color;
+    state.count++;
 }
 
 // four world-space fins from the tip back along the shaft. perpendicular basis off an up reference that
