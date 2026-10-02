@@ -12,8 +12,8 @@
     "tree": "0a6472d03ff61c9af28216443fba341a21cbed96"
   },
   "oracle": {
-    "memberCommit": "ba367c467b747b0e5610e378d79301618c09d4dd",
-    "generatorSha256": "a57e523bfa6188ca3cf22b54318be8ab1eb313de8ca65c668d45d73238cb4f68"
+    "memberCommit": "e433657fb293a65b41da2da773f603d5272fab8c",
+    "generatorSha256": "d8a3b9869f80a33e0ea4a08fc412da82650a03520dcce2f66bbd586d48394e91"
   },
   "caseCount": 10,
   "fileDigests": {
