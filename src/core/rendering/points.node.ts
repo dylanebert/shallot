@@ -37,7 +37,7 @@ import {
     RenderingPlugin,
     RenderPhases,
 } from "./index";
-import { PointsPlugin } from "./points.fixture";
+import { PointsPlugin, pointsState } from "./points.fixture";
 import { Render, renderKey } from "./render";
 import { viewTargetsKey } from "./targets";
 import { Views, viewResourcesKey } from "./view";
@@ -53,6 +53,7 @@ const subjects = gpuApps(import.meta.path, [
 ]);
 
 const coreResources = {
+    pointsState,
     typegpuRoot,
     precompileState,
     renderKey,
@@ -152,6 +153,51 @@ test("RenderingPlugin without CorePipelinePlugin builds and steps an attached vi
     world.gpu.device.pushErrorScope("validation");
     world.step(0);
     expect(await world.gpu.device.popErrorScope()).toBeNull();
+});
+
+test("warmed unchanged points frames create no bind groups", async () => {
+    const { world } = subjects()[0];
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera);
+    attachTexture(world, camera, { width: 8, height: 8 });
+    world.step(0);
+    world.step(0);
+    const device = world.gpu.device;
+    const createBindGroup = device.createBindGroup;
+    let creations = 0;
+    device.createBindGroup = function (descriptor) {
+        creations++;
+        return createBindGroup.call(this, descriptor);
+    };
+    device.pushErrorScope("validation");
+    try {
+        for (let frame = 0; frame < 10; frame++) world.step(0);
+        expect(creations).toBe(0);
+        world.storage(Camera).antialias.set(camera, 0);
+        world.step(0);
+        expect(creations).toBe(0);
+        const render = world.resource(Render);
+        const view = world.resource(Views).get(camera)!;
+        const original = render.viewBuffers[view.slot];
+        const replacement = device.createBuffer({
+            size: original.size,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        try {
+            render.viewBuffers[view.slot] = replacement;
+            world.step(0);
+            expect(creations).toBe(1);
+            for (let frame = 0; frame < 10; frame++) world.step(0);
+            expect(creations).toBe(1);
+        } finally {
+            render.viewBuffers[view.slot] = original;
+            replacement.destroy();
+        }
+    } finally {
+        device.createBindGroup = createBindGroup;
+        expect(await device.popErrorScope()).toBeNull();
+    }
 });
 
 test("points beside a mesh share the view depth: side and front points show, the rear point is occluded", async () => {
