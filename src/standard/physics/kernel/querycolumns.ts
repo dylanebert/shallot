@@ -39,10 +39,10 @@ export class QueryColumns {
             rebuildGeometry(world);
             world.geometryDirty = false;
         }
-        world.bodyStore.refreshViews();
-        world.shapeStore.refreshViews();
-        world.broadPhase.store.refreshIfStale();
         const memory = k.memory.buffer;
+        if (world.bodyStore.stale) world.bodyStore.refreshViews();
+        if (world.shapeStore.shapeF.buffer !== memory) world.shapeStore.refreshViews();
+        world.broadPhase.store.refreshIfStale();
         if (this.input.buffer !== memory || this.input.byteLength === 0) {
             this.input = new Float32Array(memory, k.shapeQueryInputPtr(), 398);
             this.cast = new Float32Array(memory, k.shapeQueryOutputPtr(), 12);
@@ -74,7 +74,8 @@ export class QueryColumns {
         // Upload their scalar columns; geometry itself is uploaded only on resident-set changes.
         const f = world.shapeStore.shapeF;
         const u = world.shapeStore.shapeU;
-        for (const shape of world.shapes) {
+        for (let i = 0; i < world.shapes.length; ++i) {
+            const shape = world.shapes[i];
             if (shape.id === NULL_INDEX) continue;
             const body = world.bodies[shape.bodyId];
             const n = shape.id * SHAPE_STRIDE;
