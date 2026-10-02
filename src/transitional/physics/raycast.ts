@@ -1,6 +1,9 @@
 // CPU raycast over caller-supplied body poses.
 
-import type { Ray } from "../../engine";
+import { qRotate, type Ray } from "../../engine";
+
+export { qRotate } from "../../engine";
+
 import { ShapeKind } from "./index";
 
 /** one candidate body for {@link raycast}: its world pose + collider shape (the fields the analytic tests
@@ -28,27 +31,6 @@ interface ShapeHit {
     nx: number;
     ny: number;
     nz: number;
-}
-
-/** rotate a vector by a quaternion (q · v). Pass the conjugate (`-qx, -qy, -qz, qw`) for the inverse
- * rotation, world → body-local. */
-export function qRotate(
-    qx: number,
-    qy: number,
-    qz: number,
-    qw: number,
-    vx: number,
-    vy: number,
-    vz: number,
-): [number, number, number] {
-    const tx = 2 * (qy * vz - qz * vy);
-    const ty = 2 * (qz * vx - qx * vz);
-    const tz = 2 * (qx * vy - qy * vx);
-    return [
-        vx + qw * tx + qy * tz - qz * ty,
-        vy + qw * ty + qz * tx - qx * tz,
-        vz + qw * tz + qx * ty - qy * tx,
-    ];
 }
 
 /** ray vs a sphere of `radius` centred at `c`. Nearest non-negative root; normal points outward. */

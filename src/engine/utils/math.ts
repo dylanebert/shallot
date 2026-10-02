@@ -4,6 +4,26 @@ export interface Ray {
     dir: readonly [number, number, number];
 }
 
+/** Rotate a vector by a quaternion (q · v). Use the conjugate for the inverse rotation. */
+export function qRotate(
+    qx: number,
+    qy: number,
+    qz: number,
+    qw: number,
+    vx: number,
+    vy: number,
+    vz: number,
+): [number, number, number] {
+    const tx = 2 * (qy * vz - qz * vy);
+    const ty = 2 * (qz * vx - qx * vz);
+    const tz = 2 * (qx * vy - qy * vx);
+    return [
+        vx + qw * tx + qy * tz - qz * ty,
+        vy + qw * ty + qz * tx - qx * tz,
+        vz + qw * tz + qx * ty - qy * tx,
+    ];
+}
+
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 

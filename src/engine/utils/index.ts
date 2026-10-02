@@ -60,6 +60,7 @@ export {
     multiplyMat4,
     orthographic,
     perspective,
+    qRotate,
     quatToEuler,
     type Ray,
     rotateQuatByEuler,

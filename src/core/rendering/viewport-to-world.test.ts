@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { generateRay, screenToRay } from "./viewport-to-world";
+import { GlobalTransform, resizeViewport, World } from "../../engine";
+import { registration } from "../../engine/ecs/registration";
+import { Camera, CameraMode } from "./camera";
+import { type View, Views } from "./view";
+import { generateRay, screenToRay, viewportToWorld } from "./viewport-to-world";
 
 test("the NDC-to-world ray drops the aspect ratio, the near offset or the camera rotation, so a pick would miss the object under the cursor on a non-square canvas or a turned camera", () => {
     const Id: [number, number, number, number] = [0, 0, 0, 1];
@@ -55,4 +59,44 @@ test("the pixel-to-NDC conversion drops the y flip or mis-centres the canvas, so
     expect(corner.dir[0]).toBeLessThan(0);
     expect(corner.dir[1]).toBeGreaterThan(0);
     expect(corner.dir[2]).toBeLessThan(0);
+});
+
+test("orthographic pixels shift ray origins by size and aspect while keeping parallel camera-forward directions", () => {
+    const world = new World();
+    world.registry.register(registration("Camera", Camera));
+    world.registry.register(registration("GlobalTransform", GlobalTransform));
+    const camera = world.create();
+    world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 4, near: 0.5, fov: 90 });
+    world.add(camera, GlobalTransform);
+    world.storage(GlobalTransform).translation.set(camera, 3, 2, 5, 0);
+    world.storage(GlobalTransform).rotation.set(camera, 0, Math.SQRT1_2, 0, Math.SQRT1_2);
+    resizeViewport(world, 0, 800, 400, 1);
+    world.resource(Views).set(camera, { viewportIndex: 0 } as View);
+    try {
+        const centre = viewportToWorld(world, camera, 400, 200)!;
+        const offset = viewportToWorld(world, camera, 600, 100)!;
+        // Size 4 and aspect 2 give local offset (2, 1, -0.5); +90 Y turns it to (-0.5, 1, -2).
+        expect(centre.origin).toEqual([
+            expect.closeTo(2.5, 6),
+            expect.closeTo(2, 6),
+            expect.closeTo(5, 6),
+        ]);
+        expect(offset.origin).toEqual([
+            expect.closeTo(2.5, 6),
+            expect.closeTo(3, 6),
+            expect.closeTo(3, 6),
+        ]);
+        expect(centre.dir).toEqual([
+            expect.closeTo(-1, 6),
+            expect.closeTo(0, 6),
+            expect.closeTo(0, 6),
+        ]);
+        expect(offset.dir).toEqual([
+            expect.closeTo(-1, 6),
+            expect.closeTo(0, 6),
+            expect.closeTo(0, 6),
+        ]);
+    } finally {
+        world.dispose();
+    }
 });

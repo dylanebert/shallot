@@ -1,6 +1,6 @@
-import type { Ray, World } from "../../engine";
+import { qRotate, type Ray, type World } from "../../engine";
 import { Body, type BodyState } from "./index";
-import { qRotate, type RayBody, type RayHit, raycast } from "./raycast";
+import { type RayBody, type RayHit, raycast } from "./raycast";
 
 /** the raycast candidates: every Body at its live pose (`read`, usually `Physics.readBody`), minus `exclude`, occluders and
  *  grabbables alike. Statics/kinematics (mass ≤ 0) are kept so the ray stops on a wall; {@link grabHit}
