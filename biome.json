@@ -44,12 +44,6 @@
                             },
                             {
                                 "selector": { "kind": "objectLiteralProperty" },
-                                "match": "(?:base_color|perceptual_roughness|diffuse_wrap|(.+))",
-                                "formats": ["camelCase", "PascalCase", "CONSTANT_CASE"]
-                            },
-                            {
-                                "selector": { "kind": "typeProperty" },
-                                "match": "(?:base_color|perceptual_roughness|diffuse_wrap|_*(.+))",
                                 "formats": ["camelCase", "PascalCase", "CONSTANT_CASE"]
                             },
                             {

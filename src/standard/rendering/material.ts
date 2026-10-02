@@ -11,27 +11,27 @@ export interface StandardMaterial {
     /** Surfaces registry id in the same World; zero selects the built-in default surface. */
     surface: number;
     /** Linear RGBA; alpha is available to custom transparent surfaces. */
-    base_color: readonly [number, number, number, number];
+    baseColor: readonly [number, number, number, number];
     metallic: number;
-    perceptual_roughness: number;
+    perceptualRoughness: number;
     /** Linear RGB radiance added by the lit surfaces; does not illuminate other objects. */
     emissive: readonly [number, number, number];
     /** Ambient-light multiplier in [0,1]. */
     occlusion: number;
     /** Shallot's blend in [0,1] from Lambert to Valve's squared half-Lambert. */
-    diffuse_wrap: number;
+    diffuseWrap: number;
 }
 
-/** Linear colours; emissive is independent of base_color. diffuse_wrap mixes Lambert with squared half-Lambert: 1 preserves Shallot's diffuse look. */
+/** Linear colours; emissive is independent of baseColor. diffuseWrap mixes Lambert with squared half-Lambert: 1 preserves Shallot's diffuse look. */
 export function StandardMaterial(values: Partial<StandardMaterial> = {}): StandardMaterial {
     return {
         surface: 0,
-        base_color: [1, 1, 1, 1],
+        baseColor: [1, 1, 1, 1],
         metallic: 0,
-        perceptual_roughness: 0.5,
+        perceptualRoughness: 0.5,
         emissive: [0, 0, 0],
         occlusion: 1,
-        diffuse_wrap: 1,
+        diffuseWrap: 1,
         ...values,
     };
 }
@@ -39,14 +39,15 @@ export function StandardMaterial(values: Partial<StandardMaterial> = {}): Standa
 export const MaterialInput = d
     .struct({
         surface: d.u32,
-        base_color: d.vec4f,
+        baseColor: d.vec4f,
         params: d.vec4f,
         emissive: d.vec3f,
-        diffuse_wrap: d.f32,
+        diffuseWrap: d.f32,
     })
     .$name("MaterialInput");
 
 export interface MaterialRecord extends StandardMaterial {
+    /** Registry key for stable replacement; shaders and mesh components use only the returned numeric id. */
     name: string;
 }
 
@@ -69,10 +70,10 @@ class MaterialRegistry extends Registry<MaterialRecord> {
         const bytes = new ArrayBuffer(d.sizeOf(MaterialInput));
         writeToArrayBuffer(bytes, MaterialInput, {
             surface: record.surface,
-            base_color: d.vec4f(...record.base_color),
-            params: d.vec4f(record.metallic, record.perceptual_roughness, id, record.occlusion),
+            baseColor: d.vec4f(...record.baseColor),
+            params: d.vec4f(record.metallic, record.perceptualRoughness, id, record.occlusion),
             emissive: d.vec3f(...record.emissive),
-            diffuse_wrap: record.diffuse_wrap,
+            diffuseWrap: record.diffuseWrap,
         });
         table.bytes.set(new Uint8Array(bytes), id * d.sizeOf(MaterialInput));
         table.markRange(id, 1);

@@ -256,21 +256,21 @@ import { engineLayout } from "@dylanebert/shallot/standard/rendering";
 import { Xform } from "@dylanebert/shallot/utils";
 ```
 
-`Mesh3d` contains only `mesh`. Register material values once with `world.resource(Materials).register({ name, ...StandardMaterial(values) })`, then add `MeshMaterial3d` with `{ material: id }`. Meshes without `MeshMaterial3d` draw with the shared default `StandardMaterial`.
+`Mesh3d` contains only `mesh`. Register material values once with `world.resource(Materials).register({ name, ...StandardMaterial(values) })`, then add `MeshMaterial3d` with `{ material: id }`. Meshes without `MeshMaterial3d` draw with the shared default `StandardMaterial`. The required `name` is Shallot's registry key for stable replacement, not a requirement of the material or shader; unlike Bevy's anonymous material handles, this registry identifies registrations by name.
 
 | Previous name or value | 0.10 replacement |
 |---|---|
 | Root `Part` (prerelease `MeshInstance`) | Root or `/mesh` `Mesh3d` |
 | `Part.surface` (prerelease `MeshInstance.surface`) | Registered material's `surface`, a `Surfaces` id |
-| `Color.rgba` | Registered material's linear `base_color` |
-| `Material.params` `(metallic, roughness, emissiveStrength, occlusion)` | `StandardMaterial({ metallic, perceptual_roughness, emissive: [base_color[0] * emissiveStrength, base_color[1] * emissiveStrength, base_color[2] * emissiveStrength], occlusion })` |
+| `Color.rgba` | Registered material's linear `baseColor` |
+| `Material.params` `(metallic, roughness, emissiveStrength, occlusion)` | `StandardMaterial({ metallic, perceptualRoughness, emissive: [baseColor[0] * emissiveStrength, baseColor[1] * emissiveStrength, baseColor[2] * emissiveStrength], occlusion })` |
 | `Material` component | Root or `/standard/rendering` `MeshMaterial3d` referencing a registered material |
 | Root `PartPlugin` | Root or `/standard/rendering` `PartPlugin` |
 | `/part/core` `Parts` | `/standard/rendering` `MeshInstances` |
 
-`StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuse_wrap` 1. Set `base_color: [1, 0, 1, 1]` and `perceptual_roughness: 1` to express the former bare mesh values. `diffuse_wrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Replace a named registration to publish changed values at the same id; set `world.storage(MeshMaterial3d).material` to switch an entity's material.
+`StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuseWrap` 1. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Replace a named registration to publish changed values at the same id; set `world.storage(MeshMaterial3d).material` to switch an entity's material.
 
-Custom surfaces still receive linear `color`; their `material` lanes are now `(metallic, perceptual_roughness, materialId, occlusion)`, not scalar emissive strength. The standard instance table's `Mesh3dInput` is `{ mesh: u32, material: u32 }`; colour and shading values live in the `materials` table, bound in `engineLayout`. `Pbr` inputs now include `diffuse_wrap`; use 1 to retain the former diffuse lobe.
+Custom surfaces still receive linear `color`; their `material` lanes are now `(metallic, perceptualRoughness, materialId, occlusion)`, not scalar emissive strength. The standard instance table's `Mesh3dInput` is `{ mesh: u32, material: u32 }`; colour and shading values live in the `materials` table, bound in `engineLayout`. `Pbr` inputs now include `diffuseWrap`; use 1 to retain the former diffuse lobe.
 
 Mesh data has its own `/mesh` module. Update mesh imports as follows (root imports remain available):
 

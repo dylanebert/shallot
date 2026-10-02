@@ -620,9 +620,9 @@ function featurePlugin(subject: Plugin): Plugin {
                 material: world.resource(Materials).register({
                     name: "isolation",
                     ...StandardMaterial({
-                        base_color: [0.8, 0.25, 0.1, 1],
+                        baseColor: [0.8, 0.25, 0.1, 1],
                         metallic: 0.1,
-                        perceptual_roughness: 0.6,
+                        perceptualRoughness: 0.6,
                     }),
                 }),
             });
@@ -733,7 +733,7 @@ function authorIsolationContent(
         world.storage(Sky).zenith.set(resources.sky, content.skyZenith);
         world.storage(Sky).horizon.set(resources.sky, content.skyHorizon);
         const materials = world.resource(Materials);
-        materials.register({ ...materials.get("isolation")!, base_color: content.color });
+        materials.register({ ...materials.get("isolation")!, baseColor: content.color });
     })();
     return a;
 }

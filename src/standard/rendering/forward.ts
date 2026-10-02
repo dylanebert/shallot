@@ -901,7 +901,7 @@ const typedDefaultFs = tgpu.fn(
         roughness: ctx.material.y,
         occlusion: ctx.material.w,
         dielectric: 0,
-        diffuse_wrap: engineLayout.$.materials[d.u32(ctx.material.z)].diffuse_wrap,
+        diffuseWrap: engineLayout.$.materials[d.u32(ctx.material.z)].diffuseWrap,
     });
     const emissive = engineLayout.$.materials[d.u32(ctx.material.z)].emissive;
     return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), 1);
@@ -941,7 +941,7 @@ const typedVertexVs = tgpu.fn(
         roughness: vsIn.material.y,
         occlusion: vsIn.material.w,
         dielectric: 0,
-        diffuse_wrap: engineLayout.$.materials[d.u32(vsIn.material.z)].diffuse_wrap,
+        diffuseWrap: engineLayout.$.materials[d.u32(vsIn.material.z)].diffuseWrap,
     });
     const emissive = engineLayout.$.materials[d.u32(vsIn.material.z)].emissive;
     const litColor = std.add(

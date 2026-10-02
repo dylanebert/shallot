@@ -128,7 +128,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
             world.add(eid, MeshMaterial3d, {
                 material: world.resource(Materials).register({
                     name: `material-${eid}`,
-                    ...StandardMaterial({ base_color: [0.3, 0.6, 0.8, 1] }),
+                    ...StandardMaterial({ baseColor: [0.3, 0.6, 0.8, 1] }),
                 }),
             });
         }

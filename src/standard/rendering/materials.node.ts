@@ -44,9 +44,9 @@ test("registered materials preserve every built-in surface frame including colou
             name: surface,
             ...StandardMaterial({
                 surface: world.resource(Surfaces).id(surface)!,
-                base_color: [0.25, 0.5, 0.75, 1],
+                baseColor: [0.25, 0.5, 0.75, 1],
                 metallic: 0.25,
-                perceptual_roughness: 0.5,
+                perceptualRoughness: 0.5,
                 emissive: [0.03125, 0.0625, 0.09375],
                 occlusion: 0.75,
             }),

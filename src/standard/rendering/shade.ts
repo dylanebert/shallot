@@ -37,7 +37,7 @@ export const Pbr = d.struct({
     roughness: d.f32,
     occlusion: d.f32,
     dielectric: d.f32,
-    diffuse_wrap: d.f32,
+    diffuseWrap: d.f32,
 });
 
 // a captured constant folds to a literal in the emitted WGSL, so this is the shader's PI too
@@ -128,7 +128,7 @@ export const brdf = tgpu.fn(
     // the last bits, and this lobe is what the bench's shaded probes compare against
     const spec = std.mul(distributionGGX(ndh, a) * visSmithGGX(ndl, ndv, a), F);
     const kd = std.mul(std.sub(d.vec3f(1), F), 1 - s.metallic);
-    const diffuseCosine = std.mix(std.max(dNL, 0), halfLambert(dNL), s.diffuse_wrap);
+    const diffuseCosine = std.mix(std.max(dNL, 0), halfLambert(dNL), s.diffuseWrap);
     const diffuse = std.mul(std.div(std.mul(kd, s.albedo), PI), diffuseCosine);
     return std.mul(std.add(diffuse, std.mul(spec, ndl)), PI);
 });
@@ -176,7 +176,7 @@ export const brdfSphere = tgpu.fn(
         norm,
     );
     const kd = std.mul(std.sub(d.vec3f(1), F), 1 - s.metallic);
-    const diffuseCosine = std.mix(std.max(dC, 0), halfLambert(dC), s.diffuse_wrap);
+    const diffuseCosine = std.mix(std.max(dC, 0), halfLambert(dC), s.diffuseWrap);
     const diffuse = std.mul(std.div(std.mul(kd, s.albedo), PI), diffuseCosine);
     return std.mul(std.add(diffuse, std.mul(spec, ndl)), PI);
 });

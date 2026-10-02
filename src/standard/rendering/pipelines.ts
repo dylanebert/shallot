@@ -369,7 +369,7 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
                 const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                    color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
                     material = d.vec4f(engineLayout.$.materials[part.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
@@ -628,7 +628,7 @@ function typedPrepassVs(surface: AnySurface) {
                 const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                    color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
                     material = d.vec4f(engineLayout.$.materials[part.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
@@ -713,7 +713,7 @@ function typedTagVs(surface: AnySurface) {
                 const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
-                    color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                    color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
                     material = d.vec4f(engineLayout.$.materials[part.material].params);
                 }
                 xform = Xform(bound.globalTransforms[instance.y]);
@@ -1046,7 +1046,7 @@ ${
     let partEncoded = instance.z;
     if (partEncoded != 0u) {
         let part = bound.partInputs[partEncoded - 1u];
-        color = engine.materials[part.material].base_color;
+        color = engine.materials[part.material].baseColor;
         material = engine.materials[part.material].params;
     }
     xform = bound.globalTransforms[instance.y];
@@ -1722,7 +1722,7 @@ function typedShadowVs(
             const partEncoded = instance.z;
             if (partEncoded !== 0) {
                 const part = bound.partInputs[partEncoded - 1];
-                color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
                 material = d.vec4f(engineLayout.$.materials[part.material].params);
             }
             const xform = Xform(bound.globalTransforms[instance.y]);
@@ -1813,7 +1813,7 @@ function typedClipShadowVertex(
             const partEncoded = instance.z;
             if (partEncoded !== 0) {
                 const part = bound.partInputs[partEncoded - 1];
-                color = d.vec4f(engineLayout.$.materials[part.material].base_color);
+                color = d.vec4f(engineLayout.$.materials[part.material].baseColor);
                 material = d.vec4f(engineLayout.$.materials[part.material].params);
             }
             const xform = Xform(bound.globalTransforms[instance.y]);
@@ -2008,7 +2008,7 @@ function varyingShadowVs(
     var material = vec4f(0.0, 1.0, 0.0, 1.0);
     if (partEncoded != 0u) {
         let part = bound.partInputs[partEncoded - 1u];
-        color = engine.materials[part.material].base_color;
+        color = engine.materials[part.material].baseColor;
         material = engine.materials[part.material].params;
     }
     let xform = bound.globalTransforms[instance.y];

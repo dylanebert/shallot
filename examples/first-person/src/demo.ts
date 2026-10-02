@@ -42,7 +42,7 @@ function block(world: World, at: Vec4, size: Vec4, rgba: Vec4): number {
     world.add(eid, MeshMaterial3d, {
         material: world
             .resource(Materials)
-            .register({ name: `material-${eid}`, ...StandardMaterial({ base_color: rgba }) }),
+            .register({ name: `material-${eid}`, ...StandardMaterial({ baseColor: rgba }) }),
     });
     return eid;
 }
