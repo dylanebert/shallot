@@ -14,6 +14,7 @@ import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
 import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
 import { type Kernel, kernel } from "../kernel/kernel";
+import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
 import type { CompoundData } from "../shapes/compound";
 import type { HeightFieldData } from "../shapes/heightfield";
@@ -27,7 +28,7 @@ import type { Joint } from "../solver/joint";
 import type { Body } from "./body";
 import { NO_CLOCK, type StepClock, type StepProfile } from "./clock";
 import type { Island } from "./island";
-import type { Sensor, SensorBeginTouchEvent, SensorQueryContext } from "./sensor";
+import type { Sensor, SensorBeginTouchEvent } from "./sensor";
 import { destroySolverSet, emptySolverSet, type SolverSet } from "./solverset";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
@@ -129,8 +130,7 @@ export type WorldState = {
 
     // Dense array of sensor overlap-tracking state, one per sensor shape (b3World.sensors).
     sensors: Sensor[];
-    // The sensor pass's tree-query context, made by the first pass that runs a query.
-    sensorQuery: SensorQueryContext | null;
+    queryColumns: QueryColumns | null;
 
     // Event buffers. End events are double-buffered so the user needn't flush every step. Kernel
     // finalization owns the retained body move records; bodyMoveCount is their valid prefix length.
@@ -326,7 +326,7 @@ function makeWorldState(
         bodyStore: createBodyStore(world),
         shapeStore: createShapeStore(world, worldId),
         sensors: [],
-        sensorQuery: null,
+        queryColumns: null,
         bodyMoveCount: 0,
         sensorBeginEvents: [],
         contactBeginEvents: [],

@@ -3,11 +3,13 @@
 //! per node over a single `[u32]` buffer (aabb f32 bits in slots 0..5, category hi/lo in 6/7,
 //! child1/userData + child2 in 8/9, parent/next in 10, height|flags in 11).
 //!
-//! Only `query` (broad-phase overlap DFS) and `rebuild` (median-split rebuild) live here — the tree
-//! *mutations* (create/move/enlarge/destroy) stay in TS (`src/tree.ts`), driven over the same resident
-//! pool. Query is integer + f32-compare only (no arithmetic); rebuild does f32 median splits, ported
-//! op-for-op and pinned under `kernel/tests/tree_gold.rs`. Native `cargo test` drives both over owned
-//! `Vec<u32>` pools; the wasm path (`pairwork.rs`) drives them over the resident region.
+//! Query, closest, ray-cast, box-cast and rebuild traversals live here; tree mutations
+//! (create/move/enlarge/destroy) stay in TS, driven over the same resident pool.
+//! `tests/tree_gold.rs` replays Box3D's traversal order, clipping, visit counts and rebuild states.
+//! Native tests use owned pools; the wasm pair pass reads the resident region.
+
+use crate::math::Vec3;
+use crate::mesh_query::{bounds_overlap, bounds_ray_overlap, max, min};
 
 /// Four-byte slots per node (`sizeof(b3TreeNode) / 4`).
 pub const STRIDE: usize = 12;
@@ -72,6 +74,228 @@ fn set_height(pool: &mut [u32], i: i32, h: i32) {
 #[inline]
 fn is_leaf(pool: &[u32], i: i32) -> bool {
     pool[i as usize * STRIDE + 11] & LEAF != 0
+}
+
+fn bounds(pool: &[u32], id: i32) -> (Vec3, Vec3) {
+    let n = id as usize * STRIDE;
+    (
+        Vec3::new(fget(pool, n), fget(pool, n + 1), fget(pool, n + 2)),
+        Vec3::new(fget(pool, n + 3), fget(pool, n + 4), fget(pool, n + 5)),
+    )
+}
+fn matches(pool: &[u32], id: i32, mask_hi: u32, mask_lo: u32, all: bool) -> bool {
+    let n = id as usize * STRIDE;
+    let hi = pool[n + 6] & mask_hi;
+    let lo = pool[n + 7] & mask_lo;
+    if all {
+        hi == mask_hi && lo == mask_lo
+    } else {
+        hi != 0 || lo != 0
+    }
+}
+fn distance_to_node(pool: &[u32], id: i32, point: Vec3) -> f32 {
+    let (lo, hi) = bounds(pool, id);
+    let r = point.sub(max(lo, min(point, hi)));
+    r.dot(r)
+}
+fn center_distance(pool: &[u32], id: i32, point: Vec3) -> f32 {
+    let (lo, hi) = bounds(pool, id);
+    let r = lo.add(hi).scale(0.5).sub(point);
+    r.dot(r)
+}
+
+/// b3DynamicTree_QueryClosest. The stack caches distances and visits the closest child first.
+pub fn query_closest<F: FnMut(f32, i32, u32) -> f32>(
+    pool: &[u32],
+    root: i32,
+    node_count: usize,
+    point: Vec3,
+    mask_hi: u32,
+    mask_lo: u32,
+    require_all: bool,
+    min_sqr: &mut f32,
+    mut cb: F,
+) -> (u32, u32) {
+    if node_count == 0 {
+        return (0, 0);
+    }
+    let mut stack = [(0, 0.0); STACK_SIZE];
+    stack[0] = (root, distance_to_node(pool, root, point));
+    let mut count = 1;
+    let mut stats = (0, 0);
+    while count > 0 {
+        count -= 1;
+        let (id, distance) = stack[count];
+        stats.0 += 1;
+        if !matches(pool, id, mask_hi, mask_lo, require_all) || distance >= *min_sqr {
+            continue;
+        }
+        let n = id as usize * STRIDE;
+        if is_leaf(pool, id) {
+            let dd = cb(*min_sqr, id, pool[n + 8]);
+            if dd < *min_sqr {
+                *min_sqr = dd;
+            }
+            stats.1 += 1;
+        } else if count < STACK_SIZE - 1 {
+            let c1 = pool[n + 8] as i32;
+            let c2 = pool[n + 9] as i32;
+            let a = (c1, distance_to_node(pool, c1, point));
+            let b = (c2, distance_to_node(pool, c2, point));
+            if b.1 < a.1 {
+                stack[count] = a;
+                stack[count + 1] = b;
+            } else {
+                stack[count] = b;
+                stack[count + 1] = a;
+            }
+            count += 2;
+        }
+    }
+    stats
+}
+
+/// b3DynamicTree_RayCast. Callback values are -1 to ignore, 0 to stop, or a clip fraction.
+pub fn ray_cast<F: FnMut(f32, i32, u32) -> f32>(
+    pool: &[u32],
+    root: i32,
+    node_count: usize,
+    origin: Vec3,
+    translation: Vec3,
+    fraction: f32,
+    mask_hi: u32,
+    mask_lo: u32,
+    require_all: bool,
+    cb: F,
+) -> (u32, u32) {
+    cast(
+        pool,
+        root,
+        node_count,
+        origin,
+        origin,
+        translation,
+        fraction,
+        mask_hi,
+        mask_lo,
+        require_all,
+        false,
+        cb,
+    )
+}
+
+/// b3DynamicTree_BoxCast. Bounds already include the caller's radius and world origin.
+pub fn box_cast<F: FnMut(f32, i32, u32) -> f32>(
+    pool: &[u32],
+    root: i32,
+    node_count: usize,
+    lo: Vec3,
+    hi: Vec3,
+    translation: Vec3,
+    fraction: f32,
+    mask_hi: u32,
+    mask_lo: u32,
+    require_all: bool,
+    cb: F,
+) -> (u32, u32) {
+    cast(
+        pool,
+        root,
+        node_count,
+        lo,
+        hi,
+        translation,
+        fraction,
+        mask_hi,
+        mask_lo,
+        require_all,
+        true,
+        cb,
+    )
+}
+fn cast<F: FnMut(f32, i32, u32) -> f32>(
+    pool: &[u32],
+    root: i32,
+    node_count: usize,
+    lo: Vec3,
+    hi: Vec3,
+    translation: Vec3,
+    mut fraction: f32,
+    mask_hi: u32,
+    mask_lo: u32,
+    require_all: bool,
+    box_cast: bool,
+    mut cb: F,
+) -> (u32, u32) {
+    if node_count == 0 {
+        return (0, 0);
+    }
+    // A ray must retain its exact origin, rather than rounding (origin + origin) / 2.
+    let origin = if box_cast { lo.add(hi).scale(0.5) } else { lo };
+    let extent = if box_cast {
+        hi.sub(lo).scale(0.5)
+    } else {
+        Vec3::ZERO
+    };
+    let mut total_lo = min(lo, lo.mul_add(fraction, translation));
+    let mut total_hi = max(hi, hi.mul_add(fraction, translation));
+    let mut stack = [0; STACK_SIZE];
+    stack[0] = root;
+    let mut count = 1;
+    let mut stats = (0, 0);
+    while count > 0 {
+        count -= 1;
+        let id = stack[count];
+        if id == NULL_INDEX {
+            continue;
+        }
+        stats.0 += 1;
+        let (node_lo, node_hi) = bounds(pool, id);
+        if !matches(pool, id, mask_hi, mask_lo, require_all)
+            || !bounds_overlap(node_lo, node_hi, total_lo, total_hi)
+            || !bounds_ray_overlap(
+                if box_cast {
+                    node_lo.sub(extent)
+                } else {
+                    node_lo
+                },
+                if box_cast {
+                    node_hi.add(extent)
+                } else {
+                    node_hi
+                },
+                origin,
+                translation,
+            )
+        {
+            continue;
+        }
+        let n = id as usize * STRIDE;
+        if is_leaf(pool, id) {
+            let value = cb(fraction, id, pool[n + 8]);
+            stats.1 += 1;
+            if value == 0.0 {
+                return stats;
+            }
+            if value > 0.0 && (value < fraction || (!box_cast && value == fraction)) {
+                fraction = value;
+                total_lo = min(lo, lo.mul_add(fraction, translation));
+                total_hi = max(hi, hi.mul_add(fraction, translation));
+            }
+        } else if count < STACK_SIZE - 1 {
+            let c1 = pool[n + 8] as i32;
+            let c2 = pool[n + 9] as i32;
+            if center_distance(pool, c1, origin) < center_distance(pool, c2, origin) {
+                stack[count] = c2;
+                stack[count + 1] = c1;
+            } else {
+                stack[count] = c1;
+                stack[count + 1] = c2;
+            }
+            count += 2;
+        }
+    }
+    stats
 }
 
 /// aabb.union(node i, node j) → node k's aabb slots (b3AABB_Union): lower = min lowers, upper = max uppers.

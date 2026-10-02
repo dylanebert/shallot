@@ -50,7 +50,7 @@ const OP_SOLVE = 1;
  * shared `Memory` structure-clone into the worker, so there is no script or wasm asset to resolve. */
 const WORKER_SRC = `
 const boot = (d, post) => {
-    const ex = new WebAssembly.Instance(d.module, { env: { memory: d.memory } }).exports;
+    const ex = new WebAssembly.Instance(d.module, { env: { memory: d.memory, queryCallback() { throw new Error("physics: worker invoked a user query callback"); } } }).exports;
     ex.__stack_pointer.value = d.stackTop;
     ex.__wasm_init_tls(d.tlsBase);
     const ctl = new Int32Array(d.ctl);

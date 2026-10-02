@@ -47,7 +47,14 @@ const PAGE: usize = 65536;
 /// position. Hull lane 8 holds the hull record index. Attachment lanes 16 and 17 sit outside the refit
 /// output and survive every shape write. No other padding — the record is read scalar, one shape at a
 /// time.
-pub const SHAPE_STRIDE: usize = 18;
+pub const SHAPE_STRIDE: usize = 34;
+/// Query placement, filter and attachment metadata, refreshed by the world query upload.
+pub const S_QUERY_POSE: usize = 18;
+pub const S_QUERY_CATEGORY: usize = 25;
+pub const S_QUERY_MASK: usize = 27;
+pub const S_QUERY_BODY: usize = 29;
+pub const S_QUERY_SENSOR: usize = 30;
+pub const S_QUERY_GROUP: usize = 31;
 
 /// Record slots. Type codes are the TS `ShapeType` values verbatim (the same codes the narrowphase
 /// dispatch already carries — `finalize::TY_SPHERE` etc), so sphere/capsule/hull dispatch and every other

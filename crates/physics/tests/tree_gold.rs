@@ -10,6 +10,7 @@
 //! and each query over S2 matches the C hits + node/leaf visit counts.
 
 use serde_json::Value;
+use shallot_physics::math::Vec3;
 use shallot_physics::tree::{self, Rebuild, STACK_SIZE, STRIDE};
 
 fn load() -> Value {
@@ -222,6 +223,127 @@ fn rebuild_full_matches_c() {
         new_root,
         "afterFullRebuild",
     );
+}
+
+fn vector(value: &Value) -> Vec3 {
+    let a = value.as_array().unwrap();
+    Vec3::new(float(&a[0]), float(&a[1]), float(&a[2]))
+}
+fn float(value: &Value) -> f32 {
+    f32::from_bits(hex_bits(value.as_str().unwrap()))
+}
+
+#[test]
+fn casts_and_closest_match_c() {
+    let gold = load();
+    let pool = reconstruct(checkpoint(&gold, "afterFullRebuild"));
+    let mut ran = [0; 3];
+    for op in gold["ops"].as_array().unwrap() {
+        let kind = op["op"].as_str().unwrap();
+        if !["raycast", "boxcast", "closest"].contains(&kind) {
+            continue;
+        }
+        let mask: u64 = op["mask"].as_str().unwrap().parse().unwrap();
+        let (hi, lo) = ((mask >> 32) as u32, mask as u32);
+        let all = op["requireAll"].as_bool().unwrap();
+        let mut hits = Vec::new();
+        let stats = match kind {
+            "raycast" => {
+                ran[0] += 1;
+                let shrink = float(&op["shrink"]);
+                tree::ray_cast(
+                    &pool.slots,
+                    pool.root,
+                    pool.node_count,
+                    vector(&op["origin"]),
+                    vector(&op["translation"]),
+                    float(&op["maxFraction"]),
+                    hi,
+                    lo,
+                    all,
+                    |fraction, id, _| {
+                        hits.push(id as i64);
+                        if shrink < 0.0 {
+                            fraction
+                        } else {
+                            shrink
+                        }
+                    },
+                )
+            }
+            "boxcast" => {
+                ran[1] += 1;
+                tree::box_cast(
+                    &pool.slots,
+                    pool.root,
+                    pool.node_count,
+                    vector(&op["box"]["lo"]),
+                    vector(&op["box"]["hi"]),
+                    vector(&op["translation"]),
+                    float(&op["maxFraction"]),
+                    hi,
+                    lo,
+                    all,
+                    |fraction, id, _| {
+                        hits.push(id as i64);
+                        fraction
+                    },
+                )
+            }
+            _ => {
+                ran[2] += 1;
+                let point = vector(&op["point"]);
+                let mut min_sqr = f32::MAX;
+                let stats = tree::query_closest(
+                    &pool.slots,
+                    pool.root,
+                    pool.node_count,
+                    point,
+                    hi,
+                    lo,
+                    all,
+                    &mut min_sqr,
+                    |distance, id, _| {
+                        hits.push(id as i64);
+                        if op["shrink"] == 0 {
+                            return distance;
+                        }
+                        let n = id as usize * STRIDE;
+                        let mut r = [0.0; 3];
+                        for (i, p) in [point.x, point.y, point.z].into_iter().enumerate() {
+                            let lower = f32::from_bits(pool.slots[n + i]);
+                            let upper = f32::from_bits(pool.slots[n + 3 + i]);
+                            r[i] = p - shallot_physics::math::clampf(p, lower, upper);
+                        }
+                        (r[0] * r[0] + r[1] * r[1]) + r[2] * r[2]
+                    },
+                );
+                assert_eq!(
+                    min_sqr.to_bits(),
+                    hex_bits(op["minDistanceSqr"].as_str().unwrap())
+                );
+                stats
+            }
+        };
+        let expected: Vec<i64> = op["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        assert_eq!(hits, expected, "{kind} hits");
+        assert_eq!(
+            stats.0,
+            op["nodeVisits"].as_u64().unwrap() as u32,
+            "{kind} nodeVisits"
+        );
+        assert_eq!(
+            stats.1,
+            op["leafVisits"].as_u64().unwrap() as u32,
+            "{kind} leafVisits"
+        );
+    }
+    assert_eq!(ran, [3, 2, 3]);
 }
 
 #[test]

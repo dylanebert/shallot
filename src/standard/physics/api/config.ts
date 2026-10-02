@@ -219,7 +219,8 @@ export type RayResult = {
  */
 export type CastCallback = (hit: CastHit) => number;
 
-/** Called once per overlapping shape; return false to stop the query. */
+/** Called per overlapping shape. False stops the current body-type tree (static, kinematic,
+ * dynamic); world queries still traverse the next tree. */
 export type OverlapCallback = (shape: Shape) => boolean;
 
 /** The closest hit returned by {@link Body.castRay}/{@link Body.castShape}. `hit` false ⇒ invalid. */
@@ -235,7 +236,8 @@ export type BodyCastHit = {
 
 /**
  * Called once per shape a mover touches, with that shape and its collision planes (see
- * {@link solvePlanes}). Return false to stop the query. Used by {@link World.collideMover}.
+ * {@link solvePlanes}). False stops the current body-type tree (static, kinematic, dynamic);
+ * the next tree is still queried. Used by {@link World.collideMover}.
  */
 export type PlaneResultCallback = (shape: Shape, planes: PlaneResult[]) => boolean;
 

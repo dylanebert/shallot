@@ -109,6 +109,8 @@ mod pairwork;
 mod query_abi;
 #[cfg(target_arch = "wasm32")]
 mod shapes;
+#[cfg(target_arch = "wasm32")]
+mod world_query;
 // The staged solve's wasm entries (`solveBuild` / `solveMt` / `workerMain`), over the arena columns —
 // the shared-memory artifact only (`mt`), since a single-thread consumer has no pool to drive them and
 // would carry the stage/block tables for nothing. Native `cargo test` drives the same machinery over

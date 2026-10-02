@@ -54,7 +54,7 @@ pub(crate) unsafe fn geometry(kind: u32, r: &[u32]) -> Shape<'static> {
         _ => unreachable!(),
     }
 }
-unsafe fn shape(world: usize, id: usize) -> (Shape<'static>, i32) {
+pub(crate) unsafe fn shape(world: usize, id: usize) -> (Shape<'static>, i32) {
     crate::shapes::shape_set_active_world(world as u32);
     let col = crate::shapes::col();
     let o = id * SHAPE_STRIDE;
@@ -71,7 +71,7 @@ unsafe fn shape(world: usize, id: usize) -> (Shape<'static>, i32) {
     }
     (geometry(kind, &r), col.get(o + S_MATERIAL_COUNT) as i32)
 }
-unsafe fn input() -> (&'static [f32], Transform, ShapeProxy<'static>) {
+pub(crate) unsafe fn input() -> (&'static [f32], Transform, ShapeProxy<'static>) {
     let r = core::slice::from_raw_parts(&raw const INPUT as *const f32, 398);
     let xf = Transform {
         p: Vec3::new(r[0], r[1], r[2]),
@@ -91,7 +91,7 @@ unsafe fn input() -> (&'static [f32], Transform, ShapeProxy<'static>) {
         },
     )
 }
-unsafe fn output(out: CastOutput) {
+pub(crate) unsafe fn output(out: CastOutput) {
     let p = &raw mut OUTPUT as *mut f32;
     let values = [
         u32::from(out.hit) as f32,

@@ -8,7 +8,7 @@ import { CEILING } from "../../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-test.todo("physics-hardening: warm internal mover and closest-ray queries over every collider kind allocate no JavaScript heap", async () => {
+test("warm internal mover and closest-ray queries over every collider kind allocate no JavaScript heap", async () => {
     const sample = await sampleAllocation(resolve(import.meta.dir, "query-allocation.entry.ts"));
     expect(sample.control.length).toBeGreaterThan(0);
     const failure = allocationFailure(sample);

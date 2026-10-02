@@ -38,6 +38,10 @@ export type Kernel = {
         capacity: number,
         local: number,
     ): number;
+    worldQueryHeaderPtr(): number;
+    worldQueryResultPtr(): number;
+    worldQuery(world: number, operation: number, callback: number): void;
+    sensorQuery(world: number, sensor: number): number;
     smokeScale(len: number, k: number): void;
 
     // Shared-column arena (kernel/src/arena.rs). `reserve` lays out the columns for one step's counts
@@ -367,7 +371,10 @@ export type InitOptions = {
     threads?: number;
 };
 
+export type QueryCallback = (kind: number, shape: number, data: number, count: number) => number;
+
 interface KernelState {
+    queryCallback: QueryCallback | null;
     instance: Kernel | null;
     sharedMemory: WebAssembly.Memory | null;
     pool: Pool | null;
@@ -378,6 +385,7 @@ interface KernelState {
 
 function createKernelState(): KernelState {
     return {
+        queryCallback: null,
         instance: null,
         sharedMemory: null,
         pool: null,
@@ -392,6 +400,24 @@ const standaloneKernelState = createKernelState();
 
 function kernelState(world: World | undefined): KernelState {
     return world ? world.resource(kernelStateKey) : standaloneKernelState;
+}
+
+export function setQueryCallback(
+    world: World | undefined,
+    callback: QueryCallback | null,
+): QueryCallback | null {
+    const state = kernelState(world);
+    const previous = state.queryCallback;
+    state.queryCallback = callback;
+    return previous;
+}
+
+function queryImport(runtime: KernelState): QueryCallback {
+    return (kind, shape, data, count) => {
+        if (runtime.queryCallback === null)
+            throw new Error("physics: query callback is not installed");
+        return runtime.queryCallback(kind, shape, data, count);
+    };
 }
 
 function decode(base64: string): Uint8Array<ArrayBuffer> {
@@ -454,7 +480,9 @@ function host(): Host {
 }
 
 async function single(runtime: KernelState): Promise<void> {
-    const result = await WebAssembly.instantiate(decode(KERNEL_WASM_BASE64), {});
+    const result = await WebAssembly.instantiate(decode(KERNEL_WASM_BASE64), {
+        env: { queryCallback: queryImport(runtime) },
+    });
     runtime.instance ??= result.instance.exports as unknown as Kernel;
 }
 
@@ -470,8 +498,11 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
         shared: true,
     });
     const module = await WebAssembly.compile(decode(KERNEL_SHARED_WASM_BASE64));
-    const exports = (await WebAssembly.instantiate(module, { env: { memory } }))
-        .exports as unknown as Kernel & {
+    const exports = (
+        await WebAssembly.instantiate(module, {
+            env: { memory, queryCallback: queryImport(runtime) },
+        })
+    ).exports as unknown as Kernel & {
         // biome-ignore lint/style/useNamingConvention: LLD's global, exported under its own name.
         __stack_pointer: WebAssembly.Global;
     };
@@ -590,7 +621,9 @@ export function kernel(world: World | undefined): Kernel {
     if (!runtime.instance) {
         if (runtime.booting) throw new Error("await init() before stepping");
         const mod = new WebAssembly.Module(decode(KERNEL_WASM_BASE64));
-        runtime.instance = new WebAssembly.Instance(mod, {}).exports as unknown as Kernel;
+        runtime.instance = new WebAssembly.Instance(mod, {
+            env: { queryCallback: queryImport(runtime) },
+        }).exports as unknown as Kernel;
     }
     return runtime.instance;
 }

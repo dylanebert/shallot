@@ -7,15 +7,7 @@
 // The step and the reads that depend on it (velocities, awake state) arrive with the solver stage.
 
 import type { ShapeProxy } from "../collision/distance";
-import {
-    castMover as castMoverInternal,
-    castRayClosest as castRayClosestInternal,
-    castRay as castRayInternal,
-    castShape as castShapeInternal,
-    collideMover as collideMoverInternal,
-    overlapAABB as overlapAABBInternal,
-    overlapShapeQuery,
-} from "../collision/query";
+import type { PlaneResult } from "../collision/mover";
 import type { TreeStats } from "../collision/tree";
 import { DEFAULT_MASK_BITS } from "../common/constants";
 import type { EntityId } from "../common/ids";
@@ -30,7 +22,10 @@ import {
     type WorldDef,
 } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
+import { setQueryCallback } from "../kernel/kernel";
+import { queryColumns } from "../kernel/querycolumns";
 import type { Capsule } from "../shapes/geometry";
+import { getShapeMaterials } from "../shapes/shape";
 import {
     createDistanceJoint,
     type DistanceJointDef,
@@ -82,6 +77,7 @@ import {
     type BodyMoveEvent,
     baseJointDef,
     type CastCallback,
+    type CastHit,
     type ContactEvents,
     type ContactTouchEvent,
     type DistanceJointConfig,
@@ -115,6 +111,28 @@ import { Contact, Shape } from "./shape";
 import { restore as restoreWorld, snapshot as snapshotWorld, type WorldSnapshot } from "./snapshot";
 
 /** A simulation world: bodies, shapes, and the broad-phase. */
+function queryShape(world: WorldState, id: number): Shape {
+    return new Shape(world, {
+        index1: id + 1,
+        world0: world.worldId,
+        generation: world.shapes[id].generation,
+    });
+}
+
+function castHit(world: WorldState, id: number, f: Float32Array, n: number, origin: Pos): CastHit {
+    const materials = getShapeMaterials(world.ecsState, world.shapes[id]);
+    const material = Math.max(0, Math.min(materials.length - 1, f[n + 11]));
+    return {
+        shape: queryShape(world, id),
+        point: { x: origin.x + f[n + 2], y: origin.y + f[n + 3], z: origin.z + f[n + 4] },
+        normal: { x: f[n + 5], y: f[n + 6], z: f[n + 7] },
+        fraction: f[n + 1],
+        userMaterialId: materials[material].userMaterialId,
+        triangleIndex: f[n + 9],
+        childIndex: f[n + 10],
+    };
+}
+
 export class PhysicsWorld {
     /** @internal the underlying world state */
     readonly state: WorldState;
@@ -623,17 +641,22 @@ export class PhysicsWorld {
         translation: Vec3,
         filter: QueryFilter = defaultQueryFilter(),
     ): RayResult {
-        const r = castRayClosestInternal(this.state, origin, translation, filter);
-        return {
-            shape: r.hit ? new Shape(this.state, r.shapeId) : null,
-            point: r.point,
-            normal: r.normal,
-            fraction: r.fraction,
-            userMaterialId: r.userMaterialId,
-            triangleIndex: r.triangleIndex,
-            childIndex: r.childIndex,
-            hit: r.hit,
-        };
+        const q = queryColumns(this.state);
+        const k = q.prepare(origin, filter);
+        q.translation(translation);
+        k.worldQuery(this.state.worldId, 3, 0);
+        if (q.resultU[0] === 0xffffffff)
+            return {
+                shape: null,
+                point: { x: 0, y: 0, z: 0 },
+                normal: { x: 0, y: 0, z: 0 },
+                fraction: 0,
+                userMaterialId: 0n,
+                triangleIndex: 0,
+                childIndex: 0,
+                hit: false,
+            };
+        return { ...castHit(this.state, q.resultU[0], q.resultF, 4, origin), hit: true };
     }
 
     /**
@@ -646,36 +669,44 @@ export class PhysicsWorld {
         fcn: CastCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): TreeStats {
-        return castRayInternal(
-            this.state,
-            origin,
-            translation,
-            filter,
-            (id, point, normal, fraction, userMaterialId, triangleIndex, childIndex) =>
-                fcn({
-                    shape: new Shape(this.state, id),
-                    point,
-                    normal,
-                    fraction,
-                    userMaterialId,
-                    triangleIndex,
-                    childIndex,
-                }),
+        const q = queryColumns(this.state);
+        const k = q.prepare(origin, filter);
+        q.translation(translation);
+        const previous = setQueryCallback(this.state.ecsState, (_kind, id, data) =>
+            fcn(castHit(this.state, id, new Float32Array(k.memory.buffer, data, 12), 0, origin)),
         );
+        try {
+            k.worldQuery(this.state.worldId, 2, 1);
+        } finally {
+            setQueryCallback(this.state.ecsState, previous);
+        }
+        return { nodeVisits: q.resultU[1], leafVisits: q.resultU[2] };
     }
 
-    /** Report every shape whose fat AABB overlaps `box`; return false from `fcn` to stop. */
+    /** Report shapes whose fat AABB overlaps `box`. Returning false stops the current body-type
+     * tree (static, kinematic, dynamic); the next tree is still queried. */
     overlapAABB(
         box: AABB,
         fcn: OverlapCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): TreeStats {
-        return overlapAABBInternal(this.state, box, filter, (id) => fcn(new Shape(this.state, id)));
+        const q = queryColumns(this.state);
+        const k = q.prepare({ x: 0, y: 0, z: 0 }, filter);
+        q.bounds(box);
+        const previous = setQueryCallback(this.state.ecsState, (_kind, id) =>
+            Number(fcn(queryShape(this.state, id))),
+        );
+        try {
+            k.worldQuery(this.state.worldId, 0, 1);
+        } finally {
+            setQueryCallback(this.state.ecsState, previous);
+        }
+        return { nodeVisits: q.resultU[1], leafVisits: q.resultU[2] };
     }
 
     /**
-     * Report every shape whose geometry overlaps the convex `proxy` placed at `origin`; return false
-     * from `fcn` to stop.
+     * Report shapes overlapping the convex `proxy` at `origin`. Returning false stops the current
+     * body-type tree (static, kinematic, dynamic); the next tree is still queried.
      */
     overlapShape(
         origin: Pos,
@@ -683,9 +714,18 @@ export class PhysicsWorld {
         fcn: OverlapCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): TreeStats {
-        return overlapShapeQuery(this.state, origin, proxy, filter, (id) =>
-            fcn(new Shape(this.state, id)),
+        const q = queryColumns(this.state);
+        const k = q.prepare(origin, filter);
+        q.proxy(proxy);
+        const previous = setQueryCallback(this.state.ecsState, (_kind, id) =>
+            Number(fcn(queryShape(this.state, id))),
         );
+        try {
+            k.worldQuery(this.state.worldId, 1, 1);
+        } finally {
+            setQueryCallback(this.state.ecsState, previous);
+        }
+        return { nodeVisits: q.resultU[1], leafVisits: q.resultU[2] };
     }
 
     /**
@@ -699,28 +739,25 @@ export class PhysicsWorld {
         fcn: CastCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): TreeStats {
-        return castShapeInternal(
-            this.state,
-            origin,
-            proxy,
-            translation,
-            filter,
-            (id, point, normal, fraction, userMaterialId, triangleIndex, childIndex) =>
-                fcn({
-                    shape: new Shape(this.state, id),
-                    point,
-                    normal,
-                    fraction,
-                    userMaterialId,
-                    triangleIndex,
-                    childIndex,
-                }),
+        const q = queryColumns(this.state);
+        const k = q.prepare(origin, filter);
+        q.proxy(proxy);
+        q.translation(translation);
+        const previous = setQueryCallback(this.state.ecsState, (_kind, id, data) =>
+            fcn(castHit(this.state, id, new Float32Array(k.memory.buffer, data, 12), 0, origin)),
         );
+        try {
+            k.worldQuery(this.state.worldId, 4, 1);
+        } finally {
+            setQueryCallback(this.state.ecsState, previous);
+        }
+        return { nodeVisits: q.resultU[1], leafVisits: q.resultU[2] };
     }
 
     /**
      * Collide a capsule `mover` at `origin` against the world, reporting each touched shape's collision
-     * planes to `fcn`. Feed the gathered planes to {@link solvePlanes} to resolve character movement.
+     * planes to `fcn`. Returning false stops the current body-type tree (static, kinematic, dynamic);
+     * the next tree is still queried. Feed the planes to {@link solvePlanes} to resolve movement.
      */
     collideMover(
         origin: Pos,
@@ -728,9 +765,26 @@ export class PhysicsWorld {
         fcn: PlaneResultCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): void {
-        collideMoverInternal(this.state, origin, mover, filter, (id, planes) =>
-            fcn(new Shape(this.state, id), planes),
-        );
+        const q = queryColumns(this.state);
+        const k = q.prepare(origin, filter);
+        q.mover(mover.center1, mover.center2, mover.radius);
+        const previous = setQueryCallback(this.state.ecsState, (_kind, id, data, count) => {
+            const f = new Float32Array(k.memory.buffer, data, count * 10);
+            const planes: PlaneResult[] = [];
+            for (let i = 0; i < count; ++i) {
+                const n = i * 10;
+                planes.push({
+                    plane: { normal: { x: f[n], y: f[n + 1], z: f[n + 2] }, offset: f[n + 3] },
+                    point: { x: f[n + 4], y: f[n + 5], z: f[n + 6] },
+                });
+            }
+            return Number(fcn(queryShape(this.state, id), planes));
+        });
+        try {
+            k.worldQuery(this.state.worldId, 5, 1);
+        } finally {
+            setQueryCallback(this.state.ecsState, previous);
+        }
     }
 
     /**
@@ -744,13 +798,19 @@ export class PhysicsWorld {
         filter: QueryFilter = defaultQueryFilter(),
         fcn: MoverFilterCallback | null = null,
     ): number {
-        return castMoverInternal(
-            this.state,
-            origin,
-            mover,
-            translation,
-            filter,
-            fcn === null ? null : (id) => fcn(new Shape(this.state, id)),
+        const q = queryColumns(this.state);
+        const k = q.prepare(origin, filter);
+        q.mover(mover.center1, mover.center2, mover.radius);
+        q.translation(translation);
+        const previous = setQueryCallback(
+            this.state.ecsState,
+            fcn === null ? null : (_kind, id) => Number(fcn(queryShape(this.state, id))),
         );
+        try {
+            k.worldQuery(this.state.worldId, 6, Number(fcn !== null));
+        } finally {
+            setQueryCallback(this.state.ecsState, previous);
+        }
+        return q.resultF[3];
     }
 }

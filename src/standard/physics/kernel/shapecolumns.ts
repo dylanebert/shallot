@@ -24,7 +24,7 @@ import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
 /** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7) attachment(2). */
-export const SHAPE_STRIDE = 18;
+export const SHAPE_STRIDE = 34;
 /** Shape type code — the `ShapeType` value verbatim (sphere/capsule/hull dispatch in-kernel; every
  * other value is the TS-fallback partition the kernel skips). */
 export const S_TYPE = 0;

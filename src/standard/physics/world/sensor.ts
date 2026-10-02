@@ -7,16 +7,12 @@
 // one loop, and the eventBits optimization drops out (a sensor whose overlaps didn't change emits no
 // events regardless, so the diff always runs). fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
-import { shouldShapesCollide } from "../collision/pairs";
-import * as tree from "../collision/tree";
 import { NULL_INDEX } from "../common/array";
-import { MAX_SHAPE_CAST_POINTS, SetType } from "../common/constants";
+import { SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
-import { minInt, type Transform, toRelativeTransform, type Vec3, vec3, xf } from "../common/math";
-import { BodyType, ShapeType } from "../common/types";
-import { readSimTransform } from "../kernel/bodycolumns";
-import { makeShapeProxy, overlapShape, type Shape } from "../shapes/shape";
-import { getBodySim, getBodyTransformQuick } from "./body";
+import { queryColumns } from "../kernel/querycolumns";
+import { SHAPE_STRIDE } from "../kernel/shapecolumns";
+import type { Shape } from "../shapes/shape";
 import type { WorldState } from "./world";
 
 /** A tracked overlap: the visitor shape's id and generation (b3Visitor). */
@@ -63,80 +59,7 @@ export function recordSensorHit(world: WorldState, sensorId: number, visitorId: 
     sensor.hits.push({ shapeId: visitorId, generation: visitor.generation });
 }
 
-/**
- * True if a visitor shape overlaps a sensor shape (b3OverlapSensor). The visitor's convex proxy is
- * pulled into the sensor's local frame and tested against the sensor geometry at identity — the same
- * arithmetic the C runs, so the boolean matches at overlap boundaries.
- */
-function overlapSensor(
-    sensorShape: Shape,
-    sensorTransform: Transform,
-    visitorShape: Shape,
-    visitorTransform: Transform,
-): boolean {
-    const proxy = makeShapeProxy(visitorShape);
-    const relative = xf.invMul(sensorTransform, visitorTransform);
-
-    const count = minInt(proxy.count, MAX_SHAPE_CAST_POINTS);
-    const points: Vec3[] = new Array(count);
-    for (let i = 0; i < count; ++i) {
-        points[i] = xf.point(relative, proxy.points[i]);
-    }
-    return overlapShape(sensorShape, xf.identity(), { points, count, radius: proxy.radius });
-}
-
-/**
- * The running sensor's tree-query context (b3SensorQueryContext), passed to the candidate visitor as the
- * query's context argument. One per sensor pass, filled per sensor before its queries.
- */
-export type SensorQueryContext = {
-    world: WorldState;
-    sensorShape: Shape;
-    // the sensor pose, relative to WORLD_ORIGIN
-    transform: Transform;
-    overlaps2: Visitor[];
-};
-
 const byShapeId = (a: Visitor, b: Visitor): number => a.shapeId - b.shapeId;
-
-function visitCandidate(_proxyId: number, shapeId: number, context: SensorQueryContext): boolean {
-    const world = context.world;
-    const sensorShape = context.sensorShape;
-    if (shapeId === sensorShape.id) {
-        return true;
-    }
-    const other = world.shapes[shapeId];
-
-    // Mesh vs mesh (or height field) has no overlap test — skip if both are non-convex.
-    const sensorNonConvex =
-        sensorShape.type === ShapeType.Mesh || sensorShape.type === ShapeType.HeightField;
-    const otherNonConvex = other.type === ShapeType.Mesh || other.type === ShapeType.HeightField;
-    if (sensorNonConvex && otherNonConvex) {
-        return true;
-    }
-
-    if (other.enableSensorEvents === false) {
-        return true;
-    }
-    if (other.bodyId === sensorShape.bodyId) {
-        return true;
-    }
-    if (shouldShapesCollide(sensorShape.filter, other.filter) === false) {
-        return true;
-    }
-    // Custom user filtering lands with its own stage (no customFilterFcn yet).
-
-    const otherTransform = toRelativeTransform(
-        getBodyTransformQuick(world, world.bodies[other.bodyId]),
-        WORLD_ORIGIN,
-    );
-    if (overlapSensor(sensorShape, context.transform, other, otherTransform) === false) {
-        return true;
-    }
-
-    context.overlaps2.push({ shapeId, generation: other.generation });
-    return true;
-}
 
 /**
  * Refresh every sensor's overlaps and publish begin/end events (b3OverlapSensors + b3SensorTask,
@@ -148,10 +71,8 @@ export function overlapSensors(world: WorldState): void {
         return;
     }
 
-    // Re-derive the resident tree views if the solve's column reserve grew memory and detached them
-    // before this post-solve query pass (O(1) when fresh).
-    world.broadPhase.store.refreshIfStale();
-    const trees = world.broadPhase.trees;
+    const q = queryColumns(world);
+    const k = q.prepare(WORLD_ORIGIN);
 
     for (let sensorIndex = 0; sensorIndex < sensorCount; ++sensorIndex) {
         const sensor = world.sensors[sensorIndex];
@@ -171,51 +92,12 @@ export function overlapSensors(world: WorldState): void {
             body.setIndex === SetType.Disabled || sensorShape.enableSensorEvents === false;
 
         if (disabled === false) {
-            let context = world.sensorQuery;
-            if (context === null) {
-                context = {
-                    world,
-                    sensorShape,
-                    transform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
-                    overlaps2,
-                };
-                world.sensorQuery = context;
+            q.bounds(sensorShape.aabb);
+            let shapeId = k.sensorQuery(world.worldId, sensor.shapeId) >>> 0;
+            while (shapeId !== 0xffffffff) {
+                overlaps2.push({ shapeId, generation: world.shapes[shapeId].generation });
+                shapeId = world.shapeStore.shapeU[shapeId * SHAPE_STRIDE + 33];
             }
-            context.sensorShape = sensorShape;
-            context.overlaps2 = overlaps2;
-            readSimTransform(getBodySim(world, body), context.transform);
-            vec3.subOut(context.transform.p, WORLD_ORIGIN, context.transform.p);
-            const bounds = sensorShape.aabb;
-            const maskHi = sensorShape.filter.maskHi;
-            const maskLo = sensorShape.filter.maskLo;
-
-            tree.query(
-                trees[BodyType.Static],
-                bounds,
-                maskHi,
-                maskLo,
-                false,
-                visitCandidate,
-                context,
-            );
-            tree.query(
-                trees[BodyType.Kinematic],
-                bounds,
-                maskHi,
-                maskLo,
-                false,
-                visitCandidate,
-                context,
-            );
-            tree.query(
-                trees[BodyType.Dynamic],
-                bounds,
-                maskHi,
-                maskLo,
-                false,
-                visitCandidate,
-                context,
-            );
 
             // Sort by shape id, then drop duplicates (a hit may repeat a queried overlap).
             overlaps2.sort(byShapeId);

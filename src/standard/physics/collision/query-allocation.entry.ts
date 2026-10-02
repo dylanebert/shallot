@@ -1,11 +1,11 @@
 import { createApp, physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { xf } from "../common/math";
 import { defaultQueryFilter, defaultSurfaceMaterial } from "../common/types";
+import { queryColumns } from "../kernel/querycolumns";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
 import { makeBoxHull } from "../shapes/hull";
 import { createGridMesh } from "../shapes/mesh";
-import { castMover, castRayClosest, collideMover } from "./query";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -39,15 +39,19 @@ export default async function create() {
     const rayOrigin = { x: 0, y: 3, z: 0 };
     const translation = { x: 0, y: -4, z: 0 };
     const filter = defaultQueryFilter();
-    const gather = () => true;
+    const q = queryColumns(physics.state);
     return {
         step: () => {
+            const k = q.prepare(origin, filter);
+            q.mover(capsule.center1, capsule.center2, capsule.radius);
+            q.translation(translation);
             for (let i = 0; i < 6; ++i) {
-                origin.x = 8 * i;
-                rayOrigin.x = 8 * i;
-                collideMover(physics.state, origin, capsule, filter, gather);
-                castMover(physics.state, rayOrigin, capsule, translation, filter, null);
-                castRayClosest(physics.state, rayOrigin, translation, filter);
+                q.headerF[10] = 8 * i;
+                q.headerF[11] = origin.y;
+                k.worldQuery(physics.state.worldId, 5, 0);
+                q.headerF[11] = rayOrigin.y;
+                k.worldQuery(physics.state.worldId, 6, 0);
+                k.worldQuery(physics.state.worldId, 3, 0);
             }
         },
         wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
