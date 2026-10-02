@@ -138,4 +138,5 @@ export const PhysicsPlugin: Plugin = {
     ],
 };
 export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
-export type { RayBody } from "./raycast";
+export { bodyCandidates, grabHit, worldToLocal } from "./pick";
+export { type RayBody, type RayHit, raycast } from "./raycast";

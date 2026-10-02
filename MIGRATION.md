@@ -527,7 +527,8 @@ registers `Body`, `Spring` and `Joint` with their defaults but installs no solve
 `createApp` includes that dependency automatically.
 
 Import shared components, `ShapeKind`, `Hulls`, `Hull`, `HullFace`, `UNIT_CUBE_ID`,
-`BodyState` and `RayBody` from `@dylanebert/shallot/physics`. Import
+`BodyState`, `RayBody`, `RayHit`, `raycast`, `bodyCandidates`, `grabHit` and
+`worldToLocal` from `@dylanebert/shallot/physics`. Import
 `StandardPhysicsPlugin`, `StepPhysicsSystem`, `PhysicsWorld`, `physicsWorld`,
 `readBody`, `setKinematic`, `setVelocity`, `snapshotPhysics`, `restorePhysics`
 and `hashPhysics` from `@dylanebert/shallot/standard/physics`. Both subpaths
@@ -537,9 +538,9 @@ not `/physics`.
 On `Spring` and `Joint`, rename `rA` and `rB` to `localAnchorA` and
 `localAnchorB`; these are points in each body's local frame.
 The constraint definitions, signatures and sync system are internal; author
-`Spring` and `Joint` entities instead. CPU raycast and pick helpers are no
-longer public. Read body poses with `readBody` and use the solver world's
-`castRayClosest` for simulation ray queries.
+`Spring` and `Joint` entities instead. Read body poses with `readBody`;
+`raycast` and the pick helpers provide solver-neutral picking observation.
+Use the solver world's `castRayClosest` for simulation ray queries.
 
 `Physics.backend` is gone. Read and drive bodies through World-first functions:
 

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import * as physics from "@dylanebert/shallot/physics";
 import * as standard from "@dylanebert/shallot/standard/physics";
 
-test("core physics exports shared authoring data without engine aliases or unused observation helpers", () => {
+test("core physics exports shared authoring data and solver-neutral picking without engine aliases or analytic shape helpers", () => {
     expect(Object.keys(physics).sort()).toEqual([
         "Body",
         "Hulls",
@@ -11,6 +11,10 @@ test("core physics exports shared authoring data without engine aliases or unuse
         "ShapeKind",
         "Spring",
         "UNIT_CUBE_ID",
+        "bodyCandidates",
+        "grabHit",
+        "raycast",
+        "worldToLocal",
     ]);
 });
 
