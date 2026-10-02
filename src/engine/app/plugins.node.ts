@@ -617,14 +617,13 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(part, Transform);
             world.add(part, Mesh3d);
             world.add(part, MeshMaterial3d, {
-                material: world.resource(Materials).register({
-                    name: "isolation",
-                    ...StandardMaterial({
+                material: world.resource(Materials).add(
+                    StandardMaterial({
                         baseColor: [0.8, 0.25, 0.1, 1],
                         metallic: 0.1,
                         perceptualRoughness: 0.6,
                     }),
-                }),
+                ),
             });
             world.add(part, Outline);
             world.storage(Transform).translation.set(part, 0, 1, 0, 0);
@@ -733,7 +732,8 @@ function authorIsolationContent(
         world.storage(Sky).zenith.set(resources.sky, content.skyZenith);
         world.storage(Sky).horizon.set(resources.sky, content.skyHorizon);
         const materials = world.resource(Materials);
-        materials.register({ ...materials.get("isolation")!, baseColor: content.color });
+        const material = world.storage(MeshMaterial3d).material.get(resources.part);
+        materials.update(material, { baseColor: content.color });
     })();
     return a;
 }

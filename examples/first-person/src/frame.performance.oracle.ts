@@ -126,10 +126,9 @@ test("report production frame GPU time for first-person and a 10k-instance scene
                 scale: [0.15, 0.15, 0.15, 1],
             });
             world.add(eid, MeshMaterial3d, {
-                material: world.resource(Materials).register({
-                    name: `material-${eid}`,
-                    ...StandardMaterial({ baseColor: [0.3, 0.6, 0.8, 1] }),
-                }),
+                material: world
+                    .resource(Materials)
+                    .add(StandardMaterial({ baseColor: [0.3, 0.6, 0.8, 1] })),
             });
         }
     };

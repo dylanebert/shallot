@@ -77,10 +77,9 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     attachTexture(world, camera, { width: 64, height: 64 });
     const mesh = world.create();
     world.add(mesh, Transform);
-    const material = world.resource(Materials).register({
-        name: "target-proof",
-        ...StandardMaterial({ baseColor: [1, 0, 1, 1], perceptualRoughness: 1 }),
-    });
+    const material = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColor: [1, 0, 1, 1], perceptualRoughness: 1 }));
     world.add(mesh, Mesh3d);
     world.add(mesh, MeshMaterial3d, { material });
     world.add(mesh, Outline, { width: 3, color: [0.1, 1, 0.2, 1] });

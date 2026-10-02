@@ -1,8 +1,6 @@
-import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { u32 } from "../../engine";
-import { Registry } from "../../engine/utils";
 
 /** A Mesh3d without MeshMaterial3d draws with the default StandardMaterial (the three.js Mesh fallback convention). */
 export const MeshMaterial3d = { material: u32 };
@@ -46,43 +44,78 @@ export const MaterialInput = d
     })
     .$name("MaterialInput");
 
-export interface MaterialRecord extends StandardMaterial {
-    /** Registry key for stable replacement; shaders and mesh components use only the returned numeric id. */
-    name: string;
-}
-
 const materialTableKey = { create: (world: World) => world.table("materials", MaterialInput) };
+const materialOffsets = {
+    surface: d.memoryLayoutOf(MaterialInput, (value) => value.surface).offset,
+    baseColor: d.memoryLayoutOf(MaterialInput, (value) => value.baseColor).offset,
+    params: d.memoryLayoutOf(MaterialInput, (value) => value.params).offset,
+    emissive: d.memoryLayoutOf(MaterialInput, (value) => value.emissive).offset,
+    diffuseWrap: d.memoryLayoutOf(MaterialInput, (value) => value.diffuseWrap).offset,
+};
+const MATERIAL_BYTES = d.sizeOf(MaterialInput);
 
-class MaterialRegistry extends Registry<MaterialRecord> {
+class MaterialAssets {
     private readonly _world: World;
+    private _view: DataView | undefined;
 
     constructor(world: World) {
-        super();
         this._world = world;
-        this.register({ name: "default", ...StandardMaterial() });
+        this.add(StandardMaterial());
     }
 
-    /** Register or replace values at a stable id; changes reach the next draw upload. Mutating a retained record does not publish changes. */
-    override register(record: MaterialRecord): number {
-        const id = super.register(record);
+    /** Copy anonymous values and return an id stable until this World is disposed. Changes reach the next draw upload; mutating the supplied values does not publish changes. */
+    add(values: StandardMaterial): number {
         const table = this._world.resource(materialTableKey);
+        const id = table.highWater;
         table.reserveSlots(id + 1);
-        const bytes = new ArrayBuffer(d.sizeOf(MaterialInput));
-        writeToArrayBuffer(bytes, MaterialInput, {
-            surface: record.surface,
-            baseColor: d.vec4f(...record.baseColor),
-            params: d.vec4f(record.metallic, record.perceptualRoughness, id, record.occlusion),
-            emissive: d.vec3f(...record.emissive),
-            diffuseWrap: record.diffuseWrap,
-        });
-        table.bytes.set(new Uint8Array(bytes), id * d.sizeOf(MaterialInput));
-        table.markRange(id, 1);
+        this.update(id, values);
         return id;
+    }
+
+    /** Publish changed fields at an existing id for the next draw upload; omitted fields retain their values. Refuses unknown ids. */
+    update(id: number, values: Partial<StandardMaterial>): void {
+        const table = this._world.resource(materialTableKey);
+        if (!Number.isSafeInteger(id) || id < 0 || id >= table.highWater) {
+            throw new RangeError(`Materials.update: unknown material id ${id}`);
+        }
+        if (this._view?.buffer !== table.bytes.buffer)
+            this._view = new DataView(table.bytes.buffer);
+        const view = this._view;
+        const offset = id * MATERIAL_BYTES;
+        if (values.surface !== undefined)
+            view.setUint32(offset + materialOffsets.surface, values.surface, true);
+        if (values.baseColor !== undefined) {
+            for (let lane = 0; lane < 4; lane++) {
+                view.setFloat32(
+                    offset + materialOffsets.baseColor + lane * 4,
+                    values.baseColor[lane],
+                    true,
+                );
+            }
+        }
+        const params = offset + materialOffsets.params;
+        if (values.metallic !== undefined) view.setFloat32(params, values.metallic, true);
+        if (values.perceptualRoughness !== undefined)
+            view.setFloat32(params + 4, values.perceptualRoughness, true);
+        view.setFloat32(params + 8, id, true);
+        if (values.occlusion !== undefined) view.setFloat32(params + 12, values.occlusion, true);
+        if (values.emissive !== undefined) {
+            for (let lane = 0; lane < 3; lane++) {
+                view.setFloat32(
+                    offset + materialOffsets.emissive + lane * 4,
+                    values.emissive[lane],
+                    true,
+                );
+            }
+        }
+        if (values.diffuseWrap !== undefined)
+            view.setFloat32(offset + materialOffsets.diffuseWrap, values.diffuseWrap, true);
+        table.markRange(id, 1);
     }
 }
 
-/** Material ids belong to this World. Id zero is the shared default; register or replace records to publish values. */
-export const Materials = { create: (world: World) => new MaterialRegistry(world) };
+/** Anonymous material ids belong to this World. Id zero is the shared default StandardMaterial. */
+export const Materials = { create: (world: World) => new MaterialAssets(world) };
 
 export function materialTable(world: World) {
     world.resource(Materials);

@@ -35,10 +35,9 @@ export function authorWorld(world: World): void {
     world.add(cube, Mesh3d);
     world.add(cube, Transform, { translation: [0, 0, 0, 0] });
     world.add(cube, MeshMaterial3d, {
-        material: world.resource(Materials).register({
-            name: `material-${cube}`,
-            ...StandardMaterial({ baseColor: [0.85, 0.55, 0.35, 1] }),
-        }),
+        material: world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: [0.85, 0.55, 0.35, 1] })),
     });
 }
 

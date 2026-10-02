@@ -117,27 +117,25 @@ test("mesh instances return to default draws when MeshMaterial3d is removed", as
             return result;
         }
         expect(await counts()).toEqual([1, 0, 0]);
+        const materialIds: number[] = [];
         for (const [index, surface] of ["unlit", "vertex"].entries()) {
-            const material = world.resource(Materials).register({
-                name: surface,
-                ...StandardMaterial({ surface: world.resource(Surfaces).id(surface)! }),
-            });
+            const material = world
+                .resource(Materials)
+                .add(StandardMaterial({ surface: world.resource(Surfaces).id(surface)! }));
+            materialIds.push(material);
             world.add(eid, MeshMaterial3d, { material });
             expect(await counts()).toEqual(index === 0 ? [0, 1, 0] : [0, 0, 1]);
             world.remove(eid, MeshMaterial3d);
             expect(await counts()).toEqual([1, 0, 0]);
         }
         const materials = world.resource(Materials);
-        const material = materials.id("unlit")!;
+        const material = materialIds[0]!;
         world.add(eid, MeshMaterial3d, { material });
         expect(await counts()).toEqual([0, 1, 0]);
-        world.storage(MeshMaterial3d).material.set(eid, materials.id("vertex")!);
+        world.storage(MeshMaterial3d).material.set(eid, materialIds[1]!);
         expect(await counts()).toEqual([0, 0, 1]);
         world.storage(MeshMaterial3d).material.set(eid, material);
-        materials.register({
-            ...materials.get("unlit")!,
-            surface: world.resource(Surfaces).id("default")!,
-        });
+        materials.update(material, { surface: world.resource(Surfaces).id("default")! });
         expect(await counts()).toEqual([1, 0, 0]);
         world.remove(eid, MeshMaterial3d);
         expect(await counts()).toEqual([1, 0, 0]);

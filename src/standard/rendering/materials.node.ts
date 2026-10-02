@@ -1,5 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFromArrayBuffer } from "typegpu";
+import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Mesh3d } from "../../core/mesh";
@@ -12,10 +14,17 @@ import {
     PointLight,
 } from "../../core/rendering";
 import { Transform } from "../../engine";
+import { probeBuffer } from "../../engine/runtime";
 import { DEFAULT_PLUGINS, PartPlugin, StandardRenderingPlugin } from "../index";
 import { Surfaces } from "./contract";
 import { StandardRenderer } from "./forward";
-import { Materials, MeshMaterial3d, StandardMaterial } from "./material";
+import {
+    MaterialInput,
+    Materials,
+    MeshMaterial3d,
+    materialTable,
+    StandardMaterial,
+} from "./material";
 
 setDefaultTimeout(CEILING.node);
 const subjects = gpuApps(import.meta.path, [
@@ -23,7 +32,7 @@ const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [PartPlugin, StandardRenderingPlugin] },
 ]);
 
-test("registered materials preserve every built-in surface frame including coloured emission", async () => {
+test("anonymous materials preserve every built-in surface frame including coloured emission", async () => {
     const { world } = subjects()[0];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -40,9 +49,8 @@ test("registered materials preserve every built-in surface frame including colou
     world.add(eid, Mesh3d);
     world.add(eid, MeshMaterial3d);
     for (const surface of ["default", "unlit", "vertex"]) {
-        const material = world.resource(Materials).register({
-            name: surface,
-            ...StandardMaterial({
+        const material = world.resource(Materials).add(
+            StandardMaterial({
                 surface: world.resource(Surfaces).id(surface)!,
                 baseColor: [0.25, 0.5, 0.75, 1],
                 metallic: 0.25,
@@ -50,7 +58,7 @@ test("registered materials preserve every built-in surface frame including colou
                 emissive: [0.03125, 0.0625, 0.09375],
                 occlusion: 0.75,
             }),
-        });
+        );
         world.storage(MeshMaterial3d).material.set(eid, material);
         world.gpu.device.pushErrorScope("validation");
         world.step(0);
@@ -71,7 +79,7 @@ test("registered materials preserve every built-in surface frame including colou
     }
 });
 
-test("steady mesh rendering registers no materials and creates no bind groups", () => {
+test("steady mesh rendering adds no materials and creates no bind groups", () => {
     const { world } = subjects()[1];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -82,20 +90,18 @@ test("steady mesh rendering registers no materials and creates no bind groups", 
     world.add(eid, Transform);
     world.add(eid, Mesh3d);
     const materials = world.resource(Materials);
-    const material = materials.register({
-        name: "steady",
-        ...StandardMaterial({ metallic: 0.25 }),
-    });
+    const material = materials.add(StandardMaterial({ metallic: 0.25 }));
     world.add(eid, MeshMaterial3d, { material });
     world.step(0);
     world.step(0);
-    const register = materials.register.bind(materials);
+    const add = materials.add.bind(materials);
     const createBindGroup = world.gpu.device.createBindGroup.bind(world.gpu.device);
-    let registrations = 0;
+    let additions = 0;
     let groups = 0;
-    materials.register = (record) => {
-        registrations++;
-        return register(record);
+    const values = { metallic: 0 };
+    materials.add = (values) => {
+        additions++;
+        return add(values);
     };
     world.gpu.device.createBindGroup = (descriptor) => {
         groups++;
@@ -103,10 +109,53 @@ test("steady mesh rendering registers no materials and creates no bind groups", 
     };
     try {
         for (let i = 0; i < 10; i++) world.step(0);
-        expect(registrations).toBe(0);
+        expect(additions).toBe(0);
+        expect(groups).toBe(0);
+        for (let i = 0; i < 10; i++) {
+            values.metallic = (i % 2) * 0.25;
+            materials.update(material, values);
+            world.step(0);
+        }
+        expect(additions).toBe(0);
         expect(groups).toBe(0);
     } finally {
-        materials.register = register;
+        materials.add = add;
         world.gpu.device.createBindGroup = createBindGroup;
     }
+});
+
+test("anonymous adds return distinct ids and partial updates preserve the other GPU values", async () => {
+    const { world } = subjects()[1];
+    const materials = world.resource(Materials);
+    const values = StandardMaterial({ metallic: 0.25, occlusion: 0.75 });
+    const a = materials.add(values);
+    const b = materials.add(values);
+    expect(b).not.toBe(a);
+    materials.update(a, {
+        baseColor: [0.75, 0.25, 0.5, 1],
+        emissive: [0.5, 0.25, 0.125],
+        diffuseWrap: 0,
+    });
+    expect(() => materials.update(-1, {})).toThrow("unknown material id");
+    expect(() => materials.update(b + 1, {})).toThrow("unknown material id");
+    world.gpu.device.pushErrorScope("validation");
+    world.step(0);
+    async function read(id: number) {
+        const snapshot = await probeBuffer(world, materialTable(world).buffer, {
+            offset: id * d.sizeOf(MaterialInput),
+            size: d.sizeOf(MaterialInput),
+        });
+        return readFromArrayBuffer(snapshot.bytes, MaterialInput);
+    }
+    const changed = await read(a);
+    const unchanged = await read(b);
+    expect(changed.baseColor).toEqual(d.vec4f(0.75, 0.25, 0.5, 1));
+    expect(changed.params).toEqual(d.vec4f(0.25, 0.5, a, 0.75));
+    expect(changed.emissive).toEqual(d.vec3f(0.5, 0.25, 0.125));
+    expect(changed.diffuseWrap).toBe(0);
+    expect(unchanged.baseColor).toEqual(d.vec4f(1));
+    expect(unchanged.params).toEqual(d.vec4f(0.25, 0.5, b, 0.75));
+    expect(unchanged.emissive).toEqual(d.vec3f(0));
+    expect(unchanged.diffuseWrap).toBe(1);
+    expect(await world.gpu.device.popErrorScope()).toBeNull();
 });

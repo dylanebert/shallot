@@ -40,9 +40,7 @@ function block(world: World, at: Vec4, size: Vec4, rgba: Vec4): number {
     world.add(eid, Body, { position: at, halfExtents: size, mass: 0 });
     world.add(eid, Mesh3d);
     world.add(eid, MeshMaterial3d, {
-        material: world
-            .resource(Materials)
-            .register({ name: `material-${eid}`, ...StandardMaterial({ baseColor: rgba }) }),
+        material: world.resource(Materials).add(StandardMaterial({ baseColor: rgba })),
     });
     return eid;
 }
