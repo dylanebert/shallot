@@ -152,21 +152,22 @@ function fold(h: number, x: number): number {
 // slab, so moving a sprite leaves the signature (and the instance buffer) untouched
 export function signature(world: World): number {
     const scratch = spritePackState(world);
+    const sprite = world.storage(Sprite);
     let h = 0x811c9dc5 | 0;
     for (const eid of world.query([Sprite, GlobalTransform])) {
-        if (!world.storage(Sprite).visible.get(eid)) continue;
+        if (!sprite.visible.get(eid)) continue;
         h = fold(h, eid);
-        h = fold(h, world.storage(Sprite).image.get(eid));
-        h = fold(h, fbits(world.storage(Sprite).size.x.get(eid), scratch));
-        h = fold(h, fbits(world.storage(Sprite).size.y.get(eid), scratch));
-        h = fold(h, fbits(world.storage(Sprite).anchor.x.get(eid), scratch));
-        h = fold(h, fbits(world.storage(Sprite).anchor.y.get(eid), scratch));
-        h = fold(h, world.storage(Sprite).color.get(eid));
-        h = fold(h, fbits(world.storage(Sprite).opacity.get(eid), scratch));
-        h = fold(h, world.storage(Sprite).billboard.get(eid));
-        h = fold(h, world.storage(Sprite).blend.get(eid));
-        h = fold(h, fbits(world.storage(Sprite).fill.get(eid), scratch));
-        h = fold(h, world.storage(Sprite).fillMode.get(eid));
+        h = fold(h, sprite.image.get(eid));
+        h = fold(h, fbits(sprite.size.x.get(eid), scratch));
+        h = fold(h, fbits(sprite.size.y.get(eid), scratch));
+        h = fold(h, fbits(sprite.anchor.x.get(eid), scratch));
+        h = fold(h, fbits(sprite.anchor.y.get(eid), scratch));
+        h = fold(h, sprite.color.get(eid));
+        h = fold(h, fbits(sprite.opacity.get(eid), scratch));
+        h = fold(h, sprite.billboard.get(eid));
+        h = fold(h, sprite.blend.get(eid));
+        h = fold(h, fbits(sprite.fill.get(eid), scratch));
+        h = fold(h, sprite.fillMode.get(eid));
     }
     return h;
 }
@@ -214,29 +215,24 @@ export function packSprites(world: World): {
     const pack = spritePackState(world);
     for (const bucket of pack.byBucket) bucket.length = 0;
 
+    const sprite = world.storage(Sprite);
     let maxEid = -1;
     for (const eid of world.query([Sprite, GlobalTransform])) {
-        if (!world.storage(Sprite).visible.get(eid)) continue;
-        const w = world.storage(Sprite).size.x.get(eid);
-        const h = world.storage(Sprite).size.y.get(eid);
-        const billboard = Math.min(world.storage(Sprite).billboard.get(eid), 2);
-        const blend = Math.min(world.storage(Sprite).blend.get(eid), 1);
+        if (!sprite.visible.get(eid)) continue;
+        const w = sprite.size.x.get(eid);
+        const h = sprite.size.y.get(eid);
+        const billboard = Math.min(sprite.billboard.get(eid), 2);
+        const blend = Math.min(sprite.blend.get(eid), 1);
         if (eid > maxEid) maxEid = eid;
         pack.byBucket[billboard * 2 + blend].push({
             eid,
-            ox: -w * world.storage(Sprite).anchor.x.get(eid),
-            oy: -h * world.storage(Sprite).anchor.y.get(eid),
+            ox: -w * sprite.anchor.x.get(eid),
+            oy: -h * sprite.anchor.y.get(eid),
             w,
             h,
-            layer: world.storage(Sprite).image.get(eid),
-            color: packColor(
-                world.storage(Sprite).color.get(eid),
-                world.storage(Sprite).opacity.get(eid),
-            ),
-            fill: packFill(
-                world.storage(Sprite).fill.get(eid),
-                world.storage(Sprite).fillMode.get(eid),
-            ),
+            layer: sprite.image.get(eid),
+            color: packColor(sprite.color.get(eid), sprite.opacity.get(eid)),
+            fill: packFill(sprite.fill.get(eid), sprite.fillMode.get(eid)),
         });
     }
 
