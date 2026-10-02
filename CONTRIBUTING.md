@@ -72,6 +72,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Core, standard and extras modules never import siblings in their layer; physics never imports rendering.
 - A game module's `index.ts` is public and its other files are internal.
 - A module registering systems or resources defines a plugin; others export data and functions.
+- A module's extra plugins are its optional parts; a part with its own responsibility is its own module.
 - Layer indexes re-export their modules, the root barrel re-exports every game layer, `standard/index.ts` sets the default plugins, and `package.json` declares public subpaths.
 - A `transitional` module declares its destination and migration owner.
 - Provider-specific observation belongs in optional application integrations, outside Shallot.
