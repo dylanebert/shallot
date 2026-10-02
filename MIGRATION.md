@@ -192,7 +192,8 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `/sear/core` `PrepassSystem`, `ColorSystem` | `/rendering` `PrepassSystem`, `MainPassSystem` |
 | `/src/standard/render/cluster.ts` `ClusterSystem`, `LightCullSystem` | Remove direct imports; these systems are now internal to `StandardRenderingPlugin`. |
 | `CharacterSweepSystem`, `PlayerControlSystem` | `SweepCharactersSystem`, `UpdatePlayerControlSystem` |
-| Physics `StepSystem`, `ConstraintSystem` | `StepPhysicsSystem`, `SyncPhysicsConstraintsSystem` |
+| Physics `StepSystem` | `StepPhysicsSystem` |
+| Physics `ConstraintSystem` | Removed: author `Spring` and `Joint` entities; standard physics syncs them. |
 
 The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wrappers `register`, `getExclusions`, `entries` and `clear` are removed; use `world.registry`.
 

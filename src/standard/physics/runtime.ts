@@ -1,17 +1,6 @@
 /// <reference types="@webgpu/types" />
 
 import {
-    GlobalTransform,
-    type Plugin,
-    type System,
-    Time,
-    Transform,
-    type World,
-} from "../../engine";
-
-export { GlobalTransform } from "../../engine";
-
-import {
     Body,
     type BodyState,
     Hulls,
@@ -21,20 +10,21 @@ import {
     Spring,
 } from "../../core/physics";
 import {
-    type ContactEvents,
+    GlobalTransform,
+    type Plugin,
+    type System,
+    Time,
+    Transform,
+    type World,
+} from "../../engine";
+import {
     hash as hashWorld,
     init,
-    type JointEvent,
-    type ParallelJointConfig,
     PhysicsWorld,
-    type RevoluteJointConfig,
     restore as restoreWorld,
-    type SoftJointConfig,
     type Body as SolverBody,
-    type SphericalJointConfig,
     shutdown,
     snapshot as snapshotWorld,
-    type WheelJointConfig,
     type WorldSnapshot,
 } from "./api";
 import {
@@ -47,8 +37,6 @@ import {
 } from "./joints";
 import { kernel } from "./kernel/kernel";
 import { marshalBody } from "./marshal";
-
-export { createPool, maxWorkers, type Pool, type WorkerReady } from "./kernel/pool";
 
 /** an authored spring: two body eids + local anchors + stiffness/rest, derived from the world's {@link Spring} entities by {@link springDefs}. */
 export interface SpringDef {
@@ -105,7 +93,7 @@ export function resetSignatures(world: World): void {
 }
 
 /** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
-function springSignatureInState(world: World): number {
+function springSignature(world: World): number {
     let h = FNV_BASIS;
     for (const eid of world.query(SPRING_TERMS)) {
         h = fold(h, eid);
@@ -130,13 +118,8 @@ function springSignatureInState(world: World): number {
     return h;
 }
 
-/** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
-export function springSignature(world: World): number {
-    return springSignatureInState(world);
-}
-
 /** a hash of the authored {@link Joint} set, endpoint create-stamps included: the {@link springSignature} twin. */
-function jointSignatureInState(world: World): number {
+function jointSignature(world: World): number {
     let h = FNV_BASIS;
     for (const eid of world.query(JOINT_TERMS)) {
         h = fold(h, eid);
@@ -157,10 +140,6 @@ function jointSignatureInState(world: World): number {
         h = fold(h, sigBits(world.storage(Joint).stiffnessAng.get(eid)));
     }
     return h;
-}
-
-export function jointSignature(world: World): number {
-    return jointSignatureInState(world);
 }
 
 /** the authored {@link Spring} set as {@link SpringDef}s, dropping (and warning once for) a negative or NaN stiffness. */
@@ -382,129 +361,13 @@ function clearBodies(runtime: PhysicsRuntime): void {
 /**
  * World-owned physics accessors. `physicsWorld(state)` is the solver escape hatch: joint types past
  * `Joint`, sensors, contact/hit events, mesh/heightfield/compound colliders and native queries; it is
- * `null` until {@link StandardPhysicsPlugin} warms. The internal body lookup bridges a `Body` entity to its live solver
- * handle (`null` before its first fixed tick). The pose functions are no-ops before warm.
+ * `null` until {@link StandardPhysicsPlugin} warms. The pose functions are no-ops before warm.
  */
 
 export function physicsWorld(world: World): PhysicsWorld | null {
     const physicsWorld = runtimeFor(world).physicsWorld;
     return physicsWorld ? physicsWorld : null;
 }
-function body(world: World, eid: number): SolverBody | null {
-    const live = runtimeFor(world).bodies.get(eid);
-    return live ? live : null;
-}
-
-function requireBody(world: World, eid: number): SolverBody {
-    const live = body(world, eid);
-    if (!live) throw new Error(`physics: body ${eid} is not warm`);
-    return live;
-}
-
-/** Create a wheel joint between two World-owned bodies without exposing the solver World. */
-export function createWheelJoint(
-    world: World,
-    bodyA: number,
-    bodyB: number,
-    config: Partial<WheelJointConfig> = {},
-) {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return physicsWorld.createWheelJoint(
-            requireBody(world, bodyA),
-            requireBody(world, bodyB),
-            config,
-        );
-    })();
-}
-
-/** Create a parallel joint between two World-owned bodies without exposing the solver World. */
-export function createParallelJoint(
-    world: World,
-    bodyA: number,
-    bodyB: number,
-    config: Partial<ParallelJointConfig> = {},
-) {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return physicsWorld.createParallelJoint(
-            requireBody(world, bodyA),
-            requireBody(world, bodyB),
-            config,
-        );
-    })();
-}
-
-/** Create a hinge (revolute) joint between two World-owned bodies. */
-export function createRevoluteJoint(
-    world: World,
-    bodyA: number,
-    bodyB: number,
-    config: Partial<RevoluteJointConfig> = {},
-) {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return physicsWorld.createRevoluteJoint(
-            requireBody(world, bodyA),
-            requireBody(world, bodyB),
-            config,
-        );
-    })();
-}
-
-/** Create a cone/twist-capable spherical joint between two World-owned bodies. */
-export function createSphericalJoint(
-    world: World,
-    bodyA: number,
-    bodyB: number,
-    config: Partial<SphericalJointConfig> = {},
-) {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return physicsWorld.createSphericalJoint(
-            requireBody(world, bodyA),
-            requireBody(world, bodyB),
-            config,
-        );
-    })();
-}
-
-/** Create a soft spring from a World-owned body to a world-space anchor. */
-export function createSoftJoint(
-    world: World,
-    bodyEid: number,
-    anchor: { x: number; y: number; z: number },
-    config: Partial<SoftJointConfig> = {},
-) {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return physicsWorld.createSoftJoint(requireBody(world, bodyEid), anchor, config);
-    })();
-}
-
-/** Read contact-begin/end/hit events for the last World-owned fixed step. */
-export function getContactEvents(world: World): ContactEvents {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return physicsWorld.getContactEvents();
-    })();
-}
-
-/** Read joint break-threshold events for the last World-owned fixed step. */
-export function getJointEvents(world: World): JointEvent[] {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return physicsWorld.getJointEvents();
-    })();
-}
-
 /** a writable {@link BodyState} that {@link readBody} fills in place. */
 export interface BodyStateOut {
     position: [number, number, number];
@@ -846,25 +709,3 @@ export const StandardPhysicsPlugin: Plugin = {
         void shutdown(world);
     },
 };
-
-export type {
-    ContactEvents,
-    ParallelJointConfig,
-    RevoluteJointConfig,
-    SoftJointConfig,
-    SphericalJointConfig,
-    WheelJointConfig,
-    WorldSnapshot,
-} from "./api";
-export {
-    BodyType,
-    CLOCK_SLOTS,
-    JointType,
-    type StepClock,
-    type StepProfile,
-    zeroStepProfile,
-} from "./api";
-export { SoftJoint } from "./api/joints";
-export { PhysicsWorld } from "./api/world";
-export { nlerpShortest } from "./compose";
-export * as solver from "./solver";
