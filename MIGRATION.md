@@ -558,9 +558,11 @@ setKinematic(world, eid, position, rotation);
 const b = readBody(world, eid);
 ```
 
-`Tumble.world` becomes `physicsWorld(world)`. `Tumble.body` has no public
-solver-handle replacement: `readBody` returns pose and velocity, not a mutable
-solver body. Read gravity through `physicsWorld(world)!.getGravity(out)` after
+`Tumble.world` becomes `physicsWorld(world)`. `Tumble.body(eid)` becomes
+`physicsWorld(world)!.getBody(eid)`: a live solver handle for joint creation,
+or null before the authored body is marshaled. `readBody` returns pose and
+velocity instead of a mutable solver body.
+Read gravity through `physicsWorld(world)!.getGravity(out)` after
 warm-up and use `Time.FIXED_DT` for the step duration. There is no public
 substep setting.
 

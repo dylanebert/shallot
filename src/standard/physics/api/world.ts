@@ -119,13 +119,20 @@ export class PhysicsWorld {
     /** @internal the underlying world state */
     readonly state: WorldState;
     private readonly _worldId: WorldId;
+    private readonly _bodyForEntity?: (eid: number) => Body | null;
     // Reused wrappers over the internal move-event pool, so getBodyEvents allocates nothing in steady
     // state (matching the internal pool). Rebuilt lazily; valid until the next step or getBodyEvents.
     private readonly _moveEventPool: BodyMoveEvent[] = [];
     private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
     private readonly _moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
 
-    constructor(def: Partial<WorldDef> = {}, world?: import("../../../engine").World) {
+    constructor(
+        def: Partial<WorldDef> = {},
+        world?: import("../../../engine").World,
+        /** @internal Resolve authored entities from the simulation owner's existing body map. */
+        bodyForEntity?: (eid: number) => Body | null,
+    ) {
+        this._bodyForEntity = bodyForEntity;
         this._worldId = createWorld(world, { ...defaultWorldDef(), ...def });
         // getWorld succeeds immediately after creation.
         this.state = getWorld(this._worldId) as WorldState;
@@ -160,6 +167,17 @@ export class PhysicsWorld {
     /** Restore into a live compatible World; refuses if another live World shares its kernel. */
     restore(snapshot: WorldSnapshot): void {
         restoreWorld(this, snapshot);
+    }
+
+    /**
+     * Live solver handle for an authored `Body` entity, or null before marshaling,
+     * after removal, or for an entity without `Body`. Standalone solver worlds return null.
+     * The handle belongs to this world and expires when its body is removed or the world is destroyed.
+     */
+    getBody(eid: number): Body | null {
+        if (!this.isValid()) return null;
+        const body = this._bodyForEntity?.(eid);
+        return body?.isValid() ? body : null;
     }
 
     /** Create a body from a (partial) definition. */

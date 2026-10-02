@@ -361,7 +361,9 @@ function clearBodies(runtime: PhysicsRuntime): void {
 /**
  * World-owned physics accessors. `physicsWorld(state)` is the solver escape hatch: joint types past
  * `Joint`, sensors, contact/hit events, mesh/heightfield/compound colliders and native queries; it is
- * `null` until {@link StandardPhysicsPlugin} warms. The pose functions are no-ops before warm.
+ * `null` until {@link StandardPhysicsPlugin} warms. Its `getBody(eid)` resolves an authored
+ * `Body` entity to a live solver handle for joint creation, or null before marshaling.
+ * The pose functions are no-ops before warm.
  */
 
 export function physicsWorld(world: World): PhysicsWorld | null {
@@ -693,7 +695,15 @@ export const StandardPhysicsPlugin: Plugin = {
         const runtime = runtimeFor(world);
         await init(world); // async wasm compile — the browser main thread can't compile it synchronously
         runtime.physicsWorld?.destroy();
-        runtime.physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: GRAVITY, z: 0 } }, world);
+        runtime.physicsWorld = new PhysicsWorld(
+            { gravity: { x: 0, y: GRAVITY, z: 0 } },
+            world,
+            (eid) => {
+                if (!world.has(eid, Body) || runtime.stamps.get(eid) !== world.generation(eid))
+                    return null;
+                return runtime.bodies.get(eid) ?? null;
+            },
+        );
         clearBodies(runtime);
         resetSignatures(world); // the fresh world receives the authored constraint set on its first frame
     },
