@@ -11,6 +11,7 @@ import {
     Camera,
     DirectionalLight,
     PointLight,
+    RenderingPlugin,
     Resolution,
     Spot,
     Views,
@@ -52,6 +53,7 @@ import {
     pointComboEids,
     Shadow,
     StandardRenderer,
+    StandardRenderingPlugin,
 } from "../../standard/rendering";
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
@@ -570,8 +572,8 @@ function featurePlugin(subject: Plugin): Plugin {
             const ambient = world.create();
             world.add(ambient, AmbientLight);
             if (
-                subject.name === "Render" ||
-                subject.name === "Sear" ||
+                subject === RenderingPlugin ||
+                subject === StandardRenderingPlugin ||
                 subject.name === "Glaze" ||
                 uses(subject, SkyPlugin)
             ) {
@@ -586,6 +588,11 @@ function featurePlugin(subject: Plugin): Plugin {
                 world.add(point, Shadow);
                 world.add(point, Volumetric);
                 world.storage(Transform).translation.set(point, 1, 2, 1, 0);
+            }
+
+            if (subject === RenderingPlugin || subject === StandardRenderingPlugin) {
+                expect([...world.query([DirectionalLight, Shadow, Volumetric])]).toHaveLength(1);
+                expect([...world.query([PointLight, Spot, Shadow, Volumetric])]).toHaveLength(1);
             }
 
             const sky = world.create();
