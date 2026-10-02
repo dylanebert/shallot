@@ -9,8 +9,8 @@
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { DrawIndexedIndirect } from "../../core/rendering";
 import type { World } from "../../engine";
+import { DrawIndexedIndirect } from "./registry";
 
 // one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
 // survivors, firstInstance = the mesh's base into the re-gathered list. Stride derived from the schema

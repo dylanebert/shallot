@@ -3,11 +3,11 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { compileGpuFile } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { VsIn } from "../../core/rendering";
 import { createApp, globalTransformTable, Transform } from "../../engine";
 import { prepareGlobalTransformFrame } from "../../engine/ecs/global-transform";
 import { probeTexture } from "../../engine/runtime";
 import { encodePos } from "../../engine/utils";
+import { VsIn } from "../../standard/rendering";
 import { maskLayoutPlain, maskVertex } from "../outline/passes";
 import { typedTextSurface } from "./index";
 

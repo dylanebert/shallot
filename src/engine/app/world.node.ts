@@ -6,11 +6,11 @@ setDefaultTimeout(CEILING.node);
 
 import * as d from "typegpu/data";
 import { Meshes } from "../../core/mesh";
-import { Draws } from "../../core/rendering";
 import { drawLine, Line, LinesPlugin } from "../../extras/lines";
 import { Images, registerImage, Sprite, SpritePlugin } from "../../extras/sprite";
 import { Content, Fonts, internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
+import { Draws } from "../../standard/rendering";
 import { f32, GlobalTransform, probeBuffer, requestGPU, Time, Transform, World } from "../index";
 import "../../standard";
 import { createApp, swapPlugins } from "./index";

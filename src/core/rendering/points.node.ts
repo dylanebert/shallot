@@ -6,6 +6,9 @@ import { Transform } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
 import { DepthPrepass, StandardRenderer, StandardRenderingPlugin } from "../../standard/rendering";
+import { Backgrounds, Surfaces } from "../../standard/rendering/contract";
+import { backgroundsKey, surfacesKey } from "../../standard/rendering/contract-state";
+import { Draws, drawsKey } from "../../standard/rendering/registry";
 import { Glaze, GlazePlugin } from "../../transitional/glaze";
 import { MeshInstance, PartPlugin } from "../../transitional/part";
 import { Meshes, meshResourcesKey } from "../mesh/mesh";
@@ -17,8 +20,6 @@ import {
     lightInputKey,
     UpdateLightClustersSystem,
 } from "./cluster";
-import { Backgrounds, Surfaces } from "./contract";
-import { backgroundsKey, surfacesKey } from "./contract-state";
 import { Frame, frameKey } from "./frame";
 import { EndFrameSystem, renderFrameKey } from "./frame-state";
 import { blitPipelinesKey } from "./image";
@@ -34,7 +35,6 @@ import {
 } from "./index";
 import { Lighting, lightingKey } from "./lighting";
 import { PointsPlugin, PointsSystem } from "./points.fixture";
-import { Draws, drawsKey } from "./registry";
 import { Render, renderKey } from "./render";
 import { Views, viewResourcesKey } from "./view";
 
@@ -124,7 +124,7 @@ test("stage 3: core-only rendering registers no mesh resources", () => {
     assertRegistration({ ...contractResources, ...lightResources }, lightSystems);
 });
 
-test.todo("stage 4: core-only rendering registers no surface, background or draw resources", () => {
+test("stage 4: core-only rendering registers no surface, background or draw resources", () => {
     assertRegistration(lightResources, lightSystems);
 });
 

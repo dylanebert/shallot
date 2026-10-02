@@ -8,17 +8,12 @@ import type {
 import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { type Mesh, Meshes } from "../../core/mesh";
-import type { Draw, Surface } from "../../core/rendering";
-import {
-    BeginFrameSystem,
-    DrawIndexedIndirect,
-    Draws,
-    Render,
-    Surfaces,
-} from "../../core/rendering";
+import { BeginFrameSystem, Render } from "../../core/rendering";
 import type { Registry, System, World } from "../../engine";
 import { globalTransformTable, u32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
+import type { Draw, Surface } from "../../standard/rendering";
+import { DrawIndexedIndirect, Draws, Surfaces } from "../../standard/rendering";
 import {
     CullParams,
     countKernel,

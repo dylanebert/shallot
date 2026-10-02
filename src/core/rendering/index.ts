@@ -15,7 +15,6 @@ import {
     warmClusters,
     warmLightCull,
 } from "./cluster";
-import { initializeSurfaceState } from "./contract";
 import { FRAME_UNIFORM_SIZE, Frame, initializeFrameState, writeFrame } from "./frame";
 import {
     EndFrameSystem,
@@ -36,7 +35,6 @@ import {
     Volumetric,
     writeLighting,
 } from "./lighting";
-import { Draws, initializeDrawState, Surfaces } from "./registry";
 import { initializeRenderState, Render } from "./render";
 import {
     bindCamera,
@@ -57,10 +55,8 @@ import {
 
 // the public happy path: the component contract (camera + lights).
 // Everything else a renderer or producer touches — the Render singleton, the
-// View/Surface/Draw contract, canvas binding, the Lighting uniform, the frame
-// loop — is the extension API, exported below. A producer (MeshInstance) and a renderer
-// (StandardRenderer) meet only through that contract and neither imports the other, so a
-// custom producer is a peer of MeshInstance rather than a fork of it.
+// View contract, canvas binding, the Lighting uniform and the frame
+// loop — is the extension API, exported below.
 export { Camera, CameraMode, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
 export { requestLightOverflow } from "./cluster";
@@ -356,14 +352,6 @@ async function initRender(world: World): Promise<void> {
     if (!world.gpu.device) return;
     const { device } = world.gpu;
 
-    // clear the render registries so each build re-registers from a clean slate (clear then
-    // rebuild). This runs in RenderingPlugin.initialize, before any producer / sear re-registers (they
-    // depend on RenderingPlugin), so a producer toggled off leaves no stale surface / draw
-    // behind to be drawn against its torn-down buffers. A same-set rebuild is unchanged (every
-    // plugin re-registers); a first build clears empty registries (a no-op).
-    world.resource(Surfaces).clear();
-    world.resource(Draws).clear();
-
     // the scene renders into an rg11b10ufloat HDR offscreen so a tonemap (glaze, default Khronos Neutral)
     // rolls off radiance >1 rather than clamping it to white at store. rg11b10 (4B) halves the MSAA
     // color-target + resolve bandwidth vs rgba16float (8B), the dominant sear:color cost at 4× MSAA, for
@@ -426,9 +414,8 @@ async function initRender(world: World): Promise<void> {
 }
 
 /**
- * the renderer-agnostic substrate: frame loop, camera, Frame/ViewUniforms UBOs, and
- * the `Surfaces` / `Draws` registries. Producer and consumer
- * plugins (MeshInstance, StandardRenderer, custom producers) depend on this. Users
+ * the renderer-agnostic substrate: frame loop, camera and Frame/ViewUniforms UBOs.
+ * Producer and consumer plugins depend on this. Users
  * typically don't list it directly: `PartPlugin` pulls it transitively,
  * and either can become a default plugin
  */
@@ -486,8 +473,6 @@ export const RenderingPlugin: Plugin = {
         initializeLightingState(world);
         initializeImageState(world);
         initializeRenderFrameState(world);
-        initializeDrawState(world);
-        initializeSurfaceState(world);
         await initRender(world);
         const globalTransformRuntime = world.globalTransformRuntime;
         if (!globalTransformRuntime)
@@ -503,8 +488,8 @@ export const RenderingPlugin: Plugin = {
     },
 };
 
-// extension API for renderer + producer authors: the contract registries, the
-// per-frame uniform singletons + their WGSL structs, the vertex-pull contract,
+// extension API for renderer + producer authors: the
+// per-frame uniform singletons + their WGSL structs,
 // canvas binding, and the frame-loop ordering anchor. The typical-user surface
 // (components, plugin, public types) lives in the index barrel. `VIEW_STRIDE`
 // + `MAX_VIEWS` size a per-view uniform a consumer packs slot-major (glaze's postfx
@@ -531,7 +516,6 @@ export {
     sliceDepth,
     zSlice,
 } from "./cluster";
-export * from "./contract";
 export { Frame, FrameGpu, frameWgsl } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS, FRUSTUM_FLOATS, frustumPlanes } from "./frustum";
 // the shared image→`texture_2d_array` upload path — the producer substrate glTF baseColor + the sprite atlas
@@ -558,8 +542,6 @@ export {
     spotFactor,
     spotParams,
 } from "./lighting";
-export type { Draw, DrawIndirectBuffer } from "./registry";
-export { DrawIndexedIndirect, Draws } from "./registry";
 export { Render } from "./render";
 export {
     attachCanvas,

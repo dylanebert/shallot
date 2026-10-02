@@ -1,4 +1,6 @@
 import { registration } from "../../engine";
+import { initializeSurfaceState } from "./contract";
+import { initializeDrawState } from "./registry";
 // StandardRenderer — the one shallot renderer. A GPU-driven raster *forward* pass (Aaltonen-Haar / niagara
 // submission spine, primary visibility only) with sun shadows sampled inline in the FS, matching Bevy's
 // clustered-forward shape. One renderer, one plugin (`StandardRenderingPlugin`), no layers behind seams: one color
@@ -22,28 +24,17 @@ import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { type MeshBinding, Meshes, type MeshIndex, MeshPlugin } from "../../core/mesh";
-import type { Draw, View } from "../../core/rendering";
+import type { View } from "../../core/rendering";
 import {
-    type Background,
-    Backgrounds,
     BeginFrameSystem,
     Camera,
-    Draws,
-    fsCtxSchema,
     OverlaySystem,
     Render,
     RenderingPlugin,
-    type Surface,
-    Surfaces,
-    surfaceLayout as typedLayout,
-    registerSurface as typedRegister,
     Views,
-    VsIn,
-    vsPatchSchema,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
 import { u32, unpackColor, vec4 } from "../../engine";
-
 import { Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
 import { MeshInstance, partTable } from "../../transitional/part";
@@ -71,6 +62,17 @@ import {
     PickingPrepass,
     SAMPLE_COUNT,
 } from "./codegen";
+import {
+    type Background,
+    Backgrounds,
+    fsCtxSchema,
+    type Surface,
+    Surfaces,
+    surfaceLayout as typedLayout,
+    registerSurface as typedRegister,
+    VsIn,
+    vsPatchSchema,
+} from "./contract";
 import { engineLayout, litPbr } from "./engine";
 import {
     type BindResource,
@@ -92,6 +94,8 @@ import {
     setGroup,
 } from "./pipelines";
 import { initializeRegatherState, prepareRegather } from "./regather";
+import type { Draw } from "./registry";
+import { Draws } from "./registry";
 import { checkShadowConfig, Pbr } from "./shade";
 import {
     cascadeCount,
@@ -1350,6 +1354,11 @@ export function createSearPlugin(): Plugin {
         // builds the Pbr struct from the packed `material` lanes; the engine default has no specular until a
         // Material sets metallic > 0 (dielectric 0), so a bare MeshInstance shades exactly like the pre-PBR diffuse.
         initialize(world) {
+            initializeSurfaceState(world);
+            initializeDrawState(world);
+            world.resource(Surfaces).clear();
+            world.resource(Backgrounds).clear();
+            world.resource(Draws).clear();
             world.resource(searStateKey);
             initializeShadowAtlasState(world);
             initializePipelineState(world);

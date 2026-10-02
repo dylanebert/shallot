@@ -13,17 +13,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
-import {
-    BeginFrameSystem,
-    DrawIndexedIndirect,
-    Draws,
-    fsCtxSchema,
-    RenderingPlugin,
-    registerSurface,
-    surfaceLayout,
-    VsIn,
-    vsPatchSchema,
-} from "../../core/rendering";
+import { BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
 import {
     f32,
     GlobalTransform,
@@ -34,9 +24,18 @@ import {
     vec2,
     type World,
 } from "../../engine";
-
 import { packColor, Xform, xformPoint } from "../../engine/utils";
-import { RenderPrepassesSystem } from "../../standard/rendering";
+import {
+    DrawIndexedIndirect,
+    Draws,
+    fsCtxSchema,
+    RenderPrepassesSystem,
+    registerSurface,
+    StandardRenderingPlugin,
+    surfaceLayout,
+    VsIn,
+    vsPatchSchema,
+} from "../../standard/rendering";
 import {
     createGlyphAtlas,
     disposeAtlases,
@@ -513,7 +512,7 @@ export const TextPlugin: Plugin = {
         }),
     ],
     systems: [TextSystem],
-    dependencies: [MeshPlugin, RenderingPlugin],
+    dependencies: [MeshPlugin, RenderingPlugin, StandardRenderingPlugin],
 
     async initialize(world) {
         const _textState = world.resource(textStateKey);

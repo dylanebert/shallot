@@ -7,11 +7,14 @@ import { registration } from "../../engine";
 // plugin, so sky and lights never depend on each other. One `Sky` singleton holds the look; a camera opts
 // in with sear's `CameraBackground` component. Not in `DEFAULT_PLUGINS`.
 
-import { BeginFrameSystem, RenderingPlugin, registerBackground } from "../../core/rendering";
+import { BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
 import { f32 } from "../../engine";
-
-import { RenderMeshColorSystem, StandardRenderingPlugin } from "../../standard/rendering";
+import {
+    RenderMeshColorSystem,
+    registerBackground,
+    StandardRenderingPlugin,
+} from "../../standard/rendering";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 

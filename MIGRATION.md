@@ -239,6 +239,17 @@ Mesh data has its own `/mesh` module. Update mesh imports as follows (root impor
 | `/render/core` `Mesh`, `MeshBinding`, `MeshIndex`, `MeshStorage`, `QuantStreams` | `/mesh`, same names |
 | `/render/core` `Meshes`, `meshBounds`, `packMeshes`, `quantizeMeshes`, `VERTEX_FLOATS`, `VERTEX_STRIDE` | `/mesh`, same names |
 
+Surface, background and draw contracts belong to `/standard/rendering`. Update imports as follows (root imports remain available):
+
+| Before | After |
+| --- | --- |
+| `/render/core` `Binding`, `SurfaceLayout`, `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface`, `SURFACE_GROUP` | `/standard/rendering`, same names |
+| `/render/core` `InstanceInput`, `MeshInstanceInput`, `VsIn`, `vsPatchSchema`, `fsCtxSchema`, `VsFn`, `FsFn`, `PickingIdFn`, `assertOwnFn` | `/standard/rendering`, same names |
+| `/render/core` `BackgroundLayout`, `backgroundLayout`, `BackgroundContext`, `BackgroundFn`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
+| `/render/core` `Draw`, `DrawIndirectBuffer`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
+
+Custom surface, background and draw producers depend on `StandardRenderingPlugin`; `RenderingPlugin` alone no longer initializes their registries.
+
 Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. Standard rendering and Part include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
 
 Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is `/character` and `/bvh/core` is `/bvh`. `/scene/core` is removed with the scene format. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.

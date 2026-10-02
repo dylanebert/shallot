@@ -1,9 +1,10 @@
 // Destination: standard/rendering; owner: rendering-boundary.md.
 
 import { Meshes, MeshPlugin } from "../../core/mesh";
-import { RenderingPlugin, Surfaces } from "../../core/rendering";
+import { RenderingPlugin } from "../../core/rendering";
 import type { Plugin } from "../../engine";
 import { registration } from "../../engine";
+import { Surfaces } from "../../standard/rendering";
 import { Color, initializePartState, initPart, MeshInstance, PartSystem, warmPart } from "./part";
 
 export { Color, MeshInstance, partTable } from "./part";

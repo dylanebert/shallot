@@ -34,11 +34,38 @@ export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, Shadow, SunShadows } fro
 
 // sear's non-public extension surface: the surface chunk environment, the backdrop seam, the opt-in
 // prepass lanes, and the relocatable shading chunks a screen-space consumer splices. Rendering's
-// contract (custom producers, renderers, the registries) is the render barrel; this is what makes a surface
+// contract (custom producers, renderers, the registries) lives here alongside what makes a surface
 // shade — and what a screen-space effect samples — under the default renderer.
 
 export { pointAtlasView, shadowSampler, sunShadowParams, sunShadowView } from "./atlas";
 export { DEPTH_FORMAT, lightEvalWgsl, PICKING_ID_FORMAT, PICKING_ID_NONE } from "./codegen";
+export type {
+    Background,
+    BackgroundFn,
+    BackgroundLayout,
+    Binding,
+    FsFn,
+    PickingIdFn,
+    Surface,
+    SurfaceLayout,
+    VsFn,
+} from "./contract";
+export {
+    assertOwnFn,
+    BackgroundContext,
+    Backgrounds,
+    backgroundLayout,
+    fsCtxSchema,
+    InstanceInput,
+    MeshInstanceInput,
+    registerBackground,
+    registerSurface,
+    SURFACE_GROUP,
+    Surfaces,
+    surfaceLayout,
+    VsIn,
+    vsPatchSchema,
+} from "./contract";
 // the canonical typed engine substrate: the pass-invariant group-0 layout + the shading scaffold authored
 // once against it and used by every typed sear pipeline
 export {
@@ -57,6 +84,8 @@ export {
 export { RenderMeshColorSystem, RenderPrepassesSystem } from "./forward";
 /** compiled surface-variant cache introspection for renderer diagnostics and real-device gates. */
 export { getCompiledSurface } from "./pipelines";
+export type { Draw, DrawIndirectBuffer } from "./registry";
+export { DrawIndexedIndirect, Draws } from "./registry";
 // the relocatable shadow chunks + the uniform layouts they resolve from: the sun pair (struct then
 // sampler) and the point/spot pair (caster structs then receiver), each spliced around the group-1
 // declarations the consumer makes

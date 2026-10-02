@@ -1,13 +1,9 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import {
-    CULL_FRUSTUM,
-    CULL_VOLUME_FLOATS,
-    DrawIndexedIndirect,
-    MeshInstanceInput,
-} from "../../core/rendering";
+import { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "../../core/rendering";
 import { Xform, xformPoint } from "../../engine/utils";
+import { DrawIndexedIndirect, MeshInstanceInput } from "../../standard/rendering";
 
 // The pack kernels: cull → count → scan → scatter, the compute half of the MeshInstance producer. Count and
 // scatter share the same cull inputs, so those are ONE bind group layout both kernels reference (and the

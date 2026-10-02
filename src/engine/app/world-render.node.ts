@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
 import { CEILING } from "../../../scripts/test-tiers";
-import { MeshInstanceInput, RenderingPlugin } from "../../core/rendering";
-import { StandardRenderingPlugin } from "../../standard/rendering";
+import { RenderingPlugin } from "../../core/rendering";
+import { MeshInstanceInput, StandardRenderingPlugin } from "../../standard/rendering";
 import { MeshInstance, PartPlugin } from "../../transitional/part";
 import { Transform } from "../index";
 import { probeBuffer } from "../runtime";

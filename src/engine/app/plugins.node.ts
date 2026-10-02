@@ -7,7 +7,6 @@ setDefaultTimeout(CEILING.node);
 import {
     AmbientLight,
     attachCanvas,
-    Backgrounds,
     Camera,
     DirectionalLight,
     PointLight,
@@ -45,6 +44,7 @@ import {
 import { isolationFont } from "../../extras/text/font.fixture";
 import { Color, DEFAULT_PLUGINS, Glaze, MeshInstance, Transform } from "../../standard";
 import {
+    Backgrounds,
     CameraBackground,
     cascadeComboEids,
     DepthPrepass,
