@@ -8,7 +8,7 @@ import tgpu from "typegpu";
 import type { AnyData, AnyWgslData } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Frame, LightCull, Lighting, Render } from "../../core/rendering";
+import { Frame, Render } from "../../core/rendering";
 import type { World } from "../../engine";
 import {
     decodePos,
@@ -21,6 +21,7 @@ import {
     xformPoint,
 } from "../../engine/utils";
 import { cascadeLayout, pointLayout, shadowLayout } from "./atlas";
+import { LightCull } from "./cluster";
 import { DEPTH_FORMAT, PICKING_ID_FORMAT, PICKING_ID_NONE, SAMPLE_COUNT } from "./codegen";
 import type { Background, BackgroundLayout, Binding, Surface, SurfaceLayout } from "./contract";
 import { BackgroundContext, Backgrounds, type fsCtxSchema, Surfaces, VsIn } from "./contract";
@@ -34,6 +35,7 @@ import {
     sunVisibility,
 } from "./engine";
 import type { Recorded } from "./forward";
+import { Lighting } from "./lighting";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
 import { cascadeAtlasSize, pointAtlasSize, sunCascades, sunResolution } from "./shadows";

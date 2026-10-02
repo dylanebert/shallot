@@ -21,6 +21,7 @@ These changes require updates to a 0.9.5 app.
 | `TAG_FORMAT`, `TAG_NONE`, `TagFn`, `view.tag` | `PICKING_ID_FORMAT`, `PICKING_ID_NONE`, `PickingIdFn`, `view.pickingId` |
 | `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |
 | GPU `View` schema; `/rendering` `linearToSrgb` | `ViewUniforms`; `linearToSrgb3` |
+| GPU `View.cluster` | `ViewUniforms.projection` (near, far, perspective flag, slot; unchanged byte layout) |
 | `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
 | `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
 | `build`, `run`, `Config`, `swap`, `SwapResult` | `createApp`, `runApp`, `AppConfig`, `swapPlugins`, `PluginSwapResult` |
@@ -255,8 +256,12 @@ Surface, background and draw contracts belong to `/standard/rendering`. Update i
 | `/render/core` `InstanceInput`, `MeshInstanceInput`, `VsIn`, `vsPatchSchema`, `fsCtxSchema`, `VsFn`, `FsFn`, `PickingIdFn`, `assertOwnFn` | `/standard/rendering`, same names |
 | `/render/core` `BackgroundLayout`, `backgroundLayout`, `BackgroundContext`, `BackgroundFn`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
 | `/render/core` `Draw`, `DrawIndirectBuffer`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
+| `/render/core` `ClusterView`, `CLUSTER_COUNT`, `CLUSTER_X`, `CLUSTER_Y`, `CLUSTER_Z`, `Clusters`, `clusterAabb`, `clusterCell`, `clusterCoord`, `clusterIndex`, `clusterView`, `LIGHT_POOL`, `LightCull`, `lightClusters`, `sliceDepth`, `zSlice` | `/standard/rendering`, same names |
+| `/render/core` `LIGHTING_UNIFORM_SIZE`, `Lighting`, `LightingGpu`, `lightingWgsl`, `MAX_POINT_LIGHTS`, `PointLightGpu`, `PointLights`, `pointLightsWgsl`, `distanceAttenuation`, `spotFactor`, `spotParams` | `/standard/rendering`, same names |
 
 Custom surface, background and draw producers depend on `StandardRenderingPlugin`; `RenderingPlugin` alone no longer initializes their registries.
+
+`RenderingPlugin` still registers the light components (`AmbientLight`, `DirectionalLight`, `PointLight`, `Spot`, `Volumetric`), but no longer packs GPU lights or builds clusters. Compositions using those GPU resources need `StandardRenderingPlugin`.
 
 Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. Standard rendering and Part include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
 

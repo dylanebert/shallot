@@ -12,11 +12,6 @@ import {
     StandardRenderer,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { Backgrounds, Surfaces } from "../../standard/rendering/contract";
-import { backgroundsKey, surfacesKey } from "../../standard/rendering/contract-state";
-import { Draws, drawsKey } from "../../standard/rendering/registry";
-import { Glaze, GlazePlugin } from "../../transitional/glaze";
-import { Meshes, meshResourcesKey } from "../mesh/mesh";
 import {
     Clusters,
     CullLightsSystem,
@@ -24,7 +19,13 @@ import {
     LightCull,
     lightInputKey,
     UpdateLightClustersSystem,
-} from "./cluster";
+} from "../../standard/rendering/cluster";
+import { Backgrounds, Surfaces } from "../../standard/rendering/contract";
+import { backgroundsKey, surfacesKey } from "../../standard/rendering/contract-state";
+import { Lighting, lightingKey } from "../../standard/rendering/lighting";
+import { Draws, drawsKey } from "../../standard/rendering/registry";
+import { Glaze, GlazePlugin } from "../../transitional/glaze";
+import { Meshes, meshResourcesKey } from "../mesh/mesh";
 import { Frame, frameKey } from "./frame";
 import { EndFrameSystem, renderFrameKey } from "./frame-state";
 import { blitPipelinesKey } from "./image";
@@ -38,7 +39,6 @@ import {
     PresentationSystem,
     RenderingPlugin,
 } from "./index";
-import { Lighting, lightingKey } from "./lighting";
 import { PointsPlugin, PointsSystem } from "./points.fixture";
 import { Render, renderKey } from "./render";
 import { Views, viewResourcesKey } from "./view";
@@ -133,7 +133,7 @@ test("stage 4: core-only rendering registers no surface, background or draw reso
     assertRegistration(lightResources, lightSystems);
 });
 
-test.todo("stage 6: core-only rendering registers no cluster or light-cull declarations", () => {
+test("stage 6: core-only rendering registers no cluster or light-cull declarations", () => {
     assertRegistration(contractResources, {});
 });
 

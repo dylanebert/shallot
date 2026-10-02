@@ -1,5 +1,18 @@
 import { registration } from "../../engine";
+import {
+    CullLightsSystem,
+    initializeClusterState,
+    UpdateLightClustersSystem,
+    warmClusters,
+    warmLightCull,
+} from "./cluster";
 import { initializeSurfaceState } from "./contract";
+import {
+    initializeLightingState,
+    LIGHTING_UNIFORM_SIZE,
+    Lighting,
+    writeLighting,
+} from "./lighting";
 import { initializeDrawState } from "./registry";
 // StandardRenderer — the one shallot renderer. A GPU-driven raster *forward* pass (Aaltonen-Haar / niagara
 // submission spine, primary visibility only) with sun shadows sampled inline in the FS, matching Bevy's
@@ -1103,7 +1116,7 @@ async function prepareSear(world: World, device: GPUDevice, capacity: number): P
 export const RenderPrepassesSystem: System = {
     name: "prepass",
     group: "draw",
-    after: [BeginFrameSystem],
+    after: [BeginFrameSystem, CullLightsSystem],
     update(world) {
         const _searState = world.resource(searStateKey);
 
@@ -1334,6 +1347,13 @@ function disposeSear(world: World): void {
     _searState.colorTargets.clear();
 }
 
+const PackLightingSystem: System = {
+    group: "draw",
+    after: [BeginFrameSystem],
+    before: [UpdateLightClustersSystem],
+    update: writeLighting,
+};
+
 export function createSearPlugin(): Plugin {
     return {
         name: "StandardRendering",
@@ -1346,6 +1366,9 @@ export function createSearPlugin(): Plugin {
             registration("CameraBackground", CameraBackground),
         ],
         systems: [
+            PackLightingSystem,
+            UpdateLightClustersSystem,
+            CullLightsSystem,
             RenderPrepassesSystem,
             RenderMeshColorSystem,
             ShadowCameraSystem,
@@ -1361,6 +1384,13 @@ export function createSearPlugin(): Plugin {
         // builds the Pbr struct from the packed `material` lanes; the engine default has no specular until a
         // Material sets metallic > 0 (dielectric 0), so a bare MeshInstance shades exactly like the pre-PBR diffuse.
         initialize(world) {
+            initializeClusterState(world);
+            initializeLightingState(world);
+            world.resource(Lighting).buffer = world.gpu.device.createBuffer({
+                label: "shallot-lighting",
+                size: LIGHTING_UNIFORM_SIZE,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
             initializeSurfaceState(world);
             initializeDrawState(world);
             world.resource(Surfaces).clear();
@@ -1405,6 +1435,8 @@ export function createSearPlugin(): Plugin {
 
         async warm(world) {
             if (!world.gpu.device) return;
+            warmClusters(world);
+            warmLightCull(world);
             await prepareSear(world, world.gpu.device, world.entityHighWater);
         },
 

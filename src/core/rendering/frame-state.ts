@@ -12,7 +12,6 @@ export const renderFrameKey = {
         depthOnlyViews: [] as import("./view").View[],
         viewProjs: [] as Float32Array[],
         invViewProjs: [] as Float32Array[],
-        lightViews: [] as Float32Array[],
         viewKeys: new Float64Array(MAX_SLOTS * VIEW_KEY_FLOATS).fill(Number.NaN),
         viewKeyNext: new Float64Array(VIEW_KEY_FLOATS),
     }),

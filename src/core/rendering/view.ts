@@ -21,7 +21,7 @@ export const ViewUniforms = d
         resolution: d.vec2f,
         right: d.vec4f,
         up: d.vec4f,
-        cluster: d.vec4f,
+        projection: d.vec4f,
         eye: d.vec4f,
         invViewProj: d.mat4x4f,
     })
@@ -34,11 +34,8 @@ export const ViewUniforms = d
 export const VIEW_STRIDE = 256;
 
 /**
- * max **shading** views (presenting cameras) per frame. A shading slot carries the clustered-light
- * substrate (its froxel AABB grid + light grid are ~140 KB each), so this cap stays small.
- * `BeginFrameSystem` assigns shading views the low slots `[0, MAX_VIEWS)`; depth-only views (a
- * shadow light's off-screen camera) get the slots above, out of {@link MAX_SLOTS}, and never
- * allocate cluster state
+ * Maximum presenting views per frame. `BeginFrameSystem` assigns them the low slots
+ * `[0, MAX_VIEWS)`; depth-only views get the slots above, out of {@link MAX_SLOTS}.
  */
 export const MAX_VIEWS = 8;
 
@@ -54,9 +51,8 @@ export const VIEW_UNIFORM_SIZE = VIEW_STRIDE * MAX_SLOTS;
  * the byte size of the {@link ViewUniforms} uniform a surface statically reads, from the schema: `mat4` (64) +
  * `vec2` resolution (8, padded to 16 by the vec4 that follows) + two `vec4` camera-basis columns (right
  * at byte 80, up at 96: the camera's normalized world-space right/up, packed by `BeginFrameSystem`;
- * forward derives as `-cross(right, up)`) + the `cluster` vec4 at 112 (near, far, perspective flag,
- * view slot: what sear's FS needs to map a fragment to its froxel cluster and index the slot-major
- * light grid) + the `eye` vec4 at 128 (the camera's world-space position, for view-dependent shading
+ * forward derives as `-cross(right, up)`) + the `projection` vec4 at 112 (near, far, perspective flag,
+ * view slot) + the `eye` vec4 at 128 (the camera's world-space position, for view-dependent shading
  * (specular, fresnel, fog)). Billboard-shaped surfaces orient quads from `right`/`up`. Note
  * the shadow light camera packs through the same path, so a billboard in the shadow pass faces the
  * light (Godot-consistent). Then `invViewProj` at byte 144 (the inverse of `viewProj`). A screen-space

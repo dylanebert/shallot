@@ -38,6 +38,25 @@ export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, Shadow, SunShadows } fro
 // shade — and what a screen-space effect samples — under the default renderer.
 
 export { pointAtlasView, shadowSampler, sunShadowParams, sunShadowView } from "./atlas";
+export type { ClusterView } from "./cluster";
+export {
+    CLUSTER_COUNT,
+    CLUSTER_X,
+    CLUSTER_Y,
+    CLUSTER_Z,
+    Clusters,
+    clusterAabb,
+    clusterCell,
+    clusterCoord,
+    clusterIndex,
+    clusterView,
+    LIGHT_POOL,
+    LightCull,
+    lightClusters,
+    requestLightOverflow,
+    sliceDepth,
+    zSlice,
+} from "./cluster";
 export { DEPTH_FORMAT, lightEvalWgsl, PICKING_ID_FORMAT, PICKING_ID_NONE } from "./codegen";
 export type {
     Background,
@@ -82,6 +101,19 @@ export {
     sunVisibility,
 } from "./engine";
 export { RenderMeshColorSystem, RenderPrepassesSystem } from "./forward";
+export {
+    distanceAttenuation,
+    LIGHTING_UNIFORM_SIZE,
+    Lighting,
+    LightingGpu,
+    lightingWgsl,
+    MAX_POINT_LIGHTS,
+    PointLightGpu,
+    PointLights,
+    pointLightsWgsl,
+    spotFactor,
+    spotParams,
+} from "./lighting";
 export { Color, MeshInstances, partTable } from "./part";
 export { PartPlugin } from "./part-plugin";
 /** compiled surface-variant cache introspection for renderer diagnostics and real-device gates. */

@@ -21,8 +21,8 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { PointLightGpu, pointLightsWgsl } from "../../core/rendering";
 import { chunk, spliceNs } from "../../engine/utils";
+import { PointLightGpu, pointLightsWgsl } from "./lighting";
 import { EDGE_TEXELS, MAX_CASCADES, pointAtlasSize, pointCasters } from "./shadows";
 
 // ---- the metallic-roughness shading model (glTF 2.0), the `default` / `vertex` / glTF surfaces' lobe ----

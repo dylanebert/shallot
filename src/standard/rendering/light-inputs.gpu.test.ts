@@ -1,12 +1,15 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
+import { PointLight } from "../../core/rendering";
 import { Transform } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
-import { PointLight, RenderingPlugin } from "./index";
+import { StandardRenderingPlugin } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [RenderingPlugin] }]);
+const subjects = gpuApps(import.meta.path, [
+    { defaults: false, plugins: [StandardRenderingPlugin] },
+]);
 
 test("render light inputs upload as active dense table rows", async () => {
     const app = subjects()[0];

@@ -13,14 +13,14 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils";
 import {
     distanceAttenuation,
+    lightEvalWgsl,
     PointLightGpu,
     pointLightsWgsl,
     spotFactor,
-} from "../../core/rendering";
-import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils";
-import { lightEvalWgsl } from "../../standard/rendering";
+} from "../../standard/rendering";
 
 /** compute workgroup tile: 8×8 = 64 threads, matching glaze's screen-space composite. */
 export const WORKGROUP = 8;

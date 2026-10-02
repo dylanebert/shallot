@@ -6,15 +6,6 @@ import type { Plugin, System, World } from "../../engine";
 import { composeGlobalTransform, globalTransformTable, invertMat4 } from "../../engine";
 
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
-import {
-    CullLightsSystem,
-    initializeClusterState,
-    LightCull,
-    packClusterView,
-    UpdateLightClustersSystem,
-    warmClusters,
-    warmLightCull,
-} from "./cluster";
 import { FRAME_UNIFORM_SIZE, Frame, initializeFrameState, writeFrame } from "./frame";
 import {
     EndFrameSystem,
@@ -24,17 +15,7 @@ import {
 } from "./frame-state";
 import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
 import { initializeImageState } from "./image";
-import {
-    AmbientLight,
-    DirectionalLight,
-    initializeLightingState,
-    LIGHTING_UNIFORM_SIZE,
-    Lighting,
-    PointLight,
-    Spot,
-    Volumetric,
-    writeLighting,
-} from "./lighting";
+import { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
 import { initializeRenderState, Render } from "./render";
 import {
     bindCamera,
@@ -55,11 +36,10 @@ import {
 
 // the public happy path: the component contract (camera + lights).
 // Everything else a renderer or producer touches — the Render singleton, the
-// View contract, canvas binding, the Lighting uniform and the frame
+// View contract, canvas binding and the frame
 // loop — is the extension API, exported below.
 export { Camera, CameraMode, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
-export { requestLightOverflow } from "./cluster";
 export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
 
 const SLOT_FLOATS = VIEW_STRIDE / 4;
@@ -78,11 +58,8 @@ function basisColumn(world: Float32Array, base: number, out: Float32Array, at: n
     out[at + 3] = 0;
 }
 
-// viewProj + resolution + basis + frustum, the per-slot state every view carries. A shading
-// view (presenting camera) additionally packs the clustered-light state — its cluster params
-// and world→view matrix — into the same slot index; a depth-only view (a shadow light's
-// off-screen camera) never does, so the cluster substrate is sized by MAX_VIEWS while the
-// cheap slots run to MAX_SLOTS
+// Shared per-slot camera state. Presenting views additionally carry projection parameters
+// and the inverse view-projection matrix; depth-only views use the cheaper MAX_SLOTS budget.
 function packView(world: World, eid: number, view: ViewSlot, shading: boolean, slot: number): void {
     const _renderFrame = world.resource(renderFrameKey);
     const _render = world.resource(Render);
@@ -94,15 +71,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     if (!slotInputsChanged(world, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;
     const viewProj = _renderFrame.viewProjs[slot];
-    // the light cull reads each shading slot's world→view matrix to bring
-    // world-space lights into cluster space
-    computeViewProj(
-        world,
-        eid,
-        view.width / view.height,
-        viewProj,
-        shading ? _renderFrame.lightViews[slot] : undefined,
-    );
+    computeViewProj(world, eid, view.width / view.height, viewProj);
     // resolution (pixels) follows viewProj in the ViewUniforms struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
     _render.viewStaging[offset + 16] = view.width;
@@ -116,15 +85,12 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     // cullVolumes[slot]'s 6 planes. Every view culls by frustum: cameras, the sun, and each
     // point/spot shadow combo (its own frustum-culled depth view)
     frustumVolume(_render.cullVolumeStaging, slot, viewProj);
-    // pack the view's cluster params from the same camera fields —
-    // UpdateLightClustersSystem rebuilds the AABB grid only when they change.
-    // ViewUniforms.cluster: (near, far, perspective, slot) — sear's FS maps a
-    // fragment to its froxel and indexes the slot-major light grid
+    // ViewUniforms.projection: near, far, perspective flag, slot.
     if (shading) {
-        const cv = packClusterView(world, eid, view.width / view.height, slot);
-        _render.viewStaging[offset + 28] = cv.near;
-        _render.viewStaging[offset + 29] = cv.far;
-        _render.viewStaging[offset + 30] = cv.perspective ? 1 : 0;
+        const camera = world.storage(Camera);
+        _render.viewStaging[offset + 28] = camera.near.get(eid);
+        _render.viewStaging[offset + 29] = camera.far.get(eid);
+        _render.viewStaging[offset + 30] = camera.mode.get(eid) !== CameraMode.Orthographic ? 1 : 0;
     } else {
         _render.viewStaging[offset + 28] = 0;
         _render.viewStaging[offset + 29] = 0;
@@ -210,12 +176,11 @@ export const BeginFrameSystem: System = {
         _render.encoder = encoder;
         world.beginGpuFrame(encoder);
         writeFrame(world);
-        writeLighting(world);
 
         let count = 0;
         let depthOnly = 0;
-        // shading views first, so they own the low slots the cluster + light-cull substrate is
-        // sized for; depth-only views stack above them out of the cheap MAX_SLOTS budget
+        // Presenting views own the low uniform slots; depth-only views stack above them
+        // out of the cheaper MAX_SLOTS budget.
         for (const eid of world.query(CAMERAS)) {
             // auto-bind to the first <canvas> the frame it exists; an explicitly attachCanvas'd
             // camera is already in Views, so this is a no-op for it. Retried each frame until mount
@@ -225,7 +190,7 @@ export const BeginFrameSystem: System = {
             view.framebufferFormat = undefined;
             view.present = null;
             // derive the backing store from the display size + the camera's `Resolution` pin before any
-            // consumer reads view.width/height (the offscreen + present below, the cluster pack above)
+            // consumer reads view.width/height.
             sizeView(world, eid, view);
             if (view.width === 0 || view.height === 0) {
                 view.framebuffer = null;
@@ -382,11 +347,7 @@ async function initRender(world: World): Promise<void> {
     _renderFrame.invViewProjs = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
     );
-    _renderFrame.lightViews = Array.from({ length: MAX_VIEWS }, (_, slot) =>
-        world.resource(LightCull).viewStaging.subarray(slot * 16, slot * 16 + 16),
-    );
     world.resource(Frame).buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
-    world.resource(Lighting).buffer = uniform("shallot-lighting", LIGHTING_UNIFORM_SIZE);
 
     // one tagged cull volume per view, packed for the GPU cull pass and published
     // by name so any producer's cull resolves it the same way it resolves slabs
@@ -421,14 +382,7 @@ async function initRender(world: World): Promise<void> {
  */
 export const RenderingPlugin: Plugin = {
     name: "Rendering",
-    systems: [
-        BeginFrameSystem,
-        UpdateLightClustersSystem,
-        CullLightsSystem,
-        OverlaySystem,
-        PresentationSystem,
-        EndFrameSystem,
-    ],
+    systems: [BeginFrameSystem, OverlaySystem, PresentationSystem, EndFrameSystem],
     components: [
         registration("Camera", Camera, {
             defaults: () => ({
@@ -468,9 +422,7 @@ export const RenderingPlugin: Plugin = {
     async initialize(world) {
         initializeRenderState(world);
         initializeViewState(world);
-        initializeClusterState(world);
         initializeFrameState(world);
-        initializeLightingState(world);
         initializeImageState(world);
         initializeRenderFrameState(world);
         await initRender(world);
@@ -480,11 +432,6 @@ export const RenderingPlugin: Plugin = {
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
         globalTransformRuntime.params = world.resource(Frame).buffer;
         globalTransformTable(world);
-    },
-
-    warm(world) {
-        warmClusters(world);
-        warmLightCull(world);
     },
 };
 
@@ -498,24 +445,6 @@ export const RenderingPlugin: Plugin = {
 // cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
 
 export { computeViewProj } from "./camera";
-export type { ClusterView } from "./cluster";
-export {
-    CLUSTER_COUNT,
-    CLUSTER_X,
-    CLUSTER_Y,
-    CLUSTER_Z,
-    Clusters,
-    clusterAabb,
-    clusterCell,
-    clusterCoord,
-    clusterIndex,
-    clusterView,
-    LIGHT_POOL,
-    LightCull,
-    lightClusters,
-    sliceDepth,
-    zSlice,
-} from "./cluster";
 export { Frame, FrameGpu, frameWgsl } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS, FRUSTUM_FLOATS, frustumPlanes } from "./frustum";
 // the shared image→`texture_2d_array` upload path — the producer substrate glTF baseColor + the sprite atlas
@@ -529,19 +458,6 @@ export {
     uploadLayer,
 } from "./image";
 
-export {
-    distanceAttenuation,
-    LIGHTING_UNIFORM_SIZE,
-    Lighting,
-    LightingGpu,
-    lightingWgsl,
-    MAX_POINT_LIGHTS,
-    PointLightGpu,
-    PointLights,
-    pointLightsWgsl,
-    spotFactor,
-    spotParams,
-} from "./lighting";
 export { Render } from "./render";
 export {
     attachCanvas,

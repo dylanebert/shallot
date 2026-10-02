@@ -1,10 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import { CEILING } from "../../../scripts/test-tiers";
+import { PointLight } from "../../core/rendering";
 import { Transform } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import { CLUSTER_COUNT, LIGHT_POOL, requestLightOverflow } from "./cluster";
-import { PointLight } from "./lighting";
 
 setDefaultTimeout(CEILING.node);
 const peer = "bun-webgpu";

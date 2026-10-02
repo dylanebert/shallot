@@ -13,8 +13,6 @@
 import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import {
     Camera,
-    LightCull,
-    Lighting,
     OverlaySystem,
     Render,
     RenderingPlugin,
@@ -26,6 +24,8 @@ import { f32, registration, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
     DEPTH_FORMAT,
+    LightCull,
+    Lighting,
     pointAtlasView,
     RenderMeshColorSystem,
     StandardRenderer,

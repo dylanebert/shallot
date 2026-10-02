@@ -1,6 +1,18 @@
 import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import {
+    BeginFrameSystem,
+    Camera,
+    CameraMode,
+    computeViewProj,
+    MAX_VIEWS,
+    PointLight,
+    Render,
+    Spot,
+    Views,
+    Volumetric,
+} from "../../core/rendering";
 import type { System, World } from "../../engine";
 import { globalTransformTable } from "../../engine";
 import { precompile, probeBuffer } from "../../engine/runtime";
@@ -12,18 +24,7 @@ import {
     Xform,
     xformQuat,
 } from "../../engine/utils";
-import { Camera, CameraMode } from "./camera";
-import {
-    MAX_POINT_LIGHTS,
-    PointLight,
-    PointLights,
-    PointLightsRw,
-    Spot,
-    Volumetric,
-    warnLightOverflow,
-} from "./lighting";
-import { Render } from "./render";
-import { MAX_VIEWS } from "./view";
+import { MAX_POINT_LIGHTS, PointLights, PointLightsRw, warnLightOverflow } from "./lighting";
 
 interface ClusterGpuState {
     clusters: Clusters;
@@ -40,6 +41,9 @@ interface ClusterGpuState {
     lightCountBuffer: GPUBuffer | null;
     lightCountValue: number;
     cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
+    viewProj: Float32Array;
+    clusterView: ClusterView;
+    viewMatrices: Float32Array[];
     gridPass: GPUComputePassDescriptor;
     cullPass: GPUComputePassDescriptor;
 }
@@ -73,6 +77,9 @@ function createClusterGpuState(): ClusterGpuState {
         lightCountBuffer: null,
         lightCountValue: -1,
         cullBound: null,
+        viewProj: new Float32Array(16),
+        clusterView: { perspective: false, halfW: 0, halfH: 0, near: 0, far: 0 },
+        viewMatrices: [],
         gridPass: { label: "shallot-cluster-aabbs" },
         cullPass: { label: "shallot-light-cull" },
     };
@@ -107,7 +114,7 @@ function lightInputTable(world: World) {
     return world.resource(lightInputKey);
 }
 
-/** Create this world's cluster and dense light-input state during RenderingPlugin initialization. */
+/** Create this world's cluster and dense light-input state during StandardRenderingPlugin initialization. */
 export function initializeClusterState(world: World): void {
     world.resource(clusterGpuKey);
     const table = lightInputTable(world);
@@ -159,17 +166,20 @@ export interface ClusterView {
 
 /** the camera entity's {@link ClusterView}, from its Camera fields + the view aspect */
 export function clusterView(world: World, eid: number, aspect: number): ClusterView {
+    return readClusterView(world, eid, aspect, {} as ClusterView);
+}
+
+function readClusterView(world: World, eid: number, aspect: number, out: ClusterView): ClusterView {
     const perspective = world.storage(Camera).mode.get(eid) !== CameraMode.Orthographic;
     const halfH = perspective
         ? Math.tan((world.storage(Camera).fov.get(eid) * Math.PI) / 360)
         : world.storage(Camera).size.get(eid);
-    return {
-        perspective,
-        halfW: halfH * aspect,
-        halfH,
-        near: world.storage(Camera).near.get(eid),
-        far: world.storage(Camera).far.get(eid),
-    };
+    out.perspective = perspective;
+    out.halfW = halfH * aspect;
+    out.halfH = halfH;
+    out.near = world.storage(Camera).near.get(eid);
+    out.far = world.storage(Camera).far.get(eid);
+    return out;
 }
 
 /**
@@ -312,8 +322,7 @@ export const Clusters: import("../../engine").Resource<Clusters> = {
 };
 
 /**
- * pack a camera's {@link ClusterView} into the staging slot, called per view by
- * `BeginFrameSystem`, which reuses the returned view for the ViewUniforms.cluster pack
+ * Pack a camera's cluster projection into standard's slot-major staging.
  */
 export function packClusterView(
     world: World,
@@ -321,7 +330,7 @@ export function packClusterView(
     aspect: number,
     slot: number,
 ): ClusterView {
-    const v = clusterView(world, eid, aspect);
+    const v = readClusterView(world, eid, aspect, _clusterGpu(world).clusterView);
     const o = slot * CLUSTER_VIEW_FLOATS;
     const s = world.resource(Clusters).staging;
     s[o] = v.halfW;
@@ -397,16 +406,28 @@ export function gridWgsl(): string {
  * since the last build (the staging prefix is the dirty signal: GlobalTransform changes
  * never touch it, so a static-projection frame dispatches nothing). Runs after
  * `BeginFrameSystem` (the `first` bucket sorts ahead of every normal system),
- * which packed the staging prefix this frame
+ * after which standard packs its own cluster projection and world→view matrices
  */
 export const UpdateLightClustersSystem: System = {
     group: "draw",
+    after: [BeginFrameSystem],
     update(world: World) {
         const _render = world.resource(Render);
         const _clusterGpu = world.resource(clusterGpuKey);
         const _clusters = world.resource(Clusters);
 
         if (!_render.encoder || !_clusterGpu.pipe || _render.shadeCount === 0) return;
+        for (const [eid, view] of world.resource(Views)) {
+            if (!view.framebuffer || view.slot >= _render.shadeCount) continue;
+            packClusterView(world, eid, view.width / view.height, view.slot);
+            computeViewProj(
+                world,
+                eid,
+                view.width / view.height,
+                _clusterGpu.viewProj,
+                _clusterGpu.viewMatrices[view.slot],
+            );
+        }
         const used = _render.shadeCount * CLUSTER_VIEW_FLOATS;
         let changed = false;
         for (let i = 0; i < used; i++) {
@@ -828,6 +849,7 @@ export async function requestLightOverflow(world: World) {
  */
 export const CullLightsSystem: System = {
     group: "draw",
+    after: [UpdateLightClustersSystem],
     update(world) {
         const _render = world.resource(Render);
         const _clusterGpu = world.resource(clusterGpuKey);
@@ -881,6 +903,9 @@ export function warmLightCull(world: World): void {
     if (!world.gpu.device) return;
     const device = world.gpu.device;
     const root = world.gpu.root;
+    _clusterGpu.viewMatrices = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+        _lightCull.viewStaging.subarray(slot * 16, slot * 16 + 16),
+    );
     _clusterGpu.compactBound = null;
     _clusterGpu.compactGeneration.fill(-1);
     _clusterGpu.cullBound = null;

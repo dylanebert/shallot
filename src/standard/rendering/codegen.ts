@@ -1,13 +1,9 @@
 // StandardRenderer's shared render constants and relocatable clustered-light WGSL.
 
 import type { View } from "../../core/rendering";
-import {
-    clusterCell,
-    distanceAttenuation,
-    pointLightsWgsl,
-    spotFactor,
-} from "../../core/rendering";
 import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils";
+import { clusterCell } from "./cluster";
+import { distanceAttenuation, pointLightsWgsl, spotFactor } from "./lighting";
 
 // the depth format shared by the color pass's own 4× MSAA depth, the 1× prepass depth, and the shadow
 // map. depth32float is sampleable and the reverse-Z precision win needs a float buffer (an integer depth

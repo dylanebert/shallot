@@ -5,17 +5,16 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { FrameGpu, ViewUniforms } from "../../core/rendering";
+import { MeshQuant } from "../../engine/utils";
+import { clusterCell } from "./cluster";
 import {
-    clusterCell,
     distanceAttenuation,
-    FrameGpu,
     LightingGpu,
     PointLightGpu,
     PointLights,
     spotFactor,
-    ViewUniforms,
-} from "../../core/rendering";
-import { MeshQuant } from "../../engine/utils";
+} from "./lighting";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 
 /**
@@ -106,10 +105,10 @@ export const clusterOf = tgpu.fn(
     d.u32,
 )(() => {
     "use gpu";
-    const near = engineLayout.$.view.cluster.x;
-    const far = engineLayout.$.view.cluster.y;
+    const near = engineLayout.$.view.projection.x;
+    const far = engineLayout.$.view.projection.y;
     let viewZ = 1 / fragCoord.$.w;
-    if (engineLayout.$.view.cluster.z < 0.5) {
+    if (engineLayout.$.view.projection.z < 0.5) {
         viewZ = near + fragCoord.$.z * (far - near);
     }
     return clusterCell(
@@ -118,7 +117,7 @@ export const clusterOf = tgpu.fn(
         viewZ,
         near,
         far,
-        d.u32(engineLayout.$.view.cluster.w),
+        d.u32(engineLayout.$.view.projection.w),
     );
 });
 

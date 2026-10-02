@@ -15,14 +15,12 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { ViewUniforms } from "../../core/rendering";
 import {
     clusterCell,
     LightingGpu,
     PointLightGpu,
     PointLights,
-    ViewUniforms,
-} from "../../core/rendering";
-import {
     pointCasters,
     pointCastersSchema,
     pointShadowRef,
@@ -131,10 +129,10 @@ export const fogKernel = tgpu
         // the froxel lookup along this pixel's ray: tile-xy is the pixel, the z-slice is the step's view
         // depth (matches sear's clusterOf for the same world point, perspective + ortho alike)
         const camView = fogLayout0.$.view;
-        const near = camView.cluster.x;
-        const far = camView.cluster.y;
+        const near = camView.projection.x;
+        const far = camView.projection.y;
         const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
-        const slot = d.u32(camView.cluster.w);
+        const slot = d.u32(camView.projection.w);
 
         // the extinction + in-scatter march, fused on one front-to-back midpoint sweep — see march.ts's
         // header for the accumulator shapes (`trans` / `inScatter`)
