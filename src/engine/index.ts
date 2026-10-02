@@ -80,6 +80,7 @@ export {
     UnsupportedError,
     validateGpu,
 } from "./runtime";
+export { resizeViewport, type Viewport, Viewports } from "./runtime/viewport";
 export {
     clamp,
     composeMat4,

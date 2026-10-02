@@ -27,10 +27,6 @@ const deferred = [
         "physics-boundary: physics leaves transitional",
         "src/transitional/physics/index.ts:1: pending roadmap migration (still red): // Destination: core/physics and standard/physics; owner: physics-boundary.md.",
     ],
-    [
-        "rendering-boundary: rendering does not import input",
-        "src/core/rendering/view.ts:7: sibling import core/rendering → core/input",
-    ],
 ] as const;
 
 function unexpected(findings: readonly string[]): string[] {
@@ -53,6 +49,12 @@ test("repository imports have no violations outside the deferred claims", () => 
 
 test("presentation: Glaze leaves transitional", () => {
     expect(existsSync(resolve(import.meta.dir, "../src/transitional/glaze"))).toBe(false);
+});
+
+test("rendering-boundary: rendering does not import input", () => {
+    expect(
+        repositoryFindings.filter((finding) => finding.includes("core/rendering → core/input")),
+    ).toEqual([]);
 });
 
 test.todo.each(deferred)("%s", (_claim, finding) => {

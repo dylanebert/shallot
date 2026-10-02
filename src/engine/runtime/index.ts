@@ -32,3 +32,5 @@ export {
     type TextureProbeOptions,
 } from "./probe";
 export { ReadbackPool, type ReadbackStamp } from "./readback";
+
+export { resizeViewport, type Viewport, Viewports } from "./viewport";

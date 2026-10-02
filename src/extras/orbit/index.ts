@@ -10,6 +10,7 @@ import {
     type System,
     Transform,
     u8,
+    Viewports,
     vec4,
     type World,
 } from "../../engine";
@@ -262,13 +263,13 @@ const OrbitSystem: System = {
 
                 const worldPerPixel = isOrtho
                     ? (world.storage(Camera).size.get(eid) * 2) /
-                      (input.viewport.get(input.focused)?.cssHeight ?? 0)
+                      (world.resource(Viewports).get(input.focused)?.cssHeight ?? 0)
                     : (2 *
                           distO *
                           Math.tan(
                               (hasCamera ? world.storage(Camera).fov.get(eid) : 60) * Deg2Rad * 0.5,
                           )) /
-                      (input.viewport.get(input.focused)?.cssHeight ?? 0);
+                      (world.resource(Viewports).get(input.focused)?.cssHeight ?? 0);
 
                 // two-finger centroid drag while touching; single-pointer capture delta otherwise —
                 // `Touch.deltaX/deltaY` is only ever populated at two fingers (input/index.ts), so this

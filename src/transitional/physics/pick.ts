@@ -1,3 +1,4 @@
+import { Viewports } from "../../engine";
 // Pick utilities — the layer binding the pose-agnostic raycast to live ECS + backend state: candidate
 // gathering off the installed backend's live pose, world↔body-local conversion for joint anchors, and
 // the two pick rays (first-person centre, screen cursor). Consumers build their own pick/drag state
@@ -102,7 +103,7 @@ export function cursorRay(world: World, cam: number): Ray | null {
     const global = world.storage(GlobalTransform);
     const input = world.resource(Devices);
     if (!input.pointer.hover) return null;
-    const viewport = input.viewport.get(input.focused);
+    const viewport = world.resource(Viewports).get(input.focused);
     return screenToRay(
         input.pointer.x,
         input.pointer.y,

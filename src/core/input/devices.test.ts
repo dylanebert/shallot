@@ -23,6 +23,7 @@ import {
     Time,
     touchPoint,
     UpdatePlayerControlSystem,
+    Viewports,
     visibilityChanged,
     World,
 } from "@dylanebert/shallot";
@@ -553,7 +554,7 @@ test("browser viewport and audio-status producers overwrite application facts wh
         audioContextState(world, "running");
         world.step(0);
         const input = world.resource(Devices);
-        const viewport = input.viewport.get(0);
+        const viewport = world.resource(Viewports).get(0);
         if (
             viewport?.cssWidth !== 100 ||
             viewport.cssHeight !== 50 ||
@@ -920,6 +921,9 @@ test("the normalized pointer coordinate uses the World-scoped viewport row after
     pointerMove(world, 50, 25);
     if (_devices.pointer.normalizedX !== 0.5 || _devices.pointer.normalizedY !== 0.5)
         throw new Error("initial normalized pointer coordinate was wrong");
+    resizeViewport(world, 1, 400, 200, 2);
+    if (_devices.pointer.normalizedX !== 0.5 || _devices.pointer.normalizedY !== 0.5)
+        throw new Error("another canvas changed the normalized pointer coordinate");
     resizeViewport(world, 0, 200, 100, 1);
     if (
         world.resource(Devices).pointer.normalizedX !== 0.25 ||
@@ -934,8 +938,8 @@ test("two Worlds hold independent per-canvas viewport records", () => {
     const second = inputState();
     resizeViewport(first, 0, 320, 180, 1);
     resizeViewport(second, 0, 640, 360, 2);
-    const a = first.resource(Devices).viewport.get(0);
-    const b = second.resource(Devices).viewport.get(0);
+    const a = first.resource(Viewports).get(0);
+    const b = second.resource(Viewports).get(0);
     if (a?.cssWidth !== 320 || a?.cssHeight !== 180 || a?.dpr !== 1)
         throw new Error("first viewport row was changed");
     if (b?.cssWidth !== 640 || b?.cssHeight !== 360 || b?.dpr !== 2)

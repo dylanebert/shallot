@@ -1,6 +1,6 @@
 import { setDefaultTimeout, test } from "bun:test";
-
 import { CEILING } from "../../../scripts/test-tiers";
+import { resizeViewport } from "../../engine";
 
 setDefaultTimeout(CEILING.gpu);
 
@@ -9,7 +9,6 @@ import {
     focusCanvas,
     pointerButton,
     pointerMove,
-    resizeViewport,
     Time,
     Transform,
 } from "@dylanebert/shallot";

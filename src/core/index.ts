@@ -27,11 +27,9 @@ export {
     releasePointerLock,
     requestPointerLock,
     requirePointerLock,
-    resizeViewport,
     setInputEnabled,
     type Touch,
     touchPoint,
-    type Viewport,
     visibilityChanged,
 } from "./input";
 export * from "./mesh";

@@ -2,9 +2,9 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { World } from "../../engine";
+import { resizeViewport, Viewports } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { chunk, spliceNs } from "../../engine/utils";
-import { Devices, resizeViewport } from "../input";
 import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
@@ -353,7 +353,7 @@ const _sizeInputs = new WeakMap<View, Float64Array>();
 export function sizeView(world: World, eid: number, view: View): void {
     const canvas = view.canvas;
     if (!canvas) return;
-    const viewport = world.resource(Devices).viewport.get(view.viewportIndex);
+    const viewport = world.resource(Viewports).get(view.viewportIndex);
     if (!viewport || viewport.cssWidth <= 0 || viewport.cssHeight <= 0) return;
     view.clientWidth = viewport.cssWidth;
     view.clientHeight = viewport.cssHeight;

@@ -1,4 +1,4 @@
-import type { Plugin, System, World } from "../../engine";
+import { type Plugin, type System, Viewports, type World } from "../../engine";
 
 /** Keyboard facts owned by one {@link World}. `pressed`/`released` are the frame latches;
  * `tickPressed`/`tickReleased` are the independent fixed-clock latches. */
@@ -49,9 +49,9 @@ export interface Pointer {
     /** pointer y within the focused canvas, CSS pixels from the top edge */
     y: number;
     /** pointer x normalized to the viewport row, in [0, 1] */
-    normalizedX: number;
+    readonly normalizedX: number;
     /** pointer y normalized to the viewport row, in [0, 1] */
-    normalizedY: number;
+    readonly normalizedY: number;
 }
 
 /** live multi-touch state in one device record. */
@@ -73,13 +73,6 @@ export interface AudioDevice {
     context: AudioContextState;
 }
 
-/** CSS display size and device-pixel ratio for one bound canvas. */
-export interface Viewport {
-    cssWidth: number;
-    cssHeight: number;
-    dpr: number;
-}
-
 /** all device-fed facts for one World. Producers below are the single mutation seam used by both the DOM
  * path and headless callers. The record is created lazily, so a World with no DOM still has devices. */
 export interface Devices {
@@ -88,8 +81,6 @@ export interface Devices {
     /** pointer facts for the same record */
     readonly pointer: Pointer;
     readonly touch: Touch;
-    /** viewport rows keyed by the bound canvas's document/index slot */
-    readonly viewport: ReadonlyMap<number, Viewport>;
     /** true when device producers are suspended and all reads are neutral */
     readonly suspended: boolean;
     /** when true, pointer buttons stay up until `pointer.lock.status` is locked */
@@ -107,7 +98,6 @@ interface DeviceRecord extends Devices {
     centroidX: number | null;
     centroidY: number | null;
     pointerCanvasIndex: number;
-    readonly viewport: Map<number, Viewport>;
 }
 
 /** The host effects used by the browser producer. Controlled callers can provide a declared fixture with the
@@ -167,7 +157,7 @@ interface BrowserAdapter {
 /** This world's input devices; available without DOM or InputPlugin setup. */
 export const Devices: import("../../engine").Resource<Devices> = {
     create(world) {
-        const devices = emptyRecord();
+        const devices = emptyRecord(world);
         world.onDispose(() => {
             devices.requireLock = false;
         });
@@ -176,7 +166,7 @@ export const Devices: import("../../engine").Resource<Devices> = {
 };
 const adapters = new WeakMap<World, BrowserAdapter>();
 
-const DEFAULT_POINTER: Omit<Pointer, "lock"> = {
+const DEFAULT_POINTER: Omit<Pointer, "lock" | "normalizedX" | "normalizedY"> = {
     deltaX: 0,
     deltaY: 0,
     scroll: 0,
@@ -186,16 +176,25 @@ const DEFAULT_POINTER: Omit<Pointer, "lock"> = {
     hover: false,
     x: 0,
     y: 0,
-    normalizedX: 0,
-    normalizedY: 0,
 };
 
 const DEFAULT_TOUCH: Touch = { count: 0, pinchDelta: 0, deltaX: 0, deltaY: 0 };
 const DEFAULT_AUDIO: AudioDevice = { context: "none" };
 const DEFAULT_POINTER_LOCK: PointerLock = { status: "unlocked", refusal: null };
-function emptyRecord(): DeviceRecord {
-    const pointer: Pointer = { ...DEFAULT_POINTER, lock: { ...DEFAULT_POINTER_LOCK } };
-    return {
+function emptyRecord(world: World): DeviceRecord {
+    const pointer: Pointer = {
+        ...DEFAULT_POINTER,
+        lock: { ...DEFAULT_POINTER_LOCK },
+        get normalizedX() {
+            const viewport = world.resource(Viewports).get(devices.pointerCanvasIndex);
+            return unit(pointer.x, viewport?.cssWidth ?? 0);
+        },
+        get normalizedY() {
+            const viewport = world.resource(Viewports).get(devices.pointerCanvasIndex);
+            return unit(pointer.y, viewport?.cssHeight ?? 0);
+        },
+    };
+    const devices: DeviceRecord = {
         keys: {
             held: new Set(),
             pressed: new Set(),
@@ -207,7 +206,6 @@ function emptyRecord(): DeviceRecord {
         audio: { ...DEFAULT_AUDIO },
         pointer,
         touch: { ...DEFAULT_TOUCH },
-        viewport: new Map(),
         suspended: false,
         focused: -1,
         requireLock: false,
@@ -217,6 +215,7 @@ function emptyRecord(): DeviceRecord {
         centroidY: null,
         pointerCanvasIndex: -1,
     };
+    return devices;
 }
 
 function record(world: World): DeviceRecord {
@@ -282,31 +281,6 @@ function unit(value: number, size: number): number {
     return Math.min(Math.max(value / size, 0), 1);
 }
 
-function updateNormalized(d: DeviceRecord, index: number): void {
-    const viewport = d.viewport.get(index);
-    if (!viewport) return;
-    d.pointer.normalizedX = unit(d.pointer.x, viewport.cssWidth);
-    d.pointer.normalizedY = unit(d.pointer.y, viewport.cssHeight);
-}
-
-/** Produce a viewport row from an application or test driver. */
-export function resizeViewport(
-    world: World,
-    index: number,
-    width: number,
-    height: number,
-    dpr: number,
-): void {
-    const d = record(world);
-    const viewport = {
-        cssWidth: Math.max(0, Number.isFinite(width) ? width : 0),
-        cssHeight: Math.max(0, Number.isFinite(height) ? height : 0),
-        dpr: Number.isFinite(dpr) && dpr > 0 ? dpr : 1,
-    };
-    d.viewport.set(index, viewport);
-    if (d.pointerCanvasIndex === index) updateNormalized(d, index);
-}
-
 /** Produce the audio context state supplied by an application or test driver. */
 export function audioContextState(world: World, context: AudioContextState): void {
     record(world).audio.context = context;
@@ -362,7 +336,6 @@ export function pointerMove(
         (d.pointerCanvasIndex >= 0 ? d.pointerCanvasIndex : d.focused);
     if (index >= 0) {
         d.pointerCanvasIndex = index;
-        updateNormalized(d, index);
     }
 }
 
@@ -480,7 +453,6 @@ export function focusCanvas(world: World, canvasIndex = 0): void {
     if (a) a.canvasFocused = true;
     d.focused = canvasIndex;
     d.pointerCanvasIndex = canvasIndex;
-    updateNormalized(d, canvasIndex);
 }
 
 /** Produce a document visibility transition. Hidden visibility has the same release-edge contract as blur. */

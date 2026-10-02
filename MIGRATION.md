@@ -351,7 +351,7 @@ Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics
 
 ## `Inputs` is now `world.resource(Devices)`
 
-The owning App's keys, pointer, touch and viewport replace the process-level `Inputs` facade; `Inputs.mouse` is `pointer`. `setInputEnabled` takes World, and canvas size moved from `mouse` to `viewport`.
+The owning App's keys, pointer and touch replace the process-level `Inputs` facade; `Inputs.mouse` is `pointer`. `setInputEnabled` takes World. Canvas CSS size and device-pixel ratio live in the engine's `world.resource(Viewports)`, keyed by canvas index, not in `Devices`. Import `Viewports`, `Viewport` and `resizeViewport` from the root or `/engine`; `resizeViewport(world, index, width, height, dpr)` writes a row.
 
 ```ts
 // 0.9.5
@@ -366,7 +366,7 @@ setInputEnabled(false);
 const input = world.resource(Devices);
 if (input.keys.held.has("KeyW")) moveForward();
 if (input.keys.pressed.has("Space")) jump();
-const width = input.viewport.get(input.focused)?.cssWidth ?? 0;
+const width = world.resource(Viewports).get(input.focused)?.cssWidth ?? 0;
 setInputEnabled(world, false);
 ```
 
