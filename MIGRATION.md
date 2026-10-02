@@ -435,6 +435,8 @@ Mesh data has its own `/mesh` module. Update mesh imports as follows; these name
 
 Mesh packing and layout helpers not listed here are removed; see the rendering extension export table above.
 
+`Mesh.dynamic`, `Mesh.count` and `Mesh.cast` are removed; they had no effect. Delete them, and add `NotShadowCaster` to an entity that should cast no shadow.
+
 Surface, background and draw contracts belong to `/standard/rendering`. Update imports as follows; contracts re-exported by `/sear/core` use the same mappings:
 
 | 0.9.5 import | 0.10 import |

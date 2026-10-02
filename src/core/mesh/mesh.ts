@@ -49,30 +49,6 @@ export interface Mesh {
     indexCount: number;
     bounds?: [number, number, number, number];
     /**
-     * whether this mesh's geometry changes after registration. `false` (default) =
-     * static: a consumer that builds a per-mesh acceleration structure (the RT-shadow
-     * BLAS) builds it once and reuses it. `true` = the `vertices`/`indices` are rewritten per
-     * frame (a deforming or compute-emitted mesh), so the structure rebuilds every frame. A
-     * mesh whose geometry changes but is left static casts stale shadows. Mark it dynamic.
-     */
-    dynamic?: boolean;
-    /**
-     * optional GPU buffer whose `[0]` is this mesh's *live* index count, ≤ `indexCount`. A
-     * compute-emitting producer that materializes only its live elements supplies it so the
-     * RT-shadow BLAS builds over the live triangle range each frame, not the registered cap:
-     * the GPU-count contract, the count never crossing to the CPU. Omit for a fixed mesh: its
-     * `indexCount` is the live count. Pair with `dynamic: true`.
-     */
-    count?: MeshStorage<d.U32>;
-    /**
-     * whether the RT-shadow caster builds a BLAS for this mesh. `true` (default) = every mesh
-     * casts (the caster auto-builds its BLAS; a producer contributes instances). Set `false` for
-     * a **draw-only** mesh that another mesh already casts for: a producer that materializes a
-     * world-space draw mesh but casts via a deduped object-space copy would otherwise reserve a
-     * redundant slot in the shared caster budget for the draw mesh.
-     */
-    cast?: boolean;
-    /**
      * per-mesh binding overrides: resources scoped to *this* mesh's draws, keyed by the surface's binding
      * name. A surface binding resolves to `mesh.bindings?.[name]` when present, else the published global
      * (`world.gpu.*`). Per-mesh resources are shared by that mesh's draws.
