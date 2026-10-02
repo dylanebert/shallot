@@ -169,11 +169,9 @@ function createTextState(): TextState {
 
 // bitcast scratch + an fnv-1a fold over the layout-affecting fields. The transform is deliberately absent
 // — it flows through the slab, so moving a label leaves the signature (and the glyph buffer) untouched
-function fbits(world: World, v: number): number {
-    const _textState = world.resource(textStateKey);
-
-    _textState.bits[0] = v;
-    return _textState.bitsU[0];
+function fbits(v: number, state: TextState): number {
+    state.bits[0] = v;
+    return state.bitsU[0];
 }
 function fold(h: number, x: number): number {
     return Math.imul(h ^ x, 16777619);
@@ -182,17 +180,19 @@ function fold(h: number, x: number): number {
 // the dirty key: every visible label's layout-affecting state + membership. Equal to last frame ⇒ the
 // glyph buffer still holds the right geometry, so the rebuild + upload are skipped
 function signature(world: World): number {
+    const scratch = world.resource(textStateKey);
+    const text = world.storage(Text);
     let h = 0x811c9dc5 | 0;
     for (const eid of world.query([Text, GlobalTransform])) {
-        if (!world.storage(Text).visible.get(eid)) continue;
+        if (!text.visible.get(eid)) continue;
         h = fold(h, eid);
-        h = fold(h, world.storage(Text).content.get(eid));
-        h = fold(h, world.storage(Text).font.get(eid));
-        h = fold(h, fbits(world, world.storage(Text).fontSize.get(eid)));
-        h = fold(h, fbits(world, world.storage(Text).anchor.x.get(eid)));
-        h = fold(h, fbits(world, world.storage(Text).anchor.y.get(eid)));
-        h = fold(h, world.storage(Text).color.get(eid));
-        h = fold(h, fbits(world, world.storage(Text).opacity.get(eid)));
+        h = fold(h, text.content.get(eid));
+        h = fold(h, text.font.get(eid));
+        h = fold(h, fbits(text.fontSize.get(eid), scratch));
+        h = fold(h, fbits(text.anchor.x.get(eid), scratch));
+        h = fold(h, fbits(text.anchor.y.get(eid), scratch));
+        h = fold(h, text.color.get(eid));
+        h = fold(h, fbits(text.opacity.get(eid), scratch));
     }
     return h;
 }
