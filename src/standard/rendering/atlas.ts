@@ -200,10 +200,6 @@ function createAtlasState(world: World): AtlasState {
     };
 }
 
-function _atlasState(world: World): AtlasState {
-    return world.resource(atlasStateKey);
-}
-
 /** Create this world's shadow-atlas resources during StandardRenderer initialization. */
 export function initializeShadowAtlasState(world: World): void {
     world.resource(atlasStateKey);

@@ -151,10 +151,6 @@ function createMeshPreprocessState(): MeshPreprocessState {
     };
 }
 
-function _meshPreprocessState(world: World): MeshPreprocessState {
-    return world.resource(meshPreprocessKey);
-}
-
 export function initializeMeshPreprocess(world: World): void {
     world.resource(meshPreprocessKey);
     const table = meshInstanceTable(world);

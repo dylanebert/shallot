@@ -259,15 +259,6 @@ const finalizeFs = tgpu.fragmentFn({
     return d.vec4f(val, val, val, val);
 });
 
-/** the emitted SDF-pass WGSL — the device-free structural seam its test resolves.
- *  @internal */
-export function sdfWgsl(): { distance: string; finalize: string } {
-    return {
-        distance: tgpu.resolve([distanceVs, distanceFs], { names: "strict" }),
-        finalize: tgpu.resolve([finalizeVs, finalizeFs], { names: "strict" }),
-    };
-}
-
 // Each World caches one pipeline pair from its own TypeGPU root. Its font generators share the pair;
 // another World gets its own pipelines even when both Worlds use the same GPUDevice.
 interface SdfPipelines {

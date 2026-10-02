@@ -160,10 +160,6 @@ function createStandardRendererState(): StandardRendererState {
     };
 }
 
-function _standardRendererState(world: World): StandardRendererState {
-    return world.resource(standardRendererStateKey);
-}
-
 /**
  * marker selecting StandardRenderer as the active renderer on a Camera entity. A camera carrying it renders through
  * standard's opaque and transparent records, plus core's opt-in prepass lanes requested by

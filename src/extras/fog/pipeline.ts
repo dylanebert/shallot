@@ -227,8 +227,3 @@ export const fogKernel = tgpu
     // group-0 binding is keyed "fog" (the config uniform); naming both the same forces a confusing
     // collision-avoidance rename on the binding instead
     .$name("fogMarch");
-
-/** the emitted fog-march WGSL — the device-free structural seam the fog test resolves. @internal */
-export function fogWgsl(): string {
-    return tgpu.resolve([fogKernel], { names: "strict" });
-}

@@ -39,7 +39,7 @@ const PI = Math.PI;
  * the `Fog` uniform's layout, the one source of truth for it: `color.rgb` is the linear haze color, `march`
  * is (density, heightBase, heightFalloff, jitter), `extra` is (steps, anisotropy g, absorption, gain). f32
  * throughout — the shader reads `extra.x` as `u32`. `FOG_BYTES` / `FOG_FLOATS` / `packFog`'s write indices
- * all derive from it, and {@link fogStructWgsl} emits it as the WGSL `Fog` struct.
+ * all derive from it.
  */
 export const FogGpu = d
     .struct({
@@ -71,10 +71,6 @@ export const FOG_PARAMS = {
     march: at(FogGpu, (f) => f.march),
     extra: at(FogGpu, (f) => f.extra),
 } as const;
-
-/** the WGSL `Fog` struct, relocatable so the production march and the fog probe declare the same uniform
- *  {@link packFog} packs. Splice **before** that declaration. */
-export const fogStructWgsl = chunk("fogStructWgsl", [FogGpu], spliceNs);
 
 // ---- extinction: the midpoint march + the haze composite + the per-pixel ray setup ----
 

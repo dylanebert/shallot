@@ -1,6 +1,6 @@
 // The canonical typed engine substrate: the pass-invariant group-0 layout every typed standard pipeline binds,
 // plus `lit` / `litPbr` / `lightFactor` / `pointFactor` / `clusterOf` and their four private seams, authored
-// once against that layout. `engineScaffoldWgsl()` is the device-free structural seam for those same refs.
+// once against that layout.
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -256,10 +256,3 @@ export const litPbr = tgpu.fn(
     }
     return radiance;
 });
-
-/** the typed engine scaffold's emitted WGSL: `clusterOf` / `pointFactor` / `lightFactor` / `lit` /
- *  `litPbr` + the four `var<private>` seams, self-contained (own resolve, not the shared `spliceNs`) —
- *  device-free structural seam for `engine.test.ts`. */
-export function engineScaffoldWgsl(): string {
-    return tgpu.resolve([clusterOf, pointFactor, lightFactor, lit, litPbr], { names: "strict" });
-}

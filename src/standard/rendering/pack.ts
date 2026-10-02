@@ -276,16 +276,3 @@ export function scatterKernel(surfaceCount: number) {
         })
         .$name("meshPreprocessScatter");
 }
-
-/** the emitted pack WGSL — the device-free structural seam the pack tests resolve. @internal */
-export function packWgsl(surfaceCount: number): {
-    count: string;
-    scan: string;
-    scatter: string;
-} {
-    return {
-        count: tgpu.resolve([countKernel(surfaceCount)], { names: "strict" }),
-        scan: tgpu.resolve([scanKernel()], { names: "strict" }),
-        scatter: tgpu.resolve([scatterKernel(surfaceCount)], { names: "strict" }),
-    };
-}

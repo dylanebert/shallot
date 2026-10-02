@@ -87,11 +87,6 @@ export const Meshes: import("../../engine").Resource<Registry<Mesh>> = {
     create: (world) => world.resource(meshResourcesKey).meshes,
 };
 
-/** bytes per vertex in the **f32 staging array** producers fill (8 floats × 4 = 32 B). The lossless
- *  authoring layout. {@link quantizeMeshes} packs it to the 16 B GPU main stream + 8 B position stream
- * ; a GPU producer writes those directly via `posQuantPackWgsl()`. */
-export const VERTEX_STRIDE = 32;
-
 /** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
 export const VERTEX_FLOATS = 8;
 

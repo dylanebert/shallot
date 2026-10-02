@@ -398,12 +398,6 @@ const gridKernel = tgpu.computeFn({
     gridLayout.$.aabbs[base + 1] = d.vec4f(mx.x, mx.y, -dNear, 0);
 });
 
-/** the emitted cluster-AABB WGSL — the device-free structural seam its test resolves.
- *  @internal */
-export function gridWgsl(): string {
-    return tgpu.resolve([gridKernel], { names: "strict" });
-}
-
 /**
  * rebuilds the cluster AABB buffer when any active view's projection changed
  * since the last build (the staging prefix is the dirty signal: GlobalTransform changes
@@ -757,15 +751,6 @@ const cullKernel = tgpu.computeFn({
         cullLayout.$.lights.grid[slot * CLUSTER_COUNT + cluster] = d.vec2u(POOL_HEADER + off, take);
     }
 });
-
-/** the emitted light compact + cull WGSL — the device-free structural seam their tests resolve.
- *  @internal */
-export function lightCullWgsl(): { compact: string; cull: string } {
-    return {
-        compact: tgpu.resolve([compactKernel()], { names: "strict" }),
-        cull: tgpu.resolve([cullKernel], { names: "strict" }),
-    };
-}
 
 // Keep bind groups until a table buffer generation changes; row membership alone never rebuilds one.
 function bindCompact(world: World): { pipeline: GPUComputePipeline; group: GPUBindGroup } {

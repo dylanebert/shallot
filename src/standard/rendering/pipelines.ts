@@ -4,7 +4,7 @@ import { materialTable } from "./material";
 // point + cascade pipeline binds group 1 against. `forward.ts` owns bind-group *resolution* per draw
 // (`record()`) — this file compiles pipelines and caches them by surface name and spec identity.
 
-import type { Configurable, TgpuBindGroupLayout, TgpuRenderPipeline } from "typegpu";
+import type { TgpuBindGroupLayout, TgpuRenderPipeline } from "typegpu";
 import tgpu from "typegpu";
 import type { AnyData, AnyWgslData } from "typegpu/data";
 import * as d from "typegpu/data";
@@ -2238,128 +2238,10 @@ function compileTypedShadow(
     return { point, cascade };
 }
 
-// the same receiver stub the depth pipelines bind, so the differential seams emit the pipelines' text
-const stubReceiver = (cfg: Configurable) => cfg.with(pointShadowSlot, pointShadowStub);
-
-/** the point/cascade shadow-atlas pipelines' emitted vs+fs WGSL for one `Surface` — device-free because
- * `typedShadowVs`/`typedShadowFs` are pure resolve inputs. */
-export function shadowWgsl(
-    surface: AnySurface,
-    capacity: number,
-): { point: string; cascade: string } {
-    const resolved = surface;
-    const clip = resolved.blend === "clip";
-    const varying = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
-    return {
-        point: tgpu.resolve(
-            clip
-                ? [
-                      varying
-                          ? varyingShadowVs(
-                                resolved,
-                                pointLayout,
-                                pointAtlasSize(),
-                                false,
-                                capacity,
-                            )
-                          : clipShadowVs(resolved, pointLayout, pointAtlasSize(), false, capacity),
-                      varying ? varyingShadowFs(resolved) : clipShadowFs(resolved),
-                  ]
-                : [
-                      typedShadowVs(resolved, pointLayout, pointAtlasSize(), false, capacity),
-                      typedShadowFs,
-                  ],
-            { names: "strict", config: stubReceiver },
-        ),
-        cascade: tgpu.resolve(
-            clip
-                ? [
-                      varying
-                          ? varyingShadowVs(
-                                resolved,
-                                cascadeLayout,
-                                cascadeAtlasSize(sunResolution(), sunCascades()),
-                                true,
-                                capacity,
-                            )
-                          : clipShadowVs(
-                                resolved,
-                                cascadeLayout,
-                                cascadeAtlasSize(sunResolution(), sunCascades()),
-                                true,
-                                capacity,
-                            ),
-                      varying ? varyingShadowFs(resolved) : clipShadowFs(resolved),
-                  ]
-                : [
-                      typedShadowVs(
-                          resolved,
-                          cascadeLayout,
-                          cascadeAtlasSize(sunResolution(), sunCascades()),
-                          true,
-                          capacity,
-                      ),
-                      typedShadowFs,
-                  ],
-            { names: "strict", config: stubReceiver },
-        ),
-    };
-}
-
 /** the compiled typed pipeline(s) for a `Surfaces` entry, or `undefined` until
  * {@link compileSurface} has run for it. */
 export function getCompiledSurface(world: World, name: string): CompiledSurface | undefined {
     return pipelineState(world).compiledTyped.get(name);
-}
-
-/** the color/transparent pipeline's emitted vs+fs WGSL for one `Surface` — device-free; both pipeline
- * variants share these pure resolve inputs. */
-export function surfaceWgsl(surface: AnySurface): string {
-    const resolved = surface;
-    const hasVaryings = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
-    const vertex = hasVaryings ? typedVaryingVs(resolved) : typedColorVs(resolved);
-    const fragment = hasVaryings ? typedVaryingFs(resolved) : typedColorFs(resolved);
-    return tgpu.resolve([vertex, fragment], { names: "strict" });
-}
-
-/** the typed prepass pipelines' emitted WGSL for one `Surface` — device-free (`typedPrepassVs`/
- * `typedTagFs` are pure resolve inputs), the structural seam `pipelines.test.ts`'s differential resolves
- * against. `""` is the position-only depth pipeline (vertex-only, no fragment); `"tag"` the id-lane pair. */
-export function prepassWgsl(surface: AnySurface): { "": string; tag: string } {
-    const resolved = surface;
-    const clip = resolved.blend === "clip";
-    const varying = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
-    const authoredTag = !!resolved.tag;
-    return {
-        "": tgpu.resolve(
-            clip
-                ? [
-                      varying ? typedVaryingVs(resolved, true) : typedColorVs(resolved, true),
-                      varying ? varyingClipFs(resolved, false) : typedClipFs(resolved, false),
-                  ]
-                : [typedPrepassVs(resolved)],
-            {
-                names: "strict",
-                config: stubReceiver,
-            },
-        ),
-        tag: tgpu.resolve(
-            authoredTag
-                ? [
-                      varying
-                          ? typedVaryingVs(resolved, true, "PrepassTag")
-                          : typedColorVs(resolved, true, "PrepassTag"),
-                      varying ? typedVaryingTagFs(resolved) : typedAuthoredTagFs(resolved),
-                  ]
-                : clip
-                  ? [
-                        varying ? typedVaryingVs(resolved, true) : typedColorVs(resolved, true),
-                        varying ? varyingClipFs(resolved, true) : typedClipFs(resolved, true),
-                    ]
-                  : [typedTagVs(resolved), typedTagFs(resolved)],
-            { names: "strict", config: stubReceiver },
-        ),
-    };
 }
 
 // ---- the typed `Backgrounds` contract's pipeline builder (the Backgrounds bindings lock):
@@ -2518,11 +2400,6 @@ export function getBackground(
         return undefined;
     }
     return compiled;
-}
-
-/** the background's emitted vs+fs WGSL — device-free (`typedBgVs`/`typedBgFs` are pure resolve inputs). */
-export function backgroundWgsl(bg: AnyBackground): string {
-    return tgpu.resolve([typedBgVs, typedBgFs(bg)], { names: "strict" });
 }
 
 /** Compile every surface and background at warm, before the first draw. */

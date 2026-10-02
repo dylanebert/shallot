@@ -1017,7 +1017,7 @@ const _pv = new Float32Array(16);
 const _tileMat = new Float32Array(16);
 
 /** the per-combo **tile** viewProjs the renderer uploads each shadowed frame, dense (one per active
- * combo, the first {@link pointComboCount} entries valid). Each carries its atlas tile placement folded in
+ * combo, the first active-combo-count entries valid). Each carries its atlas tile placement folded in
  * ({@link tileTransform}), so the atlas VS emits `tileVP·world` with no manual divide. Filled by
  * {@link updatePointShadows} */
 export function pointFaceVP(world: World): Float32Array {
@@ -1026,7 +1026,7 @@ export function pointFaceVP(world: World): Float32Array {
 
 /** the per-combo `(casterSlot, face, _, _)` the atlas VS reads (keyed by the re-gathered instance's combo
  * index) to index its tile rect (`slot·6 + face`). One `vec4<u32>` per combo, the first
- * {@link pointComboCount} valid */
+ * active-combo-count valid */
 export function pointComboMeta(world: World): Uint32Array {
     return shadows(world).comboMeta;
 }
@@ -1038,14 +1038,8 @@ export function pointTileRects(world: World): Float32Array {
     return shadows(world).tileRects;
 }
 
-/** the number of active combos this frame (Σ over casters of 6 for a point, 1 for a spot): the count of
- * combo view slots the pack culls into, and the re-gather's combo dimension */
-export function pointComboCount(world: World): number {
-    return shadows(world).comboCount;
-}
-
 /** the pooled combo cameras' eids, one per active combo (combo-major: each caster's faces/cone in turn,
- * the first {@link pointComboCount} valid). Each is a depth-only frustum-culled view slot: the per-combo
+ * the first active-combo-count valid). Each is a depth-only frustum-culled view slot: the per-combo
  * cull. An oracle reads each combo's `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the
  * pack's per-combo survivor counts to a CPU frustum test (the combo's frustum is what the pack culls
  * against, == the pre-fold proj·view the atlas VS folds the tile into). */

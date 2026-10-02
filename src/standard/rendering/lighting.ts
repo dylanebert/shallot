@@ -16,8 +16,7 @@ import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/
  * (the fog march) sizes its `lighting` binding to match. */
 export const LIGHTING_UNIFORM_SIZE = 48;
 
-/** the `Lighting` UBO's typegpu schema — the single source of truth for the layout; standard's own pipeline
- * splices its emitted text ({@link lightingWgsl}) rather than a hand-written struct. */
+/** the `Lighting` UBO's typegpu schema — the single source of truth for the layout. */
 export const LightingGpu = d
     .struct({
         ambientColor: d.vec4f,
@@ -25,11 +24,6 @@ export const LightingGpu = d
         sunColor: d.vec4f,
     })
     .$name("Lighting");
-
-/** the `Lighting` UBO's WGSL struct text, spliced by standard for every surface and by any relocatable
- * consumer that binds `lighting`; emitted from {@link LightingGpu} under strict naming so the struct
- * text and the schema can never drift. */
-export const lightingWgsl = chunk("lightingWgsl", [LightingGpu], spliceNs);
 
 /**
  * GPU Lighting UBO + CPU staging mirror, written once per frame by

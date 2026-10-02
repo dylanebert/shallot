@@ -4,7 +4,6 @@ import * as std from "typegpu/std";
 import type { World } from "../../engine";
 import { resizeViewport, Viewports } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
-import { chunk, spliceNs } from "../../engine/utils";
 import { Camera, Resolution } from "./camera";
 import { RenderContext } from "./render";
 
@@ -12,8 +11,7 @@ import { RenderContext } from "./render";
  * the per-camera `ViewUniforms` UBO schema — the single source of truth for both sides of the layout
  * (`d.sizeOf` / `d.memoryLayoutOf` size {@link VIEW_BYTES} and every CPU staging write, `view.test.ts`
  * red-proven against a field reorder, the `Step` precedent). One instance per shading slot lives in its
- * own static uniform buffer ({@link RenderContext.viewBuffers}); a raw-WGSL splice site (standard's background)
- * still needs the struct text, so {@link viewWgsl} resolves it lazily under strict naming.
+ * own static uniform buffer ({@link RenderContext.viewBuffers}).
  */
 export const ViewUniforms = d
     .struct({
@@ -62,11 +60,6 @@ export const VIEW_UNIFORM_SIZE = VIEW_STRIDE * MAX_SLOTS;
  */
 export const VIEW_BYTES = d.sizeOf(ViewUniforms);
 
-/** the per-camera `ViewUniforms` UBO's WGSL struct text, spliced by standard's background (raw-layout this
- * stage) and any other relocatable screen-space consumer that reads `view` by name; emitted under
- * strict naming from {@link ViewUniforms} so the struct text and the schema can never drift. */
-export const viewWgsl = chunk("viewWgsl", [ViewUniforms], spliceNs);
-
 /**
  * Linear→sRGB encode (IEC 61966-2-1) for presentation into a non-sRGB target.
  * Tonemapping and replacement passes encode exactly once. The per-channel scalar twin is
@@ -83,10 +76,6 @@ export const linearToSrgb3 = tgpu.fn(
     const hi = std.sub(std.mul(1.055, std.pow(std.max(c, d.vec3f(0)), d.vec3f(1 / 2.4))), 0.055);
     return std.select(hi, lo, std.le(c, d.vec3f(0.0031308)));
 });
-
-/** WGSL `linearToSrgb3(c: vec3f) -> vec3f`: the present-gamma encode a final pass writing the
- *  swapchain splices. */
-export const linearToSrgbWgsl = chunk("linearToSrgbWgsl", [linearToSrgb3], spliceNs);
 
 /**
  * a camera's per-frame view state. `framebuffer` + `present` + `slot` are set by `BeginFrameSystem`
@@ -193,10 +182,6 @@ function createViewResources(world: World): ViewResources {
         resources.scratch.clear();
     });
     return resources;
-}
-
-function _viewResources(world: World): ViewResources {
-    return world.resource(viewResourcesKey);
 }
 
 /** Create this world's view and target registries during RenderingPlugin initialization. */

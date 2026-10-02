@@ -104,7 +104,6 @@ const createSpriteGpuState = (): SpriteGpuState => ({
     quadBase: 0,
     sig: -1,
 });
-const _spriteGpuState = (world: World) => world.resource(spriteGpuKey);
 
 function rebuild(world: World, device: GPUDevice): void {
     const _spriteGpu = world.resource(spriteGpuKey);

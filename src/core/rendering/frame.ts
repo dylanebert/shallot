@@ -1,10 +1,8 @@
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
 
-import { chunk, spliceNs } from "../../engine/utils";
-
 /** the per-frame `Frame` UBO schema — the single source of truth for both sides of the layout (the
- * `View`/`Step` precedent): the emitted WGSL struct ({@link frameWgsl}) and the CPU staging write
+ * `View`/`Step` precedent): the shader binding and the CPU staging write
  * ({@link writeFrame}, via `d.memoryLayoutOf`) both derive from it, so reordering a field can't leave one
  * side stamping the old offsets. Named `FrameGpu` (not `Frame`) because the CPU-side buffer + staging
  * singleton already owns that identifier ({@link Frame} below) — the `LightingGpu` precedent. */
@@ -27,11 +25,6 @@ const GLOBAL_TRANSFORM_PARAMS_F32 =
 const TIME_F32 = d.memoryLayoutOf(FrameGpu, (s) => s.time).offset / 4;
 const DT_F32 = d.memoryLayoutOf(FrameGpu, (s) => s.dt).offset / 4;
 const FRAME_U32 = d.memoryLayoutOf(FrameGpu, (s) => s.frame).offset / 4;
-
-/** the per-frame `Frame` UBO's WGSL struct text, spliced by standard for every surface and by any
- * relocatable consumer that binds `frame`; emitted from {@link FrameGpu} under strict naming so the
- * struct text and the schema can never drift. */
-export const frameWgsl = chunk("frameWgsl", [FrameGpu], spliceNs);
 
 /**
  * GPU Frame UBO + CPU staging mirror, written once per frame by {@link writeFrame}

@@ -93,12 +93,6 @@ function blitPipeline(world: World, format: GPUTextureFormat): TgpuRenderPipelin
     return pipeline;
 }
 
-/** the emitted mipmap-blit WGSL — the device-free structural seam its test resolves.
- *  @internal */
-export function blitWgsl(): string {
-    return tgpu.resolve([blitVs, blitFs], { names: "strict" });
-}
-
 // fill mips 1..levels of ONE layer by blitting from the level above, one render pass per level, one submit.
 // Sampling decodes sRGB→linear and the store re-encodes, so the downsample averages in linear (gamma-correct).
 // Per-layer so a staged builder can budget a layer's blit chain as one frame's unit (the union upload spread).

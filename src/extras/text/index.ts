@@ -189,10 +189,6 @@ function createTextState(): TextState {
     };
 }
 
-function _textState(world: World): TextState {
-    return world.resource(textStateKey);
-}
-
 // bitcast scratch + an fnv-1a fold over the layout-affecting fields. The transform is deliberately absent
 // — it flows through the slab, so moving a label leaves the signature (and the glyph buffer) untouched
 function fbits(world: World, v: number): number {

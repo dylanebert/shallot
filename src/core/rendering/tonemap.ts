@@ -1,7 +1,6 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, spliceNs } from "../../engine/utils";
 
 /** Tonemapping operators. AgX retains Glaze's analytic Filament/three.js fit. */
 export const TonemappingMethod = {
@@ -236,5 +235,3 @@ export const tonemap = tgpu.fn(
     if (mode === 6) return tmSomewhatBoring(c);
     return tmNeutral(c);
 });
-
-export const tonemapWgsl = chunk("tonemapWgsl", [tonemap], spliceNs);

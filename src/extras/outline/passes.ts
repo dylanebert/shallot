@@ -143,13 +143,6 @@ export function maskFragment(layout: MaskLayout, occlude: boolean) {
         .$name(occlude ? "maskFsOcclude" : "maskFs");
 }
 
-/** the emitted mask WGSL for one variant — the device-free structural seam the outline test resolves.
- *  @internal */
-export function maskWgsl(occlude: boolean): string {
-    const layout = occlude ? maskLayoutOcclude : maskLayoutPlain;
-    return tgpu.resolve([maskVertex(layout), maskFragment(layout, occlude)], { names: "strict" });
-}
-
 /** compute workgroup tile — 8×8 = 64 threads, matching fog's screen-space composite @internal */
 export const WORKGROUP = 8;
 
@@ -253,12 +246,3 @@ export const compositeKernel = tgpu.computeFn({
     const band = std.select(0, alpha, width > 0);
     std.textureStore(compositeLayout.$.output, p, d.vec4f(std.mix(base, a.xyz, band), 1));
 });
-
-/** the emitted JFA + composite WGSL — the device-free structural seam the outline tests resolve.
- *  @internal */
-export function outlineWgsl(): { jfa: string; composite: string } {
-    return {
-        jfa: tgpu.resolve([fullscreenVs, jfaFs], { names: "strict" }),
-        composite: tgpu.resolve([compositeKernel], { names: "strict" }),
-    };
-}
