@@ -24,6 +24,7 @@ test("standard physics exports consumed world operations and profiling without s
         "PhysicsWorld",
         "StandardPhysicsPlugin",
         "StepPhysicsSystem",
+        "clipVector",
         "hashPhysics",
         "physicsWorld",
         "readBody",
@@ -31,6 +32,7 @@ test("standard physics exports consumed world operations and profiling without s
         "setKinematic",
         "setVelocity",
         "snapshotPhysics",
+        "solvePlanes",
         "zeroStepProfile",
     ]);
 });
