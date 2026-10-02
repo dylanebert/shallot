@@ -7,41 +7,34 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { Transform } from "../../engine";
 import { Fog, FogPlugin } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";
+import { DEFAULT_PLUGINS } from "../../standard";
 import {
     BackgroundContext,
     backgroundLayout,
     CameraBackground,
-    PartPlugin,
     registerBackground,
     StandardRenderer,
-    StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { Glaze, GlazePlugin } from "../../transitional/glaze";
+import { Glaze } from "../../transitional/glaze";
 import { MeshInstance } from "../mesh";
 import {
     AmbientLight,
     attachTexture,
     Camera,
-    CameraMode,
     captureTexture,
     DepthPrepass,
     DirectionalLight,
     PickingPrepass,
-    RenderingPlugin,
+    PointLight,
+    Spot,
+    Volumetric,
 } from "./index";
 
 setDefaultTimeout(CEILING.node);
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
-        plugins: [
-            RenderingPlugin,
-            StandardRenderingPlugin,
-            PartPlugin,
-            FogPlugin,
-            OutlinePlugin,
-            GlazePlugin,
-        ],
+        plugins: [...DEFAULT_PLUGINS, FogPlugin, OutlinePlugin],
     },
 ]);
 
@@ -49,7 +42,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     const { world } = subjects()[0];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-    world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 4, clearColor: 0x204060 });
+    world.add(camera, Camera, { clearColor: 0x204060 });
     world.add(camera, StandardRenderer);
     world.add(camera, Glaze);
     const layout = backgroundLayout({});
@@ -67,13 +60,32 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     world.add(camera, CameraBackground, { name: id });
     attachTexture(world, camera, { width: 64, height: 64 });
     const mesh = world.create();
-    world.add(mesh, Transform, { translation: [0.2, 0, 1, 0] });
+    world.add(mesh, Transform);
     world.add(mesh, MeshInstance);
     world.add(mesh, Outline, { width: 3, color: [0.1, 1, 0.2, 1] });
-    world.add(world.create(), AmbientLight, { intensity: 0.4 });
-    world.add(world.create(), DirectionalLight);
-    world.add(world.create(), Fog, { density: 0.1, jitter: 0 });
+    const edgeMesh = world.create();
+    world.add(edgeMesh, Transform, {
+        translation: [-1.2, -0.55, 0.2, 0],
+        rotation: [0.0996005, 0.199201, 0, 0.974884],
+        scale: [0.65, 0.65, 0.65, 0],
+    });
+    world.add(edgeMesh, MeshInstance);
+    world.add(world.create(), AmbientLight, { intensity: 0.2 });
+    const sun = world.create();
+    world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });
+    world.add(sun, Volumetric);
+    const point = world.create();
+    world.add(point, Transform, { translation: [1, 1, 2, 0] });
+    world.add(point, PointLight, { intensity: 8, range: 10, color: 0xff8844 });
+    world.add(point, Volumetric);
+    const spot = world.create();
+    world.add(spot, Transform, { translation: [-1, 1, 3, 0] });
+    world.add(spot, PointLight, { intensity: 12, range: 10, color: 0x4488ff });
+    world.add(spot, Spot, { inner: 20, outer: 40 });
+    world.add(spot, Volumetric);
+    world.add(world.create(), Fog);
     const directory = process.env.SHALLOT_TARGET_FRAMES;
+    const frames: Uint8ClampedArray[][] = [[], []];
     for (const aa of [0, 1]) {
         world.storage(Camera).antialias.set(camera, aa);
         for (const lanes of [0, 1, 2, 3]) {
@@ -89,11 +101,16 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
             world.step(0);
             world.step(0);
             const { rgba } = await captureTexture(world, camera);
+            frames[aa][lanes] = rgba;
             expect(await world.gpu.device.popErrorScope()).toBeNull();
             const colors = new Set<string>();
-            for (let i = 0; i < rgba.length; i += 4)
+            let outlinePixels = 0;
+            for (let i = 0; i < rgba.length; i += 4) {
                 colors.add(`${rgba[i]},${rgba[i + 1]},${rgba[i + 2]}`);
-            expect(colors.size).toBeGreaterThan(1);
+                if (rgba[i + 1] > rgba[i] && rgba[i + 1] > rgba[i + 2]) outlinePixels++;
+            }
+            expect(colors.size).toBeGreaterThan(200);
+            expect(outlinePixels).toBeGreaterThan(20);
             if (directory) {
                 await mkdir(directory, { recursive: true });
                 const path = `${directory}/${aa}-${lanes}.rgba`;
@@ -101,8 +118,11 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
                 else expect(Buffer.from(rgba).equals(await readFile(path))).toBe(true);
             }
             console.log(
-                `targets AA=${aa} lanes=${lanes}: ${colors.size} distinct RGB values${directory ? (process.env.SHALLOT_RECORD_TARGET_FRAMES ? "; frame recorded" : "; matches parent bytes") : ""}`,
+                `targets AA=${aa} lanes=${lanes}: ${colors.size} distinct RGB values; ${outlinePixels} green outline pixels${directory ? (process.env.SHALLOT_RECORD_TARGET_FRAMES ? "; frame recorded" : "; matches parent bytes") : ""}`,
             );
         }
+    }
+    for (let lanes = 0; lanes < 4; lanes++) {
+        expect(Buffer.from(frames[0][lanes]).equals(Buffer.from(frames[1][lanes]))).toBe(false);
     }
 });
