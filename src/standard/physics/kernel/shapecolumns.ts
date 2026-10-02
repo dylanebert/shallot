@@ -180,7 +180,7 @@ export class ShapeStore {
 
     /** Write authored type, list link and geometry while preserving the kernel attachment and finalize
      * output lanes. A material list is published before this write on create/reuse. */
-    write(shape: Shape): void {
+    write(world: WorldState, shape: Shape): void {
         const u = this.shapeU;
         const f = this.shapeF;
         const o = shape.id * SHAPE_STRIDE;
@@ -218,7 +218,23 @@ export class ShapeStore {
             f[g + 3] = box.upperBound.x;
             f[g + 4] = box.upperBound.y;
             f[g + 5] = box.upperBound.z;
+        } else if (shape.mesh) {
+            f[g] = shape.mesh.scale.x;
+            f[g + 1] = shape.mesh.scale.y;
+            f[g + 2] = shape.mesh.scale.z;
         }
+        this.writeGeometryReference(world, shape);
+    }
+
+    /** Refresh a shape's pool reference without touching its material or finalize lanes. */
+    writeGeometryReference(world: WorldState, shape: Shape): void {
+        const o = shape.id * SHAPE_STRIDE + S_GEO_REFERENCE;
+        if (shape.hull) this.shapeU[o] = shape.hull.geoIndex;
+        else if (shape.mesh) this.shapeU[o] = world.meshDatabase.get(shape.mesh.data)!.geoIndex;
+        else if (shape.heightField)
+            this.shapeU[o] = world.heightFieldDatabase.get(shape.heightField)!.geoIndex;
+        else if (shape.compound)
+            this.shapeU[o] = world.compoundDatabase.get(shape.compound)!.geoIndex;
     }
 
     /** Patch shape `shapeId`'s `next` slot after a shape-list unlink. */
@@ -352,7 +368,7 @@ export function writeShape(world: WorldState, shape: Shape): void {
         world.bodyStore.refreshViews();
     }
     world.shapeStore.refreshViews();
-    world.shapeStore.write(shape);
+    world.shapeStore.write(world, shape);
 }
 
 /**

@@ -1,5 +1,5 @@
 //! Static geometry columns: hull topology for narrowphase and mesh, height-field and compound
-//! records for queries, uploaded on shape-set changes rather than per step. Wasm-only — the pools alias linear memory, and
+//! records for queries, uploaded on geometry-set changes rather than per step. Wasm-only — the pools alias linear memory, and
 //! `hull_view` reinterprets them into the borrowed `HullData` view (kernel/src/hull.rs) the narrowphase
 //! consumes. Native `cargo test` drives `HullData` over owned `Vec`s instead.
 //!
@@ -10,12 +10,12 @@
 //! [body_end, fataabb_end)     persistent fat-AABB column (fataabb.rs)
 //! [fataabb_end, shape_end)    persistent shape column (shapes.rs)
 //! [shape_end, manifold_end)   persistent manifold columns (manifolds.rs)
-//! [manifold_end, geo_end)     static geometry pools (persist across steps; TS rewrites on a shape-set change)
+//! [manifold_end, geo_end)     static geometry pools (persist across steps; TS rewrites on a geometry-set change)
 //! [geo_end, ...)              per-step solver columns (arena::reserve lays these out from geo_end)
 //! ```
 //! The geometry region sits after the manifold region and before the per-step solver columns, so a
 //! `reserve` never overwrites it; it re-uploads when the manifold region grows and shifts it.
-//! TS is the source of truth: on a shape-set change it re-uploads the resident world's geometry compactly, so growth and
+//! TS is the source of truth: on a geometry-set change it re-uploads the resident world's geometry compactly, so growth and
 //! renumbering need no in-place preservation here. A body or fat-AABB region grow below shifts this
 //! region up too — `relocate` rebases its offsets (the caller memmoves the bytes; no re-upload).
 

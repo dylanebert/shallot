@@ -66,7 +66,15 @@ import {
 } from "../kernel/shapecolumns";
 import { type Body, getBodyTransformQuick, updateBodyMassData } from "../world/body";
 import { createSensor, destroySensor, type Visitor } from "../world/sensor";
-import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "../world/world";
+import {
+    addCompoundToDatabase,
+    addGeometryToDatabase,
+    addHullToDatabase,
+    removeCompoundFromDatabase,
+    removeGeometryFromDatabase,
+    removeHullFromDatabase,
+    type WorldState,
+} from "../world/world";
 import {
     type CompoundData,
     collideMoverAndCompound,
@@ -743,10 +751,18 @@ export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void
 }
 
 export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
-    world.geometryDirty = true;
     if (shape.type === ShapeType.Hull) {
         removeHullFromDatabase(world, shape.hull as HullData);
         shape.hull = undefined;
+    } else if (shape.mesh) {
+        removeGeometryFromDatabase(world, world.meshDatabase, shape.mesh.data);
+        shape.mesh = undefined;
+    } else if (shape.heightField) {
+        removeGeometryFromDatabase(world, world.heightFieldDatabase, shape.heightField);
+        shape.heightField = undefined;
+    } else if (shape.compound) {
+        removeCompoundFromDatabase(world, shape.compound);
+        shape.compound = undefined;
     }
     world.shapeStore.destroyMaterials(world, shape);
     shape.materials = null;
@@ -789,22 +805,21 @@ function createShapeInternal(
             shape.hull = addHullToDatabase(world, geometry as HullData);
             break;
         case ShapeType.Mesh:
-            // The mesh data is caller-owned and shared (not cloned into a database like hulls).
+            addGeometryToDatabase(world, world.meshDatabase, geometry as MeshData);
             shape.mesh = { data: geometry as MeshData, scale: safeScale(scale) };
             break;
         case ShapeType.HeightField:
-            // Height-field data is caller-owned and shared (no clone; scale is baked into the data).
+            addGeometryToDatabase(world, world.heightFieldDatabase, geometry as HeightFieldData);
             shape.heightField = geometry as HeightFieldData;
             break;
         case ShapeType.Compound:
-            // Compound data is caller-owned and shared; the materials are cloned below.
+            addCompoundToDatabase(world, geometry as CompoundData);
             shape.compound = geometry as CompoundData;
             break;
         default:
             throw new Error(`physics: unknown shape type ${shapeType}`);
     }
 
-    world.geometryDirty = true;
     shape.id = shapeId;
     shape.bodyId = body.id;
     shape.type = shapeType;

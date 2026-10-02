@@ -1,17 +1,13 @@
 import type { World } from "../../../engine";
 // Upload of the resident world's geometry into kernel/src/geo.rs. TS owns construction; the kernel
-// reads hull topology and non-convex query records from linear memory. A shape-set change, region move
+// reads hull topology and non-convex query records from linear memory. A geometry-set change, region move
 // or residency transfer rewrites the pool. Unchanged single-world steps upload nothing.
 
-import { ShapeType } from "../common/types";
-import { type CompoundData, getCompoundChild } from "../shapes/compound";
-import type { HeightFieldData } from "../shapes/heightfield";
+import { getCompoundChild } from "../shapes/compound";
 import type { HullData } from "../shapes/hull";
-import type { MeshData } from "../shapes/mesh";
 import type { WorldState } from "../world/world";
 import { geometryUploaded } from "./bodycolumns";
 import { kernel } from "./kernel";
-import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 
 /** u32 words per hull record (RECORD_STRIDE in geo.rs): center.xyz + v/e/f counts + 5 pool offsets. */
 const RECORD_STRIDE = 12;
@@ -130,29 +126,14 @@ export function uploadGeometry(
     }
 }
 
-/** Rebuild the resident world's geometry after a shape-set change, region move or owner change.
+/** Rebuild the resident world's geometry after a geometry-set change, region move or owner change.
  * Hull references are record indices; non-convex references are word offsets within EXTRA. Mesh
  * records hold counts and offsets to 11-word nodes, xyz vertices, index triples, flags and materials.
  * Height records hold bounds, quantization, scale, dimensions, winding and array offsets. Compound
  * records hold the tree root, node/child counts and offsets to 12-word tree nodes and 19-word children
  * (kind, transform, four material indices, seven geometry words). All offsets survive relocation. */
 export function rebuildGeometry(world: WorldState): void {
-    const hulls = new Set<HullData>();
-    const meshes = new Set<MeshData>();
-    const fields = new Set<HeightFieldData>();
-    const compounds = new Set<CompoundData>();
-    for (const entry of world.hullDatabase.values()) hulls.add(entry.hull);
-    for (const s of world.shapes) {
-        if (s.id < 0) continue;
-        if (s.mesh) meshes.add(s.mesh.data);
-        if (s.heightField) fields.add(s.heightField);
-        if (s.compound) {
-            compounds.add(s.compound);
-            for (const h of s.compound.hulls) hulls.add(h.hull);
-            for (const m of s.compound.meshes) meshes.add(m.meshData);
-        }
-    }
-    const hullArray = [...hulls];
+    const hullArray = Array.from(world.hullDatabase.values(), (entry) => entry.hull);
     for (let i = 0; i < hullArray.length; ++i) hullArray[i].geoIndex = i;
 
     // All references in these records are word offsets in EXTRA, never absolute addresses. This
@@ -169,10 +150,9 @@ export function rebuildGeometry(world: WorldState): void {
     const vec = (p: { x: number; y: number; z: number }): void => {
         words.push(bits(p.x), bits(p.y), bits(p.z));
     };
-    const indices = new Map<MeshData | HeightFieldData | CompoundData, number>();
-    for (const m of meshes) {
+    for (const [m, entry] of world.meshDatabase) {
         const record = words.length;
-        indices.set(m, record);
+        entry.geoIndex = record;
         words.push(m.nodes.length, m.vertices.length, m.triangles.length, 0, 0, 0, 0, 0);
         words[record + 3] = words.length;
         for (const n of m.nodes) {
@@ -189,9 +169,9 @@ export function rebuildGeometry(world: WorldState): void {
         words[record + 7] = words.length;
         append(m.materialIndices);
     }
-    for (const h of fields) {
+    for (const [h, entry] of world.heightFieldDatabase) {
         const record = words.length;
-        indices.set(h, record);
+        entry.geoIndex = record;
         vec(h.aabb.lowerBound);
         vec(h.aabb.upperBound);
         words.push(bits(h.minHeight), bits(h.maxHeight), bits(h.heightScale));
@@ -204,9 +184,9 @@ export function rebuildGeometry(world: WorldState): void {
         words[record + 17] = words.length;
         append(h.flags);
     }
-    for (const c of compounds) {
+    for (const [c, entry] of world.compoundDatabase) {
         const record = words.length;
-        indices.set(c, record);
+        entry.geoIndex = record;
         const count = c.capsules.length + c.hulls.length + c.meshes.length + c.spheres.length;
         words.push(c.tree.root, c.tree.nodeCapacity, count, 0, 0);
         words[record + 3] = words.length;
@@ -228,34 +208,23 @@ export function rebuildGeometry(world: WorldState): void {
             } else if (child.sphere) {
                 vec(child.sphere.center);
                 words.push(bits(child.sphere.radius));
-            } else if (child.hull) words.push(child.hull.geoIndex);
+            } else if (child.hull)
+                words.push(world.hullDatabase.get(child.hull.hash)!.hull.geoIndex);
             else if (child.mesh) {
-                words.push(indices.get(child.mesh.data) as number);
+                words.push(world.meshDatabase.get(child.mesh.data)!.geoIndex);
                 vec(child.mesh.scale);
             }
             while (words.length < start + 7) words.push(0);
         }
     }
     uploadGeometry(world.ecsState, hullArray, words);
+    world.geometryUploadCount += 1;
     world.shapeStore.refreshViews();
     world.bodyStore.refreshViews();
     world.manifoldStore.refreshViews();
     for (const s of world.shapes) {
         if (s.id < 0) continue;
-        const offset = s.id * SHAPE_STRIDE;
-        if (s.type === ShapeType.Hull)
-            world.shapeStore.shapeU[offset + S_GEO_REFERENCE] = (s.hull as HullData).geoIndex;
-        else if (s.mesh) {
-            world.shapeStore.shapeU[offset + S_GEO_REFERENCE] = indices.get(s.mesh.data) as number;
-            world.shapeStore.shapeF[offset + 2] = s.mesh.scale.x;
-            world.shapeStore.shapeF[offset + 3] = s.mesh.scale.y;
-            world.shapeStore.shapeF[offset + 4] = s.mesh.scale.z;
-        } else if (s.heightField)
-            world.shapeStore.shapeU[offset + S_GEO_REFERENCE] = indices.get(
-                s.heightField,
-            ) as number;
-        else if (s.compound)
-            world.shapeStore.shapeU[offset + S_GEO_REFERENCE] = indices.get(s.compound) as number;
+        world.shapeStore.writeGeometryReference(world, s);
     }
     geometryUploaded(world);
 }

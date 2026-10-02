@@ -15,7 +15,10 @@ import type { Capacity, MixCallback, WorldDef } from "../common/types";
 import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
 import { type Kernel, kernel } from "../kernel/kernel";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
+import type { CompoundData } from "../shapes/compound";
+import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
+import type { MeshData } from "../shapes/mesh";
 import type { Shape } from "../shapes/shape";
 import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
@@ -106,8 +109,13 @@ export type WorldState = {
 
     // Reference-counted store of shared hull data keyed by content hash (b3HullMap).
     hullDatabase: Map<number, { hull: HullData; refCount: number }>;
-    // Set when the hull set changes; the next step re-uploads the kernel's static geometry columns.
+    meshDatabase: Map<MeshData, GeometryRecord>;
+    heightFieldDatabase: Map<HeightFieldData, GeometryRecord>;
+    compoundDatabase: Map<CompoundData, GeometryRecord>;
+    // Set when geometry data enters or leaves the databases, or residency/region placement changes.
     geometryDirty: boolean;
+    /** Number of complete geometry uploads since world creation. */
+    geometryUploadCount: number;
     // Persistent contact-manifold columns (warm-start state, column-resident): the allocator + wasm
     // region for the manifolds keyed by contactId. Slots are tracked on contact create/destroy.
     manifoldStore: ManifoldStore;
@@ -181,6 +189,54 @@ const defaultFrictionCallback: MixCallback = (a, _idA, b, _idB) => f32(Math.sqrt
 
 /** Default restitution mixing: the larger of the two (b3DefaultRestitutionCallback). */
 const defaultRestitutionCallback: MixCallback = (a, _idA, b, _idB) => maxf(a, b);
+
+export type GeometryRecord = { refCount: number; geoIndex: number };
+
+/** Retain immutable query geometry by identity; only set membership changes invalidate residency. */
+export function addGeometryToDatabase<T>(
+    world: WorldState,
+    database: Map<T, GeometryRecord>,
+    data: T,
+): void {
+    const entry = database.get(data);
+    if (entry) entry.refCount += 1;
+    else {
+        database.set(data, { refCount: 1, geoIndex: -1 });
+        world.geometryDirty = true;
+    }
+}
+
+export function removeGeometryFromDatabase<T>(
+    world: WorldState,
+    database: Map<T, GeometryRecord>,
+    data: T,
+): void {
+    const entry = database.get(data);
+    if (!entry) return;
+    if (--entry.refCount === 0) {
+        database.delete(data);
+        world.geometryDirty = true;
+    }
+}
+
+/** A compound datum retains its shared geometry once, independent of the number of shape instances. */
+export function addCompoundToDatabase(world: WorldState, data: CompoundData): void {
+    const existing = world.compoundDatabase.has(data);
+    addGeometryToDatabase(world, world.compoundDatabase, data);
+    if (existing) return;
+    for (const child of data.hulls) addHullToDatabase(world, child.hull);
+    for (const child of data.meshes)
+        addGeometryToDatabase(world, world.meshDatabase, child.meshData);
+}
+
+export function removeCompoundFromDatabase(world: WorldState, data: CompoundData): void {
+    const last = world.compoundDatabase.get(data)?.refCount === 1;
+    removeGeometryFromDatabase(world, world.compoundDatabase, data);
+    if (!last) return;
+    for (const child of data.hulls) removeHullFromDatabase(world, child.hull);
+    for (const child of data.meshes)
+        removeGeometryFromDatabase(world, world.meshDatabase, child.meshData);
+}
 
 // --- hull database ---------------------------------------------------------------------------
 
@@ -261,7 +317,11 @@ function makeWorldState(
         islands: [],
         shapes: [],
         hullDatabase: new Map(),
+        meshDatabase: new Map(),
+        heightFieldDatabase: new Map(),
+        compoundDatabase: new Map(),
         geometryDirty: false,
+        geometryUploadCount: 0,
         manifoldStore: createManifoldStore(world),
         bodyStore: createBodyStore(world),
         shapeStore: createShapeStore(world, worldId),
