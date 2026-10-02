@@ -34,7 +34,7 @@ export const PointLight = {
 };
 
 /** Cone light pointing down its GlobalTransform's local -Z. Units match PointLight;
- * innerAngle and outerAngle are half-angles in radians, with smooth attenuation between them.
+ * Light attenuates smoothly between the inner and outer cones.
  * A SpotLight takes precedence over a PointLight on the same entity.
  */
 export const SpotLight = {
@@ -42,7 +42,9 @@ export const SpotLight = {
     intensity: f32,
     range: f32,
     radius: f32,
+    /** Inner half-angle in degrees, measured from the cone axis; full brightness inside it. */
     innerAngle: f32,
+    /** Outer half-angle in degrees, measured from the cone axis; dark beyond it. */
     outerAngle: f32,
     shadowMapsEnabled: u32,
     shadowDepthBias: f32,

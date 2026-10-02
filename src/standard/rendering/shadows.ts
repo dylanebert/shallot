@@ -1349,7 +1349,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
                 world.storage(GlobalTransform).rotation.y.get(f.light),
                 world.storage(GlobalTransform).rotation.z.get(f.light),
                 world.storage(GlobalTransform).rotation.w.get(f.light),
-                (world.storage(SpotLight).outerAngle.get(f.light) * 180) / Math.PI,
+                world.storage(SpotLight).outerAngle.get(f.light),
                 f.tilePx,
             );
             f.fwd = b.fwd;

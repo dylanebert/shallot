@@ -107,8 +107,8 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
         intensity: 12,
         range: 10,
         color: 0x4488ff,
-        innerAngle: (20 * Math.PI) / 180,
-        outerAngle: (40 * Math.PI) / 180,
+        innerAngle: 20,
+        outerAngle: 40,
         shadowMapsEnabled: 1,
     });
     world.add(spot, VolumetricLight);

@@ -69,7 +69,7 @@ The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wr
 | `DirectionalLight.color`, `.intensity`, `.direction` | Unchanged: hex sRGB, a linear multiplier and the light's travel direction. |
 | `PointLight.color`, `.intensity`, `.range`, `.radius` on a point light | Unchanged. |
 | `PointLight.color`, `.intensity`, `.range`, `.radius` on an entity with `Spot` | `SpotLight.color`, `.intensity`, `.range`, `.radius`; copy the values and remove `PointLight`. |
-| `Spot.inner`, `.outer` | `SpotLight.innerAngle`, `.outerAngle`, in radians: multiply degrees by `Math.PI / 180`. |
+| `Spot.inner`, `.outer` | `SpotLight.innerAngle`, `.outerAngle`, still half-angles in degrees. |
 | Presence of `Shadow` | Set the light's `shadowMapsEnabled` to `1`; `0` disables shadow maps. |
 | `Shadow.distance` on a directional light | `DirectionalLight.maximumDistance`, still world units. |
 | `Shadow.distance` on a point or spot light | Remove it; it was ignored. Shadow coverage still uses the light's `range`. |
@@ -82,8 +82,8 @@ A shadowed spot light is now authored as:
 ```ts
 world.add(lamp, SpotLight, {
     color: 0xffffff, intensity: 4, range: 12,
-    innerAngle: 18 * Math.PI / 180,
-    outerAngle: 28 * Math.PI / 180,
+    innerAngle: 18,
+    outerAngle: 28,
     shadowMapsEnabled: 1,
     shadowDepthBias: 0.0005,
     shadowNormalBias: 1.8,
