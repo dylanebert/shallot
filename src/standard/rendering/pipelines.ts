@@ -163,9 +163,8 @@ export interface CompiledSurface {
  * instance per draw. `engineCache` holds the draw's engine group-0 instances per view slot (lazy,
  * entry-scoped so a quant-buffer churn — a glTF import's
  * per-import buffers — drops the old groups with the overwritten entry, never a module map keyed on
- * buffer identity that grows for the app's life). `atlasG0` is its prebuilt slot-0 instance the
- * shadow-atlas passes bind (slot 0's ViewUniforms buffer as an unread placeholder — the atlas VS projects by
- * its own tile viewProj, never `view`). */
+ * buffer identity that grows for the app's life). Shadow-atlas passes resolve slot 0 through this cache,
+ * using its ViewUniforms buffer as an unread placeholder: the atlas VS projects by its own tile viewProj. */
 export type SurfaceGroupEntry = {
     /** exact registry spec this group was built for — resource identity alone is insufficient when a
      * same-name surface replacement carries a different layout with the same buffers. */
@@ -181,7 +180,6 @@ export type SurfaceGroupEntry = {
     /** the surface's resolved instance-id source before the atlas swaps in its re-gathered list. */
     eids: GPUBuffer | null;
     engineCache: Map<number, GPUBindGroup>;
-    atlasG0: GPUBindGroup;
     resources: BindResource[];
     /** the layout's own binding names in `resources` order (after the four mesh streams), each with the
      * registry it resolves from, so a steady frame compares live identities without re-resolving. */

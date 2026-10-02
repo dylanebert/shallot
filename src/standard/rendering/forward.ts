@@ -394,7 +394,7 @@ function surfaceGroup(
  * the typed twin of {@link record}: compiled typed pipelines + the per-draw group-2 state cached by
  * layout name — `color` against `layout`; opaque depth-side groups against `layout.depthVariant`; clip
  * depth-side groups against the full layout so cutoff sees material UVs — plus the atlas `eids` swaps
- * and the slot-0 engine group the atlas passes bind.
+ * used by the atlas passes. Their slot-0 engine group resolves through the same live cache as each view.
  */
 function recordSurface(
     world: World,
@@ -492,7 +492,6 @@ function recordSurface(
             ? root.unwrap(resolved.values.eids as TgpuBuffer<AnyData>)
             : null,
         engineCache,
-        atlasG0: engineGroup(world, engineCache, 0, root.unwrap(mesh.quant)),
         resources,
         names: resolved.names,
         registries: resolved.registries,
