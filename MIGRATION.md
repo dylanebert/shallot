@@ -519,9 +519,21 @@ const at = input.keys.pressedTick.get("Space");
 if (at !== undefined && world.time.fixedTick - at < 6) jump();
 ```
 
-## `Tumble` is now `Physics`, and `Physics.backend` is gone
+## Shared physics data and standard simulation
 
-Rename the plugin and manifest key from `Tumble` to `Physics`. Read and drive bodies through World-first functions from `/physics`:
+Replace the old `Tumble`/`Physics` simulation plugin with `StandardPhysicsPlugin` from
+`@dylanebert/shallot/standard/physics`. It depends on core's `PhysicsPlugin`, which
+registers `Body`, `Spring` and `Joint` with their defaults but installs no solver.
+`createApp` includes that dependency automatically.
+
+Import shared components, `ShapeKind`, `Hulls`, `Hull`, `HullFace`, `UNIT_CUBE_ID`,
+`BodyState`, CPU raycasts and pick helpers from `@dylanebert/shallot/physics`.
+Import simulation operations, constraint definitions and signatures, systems,
+`PhysicsWorld`, joint configs, events, profiles, worker-pool helpers and the
+`solver` escape hatch from `@dylanebert/shallot/standard/physics`. Both subpaths
+are also exported by the root barrel.
+
+`Physics.backend` is gone. Read and drive bodies through World-first functions:
 
 ```ts
 // 0.9.5
@@ -531,7 +543,7 @@ const b = Tumble.body(eid);
 
 ```ts
 // 0.10
-import { body, setKinematic } from "@dylanebert/shallot/physics";
+import { body, setKinematic } from "@dylanebert/shallot/standard/physics";
 setKinematic(world, eid, position, rotation);
 const b = body(world, eid);
 ```
@@ -540,7 +552,7 @@ const b = body(world, eid);
 
 ## `/avbd` is gone
 
-The engine no longer ships its AVBD solver or `AvbdPlugin`. Select the built-in `PhysicsPlugin` instead.
+The engine no longer ships its AVBD solver or `AvbdPlugin`. Select the built-in `StandardPhysicsPlugin` instead.
 
 ## `Tween`, `Sequence` and `/tween/core` are gone
 

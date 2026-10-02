@@ -5,19 +5,18 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { createApp, Time, type World } from "@dylanebert/shallot";
+import { Body, ShapeKind } from "@dylanebert/shallot/physics";
 import {
-    Body,
     hashPhysics,
-    PhysicsPlugin,
     physicsCounters,
     physicsWorld,
     readBody,
     restorePhysics,
-    ShapeKind,
+    StandardPhysicsPlugin,
     setVelocity,
     snapshotPhysics,
     type WorldSnapshot,
-} from "@dylanebert/shallot/physics";
+} from "@dylanebert/shallot/standard/physics";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -46,7 +45,7 @@ function addBody(
 }
 
 async function cleanState() {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const body = addBody(app.world, {
         shape: ShapeKind.Box,
         pos: [0, 2, 0],
@@ -139,7 +138,7 @@ function retainedSnapshot(
 
 test("a snapshot restores into a fresh compatible World with an equivalent hash", async () => {
     const source = await cleanState();
-    const target = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const target = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         for (let tick = 0; tick < 4; tick++) {
             setVelocity(source.world, source.body, 1, 0, 0);

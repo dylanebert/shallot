@@ -5,6 +5,7 @@ import {
     releasePointerLock,
     requirePointerLock,
 } from "../../core/input";
+import { Body } from "../../core/physics";
 import { Camera, RenderingPlugin } from "../../core/rendering";
 import {
     entity,
@@ -25,7 +26,6 @@ import {
     move,
     SweepCharactersSystem,
 } from "../../transitional/character";
-import { Body } from "../../transitional/physics";
 import { PlayerFollow } from "./follow";
 
 // First-person player controller — composes a kinematic `Character` (the §6.4 controller) with WASD + a
@@ -286,7 +286,7 @@ export const UpdatePlayerControlSystem: System = {
 
 /** first-person player plugin: pointer-lock mouse look, WASD/sprint/jump, and a fixed-timestep follow
  *  camera over a kinematic {@link Character}. Depends on {@link CharacterPlugin} (the controller it composes),
- *  input, and the renderer; add `PhysicsPlugin` to the scene, and
+ *  input, and the renderer; add `StandardPhysicsPlugin` to the scene, and
  *  the character sweeps against it. Give an entity {@link Body} + {@link Character} + {@link Player}. */
 export const PlayerPlugin: Plugin = {
     name: "Player",

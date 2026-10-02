@@ -1,5 +1,5 @@
 import { GlobalTransform, type World } from "../../engine";
-import { setKinematic } from "../physics";
+import { setKinematic } from "../../standard/physics";
 import type { CharState } from "./sweep";
 
 /** Per-World intent and controller state shared by the sweep and its callers. */

@@ -3,7 +3,7 @@ import {
     createApp,
     GlobalTransform,
     InputPlugin,
-    PhysicsPlugin,
+    StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
 
 import { Demo } from "./demo";
@@ -23,7 +23,7 @@ export const control = () => {
 export default async function create() {
     const app = await createApp({
         defaults: false,
-        plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
+        plugins: [StandardPhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
     });
     const world = app.world;
     let eid = 0;

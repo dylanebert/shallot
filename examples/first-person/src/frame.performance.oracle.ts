@@ -7,9 +7,9 @@ import {
     Materials,
     MeshInstance,
     MeshMaterial,
-    PhysicsPlugin,
     PlayerPlugin,
     StandardMaterial,
+    StandardPhysicsPlugin,
     StandardRenderer,
     Time,
     Transform,
@@ -138,7 +138,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
                 device,
                 plugins:
                     name === "first-person"
-                        ? [PhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo]
+                        ? [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo]
                         : [],
                 setup: name === "stress-10k" ? stress : undefined,
             });

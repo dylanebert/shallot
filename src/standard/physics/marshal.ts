@@ -1,3 +1,4 @@
+import { Body, Hulls, ShapeKind } from "../../core/physics";
 import type { World } from "../../engine";
 import {
     BodyType,
@@ -9,11 +10,9 @@ import {
     type Body as SolverBody,
     type PhysicsWorld as SolverWorld,
 } from "./api";
-import { Hulls } from "./hull";
-import { Body, ShapeKind } from "./index";
 
 // ECS → physics marshaling — the ONLY place a Body's authored fields become a physics rigid body, so the
-// dual-run hash gate (physics.test.ts) and PhysicsPlugin's sync system read this one path. The Spring/Joint
+// dual-run hash gate (physics.test.ts) and StandardPhysicsPlugin's sync system read this one path. The Spring/Joint
 // half of the seam is joints.ts; this module is shape + mass + pose.
 
 /** a `mass <= 0` `Body` marshals as `Kinematic` (velocity set via `PhysicsBackend.setKinematic`), never

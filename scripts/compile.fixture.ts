@@ -3,33 +3,36 @@ import {
     createApp,
     InputPlugin,
     OrbitPlugin,
-    PhysicsPlugin,
     PhysicsProfilePlugin,
     PlayerPlugin,
     ProfilePlugin,
     RenderingPlugin,
+    StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
 
 export const compileSubjects = [
     { name: "engine-only", config: { defaults: false, plugins: [] } },
     { name: "core rendering", config: { defaults: false, plugins: [RenderingPlugin] } },
-    { name: "Physics", config: { defaults: false, plugins: [PhysicsPlugin] } },
+    { name: "Physics", config: { defaults: false, plugins: [StandardPhysicsPlugin] } },
     {
         name: "Physics with core rendering",
-        config: { defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] },
+        config: { defaults: false, plugins: [StandardPhysicsPlugin, RenderingPlugin] },
     },
     {
         name: "Character gameplay",
-        config: { defaults: false, plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin] },
+        config: { defaults: false, plugins: [StandardPhysicsPlugin, CharacterPlugin, InputPlugin] },
     },
     {
         name: "Player gameplay",
-        config: { defaults: false, plugins: [PhysicsPlugin, CharacterPlugin, PlayerPlugin] },
+        config: {
+            defaults: false,
+            plugins: [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin],
+        },
     },
     {
         name: "Physics profiling",
-        config: { defaults: false, plugins: [PhysicsPlugin, PhysicsProfilePlugin] },
+        config: { defaults: false, plugins: [StandardPhysicsPlugin, PhysicsProfilePlugin] },
     },
     { name: "Orbit", config: { defaults: false, plugins: [OrbitPlugin] } },
     { name: "profiling", config: { defaults: false, plugins: [ProfilePlugin] } },

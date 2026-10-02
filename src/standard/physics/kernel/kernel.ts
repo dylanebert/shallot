@@ -3,7 +3,7 @@
 // The kernel is ~tens of KB, too large for a synchronous main-thread compile, so instantiation is
 // async: call `init(world)` once before the first `step()`. `step()` itself stays synchronous. Each owning
 // engine World owns one kernel instance, memory and worker pool; the SoA columns and their TypeScript
-// views therefore cannot overlap another PhysicsPlugin world's memory. Standalone solver calls passing
+// views therefore cannot overlap another StandardPhysicsPlugin world's memory. Standalone solver calls passing
 // undefined retain one process-local kernel for the low-level World API.
 //
 // Two artifacts (scripts/build-kernel.ts). `init(world)` resolves threading itself: standalone (bun/node) and a

@@ -10,10 +10,10 @@ import {
     createApp,
     Devices,
     InputPlugin,
-    PhysicsPlugin,
     Player,
     PlayerPlugin,
     readBody,
+    StandardPhysicsPlugin,
     Time,
     Transform,
     type World,
@@ -29,7 +29,7 @@ async function ascent() {
     // remain in the exact-project browser row because those are device-bound defaults.
     return createApp({
         defaults: false,
-        plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
+        plugins: [StandardPhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
     });
 }
 

@@ -1,6 +1,6 @@
 // the solver port: the free-function World API behind `physicsWorld(world)`, re-exported by name.
 // The solver half is an explicit re-export, not `export * from "./api"`: the engine barrel exports
-// `shutdown`, which terminates the process-singleton kernel's worker pool that PhysicsPlugin shares, so a
+// `shutdown`, which terminates the process-singleton kernel's worker pool that StandardPhysicsPlugin shares, so a
 // consumer calling it would silently degrade every physics scene to single-thread. `init` and `threads`
 // stay. Mirror the engine barrel here whenever it gains a public symbol.
 

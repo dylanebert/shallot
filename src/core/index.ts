@@ -33,6 +33,7 @@ export {
     visibilityChanged,
 } from "./input";
 export * from "./mesh";
+export * from "./physics";
 export {
     AmbientLight,
     Camera,

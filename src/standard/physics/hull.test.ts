@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
+import { Body, Hulls, ShapeKind, UNIT_CUBE_ID } from "../../core/physics";
 import { World } from "../../engine";
 import { PhysicsWorld } from "./api";
-import { Hulls, UNIT_CUBE_ID } from "./hull";
-import { Body, ShapeKind } from "./index";
 import { marshalBody } from "./marshal";
 
 test("two worlds marshal their own hull registered under the same name", () => {

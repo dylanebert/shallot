@@ -20,12 +20,8 @@ const deferred = [
         "src/transitional/bvh/index.ts:1: pending roadmap migration (still red): // Destination: shallot-avbd-physics; owner: bvh-extraction.md.",
     ],
     [
-        "physics-boundary: character leaves transitional",
-        "src/transitional/character/index.ts:1: pending roadmap migration (still red): // Destination: standard/physics; owner: physics-boundary.md.",
-    ],
-    [
-        "physics-boundary: physics leaves transitional",
-        "src/transitional/physics/index.ts:1: pending roadmap migration (still red): // Destination: core/physics and standard/physics; owner: physics-boundary.md.",
+        "character-controller: character leaves transitional",
+        "src/transitional/character/index.ts:1: pending roadmap migration (still red): // Destination: standard/physics; owner: character-controller.md.",
     ],
 ] as const;
 
@@ -45,6 +41,13 @@ beforeAll(() => {
 
 test("repository imports have no violations outside the deferred claims", () => {
     expect(unexpected(repositoryFindings)).toEqual([]);
+});
+
+test("physics-boundary: physics leaves transitional", () => {
+    expect(existsSync(resolve(import.meta.dir, "../src/transitional/physics"))).toBe(false);
+    expect(
+        repositoryFindings.filter((finding) => finding.includes("core/physics → standard/")),
+    ).toEqual([]);
 });
 
 test("presentation: Glaze leaves transitional", () => {

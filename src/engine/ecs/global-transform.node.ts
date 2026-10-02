@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
+import { Body, GlobalTransform } from "../../core/physics";
 import {
     attachCanvas,
     Camera,
@@ -7,13 +8,7 @@ import {
     Views,
     viewportToWorld,
 } from "../../core/rendering";
-import {
-    Body,
-    GlobalTransform,
-    PhysicsPlugin,
-    StepPhysicsSystem,
-    setKinematic,
-} from "../../transitional/physics";
+import { StandardPhysicsPlugin, StepPhysicsSystem, setKinematic } from "../../standard/physics";
 import { createApp } from "../app";
 import { CanvasContext } from "../app/canvas.fixture";
 import * as engine from "../index";
@@ -61,7 +56,10 @@ test("GlobalTransform is an engine-owned public schema, independent of Physics",
 });
 
 test("Transform placement lands in the fixed-tick GlobalTransform column and the renderer table", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin, RenderingPlugin],
+    });
     try {
         const world = app.world;
         const eid = world.create();
@@ -89,7 +87,10 @@ test("Transform placement lands in the fixed-tick GlobalTransform column and the
 });
 
 test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriving it only in renderer rows", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin, RenderingPlugin],
+    });
     try {
         const world = app.world;
         const eid = world.create();
@@ -116,7 +117,10 @@ test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriv
 });
 
 test("viewportToWorld reads a body camera's fixed-tick GlobalTransform without requiring Transform", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin, RenderingPlugin],
+    });
     try {
         const world = app.world;
         const eid = world.create();
@@ -199,7 +203,7 @@ async function handoverApp(initial: "Body" | "Transform"): Promise<{
     };
     const app = await createApp({
         defaults: false,
-        plugins: [PhysicsPlugin, { name: "Handover", systems: [handoverSystem] }],
+        plugins: [StandardPhysicsPlugin, { name: "Handover", systems: [handoverSystem] }],
         setup(world) {
             eid = world.create();
             if (initial === "Body") addStaticBody(world, eid, 10);
@@ -297,7 +301,10 @@ test("Transform to Body keeps its GlobalTransform row when handover crosses a fi
 });
 
 test("the first Body spawn renders at its placement at half a fixed step", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin, RenderingPlugin],
+    });
     try {
         const { world } = app;
         attachTestCamera(world);
@@ -373,7 +380,10 @@ test("an author-marked Transform jump of any size snaps instead of interpolating
 });
 
 test("setKinematic publishes moved body placement to the fixed GlobalTransform table after one step", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin, RenderingPlugin],
+    });
     try {
         const { world } = app;
         const eid = world.create();
@@ -397,7 +407,10 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
 });
 
 test("a kinematic teleport renders at its new placement at half a fixed step", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin, RenderingPlugin],
+    });
     try {
         const { world } = app;
         const eid = world.create();

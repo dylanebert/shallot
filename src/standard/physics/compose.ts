@@ -1,8 +1,3 @@
-import { ShapeKind } from "./index";
-
-// Pure render-interpolation math for the physics backend's `compose` . Factored out so the shortest-arc nlerp + per-shape render scale are
-// unit-testable without a GPU device or a live physics World.
-
 /** shortest-arc nlerp from `prev` to `curr` at `t`: flip `prev` into `curr`'s hemisphere, lerp,
  *  renormalize. Returns the identity quat if the blend degenerates. */
 export function nlerpShortest(
@@ -40,21 +35,4 @@ export function nlerpShortestInto(
     out[offset + 1] = len > 1e-12 ? y / len : 0;
     out[offset + 2] = len > 1e-12 ? z / len : 0;
     out[offset + 3] = len > 1e-12 ? w / len : 1;
-}
-
-/** the render scale mapping a `Body`'s collider to its unit render mesh : box/hull → `2·halfExtents`, sphere → uniform
- *  `2·radius`, capsule → `(2·radius, halfExtents.y + radius, 2·radius)` (the caps distort under a
- *  non-proportional ratio — render-only; the collider stays exact). */
-export function renderScale(
-    shape: number,
-    halfExtents: readonly [number, number, number],
-    radius: number,
-): [number, number, number] {
-    if (shape === ShapeKind.Sphere) {
-        return [2 * radius, 2 * radius, 2 * radius];
-    }
-    if (shape === ShapeKind.Capsule) {
-        return [2 * radius, halfExtents[1] + radius, 2 * radius];
-    }
-    return [2 * halfExtents[0], 2 * halfExtents[1], 2 * halfExtents[2]];
 }

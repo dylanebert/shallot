@@ -4,7 +4,8 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { Body, hashPhysics, PhysicsPlugin, readBody, ShapeKind } from "../../transitional/physics";
+import { Body, ShapeKind } from "../../core/physics";
+import { hashPhysics, readBody, StandardPhysicsPlugin } from "../../standard/physics";
 import "../../standard";
 import { globalTransformTable, Time, type World } from "../index";
 import { createApp } from "./index";
@@ -135,13 +136,13 @@ test("live Physics apps keep their authored component values and solver worlds i
         body.mass.set(eid, 1);
         return eid;
     };
-    const first = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const first = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const firstEid = author(first.world, 2);
     for (let i = 0; i < 8; i++) first.world.step(Time.FIXED_DT);
     const firstBefore = readBody(first.world, firstEid);
     if (!firstBefore) throw new Error("first Physics App did not produce a live body");
 
-    const second = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const second = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const secondEid = author(second.world, 20);
     expect(second.world.storage(Body).position.y.get(secondEid)).toBe(20);
     expect(first.world.storage(Body).position.y.get(firstEid)).toBe(2);
@@ -177,11 +178,11 @@ test("two live Physics apps keep sibling bodies and hash unchanged when only one
     let first: Awaited<ReturnType<typeof createApp>> | undefined;
     let second: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-        first = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+        first = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
         author(first.world, 2);
         for (let i = 0; i < 8; i++) first.world.step(Time.FIXED_DT);
 
-        second = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+        second = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
         const secondEid = author(second.world, 20);
         for (let i = 0; i < 8; i++) second.world.step(Time.FIXED_DT);
         const bodyBefore = readBody(second.world, secondEid);
@@ -209,7 +210,7 @@ test("a failed plugin initialize releases its world and permits a later build", 
     await expect(createApp({ defaults: false, plugins: [broken] })).rejects.toThrow(
         "intentional initialize failure",
     );
-    const recovered = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const recovered = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     recovered.world.step(Time.FIXED_DT);
     recovered.dispose();
 });
@@ -229,14 +230,14 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
         return hashPhysics(world);
     };
 
-    const first = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const first = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     author(first.world);
     const firstHash = stepAndHash(first.world);
     first.dispose();
     expect(first.world.gpu.buffers.size).toBe(0);
     expect(first.world.gpu.typed.size).toBe(0);
 
-    live = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    live = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     author(live.world);
     expect(stepAndHash(live.world)).toBe(firstHash);
 });

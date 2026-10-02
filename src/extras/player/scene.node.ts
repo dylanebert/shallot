@@ -6,11 +6,11 @@ import {
     Character,
     CharacterPlugin,
     createApp,
-    PhysicsPlugin,
     Player,
     PlayerPlugin,
     readBody,
     ShapeKind,
+    StandardPhysicsPlugin,
     Time,
     Transform,
 } from "../../index";
@@ -22,7 +22,7 @@ await (await import(peer)).setupGlobals();
 test("a Player capsule retains its collider geometry and rests above the floor", async () => {
     const app = await createApp({
         defaults: false,
-        plugins: [PhysicsPlugin, CharacterPlugin, PlayerPlugin],
+        plugins: [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin],
         setup(world) {
             const eye = world.create();
             world.add(eye, Camera);

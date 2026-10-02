@@ -10,7 +10,6 @@ import {
     MeshInstance,
     MeshMaterial,
     mountOverlay,
-    PhysicsPlugin,
     Player,
     type Plugin,
     pointerLockRefusal,
@@ -19,6 +18,7 @@ import {
     registration,
     ShapeKind,
     StandardMaterial,
+    StandardPhysicsPlugin,
     StandardRenderer,
     SweepCharactersSystem,
     type System,
@@ -222,7 +222,7 @@ const controls: System = {
 export const Demo = {
     name: "Demo",
     components: [registration("Lift", Lift)],
-    dependencies: [CharacterPlugin, InputPlugin, PhysicsPlugin],
+    dependencies: [CharacterPlugin, InputPlugin, StandardPhysicsPlugin],
     initialize(world: World) {
         const state = world.resource(Route);
         state.entities ??= route(world);

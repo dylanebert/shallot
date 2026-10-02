@@ -1,14 +1,15 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
+import { Body } from "../../core/physics";
 import { createApp, Time, Transform } from "../../engine";
-import { Body, PhysicsPlugin } from "./index";
+import { StandardPhysicsPlugin } from ".";
 
 setDefaultTimeout(CEILING.node);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 
 test("physics warns once per entity carrying Body and Transform, not for either alone", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin] });
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const warning = spyOn(console, "warn").mockImplementation(() => {});
     try {
         const world = app.world;

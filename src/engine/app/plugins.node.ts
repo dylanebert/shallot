@@ -5,6 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { MeshInstance } from "../../core/mesh";
+import { Body, GlobalTransform, Joint, ShapeKind, Spring } from "../../core/physics";
 import {
     AmbientLight,
     attachCanvas,
@@ -55,6 +56,15 @@ import {
     Transform,
 } from "../../standard";
 import {
+    hashPhysics,
+    physicsWorld,
+    readBody,
+    restorePhysics,
+    StandardPhysicsPlugin,
+    setVelocity,
+    snapshotPhysics,
+} from "../../standard/physics";
+import {
     Backgrounds,
     CameraBackground,
     cascadeComboEids,
@@ -65,20 +75,6 @@ import {
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
 import { Character, CharacterPlugin, globalTransform } from "../../transitional/character";
-import {
-    Body,
-    GlobalTransform,
-    hashPhysics,
-    Joint,
-    PhysicsPlugin,
-    physicsWorld,
-    readBody,
-    restorePhysics,
-    ShapeKind,
-    Spring,
-    setVelocity,
-    snapshotPhysics,
-} from "../../transitional/physics";
 import { type Plugin, probeTexture, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { createApp } from "./index";
@@ -90,7 +86,7 @@ const everyPlugin: readonly Plugin[] = [
     CharacterPlugin,
     FogPlugin,
     LinesPlugin,
-    PhysicsPlugin,
+    StandardPhysicsPlugin,
     OrbitOverlayPlugin,
     OrbitPlugin,
     OutlinePlugin,
@@ -527,7 +523,7 @@ function featurePlugin(subject: Plugin): Plugin {
             // Body only produces placement when the physics systems that sync it are composed.
             if (
                 entry.key === "Body" &&
-                !uses(subject, PhysicsPlugin) &&
+                !uses(subject, StandardPhysicsPlugin) &&
                 !uses(subject, CharacterPlugin)
             ) {
                 return { ...entry, requires: undefined };
@@ -540,7 +536,7 @@ function featurePlugin(subject: Plugin): Plugin {
         // Character's app composes Physics explicitly; this fixture is that app.
         dependencies: [
             ...DEFAULT_PLUGINS,
-            ...(uses(subject, CharacterPlugin) ? [PhysicsPlugin] : []),
+            ...(uses(subject, CharacterPlugin) ? [StandardPhysicsPlugin] : []),
             subject,
         ],
         initialize(world) {
@@ -780,7 +776,7 @@ async function renderAlone(
 }
 
 async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Promise<void> {
-    const hasPhysics = uses(subject, PhysicsPlugin) || uses(subject, CharacterPlugin);
+    const hasPhysics = uses(subject, StandardPhysicsPlugin) || uses(subject, CharacterPlugin);
     const firstDevice = await trackedDevice();
     const secondDevice = sharedDevice ? firstDevice : await trackedDevice();
     const seed = featurePlugin(subject);

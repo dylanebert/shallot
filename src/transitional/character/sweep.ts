@@ -18,7 +18,7 @@
 // temporaries are module scratch it alone writes, and the controller state is updated in place. The
 // arithmetic and its order are the oracle's, operand for operand.
 
-import { type Hull, type HullFace, ShapeKind } from "../physics";
+import { type Hull, type HullFace, ShapeKind } from "../../core/physics";
 
 type Vec3 = [number, number, number];
 type Quat = [number, number, number, number];

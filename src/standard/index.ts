@@ -1,3 +1,4 @@
+export { Body, Joint, ShapeKind, Spring } from "../core/physics";
 export { composeGlobalTransform, GlobalTransform, Transform } from "../engine";
 export {
     AudioPlugin,
@@ -17,7 +18,15 @@ export {
 export { BvhPlugin } from "../transitional/bvh";
 export { Character, CharacterPlugin, SweepCharactersSystem } from "../transitional/character";
 export {
-    Body,
+    type LoadingOptions,
+    minimalDark,
+    minimalLight,
+    type SplashOptions,
+    type SplashProfile,
+    shallotDark,
+    shallotLight,
+} from "./loading";
+export {
     BodyType,
     body,
     type ContactEvents,
@@ -29,11 +38,9 @@ export {
     getContactEvents,
     getJointEvents,
     hashPhysics,
-    Joint,
     JointType,
     type ParallelJointConfig,
     Physics,
-    PhysicsPlugin,
     PhysicsWorld,
     physicsCounters,
     physicsStepConfig,
@@ -41,25 +48,15 @@ export {
     type RevoluteJointConfig,
     readBody,
     restorePhysics,
-    ShapeKind,
     SoftJoint,
     type SoftJointConfig,
     type SphericalJointConfig,
-    Spring,
+    StandardPhysicsPlugin,
     setKinematic,
     setVelocity,
     snapshotPhysics,
     type WheelJointConfig,
-} from "../transitional/physics";
-export {
-    type LoadingOptions,
-    minimalDark,
-    minimalLight,
-    type SplashOptions,
-    type SplashProfile,
-    shallotDark,
-    shallotLight,
-} from "./loading";
+} from "./physics";
 export {
     CameraBackground,
     MAX_CASCADES,

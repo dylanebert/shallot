@@ -1,18 +1,16 @@
-// Destination: standard/physics; owner: physics-boundary.md.
+// Destination: standard/physics; owner: character-controller.md.
+
+import { Body, type Hull, Hulls, ShapeKind } from "../../core/physics";
 import { f32, type Plugin, registration, type System, Time, type World } from "../../engine";
 import {
-    Body,
     type BodyStateOut,
-    type Hull,
-    Hulls,
     Physics,
     physicsWorld,
     readBody,
-    ShapeKind,
     StepPhysicsSystem,
     setKinematic,
     setVelocity,
-} from "../physics";
+} from "../../standard/physics";
 import { driveFor, resetDrive } from "./drive";
 import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 
@@ -318,7 +316,7 @@ export const SweepCharactersSystem: System = {
 };
 
 /** kinematic-character plugin: registers every `[Character, Body]` and sweeps it (collide-and-slide) each
- *  fixed step, before the physics solve. Add `PhysicsPlugin` to the scene alongside it; the sweep no-ops without
+ *  fixed step, before the physics solve. Add `StandardPhysicsPlugin` to the scene alongside it; the sweep no-ops without
  *  a physics world. Drive characters with the {@link move} / {@link jump} surface, or add
  *  {@link Player} for a ready first-person controller. */
 export const CharacterPlugin: Plugin = {

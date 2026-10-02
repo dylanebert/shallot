@@ -256,7 +256,7 @@ async function buildNow(config: AppConfig): Promise<App> {
         for (const plugin of config.plugins) pluginSet.add(plugin);
 
         // A public plugin selection pulls in its declared substrates. The resolver remains pure and strict;
-        // this boundary makes `createApp({ defaults: false, plugins: [PhysicsPlugin] })` a complete composition.
+        // this boundary makes `createApp({ defaults: false, plugins: [StandardPhysicsPlugin] })` a complete composition.
         const requested = [...pluginSet];
         for (let i = 0; i < requested.length; i++) {
             for (const dependency of requested[i].dependencies ?? []) {

@@ -92,8 +92,8 @@ type Fixture = {
 };
 
 function loadFixture<T = Fixture>(scene: string): T {
-    // Fixtures live at the package's oracle tier (src/transitional/physics/solver/fixtures/), outside
-    // src/ so npm's files:["src"] never ships them — engine dir is src/transitional/physics/solver.
+    // Fixtures live at the package's oracle tier (src/standard/physics/solver/fixtures/), outside
+    // src/ so npm's files:["src"] never ships them — engine dir is src/standard/physics/solver.
     const path = resolve(import.meta.dir, "./fixtures", `${scene}.json`);
     return JSON.parse(readFileSync(path, "utf8")) as T;
 }

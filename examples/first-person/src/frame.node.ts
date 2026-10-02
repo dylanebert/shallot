@@ -3,8 +3,8 @@ import {
     Camera,
     CharacterPlugin,
     createApp,
-    PhysicsPlugin,
     PlayerPlugin,
+    StandardPhysicsPlugin,
     Time,
 } from "@dylanebert/shallot";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
@@ -19,7 +19,7 @@ await peer.setupGlobals();
 
 test("first-person presents a nonuniform final frame with byte-identical captures at one state", async () => {
     const app = await createApp({
-        plugins: [PhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo],
+        plugins: [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo],
     });
     try {
         const { adapter } = app.world.gpu;

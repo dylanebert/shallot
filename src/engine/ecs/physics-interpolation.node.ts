@@ -4,8 +4,9 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
+import { Body } from "../../core/physics";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
-import { Body, PhysicsPlugin, readBody } from "../../transitional/physics";
+import { readBody, StandardPhysicsPlugin } from "../../standard/physics";
 import { CanvasContext } from "../app/canvas.fixture";
 import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../index";
 
@@ -56,7 +57,10 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
 }
 
 test("engine interpolation uploads one GlobalTransform range and preserves unmoved renderer rows", async () => {
-    const app = await createApp({ defaults: false, plugins: [PhysicsPlugin, RenderingPlugin] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin, RenderingPlugin],
+    });
     const world = app.world;
     attachTestCamera(world);
     const body = world.storage(Body);

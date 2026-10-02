@@ -1,14 +1,14 @@
 import type { Plugin, System } from "../../engine";
 import {
     CLOCK_SLOTS,
-    PhysicsPlugin,
     type PhysicsWorld,
     type Profile,
     physicsWorld,
+    StandardPhysicsPlugin,
     type StepClock,
     StepPhysicsSystem,
     zeroProfile,
-} from "../../transitional/physics";
+} from "../../standard/physics";
 
 /** A wall-clock physics step clock (b3GetTicks / b3GetMillisecondsAndReset), read back through
  * `World.getProfile`. Only the profiler composes it, so the default step does no timing work. */
@@ -60,10 +60,10 @@ const PhysicsClockSystem: System = {
  * `physicsWorld(world).getProfile()` reads wall-clock milliseconds per step phase. Without it the step
  * does no timing work and every phase reads zero.
  * @example
- * const config = { plugins: [PhysicsPlugin, PhysicsProfilePlugin] };
+ * const config = { plugins: [StandardPhysicsPlugin, PhysicsProfilePlugin] };
  */
 export const PhysicsProfilePlugin: Plugin = {
     name: "PhysicsProfile",
-    dependencies: [PhysicsPlugin],
+    dependencies: [StandardPhysicsPlugin],
     systems: [PhysicsClockSystem],
 };

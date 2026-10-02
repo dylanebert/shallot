@@ -14,7 +14,7 @@ import {
     PhysicsWorld,
     type Pool,
     type WorkerReady,
-} from "@dylanebert/shallot/physics";
+} from "@dylanebert/shallot/standard/physics";
 
 // Type-only evidence: this file stops compiling if the public subpath drops either pool type.
 export type PublicPoolTypes = [Pool["size"], WorkerReady["index"]];

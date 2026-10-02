@@ -6,7 +6,8 @@ setDefaultTimeout(CEILING.node);
 
 import { createApp, type Plugin } from "@dylanebert/shallot";
 import { PhysicsProfilePlugin } from "@dylanebert/shallot/extras";
-import { Body, PhysicsPlugin, physicsWorld, ShapeKind } from "@dylanebert/shallot/physics";
+import { Body, ShapeKind } from "@dylanebert/shallot/physics";
+import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
@@ -36,12 +37,12 @@ async function stepFalling(plugins: Plugin[]) {
 }
 
 test("physics phase timings run only when the profile extra composes its clock: a composed World reads elapsed step time and a default World reads zero for every phase", async () => {
-    const plain = await stepFalling([PhysicsPlugin]);
+    const plain = await stepFalling([StandardPhysicsPlugin]);
     expect(Object.values(plain).every((ms) => ms === 0)).toBe(true);
     live?.dispose();
     live = null;
 
-    const timed = await stepFalling([PhysicsPlugin, PhysicsProfilePlugin]);
+    const timed = await stepFalling([StandardPhysicsPlugin, PhysicsProfilePlugin]);
     expect(timed.step).toBeGreaterThan(0);
     expect(timed.solve).toBeGreaterThan(0);
     expect(timed.step).toBeGreaterThanOrEqual(timed.solve);

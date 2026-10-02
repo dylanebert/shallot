@@ -55,7 +55,7 @@ test("the allocation-gated first-person composition carries no timing or profili
     const inputs = built.metafile.inputs;
     const paths = Object.keys(inputs).map((path) => resolve(ROOT, path).slice(ROOT.length + 1));
     // Non-vacuity: the graph reaches the physics step whose timers this row is about.
-    if (!paths.includes("src/transitional/physics/solver/step.ts"))
+    if (!paths.includes("src/standard/physics/solver/step.ts"))
         throw new Error(
             `inconclusive: gated bundle graph lacks the physics step (${paths.length} modules)`,
         );

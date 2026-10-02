@@ -12,7 +12,6 @@ import {
     createApp,
     Devices,
     InputPlugin,
-    PhysicsPlugin,
     Player,
     pointerLockChanged,
     pointerMove,
@@ -20,6 +19,7 @@ import {
     readBody,
     releaseKey,
     ShapeKind,
+    StandardPhysicsPlugin,
     Time,
     Transform,
     UpdatePlayerControlSystem,
@@ -32,7 +32,7 @@ await setupGlobals();
 test("the public Player controller consumes held, released and neutral input to look and drive an actual Character without a renderer or browser input", async () => {
     const app = await createApp({
         defaults: false,
-        plugins: [InputPlugin, CharacterPlugin, PhysicsPlugin],
+        plugins: [InputPlugin, CharacterPlugin, StandardPhysicsPlugin],
         setup: (world) => world.addSystem(UpdatePlayerControlSystem, "Player"),
     });
     try {

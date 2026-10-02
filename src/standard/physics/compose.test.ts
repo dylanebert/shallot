@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-import { nlerpShortest, renderScale } from "./compose";
-import { ShapeKind } from "./index";
+import { nlerpShortest } from "./compose";
 
 // pure render-interpolation math — no GPU, no physics World.
 
@@ -24,17 +23,4 @@ test("render interpolation leaves the blended quaternion unnormalized, so an int
     const q = nlerpShortest([0, 0, 0, 1], [1, 0, 0, 0], 0.3);
     const len = Math.sqrt(q[0] ** 2 + q[1] ** 2 + q[2] ** 2 + q[3] ** 2);
     expect(len).toBeCloseTo(1, 6);
-});
-
-test("render scale passes box and hull half-extents through undoubled, so every box would draw at half the size the solver collides with", () => {
-    expect(renderScale(ShapeKind.Box, [0.5, 1, 1.5], 0)).toEqual([1, 2, 3]);
-    expect(renderScale(ShapeKind.Hull, [0.5, 1, 1.5], 0)).toEqual([1, 2, 3]);
-});
-
-test("render scale reads a sphere's size from its unused half-extents instead of its radius, so every sphere would draw at zero size", () => {
-    expect(renderScale(ShapeKind.Sphere, [0, 0, 0], 0.5)).toEqual([1, 1, 1]);
-});
-
-test("render scale treats a capsule like a box, so its hemispherical caps would distort under a non-proportional height-to-radius ratio", () => {
-    expect(renderScale(ShapeKind.Capsule, [0, 1, 0], 0.3)).toEqual([0.6, 1.3, 0.6]);
 });
