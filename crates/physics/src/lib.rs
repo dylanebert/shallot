@@ -38,6 +38,7 @@ pub mod math;
 // build dispatches it over the geometry + manifold columns through `arena::dispatch_convex` (3c.3).
 pub mod narrowphase;
 pub mod parfor;
+pub mod query;
 pub mod recycle;
 mod simd;
 pub mod stages;
