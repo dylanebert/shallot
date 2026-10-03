@@ -11,7 +11,7 @@ import { f32, maxInt, minf } from "../common/math";
 import { claimResident, reserveBodies } from "../kernel/bodycolumns";
 import { rebuildGeometry } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
-import { PHASE_SLOT, STEP_SLOT } from "../world/clock";
+import { resetStepProfile } from "../world/profile";
 import { overlapSensors } from "../world/sensor";
 import type { WorldState } from "../world/world";
 import type { StepContext } from "./contactsolver";
@@ -43,6 +43,17 @@ function newStepContext(world: WorldState): StepContext {
     };
 }
 
+function writeStepSoftness(world: WorldState, context: StepContext): void {
+    const contactHertz = minf(world.contactHertz, f32(0.125 * context.invH));
+    writeSoft(context.contactSoftness, contactHertz, world.contactDampingRatio, context.h);
+    writeSoft(
+        context.staticSoftness,
+        f32(2.0 * contactHertz),
+        f32(0.5 * world.contactDampingRatio),
+        context.h,
+    );
+}
+
 /** Advance the world by one time step, sub-stepped `subStepCount` times (b3World_Step). */
 export function step(world: WorldState, timeStep: number, subStepCount: number): void {
     world.locked = true;
@@ -51,8 +62,10 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     claimResident(world);
     kernel(world.ecsState).bodySetActiveWorld(world.worldId);
     kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
-    const clock = world.clock;
-    clock.begin(STEP_SLOT);
+    const profile = world.profile;
+    resetStepProfile(profile);
+    const stepStart = performance.now();
+    let phaseStart: number;
 
     // Reset per-step event buffers so a user never reads stale data on an early return. Truncate in
     // place (like the body move pool's valid-length reset) instead of re-minting: the API accessors map
@@ -66,9 +79,9 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.jointEvents.length = 0;
 
     // Update collision pairs and create contacts.
-    clock.mark(PHASE_SLOT);
+    phaseStart = performance.now();
     updateBroadPhasePairs(world);
-    clock.span("pairs", PHASE_SLOT);
+    profile.pairs = performance.now() - phaseStart;
 
     // Reuse the per-world context across steps: rewrite every scalar field and clear the collections so no
     // stale per-step data is observable. `sims` is assigned inside solve(); `awakeIslands`
@@ -99,14 +112,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.invDt = context.invDt;
 
     // Contact softness. Hertz is reduced for large time steps. Written in place into the reused objects.
-    const contactHertz = minf(world.contactHertz, f32(0.125 * context.invH));
-    writeSoft(context.contactSoftness, contactHertz, world.contactDampingRatio, context.h);
-    writeSoft(
-        context.staticSoftness,
-        f32(2.0 * contactHertz),
-        f32(0.5 * world.contactDampingRatio),
-        context.h,
-    );
+    writeStepSoftness(world, context);
 
     // Size the persistent body region to the total-body high-water first, since it sits below the
     // fat-AABB + shape + manifold + geometry regions and a grow relocates them in place (detaching every
@@ -136,9 +142,9 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     }
 
     // Narrow phase: update contacts.
-    clock.mark(PHASE_SLOT);
+    phaseStart = performance.now();
     if (world.awakeContacts.length !== 0) collide(context);
-    clock.span("collide", PHASE_SLOT);
+    profile.collide = performance.now() - phaseStart;
 
     // A mid-narrowphase manifold-pool grow moved the geometry region (and the solver columns) that sit
     // after it past the old GEO_END. Re-upload the geometry now — before solve reserves its columns from
@@ -153,16 +159,16 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
 
     // Integrate velocities, solve velocity constraints, integrate positions.
     if (timeStep > 0) {
-        clock.mark(PHASE_SLOT);
+        phaseStart = performance.now();
         solve(world, context);
-        clock.span("solve", PHASE_SLOT);
+        profile.solve = performance.now() - phaseStart;
     }
 
     // Refresh sensor overlaps and publish begin/end touch events (after solve, so continuous hits
     // from this step are already recorded).
-    clock.mark(PHASE_SLOT);
+    phaseStart = performance.now();
     overlapSensors(world);
-    clock.span("sensors", PHASE_SLOT);
+    profile.sensors = performance.now() - phaseStart;
 
     // Swap the double-buffered end-event arrays.
     world.endEventArrayIndex = 1 - world.endEventArrayIndex;
@@ -170,6 +176,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.contactEndEvents[world.endEventArrayIndex].length = 0;
     world.sensorEndEvents[world.endEventArrayIndex].length = 0;
 
-    clock.span("step", STEP_SLOT);
+    profile.step = performance.now() - stepStart;
     world.locked = false;
 }

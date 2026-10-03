@@ -1,5 +1,5 @@
 import type { World } from "../../engine";
-
+import { cpuTotal } from "./cpu";
 import type { Profile } from "./index";
 
 /** one GPU pass, measured per-occurrence: the reliable unit for a mixed fixed/variable engine where a
@@ -326,13 +326,12 @@ export function createMeasure(world: World, profile: Profile) {
                     const fif = world.gpu?.pending?.() ?? 0;
                     if (fif > maxPending) maxPending = fif;
 
-                    let cpuTotal = 0;
+                    const total = cpuTotal(profile.cpu);
                     for (const [name, ms] of profile.cpu) {
-                        cpuTotal += ms;
                         if (!cpuAccum.has(name)) cpuAccum.set(name, []);
                         cpuAccum.get(name)!.push(ms);
                     }
-                    cpuTotals.push(cpuTotal);
+                    cpuTotals.push(total);
 
                     // per-pass GPU sampling: diff the cumulative counters since the last measured frame.
                     // `df` is drained-frames since last tick (usually 1); skip a pass that didn't drain.

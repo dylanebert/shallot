@@ -27,8 +27,8 @@ import type { StepContext } from "../solver/contactsolver";
 import { type ConstraintGraph, createGraph } from "../solver/graph";
 import type { Joint } from "../solver/joint";
 import type { Body } from "./body";
-import { NO_CLOCK, type StepClock, type StepProfile } from "./clock";
 import type { Island } from "./island";
+import { createStepProfile, type StepProfile } from "./profile";
 import type { Sensor, SensorBeginTouchEvent } from "./sensor";
 import { destroySolverSet, emptySolverSet, type SolverSet } from "./solverset";
 
@@ -150,9 +150,7 @@ export type WorldState = {
     // aliased across worlds. See `step()`.
     stepContext: StepContext | null;
 
-    // The step's phase-timing seam (b3World.profile). The default clock does no timing work; a
-    // profiler installs a timing clock.
-    clock: StepClock;
+    profile: StepProfile;
 
     gravity: Vec3;
     hitEventThreshold: number;
@@ -337,7 +335,7 @@ function makeWorldState(
         stepIndex: 0,
         splitIslandId: -1,
         stepContext: null,
-        clock: NO_CLOCK,
+        profile: createStepProfile(),
         gravity: { ...def.gravity },
         hitEventThreshold: def.hitEventThreshold,
         restitutionThreshold: def.restitutionThreshold,
@@ -477,7 +475,7 @@ export function worldCounters(world: WorldState): Counters {
     };
 }
 
-/** @returns a copy of the last step's phase timings (b3World_GetProfile); zeros unless a timing clock is installed. */
+/** @returns a copy of the last step's phase timings (b3World_GetProfile). */
 export function worldProfile(world: WorldState): StepProfile {
-    return world.clock.read();
+    return { ...world.profile };
 }

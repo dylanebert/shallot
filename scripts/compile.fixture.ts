@@ -3,7 +3,6 @@ import {
     createApp,
     InputPlugin,
     OrbitPlugin,
-    PhysicsProfilePlugin,
     PlayerPlugin,
     ProfilePlugin,
     RenderingPlugin,
@@ -32,7 +31,7 @@ export const compileSubjects = [
     },
     {
         name: "Physics profiling",
-        config: { defaults: false, plugins: [StandardPhysicsPlugin, PhysicsProfilePlugin] },
+        config: { defaults: false, plugins: [ProfilePlugin, StandardPhysicsPlugin] },
     },
     { name: "Orbit", config: { defaults: false, plugins: [OrbitPlugin] } },
     { name: "profiling", config: { defaults: false, plugins: [ProfilePlugin] } },

@@ -22,4 +22,4 @@ export {
     snapshotPhysics,
 } from "./runtime";
 export type { Capsule } from "./shapes/geometry";
-export { CLOCK_SLOTS, type StepClock, type StepProfile, zeroStepProfile } from "./world/clock";
+export type { StepProfile } from "./world/profile";

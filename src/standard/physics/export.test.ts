@@ -20,7 +20,6 @@ test("core physics exports shared authoring data and solver-neutral picking with
 
 test("standard physics exports consumed world operations and profiling without solver internals", () => {
     expect(Object.keys(standard).sort()).toEqual([
-        "CLOCK_SLOTS",
         "PhysicsWorld",
         "StandardPhysicsPlugin",
         "StepPhysicsSystem",
@@ -33,6 +32,5 @@ test("standard physics exports consumed world operations and profiling without s
         "setVelocity",
         "snapshotPhysics",
         "solvePlanes",
-        "zeroStepProfile",
     ]);
 });

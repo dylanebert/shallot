@@ -57,8 +57,8 @@ import { step as stepWorld } from "../solver/step";
 import { createWeldJoint, defaultWeldJointDef, type WeldJointDef } from "../solver/weldJoint";
 import { createWheelJoint, defaultWheelJointDef, type WheelJointDef } from "../solver/wheelJoint";
 import { createBody, getBodySim, makeBodyId } from "../world/body";
-import type { StepClock, StepProfile } from "../world/clock";
 import { type DebugDraw, worldDraw } from "../world/draw";
+import type { StepProfile } from "../world/profile";
 import {
     type Counters,
     createWorld,
@@ -608,18 +608,11 @@ export class PhysicsWorld {
     }
 
     /**
-     * @returns the last step's per-phase timings in milliseconds (b3World_GetProfile); zeros unless a
-     * timing clock is installed with {@link setClock} (the `profile` extra's `timingClock`, or its
-     * `PhysicsProfilePlugin` in a composition).
-     * @example world.setClock(timingClock()); world.step(1 / 60, 4); console.log(world.getProfile().collide)
+     * @returns a copy of the last step's per-phase timings in milliseconds (b3World_GetProfile).
+     * Resolution is the host's `performance.now()`, coarsened in pages without cross-origin isolation.
      */
     getProfile(): StepProfile {
         return worldProfile(this.state);
-    }
-
-    /** Install the step's phase-timing clock; the default clock does no timing work. */
-    setClock(clock: StepClock): void {
-        this.state.clock = clock;
     }
 
     /** @returns the gravity vector. Pass `out` to fill it in place instead of allocating. */

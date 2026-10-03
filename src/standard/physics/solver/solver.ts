@@ -39,7 +39,7 @@ import { kernel, runPool, workers } from "../kernel/kernel";
 import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
 import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
 import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../world/body";
-import { CONSTRAINTS_SLOT, SOLVE_PHASE_SLOT } from "../world/clock";
+
 import { splitIsland } from "../world/island";
 import { trySleepIsland } from "../world/solverset";
 import type { WorldState } from "../world/world";
@@ -480,10 +480,11 @@ export function solve(world: WorldState, context: StepContext): void {
     const ss = context.staticSoftness;
     const warmStartScale = world.enableWarmStarting ? 1 : 0;
 
-    const clock = world.clock;
+    const profile = world.profile;
+    let phaseStart: number;
 
     // One crossing owns the phase schedule; its per-phase profile split remains zero.
-    clock.mark(CONSTRAINTS_SLOT);
+    const constraintsStart = performance.now();
 
     const k = kernel(world.ecsState);
     const restThreshold = context.restitutionThreshold;
@@ -535,12 +536,12 @@ export function solve(world: WorldState, context: StepContext): void {
         splitIsland(world, world.splitIslandId);
     }
     world.splitIslandId = NULL_INDEX;
-    clock.span("constraints", CONSTRAINTS_SLOT);
+    profile.constraints = performance.now() - constraintsStart;
 
     // Finalize: advance transforms, re-fit AABBs (the port folds refit in, so its cost lands here).
     // The kernel pose advance already ran inside the solve crossing, so
     // `profile.constraints` absorbs it and `transforms` times only the serial TS tail.
-    clock.mark(SOLVE_PHASE_SLOT);
+    phaseStart = performance.now();
 
     // Reset the per-step sleep bookkeeping (the C per-worker b3TaskContext reset before finalize).
     // The island marks reuse a grow-only module buffer — valid prefix = this step's awake island
@@ -553,26 +554,26 @@ export function solve(world: WorldState, context: StepContext): void {
     context.splitSleepTime = 0;
 
     finalizeBodies(context, cols, persistentStates);
-    clock.span("transforms", SOLVE_PHASE_SLOT);
+    profile.transforms = performance.now() - phaseStart;
 
     // The contact-begin records are created during collision detection, but their normal impulses are
     // only authoritative after the velocity solve has stored the warm-start columns.
     updateBeginContactImpulses(world);
 
     // Report joint and hit events (b3Solve, after finalize, before the bullet stage).
-    clock.mark(SOLVE_PHASE_SLOT);
+    phaseStart = performance.now();
     buildJointEvents(context);
-    clock.span("jointEvents", SOLVE_PHASE_SLOT);
-    clock.mark(SOLVE_PHASE_SLOT);
+    profile.jointEvents = performance.now() - phaseStart;
+    phaseStart = performance.now();
     buildHitEvents(context);
-    clock.span("hitEvents", SOLVE_PHASE_SLOT);
+    profile.hitEvents = performance.now() - phaseStart;
 
     // Deferred bullet CCD: fast bullet bodies sweep the dynamic + kinematic trees, which are only
     // fully enlarged once finalize has refit every non-bullet proxy (b3World_Step's bullet stage).
     if (context.bulletBodies.length > 0) {
-        clock.mark(SOLVE_PHASE_SLOT);
+        phaseStart = performance.now();
         solveBullets(world, context.sims);
-        clock.span("bullets", SOLVE_PHASE_SLOT);
+        profile.bullets = performance.now() - phaseStart;
     }
 
     // Publish the finalized, CCD-clipped pose before sleep compacts the resident body columns.
@@ -581,7 +582,7 @@ export function solve(world: WorldState, context: StepContext): void {
 
     // Island sleeping — must be last, because sleeping invalidates the enlarged-body bookkeeping.
     if (world.enableSleep) {
-        clock.mark(SOLVE_PHASE_SLOT);
+        phaseStart = performance.now();
         // Collect the split-island candidate for the next step (single worker → no cross-worker reduction).
         if (context.splitIslandId !== NULL_INDEX) {
             world.splitIslandId = context.splitIslandId;
@@ -595,6 +596,6 @@ export function solve(world: WorldState, context: StepContext): void {
             }
             trySleepIsland(world, islands[islandIndex].islandId);
         }
-        clock.span("sleepIslands", SOLVE_PHASE_SLOT);
+        profile.sleepIslands = performance.now() - phaseStart;
     }
 }

@@ -37,6 +37,7 @@ import {
 } from "./joints";
 import { kernel } from "./kernel/kernel";
 import { marshalBody } from "./marshal";
+import { PROFILE_FIELDS } from "./world/profile";
 
 /** an authored spring: two body eids + local anchors + stiffness/rest, derived from the world's {@link Spring} entities by {@link springDefs}. */
 export interface SpringDef {
@@ -542,6 +543,14 @@ export const StepPhysicsSystem: System = {
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
         physicsWorld.step(fixedDeltaTime, SUBSTEPS);
+        const record = world.recordSink;
+        if (record) {
+            const profile = physicsWorld.state.profile;
+            for (let i = 0; i < phaseFields.length; i++) {
+                const ms = profile[phaseFields[i]];
+                if (ms !== 0) record(phaseNames[i], ms);
+            }
+        }
         runtime.counters.bytesUploaded = 0;
         const global = world.storage(GlobalTransform);
         const rows = physicsWorld.state.bodyStore.movedRows();
@@ -719,3 +728,8 @@ export const StandardPhysicsPlugin: Plugin = {
         void shutdown(world);
     },
 };
+
+const phaseFields = PROFILE_FIELDS.filter((field) => field !== "step");
+const phaseNames = phaseFields.map(
+    (field) => `${StandardPhysicsPlugin.name}/${StepPhysicsSystem.name}/${field}`,
+);

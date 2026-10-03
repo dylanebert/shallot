@@ -1,6 +1,7 @@
 import type { LazyAlloc, Plugin, System, World } from "../../engine";
 import { mountOverlay } from "../../engine";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
+import { cpuTotal } from "./cpu";
 import { reorderRows } from "./reorder";
 
 export type {
@@ -12,7 +13,6 @@ export type {
     BenchmarkMeasurement,
     BenchmarkMemoryStats,
 } from "./benchmark";
-export { PhysicsProfilePlugin, timingClock } from "./physics";
 
 /**
  * live read-only view of the profiler: per-frame CPU and GPU pass timings, memory, and one-shot compile timings. Populated by {@link ProfilePlugin}; empty without it.
@@ -21,7 +21,9 @@ export { PhysicsProfilePlugin, timingClock } from "./physics";
 export interface Profile {
     /** Whether this device grants the optional GPU timing capability. */
     readonly gpuTiming: "available" | "requires timestamp-query";
-    /** per-system CPU timings for the current frame, in milliseconds */
+    /** Per-system CPU timings for the current frame, in milliseconds. A recorded name extending
+     * another recorded name past a `/` is part of that timing; totals count only outermost timings.
+     */
     readonly cpu: ReadonlyMap<string, number>;
     /** per-pass GPU timings (most recent fully-resolved frame), in milliseconds. Greedy-held for
      *  display: a fixed-group pass keeps its last value across frames it doesn't fire (see the
@@ -698,6 +700,7 @@ function tickPool(pool: RowPool, entries: Iterable<[string, number]>): void {
 function flushPool(
     pool: RowPool,
     fmt: (v: number) => string,
+    cpu = false,
 ): { rows: [string, string][]; total: number } {
     const frames = pool.frames || 1;
     const seen = new Set<string>();
@@ -725,10 +728,10 @@ function flushPool(
     pool.accum.clear();
     pool.frames = 0;
 
-    let total = 0;
+    let total = cpu ? cpuTotal(pool.smoothed) : 0;
     const live: [string, string, number][] = [];
     for (const [name, value] of pool.smoothed) {
-        total += value;
+        if (!cpu) total += value;
         live.push([name, fmt(value), value]);
     }
 
@@ -1038,7 +1041,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
                 (indirectFlush.total * INDIRECT_FLOOR_US).toFixed(0) + " µs";
             renderPool(indirectPool, indirectFlush.rows);
 
-            const cpuFlush = flushPool(cpuPool, msFmt);
+            const cpuFlush = flushPool(cpuPool, msFmt, true);
             cpu.totalEl.textContent = cpuFlush.total.toFixed(1) + " ms";
             renderPool(cpuPool, cpuFlush.rows);
 
@@ -1094,14 +1097,13 @@ function collectStats(s: World, profile: ProfileImpl): OverlayData {
     const fenceWaitMs = profile.fenceWaitMs;
     const rawMs = rawDt * 1000;
 
-    let cpuTotal = 0;
-    for (const ms of profile.cpu.values()) cpuTotal += ms;
+    const total = cpuTotal(profile.cpu);
 
     return {
         fps: rawDt > 0 ? 1 / rawDt : 0,
         frameTime: rawMs,
         fenceWaitMs,
-        gapMs: Math.max(0, rawMs - cpuTotal - fenceWaitMs),
+        gapMs: Math.max(0, rawMs - total - fenceWaitMs),
         fixedSteps: t.fixedSteps,
         throttled: t.throttled,
         pending: s.gpu.pending() ?? 0,
@@ -1182,11 +1184,8 @@ const ProfileRenderSystem: System = {
  * performance profiler: an F3-toggled stats overlay (FPS, per-pass GPU/CPU timings, memory, shader
  * compile) plus the World-owned {@link Profile} view and the `window.__benchmark` measurement API. Off by
  * default: add it and press F3 to show the overlay; the data is on `Profile` whether it's shown or not.
- * Register it first so its `createBuffer` / pipeline patches catch every allocation. Physics phase
- * timings are separate: add {@link PhysicsProfilePlugin} for `World.getProfile`, which this plugin does
- * not pull in, since it would add physics to every profiled composition.
- * @example
- * const config = { plugins: [ProfilePlugin, PhysicsProfilePlugin] };
+ * Register it first so its `createBuffer` / pipeline patches catch every allocation. Composed systems
+ * may record phase timings through the world's record sink; this plugin adds no simulation.
  */
 export const ProfilePlugin: Plugin = {
     name: "Profile",

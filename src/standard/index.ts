@@ -28,21 +28,18 @@ export {
 } from "./loading";
 export {
     type BodyStateOut,
-    CLOCK_SLOTS,
     hashPhysics,
     PhysicsWorld,
     physicsWorld,
     readBody,
     restorePhysics,
     StandardPhysicsPlugin,
-    type StepClock,
     StepPhysicsSystem,
     type StepProfile,
     setKinematic,
     setVelocity,
     snapshotPhysics,
     type WorldSnapshot,
-    zeroStepProfile,
 } from "./physics";
 export {
     CameraBackground,
