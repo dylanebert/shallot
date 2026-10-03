@@ -20,7 +20,7 @@ import {
     type QueryFilter,
     type WorldDef,
 } from "../common/types";
-import { claimResident, readSimTransform } from "../kernel/bodycolumns";
+import { readSimTransform } from "../kernel/bodycolumns";
 import { rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { TreeStats } from "../kernel/treecolumns";
@@ -138,12 +138,8 @@ function castHit(world: WorldState, id: number, f: Float32Array, n: number, orig
  * refused. Callback exceptions are rethrown after the kernel traversal returns normally.
  */
 export class PhysicsWorld {
-    private readonly _state: WorldState;
-    /** @internal the underlying world state, acquired for this handle before access */
-    get state(): WorldState {
-        claimResident(this._state);
-        return this._state;
-    }
+    /** @internal the underlying world state */
+    readonly state: WorldState;
     private readonly _worldId: WorldId;
     private readonly _bodyForEntity?: (eid: number) => Body | null;
     // Reused wrappers over the internal move-event pool, so getBodyEvents allocates nothing in steady
@@ -161,16 +157,16 @@ export class PhysicsWorld {
         this._bodyForEntity = bodyForEntity;
         this._worldId = createWorld(world, { ...defaultWorldDef(), ...def });
         // getWorld succeeds immediately after creation.
-        this._state = getWorld(this._worldId) as WorldState;
+        this.state = getWorld(this._worldId) as WorldState;
     }
 
     /** @internal wrap an existing world state as a handle (e.g. Joint.getWorld). */
     static _wrap(state: WorldState): PhysicsWorld {
         const world = Object.create(PhysicsWorld.prototype) as {
-            _state: WorldState;
+            state: WorldState;
             _worldId: WorldId;
         };
-        world._state = state;
+        world.state = state;
         world._worldId = { index1: state.worldId + 1, generation: state.generation };
         return world as unknown as PhysicsWorld;
     }

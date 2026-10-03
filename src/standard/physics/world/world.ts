@@ -13,12 +13,7 @@ import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
 import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
-import {
-    type BodyStore,
-    claimResident,
-    createBodyStore,
-    releaseResident,
-} from "../kernel/bodycolumns";
+import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
 import { type Kernel, kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
@@ -367,7 +362,6 @@ function makeWorldState(
         inUse: true,
     };
 
-    claimResident(physicsWorld);
     // Wire the broad store's back-reference so a resident-region grow can refresh the sibling stores a
     // `memory.grow` detaches (the store is created before the world literal, so it can't be passed in).
     physicsWorld.broadPhase.store.world = physicsWorld;
@@ -434,8 +428,10 @@ export function worldIsValid(id: WorldId): boolean {
 
 /** Destroy a world and everything in it (b3DestroyWorld). */
 export function destroyWorld(world: WorldState): void {
-    claimResident(world);
     world.locked = true;
+
+    // Release the shared resident body region so a later world can claim it without eviction.
+    releaseResident(world);
 
     // Release every live shape's allocations (drops all hull references).
     for (let i = 0; i < world.shapes.length; ++i) {
@@ -471,7 +467,6 @@ export function destroyWorld(world: WorldState): void {
         if (remaining <= 0) liveWorldsByKernel.delete(owner);
         else liveWorldsByKernel.set(owner, remaining);
     }
-    releaseResident(world);
 }
 
 /** @returns entity counts for a world (b3World_GetCounters). */

@@ -14,8 +14,10 @@ import type { World } from "../../../engine";
 // body-grow relocation without a page grow would leave views attached but pointing at stale bytes, so
 // refresh keys off the call, never off detachment.
 //
-// The kernel's singleton regions have one resident owner. Ownership transfers preserve the whole
-// linear-memory image, including native headers and world-local lifecycle columns.
+// The region is a singleton (one kernel, one linear memory for every world); the kernel owns the
+// authoritative capacity (`bodyCap`), so no TS mirror is needed. Resident state makes interleaved
+// stepping of two live worlds corrupt the shared region, so a single-live-world guard (below) throws
+// when a world steps after another has taken the region over; sequential worlds keep working.
 
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
@@ -38,7 +40,7 @@ import {
     STATE_LIVE,
     STATE_STRIDE,
 } from "./columns";
-import { assertQueryWorld, type Kernel, kernel, sharedBytes } from "./kernel";
+import { kernel, sharedBytes } from "./kernel";
 
 // BODY_LAYOUT header indices (bodies.rs), in memory order: world, sim, fin, finOut, flags, sim2.
 export const B_STATE = 0;
@@ -831,65 +833,37 @@ export function residentRemove(
     return movedBodyId;
 }
 
-// --- resident ownership ---------------------------------------------------------------------
+// --- single-live-world guard ----------------------------------------------------------------
+// The resident region (and the singleton manifold store) hold one world's live state at a time.
+// Interleaving two live worlds' steps corrupts the shared region, so ownership transfers on step:
+// stepping world B while A owns the region evicts A; A is then only broken if it steps again, which
+// throws. Sequential worlds — a world used then abandoned before the next is stepped, the fixture /
+// test / sample shape — never re-step the evicted one, so they keep working.
 
-let owner: WorldState | null = null;
-let geometryOwner: WorldState | null = null;
-const owners = new WeakMap<Kernel, WorldState>();
-const images = new WeakMap<WorldState, Uint8Array>();
-const heaps = new WeakMap<Kernel, Uint8Array>();
+let owner: object | null = null;
+let geometryOwner: object | null = null;
 
 export function geometryUploaded(world: WorldState): void {
     geometryOwner = world;
 }
 
-/** Acquire the singleton regions before reading or writing any resident World data. */
+const evicted = new WeakSet<object>();
+
+/** Claim the resident region for `token` (a world) at step entry. Throws if `token` was evicted by a
+ * later world taking the region over — its resident body state is gone. */
 export function claimResident(token: WorldState): void {
-    if (token.inUse === false) throw new Error("physics: cannot acquire a destroyed World");
-    if (owner === token) return;
-    assertQueryWorld(token.ecsState, token.worldId);
-    const k = kernel(token.ecsState);
-    const previous = owners.get(k);
-    if (previous !== token) {
-        if (previous?.locked)
-            throw new Error("physics: cannot transfer resident ownership during a step");
-        let heap = heaps.get(k);
-        if (!heap || heap.buffer !== k.memory.buffer) {
-            heap = new Uint8Array(k.memory.buffer);
-            heaps.set(k, heap);
-        }
-        if (previous) {
-            let image = images.get(previous);
-            if (image?.length !== heap.length) {
-                image = new Uint8Array(heap.length);
-                images.set(previous, image);
-            }
-            image.set(heap);
-        }
-        const image = images.get(token);
-        if (image) {
-            heap.set(image);
-            token.bodyStore.refreshViews();
-            token.shapeStore.refreshViews();
-            token.manifoldStore.refreshViews();
-            token.broadPhase.store.refreshIfStale();
-        } else {
-            // Another owner's image can still contain records from this recycled World slot.
-            k.bodyResetWorld(token.worldId);
-            k.shapeResetWorld(token.worldId);
-            k.materialResetWorld(token.worldId);
-        }
-        owners.set(k, token);
-    }
     if (geometryOwner !== token) token.geometryDirty = true;
+    if (owner === token) return;
+    // A World-owned physics runtime restores its last snapshot before claiming the shared resident
+    // columns. The old throw made two clean Worlds impossible to twin-step; the snapshot boundary is the
+    // ownership transfer and keeps the wasm columns deterministic for both worlds.
+    if (owner !== null) evicted.add(owner);
     owner = token;
 }
 
-/** Drop the inactive image only after the owning World's native teardown has finished. */
-export function releaseResident(token: WorldState): void {
-    const k = kernel(token.ecsState);
-    if (owners.get(k) === token) owners.delete(k);
+/** Release the resident region on world destroy, so a later world can claim it without eviction. */
+export function releaseResident(token: object): void {
     if (owner === token) owner = null;
     if (geometryOwner === token) geometryOwner = null;
-    images.delete(token);
+    evicted.delete(token);
 }

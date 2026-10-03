@@ -2,7 +2,6 @@ import { NULL_INDEX } from "../common/array";
 import { HUGE, LINEAR_SLOP } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import { clampf, f32, froundConfig, PI, type Transform, type Vec3 } from "../common/math";
-import { claimResident } from "../kernel/bodycolumns";
 import {
     type DistanceJoint as DistanceJointData,
     distanceJointCurrentLength,
@@ -50,7 +49,6 @@ export class Joint {
 
     /** @internal */
     protected record(): JointRecord {
-        claimResident(this.world);
         return this.world.joints[this.id.index1 - 1];
     }
 
