@@ -94,13 +94,10 @@ export type WorldState = {
 
     contactIdPool: IdPool;
     contacts: Contact[];
-    // Incremental partition of the awake contacts collide processes each step, maintained on the
+    // Awake contacts collide processes each step, maintained on the
     // contact create/destroy + body wake/sleep/transfer events (contact.ts, solverset.ts) instead of
-    // re-gathered per step. `awakeRecycleContacts`: dynamic-dynamic direct-convex, both bodies awake —
-    // the batched kernel recycle pass. `awakeOtherContacts`: the rest (static/mesh/sleeping-partner) —
-    // the TS per-contact narrowphase walk. Order-free; a contact is in at most one (contact.collideKind).
-    awakeRecycleContacts: number[];
-    awakeOtherContacts: number[];
+    // re-gathered per step. Order-free; state transitions are processed in contact-id order.
+    awakeContacts: number[];
 
     islandIdPool: IdPool;
     islands: Island[];
@@ -311,8 +308,7 @@ function makeWorldState(
         joints: [],
         contactIdPool: createIdPool(),
         contacts: [],
-        awakeRecycleContacts: [],
-        awakeOtherContacts: [],
+        awakeContacts: [],
         islandIdPool: createIdPool(),
         islands: [],
         shapes: [],

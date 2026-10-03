@@ -77,6 +77,7 @@ impl ManifoldPoint {
 
 /// The persistent contact manifold between two shapes (b3Manifold). 1–4 points; the friction/twist/
 /// rolling impulses persist across steps but are untouched by `compute_convex_manifold`.
+#[derive(Clone, Copy)]
 pub struct Manifold {
     pub points: [ManifoldPoint; MAX_MANIFOLD_POINTS],
     pub normal: Vec3,

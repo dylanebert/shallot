@@ -304,16 +304,6 @@ export const vec3 = {
         o.z = z;
         return o;
     },
-    /** {@link vec3.modifiedCross}, written into `o` (may alias `a` or `b`). */
-    modifiedCrossOut: (a: Vec3, b: Vec3, o: Vec3): Vec3 => {
-        const x = f32(f32(a.y * b.z) + f32(a.z * b.y));
-        const y = f32(f32(a.z * b.x) + f32(a.x * b.z));
-        const z = f32(f32(a.x * b.y) + f32(a.y * b.x));
-        o.x = x;
-        o.y = y;
-        o.z = z;
-        return o;
-    },
 
     lengthSq: (a: Vec3): number => {
         const xx = f32(a.x * a.x);
@@ -520,51 +510,6 @@ export function pointToSegmentDistance(a: Vec3, b: Vec3, q: Vec3): Vec3 {
     return vec3.mulAdd(a, f32(alpha / denominator), ab);
 }
 
-/** Closest points on the two infinite lines p1+s1*d1 and p2+s2*d2 (b3LineDistance). */
-export function lineDistance(p1: Vec3, d1: Vec3, p2: Vec3, d2: Vec3): SegmentDistanceResult {
-    // Solve A*x = b
-    const a11 = vec3.dot(d1, d1);
-    const a12 = -vec3.dot(d1, d2);
-    const a21 = vec3.dot(d2, d1);
-    const a22 = -vec3.dot(d2, d2);
-
-    const w = vec3.sub(p1, p2);
-    const b1 = -vec3.dot(d1, w);
-    const b2 = -vec3.dot(d2, w);
-
-    const det = f32(f32(a11 * a22) - f32(a12 * a21));
-    if (f32(det * det) < f32(1000 * FLT_MIN)) {
-        // Lines are parallel - project p2 onto line L1: x1 = p1 + s1 * d1
-        const s1 = f32(vec3.dot(vec3.sub(p2, p1), d1) / vec3.dot(d1, d1));
-        const s2 = 0;
-        return {
-            point1: vec3.mulAdd(p1, s1, d1),
-            fraction1: s1,
-            point2: vec3.mulAdd(p2, s2, d2),
-            fraction2: s2,
-        };
-    }
-
-    const s1 = f32(f32(f32(a22 * b1) - f32(a12 * b2)) / det);
-    const s2 = f32(f32(f32(a11 * b2) - f32(a21 * b1)) / det);
-    return {
-        point1: vec3.mulAdd(p1, s1, d1),
-        fraction1: s1,
-        point2: vec3.mulAdd(p2, s2, d2),
-        fraction2: s2,
-    };
-}
-
-/** Are both closest-point fractions within [0, 1]? (b3IsWithinSegments). */
-export function isWithinSegments(result: SegmentDistanceResult): boolean {
-    return (
-        0 <= result.fraction1 &&
-        result.fraction1 <= 1 &&
-        0 <= result.fraction2 &&
-        result.fraction2 <= 1
-    );
-}
-
 // --- vec2 -----------------------------------------------------------------------------------
 
 export const vec2 = {
@@ -630,39 +575,6 @@ export const quat = {
     // Out-param variants for hot zero-alloc paths: identical f32 expression trees, written into a
     // caller-owned Quat. `o` must not alias `q1`/`q2` (its `v` is used as the working register).
     /** Copy `q`'s components into `o` (no rounding — `q` is already f32-valued). */
-    copy: (q: Quat, o: Quat): Quat => {
-        o.v.x = q.v.x;
-        o.v.y = q.v.y;
-        o.v.z = q.v.z;
-        o.s = q.s;
-        return o;
-    },
-    /** {@link quat.conjugate}, written into `o` (may alias `q`). */
-    conjugateOut: (q: Quat, o: Quat): Quat => {
-        o.v.x = -q.v.x;
-        o.v.y = -q.v.y;
-        o.v.z = -q.v.z;
-        o.s = q.s;
-        return o;
-    },
-    /** q1 * q2, written into `o`. */
-    mulOut: (q1: Quat, q2: Quat, o: Quat): Quat => {
-        const s = f32(f32(q1.s * q2.s) - vec3.dot(q1.v, q2.v));
-        vec3.crossOut(q1.v, q2.v, o.v);
-        vec3.mulAddOut(o.v, q1.s, q2.v, o.v);
-        vec3.mulAddOut(o.v, q2.s, q1.v, o.v);
-        o.s = s;
-        return o;
-    },
-    /** inv(q1) * q2, written into `o`. */
-    invMulOut: (q1: Quat, q2: Quat, o: Quat): Quat => {
-        const s = f32(f32(q1.s * q2.s) + vec3.dot(q1.v, q2.v));
-        vec3.crossOut(q2.v, q1.v, o.v);
-        vec3.mulAddOut(o.v, q1.s, q2.v, o.v);
-        vec3.mulSubOut(o.v, q2.s, q1.v, o.v);
-        o.s = s;
-        return o;
-    },
 
     /** Pseudo angular velocity taking q toward target: 2 * (target - q) * conj(q) (b3DeltaQuatToRotation). */
     deltaToRotation: (q: Quat, target: Quat): Vec3 => {
@@ -1189,14 +1101,6 @@ export const xf = {
         q: quat.invMul(a.q, b.q),
     }),
 
-    /** {@link xf.invMul}, written into `o`. `o` must not alias `a` or `b`. */
-    invMulOut: (a: Transform, b: Transform, o: Transform): Transform => {
-        vec3.subOut(b.p, a.p, o.p);
-        quat.invRotateOut(a.q, o.p, o.p);
-        quat.invMulOut(a.q, b.q, o.q);
-        return o;
-    },
-
     invert: (t: Transform): Transform => ({
         p: quat.invRotate(t.q, vec3.neg(t.p)),
         q: quat.conjugate(t.q),
@@ -1220,11 +1124,6 @@ export const transformWorldPoint = (t: WorldTransform, p: Vec3): Pos => xf.point
 export const invTransformWorldPoint = (t: WorldTransform, p: Pos): Vec3 => xf.invPoint(t, p);
 export const invMulWorldTransforms = (a: WorldTransform, b: WorldTransform): Transform =>
     xf.invMul(a, b);
-export const invMulWorldTransformsOut = (
-    a: WorldTransform,
-    b: WorldTransform,
-    o: Transform,
-): Transform => xf.invMulOut(a, b, o);
 export const mulWorldTransforms = (a: WorldTransform, b: Transform): WorldTransform => xf.mul(a, b);
 
 // --- aabb -----------------------------------------------------------------------------------

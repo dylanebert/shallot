@@ -248,8 +248,70 @@ pub(crate) unsafe fn height_view(index: usize) -> crate::height_query::HeightFie
 // the seed of 3c.3's real convex dispatch. Output buffer holds pointCount, normal, then each point's
 // point.xyz / separation / featureId.
 
+#[export_name = "collideSpheresGeo"]
+pub extern "C" fn collide_spheres_geo(
+    ax: f32,
+    ay: f32,
+    az: f32,
+    ar: f32,
+    bx: f32,
+    by: f32,
+    bz: f32,
+    br: f32,
+    px: f32,
+    py: f32,
+    pz: f32,
+    qx: f32,
+    qy: f32,
+    qz: f32,
+    qs: f32,
+) -> usize {
+    let mut m = LocalManifold::new();
+    crate::manifold::collide_spheres(
+        &mut m,
+        4,
+        &crate::manifold::Sphere {
+            center: Vec3::new(ax, ay, az),
+            radius: ar,
+        },
+        &crate::manifold::Sphere {
+            center: Vec3::new(bx, by, bz),
+            radius: br,
+        },
+        Transform {
+            p: Vec3::new(px, py, pz),
+            q: Quat {
+                v: Vec3::new(qx, qy, qz),
+                s: qs,
+            },
+        },
+    );
+    unsafe {
+        let out = &raw mut GEO_OUT as *mut f32;
+        *out = m.point_count as f32;
+        *out.add(1) = m.normal.x;
+        *out.add(2) = m.normal.y;
+        *out.add(3) = m.normal.z;
+        for i in 0..m.point_count {
+            let p = m.points[i];
+            let o = 4 + i * 5;
+            *out.add(o) = p.point.x;
+            *out.add(o + 1) = p.point.y;
+            *out.add(o + 2) = p.point.z;
+            *out.add(o + 3) = p.separation;
+            *(out.add(o + 4) as *mut u32) = make_feature_id(p.pair);
+        }
+    }
+    m.point_count
+}
+
 const OUT_LEN: usize = 4 + 8 * 5;
 static mut GEO_OUT: [f32; OUT_LEN] = [0.0; OUT_LEN];
+static mut GEO_TRIANGLE_OUT: [i32; 8] = [0; 8];
+#[export_name = "geoTriangleOutPtr"]
+pub extern "C" fn geo_triangle_out_ptr() -> *const i32 {
+    &raw const GEO_TRIANGLE_OUT as *const i32
+}
 
 /// Byte offset of the verification output buffer (kernel.test.ts reads it as a `Float32Array`).
 #[export_name = "geoOutPtr"]
@@ -292,6 +354,9 @@ pub extern "C" fn collide_hulls_geo(
         *out.add(3) = m.normal.z;
         for i in 0..m.point_count {
             let p = &m.points[i];
+            (&raw mut GEO_TRIANGLE_OUT as *mut i32)
+                .add(i)
+                .write(p.triangle_index);
             let o = 4 + i * 5;
             *out.add(o) = p.point.x;
             *out.add(o + 1) = p.point.y;

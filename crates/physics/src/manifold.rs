@@ -48,7 +48,7 @@ pub struct FeaturePair {
 }
 
 impl FeaturePair {
-    const SINGLE: FeaturePair = FeaturePair {
+    pub(crate) const SINGLE: FeaturePair = FeaturePair {
         owner1: 0,
         index1: 0,
         owner2: 0,
@@ -74,22 +74,25 @@ impl LocalManifoldPoint {
     };
 }
 
-/// A local manifold with a fixed 32-slot point buffer (b3LocalManifold, convex subset — box3d's
-/// `B3_MAX_LOCAL_MANIFOLD_POINTS`). The convex pair functions write into `points[0..point_count]` in
-/// shape A's frame; a face-face clip on a high-vertex hull can exceed 8 points before the reduce to 4,
-/// so the buffer must match box3d's capacity or the manifold truncates differently (fixture divergence).
+/// Caller-owned local manifold. Convex callers pass Box3D's 32-point capacity; triangle-face
+/// clipping uses up to 128 entries from the mesh driver's remaining point pool. The backing buffer
+/// holds the triangle clip bound without changing the capacity each caller passes.
 pub struct LocalManifold {
     pub normal: Vec3,
-    pub points: [LocalManifoldPoint; 32],
+    pub points: [LocalManifoldPoint; 128],
     pub point_count: usize,
+    pub feature: u32,
+    pub squared_distance: f32,
 }
 
 impl LocalManifold {
     pub fn new() -> LocalManifold {
         LocalManifold {
             normal: Vec3::ZERO,
-            points: [LocalManifoldPoint::ZERO; 32],
+            points: [LocalManifoldPoint::ZERO; 128],
             point_count: 0,
+            feature: 0,
+            squared_distance: 0.0,
         }
     }
 }
@@ -160,14 +163,14 @@ impl SatCache {
 
 /// A clip-polygon vertex (b3ClipVertex).
 #[derive(Clone, Copy)]
-struct ClipVertex {
-    position: Vec3,
-    separation: f32,
-    pair: FeaturePair,
+pub(crate) struct ClipVertex {
+    pub(crate) position: Vec3,
+    pub(crate) separation: f32,
+    pub(crate) pair: FeaturePair,
 }
 
 impl ClipVertex {
-    const ZERO: ClipVertex = ClipVertex {
+    pub(crate) const ZERO: ClipVertex = ClipVertex {
         position: Vec3::ZERO,
         separation: 0.0,
         pair: FeaturePair::SINGLE,
@@ -195,7 +198,7 @@ pub fn make_feature_id(pair: FeaturePair) -> u32 {
 }
 
 /// b3FlipPair — swap owners (and flip each) and indices so the pair is independent of the reference.
-fn flip_pair(pair: FeaturePair) -> FeaturePair {
+pub(crate) fn flip_pair(pair: FeaturePair) -> FeaturePair {
     FeaturePair {
         owner1: 1 - pair.owner2,
         index1: pair.index2,
@@ -235,7 +238,7 @@ fn edge_edge_separation(p1: Vec3, e1: Vec3, c1: Vec3, p2: Vec3, e2: Vec3, c2: Ve
 }
 
 /// b3FindIncidentFace — the face on `hull` most anti-parallel to `ref_normal`.
-fn find_incident_face(hull: &HullData, ref_normal: Vec3, vertex_index: usize) -> usize {
+pub(crate) fn find_incident_face(hull: &HullData, ref_normal: Vec3, vertex_index: usize) -> usize {
     let edges = &hull.edges;
     let planes = &hull.planes;
     let points = &hull.points;
@@ -281,7 +284,7 @@ fn find_incident_face(hull: &HullData, ref_normal: Vec3, vertex_index: usize) ->
 /// b3ClipPolygon — Sutherland-Hodgman clip of `polygon` against `clip_plane`, writing the clipped polygon
 /// into `out` and returning its length. Intersection points re-own their cut edge to `edge` on shape A.
 /// `out` must hold at least `count + 1` slots (the clip grows the polygon by at most one vertex).
-fn clip_polygon(
+pub(crate) fn clip_polygon(
     polygon: &[ClipVertex],
     count: usize,
     clip_plane: Plane,

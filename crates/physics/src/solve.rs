@@ -475,12 +475,12 @@ enum Job {
     None,
     Solve,
     Recycle,
-    Convex,
+    Contacts,
 }
 
 /// `parBuild`'s `kind` argument, mirrored in `src/kernel.ts`.
 const KIND_RECYCLE: u32 = 1;
-const KIND_CONVEX: u32 = 2;
+const KIND_CONTACTS: u32 = 2;
 
 static mut JOB: Job = Job::None;
 static mut PAR: Option<Par> = None;
@@ -506,7 +506,7 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
     assert!((1..=MAX_THREADS).contains(&thread_count));
     let job = match kind {
         KIND_RECYCLE => Job::Recycle,
-        KIND_CONVEX => Job::Convex,
+        KIND_CONTACTS => Job::Contacts,
         _ => panic!("unknown parallel-for kind"),
     };
     let par = ParFor::new(count, COLLIDE_MIN_RANGE, thread_count);
@@ -545,7 +545,7 @@ fn run_job(index: usize) {
                     Job::Recycle => p
                         .par
                         .run(|s, e| arena::recycle_block(s, e, p.count, p.a, p.b)),
-                    Job::Convex => p.par.run(|s, e| arena::convex_block(s, e, p.count)),
+                    Job::Contacts => p.par.run(|s, e| arena::contact_block(s, e, p.count, index)),
                     Job::Solve | Job::None => unreachable!(),
                 }
             }

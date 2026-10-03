@@ -187,15 +187,37 @@ export type Kernel = {
         qs: number,
     ): number;
     geoOutPtr(): number;
+    geoTriangleOutPtr(): number;
+    collideSpheresGeo(
+        ax: number,
+        ay: number,
+        az: number,
+        ar: number,
+        bx: number,
+        by: number,
+        bz: number,
+        br: number,
+        px: number,
+        py: number,
+        pz: number,
+        qx: number,
+        qy: number,
+        qz: number,
+        qs: number,
+    ): number;
 
-    // Convex narrowphase batched dispatch (kernel/src/arena.rs). `reserveDispatch` lays out the
+    // Contact narrowphase dispatch (arena.rs). `reserveDispatch` lays out the
     // per-record input + output columns (at the solver base, consumed within collide); the collect pass
-    // writes the input through `dispatchPtr`, `dispatchConvex` runs `compute_convex_manifold` per record
+    // writes the input through `dispatchPtr`; `dispatchContacts` computes each record
     // over the geometry + manifold columns, and the finish pass reads the touching flags at `dispatchOutPtr`.
-    reserveDispatch(count: number): void;
+    reserveDispatch(count: number, meshCount: number, threads: number): void;
+    meshCacheBytes(): number;
+    meshCachePtr(): number;
+    meshOutputPtr(): number;
+    meshMaterialPtr(): number;
     dispatchPtr(): number;
     dispatchOutPtr(): number;
-    dispatchConvex(count: number): void;
+    dispatchContacts(count: number): void;
 
     // Contact-recycle batched pass (kernel/src/arena.rs). `reserveRecycle` lays out the per-record
     // input + output columns (at the solver base, consumed within collide, before the convex dispatch);
@@ -260,7 +282,7 @@ export type Kernel = {
 /** Which outer phase a {@link KernelExports.parBuild} names (kernel/src/solve.rs `Job`). */
 export const ParKind = {
     Recycle: 1,
-    Convex: 2,
+    Contacts: 2,
 } as const;
 export type ParKind = (typeof ParKind)[keyof typeof ParKind];
 

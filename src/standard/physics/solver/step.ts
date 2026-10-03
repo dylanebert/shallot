@@ -137,7 +137,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
 
     // Narrow phase: update contacts.
     clock.mark(PHASE_SLOT);
-    collide(context);
+    if (world.awakeContacts.length !== 0) collide(context);
     clock.span("collide", PHASE_SLOT);
 
     // A mid-narrowphase manifold-pool grow moved the geometry region (and the solver columns) that sit

@@ -33,10 +33,6 @@ export const AABB_MARGIN_FRACTION = f32(0.125);
 /// (B3_CONTACT_RECYCLE_DISTANCE).
 export const CONTACT_RECYCLE_DISTANCE = f32(10.0 * LINEAR_SLOP);
 
-/// Mesh manifolds are pushed apart by this rest offset to improve mesh collision quality, at the
-/// cost of a small visual gap (B3_MESH_REST_OFFSET). PhysX/Unreal call it "rest offset".
-export const MESH_REST_OFFSET = f32(1.0 * LINEAR_SLOP);
-
 /// A large sanity bound on coordinates (B3_HUGE), 100 km at the default length unit. Single-precision
 /// value; large-world double mode would widen it, but the port is single precision.
 export const HUGE = f32(1.0e5 * LENGTH_UNITS_PER_METER);
@@ -44,10 +40,6 @@ export const HUGE = f32(1.0e5 * LENGTH_UNITS_PER_METER);
 /// An island falls asleep once every body in it stays below its sleep threshold for this long, in
 /// seconds (B3_TIME_TO_SLEEP).
 export const TIME_TO_SLEEP = f32(0.5);
-
-/// A contact whose relative rotation stays within this dot-product of its cached pose is recycled
-/// rather than re-collided (B3_CONTACT_RECYCLE_ANGULAR_DISTANCE ~= cos(7°)).
-export const CONTACT_RECYCLE_ANGULAR_DISTANCE = f32(0.99240388);
 
 /// Number of solver graph colors (B3_GRAPH_COLOR_COUNT); the last is the serial overflow color.
 export const GRAPH_COLOR_COUNT = 24;

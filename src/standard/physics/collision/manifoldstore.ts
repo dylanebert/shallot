@@ -1,9 +1,8 @@
 import type { World } from "../../../engine";
 // The persistent contact-manifold store — the warm-start state that survives across steps, held
 // column-resident in the kernel's linear memory (kernel/src/manifolds.rs) instead of as JS objects on
-// each contact. TS owns the allocator + lifecycle because the mesh narrowphase is TS and the convex one
-// is the kernel, so allocation can't live on one side of the FFI; the kernel just reads/writes
-// manifold data at the offsets this store hands out.
+// each contact. TS owns variable manifold-block allocation between kernel tasks; the kernel reads
+// the old blocks and returns completed mesh spans before the serial finish allocates their blocks.
 //
 // Two columns, mirroring box3d's `b3Contact.manifolds` heap array:
 //   - directory: one record per contactId (material row + block descriptor), indexed directly.
@@ -14,7 +13,7 @@ import type { World } from "../../../engine";
 //
 // The strides MIRROR kernel/src/manifolds.rs; the wasm layout is the contract.
 
-import { f32, type Mat3, mat3, type Quat, type Transform, type Vec3, vec3 } from "../common/math";
+import { f32, type Vec3 } from "../common/math";
 import { kernel } from "../kernel/kernel";
 import type { Manifold, ManifoldPoint } from "./contact";
 
@@ -27,12 +26,6 @@ import type { Manifold, ManifoldPoint } from "./contact";
 export const DIR_STRIDE = 37;
 /** First slot of the convex cache union within a directory record (kernel `DIR_CACHE`). */
 const DIR_CACHE = 12;
-// The recycle record (kernel `DIR_CACHED_*`): the cached relative pose the recycle test reads/writes.
-// The kernel recycle pass owns it for a kernel contact; the TS path mirrors it for a would-be-kernel
-// contact temporarily off the kernel path (readRecyclePose/writeRecyclePose).
-const DIR_CACHED_ROT_A = 22; // q4
-const DIR_CACHED_ROT_B = 26; // q4
-const DIR_CACHED_REL_POSE = 30; // p3 + q4
 /** Cache union words (10): the wider SimplexCache (metric, count, indexA[4], indexB[4]) overlaps the
  * narrower SatCache. Zeroed on `freeSlot` so a recycled contactId starts cold (box3d's create-zero). */
 const CACHE_WORDS = 10;
@@ -85,11 +78,6 @@ function growCap(need: number): number {
     while (cap < need) cap *= 2;
     return cap;
 }
-
-// Scratch for the raw per-point walks below; never live across calls.
-const walkNormal: Vec3 = { x: 0, y: 0, z: 0 };
-const walkA: Vec3 = { x: 0, y: 0, z: 0 };
-const walkB: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
  * The persistent manifold store for one world. Holds the allocator bookkeeping (block free lists +
@@ -261,6 +249,15 @@ export class ManifoldStore {
         return this.views(contactId, count, base);
     }
 
+    /** Copy a completed kernel manifold span into this contact's allocated block. Source must be
+     * independent of WASM memory: allocation can grow or relocate the pool. */
+    importManifolds(contactId: number, count: number, source: Uint32Array): Manifold[] {
+        const views = this.alloc(contactId, count);
+        const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
+        this.poolU.set(source.subarray(0, count * MANIFOLD_STRIDE), base * MANIFOLD_STRIDE);
+        return views;
+    }
+
     /** Column-backed `Manifold` views over a contact's already-allocated block, cached per block base
      * (callers treat the returned array as immutable). */
     views(
@@ -321,55 +318,6 @@ export class ManifoldStore {
         return this.dirU[contactId * DIR_STRIDE + DIR_HIT] !== 0;
     }
 
-    /**
-     * Load a contact's cached relative pose (last full narrowphase) out of the directory recycle record
-     * into the given objects. The kernel recycle pass owns this record for a dynamic-dynamic convex
-     * contact; when such a contact temporarily runs the TS path (a partner is sleeping) it reads the
-     * directory here, so the pose stays consistent across the kernel↔TS transition. Out-params (zero-alloc).
-     */
-    readRecyclePose(contactId: number, rotA: Quat, rotB: Quat, relPose: Transform): void {
-        const o = contactId * DIR_STRIDE;
-        const f = this.dirF;
-        rotA.v.x = f[o + DIR_CACHED_ROT_A];
-        rotA.v.y = f[o + DIR_CACHED_ROT_A + 1];
-        rotA.v.z = f[o + DIR_CACHED_ROT_A + 2];
-        rotA.s = f[o + DIR_CACHED_ROT_A + 3];
-        rotB.v.x = f[o + DIR_CACHED_ROT_B];
-        rotB.v.y = f[o + DIR_CACHED_ROT_B + 1];
-        rotB.v.z = f[o + DIR_CACHED_ROT_B + 2];
-        rotB.s = f[o + DIR_CACHED_ROT_B + 3];
-        relPose.p.x = f[o + DIR_CACHED_REL_POSE];
-        relPose.p.y = f[o + DIR_CACHED_REL_POSE + 1];
-        relPose.p.z = f[o + DIR_CACHED_REL_POSE + 2];
-        relPose.q.v.x = f[o + DIR_CACHED_REL_POSE + 3];
-        relPose.q.v.y = f[o + DIR_CACHED_REL_POSE + 4];
-        relPose.q.v.z = f[o + DIR_CACHED_REL_POSE + 5];
-        relPose.q.s = f[o + DIR_CACHED_REL_POSE + 6];
-    }
-
-    /** Store a contact's cached relative pose into the directory recycle record — the TS-path mirror of
-     * the kernel recycle pass's pose-cache write, keeping the directory current for the next step
-     * whichever path processes the contact then. See {@link readRecyclePose}. */
-    writeRecyclePose(contactId: number, rotA: Quat, rotB: Quat, relPose: Transform): void {
-        const o = contactId * DIR_STRIDE;
-        const f = this.dirF;
-        f[o + DIR_CACHED_ROT_A] = rotA.v.x;
-        f[o + DIR_CACHED_ROT_A + 1] = rotA.v.y;
-        f[o + DIR_CACHED_ROT_A + 2] = rotA.v.z;
-        f[o + DIR_CACHED_ROT_A + 3] = rotA.s;
-        f[o + DIR_CACHED_ROT_B] = rotB.v.x;
-        f[o + DIR_CACHED_ROT_B + 1] = rotB.v.y;
-        f[o + DIR_CACHED_ROT_B + 2] = rotB.v.z;
-        f[o + DIR_CACHED_ROT_B + 3] = rotB.s;
-        f[o + DIR_CACHED_REL_POSE] = relPose.p.x;
-        f[o + DIR_CACHED_REL_POSE + 1] = relPose.p.y;
-        f[o + DIR_CACHED_REL_POSE + 2] = relPose.p.z;
-        f[o + DIR_CACHED_REL_POSE + 3] = relPose.q.v.x;
-        f[o + DIR_CACHED_REL_POSE + 4] = relPose.q.v.y;
-        f[o + DIR_CACHED_REL_POSE + 5] = relPose.q.v.z;
-        f[o + DIR_CACHED_REL_POSE + 6] = relPose.q.s;
-    }
-
     // Raw per-point walks over a contact's resident manifolds — the narrowphase's hot loops, run on
     // the pool columns directly so no view getters (which return fresh Vec3s) are touched. The f32
     // expression trees are op-identical to the view-based loops they replaced. `count` is the
@@ -409,43 +357,6 @@ export class ManifoldStore {
             for (let p = 0; p < pc; ++p) {
                 const po = mo + M_POINTS + p * POINT_STRIDE;
                 f[po + P_BASE_SEPARATION] = f[po + P_SEPARATION];
-            }
-        }
-    }
-
-    /** The recycle-success separation update (tryRecycle's per-point loop): with the incremental body
-     * rotations `matrixA`/`matrixB` and center delta `dc`, separation = baseSeparation +
-     * dot(dc + (matrixB·anchorB − matrixA·anchorA), normal), and every point marks persisted. */
-    recycleSeparations(
-        contactId: number,
-        count: number,
-        matrixA: Mat3,
-        matrixB: Mat3,
-        dc: Vec3,
-    ): void {
-        const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
-        const f = this.poolF;
-        const u = this.poolU;
-        for (let m = 0; m < count; ++m) {
-            const mo = (base + m) * MANIFOLD_STRIDE;
-            walkNormal.x = f[mo + M_NORMAL];
-            walkNormal.y = f[mo + M_NORMAL + 1];
-            walkNormal.z = f[mo + M_NORMAL + 2];
-            const pc = u[mo + M_POINT_COUNT];
-            for (let p = 0; p < pc; ++p) {
-                const po = mo + M_POINTS + p * POINT_STRIDE;
-                walkA.x = f[po + P_ANCHOR_A];
-                walkA.y = f[po + P_ANCHOR_A + 1];
-                walkA.z = f[po + P_ANCHOR_A + 2];
-                mat3.mulVOut(matrixA, walkA, walkA);
-                walkB.x = f[po + P_ANCHOR_B];
-                walkB.y = f[po + P_ANCHOR_B + 1];
-                walkB.z = f[po + P_ANCHOR_B + 2];
-                mat3.mulVOut(matrixB, walkB, walkB);
-                vec3.subOut(walkB, walkA, walkB);
-                vec3.addOut(dc, walkB, walkB);
-                f[po + P_SEPARATION] = f32(f[po + P_BASE_SEPARATION] + vec3.dot(walkB, walkNormal));
-                u[po + P_PERSISTED] = 1;
             }
         }
     }

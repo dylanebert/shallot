@@ -35,15 +35,15 @@ pub mod joint_abi;
 pub mod manifold;
 pub mod manifold_abi;
 pub mod math;
+pub mod mesh_contact;
 pub mod mesh_query;
-// The convex-manifold bridge (b3ComputeConvexManifold). Native `cargo test` gold-verifies it; the wasm
-// build dispatches it over the geometry + manifold columns through `arena::dispatch_convex` (3c.3).
 pub mod narrowphase;
 pub mod parfor;
 pub mod query;
 pub mod recycle;
 mod simd;
 pub mod stages;
+pub mod triangle_manifold;
 // The broad-phase pair query + dynamic-tree rebuild (3d). `tree`/`table` are native-testable (gold
 // vectors: `tests/tree_gold.rs`); the wasm arena shim that drives them over the resident region is
 // `pairwork`, wasm-only.

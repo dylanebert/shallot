@@ -1,17 +1,7 @@
-//! Contact recycling: the recycle branch of box3d's `b3CollideTask` (`physics_world.c`), ported
-//! op-for-op via the TS port (`collide.ts` `tryRecycle` + `manifoldstore.ts` `recycleSeparations`).
-//! When a contact's relative pose barely moved since last step, the manifold is reused: the anchors
-//! are kept and only each point's separation is advanced for the incremental body rotation/translation
-//! (a variation of conservative advancement), skipping the full narrowphase. Post-settle this is the
-//! fast path ~every contact takes, so it is the collide phase's dominant cost.
-//!
-//! Pure column arithmetic + the manifold-pool walk. The caller (collide, wired at 4b.3) supplies the
-//! bodies' world transforms/centers/extents (resident body columns) and the cached rotations/relative
-//! pose (contact record); this returns whether the contact recycled so the caller can `continue`. The
-//! touching-state transitions, contact events, and constraint-graph bookkeeping stay TS.
-//!
-//! Every op maps one-to-one to the C scalar path (no SIMD, no FMA); bit-identical to the
-//! `DISABLE_SIMD` reference (see `math.rs`).
+//! Box3D's b3CollideTask recycle gate and separation update (physics_world.c).
+//! The caller supplies current body poses and directory-resident cached poses. Success keeps the
+//! manifold anchors and updates separation/persistence in the pool; failure requires full narrowphase.
+//! Touching transitions, events and constraint-graph moves belong to the serial finish.
 
 use crate::col::Col;
 use crate::manifold_abi::{

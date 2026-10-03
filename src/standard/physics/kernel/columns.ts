@@ -224,10 +224,17 @@ export const PLJ_PERP_IMPULSE = J_PAYLOAD + 3; // vec2
 export const PLJ_QUAT_A = J_PAYLOAD + 5;
 export const PLJ_QUAT_B = J_PAYLOAD + 9;
 
-// Convex narrowphase dispatch record (arena.rs `DISPATCH_STRIDE`). Float slots are written through an
-// f32 view, contactId/types/hull geoIndex through a u32 view over the same column. Geom slots hold a
-// sphere (center3 + radius), a capsule (center1_3 + center2_3 + radius), or a hull (geoIndex at slot 0).
-export const DISPATCH_STRIDE = 31;
+// Contact dispatch ABI (arena.rs). Geometry is sphere center/radius, capsule endpoints/radius,
+// hull record index, mesh extra-pool offset/scale, or height/compound extra-pool offset. A compound
+// also supplies its child index. Mesh slots address opaque cache, manifold and point-material spans.
+export const DISPATCH_STRIDE = 42;
+export const D_OLD_COUNT = 41;
+export const D_CHILD = 31;
+export const D_MESH_SLOT = 32;
+export const D_FAST = 33;
+export const D_LOWER = 34;
+export const D_UPPER = 37;
+export const D_CACHE_VALID = 40;
 export const D_CONTACT = 0;
 export const D_TYPE_A = 1;
 export const D_TYPE_B = 2;
@@ -236,11 +243,12 @@ export const D_XF_B = 10; // p3 + q4
 export const D_GEOM_A = 17; // ≤7 slots
 export const D_GEOM_B = 24; // ≤7 slots
 
-// Contact-recycle input record (arena.rs `RECYCLE_STRIDE`). All u32: contactId, the two bodies'
-// awake localIndices (resident-column records), the two shapeIds (fat-AABB column records), and a bits
-// word (bit0 eligible, bit1 wasTouching). The kernel reads the bodies' transforms/centers/extents and
-// the cached pose from the resident columns; only these indices + bits cross per contact.
-export const RECYCLE_STRIDE = 6;
+// Recycle ABI (arena.rs). An awake localIndex addresses resident body columns; NULL_INDEX selects
+// that body's fallback tail (transform7, center3, extent3). Cached poses remain kernel-owned.
+export const RECYCLE_STRIDE = 33;
+export const R_FALLBACK_A = 6;
+export const R_FALLBACK_B = 19;
+export const R_COUNT = 32;
 export const R_CONTACT = 0;
 export const R_LOCAL_A = 1;
 export const R_LOCAL_B = 2;

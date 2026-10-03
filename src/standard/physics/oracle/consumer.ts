@@ -10,12 +10,6 @@ import {
 } from "../api/index";
 import { ContactFlags } from "../collision/contact";
 import { emptyCache, shapeDistance } from "../collision/distance";
-import {
-    collideHulls,
-    collideSpheres,
-    emptySATCache,
-    makeLocalManifold,
-} from "../collision/manifold";
 import { type CollisionPlane, clipVector, solvePlanes } from "../collision/mover";
 import { kernelRay } from "../collision/shape_query_gold";
 import { createProxy, createTree, query } from "../collision/tree";
@@ -29,6 +23,8 @@ import {
     vec3,
 } from "../common/math";
 import { ShapeType } from "../common/types";
+import { uploadGeometry } from "../kernel/geocolumns";
+import { kernel } from "../kernel/kernel";
 import {
     type Capsule,
     computeCapsuleMass,
@@ -356,25 +352,36 @@ function runBaseCase(item: OracleCase): unknown {
         }
         case "manifold.spheres.v1.scalar":
         case "manifold.spheres.v1.simd": {
-            const manifold = makeLocalManifold(4);
             const sphereA = input.sphereA as Record<string, unknown>;
             const sphereB = input.sphereB as Record<string, unknown>;
-            collideSpheres(
-                manifold,
-                4,
-                { center: vec(sphereA.center), radius: f32(String(sphereA.radius)) },
-                { center: vec(sphereB.center), radius: f32(String(sphereB.radius)) },
-                {
-                    p: vec((input.transformBtoA as Record<string, unknown>).translation),
-                    q: identity,
-                },
+            const a = vec(sphereA.center),
+                b = vec(sphereB.center);
+            const p = vec((input.transformBtoA as Record<string, unknown>).translation);
+            const k = kernel(undefined);
+            const count = k.collideSpheresGeo(
+                a.x,
+                a.y,
+                a.z,
+                f32(String(sphereA.radius)),
+                b.x,
+                b.y,
+                b.z,
+                f32(String(sphereB.radius)),
+                p.x,
+                p.y,
+                p.z,
+                0,
+                0,
+                0,
+                1,
             );
+            const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4 + count * 5);
             return {
-                normal: outVec(manifold.normal),
-                pointCount: `0x${manifold.pointCount.toString(16).padStart(8, "0")}`,
-                points: manifold.points.slice(0, manifold.pointCount).map((point) => ({
-                    point: outVec(point.point),
-                    separation: bits(point.separation),
+                normal: outVec({ x: out[1], y: out[2], z: out[3] }),
+                pointCount: u32hex(count),
+                points: Array.from({ length: count }, (_, i) => ({
+                    point: outVec({ x: out[4 + i * 5], y: out[5 + i * 5], z: out[6 + i * 5] }),
+                    separation: bits(out[7 + i * 5]),
                 })),
             };
         }
@@ -498,33 +505,22 @@ function runBaseCase(item: OracleCase): unknown {
         }
         case "o4.convex-manifold.scalar-or-simd.scalar":
         case "o4.convex-manifold.scalar-or-simd.simd": {
-            const manifold = makeLocalManifold(32);
-            collideHulls(
-                manifold,
-                32,
-                makeBoxHull(1, 1, 1),
-                makeBoxHull(1, 1, 1),
-                {
-                    p: { x: 1.25, y: 0.1, z: 0 },
-                    q: identity,
-                },
-                emptySATCache(),
-            );
+            const a = makeBoxHull(1, 1, 1),
+                b = makeBoxHull(1, 1, 1);
+            uploadGeometry(undefined, [a, b]);
+            const k = kernel(undefined);
+            const count = k.collideHullsGeo(a.geoIndex, b.geoIndex, 1.25, 0.1, 0, 0, 0, 0, 1);
+            const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4 + count * 5);
+            const words = new Uint32Array(out.buffer, out.byteOffset, out.length);
+            const triangles = new Int32Array(k.memory.buffer, k.geoTriangleOutPtr(), count);
             return {
-                normal: vbits(manifold.normal),
-                pointCount: i32hex(manifold.pointCount),
-                points: manifold.points.slice(0, manifold.pointCount).map((point) => ({
-                    point: vbits(point.point),
-                    separation: bits(point.separation),
-                    triangleIndex: i32hex(point.triangleIndex),
-                    feature: [
-                        u32hex(
-                            point.pair.owner1 * 0x1000000 +
-                                point.pair.index1 * 0x10000 +
-                                point.pair.owner2 * 0x100 +
-                                point.pair.index2,
-                        ),
-                    ],
+                normal: vbits({ x: out[1], y: out[2], z: out[3] }),
+                pointCount: i32hex(count),
+                points: Array.from({ length: count }, (_, i) => ({
+                    point: vbits({ x: out[4 + i * 5], y: out[5 + i * 5], z: out[6 + i * 5] }),
+                    separation: bits(out[7 + i * 5]),
+                    triangleIndex: i32hex(triangles[i]),
+                    feature: [u32hex(words[8 + i * 5])],
                 })),
                 cacheHit: u32hex(0),
                 hookVisits: u32hex(1),

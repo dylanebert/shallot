@@ -9,8 +9,7 @@
 import { NULL_INDEX, swapRemove } from "../common/array";
 import { SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
-import type { AABB } from "../common/math";
-import { maxf, type Quat, quat, type Transform, type Vec3 } from "../common/math";
+import { maxf, type Vec3 } from "../common/math";
 import { BodyType, ShapeType } from "../common/types";
 import { type CompoundData, getCompoundChild } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
@@ -19,14 +18,8 @@ import { removeContactFromGraph } from "../solver/graph";
 import { type Body, BodyFlags, wakeBody } from "../world/body";
 import { unlinkContact } from "../world/island";
 import type { WorldState } from "../world/world";
-import { emptyCache, type SimplexCache } from "./distance";
-import { emptySATCache, type SATCache } from "./manifold";
-import { addKey, removeKey } from "./table";
 
-/** Which per-step collide list an awake contact belongs to (incremental partition, maintained here +
- * in solverset.ts against the create/destroy/wake/sleep event set; consumed by collide.ts). A contact
- * is enumerated by collide iff its `setIndex` is Awake, and then splits by recycle eligibility. */
-export const AwakeContact = { None: 0, Recycle: 1, Other: 2 } as const;
+import { addKey, removeKey } from "./table";
 
 /** Contact flags (b3ContactFlags): a persistent bank (low bits) and a per-step sim bank (0x10000+). */
 export const ContactFlags = {
@@ -75,19 +68,6 @@ export type Manifold = {
     pointCount: number;
 };
 
-/** GJK/SAT warm-start caches carried on a convex contact (b3ContactCache). */
-export type ConvexContactCache = { simplexCache: SimplexCache; satCache: SATCache };
-
-/** Per-triangle warm-start cache for a mesh/height-field contact (b3TriangleCache). */
-export type TriangleCache = { triangleIndex: number; cache: ConvexContactCache };
-
-/**
- * World a mesh/height-field contact carries in place of the convex cache (b3MeshContact): the
- * per-triangle caches from the last narrowphase pass and the world-space bounds those triangles
- * were queried against, so an unmoved body can skip re-querying the BVH.
- */
-export type MeshContact = { triangleCache: TriangleCache[]; queryBounds: AABB };
-
 /** The persistent interaction between two shapes (b3Contact). */
 export type Contact = {
     setIndex: number;
@@ -107,24 +87,11 @@ export type Contact = {
     bodySimIndexA: number;
     bodySimIndexB: number;
     flags: number;
-    // Recycle eligibility's per-contact-constant half (dynamic-dynamic direct-convex): !static && !mesh
-    // && shapeA convex. Fixed at create; the only mutable input to eligibility is the two bodies'
-    // setIndex. `collideKind`/`collideIndex` are this contact's live slot in the incremental collide
-    // partition (world.awakeRecycleContacts / awakeOtherContacts) — AwakeContact.None when not awake.
-    recycleStable: boolean;
-    collideKind: number;
     collideIndex: number;
     // Manifold(s) computed by narrowphase during the step; the GJK/SAT cache persists across steps.
     manifolds: Manifold[];
     manifoldCount: number;
-    // A convex contact uses `cache`; a mesh/height-field contact uses `meshContact` instead (a union
-    // in C). Both are always allocated here; the narrowphase reads the one its shape type dictates.
-    cache: ConvexContactCache;
-    meshContact: MeshContact;
-    // Cached relative pose for the contact-recycling test (updated each full narrowphase pass).
-    cachedRotationA: Quat;
-    cachedRotationB: Quat;
-    cachedRelativePose: Transform;
+    kernelMeshCache: Uint32Array | null;
     friction: number;
     restitution: number;
     rollingResistance: number;
@@ -150,22 +117,10 @@ function makeContact(generation: number): Contact {
         bodySimIndexA: NULL_INDEX,
         bodySimIndexB: NULL_INDEX,
         flags: 0,
-        recycleStable: false,
-        collideKind: AwakeContact.None,
         collideIndex: NULL_INDEX,
         manifolds: [],
         manifoldCount: 0,
-        cache: { simplexCache: emptyCache(), satCache: emptySATCache() },
-        meshContact: {
-            triangleCache: [],
-            queryBounds: {
-                lowerBound: { x: 0, y: 0, z: 0 },
-                upperBound: { x: 0, y: 0, z: 0 },
-            },
-        },
-        cachedRotationA: quat.identity(),
-        cachedRotationB: quat.identity(),
-        cachedRelativePose: { p: { x: 0, y: 0, z: 0 }, q: quat.identity() },
+        kernelMeshCache: null,
         friction: 0,
         restitution: 0,
         rollingResistance: 0,
@@ -216,67 +171,22 @@ export function initializeContactRegisters(): void {
     registersInitialized = true;
 }
 
-// Which collide list an awake contact belongs to. Enumerated iff setIndex is Awake; then recycle iff
-// its per-contact-constant `recycleStable` holds and both bodies are awake-resident (the kernel recycle
-// pass indexes the resident columns by localIndex, so both must be in the awake set). Order-free — the
-// per-contact narrowphase/recycle work is independent and stateChanges is sorted before acting.
-function classifyAwakeContact(world: WorldState, contact: Contact): number {
-    if (contact.setIndex !== SetType.Awake) {
-        return AwakeContact.None;
-    }
-    if (contact.recycleStable) {
-        const bodyA = world.bodies[contact.edges[0].bodyId];
-        const bodyB = world.bodies[contact.edges[1].bodyId];
-        if (bodyA.setIndex === SetType.Awake && bodyB.setIndex === SetType.Awake) {
-            return AwakeContact.Recycle;
-        }
-    }
-    return AwakeContact.Other;
-}
-
-// Unlink a contact from its current collide list via swap-remove (leaves collideKind/Index for the
-// caller to reset). The freed slot inherits the list's tail; fix the moved contact's cached index.
-function detachAwakeContact(world: WorldState, contact: Contact): void {
-    const kind = contact.collideKind;
-    if (kind === AwakeContact.None) {
-        return;
-    }
-    const list =
-        kind === AwakeContact.Recycle ? world.awakeRecycleContacts : world.awakeOtherContacts;
-    const idx = contact.collideIndex;
-    if (swapRemove(list, idx) !== NULL_INDEX) {
-        world.contacts[list[idx]].collideIndex = idx;
-    }
-}
-
-/** Move a contact to the collide list its current state dictates (create, or a body/contact setIndex
- * change). Idempotent: re-running from either endpoint of a two-body event converges to the same slot. */
+/** Maintain the awake-contact sweep when a contact changes solver sets. */
 export function updateAwakeContact(world: WorldState, contact: Contact): void {
-    const target = classifyAwakeContact(world, contact);
-    if (target === contact.collideKind) {
-        return;
-    }
-    detachAwakeContact(world, contact);
-    if (target === AwakeContact.None) {
-        contact.collideKind = AwakeContact.None;
-        contact.collideIndex = NULL_INDEX;
+    if (contact.setIndex === SetType.Awake) {
+        if (contact.collideIndex !== NULL_INDEX) return;
+        contact.collideIndex = world.awakeContacts.length;
+        world.awakeContacts.push(contact.contactId);
     } else {
-        const list =
-            target === AwakeContact.Recycle ? world.awakeRecycleContacts : world.awakeOtherContacts;
-        contact.collideIndex = list.length;
-        list.push(contact.contactId);
-        contact.collideKind = target;
+        removeAwakeContact(world, contact);
     }
 }
 
-// Force a contact out of the collide partition (destroy path — the contact is going away, so classify
-// would wrongly keep an awake one).
 function removeAwakeContact(world: WorldState, contact: Contact): void {
-    if (contact.collideKind === AwakeContact.None) {
-        return;
-    }
-    detachAwakeContact(world, contact);
-    contact.collideKind = AwakeContact.None;
+    const index = contact.collideIndex;
+    if (index === NULL_INDEX) return;
+    const list = world.awakeContacts;
+    if (swapRemove(list, index) !== NULL_INDEX) world.contacts[list[index]].collideIndex = index;
     contact.collideIndex = NULL_INDEX;
 }
 
@@ -298,9 +208,7 @@ export function writeBodySimIndex(world: WorldState, body: Body): void {
     }
 }
 
-/** Re-partition every contact on a body's edge list after the body's setIndex changed (wake/sleep/
- * transfer), and refresh this body's `bodySimIndex` side (localIndex was reassigned in the same move).
- * Walks the doubly-linked contact list; each contact is reclassified against current state. */
+/** Refresh awake-contact membership and this body's simulation indices after a solver-set move. */
 export function reclassifyBodyContacts(world: WorldState, body: Body): void {
     const simIndex = body.type === BodyType.Static ? NULL_INDEX : body.localIndex;
     let contactKey = body.headContactKey;
@@ -461,12 +369,6 @@ export function createContact(
         contact.flags |= ContactFlags.simEnablePreSolveEvents;
     }
 
-    // Recycle eligibility's constant half (flags + canonical shapeA type — both fixed for this contact's
-    // life). Enter the incremental collide partition. `typeA` is the primary/canonical A after the flip.
-    contact.recycleStable =
-        (contact.flags & ContactFlags.contactStaticFlag) === 0 &&
-        (contact.flags & ContactFlags.simMeshContact) === 0 &&
-        (typeA === ShapeType.Sphere || typeA === ShapeType.Capsule || typeA === ShapeType.Hull);
     updateAwakeContact(world, contact);
 
     // Seed the awake-column indices for the solver + recycle readers (thereafter maintained at graph add
@@ -552,9 +454,9 @@ export function destroyContact(world: WorldState, contact: Contact, wakeBodies: 
     }
     bodyB.contactCount -= 1;
 
-    // A mesh contact's triangle cache is plain JS objects; GC reclaims it (b3Array_Destroy in C).
+    // Release the opaque triangle cache with its contact.
     if ((flags & ContactFlags.simMeshContact) !== 0) {
-        contact.meshContact.triangleCache = [];
+        contact.kernelMeshCache = null;
     }
 
     // Remove contact from the array that owns it
