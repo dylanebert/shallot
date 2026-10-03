@@ -53,10 +53,15 @@ const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
  * Lowered V8 tier thresholds (defaults 400 and 3,000 in Node 26), so every function in a stepped loop
  * reaches TurboFan inside the warm: warm-up boxing and Maglev-only literals are JIT transitions, not
  * steady-state cost. An unoptimized path allocates more, never less, so tiering can only redden a reading.
+ * The short empty-sensor return needs the lower TurboFan threshold to tier within first-person's warm.
+ * Compile synchronously: concurrent finalization of inspector and source-map helpers can allocate on
+ * the subject's stack. This changes compilation timing, not subject allocation. The same V8 flags
+ * apply to Node and Chromium via display.ts's --js-flags.
  */
 export const TIER_FLAGS = [
+    "--no-concurrent-recompilation",
     "--invocation-count-for-maglev=10",
-    "--invocation-count-for-turbofan=50",
+    "--invocation-count-for-turbofan=10",
 ];
 
 export const windowBytes = (window: { sites: readonly AllocationSite[] }) =>
