@@ -19,9 +19,6 @@ export const LINEAR_SLOP = f32(f32(0.005) * LENGTH_UNITS_PER_METER);
 /// (B3_SPECULATIVE_DISTANCE).
 export const SPECULATIVE_DISTANCE = f32(4.0 * LINEAR_SLOP);
 
-/// Overlap queries report a hit within this slop of touching (B3_OVERLAP_SLOP).
-export const OVERLAP_SLOP = f32(f32(0.1) * LINEAR_SLOP);
-
 /// Maximum points in a shape-cast proxy point cloud (B3_MAX_SHAPE_CAST_POINTS).
 export const MAX_SHAPE_CAST_POINTS = 64;
 

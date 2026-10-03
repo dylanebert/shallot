@@ -1,4 +1,4 @@
-import { f32, quat, type Transform, type Vec3, xf } from "../common/math";
+import { type Transform, type Vec3, xf } from "../common/math";
 import { defaultBodyDef, defaultShapeDef, defaultWorldDef, ShapeType } from "../common/types";
 import { rebuildGeometry } from "../kernel/geocolumns";
 import { init, kernel } from "../kernel/kernel";
@@ -8,16 +8,12 @@ import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
 import type { Mesh } from "../shapes/mesh";
 import {
-    collideMover,
     createCapsuleShape,
     createCompoundShape,
     createHeightFieldShape,
     createHullShape,
     createMeshShape,
     createSphereShape,
-    overlapShape,
-    rayCastShape,
-    shapeCastShape,
 } from "../shapes/shape";
 import { createBody } from "../world/body";
 import { createWorld, destroyWorld, getWorld, type WorldState } from "../world/world";
@@ -27,45 +23,15 @@ import type { PlaneResult } from "./mover";
 await init(undefined, { threads: 0 });
 
 type Geometry = Sphere | Capsule | HullData | Mesh | HeightFieldData | CompoundData;
-const placement: Transform = {
-    p: { x: 1.25, y: -2, z: 0.75 },
-    q: { v: { x: 0, y: f32(Math.sin(0.3)), z: 0 }, s: f32(Math.cos(0.3)) },
-};
-function exact(got: unknown, want: unknown, path = "dispatch"): void {
-    if (typeof want === "object" && want !== null) {
-        if (Array.isArray(want) && (!Array.isArray(got) || got.length !== want.length)) {
-            throw new Error(`${path}: result count differs`);
-        }
-        for (const key of Object.keys(want)) {
-            exact(
-                (got as Record<string, unknown>)[key],
-                (want as Record<string, unknown>)[key],
-                `${path}.${key}`,
-            );
-        }
-    } else if (!Object.is(got, want))
-        throw new Error(`${path}: got ${String(got)}, want ${String(want)}`);
-}
-const placedProxy = (proxy: ShapeProxy): ShapeProxy => ({
-    ...proxy,
-    points: proxy.points.map((p) => xf.point(placement, p)),
-});
 
 function subject(
     kind: ShapeType,
     geometry: Geometry,
     run: (world: WorldState, id: number) => void,
-    worldSpace = false,
 ): void {
     const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
     try {
-        const body =
-            world.bodies[
-                createBody(world, {
-                    ...defaultBodyDef(),
-                    ...(worldSpace ? { position: placement.p, rotation: placement.q } : {}),
-                })
-            ];
+        const body = world.bodies[createBody(world, defaultBodyDef())];
         const def = defaultShapeDef();
         const shape =
             kind === ShapeType.Sphere
@@ -137,68 +103,28 @@ function output(): CastOutput {
         materialIndex: r[11],
     };
 }
-export function kernelRay(
-    kind: ShapeType,
-    geometry: Geometry,
-    ray: RayCastInput,
-    worldSpace = false,
-): CastOutput {
-    if (worldSpace)
-        ray = {
-            ...ray,
-            origin: xf.point(placement, ray.origin),
-            translation: quat.rotate(placement.q, ray.translation),
-        };
+export function kernelRay(kind: ShapeType, geometry: Geometry, ray: RayCastInput): CastOutput {
     let result: CastOutput | undefined;
-    subject(
-        kind,
-        geometry,
-        (world, id) => {
-            input(
-                worldSpace ? placement : xf.identity(),
-                { points: [ray.origin], count: 1, radius: 0 },
-                ray.translation,
-                ray.maxFraction,
-                false,
-            );
-            kernel(undefined).shapeQueryRay(world.worldId, id, Number(!worldSpace));
-            result = output();
-            if (worldSpace) exact(result, rayCastShape(world.shapes[id], placement, ray));
-        },
-        worldSpace,
-    );
+    subject(kind, geometry, (world, id) => {
+        input(
+            xf.identity(),
+            { points: [ray.origin], count: 1, radius: 0 },
+            ray.translation,
+            ray.maxFraction,
+            false,
+        );
+        kernel(undefined).shapeQueryRay(world.worldId, id, 1);
+        result = output();
+    });
     return result as CastOutput;
 }
-export function kernelCast(
-    kind: ShapeType,
-    geometry: Geometry,
-    cast: ShapeCastInput,
-    worldSpace = false,
-): CastOutput {
-    if (worldSpace)
-        cast = {
-            ...cast,
-            proxy: placedProxy(cast.proxy),
-            translation: quat.rotate(placement.q, cast.translation),
-        };
+export function kernelCast(kind: ShapeType, geometry: Geometry, cast: ShapeCastInput): CastOutput {
     let result: CastOutput | undefined;
-    subject(
-        kind,
-        geometry,
-        (world, id) => {
-            input(
-                worldSpace ? placement : xf.identity(),
-                cast.proxy,
-                cast.translation,
-                cast.maxFraction,
-                cast.canEncroach,
-            );
-            kernel(undefined).shapeQueryCast(world.worldId, id, Number(!worldSpace));
-            result = output();
-            if (worldSpace) exact(result, shapeCastShape(world.shapes[id], placement, cast));
-        },
-        worldSpace,
-    );
+    subject(kind, geometry, (world, id) => {
+        input(xf.identity(), cast.proxy, cast.translation, cast.maxFraction, cast.canEncroach);
+        kernel(undefined).shapeQueryCast(world.worldId, id, 1);
+        result = output();
+    });
     return result as CastOutput;
 }
 export function kernelOverlap(
@@ -206,63 +132,40 @@ export function kernelOverlap(
     geometry: Geometry,
     transform: Transform,
     proxy: ShapeProxy,
-    worldSpace = false,
 ): boolean {
-    if (worldSpace) {
-        transform = xf.mul(placement, transform);
-        proxy = placedProxy(proxy);
-    }
     let result = false;
-    subject(
-        kind,
-        geometry,
-        (world, id) => {
-            input(transform, proxy, { x: 0, y: 0, z: 0 }, 0, false);
-            result = kernel(undefined).shapeQueryOverlap(world.worldId, id) !== 0;
-            if (worldSpace) exact(result, overlapShape(world.shapes[id], transform, proxy));
-        },
-        worldSpace,
-    );
+    subject(kind, geometry, (world, id) => {
+        input(transform, proxy, { x: 0, y: 0, z: 0 }, 0, false);
+        result = kernel(undefined).shapeQueryOverlap(world.worldId, id) !== 0;
+    });
     return result;
 }
 export function kernelMover(
     kind: ShapeType,
     geometry: Geometry,
     mover: Capsule,
-    worldSpace = false,
+    capacity = 16,
 ): PlaneResult[] {
-    if (worldSpace)
-        mover = {
-            ...mover,
-            center1: xf.point(placement, mover.center1),
-            center2: xf.point(placement, mover.center2),
-        };
     const results: PlaneResult[] = [];
-    subject(
-        kind,
-        geometry,
-        (world, id) => {
-            input(
-                worldSpace ? placement : xf.identity(),
-                { points: [mover.center1, mover.center2], count: 2, radius: mover.radius },
-                { x: 0, y: 0, z: 0 },
-                0,
-                false,
-            );
-            const k = kernel(undefined);
-            const ptr = k.scratchPtr();
-            const count = k.shapeQueryMover(world.worldId, id, ptr, 16, Number(!worldSpace));
-            const f = new Float32Array(k.memory.buffer, ptr, count * 10);
-            for (let i = 0; i < count; ++i) {
-                const o = i * 10;
-                results.push({
-                    plane: { normal: { x: f[o], y: f[o + 1], z: f[o + 2] }, offset: f[o + 3] },
-                    point: { x: f[o + 4], y: f[o + 5], z: f[o + 6] },
-                });
-            }
-            if (worldSpace) exact(results, collideMover(world.shapes[id], placement, mover, 16));
-        },
-        worldSpace,
-    );
+    subject(kind, geometry, (world, id) => {
+        input(
+            xf.identity(),
+            { points: [mover.center1, mover.center2], count: 2, radius: mover.radius },
+            { x: 0, y: 0, z: 0 },
+            0,
+            false,
+        );
+        const k = kernel(undefined);
+        const ptr = k.scratchPtr();
+        const count = k.shapeQueryMover(world.worldId, id, ptr, capacity, 1);
+        const f = new Float32Array(k.memory.buffer, ptr, count * 10);
+        for (let i = 0; i < count; ++i) {
+            const o = i * 10;
+            results.push({
+                plane: { normal: { x: f[o], y: f[o + 1], z: f[o + 2] }, offset: f[o + 3] },
+                point: { x: f[o + 4], y: f[o + 5], z: f[o + 6] },
+            });
+        }
+    });
     return results;
 }

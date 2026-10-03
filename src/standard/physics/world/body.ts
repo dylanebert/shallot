@@ -9,47 +9,27 @@
 
 import { moveProxy as bpMoveProxy } from "../collision/broadphase";
 import { destroyContact, writeBodySimIndex } from "../collision/contact";
-import {
-    type DistanceInput,
-    emptyCache,
-    type RayCastInput,
-    type ShapeCastInput,
-    type ShapeProxy,
-    shapeDistance,
-} from "../collision/distance";
-import type { PlaneResult } from "../collision/mover";
 import { NULL_INDEX, swapRemove } from "../common/array";
 import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "../common/constants";
 import { allocId, type EntityId } from "../common/ids";
 import {
     aabb,
-    clampInt,
-    FLT_MAX,
     f32,
     froundConfig,
     type Mat3,
     mat3,
     minf,
-    offsetPos,
     type Pos,
     type Quat,
     quat,
     steiner,
     subPos,
-    toRelativeTransform,
     transformWorldPoint,
     type Vec3,
     vec3,
     type WorldTransform,
 } from "../common/math";
-import {
-    type BodyDef,
-    BodyType,
-    type QueryFilter,
-    ShapeType,
-    shouldQueryCollide,
-    toQueryFilterBits,
-} from "../common/types";
+import { type BodyDef, BodyType, ShapeType } from "../common/types";
 import {
     isResidentSim,
     isResidentState,
@@ -63,22 +43,14 @@ import {
 } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
 import { destroyShapeSlot, writeFatAabb } from "../kernel/shapecolumns";
-import type { Capsule, MassData } from "../shapes/geometry";
+import type { MassData } from "../shapes/geometry";
 import {
-    collideMover,
     computeFatShapeAABBOut,
     computeShapeExtent,
     computeShapeMass,
     createShapeProxy,
     destroyShapeAllocations,
     destroyShapeProxy,
-    getShapeMaterialCount,
-    getShapeMaterials,
-    makeShapeProxy,
-    overlapShape,
-    rayCastShape,
-    type Shape,
-    shapeCastShape,
 } from "../shapes/shape";
 import { destroyJointInternal } from "../solver/joint";
 import { createIsland, destroyIsland, linkJoint, splitIsland, unlinkJoint } from "./island";
@@ -1145,275 +1117,4 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
 export function getMassData(world: WorldState, body: Body): MassData {
     const bodySim = getBodySim(world, body);
     return { mass: body.mass, center: bodySim.localCenter, inertia: body.inertia };
-}
-
-// --- per-body queries -----------------------------------------------------------------------
-
-/** A single ray/shape-cast hit against a body's shapes (b3BodyCastResult). */
-export type BodyCastResult = {
-    shapeId: EntityId;
-    point: Pos;
-    normal: Vec3;
-    fraction: number;
-    triangleIndex: number;
-    userMaterialId: bigint;
-    iterations: number;
-    hit: boolean;
-};
-
-const emptyBodyCastResult = (): BodyCastResult => ({
-    shapeId: { index1: 0, world0: 0, generation: 0 },
-    point: { x: 0, y: 0, z: 0 },
-    normal: { x: 0, y: 0, z: 0 },
-    fraction: 0,
-    triangleIndex: 0,
-    userMaterialId: 0n,
-    iterations: 0,
-    hit: false,
-});
-
-/**
- * Cast a ray at one body's shapes, using the supplied world transform (b3Body_CastRay). Everything
- * is re-centered on `origin` so the collision math stays exact far out; the closest hit wins.
- */
-export function bodyCastRay(
-    world: WorldState,
-    body: Body,
-    origin: Pos,
-    translation: Vec3,
-    filter: QueryFilter,
-    maxFraction: number,
-    bodyTransform: WorldTransform,
-): BodyCastResult {
-    const filterBits = toQueryFilterBits(filter);
-    let result = emptyBodyCastResult();
-
-    // The consistent framing is to center on the ray origin.
-    const shapeInput: RayCastInput = { origin: { x: 0, y: 0, z: 0 }, translation, maxFraction };
-    const transform = toRelativeTransform(bodyTransform, origin);
-
-    let shapeId = body.headShapeId;
-    while (shapeId !== NULL_INDEX) {
-        const shape = world.shapes[shapeId];
-        shapeId = shape.nextShapeId;
-
-        if (shouldQueryCollide(shape.filter, filterBits) === false) {
-            continue;
-        }
-
-        const shapeOutput = rayCastShape(shape, transform, shapeInput);
-        if (shapeOutput.hit === false) {
-            continue;
-        }
-        if (shapeOutput.fraction > shapeInput.maxFraction) {
-            continue;
-        }
-
-        const materialIndex = clampInt(
-            shapeOutput.materialIndex,
-            0,
-            getShapeMaterialCount(world.ecsState, shape) - 1,
-        );
-        result = {
-            shapeId: { index1: shape.id + 1, world0: world.worldId, generation: shape.generation },
-            point: offsetPos(origin, shapeOutput.point),
-            normal: shapeOutput.normal,
-            fraction: shapeOutput.fraction,
-            triangleIndex: shapeOutput.triangleIndex,
-            userMaterialId: getShapeMaterials(world.ecsState, shape)[materialIndex].userMaterialId,
-            iterations: shapeOutput.iterations,
-            hit: true,
-        };
-        shapeInput.maxFraction = shapeOutput.fraction;
-    }
-
-    return result;
-}
-
-/** Cast a convex proxy at one body's shapes, using the supplied world transform (b3Body_CastShape). */
-export function bodyCastShape(
-    world: WorldState,
-    body: Body,
-    origin: Pos,
-    proxy: ShapeProxy,
-    translation: Vec3,
-    filter: QueryFilter,
-    maxFraction: number,
-    canEncroach: boolean,
-    bodyTransform: WorldTransform,
-): BodyCastResult {
-    const filterBits = toQueryFilterBits(filter);
-    let result = emptyBodyCastResult();
-    const transform = toRelativeTransform(bodyTransform, origin);
-
-    const shapeInput: ShapeCastInput = { proxy, translation, maxFraction, canEncroach };
-
-    let shapeId = body.headShapeId;
-    while (shapeId !== NULL_INDEX) {
-        const shape = world.shapes[shapeId];
-        shapeId = shape.nextShapeId;
-
-        if (shouldQueryCollide(shape.filter, filterBits) === false) {
-            continue;
-        }
-
-        const shapeOutput = shapeCastShape(shape, transform, shapeInput);
-        if (shapeOutput.hit === false) {
-            continue;
-        }
-        if (shapeOutput.fraction > shapeInput.maxFraction) {
-            continue;
-        }
-
-        const materialIndex = clampInt(
-            shapeOutput.materialIndex,
-            0,
-            getShapeMaterialCount(world.ecsState, shape) - 1,
-        );
-        result = {
-            shapeId: { index1: shape.id + 1, world0: world.worldId, generation: shape.generation },
-            point: offsetPos(origin, shapeOutput.point),
-            normal: shapeOutput.normal,
-            fraction: shapeOutput.fraction,
-            triangleIndex: shapeOutput.triangleIndex,
-            userMaterialId: getShapeMaterials(world.ecsState, shape)[materialIndex].userMaterialId,
-            iterations: shapeOutput.iterations,
-            hit: true,
-        };
-        shapeInput.maxFraction = shapeOutput.fraction;
-    }
-
-    return result;
-}
-
-/** True if `proxy` overlaps any of one body's shapes, using the supplied transform (b3Body_OverlapShape). */
-export function bodyOverlapShape(
-    world: WorldState,
-    body: Body,
-    origin: Pos,
-    proxy: ShapeProxy,
-    filter: QueryFilter,
-    bodyTransform: WorldTransform,
-): boolean {
-    const filterBits = toQueryFilterBits(filter);
-    const transform = toRelativeTransform(bodyTransform, origin);
-
-    let shapeId = body.headShapeId;
-    while (shapeId !== NULL_INDEX) {
-        const shape = world.shapes[shapeId];
-        shapeId = shape.nextShapeId;
-
-        if (shouldQueryCollide(shape.filter, filterBits) === false) {
-            continue;
-        }
-        if (overlapShape(shape, transform, proxy)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/**
- * Closest point on a body's convex shapes to `target`, and its distance (b3Body_GetClosestPoint).
- * Uses the body's stored transform. Mesh/height/compound shapes are skipped.
- */
-export function bodyGetClosestPoint(
-    world: WorldState,
-    body: Body,
-    target: Vec3,
-): { point: Vec3; distance: number } {
-    const transform = toRelativeTransform(getBodyTransformQuick(world, body), { x: 0, y: 0, z: 0 });
-
-    let closestDistance = FLT_MAX;
-    let closestPoint = transform.p;
-
-    // Target rides in frame A at the origin, so the shape's relative pose in A is the body transform.
-    const input: DistanceInput = {
-        proxyA: { points: [target], count: 1, radius: 0 },
-        proxyB: { points: [], count: 0, radius: 0 },
-        transform,
-        useRadii: false,
-    };
-
-    let shapeId = body.headShapeId;
-    while (shapeId !== NULL_INDEX) {
-        const shape: Shape = world.shapes[shapeId];
-        shapeId = shape.nextShapeId;
-
-        const type = shape.type;
-        if (type !== ShapeType.Sphere && type !== ShapeType.Capsule && type !== ShapeType.Hull) {
-            continue;
-        }
-
-        input.proxyB = makeShapeProxy(shape);
-        const output = shapeDistance(input, emptyCache());
-        if (output.distance < closestDistance) {
-            closestDistance = output.distance;
-            closestPoint = output.pointB;
-        }
-    }
-
-    return { point: closestPoint, distance: closestDistance };
-}
-
-/** One collision plane between a mover and a specific shape of a body (b3BodyPlaneResult). */
-export type BodyPlaneResult = {
-    shapeId: EntityId;
-    result: PlaneResult;
-};
-
-/**
- * Collide a capsule `mover` (at `origin`) against one body's convex shapes, using the supplied world
- * transform (b3Body_CollideMover). One plane per touched sphere/capsule/hull shape (mesh/height/
- * compound are skipped); stops at `capacity` planes. Everything is re-centered on `origin`.
- */
-export function bodyCollideMover(
-    world: WorldState,
-    body: Body,
-    capacity: number,
-    origin: Pos,
-    mover: Capsule,
-    filter: QueryFilter,
-    bodyTransform: WorldTransform,
-): BodyPlaneResult[] {
-    const filterBits = toQueryFilterBits(filter);
-    const results: BodyPlaneResult[] = [];
-    if (capacity === 0) {
-        return results;
-    }
-
-    const transform = toRelativeTransform(bodyTransform, origin);
-
-    let shapeId = body.headShapeId;
-    while (shapeId !== NULL_INDEX) {
-        const shape = world.shapes[shapeId];
-        shapeId = shape.nextShapeId;
-
-        if (shouldQueryCollide(shape.filter, filterBits) === false) {
-            continue;
-        }
-
-        const type = shape.type;
-        if (type !== ShapeType.Sphere && type !== ShapeType.Capsule && type !== ShapeType.Hull) {
-            continue;
-        }
-
-        const planes = collideMover(shape, transform, mover, 1);
-        if (planes.length > 0) {
-            results.push({
-                shapeId: {
-                    index1: shape.id + 1,
-                    world0: world.worldId,
-                    generation: shape.generation,
-                },
-                result: planes[0],
-            });
-            if (results.length === capacity) {
-                return results;
-            }
-        }
-    }
-
-    return results;
 }

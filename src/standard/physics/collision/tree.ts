@@ -1,6 +1,6 @@
 // Dynamic AABB tree — a from-scratch port of Box3D's src/dynamic_tree.c (Erin Catto, MIT).
 //
-// The tree stores proxies (leaf AABBs) and answers overlap / ray / box / closest queries. It is
+// The tree stores proxies (leaf AABBs) and answers broadphase overlap queries. It is
 // the broadphase's acceleration structure and is bit-exact against the C reference: every float
 // operation is fround-disciplined and every scalar branch mirrors the DISABLE_SIMD build (never an
 // intrinsic's NaN/±0 semantics). See the README.
@@ -20,17 +20,7 @@
 //   [11]   height (high 16 bits) | flags (low 16 bits), matching C's uint16 height + uint16 flags
 
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
-import {
-    type AABB,
-    aabb,
-    FLT_MAX,
-    f32,
-    maxf,
-    minf,
-    testBoundsRayOverlap,
-    type Vec3,
-    vec3,
-} from "../common/math";
+import { type AABB, aabb, FLT_MAX, f32, maxf, minf, type Vec3, vec3 } from "../common/math";
 
 const NULL_INDEX = -1;
 
@@ -84,9 +74,6 @@ export type DynamicTree = {
 
 export type TreeStats = { nodeVisits: number; leafVisits: number };
 
-export type RayCastInput = { origin: Vec3; translation: Vec3; maxFraction: number };
-export type BoxCastInput = { box: AABB; translation: Vec3; maxFraction: number };
-
 // A query callback receives the caller's context as its third argument (the C `void* context`), so a
 // hoisted visitor needs neither a per-call closure nor module state.
 export type QueryCallback<C = undefined> = (
@@ -95,13 +82,6 @@ export type QueryCallback<C = undefined> = (
     context: C,
 ) => boolean;
 export type Query64Callback = (proxyId: number, userData: bigint) => boolean;
-export type RayCastCallback = (input: RayCastInput, proxyId: number, userData: number) => number;
-export type BoxCastCallback = (input: BoxCastInput, proxyId: number, userData: number) => number;
-export type QueryClosestCallback = (
-    minDistanceSqr: number,
-    proxyId: number,
-    userData: number,
-) => number;
 
 const maxInt = (a: number, b: number): number => (a > b ? a : b);
 
@@ -853,18 +833,6 @@ export function getAABBInto(tree: DynamicTree, proxyId: number, out: AABB): AABB
     return out;
 }
 
-function bitMatch(
-    categoryHi: number,
-    categoryLo: number,
-    maskHi: number,
-    maskLo: number,
-    requireAllBits: boolean,
-): boolean {
-    const hi = (categoryHi & maskHi) >>> 0;
-    const lo = (categoryLo & maskLo) >>> 0;
-    return requireAllBits ? hi === maskHi && lo === maskLo : hi !== 0 || lo !== 0;
-}
-
 // Query scratch, one context per nesting depth: the C's `int stack[B3_TREE_STACK_SIZE]` is a stack
 // local, so a query costs no allocation. A query callback may itself query (a compound leaf recurses
 // into the compound's inner tree), so the contexts pool by depth rather than being one singleton.
@@ -986,255 +954,6 @@ export function query(
         queryDepth = depth;
     }
     return result;
-}
-
-// Scratch for the cold cast/closest node reads (per-call, not per-visit — cast traversal is far
-// colder than query; not gold-plated).
-const castLo: Vec3 = { x: 0, y: 0, z: 0 };
-const castHi: Vec3 = { x: 0, y: 0, z: 0 };
-const castCenter1: Vec3 = { x: 0, y: 0, z: 0 };
-const castCenter2: Vec3 = { x: 0, y: 0, z: 0 };
-const castNodeAABB: AABB = { lowerBound: castLo, upperBound: castHi };
-
-function loadBounds(nf: Float32Array, i: number, lo: Vec3, hi: Vec3): void {
-    const n = i * STRIDE;
-    lo.x = nf[n];
-    lo.y = nf[n + 1];
-    lo.z = nf[n + 2];
-    hi.x = nf[n + 3];
-    hi.y = nf[n + 4];
-    hi.z = nf[n + 5];
-}
-
-function distanceToNodeSqr(nf: Float32Array, point: Vec3, i: number): number {
-    loadBounds(nf, i, castLo, castHi);
-    const r = vec3.sub(point, vec3.clamp(point, castLo, castHi));
-    return vec3.dot(r, r);
-}
-
-export function queryClosest(
-    tree: DynamicTree,
-    point: Vec3,
-    maskHi: number,
-    maskLo: number,
-    requireAllBits: boolean,
-    callback: QueryClosestCallback,
-    minDistanceSqr: number,
-): { stats: TreeStats; minDistanceSqr: number } {
-    const result: TreeStats = { nodeVisits: 0, leafVisits: 0 };
-    if (tree.nodeCount === 0) return { stats: result, minDistanceSqr };
-
-    const nf = tree.nf;
-    const ni = tree.ni;
-    let minSqr = minDistanceSqr;
-    const stack: { nodeIndex: number; distanceToNodeSqr: number }[] = [
-        {
-            nodeIndex: tree.root,
-            distanceToNodeSqr: distanceToNodeSqr(nf, point, tree.root),
-        },
-    ];
-
-    while (stack.length > 0) {
-        const item = stack.pop() as { nodeIndex: number; distanceToNodeSqr: number };
-        const idx = item.nodeIndex;
-        result.nodeVisits += 1;
-
-        if (bitMatch(ni[idx * STRIDE + 6], ni[idx * STRIDE + 7], maskHi, maskLo, requireAllBits)) {
-            if (item.distanceToNodeSqr < minSqr) {
-                if (isLeaf(ni, idx)) {
-                    const dd = callback(minSqr, idx, ni[idx * STRIDE + 8]);
-                    if (dd < minSqr) minSqr = dd;
-                    result.leafVisits += 1;
-                } else if (stack.length < STACK_SIZE - 1) {
-                    const child1 = ni[idx * STRIDE + 8];
-                    const child2 = ni[idx * STRIDE + 9];
-                    const item1 = {
-                        nodeIndex: child1,
-                        distanceToNodeSqr: distanceToNodeSqr(nf, point, child1),
-                    };
-                    const item2 = {
-                        nodeIndex: child2,
-                        distanceToNodeSqr: distanceToNodeSqr(nf, point, child2),
-                    };
-                    // Iterate the closest child first as we pop off the stack.
-                    if (item2.distanceToNodeSqr < item1.distanceToNodeSqr) {
-                        stack.push(item1);
-                        stack.push(item2);
-                    } else {
-                        stack.push(item2);
-                        stack.push(item1);
-                    }
-                }
-            }
-        }
-    }
-
-    return { stats: result, minDistanceSqr: minSqr };
-}
-
-export function rayCast(
-    tree: DynamicTree,
-    input: RayCastInput,
-    maskHi: number,
-    maskLo: number,
-    requireAllBits: boolean,
-    callback: RayCastCallback,
-): TreeStats {
-    const result: TreeStats = { nodeVisits: 0, leafVisits: 0 };
-    if (tree.nodeCount === 0) return result;
-
-    const nf = tree.nf;
-    const ni = tree.ni;
-    const p1 = input.origin;
-    const d = input.translation;
-    let maxFraction = input.maxFraction;
-
-    let p2 = vec3.mulAdd(p1, maxFraction, d);
-    const segmentAABB: AABB = { lowerBound: vec3.min(p1, p2), upperBound: vec3.max(p1, p2) };
-
-    const stack: number[] = [tree.root];
-    const subInput: RayCastInput = { origin: p1, translation: d, maxFraction };
-
-    while (stack.length > 0) {
-        const nodeId = stack.pop() as number;
-        result.nodeVisits += 1;
-
-        loadBounds(nf, nodeId, castLo, castHi);
-        if (
-            bitMatch(
-                ni[nodeId * STRIDE + 6],
-                ni[nodeId * STRIDE + 7],
-                maskHi,
-                maskLo,
-                requireAllBits,
-            ) === false ||
-            aabb.overlaps(castNodeAABB, segmentAABB) === false
-        ) {
-            continue;
-        }
-
-        if (testBoundsRayOverlap(castLo, castHi, p1, d) === false) {
-            continue;
-        }
-
-        if (isLeaf(ni, nodeId)) {
-            subInput.maxFraction = maxFraction;
-            const value = callback(subInput, nodeId, ni[nodeId * STRIDE + 8]);
-            result.leafVisits += 1;
-
-            if (value === 0) return result;
-
-            if (value > 0 && value <= maxFraction) {
-                maxFraction = value;
-                p2 = vec3.mulAdd(p1, maxFraction, d);
-                segmentAABB.lowerBound = vec3.min(p1, p2);
-                segmentAABB.upperBound = vec3.max(p1, p2);
-            }
-        } else if (stack.length < STACK_SIZE - 1) {
-            const child1 = ni[nodeId * STRIDE + 8];
-            const child2 = ni[nodeId * STRIDE + 9];
-            centerInto(nf, child1, castCenter1);
-            centerInto(nf, child2, castCenter2);
-            if (vec3.distanceSq(castCenter1, p1) < vec3.distanceSq(castCenter2, p1)) {
-                stack.push(child2);
-                stack.push(child1);
-            } else {
-                stack.push(child1);
-                stack.push(child2);
-            }
-        }
-    }
-
-    return result;
-}
-
-export function boxCast(
-    tree: DynamicTree,
-    input: BoxCastInput,
-    maskHi: number,
-    maskLo: number,
-    requireAllBits: boolean,
-    callback: BoxCastCallback,
-): TreeStats {
-    const stats: TreeStats = { nodeVisits: 0, leafVisits: 0 };
-    if (tree.nodeCount === 0) return stats;
-
-    const nf = tree.nf;
-    const ni = tree.ni;
-    const originAABB = input.box;
-    const p1 = aabb.center(originAABB);
-    const extension = aabb.extents(originAABB);
-    let maxFraction = input.maxFraction;
-
-    let t = vec3.scale(maxFraction, input.translation);
-    const totalAABB: AABB = {
-        lowerBound: vec3.min(originAABB.lowerBound, vec3.add(originAABB.lowerBound, t)),
-        upperBound: vec3.max(originAABB.upperBound, vec3.add(originAABB.upperBound, t)),
-    };
-
-    const subInput: BoxCastInput = { box: input.box, translation: input.translation, maxFraction };
-    const stack: number[] = [tree.root];
-
-    while (stack.length > 0) {
-        const nodeId = stack.pop() as number;
-        stats.nodeVisits += 1;
-
-        loadBounds(nf, nodeId, castLo, castHi);
-        if (
-            bitMatch(
-                ni[nodeId * STRIDE + 6],
-                ni[nodeId * STRIDE + 7],
-                maskHi,
-                maskLo,
-                requireAllBits,
-            ) === false ||
-            aabb.overlaps(castNodeAABB, totalAABB) === false
-        ) {
-            continue;
-        }
-
-        // radius extension is added to the node in this case
-        const lower = vec3.sub(castLo, extension);
-        const upper = vec3.add(castHi, extension);
-        if (testBoundsRayOverlap(lower, upper, p1, input.translation) === false) {
-            continue;
-        }
-
-        if (isLeaf(ni, nodeId)) {
-            subInput.maxFraction = maxFraction;
-            const value = callback(subInput, nodeId, ni[nodeId * STRIDE + 8]);
-            stats.leafVisits += 1;
-
-            if (value === 0) return stats;
-
-            if (value > 0 && value < maxFraction) {
-                maxFraction = value;
-                t = vec3.scale(maxFraction, input.translation);
-                totalAABB.lowerBound = vec3.min(
-                    originAABB.lowerBound,
-                    vec3.add(originAABB.lowerBound, t),
-                );
-                totalAABB.upperBound = vec3.max(
-                    originAABB.upperBound,
-                    vec3.add(originAABB.upperBound, t),
-                );
-            }
-        } else if (stack.length < STACK_SIZE - 1) {
-            const child1 = ni[nodeId * STRIDE + 8];
-            const child2 = ni[nodeId * STRIDE + 9];
-            centerInto(nf, child1, castCenter1);
-            centerInto(nf, child2, castCenter2);
-            if (vec3.distanceSq(castCenter1, p1) < vec3.distanceSq(castCenter2, p1)) {
-                stack.push(child2);
-                stack.push(child1);
-            } else {
-                stack.push(child1);
-                stack.push(child2);
-            }
-        }
-    }
-
-    return stats;
 }
 
 // --- rebuild (median split, B3_TREE_HEURISTIC == 0) -----------------------------------------

@@ -7,16 +7,11 @@
 import { expect, test } from "bun:test";
 import { type Transform, type Vec3, xf } from "../common/math";
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
-import { type CompoundData, collideMoverAndCompound, createCompound } from "../shapes/compound";
-import {
-    type Capsule,
-    collideMoverAndCapsule,
-    collideMoverAndSphere,
-    type Sphere,
-} from "../shapes/geometry";
-import { collideMoverAndHeightField, createGrid } from "../shapes/heightfield";
-import { collideMoverAndHull, createHull, type HullData, makeBoxHull } from "../shapes/hull";
-import { collideMoverAndMesh, createGridMesh, type Mesh } from "../shapes/mesh";
+import { type CompoundData, createCompound } from "../shapes/compound";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import { createGrid } from "../shapes/heightfield";
+import { createHull, type HullData, makeBoxHull } from "../shapes/hull";
+import { createGridMesh, type Mesh } from "../shapes/mesh";
 import { type CollisionPlane, clipVector, type PlaneResult, solvePlanes } from "./mover";
 import gold from "./mover.gold.json";
 import { kernelMover } from "./shape_query_gold";
@@ -106,31 +101,6 @@ test("the mover velocity clip drifts from the Box3D C reference, so a character 
     expect(gold.clipVector.length).toBeGreaterThan(0);
 });
 
-test("mover-versus-sphere collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
-    for (const g of gold.sphere) {
-        const sphere: Sphere = {
-            center: vecFromHex(g.center as string[]),
-            radius: fromBits(g.radius),
-        };
-        const p = collideMoverAndSphere(sphere, moverFrom(g.mover));
-        planesEqual(p ? [p] : [], g, g.name);
-    }
-    expect(gold.sphere.length).toBeGreaterThan(0);
-});
-
-test("mover-versus-capsule collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
-    for (const g of gold.capsule) {
-        const shape: Capsule = {
-            center1: vecFromHex(g.center1 as string[]),
-            center2: vecFromHex(g.center2 as string[]),
-            radius: fromBits(g.radius),
-        };
-        const p = collideMoverAndCapsule(shape, moverFrom(g.mover));
-        planesEqual(p ? [p] : [], g, g.name);
-    }
-    expect(gold.capsule.length).toBeGreaterThan(0);
-});
-
 // The box hull, baked identically to fixtures/mover_gold.c's b3CreateHull(boxCorners, 8, 8).
 const boxCorners: Vec3[] = [
     v(-0.5, -0.5, -0.5),
@@ -143,14 +113,6 @@ const boxCorners: Vec3[] = [
     v(-0.5, 0.5, 0.5),
 ];
 const box = createHull(boxCorners, 8) as HullData;
-
-test("mover-versus-hull collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
-    for (const g of gold.hull) {
-        const p = collideMoverAndHull(box, moverFrom(g.mover));
-        planesEqual(p ? [p] : [], g, g.name);
-    }
-    expect(gold.hull.length).toBeGreaterThan(0);
-});
 
 // Mesh / height field / compound reconstructed with the same builders the C gold used.
 const gridMesh: Mesh = { data: createGridMesh(4, 4, 1, 0, true), scale: v(1, 1, 1) };
@@ -167,27 +129,6 @@ const compound = createCompound({
         { hull: slab, transform: identityAt(1, 0, 0), material: cmat },
     ],
 }) as CompoundData;
-
-test("mover-versus-triangle-mesh collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
-    for (const g of gold.mesh) {
-        planesEqual(collideMoverAndMesh(gridMesh, 16, moverFrom(g.mover)), g, g.name);
-    }
-    expect(gold.mesh.length).toBeGreaterThan(0);
-});
-
-test("mover-versus-height-field collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
-    for (const g of gold.height) {
-        planesEqual(collideMoverAndHeightField(gridField, 16, moverFrom(g.mover)), g, g.name);
-    }
-    expect(gold.height.length).toBeGreaterThan(0);
-});
-
-test("mover-versus-compound collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
-    for (const g of gold.compound) {
-        planesEqual(collideMoverAndCompound(compound, 16, moverFrom(g.mover)), g, g.name);
-    }
-    expect(gold.compound.length).toBeGreaterThan(0);
-});
 
 // The per-kind level is the frozen authority; shape-level rotation canonicalizes -0 as Box3D does.
 test("world-created kernel shapes answer every immutable mover collision vector bit-exactly", () => {
@@ -212,34 +153,5 @@ test("world-created kernel shapes answer every immutable mover collision vector 
     ] as const) {
         for (const g of cases)
             planesEqual(kernelMover(kind, geometry, moverFrom(g.mover)), g, g.name);
-    }
-});
-
-test("rotated and translated kernel mover dispatch equals TypeScript bit for bit for every mover collision vector", () => {
-    for (const g of gold.sphere)
-        kernelMover(
-            ShapeType.Sphere,
-            { center: vecFromHex(g.center), radius: fromBits(g.radius) },
-            moverFrom(g.mover),
-            true,
-        );
-    for (const g of gold.capsule)
-        kernelMover(
-            ShapeType.Capsule,
-            {
-                center1: vecFromHex(g.center1),
-                center2: vecFromHex(g.center2),
-                radius: fromBits(g.radius),
-            },
-            moverFrom(g.mover),
-            true,
-        );
-    for (const [kind, geometry, cases] of [
-        [ShapeType.Hull, box, gold.hull],
-        [ShapeType.Mesh, gridMesh, gold.mesh],
-        [ShapeType.HeightField, gridField, gold.height],
-        [ShapeType.Compound, compound, gold.compound],
-    ] as const) {
-        for (const g of cases) kernelMover(kind, geometry, moverFrom(g.mover), true);
     }
 });

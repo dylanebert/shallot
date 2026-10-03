@@ -1,14 +1,6 @@
 import { expect, test } from "bun:test";
-import { type Quat, segmentDistance, type Transform, type Vec3 } from "../common/math";
-import {
-    type CastOutput,
-    emptyCache,
-    type ShapeProxy,
-    shapeCast,
-    shapeDistance,
-    TOIState,
-    timeOfImpact,
-} from "./distance";
+import { type Quat, segmentDistance, type Vec3 } from "../common/math";
+import { emptyCache, type ShapeProxy, shapeDistance, TOIState, timeOfImpact } from "./distance";
 import gold from "./distance.gold.json";
 
 const dv = new DataView(new ArrayBuffer(4));
@@ -34,57 +26,8 @@ function vecEqual(got: Vec3, want: string[], label: string) {
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
 const vecFromHex = (a: string[]): Vec3 => v(fromBits(a[0]), fromBits(a[1]), fromBits(a[2]));
-const quatFromHex = (a: string[]): Quat => ({
-    v: v(fromBits(a[0]), fromBits(a[1]), fromBits(a[2])),
-    s: fromBits(a[3]),
-});
-const xfFromHex = (o: { p: string[]; q: string[] }): Transform => ({
-    p: vecFromHex(o.p),
-    q: quatFromHex(o.q),
-});
-// Named proxy point clouds, integer coords mirroring fixtures/distance_gold.c exactly.
-const POINTS: Record<string, Vec3[]> = {
-    box8: [
-        v(-1, -1, -1),
-        v(1, -1, -1),
-        v(1, 1, -1),
-        v(-1, 1, -1),
-        v(-1, -1, 1),
-        v(1, -1, 1),
-        v(1, 1, 1),
-        v(-1, 1, 1),
-    ],
-    quad4: [v(-1, -1, 0), v(1, -1, 0), v(1, 1, 0), v(-1, 1, 0)],
-    segB: [v(2, -1, 0), v(2, 1, 0)],
-    seg0: [v(0, -1, 0), v(0, 1, 0)],
-    pt1: [v(0, 0, 0)],
-};
-const makeProxy = (name: string, radiusHex: string): ShapeProxy => {
-    const points = POINTS[name];
-    return { points, count: points.length, radius: fromBits(radiusHex) };
-};
 
 // --- bit-exact gold gates -------------------------------------------------------------------
-
-test("the conservative-advancement shape cast drifts from the pinned Box3D C reference on hit flag, fraction, contact point, normal or iteration count", () => {
-    for (const g of gold.cast) {
-        const proxyA = makeProxy(g.proxyA, g.radiusA);
-        const proxyB = makeProxy(g.proxyB, g.radiusB);
-        const out: CastOutput = shapeCast({
-            proxyA,
-            proxyB,
-            transform: xfFromHex(g.transform),
-            translationB: vecFromHex(g.translationB),
-            maxFraction: fromBits(g.maxFraction),
-            canEncroach: g.canEncroach,
-        });
-        expect(out.hit, `${g.name} hit`).toBe(g.out.hit);
-        bitEqual(out.fraction, g.out.fraction, `${g.name} fraction`);
-        vecEqual(out.point, g.out.point, `${g.name} point`);
-        vecEqual(out.normal, g.out.normal, `${g.name} normal`);
-        expect(out.iterations, `${g.name} iterations`).toBe(g.out.iterations);
-    }
-});
 
 test("the closest-points-between-two-segments primitive drifts from the pinned Box3D C reference on either witness point or either clamped fraction", () => {
     for (const g of gold.segment) {

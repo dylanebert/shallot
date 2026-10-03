@@ -13,21 +13,7 @@
 // NOT byte-identical to the C struct hash — the world-state hash never consumes it (it hashes only
 // body transforms + velocities), so hull geometry is what must stay bit-exact, not this field.
 
-import {
-    type CastOutput,
-    type DistanceInput,
-    emptyCache,
-    emptyCastOutput,
-    type RayCastInput,
-    type ShapeCastInput,
-    type ShapeCastPairInput,
-    type ShapeProxy,
-    shapeCast,
-    shapeDistance,
-} from "../collision/distance";
-import type { PlaneResult } from "../collision/mover";
 import { NULL_INDEX } from "../common/array";
-import { OVERLAP_SLOP } from "../common/constants";
 import {
     type AABB,
     aabb,
@@ -57,7 +43,7 @@ import {
     vec3,
     xf,
 } from "../common/math";
-import type { Capsule, MassData } from "./geometry";
+import type { MassData } from "./geometry";
 
 // Final hull indices are uint8, so vertex/edge/face counts cap at 255.
 const HULL_LIMIT = 255;
@@ -1569,120 +1555,4 @@ export function findHullSupportFace(hull: HullData, direction: Vec3): number {
         }
     }
     return bestIndex;
-}
-
-// --- queries --------------------------------------------------------------------------------
-
-/** True if `proxy` (in identity frame) is within overlap slop of the hull (b3OverlapHull). */
-export function overlapHull(
-    shape: HullData,
-    shapeTransform: Transform,
-    proxy: ShapeProxy,
-): boolean {
-    const input: DistanceInput = {
-        proxyA: { points: shape.points, count: shape.vertexCount, radius: 0 },
-        proxyB: proxy,
-        transform: xf.invMul(shapeTransform, xf.identity()),
-        useRadii: true,
-    };
-    const output = shapeDistance(input, emptyCache());
-    return output.distance < OVERLAP_SLOP;
-}
-
-/** Ray vs convex hull, in the hull's frame, via slab clipping (b3RayCastHull). */
-export function rayCastHull(shape: HullData, input: RayCastInput): CastOutput {
-    const output = emptyCastOutput();
-
-    let lower = 0;
-    let upper = input.maxFraction;
-    let bestFace = NULL_INDEX;
-
-    const planes = shape.planes;
-
-    for (let faceIndex = 0; faceIndex < shape.faceCount; ++faceIndex) {
-        const plane = planes[faceIndex];
-
-        const distance = f32(plane.offset - vec3.dot(plane.normal, input.origin));
-        const denominator = vec3.dot(plane.normal, input.translation);
-
-        if (denominator === 0) {
-            if (distance < 0) {
-                return output;
-            }
-        } else {
-            const fraction = f32(distance / denominator);
-
-            if (denominator < 0) {
-                if (fraction > lower) {
-                    bestFace = faceIndex;
-                    lower = fraction;
-                }
-            } else {
-                if (fraction < upper) {
-                    upper = fraction;
-                }
-            }
-
-            if (upper < lower) {
-                return output;
-            }
-        }
-    }
-
-    if (bestFace >= 0) {
-        output.point = vec3.add(input.origin, vec3.scale(lower, input.translation));
-        output.normal = planes[bestFace].normal;
-        output.fraction = lower;
-        output.hit = true;
-    } else {
-        output.point = input.origin;
-        output.hit = true;
-    }
-
-    return output;
-}
-
-/** Shape cast against a convex hull (b3ShapeCastHull). */
-export function shapeCastHull(shape: HullData, input: ShapeCastInput): CastOutput {
-    const pairInput: ShapeCastPairInput = {
-        proxyA: { points: shape.points, count: shape.vertexCount, radius: 0 },
-        proxyB: input.proxy,
-        transform: xf.identity(),
-        translationB: input.translation,
-        maxFraction: input.maxFraction,
-        canEncroach: input.canEncroach,
-    };
-    return shapeCast(pairInput);
-}
-
-/**
- * Collision plane between a capsule mover and a convex hull (b3CollideMoverAndHull), in the hull's
- * frame, via GJK distance from the hull to the mover's core segment. Deep overlap is dropped rather
- * than resolved (GJK gives no normal there, matching the C's deliberate no-SAT choice for movers).
- * @returns the plane, or null when separated or overlapping.
- */
-export function collideMoverAndHull(shape: HullData, mover: Capsule): PlaneResult | null {
-    const input: DistanceInput = {
-        proxyA: { points: shape.points, count: shape.vertexCount, radius: 0 },
-        proxyB: { points: [mover.center1, mover.center2], count: 2, radius: mover.radius },
-        transform: xf.identity(),
-        useRadii: false,
-    };
-
-    const totalRadius = mover.radius;
-
-    const output = shapeDistance(input, emptyCache());
-
-    if (output.distance === 0) {
-        // Deep overlap is intentionally dropped: there is no reasonable deep-overlap resolution for
-        // meshes, so hulls behave the same to avoid a hull-vs-mesh discontinuity.
-        return null;
-    }
-
-    if (output.distance <= totalRadius) {
-        const plane: Plane = { normal: output.normal, offset: f32(totalRadius - output.distance) };
-        return { plane, point: output.pointA };
-    }
-
-    return null;
 }

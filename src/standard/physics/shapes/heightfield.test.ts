@@ -4,11 +4,11 @@ import {
     emptyCastOutput,
     type RayCastInput,
     type ShapeCastInput,
-    type ShapeCastPairInput,
     type ShapeProxy,
-    shapeCast,
 } from "../collision/distance";
+import { kernelCast, kernelOverlap, kernelRay } from "../collision/shape_query_gold";
 import { aabb, intersectRayTriangle, type Vec3, xf } from "../common/math";
+import { ShapeType } from "../common/types";
 import gold from "./geometry.gold.json";
 import {
     createGrid,
@@ -18,10 +18,8 @@ import {
     getHeightFieldTriangle,
     HEIGHT_FIELD_HOLE,
     type HeightFieldData,
-    overlapHeightField,
-    rayCastHeightField,
-    shapeCastHeightField,
 } from "./heightfield";
+import { createMesh } from "./mesh";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -183,20 +181,24 @@ function immutableBruteTriangles(hf: HeightFieldData): readonly BruteTriangle[] 
 function bruteForceShapeCast(
     input: ShapeCastInput,
     triangles: readonly BruteTriangle[],
-    transform: ReturnType<typeof xf.identity>,
 ): CastOutput {
     let best = emptyCastOutput();
     let bestFraction = input.maxFraction;
     for (const triangle of triangles) {
-        const pair: ShapeCastPairInput = {
-            proxyA: { points: triangle.vertices, count: 3, radius: 0 },
-            proxyB: input.proxy,
-            transform,
-            translationB: input.translation,
-            maxFraction: bestFraction,
-            canEncroach: input.canEncroach,
-        };
-        const out = shapeCast(pair);
+        const data = createMesh({
+            vertices: triangle.vertices,
+            indices: [0, 1, 2],
+            identifyEdges: false,
+        });
+        if (!data) throw new Error("brute triangle mesh creation failed");
+        const out = kernelCast(
+            ShapeType.Mesh,
+            { data, scale: { x: 1, y: 1, z: 1 } },
+            {
+                ...input,
+                maxFraction: bestFraction,
+            },
+        );
         if (out.hit && out.fraction < bestFraction) {
             bestFraction = out.fraction;
             best = out;
@@ -242,7 +244,7 @@ test("rayCastHeightField would miss a flat height field, or recover the wrong hi
         globalMaximumHeight: 1,
         clockwiseWinding: false,
     });
-    const out = rayCastHeightField(hf, {
+    const out = kernelRay(ShapeType.HeightField, hf, {
         origin: { x: 1.25, y: 10, z: 1.25 },
         translation: { x: 0, y: -20, z: 0 },
         maxFraction: 1,
@@ -270,7 +272,7 @@ test("overlapHeightField would report a hit for a proxy hovering clear above the
     ];
     for (const c of cases) {
         expect(
-            overlapHeightField(hf, xf.identity(), c.proxy),
+            kernelOverlap(ShapeType.HeightField, hf, xf.identity(), c.proxy),
             `height field overlap ${c.name}`,
         ).toBe(c.want);
     }
@@ -293,7 +295,7 @@ test("shapeCastHeightField would cull the one solid height field cell that sits 
     const startY = 10;
     const dropY = 20;
     const cast = (cx: number, cz: number) =>
-        shapeCastHeightField(hf, {
+        kernelCast(ShapeType.HeightField, hf, {
             proxy: { points: [{ x: cx, y: startY, z: cz }], count: 1, radius },
             translation: { x: 0, y: -dropY, z: 0 },
             maxFraction: 1,
@@ -350,7 +352,6 @@ for (const delta of [
     test(`the grid walk in shapeCastHeightField agrees with every wave triangle for delta (${delta.x}, ${delta.y}, ${delta.z}), every origin and radius`, () => {
         const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
         const triangles = immutableBruteTriangles(hf);
-        const transform = xf.identity();
         const failures: string[] = [];
         for (const origin of waveOrigins()) {
             for (const radius of [0.15, 0.4, 0.9]) {
@@ -360,8 +361,8 @@ for (const delta of [
                     maxFraction: 1,
                     canEncroach: false,
                 };
-                const grid = shapeCastHeightField(hf, input);
-                const brute = bruteForceShapeCast(input, triangles, transform);
+                const grid = kernelCast(ShapeType.HeightField, hf, input);
+                const brute = bruteForceShapeCast(input, triangles);
                 const where = `${label(origin, delta)} radius ${radius}`;
                 if (grid.hit !== brute.hit) {
                     failures.push(`${where}: grid hit ${grid.hit}, brute hit ${brute.hit}`);
@@ -392,7 +393,7 @@ test("the grid walk in rayCastHeightField would disagree with a brute-force ray 
     for (const origin of waveOrigins()) {
         for (const delta of deltas) {
             const input: RayCastInput = { origin, translation: delta, maxFraction: 1 };
-            const grid = rayCastHeightField(hf, input);
+            const grid = kernelRay(ShapeType.HeightField, hf, input);
             const brute = bruteForceRayCast(hf, input);
             const where = label(origin, delta);
             if (grid.hit !== brute.hit) {

@@ -8,22 +8,12 @@ import type { World } from "../../../engine";
 
 import * as bp from "../collision/broadphase";
 import { destroyContact } from "../collision/contact";
-import {
-    type CastOutput,
-    emptyCastOutput,
-    getSweepTransform,
-    type RayCastInput,
-    type ShapeCastInput,
-    type ShapeProxy,
-    type Sweep,
-} from "../collision/distance";
-import type { PlaneResult } from "../collision/mover";
+import { getSweepTransform, type ShapeProxy, type Sweep } from "../collision/distance";
 import { NULL_INDEX } from "../common/array";
 import {
     AABB_MARGIN_FRACTION,
     LINEAR_SLOP,
     MAX_AABB_MARGIN,
-    MAX_SHAPE_CAST_POINTS,
     SetType,
     SPECULATIVE_DISTANCE,
 } from "../common/constants";
@@ -36,7 +26,6 @@ import {
     mat3,
     maxf,
     minf,
-    minInt,
     quat,
     type Transform,
     type Vec3,
@@ -77,19 +66,13 @@ import {
 } from "../world/world";
 import {
     type CompoundData,
-    collideMoverAndCompound,
     computeCompoundAABB,
     getCompoundChild,
     getCompoundMaterials,
     MAX_COMPOUND_MESH_MATERIALS,
-    overlapCompound,
-    rayCastCompound,
-    shapeCastCompound,
 } from "./compound";
 import {
     type Capsule,
-    collideMoverAndCapsule,
-    collideMoverAndSphere,
     computeCapsuleAABB,
     computeCapsuleAABBOut,
     computeCapsuleMass,
@@ -99,46 +82,23 @@ import {
     computeSweptCapsuleAABB,
     computeSweptSphereAABB,
     type MassData,
-    overlapCapsule,
-    overlapSphere,
-    rayCastCapsule,
-    rayCastSphere,
     roundCapsule,
     roundSphere,
     type Sphere,
-    shapeCastCapsule,
-    shapeCastSphere,
 } from "./geometry";
 import {
-    collideMoverAndHeightField,
     computeHeightFieldAABB,
     getHeightFieldMaterial,
     type HeightFieldData,
-    overlapHeightField,
-    rayCastHeightField,
-    shapeCastHeightField,
 } from "./heightfield";
 import {
-    collideMoverAndHull,
     computeHullAABB,
     computeHullExtent,
     computeHullMass,
     computeSweptHullAABB,
     type HullData,
-    overlapHull,
-    rayCastHull,
-    shapeCastHull,
 } from "./hull";
-import {
-    collideMoverAndMesh,
-    computeMeshAABB,
-    type Mesh,
-    type MeshData,
-    overlapMesh,
-    rayCastMesh,
-    safeScale,
-    shapeCastMesh,
-} from "./mesh";
+import { computeMeshAABB, type Mesh, type MeshData, safeScale } from "./mesh";
 
 /** Min extent (smallest sphere fitting inside) and max extent per axis, for sleeping (b3ShapeExtent). */
 export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };
@@ -466,180 +426,6 @@ export function makeShapeProxy(shape: Shape): ShapeProxy {
             // shape in a proxy/TOI query, so no convex point cloud is ever requested.
             throw new Error("physics: mesh/height/compound have no shape proxy");
     }
-}
-
-/**
- * Ray vs shape, given the shape's world transform (b3RayCastShape). The ray is pulled into the
- * shape's local frame, dispatched, and the hit point/normal lifted back to world.
- */
-export function rayCastShape(shape: Shape, transform: Transform, input: RayCastInput): CastOutput {
-    const localInput: RayCastInput = {
-        origin: xf.invPoint(transform, input.origin),
-        translation: quat.invRotate(transform.q, input.translation),
-        maxFraction: input.maxFraction,
-    };
-
-    let output: CastOutput;
-    switch (shape.type) {
-        case ShapeType.Capsule:
-            output = rayCastCapsule(shape.capsule as Capsule, localInput);
-            break;
-        case ShapeType.Sphere:
-            output = rayCastSphere(shape.sphere as Sphere, localInput);
-            break;
-        case ShapeType.Hull:
-            output = rayCastHull(shape.hull as HullData, localInput);
-            break;
-        case ShapeType.Compound:
-            output = rayCastCompound(shape.compound as CompoundData, localInput);
-            break;
-        case ShapeType.Mesh:
-            output = rayCastMesh(shape.mesh as Mesh, localInput);
-            break;
-        case ShapeType.HeightField:
-            output = rayCastHeightField(shape.heightField as HeightFieldData, localInput);
-            break;
-        default:
-            return emptyCastOutput();
-    }
-
-    output.point = xf.point(transform, output.point);
-    output.normal = quat.rotate(transform.q, output.normal);
-    return output;
-}
-
-/**
- * Shape cast (a swept convex proxy) vs shape, given the shape's world transform (b3ShapeCastShape).
- * The proxy points + translation are pulled into the shape's local frame, dispatched, and the hit
- * point/normal lifted back to world.
- */
-export function shapeCastShape(
-    shape: Shape,
-    transform: Transform,
-    input: ShapeCastInput,
-): CastOutput {
-    const count = minInt(input.proxy.count, MAX_SHAPE_CAST_POINTS);
-    const localPoints: Vec3[] = new Array(count);
-    for (let i = 0; i < count; ++i) {
-        localPoints[i] = xf.invPoint(transform, input.proxy.points[i]);
-    }
-    const localInput: ShapeCastInput = {
-        proxy: { points: localPoints, count, radius: input.proxy.radius },
-        translation: quat.invRotate(transform.q, input.translation),
-        maxFraction: input.maxFraction,
-        canEncroach: input.canEncroach,
-    };
-
-    let output: CastOutput;
-    switch (shape.type) {
-        case ShapeType.Capsule:
-            output = shapeCastCapsule(shape.capsule as Capsule, localInput);
-            break;
-        case ShapeType.Sphere:
-            output = shapeCastSphere(shape.sphere as Sphere, localInput);
-            break;
-        case ShapeType.Hull:
-            output = shapeCastHull(shape.hull as HullData, localInput);
-            break;
-        case ShapeType.Compound:
-            output = shapeCastCompound(shape.compound as CompoundData, localInput);
-            break;
-        case ShapeType.HeightField:
-            output = shapeCastHeightField(shape.heightField as HeightFieldData, localInput);
-            break;
-        case ShapeType.Mesh:
-            output = shapeCastMesh(shape.mesh as Mesh, localInput);
-            break;
-        default:
-            return emptyCastOutput();
-    }
-
-    output.point = xf.point(transform, output.point);
-    output.normal = quat.rotate(transform.q, output.normal);
-    return output;
-}
-
-/** True if `proxy` overlaps the shape, given the shape's world transform (b3OverlapShape). */
-export function overlapShape(shape: Shape, transform: Transform, proxy: ShapeProxy): boolean {
-    switch (shape.type) {
-        case ShapeType.Capsule:
-            return overlapCapsule(shape.capsule as Capsule, transform, proxy);
-        case ShapeType.Sphere:
-            return overlapSphere(shape.sphere as Sphere, transform, proxy);
-        case ShapeType.Hull:
-            return overlapHull(shape.hull as HullData, transform, proxy);
-        case ShapeType.Compound:
-            return overlapCompound(shape.compound as CompoundData, transform, proxy);
-        case ShapeType.HeightField:
-            return overlapHeightField(shape.heightField as HeightFieldData, transform, proxy);
-        case ShapeType.Mesh:
-            return overlapMesh(shape.mesh as Mesh, transform, proxy);
-        default:
-            throw new Error(`physics: unknown shape type ${shape.type}`);
-    }
-}
-
-/**
- * Collision planes between a capsule mover and a shape, given the shape's world transform
- * (b3CollideMover). The mover is pulled into the shape's local frame, dispatched, and each resulting
- * plane's normal/point lifted back to world. At most `capacity` planes are returned.
- */
-export function collideMover(
-    shape: Shape,
-    transform: Transform,
-    mover: Capsule,
-    capacity: number,
-): PlaneResult[] {
-    if (capacity === 0) {
-        return [];
-    }
-
-    const localMover: Capsule = {
-        center1: xf.invPoint(transform, mover.center1),
-        center2: xf.invPoint(transform, mover.center2),
-        radius: mover.radius,
-    };
-
-    let planes: PlaneResult[];
-    switch (shape.type) {
-        case ShapeType.Capsule: {
-            const p = collideMoverAndCapsule(shape.capsule as Capsule, localMover);
-            planes = p ? [p] : [];
-            break;
-        }
-        case ShapeType.Compound:
-            planes = collideMoverAndCompound(shape.compound as CompoundData, capacity, localMover);
-            break;
-        case ShapeType.Sphere: {
-            const p = collideMoverAndSphere(shape.sphere as Sphere, localMover);
-            planes = p ? [p] : [];
-            break;
-        }
-        case ShapeType.Hull: {
-            const p = collideMoverAndHull(shape.hull as HullData, localMover);
-            planes = p ? [p] : [];
-            break;
-        }
-        case ShapeType.Mesh:
-            planes = collideMoverAndMesh(shape.mesh as Mesh, capacity, localMover);
-            break;
-        case ShapeType.HeightField:
-            planes = collideMoverAndHeightField(
-                shape.heightField as HeightFieldData,
-                capacity,
-                localMover,
-            );
-            break;
-        default:
-            throw new Error(`physics: unknown shape type ${shape.type}`);
-    }
-
-    for (const pr of planes) {
-        pr.plane.normal = quat.rotate(transform.q, pr.plane.normal);
-        pr.point = xf.point(transform, pr.point);
-    }
-
-    return planes;
 }
 
 /** Local centroid of a shape (b3GetShapeCentroid). */

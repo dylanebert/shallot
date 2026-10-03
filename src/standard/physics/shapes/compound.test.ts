@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { PhysicsWorld } from "../api/world";
 import type { ShapeProxy } from "../collision/distance";
+import { kernelCast, kernelMover, kernelOverlap, kernelRay } from "../collision/shape_query_gold";
 import { readNode } from "../collision/tree";
 import {
     aabb,
@@ -17,15 +18,11 @@ import { BodyType, defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } fro
 import {
     type CompoundData,
     type CompoundDef,
-    collideMoverAndCompound,
     computeCompoundAABB,
     createCompound,
     getCompoundChild,
     getCompoundMaterials,
-    overlapCompound,
     queryCompound,
-    rayCastCompound,
-    shapeCastCompound,
 } from "./compound";
 import { type Capsule, computeCapsuleAABB, computeSphereAABB, type Sphere } from "./geometry";
 import gold from "./geometry.gold.json";
@@ -547,7 +544,11 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
                 },
             ],
         }) as CompoundData;
-        const out = rayCastCompound(c, rayDown({ x: -5, y: 5, z: 0 }, { x: 10, y: 0, z: 0 }));
+        const out = kernelRay(
+            ShapeType.Compound,
+            c,
+            rayDown({ x: -5, y: 5, z: 0 }, { x: 10, y: 0, z: 0 }),
+        );
         expect(out.hit).toBe(false);
     });
 
@@ -560,7 +561,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
                 { sphere: { center: { x: 10, y: 0, z: 0 }, radius: 1 }, material: matB },
             ],
         }) as CompoundData;
-        const out = rayCastCompound(c, rayDown(vec3.zero(), { x: 20, y: 0, z: 0 }));
+        const out = kernelRay(ShapeType.Compound, c, rayDown(vec3.zero(), { x: 20, y: 0, z: 0 }));
         expect(out.hit).toBe(true);
         // Front face of the nearer sphere is at x=4 → fraction 4/20 = 0.2.
         expect(Math.abs(out.fraction - 0.2)).toBeLessThanOrEqual(1e-4);
@@ -585,7 +586,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
                 },
             ],
         }) as CompoundData;
-        const out = rayCastCompound(c, rayDown(vec3.zero(), { x: 20, y: 0, z: 0 }));
+        const out = kernelRay(ShapeType.Compound, c, rayDown(vec3.zero(), { x: 20, y: 0, z: 0 }));
         expect(out.hit).toBe(true);
         expect(Math.abs(out.fraction - 0.2)).toBeLessThanOrEqual(1e-4);
         expect(Math.abs(out.normal.x + 1)).toBeLessThanOrEqual(1e-3);
@@ -601,7 +602,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
                 { sphere: { center: { x: 10, y: 0, z: 0 }, radius: 1 }, material: mat },
             ],
         }) as CompoundData;
-        const out = shapeCastCompound(c, {
+        const out = kernelCast(ShapeType.Compound, c, {
             proxy: { points: [vec3.zero()], count: 1, radius: 0.25 },
             translation: { x: 20, y: 0, z: 0 },
             maxFraction: 1,
@@ -622,9 +623,9 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
             ],
         }) as CompoundData;
         const gap: ShapeProxy = { points: [vec3.zero()], count: 1, radius: 0.25 };
-        expect(overlapCompound(c, xf.identity(), gap)).toBe(false);
+        expect(kernelOverlap(ShapeType.Compound, c, xf.identity(), gap)).toBe(false);
         const hit: ShapeProxy = { points: [{ x: 3, y: 0, z: 0 }], count: 1, radius: 0.1 };
-        expect(overlapCompound(c, xf.identity(), hit)).toBe(true);
+        expect(kernelOverlap(ShapeType.Compound, c, xf.identity(), hit)).toBe(true);
     });
 });
 
@@ -654,14 +655,14 @@ test("collideMoverAndCompound drops one of the up-facing planes a capsule mover 
             center2: { x: 1, y: 0.6, z: 0 },
             radius: 0.2,
         };
-        const planes = collideMoverAndCompound(c, 8, mover);
+        const planes = kernelMover(ShapeType.Compound, c, mover, 8);
 
         expect(planes.length).toBeGreaterThanOrEqual(2);
         const upPlanes = planes.filter((p) => p.plane.normal.y > 0.9).length;
         expect(upPlanes).toBeGreaterThanOrEqual(2);
 
         // The capacity cap is honored.
-        const capped = collideMoverAndCompound(c, 1, mover);
+        const capped = kernelMover(ShapeType.Compound, c, mover, 1);
         expect(capped.length).toBeLessThanOrEqual(1);
     });
 });

@@ -1,10 +1,8 @@
 import { expect, test } from "bun:test";
 import { hi32, lo32 } from "../common/bits";
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
-import { type AABB, FLT_MAX, type Vec3, vec3 } from "../common/math";
+import type { AABB, Vec3 } from "../common/math";
 import {
-    type BoxCastInput,
-    boxCast,
     createProxy,
     createTree,
     type DynamicTree,
@@ -19,9 +17,6 @@ import {
     moveProxy,
     NULL_INDEX,
     query,
-    queryClosest,
-    type RayCastInput,
-    rayCast,
     readNode,
     rebuild,
     setCategoryBits,
@@ -141,78 +136,6 @@ function runQuery(tree: DynamicTree, op: Op) {
     expect(stats.leafVisits, `${op.name ?? "query"}.leafVisits`).toBe(op.leafVisits);
 }
 
-function runRayCast(tree: DynamicTree, op: Op) {
-    const hits: number[] = [];
-    const shrink = fromBits(op.shrink);
-    const input: RayCastInput = {
-        origin: vecFromHex(op.origin),
-        translation: vecFromHex(op.translation),
-        maxFraction: fromBits(op.maxFraction),
-    };
-    const stats = rayCast(
-        tree,
-        input,
-        hi32(BigInt(op.mask)),
-        lo32(BigInt(op.mask)),
-        op.requireAll,
-        (sub: RayCastInput, proxyId: number) => {
-            hits.push(proxyId);
-            return shrink < 0 ? sub.maxFraction : shrink;
-        },
-    );
-    expect(hits, `${op.name ?? "raycast"}.hits`).toEqual(op.hits);
-    expect(stats.nodeVisits, `${op.name ?? "raycast"}.nodeVisits`).toBe(op.nodeVisits);
-    expect(stats.leafVisits, `${op.name ?? "raycast"}.leafVisits`).toBe(op.leafVisits);
-}
-
-function runBoxCast(tree: DynamicTree, op: Op) {
-    const hits: number[] = [];
-    const input: BoxCastInput = {
-        box: aabbFromHex(op.box),
-        translation: vecFromHex(op.translation),
-        maxFraction: fromBits(op.maxFraction),
-    };
-    const stats = boxCast(
-        tree,
-        input,
-        hi32(BigInt(op.mask)),
-        lo32(BigInt(op.mask)),
-        op.requireAll,
-        (sub: BoxCastInput, proxyId: number) => {
-            hits.push(proxyId);
-            return sub.maxFraction;
-        },
-    );
-    expect(hits, `${op.name ?? "boxcast"}.hits`).toEqual(op.hits);
-    expect(stats.nodeVisits, `${op.name ?? "boxcast"}.nodeVisits`).toBe(op.nodeVisits);
-    expect(stats.leafVisits, `${op.name ?? "boxcast"}.leafVisits`).toBe(op.leafVisits);
-}
-
-function runClosest(tree: DynamicTree, op: Op) {
-    const hits: number[] = [];
-    const point = vecFromHex(op.point);
-    const { stats, minDistanceSqr } = queryClosest(
-        tree,
-        point,
-        hi32(BigInt(op.mask)),
-        lo32(BigInt(op.mask)),
-        op.requireAll,
-        (minSqr: number, proxyId: number) => {
-            hits.push(proxyId);
-            if (op.shrink === 0) return minSqr;
-            // Mirror the emitter's b3DistanceToBoxSqr: |point - clamp(point, box)|².
-            const box = getAABB(tree, proxyId);
-            const r = vec3.sub(point, vec3.clamp(point, box.lowerBound, box.upperBound));
-            return vec3.dot(r, r);
-        },
-        FLT_MAX, // matches the emitter's `float minDistanceSqr = FLT_MAX`
-    );
-    expect(hits, `${op.name ?? "closest"}.hits`).toEqual(op.hits);
-    bitEqual(minDistanceSqr, op.minDistanceSqr, `${op.name ?? "closest"}.minDistanceSqr`);
-    expect(stats.nodeVisits, `${op.name ?? "closest"}.nodeVisits`).toBe(op.nodeVisits);
-    expect(stats.leafVisits, `${op.name ?? "closest"}.leafVisits`).toBe(op.leafVisits);
-}
-
 test("the dynamic tree's insert, move, enlarge, destroy, rebuild and query paths drift from the Box3D C reference, so node layout, AABB bits or visit counts diverge from the recorded op stream", () => {
     const tree = createTree(gold.proxyCapacity);
     const handles: number[] = [];
@@ -248,14 +171,10 @@ test("the dynamic tree's insert, move, enlarge, destroy, rebuild and query paths
             case "query":
                 runQuery(tree, op);
                 break;
+            // Cast and closest traversal vectors are replayed by the kernel's tree_gold.rs.
             case "raycast":
-                runRayCast(tree, op);
-                break;
             case "boxcast":
-                runBoxCast(tree, op);
-                break;
             case "closest":
-                runClosest(tree, op);
                 break;
             default:
                 throw new Error(`unknown op ${op.op}`);

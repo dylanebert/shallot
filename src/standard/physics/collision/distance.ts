@@ -1,4 +1,4 @@
-// GJK distance, shape casting, and conservative-advancement time of impact.
+// GJK distance and conservative-advancement time of impact.
 // Ported op-for-op from Box3D's distance.c (Erin Catto, MIT; portions by Dirk Gregorius).
 // fround discipline + scalar-branch mirroring (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 //
@@ -27,7 +27,6 @@ import {
 
 const MAX_SIMPLEX_VERTICES = 4;
 const MAX_GJK_ITERATIONS = 32;
-const NULL_INDEX = -1;
 
 // B3_LINEAR_SLOP = 0.005 * lengthUnitsPerMeter; the port targets the default length unit of 1.0,
 // so the multiply is identity and bit-exact.
@@ -137,20 +136,6 @@ export type DistanceOutput = {
     iterations: number;
     /** Number of simplexes stored in the simplex array. */
     simplexCount: number;
-};
-
-/** Input for {@link shapeCast} (b3ShapeCastPairInput). */
-export type ShapeCastPairInput = {
-    proxyA: ShapeProxy;
-    proxyB: ShapeProxy;
-    /** Transform of shape B in shape A's frame. */
-    transform: Transform;
-    /** Translation of shape B, in A's frame. */
-    translationB: Vec3;
-    /** Fraction of the translation to consider, typically 1. */
-    maxFraction: number;
-    /** Allow shapes with a radius to move slightly closer if already touching. */
-    canEncroach: boolean;
 };
 
 /** Low level ray cast input (b3RayCastInput). */
@@ -943,101 +928,6 @@ export function shapeDistance(input: DistanceInput, cache: SimplexCache): Distan
     }
 
     writeCache(cache, simplex);
-    return output;
-}
-
-// --- shape cast -----------------------------------------------------------------------------
-
-/**
- * Cast proxy B (translated by `translationB`) against proxy A (b3ShapeCast). Initial overlap is a
- * hit at fraction zero. Returns the fraction, contact point, and normal.
- */
-export function shapeCast(input: ShapeCastPairInput): CastOutput {
-    const linearSlop = LINEAR_SLOP;
-    const totalRadius = f32(input.proxyA.radius + input.proxyB.radius);
-    let target = maxf(linearSlop, f32(totalRadius - linearSlop));
-    const tolerance = f32(0.25 * linearSlop);
-
-    const cache = emptyCache();
-    let alpha = 0;
-
-    const distanceInput: DistanceInput = {
-        proxyA: input.proxyA,
-        proxyB: input.proxyB,
-        useRadii: false,
-        transform: { p: input.transform.p, q: input.transform.q },
-    };
-
-    const delta2 = input.translationB;
-    const output: CastOutput = {
-        normal: vec3.zero(),
-        point: vec3.zero(),
-        fraction: 0,
-        iterations: 0,
-        triangleIndex: NULL_INDEX,
-        childIndex: 0,
-        materialIndex: 0,
-        hit: false,
-    };
-
-    const maxIterations = 20;
-    for (let iteration = 0; iteration < maxIterations; ++iteration) {
-        output.iterations += 1;
-        const distanceOutput = shapeDistance(distanceInput, cache);
-
-        if (distanceOutput.distance < f32(target + tolerance)) {
-            if (iteration === 0) {
-                if (input.canEncroach && distanceOutput.distance > f32(2 * linearSlop)) {
-                    target = f32(distanceOutput.distance - linearSlop);
-                } else {
-                    // Initial overlap.
-                    output.hit = true;
-                    const c1 = vec3.mulAdd(
-                        distanceOutput.pointA,
-                        input.proxyA.radius,
-                        distanceOutput.normal,
-                    );
-                    const c2 = vec3.mulAdd(
-                        distanceOutput.pointB,
-                        -input.proxyB.radius,
-                        distanceOutput.normal,
-                    );
-                    output.point = vec3.lerp(c1, c2, 0.5);
-                    return output;
-                }
-            } else {
-                output.fraction = alpha;
-                output.point = vec3.mulAdd(
-                    distanceOutput.pointA,
-                    input.proxyA.radius,
-                    distanceOutput.normal,
-                );
-                output.normal = distanceOutput.normal;
-                output.hit = true;
-                return output;
-            }
-        }
-
-        // Check if the shapes are approaching each other.
-        const denominator = vec3.dot(delta2, distanceOutput.normal);
-        if (denominator >= 0) {
-            // Miss.
-            return output;
-        }
-
-        alpha = f32(alpha + f32(f32(target - distanceOutput.distance) / denominator));
-        if (alpha >= input.maxFraction) {
-            // Success!
-            return output;
-        }
-
-        distanceInput.transform = {
-            p: vec3.mulAdd(input.transform.p, alpha, delta2),
-            q: distanceInput.transform.q,
-        };
-    }
-
-    // Failure!
     return output;
 }
 

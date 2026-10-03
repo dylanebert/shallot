@@ -17,6 +17,7 @@ import {
     makeLocalManifold,
 } from "../collision/manifold";
 import { type CollisionPlane, clipVector, solvePlanes } from "../collision/mover";
+import { kernelRay } from "../collision/shape_query_gold";
 import { createProxy, createTree, query } from "../collision/tree";
 import {
     type AABB,
@@ -27,11 +28,11 @@ import {
     type Vec3,
     vec3,
 } from "../common/math";
+import { ShapeType } from "../common/types";
 import {
     type Capsule,
     computeCapsuleMass,
     computeSphereAABB,
-    rayCastSphere,
     type Sphere,
 } from "../shapes/geometry";
 import { hashWorldStateOracleSentinel } from "../world/hash";
@@ -380,7 +381,8 @@ function runBaseCase(item: OracleCase): unknown {
         case "query.ray-sphere.v1.scalar":
         case "query.ray-sphere.v1.simd": {
             const sphere = input.sphere as Record<string, unknown>;
-            const result = rayCastSphere(
+            const result = kernelRay(
+                ShapeType.Sphere,
                 { center: vec(sphere.center), radius: f32(String(sphere.radius)) },
                 {
                     origin: vec(input.origin),
