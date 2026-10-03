@@ -1,12 +1,12 @@
-import { invalidateKernelViews, kernel } from "../kernel/kernel";
-import { liveWorldCount, type WorldState } from "../world/world";
+import { kernel } from "../kernel/kernel";
+import type { WorldState } from "../world/world";
 import type { PhysicsWorld } from "./world";
 
 /** Plain, reusable snapshot data from a wasm-backed physics world. */
 export interface WorldSnapshot {
     /** a detached copy of the logical world state */
     readonly state: unknown;
-    /** the wasm linear-memory image at capture time */
+    /** the detached bytes of this World's persistent kernel regions */
     readonly bytes: Uint8Array;
 }
 
@@ -119,9 +119,16 @@ function restoreClone<T>(
     return out as T;
 }
 
-/** Capture detached logical world state plus its own wasm linear-memory image. */
+/** Capture detached logical state and this World's persistent kernel regions. */
 export function snapshot(physicsWorld: PhysicsWorld): WorldSnapshot {
     const state = physicsWorld.state;
+    const k = kernel(state.ecsState);
+    const length = k.worldSnapshot(state.worldId);
+    const pointer = k.worldSnapshotBuffer(length);
+    state.broadPhase.store.refreshViews();
+    state.bodyStore.refreshViews();
+    state.shapeStore.refreshViews();
+    state.manifoldStore.refreshViews();
     return {
         // The ECS owner is identity, not solver data; snapshots never clone or retain it.
         state: clone(
@@ -129,11 +136,11 @@ export function snapshot(physicsWorld: PhysicsWorld): WorldSnapshot {
             state.ecsState ? new Map<object, unknown>([[state.ecsState, null]]) : new Map(),
             snapshotStores(state),
         ),
-        bytes: new Uint8Array(kernel(physicsWorld.state.ecsState).memory.buffer).slice(),
+        bytes: new Uint8Array(k.memory.buffer, pointer, length).slice(),
     };
 }
 
-/** Restore into a live compatible World while its kernel has no other live World. */
+/** Restore into a live compatible World, preserving its identity and every sibling's state. */
 export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): void {
     if (
         snapshot === null ||
@@ -147,11 +154,6 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     if (!physicsWorld.isValid())
         throw new Error("physics: cannot restore a snapshot because its target World is not live");
 
-    if (liveWorldCount(kernel(physicsWorld.state.ecsState)) > 1)
-        throw new Error(
-            "physics: cannot restore a snapshot while other live Worlds share its kernel (WASM memory spans the whole kernel)",
-        );
-
     const state = physicsWorld.state;
     const restored = restoreClone(snapshot.state, new Map(), {
         body: state.bodyStore,
@@ -160,7 +162,6 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         broadPhase: state.broadPhase.store,
     }) as WorldState;
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
-    const sourceWorldId = restored.worldId;
     restored.ecsState = state.ecsState;
     restored.worldId = state.worldId;
     restored.generation = state.generation;
@@ -174,11 +175,10 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         const descriptor = Object.getOwnPropertyDescriptor(restored, key);
         if (descriptor) Object.defineProperty(state, key, descriptor);
     }
-    const memory = kernel(physicsWorld.state.ecsState).memory;
-    while (memory.buffer.byteLength < snapshot.bytes.byteLength) memory.grow(1);
-    new Uint8Array(memory.buffer).set(snapshot.bytes);
-    kernel(state.ecsState).residentRestoreWorldId(sourceWorldId, state.worldId);
-    invalidateKernelViews(state.ecsState);
+    const k = kernel(state.ecsState);
+    const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength);
+    new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);
+    k.worldRestore(state.worldId);
     state.broadPhase.store.world = state;
     state.broadPhase.store.trees = state.broadPhase.trees;
     state.broadPhase.store.set = state.broadPhase.pairSet;

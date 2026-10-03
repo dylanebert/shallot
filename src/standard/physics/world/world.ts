@@ -14,7 +14,7 @@ import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../c
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
 import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
-import { type Kernel, kernel } from "../kernel/kernel";
+import { kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
 import { guardViews } from "../kernel/views";
@@ -269,14 +269,6 @@ export function removeHullFromDatabase(world: WorldState, data: HullData): void 
 // --- world registry --------------------------------------------------------------------------
 
 const worlds: (WorldState | undefined)[] = [];
-const worldKernels = new WeakMap<WorldState, Kernel>();
-const liveWorldsByKernel = new WeakMap<Kernel, number>();
-
-/** @internal number of currently live Worlds backed by the supplied kernel. */
-export function liveWorldCount(owner: Kernel): number {
-    return liveWorldsByKernel.get(owner) ?? 0;
-}
-
 function makeCapacity(c?: Capacity): Capacity {
     return {
         staticShapeCount: c?.staticShapeCount ?? 0,
@@ -401,8 +393,6 @@ export function createWorld(
     const generation = worlds[worldId]?.generation ?? 0;
     const physicsWorld = makeWorldState(world, def, worldId, generation);
     worlds[worldId] = physicsWorld;
-    worldKernels.set(physicsWorld, owner);
-    liveWorldsByKernel.set(owner, liveWorldCount(owner) + 1);
 
     return { index1: worldId + 1, generation };
 }
@@ -457,13 +447,6 @@ export function destroyWorld(world: WorldState): void {
     world.inUse = false;
     world.worldId = 0;
     world.generation = (generation + 1) & 0xffff;
-    const owner = worldKernels.get(world);
-    if (owner) {
-        worldKernels.delete(world);
-        const remaining = liveWorldCount(owner) - 1;
-        if (remaining <= 0) liveWorldsByKernel.delete(owner);
-        else liveWorldsByKernel.set(owner, remaining);
-    }
 }
 
 /** @returns entity counts for a world (b3World_GetCounters). */

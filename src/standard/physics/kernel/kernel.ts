@@ -80,7 +80,9 @@ export type Kernel = {
     /** Clear a world-local body pool after the public world is destroyed. */
     bodyResetWorld(world: number): void;
     residentResetWorld(world: number): void;
-    residentRestoreWorldId(from: number, to: number): void;
+    worldSnapshot(world: number): number;
+    worldSnapshotBuffer(bytes: number): number;
+    worldRestore(world: number): void;
     bodyGeneration(world: number, id: number): number;
     bodyAlive(world: number, id: number): number;
     bodyCount(world: number): number;
@@ -472,11 +474,6 @@ export function kernelViewKey(world: World | undefined): number {
         state.viewRevision++;
     }
     return state.viewRevision;
-}
-
-/** Whole-memory restore can reinstate an epoch already observed by this kernel. */
-export function invalidateKernelViews(world: World | undefined): void {
-    kernelState(world).viewRevision++;
 }
 
 export function setQueryCallback(

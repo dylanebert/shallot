@@ -306,8 +306,22 @@ pub extern "C" fn shape_alive(id: u32, shape: u32) -> u32 {
 pub extern "C" fn shape_count(id: u32) -> usize {
     unsafe { world(id as usize).shape.count }
 }
-pub unsafe fn restore_id(from: usize, to: usize) {
-    shape_reset_world(to as u32);
-    WORLDS[to] = WORLDS[from];
-    WORLDS[from] = Shapes::EMPTY;
+pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
+    let w = &WORLDS[id];
+    for pool in [w.shape, w.material] {
+        for value in [pool.cap, pool.next, pool.free as usize, pool.count] {
+            regions::write_word(out, value);
+        }
+    }
+    w.columns.snapshot(out);
+}
+pub unsafe fn restore(id: usize, input: &mut &[u8]) {
+    let w = &mut WORLDS[id];
+    for pool in [&mut w.shape, &mut w.material] {
+        pool.cap = regions::read_word(input);
+        pool.next = regions::read_word(input);
+        pool.free = regions::read_word(input) as i32;
+        pool.count = regions::read_word(input);
+    }
+    w.columns.restore(input);
 }

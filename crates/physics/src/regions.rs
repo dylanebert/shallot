@@ -35,21 +35,54 @@ pub extern "C" fn reset(world: u32) {
     }
 }
 
-#[export_name = "residentRestoreWorldId"]
-pub extern "C" fn restore_world_id(from: u32, to: u32) {
-    if from == to {
-        return;
-    }
-    assert!((from as usize) < MAX_WORLDS && (to as usize) < MAX_WORLDS);
+pub fn write_word(out: &mut Vec<u8>, value: usize) {
+    out.extend_from_slice(&(value as u32).to_le_bytes());
+}
+pub fn read_word(input: &mut &[u8]) -> usize {
+    let (word, rest) = input.split_at(4);
+    *input = rest;
+    u32::from_le_bytes(word.try_into().unwrap()) as usize
+}
+static mut SNAPSHOT: Vec<u8> = Vec::new();
+#[export_name = "worldSnapshot"]
+pub extern "C" fn snapshot(world: u32) -> usize {
+    assert!((world as usize) < MAX_WORLDS);
     unsafe {
-        crate::bodies::restore_id(from as usize, to as usize);
-        crate::shapes::restore_id(from as usize, to as usize);
-        crate::fataabb::restore_id(from as usize, to as usize);
-        crate::manifolds::restore_id(from as usize, to as usize);
-        crate::broad::restore_id(from as usize, to as usize);
-        crate::geo::restore_id(from as usize, to as usize);
+        let mut out = Vec::new();
+        crate::bodies::snapshot(world as usize, &mut out);
+        crate::shapes::snapshot(world as usize, &mut out);
+        crate::fataabb::snapshot(world as usize, &mut out);
+        crate::manifolds::snapshot(world as usize, &mut out);
+        crate::broad::snapshot(world as usize, &mut out);
+        crate::geo::snapshot(world as usize, &mut out);
+        let buffer = &mut *(&raw mut SNAPSHOT);
+        *buffer = out;
+        buffer.len()
     }
-    select(to);
+}
+#[export_name = "worldSnapshotBuffer"]
+pub extern "C" fn snapshot_buffer(bytes: usize) -> *mut u8 {
+    unsafe {
+        let buffer = &mut *(&raw mut SNAPSHOT);
+        buffer.resize(bytes, 0);
+        buffer.as_mut_ptr()
+    }
+}
+#[export_name = "worldRestore"]
+pub extern "C" fn restore(world: u32) {
+    assert!((world as usize) < MAX_WORLDS);
+    unsafe {
+        let mut input = (&*(&raw const SNAPSHOT)).as_slice();
+        crate::bodies::restore(world as usize, &mut input);
+        crate::shapes::restore(world as usize, &mut input);
+        crate::fataabb::restore(world as usize, &mut input);
+        crate::manifolds::restore(world as usize, &mut input);
+        crate::broad::restore(world as usize, &mut input);
+        crate::geo::restore(world as usize, &mut input);
+        assert!(input.is_empty());
+        invalidate_views();
+    }
+    select(world);
 }
 
 #[derive(Clone, Copy)]
@@ -112,6 +145,29 @@ impl<const N: usize> Columns<N> {
         invalidate_views();
         self.buffers[column].reserve(bytes);
         self.layout[column] = self.buffers[column].ptr as u32;
+    }
+    pub unsafe fn snapshot(&self, out: &mut Vec<u8>) {
+        for buffer in &self.buffers {
+            write_word(out, buffer.bytes);
+            out.extend_from_slice(core::slice::from_raw_parts(
+                buffer.ptr as *const u8,
+                buffer.bytes,
+            ));
+        }
+    }
+    pub unsafe fn restore(&mut self, input: &mut &[u8]) {
+        self.release();
+        for column in 0..N {
+            let bytes = read_word(input);
+            self.reserve(column, bytes);
+            let (data, rest) = input.split_at(bytes);
+            core::ptr::copy_nonoverlapping(
+                data.as_ptr(),
+                self.buffers[column].ptr as *mut u8,
+                bytes,
+            );
+            *input = rest;
+        }
     }
     pub unsafe fn release(&mut self) {
         for buffer in &mut self.buffers {

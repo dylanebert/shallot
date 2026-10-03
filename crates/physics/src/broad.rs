@@ -188,8 +188,21 @@ pub unsafe fn reset(id: usize) {
     WORLDS[id].columns.release();
     WORLDS[id] = Broad::EMPTY;
 }
-pub unsafe fn restore_id(from: usize, to: usize) {
-    reset(to);
-    WORLDS[to] = WORLDS[from];
-    WORLDS[from] = Broad::EMPTY;
+pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
+    let w = &WORLDS[id];
+    for value in w.tree {
+        regions::write_word(out, value);
+    }
+    regions::write_word(out, w.set);
+    regions::write_word(out, w.filter);
+    w.columns.snapshot(out);
+}
+pub unsafe fn restore(id: usize, input: &mut &[u8]) {
+    let w = &mut WORLDS[id];
+    for value in &mut w.tree {
+        *value = regions::read_word(input);
+    }
+    w.set = regions::read_word(input);
+    w.filter = regions::read_word(input);
+    w.columns.restore(input);
 }

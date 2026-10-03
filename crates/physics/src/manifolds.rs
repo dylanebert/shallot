@@ -41,10 +41,15 @@ pub unsafe fn reset(id: usize) {
     COLUMNS[id].release();
     CAPS[id] = [0; 2];
 }
-pub unsafe fn restore_id(from: usize, to: usize) {
-    reset(to);
-    COLUMNS[to] = COLUMNS[from];
-    CAPS[to] = CAPS[from];
-    COLUMNS[from] = Columns::EMPTY;
-    CAPS[from] = [0; 2];
+pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
+    for value in CAPS[id] {
+        regions::write_word(out, value);
+    }
+    COLUMNS[id].snapshot(out);
+}
+pub unsafe fn restore(id: usize, input: &mut &[u8]) {
+    for value in &mut CAPS[id] {
+        *value = regions::read_word(input);
+    }
+    COLUMNS[id].restore(input);
 }

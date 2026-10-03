@@ -58,10 +58,11 @@ pub extern "C" fn reserve_geometry(
 pub unsafe fn reset(id: usize) {
     COLUMNS[id].release();
 }
-pub unsafe fn restore_id(from: usize, to: usize) {
-    reset(to);
-    COLUMNS[to] = COLUMNS[from];
-    COLUMNS[from] = Columns::EMPTY;
+pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
+    COLUMNS[id].snapshot(out);
+}
+pub unsafe fn restore(id: usize, input: &mut &[u8]) {
+    COLUMNS[id].restore(input);
 }
 
 /// A borrowed `HullData` view over interned hull `index`'s slices in the geometry pools. The point and

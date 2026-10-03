@@ -263,8 +263,18 @@ pub extern "C" fn body_count(id: u32) -> usize {
 pub fn active_generation(id: u32) -> u32 {
     body_generation(regions::active() as u32, id)
 }
-pub unsafe fn restore_id(from: usize, to: usize) {
-    body_reset_world(to as u32);
-    WORLDS[to] = WORLDS[from];
-    WORLDS[from] = Bodies::EMPTY;
+pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
+    let w = &WORLDS[id];
+    for value in [w.cap, w.next, w.free as usize, w.count] {
+        regions::write_word(out, value);
+    }
+    w.columns.snapshot(out);
+}
+pub unsafe fn restore(id: usize, input: &mut &[u8]) {
+    let w = &mut WORLDS[id];
+    w.cap = regions::read_word(input);
+    w.next = regions::read_word(input);
+    w.free = regions::read_word(input) as i32;
+    w.count = regions::read_word(input);
+    w.columns.restore(input);
 }
