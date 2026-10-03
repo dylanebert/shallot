@@ -1,18 +1,15 @@
 import type { World } from "../../../engine";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
-// can walk a body's shape list and compute its AABBs without a per-step marshal. A third low persistent
-// region, above the fat-AABB region; keyed by shapeId (grow-on-createShape), so — like fat-AABB and
-// unlike the body region — no record migration: a shape's slot is fixed for its life.
+// can walk a body's shape list and compute its AABBs without a per-step marshal. Each World owns
+// its columns; a shape's slot is fixed for its life.
 //
 // The write sites are the shape lifecycle itself: `createShape` writes the whole record (a recycled
 // shapeId inherits nothing), `destroyShape` patches the predecessor's `next` slot. There is no lazy
 // dirty set — a stale record is invisible to TS and would silently feed the kernel garbage, so the
 // column is written where the shape record is.
 //
-// A region grow relocates the manifold + geometry regions above it (kernel-side, in place) and, like
-// any memory.grow, detaches every typed-array view — so callers refresh the stores over the relocated
-// regions after a grow (the same discipline reserveBodies/reserveFatAabb follow).
+// Reserves can reallocate columns or grow memory; callers refresh views afterward.
 
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
@@ -66,9 +63,8 @@ function growCap(need: number): number {
 
 /**
  * Size the persistent shape region to hold `shapeCount` shapes (the shape high-water). Grows the kernel
- * region — relocating the manifold + geometry regions above it in place — only when the count exceeds
- * the current capacity. @returns true if the region grew (the caller must refresh any views over the
- * relocated regions above it, and over every region a `memory.grow` detached).
+ * columns only when the count exceeds the current capacity. @returns true if they grew;
+ * callers refresh views after growth.
  */
 export function reserveShapes(world: World | undefined, shapeCount: number): boolean {
     const cap = growCap(shapeCount);
@@ -80,6 +76,7 @@ export function reserveShapes(world: World | undefined, shapeCount: number): boo
 /** Allocate a world-local shape slot in the kernel pool. The shape record itself is authored below,
  * but index reuse, generation and validity are never decided by TypeScript. */
 export function createShapeSlot(world: WorldState): number {
+    kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
     if (reserveShapes(world.ecsState, world.shapes.length + 1)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
@@ -127,6 +124,7 @@ export class ShapeStore {
      * when the buffer, offset and capacity are those the views were derived at. */
     refreshViews(): void {
         const k = kernel(this.ecsState);
+        k.shapeSetActiveWorld(this._worldId);
         const cap = k.shapeCap();
         const fatCap = k.fatAabbCap();
         if (cap === 0 && fatCap === 0) return;
@@ -145,37 +143,29 @@ export class ShapeStore {
         const materialLayout = this._materialLayout;
         if (
             this.shapeU.buffer !== buf ||
-            this.shapeU.byteOffset !== layout[0] + this._worldId * cap * SHAPE_STRIDE * 4 ||
+            this.shapeU.byteOffset !== layout[0] ||
             this.shapeU.length !== cap * SHAPE_STRIDE
         ) {
-            const worldOffset = this._worldId * cap * SHAPE_STRIDE * 4;
-            this.shapeU = new Uint32Array(buf, layout[0] + worldOffset, cap * SHAPE_STRIDE);
-            this.shapeF = new Float32Array(buf, layout[0] + worldOffset, cap * SHAPE_STRIDE);
+            this.shapeU = new Uint32Array(buf, layout[0], cap * SHAPE_STRIDE);
+            this.shapeF = new Float32Array(buf, layout[0], cap * SHAPE_STRIDE);
         }
         if (
             this.fatF.buffer !== buf ||
-            this.fatF.byteOffset !== fatLayout[0] + this._worldId * fatCap * 6 * 4 ||
+            this.fatF.byteOffset !== fatLayout[0] ||
             this.fatF.length !== fatCap * 6
         ) {
-            const worldOffset = this._worldId * fatCap * 6 * 4;
-            this.fatF = new Float32Array(buf, fatLayout[0] + worldOffset, fatCap * 6);
+            this.fatF = new Float32Array(buf, fatLayout[0], fatCap * 6);
         }
         const materialCap = k.materialCap();
         if (
             this.materialU.buffer !== buf ||
-            this.materialU.byteOffset !==
-                materialLayout[0] + this._worldId * materialCap * MATERIAL_STRIDE * 4 ||
+            this.materialU.byteOffset !== materialLayout[0] ||
             this.materialU.length !== materialCap * MATERIAL_STRIDE
         ) {
-            const worldOffset = this._worldId * materialCap * MATERIAL_STRIDE * 4;
-            this.materialU = new Uint32Array(
-                buf,
-                materialLayout[0] + worldOffset,
-                materialCap * MATERIAL_STRIDE,
-            );
+            this.materialU = new Uint32Array(buf, materialLayout[0], materialCap * MATERIAL_STRIDE);
             this.materialF = new Float32Array(
                 buf,
-                materialLayout[0] + worldOffset,
+                materialLayout[0],
                 materialCap * MATERIAL_STRIDE,
             );
         }
@@ -382,6 +372,7 @@ export function createShapeStore(world: World | undefined, worldId: number): Sha
  * simulation decisions always re-read this column rather than a Shape.materials authoring array. */
 export function readShapeMaterials(world: World | undefined, shape: Shape): SurfaceMaterial[] {
     const k = kernel(world);
+    k.shapeSetActiveWorld(shape.worldId);
     const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
     const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
     const listCount = k.materialListCount(shape.worldId, head) >>> 0;
@@ -392,7 +383,7 @@ export function readShapeMaterials(world: World | undefined, shape: Shape): Surf
     const cap = k.materialCap();
     const ptr = k.materialLayoutPtr();
     const buf = k.memory.buffer;
-    const base = new Uint32Array(buf, ptr, 1)[0] + shape.worldId * cap * MATERIAL_STRIDE * 4;
+    const base = new Uint32Array(buf, ptr, 1)[0];
     const u = new Uint32Array(buf, base, cap * MATERIAL_STRIDE);
     const f = new Float32Array(buf, base, cap * MATERIAL_STRIDE);
     const out: SurfaceMaterial[] = [];
@@ -426,10 +417,10 @@ export function shapeMaterialCount(world: World | undefined, shape: Shape): numb
 
 /**
  * Write a newly created shape's record into the resident column, sizing the region to the new shape
- * high-water first. A grow relocates the manifold + geometry regions above the shape region and detaches
- * every view, so the stores that read through them are refreshed before anything else runs.
+ * high-water first. Refresh views after a grow-capable call before writing.
  */
 export function writeShape(world: WorldState, shape: Shape): void {
+    kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
     if (reserveShapes(world.ecsState, world.shapes.length)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
@@ -451,6 +442,7 @@ export function unlinkShape(world: WorldState, shape: Shape): void {
 
 /** Size and write the resident fat-AABB lane owned by the shape store. */
 export function writeFatAabb(world: WorldState, shape: Shape): void {
+    kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
     if (reserveShapes(world.ecsState, world.shapes.length)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();

@@ -1,4 +1,3 @@
-import { claimResident } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 
@@ -18,6 +17,7 @@ function lowerBound(data: Uint32Array, a: number, b: number): number {
 }
 
 export function bodiesFiltered(world: WorldState, bodyA: number, bodyB: number): boolean {
+    world.broadPhase.store.refreshIfStale();
     return kernel(world.ecsState).broadBodiesFiltered(bodyA, bodyB) !== 0;
 }
 
@@ -28,7 +28,7 @@ export function changeBodyFilter(
     bodyB: number,
     delta: 1 | -1,
 ): void {
-    claimResident(world);
+    world.broadPhase.store.initialize();
     const filter = world.bodyFilters;
     const store = world.broadPhase.store;
     store.refreshIfStale();

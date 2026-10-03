@@ -85,6 +85,7 @@ export function createBroadPhase(
         dynamicShapeCount: number;
         contactCount?: number;
     },
+    worldId = 0,
 ): BroadPhase {
     const staticCapacity = maxInt(16, capacity.staticShapeCount);
     const dynamicCapacity = maxInt(16, capacity.dynamicShapeCount);
@@ -92,7 +93,7 @@ export function createBroadPhase(
     // The trees + pairSet node/slot pools are kernel-resident (broadcolumns.ts); the store owns their
     // views and reservations. Register the trees + set on it after creating them so a grow can rewrite
     // every view in place. `store.world` is wired once the world is fully constructed (makeWorldState).
-    const store = createBroadStore(world);
+    const store = createBroadStore(world, worldId);
 
     const trees: DynamicTree[] = [];
     trees[BodyType.Static] = tree.createTree(staticCapacity, store, BodyType.Static);

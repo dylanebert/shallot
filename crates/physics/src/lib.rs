@@ -114,6 +114,8 @@ mod pairwork;
 #[cfg(target_arch = "wasm32")]
 mod query_abi;
 #[cfg(target_arch = "wasm32")]
+mod regions;
+#[cfg(target_arch = "wasm32")]
 mod shapes;
 #[cfg(target_arch = "wasm32")]
 mod treework;

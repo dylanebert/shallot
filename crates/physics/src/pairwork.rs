@@ -9,16 +9,13 @@
 //! kernel emits a *placeholder* (dedup applied, its inner-tree recursion + per-child membership left to
 //! TS). Phase 2 (`rebuildTrees`) median-splits the dynamic then kinematic trees.
 //!
-//! Wasm-only: it aliases linear memory (the resident pools + a per-step scratch slab at `solver_base`).
+//! Wasm-only: it aliases the World's resident pools and the shared per-step arena.
 //! Native `cargo test` drives `tree::query`/`tree::rebuild` + `table::contains` against gold vectors.
 
 use crate::broad;
-use crate::geo::solver_base;
 use crate::shapes::{col_slice as shape_col, SHAPE_STRIDE, S_TYPE};
 use crate::table;
 use crate::tree;
-
-const PAGE: usize = 65536;
 
 /// `ShapeType.Compound` (the TS enum value the shape column stores) — the only found shape the query
 /// hands to the TS fallback path rather than emitting as a direct candidate.
@@ -35,7 +32,7 @@ const STATE_STRIDE: usize = 4;
 /// u32 per rebuilt-tree output record: root, nodeCount, freeList.
 const REBUILD_OUT_STRIDE: usize = 3;
 
-// Slab pointers (byte offsets), laid out by `reservePairs` at `solver_base`.
+// Slab pointers (byte offsets) in the shared per-step arena.
 static mut STATE_PTR: u32 = 0;
 static mut MOVE_PTR: u32 = 0;
 static mut MOVED_PTR: u32 = 0;
@@ -52,23 +49,8 @@ static mut MOVED_WORDS: usize = 0;
 static mut CAND_CAP: usize = 0;
 static mut MAX_PROXY: usize = 0;
 
-unsafe fn ensure_capacity(end_byte: usize) {
-    crate::treework::record_end(end_byte);
-    let have = core::arch::wasm32::memory_size(0) * PAGE;
-    if end_byte > have {
-        let pages = (end_byte - have + PAGE - 1) / PAGE;
-        core::arch::wasm32::memory_grow(0, pages);
-    }
-}
-
-/// Lay out the per-step pair-finding slab at `solver_base` (past the persistent + geometry regions,
-/// consumed entirely within pair finding before the solver columns reserve over the same base). Sizes:
-/// `move_count` moved proxies, `moved_words` u32 of the dynamic moved-bitset, `cand_cap` candidate
-/// entries, `max_proxy` rebuild-leaf scratch (≥ the largest rebuilt tree's proxy count). Grows memory to
-/// fit — always above every resident region, so it never relocates them.
-///
-/// # Safety
-/// Nothing may hold a stale view over `[solver_base, ...)` across this (it reissues the slab each step).
+/// Reserve shared pair-finding scratch, consumed before dispatch, recycle or solve reserves it.
+/// `cand_cap` sizes the candidate entries; `max_proxy` covers the largest rebuilt tree's proxy count.
 #[export_name = "reservePairs"]
 pub extern "C" fn reserve_pairs(
     move_count: usize,
@@ -82,7 +64,7 @@ pub extern "C" fn reserve_pairs(
         CAND_CAP = cand_cap;
         MAX_PROXY = max_proxy;
 
-        let mut off = solver_base();
+        let mut off = 0;
         STATE_PTR = off as u32;
         off += 3 * STATE_STRIDE * 4;
         MOVE_PTR = broad::move_ptr() as u32;
@@ -101,7 +83,15 @@ pub extern "C" fn reserve_pairs(
         off += tree::STACK_SIZE * 4;
         BUILD_PTR = off as u32;
         off += tree::STACK_SIZE * 5 * 4;
-        ensure_capacity(off);
+        let base = crate::arena::reserve_scratch(off) as u32;
+        STATE_PTR += base;
+        CANDEND_PTR += base;
+        CAND_PTR += base;
+        REBUILD_OUT_PTR += base;
+        LEAFIDX_PTR += base;
+        LEAFCEN_PTR += base;
+        GATHER_PTR += base;
+        BUILD_PTR += base;
         for i in 0..3 {
             let target = (STATE_PTR as *mut u32).add(i * STATE_STRIDE);
             if broad::tree_cap(i) == 0 {
@@ -253,10 +243,7 @@ impl<'a> Emitter<'a> {
 /// first `cand_cap`, and TS grows + re-runs — the query mutates neither the trees nor the pair-set, so a
 /// re-run is free of side effects). `candEnd[i]` delimits moved proxy `i`'s entries.
 ///
-/// `set_cap` is the pair-set's *logical* capacity (TS `HashSet.capacity`), not `broad::set_cap()` — the
-/// resident region is grow-only across the singleton's worlds, so its slot capacity can exceed this
-/// world's table (a prior world's high-water). Probing with the region size would use the wrong mask and
-/// miss present pairs; the TS logical capacity is the table the membership actually lives in.
+/// `set_cap` is the pair-set's logical capacity (TS `HashSet.capacity`), which defines its probe mask.
 ///
 /// # Safety
 /// `reservePairs` must have run this step with enough candidate and rebuild scratch

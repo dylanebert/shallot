@@ -8,7 +8,7 @@
 import { collide } from "../collision/collide";
 import { updateBroadPhasePairs } from "../collision/pairs";
 import { f32, maxInt, minf } from "../common/math";
-import { claimResident, reserveBodies } from "../kernel/bodycolumns";
+import { reserveBodies } from "../kernel/bodycolumns";
 import { rebuildGeometry } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
 import { resetStepProfile } from "../world/profile";
@@ -57,9 +57,7 @@ function writeStepSoftness(world: WorldState, context: StepContext): void {
 /** Advance the world by one time step, sub-stepped `subStepCount` times (b3World_Step). */
 export function step(world: WorldState, timeStep: number, subStepCount: number): void {
     world.locked = true;
-    // Claim the shared resident body region for this world — throws if another world took it over
-    // (two live worlds can't be stepped interleaved over the singleton kernel memory).
-    claimResident(world);
+    world.broadPhase.store.initialize();
     kernel(world.ecsState).bodySetActiveWorld(world.worldId);
     kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
     const profile = world.profile;
@@ -114,22 +112,15 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     // Contact softness. Hertz is reduced for large time steps. Written in place into the reused objects.
     writeStepSoftness(world, context);
 
-    // Size the persistent body region to the total-body high-water first, since it sits below the
-    // fat-AABB + shape + manifold + geometry regions and a grow relocates them in place (detaching every
-    // view). Refresh the stores before anything reads through them, including the shape store the finalize
-    // refit reads. (Usually a no-op — createBody already sized it.) The fat-AABB + shape regions size
-    // themselves at shape create (the shape store), so no step-top reserve is needed for them.
+    // Reserve for the body high-water, not the awake set: a mid-step wake must not allocate.
     if (reserveBodies(world.ecsState, world.bodies.length)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
         world.shapeStore.refreshViews();
     }
 
-    // Size the persistent manifold columns to this step's contacts before the geometry region, which
-    // sits after them and shifts when they grow (a manifold-region grow forces a geometry re-upload).
-    // A manifold grow can `memory.grow`, detaching the body store's views — re-derive them.
+    // A manifold reserve can grow memory, detaching the body store's views.
     if (world.manifoldStore.flush()) {
-        world.geometryDirty = true;
         world.bodyStore.refreshViews();
     }
 
@@ -145,17 +136,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     phaseStart = performance.now();
     if (world.awakeContacts.length !== 0) collide(context);
     profile.collide = performance.now() - phaseStart;
-
-    // A mid-narrowphase manifold-pool grow moved the geometry region (and the solver columns) that sit
-    // after it past the old GEO_END. Re-upload the geometry now — before solve reserves its columns from
-    // GEO_END — so the solver base lands past the grown pool instead of overlapping it, and refresh the
-    // store views that the re-upload's grow detached.
-    if (world.manifoldStore.grew) {
-        rebuildGeometry(world);
-        world.manifoldStore.grew = false;
-        world.manifoldStore.refreshViews();
-        world.bodyStore.refreshViews();
-    }
 
     // Integrate velocities, solve velocity constraints, integrate positions.
     if (timeStep > 0) {

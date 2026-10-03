@@ -41,7 +41,6 @@ import {
     R_WAS_TOUCHING,
     RECYCLE_STRIDE,
 } from "../kernel/columns";
-import { rebuildGeometry } from "../kernel/geocolumns";
 import { kernel, ParKind, runPar, threads } from "../kernel/kernel";
 import { getCompoundChild } from "../shapes/compound";
 import {
@@ -364,14 +363,7 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
     }
     world.manifoldStore.rebaseSeparations(contact.contactId, contact.manifoldCount);
 }
-function refreshGeometry(world: WorldState): void {
-    if (world.manifoldStore.grew) {
-        rebuildGeometry(world);
-        world.manifoldStore.grew = false;
-    }
-}
 function dispatch(world: WorldState): void {
-    refreshGeometry(world);
     const k = kernel(world.ecsState);
     let meshCount = 0;
     for (let i = 0; i < jobCount; ++i) if (jobs[i].meshSlot !== -1) jobs[i].meshSlot = meshCount++;
@@ -435,7 +427,6 @@ function dispatch(world: WorldState): void {
     for (let i = 0; i < jobCount; ++i) finish(world, jobs[i], results[i]);
 }
 function recycle(world: WorldState, distance: number): void {
-    refreshGeometry(world);
     const k = kernel(world.ecsState),
         contacts = world.awakeContacts,
         count = contacts.length;

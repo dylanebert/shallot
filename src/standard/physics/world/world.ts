@@ -13,7 +13,7 @@ import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
 import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
-import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
+import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
 import { type Kernel, kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
@@ -299,7 +299,7 @@ function makeWorldState(
 
     const physicsWorld: WorldState = {
         ecsState: world,
-        broadPhase: createBroadPhase(world, capacity),
+        broadPhase: createBroadPhase(world, capacity, worldId),
         bodyFilters: { data: new Uint32Array(0), capacity: 16 },
         constraintGraph: createGraph(capacity.staticBodyCount + capacity.dynamicBodyCount),
         bodies: [],
@@ -319,8 +319,8 @@ function makeWorldState(
         compoundDatabase: new Map(),
         geometryDirty: false,
         geometryUploadCount: 0,
-        manifoldStore: createManifoldStore(world),
-        bodyStore: createBodyStore(world),
+        manifoldStore: createManifoldStore(world, worldId),
+        bodyStore: createBodyStore(world, worldId),
         shapeStore: createShapeStore(world, worldId),
         sensors: [],
         queryColumns: null,
@@ -393,6 +393,8 @@ export function createWorld(
     }
 
     initializeContactRegisters();
+    owner.bodySetActiveWorld(worldId);
+    owner.residentResetWorld(worldId);
 
     const generation = worlds[worldId]?.generation ?? 0;
     const physicsWorld = makeWorldState(world, def, worldId, generation);
@@ -425,9 +427,6 @@ export function worldIsValid(id: WorldId): boolean {
 export function destroyWorld(world: WorldState): void {
     world.locked = true;
 
-    // Release the shared resident body region so a later world can claim it without eviction.
-    releaseResident(world);
-
     // Release every live shape's allocations (drops all hull references).
     for (let i = 0; i < world.shapes.length; ++i) {
         if (world.shapes[i].id !== -1) {
@@ -452,6 +451,7 @@ export function destroyWorld(world: WorldState): void {
     kernel(world.ecsState).bodyResetWorld(world.worldId);
     kernel(world.ecsState).shapeResetWorld(world.worldId);
     kernel(world.ecsState).materialResetWorld(world.worldId);
+    kernel(world.ecsState).residentResetWorld(world.worldId);
     world.inUse = false;
     world.worldId = 0;
     world.generation = (generation + 1) & 0xffff;

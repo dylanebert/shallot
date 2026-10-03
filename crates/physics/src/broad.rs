@@ -1,48 +1,38 @@
-//! The persistent broad-phase region — the three dynamic-tree node pools (static / kinematic /
-//! dynamic) plus the pair-set membership arrays, held resident across steps so the in-kernel pair
-//! query + tree rebuild (3d) run over them without a per-step marshal. Wasm-only (the columns alias
-//! linear memory); TS owns the growth policy and pair-table writes; tree operations run in the kernel.
-//!
-//! Resident columns: three tree headers + pools, pair membership, body filters and move membership:
-//!   tree[Static]   six header words then `cap_s` nodes of `TREE_STRIDE` slots
-//!   tree[Kinematic] `cap_k` nodes
-//!   tree[Dynamic]  `cap_d` nodes
-//!   keyHi / keyLo / hashes  `set_cap` u32 each (`src/table.ts` open-addressing set)
-//!   body filters: count + `filter_cap` sorted (bodyA, bodyB, joint count) triples
-//!   moves: count + proxy keys in insertion order, followed by each tree's moved bitset
-//!
-//! Placement — a persistent region between the manifold region and the geometry region:
-//! ```text
-//! [shape_end, manifold_end)   persistent manifold columns (manifolds.rs)
-//! [manifold_end, broad_end)   persistent broad-phase columns (this module)
-//! [broad_end, geo_end)        static geometry pools (geo.rs)
-//! [geo_end, ...)              per-step solver columns (arena.rs)
-//! ```
-//! It anchors from `manifolds::geo_base()` (past the manifold region), and the geometry region anchors
-//! from this module's `region_top()` — so inserting it is transparent to the arena above (which
-//! recomputes from `solver_base` every step). A region below it growing shifts this whole region up:
-//! `relocate` rebases its offsets (the caller memmoves the bytes, which cover this region's span too).
-//! Its own growth shifts only the geometry region above it, memmoved + relocated in place here, and
-//! preserves its own sub-columns top-down exactly like the multi-column body region (bodies.rs).
-
-const PAGE: usize = 65536;
-
-/// f32/u32 slots per dynamic-tree node — mirrors tree.rs (sizeof(b3TreeNode)/4 = 12).
+//! World-local trees, pair membership, body filters and pending proxy moves.
+use crate::regions::{self, Columns, MAX_WORLDS};
 pub const TREE_STRIDE: usize = 12;
-
-// BROAD_LAYOUT indices (byte offsets into linear memory), in memory order.
-const TREE_S: usize = 0;
-const TREE_K: usize = 1;
-const TREE_D: usize = 2;
+const TREE_STATE_WORDS: usize = 6;
 const KEY_HI: usize = 3;
 const KEY_LO: usize = 4;
 const HASHES: usize = 5;
 const BODY_FILTER: usize = 6;
 const MOVE: usize = 7;
 const BITS: usize = 8;
-const TREE_STATE_WORDS: usize = 6;
 const N_BROAD: usize = 11;
-
+#[derive(Clone, Copy)]
+struct Broad {
+    columns: Columns<N_BROAD>,
+    tree: [usize; 3],
+    set: usize,
+    filter: usize,
+    generation: u32,
+}
+impl Broad {
+    const EMPTY: Self = Self {
+        columns: Columns::EMPTY,
+        tree: [0; 3],
+        set: 0,
+        filter: 0,
+        generation: 0,
+    };
+}
+static mut WORLDS: [Broad; MAX_WORLDS] = [Broad::EMPTY; MAX_WORLDS];
+unsafe fn world() -> &'static Broad {
+    &WORLDS[regions::active()]
+}
+fn base(column: usize) -> usize {
+    unsafe { world().columns.layout[column] as usize }
+}
 fn tree_bytes(cap: usize) -> usize {
     if cap == 0 {
         0
@@ -50,29 +40,47 @@ fn tree_bytes(cap: usize) -> usize {
         (cap * TREE_STRIDE + TREE_STATE_WORDS) * 4
     }
 }
-fn move_cap(caps: [usize; 3]) -> usize {
-    caps.iter().sum()
-}
 fn bit_bytes(cap: usize) -> usize {
     cap.div_ceil(32) * 4
 }
-
+fn filter_bytes(cap: usize) -> usize {
+    if cap == 0 {
+        0
+    } else {
+        (1 + 3 * cap) * 4
+    }
+}
 pub fn tree_state(i: usize) -> *mut u32 {
-    unsafe { BROAD_LAYOUT[i] as *mut u32 }
+    base(i) as *mut u32
+}
+pub fn tree_ptr(i: usize) -> *mut u32 {
+    unsafe { tree_state(i).add(TREE_STATE_WORDS) }
+}
+pub fn tree_cap(i: usize) -> usize {
+    unsafe { world().tree[i] }
+}
+pub fn set_cap() -> usize {
+    unsafe { world().set }
+}
+pub fn set_ptrs() -> (*const u32, *const u32, *const u32) {
+    (
+        base(KEY_HI) as *const u32,
+        base(KEY_LO) as *const u32,
+        base(HASHES) as *const u32,
+    )
 }
 pub fn move_ptr() -> *mut u32 {
-    unsafe { (BROAD_LAYOUT[MOVE] as *mut u32).add(1) }
+    unsafe { (base(MOVE) as *mut u32).add(1) }
 }
 pub fn move_count() -> usize {
-    unsafe { *(BROAD_LAYOUT[MOVE] as *const u32) as usize }
+    unsafe { *(base(MOVE) as *const u32) as usize }
 }
 pub fn bits_ptr(i: usize) -> *mut u32 {
-    unsafe { BROAD_LAYOUT[BITS + i] as *mut u32 }
+    base(BITS + i) as *mut u32
 }
 pub fn bits_words(i: usize) -> usize {
     tree_cap(i).div_ceil(32)
 }
-
 #[export_name = "broadBufferMove"]
 pub unsafe extern "C" fn buffer_move(key: u32) {
     let i = (key & 3) as usize;
@@ -81,7 +89,7 @@ pub unsafe extern "C" fn buffer_move(key: u32) {
     let mask = 1 << (id & 31);
     if *p & mask == 0 {
         *p |= mask;
-        let count = BROAD_LAYOUT[MOVE] as *mut u32;
+        let count = base(MOVE) as *mut u32;
         *move_ptr().add(*count as usize) = key;
         *count += 1;
     }
@@ -90,7 +98,7 @@ pub unsafe fn unbuffer_move(key: u32) {
     let i = (key & 3) as usize;
     let id = (key >> 2) as usize;
     *bits_ptr(i).add(id / 32) &= !(1 << (id & 31));
-    let count = BROAD_LAYOUT[MOVE] as *mut u32;
+    let count = base(MOVE) as *mut u32;
     for n in 0..*count as usize {
         if *move_ptr().add(n) == key {
             *count -= 1;
@@ -106,134 +114,42 @@ pub unsafe extern "C" fn clear_moves() {
         let id = (key >> 2) as usize;
         *bits_ptr((key & 3) as usize).add(id / 32) &= !(1 << (id & 31));
     }
-    *(BROAD_LAYOUT[MOVE] as *mut u32) = 0;
+    *(base(MOVE) as *mut u32) = 0;
 }
-
-/// Per-column byte offsets into linear memory, rewritten by every grow-triggering `reserveBroad`.
-/// TS reads this header (`broadLayoutPtr`) to build its column views after every grow.
-static mut BROAD_LAYOUT: [u32; N_BROAD] = [0; N_BROAD];
-/// First free byte past the broad region — where the geometry region anchors. Zero until the first
-/// `reserveBroad`; `region_top` then treats it as an empty region ending at the manifold region's top.
-static mut BROAD_END: u32 = 0;
-/// The node capacity each tree pool is sized to (grow-only). The single source of truth for the TS
-/// tree views' lengths (`src/broadcolumns.ts`).
-static mut TREE_CAP: [usize; 3] = [0; 3];
-/// The slot capacity the pair-set arrays are sized to (grow-only, power of two).
-static mut SET_CAP: usize = 0;
-static mut BODY_FILTER_CAP: usize = 0;
-/// Bumped on every layout change — a grow here or a relocation by a region below. TS keys its
-/// view-staleness on it, so it catches a relocation that shifted this region's offsets without a
-/// `memory.grow` (a lower region growing within already-committed pages).
-static mut BROAD_GEN: u32 = 0;
-
-#[inline]
-fn align16(x: usize) -> usize {
-    (x + 15) & !15
-}
-
-/// Byte offset the geometry region (geo.rs) anchors from: past the broad region if one was reserved,
-/// else the anchor below (past the manifold region), where the broad region would begin.
-#[inline]
-pub fn region_top() -> usize {
-    let end = unsafe { BROAD_END } as usize;
-    if end == 0 {
-        crate::manifolds::geo_base()
-    } else {
-        end
-    }
-}
-
-/// First free byte past the broad region (0 if none reserved).
-#[inline]
-pub fn region_end() -> usize {
-    unsafe { BROAD_END as usize }
-}
-
-/// Shift the broad region's byte offsets up by `delta` after a region below it grew and moved it (the
-/// caller memmoves the bytes). No-op if none reserved. The pools are indexed by node/slot within each
-/// column (element offsets absolute within them), so only the header offsets + end marker rebase.
-pub fn relocate(delta: usize) {
-    unsafe {
-        if BROAD_END == 0 {
-            return;
-        }
-        for i in 0..N_BROAD {
-            BROAD_LAYOUT[i] += delta as u32;
-        }
-        BROAD_END += delta as u32;
-        BROAD_GEN = BROAD_GEN.wrapping_add(1);
-    }
-}
-
-/// The layout generation — bumped on every grow or relocation. TS re-derives its views when this
-/// changes (or when memory grows), catching a relocation that moved this region without a `memory.grow`.
 #[export_name = "broadGenPtr"]
 pub extern "C" fn broad_gen_ptr() -> *const u32 {
-    &raw const BROAD_GEN
+    unsafe { &raw const world().generation }
 }
-
 #[export_name = "broadGen"]
 pub extern "C" fn broad_gen() -> u32 {
-    unsafe { BROAD_GEN }
+    unsafe { world().generation }
 }
-
-/// Base pointer of tree pool `i` (0 static / 1 kinematic / 2 dynamic) in linear memory. The in-kernel
-/// pair query + rebuild (`pairwork.rs`) view the pool here as a flat `[u32]` of `cap * TREE_STRIDE` slots.
-#[inline]
-pub fn tree_ptr(i: usize) -> *mut u32 {
-    unsafe { (BROAD_LAYOUT[TREE_S + i] as *mut u32).add(TREE_STATE_WORDS) }
+#[export_name = "broadLayoutPtr"]
+pub extern "C" fn broad_layout_ptr() -> *const u32 {
+    unsafe { world().columns.layout.as_ptr() }
 }
-
-/// Node capacity of tree pool `i` (source of truth for the pool slice length).
-#[inline]
-pub fn tree_cap(i: usize) -> usize {
-    unsafe { TREE_CAP[i] }
+#[export_name = "broadTreeCap"]
+pub extern "C" fn broad_tree_cap(i: usize) -> usize {
+    tree_cap(i)
 }
-
-/// Base pointers of the three pair-set arrays (keyHi / keyLo / hashes), each `set_cap()` u32.
-#[inline]
-pub fn set_ptrs() -> (*const u32, *const u32, *const u32) {
-    unsafe {
-        (
-            BROAD_LAYOUT[KEY_HI] as *const u32,
-            BROAD_LAYOUT[KEY_LO] as *const u32,
-            BROAD_LAYOUT[HASHES] as *const u32,
-        )
-    }
+#[export_name = "broadSetCap"]
+pub extern "C" fn broad_set_cap() -> usize {
+    set_cap()
 }
-
-/// The pair-set slot capacity (power of two; the probe mask is `set_cap() - 1`).
-#[inline]
-pub fn set_cap() -> usize {
-    unsafe { SET_CAP }
-}
-
-/// Sorted unordered body pairs with a live non-colliding joint. The first word is the
-/// pair count, followed by triples (low body ID, high body ID, joint reference count).
-#[inline]
-fn filter_bytes(cap: usize) -> usize {
-    if cap == 0 {
-        0
-    } else {
-        (1 + 3 * cap) * 4
-    }
-}
-
 #[export_name = "broadBodiesFiltered"]
 pub extern "C" fn bodies_filtered(a: u32, b: u32) -> u32 {
     unsafe {
-        if BODY_FILTER_CAP == 0 {
+        if world().filter == 0 {
             return 0;
         }
-        let data = BROAD_LAYOUT[BODY_FILTER] as *const u32;
+        let data = base(BODY_FILTER) as *const u32;
         let (a, b) = (a.min(b), a.max(b));
         let mut lo = 0;
         let mut hi = *data as usize;
         while lo < hi {
             let mid = (lo + hi) / 2;
             let p = data.add(1 + 3 * mid);
-            let key = (*p, *p.add(1));
-            if key < (a, b) {
+            if (*p, *p.add(1)) < (a, b) {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -242,48 +158,6 @@ pub extern "C" fn bodies_filtered(a: u32, b: u32) -> u32 {
         (lo < *data as usize && *data.add(1 + 3 * lo) == a && *data.add(2 + 3 * lo) == b) as u32
     }
 }
-
-unsafe fn ensure_capacity(end_byte: usize) {
-    crate::treework::record_end(end_byte);
-    let have = core::arch::wasm32::memory_size(0) * PAGE;
-    if end_byte > have {
-        let pages = (end_byte - have + PAGE - 1) / PAGE;
-        core::arch::wasm32::memory_grow(0, pages);
-    }
-}
-
-/// Byte offset of the broad layout header (`[u32; N_BROAD]` of per-column byte offsets). TS reads this
-/// to build its column views after every grow-triggering `reserveBroad`.
-#[export_name = "broadLayoutPtr"]
-pub extern "C" fn broad_layout_ptr() -> *const u32 {
-    &raw const BROAD_LAYOUT as *const u32
-}
-
-/// The node capacity tree pool `i` (0 static / 1 kinematic / 2 dynamic) is sized to — the source of
-/// truth for the TS tree view's length. Zero before the first `reserveBroad`.
-#[export_name = "broadTreeCap"]
-pub extern "C" fn broad_tree_cap(i: usize) -> usize {
-    unsafe { TREE_CAP[i] }
-}
-
-/// The slot capacity the pair-set arrays are sized to — the source of truth for the TS set view lengths.
-#[export_name = "broadSetCap"]
-pub extern "C" fn broad_set_cap() -> usize {
-    unsafe { SET_CAP }
-}
-
-/// Byte size of a column with `records` records of `stride` u32/f32 slots (0 records → 0 bytes).
-#[inline]
-fn col_bytes(records: usize, stride: usize) -> usize {
-    records * stride * 4
-}
-
-/// Lay out the broad columns for tree pools of `cap_s`/`cap_k`/`cap_d` nodes and pair-set arrays of
-/// `set_cap` slots, growing memory to fit. Grow-only per column: each new capacity is `max(requested,
-/// current)`, so a caller growing one column passes 0 for the rest to hold them. A call that raises no
-/// column is a no-op returning 0. On a grow it preserves every live sub-column (top-down copy, like the
-/// body region), relocates the geometry region above it in place, and returns 1 — the caller then
-/// refreshes every view a `memory.grow` detached. @returns 1 when the region grew.
 #[export_name = "reserveBroad"]
 pub extern "C" fn reserve_broad(
     cap_s: usize,
@@ -293,157 +167,40 @@ pub extern "C" fn reserve_broad(
     filter_cap: usize,
 ) -> u32 {
     unsafe {
-        let new_tree = [
-            if cap_s > TREE_CAP[0] {
-                cap_s
-            } else {
-                TREE_CAP[0]
-            },
-            if cap_k > TREE_CAP[1] {
-                cap_k
-            } else {
-                TREE_CAP[1]
-            },
-            if cap_d > TREE_CAP[2] {
-                cap_d
-            } else {
-                TREE_CAP[2]
-            },
+        let w = &mut WORLDS[regions::active()];
+        let tree = [
+            cap_s.max(w.tree[0]),
+            cap_k.max(w.tree[1]),
+            cap_d.max(w.tree[2]),
         ];
-        let new_set = if set_cap > SET_CAP { set_cap } else { SET_CAP };
-        let new_filter = filter_cap.max(BODY_FILTER_CAP);
-        if new_tree[0] == TREE_CAP[0]
-            && new_tree[1] == TREE_CAP[1]
-            && new_tree[2] == TREE_CAP[2]
-            && new_set == SET_CAP
-            && new_filter == BODY_FILTER_CAP
-        {
+        let set = set_cap.max(w.set);
+        let filter = filter_cap.max(w.filter);
+        if tree == w.tree && set == w.set && filter == w.filter {
             return 0;
         }
-
-        let old_layout = BROAD_LAYOUT;
-        let old_tree = TREE_CAP;
-        let old_set = SET_CAP;
-        let old_filter = BODY_FILTER_CAP;
-        let old_top = region_top(); // where the geometry region currently anchors
-
-        // Anchor at the *raw* manifold-region top — deliberately NOT align16'd. That anchor is only
-        // 4-aligned and its residue mod 16 varies as the manifold caps grow (DIR_STRIDE*4 ≡ 4,
-        // MANIFOLD_STRIDE*4 ≡ 12 mod 16). Padding the base to 16 here would desync the preserve-copy
-        // below: a manifold grow relocates this region by a 4-but-not-16-aligned delta (base + memmoved
-        // bytes both shift by that delta), but re-aligning to 16 on the next reserve would move TREE_S
-        // to a *different* offset than the relocated bytes, orphaning the static tree pool (the copy
-        // loop treats TREE_S as anchor-fixed and never copies it). Raw base = TREE_S tracks relocation
-        // exactly (every delta 4-aligned), which is what makes TREE_S genuinely anchor-fixed. All broad
-        // columns are scalar u32/f32 (no v128 access), so 4-byte alignment suffices for both the kernel
-        // reads and the TS typed-array views (which read offsets from this header, not mirrored math).
-        let base = crate::manifolds::geo_base();
-        let mut off = base;
-        let mut new_layout = [0u32; N_BROAD];
-        new_layout[TREE_S] = off as u32;
-        off += tree_bytes(new_tree[0]);
-        new_layout[TREE_K] = off as u32;
-        off += tree_bytes(new_tree[1]);
-        new_layout[TREE_D] = off as u32;
-        off += tree_bytes(new_tree[2]);
-        new_layout[KEY_HI] = off as u32;
-        off += col_bytes(new_set, 1);
-        new_layout[KEY_LO] = off as u32;
-        off += col_bytes(new_set, 1);
-        new_layout[HASHES] = off as u32;
-        off += col_bytes(new_set, 1);
-        new_layout[BODY_FILTER] = off as u32;
-        off += filter_bytes(new_filter);
-        new_layout[MOVE] = off as u32;
-        off += (1 + move_cap(new_tree)) * 4;
         for i in 0..3 {
-            new_layout[BITS + i] = off as u32;
-            off += bit_bytes(new_tree[i]);
+            w.columns.reserve(i, tree_bytes(tree[i]));
+            w.columns.reserve(BITS + i, bit_bytes(tree[i]));
         }
-        let new_end = align16(off);
-
-        // Relocate the geometry region above by the growth delta (it holds live hull data a
-        // non-hull shape create must not corrupt). `old_top` is where geo anchors now. Monotone by
-        // construction with the raw base: the region's offsets track a lower relocation exactly and
-        // `new_end` only grows, so `new_end >= old_top` — the assert pins that invariant and the
-        // saturating sub guards against an unchecked usize wrap if it were ever violated.
-        debug_assert!(new_end >= old_top, "broad region must never shift down");
-        let delta = new_end.saturating_sub(old_top);
-        let geo_end = crate::geo::region_end();
-        if delta > 0 {
-            if geo_end > old_top {
-                ensure_capacity(geo_end + delta);
-                // `copy` is memmove; dest > src (the region only grows), so the overlap is handled.
-                core::ptr::copy(
-                    old_top as *const u8,
-                    (old_top + delta) as *mut u8,
-                    geo_end - old_top,
-                );
-            } else {
-                ensure_capacity(new_end);
-            }
-            // An empty geometry region still records its solver anchor at `old_top`. Move that
-            // anchor when the broad region grows, or the next per-step reserve will overlap the
-            // newly extended broad columns. `geo::relocate` is a no-op before geometry has ever
-            // been reserved.
-            if geo_end != 0 && geo_end >= old_top {
-                crate::geo::relocate(delta);
-            }
-        } else {
-            ensure_capacity(new_end);
+        for c in [KEY_HI, KEY_LO, HASHES] {
+            w.columns.reserve(c, set * 4);
         }
-
-        // Preserve this region's own live sub-columns. TREE_S is genuinely anchor-fixed now (base is the
-        // raw geo anchor, so a lower relocation shifts TREE_S by the same delta as its bytes) — its bytes
-        // are already in place; every column above it shifts up. Copy top-down (highest new offset
-        // first) so a write never lands on a lower column's not-yet-copied old bytes. Copy each
-        // column's old live byte count; a fresh world reusing the singleton carries a larger stale cap,
-        // but the copies stay within `new_end` (the region only grows) and dead bytes are overwritten
-        // before read (tree nodes reset on alloc; the set window is cleared before use).
-        let old_bytes = [
-            tree_bytes(old_tree[0]),
-            tree_bytes(old_tree[1]),
-            tree_bytes(old_tree[2]),
-            col_bytes(old_set, 1),
-            col_bytes(old_set, 1),
-            col_bytes(old_set, 1),
-            filter_bytes(old_filter),
-            if BROAD_END == 0 {
-                0
-            } else {
-                (1 + move_cap(old_tree)) * 4
-            },
-            bit_bytes(old_tree[0]),
-            bit_bytes(old_tree[1]),
-            bit_bytes(old_tree[2]),
-        ];
-        for c in (TREE_K..N_BROAD).rev() {
-            if old_bytes[c] != 0 && new_layout[c] != old_layout[c] {
-                core::ptr::copy(
-                    old_layout[c] as *const u8,
-                    new_layout[c] as *mut u8,
-                    old_bytes[c],
-                );
-            }
-        }
-
-        if BROAD_END == 0 {
-            *(new_layout[MOVE] as *mut u32) = 0;
-        }
-        for i in 0..3 {
-            let old = bit_bytes(old_tree[i]);
-            core::ptr::write_bytes(
-                (new_layout[BITS + i] as *mut u8).add(old),
-                0,
-                bit_bytes(new_tree[i]) - old,
-            );
-        }
-        BROAD_LAYOUT = new_layout;
-        BROAD_END = new_end as u32;
-        TREE_CAP = new_tree;
-        SET_CAP = new_set;
-        BODY_FILTER_CAP = new_filter;
-        BROAD_GEN = BROAD_GEN.wrapping_add(1);
+        w.columns.reserve(BODY_FILTER, filter_bytes(filter));
+        w.columns
+            .reserve(MOVE, (1 + tree.iter().sum::<usize>()) * 4);
+        w.tree = tree;
+        w.set = set;
+        w.filter = filter;
+        w.generation = w.generation.wrapping_add(1);
         1
     }
+}
+pub unsafe fn reset(id: usize) {
+    WORLDS[id].columns.release();
+    WORLDS[id] = Broad::EMPTY;
+}
+pub unsafe fn restore_id(from: usize, to: usize) {
+    reset(to);
+    WORLDS[to] = WORLDS[from];
+    WORLDS[from] = Broad::EMPTY;
 }

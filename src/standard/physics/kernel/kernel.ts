@@ -59,10 +59,7 @@ export type Kernel = {
     ): void;
     layoutPtr(): number;
 
-    // Persistent body columns (kernel/src/bodies.rs) — the awake body state held resident across
-    // steps, first in linear memory. `reserveBodies` sizes the region to the total-body
-    // high-water (grow-only), relocating the manifold + geometry regions above it in place on a grow;
-    // `bodyLayoutPtr` returns the byte-offset header TS derives its column views from (bodycolumns.ts).
+    // Allocator-owned body columns for the selected World, sized to its body high-water.
     reserveBodies(cap: number): number;
     bodyLayoutPtr(): number;
     bodySetEntity(world: number, body: number, eid: number): void;
@@ -72,7 +69,7 @@ export type Kernel = {
     bodyCap(): number;
     /** Set the world context used by kernel finalization's move publication. */
     bodySetActiveWorld(world: number): void;
-    /** Select the world-local shape and fat-AABB slabs for the next kernel operation. */
+    /** Select the World's persistent layouts for the next kernel operation; no bytes are copied. */
     shapeSetActiveWorld(world: number): void;
     /** Allocate a body index/generation from the kernel-owned world-local pool. */
     bodyCreate(world: number): number;
@@ -80,26 +77,18 @@ export type Kernel = {
     bodyDestroy(world: number, id: number): void;
     /** Clear a world-local body pool after the public world is destroyed. */
     bodyResetWorld(world: number): void;
+    residentResetWorld(world: number): void;
+    residentRestoreWorldId(from: number, to: number): void;
     bodyGeneration(world: number, id: number): number;
     bodyAlive(world: number, id: number): number;
     bodyCount(world: number): number;
 
-    // Persistent fat-AABB column (kernel/src/fataabb.rs) — one enlarged broad-phase AABB per shape,
-    // held resident so the in-kernel recycle loop tests contact overlap without a marshal. A second
-    // low persistent region above the body region; `reserveFatAabb` sizes it to the shape high-water
-    // (grow-only), relocating the manifold + geometry regions above it on a grow. `fatAabbLayoutPtr`
-    // returns the byte-offset header the shape store derives its resident fat-AABB view from; `fatAabbCap` is the
-    // authoritative capacity.
+    // One allocator-owned fat AABB per shape in the selected World.
     reserveFatAabb(cap: number): number;
     fatAabbLayoutPtr(): number;
     fatAabbCap(): number;
 
-    // Persistent shape column (kernel/src/shapes.rs) — one record per shapeId (type code, local
-    // geometry, nextShapeId), held resident so the in-kernel finalize refit walks a body's shape list
-    // without a marshal. A third low persistent region above the fat-AABB region; `reserveShapes` sizes
-    // it to the shape high-water (grow-only), relocating the manifold + geometry regions above it on a
-    // grow. `shapeLayoutPtr` returns the byte-offset header TS derives its views from
-    // (shapecolumns.ts); `shapeCap` is the authoritative capacity.
+    // Allocator-owned shape records and lifecycle columns for the selected World.
     reserveShapes(cap: number): number;
     shapeLayoutPtr(): number;
     shapeCap(): number;
@@ -123,13 +112,7 @@ export type Kernel = {
     shapeMaterialHead(world: number, id: number): number;
     shapeMaterialCount(world: number, id: number): number;
 
-    // Persistent broad-phase columns (kernel/src/broad.rs) — the three dynamic-tree node pools plus the
-    // pair-set membership arrays, held resident so the in-kernel pair query + tree rebuild (3d) run over
-    // them without a marshal. A persistent region between the manifold and geometry regions;
-    // `reserveBroad` sizes each of the seven sub-columns (grow-only per column: pass 0 to hold a column at
-    // its current size), relocating the geometry region above it on a grow. `broadLayoutPtr` returns the
-    // byte-offset header TS derives its views from (broadcolumns.ts); `broadTreeCap`/`broadSetCap` are
-    // the authoritative capacities.
+    // World-local tree pools, pair membership, filters and moves. Pass zero to retain a capacity.
     reserveBroad(
         capS: number,
         capK: number,

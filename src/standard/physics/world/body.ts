@@ -902,8 +902,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     }
 
     // Size the resident body region to the new total-body high-water (grow-only), so the region always
-    // covers every body — a later mid-step wake can't outgrow it. A grow relocates the manifold +
-    // geometry regions and detaches views, so refresh those before anything reads through them.
+    // covers every body — a later mid-step wake can't outgrow it. Refresh views after reserves.
     if (reserveBodies(world.ecsState, world.bodies.length)) {
         world.manifoldStore.refreshViews();
     }

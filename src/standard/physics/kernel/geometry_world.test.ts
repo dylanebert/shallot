@@ -16,7 +16,7 @@ function scene(height: number): WorldState {
     ) as WorldState;
     const ground = world.bodies[createBody(world, defaultBodyDef())];
     createHullShape(world, ground, defaultShapeDef(), makeBoxHull(2, height, 2));
-    // Recycling would retain the old touching manifold without reading the evicted hull pool.
+    // Disable recycling so each tick must read the hull pool rather than retain its manifold.
     const ball =
         world.bodies[
             createBody(world, {
@@ -35,7 +35,7 @@ function scene(height: number): WorldState {
 const touching = (world: WorldState): number =>
     world.contacts.filter((c) => (c.flags & ContactFlags.contactTouchingFlag) !== 0).length;
 
-test("alternating standalone worlds collide against their own hull geometry after another world takes residency", () => {
+test("alternating standalone Worlds collide against their own hull geometry without re-uploading it", () => {
     const a = scene(1);
     let b: WorldState | undefined;
     try {
@@ -48,6 +48,8 @@ test("alternating standalone worlds collide against their own hull geometry afte
         expect(touching(a)).toBe(1);
         step(b, 1 / 60, 4);
         expect(touching(b)).toBe(0);
+        expect(a.geometryUploadCount).toBe(1);
+        expect(b.geometryUploadCount).toBe(1);
     } finally {
         destroyWorld(a);
         if (b) destroyWorld(b);

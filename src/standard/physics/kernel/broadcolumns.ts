@@ -12,7 +12,6 @@ import type { World } from "../../../engine";
 
 import type { HashSet } from "../collision/table";
 import type { WorldState } from "../world/world";
-import { claimResident } from "./bodycolumns";
 import { kernel } from "./kernel";
 import type { DynamicTree } from "./treecolumns";
 
@@ -33,8 +32,10 @@ const EMPTY_U = new Uint32Array(0);
 export class BroadStore {
     readonly ecsState: World | undefined;
 
-    constructor(ecsState: World | undefined) {
+    readonly worldId: number;
+    constructor(ecsState: World | undefined, worldId: number) {
         this.ecsState = ecsState;
+        this.worldId = worldId;
     }
 
     /** The three dynamic trees (static / kinematic / dynamic), set at broad-phase creation. */
@@ -49,15 +50,14 @@ export class BroadStore {
     /** `memory.buffer.byteLength` at the last refresh — catches a `memory.grow` (single-thread detach or
      * shared-memory tail extension). */
     private _lastLen = -1;
-    /** The kernel's broad-layout generation at the last refresh — catches a relocation (a region below
-     * grew within committed pages, shifting this region's offsets without a `memory.grow`). */
+    /** The kernel's layout generation catches column reallocation without a memory grow. */
     private _lastGen = -1;
     private _genPtr = 0;
     private _gen = EMPTY_U;
     initialization = { claimed: false, movesInitialized: false };
 
-    /** Initialize native metadata only after this World acquires the singleton region. */
-    claim(): void {
+    /** Initialize this World's native broad-phase metadata on first use. */
+    initialize(): void {
         const world = this.world;
         if (this.initialization.claimed || world === null) return;
         this.initialization.claimed = true;
@@ -70,6 +70,7 @@ export class BroadStore {
      * without reintroducing churn. */
     refreshIfStale(): void {
         const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
         if (k.memory.buffer.byteLength === this._lastLen && this._gen[0] === this._lastGen) return;
         this.refreshViews();
     }
@@ -78,6 +79,7 @@ export class BroadStore {
      * Cheap — a handful of typed-array constructions, no copy. */
     refreshViews(): void {
         const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
         const buf = k.memory.buffer;
         this._lastLen = buf.byteLength;
         if (this._genPtr === 0) this._genPtr = k.broadGenPtr();
@@ -176,14 +178,13 @@ export class BroadStore {
         this.reserve(0, 0, 0, 0, capacity);
     }
 
-    // Reserve the region (grow-only per column) and re-derive the views. The growing column needs its
-    // view rebuilt even when the region did not grow (a fresh world reuses the singleton's larger stale
-    // capacity, so its first reserve is a no-op — but the tree still needs a view over it). A real grow
-    // additionally `memory.grow`s, detaching every sibling store's views; refresh those too.
+    // Reallocation can move columns without growing memory; derive views after every reserve.
     private reserve(capS: number, capK: number, capD: number, setCap: number, filterCap = 0): void {
-        if (this.world !== null) claimResident(this.world);
+        if (this.world !== null) this.initialize();
         else this.initialization.claimed = true;
-        const grew = kernel(this.ecsState).reserveBroad(capS, capK, capD, setCap, filterCap) !== 0;
+        const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
+        const grew = k.reserveBroad(capS, capK, capD, setCap, filterCap) !== 0;
         this.refreshViews();
         if (grew) {
             const w = this.world;
@@ -197,6 +198,6 @@ export class BroadStore {
 }
 
 /** Create an empty broad store for a new world. Its trees + set are registered by `createBroadPhase`. */
-export function createBroadStore(world: World | undefined): BroadStore {
-    return new BroadStore(world);
+export function createBroadStore(world: World | undefined, worldId: number): BroadStore {
+    return new BroadStore(world, worldId);
 }

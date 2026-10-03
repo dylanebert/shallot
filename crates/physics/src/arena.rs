@@ -1,6 +1,6 @@
 //! The shared-column arena and phase export shims — the kernel's wasm surface.
 //!
-//! `reserve` lays out every solver column contiguously in linear memory (starting at `__heap_base`),
+//! `reserve` lays out solver scratch in one allocator-owned shared buffer,
 //! growing the memory to fit, and records each column's byte offset in the `LAYOUT` header. The TS
 //! side reads `layoutPtr` and derives `Float32Array`/`Uint32Array` views over the columns, then drives
 //! the solve one phase at a time through the export shims below. Each shim rebuilds the columns from
@@ -34,9 +34,15 @@ use crate::narrowphase::{
 use crate::recycle::try_recycle;
 
 use crate::fataabb::AABB_STRIDE as FAT_STRIDE;
-use crate::geo::{hull_view, solver_base};
+use crate::geo::hull_view;
+use crate::regions::Buffer;
 
-const PAGE: usize = 65536;
+static mut SCRATCH: Buffer = Buffer::EMPTY;
+pub unsafe fn reserve_scratch(bytes: usize) -> usize {
+    let scratch = &mut *(&raw mut SCRATCH);
+    scratch.reserve(bytes);
+    scratch.ptr
+}
 const N_COLS: usize = 16;
 /// u32 stride of one active-color span: wideStart, wideCount, meshStart, meshCount, jointStart,
 /// jointCount. The joint pair is written by `writeColorSpans`; the jointless batched path reads only
@@ -87,16 +93,6 @@ static mut COLOR_COUNT: usize = 0;
 // Flat joint slot count (colored joints, per-color concatenated, then the overflow joints).
 static mut JOINT_COUNT: usize = 0;
 
-/// Grow linear memory so `[0, end_byte)` is addressable.
-unsafe fn ensure_capacity(end_byte: usize) {
-    crate::treework::record_end(end_byte);
-    let have = core::arch::wasm32::memory_size(0) * PAGE;
-    if end_byte > have {
-        let pages = (end_byte - have + PAGE - 1) / PAGE;
-        core::arch::wasm32::memory_grow(0, pages);
-    }
-}
-
 /// Column of `len` f32 at `LAYOUT[idx]`. `len` must match the reserved column size.
 ///
 /// A [`Col`] and not a `&mut [f32]`: once the staged solver runs a stage's blocks on several threads
@@ -122,7 +118,7 @@ pub extern "C" fn layout_ptr() -> *const u32 {
 }
 
 /// Lay out all solver columns for the given per-step counts, growing memory to fit. Recomputes offsets
-/// from `__heap_base` each call; TS re-derives its views from `layoutPtr` afterwards.
+/// within shared scratch each call; TS re-derives its views from `layoutPtr` afterwards.
 #[export_name = "reserve"]
 pub extern "C" fn reserve(
     body: usize,
@@ -148,13 +144,13 @@ pub extern "C" fn reserve(
         // views and no per-step marshal runs. Point their LAYOUT entries at that region instead of
         // allocating per-step scratch; the phase shims read `LAYOUT[SIM]`/etc unchanged. `reserveBodies`
         // (run before this, in `step()`) has laid the region out for the current total-body high-water.
-        // The remaining columns are per-step scratch, laid out past the static geometry region.
+        // The remaining columns share the per-step arena.
         LAYOUT[STATE] = crate::bodies::state_base() as u32;
         LAYOUT[FLAGS] = crate::bodies::flags_base() as u32;
         LAYOUT[SIM] = crate::bodies::sim_base() as u32;
         LAYOUT[FIN] = crate::bodies::fin_base() as u32;
         LAYOUT[FIN_OUT] = crate::bodies::fin_out_base() as u32;
-        let mut off = solver_base();
+        let mut off = 0;
         LAYOUT[SLOT_SCALAR] = off as u32;
         off += contact * SLOT_STRIDE * 4;
         LAYOUT[CC] = off as u32;
@@ -178,9 +174,13 @@ pub extern "C" fn reserve(
         LAYOUT[JOINT] = off as u32;
         off += joint * crate::joint_abi::JOINT_STRIDE * 4;
 
-        crate::continuous::reserve_at(off, body);
+        let continuous_offset = off;
         off += body * crate::continuous::STRIDE * 4;
-        ensure_capacity(off);
+        reserve_scratch(off);
+        for column in SLOT_SCALAR..N_COLS {
+            LAYOUT[column] += SCRATCH.ptr as u32;
+        }
+        crate::continuous::reserve_at(SCRATCH.ptr + continuous_offset, body);
     }
 }
 
@@ -294,13 +294,13 @@ static mut DISPATCH_PTR: u32 = 0;
 static mut DISPATCH_OUT_PTR: u32 = 0;
 
 /// Lay out contact records, mesh cache/output spans and per-thread scratch, growing memory to fit. Placed
-/// at `solver_base` (past the persistent + geometry regions); the collect pass fills the input column and
+/// in the shared per-step arena; the collect pass fills the input column and
 /// the finish pass reads the output, both within collide — before the solver columns reserve over the
 /// same base.
 #[export_name = "reserveDispatch"]
 pub extern "C" fn reserve_dispatch(count: usize, mesh_count: usize, threads: usize) {
     unsafe {
-        let mut off = solver_base();
+        let mut off = 0;
         DISPATCH_PTR = off as u32;
         off += count * DISPATCH_STRIDE * 4;
         DISPATCH_OUT_PTR = off as u32;
@@ -317,7 +317,13 @@ pub extern "C" fn reserve_dispatch(count: usize, mesh_count: usize, threads: usi
         if mesh_count > 0 {
             off += threads.max(1) * core::mem::size_of::<DispatchScratch>();
         }
-        ensure_capacity(off);
+        reserve_scratch(off);
+        DISPATCH_PTR += SCRATCH.ptr as u32;
+        DISPATCH_OUT_PTR += SCRATCH.ptr as u32;
+        MESH_CACHE_PTR += SCRATCH.ptr;
+        MESH_OUTPUT_PTR += SCRATCH.ptr;
+        MESH_MATERIAL_PTR += SCRATCH.ptr;
+        MESH_SCRATCH_PTR += SCRATCH.ptr;
         if mesh_count > 0 {
             (MESH_SCRATCH_PTR as *mut u8)
                 .write_bytes(0, threads.max(1) * core::mem::size_of::<DispatchScratch>());
@@ -769,18 +775,14 @@ const R_WAS_TOUCHING: u32 = 2;
 static mut RECYCLE_PTR: u32 = 0;
 static mut RECYCLE_OUT_PTR: u32 = 0;
 
-/// Lay out the recycle input + output columns for `count` records at `solver_base` (past the persistent
-/// + geometry regions), growing memory to fit. Consumed within collide, before the convex dispatch and
+/// Lay out recycle input + output in the shared arena. Consumed within collide, before dispatch and
 /// the solver columns reserve over the same base — the recycle pass finishes before either runs.
 #[export_name = "reserveRecycle"]
 pub extern "C" fn reserve_recycle(count: usize) {
     unsafe {
-        let mut off = solver_base();
-        RECYCLE_PTR = off as u32;
-        off += count * RECYCLE_STRIDE * 4;
-        RECYCLE_OUT_PTR = off as u32;
-        off += count * 4;
-        ensure_capacity(off);
+        reserve_scratch(count * (RECYCLE_STRIDE + 1) * 4);
+        RECYCLE_PTR = SCRATCH.ptr as u32;
+        RECYCLE_OUT_PTR = (SCRATCH.ptr + count * RECYCLE_STRIDE * 4) as u32;
     }
 }
 

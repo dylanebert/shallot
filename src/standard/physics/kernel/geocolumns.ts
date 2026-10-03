@@ -6,7 +6,6 @@ import type { World } from "../../../engine";
 import { getCompoundChild } from "../shapes/compound";
 import type { HullData } from "../shapes/hull";
 import type { WorldState } from "../world/world";
-import { geometryUploaded } from "./bodycolumns";
 import { kernel } from "./kernel";
 
 /** u32 words per hull record (RECORD_STRIDE in geo.rs): center.xyz + v/e/f counts + 5 pool offsets. */
@@ -126,7 +125,7 @@ export function uploadGeometry(
     }
 }
 
-/** Rebuild the resident world's geometry after a geometry-set change, region move or owner change.
+/** Rebuild this World's geometry after its geometry set changes.
  * Hull references are record indices; non-convex references are word offsets within EXTRA. Mesh
  * records hold counts and offsets to 11-word nodes, xyz vertices, index triples, flags and materials.
  * Height records hold bounds, quantization, scale, dimensions, winding and array offsets. Compound
@@ -217,6 +216,7 @@ export function rebuildGeometry(world: WorldState): void {
             while (words.length < start + 7) words.push(0);
         }
     }
+    kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
     uploadGeometry(world.ecsState, hullArray, words);
     world.geometryUploadCount += 1;
     world.shapeStore.refreshViews();
@@ -226,5 +226,4 @@ export function rebuildGeometry(world: WorldState): void {
         if (s.id < 0) continue;
         world.shapeStore.writeGeometryReference(world, s);
     }
-    geometryUploaded(world);
 }

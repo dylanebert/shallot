@@ -1,4 +1,3 @@
-import { releaseResident } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
 import { liveWorldCount, type WorldState } from "../world/world";
 import type { PhysicsWorld } from "./world";
@@ -161,10 +160,12 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         broadPhase: state.broadPhase.store,
     }) as WorldState;
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
+    const sourceWorldId = restored.worldId;
     restored.ecsState = state.ecsState;
     restored.worldId = state.worldId;
     restored.generation = state.generation;
     restored.maxCapacity = state.maxCapacity;
+    for (const shape of restored.shapes) shape.worldId = state.worldId;
 
     for (const key of Reflect.ownKeys(state)) {
         if (!Reflect.has(restored, key)) Reflect.deleteProperty(state, key);
@@ -176,6 +177,7 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     const memory = kernel(physicsWorld.state.ecsState).memory;
     while (memory.buffer.byteLength < snapshot.bytes.byteLength) memory.grow(1);
     new Uint8Array(memory.buffer).set(snapshot.bytes);
+    kernel(state.ecsState).residentRestoreWorldId(sourceWorldId, state.worldId);
     state.broadPhase.store.world = state;
     state.broadPhase.store.trees = state.broadPhase.trees;
     state.broadPhase.store.set = state.broadPhase.pairSet;
@@ -184,7 +186,4 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     state.bodyStore.refreshViews();
     state.shapeStore.refreshViews();
     state.manifoldStore.refreshViews();
-    // The restored logical initialization, rather than a pre-restore ownership cache hit,
-    // must govern the next claim, including rollback into the current owner.
-    releaseResident(state);
 }

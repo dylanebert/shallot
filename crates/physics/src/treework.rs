@@ -1,13 +1,10 @@
 //! Serial tree operations over resident or caller-uploaded columns.
 use crate::body::{S2_FLAGS, S2_HEAD_SHAPE, SIM2_STRIDE};
 use crate::continuous::{ENLARGE_BOUNDS, IS_BULLET, IS_FAST};
+use crate::regions::Buffer;
 use crate::tree::{self, Rebuild, STACK_SIZE, STRIDE};
 use std::slice;
-static mut WORDS: [usize; 64] = [0; 64];
-static mut END: usize = 0;
-pub unsafe fn record_end(end: usize) {
-    END = END.max(end);
-}
+static mut SCRATCH: [Buffer; 64] = [Buffer::EMPTY; 64];
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn queryCallback(kind: u32, shape: u32, data: u32, count: u32) -> f32;
@@ -16,17 +13,8 @@ extern "C" {
 pub extern "C" fn reserve(depth: usize, words: usize) -> *mut u32 {
     unsafe {
         assert!(depth < 64);
-        WORDS[depth] = (words + 1) & !1;
-        let mut offset = (END.max(crate::geo::solver_base()) + 7) & !7;
-        for i in 0..depth {
-            offset += WORDS[i] * 4;
-        }
-        let end = offset + words * 4;
-        let have = core::arch::wasm32::memory_size(0) * 65536;
-        if end > have {
-            core::arch::wasm32::memory_grow(0, (end - have + 65535) / 65536);
-        }
-        offset as *mut u32
+        SCRATCH[depth].reserve(words * 4);
+        SCRATCH[depth].ptr as *mut u32
     }
 }
 #[export_name = "treeMutate"]

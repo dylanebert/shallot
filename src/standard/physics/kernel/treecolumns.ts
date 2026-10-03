@@ -235,6 +235,7 @@ export function moveProxy(t: DynamicTree, id: number, box: AABB): void {
         mutation(t, 1, id, box);
         return;
     }
+    t.store.refreshIfStale();
     kernel(t.store.ecsState).treeMoveProxy(
         t.treeIndex,
         id,
@@ -251,6 +252,7 @@ export function enlargeProxy(t: DynamicTree, id: number, box: AABB): void {
         mutation(t, 2, id, box);
         return;
     }
+    t.store.refreshIfStale();
     kernel(t.store.ecsState).treeEnlargeProxy(
         t.treeIndex,
         id,
@@ -267,6 +269,7 @@ export function destroyProxy(t: DynamicTree, id: number): void {
         mutation(t, 3, id);
         return;
     }
+    t.store.refreshIfStale();
     kernel(t.store.ecsState).treeDestroyProxy(t.treeIndex, id);
 }
 export function rebuild(t: DynamicTree, full: boolean): number {

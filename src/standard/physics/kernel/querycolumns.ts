@@ -3,7 +3,6 @@ import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS } from "../common/constants";
 import type { AABB, Pos, Vec3, WorldTransform } from "../common/math";
 import type { QueryFilter } from "../common/types";
 import type { WorldState } from "../world/world";
-import { claimResident } from "./bodycolumns";
 import { rebuildGeometry } from "./geocolumns";
 import { assertQueryWorld, type Kernel, kernel } from "./kernel";
 
@@ -28,7 +27,7 @@ export class QueryColumns {
     prepare(origin: Pos, filter?: QueryFilter): Kernel {
         const world = this.world;
         assertQueryWorld(world.ecsState, world.worldId);
-        claimResident(world);
+        world.broadPhase.store.initialize();
         const k = kernel(world.ecsState);
         k.shapeSetActiveWorld(world.worldId);
         if (world.geometryDirty) {

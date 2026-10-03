@@ -3,27 +3,12 @@
 //! `hull_view` reinterprets them into the borrowed `HullData` view (kernel/src/hull.rs) the narrowphase
 //! consumes. Native `cargo test` drives `HullData` over owned `Vec`s instead.
 //!
-//! Layout of linear memory:
-//! ```text
-//! [0, heap_base)              Rust statics (LAYOUT / BODY_LAYOUT / FATAABB_LAYOUT / … headers)
-//! [heap_base, body_end)       persistent body columns (bodies.rs)
-//! [body_end, fataabb_end)     persistent fat-AABB column (fataabb.rs)
-//! [fataabb_end, shape_end)    persistent shape column (shapes.rs)
-//! [shape_end, manifold_end)   persistent manifold columns (manifolds.rs)
-//! [manifold_end, geo_end)     static geometry pools (persist across steps; TS rewrites on a geometry-set change)
-//! [geo_end, ...)              per-step solver columns (arena::reserve lays these out from geo_end)
-//! ```
-//! The geometry region sits after the manifold region and before the per-step solver columns, so a
-//! `reserve` never overwrites it; it re-uploads when the manifold region grows and shifts it.
-//! TS is the source of truth: on a geometry-set change it re-uploads the resident world's geometry compactly, so growth and
-//! renumbering need no in-place preservation here. A body or fat-AABB region grow below shifts this
-//! region up too — `relocate` rebases its offsets (the caller memmoves the bytes; no re-upload).
+//! Each World's pools are allocator-owned. Geometry-set changes rewrite that World's pools;
+//! growing another region never requires a geometry upload.
 
 use crate::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
 use crate::manifold::{collide_hulls, make_feature_id, LocalManifold, SatCache};
 use crate::math::{Plane, Quat, Transform, Vec3};
-
-const PAGE: usize = 65536;
 
 /// u32 words per hull record: center.xyz (f32 bits), vertex/edge/face counts, and the element offset
 /// of this hull's slice into each of the five pools; slot 11 is padding.
@@ -39,74 +24,14 @@ const PLANES: usize = 5;
 const EXTRA: usize = 6;
 const N_GEO: usize = 7;
 
-static mut GEO_LAYOUT: [u32; N_GEO] = [0; N_GEO];
-/// First free byte past the geometry region — the base `arena::reserve` lays the solver columns from.
-/// Zero until the first `reserveGeometry`; `solver_base` treats that as an empty region.
-static mut GEO_END: u32 = 0;
+use crate::regions::{self, Columns, MAX_WORLDS};
+static mut COLUMNS: [Columns<N_GEO>; MAX_WORLDS] = [Columns::EMPTY; MAX_WORLDS];
 
-extern "C" {
-    static __heap_base: u8;
-}
-
-/// The 4-aligned byte offset where linear memory's dynamic region begins (past the Rust statics).
-#[inline]
-pub fn heap_base() -> usize {
-    (unsafe { &__heap_base as *const u8 as usize } + 3) & !3
-}
-
-/// Base byte offset the per-step solver columns start from: past the geometry region if one was
-/// uploaded, else where the geometry region would begin (past the persistent manifold columns).
-#[inline]
-pub fn solver_base() -> usize {
-    let end = unsafe { GEO_END } as usize;
-    if end == 0 {
-        crate::broad::region_top()
-    } else {
-        end
-    }
-}
-
-/// First free byte past the geometry region (0 if none reserved).
-#[inline]
-pub fn region_end() -> usize {
-    unsafe { GEO_END as usize }
-}
-
-/// Shift the geometry region's byte offsets up by `delta` after the body region below it grew and
-/// moved it (the caller memmoves the bytes). No-op if no region is reserved. The pools are indexed by
-/// element offset within each hull record, so only the header offsets + end marker rebase.
-pub fn relocate(delta: usize) {
-    unsafe {
-        if GEO_END == 0 {
-            return;
-        }
-        for i in 0..N_GEO {
-            GEO_LAYOUT[i] += delta as u32;
-        }
-        GEO_END += delta as u32;
-    }
-}
-
-unsafe fn ensure_capacity(end_byte: usize) {
-    crate::treework::record_end(end_byte);
-    let have = core::arch::wasm32::memory_size(0) * PAGE;
-    if end_byte > have {
-        let pages = (end_byte - have + PAGE - 1) / PAGE;
-        core::arch::wasm32::memory_grow(0, pages);
-    }
-}
-
-/// Byte offset of the geometry layout header (`[u32; N_GEO]` of per-pool byte offsets). TS writes the
-/// hull records + pools through views derived from this after every `reserveGeometry`.
 #[export_name = "geoLayoutPtr"]
 pub extern "C" fn geo_layout_ptr() -> *const u32 {
-    &raw const GEO_LAYOUT as *const u32
+    unsafe { COLUMNS[regions::active()].layout.as_ptr() }
 }
 
-/// Lay out the hull pools and `extra_words` of non-convex records, growing memory to fit, and record
-/// `geo_end` so the next `reserve` places the solver columns after them. `verts` sizes both the point
-/// pool (3 f32 each) and the vertex pool (1 u32 each); `faces` sizes both the face pool (1 u32 each)
-/// and the plane pool (4 f32 each). TS then rewrites every hull's record + pool data.
 #[export_name = "reserveGeometry"]
 pub extern "C" fn reserve_geometry(
     hulls: usize,
@@ -116,34 +41,35 @@ pub extern "C" fn reserve_geometry(
     extra_words: usize,
 ) {
     unsafe {
-        // Start past the persistent broad-phase region (empty until the first `reserveBroad`).
-        let mut off = crate::broad::region_top();
-        GEO_LAYOUT[REC] = off as u32;
-        off += hulls * RECORD_STRIDE * 4;
-        GEO_LAYOUT[POINTS] = off as u32;
-        off += verts * 3 * 4;
-        GEO_LAYOUT[VERTICES] = off as u32;
-        off += verts * 4;
-        GEO_LAYOUT[EDGES] = off as u32;
-        off += edges * 4 * 4;
-        GEO_LAYOUT[FACES] = off as u32;
-        off += faces * 4;
-        GEO_LAYOUT[PLANES] = off as u32;
-        off += faces * 4 * 4;
-        GEO_LAYOUT[EXTRA] = off as u32;
-        off += extra_words * 4;
-        // 4-align the solver base (pool sizes are already word multiples, so this is a no-op, but keep
-        // the invariant explicit).
-        GEO_END = ((off + 3) & !3) as u32;
-        ensure_capacity(GEO_END as usize);
+        let columns = &mut COLUMNS[regions::active()];
+        for (column, words) in [
+            (REC, hulls * RECORD_STRIDE),
+            (POINTS, verts * 3),
+            (VERTICES, verts),
+            (EDGES, edges * 4),
+            (FACES, faces),
+            (PLANES, faces * 4),
+            (EXTRA, extra_words),
+        ] {
+            columns.reserve(column, words * 4);
+        }
     }
+}
+pub unsafe fn reset(id: usize) {
+    COLUMNS[id].release();
+}
+pub unsafe fn restore_id(from: usize, to: usize) {
+    reset(to);
+    COLUMNS[to] = COLUMNS[from];
+    COLUMNS[from] = Columns::EMPTY;
 }
 
 /// A borrowed `HullData` view over interned hull `index`'s slices in the geometry pools. The point and
 /// plane pools reinterpret directly as `&[Vec3]` / `&[Plane]` (repr(C)); the topology pools as
 /// `&[HullVertex]` / `&[HullHalfEdge]` / `&[HullFace]` (repr(C), `usize` == u32 on wasm32).
 pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
-    let rec = (GEO_LAYOUT[REC] as *const u32).add(index * RECORD_STRIDE);
+    let layout = COLUMNS[regions::active()].layout;
+    let rec = (layout[REC] as *const u32).add(index * RECORD_STRIDE);
     let center = Vec3::new(
         f32::from_bits(*rec),
         f32::from_bits(*rec.add(1)),
@@ -159,23 +85,23 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
     let plane_off = *rec.add(10) as usize;
 
     let points = core::slice::from_raw_parts(
-        (GEO_LAYOUT[POINTS] as *const f32).add(point_off * 3) as *const Vec3,
+        (layout[POINTS] as *const f32).add(point_off * 3) as *const Vec3,
         vertex_count,
     );
     let vertices = core::slice::from_raw_parts(
-        (GEO_LAYOUT[VERTICES] as *const u32).add(vertex_off) as *const HullVertex,
+        (layout[VERTICES] as *const u32).add(vertex_off) as *const HullVertex,
         vertex_count,
     );
     let edges = core::slice::from_raw_parts(
-        (GEO_LAYOUT[EDGES] as *const u32).add(edge_off * 4) as *const HullHalfEdge,
+        (layout[EDGES] as *const u32).add(edge_off * 4) as *const HullHalfEdge,
         edge_count,
     );
     let faces = core::slice::from_raw_parts(
-        (GEO_LAYOUT[FACES] as *const u32).add(face_off) as *const HullFace,
+        (layout[FACES] as *const u32).add(face_off) as *const HullFace,
         face_count,
     );
     let planes = core::slice::from_raw_parts(
-        (GEO_LAYOUT[PLANES] as *const f32).add(plane_off * 4) as *const Plane,
+        (layout[PLANES] as *const f32).add(plane_off * 4) as *const Plane,
         face_count,
     );
 
@@ -192,10 +118,9 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
     }
 }
 
-/// Address a word in the non-convex geometry pool. References within the pool are word offsets,
-/// so relocation rebases only GEO_LAYOUT, just as it does for the hull pools.
+/// Address a word in the active World's non-convex pool; stored references are word offsets.
 pub(crate) unsafe fn extra_ptr(index: usize) -> *const u32 {
-    (GEO_LAYOUT[EXTRA] as *const u32).add(index)
+    (COLUMNS[regions::active()].layout[EXTRA] as *const u32).add(index)
 }
 
 pub(crate) unsafe fn mesh_view(index: usize, scale: Vec3) -> crate::mesh_query::Mesh<'static> {

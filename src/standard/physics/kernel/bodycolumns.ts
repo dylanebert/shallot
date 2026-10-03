@@ -8,16 +8,8 @@ import type { World } from "../../../engine";
 // awake set), the offset-backed `BodyState`/`BodySim` views, and the record migration that mirrors the
 // JS-array swap-remove when an awake body leaves the set.
 //
-// A region grow relocates the manifold + geometry regions above it (kernel-side, in place) and, like
-// any `memory.grow`, detaches every typed-array view — so the store re-derives its arrays after every
-// grow-capable kernel call (the discipline the callers follow). Detach is not the only signal: a
-// body-grow relocation without a page grow would leave views attached but pointing at stale bytes, so
-// refresh keys off the call, never off detachment.
-//
-// The region is a singleton (one kernel, one linear memory for every world); the kernel owns the
-// authoritative capacity (`bodyCap`), so no TS mirror is needed. Resident state makes interleaved
-// stepping of two live worlds corrupt the shared region, so a single-live-world guard (below) throws
-// when a world steps after another has taken the region over; sequential worlds keep working.
+// Each World owns its columns. A reserve can reallocate a column without growing memory, so
+// refresh after grow-capable calls checks both the column offsets and the memory buffer.
 
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
@@ -72,9 +64,8 @@ function growCap(need: number): number {
 
 /**
  * Size the persistent body region to hold `bodyCount` bodies (the total-body high-water). Grows the
- * kernel region — relocating the manifold + geometry regions above it in place — only when the count
- * exceeds the current capacity. @returns true if the region grew (the caller must refresh any views
- * over the relocated regions, including the body store's).
+ * kernel columns only when the count exceeds the current capacity. @returns true if they grew;
+ * callers refresh views after growth.
  */
 export function reserveBodies(world: World | undefined, bodyCount: number): boolean {
     return kernel(world).reserveBodies(growCap(bodyCount)) !== 0;
@@ -88,12 +79,13 @@ export function reserveBodies(world: World | undefined, bodyCount: number): bool
 export class BodyStore {
     readonly ecsState: World | undefined;
 
-    constructor(ecsState: World | undefined) {
+    readonly worldId: number;
+    constructor(ecsState: World | undefined, worldId: number) {
         this.ecsState = ecsState;
+        this.worldId = worldId;
     }
 
-    /** Resident state column (`STATE_STRIDE` f32 per body). Re-derived after every grow (`memory.grow`
-     * detaches it, and a body-region relocation shifts the bytes even without a page grow). */
+    /** Resident state column (`STATE_STRIDE` f32 per body), re-derived after growth. */
     stateF = new Float32Array(0);
     /** Resident flags column (one u32 per body), the sidecar paired with `state`. */
     flagsU = new Uint32Array(0);
@@ -139,6 +131,7 @@ export class BodyStore {
      * derived at, so a steady step mints no typed-array views. */
     refreshViews(): void {
         const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
         const cap = k.bodyCap();
         if (cap === 0) return;
         const buf = k.memory.buffer;
@@ -354,8 +347,8 @@ export class BodyStore {
 }
 
 /** Create an empty body store for a new world. Its views are derived on the first refresh. */
-export function createBodyStore(world: World | undefined): BodyStore {
-    return new BodyStore(world);
+export function createBodyStore(world: World | undefined, worldId: number): BodyStore {
+    return new BodyStore(world, worldId);
 }
 
 /**
@@ -831,40 +824,4 @@ export function residentRemove(
     bodyStates.pop();
     bodySims.pop();
     return movedBodyId;
-}
-
-// --- single-live-world guard ----------------------------------------------------------------
-// The resident region (and the singleton manifold store) hold one world's live state at a time.
-// Interleaving two live worlds' steps corrupts the shared region, so ownership transfers on step:
-// stepping world B while A owns the region evicts A; A is then only broken if it steps again, which
-// throws. Sequential worlds — a world used then abandoned before the next is stepped, the fixture /
-// test / sample shape — never re-step the evicted one, so they keep working.
-
-let owner: object | null = null;
-let geometryOwner: object | null = null;
-
-export function geometryUploaded(world: WorldState): void {
-    geometryOwner = world;
-}
-
-const evicted = new WeakSet<object>();
-
-/** Claim the resident region for `token` (a world) at step entry. Throws if `token` was evicted by a
- * later world taking the region over — its resident body state is gone. */
-export function claimResident(token: WorldState): void {
-    if (geometryOwner !== token) token.geometryDirty = true;
-    if (owner === token) return;
-    // A World-owned physics runtime restores its last snapshot before claiming the shared resident
-    // columns. The old throw made two clean Worlds impossible to twin-step; the snapshot boundary is the
-    // ownership transfer and keeps the wasm columns deterministic for both worlds.
-    if (owner !== null) evicted.add(owner);
-    owner = token;
-    token.broadPhase.store.claim();
-}
-
-/** Release the resident region on world destroy, so a later world can claim it without eviction. */
-export function releaseResident(token: object): void {
-    if (owner === token) owner = null;
-    if (geometryOwner === token) geometryOwner = null;
-    evicted.delete(token);
 }

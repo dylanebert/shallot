@@ -87,8 +87,10 @@ function growCap(need: number): number {
 export class ManifoldStore {
     readonly ecsState: World | undefined;
 
-    constructor(ecsState: World | undefined) {
+    readonly worldId: number;
+    constructor(ecsState: World | undefined, worldId: number) {
         this.ecsState = ecsState;
+        this.worldId = worldId;
     }
 
     // Current wasm-region capacities (directory records / pool manifold records).
@@ -116,9 +118,6 @@ export class ManifoldStore {
     poolF = new Float32Array(0);
     poolU = new Uint32Array(0);
     poolI = new Int32Array(0);
-    // Set when a mid-narrowphase `alloc` grew the region (which shifts the geometry region after it);
-    // the step drains it into `world.geometryDirty` so geometry re-uploads before the next narrowphase.
-    grew = false;
     // The held layout header view the column views are derived from.
     private _layout = new Uint32Array(0);
 
@@ -174,28 +173,21 @@ export class ManifoldStore {
     }
 
     /**
-     * Reserve the wasm region up to the required capacities (growing + memmoving the pool in place, so
-     * live blocks keep their offsets) and re-derive the column views. @returns true if the region grew,
-     * so the caller re-uploads the geometry region that sits after it and shifted.
+     * Reserve this World's directory and pool, preserving live block indices, and refresh views.
+     * @returns true if either capacity grew.
      */
     flush(): boolean {
-        // Reserve on the first call even when empty: the region must exist before the first geometry
-        // upload, which lays the geo pools right after it (a hull can be created — and its geometry
-        // uploaded — before the first contact, so the region can't wait for a contact to size it, or geo
-        // would land at heap_base and the later-reserved directory would overlap it).
         if (this._dirCap > 0 && this._needDir <= this._dirCap && this._poolTop <= this._poolCap) {
             return false;
         }
         const oldDirCap = this._dirCap;
         this._dirCap = growCap(Math.max(this._needDir, this._dirCap));
         this._poolCap = growCap(Math.max(this._poolTop, this._poolCap));
-        kernel(this.ecsState).reserveManifolds(this._dirCap, this._poolCap);
+        const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
+        k.reserveManifolds(this._dirCap, this._poolCap);
         this.refreshViews();
-        // Cold the convex GJK/SAT cache of every newly-reserved directory record. The wasm kernel is a
-        // singleton shared across worlds, so a fresh region reuses another world's (or an abandoned
-        // contact's) linear memory; a stale SAT/simplex cache holds indices for a different hull and
-        // faults the narrowphase. This zeros [oldDirCap, dirCap) — the whole directory on the first
-        // reserve, only the grown tail afterwards (existing contacts keep their warm caches).
+        // New contacts start with a cold cache; existing contacts keep their warm caches.
         for (let cid = oldDirCap; cid < this._dirCap; ++cid) {
             const o = cid * DIR_STRIDE + DIR_CACHE;
             for (let w = 0; w < CACHE_WORDS; ++w) this.dirU[o + w] = 0;
@@ -209,6 +201,7 @@ export class ManifoldStore {
     refreshViews(): void {
         if (this._dirCap === 0) return;
         const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
         const buf = k.memory.buffer;
         const ptr = k.manifoldLayoutPtr();
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
@@ -239,9 +232,10 @@ export class ManifoldStore {
         const base = this.allocBlock(contactId, count);
         if (this._poolTop > this._poolCap) {
             this._poolCap = growCap(this._poolTop);
-            kernel(this.ecsState).reserveManifolds(this._dirCap, this._poolCap);
+            const k = kernel(this.ecsState);
+            k.bodySetActiveWorld(this.worldId);
+            k.reserveManifolds(this._dirCap, this._poolCap);
             this.refreshViews();
-            this.grew = true;
         }
         const dir = contactId * DIR_STRIDE;
         this.dirU[dir + DIR_MANIFOLD_COUNT] = count;
@@ -521,6 +515,6 @@ class ManifoldView implements Manifold {
 }
 
 /** Create an empty manifold store for a new world. */
-export function createManifoldStore(world: World | undefined): ManifoldStore {
-    return new ManifoldStore(world);
+export function createManifoldStore(world: World | undefined, worldId: number): ManifoldStore {
+    return new ManifoldStore(world, worldId);
 }
