@@ -19,7 +19,8 @@ import {
     type ShapeDef,
 } from "../common/types";
 import { readSimTransform, readStateLinearVelocity } from "../kernel/bodycolumns";
-import { kernel } from "../kernel/kernel";
+import { kernel, setQueryCallback } from "../kernel/kernel";
+import { type QueryColumns, queryColumns } from "../kernel/querycolumns";
 import type { CompoundData } from "../shapes/compound";
 import type { Capsule, MassData, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
@@ -32,10 +33,10 @@ import {
     createHullShape,
     createMeshShape,
     createSphereShape,
+    getShapeMaterials,
     type Shape as ShapeRecord,
 } from "../shapes/shape";
 import {
-    type BodyPlaneResult,
     type Body as BodyRecord,
     bodyApplyAngularImpulse,
     bodyApplyForce,
@@ -43,11 +44,6 @@ import {
     bodyApplyLinearImpulse,
     bodyApplyLinearImpulseToCenter,
     bodyApplyTorque,
-    bodyCastRay,
-    bodyCastShape,
-    bodyCollideMover,
-    bodyGetClosestPoint,
-    bodyOverlapShape,
     bodySetAngularVelocity,
     bodySetAwake,
     bodySetLinearVelocity,
@@ -70,6 +66,37 @@ import { Shape } from "./shape";
 const poseRead: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 const poseWrite: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 const velocityWrite: Vec3 = { x: 0, y: 0, z: 0 };
+
+function bodyHit(world: WorldState, q: QueryColumns, origin: Pos): BodyCastHit {
+    const id = q.resultU[0];
+    if (id === 0xffffffff)
+        return {
+            shape: null,
+            point: { x: 0, y: 0, z: 0 },
+            normal: { x: 0, y: 0, z: 0 },
+            fraction: 0,
+            triangleIndex: 0,
+            userMaterialId: 0n,
+            hit: false,
+        };
+    const record = world.shapes[id];
+    const f = q.resultF;
+    const materials = getShapeMaterials(world.ecsState, record);
+    return {
+        shape: new Shape(world, {
+            index1: id + 1,
+            world0: world.worldId,
+            generation: record.generation,
+        }),
+        point: { x: origin.x + f[6], y: origin.y + f[7], z: origin.z + f[8] },
+        normal: { x: f[9], y: f[10], z: f[11] },
+        fraction: f[5],
+        triangleIndex: f[13],
+        userMaterialId:
+            materials[Math.max(0, Math.min(materials.length - 1, f[15]))].userMaterialId,
+        hit: true,
+    };
+}
 
 /** A rigid body handle. */
 export class Body {
@@ -404,24 +431,13 @@ export class Body {
         filter: QueryFilter = defaultQueryFilter(),
         maxFraction = 1,
     ): BodyCastHit {
-        const r = bodyCastRay(
-            this.world,
-            this.record(),
-            origin,
-            translation,
-            filter,
-            maxFraction,
-            bodyTransform,
-        );
-        return {
-            shape: r.hit ? new Shape(this.world, r.shapeId) : null,
-            point: r.point,
-            normal: r.normal,
-            fraction: r.fraction,
-            triangleIndex: r.triangleIndex,
-            userMaterialId: r.userMaterialId,
-            hit: r.hit,
-        };
+        const q = queryColumns(this.world);
+        const k = q.prepare(origin, filter);
+        q.placement(bodyTransform, origin);
+        q.translation(translation);
+        q.input[12] = maxFraction;
+        k.bodyQuery(this.world.worldId, 0, this.record().headShapeId, 0);
+        return bodyHit(this.world, q, origin);
     }
 
     /**
@@ -437,26 +453,15 @@ export class Body {
         maxFraction = 1,
         canEncroach = false,
     ): BodyCastHit {
-        const r = bodyCastShape(
-            this.world,
-            this.record(),
-            origin,
-            proxy,
-            translation,
-            filter,
-            maxFraction,
-            canEncroach,
-            bodyTransform,
-        );
-        return {
-            shape: r.hit ? new Shape(this.world, r.shapeId) : null,
-            point: r.point,
-            normal: r.normal,
-            fraction: r.fraction,
-            triangleIndex: r.triangleIndex,
-            userMaterialId: r.userMaterialId,
-            hit: r.hit,
-        };
+        const q = queryColumns(this.world);
+        const k = q.prepare(origin, filter);
+        q.placement(bodyTransform, origin);
+        q.proxy(proxy);
+        q.translation(translation);
+        q.input[12] = maxFraction;
+        q.input[13] = Number(canEncroach);
+        k.bodyQuery(this.world.worldId, 1, this.record().headShapeId, 0);
+        return bodyHit(this.world, q, origin);
     }
 
     /** True if `proxy` overlaps this body's shapes at `bodyTransform` (b3Body_OverlapShape). */
@@ -466,7 +471,12 @@ export class Body {
         bodyTransform: Transform,
         filter: QueryFilter = defaultQueryFilter(),
     ): boolean {
-        return bodyOverlapShape(this.world, this.record(), origin, proxy, filter, bodyTransform);
+        const q = queryColumns(this.world);
+        const k = q.prepare(origin, filter);
+        q.placement(bodyTransform, origin);
+        q.proxy(proxy);
+        k.bodyQuery(this.world.worldId, 2, this.record().headShapeId, 0);
+        return q.resultU[0] !== 0xffffffff;
     }
 
     /**
@@ -474,7 +484,16 @@ export class Body {
      * (b3Body_GetClosestPoint). Uses the body's stored transform.
      */
     getClosestPoint(target: Vec3): { point: Vec3; distance: number } {
-        return bodyGetClosestPoint(this.world, this.record(), target);
+        const origin = { x: 0, y: 0, z: 0 };
+        const q = queryColumns(this.world);
+        const k = q.prepare(origin);
+        q.placement(getBodyTransformQuick(this.world, this.record()), origin);
+        q.proxy({ points: [target], count: 1, radius: 0 });
+        k.bodyQuery(this.world.worldId, 3, this.record().headShapeId, 0);
+        return {
+            point: { x: q.resultF[6], y: q.resultF[7], z: q.resultF[8] },
+            distance: q.resultF[3],
+        };
     }
 
     /**
@@ -489,18 +508,31 @@ export class Body {
         capacity = 4,
         filter: QueryFilter = defaultQueryFilter(),
     ): BodyPlane[] {
-        const results = bodyCollideMover(
-            this.world,
-            this.record(),
-            capacity,
-            origin,
-            mover,
-            filter,
-            bodyTransform,
-        );
-        return results.map((r: BodyPlaneResult) => ({
-            shape: new Shape(this.world, r.shapeId),
-            plane: r.result,
-        }));
+        const q = queryColumns(this.world);
+        const k = q.prepare(origin, filter);
+        q.placement(bodyTransform, origin);
+        q.mover(mover.center1, mover.center2, mover.radius);
+        const results: BodyPlane[] = [];
+        const previous = setQueryCallback(this.world.ecsState, (_kind, id, data) => {
+            const f = new Float32Array(k.memory.buffer, data, 10);
+            results.push({
+                shape: new Shape(this.world, {
+                    index1: id + 1,
+                    world0: this.world.worldId,
+                    generation: this.world.shapes[id].generation,
+                }),
+                plane: {
+                    plane: { normal: { x: f[0], y: f[1], z: f[2] }, offset: f[3] },
+                    point: { x: f[4], y: f[5], z: f[6] },
+                },
+            });
+            return 1;
+        });
+        try {
+            k.bodyQuery(this.world.worldId, 4, this.record().headShapeId, Math.max(0, capacity));
+        } finally {
+            setQueryCallback(this.world.ecsState, previous);
+        }
+        return results;
     }
 }

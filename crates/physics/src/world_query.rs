@@ -8,9 +8,9 @@ use crate::shapes::*;
 use crate::{broad, query_abi, tree};
 
 // roots/counts, category hi/lo, mask hi/lo, origin xyz, box lower/upper xyz.
-static mut HEADER: [u32; 19] = [0; 19];
+pub(crate) static mut HEADER: [u32; 19] = [0; 19];
 // shape id (-1 for no hit), node/leaf visits, final fraction, followed by cast output.
-static mut RESULT: [u32; 16] = [0; 16];
+pub(crate) static mut RESULT: [u32; 16] = [0; 16];
 #[export_name = "worldQueryHeaderPtr"]
 pub extern "C" fn header_ptr() -> *mut u32 {
     &raw mut HEADER as *mut u32
@@ -25,7 +25,7 @@ pub extern "C" fn result_ptr() -> *const u32 {
 extern "C" {
     fn queryCallback(kind: u32, shape: u32, data: *const u8, count: usize) -> f32;
 }
-unsafe fn callback(kind: u32, id: usize, data: *const u8, count: usize) -> f32 {
+pub(crate) unsafe fn callback(kind: u32, id: usize, data: *const u8, count: usize) -> f32 {
     #[cfg(target_arch = "wasm32")]
     {
         queryCallback(kind, id as u32, data, count)
@@ -73,13 +73,13 @@ unsafe fn pose(id: usize, origin: Vec3) -> Transform {
         },
     }
 }
-fn accepts(id: usize, header: &[u32; 19]) -> bool {
+pub(crate) fn accepts(id: usize, header: &[u32; 19]) -> bool {
     let r = crate::shapes::col_slice();
     let n = id * SHAPE_STRIDE;
     ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY + 1] & header[9])) != 0
         && ((r[n + S_QUERY_MASK] & header[6]) | (r[n + S_QUERY_MASK + 1] & header[7])) != 0
 }
-fn cast_record(out: &CastOutput) -> [f32; 12] {
+pub(crate) fn cast_record(out: &CastOutput) -> [f32; 12] {
     [
         u32::from(out.hit) as f32,
         out.fraction,

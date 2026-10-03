@@ -41,6 +41,7 @@ export type Kernel = {
     worldQueryHeaderPtr(): number;
     worldQueryResultPtr(): number;
     worldQuery(world: number, operation: number, callback: number): void;
+    bodyQuery(world: number, operation: number, head: number, capacity: number): void;
     sensorQuery(world: number, sensor: number): number;
     smokeScale(len: number, k: number): void;
 

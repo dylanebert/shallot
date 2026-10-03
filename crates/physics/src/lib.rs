@@ -94,6 +94,8 @@ mod arena;
 #[cfg(target_arch = "wasm32")]
 mod bodies;
 #[cfg(target_arch = "wasm32")]
+mod body_query;
+#[cfg(target_arch = "wasm32")]
 mod broad;
 #[cfg(target_arch = "wasm32")]
 mod compound_query;

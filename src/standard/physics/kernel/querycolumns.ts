@@ -1,7 +1,7 @@
 import type { ShapeProxy } from "../collision/distance";
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
-import type { AABB, Pos, Vec3 } from "../common/math";
+import type { AABB, Pos, Vec3, WorldTransform } from "../common/math";
 import type { QueryFilter } from "../common/types";
 import { getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
@@ -99,6 +99,16 @@ export class QueryColumns {
             u[n + 31] = shape.filter.groupIndex;
         }
         return k;
+    }
+
+    placement(pose: WorldTransform, origin: Pos): void {
+        this.input[0] = pose.p.x - origin.x;
+        this.input[1] = pose.p.y - origin.y;
+        this.input[2] = pose.p.z - origin.z;
+        this.input[3] = pose.q.v.x;
+        this.input[4] = pose.q.v.y;
+        this.input[5] = pose.q.v.z;
+        this.input[6] = pose.q.s;
     }
 
     proxy(proxy: ShapeProxy): void {
