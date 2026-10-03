@@ -18,7 +18,7 @@
 
 import { OVERFLOW_INDEX } from "../common/constants";
 import { COLOR_SPAN_STRIDE, type Columns, SLOT_STRIDE, WIDE_META_STRIDE } from "../kernel/columns";
-import type { BodySim, BodyState } from "../world/body";
+import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import type { GraphColor } from "./graph";
 import type { Softness } from "./softness";
@@ -30,7 +30,6 @@ const LANES = 4;
 export type StepContext = {
     world: WorldState;
     sims: BodySim[];
-    states: BodyState[];
     dt: number;
     invDt: number;
     h: number;

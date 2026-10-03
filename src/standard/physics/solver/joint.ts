@@ -11,16 +11,14 @@
 import { bufferMove } from "../collision/broadphase";
 import { destroyContact } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
-import { OVERFLOW_INDEX, SetType } from "../common/constants";
+import { SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import {
     absf,
     FLT_MAX,
     f32,
-    type Mat3,
     maxf,
     maxInt,
-    minf,
     quat,
     type Transform,
     transformWorldPoint,
@@ -33,70 +31,23 @@ import { linkJoint, unlinkJoint } from "../world/island";
 import { wakeSolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
 import type { StepContext } from "./contactsolver";
-import {
-    type DistanceJoint,
-    getDistanceJointForce,
-    prepareDistanceJoint,
-    solveDistanceJoint,
-    warmStartDistanceJoint,
-} from "./distanceJoint";
+import { type DistanceJoint, getDistanceJointForce } from "./distanceJoint";
 import { createJointInGraph, removeJointFromGraph } from "./graph";
-import {
-    getMotorJointForce,
-    getMotorJointTorque,
-    type MotorJoint,
-    prepareMotorJoint,
-    solveMotorJoint,
-    warmStartMotorJoint,
-} from "./motorJoint";
-import {
-    getParallelJointTorque,
-    type ParallelJoint,
-    prepareParallelJoint,
-    solveParallelJoint,
-    warmStartParallelJoint,
-} from "./parallelJoint";
+import { getMotorJointForce, getMotorJointTorque, type MotorJoint } from "./motorJoint";
+import { getParallelJointTorque, type ParallelJoint } from "./parallelJoint";
 import {
     getPrismaticJointForce,
     getPrismaticJointTorque,
     type PrismaticJoint,
-    preparePrismaticJoint,
-    solvePrismaticJoint,
-    warmStartPrismaticJoint,
 } from "./prismaticJoint";
-import {
-    getRevoluteJointForce,
-    getRevoluteJointTorque,
-    prepareRevoluteJoint,
-    type RevoluteJoint,
-    solveRevoluteJoint,
-    warmStartRevoluteJoint,
-} from "./revoluteJoint";
-import { makeSoft, type Softness } from "./softness";
+import { getRevoluteJointForce, getRevoluteJointTorque, type RevoluteJoint } from "./revoluteJoint";
 import {
     getSphericalJointForce,
     getSphericalJointTorque,
-    prepareSphericalJoint,
     type SphericalJoint,
-    solveSphericalJoint,
-    warmStartSphericalJoint,
 } from "./sphericalJoint";
-import {
-    getWeldJointForce,
-    getWeldJointTorque,
-    prepareWeldJoint,
-    solveWeldJoint,
-    type WeldJoint,
-    warmStartWeldJoint,
-} from "./weldJoint";
-import {
-    getWheelJointForce,
-    getWheelJointTorque,
-    prepareWheelJoint,
-    solveWheelJoint,
-    type WheelJoint,
-    warmStartWheelJoint,
-} from "./wheelJoint";
+import { getWeldJointForce, getWeldJointTorque, type WeldJoint } from "./weldJoint";
+import { getWheelJointForce, getWheelJointTorque, type WheelJoint } from "./wheelJoint";
 
 /** Joint kind (b3JointType). Numeric values mirror the C enum order (parallel = 0 … wheel = 8). */
 export const JointType = {
@@ -150,13 +101,8 @@ export type JointSim = {
     type: JointType;
     localFrameA: Transform;
     localFrameB: Transform;
-    invMassA: number;
-    invMassB: number;
-    invIA: Mat3;
-    invIB: Mat3;
     constraintHertz: number;
     constraintDampingRatio: number;
-    constraintSoftness: Softness;
     forceThreshold: number;
     torqueThreshold: number;
     fixedRotation: boolean;
@@ -230,13 +176,8 @@ export function emptyJointSim(): JointSim {
         type: JointType.Parallel,
         localFrameA: identityTransform(),
         localFrameB: identityTransform(),
-        invMassA: 0,
-        invMassB: 0,
-        invIA: { cx: { x: 0, y: 0, z: 0 }, cy: { x: 0, y: 0, z: 0 }, cz: { x: 0, y: 0, z: 0 } },
-        invIB: { cx: { x: 0, y: 0, z: 0 }, cy: { x: 0, y: 0, z: 0 }, cz: { x: 0, y: 0, z: 0 } },
         constraintHertz: 0,
         constraintDampingRatio: 0,
-        constraintSoftness: { biasRate: 0, massScale: 0, impulseScale: 0 },
         forceThreshold: 0,
         torqueThreshold: 0,
         fixedRotation: false,
@@ -354,7 +295,6 @@ export function createJoint(
     sim.type = type;
     sim.constraintHertz = def.constraintHertz;
     sim.constraintDampingRatio = def.constraintDampingRatio;
-    sim.constraintSoftness = { biasRate: 0, massScale: 1, impulseScale: 0 };
     sim.forceThreshold = def.forceThreshold;
     sim.torqueThreshold = def.torqueThreshold;
 
@@ -461,131 +401,6 @@ export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies
 // --- Dispatch ---------------------------------------------------------------------------------
 
 /** Prepare one joint: clamp the constraint hertz and dispatch to the type (b3PrepareJoint). */
-export function prepareJoint(sim: JointSim, context: StepContext): void {
-    const hertz = minf(sim.constraintHertz, f32(0.25 * context.invH));
-    sim.constraintSoftness = makeSoft(hertz, sim.constraintDampingRatio, context.h);
-
-    switch (sim.type) {
-        case JointType.Parallel:
-            prepareParallelJoint(sim, context);
-            break;
-        case JointType.Distance:
-            prepareDistanceJoint(sim, context);
-            break;
-        case JointType.Motor:
-            prepareMotorJoint(sim, context);
-            break;
-        case JointType.Prismatic:
-            preparePrismaticJoint(sim, context);
-            break;
-        case JointType.Revolute:
-            prepareRevoluteJoint(sim, context);
-            break;
-        case JointType.Spherical:
-            prepareSphericalJoint(sim, context);
-            break;
-        case JointType.Weld:
-            prepareWeldJoint(sim, context);
-            break;
-        case JointType.Wheel:
-            prepareWheelJoint(sim, context);
-            break;
-        case JointType.Filter:
-            break;
-    }
-}
-
-/** Warm-start one joint (b3WarmStartJoint). */
-export function warmStartJoint(sim: JointSim, context: StepContext): void {
-    switch (sim.type) {
-        case JointType.Parallel:
-            warmStartParallelJoint(sim, context);
-            break;
-        case JointType.Distance:
-            warmStartDistanceJoint(sim, context);
-            break;
-        case JointType.Motor:
-            warmStartMotorJoint(sim, context);
-            break;
-        case JointType.Prismatic:
-            warmStartPrismaticJoint(sim, context);
-            break;
-        case JointType.Revolute:
-            warmStartRevoluteJoint(sim, context);
-            break;
-        case JointType.Spherical:
-            warmStartSphericalJoint(sim, context);
-            break;
-        case JointType.Weld:
-            warmStartWeldJoint(sim, context);
-            break;
-        case JointType.Wheel:
-            warmStartWheelJoint(sim, context);
-            break;
-        case JointType.Filter:
-            break;
-    }
-}
-
-/** Solve one joint (b3SolveJoint). */
-export function solveJoint(sim: JointSim, context: StepContext, useBias: boolean): void {
-    switch (sim.type) {
-        case JointType.Parallel:
-            // Parallel is a pure soft/velocity constraint; it ignores useBias (b3SolveParallelJoint).
-            solveParallelJoint(sim, context);
-            break;
-        case JointType.Distance:
-            solveDistanceJoint(sim, context, useBias);
-            break;
-        case JointType.Motor:
-            // Motor is a pure velocity/spring drive; it ignores useBias (b3SolveMotorJoint).
-            solveMotorJoint(sim, context);
-            break;
-        case JointType.Prismatic:
-            solvePrismaticJoint(sim, context, useBias);
-            break;
-        case JointType.Revolute:
-            solveRevoluteJoint(sim, context, useBias);
-            break;
-        case JointType.Spherical:
-            solveSphericalJoint(sim, context, useBias);
-            break;
-        case JointType.Weld:
-            solveWeldJoint(sim, context, useBias);
-            break;
-        case JointType.Wheel:
-            solveWheelJoint(sim, context, useBias);
-            break;
-        case JointType.Filter:
-            break;
-    }
-}
-
-// --- Per-color + serial overflow loops --------------------------------------------------------
-
-/** Prepare every joint in a graph color (the b3_stagePrepareJoints block / b3PrepareJoints_Overflow). */
-export function prepareColorJoints(joints: JointSim[], context: StepContext): void {
-    for (let i = 0; i < joints.length; ++i) {
-        prepareJoint(joints[i], context);
-    }
-}
-
-/** Warm-start every joint in a graph color (b3WarmStartJointsTask / b3WarmStartJoints_Overflow). */
-export function warmStartColorJoints(joints: JointSim[], context: StepContext): void {
-    for (let i = 0; i < joints.length; ++i) {
-        warmStartJoint(joints[i], context);
-    }
-}
-
-/**
- * Flag a joint for a joint event if its reaction force/torque is over threshold (b3SolveJointsTask's
- * event check), unless it is already flagged. A zero threshold reports every awake joint. The flag set is
- * hash-invisible (events are behavioral), so on the pool — where the joints solve in-kernel and
- * {@link solveColorJoints} never runs — this reconstructs the flags from the read-back impulses instead
- * (`readbackJointImpulses` then this pass, in solver.ts). Serial and pooled paths agree for a zero
- * threshold and any settled load; they can differ only for a nonzero threshold a transient spike crosses
- * mid-solve, since the pooled pass sees only the final substep's impulses.
- */
 export function flagJointEvent(sim: JointSim, context: StepContext): void {
     if (
         (sim.forceThreshold < FLT_MAX || sim.torqueThreshold < FLT_MAX) &&
@@ -599,37 +414,6 @@ export function flagJointEvent(sim: JointSim, context: StepContext): void {
 }
 
 /** Solve every joint in a graph color (b3SolveJointsTask / b3SolveJoints_Overflow). */
-export function solveColorJoints(joints: JointSim[], context: StepContext, useBias: boolean): void {
-    for (let i = 0; i < joints.length; ++i) {
-        const sim = joints[i];
-        solveJoint(sim, context, useBias);
-        // Flag over-threshold joints for an event on the biased pass only (matching b3SolveJointsTask).
-        if (useBias) flagJointEvent(sim, context);
-    }
-}
-
-/** Prepare every joint in the overflow color (b3PrepareJoints_Overflow). */
-export function prepareOverflowJoints(context: StepContext): void {
-    prepareColorJoints(context.world.constraintGraph.colors[OVERFLOW_INDEX].jointSims, context);
-}
-
-/** Warm-start every joint in the overflow color (b3WarmStartJoints_Overflow). */
-export function warmStartOverflowJoints(context: StepContext): void {
-    warmStartColorJoints(context.world.constraintGraph.colors[OVERFLOW_INDEX].jointSims, context);
-}
-
-/** Solve every joint in the overflow color (b3SolveJoints_Overflow). */
-export function solveOverflowJoints(context: StepContext, useBias: boolean): void {
-    solveColorJoints(
-        context.world.constraintGraph.colors[OVERFLOW_INDEX].jointSims,
-        context,
-        useBias,
-    );
-}
-
-// --- Reaction / force / torque ----------------------------------------------------------------
-
-/** The constraint force this joint applies (b3GetJointConstraintForce). */
 export function getJointConstraintForce(world: WorldState, sim: JointSim): Vec3 {
     switch (sim.type) {
         case JointType.Distance:

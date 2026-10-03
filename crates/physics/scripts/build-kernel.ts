@@ -186,10 +186,6 @@ const shared = await build(
         "wasm32-unknown-unknown",
         "-Z",
         "build-std=std,panic_abort",
-        // The staged solve (kernel/src/solve.rs): the shared artifact alone, so the single-thread one
-        // doesn't carry the stage/block tables it can never run.
-        "--features",
-        "mt",
         "--target-dir",
         "target-shared",
     ],

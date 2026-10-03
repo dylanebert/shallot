@@ -7,7 +7,6 @@
 
 import { collide } from "../collision/collide";
 import { updateBroadPhasePairs } from "../collision/pairs";
-import { SetType } from "../common/constants";
 import { f32, maxInt, minf } from "../common/math";
 import { claimResident, reserveBodies } from "../kernel/bodycolumns";
 import { rebuildGeometry } from "../kernel/geocolumns";
@@ -25,7 +24,6 @@ function newStepContext(world: WorldState): StepContext {
     return {
         world,
         sims: [],
-        states: world.solverSets[SetType.Awake].bodyStates,
         dt: 0,
         invDt: 0,
         h: 0,
@@ -72,13 +70,10 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     updateBroadPhasePairs(world);
     clock.span("pairs", PHASE_SLOT);
 
-    const awakeSet = world.solverSets[SetType.Awake];
-
     // Reuse the per-world context across steps: rewrite every scalar field and clear the collections so no
-    // stale per-step data is observable. `sims` and `states` are (re)assigned inside solve(); `awakeIslands`
+    // stale per-step data is observable. `sims` is assigned inside solve(); `awakeIslands`
     // is reassigned to a scratch by finalize — none are read before those points, so they need no reset here.
     const context = world.stepContext ?? (world.stepContext = newStepContext(world));
-    context.states = awakeSet.bodyStates;
     context.dt = timeStep;
     context.invDt = 0;
     context.h = 0;

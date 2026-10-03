@@ -2,13 +2,22 @@
 // fixtures remain under fixtures/ as migration evidence, but their predecessor hashes are not the
 // current authority and are intentionally not asserted here.
 
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 
 import { CEILING } from "../../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
 import { PhysicsWorld } from "../api/world";
+import { shutdown, threads, workers } from "../kernel/kernel";
+
+const pooled = process.env.PHYSICS_CORPUS_POOL === "1";
+if (pooled) {
+    if (threads(undefined) !== 4 || workers(undefined) === null) {
+        throw new Error("the corpus requires a live four-thread pool");
+    }
+}
+
 import { BodyType } from "../common/types";
 import { loadConsumerCorpus, runCommonInput } from "../oracle/consumer";
 import { loadScenarioCorpus, runScenario } from "../oracle/scenario";
@@ -80,3 +89,25 @@ test("a Shallot physics result diverges from the Box3D reference on any case of 
     }
     console.log(JSON.stringify({ corpus: "immutable box3d v6", cases: corpus.cases.length }));
 });
+
+if (pooled) {
+    afterAll(() => shutdown(undefined));
+} else {
+    test("the Box3D corpus passes on a live pool in its own process", async () => {
+        const child = Bun.spawn(
+            [
+                process.execPath,
+                "test",
+                "--preload",
+                `${import.meta.dir}/step.pool.ts`,
+                import.meta.filename,
+            ],
+            {
+                env: { ...process.env, PHYSICS_CORPUS_POOL: "1" },
+                stdout: "inherit",
+                stderr: "inherit",
+            },
+        );
+        expect(await child.exited).toBe(0);
+    });
+}

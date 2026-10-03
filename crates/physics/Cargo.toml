@@ -22,12 +22,6 @@ needless_range_loop = "allow"
 should_implement_trait = "allow"
 too_many_arguments = "allow"
 
-# The staged multithreaded solve (src/solve.rs + its stage/block tables). Only the shared-memory
-# artifact enables it — a single-thread consumer has no pool to run it, and the tables are ~37 KB of
-# data section it would otherwise carry (scripts/build-kernel.ts).
-[features]
-mt = []
-
 # Test-only: parse the committed C-reference gold vectors (src/math.gold.json) in the native
 # `cargo test` build. Never compiled into the shipping wasm (release profile pulls no dev-deps).
 [dev-dependencies]

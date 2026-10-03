@@ -27,11 +27,6 @@ export function timingClock(): StepClock {
         span(field, slot) {
             profile[field] = performance.now() - starts[slot];
         },
-        lap(field, slot) {
-            const now = performance.now();
-            profile[field] += now - starts[slot];
-            starts[slot] = now;
-        },
         read() {
             return { ...profile };
         },

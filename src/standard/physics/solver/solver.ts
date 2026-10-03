@@ -39,14 +39,13 @@ import { kernel, runPool, workers } from "../kernel/kernel";
 import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
 import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
 import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../world/body";
-import { CONSTRAINTS_SLOT, CURSOR_SLOT, SOLVE_PHASE_SLOT } from "../world/clock";
+import { CONSTRAINTS_SLOT, SOLVE_PHASE_SLOT } from "../world/clock";
 import { splitIsland } from "../world/island";
 import { trySleepIsland } from "../world/solverset";
 import type { WorldState } from "../world/world";
 import {
     computeLayout,
     readbackHitEvents,
-    type SolveLayout,
     type StepContext,
     writeColorSpans,
     writeSlots,
@@ -57,21 +56,10 @@ import {
     solveBullets,
     solveContinuous,
 } from "./continuous";
-import {
-    flagJointEvent,
-    prepareColorJoints,
-    prepareOverflowJoints,
-    solveColorJoints,
-    solveOverflowJoints,
-    warmStartColorJoints,
-    warmStartOverflowJoints,
-} from "./joint";
+import { flagJointEvent } from "./joint";
 
 const SPEED_CAPPED = BodyFlags.isSpeedCapped;
 const TOI = BodyFlags.hadTimeOfImpact;
-
-// Shared empty body-state array for the joint-free solve (no column views needed — nothing reads them).
-const NO_STATES: BodyState[] = [];
 
 // Scratch for finalizeBodies, all reused per body (never live across bodies) so the per-body loop over
 // the resident columns allocates nothing — the awake `ResidentBodySim` getters would allocate a
@@ -91,8 +79,6 @@ const finTransform: WorldTransform = {
 // finalize). Module scratch is safe across sequential worlds: the buffer is write-before-read within
 // one synchronous `solve` and never read across steps.
 const awakeIslandsScratch: boolean[] = [];
-
-// The staged solve's crossing, hoisted: a closure in `solve` would make every call allocate its context.
 
 /** Read a Mat3 out of `col` at `o` into `out` (kernel row order cx, cy, cz — read_sim, body.rs). */
 function readMat3(col: Float32Array, o: number, out: Mat3): void {
@@ -127,17 +113,6 @@ function setSweepBase(
     sim2F[s2o + S2_ROTATION0 + 3] = simF[so + 31];
 }
 
-/** @returns true if any color (active or overflow) holds a joint, so the joint solver needs the
- * column-backed body-state views (b3's per-color joint blocks + the overflow joint spill). */
-function hasJoints(world: WorldState, layout: SolveLayout): boolean {
-    if (world.constraintGraph.colors[OVERFLOW_INDEX].jointSims.length > 0) return true;
-    const colors = layout.colors;
-    for (let i = 0; i < colors.length; ++i) {
-        if (colors[i].color.jointSims.length > 0) return true;
-    }
-    return false;
-}
-
 // --- Finalize --------------------------------------------------------------------------------
 
 /**
@@ -166,20 +141,14 @@ function commitRefit(world: WorldState, shape: Shape, box: AABB): void {
  * substep solve already ran over the resident columns, so finalize consumes them directly: kernel
  * `finalize` does the per-body pose-advance arithmetic straight into the columns, and the TS tail (this
  * function) owns everything touching world state — move events, sleep, CCD, refit, island bookkeeping.
- * On a live pool the pose advance already ran as the staged solve's terminal stage (`fused` — one wake
- * round for solve + finalize, kernel/src/stages.rs); without one, the serial shim runs here. The awake
+ * The pose advance already ran as the staged solve's terminal stage. The awake
  * `sim`/`fin`/`sim2` + `state` are all resident (bodycolumns.ts), so nothing marshals in or back out.
  * This loop reads/writes the pose/inertia columns **raw** (by localIndex) rather than through the
  * `ResidentBodySim` view whose vector getters would allocate per field per body; the view (`sim`) is
  * used only for scalar fields (no allocation) and the `solveContinuous` handoff. `states` is the
  * awake-set body-state view array.
  */
-function finalizeBodies(
-    context: StepContext,
-    cols: Columns,
-    states: BodyState[],
-    fused: boolean,
-): void {
+function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]): void {
     const world = context.world;
     const sims = context.sims;
     const enableSleep = world.enableSleep;
@@ -196,14 +165,6 @@ function finalizeBodies(
     const simF = store.simF;
     const finF = store.finF;
     const sim2F = store.sim2F;
-    // The per-body pose advance. On a live pool it already ran as the staged solve's terminal stage
-    // (`fused`) — nothing TS did between that join and here touches the columns it read or wrote, so
-    // the result is identical to a separate round. The TS tail below — move events, sleep, CCD, refit,
-    // islands — touches world state and stays serial.
-    const k = kernel(world.ecsState);
-    if (!fused) {
-        k.finalize(timeStep, context.invDt, enableContinuous ? 1 : 0);
-    }
     const outCol = cols.finOut;
 
     // The kernel finalize wrote each convex shape's candidate AABB + escaped flag into the resident shape
@@ -501,15 +462,10 @@ export function solve(world: WorldState, context: StepContext): void {
 
     context.sims = awakeSet.bodySims;
     // Body `state` (velocity/delta/flags) is resident: `bodyStates` are offset-backed views over the
-    // persistent column the kernel runs over directly, so only `sim`/`fin` + the per-color contacts
-    // marshal in. The layout fixes the per-step column sizes + the per-color ranges.
+    // persistent column the kernel runs over directly. The layout fixes the contact and joint ranges.
     const persistentStates = awakeSet.bodyStates;
     const layout = computeLayout(world);
-    const jointed = hasJoints(world, layout);
-    // Joints-in-kernel needs the staged solve, which is the shared/MT kernel — so it only engages with
-    // a live pool. The joint column is reserved only then; otherwise the serial path solves joints.
     const pool = workers(world.ecsState);
-    const jointsInKernel = jointed && pool !== null;
     const cols = reserveColumns(
         world.ecsState,
         awakeBodyCount,
@@ -518,26 +474,17 @@ export function solve(world: WorldState, context: StepContext): void {
         layout.points,
         layout.wide,
         layout.colors.length,
-        jointsInKernel ? countJoints(world, layout) : 0,
+        countJoints(world, layout),
     );
     // reserveColumns may have grown wasm memory, detaching every view; re-derive the manifold store's
-    // (writeSlots writes contact rows through them) and the body store's (the kernel + finalize + the
-    // joint solver read the resident sim/state columns through them) before either is touched. The body
+    // (writeSlots writes contact rows through them) and the body store's (joint marshaling and the
+    // finalize tail read resident sim/state columns through them) before either is touched. The body
     // columns are resident (bodycolumns.ts) — the awake `BodySim`/`BodyState` are views over them, so no
     // per-step marshal runs; the kernel reads them where they already live.
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
     writeSlots(cols, world, layout);
-    // The joint solver interleaves per color and reads context.states — the resident `bodyStates` views
-    // (the same column the kernel contacts write). When no color holds a joint (e.g. the pyramid bench)
-    // the whole color loop batches into the kernel and no TS body-state reads are needed.
-    context.states = jointed ? persistentStates : NO_STATES;
-    // The batched/staged color loop reads the color spans; the serial (per-color TS) joint path does
-    // not. So write them for jointless scenes and for the joints-in-kernel path (which also marshals
-    // the joint spans over the top, below).
-    if (!jointed || jointsInKernel) {
-        writeColorSpans(cols, layout);
-    }
+    writeColorSpans(cols, layout);
 
     const gravity = world.gravity;
     const h = context.h;
@@ -549,232 +496,56 @@ export function solve(world: WorldState, context: StepContext): void {
 
     const clock = world.clock;
 
-    // Solve constraints: the overflow prepare, the substep loop, restitution, and impulse store. In C
-    // one `constraints` timer wraps this whole region (the solver task); an inner cursor accumulates
-    // the per-phase split, both recorded at once.
+    // One crossing owns the phase schedule; its per-phase profile split remains zero.
     clock.mark(CONSTRAINTS_SLOT);
-    clock.mark(CURSOR_SLOT);
 
     const k = kernel(world.ecsState);
-    const colors = layout.colors;
     const restThreshold = context.restitutionThreshold;
     const hitThreshold = world.hitEventThreshold;
     const subStepCount = context.subStepCount;
 
-    // Multithreaded: the whole solve region below (prepare → substeps → restitution → store → pose
-    // finalize) runs as one crossing over the staged solver (kernel/src/stages.rs), with the pooled
-    // workers stealing blocks. Bit-identical to the serial path at any thread count — within a color no
-    // two constraints share a body, the overflow spill stays serial on the orchestrator, and no
-    // reduction depends on worker identity. The kernel finalize rides the same stage list as its
-    // terminal stage (so solve + finalize is one wake round; `finalizeBodies` skips its own kernel
-    // call, `fused`). Jointless and jointed scenes both take this path on a pool; the jointed branch
-    // below marshals the joints in over the top. Without a pool, the serial per-color TS interleave
-    // runs.
-    if (pool !== null && !jointed) {
-        // Build on the main thread, with the workers still parked: `pool.run` wakes them and its store is
-        // the release edge that publishes the context. Nothing in the crossing may grow memory — every
-        // `reserve*` already ran above (the MT concurrency invariant).
-        k.solveBuild(
-            pool.size + 1,
-            subStepCount,
-            layout.wideTotal,
-            layout.meshStart,
-            layout.meshTotal,
-            layout.overflowStart,
-            layout.overflowCount,
-            // Jointless path: no colored or overflow joints reach the kernel here (the jointed branch
-            // below marshals them in).
-            0,
-            0,
-            0,
-            gravity.x,
-            gravity.y,
-            gravity.z,
-            h,
-            invH,
-            context.dt,
-            context.invDt,
-            context.maxLinearVelocity,
-            contactSpeed,
-            cs.biasRate,
-            cs.massScale,
-            cs.impulseScale,
-            ss.biasRate,
-            ss.massScale,
-            ss.impulseScale,
-            warmStartScale,
-            restThreshold,
-            hitThreshold,
-            world.enableContinuous ? 1 : 0,
-        );
-        // Wake, orchestrate, join. The per-phase profile split stays zero: one crossing has no phases to
-        // time, and attributing the whole solve to any one of them would misread the sweep.
-        // `profile.constraints` (wall clock over the region, below) is the honest number here.
-        runPool(world.ecsState, pool, k.runMt);
-        readbackHitEvents(world, layout, context);
-    } else if (jointsInKernel && pool !== null) {
-        // Joints-in-kernel: marshal the joints into the joint column (color spans already written), lay
-        // out the staged solve with the joint spans, run it across the pool, then read the solved
-        // impulses back into the joint sims. Bit-identical to the serial joint path.
-        const jl = marshalJoints(world, layout, cols);
-        k.solveBuild(
-            pool.size + 1,
-            subStepCount,
-            layout.wideTotal,
-            layout.meshStart,
-            layout.meshTotal,
-            layout.overflowStart,
-            layout.overflowCount,
-            jl.jointTotal,
-            jl.overflowJointStart,
-            jl.overflowJointCount,
-            gravity.x,
-            gravity.y,
-            gravity.z,
-            h,
-            invH,
-            context.dt,
-            context.invDt,
-            context.maxLinearVelocity,
-            contactSpeed,
-            cs.biasRate,
-            cs.massScale,
-            cs.impulseScale,
-            ss.biasRate,
-            ss.massScale,
-            ss.impulseScale,
-            warmStartScale,
-            restThreshold,
-            hitThreshold,
-            world.enableContinuous ? 1 : 0,
-        );
-        runPool(world.ecsState, pool, k.runMt);
-        readbackJointImpulses(world, layout, cols);
-        // The joints solved in-kernel, so solveColorJoints' per-substep event-flag pass never ran.
-        // Rebuild the flags from the read-back impulses (mirroring the readback's joint iteration) into
-        // the same set buildJointEvents consumes below (b3SolveJointsTask's threshold check, off the
-        // hashed path — events are behavioral).
-        for (const span of layout.colors) {
-            for (const sim of span.color.jointSims) flagJointEvent(sim, context);
-        }
-        for (const sim of world.constraintGraph.colors[OVERFLOW_INDEX].jointSims) {
-            flagJointEvent(sim, context);
-        }
-        readbackHitEvents(world, layout, context);
-    } else {
-        // Prepare (order-independent — each constraint writes its own transient record): every color's
-        // joints then the overflow joints; the flat convex + mesh + overflow contact ranges.
-        for (const span of colors) {
-            prepareColorJoints(span.color.jointSims, context);
-        }
-        prepareOverflowJoints(context);
-        k.prepareWideContacts(
-            0,
-            layout.wideTotal,
-            cs.biasRate,
-            cs.massScale,
-            cs.impulseScale,
-            ss.biasRate,
-            ss.massScale,
-            ss.impulseScale,
-            warmStartScale,
-        );
-        k.prepareContacts(
-            layout.meshStart,
-            layout.meshTotal,
-            cs.biasRate,
-            cs.massScale,
-            cs.impulseScale,
-            ss.biasRate,
-            ss.massScale,
-            ss.impulseScale,
-            warmStartScale,
-        );
-        k.prepareContacts(
-            layout.overflowStart,
-            layout.overflowCount,
-            cs.biasRate,
-            cs.massScale,
-            cs.impulseScale,
-            ss.biasRate,
-            ss.massScale,
-            ss.impulseScale,
-            warmStartScale,
-        );
-        clock.lap("prepareConstraints", CURSOR_SLOT);
-
-        for (let subStep = 0; subStep < subStepCount; ++subStep) {
-            k.integrateVelocities(gravity.x, gravity.y, gravity.z, h);
-            clock.lap("integrateVelocities", CURSOR_SLOT);
-
-            // Warm start: overflow first (lower solve priority), then each color's joints → wide → mesh.
-            // Jointless scenes batch the whole color loop into one kernel crossing.
-            warmStartOverflowJoints(context);
-            k.warmStartContacts(layout.overflowStart, layout.overflowCount);
-            if (jointed) {
-                for (const span of colors) {
-                    warmStartColorJoints(span.color.jointSims, context);
-                    k.warmStartWideContacts(span.wideStart, span.wideCount);
-                    k.warmStartContacts(span.meshStart, span.meshCount);
-                }
-            } else {
-                k.warmStartColors();
-            }
-            clock.lap("warmStart", CURSOR_SLOT);
-
-            // Solve (biased): overflow, then per color joints → wide → mesh. ITERATIONS = 1.
-            solveOverflowJoints(context, true);
-            k.solveContacts(layout.overflowStart, layout.overflowCount, 1, invH, contactSpeed);
-            if (jointed) {
-                for (const span of colors) {
-                    solveColorJoints(span.color.jointSims, context, true);
-                    k.solveWideContacts(span.wideStart, span.wideCount, 1, invH, contactSpeed);
-                    k.solveContacts(span.meshStart, span.meshCount, 1, invH, contactSpeed);
-                }
-            } else {
-                k.solveColors(1, invH, contactSpeed);
-            }
-            clock.lap("solveImpulses", CURSOR_SLOT);
-
-            k.integratePositions(h, context.maxLinearVelocity, context.invDt);
-            clock.lap("integratePositions", CURSOR_SLOT);
-
-            // Relax (no bias): same interleave. RELAX_ITERATIONS = 1.
-            solveOverflowJoints(context, false);
-            k.solveContacts(layout.overflowStart, layout.overflowCount, 0, invH, contactSpeed);
-            if (jointed) {
-                for (const span of colors) {
-                    solveColorJoints(span.color.jointSims, context, false);
-                    k.solveWideContacts(span.wideStart, span.wideCount, 0, invH, contactSpeed);
-                    k.solveContacts(span.meshStart, span.meshCount, 0, invH, contactSpeed);
-                }
-            } else {
-                k.solveColors(0, invH, contactSpeed);
-            }
-            clock.lap("relaxImpulses", CURSOR_SLOT);
-        }
-
-        // Restitution: overflow, then each color's wide + mesh (joints have no restitution pass).
-        k.restitution(layout.overflowStart, layout.overflowCount, restThreshold);
-        if (jointed) {
-            for (const span of colors) {
-                k.restitutionWide(span.wideStart, span.wideCount, restThreshold);
-                k.restitution(span.meshStart, span.meshCount, restThreshold);
-            }
-        } else {
-            k.restitutionColors(restThreshold);
-        }
-        clock.lap("applyRestitution", CURSOR_SLOT);
-
-        // Store (order-independent): overflow, then the flat convex + mesh ranges.
-        k.storeImpulses(layout.overflowStart, layout.overflowCount, hitThreshold);
-        k.storeWideImpulses(0, layout.wideTotal, hitThreshold);
-        k.storeImpulses(layout.meshStart, layout.meshTotal, hitThreshold);
-        // The kernel `store` wrote the solved impulses straight back into the persistent pool manifolds
-        // (next step's warm start); collect the contacts it flagged for a hit event.
-        readbackHitEvents(world, layout, context);
-        clock.lap("storeImpulses", CURSOR_SLOT);
+    const jointTotal = marshalJoints(world, layout, cols);
+    k.solveBuild(
+        (pool?.size ?? 0) + 1,
+        subStepCount,
+        layout.wideTotal,
+        layout.meshStart,
+        layout.meshTotal,
+        layout.overflowStart,
+        layout.overflowCount,
+        jointTotal,
+        jointTotal,
+        world.constraintGraph.colors[OVERFLOW_INDEX].jointSims.length,
+        gravity.x,
+        gravity.y,
+        gravity.z,
+        h,
+        invH,
+        context.dt,
+        context.invDt,
+        context.maxLinearVelocity,
+        contactSpeed,
+        cs.biasRate,
+        cs.massScale,
+        cs.impulseScale,
+        ss.biasRate,
+        ss.massScale,
+        ss.impulseScale,
+        warmStartScale,
+        restThreshold,
+        hitThreshold,
+        world.enableContinuous ? 1 : 0,
+    );
+    if (pool) runPool(world.ecsState, pool, k.runMt);
+    else k.runMt();
+    readbackJointImpulses(world, layout, cols);
+    for (const span of layout.colors) {
+        for (const sim of span.color.jointSims) flagJointEvent(sim, context);
     }
+    for (const sim of world.constraintGraph.colors[OVERFLOW_INDEX].jointSims) {
+        flagJointEvent(sim, context);
+    }
+    readbackHitEvents(world, layout, context);
 
     // Split a deferred island (candidate collected in the previous step's sleep stage) before
     // finalize reads island indices. In C this runs as a task alongside the solve; serially it must
@@ -786,7 +557,7 @@ export function solve(world: WorldState, context: StepContext): void {
     clock.span("constraints", CONSTRAINTS_SLOT);
 
     // Finalize: advance transforms, re-fit AABBs (the port folds refit in, so its cost lands here).
-    // On the fused path the kernel pose advance already ran inside the solve crossing, so
+    // The kernel pose advance already ran inside the solve crossing, so
     // `profile.constraints` absorbs it and `transforms` times only the serial TS tail.
     clock.mark(SOLVE_PHASE_SLOT);
 
@@ -800,7 +571,7 @@ export function solve(world: WorldState, context: StepContext): void {
     context.splitIslandId = NULL_INDEX;
     context.splitSleepTime = 0;
 
-    finalizeBodies(context, cols, persistentStates, pool !== null);
+    finalizeBodies(context, cols, persistentStates);
     clock.span("transforms", SOLVE_PHASE_SLOT);
 
     // The contact-begin records are created during collision detection, but their normal impulses are

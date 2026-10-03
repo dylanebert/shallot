@@ -207,68 +207,8 @@ export type Kernel = {
     recycleOutPtr(): number;
     dispatchRecycle(count: number, recycleDist: number, recycleDistNonTouching: number): void;
 
-    integrateVelocities(gx: number, gy: number, gz: number, h: number): void;
-    integratePositions(h: number, maxLinearVelocity: number, invDt: number): void;
-
-    // Scalar (mesh / overflow) contact phases over a `[start, count)` contact-record range.
-    prepareContacts(
-        start: number,
-        count: number,
-        csBias: number,
-        csMass: number,
-        csImpulse: number,
-        ssBias: number,
-        ssMass: number,
-        ssImpulse: number,
-        warmStartScale: number,
-    ): void;
-    warmStartContacts(start: number, count: number): void;
-    solveContacts(
-        start: number,
-        count: number,
-        useBias: number,
-        invH: number,
-        contactSpeed: number,
-    ): void;
-    restitution(start: number, count: number, threshold: number): void;
-    storeImpulses(start: number, count: number, hitEventThreshold: number): void;
-
-    // Wide (convex) contact phases over a `[start, count)` wide-record range.
-    prepareWideContacts(
-        start: number,
-        count: number,
-        csBias: number,
-        csMass: number,
-        csImpulse: number,
-        ssBias: number,
-        ssMass: number,
-        ssImpulse: number,
-        warmStartScale: number,
-    ): void;
-    warmStartWideContacts(start: number, count: number): void;
-    solveWideContacts(
-        start: number,
-        count: number,
-        useBias: number,
-        invH: number,
-        contactSpeed: number,
-    ): void;
-    restitutionWide(start: number, count: number, threshold: number): void;
-    storeWideImpulses(start: number, count: number, hitEventThreshold: number): void;
-
-    // Batched per-color loop (jointless scenes) — one FFI crossing runs every active color's
-    // wide-then-mesh block over the COLOR_SPAN column instead of a TS crossing per color.
-    warmStartColors(): void;
-    solveColors(useBias: number, invH: number, contactSpeed: number): void;
-    restitutionColors(threshold: number): void;
-
-    // The staged multithreaded solve (kernel/src/solve.rs), for a scene on a live pool. The whole
-    // prepare → substep-loop → restitution → store → finalize region becomes ONE crossing: `solveBuild`
-    // lays out the stage list on the main thread (before the pool wakes), then the orchestrator runs
-    // `runMt` while each pooled worker runs `workerMain(index)` exactly once, stealing blocks over the
-    // shared columns. The pose finalize rides the same stage list as its terminal stage (`dt` is the
-    // full-step h it sweeps with; `enableContinuous` its fast-candidate gate), so solve + finalize cost
-    // one wake round. Bit-identical to the serial path at any thread count (kernel/src/stages.rs).
+    // Build while workers are parked: no memory may grow between build and join. With no pool,
+    // threadCount is one and runMt executes every stage inline, including pose finalization.
     solveBuild(
         threadCount: number,
         subStepCount: number,
@@ -315,10 +255,6 @@ export type Kernel = {
     /** Abandon the running solve — a worker trapped. Breaks the orchestrator's wasm-side spins, which
      * no JS event can reach; the worker's round body calls it before it acks (pool.ts). */
     workerFault(): void;
-
-    /** The serial pose-finalize shim, for the single-thread / no-pool path. On a live pool the staged
-     * solve runs finalize as its terminal stage instead (`solveBuild`), so this never runs there. */
-    finalize(h: number, invDt: number, enableContinuous: number): void;
 };
 
 /** Which outer phase a {@link KernelExports.parBuild} names (kernel/src/solve.rs `Job`). */

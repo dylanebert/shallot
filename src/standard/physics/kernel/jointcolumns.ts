@@ -94,11 +94,15 @@ import {
     PLJ_HERTZ,
     PLJ_MAX_TORQUE,
     PLJ_PERP_IMPULSE,
+    PLJ_QUAT_A,
+    PLJ_QUAT_B,
     RJ_DAMPING_RATIO,
     RJ_ENABLE,
     RJ_ENABLE_LIMIT,
     RJ_ENABLE_MOTOR,
     RJ_ENABLE_SPRING,
+    RJ_FRAME_A,
+    RJ_FRAME_B,
     RJ_HERTZ,
     RJ_LINEAR_IMPULSE,
     RJ_LOWER_ANGLE,
@@ -107,6 +111,7 @@ import {
     RJ_MOTOR_IMPULSE,
     RJ_MOTOR_SPEED,
     RJ_PERP_IMPULSE,
+    RJ_ROTATION_AXIS_Z,
     RJ_SPRING_IMPULSE,
     RJ_TARGET_ANGLE,
     RJ_UPPER_ANGLE,
@@ -165,18 +170,17 @@ import {
     WJ_LINEAR_IMPULSE,
 } from "./columns";
 
-/** The joint spans the staged solve needs: the colored total (the `PrepareJoints` sweep) and the
- * overflow span (run serially). Colored joints occupy `[0, jointTotal)`, overflow the tail. */
-export type JointLayout = {
-    jointTotal: number;
-    overflowJointStart: number;
-    overflowJointCount: number;
-};
-
 function writeVec3(f32: Float32Array, o: number, v: Vec3): void {
     f32[o] = v.x;
     f32[o + 1] = v.y;
     f32[o + 2] = v.z;
+}
+
+function readQuat(f32: Float32Array, o: number, q: Quat): void {
+    q.v.x = f32[o];
+    q.v.y = f32[o + 1];
+    q.v.z = f32[o + 2];
+    q.s = f32[o + 3];
 }
 
 function writeQuat(f32: Float32Array, o: number, q: Quat): void {
@@ -395,11 +399,11 @@ function writeRecord(
 /**
  * Marshal every awake joint into the flat joint column and write each active color's joint span into
  * the color-span column: colored joints first (per-color concatenated, the order `computeLayout`
- * fixed), then the overflow color's joints. @returns the spans the staged solve reads.
+ * fixed), then the overflow color's joints. @returns the colored joint count; overflow follows it.
  */
-export function marshalJoints(world: WorldState, layout: SolveLayout, cols: Columns): JointLayout {
+export function marshalJoints(world: WorldState, layout: SolveLayout, cols: Columns): number {
     const f32 = cols.joint;
-    const u32 = new Uint32Array(f32.buffer, f32.byteOffset, f32.length);
+    const u32 = cols.jointU;
     const span = cols.colorSpan;
 
     let slot = 0;
@@ -416,13 +420,12 @@ export function marshalJoints(world: WorldState, layout: SolveLayout, cols: Colu
     const jointTotal = slot;
 
     const overflowJoints = world.constraintGraph.colors[OVERFLOW_INDEX].jointSims;
-    const overflowJointStart = slot;
     for (const sim of overflowJoints) {
         writeRecord(world, f32, u32, slot, sim);
         slot += 1;
     }
 
-    return { jointTotal, overflowJointStart, overflowJointCount: overflowJoints.length };
+    return jointTotal;
 }
 
 /** Total awake joint count (colored + overflow) — the joint column size to reserve. */
@@ -434,125 +437,133 @@ export function countJoints(world: WorldState, layout: SolveLayout): number {
     return n;
 }
 
-/** Read the solved impulses back out of the joint column into each `JointSim.data` (the persistent
- * warm-start state), mirroring the marshal order. */
-export function readbackJointImpulses(world: WorldState, layout: SolveLayout, cols: Columns): void {
-    const f32 = cols.joint;
-    let slot = 0;
-    const read = (sim: JointSim) => {
-        const base = slot * JOINT_STRIDE;
-        if (sim.type === JointType.Distance) {
-            const j = sim.data as DistanceJoint;
-            j.impulse = f32[base + DJ_IMPULSE];
-            j.lowerImpulse = f32[base + DJ_LOWER_IMPULSE];
-            j.upperImpulse = f32[base + DJ_UPPER_IMPULSE];
-            j.motorImpulse = f32[base + DJ_MOTOR_IMPULSE];
-        } else if (sim.type === JointType.Weld) {
-            const j = sim.data as WeldJoint;
-            j.linearImpulse = {
-                x: f32[base + WJ_LINEAR_IMPULSE],
-                y: f32[base + WJ_LINEAR_IMPULSE + 1],
-                z: f32[base + WJ_LINEAR_IMPULSE + 2],
-            };
-            j.angularImpulse = {
-                x: f32[base + WJ_ANGULAR_IMPULSE],
-                y: f32[base + WJ_ANGULAR_IMPULSE + 1],
-                z: f32[base + WJ_ANGULAR_IMPULSE + 2],
-            };
-        } else if (sim.type === JointType.Revolute) {
-            const j = sim.data as RevoluteJoint;
-            j.linearImpulse = {
-                x: f32[base + RJ_LINEAR_IMPULSE],
-                y: f32[base + RJ_LINEAR_IMPULSE + 1],
-                z: f32[base + RJ_LINEAR_IMPULSE + 2],
-            };
-            j.perpImpulse = { x: f32[base + RJ_PERP_IMPULSE], y: f32[base + RJ_PERP_IMPULSE + 1] };
-            j.springImpulse = f32[base + RJ_SPRING_IMPULSE];
-            j.motorImpulse = f32[base + RJ_MOTOR_IMPULSE];
-            j.lowerImpulse = f32[base + RJ_LOWER_IMPULSE];
-            j.upperImpulse = f32[base + RJ_UPPER_IMPULSE];
-        } else if (sim.type === JointType.Spherical) {
-            const j = sim.data as SphericalJoint;
-            j.linearImpulse = {
-                x: f32[base + SJ_LINEAR_IMPULSE],
-                y: f32[base + SJ_LINEAR_IMPULSE + 1],
-                z: f32[base + SJ_LINEAR_IMPULSE + 2],
-            };
-            j.springImpulse = {
-                x: f32[base + SJ_SPRING_IMPULSE],
-                y: f32[base + SJ_SPRING_IMPULSE + 1],
-                z: f32[base + SJ_SPRING_IMPULSE + 2],
-            };
-            j.motorImpulse = {
-                x: f32[base + SJ_MOTOR_IMPULSE],
-                y: f32[base + SJ_MOTOR_IMPULSE + 1],
-                z: f32[base + SJ_MOTOR_IMPULSE + 2],
-            };
-            j.lowerTwistImpulse = f32[base + SJ_LOWER_TWIST_IMPULSE];
-            j.upperTwistImpulse = f32[base + SJ_UPPER_TWIST_IMPULSE];
-            j.swingImpulse = f32[base + SJ_SWING_IMPULSE];
-        } else if (sim.type === JointType.Prismatic) {
-            const j = sim.data as PrismaticJoint;
-            j.perpImpulse = { x: f32[base + PJ_PERP_IMPULSE], y: f32[base + PJ_PERP_IMPULSE + 1] };
-            j.angularImpulse = {
-                x: f32[base + PJ_ANGULAR_IMPULSE],
-                y: f32[base + PJ_ANGULAR_IMPULSE + 1],
-                z: f32[base + PJ_ANGULAR_IMPULSE + 2],
-            };
-            j.springImpulse = f32[base + PJ_SPRING_IMPULSE];
-            j.motorImpulse = f32[base + PJ_MOTOR_IMPULSE];
-            j.lowerImpulse = f32[base + PJ_LOWER_IMPULSE];
-            j.upperImpulse = f32[base + PJ_UPPER_IMPULSE];
-        } else if (sim.type === JointType.Wheel) {
-            const j = sim.data as WheelJoint;
-            j.linearImpulse = {
-                x: f32[base + WHJ_LINEAR_IMPULSE],
-                y: f32[base + WHJ_LINEAR_IMPULSE + 1],
-            };
-            j.angularImpulse = {
-                x: f32[base + WHJ_ANGULAR_IMPULSE],
-                y: f32[base + WHJ_ANGULAR_IMPULSE + 1],
-            };
-            j.spinImpulse = f32[base + WHJ_SPIN_IMPULSE];
-            j.suspensionSpringImpulse = f32[base + WHJ_SUSPENSION_SPRING_IMPULSE];
-            j.lowerSuspensionImpulse = f32[base + WHJ_LOWER_SUSPENSION_IMPULSE];
-            j.upperSuspensionImpulse = f32[base + WHJ_UPPER_SUSPENSION_IMPULSE];
-            j.steeringSpringImpulse = f32[base + WHJ_STEERING_SPRING_IMPULSE];
-            j.lowerSteeringImpulse = f32[base + WHJ_LOWER_STEERING_IMPULSE];
-            j.upperSteeringImpulse = f32[base + WHJ_UPPER_STEERING_IMPULSE];
-        } else if (sim.type === JointType.Motor) {
-            const j = sim.data as MotorJoint;
-            j.linearVelocityImpulse = {
-                x: f32[base + MJ_LINEAR_VELOCITY_IMPULSE],
-                y: f32[base + MJ_LINEAR_VELOCITY_IMPULSE + 1],
-                z: f32[base + MJ_LINEAR_VELOCITY_IMPULSE + 2],
-            };
-            j.angularVelocityImpulse = {
-                x: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE],
-                y: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE + 1],
-                z: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE + 2],
-            };
-            j.linearSpringImpulse = {
-                x: f32[base + MJ_LINEAR_SPRING_IMPULSE],
-                y: f32[base + MJ_LINEAR_SPRING_IMPULSE + 1],
-                z: f32[base + MJ_LINEAR_SPRING_IMPULSE + 2],
-            };
-            j.angularSpringImpulse = {
-                x: f32[base + MJ_ANGULAR_SPRING_IMPULSE],
-                y: f32[base + MJ_ANGULAR_SPRING_IMPULSE + 1],
-                z: f32[base + MJ_ANGULAR_SPRING_IMPULSE + 2],
-            };
-        } else if (sim.type === JointType.Parallel) {
-            const j = sim.data as ParallelJoint;
-            j.perpImpulse = {
-                x: f32[base + PLJ_PERP_IMPULSE],
-                y: f32[base + PLJ_PERP_IMPULSE + 1],
-            };
-        }
-        slot += 1;
-    };
-    for (const span of layout.colors) {
-        for (const sim of span.color.jointSims) read(sim);
+function readbackJoint(f32: Float32Array, slot: number, sim: JointSim): void {
+    const base = slot * JOINT_STRIDE;
+    if (sim.type === JointType.Distance) {
+        const j = sim.data as DistanceJoint;
+        j.impulse = f32[base + DJ_IMPULSE];
+        j.lowerImpulse = f32[base + DJ_LOWER_IMPULSE];
+        j.upperImpulse = f32[base + DJ_UPPER_IMPULSE];
+        j.motorImpulse = f32[base + DJ_MOTOR_IMPULSE];
+    } else if (sim.type === JointType.Weld) {
+        const j = sim.data as WeldJoint;
+        j.linearImpulse = {
+            x: f32[base + WJ_LINEAR_IMPULSE],
+            y: f32[base + WJ_LINEAR_IMPULSE + 1],
+            z: f32[base + WJ_LINEAR_IMPULSE + 2],
+        };
+        j.angularImpulse = {
+            x: f32[base + WJ_ANGULAR_IMPULSE],
+            y: f32[base + WJ_ANGULAR_IMPULSE + 1],
+            z: f32[base + WJ_ANGULAR_IMPULSE + 2],
+        };
+    } else if (sim.type === JointType.Revolute) {
+        const j = sim.data as RevoluteJoint;
+        // Torque reads use the prepared frames, not the finalized body poses.
+        readQuat(f32, base + RJ_FRAME_A + 3, j.frameA.q);
+        readQuat(f32, base + RJ_FRAME_B + 3, j.frameB.q);
+        j.rotationAxisZ.x = f32[base + RJ_ROTATION_AXIS_Z];
+        j.rotationAxisZ.y = f32[base + RJ_ROTATION_AXIS_Z + 1];
+        j.rotationAxisZ.z = f32[base + RJ_ROTATION_AXIS_Z + 2];
+        j.linearImpulse = {
+            x: f32[base + RJ_LINEAR_IMPULSE],
+            y: f32[base + RJ_LINEAR_IMPULSE + 1],
+            z: f32[base + RJ_LINEAR_IMPULSE + 2],
+        };
+        j.perpImpulse = { x: f32[base + RJ_PERP_IMPULSE], y: f32[base + RJ_PERP_IMPULSE + 1] };
+        j.springImpulse = f32[base + RJ_SPRING_IMPULSE];
+        j.motorImpulse = f32[base + RJ_MOTOR_IMPULSE];
+        j.lowerImpulse = f32[base + RJ_LOWER_IMPULSE];
+        j.upperImpulse = f32[base + RJ_UPPER_IMPULSE];
+    } else if (sim.type === JointType.Spherical) {
+        const j = sim.data as SphericalJoint;
+        j.linearImpulse = {
+            x: f32[base + SJ_LINEAR_IMPULSE],
+            y: f32[base + SJ_LINEAR_IMPULSE + 1],
+            z: f32[base + SJ_LINEAR_IMPULSE + 2],
+        };
+        j.springImpulse = {
+            x: f32[base + SJ_SPRING_IMPULSE],
+            y: f32[base + SJ_SPRING_IMPULSE + 1],
+            z: f32[base + SJ_SPRING_IMPULSE + 2],
+        };
+        j.motorImpulse = {
+            x: f32[base + SJ_MOTOR_IMPULSE],
+            y: f32[base + SJ_MOTOR_IMPULSE + 1],
+            z: f32[base + SJ_MOTOR_IMPULSE + 2],
+        };
+        j.lowerTwistImpulse = f32[base + SJ_LOWER_TWIST_IMPULSE];
+        j.upperTwistImpulse = f32[base + SJ_UPPER_TWIST_IMPULSE];
+        j.swingImpulse = f32[base + SJ_SWING_IMPULSE];
+    } else if (sim.type === JointType.Prismatic) {
+        const j = sim.data as PrismaticJoint;
+        j.perpImpulse = { x: f32[base + PJ_PERP_IMPULSE], y: f32[base + PJ_PERP_IMPULSE + 1] };
+        j.angularImpulse = {
+            x: f32[base + PJ_ANGULAR_IMPULSE],
+            y: f32[base + PJ_ANGULAR_IMPULSE + 1],
+            z: f32[base + PJ_ANGULAR_IMPULSE + 2],
+        };
+        j.springImpulse = f32[base + PJ_SPRING_IMPULSE];
+        j.motorImpulse = f32[base + PJ_MOTOR_IMPULSE];
+        j.lowerImpulse = f32[base + PJ_LOWER_IMPULSE];
+        j.upperImpulse = f32[base + PJ_UPPER_IMPULSE];
+    } else if (sim.type === JointType.Wheel) {
+        const j = sim.data as WheelJoint;
+        j.linearImpulse = {
+            x: f32[base + WHJ_LINEAR_IMPULSE],
+            y: f32[base + WHJ_LINEAR_IMPULSE + 1],
+        };
+        j.angularImpulse = {
+            x: f32[base + WHJ_ANGULAR_IMPULSE],
+            y: f32[base + WHJ_ANGULAR_IMPULSE + 1],
+        };
+        j.spinImpulse = f32[base + WHJ_SPIN_IMPULSE];
+        j.suspensionSpringImpulse = f32[base + WHJ_SUSPENSION_SPRING_IMPULSE];
+        j.lowerSuspensionImpulse = f32[base + WHJ_LOWER_SUSPENSION_IMPULSE];
+        j.upperSuspensionImpulse = f32[base + WHJ_UPPER_SUSPENSION_IMPULSE];
+        j.steeringSpringImpulse = f32[base + WHJ_STEERING_SPRING_IMPULSE];
+        j.lowerSteeringImpulse = f32[base + WHJ_LOWER_STEERING_IMPULSE];
+        j.upperSteeringImpulse = f32[base + WHJ_UPPER_STEERING_IMPULSE];
+    } else if (sim.type === JointType.Motor) {
+        const j = sim.data as MotorJoint;
+        j.linearVelocityImpulse = {
+            x: f32[base + MJ_LINEAR_VELOCITY_IMPULSE],
+            y: f32[base + MJ_LINEAR_VELOCITY_IMPULSE + 1],
+            z: f32[base + MJ_LINEAR_VELOCITY_IMPULSE + 2],
+        };
+        j.angularVelocityImpulse = {
+            x: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE],
+            y: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE + 1],
+            z: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE + 2],
+        };
+        j.linearSpringImpulse = {
+            x: f32[base + MJ_LINEAR_SPRING_IMPULSE],
+            y: f32[base + MJ_LINEAR_SPRING_IMPULSE + 1],
+            z: f32[base + MJ_LINEAR_SPRING_IMPULSE + 2],
+        };
+        j.angularSpringImpulse = {
+            x: f32[base + MJ_ANGULAR_SPRING_IMPULSE],
+            y: f32[base + MJ_ANGULAR_SPRING_IMPULSE + 1],
+            z: f32[base + MJ_ANGULAR_SPRING_IMPULSE + 2],
+        };
+    } else if (sim.type === JointType.Parallel) {
+        const j = sim.data as ParallelJoint;
+        readQuat(f32, base + PLJ_QUAT_A, j.quatA);
+        readQuat(f32, base + PLJ_QUAT_B, j.quatB);
+        j.perpImpulse = {
+            x: f32[base + PLJ_PERP_IMPULSE],
+            y: f32[base + PLJ_PERP_IMPULSE + 1],
+        };
     }
-    for (const sim of world.constraintGraph.colors[OVERFLOW_INDEX].jointSims) read(sim);
+}
+
+/** Read the solved impulses and torque frames into each joint, mirroring the marshal order. */
+export function readbackJointImpulses(world: WorldState, layout: SolveLayout, cols: Columns): void {
+    let slot = 0;
+    for (const span of layout.colors) {
+        for (const sim of span.color.jointSims) readbackJoint(cols.joint, slot++, sim);
+    }
+    for (const sim of world.constraintGraph.colors[OVERFLOW_INDEX].jointSims) {
+        readbackJoint(cols.joint, slot++, sim);
+    }
 }

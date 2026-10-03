@@ -113,9 +113,6 @@ mod query_abi;
 mod shapes;
 #[cfg(target_arch = "wasm32")]
 mod world_query;
-// The staged solve's wasm entries (`solveBuild` / `solveMt` / `workerMain`), over the arena columns —
-// the shared-memory artifact only (`mt`), since a single-thread consumer has no pool to drive them and
-// would carry the stage/block tables for nothing. Native `cargo test` drives the same machinery over
-// owned columns (`tests/stages.rs`).
-#[cfg(all(target_arch = "wasm32", feature = "mt"))]
+// Both wasm artifacts run the staged solve over arena columns. Native tests use owned columns.
+#[cfg(target_arch = "wasm32")]
 mod solve;

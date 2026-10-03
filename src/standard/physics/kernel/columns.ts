@@ -111,6 +111,9 @@ export const RJ_LOWER_ANGLE = J_PAYLOAD + 5;
 export const RJ_UPPER_ANGLE = J_PAYLOAD + 6;
 export const RJ_ENABLE = J_PAYLOAD + 7;
 export const RJ_LINEAR_IMPULSE = J_PAYLOAD + 8; // vec3
+export const RJ_FRAME_A = J_PAYLOAD + 17;
+export const RJ_FRAME_B = J_PAYLOAD + 24;
+export const RJ_ROTATION_AXIS_Z = J_PAYLOAD + 31;
 export const RJ_PERP_IMPULSE = J_PAYLOAD + 11; // vec2
 export const RJ_SPRING_IMPULSE = J_PAYLOAD + 13;
 export const RJ_MOTOR_IMPULSE = J_PAYLOAD + 14;
@@ -215,6 +218,8 @@ export const PLJ_HERTZ = J_PAYLOAD;
 export const PLJ_DAMPING_RATIO = J_PAYLOAD + 1;
 export const PLJ_MAX_TORQUE = J_PAYLOAD + 2;
 export const PLJ_PERP_IMPULSE = J_PAYLOAD + 3; // vec2
+export const PLJ_QUAT_A = J_PAYLOAD + 5;
+export const PLJ_QUAT_B = J_PAYLOAD + 9;
 
 // Convex narrowphase dispatch record (arena.rs `DISPATCH_STRIDE`). Float slots are written through an
 // f32 view, contactId/types/hull geoIndex through a u32 view over the same column. Geom slots hold a
@@ -275,6 +280,7 @@ export type Columns = {
     /** Flat joint records (`JOINT_STRIDE` f32 per slot, jointcolumns.ts). Colored joints first
      * (per-color concatenated), then the overflow joints. Empty on the jointless path. */
     joint: Float32Array;
+    jointU: Uint32Array;
 };
 
 // The last reservation's views, re-derived only when the buffer, a column offset, or a column length
@@ -341,6 +347,7 @@ export function reserveColumns(
         wideMeta: new Uint32Array(buf, layout[WIDE_META], lengths[2]),
         colorSpan: new Uint32Array(buf, layout[COLOR_SPAN], lengths[3]),
         joint: new Float32Array(buf, layout[JOINT], lengths[4]),
+        jointU: new Uint32Array(buf, layout[JOINT], lengths[4]),
     };
     return reserved;
 }

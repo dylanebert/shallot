@@ -34,14 +34,12 @@ export type StepProfile = {
     sensors: number;
 };
 
-/** The phase cursors the step and solve nest: the whole step, a step phase, the solve's constraint
- * region, its accumulating inner cursor, and a solve phase. A clock keeps one start per slot. */
+/** Nested timing cursors: the step, a step phase, the constraint region and a solve phase. */
 export const STEP_SLOT = 0;
 export const PHASE_SLOT = 1;
 export const CONSTRAINTS_SLOT = 2;
-export const CURSOR_SLOT = 3;
-export const SOLVE_PHASE_SLOT = 4;
-export const CLOCK_SLOTS = 5;
+export const SOLVE_PHASE_SLOT = 3;
+export const CLOCK_SLOTS = 4;
 
 /** The step's timing seam. Every method is called at a phase boundary of one `step`. */
 export interface StepClock {
@@ -51,8 +49,6 @@ export interface StepClock {
     mark(slot: number): void;
     /** Set `field` to the time since `slot` was marked. */
     span(field: keyof StepProfile, slot: number): void;
-    /** Add the time since `slot` was marked to `field`, then re-mark `slot`. */
-    lap(field: keyof StepProfile, slot: number): void;
     /** @returns a copy of the last step's phase timings. */
     read(): StepProfile;
 }
@@ -91,6 +87,5 @@ export const NO_CLOCK: StepClock = {
     begin() {},
     mark() {},
     span() {},
-    lap() {},
     read: zeroStepProfile,
 };
