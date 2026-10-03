@@ -302,7 +302,7 @@ function makeWorldState(
     const physicsWorld: WorldState = {
         ecsState: world,
         broadPhase: createBroadPhase(world, capacity),
-        bodyFilters: { data: new Uint32Array(0), capacity: 0 },
+        bodyFilters: { data: new Uint32Array(0), capacity: 16 },
         constraintGraph: createGraph(capacity.staticBodyCount + capacity.dynamicBodyCount),
         bodies: [],
         solverSetIdPool: createIdPool(),
@@ -365,9 +365,6 @@ function makeWorldState(
     // Wire the broad store's back-reference so a resident-region grow can refresh the sibling stores a
     // `memory.grow` detaches (the store is created before the world literal, so it can't be passed in).
     physicsWorld.broadPhase.store.world = physicsWorld;
-    physicsWorld.bodyFilters.capacity = 16;
-    physicsWorld.broadPhase.store.growBodyFilters(16);
-    physicsWorld.bodyFilters.data.fill(0);
 
     // Create the three permanent sets in order so their ids land 0 (static), 1 (disabled), 2 (awake).
     for (let i = 0; i < 3; ++i) {

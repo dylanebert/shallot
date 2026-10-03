@@ -1,3 +1,4 @@
+import { claimResident } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 
@@ -27,6 +28,7 @@ export function changeBodyFilter(
     bodyB: number,
     delta: 1 | -1,
 ): void {
+    claimResident(world);
     const filter = world.bodyFilters;
     const store = world.broadPhase.store;
     store.refreshIfStale();

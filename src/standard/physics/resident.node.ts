@@ -1,0 +1,67 @@
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "../../../scripts/test-tiers";
+import { hash } from "./api";
+import { PhysicsWorld } from "./api/world";
+import { BodyType } from "./common/types";
+
+setDefaultTimeout(CEILING.node);
+
+function scene(filtered: boolean) {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    const mover = world.createBody({ type: BodyType.Kinematic, position: { x: 4, y: 0, z: 0 } });
+    mover.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+    const probe = world.createBody({ type: BodyType.Dynamic, position: { x: 5.25, y: 0, z: 0 } });
+    probe.createSphere(
+        { enableContactEvents: true },
+        { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+    );
+    const bodies = filtered
+        ? [0, 0.25].map((x) => {
+              const body = world.createBody({
+                  type: BodyType.Dynamic,
+                  position: { x, y: 0, z: 0 },
+              });
+              body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+              return body;
+          })
+        : [];
+    if (filtered) world.createFilterJoint(bodies[0], bodies[1]);
+    world.step(1 / 60);
+    for (let i = 0; i < bodies.length; i++) {
+        const rotation = { v: { x: 0, y: 0, z: 0 }, s: 1 };
+        bodies[i].setTransform({ x: i * 0.25 + 2, y: 0, z: 0 }, rotation);
+        bodies[i].setTransform({ x: i * 0.25, y: 0, z: 0 }, rotation);
+    }
+    mover.setTransform({ x: 5, y: 0, z: 0 }, { v: { x: 0, y: 0, z: 0 }, s: 1 });
+    return world;
+}
+
+for (const filtered of [false, true]) {
+    test(`empty World construction preserves the owner's pending proxies and moves${filtered ? " and non-colliding joint pair" : ""}`, () => {
+        const solo = scene(filtered);
+        let expected: bigint;
+        try {
+            solo.step(1 / 60);
+            expect(solo.getContactEvents().beginEvents.length).toBe(1);
+            expected = hash(solo);
+        } finally {
+            solo.destroy();
+        }
+        const a = scene(filtered);
+        let b: PhysicsWorld | undefined;
+        try {
+            expect(a.castRayClosest({ x: 5, y: 2, z: 0 }, { x: 0, y: -4, z: 0 }).hit).toBe(true);
+            b = new PhysicsWorld();
+            expect(a.castRayClosest({ x: 5, y: 2, z: 0 }, { x: 0, y: -4, z: 0 }).hit).toBe(true);
+            a.step(1 / 60);
+            // The pending mover must discover the previously separated probe, while the
+            // overlapping joint-filtered pair must remain non-colliding.
+            expect(a.getContactEvents().beginEvents.length).toBe(1);
+            expect(hash(a)).toBe(expected);
+        } finally {
+            // B has never claimed or stepped; this does not assert interleaved stepping support.
+            b?.destroy();
+            a.destroy();
+        }
+    });
+}

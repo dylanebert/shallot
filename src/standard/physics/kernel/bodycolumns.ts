@@ -859,6 +859,7 @@ export function claimResident(token: WorldState): void {
     // ownership transfer and keeps the wasm columns deterministic for both worlds.
     if (owner !== null) evicted.add(owner);
     owner = token;
+    token.broadPhase.store.claim();
 }
 
 /** Release the resident region on world destroy, so a later world can claim it without eviction. */

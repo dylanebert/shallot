@@ -12,6 +12,7 @@ import type { World } from "../../../engine";
 
 import type { HashSet } from "../collision/table";
 import type { WorldState } from "../world/world";
+import { claimResident } from "./bodycolumns";
 import { kernel } from "./kernel";
 import type { DynamicTree } from "./treecolumns";
 
@@ -54,6 +55,16 @@ export class BroadStore {
     private _genPtr = 0;
     private _gen = EMPTY_U;
     private _movesInitialized = false;
+    private _claimed = false;
+
+    /** Initialize native metadata only after this World acquires the singleton region. */
+    claim(): void {
+        const world = this.world;
+        if (this._claimed || world === null) return;
+        this._claimed = true;
+        this.growBodyFilters(world.bodyFilters.capacity);
+        world.bodyFilters.data.fill(0);
+    }
 
     /** Refresh only if the region moved or memory grew since the last refresh. O(1) when fresh (a
      * function call + a byteLength read), so it can guard every broad-phase read/mutate entry point
@@ -84,17 +95,19 @@ export class BroadStore {
                 t.ni = EMPTY_I;
                 continue;
             }
-            const initial = !t.residentState;
-            const previous = t.state;
-            t.state = new Int32Array(buf, layout[i], 6);
-            if (initial) t.state.set(previous);
-            t.residentState = true;
+            if (this._claimed) {
+                const initial = !t.residentState;
+                const previous = t.state;
+                t.state = new Int32Array(buf, layout[i], 6);
+                if (initial) t.state.set(previous);
+                t.residentState = true;
+            }
             t.nf = new Float32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
             t.ni = new Int32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
         }
 
         const moveCapacity = k.broadTreeCap(0) + k.broadTreeCap(1) + k.broadTreeCap(2);
-        if (moveCapacity !== 0) {
+        if (this._claimed && moveCapacity !== 0) {
             this.moveState = new Uint32Array(buf, layout[7], 1);
             if (!this._movesInitialized) {
                 k.broadClearMoves();
@@ -109,7 +122,7 @@ export class BroadStore {
                 );
         }
         const filter = this.world?.bodyFilters;
-        if (filter !== undefined && filter.capacity !== 0) {
+        if (this._claimed && filter !== undefined && filter.capacity !== 0) {
             filter.data = new Uint32Array(buf, layout[6], 1 + 3 * filter.capacity);
         }
 
@@ -165,6 +178,8 @@ export class BroadStore {
     // capacity, so its first reserve is a no-op — but the tree still needs a view over it). A real grow
     // additionally `memory.grow`s, detaching every sibling store's views; refresh those too.
     private reserve(capS: number, capK: number, capD: number, setCap: number, filterCap = 0): void {
+        if (this.world !== null) claimResident(this.world);
+        else this._claimed = true;
         const grew = kernel(this.ecsState).reserveBroad(capS, capK, capD, setCap, filterCap) !== 0;
         this.refreshViews();
         if (grew) {
