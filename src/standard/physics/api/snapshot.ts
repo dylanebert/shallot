@@ -178,7 +178,7 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     state.broadPhase.store.world = state;
     state.broadPhase.store.trees = state.broadPhase.trees;
     state.broadPhase.store.set = state.broadPhase.pairSet;
-    state.broadPhase.store.refreshViews();
+    state.broadPhase.store.restoreViews();
     state.bodyStore.refreshViews();
     state.shapeStore.refreshViews();
     state.manifoldStore.refreshViews();

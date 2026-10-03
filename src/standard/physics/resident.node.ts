@@ -65,3 +65,40 @@ for (const filtered of [false, true]) {
         }
     });
 }
+
+test("a fresh World restores pending moves and a non-colliding joint pair and replays every subsequent tick exactly", () => {
+    const source = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    const bodies = [0, 0.25, 4, 4.25].map((x) => {
+        const body = source.createBody({ type: BodyType.Dynamic, position: { x, y: 0, z: 0 } });
+        body.createSphere(
+            { enableContactEvents: true },
+            { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+        );
+        return body;
+    });
+    source.createFilterJoint(bodies[2], bodies[3]);
+    const saved = source.snapshot();
+    expect(source.state.broadPhase.moveArray.count).toBe(4);
+    const expected: bigint[] = [];
+    try {
+        for (let tick = 0; tick < 12; tick++) {
+            source.step(1 / 60);
+            if (tick === 0) expect(source.getContactEvents().beginEvents.length).toBe(1);
+            expected.push(hash(source));
+        }
+    } finally {
+        source.destroy();
+    }
+    const target = new PhysicsWorld();
+    try {
+        target.restore(saved);
+        expect(target.state.broadPhase.moveArray.count).toBe(4);
+        for (let tick = 0; tick < expected.length; tick++) {
+            target.step(1 / 60);
+            expect(hash(target), `tick ${tick}`).toBe(expected[tick]);
+            if (tick === 0) expect(target.getContactEvents().beginEvents.length).toBe(1);
+        }
+    } finally {
+        target.destroy();
+    }
+});

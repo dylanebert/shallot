@@ -66,6 +66,17 @@ export class BroadStore {
         world.bodyFilters.data.fill(0);
     }
 
+    /** Bind an already restored native image without running new-World initialization. */
+    restoreViews(): void {
+        this._claimed = true;
+        this._movesInitialized = true;
+        const k = kernel(this.ecsState);
+        for (let i = 0; i < this.trees.length; i++) {
+            if (k.broadTreeCap(i) !== 0) this.trees[i].residentState = true;
+        }
+        this.refreshViews();
+    }
+
     /** Refresh only if the region moved or memory grew since the last refresh. O(1) when fresh (a
      * function call + a byteLength read), so it can guard every broad-phase read/mutate entry point
      * without reintroducing churn. */
