@@ -15,11 +15,13 @@ import type { World } from "../../../engine";
 // regions after a grow (the same discipline reserveBodies/reserveFatAabb follow).
 
 import { NULL_INDEX } from "../common/array";
-import type { AABB } from "../common/math";
+import { SetType } from "../common/constants";
+import type { AABB, Transform } from "../common/math";
 import { ShapeType, type SurfaceMaterial } from "../common/types";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HullData } from "../shapes/hull";
 import type { Shape } from "../shapes/shape";
+import { type Body, getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
@@ -224,6 +226,36 @@ export class ShapeStore {
             f[g + 2] = shape.mesh.scale.z;
         }
         this.writeGeometryReference(world, shape);
+        this.writeQueryProperties(shape);
+        const body = world.bodies[shape.bodyId];
+        this.writeQueryPose(shape.id, body, getBodySim(world, body).transform);
+    }
+
+    writeQueryProperties(shape: Shape): void {
+        const n = shape.id * SHAPE_STRIDE;
+        const u = this.shapeU;
+        u[n + 25] = shape.filter.categoryHi;
+        u[n + 26] = shape.filter.categoryLo;
+        u[n + 27] = shape.filter.maskHi;
+        u[n + 28] = shape.filter.maskLo;
+        u[n + 29] = shape.bodyId;
+        u[n + 30] = Number(shape.enableSensorEvents);
+        u[n + 31] = shape.filter.groupIndex;
+    }
+
+    writeQueryPose(shapeId: number, body: Body, pose?: Transform): void {
+        const n = shapeId * SHAPE_STRIDE;
+        this.shapeU[n + 32] = body.setIndex === SetType.Awake ? body.localIndex + 1 : 0;
+        if (body.setIndex === SetType.Awake) return;
+        if (!pose) throw new Error("physics: a non-awake query shape requires its sleeping pose");
+        const f = this.shapeF;
+        f[n + 18] = pose.p.x;
+        f[n + 19] = pose.p.y;
+        f[n + 20] = pose.p.z;
+        f[n + 21] = pose.q.v.x;
+        f[n + 22] = pose.q.v.y;
+        f[n + 23] = pose.q.v.z;
+        f[n + 24] = pose.q.s;
     }
 
     /** Refresh a shape's pool reference without touching its material or finalize lanes. */
@@ -304,6 +336,14 @@ export class ShapeStore {
         this.fatF[o + 4] = fat.upperBound.y;
         this.fatF[o + 5] = fat.upperBound.z;
     }
+}
+
+export function syncBodyQuery(world: WorldState, body: Body): void {
+    const store = world.shapeStore;
+    store.refreshViews();
+    const pose = body.setIndex === SetType.Awake ? undefined : getBodySim(world, body).transform;
+    for (let id = body.headShapeId; id !== NULL_INDEX; id = world.shapes[id].nextShapeId)
+        store.writeQueryPose(id, body, pose);
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */

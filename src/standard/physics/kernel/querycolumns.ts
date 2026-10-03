@@ -1,14 +1,11 @@
 import type { ShapeProxy } from "../collision/distance";
-import { NULL_INDEX } from "../common/array";
-import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS, SetType } from "../common/constants";
+import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS } from "../common/constants";
 import type { AABB, Pos, Vec3, WorldTransform } from "../common/math";
 import type { QueryFilter } from "../common/types";
-import { getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { claimResident } from "./bodycolumns";
 import { rebuildGeometry } from "./geocolumns";
 import { assertQueryWorld, type Kernel, kernel } from "./kernel";
-import { SHAPE_STRIDE } from "./shapecolumns";
 
 export function queryColumns(world: WorldState): QueryColumns {
     return (world.queryColumns ??= new QueryColumns(world));
@@ -58,41 +55,16 @@ export class QueryColumns {
         }
         const category = filter?.categoryBits ?? DEFAULT_CATEGORY_BITS;
         const mask = filter?.maskBits ?? DEFAULT_MASK_BITS;
-        h[6] = Number((category >> 32n) & 0xffffffffn);
-        h[7] = Number(category & 0xffffffffn);
-        h[8] = Number((mask >> 32n) & 0xffffffffn);
-        h[9] = Number(mask & 0xffffffffn);
+        h[6] =
+            category === DEFAULT_CATEGORY_BITS
+                ? 0xffffffff
+                : Number((category >> 32n) & 0xffffffffn);
+        h[7] = category === DEFAULT_CATEGORY_BITS ? 0xffffffff : Number(category & 0xffffffffn);
+        h[8] = mask === DEFAULT_MASK_BITS ? 0xffffffff : Number((mask >> 32n) & 0xffffffffn);
+        h[9] = mask === DEFAULT_MASK_BITS ? 0xffffffff : Number(mask & 0xffffffffn);
         this.headerF[10] = origin.x;
         this.headerF[11] = origin.y;
         this.headerF[12] = origin.z;
-        // Placement and filters remain TypeScript-owned until the body/narrowphase migration.
-        // Upload their scalar columns; geometry itself is uploaded only on resident-set changes.
-        const f = world.shapeStore.shapeF;
-        const u = world.shapeStore.shapeU;
-        for (let i = 0; i < world.shapes.length; ++i) {
-            const shape = world.shapes[i];
-            if (shape.id === NULL_INDEX) continue;
-            const body = world.bodies[shape.bodyId];
-            const n = shape.id * SHAPE_STRIDE;
-            u[n + 32] = body.setIndex === SetType.Awake ? body.localIndex + 1 : 0;
-            if (body.setIndex !== SetType.Awake) {
-                const pose = getBodySim(world, body).transform;
-                f[n + 18] = pose.p.x;
-                f[n + 19] = pose.p.y;
-                f[n + 20] = pose.p.z;
-                f[n + 21] = pose.q.v.x;
-                f[n + 22] = pose.q.v.y;
-                f[n + 23] = pose.q.v.z;
-                f[n + 24] = pose.q.s;
-            }
-            u[n + 25] = shape.filter.categoryHi;
-            u[n + 26] = shape.filter.categoryLo;
-            u[n + 27] = shape.filter.maskHi;
-            u[n + 28] = shape.filter.maskLo;
-            u[n + 29] = shape.bodyId;
-            u[n + 30] = Number(shape.enableSensorEvents);
-            u[n + 31] = shape.filter.groupIndex;
-        }
         return k;
     }
 

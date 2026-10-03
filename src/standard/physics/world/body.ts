@@ -42,7 +42,7 @@ import {
     writeSimTransform,
 } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
-import { destroyShapeSlot, writeFatAabb } from "../kernel/shapecolumns";
+import { destroyShapeSlot, syncBodyQuery, writeFatAabb } from "../kernel/shapecolumns";
 import type { MassData } from "../shapes/geometry";
 import {
     computeFatShapeAABBOut,
@@ -545,6 +545,7 @@ export function bodySetTransform(
 
         shapeId = shape.nextShapeId;
     }
+    syncBodyQuery(world, body);
 }
 
 /**
@@ -985,6 +986,7 @@ export function destroyBody(world: WorldState, body: Body): void {
             movedBody.localIndex = body.localIndex;
             // The moved body stays awake — refresh its contacts' bodySimIndex to the new localIndex.
             writeBodySimIndex(world, movedBody);
+            syncBodyQuery(world, movedBody);
         }
     } else {
         const movedIndex = swapRemove(set.bodySims, body.localIndex);

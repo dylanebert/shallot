@@ -12,6 +12,7 @@ import { NULL_INDEX, swapRemove } from "../common/array";
 import { SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import { residentPush, residentRemove } from "../kernel/bodycolumns";
+import { syncBodyQuery } from "../kernel/shapecolumns";
 import {
     addJointToGraph,
     removeContactFromGraph,
@@ -100,6 +101,7 @@ export function wakeSolverSet(world: WorldState, setIndex: number): void {
             simSrc,
             body.headShapeId,
         );
+        syncBodyQuery(world, body);
 
         // move non-touching contacts from disabled set to awake set
         let contactKey = body.headContactKey;
@@ -203,6 +205,7 @@ export function transferBody(
             movedBody.localIndex = sourceIndex;
             // The moved body stays awake — refresh its contacts' bodySimIndex to the new localIndex.
             writeBodySimIndex(world, movedBody);
+            syncBodyQuery(world, movedBody);
         }
     } else {
         const movedIndex = swapRemove(sourceSet.bodySims, sourceIndex);
@@ -214,6 +217,7 @@ export function transferBody(
 
     body.setIndex = targetSet.setIndex;
     body.localIndex = targetIndex;
+    syncBodyQuery(world, body);
 
     // The body's awake-status may have flipped; re-partition its contacts (setType destroys them first,
     // so this is a no-op there, but keeps the invariant under any transferBody caller).
@@ -337,10 +341,12 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
             movedBody.localIndex = awakeBodyIndex;
             // The moved body stays awake — refresh its contacts' bodySimIndex to the new localIndex.
             writeBodySimIndex(world, movedBody);
+            syncBodyQuery(world, movedBody);
         }
 
         body.setIndex = sleepSetId;
         body.localIndex = sleepBodyIndex;
+        syncBodyQuery(world, body);
 
         // Move the body's non-touching contacts to the disabled set.
         let contactKey = body.headContactKey;

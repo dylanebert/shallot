@@ -36,6 +36,7 @@ import {
 import {
     BodyType,
     cloneMaterial,
+    type Filter,
     type FilterBits,
     type ShapeDef,
     ShapeType,
@@ -534,6 +535,32 @@ export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void
         bp.destroyProxy(broadPhase, shape.proxyKey);
         shape.proxyKey = NULL_INDEX;
     }
+}
+
+export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter): void {
+    shape.filter = toFilterBits(filter);
+    const body = world.bodies[shape.bodyId];
+    let key = body.headContactKey;
+    while (key !== NULL_INDEX) {
+        const contact = world.contacts[key >> 1];
+        const edge = key & 1;
+        key = contact.edges[edge].nextKey;
+        if (contact.shapeIdA === shape.id || contact.shapeIdB === shape.id)
+            destroyContact(world, contact, true);
+    }
+    destroyShapeProxy(shape, world.broadPhase);
+    if (body.setIndex !== SetType.Disabled) {
+        createShapeProxy(
+            shape,
+            world.broadPhase,
+            body.type,
+            getBodyTransformQuick(world, body),
+            true,
+        );
+        writeFatAabb(world, shape);
+    }
+    world.shapeStore.refreshViews();
+    world.shapeStore.writeQueryProperties(shape);
 }
 
 export function destroyShapeAllocations(world: WorldState, shape: Shape): void {

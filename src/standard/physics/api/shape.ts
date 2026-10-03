@@ -2,7 +2,7 @@ import type { Manifold, ManifoldPoint } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
 import type { EntityId } from "../common/ids";
 import type { AABB } from "../common/math";
-import type { ShapeType } from "../common/types";
+import type { Filter, ShapeType } from "../common/types";
 import { kernel } from "../kernel/kernel";
 import type { MassData } from "../shapes/geometry";
 import {
@@ -11,6 +11,7 @@ import {
     getSensorData,
     isSensorShape,
     type Shape as ShapeRecord,
+    setShapeFilter,
 } from "../shapes/shape";
 import { makeBodyId } from "../world/body";
 import type { WorldState } from "../world/world";
@@ -203,7 +204,15 @@ export class Shape {
      * this gates its own detection; on any shape it gates whether sensors detect it. Takes effect next step.
      */
     enableSensorEvents(flag: boolean): void {
-        this.record().enableSensorEvents = flag;
+        const shape = this.record();
+        shape.enableSensorEvents = flag;
+        this.world.shapeStore.refreshViews();
+        this.world.shapeStore.writeQueryProperties(shape);
+    }
+
+    /** Replace collision filtering, invalidating existing contacts; spatial queries see it immediately. */
+    setFilter(filter: Filter): void {
+        setShapeFilter(this.world, this.record(), filter);
     }
 
     /** @returns whether sensor events are enabled for this shape (b3Shape_AreSensorEventsEnabled). */
