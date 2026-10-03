@@ -18,7 +18,7 @@ import {
     type QueryFilter,
     type ShapeDef,
 } from "../common/types";
-import { readSimTransform, readStateLinearVelocity } from "../kernel/bodycolumns";
+import { claimResident, readSimTransform, readStateLinearVelocity } from "../kernel/bodycolumns";
 import { kernel, setQueryCallback } from "../kernel/kernel";
 import { type QueryColumns, queryColumns } from "../kernel/querycolumns";
 import type { CompoundData } from "../shapes/compound";
@@ -112,6 +112,7 @@ export class Body {
     }
 
     private record(): BodyRecord {
+        claimResident(this.world);
         return this.world.bodies[this.id.index1 - 1];
     }
 
@@ -124,6 +125,7 @@ export class Body {
         if (i < 0 || i >= this.world.bodies.length) {
             return false;
         }
+        claimResident(this.world);
         if (kernel(this.world.ecsState).bodyAlive(this.world.worldId, i) === 0) {
             return false;
         }

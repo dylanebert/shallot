@@ -3,6 +3,7 @@ import { NULL_INDEX } from "../common/array";
 import type { EntityId } from "../common/ids";
 import type { AABB } from "../common/math";
 import type { Filter, ShapeType } from "../common/types";
+import { claimResident } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
 import type { MassData } from "../shapes/geometry";
 import {
@@ -52,6 +53,7 @@ export class Contact {
 
     /** @returns the two shapes and current manifold(s) of this contact (b3Contact_GetData). */
     getData(): ContactData {
+        claimResident(this.world);
         const world = this.world;
         const contact = world.contacts[this.id.index1 - 1];
         const shapeA = world.shapes[contact.shapeIdA];
@@ -115,6 +117,7 @@ export class Shape {
     }
 
     private record(): ShapeRecord {
+        claimResident(this.world);
         return this.world.shapes[this.id.index1 - 1];
     }
 
@@ -127,6 +130,7 @@ export class Shape {
         if (i < 0 || i >= this.world.shapes.length) {
             return false;
         }
+        claimResident(this.world);
         if (kernel(this.world.ecsState).shapeAlive(this.world.worldId, i) === 0) {
             return false;
         }
