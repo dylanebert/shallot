@@ -22,7 +22,7 @@ import {
     type WorldDef,
 } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
-import { setQueryCallback } from "../kernel/kernel";
+import { rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { Capsule } from "../shapes/geometry";
 import { getShapeMaterials } from "../shapes/shape";
@@ -133,6 +133,10 @@ function castHit(world: WorldState, id: number, f: Float32Array, n: number, orig
     };
 }
 
+/**
+ * Query callbacks may query this world again, but querying another world on the same kernel is
+ * refused. Callback exceptions are rethrown after the kernel traversal returns normally.
+ */
 export class PhysicsWorld {
     /** @internal the underlying world state */
     readonly state: WorldState;
@@ -677,6 +681,7 @@ export class PhysicsWorld {
         );
         try {
             k.worldQuery(this.state.worldId, 2, 1);
+            rethrowQueryError(this.state.ecsState);
         } finally {
             setQueryCallback(this.state.ecsState, previous);
         }
@@ -698,6 +703,7 @@ export class PhysicsWorld {
         );
         try {
             k.worldQuery(this.state.worldId, 0, 1);
+            rethrowQueryError(this.state.ecsState);
         } finally {
             setQueryCallback(this.state.ecsState, previous);
         }
@@ -722,6 +728,7 @@ export class PhysicsWorld {
         );
         try {
             k.worldQuery(this.state.worldId, 1, 1);
+            rethrowQueryError(this.state.ecsState);
         } finally {
             setQueryCallback(this.state.ecsState, previous);
         }
@@ -748,6 +755,7 @@ export class PhysicsWorld {
         );
         try {
             k.worldQuery(this.state.worldId, 4, 1);
+            rethrowQueryError(this.state.ecsState);
         } finally {
             setQueryCallback(this.state.ecsState, previous);
         }
@@ -782,6 +790,7 @@ export class PhysicsWorld {
         });
         try {
             k.worldQuery(this.state.worldId, 5, 1);
+            rethrowQueryError(this.state.ecsState);
         } finally {
             setQueryCallback(this.state.ecsState, previous);
         }
@@ -808,6 +817,7 @@ export class PhysicsWorld {
         );
         try {
             k.worldQuery(this.state.worldId, 6, Number(fcn !== null));
+            rethrowQueryError(this.state.ecsState);
         } finally {
             setQueryCallback(this.state.ecsState, previous);
         }

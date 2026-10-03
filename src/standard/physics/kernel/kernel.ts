@@ -376,6 +376,10 @@ export type QueryCallback = (kind: number, shape: number, data: number, count: n
 
 interface KernelState {
     queryCallback: QueryCallback | null;
+    queryWorld: number;
+    callbackDepth: number;
+    queryFailed: boolean;
+    queryError: unknown;
     instance: Kernel | null;
     sharedMemory: WebAssembly.Memory | null;
     pool: Pool | null;
@@ -387,6 +391,10 @@ interface KernelState {
 function createKernelState(): KernelState {
     return {
         queryCallback: null,
+        queryWorld: -1,
+        callbackDepth: 0,
+        queryFailed: false,
+        queryError: undefined,
         instance: null,
         sharedMemory: null,
         pool: null,
@@ -413,11 +421,38 @@ export function setQueryCallback(
     return previous;
 }
 
+export function assertQueryWorld(world: World | undefined, worldId: number): void {
+    const state = kernelState(world);
+    if (state.callbackDepth !== 0 && state.queryWorld !== worldId)
+        throw new Error("physics: one kernel cannot interleave two worlds' queries");
+    state.queryWorld = worldId;
+}
+
+export function rethrowQueryError(world: World | undefined): void {
+    const state = kernelState(world);
+    if (!state.queryFailed) return;
+    const error = state.queryError;
+    state.queryFailed = false;
+    state.queryError = undefined;
+    throw error;
+}
+
 function queryImport(runtime: KernelState): QueryCallback {
     return (kind, shape, data, count) => {
-        if (runtime.queryCallback === null)
-            throw new Error("physics: query callback is not installed");
-        return runtime.queryCallback(kind, shape, data, count);
+        if (runtime.queryFailed) return 0;
+        ++runtime.callbackDepth;
+        try {
+            if (runtime.queryCallback === null)
+                throw new Error("physics: query callback is not installed");
+            return runtime.queryCallback(kind, shape, data, count);
+        } catch (error) {
+            // Exceptions must not abandon Rust frames and leak the WASM shadow stack.
+            runtime.queryFailed = true;
+            runtime.queryError = error;
+            return 0;
+        } finally {
+            --runtime.callbackDepth;
+        }
     };
 }
 

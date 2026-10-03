@@ -278,7 +278,7 @@ test("overlapHeightField would report a hit for a proxy hovering clear above the
     }
 });
 
-test("shapeCastHeightField would cull the one solid height field cell that sits on the trailing side of the swept proxy's x, z or corner boundary", () => {
+test("the kernel height-field shape cast finds the solid cell on the trailing side of the swept proxy's x, z or corner boundary", () => {
     // Only cell (0,0) is solid; the swept sphere's center is nudged just past each boundary so the
     // solid cell sits on the trailing side. A cull AABB pinned to the leading corner would miss it.
     const hf = createHeightField({
@@ -349,11 +349,11 @@ for (const delta of [
     { x: -7, y: -8, z: 4 },
     { x: 9, y: -3, z: -9 },
 ]) {
-    test(`the grid walk in shapeCastHeightField agrees with every wave triangle for delta (${delta.x}, ${delta.y}, ${delta.z}), every origin and radius`, () => {
-        const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
-        const triangles = immutableBruteTriangles(hf);
-        const failures: string[] = [];
-        for (const origin of waveOrigins()) {
+    const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
+    const triangles = immutableBruteTriangles(hf);
+    for (const origin of waveOrigins()) {
+        test(`the kernel height-field shape cast agrees with every wave triangle for ${label(origin, delta)} and every radius`, () => {
+            const failures: string[] = [];
             for (const radius of [0.15, 0.4, 0.9]) {
                 const input: ShapeCastInput = {
                     proxy: { points: [origin], count: 1, radius },
@@ -372,9 +372,9 @@ for (const delta of [
                     );
                 }
             }
-        }
-        expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
-    });
+            expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
+        });
+    }
 }
 
 test("the grid walk in rayCastHeightField would disagree with a brute-force ray against every wave height field triangle on hit or fraction for some origin and translation", () => {

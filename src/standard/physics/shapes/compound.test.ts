@@ -629,7 +629,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
     });
 });
 
-test("collideMoverAndCompound drops one of the up-facing planes a capsule mover straddling two compound box children should get, or overruns the plane capacity it was given.", () => {
+test("the kernel compound mover query returns an up-facing plane from each straddled box child without overrunning its plane capacity.", () => {
     // Ported from test_compound.c CompoundMover.
     vector("collideMover: a mover spanning two boxes gets an up-plane from each", () => {
         const mat = defaultSurfaceMaterial();

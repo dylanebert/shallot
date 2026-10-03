@@ -7,7 +7,7 @@ import { getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { claimResident } from "./bodycolumns";
 import { rebuildGeometry } from "./geocolumns";
-import { type Kernel, kernel } from "./kernel";
+import { assertQueryWorld, type Kernel, kernel } from "./kernel";
 import { SHAPE_STRIDE } from "./shapecolumns";
 
 export function queryColumns(world: WorldState): QueryColumns {
@@ -32,6 +32,7 @@ export class QueryColumns {
 
     prepare(origin: Pos, filter?: QueryFilter): Kernel {
         const world = this.world;
+        assertQueryWorld(world.ecsState, world.worldId);
         claimResident(world);
         const k = kernel(world.ecsState);
         k.shapeSetActiveWorld(world.worldId);

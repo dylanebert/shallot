@@ -1,6 +1,6 @@
 // character mover bit-exact gold gate. Asserts the plane solver (solvePlanes), the
-// velocity clip (clipVector), and the per-shape mover-collide functions (collideMoverAndSphere/Capsule/
-// Hull/Mesh/HeightField/Compound) match the frozen historical oracle vectors bit-for-
+// velocity clip (clipVector), and kernel mover queries over sphere, capsule, hull, mesh, height field
+// and compound shapes match the frozen historical oracle vectors bit-for-
 // bit, over the vectors in mover.gold.json. Current target evidence belongs to the standalone oracle;
 // equality, not tolerance (the README).
 
