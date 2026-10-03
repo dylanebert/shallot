@@ -25,8 +25,6 @@ import {
 const MAX_SIMPLEX_VERTICES = 4;
 const MAX_GJK_ITERATIONS = 32;
 
-const _LINEAR_SLOP = f32(0.005);
-
 /** A convex shape as a point cloud wrapped with a rounding radius (b3ShapeProxy). */
 export type ShapeProxy = {
     /** The point cloud. */

@@ -1077,15 +1077,15 @@ pub(crate) unsafe fn finalize_block(
 unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
     unsafe {
         let records = crate::bodies::body_cap() + crate::bodies::IDENT_RECORDS;
-        let sim2 = core::slice::from_raw_parts(
-            crate::bodies::sim2_base() as *const u32,
+        let sim2 = Col::new(
+            crate::bodies::sim2_base() as *mut u32,
             records * SIM2_STRIDE,
         );
         let shape_u = crate::shapes::col();
         let shape_f = crate::shapes::col_f();
-        let fat = crate::fataabb::col_slice();
+        let fat = crate::fataabb::col();
         for i in start..end {
-            if sim2[i * SIM2_STRIDE + 10] & 0x40 != 0 {
+            if sim2.atomic_get(i * SIM2_STRIDE + 10) & 0x40 != 0 {
                 continue;
             }
             let so = i * SIM_STRIDE;
@@ -1097,7 +1097,7 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
                     s: sim.get(so + 31),
                 },
             };
-            let mut shape_id = sim2[i * SIM2_STRIDE + S2_HEAD_SHAPE];
+            let mut shape_id = sim2.get(i * SIM2_STRIDE + S2_HEAD_SHAPE);
             while shape_id != crate::shapes::NULL_SHAPE {
                 let o = shape_id as usize * crate::shapes::SHAPE_STRIDE;
                 let ty = shape_u.get(o + crate::shapes::S_TYPE);
@@ -1114,12 +1114,12 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
                     ];
                     let fb = shape_id as usize * FAT_STRIDE;
                     let fat_aabb = [
-                        fat[fb],
-                        fat[fb + 1],
-                        fat[fb + 2],
-                        fat[fb + 3],
-                        fat[fb + 4],
-                        fat[fb + 5],
+                        fat.get(fb),
+                        fat.get(fb + 1),
+                        fat.get(fb + 2),
+                        fat.get(fb + 3),
+                        fat.get(fb + 4),
+                        fat.get(fb + 5),
                     ];
                     let (cand, escaped) = finalize::refit_convex(ty, &geom, xf, &fat_aabb);
                     let c = o + crate::shapes::S_CAND;

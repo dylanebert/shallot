@@ -920,7 +920,6 @@ export function computeMeshAABB(data: MeshData, transform: Transform, scale: Vec
     return aabb.transform(transform, bounds);
 }
 
-// AABB-AABB overlap in unscaled mesh space (b3TestBoundsOverlap): all separation components <= 0.
 /** A single scaled mesh triangle in mesh space (b3Triangle): world-scaled vertices, vertex indices,
  * and the edge flags, with winding + flags flipped when the shape scale reflects. */
 export type Triangle = {

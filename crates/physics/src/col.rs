@@ -51,12 +51,37 @@ impl<T> Copy for Col<'_, T> {}
 unsafe impl<T: Send> Send for Col<'_, T> {}
 unsafe impl<T: Send> Sync for Col<'_, T> {}
 
+impl Col<'_, u32> {
+    // Shared flag words need atomic access even when readers inspect only invariant bits.
+    #[inline]
+    pub fn atomic_get(self, i: usize) -> u32 {
+        debug_assert!(i < self.len);
+        unsafe { core::sync::atomic::AtomicU32::from_ptr(self.ptr.add(i)) }
+            .load(core::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn atomic_set(self, i: usize, v: u32) {
+        debug_assert!(i < self.len);
+        unsafe { core::sync::atomic::AtomicU32::from_ptr(self.ptr.add(i)) }
+            .store(v, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn atomic_or(self, i: usize, v: u32) {
+        debug_assert!(i < self.len);
+        unsafe { core::sync::atomic::AtomicU32::from_ptr(self.ptr.add(i)) }
+            .fetch_or(v, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 impl<'a, T: Copy> Col<'a, T> {
     /// A column over `len` elements at `ptr`.
     ///
     /// # Safety
     /// `ptr` must be non-null, aligned, and valid for `len` `T`s for all of `'a`; and every thread
-    /// this handle reaches must confine its writes to elements no other thread touches.
+    /// this handle reaches must confine its writes to elements no other thread touches, unless all
+    /// concurrent accesses to an element use the atomic u32 methods.
     #[inline]
     pub const unsafe fn new(ptr: *mut T, len: usize) -> Self {
         Col {

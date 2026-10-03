@@ -221,14 +221,14 @@ pub unsafe fn finalize(start: usize, end: usize, enabled: bool) {
         let c = scratch();
         c.set(i * STRIDE + 1, 0);
         let awake = out.get(i * 2) > f32::from_bits(c.get(i * STRIDE));
-        let flags = s2.get(i * 12 + 10) & !IS_FAST;
-        s2.set(i * 12 + 10, flags);
+        let flags = s2.atomic_get(i * 12 + 10) & !IS_FAST;
+        s2.atomic_set(i * 12 + 10, flags);
         if enabled
             && awake
             && flags & body::flags::DYNAMIC != 0
             && out.get(i * 2 + 1) > 0.5 * f2.get(i * 12 + 7)
         {
-            s2.set(i * 12 + 10, flags | IS_FAST);
+            s2.atomic_set(i * 12 + 10, flags | IS_FAST);
             if flags & IS_BULLET == 0 {
                 solve(i);
             }
@@ -242,7 +242,7 @@ pub unsafe fn finalize(start: usize, end: usize, enabled: bool) {
 }
 pub unsafe fn bullets(start: usize, end: usize) {
     for i in start..end {
-        if sim2().get(i * 12 + 10) & (IS_FAST | IS_BULLET) == (IS_FAST | IS_BULLET) {
+        if sim2().atomic_get(i * 12 + 10) & (IS_FAST | IS_BULLET) == (IS_FAST | IS_BULLET) {
             solve(i);
         }
     }
@@ -260,7 +260,7 @@ unsafe fn solve(i: usize) {
     let base = v(f2, i * 12 + 4);
     let sw = sweep(i, base);
     let end = end(sw);
-    let bullet = s2.get(i * 12 + 10) & IS_BULLET != 0;
+    let bullet = s2.atomic_get(i * 12 + 10) & IS_BULLET != 0;
     let body_id = s2.get(i * 12 + 9);
     let mut fraction = 1.0;
     let mut hits = [(0u32, 0u32, 0.0f32); 8];
@@ -356,7 +356,7 @@ unsafe fn solve(i: usize) {
                     }
                     let awake = u.get(a + 32);
                     let target_flags = if awake != 0 {
-                        s2.get((awake as usize - 1) * 12 + 10)
+                        s2.atomic_get((awake as usize - 1) * 12 + 10)
                     } else {
                         u.get(a + 42)
                     };
@@ -393,7 +393,7 @@ unsafe fn solve(i: usize) {
                         }
                     } else if output.fraction > 0.0 && output.fraction < fraction {
                         fraction = output.fraction;
-                        s2.set(i * 12 + 10, s2.get(i * 12 + 10) | HAD_TIME_OF_IMPACT);
+                        s2.atomic_or(i * 12 + 10, HAD_TIME_OF_IMPACT);
                     }
                     true
                 },
@@ -455,7 +455,7 @@ unsafe fn solve(i: usize) {
                 fat.set(fb + n, b[n] - margin);
                 fat.set(fb + n + 3, b[n + 3] + margin);
             }
-            s2.set(i * 12 + 10, s2.get(i * 12 + 10) | ENLARGE_BOUNDS);
+            s2.atomic_or(i * 12 + 10, ENLARGE_BOUNDS);
         }
         id = u.get(o + 1);
     }
