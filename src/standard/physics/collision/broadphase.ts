@@ -26,6 +26,8 @@ export const proxyId = (key: number): number => key >> 2;
 export const proxyKey = (id: number, type: BodyTypeValue): number => (id << 2) | type;
 
 export type BroadPhase = {
+    // Logical initialization belongs to the World, including when its snapshot predates a claim.
+    initialization: BroadStore["initialization"];
     trees: DynamicTree[];
     // Resident move membership and insertion order, shared by user edits, refits and pair queries.
     movedProxies: BitSet[];
@@ -109,6 +111,7 @@ export function createBroadPhase(
     store.set = pairSet;
 
     return {
+        initialization: store.initialization,
         trees,
         movedProxies,
         moveArray,

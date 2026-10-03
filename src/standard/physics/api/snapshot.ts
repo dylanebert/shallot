@@ -1,3 +1,4 @@
+import { releaseResident } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
 import { liveWorldCount, type WorldState } from "../world/world";
 import type { PhysicsWorld } from "./world";
@@ -178,8 +179,12 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     state.broadPhase.store.world = state;
     state.broadPhase.store.trees = state.broadPhase.trees;
     state.broadPhase.store.set = state.broadPhase.pairSet;
-    state.broadPhase.store.restoreViews();
+    state.broadPhase.store.initialization = state.broadPhase.initialization;
+    state.broadPhase.store.refreshViews();
     state.bodyStore.refreshViews();
     state.shapeStore.refreshViews();
     state.manifoldStore.refreshViews();
+    // The restored logical initialization, rather than a pre-restore ownership cache hit,
+    // must govern the next claim, including rollback into the current owner.
+    releaseResident(state);
 }

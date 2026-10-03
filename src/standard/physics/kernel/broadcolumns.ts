@@ -54,27 +54,15 @@ export class BroadStore {
     private _lastGen = -1;
     private _genPtr = 0;
     private _gen = EMPTY_U;
-    private _movesInitialized = false;
-    private _claimed = false;
+    initialization = { claimed: false, movesInitialized: false };
 
     /** Initialize native metadata only after this World acquires the singleton region. */
     claim(): void {
         const world = this.world;
-        if (this._claimed || world === null) return;
-        this._claimed = true;
+        if (this.initialization.claimed || world === null) return;
+        this.initialization.claimed = true;
         this.growBodyFilters(world.bodyFilters.capacity);
         world.bodyFilters.data.fill(0);
-    }
-
-    /** Bind an already restored native image without running new-World initialization. */
-    restoreViews(): void {
-        this._claimed = true;
-        this._movesInitialized = true;
-        const k = kernel(this.ecsState);
-        for (let i = 0; i < this.trees.length; i++) {
-            if (k.broadTreeCap(i) !== 0) this.trees[i].residentState = true;
-        }
-        this.refreshViews();
     }
 
     /** Refresh only if the region moved or memory grew since the last refresh. O(1) when fresh (a
@@ -106,7 +94,7 @@ export class BroadStore {
                 t.ni = EMPTY_I;
                 continue;
             }
-            if (this._claimed) {
+            if (this.initialization.claimed) {
                 const initial = !t.residentState;
                 const previous = t.state;
                 t.state = new Int32Array(buf, layout[i], 6);
@@ -118,11 +106,11 @@ export class BroadStore {
         }
 
         const moveCapacity = k.broadTreeCap(0) + k.broadTreeCap(1) + k.broadTreeCap(2);
-        if (this._claimed && moveCapacity !== 0) {
+        if (this.initialization.claimed && moveCapacity !== 0) {
             this.moveState = new Uint32Array(buf, layout[7], 1);
-            if (!this._movesInitialized) {
+            if (!this.initialization.movesInitialized) {
                 k.broadClearMoves();
-                this._movesInitialized = true;
+                this.initialization.movesInitialized = true;
             }
             this.moveData = new Int32Array(buf, layout[7] + 4, moveCapacity);
             for (let i = 0; i < 3; i++)
@@ -131,9 +119,13 @@ export class BroadStore {
                     layout[8 + i],
                     Math.ceil(k.broadTreeCap(i) / 32),
                 );
+        } else {
+            this.moveState = EMPTY_U;
+            this.moveData = EMPTY_I;
+            for (let i = 0; i < 3; i++) this.movedBits[i] = EMPTY_U;
         }
         const filter = this.world?.bodyFilters;
-        if (this._claimed && filter !== undefined && filter.capacity !== 0) {
+        if (this.initialization.claimed && filter !== undefined && filter.capacity !== 0) {
             filter.data = new Uint32Array(buf, layout[6], 1 + 3 * filter.capacity);
         }
 
@@ -190,7 +182,7 @@ export class BroadStore {
     // additionally `memory.grow`s, detaching every sibling store's views; refresh those too.
     private reserve(capS: number, capK: number, capD: number, setCap: number, filterCap = 0): void {
         if (this.world !== null) claimResident(this.world);
-        else this._claimed = true;
+        else this.initialization.claimed = true;
         const grew = kernel(this.ecsState).reserveBroad(capS, capK, capD, setCap, filterCap) !== 0;
         this.refreshViews();
         if (grew) {
