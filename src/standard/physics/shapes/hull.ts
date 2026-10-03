@@ -1480,11 +1480,6 @@ export function computeHullAABB(shape: HullData, transform: Transform): AABB {
     return aabb.transform(transform, shape.aabb);
 }
 
-/** AABB enclosing a hull swept between two poses (b3ComputeSweptHullAABB). */
-export function computeSweptHullAABB(shape: HullData, xf1: Transform, xf2: Transform): AABB {
-    return aabb.union(aabb.transform(xf1, shape.aabb), aabb.transform(xf2, shape.aabb));
-}
-
 /** Min/max extent of a hull relative to `origin`, for sleeping bounds (b3ComputeHullExtent). */
 export function computeHullExtent(
     hull: HullData,

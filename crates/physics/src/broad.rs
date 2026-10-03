@@ -4,11 +4,12 @@
 //! linear memory); TS owns the growth policy + the tree/table algorithms that write them
 //! (`src/tree.ts`, `src/table.ts`, `src/broadcolumns.ts`).
 //!
-//! Six sub-columns, in memory order — three tree pools then the pair-set's three parallel u32 arrays:
+//! Seven sub-columns: three tree pools, the pair-set's three parallel u32 arrays, then body filters:
 //!   tree[Static]   `cap_s` nodes, `TREE_STRIDE` u32/f32 slots each (`src/tree.ts` node record)
 //!   tree[Kinematic] `cap_k` nodes
 //!   tree[Dynamic]  `cap_d` nodes
 //!   keyHi / keyLo / hashes  `set_cap` u32 each (`src/table.ts` open-addressing set)
+//!   body filters: count + `filter_cap` sorted (bodyA, bodyB, joint count) triples
 //!
 //! Placement — a persistent region between the manifold region and the geometry region:
 //! ```text
@@ -36,7 +37,8 @@ const TREE_D: usize = 2;
 const KEY_HI: usize = 3;
 const KEY_LO: usize = 4;
 const HASHES: usize = 5;
-const N_BROAD: usize = 6;
+const BODY_FILTER: usize = 6;
+const N_BROAD: usize = 7;
 
 /// Per-column byte offsets into linear memory, rewritten by every grow-triggering `reserveBroad`.
 /// TS reads this header (`broadLayoutPtr`) to build its column views after every grow.
@@ -49,6 +51,7 @@ static mut BROAD_END: u32 = 0;
 static mut TREE_CAP: [usize; 3] = [0; 3];
 /// The slot capacity the pair-set arrays are sized to (grow-only, power of two).
 static mut SET_CAP: usize = 0;
+static mut BODY_FILTER_CAP: usize = 0;
 /// Bumped on every layout change — a grow here or a relocation by a region below. TS keys its
 /// view-staleness on it, so it catches a relocation that shifted this region's offsets without a
 /// `memory.grow` (a lower region growing within already-committed pages).
@@ -131,6 +134,41 @@ pub fn set_cap() -> usize {
     unsafe { SET_CAP }
 }
 
+/// Sorted unordered body pairs with a live non-colliding joint. The first word is the
+/// pair count, followed by triples (low body ID, high body ID, joint reference count).
+#[inline]
+fn filter_bytes(cap: usize) -> usize {
+    if cap == 0 {
+        0
+    } else {
+        (1 + 3 * cap) * 4
+    }
+}
+
+#[export_name = "broadBodiesFiltered"]
+pub extern "C" fn bodies_filtered(a: u32, b: u32) -> u32 {
+    unsafe {
+        if BODY_FILTER_CAP == 0 {
+            return 0;
+        }
+        let data = BROAD_LAYOUT[BODY_FILTER] as *const u32;
+        let (a, b) = (a.min(b), a.max(b));
+        let mut lo = 0;
+        let mut hi = *data as usize;
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            let p = data.add(1 + 3 * mid);
+            let key = (*p, *p.add(1));
+            if key < (a, b) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        (lo < *data as usize && *data.add(1 + 3 * lo) == a && *data.add(2 + 3 * lo) == b) as u32
+    }
+}
+
 unsafe fn ensure_capacity(end_byte: usize) {
     let have = core::arch::wasm32::memory_size(0) * PAGE;
     if end_byte > have {
@@ -172,7 +210,13 @@ fn col_bytes(records: usize, stride: usize) -> usize {
 /// body region), relocates the geometry region above it in place, and returns 1 — the caller then
 /// refreshes every view a `memory.grow` detached. @returns 1 when the region grew.
 #[export_name = "reserveBroad"]
-pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_cap: usize) -> u32 {
+pub extern "C" fn reserve_broad(
+    cap_s: usize,
+    cap_k: usize,
+    cap_d: usize,
+    set_cap: usize,
+    filter_cap: usize,
+) -> u32 {
     unsafe {
         let new_tree = [
             if cap_s > TREE_CAP[0] {
@@ -192,10 +236,12 @@ pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_ca
             },
         ];
         let new_set = if set_cap > SET_CAP { set_cap } else { SET_CAP };
+        let new_filter = filter_cap.max(BODY_FILTER_CAP);
         if new_tree[0] == TREE_CAP[0]
             && new_tree[1] == TREE_CAP[1]
             && new_tree[2] == TREE_CAP[2]
             && new_set == SET_CAP
+            && new_filter == BODY_FILTER_CAP
         {
             return 0;
         }
@@ -203,6 +249,7 @@ pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_ca
         let old_layout = BROAD_LAYOUT;
         let old_tree = TREE_CAP;
         let old_set = SET_CAP;
+        let old_filter = BODY_FILTER_CAP;
         let old_top = region_top(); // where the geometry region currently anchors
 
         // Anchor at the *raw* manifold-region top — deliberately NOT align16'd. That anchor is only
@@ -230,6 +277,8 @@ pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_ca
         off += col_bytes(new_set, 1);
         new_layout[HASHES] = off as u32;
         off += col_bytes(new_set, 1);
+        new_layout[BODY_FILTER] = off as u32;
+        off += filter_bytes(new_filter);
         let new_end = align16(off);
 
         // Relocate the geometry region above by the growth delta (it holds live hull data a
@@ -277,8 +326,9 @@ pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_ca
             col_bytes(old_set, 1),
             col_bytes(old_set, 1),
             col_bytes(old_set, 1),
+            filter_bytes(old_filter),
         ];
-        for c in (TREE_K..=HASHES).rev() {
+        for c in (TREE_K..=BODY_FILTER).rev() {
             if old_bytes[c] != 0 && new_layout[c] != old_layout[c] {
                 core::ptr::copy(
                     old_layout[c] as *const u8,
@@ -292,6 +342,7 @@ pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_ca
         BROAD_END = new_end as u32;
         TREE_CAP = new_tree;
         SET_CAP = new_set;
+        BODY_FILTER_CAP = new_filter;
         BROAD_GEN = BROAD_GEN.wrapping_add(1);
         1
     }

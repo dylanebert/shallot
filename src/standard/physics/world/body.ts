@@ -1040,6 +1040,7 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
                 shapeId = s.nextShapeId;
             }
         }
+        syncBodyQuery(world, body);
         return;
     }
 
@@ -1113,6 +1114,7 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
         bodySim.invInertiaLocal = mat3.zero();
         bodySim.invInertiaWorld = mat3.zero();
     }
+    syncBodyQuery(world, body);
 }
 
 /** @returns the body's mass, local center of mass, and rotational inertia (b3Body_GetMassData). */

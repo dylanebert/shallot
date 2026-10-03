@@ -177,6 +177,8 @@ pub extern "C" fn reserve(
         LAYOUT[JOINT] = off as u32;
         off += joint * crate::joint_abi::JOINT_STRIDE * 4;
 
+        crate::continuous::reserve_at(off, body);
+        off += body * crate::continuous::STRIDE * 4;
         ensure_capacity(off);
     }
 }
@@ -1050,6 +1052,7 @@ pub(crate) unsafe fn finalize_block(
             moves.set(o + 1, crate::bodies::active_generation(body_id));
             moves.set(o + 2, 0);
         }
+        crate::continuous::finalize(start, end, enable_continuous);
         refit_block(sim, fin, start, end);
     }
 }
@@ -1082,6 +1085,9 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
         let shape_f = crate::shapes::col_f();
         let fat = crate::fataabb::col_slice();
         for i in start..end {
+            if sim2[i * SIM2_STRIDE + 10] & 0x40 != 0 {
+                continue;
+            }
             let so = i * SIM_STRIDE;
             let fo = i * FIN_STRIDE;
             let xf = Transform {

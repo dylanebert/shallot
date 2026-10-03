@@ -126,11 +126,18 @@ export type Kernel = {
     // Persistent broad-phase columns (kernel/src/broad.rs) — the three dynamic-tree node pools plus the
     // pair-set membership arrays, held resident so the in-kernel pair query + tree rebuild (3d) run over
     // them without a marshal. A persistent region between the manifold and geometry regions;
-    // `reserveBroad` sizes each of the six sub-columns (grow-only per column: pass 0 to hold a column at
+    // `reserveBroad` sizes each of the seven sub-columns (grow-only per column: pass 0 to hold a column at
     // its current size), relocating the geometry region above it on a grow. `broadLayoutPtr` returns the
     // byte-offset header TS derives its views from (broadcolumns.ts); `broadTreeCap`/`broadSetCap` are
     // the authoritative capacities.
-    reserveBroad(capS: number, capK: number, capD: number, setCap: number): number;
+    reserveBroad(
+        capS: number,
+        capK: number,
+        capD: number,
+        setCap: number,
+        filterCap: number,
+    ): number;
+    broadBodiesFiltered(bodyA: number, bodyB: number): number;
     broadLayoutPtr(): number;
     broadTreeCap(i: number): number;
     broadSetCap(): number;
@@ -218,6 +225,8 @@ export type Kernel = {
     dispatchPtr(): number;
     dispatchOutPtr(): number;
     dispatchContacts(count: number): void;
+    continuousPtr(): number;
+    continuousRoots(s: number, k: number, d: number): void;
 
     // Contact-recycle batched pass (kernel/src/arena.rs). `reserveRecycle` lays out the per-record
     // input + output columns (at the solver base, consumed within collide, before the convex dispatch);
@@ -283,6 +292,7 @@ export type Kernel = {
 export const ParKind = {
     Recycle: 1,
     Contacts: 2,
+    Bullets: 3,
 } as const;
 export type ParKind = (typeof ParKind)[keyof typeof ParKind];
 

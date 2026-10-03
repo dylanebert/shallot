@@ -34,6 +34,13 @@ import {
     SIM_STRIDE,
     SIM2_STRIDE,
 } from "../kernel/columns";
+import {
+    bufferFastBulletMoves,
+    consumeContinuous,
+    enlargeFastProxies,
+    prepareContinuous,
+    solveBullets,
+} from "../kernel/continuouscolumns";
 import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
 import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
@@ -50,12 +57,6 @@ import {
     writeColorSpans,
     writeSlots,
 } from "./contactsolver";
-import {
-    bufferFastBulletMoves,
-    enlargeFastProxies,
-    solveBullets,
-    solveContinuous,
-} from "./continuous";
 
 const SPEED_CAPPED = BodyFlags.isSpeedCapped;
 const TOI = BodyFlags.hadTimeOfImpact;
@@ -139,12 +140,12 @@ function commitRefit(world: WorldState, shape: Shape, box: AABB): void {
  * Advance body transforms from the solved deltas and re-fit broad-phase AABBs (b3FinalizeBodies). The
  * substep solve already ran over the resident columns, so finalize consumes them directly: kernel
  * `finalize` does the per-body pose-advance arithmetic straight into the columns, and the TS tail (this
- * function) owns everything touching world state — move events, sleep, CCD, refit, island bookkeeping.
+ * function) publishes kernel sweep outputs and owns sleep, proxy enlargement and island bookkeeping.
  * The pose advance already ran as the staged solve's terminal stage. The awake
  * `sim`/`fin`/`sim2` + `state` are all resident (bodycolumns.ts), so nothing marshals in or back out.
  * This loop reads/writes the pose/inertia columns **raw** (by localIndex) rather than through the
  * `ResidentBodySim` view whose vector getters would allocate per field per body; the view (`sim`) is
- * used only for scalar fields (no allocation) and the `solveContinuous` handoff. `states` is the
+ * used only for scalar fields (no allocation). `states` is the
  * awake-set body-state view array.
  */
 function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]): void {
@@ -179,6 +180,9 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
         const so = simIndex * SIM_STRIDE;
         const fo = simIndex * FIN_STRIDE;
         const s2o = simIndex * SIM2_STRIDE;
+        if ((sim.flags & (BodyFlags.isFast | BodyFlags.isBullet)) === BodyFlags.isFast) {
+            consumeContinuous(world, sim, simIndex);
+        }
 
         // The kernel finalize advanced the pose (center/rotation/transform.p), rebuilt the world inertia,
         // and zeroed the deltas + force/torque straight into the resident columns. Read the advanced pose
@@ -226,13 +230,10 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
                 // Fast body: sweep it to its first impact instead of the discrete advance. The isFast
                 // flag is retained for the refit branch below (and for debug draw). Bullets are
                 // deferred to the post-finalize stage (they must sweep the enlarged dynamic proxies);
-                // non-bullets sweep static geometry now, which no one mutates mid-finalize. (solveContinuous
-                // writes the impact pose through the view; the inertia recompute below re-reads it raw.)
+                // non-bullets have already swept the read-only static tree in kernel finalize.
                 sim.flags |= BodyFlags.isFast;
                 if (sim.flags & BodyFlags.isBullet) {
                     context.bulletBodies.push(sim);
-                } else {
-                    solveContinuous(world, sim);
                 }
             }
             // else: the body advances discretely. Its sweep base (center0 = center, rotation0 = q) was
@@ -248,7 +249,7 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
 
         // Update world-space inverse inertia tensor. The kernel finalize already wrote it (from the
         // finalize rotation) for every body, so a discretely-advanced body needs no re-derivation. A
-        // CCD-clipped fast body's transform.q was just changed by solveContinuous, so C recomputes it
+        // CCD-clipped fast body's transform.q was changed by the kernel sweep, so C recomputes it
         // from the post-sweep rotation (solver.c b3FinalizeBodiesTask, after b3SolveContinuous); match
         // that for fast bodies only — read the current rotation + invInertiaLocal and write
         // R · invInertiaLocal · Rᵀ back raw.
@@ -294,9 +295,9 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
         // the move (its dynamic-tree proxy is enlarged later, in the bullet stage).
         if (sim.flags & BodyFlags.isFast) {
             if (sim.flags & BodyFlags.isBullet) {
-                bufferFastBulletMoves(world, body);
+                bufferFastBulletMoves(world, sim);
             } else {
-                enlargeFastProxies(world, body);
+                enlargeFastProxies(world, sim);
             }
             continue;
         }
@@ -334,6 +335,7 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
                     commitRefit(world, shape, box);
                 }
             }
+            world.shapeStore.writeTightAabb(shape.id, shape.aabb);
             shapeId = shape.nextShapeId;
         }
     }
@@ -504,6 +506,7 @@ export function solve(world: WorldState, context: StepContext): void {
     const subStepCount = context.subStepCount;
 
     const jointTotal = marshalJoints(world, layout, cols);
+    prepareContinuous(world, context.sims);
     k.solveBuild(
         (pool?.size ?? 0) + 1,
         subStepCount,
@@ -583,7 +586,7 @@ export function solve(world: WorldState, context: StepContext): void {
     // fully enlarged once finalize has refit every non-bullet proxy (b3World_Step's bullet stage).
     if (context.bulletBodies.length > 0) {
         clock.mark(SOLVE_PHASE_SLOT);
-        solveBullets(world, context.bulletBodies);
+        solveBullets(world, context.sims);
         clock.span("bullets", SOLVE_PHASE_SLOT);
     }
 

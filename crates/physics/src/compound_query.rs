@@ -20,7 +20,7 @@ fn vec(r: &[u32], i: usize) -> Vec3 {
         f32::from_bits(r[i + 2]),
     )
 }
-fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i32; 4]) {
+pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i32; 4]) {
     let r = &c.children[index * 19..index * 19 + 19];
     let xf = Transform {
         p: vec(r, 1),
@@ -93,7 +93,7 @@ fn cast(
         }
     }
 }
-fn query(c: Compound, lower: Vec3, upper: Vec3, visit: impl FnMut(i32, u32) -> bool) {
+pub(crate) fn query(c: Compound, lower: Vec3, upper: Vec3, visit: impl FnMut(i32, u32) -> bool) {
     crate::tree::query(
         c.nodes,
         c.root,

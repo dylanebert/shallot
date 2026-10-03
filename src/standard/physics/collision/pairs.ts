@@ -7,7 +7,7 @@
 // The query DFS, moved-proxy dedup, pair-set-membership rejection, and the two tree rebuilds run
 // in-kernel over the resident broad-phase region (kernel/src/pairwork.rs), which returns a candidate
 // slab (steady-state ≈ empty). TS copies the move buffer + dynamic moved-bitset in, then applies the
-// surviving filters (self-body / sensor / shouldShapesCollide / joint walk) over the returned
+// surviving filters (self-body / sensor / shouldShapesCollide / resident body pairs) over the returned
 // candidates and creates the contacts. A found compound leaf stays on the TS path: the kernel emits a
 // placeholder, and TS maps the query bounds into the compound's local frame and recurses its inner
 // tree, each overlapping child a candidate with its child index. fround (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
@@ -19,6 +19,7 @@ import { kernel } from "../kernel/kernel";
 import { type CompoundData, queryCompound } from "../shapes/compound";
 import { type Body, getBodyTransformQuick } from "../world/body";
 import type { WorldState } from "../world/world";
+import { bodiesFiltered } from "./bodyfilter";
 import * as bp from "./broadphase";
 import { createContact } from "./contact";
 import { containsKey, ensureResident } from "./table";
@@ -35,40 +36,12 @@ export function shouldShapesCollide(a: FilterBits, b: FilterBits): boolean {
     );
 }
 
-// Whether two bodies may collide (b3ShouldBodiesCollide). At least one must be dynamic, and no joint
-// connecting them may have collideConnected disabled. Walks the shorter of the two bodies' joint lists.
+// b3ShouldBodiesCollide tests direct joint edges, not connectivity through intermediate bodies.
 export function shouldBodiesCollide(world: WorldState, bodyA: Body, bodyB: Body): boolean {
-    if (bodyA.type !== BodyType.Dynamic && bodyB.type !== BodyType.Dynamic) {
-        return false;
-    }
-
-    let jointKey: number;
-    let otherBodyId: number;
-    if (bodyA.jointCount < bodyB.jointCount) {
-        jointKey = bodyA.headJointKey;
-        otherBodyId = bodyB.id;
-    } else {
-        jointKey = bodyB.headJointKey;
-        otherBodyId = bodyA.id;
-    }
-
-    while (jointKey !== NULL_INDEX) {
-        const jointId = jointKey >> 1;
-        const edgeIndex = jointKey & 1;
-        const otherEdgeIndex = edgeIndex ^ 1;
-
-        const joint = world.joints[jointId];
-        if (
-            joint.collideConnected === false &&
-            joint.edges[otherEdgeIndex].bodyId === otherBodyId
-        ) {
-            return false;
-        }
-
-        jointKey = joint.edges[edgeIndex].nextKey;
-    }
-
-    return true;
+    return (
+        (bodyA.type === BodyType.Dynamic || bodyB.type === BodyType.Dynamic) &&
+        !bodiesFiltered(world, bodyA.id, bodyB.id)
+    );
 }
 
 // The survivor slab: one flat entry per pair that passed every filter, appended in discovery order,

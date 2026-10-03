@@ -56,6 +56,9 @@ pub(crate) unsafe fn geometry(kind: u32, r: &[u32]) -> Shape<'static> {
 }
 pub(crate) unsafe fn shape(world: usize, id: usize) -> (Shape<'static>, i32) {
     crate::shapes::shape_set_active_world(world as u32);
+    active_shape(id)
+}
+pub(crate) unsafe fn active_shape(id: usize) -> (Shape<'static>, i32) {
     let col = crate::shapes::col();
     let o = id * SHAPE_STRIDE;
     let kind = col.get(o + S_TYPE);

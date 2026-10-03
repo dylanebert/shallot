@@ -291,7 +291,7 @@ pub fn shape_cast_mesh(mesh: Mesh, input: &ShapeCastInput) -> CastOutput {
     output
 }
 
-fn visit_triangles(
+pub(crate) fn visit_triangles(
     mesh: Mesh,
     lower: Vec3,
     upper: Vec3,

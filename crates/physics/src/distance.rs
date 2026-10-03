@@ -1,6 +1,6 @@
 //! GJK closest-point distance, ported op-for-op from box3d's `distance.c` (Erin Catto, MIT) via the
 //! upstream TS port (`src/distance.ts`). Closest-point distance serves narrowphase and conservative
-//! advancement serves shape queries; time-of-impact remains TS-side.
+//! advancement serves shape queries.
 //!
 //! Rust `f32` is native IEEE-754 with no FMA contraction, so each TS `f32(...)`-wrapped op maps to one
 //! Rust op with the same operand order (see `math.rs`).
@@ -8,6 +8,8 @@
 use crate::math::{
     blend2, blend3, scalar_triple_product, Transform, Vec3, FLT_EPSILON, FLT_MAX, FLT_MIN,
 };
+
+pub use crate::toi::{time_of_impact, Sweep, TOIInput, TOIOutput};
 
 const MAX_SIMPLEX_VERTICES: usize = 4;
 const MAX_GJK_ITERATIONS: i32 = 32;

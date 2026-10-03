@@ -55,6 +55,7 @@ const B_SYNC_QUAT = 13;
 const B_SYNC_VEL = 14;
 const B_SYNC_INDEX = 15;
 export const N_BODY = 16;
+export const CONTINUOUS_STRIDE = 18;
 
 type MovedRows = { eids: Uint32Array; pos: Float32Array; quat: Float32Array; vel: Float32Array };
 
@@ -109,6 +110,9 @@ export class BodyStore {
     sim2U = new Uint32Array(0);
     /** Retained kernel body-move records: body index, generation, fellAsleep. */
     moveU = new Uint32Array(0);
+    continuousF = new Float32Array(0);
+    continuousU = new Uint32Array(0);
+    #continuousCount = 0;
     syncCount = 0;
     #syncIndex = new Uint32Array(0);
     #syncVel = new Float32Array(0);
@@ -164,6 +168,22 @@ export class BodyStore {
         this.#syncIndex = new Uint32Array(buf, layout[B_SYNC_INDEX], cap);
         this.#syncVel = new Float32Array(buf, layout[B_SYNC_VEL], cap * 4);
         this.#syncRanges.clear();
+    }
+
+    refreshContinuous(count = this.#continuousCount): void {
+        this.#continuousCount = count;
+        const k = kernel(this.ecsState);
+        const buf = k.memory.buffer;
+        const ptr = k.continuousPtr();
+        const length = count * CONTINUOUS_STRIDE;
+        if (
+            this.continuousF.buffer === buf &&
+            this.continuousF.byteOffset === ptr &&
+            this.continuousF.length === length
+        )
+            return;
+        this.continuousF = new Float32Array(buf, ptr, length);
+        this.continuousU = new Uint32Array(buf, ptr, length);
     }
 
     /** Stable views of the kernel's compact, ECS-tagged moved rows. */

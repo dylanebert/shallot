@@ -1,0 +1,10 @@
+{
+  "schema": "box3d-oracle/v8",
+  "caseCount": 4,
+  "roster": [
+    "toi.quad_seg_translate.v1",
+    "toi.box_box_rotate.v1",
+    "toi.box_box_separated.v1",
+    "toi.box_box_overlap.v1"
+  ]
+}

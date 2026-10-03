@@ -8,6 +8,7 @@
 // The port uses canonical graph coloring; joints that cannot fit a real color use the overflow color.
 // Every arithmetic op is fround-wrapped in the per-type files; see the README.
 
+import { changeBodyFilter } from "../collision/bodyfilter";
 import { bufferMove } from "../collision/broadphase";
 import { destroyContact } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
@@ -222,6 +223,7 @@ export function createJoint(
     joint.drawScale = def.drawScale;
     joint.type = type;
     joint.collideConnected = def.collideConnected;
+    if (!joint.collideConnected) changeBodyFilter(world, bodyIdA, bodyIdB, 1);
 
     // Doubly linked list on bodyA
     joint.edges[0] = { bodyId: bodyIdA, prevKey: NULL_INDEX, nextKey: bodyA.headJointKey };
@@ -326,6 +328,7 @@ export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies
     const idB = edgeB.bodyId;
     const bodyA = world.bodies[idA];
     const bodyB = world.bodies[idB];
+    if (!joint.collideConnected) changeBodyFilter(world, idA, idB, -1);
 
     // Remove from body A
     if (edgeA.prevKey !== NULL_INDEX) {
@@ -454,6 +457,7 @@ export function setJointCollideConnected(
     if (joint.collideConnected === shouldCollide) {
         return;
     }
+    changeBodyFilter(world, joint.edges[0].bodyId, joint.edges[1].bodyId, shouldCollide ? -1 : 1);
     joint.collideConnected = shouldCollide;
 
     const bodyA = world.bodies[joint.edges[0].bodyId];

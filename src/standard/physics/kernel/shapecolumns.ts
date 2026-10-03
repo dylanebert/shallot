@@ -16,17 +16,17 @@ import type { World } from "../../../engine";
 
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
-import type { AABB, Transform } from "../common/math";
+import type { AABB } from "../common/math";
 import { ShapeType, type SurfaceMaterial } from "../common/types";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HullData } from "../shapes/hull";
 import type { Shape } from "../shapes/shape";
-import { type Body, getBodySim } from "../world/body";
+import { type Body, type BodySim, getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
 /** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7) attachment(2). */
-export const SHAPE_STRIDE = 34;
+export const SHAPE_STRIDE = 50;
 /** Shape type code — the `ShapeType` value verbatim (sphere/capsule/hull dispatch in-kernel; every
  * other value is the TS-fallback partition the kernel skips). */
 export const S_TYPE = 0;
@@ -227,8 +227,9 @@ export class ShapeStore {
         }
         this.writeGeometryReference(world, shape);
         this.writeQueryProperties(shape);
+        this.writeTightAabb(shape.id, shape.aabb);
         const body = world.bodies[shape.bodyId];
-        this.writeQueryPose(shape.id, body, getBodySim(world, body).transform);
+        this.writeQueryPose(shape.id, body, getBodySim(world, body));
     }
 
     writeQueryProperties(shape: Shape): void {
@@ -241,14 +242,25 @@ export class ShapeStore {
         u[n + 29] = shape.bodyId;
         u[n + 30] = Number(shape.enableSensorEvents);
         u[n + 31] = shape.filter.groupIndex;
+        u[n + 41] = shape.sensorIndex;
+        this.shapeF[n + 40] = shape.aabbMargin;
+        this.shapeF[n + 43] = shape.hull?.innerRadius ?? 0;
     }
 
-    writeQueryPose(shapeId: number, body: Body, pose?: Transform): void {
+    writeQueryPose(shapeId: number, body: Body, sim?: BodySim): void {
         const n = shapeId * SHAPE_STRIDE;
         this.shapeU[n + 32] = body.setIndex === SetType.Awake ? body.localIndex + 1 : 0;
         if (body.setIndex === SetType.Awake) return;
-        if (!pose) throw new Error("physics: a non-awake query shape requires its sleeping pose");
+        if (!sim) throw new Error("physics: a non-awake query shape requires its sleeping pose");
+        const pose = sim.transform;
+        this.shapeU[n + 42] = sim.flags;
         const f = this.shapeF;
+        f[n + 44] = sim.center.x;
+        f[n + 45] = sim.center.y;
+        f[n + 46] = sim.center.z;
+        f[n + 47] = sim.localCenter.x;
+        f[n + 48] = sim.localCenter.y;
+        f[n + 49] = sim.localCenter.z;
         f[n + 18] = pose.p.x;
         f[n + 19] = pose.p.y;
         f[n + 20] = pose.p.z;
@@ -326,6 +338,17 @@ export class ShapeStore {
         }
     }
 
+    /** Keep the last shape bounds resident for the next continuous sweep. */
+    writeTightAabb(shapeId: number, box: AABB): void {
+        const o = shapeId * SHAPE_STRIDE + 34;
+        this.shapeF[o] = box.lowerBound.x;
+        this.shapeF[o + 1] = box.lowerBound.y;
+        this.shapeF[o + 2] = box.lowerBound.z;
+        this.shapeF[o + 3] = box.upperBound.x;
+        this.shapeF[o + 4] = box.upperBound.y;
+        this.shapeF[o + 5] = box.upperBound.z;
+    }
+
     /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
     writeFatAabb(shapeId: number, fat: AABB): void {
         const o = shapeId * 6;
@@ -341,9 +364,11 @@ export class ShapeStore {
 export function syncBodyQuery(world: WorldState, body: Body): void {
     const store = world.shapeStore;
     store.refreshViews();
-    const pose = body.setIndex === SetType.Awake ? undefined : getBodySim(world, body).transform;
-    for (let id = body.headShapeId; id !== NULL_INDEX; id = world.shapes[id].nextShapeId)
-        store.writeQueryPose(id, body, pose);
+    const sim = body.setIndex === SetType.Awake ? undefined : getBodySim(world, body);
+    for (let id = body.headShapeId; id !== NULL_INDEX; id = world.shapes[id].nextShapeId) {
+        store.writeQueryPose(id, body, sim);
+        store.writeTightAabb(id, world.shapes[id].aabb);
+    }
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
@@ -430,4 +455,5 @@ export function writeFatAabb(world: WorldState, shape: Shape): void {
     }
     world.shapeStore.refreshViews();
     world.shapeStore.writeFatAabb(shape.id, shape.fatAABB);
+    world.shapeStore.writeTightAabb(shape.id, shape.aabb);
 }

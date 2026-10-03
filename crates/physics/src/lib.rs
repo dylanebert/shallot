@@ -25,6 +25,9 @@ pub mod body;
 pub mod col;
 pub mod contact;
 pub mod contact_wide;
+#[cfg(target_arch = "wasm32")]
+pub mod continuous;
+pub mod continuous_shape;
 pub mod distance;
 pub mod finalize;
 pub mod height_query;
@@ -43,6 +46,7 @@ pub mod query;
 pub mod recycle;
 mod simd;
 pub mod stages;
+mod toi;
 pub mod triangle_manifold;
 // The broad-phase pair query + dynamic-tree rebuild (3d). `tree`/`table` are native-testable (gold
 // vectors: `tests/tree_gold.rs`); the wasm arena shim that drives them over the resident region is

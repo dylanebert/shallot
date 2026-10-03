@@ -47,7 +47,11 @@ const PAGE: usize = 65536;
 /// position. Hull lane 8 holds the hull record index. Attachment lanes 16 and 17 sit outside the refit
 /// output and survive every shape write. No other padding — the record is read scalar, one shape at a
 /// time.
-pub const SHAPE_STRIDE: usize = 34;
+// Continuous lanes: last shape AABB(34..40), authored margin(40), sensor index(41),
+// sleeping body flags(42), authored hull inner radius(43), sleeping center(44..47)
+// and local center(47..50). Sweeps own the AABB and escaped output;
+// TS publishes non-fast refits and pose edits here until tree maintenance moves to the kernel.
+pub const SHAPE_STRIDE: usize = 50;
 /// Query placement, filter and attachment metadata, refreshed by the world query upload.
 pub const S_QUERY_POSE: usize = 18;
 pub const S_QUERY_CATEGORY: usize = 25;

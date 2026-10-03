@@ -6,7 +6,8 @@
 
 use serde_json::Value;
 use shallot_physics::distance::{
-    shape_cast, shape_distance, DistanceInput, ShapeCastPairInput, ShapeProxy, SimplexCache,
+    shape_cast, shape_distance, time_of_impact, DistanceInput, ShapeCastPairInput, ShapeProxy,
+    SimplexCache, Sweep, TOIInput,
 };
 use shallot_physics::math::{Quat, Transform, Vec3};
 
@@ -80,6 +81,100 @@ fn points(name: &str) -> Vec<Vec3> {
         "seg0" => vec![v(0.0, -1.0, 0.0), v(0.0, 1.0, 0.0)],
         "pt1" => vec![v(0.0, 0.0, 0.0)],
         _ => panic!("unknown proxy {name}"),
+    }
+}
+
+fn vec_from_hex(o: &Value) -> Vec3 {
+    let a = o.as_array().unwrap();
+    Vec3::new(
+        from_bits(a[0].as_str().unwrap()),
+        from_bits(a[1].as_str().unwrap()),
+        from_bits(a[2].as_str().unwrap()),
+    )
+}
+
+fn sweep_from_hex(o: &Value) -> Sweep {
+    let quat = |q: &Value| Quat {
+        v: vec_from_hex(q),
+        s: from_bits(q[3].as_str().unwrap()),
+    };
+    Sweep {
+        local_center: vec_from_hex(&o["localCenter"]),
+        c1: vec_from_hex(&o["c1"]),
+        c2: vec_from_hex(&o["c2"]),
+        q1: quat(&o["q1"]),
+        q2: quat(&o["q2"]),
+    }
+}
+
+#[test]
+fn time_of_impact_bit_exact() {
+    let gold: Value = serde_json::from_str(include_str!("../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v8/cases.json")).expect("parse pinned TOI lane");
+    assert_eq!(gold["schema"], "box3d-oracle/v8");
+    let cases = gold["cases"].as_array().expect("cases array");
+    assert_eq!(cases.len(), 4);
+    let integer = |v: &Value| {
+        u32::from_str_radix(v.as_str().unwrap().trim_start_matches("0x"), 16).unwrap() as i32
+    };
+    for case in cases {
+        let name = case["id"].as_str().unwrap();
+        let g = &case["input"];
+        let pa: Vec<_> = g["proxyA"]["points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(vec_from_hex)
+            .collect();
+        let pb: Vec<_> = g["proxyB"]["points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(vec_from_hex)
+            .collect();
+        let out = time_of_impact(&TOIInput {
+            proxy_a: ShapeProxy {
+                points: &pa,
+                count: pa.len(),
+                radius: from_bits(g["proxyA"]["radius"].as_str().unwrap()),
+            },
+            proxy_b: ShapeProxy {
+                points: &pb,
+                count: pb.len(),
+                radius: from_bits(g["proxyB"]["radius"].as_str().unwrap()),
+            },
+            sweep_a: sweep_from_hex(&g["sweepA"]),
+            sweep_b: sweep_from_hex(&g["sweepB"]),
+            max_fraction: from_bits(g["maxFraction"].as_str().unwrap()),
+        });
+        let want = &case["output"];
+        assert_eq!(out.state, integer(&want["state"]), "{name} state");
+        assert_bits(
+            out.fraction,
+            want["fraction"].as_str().unwrap(),
+            &format!("{name} fraction"),
+        );
+        assert_bits(
+            out.distance,
+            want["distance"].as_str().unwrap(),
+            &format!("{name} distance"),
+        );
+        assert_vec(out.point, &want["point"], &format!("{name} point"));
+        assert_vec(out.normal, &want["normal"], &format!("{name} normal"));
+        assert_eq!(
+            out.distance_iterations,
+            integer(&want["distanceIterations"]),
+            "{name} distance iterations"
+        );
+        assert_eq!(
+            out.push_back_iterations,
+            integer(&want["pushBackIterations"]),
+            "{name} push back iterations"
+        );
+        assert_eq!(
+            out.root_iterations,
+            integer(&want["rootIterations"]),
+            "{name} root iterations"
+        );
     }
 }
 

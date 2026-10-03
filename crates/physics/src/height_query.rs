@@ -44,7 +44,7 @@ impl HeightField<'_> {
             )
         })
     }
-    fn visit_cells(
+    pub(crate) fn visit_cells(
         self,
         lower: Vec3,
         upper: Vec3,

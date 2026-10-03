@@ -1,0 +1,26 @@
+{
+  "adapter": "adapter/toi.c",
+  "adapterSha256": "0ebb60f30e317107e30135e59ac9137d84e47cdd0d355019a5360cf645b817f0",
+  "executableSha256": "46d0e693e9f55d4d2ebd7958aa47223e5deae4b36cf5ed6ee4b2347c10f1e160",
+  "compiler": {
+    "executable": "cc",
+    "version": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+    "sha256": "8d50be9d2d5749332f48a244b12446a94940c46d71ef2d2f2eeb4fad19b2e17c"
+  },
+  "cmake": [
+    "-S",
+    "<official-source>",
+    "-B",
+    "<toi-build>",
+    "-G",
+    "Ninja",
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DBOX3D_DISABLE_SIMD=ON",
+    "-DBOX3D_SAMPLES=OFF",
+    "-DBOX3D_BENCHMARKS=OFF",
+    "-DBOX3D_DOCS=OFF",
+    "-DBOX3D_UNIT_TESTS=OFF",
+    "-DBOX3D_VALIDATE=ON"
+  ],
+  "privateIncludeFirewall": "depfiles and negative private include mutation"
+}

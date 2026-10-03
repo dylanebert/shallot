@@ -1,12 +1,12 @@
 import type { World } from "../../../engine";
-// The persistent broad-phase region (kernel/src/broad.rs) — the three dynamic-tree node pools plus the
-// pair-set membership arrays, held resident in the kernel's linear memory so the in-kernel pair query +
-// tree rebuild (3d) run over them without a per-step marshal. This store owns the TS views over the six
+// The persistent broad-phase region (kernel/src/broad.rs) — three dynamic-tree node pools, shape-pair
+// membership arrays and joint-filtered body pairs. The kernel queries them without a per-step marshal.
+// This store owns the TS views over the seven
 // sub-columns and the grow-only reservation policy; the tree/table algorithms mutate the columns
 // through the views it hands back (`src/tree.ts`, `src/table.ts`).
 //
 // A region grow (or any `memory.grow` elsewhere) detaches every typed-array view, so the store follows
-// the shared-memory view-refresh discipline: it re-derives all six views from the kernel layout header
+// the shared-memory view-refresh discipline: it re-derives the views from the kernel layout header
 // and writes them straight back into the DynamicTree / HashSet structs, so every tree/table op reads a
 // current view. `refreshViews` is called at the top of the pair-finding pass and after every grow —
 // never per-iteration (that would reintroduce churn).
@@ -18,8 +18,8 @@ import { kernel } from "./kernel";
 
 /** u32/f32 slots per dynamic-tree node — mirrors `STRIDE` in `src/tree.ts` + `TREE_STRIDE` in broad.rs. */
 const TREE_STRIDE = 12;
-/** Broad layout header size (3 tree pools + keyHi/keyLo/hashes). */
-const N_BROAD = 6;
+/** Broad layout header size (3 tree pools + keyHi/keyLo/hashes + body filters). */
+const N_BROAD = 7;
 
 const EMPTY_F = new Float32Array(0);
 const EMPTY_I = new Int32Array(0);
@@ -59,7 +59,7 @@ export class BroadStore {
         this.refreshViews();
     }
 
-    /** Re-derive all six column views over the current region and write them into the tree/set structs.
+    /** Re-derive the column views over the current region and write them into the tree/set/filter structs.
      * Cheap — a handful of typed-array constructions, no copy. */
     refreshViews(): void {
         const k = kernel(this.ecsState);
@@ -79,6 +79,11 @@ export class BroadStore {
             }
             t.nf = new Float32Array(buf, layout[i], cap * TREE_STRIDE);
             t.ni = new Int32Array(buf, layout[i], cap * TREE_STRIDE);
+        }
+
+        const filter = this.world?.bodyFilters;
+        if (filter !== undefined && filter.capacity !== 0) {
+            filter.data = new Uint32Array(buf, layout[6], 1 + 3 * filter.capacity);
         }
 
         const s = this.set;
@@ -111,12 +116,16 @@ export class BroadStore {
         this.reserve(0, 0, 0, setCap);
     }
 
+    growBodyFilters(capacity: number): void {
+        this.reserve(0, 0, 0, 0, capacity);
+    }
+
     // Reserve the region (grow-only per column) and re-derive the views. The growing column needs its
     // view rebuilt even when the region did not grow (a fresh world reuses the singleton's larger stale
     // capacity, so its first reserve is a no-op — but the tree still needs a view over it). A real grow
     // additionally `memory.grow`s, detaching every sibling store's views; refresh those too.
-    private reserve(capS: number, capK: number, capD: number, setCap: number): void {
-        const grew = kernel(this.ecsState).reserveBroad(capS, capK, capD, setCap) !== 0;
+    private reserve(capS: number, capK: number, capD: number, setCap: number, filterCap = 0): void {
+        const grew = kernel(this.ecsState).reserveBroad(capS, capK, capD, setCap, filterCap) !== 0;
         this.refreshViews();
         if (grew) {
             const w = this.world;

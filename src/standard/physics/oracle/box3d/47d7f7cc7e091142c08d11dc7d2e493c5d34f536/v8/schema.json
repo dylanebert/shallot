@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "box3d-oracle/v8",
+  "type": "object",
+  "required": ["schema", "cases"],
+  "properties": {
+    "schema": { "const": "box3d-oracle/v8" },
+    "cases": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "object", "required": ["id", "family", "symbol", "input", "output"] } }
+  }
+}

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { type Quat, segmentDistance, type Vec3 } from "../common/math";
-import { emptyCache, type ShapeProxy, shapeDistance, TOIState, timeOfImpact } from "./distance";
+import { segmentDistance, type Vec3 } from "../common/math";
+import { emptyCache, type ShapeProxy, shapeDistance } from "./distance";
 import gold from "./distance.gold.json";
 
 const dv = new DataView(new ArrayBuffer(4));
@@ -77,23 +77,4 @@ test("shapeDistance returns a gap other than the analytic 1 between a unit quad 
         emptyCache(),
     );
     expect(Math.abs(out.distance - 1)).toBeLessThan(EPS);
-});
-
-test("timeOfImpact returns a state other than Hit or a fraction away from the analytic 0.5 when a segment sweeps two units into a stationary quad one unit away", () => {
-    const proxyA: ShapeProxy = {
-        points: [v(-1, -1, 0), v(1, -1, 0), v(1, 1, 0), v(-1, 1, 0)],
-        count: 4,
-        radius: 0,
-    };
-    const proxyB: ShapeProxy = { points: [v(2, -1, 0), v(2, 1, 0)], count: 2, radius: 0 };
-    const id: Quat = { v: v(0, 0, 0), s: 1 };
-    const out = timeOfImpact({
-        proxyA,
-        proxyB,
-        sweepA: { localCenter: v(0, 0, 0), c1: v(0, 0, 0), c2: v(0, 0, 0), q1: id, q2: id },
-        sweepB: { localCenter: v(0, 0, 0), c1: v(0, 0, 0), c2: v(-2, 0, 0), q1: id, q2: id },
-        maxFraction: 1,
-    });
-    expect(out.state).toBe(TOIState.Hit);
-    expect(Math.abs(out.fraction - 0.5)).toBeLessThan(0.005);
 });

@@ -8,7 +8,6 @@ import type { World } from "../../../engine";
 
 import * as bp from "../collision/broadphase";
 import { destroyContact } from "../collision/contact";
-import { getSweepTransform, type ShapeProxy, type Sweep } from "../collision/distance";
 import { NULL_INDEX } from "../common/array";
 import {
     AABB_MARGIN_FRACTION,
@@ -26,7 +25,6 @@ import {
     mat3,
     maxf,
     minf,
-    quat,
     type Transform,
     type Vec3,
     vec3,
@@ -80,8 +78,6 @@ import {
     computeSphereAABB,
     computeSphereAABBOut,
     computeSphereMass,
-    computeSweptCapsuleAABB,
-    computeSweptSphereAABB,
     type MassData,
     roundCapsule,
     roundSphere,
@@ -92,13 +88,7 @@ import {
     getHeightFieldMaterial,
     type HeightFieldData,
 } from "./heightfield";
-import {
-    computeHullAABB,
-    computeHullExtent,
-    computeHullMass,
-    computeSweptHullAABB,
-    type HullData,
-} from "./hull";
+import { computeHullAABB, computeHullExtent, computeHullMass, type HullData } from "./hull";
 import { computeMeshAABB, type Mesh, type MeshData, safeScale } from "./mesh";
 
 /** Min extent (smallest sphere fitting inside) and max extent per axis, for sleeping (b3ShapeExtent). */
@@ -381,54 +371,6 @@ export function computeFatShapeAABBOut(
     return o;
 }
 
-/**
- * AABB enclosing a shape swept along `sweep` over [0, time] (b3ComputeSweptShapeAABB). Convex shapes
- * only — the mesh/height/compound target of a sweep is never the moving (fast) shape.
- */
-export function computeSweptShapeAABB(shape: Shape, sweep: Sweep, time: number): AABB {
-    const xf1: Transform = {
-        p: vec3.sub(sweep.c1, quat.rotate(sweep.q1, sweep.localCenter)),
-        q: sweep.q1,
-    };
-    const xf2 = getSweepTransform(sweep, time);
-    switch (shape.type) {
-        case ShapeType.Capsule:
-            return computeSweptCapsuleAABB(shape.capsule as Capsule, xf1, xf2);
-        case ShapeType.Hull:
-            return computeSweptHullAABB(shape.hull as HullData, xf1, xf2);
-        case ShapeType.Sphere:
-            return computeSweptSphereAABB(shape.sphere as Sphere, xf1, xf2);
-        default:
-            throw new Error("physics: swept AABB of a non-convex fast shape");
-    }
-}
-
-/**
- * A shape's convex point cloud + rounding radius for GJK/TOI (b3MakeShapeProxy). The points alias the
- * shape's geometry (read-only in the distance path); mesh/height/compound are handled by their own
- * TOI paths, not this proxy.
- */
-export function makeShapeProxy(shape: Shape): ShapeProxy {
-    switch (shape.type) {
-        case ShapeType.Capsule: {
-            const c = shape.capsule as Capsule;
-            return { points: [c.center1, c.center2], count: 2, radius: c.radius };
-        }
-        case ShapeType.Sphere: {
-            const s = shape.sphere as Sphere;
-            return { points: [s.center], count: 1, radius: s.radius };
-        }
-        case ShapeType.Hull: {
-            const hull = shape.hull as HullData;
-            return { points: hull.points, count: hull.vertexCount, radius: 0 };
-        }
-        default:
-            // b3MakeShapeProxy asserts false for mesh/height/compound: they are never the moving
-            // shape in a proxy/TOI query, so no convex point cloud is ever requested.
-            throw new Error("physics: mesh/height/compound have no shape proxy");
-    }
-}
-
 /** Local centroid of a shape (b3GetShapeCentroid). */
 export function getShapeCentroid(shape: Shape): Vec3 {
     switch (shape.type) {
@@ -699,6 +641,7 @@ function createShapeInternal(
     } else {
         shape.sensorIndex = NULL_INDEX;
     }
+    world.shapeStore.writeQueryProperties(shape);
 
     return shape;
 }

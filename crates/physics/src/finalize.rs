@@ -4,11 +4,8 @@
 //! transform, resets the per-step delta/force accumulators, and emits the two sleep/continuous
 //! decision scalars TS branches on.
 //!
-//! Only the pure column arithmetic lives here. Everything the C task does that touches TS-owned world
-//! state stays TS and interleaves at wiring: move-event emission, the continuous (CCD) sweep, island
-//! awake/split bookkeeping, `center0`/`rotation0` + `sleepTime`, the three-object flag reset, and the
-//! shape-AABB refit + broadphase enlarge. TS reads the advanced transform/center/inertia back out of
-//! the shared columns and runs that tail against `[sleepVelocity, maxMotion]`.
+//! This module owns the pose arithmetic. The arena follows it with the continuous sweep and shape
+//! refit; TypeScript consumes the resident outputs for sleep/island bookkeeping and proxy enlargement.
 //!
 //! Every arithmetic op maps one-to-one to the C scalar path (no SIMD, no FMA); bit-identical to the
 //! the frozen historical oracle vectors; current target evidence belongs to the standalone oracle.
@@ -115,15 +112,22 @@ pub fn refit_convex(
     xf: Transform,
     fat: &[f32; 6],
 ) -> ([f32; 6], bool) {
-    let (lo, hi) = match shape_type {
-        TY_SPHERE => sphere_aabb(geom, xf),
-        TY_CAPSULE => capsule_aabb(geom, xf),
-        _ => hull_aabb(geom, xf), // TY_HULL
-    };
+    let b = convex_bounds(shape_type, geom, xf);
+    let lo = Vec3::new(b[0], b[1], b[2]);
+    let hi = Vec3::new(b[3], b[4], b[5]);
     let s = SPECULATIVE_DISTANCE;
     let cand = [lo.x - s, lo.y - s, lo.z - s, hi.x + s, hi.y + s, hi.z + s];
     let escaped = !aabb_contains(fat, &cand);
     (cand, escaped)
+}
+
+pub fn convex_bounds(shape_type: u32, geom: &[f32], xf: Transform) -> [f32; 6] {
+    let (lo, hi) = match shape_type {
+        TY_SPHERE => sphere_aabb(geom, xf),
+        TY_CAPSULE => capsule_aabb(geom, xf),
+        _ => hull_aabb(geom, xf),
+    };
+    [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z]
 }
 
 /// Advance the bodies in `[start, start+count)` from their solved velocity/position deltas.

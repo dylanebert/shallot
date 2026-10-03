@@ -89,32 +89,6 @@ export function computeSphereAABBOut(shape: Sphere, transform: Transform, o: AAB
     return o;
 }
 
-/** AABB enclosing a sphere swept between two poses (b3ComputeSweptSphereAABB). */
-export function computeSweptSphereAABB(shape: Sphere, xf1: Transform, xf2: Transform): AABB {
-    const r = shape.radius;
-    const extent: Vec3 = { x: r, y: r, z: r };
-    const center1 = xf.point(xf1, shape.center);
-    const center2 = xf.point(xf2, shape.center);
-    return {
-        lowerBound: vec3.sub(vec3.min(center1, center2), extent),
-        upperBound: vec3.add(vec3.max(center1, center2), extent),
-    };
-}
-
-/** AABB enclosing a capsule swept between two poses (b3ComputeSweptCapsuleAABB). */
-export function computeSweptCapsuleAABB(shape: Capsule, xf1: Transform, xf2: Transform): AABB {
-    const r = shape.radius;
-    const extent: Vec3 = { x: r, y: r, z: r };
-    const a = xf.point(xf1, shape.center1);
-    const b = xf.point(xf1, shape.center2);
-    const c = xf.point(xf2, shape.center1);
-    const d = xf.point(xf2, shape.center2);
-    return {
-        lowerBound: vec3.sub(vec3.min(vec3.min(a, b), vec3.min(c, d)), extent),
-        upperBound: vec3.add(vec3.max(vec3.max(a, b), vec3.max(c, d)), extent),
-    };
-}
-
 export function computeCapsuleMass(shape: Capsule, density: number): MassData {
     const c1 = shape.center1;
     const c2 = shape.center2;

@@ -79,6 +79,14 @@ pub fn col_slice() -> &'static [f32] {
     }
 }
 
+/// Continuous sweeps write only the shapes owned by their body block; trees stay read-only.
+pub fn col() -> crate::col::Col<'static, f32> {
+    unsafe {
+        let base = FATAABB_LAYOUT[0] as usize + ACTIVE_WORLD * FATAABB_CAP * AABB_STRIDE * 4;
+        crate::col::Col::new(base as *mut f32, FATAABB_CAP * AABB_STRIDE)
+    }
+}
+
 /// Select the world-local fat-AABB slab used by the in-kernel step.
 pub fn set_active_world(world: u32) {
     unsafe {

@@ -5,6 +5,7 @@
 //
 // fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
+import type { BodyFilters } from "../collision/bodyfilter";
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { type Contact, initializeContactRegisters } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
@@ -81,6 +82,7 @@ export type WorldState = {
     /** ECS owner; undefined only for the standalone solver API. */
     ecsState: import("../../../engine").World | undefined;
     broadPhase: BroadPhase;
+    bodyFilters: BodyFilters;
     constraintGraph: ConstraintGraph;
 
     /** Public body records are the authoring/handle bridge; lifecycle lives in wasm. */
@@ -300,6 +302,7 @@ function makeWorldState(
     const physicsWorld: WorldState = {
         ecsState: world,
         broadPhase: createBroadPhase(world, capacity),
+        bodyFilters: { data: new Uint32Array(0), capacity: 0 },
         constraintGraph: createGraph(capacity.staticBodyCount + capacity.dynamicBodyCount),
         bodies: [],
         solverSetIdPool: createIdPool(),
@@ -362,6 +365,9 @@ function makeWorldState(
     // Wire the broad store's back-reference so a resident-region grow can refresh the sibling stores a
     // `memory.grow` detaches (the store is created before the world literal, so it can't be passed in).
     physicsWorld.broadPhase.store.world = physicsWorld;
+    physicsWorld.bodyFilters.capacity = 16;
+    physicsWorld.broadPhase.store.growBodyFilters(16);
+    physicsWorld.bodyFilters.data.fill(0);
 
     // Create the three permanent sets in order so their ids land 0 (static), 1 (disabled), 2 (awake).
     for (let i = 0; i < 3; ++i) {
