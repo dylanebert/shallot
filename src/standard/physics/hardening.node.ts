@@ -132,7 +132,7 @@ function retainedSnapshot(
     refs: SnapshotRefs;
 } {
     const saved = snapshotPhysics(world);
-    registry.register(saved, "control");
+    registry.register(saved, "control", saved);
     return { saved, refs: snapshotRefs(saved) };
 }
 
@@ -165,17 +165,28 @@ test("snapshot logical state and WASM bytes are collectable after the caller dro
         const control = retainedSnapshot(subject.world, registry);
 
         const deadline = Date.now() + 1_000;
-        while (!finalized.has("dropped") && Date.now() < deadline) {
+        while (Date.now() < deadline) {
+            // A deref keeps its target alive for this job; yield before the next collection.
+            await new Promise((resolve) => setTimeout(resolve, 0));
             Bun.gc(true);
             await new Promise((resolve) => setTimeout(resolve, 0));
+            if (
+                finalized.has("dropped") &&
+                dropped.snapshot.deref() === undefined &&
+                dropped.logical.deref() === undefined &&
+                dropped.bytes.deref() === undefined
+            )
+                break;
         }
 
+        expect(dropped.logical.deref()).toBeUndefined();
+        expect(dropped.bytes.deref()).toBeUndefined();
+        expect(dropped.snapshot.deref()).toBeUndefined();
         expect(finalized.has("dropped")).toBe(true);
         expect(finalized.has("control")).toBe(false);
         expect(control.refs.snapshot.deref()).toBe(control.saved);
-        expect(dropped.snapshot.deref()).toBeUndefined();
-        expect(dropped.logical.deref()).toBeUndefined();
-        expect(dropped.bytes.deref()).toBeUndefined();
+        // Keep the registry alive through collection, not just its callback's result set.
+        expect(registry.unregister(control.saved)).toBe(true);
     } finally {
         subject.app.dispose();
     }
