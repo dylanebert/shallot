@@ -1,6 +1,6 @@
 import type { ShapeProxy } from "../collision/distance";
 import { NULL_INDEX } from "../common/array";
-import { SetType } from "../common/constants";
+import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS, SetType } from "../common/constants";
 import type { AABB, Pos, Vec3, WorldTransform } from "../common/math";
 import type { QueryFilter } from "../common/types";
 import { getBodySim } from "../world/body";
@@ -23,8 +23,6 @@ export class QueryColumns {
     resultU = new Uint32Array(0);
     resultF = new Float32Array(0);
     cast = new Float32Array(0);
-    private _category = -1n;
-    private _mask = -1n;
 
     constructor(world: WorldState) {
         this.world = world;
@@ -51,8 +49,6 @@ export class QueryColumns {
             this.headerF = new Float32Array(memory, k.worldQueryHeaderPtr(), 19);
             this.resultU = new Uint32Array(memory, k.worldQueryResultPtr(), 16);
             this.resultF = new Float32Array(memory, k.worldQueryResultPtr(), 16);
-            this._category = -1n;
-            this._mask = -1n;
         }
         const h = this.headerU;
         const trees = world.broadPhase.trees;
@@ -60,14 +56,12 @@ export class QueryColumns {
             h[2 * i] = trees[i].root;
             h[2 * i + 1] = trees[i].nodeCount;
         }
-        if (filter && (this._category !== filter.categoryBits || this._mask !== filter.maskBits)) {
-            this._category = filter.categoryBits;
-            this._mask = filter.maskBits;
-            h[6] = Number((filter.categoryBits >> 32n) & 0xffffffffn);
-            h[7] = Number(filter.categoryBits & 0xffffffffn);
-            h[8] = Number((filter.maskBits >> 32n) & 0xffffffffn);
-            h[9] = Number(filter.maskBits & 0xffffffffn);
-        }
+        const category = filter?.categoryBits ?? DEFAULT_CATEGORY_BITS;
+        const mask = filter?.maskBits ?? DEFAULT_MASK_BITS;
+        h[6] = Number((category >> 32n) & 0xffffffffn);
+        h[7] = Number(category & 0xffffffffn);
+        h[8] = Number((mask >> 32n) & 0xffffffffn);
+        h[9] = Number(mask & 0xffffffffn);
         this.headerF[10] = origin.x;
         this.headerF[11] = origin.y;
         this.headerF[12] = origin.z;
