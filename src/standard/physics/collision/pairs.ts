@@ -124,8 +124,8 @@ function expandCompound(world: WorldState, shapeA: number, shapeB: number, query
 /**
  * Find new collision pairs, create contacts, rebuild the trees, and reset the move buffer. The query DFS,
  * moved-proxy dedup, pair-set-membership rejection, and the two tree rebuilds run in the kernel over the
- * resident broad-phase region (pairwork.rs); TS copies the move buffer + dynamic moved-bitset into the
- * kernel slab, applies the surviving filters (self-body / sensor / shouldShapesCollide / joint walk)
+ * resident broad-phase region (pairwork.rs); TS applies the surviving filters
+ * (self-body / sensor / shouldShapesCollide / joint walk)
  * over the returned candidates — expanding any compound leaf against its inner tree here — and creates
  * the contacts in the exact enumeration order.
  */
@@ -156,29 +156,10 @@ export function updateBroadPhasePairs(world: WorldState): void {
         1,
     );
 
-    // Copy the per-step inputs into the kernel slab and run the query, growing + re-running if the
-    // candidate slab overflowed (a cold-step event; the query mutates neither the trees nor the pair-set,
-    // so a re-run is side-effect-free). `reservePairs` may grow memory, so the slab views are re-derived
-    // from the headers after each reserve.
+    // A candidate overflow is a cold-step retry: the query changes neither trees nor pair membership.
     let entryCount = 0;
     for (;;) {
         k.reservePairs(moveCount, movedWords, candCap, maxProxy);
-        const mem = heap(k.memory.buffer);
-        const state = slot(k.pairsStatePtr());
-        for (let t = 0; t < 3; ++t) {
-            const tr = trees[t];
-            mem[state + t * 4] = tr.root >>> 0;
-            mem[state + t * 4 + 1] = tr.nodeCount;
-            mem[state + t * 4 + 2] = tr.freeList >>> 0;
-            mem[state + t * 4 + 3] = tr.proxyCount;
-        }
-        const move = slot(k.pairsMovePtr());
-        for (let i = 0; i < moveCount; ++i) mem[move + i] = moveArray.get(i);
-        if (movedWords > 0) {
-            const moved = slot(k.pairsMovedPtr());
-            const bits = movedDyn.bits;
-            for (let w = 0; w < movedWords; ++w) mem[moved + w] = bits[w];
-        }
 
         // Pass the pair-set's logical capacity — the resident region is grow-only across worlds, so
         // `broadSetCap()` can exceed this world's table.
@@ -236,18 +217,9 @@ export function updateBroadPhasePairs(world: WorldState): void {
         entryStart = end;
     }
 
-    // Phase 2 — rebuild the dynamic + kinematic trees in the kernel, then fold each new root/count/free
-    // list back into the TS tree structs (the pool bytes are resident; these scalars are TS-side).
+    // Phase 2 — rebuild dynamic then kinematic, including their resident metadata.
     k.rebuildTrees();
     broadPhase.store.refreshIfStale();
-    const rebuilt = heap(k.memory.buffer);
-    const rebuildOut = slot(k.pairsRebuildOutPtr());
-    for (let s = 0; s < 2; ++s) {
-        const tr = trees[s === 0 ? BodyType.Dynamic : BodyType.Kinematic];
-        tr.root = rebuilt[rebuildOut + s * 3] | 0;
-        tr.nodeCount = rebuilt[rebuildOut + s * 3 + 1];
-        tr.freeList = rebuilt[rebuildOut + s * 3 + 2] | 0;
-    }
 
     // Phase 3 — create contacts in deterministic order (proxies in order; candidates LIFO, so each
     // proxy's range walks backward).
@@ -266,9 +238,5 @@ export function updateBroadPhasePairs(world: WorldState): void {
     }
 
     // Phase 4 — reset the move buffer: clear only the bits that were set this step.
-    for (let i = 0; i < moveArray.count; ++i) {
-        const key = moveArray.get(i);
-        bp.clearMoved(broadPhase, bp.proxyType(key), bp.proxyId(key));
-    }
     moveArray.clear();
 }

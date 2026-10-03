@@ -72,23 +72,21 @@ unsafe fn ensure_capacity(end_byte: usize) {
 #[export_name = "reservePairs"]
 pub extern "C" fn reserve_pairs(
     move_count: usize,
-    moved_words: usize,
+    _moved_words: usize,
     cand_cap: usize,
     max_proxy: usize,
 ) {
     unsafe {
-        MOVE_COUNT = move_count;
-        MOVED_WORDS = moved_words;
+        MOVE_COUNT = broad::move_count();
+        MOVED_WORDS = broad::bits_words(DYNAMIC as usize);
         CAND_CAP = cand_cap;
         MAX_PROXY = max_proxy;
 
         let mut off = solver_base();
         STATE_PTR = off as u32;
         off += 3 * STATE_STRIDE * 4;
-        MOVE_PTR = off as u32;
-        off += move_count * 4;
-        MOVED_PTR = off as u32;
-        off += moved_words * 4;
+        MOVE_PTR = broad::move_ptr() as u32;
+        MOVED_PTR = broad::bits_ptr(DYNAMIC as usize) as u32;
         CANDEND_PTR = off as u32;
         off += move_count * 4;
         CAND_PTR = off as u32;
@@ -104,6 +102,17 @@ pub extern "C" fn reserve_pairs(
         BUILD_PTR = off as u32;
         off += tree::STACK_SIZE * 5 * 4;
         ensure_capacity(off);
+        for i in 0..3 {
+            let target = (STATE_PTR as *mut u32).add(i * STATE_STRIDE);
+            if broad::tree_cap(i) == 0 {
+                *target = u32::MAX;
+                *target.add(1) = 0;
+                *target.add(2) = u32::MAX;
+                *target.add(3) = 0;
+            } else {
+                core::ptr::copy_nonoverlapping(broad::tree_state(i), target, STATE_STRIDE);
+            }
+        }
     }
 }
 
@@ -250,7 +259,7 @@ impl<'a> Emitter<'a> {
 /// miss present pairs; the TS logical capacity is the table the membership actually lives in.
 ///
 /// # Safety
-/// `reservePairs` must have run this step with the current move buffer + tree state + dynamic moved-bits
+/// `reservePairs` must have run this step with enough candidate and rebuild scratch
 /// written into the slab, and no thread may grow memory while this runs.
 #[export_name = "queryPairs"]
 pub extern "C" fn query_pairs(set_cap: usize) -> u32 {
@@ -358,7 +367,7 @@ fn run_query(
 
 /// Phase 2 — rebuild the dynamic then kinematic trees (median split, `full == false`), matching the TS
 /// order. Writes each rebuilt tree's new `[root, nodeCount, freeList]` into the rebuild-out slab (dynamic
-/// first, then kinematic); TS folds them back into its `DynamicTree` structs. Static is never rebuilt.
+/// first, then kinematic), and updates their resident headers. Static is never rebuilt.
 ///
 /// # Safety
 /// As `queryPairs`; runs after it (the query reads the pre-rebuild trees). Never grows the pool — the
@@ -400,6 +409,9 @@ pub extern "C" fn rebuild_trees() {
             out[oo] = new_root as u32;
             out[oo + 1] = rb.node_count as u32;
             out[oo + 2] = rb.free_list as u32;
+            if broad::tree_cap(ti) != 0 {
+                core::ptr::copy_nonoverlapping(out.as_ptr().add(oo), broad::tree_state(ti), 3);
+            }
 
             // Re-borrow the scratch for the next tree (the Rebuild moved the &mut in).
             leaf_indices = rb.leaf_indices;

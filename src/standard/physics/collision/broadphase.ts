@@ -3,8 +3,7 @@ import type { World } from "../../../engine";
 // dynamic trees (static / kinematic / dynamic) plus the move buffer that records which proxies
 // changed this step, in deterministic insertion order.
 
-import { GrowVec } from "../common/array";
-import { type BitSet, clearBit, createBitSet, getBit, setBitGrow } from "../common/bitset";
+import { type BitSet, clearBit } from "../common/bitset";
 import type { AABB } from "../common/math";
 import { aabb } from "../common/math";
 import { type BroadStore, createBroadStore } from "../kernel/broadcolumns";
@@ -28,14 +27,9 @@ export const proxyKey = (id: number, type: BodyTypeValue): number => (id << 2) |
 
 export type BroadPhase = {
     trees: DynamicTree[];
-    deferredEnlarge: boolean;
-    enlargeCommands: GrowVec<Float64Array>;
-    enlargeData: Float64Array;
-    // Per body-type bit sets indexed by proxyId, marking proxies moved this step. Paired with
-    // moveArray, which preserves deterministic insertion order for pair queries. TS-only (copied into a
-    // kernel slab per step for the in-kernel query, 3d).
+    // Resident move membership and insertion order, shared by user edits, refits and pair queries.
     movedProxies: BitSet[];
-    moveArray: GrowVec<Int32Array>;
+    moveArray: ResidentMoves;
     // Hash set of active shape pairs (b3ShapePairKey), so a pair isn't turned into a second
     // contact. Written by contact create/destroy; read by pair finding (solver stage).
     pairSet: HashSet;
@@ -43,6 +37,42 @@ export type BroadPhase = {
     // kernel's linear memory, and this rewrites their views after any grow (broadcolumns.ts).
     store: BroadStore;
 };
+
+class ResidentMoves {
+    readonly store: BroadStore;
+    constructor(store: BroadStore) {
+        this.store = store;
+    }
+    get count(): number {
+        this.store.refreshIfStale();
+        return this.store.moveState[0] ?? 0;
+    }
+    get(index: number): number {
+        this.store.refreshIfStale();
+        return this.store.moveData[index];
+    }
+    clear(): void {
+        if (this.count !== 0) kernel(this.store.ecsState).broadClearMoves();
+    }
+}
+class ResidentBits implements BitSet {
+    readonly store: BroadStore;
+    readonly index: number;
+    constructor(store: BroadStore, index: number) {
+        this.store = store;
+        this.index = index;
+    }
+    get bits(): Uint32Array {
+        this.store.refreshIfStale();
+        return this.store.movedBits[this.index];
+    }
+    get blockCount(): number {
+        return this.bits.length;
+    }
+    get blockCapacity(): number {
+        return this.bits.length;
+    }
+}
 
 const maxInt = (a: number, b: number): number => (a > b ? a : b);
 
@@ -69,11 +99,11 @@ export function createBroadPhase(
     store.trees = trees;
 
     const movedProxies: BitSet[] = [];
-    movedProxies[BodyType.Static] = createBitSet(staticCapacity);
-    movedProxies[BodyType.Kinematic] = createBitSet(16);
-    movedProxies[BodyType.Dynamic] = createBitSet(dynamicCapacity);
+    movedProxies[BodyType.Static] = new ResidentBits(store, BodyType.Static);
+    movedProxies[BodyType.Kinematic] = new ResidentBits(store, BodyType.Kinematic);
+    movedProxies[BodyType.Dynamic] = new ResidentBits(store, BodyType.Dynamic);
 
-    const moveArray = new GrowVec((n: number) => new Int32Array(n), capacity.dynamicShapeCount);
+    const moveArray = new ResidentMoves(store);
 
     const pairSet = createSet(2 * (capacity.contactCount ?? 0), store);
     store.set = pairSet;
@@ -84,39 +114,12 @@ export function createBroadPhase(
         moveArray,
         pairSet,
         store,
-        deferredEnlarge: false,
-        enlargeData: new Float64Array(0),
-        enlargeCommands: new GrowVec((n) => new Float64Array(n), 64),
     };
 }
 
 // This is what triggers new contact pairs to be created. Must be called in deterministic order.
 export function bufferMove(bp: BroadPhase, queryProxy: number): void {
-    const type = proxyType(queryProxy);
-    const id = proxyId(queryProxy);
-    const set = bp.movedProxies[type];
-    if (getBit(set, id) === false) {
-        setBitGrow(set, id);
-        bp.moveArray.push(queryProxy);
-    }
-}
-
-function unBufferMove(bp: BroadPhase, proxyKeyValue: number): void {
-    const type = proxyType(proxyKeyValue);
-    const id = proxyId(proxyKeyValue);
-    const set = bp.movedProxies[type];
-
-    if (getBit(set, id)) {
-        clearBit(set, id);
-        // Purge from move buffer. Linear search.
-        const count = bp.moveArray.count;
-        for (let i = 0; i < count; ++i) {
-            if (bp.moveArray.get(i) === proxyKeyValue) {
-                bp.moveArray.removeSwap(i);
-                break;
-            }
-        }
-    }
+    kernel(bp.store.ecsState).broadBufferMove(queryProxy);
 }
 
 export function createProxy(
@@ -131,70 +134,32 @@ export function createProxy(
     // The resident tree views may have been detached by a `memory.grow` since the last broad-phase op
     // (a sibling region reserve, or a shape/body create). Re-derive if so — O(1) when still fresh.
     bp.store.refreshIfStale();
-    const id = tree.createProxy(bp.trees[type], box, categoryHi, categoryLo, shapeIndex);
-    const key = proxyKey(id, type);
-    if (type !== BodyType.Static || forcePairCreation) {
-        bufferMove(bp, key);
-    }
-    return key;
+    const id = tree.createProxy(
+        bp.trees[type],
+        box,
+        categoryHi,
+        categoryLo,
+        shapeIndex,
+        type !== BodyType.Static || forcePairCreation,
+    );
+    return proxyKey(id, type);
 }
 
 export function destroyProxy(bp: BroadPhase, key: number): void {
     bp.store.refreshIfStale();
-    unBufferMove(bp, key);
     tree.destroyProxy(bp.trees[proxyType(key)], proxyId(key));
 }
 
 export function moveProxy(bp: BroadPhase, key: number, box: AABB): void {
     bp.store.refreshIfStale();
     tree.moveProxy(bp.trees[proxyType(key)], proxyId(key), box);
-    bufferMove(bp, key);
 }
 
 export function enlargeProxy(bp: BroadPhase, key: number, box: AABB): void {
     const type = proxyType(key);
     if (type === BodyType.Static) throw new Error("broadphase: cannot enlarge a static proxy");
     bp.store.refreshIfStale();
-    queueEnlargement(bp, key, box);
-    bufferMove(bp, key);
-}
-
-export function beginEnlargePass(bp: BroadPhase): void {
-    bp.deferredEnlarge = true;
-    bp.enlargeCommands.clear();
-}
-export function queueEnlargement(bp: BroadPhase, key: number, box: AABB): void {
-    if (!bp.deferredEnlarge) {
-        tree.enlargeProxy(bp.trees[proxyType(key)], proxyId(key), box);
-        return;
-    }
-    const commands = bp.enlargeCommands;
-    commands.push(key);
-    commands.push(box.lowerBound.x);
-    commands.push(box.lowerBound.y);
-    commands.push(box.lowerBound.z);
-    commands.push(box.upperBound.x);
-    commands.push(box.upperBound.y);
-    commands.push(box.upperBound.z);
-}
-export function finishEnlargePass(bp: BroadPhase): void {
-    bp.deferredEnlarge = false;
-    const commands = bp.enlargeCommands;
-    if (commands.count === 0) return;
-    const k = kernel(bp.store.ecsState);
-    const ptr = bp.store.reserveTreeWork(0, commands.count * 2);
-    let data = bp.enlargeData;
-    if (
-        data.buffer !== k.memory.buffer ||
-        data.byteOffset !== ptr ||
-        data.length < commands.count
-    ) {
-        data = bp.enlargeData = new Float64Array(k.memory.buffer, ptr, commands.count);
-    }
-    for (let i = 0; i < commands.count; i++) data[i] = commands.get(i);
-    k.treeEnlargeBatch(ptr, commands.count / 7);
-    bp.store.refreshIfStale();
-    commands.clear();
+    tree.enlargeProxy(bp.trees[type], proxyId(key), box);
 }
 
 // Scratch the two proxy AABBs are read into (getAABBInto — the tree holds no live AABB to alias).

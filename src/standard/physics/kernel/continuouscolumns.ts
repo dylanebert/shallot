@@ -1,4 +1,3 @@
-import * as bp from "../collision/broadphase";
 import { NULL_INDEX } from "../common/array";
 import { BodyFlags, type BodySim } from "../world/body";
 import { recordSensorHit } from "../world/sensor";
@@ -50,27 +49,8 @@ export function consumeContinuous(world: WorldState, sim: BodySim, index: number
             box.upperBound.x = fat[b + 3];
             box.upperBound.y = fat[b + 4];
             box.upperBound.z = fat[b + 5];
-            shape.enlargedAABB = true;
-        }
-        id = shape.nextShapeId;
-    }
-}
-export function enlargeFastProxies(world: WorldState, sim: BodySim): void {
-    let id = world.bodies[sim.bodyId].headShapeId;
-    while (id !== NULL_INDEX) {
-        const shape = world.shapes[id];
-        if (shape.enlargedAABB) {
-            bp.enlargeProxy(world.broadPhase, shape.proxyKey, shape.fatAABB);
             shape.enlargedAABB = false;
         }
-        id = shape.nextShapeId;
-    }
-}
-export function bufferFastBulletMoves(world: WorldState, sim: BodySim): void {
-    let id = world.bodies[sim.bodyId].headShapeId;
-    while (id !== NULL_INDEX) {
-        const shape = world.shapes[id];
-        bp.bufferMove(world.broadPhase, shape.proxyKey);
         id = shape.nextShapeId;
     }
 }
@@ -82,7 +62,6 @@ export function solveBullets(world: WorldState, sims: BodySim[]): void {
     else k.runMt();
     world.shapeStore.refreshViews();
     world.broadPhase.store.refreshIfStale();
-    bp.beginEnlargePass(world.broadPhase);
     for (let i = 0; i < sims.length; i++) {
         const sim = sims[i];
         if (
@@ -91,17 +70,6 @@ export function solveBullets(world: WorldState, sims: BodySim[]): void {
         )
             continue;
         consumeContinuous(world, sim, i);
-        if (!(sim.flags & BodyFlags.enlargeBounds)) continue;
-        sim.flags &= ~BodyFlags.enlargeBounds;
-        let id = world.bodies[sim.bodyId].headShapeId;
-        while (id !== NULL_INDEX) {
-            const shape = world.shapes[id];
-            if (shape.enlargedAABB) {
-                shape.enlargedAABB = false;
-                bp.queueEnlargement(world.broadPhase, shape.proxyKey, shape.fatAABB);
-            }
-            id = shape.nextShapeId;
-        }
     }
-    bp.finishEnlargePass(world.broadPhase);
+    k.treeEnlargePass(sims.length, 1);
 }

@@ -47,6 +47,8 @@ import {
     createShapeSlot,
     destroyShapeSlot,
     readShapeMaterials,
+    S_PROXY_KEY,
+    SHAPE_STRIDE,
     shapeMaterialCount,
     unlinkShape,
     writeFatAabb,
@@ -470,6 +472,11 @@ export function createShapeProxy(
         shape.id,
         forcePairCreation,
     );
+    const store = broadPhase.store.world?.shapeStore;
+    if (store) {
+        store.refreshViews();
+        store.shapeU[shape.id * SHAPE_STRIDE + S_PROXY_KEY] = shape.proxyKey;
+    }
 }
 
 export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void {

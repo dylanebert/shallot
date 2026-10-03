@@ -1,4 +1,6 @@
 //! Serial tree operations over resident or caller-uploaded columns.
+use crate::body::{S2_FLAGS, S2_HEAD_SHAPE, SIM2_STRIDE};
+use crate::continuous::{ENLARGE_BOUNDS, IS_BULLET, IS_FAST};
 use crate::tree::{self, Rebuild, STACK_SIZE, STRIDE};
 use std::slice;
 static mut WORDS: [usize; 64] = [0; 64];
@@ -111,22 +113,164 @@ pub unsafe extern "C" fn mutate(
     s[2] = free as u32;
     result
 }
-#[export_name = "treeEnlargeBatch"]
-pub unsafe extern "C" fn enlarge_batch(commands: *const f64, count: usize) {
-    let commands = slice::from_raw_parts(commands, count * 7);
-    for command in commands.chunks_exact(7) {
-        let key = command[0] as i32;
-        let index = (key & 3) as usize;
-        let pool = slice::from_raw_parts_mut(
-            crate::broad::tree_ptr(index),
-            crate::broad::tree_cap(index) * STRIDE,
+#[export_name = "treeMutateResident"]
+pub unsafe extern "C" fn mutate_resident(
+    index: usize,
+    op: u32,
+    id: i32,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+    ch: u32,
+    cl: u32,
+    ud: u32,
+    udh: u32,
+    buffer: u32,
+) -> i32 {
+    let state = crate::broad::tree_state(index);
+    let ptr = crate::broad::tree_ptr(index);
+    if op == 4 {
+        let n = (*state.add(3) as usize).max(1);
+        let scratch = reserve(0, 6 + n * 4);
+        core::ptr::copy_nonoverlapping(state, scratch, 6);
+        let result = mutate(
+            ptr,
+            crate::broad::tree_cap(index),
+            scratch,
+            op,
+            id,
+            lx,
+            ly,
+            lz,
+            hx,
+            hy,
+            hz,
+            ch,
+            cl,
+            ud,
+            udh,
         );
-        tree::enlarge_proxy(
-            pool,
-            key >> 2,
-            [command[1] as f32, command[2] as f32, command[3] as f32],
-            [command[4] as f32, command[5] as f32, command[6] as f32],
-        );
+        core::ptr::copy_nonoverlapping(scratch, state, 4);
+        return result;
+    }
+    if op == 3 {
+        crate::broad::unbuffer_move(((id as u32) << 2) | index as u32);
+    }
+    let result = mutate(
+        ptr,
+        crate::broad::tree_cap(index),
+        state,
+        op,
+        id,
+        lx,
+        ly,
+        lz,
+        hx,
+        hy,
+        hz,
+        ch,
+        cl,
+        ud,
+        udh,
+    );
+    if buffer != 0 && op != 3 {
+        crate::broad::buffer_move(((result as u32) << 2) | index as u32);
+    }
+    result
+}
+
+#[export_name = "treeCreateProxy"]
+pub unsafe extern "C" fn create_proxy(
+    index: usize,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+    ch: u32,
+    cl: u32,
+    user: u32,
+    buffer: u32,
+) -> i32 {
+    mutate_resident(index, 0, 0, lx, ly, lz, hx, hy, hz, ch, cl, user, 0, buffer)
+}
+#[export_name = "treeDestroyProxy"]
+pub unsafe extern "C" fn destroy_proxy(index: usize, id: i32) {
+    mutate_resident(index, 3, id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0);
+}
+#[export_name = "treeEnlargeProxy"]
+pub unsafe extern "C" fn enlarge_proxy(
+    index: usize,
+    id: i32,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+) {
+    mutate_resident(index, 2, id, lx, ly, lz, hx, hy, hz, 0, 0, 0, 0, 1);
+}
+#[export_name = "treeMoveProxy"]
+pub unsafe extern "C" fn move_proxy(
+    index: usize,
+    id: i32,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+) {
+    mutate_resident(index, 1, id, lx, ly, lz, hx, hy, hz, 0, 0, 0, 0, 1);
+}
+
+/// Box3D solver.c: awake sim order, then each body's head-to-next shape order.
+#[export_name = "treeEnlargePass"]
+pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
+    let sim2 = crate::bodies::sim2_base() as *mut u32;
+    let shapes = crate::shapes::col();
+    let fat = crate::fataabb::col();
+    for i in 0..count {
+        let row = sim2.add(i * SIM2_STRIDE);
+        let flags = *row.add(S2_FLAGS);
+        let bullet = flags & (IS_FAST | IS_BULLET) == (IS_FAST | IS_BULLET);
+        if bullets != 0 && (!bullet || flags & ENLARGE_BOUNDS == 0) {
+            continue;
+        }
+        let mut id = *row.add(S2_HEAD_SHAPE);
+        while id != u32::MAX {
+            let o = id as usize * crate::shapes::SHAPE_STRIDE;
+            let key = shapes.get(o + crate::shapes::S_PROXY_KEY);
+            if bullets == 0 && bullet {
+                crate::broad::buffer_move(key);
+            } else if shapes.get(o + crate::shapes::S_ESCAPED) != 0 {
+                let index = (key & 3) as usize;
+                let b = id as usize * 6;
+                let pool = slice::from_raw_parts_mut(
+                    crate::broad::tree_ptr(index),
+                    crate::broad::tree_cap(index) * STRIDE,
+                );
+                tree::enlarge_proxy(
+                    pool,
+                    (key >> 2) as i32,
+                    [fat.get(b), fat.get(b + 1), fat.get(b + 2)],
+                    [fat.get(b + 3), fat.get(b + 4), fat.get(b + 5)],
+                );
+                shapes.set(o + crate::shapes::S_ESCAPED, 0);
+                if bullets == 0 {
+                    crate::broad::buffer_move(key);
+                }
+            }
+            id = shapes.get(o + crate::shapes::S_NEXT);
+        }
+        if bullets != 0 {
+            *row.add(S2_FLAGS) &= !ENLARGE_BOUNDS;
+        }
     }
 }
 

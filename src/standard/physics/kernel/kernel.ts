@@ -141,7 +141,60 @@ export type Kernel = {
     broadLayoutPtr(): number;
     broadTreeCap(i: number): number;
     reserveTreeWork(depth: number, words: number): number;
-    treeEnlargeBatch(ptr: number, count: number): void;
+    treeEnlargePass(count: number, bullets: number): void;
+    treeCreateProxy(
+        index: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+        hi: number,
+        lo: number,
+        user: number,
+        buffer: number,
+    ): number;
+    treeDestroyProxy(index: number, id: number): void;
+    treeEnlargeProxy(
+        index: number,
+        id: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+    ): void;
+    treeMoveProxy(
+        index: number,
+        id: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+    ): void;
+    broadGenPtr(): number;
+    broadBufferMove(key: number): void;
+    broadClearMoves(): void;
+    treeMutateResident(
+        index: number,
+        op: number,
+        id: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+        ch: number,
+        cl: number,
+        ud: number,
+        udh: number,
+        buffer: number,
+    ): number;
     treeMutate(
         ptr: number,
         cap: number,

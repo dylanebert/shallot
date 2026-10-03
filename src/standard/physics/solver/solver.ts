@@ -9,7 +9,6 @@
 // sets. Fast non-bullet bodies are swept inline during finalize (continuous.ts). Every op is
 // fround-wrapped; see the README.
 
-import * as bp from "../collision/broadphase";
 import { NULL_INDEX } from "../common/array";
 import { OVERFLOW_INDEX, SetType, SPECULATIVE_DISTANCE, TIME_TO_SLEEP } from "../common/constants";
 import {
@@ -34,13 +33,7 @@ import {
     SIM_STRIDE,
     SIM2_STRIDE,
 } from "../kernel/columns";
-import {
-    bufferFastBulletMoves,
-    consumeContinuous,
-    enlargeFastProxies,
-    prepareContinuous,
-    solveBullets,
-} from "../kernel/continuouscolumns";
+import { consumeContinuous, prepareContinuous, solveBullets } from "../kernel/continuouscolumns";
 import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
 import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
@@ -118,7 +111,7 @@ function setSweepBase(
 /**
  * Commit an escaped shape's refit: margin-inflate the (speculative) tight box into `shape.fatAABB`,
  * mirror it into the resident fat-AABB column (the in-kernel recycle + finalize escape tests read it),
- * and enlarge the broad-phase proxy (b3BroadPhase_EnlargeProxy). `box` is the shape's just-updated tight
+ * and mark it for the kernel enlarge pass. `box` is the shape's just-updated tight
  * AABB — the kernel candidate for a convex shape, the TS-computed one for a fallback shape. The tail of
  * `finalizeBodies`, factored out because both branches share it; the fat-column view is refreshed once at
  * the top of the pass, so the write here is raw (no reserve, no per-shape refresh).
@@ -133,7 +126,7 @@ function commitRefit(world: WorldState, shape: Shape, box: AABB): void {
     fat.upperBound.y = f32(box.upperBound.y + margin);
     fat.upperBound.z = f32(box.upperBound.z + margin);
     world.shapeStore.writeFatAabb(shape.id, fat);
-    bp.enlargeProxy(world.broadPhase, shape.proxyKey, fat);
+    world.shapeStore.shapeU[shape.id * SHAPE_STRIDE + S_ESCAPED] = 1;
 }
 
 /**
@@ -156,7 +149,6 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
     const timeStep = context.dt;
     const speculativeScalar = SPECULATIVE_DISTANCE;
     const count = sims.length;
-    bp.beginEnlargePass(world.broadPhase);
 
     // Kernel finalization publishes one retained move record per awake body. Keep only its valid
     // prefix count here; the public World bridge reads the wasm records after the step.
@@ -290,18 +282,9 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
             }
         }
 
-        // Update shape AABBs and re-fit enlarged proxies in place (b3Solve's refit stage, folded into
-        // finalize so the move buffer stays in ascending sim order). Fast bodies already had their
-        // AABBs computed in the sweep: a non-bullet enlarges its proxies now; a bullet only buffers
-        // the move (its dynamic-tree proxy is enlarged later, in the bullet stage).
-        if (sim.flags & BodyFlags.isFast) {
-            if (sim.flags & BodyFlags.isBullet) {
-                bufferFastBulletMoves(world, sim);
-            } else {
-                enlargeFastProxies(world, sim);
-            }
-            continue;
-        }
+        // Sweeps already published fast-body AABBs. The serial kernel tail enlarges non-bullets
+        // and buffers fast bullet moves before their deferred sweep.
+        if (sim.flags & BodyFlags.isFast) continue;
 
         // Non-fast body: commit the refit the kernel computed. For each convex shape the kernel wrote its
         // candidate AABB (the tight box + speculative margin) and an escaped flag into the shape column;
@@ -340,7 +323,7 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
             shapeId = shape.nextShapeId;
         }
     }
-    bp.finishEnlargePass(world.broadPhase);
+    kernel(world.ecsState).treeEnlargePass(count, 0);
 }
 
 // --- Event build passes ----------------------------------------------------------------------

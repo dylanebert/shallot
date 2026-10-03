@@ -228,6 +228,7 @@ pub const S2_CENTER0: usize = 4;
 pub const S2_MIN_EXTENT: usize = 7;
 /// Public body index carried by the resident sim2 record for lifecycle/move publication.
 pub const S2_BODY_ID: usize = 9;
+pub const S2_FLAGS: usize = 10;
 
 /// Slot of the head of the body's shape list (its `nextShapeId` chain runs through the shape column,
 /// shapes.rs), written TS-side at marshal-in and on any shape-list mutation of an awake body. The lane

@@ -26,7 +26,8 @@ import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
 /** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7) attachment(2). */
-export const SHAPE_STRIDE = 50;
+export const SHAPE_STRIDE = 51;
+export const S_PROXY_KEY = 50;
 /** Shape type code — the `ShapeType` value verbatim (sphere/capsule/hull dispatch in-kernel; every
  * other value is the TS-fallback partition the kernel skips). */
 export const S_TYPE = 0;
@@ -242,6 +243,7 @@ export class ShapeStore {
         u[n + 29] = shape.bodyId;
         u[n + 30] = Number(shape.enableSensorEvents);
         u[n + 31] = shape.filter.groupIndex;
+        u[n + S_PROXY_KEY] = shape.proxyKey;
         u[n + 41] = shape.sensorIndex;
         this.shapeF[n + 40] = shape.aabbMargin;
         this.shapeF[n + 43] = shape.hull?.innerRadius ?? 0;

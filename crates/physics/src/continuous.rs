@@ -10,10 +10,10 @@ use crate::{
 };
 /// One sleep threshold input, one hit count and up to eight (sensor, visitor) output pairs per body.
 pub const STRIDE: usize = 18;
-const IS_FAST: u32 = 0x40;
-const IS_BULLET: u32 = 0x80;
+pub(crate) const IS_FAST: u32 = 0x40;
+pub(crate) const IS_BULLET: u32 = 0x80;
 const HAD_TIME_OF_IMPACT: u32 = 0x200;
-const ENLARGE_BOUNDS: u32 = 0x800;
+pub(crate) const ENLARGE_BOUNDS: u32 = 0x800;
 static mut BASE: usize = 0;
 static mut COUNT: usize = 0;
 static mut ROOTS: [i32; 3] = [-1; 3];

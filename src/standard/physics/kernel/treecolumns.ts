@@ -12,6 +12,8 @@ export type TreeBacking = {
 export type DynamicTree = {
     nf: Float32Array;
     ni: Int32Array;
+    state: Int32Array;
+    residentState: boolean;
     root: number;
     nodeCount: number;
     nodeCapacity: number;
@@ -24,6 +26,36 @@ export type DynamicTree = {
 export const NULL_INDEX = -1;
 const STRIDE = 12;
 let depth = 0;
+class TreeMetadata {
+    state: Int32Array;
+    constructor(state: Int32Array) {
+        this.state = state;
+    }
+    get root(): number {
+        return this.state[0];
+    }
+    set root(value: number) {
+        this.state[0] = value;
+    }
+    get nodeCount(): number {
+        return this.state[1];
+    }
+    set nodeCount(value: number) {
+        this.state[1] = value;
+    }
+    get freeList(): number {
+        return this.state[2];
+    }
+    set freeList(value: number) {
+        this.state[2] = value;
+    }
+    get proxyCount(): number {
+        return this.state[3];
+    }
+    set proxyCount(value: number) {
+        this.state[3] = value;
+    }
+}
 export function createTree(
     capacity: number,
     store: TreeBacking | null = null,
@@ -31,18 +63,18 @@ export function createTree(
 ): DynamicTree {
     const cap = 2 * Math.max(capacity, 16) - 1;
     const buffer = new ArrayBuffer(store ? 0 : cap * STRIDE * 4);
-    const t: DynamicTree = {
-        nf: new Float32Array(buffer),
-        ni: new Int32Array(buffer),
-        root: -1,
-        nodeCount: 0,
-        nodeCapacity: store ? 0 : cap,
-        proxyCount: 0,
-        freeList: store ? -1 : 0,
-        store,
-        treeIndex,
-        initNodeCapacity: cap,
-    };
+    const t: DynamicTree = Object.assign(
+        new TreeMetadata(new Int32Array([-1, 0, store ? -1 : 0, 0, 0, 0])),
+        {
+            nf: new Float32Array(buffer),
+            ni: new Int32Array(buffer),
+            residentState: false,
+            nodeCapacity: store ? 0 : cap,
+            store,
+            treeIndex,
+            initNodeCapacity: cap,
+        },
+    );
     if (!store) freeRun(t, 0, cap);
     return t;
 }
@@ -107,11 +139,52 @@ function mutation(
     hi = 0,
     lo = 0,
     user: number | bigint = 0,
+    buffer = true,
 ): number {
     if (op === 0) {
         t.store?.refreshIfStale();
         reserve(t);
     }
+    if (t.store) return residentMutation(t, op, id, box, hi, lo, user, buffer);
+    return uploadedMutation(t, op, id, box, hi, lo, user);
+}
+function residentMutation(
+    t: DynamicTree,
+    op: number,
+    id: number,
+    box: AABB | undefined,
+    hi: number,
+    lo: number,
+    user: number | bigint,
+    buffer: boolean,
+): number {
+    t.store!.refreshIfStale();
+    return kernel(t.store!.ecsState).treeMutateResident(
+        t.treeIndex,
+        op,
+        id,
+        box?.lowerBound.x ?? 0,
+        box?.lowerBound.y ?? 0,
+        box?.lowerBound.z ?? 0,
+        box?.upperBound.x ?? 0,
+        box?.upperBound.y ?? 0,
+        box?.upperBound.z ?? 0,
+        hi,
+        lo,
+        typeof user === "number" ? user : Number(user & 0xffffffffn),
+        typeof user === "number" ? 0 : Number(user >> 32n),
+        Number(buffer),
+    );
+}
+function uploadedMutation(
+    t: DynamicTree,
+    op: number,
+    id: number,
+    box: AABB | undefined,
+    hi: number,
+    lo: number,
+    user: number | bigint,
+): number {
     return withColumns(t, true, (ptr, state) =>
         kernel(t.store?.ecsState).treeMutate(
             ptr,
@@ -132,21 +205,69 @@ function mutation(
         ),
     );
 }
-export const createProxy = (
+export function createProxy(
     t: DynamicTree,
     box: AABB,
     hi: number,
     lo: number,
     user: number | bigint,
-): number => mutation(t, 0, 0, box, hi, lo, user);
+    buffer = t.treeIndex !== 0,
+): number {
+    if (!t.store || typeof user !== "number") return mutation(t, 0, 0, box, hi, lo, user, buffer);
+    t.store.refreshIfStale();
+    reserve(t);
+    return kernel(t.store.ecsState).treeCreateProxy(
+        t.treeIndex,
+        box.lowerBound.x,
+        box.lowerBound.y,
+        box.lowerBound.z,
+        box.upperBound.x,
+        box.upperBound.y,
+        box.upperBound.z,
+        hi,
+        lo,
+        user,
+        Number(buffer),
+    );
+}
 export function moveProxy(t: DynamicTree, id: number, box: AABB): void {
-    mutation(t, 1, id, box);
+    if (!t.store) {
+        mutation(t, 1, id, box);
+        return;
+    }
+    kernel(t.store.ecsState).treeMoveProxy(
+        t.treeIndex,
+        id,
+        box.lowerBound.x,
+        box.lowerBound.y,
+        box.lowerBound.z,
+        box.upperBound.x,
+        box.upperBound.y,
+        box.upperBound.z,
+    );
 }
 export function enlargeProxy(t: DynamicTree, id: number, box: AABB): void {
-    mutation(t, 2, id, box);
+    if (!t.store) {
+        mutation(t, 2, id, box);
+        return;
+    }
+    kernel(t.store.ecsState).treeEnlargeProxy(
+        t.treeIndex,
+        id,
+        box.lowerBound.x,
+        box.lowerBound.y,
+        box.lowerBound.z,
+        box.upperBound.x,
+        box.upperBound.y,
+        box.upperBound.z,
+    );
 }
 export function destroyProxy(t: DynamicTree, id: number): void {
-    mutation(t, 3, id);
+    if (!t.store) {
+        mutation(t, 3, id);
+        return;
+    }
+    kernel(t.store.ecsState).treeDestroyProxy(t.treeIndex, id);
 }
 export function rebuild(t: DynamicTree, full: boolean): number {
     return mutation(t, 4, Number(full));

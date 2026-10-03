@@ -1,7 +1,7 @@
 import type { World } from "../../../engine";
 // The persistent broad-phase region (kernel/src/broad.rs) — three dynamic-tree node pools, shape-pair
 // membership arrays and joint-filtered body pairs. The kernel queries them without a per-step marshal.
-// This store owns the TS views over the seven sub-columns and their grow-only reservation policy.
+// This store owns views of the resident tree headers, pools, pairs, body filters and moves.
 // Tree operations run in the kernel; the pair table uses the resident TS views.
 //
 // A region grow (or any `memory.grow` elsewhere) detaches every typed-array view, so the store follows
@@ -17,8 +17,8 @@ import type { DynamicTree } from "./treecolumns";
 
 /** u32/f32 slots per dynamic-tree node — mirrors tree.rs and broad.rs. */
 const TREE_STRIDE = 12;
-/** Broad layout header size (3 tree pools + keyHi/keyLo/hashes + body filters). */
-const N_BROAD = 7;
+/** Three trees, three pair columns, body filters, moves and three moved bitsets. */
+const N_BROAD = 11;
 
 const EMPTY_F = new Float32Array(0);
 const EMPTY_I = new Int32Array(0);
@@ -42,19 +42,25 @@ export class BroadStore {
     set: HashSet | null = null;
     /** The owning world, set once the world is fully constructed (sibling-store refresh on a grow). */
     world: WorldState | null = null;
+    moveData = EMPTY_I;
+    moveState = EMPTY_U;
+    movedBits: Uint32Array[] = [EMPTY_U, EMPTY_U, EMPTY_U];
     /** `memory.buffer.byteLength` at the last refresh — catches a `memory.grow` (single-thread detach or
      * shared-memory tail extension). */
     private _lastLen = -1;
     /** The kernel's broad-layout generation at the last refresh — catches a relocation (a region below
      * grew within committed pages, shifting this region's offsets without a `memory.grow`). */
     private _lastGen = -1;
+    private _genPtr = 0;
+    private _gen = EMPTY_U;
+    private _movesInitialized = false;
 
     /** Refresh only if the region moved or memory grew since the last refresh. O(1) when fresh (a
      * function call + a byteLength read), so it can guard every broad-phase read/mutate entry point
      * without reintroducing churn. */
     refreshIfStale(): void {
         const k = kernel(this.ecsState);
-        if (k.broadGen() === this._lastGen && k.memory.buffer.byteLength === this._lastLen) return;
+        if (k.memory.buffer.byteLength === this._lastLen && this._gen[0] === this._lastGen) return;
         this.refreshViews();
     }
 
@@ -64,7 +70,9 @@ export class BroadStore {
         const k = kernel(this.ecsState);
         const buf = k.memory.buffer;
         this._lastLen = buf.byteLength;
-        this._lastGen = k.broadGen();
+        if (this._genPtr === 0) this._genPtr = k.broadGenPtr();
+        this._gen = new Uint32Array(buf, this._genPtr, 1);
+        this._lastGen = this._gen[0];
         const layout = new Uint32Array(buf, k.broadLayoutPtr(), N_BROAD);
 
         for (let i = 0; i < 3; ++i) {
@@ -76,10 +84,30 @@ export class BroadStore {
                 t.ni = EMPTY_I;
                 continue;
             }
-            t.nf = new Float32Array(buf, layout[i], cap * TREE_STRIDE);
-            t.ni = new Int32Array(buf, layout[i], cap * TREE_STRIDE);
+            const initial = !t.residentState;
+            const previous = t.state;
+            t.state = new Int32Array(buf, layout[i], 6);
+            if (initial) t.state.set(previous);
+            t.residentState = true;
+            t.nf = new Float32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
+            t.ni = new Int32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
         }
 
+        const moveCapacity = k.broadTreeCap(0) + k.broadTreeCap(1) + k.broadTreeCap(2);
+        if (moveCapacity !== 0) {
+            this.moveState = new Uint32Array(buf, layout[7], 1);
+            if (!this._movesInitialized) {
+                k.broadClearMoves();
+                this._movesInitialized = true;
+            }
+            this.moveData = new Int32Array(buf, layout[7] + 4, moveCapacity);
+            for (let i = 0; i < 3; i++)
+                this.movedBits[i] = new Uint32Array(
+                    buf,
+                    layout[8 + i],
+                    Math.ceil(k.broadTreeCap(i) / 32),
+                );
+        }
         const filter = this.world?.bodyFilters;
         if (filter !== undefined && filter.capacity !== 0) {
             filter.data = new Uint32Array(buf, layout[6], 1 + 3 * filter.capacity);

@@ -3,12 +3,13 @@
 //! query + tree rebuild (3d) run over them without a per-step marshal. Wasm-only (the columns alias
 //! linear memory); TS owns the growth policy and pair-table writes; tree operations run in the kernel.
 //!
-//! Seven sub-columns: three tree pools, the pair-set's three parallel u32 arrays, then body filters:
-//!   tree[Static]   `cap_s` nodes, `TREE_STRIDE` u32/f32 slots each (tree.rs node record)
+//! Resident columns: three tree headers + pools, pair membership, body filters and move membership:
+//!   tree[Static]   six header words then `cap_s` nodes of `TREE_STRIDE` slots
 //!   tree[Kinematic] `cap_k` nodes
 //!   tree[Dynamic]  `cap_d` nodes
 //!   keyHi / keyLo / hashes  `set_cap` u32 each (`src/table.ts` open-addressing set)
 //!   body filters: count + `filter_cap` sorted (bodyA, bodyB, joint count) triples
+//!   moves: count + proxy keys in insertion order, followed by each tree's moved bitset
 //!
 //! Placement — a persistent region between the manifold region and the geometry region:
 //! ```text
@@ -37,7 +38,76 @@ const KEY_HI: usize = 3;
 const KEY_LO: usize = 4;
 const HASHES: usize = 5;
 const BODY_FILTER: usize = 6;
-const N_BROAD: usize = 7;
+const MOVE: usize = 7;
+const BITS: usize = 8;
+const TREE_STATE_WORDS: usize = 6;
+const N_BROAD: usize = 11;
+
+fn tree_bytes(cap: usize) -> usize {
+    if cap == 0 {
+        0
+    } else {
+        (cap * TREE_STRIDE + TREE_STATE_WORDS) * 4
+    }
+}
+fn move_cap(caps: [usize; 3]) -> usize {
+    caps.iter().sum()
+}
+fn bit_bytes(cap: usize) -> usize {
+    cap.div_ceil(32) * 4
+}
+
+pub fn tree_state(i: usize) -> *mut u32 {
+    unsafe { BROAD_LAYOUT[i] as *mut u32 }
+}
+pub fn move_ptr() -> *mut u32 {
+    unsafe { (BROAD_LAYOUT[MOVE] as *mut u32).add(1) }
+}
+pub fn move_count() -> usize {
+    unsafe { *(BROAD_LAYOUT[MOVE] as *const u32) as usize }
+}
+pub fn bits_ptr(i: usize) -> *mut u32 {
+    unsafe { BROAD_LAYOUT[BITS + i] as *mut u32 }
+}
+pub fn bits_words(i: usize) -> usize {
+    tree_cap(i).div_ceil(32)
+}
+
+#[export_name = "broadBufferMove"]
+pub unsafe extern "C" fn buffer_move(key: u32) {
+    let i = (key & 3) as usize;
+    let id = (key >> 2) as usize;
+    let p = bits_ptr(i).add(id / 32);
+    let mask = 1 << (id & 31);
+    if *p & mask == 0 {
+        *p |= mask;
+        let count = BROAD_LAYOUT[MOVE] as *mut u32;
+        *move_ptr().add(*count as usize) = key;
+        *count += 1;
+    }
+}
+pub unsafe fn unbuffer_move(key: u32) {
+    let i = (key & 3) as usize;
+    let id = (key >> 2) as usize;
+    *bits_ptr(i).add(id / 32) &= !(1 << (id & 31));
+    let count = BROAD_LAYOUT[MOVE] as *mut u32;
+    for n in 0..*count as usize {
+        if *move_ptr().add(n) == key {
+            *count -= 1;
+            *move_ptr().add(n) = *move_ptr().add(*count as usize);
+            break;
+        }
+    }
+}
+#[export_name = "broadClearMoves"]
+pub unsafe extern "C" fn clear_moves() {
+    for n in 0..move_count() {
+        let key = *move_ptr().add(n);
+        let id = (key >> 2) as usize;
+        *bits_ptr((key & 3) as usize).add(id / 32) &= !(1 << (id & 31));
+    }
+    *(BROAD_LAYOUT[MOVE] as *mut u32) = 0;
+}
 
 /// Per-column byte offsets into linear memory, rewritten by every grow-triggering `reserveBroad`.
 /// TS reads this header (`broadLayoutPtr`) to build its column views after every grow.
@@ -97,6 +167,11 @@ pub fn relocate(delta: usize) {
 
 /// The layout generation — bumped on every grow or relocation. TS re-derives its views when this
 /// changes (or when memory grows), catching a relocation that moved this region without a `memory.grow`.
+#[export_name = "broadGenPtr"]
+pub extern "C" fn broad_gen_ptr() -> *const u32 {
+    &raw const BROAD_GEN
+}
+
 #[export_name = "broadGen"]
 pub extern "C" fn broad_gen() -> u32 {
     unsafe { BROAD_GEN }
@@ -106,7 +181,7 @@ pub extern "C" fn broad_gen() -> u32 {
 /// pair query + rebuild (`pairwork.rs`) view the pool here as a flat `[u32]` of `cap * TREE_STRIDE` slots.
 #[inline]
 pub fn tree_ptr(i: usize) -> *mut u32 {
-    unsafe { BROAD_LAYOUT[TREE_S + i] as *mut u32 }
+    unsafe { (BROAD_LAYOUT[TREE_S + i] as *mut u32).add(TREE_STATE_WORDS) }
 }
 
 /// Node capacity of tree pool `i` (source of truth for the pool slice length).
@@ -266,11 +341,11 @@ pub extern "C" fn reserve_broad(
         let mut off = base;
         let mut new_layout = [0u32; N_BROAD];
         new_layout[TREE_S] = off as u32;
-        off += col_bytes(new_tree[0], TREE_STRIDE);
+        off += tree_bytes(new_tree[0]);
         new_layout[TREE_K] = off as u32;
-        off += col_bytes(new_tree[1], TREE_STRIDE);
+        off += tree_bytes(new_tree[1]);
         new_layout[TREE_D] = off as u32;
-        off += col_bytes(new_tree[2], TREE_STRIDE);
+        off += tree_bytes(new_tree[2]);
         new_layout[KEY_HI] = off as u32;
         off += col_bytes(new_set, 1);
         new_layout[KEY_LO] = off as u32;
@@ -279,6 +354,12 @@ pub extern "C" fn reserve_broad(
         off += col_bytes(new_set, 1);
         new_layout[BODY_FILTER] = off as u32;
         off += filter_bytes(new_filter);
+        new_layout[MOVE] = off as u32;
+        off += (1 + move_cap(new_tree)) * 4;
+        for i in 0..3 {
+            new_layout[BITS + i] = off as u32;
+            off += bit_bytes(new_tree[i]);
+        }
         let new_end = align16(off);
 
         // Relocate the geometry region above by the growth delta (it holds live hull data a
@@ -320,15 +401,23 @@ pub extern "C" fn reserve_broad(
         // but the copies stay within `new_end` (the region only grows) and dead bytes are overwritten
         // before read (tree nodes reset on alloc; the set window is cleared before use).
         let old_bytes = [
-            col_bytes(old_tree[0], TREE_STRIDE),
-            col_bytes(old_tree[1], TREE_STRIDE),
-            col_bytes(old_tree[2], TREE_STRIDE),
+            tree_bytes(old_tree[0]),
+            tree_bytes(old_tree[1]),
+            tree_bytes(old_tree[2]),
             col_bytes(old_set, 1),
             col_bytes(old_set, 1),
             col_bytes(old_set, 1),
             filter_bytes(old_filter),
+            if BROAD_END == 0 {
+                0
+            } else {
+                (1 + move_cap(old_tree)) * 4
+            },
+            bit_bytes(old_tree[0]),
+            bit_bytes(old_tree[1]),
+            bit_bytes(old_tree[2]),
         ];
-        for c in (TREE_K..=BODY_FILTER).rev() {
+        for c in (TREE_K..N_BROAD).rev() {
             if old_bytes[c] != 0 && new_layout[c] != old_layout[c] {
                 core::ptr::copy(
                     old_layout[c] as *const u8,
@@ -338,6 +427,17 @@ pub extern "C" fn reserve_broad(
             }
         }
 
+        if BROAD_END == 0 {
+            *(new_layout[MOVE] as *mut u32) = 0;
+        }
+        for i in 0..3 {
+            let old = bit_bytes(old_tree[i]);
+            core::ptr::write_bytes(
+                (new_layout[BITS + i] as *mut u8).add(old),
+                0,
+                bit_bytes(new_tree[i]) - old,
+            );
+        }
         BROAD_LAYOUT = new_layout;
         BROAD_END = new_end as u32;
         TREE_CAP = new_tree;
