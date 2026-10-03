@@ -272,6 +272,7 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
         contact.manifoldCount = 0;
         world.manifoldStore.clear(contact.contactId);
         contact.flags &= ~ContactFlags.simTouchingFlag;
+        if (job.meshSlot !== -1) contact.flags &= ~ContactFlags.simEnableHitEvent;
         if (job.wasTouching) {
             contact.flags |= ContactFlags.simStoppedTouching;
             stateChanges.push(contact.contactId);
@@ -320,8 +321,13 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
     if (job.meshSlot !== -1) {
         finishMeshMaterial(world, job, shapeA, xfA, materialMap);
     } else {
-        const a = getShapeMaterial(world.ecsState, shapeA),
-            b = getShapeMaterial(world.ecsState, shapeB);
+        const materialA =
+            materialMap === null
+                ? getShapeMaterial(world.ecsState, job.shapeA)
+                : getShapeMaterials(world.ecsState, job.shapeA)[materialMap[0]];
+        const materialB = getShapeMaterial(world.ecsState, job.shapeB);
+        const a = shapeA === job.shapeB ? materialB : materialA;
+        const b = shapeA === job.shapeB ? materialA : materialB;
         contact.friction = world.frictionCallback(
             a.friction,
             a.userMaterialId,
