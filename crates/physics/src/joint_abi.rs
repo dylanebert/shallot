@@ -438,7 +438,10 @@ pub const PLJ_FIXED_ROTATION: usize = J_PAYLOAD + 22;
 /// ports wider joints; the column is transient (re-reserved each step), so a larger stride costs only
 /// scratch bytes. Widest ported so far: spherical (64 slots); motor (58) / prismatic (56) / parallel
 /// (23) are narrower.
-pub const JOINT_STRIDE: usize = J_PAYLOAD + 64; // 126
+pub const J_FORCE_THRESHOLD: usize = J_PAYLOAD + 64;
+pub const J_TORQUE_THRESHOLD: usize = J_PAYLOAD + 65;
+pub const J_EVENT: usize = J_PAYLOAD + 66;
+pub const JOINT_STRIDE: usize = J_PAYLOAD + 67; // 129
 
 // --- accessors --------------------------------------------------------------------------------
 

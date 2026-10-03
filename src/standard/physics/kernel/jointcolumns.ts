@@ -41,10 +41,13 @@ import {
     DJ_MOTOR_SPEED,
     DJ_UPPER_IMPULSE,
     DJ_UPPER_SPRING_FORCE,
+    FIN_STRIDE,
     J_CENTER_A,
     J_CENTER_B,
     J_CONSTRAINT_DAMPING,
     J_CONSTRAINT_HERTZ,
+    J_EVENT,
+    J_FORCE_THRESHOLD,
     J_INV_IA,
     J_INV_IB,
     J_INV_MASS_A,
@@ -57,6 +60,7 @@ import {
     J_QB,
     J_SIM_INDEX_A,
     J_SIM_INDEX_B,
+    J_TORQUE_THRESHOLD,
     J_TYPE,
     JOINT_STRIDE,
     MJ_ANGULAR_DAMPING_RATIO,
@@ -116,6 +120,7 @@ import {
     RJ_TARGET_ANGLE,
     RJ_UPPER_ANGLE,
     RJ_UPPER_IMPULSE,
+    SIM_STRIDE,
     SJ_CONE_ANGLE,
     SJ_DAMPING_RATIO,
     SJ_ENABLE,
@@ -176,6 +181,17 @@ function writeVec3(f32: Float32Array, o: number, v: Vec3): void {
     f32[o + 2] = v.z;
 }
 
+function readVec3(f32: Float32Array, o: number, v: Vec3): void {
+    v.x = f32[o];
+    v.y = f32[o + 1];
+    v.z = f32[o + 2];
+}
+
+function readVec2(f32: Float32Array, o: number, v: { x: number; y: number }): void {
+    v.x = f32[o];
+    v.y = f32[o + 1];
+}
+
 function readQuat(f32: Float32Array, o: number, q: Quat): void {
     q.v.x = f32[o];
     q.v.y = f32[o + 1];
@@ -207,6 +223,39 @@ function writeTransform(f32: Float32Array, o: number, t: Transform): void {
     writeQuat(f32, o + 3, t.q);
 }
 
+function writeBody(
+    world: WorldState,
+    bodyId: number,
+    f32: Float32Array,
+    base: number,
+    a: boolean,
+): void {
+    const body = world.bodies[bodyId];
+    const sim = world.solverSets[body.setIndex].bodySims[body.localIndex];
+    const inertia = base + (a ? J_INV_IA : J_INV_IB);
+    const rotation = base + (a ? J_QA : J_QB);
+    const localCenter = base + (a ? J_LOCAL_CENTER_A : J_LOCAL_CENTER_B);
+    const center = base + (a ? J_CENTER_A : J_CENTER_B);
+    f32[base + (a ? J_INV_MASS_A : J_INV_MASS_B)] = sim.invMass;
+    if (body.setIndex === SetType.Awake) {
+        const sf = world.bodyStore.simF;
+        const ff = world.bodyStore.finF;
+        const so = body.localIndex * SIM_STRIDE;
+        const fo = body.localIndex * FIN_STRIDE;
+        for (let i = 0; i < 9; i++) f32[inertia + i] = sf[so + 19 + i];
+        for (let i = 0; i < 4; i++) f32[rotation + i] = sf[so + 28 + i];
+        for (let i = 0; i < 3; i++) {
+            f32[center + i] = ff[fo + i];
+            f32[localCenter + i] = ff[fo + 3 + i];
+        }
+    } else {
+        writeMat3(f32, inertia, sim.invInertiaWorld);
+        writeQuat(f32, rotation, sim.transform.q);
+        writeVec3(f32, localCenter, sim.localCenter);
+        writeVec3(f32, center, sim.center);
+    }
+}
+
 /** Write one joint's full record into slot `slot` of the flat joint column. Reads the two bodies' sim
  * data (invMass/invInertia + pose) straight from their solver sets — the same fields the serial
  * prepare reads — and the type config + persistent impulses from the sim payload. */
@@ -221,8 +270,6 @@ function writeRecord(
 
     const bodyA = world.bodies[sim.bodyIdA];
     const bodyB = world.bodies[sim.bodyIdB];
-    const bodySimA = world.solverSets[bodyA.setIndex].bodySims[bodyA.localIndex];
-    const bodySimB = world.solverSets[bodyB.setIndex].bodySims[bodyB.localIndex];
 
     u32[base + J_TYPE] = sim.type;
     u32[base + J_SIM_INDEX_A] =
@@ -230,20 +277,14 @@ function writeRecord(
     u32[base + J_SIM_INDEX_B] =
         bodyB.setIndex === SetType.Awake ? bodyB.localIndex : NULL_INDEX >>> 0;
 
-    f32[base + J_INV_MASS_A] = bodySimA.invMass;
-    f32[base + J_INV_MASS_B] = bodySimB.invMass;
-    writeMat3(f32, base + J_INV_IA, bodySimA.invInertiaWorld);
-    writeMat3(f32, base + J_INV_IB, bodySimB.invInertiaWorld);
-    writeQuat(f32, base + J_QA, bodySimA.transform.q);
-    writeVec3(f32, base + J_LOCAL_CENTER_A, bodySimA.localCenter);
-    writeVec3(f32, base + J_CENTER_A, bodySimA.center);
-    writeQuat(f32, base + J_QB, bodySimB.transform.q);
-    writeVec3(f32, base + J_LOCAL_CENTER_B, bodySimB.localCenter);
-    writeVec3(f32, base + J_CENTER_B, bodySimB.center);
+    writeBody(world, sim.bodyIdA, f32, base, true);
+    writeBody(world, sim.bodyIdB, f32, base, false);
     writeTransform(f32, base + J_LOCAL_FRAME_A, sim.localFrameA);
     writeTransform(f32, base + J_LOCAL_FRAME_B, sim.localFrameB);
     f32[base + J_CONSTRAINT_HERTZ] = sim.constraintHertz;
     f32[base + J_CONSTRAINT_DAMPING] = sim.constraintDampingRatio;
+    f32[base + J_FORCE_THRESHOLD] = sim.forceThreshold;
+    f32[base + J_TORQUE_THRESHOLD] = sim.torqueThreshold;
 
     if (sim.type === JointType.Distance) {
         const j = sim.data as DistanceJoint;
@@ -437,8 +478,9 @@ export function countJoints(world: WorldState, layout: SolveLayout): number {
     return n;
 }
 
-function readbackJoint(f32: Float32Array, slot: number, sim: JointSim): void {
+function readbackJoint(f32: Float32Array, slot: number, sim: JointSim, events: Set<number>): void {
     const base = slot * JOINT_STRIDE;
+    if (f32[base + J_EVENT] !== 0) events.add(sim.jointId);
     if (sim.type === JointType.Distance) {
         const j = sim.data as DistanceJoint;
         j.impulse = f32[base + DJ_IMPULSE];
@@ -447,16 +489,8 @@ function readbackJoint(f32: Float32Array, slot: number, sim: JointSim): void {
         j.motorImpulse = f32[base + DJ_MOTOR_IMPULSE];
     } else if (sim.type === JointType.Weld) {
         const j = sim.data as WeldJoint;
-        j.linearImpulse = {
-            x: f32[base + WJ_LINEAR_IMPULSE],
-            y: f32[base + WJ_LINEAR_IMPULSE + 1],
-            z: f32[base + WJ_LINEAR_IMPULSE + 2],
-        };
-        j.angularImpulse = {
-            x: f32[base + WJ_ANGULAR_IMPULSE],
-            y: f32[base + WJ_ANGULAR_IMPULSE + 1],
-            z: f32[base + WJ_ANGULAR_IMPULSE + 2],
-        };
+        readVec3(f32, base + WJ_LINEAR_IMPULSE, j.linearImpulse);
+        readVec3(f32, base + WJ_ANGULAR_IMPULSE, j.angularImpulse);
     } else if (sim.type === JointType.Revolute) {
         const j = sim.data as RevoluteJoint;
         // Torque reads use the prepared frames, not the finalized body poses.
@@ -465,58 +499,32 @@ function readbackJoint(f32: Float32Array, slot: number, sim: JointSim): void {
         j.rotationAxisZ.x = f32[base + RJ_ROTATION_AXIS_Z];
         j.rotationAxisZ.y = f32[base + RJ_ROTATION_AXIS_Z + 1];
         j.rotationAxisZ.z = f32[base + RJ_ROTATION_AXIS_Z + 2];
-        j.linearImpulse = {
-            x: f32[base + RJ_LINEAR_IMPULSE],
-            y: f32[base + RJ_LINEAR_IMPULSE + 1],
-            z: f32[base + RJ_LINEAR_IMPULSE + 2],
-        };
-        j.perpImpulse = { x: f32[base + RJ_PERP_IMPULSE], y: f32[base + RJ_PERP_IMPULSE + 1] };
+        readVec3(f32, base + RJ_LINEAR_IMPULSE, j.linearImpulse);
+        readVec2(f32, base + RJ_PERP_IMPULSE, j.perpImpulse);
         j.springImpulse = f32[base + RJ_SPRING_IMPULSE];
         j.motorImpulse = f32[base + RJ_MOTOR_IMPULSE];
         j.lowerImpulse = f32[base + RJ_LOWER_IMPULSE];
         j.upperImpulse = f32[base + RJ_UPPER_IMPULSE];
     } else if (sim.type === JointType.Spherical) {
         const j = sim.data as SphericalJoint;
-        j.linearImpulse = {
-            x: f32[base + SJ_LINEAR_IMPULSE],
-            y: f32[base + SJ_LINEAR_IMPULSE + 1],
-            z: f32[base + SJ_LINEAR_IMPULSE + 2],
-        };
-        j.springImpulse = {
-            x: f32[base + SJ_SPRING_IMPULSE],
-            y: f32[base + SJ_SPRING_IMPULSE + 1],
-            z: f32[base + SJ_SPRING_IMPULSE + 2],
-        };
-        j.motorImpulse = {
-            x: f32[base + SJ_MOTOR_IMPULSE],
-            y: f32[base + SJ_MOTOR_IMPULSE + 1],
-            z: f32[base + SJ_MOTOR_IMPULSE + 2],
-        };
+        readVec3(f32, base + SJ_LINEAR_IMPULSE, j.linearImpulse);
+        readVec3(f32, base + SJ_SPRING_IMPULSE, j.springImpulse);
+        readVec3(f32, base + SJ_MOTOR_IMPULSE, j.motorImpulse);
         j.lowerTwistImpulse = f32[base + SJ_LOWER_TWIST_IMPULSE];
         j.upperTwistImpulse = f32[base + SJ_UPPER_TWIST_IMPULSE];
         j.swingImpulse = f32[base + SJ_SWING_IMPULSE];
     } else if (sim.type === JointType.Prismatic) {
         const j = sim.data as PrismaticJoint;
-        j.perpImpulse = { x: f32[base + PJ_PERP_IMPULSE], y: f32[base + PJ_PERP_IMPULSE + 1] };
-        j.angularImpulse = {
-            x: f32[base + PJ_ANGULAR_IMPULSE],
-            y: f32[base + PJ_ANGULAR_IMPULSE + 1],
-            z: f32[base + PJ_ANGULAR_IMPULSE + 2],
-        };
+        readVec2(f32, base + PJ_PERP_IMPULSE, j.perpImpulse);
+        readVec3(f32, base + PJ_ANGULAR_IMPULSE, j.angularImpulse);
         j.springImpulse = f32[base + PJ_SPRING_IMPULSE];
         j.motorImpulse = f32[base + PJ_MOTOR_IMPULSE];
         j.lowerImpulse = f32[base + PJ_LOWER_IMPULSE];
         j.upperImpulse = f32[base + PJ_UPPER_IMPULSE];
     } else if (sim.type === JointType.Wheel) {
         const j = sim.data as WheelJoint;
-        j.linearImpulse = {
-            x: f32[base + WHJ_LINEAR_IMPULSE],
-            y: f32[base + WHJ_LINEAR_IMPULSE + 1],
-        };
-        j.angularImpulse = {
-            x: f32[base + WHJ_ANGULAR_IMPULSE],
-            y: f32[base + WHJ_ANGULAR_IMPULSE + 1],
-        };
+        readVec2(f32, base + WHJ_LINEAR_IMPULSE, j.linearImpulse);
+        readVec2(f32, base + WHJ_ANGULAR_IMPULSE, j.angularImpulse);
         j.spinImpulse = f32[base + WHJ_SPIN_IMPULSE];
         j.suspensionSpringImpulse = f32[base + WHJ_SUSPENSION_SPRING_IMPULSE];
         j.lowerSuspensionImpulse = f32[base + WHJ_LOWER_SUSPENSION_IMPULSE];
@@ -526,44 +534,30 @@ function readbackJoint(f32: Float32Array, slot: number, sim: JointSim): void {
         j.upperSteeringImpulse = f32[base + WHJ_UPPER_STEERING_IMPULSE];
     } else if (sim.type === JointType.Motor) {
         const j = sim.data as MotorJoint;
-        j.linearVelocityImpulse = {
-            x: f32[base + MJ_LINEAR_VELOCITY_IMPULSE],
-            y: f32[base + MJ_LINEAR_VELOCITY_IMPULSE + 1],
-            z: f32[base + MJ_LINEAR_VELOCITY_IMPULSE + 2],
-        };
-        j.angularVelocityImpulse = {
-            x: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE],
-            y: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE + 1],
-            z: f32[base + MJ_ANGULAR_VELOCITY_IMPULSE + 2],
-        };
-        j.linearSpringImpulse = {
-            x: f32[base + MJ_LINEAR_SPRING_IMPULSE],
-            y: f32[base + MJ_LINEAR_SPRING_IMPULSE + 1],
-            z: f32[base + MJ_LINEAR_SPRING_IMPULSE + 2],
-        };
-        j.angularSpringImpulse = {
-            x: f32[base + MJ_ANGULAR_SPRING_IMPULSE],
-            y: f32[base + MJ_ANGULAR_SPRING_IMPULSE + 1],
-            z: f32[base + MJ_ANGULAR_SPRING_IMPULSE + 2],
-        };
+        readVec3(f32, base + MJ_LINEAR_VELOCITY_IMPULSE, j.linearVelocityImpulse);
+        readVec3(f32, base + MJ_ANGULAR_VELOCITY_IMPULSE, j.angularVelocityImpulse);
+        readVec3(f32, base + MJ_LINEAR_SPRING_IMPULSE, j.linearSpringImpulse);
+        readVec3(f32, base + MJ_ANGULAR_SPRING_IMPULSE, j.angularSpringImpulse);
     } else if (sim.type === JointType.Parallel) {
         const j = sim.data as ParallelJoint;
         readQuat(f32, base + PLJ_QUAT_A, j.quatA);
         readQuat(f32, base + PLJ_QUAT_B, j.quatB);
-        j.perpImpulse = {
-            x: f32[base + PLJ_PERP_IMPULSE],
-            y: f32[base + PLJ_PERP_IMPULSE + 1],
-        };
+        readVec2(f32, base + PLJ_PERP_IMPULSE, j.perpImpulse);
     }
 }
 
 /** Read the solved impulses and torque frames into each joint, mirroring the marshal order. */
-export function readbackJointImpulses(world: WorldState, layout: SolveLayout, cols: Columns): void {
+export function readbackJointImpulses(
+    world: WorldState,
+    layout: SolveLayout,
+    cols: Columns,
+    events: Set<number>,
+): void {
     let slot = 0;
     for (const span of layout.colors) {
-        for (const sim of span.color.jointSims) readbackJoint(cols.joint, slot++, sim);
+        for (const sim of span.color.jointSims) readbackJoint(cols.joint, slot++, sim, events);
     }
     for (const sim of world.constraintGraph.colors[OVERFLOW_INDEX].jointSims) {
-        readbackJoint(cols.joint, slot++, sim);
+        readbackJoint(cols.joint, slot++, sim, events);
     }
 }

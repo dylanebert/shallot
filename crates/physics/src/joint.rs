@@ -57,6 +57,7 @@ use crate::joint_abi::{
     WJ_FIXED_ROTATION, WJ_FRAME_A, WJ_FRAME_B, WJ_LINEAR_DAMPING_RATIO, WJ_LINEAR_HERTZ,
     WJ_LINEAR_IMPULSE, WJ_LINEAR_SPRING,
 };
+use crate::joint_abi::{J_EVENT, J_FORCE_THRESHOLD, J_TORQUE_THRESHOLD};
 use crate::math::{
     atan2, blend2, blend3, clampf, maxf, minf, Mat2, Mat3, Quat, Transform, Vec2, Vec3, FLT_MIN, PI,
 };
@@ -128,6 +129,7 @@ fn write_velocity(state_col: Col<f32>, index: u32, v: Vec3, w: Vec3) {
 
 /// b3PrepareJoint: clamp the base constraint hertz, compute `constraintSoftness`, dispatch to the type.
 pub fn prepare(joints: Col<f32>, slot: usize, h: f32, inv_h: f32, enable_warm_starting: bool) {
+    set(joints, slot, J_EVENT, 0.0);
     let hertz = minf(get(joints, slot, J_CONSTRAINT_HERTZ), 0.25 * inv_h);
     let soft = make_soft(hertz, get(joints, slot, J_CONSTRAINT_DAMPING), h);
     set(joints, slot, J_CONSTRAINT_SOFTNESS, soft.bias_rate);
@@ -183,6 +185,97 @@ pub fn solve(
         TY_PARALLEL => solve_parallel(joints, slot, state_col, flags_col, h),
         _ => {}
     }
+    if use_bias && get(joints, slot, J_EVENT) == 0.0 {
+        let force_threshold = get(joints, slot, J_FORCE_THRESHOLD);
+        let torque_threshold = get(joints, slot, J_TORQUE_THRESHOLD);
+        if force_threshold < f32::MAX || torque_threshold < f32::MAX {
+            let (force, torque) = reaction(joints, slot, inv_h);
+            if force >= force_threshold || torque >= torque_threshold {
+                set(joints, slot, J_EVENT, 1.0);
+            }
+        }
+    }
+}
+
+/// b3GetJointReaction: scalar impulse magnitudes at the biased solve, before relaxation.
+fn reaction(joints: Col<f32>, slot: usize, inv_h: f32) -> (f32, f32) {
+    let g = |field| get(joints, slot, field);
+    let v = |field| get_vec3(joints, slot, field);
+    let (linear, angular) = match joint_type(joints, slot) {
+        TY_PARALLEL => (
+            0.0,
+            Vec3 {
+                x: g(PLJ_PERP_IMPULSE),
+                y: g(PLJ_PERP_IMPULSE + 1),
+                z: 0.0,
+            }
+            .length(),
+        ),
+        TY_DISTANCE => (
+            (g(DJ_IMPULSE) + g(DJ_LOWER_IMPULSE) - g(DJ_UPPER_IMPULSE) + g(DJ_MOTOR_IMPULSE)).abs(),
+            0.0,
+        ),
+        TY_MOTOR => (
+            v(MJ_LINEAR_VELOCITY_IMPULSE)
+                .add(v(MJ_LINEAR_SPRING_IMPULSE))
+                .length(),
+            v(MJ_ANGULAR_VELOCITY_IMPULSE)
+                .add(v(MJ_ANGULAR_SPRING_IMPULSE))
+                .length(),
+        ),
+        TY_PRISMATIC => (
+            Vec3 {
+                x: g(PJ_MOTOR_IMPULSE) + g(PJ_LOWER_IMPULSE) - g(PJ_UPPER_IMPULSE),
+                y: g(PJ_PERP_IMPULSE),
+                z: g(PJ_PERP_IMPULSE + 1),
+            }
+            .length(),
+            v(PJ_ANGULAR_IMPULSE).length(),
+        ),
+        TY_REVOLUTE => (
+            v(RJ_LINEAR_IMPULSE).length(),
+            Vec3 {
+                x: g(RJ_PERP_IMPULSE),
+                y: g(RJ_PERP_IMPULSE + 1),
+                z: g(RJ_MOTOR_IMPULSE) + g(RJ_LOWER_IMPULSE) - g(RJ_UPPER_IMPULSE),
+            }
+            .length(),
+        ),
+        TY_SPHERICAL => {
+            let cone = get_transform(joints, slot, SJ_FRAME_A).q.rotate(Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            });
+            let twist = get_transform(joints, slot, SJ_FRAME_B).q.rotate(Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            });
+            let swing = cone.cross(twist).normalize();
+            let impulse = v(SJ_SPRING_IMPULSE)
+                .add(v(SJ_MOTOR_IMPULSE))
+                .mul_add(g(SJ_LOWER_TWIST_IMPULSE) - g(SJ_UPPER_TWIST_IMPULSE), twist)
+                .mul_add(g(SJ_SWING_IMPULSE), swing);
+            (v(SJ_LINEAR_IMPULSE).length(), impulse.length())
+        }
+        TY_WELD => (
+            v(WJ_LINEAR_IMPULSE).length(),
+            v(WJ_ANGULAR_IMPULSE).length(),
+        ),
+        TY_WHEEL => (
+            Vec3 {
+                x: g(WHJ_LINEAR_IMPULSE),
+                y: g(WHJ_LINEAR_IMPULSE + 1),
+                z: g(WHJ_SUSPENSION_SPRING_IMPULSE) + g(WHJ_LOWER_SUSPENSION_IMPULSE)
+                    - g(WHJ_UPPER_SUSPENSION_IMPULSE),
+            }
+            .length(),
+            g(WHJ_SPIN_IMPULSE).abs(),
+        ),
+        _ => (0.0, 0.0),
+    };
+    (linear * inv_h, angular * inv_h)
 }
 
 // --- shared payload helpers -------------------------------------------------------------------
@@ -3007,4 +3100,113 @@ fn solve_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col:
 #[allow(dead_code)]
 fn _base_fields(b: &JointBase) -> (u32, u32) {
     (b.sim_index_a, b.sim_index_b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::joint_abi::{JOINT_STRIDE, J_TYPE, TY_FILTER};
+
+    #[test]
+    fn reaction_uses_each_joint_types_impulse_magnitude() {
+        // Integer 3-4-5 and 5-12-13 triples make the scalar magnitudes exact.
+        type Case = (u32, &'static [(usize, f32)], (f32, f32));
+        let cases: &[Case] = &[
+            (
+                TY_PARALLEL,
+                &[(PLJ_PERP_IMPULSE, 3.0), (PLJ_PERP_IMPULSE + 1, 4.0)],
+                (0.0, 10.0),
+            ),
+            (
+                TY_DISTANCE,
+                &[
+                    (DJ_IMPULSE, 3.0),
+                    (DJ_LOWER_IMPULSE, 5.0),
+                    (DJ_UPPER_IMPULSE, 2.0),
+                    (DJ_MOTOR_IMPULSE, 7.0),
+                ],
+                (26.0, 0.0),
+            ),
+            (
+                TY_MOTOR,
+                &[
+                    (MJ_LINEAR_VELOCITY_IMPULSE, 3.0),
+                    (MJ_LINEAR_SPRING_IMPULSE + 1, 4.0),
+                    (MJ_ANGULAR_VELOCITY_IMPULSE, 3.0),
+                    (MJ_ANGULAR_SPRING_IMPULSE + 1, 4.0),
+                ],
+                (10.0, 10.0),
+            ),
+            (
+                TY_PRISMATIC,
+                &[
+                    (PJ_MOTOR_IMPULSE, 13.0),
+                    (PJ_LOWER_IMPULSE, 2.0),
+                    (PJ_UPPER_IMPULSE, 3.0),
+                    (PJ_PERP_IMPULSE, 3.0),
+                    (PJ_PERP_IMPULSE + 1, 4.0),
+                    (PJ_ANGULAR_IMPULSE + 2, 7.0),
+                ],
+                (26.0, 14.0),
+            ),
+            (
+                TY_REVOLUTE,
+                &[
+                    (RJ_LINEAR_IMPULSE, 3.0),
+                    (RJ_LINEAR_IMPULSE + 1, 4.0),
+                    (RJ_PERP_IMPULSE, 3.0),
+                    (RJ_PERP_IMPULSE + 1, 4.0),
+                    (RJ_MOTOR_IMPULSE, 13.0),
+                    (RJ_LOWER_IMPULSE, 2.0),
+                    (RJ_UPPER_IMPULSE, 3.0),
+                ],
+                (10.0, 26.0),
+            ),
+            (
+                TY_SPHERICAL,
+                &[
+                    (SJ_LINEAR_IMPULSE, 3.0),
+                    (SJ_LINEAR_IMPULSE + 1, 4.0),
+                    (SJ_FRAME_A + 6, 1.0),
+                    (SJ_FRAME_B + 6, 1.0),
+                    (SJ_SPRING_IMPULSE, 3.0),
+                    (SJ_MOTOR_IMPULSE + 1, 4.0),
+                    (SJ_LOWER_TWIST_IMPULSE, 13.0),
+                    (SJ_UPPER_TWIST_IMPULSE, 1.0),
+                ],
+                (10.0, 26.0),
+            ),
+            (
+                TY_WELD,
+                &[
+                    (WJ_LINEAR_IMPULSE, 3.0),
+                    (WJ_LINEAR_IMPULSE + 1, 4.0),
+                    (WJ_ANGULAR_IMPULSE + 2, 7.0),
+                ],
+                (10.0, 14.0),
+            ),
+            (
+                TY_WHEEL,
+                &[
+                    (WHJ_LINEAR_IMPULSE, 3.0),
+                    (WHJ_LINEAR_IMPULSE + 1, 4.0),
+                    (WHJ_SUSPENSION_SPRING_IMPULSE, 13.0),
+                    (WHJ_LOWER_SUSPENSION_IMPULSE, 2.0),
+                    (WHJ_UPPER_SUSPENSION_IMPULSE, 3.0),
+                    (WHJ_SPIN_IMPULSE, 7.0),
+                ],
+                (26.0, 14.0),
+            ),
+            (TY_FILTER, &[], (0.0, 0.0)),
+        ];
+        for &(kind, fields, expected) in cases {
+            let mut record = vec![0.0; JOINT_STRIDE];
+            record[J_TYPE] = f32::from_bits(kind);
+            for &(field, value) in fields {
+                record[field] = value;
+            }
+            let col = unsafe { Col::of(&mut record) };
+            assert_eq!(reaction(col, 0, 2.0), expected, "joint type {kind}");
+        }
+    }
 }

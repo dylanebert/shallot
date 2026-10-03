@@ -30,7 +30,6 @@ import { type Body, getBodyTransformQuick, wakeBody } from "../world/body";
 import { linkJoint, unlinkJoint } from "../world/island";
 import { wakeSolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
-import type { StepContext } from "./contactsolver";
 import { type DistanceJoint, getDistanceJointForce } from "./distanceJoint";
 import { createJointInGraph, removeJointFromGraph } from "./graph";
 import { getMotorJointForce, getMotorJointTorque, type MotorJoint } from "./motorJoint";
@@ -400,20 +399,7 @@ export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies
 
 // --- Dispatch ---------------------------------------------------------------------------------
 
-/** Prepare one joint: clamp the constraint hertz and dispatch to the type (b3PrepareJoint). */
-export function flagJointEvent(sim: JointSim, context: StepContext): void {
-    if (
-        (sim.forceThreshold < FLT_MAX || sim.torqueThreshold < FLT_MAX) &&
-        context.jointEventFlags.has(sim.jointId) === false
-    ) {
-        const reaction = getJointReaction(context.world, sim, context.invH);
-        if (reaction.force >= sim.forceThreshold || reaction.torque >= sim.torqueThreshold) {
-            context.jointEventFlags.add(sim.jointId);
-        }
-    }
-}
-
-/** Solve every joint in a graph color (b3SolveJointsTask / b3SolveJoints_Overflow). */
+/** The constraint force this joint applies (b3GetJointConstraintForce). */
 export function getJointConstraintForce(world: WorldState, sim: JointSim): Vec3 {
     switch (sim.type) {
         case JointType.Distance:
@@ -458,119 +444,6 @@ export function getJointConstraintTorque(world: WorldState, sim: JointSim): Vec3
             return { x: 0, y: 0, z: 0 };
     }
 }
-
-/**
- * The scalar reaction force and torque this joint applied last step (b3GetJointReaction), read from
- * the raw impulse accumulators. Feeds the joint-event threshold test; hash-invisible, but ported
- * op-for-op under the same fround discipline as the rest of the solver.
- */
-function getJointReaction(
-    world: WorldState,
-    sim: JointSim,
-    invTimeStep: number,
-): { force: number; torque: number } {
-    let linearImpulse = 0;
-    let angularImpulse = 0;
-
-    switch (sim.type) {
-        case JointType.Parallel: {
-            const joint = sim.data as ParallelJoint;
-            angularImpulse = vec3.length({ x: joint.perpImpulse.x, y: joint.perpImpulse.y, z: 0 });
-            break;
-        }
-        case JointType.Distance: {
-            const joint = sim.data as DistanceJoint;
-            linearImpulse = absf(
-                f32(
-                    f32(f32(joint.impulse + joint.lowerImpulse) - joint.upperImpulse) +
-                        joint.motorImpulse,
-                ),
-            );
-            break;
-        }
-        case JointType.Motor: {
-            const joint = sim.data as MotorJoint;
-            linearImpulse = vec3.length(
-                vec3.add(joint.linearVelocityImpulse, joint.linearSpringImpulse),
-            );
-            angularImpulse = vec3.length(
-                vec3.add(joint.angularVelocityImpulse, joint.angularSpringImpulse),
-            );
-            break;
-        }
-        case JointType.Prismatic: {
-            const joint = sim.data as PrismaticJoint;
-            linearImpulse = vec3.length({
-                x: f32(f32(joint.motorImpulse + joint.lowerImpulse) - joint.upperImpulse),
-                y: joint.perpImpulse.x,
-                z: joint.perpImpulse.y,
-            });
-            angularImpulse = vec3.length(joint.angularImpulse);
-            break;
-        }
-        case JointType.Revolute: {
-            const joint = sim.data as RevoluteJoint;
-            linearImpulse = vec3.length(joint.linearImpulse);
-            angularImpulse = vec3.length({
-                x: joint.perpImpulse.x,
-                y: joint.perpImpulse.y,
-                z: f32(f32(joint.motorImpulse + joint.lowerImpulse) - joint.upperImpulse),
-            });
-            break;
-        }
-        case JointType.Spherical: {
-            const joint = sim.data as SphericalJoint;
-            linearImpulse = vec3.length(joint.linearImpulse);
-
-            const xfA = getBodyTransformQuick(world, world.bodies[sim.bodyIdA]);
-            const xfB = getBodyTransformQuick(world, world.bodies[sim.bodyIdB]);
-            const qA = quat.mul(xfA.q, sim.localFrameA.q);
-            const qB = quat.mul(xfB.q, sim.localFrameB.q);
-
-            // Cone axis is body A's z-axis, twist axis body B's; swing is their cross.
-            const coneAxis = quat.rotate(qA, vec3.axisZ());
-            const twistAxis = quat.rotate(qB, vec3.axisZ());
-            const swingAxis = vec3.normalize(vec3.cross(coneAxis, twistAxis));
-
-            let impulse = vec3.add(joint.springImpulse, joint.motorImpulse);
-            impulse = vec3.mulAdd(
-                impulse,
-                f32(joint.lowerTwistImpulse - joint.upperTwistImpulse),
-                twistAxis,
-            );
-            impulse = vec3.mulAdd(impulse, joint.swingImpulse, swingAxis);
-            angularImpulse = vec3.length(impulse);
-            break;
-        }
-        case JointType.Weld: {
-            const joint = sim.data as WeldJoint;
-            linearImpulse = vec3.length(joint.linearImpulse);
-            angularImpulse = vec3.length(joint.angularImpulse);
-            break;
-        }
-        case JointType.Wheel: {
-            const joint = sim.data as WheelJoint;
-            const perp = joint.linearImpulse;
-            const axial = f32(
-                f32(joint.suspensionSpringImpulse + joint.lowerSuspensionImpulse) -
-                    joint.upperSuspensionImpulse,
-            );
-            linearImpulse = f32(
-                Math.sqrt(
-                    f32(f32(f32(perp.x * perp.x) + f32(perp.y * perp.y)) + f32(axial * axial)),
-                ),
-            );
-            angularImpulse = absf(joint.spinImpulse);
-            break;
-        }
-        case JointType.Filter:
-            break;
-    }
-
-    return { force: f32(linearImpulse * invTimeStep), torque: f32(angularImpulse * invTimeStep) };
-}
-
-// --- Base runtime API (b3Joint_*) -------------------------------------------------------------
 
 /** Toggle whether the two connected bodies collide, updating the broad-phase (b3Joint_SetCollideConnected). */
 export function setJointCollideConnected(

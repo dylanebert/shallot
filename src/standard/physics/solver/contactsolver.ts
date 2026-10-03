@@ -133,11 +133,11 @@ export function computeLayout(world: WorldState): SolveLayout {
 
     // Active colors (occupancy > 0), ascending. The overflow color is handled separately.
     const active = activeScratch;
-    active.length = 0;
+    let activeCount = 0;
     for (let i = 0; i < OVERFLOW_INDEX; ++i) {
         const c = colors[i];
         if (c.convexContacts.length + c.contacts.length + c.jointSims.length > 0) {
-            active.push(i);
+            active[activeCount++] = i;
         }
     }
 
@@ -147,7 +147,7 @@ export function computeLayout(world: WorldState): SolveLayout {
     let pointCursor = 0;
     let wideCursor = 0;
     const spans = spansScratch;
-    for (let a = 0; a < active.length; ++a) {
+    for (let a = 0; a < activeCount; ++a) {
         const color = colors[active[a]];
         const nConvex = color.convexContacts.length;
         const wideStart = wideCursor;
@@ -173,11 +173,11 @@ export function computeLayout(world: WorldState): SolveLayout {
         }
     }
     // Drop any pooled spans past this step's active-color count so no stale span is observable.
-    spans.length = active.length;
+    spans.length = activeCount;
 
     // Second sub-region: mesh contacts, color by color.
     const meshStart = contactCursor;
-    for (let a = 0; a < active.length; ++a) {
+    for (let a = 0; a < activeCount; ++a) {
         const color = colors[active[a]];
         const nMesh = color.contacts.length;
         spans[a].meshStart = contactCursor;

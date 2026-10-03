@@ -22,6 +22,7 @@ import { BodyType } from "../common/types";
 import { loadConsumerCorpus, runCommonInput } from "../oracle/consumer";
 import { loadScenarioCorpus, runScenario } from "../oracle/scenario";
 import { compareCase } from "../oracle/strict";
+import { makeBoxHull } from "../shapes/hull";
 
 test("the active collision route changes the symmetric face-B feature order, the pinned CCD and sensor intermediate bits, or the public body move record identity", () => {
     const physicsWorld = new PhysicsWorld({
@@ -88,6 +89,26 @@ test("a Shallot physics result diverges from the Box3D reference on any case of 
             throw new Error(`${item.id}: ${result.firstDifference?.path ?? "mismatch"}`);
     }
     console.log(JSON.stringify({ corpus: "immutable box3d v6", cases: corpus.cases.length }));
+});
+
+test("a weld reports a biased-pass threshold crossing even when relaxation removes the force", () => {
+    const world = new PhysicsWorld({
+        gravity: { x: 0, y: 0, z: 0 },
+        enableSleep: false,
+        enableContinuous: false,
+    });
+    try {
+        const anchor = world.createBody({});
+        const box = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 1, z: 0 } });
+        box.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
+        const joint = world.createWeldJoint(anchor, box, { forceThreshold: 100 });
+        world.step(1 / 60, 4);
+        expect(world.getJointEvents().length).toBe(1);
+        const force = joint.getConstraintForce();
+        expect(Math.hypot(force.x, force.y, force.z)).toBeLessThan(100);
+    } finally {
+        world.destroy();
+    }
 });
 
 if (pooled) {

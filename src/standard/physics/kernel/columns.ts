@@ -54,7 +54,10 @@ export const COLOR_SPAN_STRIDE = 6;
 // two resident state indices via u32 bits, invMass/invInertia, the pose fields prepare derives anchors
 // from, the local frames, the base constraint frequency + softness) then a per-type payload (distance's
 // config, its persistent impulses, and prepare's scratch). Mirror of `joint_abi.rs` — keep in sync.
-export const JOINT_STRIDE = 126;
+export const J_FORCE_THRESHOLD = 126;
+export const J_TORQUE_THRESHOLD = 127;
+export const J_EVENT = 128;
+export const JOINT_STRIDE = 129;
 export const J_TYPE = 0;
 export const J_SIM_INDEX_A = 1;
 export const J_SIM_INDEX_B = 2;

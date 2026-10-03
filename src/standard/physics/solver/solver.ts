@@ -56,7 +56,6 @@ import {
     solveBullets,
     solveContinuous,
 } from "./continuous";
-import { flagJointEvent } from "./joint";
 
 const SPEED_CAPPED = BodyFlags.isSpeedCapped;
 const TOI = BodyFlags.hadTimeOfImpact;
@@ -538,13 +537,7 @@ export function solve(world: WorldState, context: StepContext): void {
     );
     if (pool) runPool(world.ecsState, pool, k.runMt);
     else k.runMt();
-    readbackJointImpulses(world, layout, cols);
-    for (const span of layout.colors) {
-        for (const sim of span.color.jointSims) flagJointEvent(sim, context);
-    }
-    for (const sim of world.constraintGraph.colors[OVERFLOW_INDEX].jointSims) {
-        flagJointEvent(sim, context);
-    }
+    readbackJointImpulses(world, layout, cols, context.jointEventFlags);
     readbackHitEvents(world, layout, context);
 
     // Split a deferred island (candidate collected in the previous step's sleep stage) before
