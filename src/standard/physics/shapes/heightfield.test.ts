@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import {
     type CastOutput,
     emptyCastOutput,
@@ -6,9 +6,17 @@ import {
     type ShapeCastInput,
     type ShapeProxy,
 } from "../collision/distance";
-import { kernelCast, kernelOverlap, kernelRay } from "../collision/shape_query_gold";
+import {
+    kernelCast,
+    kernelCastResident,
+    kernelOverlap,
+    kernelRay,
+} from "../collision/shape_query_gold";
 import { aabb, intersectRayTriangle, type Vec3, xf } from "../common/math";
-import { ShapeType } from "../common/types";
+import { defaultBodyDef, defaultShapeDef, defaultWorldDef, ShapeType } from "../common/types";
+import { queryColumns } from "../kernel/querycolumns";
+import { createBody } from "../world/body";
+import { createWorld, destroyWorld, getWorld, type WorldState } from "../world/world";
 import gold from "./geometry.gold.json";
 import {
     createGrid,
@@ -20,6 +28,7 @@ import {
     type HeightFieldData,
 } from "./heightfield";
 import { createMesh } from "./mesh";
+import { createHeightFieldShape, createMeshShape } from "./shape";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -178,27 +187,49 @@ function immutableBruteTriangles(hf: HeightFieldData): readonly BruteTriangle[] 
     return Object.freeze(triangles);
 }
 
-function bruteForceShapeCast(
-    input: ShapeCastInput,
-    triangles: readonly BruteTriangle[],
-): CastOutput {
+function createWaveOracle() {
+    const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
+    const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
+    try {
+        const body = world.bodies[createBody(world, defaultBodyDef())];
+        const def = defaultShapeDef();
+        const field = createHeightFieldShape(world, body, def, hf);
+        if (!field) throw new Error("wave shape creation failed");
+        const triangles = immutableBruteTriangles(hf).map((triangle) => {
+            const data = createMesh({
+                vertices: triangle.vertices,
+                indices: [0, 1, 2],
+                identifyEdges: false,
+            });
+            if (!data) throw new Error("brute triangle mesh creation failed");
+            const shape = createMeshShape(world, body, def, data, { x: 1, y: 1, z: 1 });
+            if (!shape) throw new Error("brute triangle shape creation failed");
+            return { index: triangle.index, id: shape.id };
+        });
+        queryColumns(world).prepare({ x: 0, y: 0, z: 0 });
+        return { world, field: field.id, triangles };
+    } catch (error) {
+        destroyWorld(world);
+        throw error;
+    }
+}
+
+let wave: ReturnType<typeof createWaveOracle>;
+beforeAll(() => {
+    wave = createWaveOracle();
+});
+afterAll(() => {
+    destroyWorld(wave.world);
+});
+
+function bruteForceShapeCast(input: ShapeCastInput): CastOutput {
     let best = emptyCastOutput();
     let bestFraction = input.maxFraction;
-    for (const triangle of triangles) {
-        const data = createMesh({
-            vertices: triangle.vertices,
-            indices: [0, 1, 2],
-            identifyEdges: false,
+    for (const triangle of wave.triangles) {
+        const out = kernelCastResident(wave.world, triangle.id, {
+            ...input,
+            maxFraction: bestFraction,
         });
-        if (!data) throw new Error("brute triangle mesh creation failed");
-        const out = kernelCast(
-            ShapeType.Mesh,
-            { data, scale: { x: 1, y: 1, z: 1 } },
-            {
-                ...input,
-                maxFraction: bestFraction,
-            },
-        );
         if (out.hit && out.fraction < bestFraction) {
             bestFraction = out.fraction;
             best = out;
@@ -349,11 +380,11 @@ for (const delta of [
     { x: -7, y: -8, z: 4 },
     { x: 9, y: -3, z: -9 },
 ]) {
-    const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
-    const triangles = immutableBruteTriangles(hf);
-    for (const origin of waveOrigins()) {
-        test(`the kernel height-field shape cast agrees with every wave triangle for ${label(origin, delta)} and every radius`, () => {
-            const failures: string[] = [];
+    test(`the kernel height-field shape cast agrees with every wave triangle for delta (${delta.x}, ${delta.y}, ${delta.z}), every origin and radius`, () => {
+        queryColumns(wave.world).prepare({ x: 0, y: 0, z: 0 });
+        const uploads = wave.world.geometryUploadCount;
+        const failures: string[] = [];
+        for (const origin of waveOrigins()) {
             for (const radius of [0.15, 0.4, 0.9]) {
                 const input: ShapeCastInput = {
                     proxy: { points: [origin], count: 1, radius },
@@ -361,8 +392,8 @@ for (const delta of [
                     maxFraction: 1,
                     canEncroach: false,
                 };
-                const grid = kernelCast(ShapeType.HeightField, hf, input);
-                const brute = bruteForceShapeCast(input, triangles);
+                const grid = kernelCastResident(wave.world, wave.field, input);
+                const brute = bruteForceShapeCast(input);
                 const where = `${label(origin, delta)} radius ${radius}`;
                 if (grid.hit !== brute.hit) {
                     failures.push(`${where}: grid hit ${grid.hit}, brute hit ${brute.hit}`);
@@ -372,9 +403,10 @@ for (const delta of [
                     );
                 }
             }
-            expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
-        });
-    }
+        }
+        expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
+        expect(wave.world.geometryUploadCount).toBe(uploads);
+    });
 }
 
 test("the grid walk in rayCastHeightField would disagree with a brute-force ray against every wave height field triangle on hit or fraction for some origin and translation", () => {

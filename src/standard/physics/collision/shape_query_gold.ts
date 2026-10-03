@@ -121,12 +121,22 @@ export function kernelRay(kind: ShapeType, geometry: Geometry, ray: RayCastInput
 export function kernelCast(kind: ShapeType, geometry: Geometry, cast: ShapeCastInput): CastOutput {
     let result: CastOutput | undefined;
     subject(kind, geometry, (world, id) => {
-        input(xf.identity(), cast.proxy, cast.translation, cast.maxFraction, cast.canEncroach);
-        kernel(undefined).shapeQueryCast(world.worldId, id, 1);
-        result = output();
+        result = kernelCastResident(world, id, cast);
     });
     return result as CastOutput;
 }
+
+/** The caller owns the shape and has made its world's columns and geometry resident. */
+export function kernelCastResident(
+    world: WorldState,
+    id: number,
+    cast: ShapeCastInput,
+): CastOutput {
+    input(xf.identity(), cast.proxy, cast.translation, cast.maxFraction, cast.canEncroach);
+    kernel(undefined).shapeQueryCast(world.worldId, id, 1);
+    return output();
+}
+
 export function kernelOverlap(
     kind: ShapeType,
     geometry: Geometry,
