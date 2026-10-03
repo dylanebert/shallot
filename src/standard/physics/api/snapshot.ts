@@ -1,4 +1,5 @@
 import { kernel } from "../kernel/kernel";
+import { queryColumns } from "../kernel/querycolumns";
 import type { WorldState } from "../world/world";
 import type { PhysicsWorld } from "./world";
 
@@ -10,7 +11,14 @@ export interface WorldSnapshot {
     readonly bytes: Uint8Array;
 }
 
-type StoreName = "body" | "shape" | "manifold" | "broadPhase";
+type StoreName =
+    | "body"
+    | "shape"
+    | "manifold"
+    | "broadPhase"
+    | "broadStore"
+    | "bodyFilters"
+    | "query";
 type StoreMarker = { readonly snapshotStore: StoreName };
 
 const STORE_MARKERS: Record<StoreName, StoreMarker> = {
@@ -18,15 +26,22 @@ const STORE_MARKERS: Record<StoreName, StoreMarker> = {
     shape: Object.freeze({ snapshotStore: "shape" }),
     manifold: Object.freeze({ snapshotStore: "manifold" }),
     broadPhase: Object.freeze({ snapshotStore: "broadPhase" }),
+    broadStore: Object.freeze({ snapshotStore: "broadStore" }),
+    bodyFilters: Object.freeze({ snapshotStore: "bodyFilters" }),
+    query: Object.freeze({ snapshotStore: "query" }),
 };
 
 function snapshotStores(state: WorldState): Map<object, StoreName> {
-    return new Map<object, StoreName>([
+    const stores = new Map<object, StoreName>([
         [state.bodyStore, "body"],
         [state.shapeStore, "shape"],
         [state.manifoldStore, "manifold"],
-        [state.broadPhase.store, "broadPhase"],
+        [state.broadPhase, "broadPhase"],
+        [state.broadPhase.store, "broadStore"],
+        [state.bodyFilters, "bodyFilters"],
     ]);
+    if (state.queryColumns) stores.set(state.queryColumns, "query");
+    return stores;
 }
 
 function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, StoreName>): T {
@@ -75,6 +90,7 @@ function restoreClone<T>(
     value: T,
     seen: Map<object, unknown>,
     stores: Record<StoreName, object>,
+    root?: WorldState,
 ): T {
     if (value === null || typeof value !== "object") return value;
     for (const name of Object.keys(STORE_MARKERS) as StoreName[]) {
@@ -108,8 +124,14 @@ function restoreClone<T>(
         for (const item of value) out.push(restoreClone(item, seen, stores));
         return out as T;
     }
-    const out = Object.create(Object.getPrototypeOf(value)) as Record<PropertyKey, unknown>;
+    const out = (root ?? Object.create(Object.getPrototypeOf(value))) as Record<
+        PropertyKey,
+        unknown
+    >;
     seen.set(value as object, out);
+    for (const key of Reflect.ownKeys(out)) {
+        if (!Reflect.has(value, key)) Reflect.deleteProperty(out, key);
+    }
     for (const key of Reflect.ownKeys(value)) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor && "value" in descriptor)
@@ -119,23 +141,52 @@ function restoreClone<T>(
     return out as T;
 }
 
+type SnapshotState = {
+    world: WorldState;
+    broad: {
+        initialization: WorldState["broadPhase"]["initialization"];
+        trees: {
+            nodeCapacity: number;
+            initNodeCapacity: number;
+            residentState: boolean;
+            state: Int32Array | null;
+        }[];
+        pairSet: { capacity: number; count: number; initCapacity: number };
+        filterCapacity: number;
+    };
+};
+
 /** Capture detached logical state and this World's persistent kernel regions. */
 export function snapshot(physicsWorld: PhysicsWorld): WorldSnapshot {
     const state = physicsWorld.state;
     const k = kernel(state.ecsState);
     const length = k.worldSnapshot(state.worldId);
     const pointer = k.worldSnapshotBuffer(length);
-    state.broadPhase.store.refreshViews();
-    state.bodyStore.refreshViews();
-    state.shapeStore.refreshViews();
-    state.manifoldStore.refreshViews();
     return {
         // The ECS owner is identity, not solver data; snapshots never clone or retain it.
-        state: clone(
-            state,
-            state.ecsState ? new Map<object, unknown>([[state.ecsState, null]]) : new Map(),
-            snapshotStores(state),
-        ),
+        state: {
+            world: clone(
+                state,
+                state.ecsState ? new Map<object, unknown>([[state.ecsState, null]]) : new Map(),
+                snapshotStores(state),
+            ),
+            // Lazy reservation flags and TS set/tree capacities are not native region bytes.
+            broad: {
+                initialization: { ...state.broadPhase.initialization },
+                trees: state.broadPhase.trees.map((tree) => ({
+                    nodeCapacity: tree.nodeCapacity,
+                    initNodeCapacity: tree.initNodeCapacity,
+                    residentState: tree.residentState,
+                    state: tree.residentState ? null : tree.state.slice(),
+                })),
+                pairSet: {
+                    capacity: state.broadPhase.pairSet.capacity,
+                    count: state.broadPhase.pairSet.count,
+                    initCapacity: state.broadPhase.pairSet.initCapacity,
+                },
+                filterCapacity: state.bodyFilters.capacity,
+            },
+        },
         bytes: new Uint8Array(k.memory.buffer, pointer, length).slice(),
     };
 }
@@ -155,36 +206,41 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         throw new Error("physics: cannot restore a snapshot because its target World is not live");
 
     const state = physicsWorld.state;
-    const restored = restoreClone(snapshot.state, new Map(), {
-        body: state.bodyStore,
-        shape: state.shapeStore,
-        manifold: state.manifoldStore,
-        broadPhase: state.broadPhase.store,
-    }) as WorldState;
+    const identity = {
+        ecsState: state.ecsState,
+        worldId: state.worldId,
+        generation: state.generation,
+        maxCapacity: state.maxCapacity,
+    };
+    const saved = snapshot.state as SnapshotState;
+    restoreClone(
+        saved.world,
+        new Map(),
+        {
+            body: state.bodyStore,
+            shape: state.shapeStore,
+            manifold: state.manifoldStore,
+            broadPhase: state.broadPhase,
+            broadStore: state.broadPhase.store,
+            bodyFilters: state.bodyFilters,
+            query: queryColumns(state),
+        },
+        state,
+    );
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
-    restored.ecsState = state.ecsState;
-    restored.worldId = state.worldId;
-    restored.generation = state.generation;
-    restored.maxCapacity = state.maxCapacity;
-    for (const shape of restored.shapes) shape.worldId = state.worldId;
-
-    for (const key of Reflect.ownKeys(state)) {
-        if (!Reflect.has(restored, key)) Reflect.deleteProperty(state, key);
+    Object.assign(state, identity);
+    for (const shape of state.shapes) shape.worldId = state.worldId;
+    Object.assign(state.broadPhase.initialization, saved.broad.initialization);
+    for (let i = 0; i < 3; i++) {
+        const tree = state.broadPhase.trees[i];
+        const { state: treeState, ...metadata } = saved.broad.trees[i];
+        Object.assign(tree, metadata);
+        if (treeState !== null) tree.state = treeState.slice();
     }
-    for (const key of Reflect.ownKeys(restored)) {
-        const descriptor = Object.getOwnPropertyDescriptor(restored, key);
-        if (descriptor) Object.defineProperty(state, key, descriptor);
-    }
+    Object.assign(state.broadPhase.pairSet, saved.broad.pairSet);
+    state.bodyFilters.capacity = saved.broad.filterCapacity;
     const k = kernel(state.ecsState);
     const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength);
     new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);
     k.worldRestore(state.worldId);
-    state.broadPhase.store.world = state;
-    state.broadPhase.store.trees = state.broadPhase.trees;
-    state.broadPhase.store.set = state.broadPhase.pairSet;
-    state.broadPhase.store.initialization = state.broadPhase.initialization;
-    state.broadPhase.store.refreshViews();
-    state.bodyStore.refreshViews();
-    state.shapeStore.refreshViews();
-    state.manifoldStore.refreshViews();
 }

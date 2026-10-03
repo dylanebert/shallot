@@ -4,7 +4,7 @@ import { kernel, kernelViewKey } from "./kernel";
 type ViewOwner = { ensureViews(): void };
 type ViewFields = { viewOwner: ViewOwner; viewData: Record<string, unknown> };
 
-/** Accessors resolve through their owner, including when their record is cloned by a snapshot. */
+/** Accessors resolve kernel views through their live owner. */
 export function guardViews(target: object, owner: ViewOwner): void {
     const fields = target as ViewFields;
     fields.viewOwner = owner;
