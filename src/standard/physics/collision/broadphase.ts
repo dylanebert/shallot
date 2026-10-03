@@ -151,8 +151,16 @@ export function destroyProxy(bp: BroadPhase, key: number): void {
 }
 
 export function moveProxy(bp: BroadPhase, key: number, box: AABB): void {
-    bp.store.refreshIfStale();
-    tree.moveProxy(bp.trees[proxyType(key)], proxyId(key), box);
+    kernel(bp.store.ecsState).treeMoveProxy(
+        proxyType(key),
+        proxyId(key),
+        box.lowerBound.x,
+        box.lowerBound.y,
+        box.lowerBound.z,
+        box.upperBound.x,
+        box.upperBound.y,
+        box.upperBound.z,
+    );
 }
 
 export function enlargeProxy(bp: BroadPhase, key: number, box: AABB): void {

@@ -656,21 +656,14 @@ fn cast<F: FnMut(f32, i32, u32) -> f32>(
 
 /// aabb.union(node i, node j) → node k's aabb slots (b3AABB_Union): lower = min lowers, upper = max uppers.
 fn union_into(pool: &mut [u32], i: i32, j: i32, k: i32) {
-    let a = i as usize * STRIDE;
-    let b = j as usize * STRIDE;
+    let (al, ah) = node_aabb(pool, i);
+    let (bl, bh) = node_aabb(pool, j);
     let d = k as usize * STRIDE;
-    let lx = minf(fget(pool, a), fget(pool, b));
-    let ly = minf(fget(pool, a + 1), fget(pool, b + 1));
-    let lz = minf(fget(pool, a + 2), fget(pool, b + 2));
-    let ux = maxf(fget(pool, a + 3), fget(pool, b + 3));
-    let uy = maxf(fget(pool, a + 4), fget(pool, b + 4));
-    let uz = maxf(fget(pool, a + 5), fget(pool, b + 5));
-    pool[d] = lx.to_bits();
-    pool[d + 1] = ly.to_bits();
-    pool[d + 2] = lz.to_bits();
-    pool[d + 3] = ux.to_bits();
-    pool[d + 4] = uy.to_bits();
-    pool[d + 5] = uz.to_bits();
+    let bounds: &mut [u32; 6] = (&mut pool[d..d + 6]).try_into().unwrap();
+    for axis in 0..3 {
+        bounds[axis] = minf(al[axis], bl[axis]).to_bits();
+        bounds[axis + 3] = maxf(ah[axis], bh[axis]).to_bits();
+    }
 }
 
 /// dst.category |= (a.category | b.category) — the OR propagation (both u32 halves).
@@ -754,9 +747,18 @@ pub fn query<F: FnMut(i32, u32) -> bool>(
 #[inline]
 pub fn node_aabb(pool: &[u32], i: i32) -> ([f32; 3], [f32; 3]) {
     let n = i as usize * STRIDE;
+    let bounds: &[u32; 6] = pool[n..n + 6].try_into().unwrap();
     (
-        [fget(pool, n), fget(pool, n + 1), fget(pool, n + 2)],
-        [fget(pool, n + 3), fget(pool, n + 4), fget(pool, n + 5)],
+        [
+            f32::from_bits(bounds[0]),
+            f32::from_bits(bounds[1]),
+            f32::from_bits(bounds[2]),
+        ],
+        [
+            f32::from_bits(bounds[3]),
+            f32::from_bits(bounds[4]),
+            f32::from_bits(bounds[5]),
+        ],
     )
 }
 
