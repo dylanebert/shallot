@@ -156,6 +156,7 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
     const timeStep = context.dt;
     const speculativeScalar = SPECULATIVE_DISTANCE;
     const count = sims.length;
+    bp.beginEnlargePass(world.broadPhase);
 
     // Kernel finalization publishes one retained move record per awake body. Keep only its valid
     // prefix count here; the public World bridge reads the wasm records after the step.
@@ -339,6 +340,7 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
             shapeId = shape.nextShapeId;
         }
     }
+    bp.finishEnlargePass(world.broadPhase);
 }
 
 // --- Event build passes ----------------------------------------------------------------------

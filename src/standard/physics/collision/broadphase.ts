@@ -8,9 +8,10 @@ import { type BitSet, clearBit, createBitSet, getBit, setBitGrow } from "../comm
 import type { AABB } from "../common/math";
 import { aabb } from "../common/math";
 import { type BroadStore, createBroadStore } from "../kernel/broadcolumns";
+import { kernel } from "../kernel/kernel";
+import type { DynamicTree } from "../kernel/treecolumns";
+import * as tree from "../kernel/treecolumns";
 import { createSet, type HashSet } from "./table";
-import type { DynamicTree } from "./tree";
-import * as tree from "./tree";
 
 // b3BodyType. Static must be 0 so the proxy-key pack/unpack (2-bit type) round-trips.
 export const BodyType = {
@@ -19,7 +20,6 @@ export const BodyType = {
     Dynamic: 2,
 } as const;
 export type BodyTypeValue = (typeof BodyType)[keyof typeof BodyType];
-const BODY_TYPE_COUNT = 3;
 
 // Store the proxy type in the lower 2 bits of the key; the remaining bits hold the proxy id.
 export const proxyType = (key: number): BodyTypeValue => (key & 3) as BodyTypeValue;
@@ -28,6 +28,9 @@ export const proxyKey = (id: number, type: BodyTypeValue): number => (id << 2) |
 
 export type BroadPhase = {
     trees: DynamicTree[];
+    deferredEnlarge: boolean;
+    enlargeCommands: GrowVec<Float64Array>;
+    enlargeData: Float64Array;
     // Per body-type bit sets indexed by proxyId, marking proxies moved this step. Paired with
     // moveArray, which preserves deterministic insertion order for pair queries. TS-only (copied into a
     // kernel slab per step for the in-kernel query, 3d).
@@ -75,7 +78,16 @@ export function createBroadPhase(
     const pairSet = createSet(2 * (capacity.contactCount ?? 0), store);
     store.set = pairSet;
 
-    return { trees, movedProxies, moveArray, pairSet, store };
+    return {
+        trees,
+        movedProxies,
+        moveArray,
+        pairSet,
+        store,
+        deferredEnlarge: false,
+        enlargeData: new Float64Array(0),
+        enlargeCommands: new GrowVec((n) => new Float64Array(n), 64),
+    };
 }
 
 // This is what triggers new contact pairs to be created. Must be called in deterministic order.
@@ -143,8 +155,46 @@ export function enlargeProxy(bp: BroadPhase, key: number, box: AABB): void {
     const type = proxyType(key);
     if (type === BodyType.Static) throw new Error("broadphase: cannot enlarge a static proxy");
     bp.store.refreshIfStale();
-    tree.enlargeProxy(bp.trees[type], proxyId(key), box);
+    queueEnlargement(bp, key, box);
     bufferMove(bp, key);
+}
+
+export function beginEnlargePass(bp: BroadPhase): void {
+    bp.deferredEnlarge = true;
+    bp.enlargeCommands.clear();
+}
+export function queueEnlargement(bp: BroadPhase, key: number, box: AABB): void {
+    if (!bp.deferredEnlarge) {
+        tree.enlargeProxy(bp.trees[proxyType(key)], proxyId(key), box);
+        return;
+    }
+    const commands = bp.enlargeCommands;
+    commands.push(key);
+    commands.push(box.lowerBound.x);
+    commands.push(box.lowerBound.y);
+    commands.push(box.lowerBound.z);
+    commands.push(box.upperBound.x);
+    commands.push(box.upperBound.y);
+    commands.push(box.upperBound.z);
+}
+export function finishEnlargePass(bp: BroadPhase): void {
+    bp.deferredEnlarge = false;
+    const commands = bp.enlargeCommands;
+    if (commands.count === 0) return;
+    const k = kernel(bp.store.ecsState);
+    const ptr = bp.store.reserveTreeWork(0, commands.count * 2);
+    let data = bp.enlargeData;
+    if (
+        data.buffer !== k.memory.buffer ||
+        data.byteOffset !== ptr ||
+        data.length < commands.count
+    ) {
+        data = bp.enlargeData = new Float64Array(k.memory.buffer, ptr, commands.count);
+    }
+    for (let i = 0; i < commands.count; i++) data[i] = commands.get(i);
+    k.treeEnlargeBatch(ptr, commands.count / 7);
+    bp.store.refreshIfStale();
+    commands.clear();
 }
 
 // Scratch the two proxy AABBs are read into (getAABBInto — the tree holds no live AABB to alias).
@@ -161,15 +211,4 @@ export function testOverlap(bp: BroadPhase, keyA: number, keyB: number): boolean
 /** Clear a proxy's moved flag (b3ClearBit on movedProxies). */
 export function clearMoved(bp: BroadPhase, type: BodyTypeValue, id: number): void {
     clearBit(bp.movedProxies[type], id);
-}
-
-export function validate(bp: BroadPhase): void {
-    tree.validate(bp.trees[BodyType.Dynamic]);
-    tree.validate(bp.trees[BodyType.Kinematic]);
-}
-
-export function validateNoEnlarged(bp: BroadPhase): void {
-    for (let j = 0; j < BODY_TYPE_COUNT; ++j) {
-        tree.validateNoEnlarged(bp.trees[j]);
-    }
 }

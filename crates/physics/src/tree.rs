@@ -1,12 +1,8 @@
-//! In-kernel dynamic AABB tree — the read + rebuild half of box3d's `dynamic_tree.c`, ported for the
-//! resident broad-phase pair query (3d). Mirrors `src/tree.ts`: one flat node pool, 12 four-byte slots
-//! per node over a single `[u32]` buffer (aabb f32 bits in slots 0..5, category hi/lo in 6/7,
-//! child1/userData + child2 in 8/9, parent/next in 10, height|flags in 11).
-//!
-//! Query, closest, ray-cast, box-cast and rebuild traversals live here; tree mutations
-//! (create/move/enlarge/destroy) stay in TS, driven over the same resident pool.
-//! `tests/tree_gold.rs` replays Box3D's traversal order, clipping, visit counts and rebuild states.
-//! Native tests use owned pools; the wasm pair pass reads the resident region.
+//! Dynamic AABB tree ported from Box3D's `dynamic_tree.c`.
+//! The flat pool has 12 four-byte slots per node: AABB f32 bits in 0..5, category hi/lo
+//! in 6/7, children/userData in 8/9, parent/next in 10, height/flags in 11.
+//! Mutations, traversals and rebuilds share this implementation at every worker count.
+//! Native tests use owned pools; wasm operations use resident or uploaded columns.
 
 use crate::math::Vec3;
 use crate::mesh_query::{bounds_overlap, bounds_ray_overlap, max, min};
@@ -74,6 +70,366 @@ fn set_height(pool: &mut [u32], i: i32, h: i32) {
 #[inline]
 fn is_leaf(pool: &[u32], i: i32) -> bool {
     pool[i as usize * STRIDE + 11] & LEAF != 0
+}
+
+fn perimeter(pool: &[u32], i: i32) -> f32 {
+    let (lo, hi) = node_aabb(pool, i);
+    let x = hi[0] - lo[0];
+    let y = hi[1] - lo[1];
+    let z = hi[2] - lo[2];
+    2.0 * ((x * z + y * x) + z * y)
+}
+fn union_perimeter(pool: &[u32], a: i32, b: i32) -> f32 {
+    let (al, ah) = node_aabb(pool, a);
+    let (bl, bh) = node_aabb(pool, b);
+    let x = maxf(ah[0], bh[0]) - minf(al[0], bl[0]);
+    let y = maxf(ah[1], bh[1]) - minf(al[1], bl[1]);
+    let z = maxf(ah[2], bh[2]) - minf(al[2], bl[2]);
+    2.0 * ((x * z + y * x) + z * y)
+}
+fn center(pool: &[u32], i: i32) -> [f32; 3] {
+    let (lo, hi) = node_aabb(pool, i);
+    [
+        0.5 * (hi[0] + lo[0]),
+        0.5 * (hi[1] + lo[1]),
+        0.5 * (hi[2] + lo[2]),
+    ]
+}
+fn sibling(pool: &[u32], root: i32, leaf: i32) -> i32 {
+    let area_d = perimeter(pool, leaf);
+    let center_d = center(pool, leaf);
+    let mut area_base = perimeter(pool, root);
+    let mut direct = union_perimeter(pool, root, leaf);
+    let mut inherited = 0.0;
+    let mut best = root;
+    let mut best_cost = direct;
+    let mut index = root;
+    while !is_leaf(pool, index) {
+        let children = [
+            pool[index as usize * STRIDE + 8] as i32,
+            pool[index as usize * STRIDE + 9] as i32,
+        ];
+        let cost = direct + inherited;
+        if cost < best_cost {
+            best = index;
+            best_cost = cost;
+        }
+        inherited += direct - area_base;
+        let mut lower = [f32::MAX; 2];
+        let mut areas = [0.0; 2];
+        let mut costs = [0.0; 2];
+        let leaves = [is_leaf(pool, children[0]), is_leaf(pool, children[1])];
+        for k in 0..2 {
+            costs[k] = union_perimeter(pool, children[k], leaf);
+            if leaves[k] {
+                let cost = costs[k] + inherited;
+                if cost < best_cost {
+                    best = children[k];
+                    best_cost = cost;
+                }
+            } else {
+                areas[k] = perimeter(pool, children[k]);
+                lower[k] = (inherited + costs[k]) + minf(area_d - areas[k], 0.0);
+            }
+        }
+        if leaves[0] && leaves[1] || best_cost <= lower[0] && best_cost <= lower[1] {
+            break;
+        }
+        if lower[0] == lower[1] && !leaves[0] {
+            for k in 0..2 {
+                let c = center(pool, children[k]);
+                let x = c[0] - center_d[0];
+                let y = c[1] - center_d[1];
+                let z = c[2] - center_d[2];
+                lower[k] = (x * x + y * y) + z * z;
+            }
+        }
+        let k = if lower[0] < lower[1] && !leaves[0] {
+            0
+        } else {
+            1
+        };
+        index = children[k];
+        area_base = areas[k];
+        direct = costs[k];
+    }
+    best
+}
+fn category_union(pool: &mut [u32], dst: i32, a: i32, b: i32) {
+    for k in 6..8 {
+        pool[dst as usize * STRIDE + k] =
+            pool[a as usize * STRIDE + k] | pool[b as usize * STRIDE + k];
+    }
+}
+fn enlarged_union(pool: &mut [u32], dst: i32, a: i32, b: i32) {
+    pool[dst as usize * STRIDE + 11] |=
+        (pool[a as usize * STRIDE + 11] | pool[b as usize * STRIDE + 11]) & ENLARGED;
+}
+fn metrics(pool: &mut [u32], i: i32, enlarge: bool) {
+    let a = pool[i as usize * STRIDE + 8] as i32;
+    let b = pool[i as usize * STRIDE + 9] as i32;
+    union_into(pool, a, b, i);
+    category_union(pool, i, a, b);
+    set_height(pool, i, 1 + maxi(height_of(pool, a), height_of(pool, b)));
+    if enlarge {
+        enlarged_union(pool, i, a, b);
+    }
+}
+fn rotate(pool: &mut [u32], a: i32) {
+    if is_leaf(pool, a) {
+        return;
+    }
+    let b = pool[a as usize * STRIDE + 8] as i32;
+    let c = pool[a as usize * STRIDE + 9] as i32;
+    let lb = is_leaf(pool, b);
+    let lc = is_leaf(pool, c);
+    let (parent, slot, other, other_slot, moved) = if lb && !lc {
+        let f = pool[c as usize * STRIDE + 8] as i32;
+        let g = pool[c as usize * STRIDE + 9] as i32;
+        let base = perimeter(pool, c);
+        let bf = union_perimeter(pool, b, g);
+        let bg = union_perimeter(pool, b, f);
+        if base < bf && base < bg {
+            return;
+        }
+        if bf < bg {
+            (a, 8, c, 8, f)
+        } else {
+            (a, 8, c, 9, g)
+        }
+    } else if lc && !lb {
+        let d = pool[b as usize * STRIDE + 8] as i32;
+        let e = pool[b as usize * STRIDE + 9] as i32;
+        let base = perimeter(pool, b);
+        let cd = union_perimeter(pool, c, e);
+        let ce = union_perimeter(pool, c, d);
+        if base < cd && base < ce {
+            return;
+        }
+        if cd < ce {
+            (a, 9, b, 8, d)
+        } else {
+            (a, 9, b, 9, e)
+        }
+    } else if !lb && !lc {
+        let d = pool[b as usize * STRIDE + 8] as i32;
+        let e = pool[b as usize * STRIDE + 9] as i32;
+        let f = pool[c as usize * STRIDE + 8] as i32;
+        let g = pool[c as usize * STRIDE + 9] as i32;
+        let ab = perimeter(pool, b);
+        let ac = perimeter(pool, c);
+        let mut best = ab + ac;
+        let mut choice = None;
+        for (cost, value) in [
+            (ab + union_perimeter(pool, b, g), (a, 8, c, 8, f)),
+            (ab + union_perimeter(pool, b, f), (a, 8, c, 9, g)),
+            (ac + union_perimeter(pool, c, e), (a, 9, b, 8, d)),
+            (ac + union_perimeter(pool, c, d), (a, 9, b, 9, e)),
+        ] {
+            if cost < best {
+                best = cost;
+                choice = Some(value);
+            }
+        }
+        match choice {
+            Some(v) => v,
+            None => return,
+        }
+    } else {
+        return;
+    };
+    let displaced = pool[parent as usize * STRIDE + slot] as i32;
+    pool[parent as usize * STRIDE + slot] = moved as u32;
+    pool[other as usize * STRIDE + other_slot] = displaced as u32;
+    pool[displaced as usize * STRIDE + 10] = other as u32;
+    pool[moved as usize * STRIDE + 10] = parent as u32;
+    metrics(pool, other, true);
+    // A's bounds do not change under rotation.
+    let x = pool[a as usize * STRIDE + 8] as i32;
+    let y = pool[a as usize * STRIDE + 9] as i32;
+    set_height(pool, a, 1 + maxi(height_of(pool, x), height_of(pool, y)));
+    category_union(pool, a, x, y);
+    enlarged_union(pool, a, x, y);
+}
+fn alloc_mutation(pool: &mut [u32], count: &mut usize, free: &mut i32) -> i32 {
+    assert!(*free != -1, "reserve tree capacity before mutation");
+    let i = *free;
+    let n = i as usize * STRIDE;
+    *free = pool[n + 10] as i32;
+    pool[n..n + 6].fill(0);
+    pool[n + 6..n + 11].fill(u32::MAX);
+    pool[n + 11] = ALLOCATED;
+    *count += 1;
+    i
+}
+fn free_mutation(pool: &mut [u32], count: &mut usize, free: &mut i32, i: i32) {
+    let n = i as usize * STRIDE;
+    pool[n + 10] = *free as u32;
+    pool[n + 11] &= !0xffff;
+    *free = i;
+    *count -= 1;
+}
+fn insert(
+    pool: &mut [u32],
+    root: &mut i32,
+    count: &mut usize,
+    free: &mut i32,
+    leaf: i32,
+    rotations: bool,
+) {
+    if *root == -1 {
+        *root = leaf;
+        pool[leaf as usize * STRIDE + 10] = u32::MAX;
+        return;
+    }
+    let sib = sibling(pool, *root, leaf);
+    let old = pool[sib as usize * STRIDE + 10] as i32;
+    let p = alloc_mutation(pool, count, free);
+    pool[p as usize * STRIDE + 10] = old as u32;
+    pool[p as usize * STRIDE + 8] = sib as u32;
+    pool[p as usize * STRIDE + 9] = leaf as u32;
+    pool[sib as usize * STRIDE + 10] = p as u32;
+    pool[leaf as usize * STRIDE + 10] = p as u32;
+    if old == -1 {
+        *root = p;
+    } else {
+        let slot = if pool[old as usize * STRIDE + 8] as i32 == sib {
+            8
+        } else {
+            9
+        };
+        pool[old as usize * STRIDE + slot] = p as u32;
+    }
+    let mut index = p;
+    while index != -1 {
+        metrics(pool, index, true);
+        if rotations {
+            rotate(pool, index);
+        }
+        index = pool[index as usize * STRIDE + 10] as i32;
+    }
+}
+fn remove(pool: &mut [u32], root: &mut i32, count: &mut usize, free: &mut i32, leaf: i32) {
+    if leaf == *root {
+        *root = -1;
+        return;
+    }
+    let p = pool[leaf as usize * STRIDE + 10] as i32;
+    let gp = pool[p as usize * STRIDE + 10] as i32;
+    let sib = pool[p as usize * STRIDE
+        + if pool[p as usize * STRIDE + 8] as i32 == leaf {
+            9
+        } else {
+            8
+        }] as i32;
+    if gp == -1 {
+        *root = sib;
+        pool[sib as usize * STRIDE + 10] = u32::MAX;
+        free_mutation(pool, count, free, p);
+    } else {
+        let slot = if pool[gp as usize * STRIDE + 8] as i32 == p {
+            8
+        } else {
+            9
+        };
+        pool[gp as usize * STRIDE + slot] = sib as u32;
+        pool[sib as usize * STRIDE + 10] = gp as u32;
+        free_mutation(pool, count, free, p);
+        let mut index = gp;
+        while index != -1 {
+            metrics(pool, index, false);
+            index = pool[index as usize * STRIDE + 10] as i32;
+        }
+    }
+}
+fn write_bounds(pool: &mut [u32], i: i32, lo: [f32; 3], hi: [f32; 3]) {
+    let n = i as usize * STRIDE;
+    for k in 0..3 {
+        pool[n + k] = lo[k].to_bits();
+        pool[n + 3 + k] = hi[k].to_bits();
+    }
+}
+pub fn create_proxy(
+    pool: &mut [u32],
+    root: &mut i32,
+    count: &mut usize,
+    free: &mut i32,
+    lo: [f32; 3],
+    hi: [f32; 3],
+    category_hi: u32,
+    category_lo: u32,
+    user: u64,
+) -> i32 {
+    let i = alloc_mutation(pool, count, free);
+    write_bounds(pool, i, lo, hi);
+    let n = i as usize * STRIDE;
+    pool[n + 6] = category_hi;
+    pool[n + 7] = category_lo;
+    pool[n + 8] = user as u32;
+    pool[n + 9] = (user >> 32) as u32;
+    pool[n + 11] = ALLOCATED | LEAF;
+    insert(pool, root, count, free, i, true);
+    i
+}
+pub fn move_proxy(
+    pool: &mut [u32],
+    root: &mut i32,
+    count: &mut usize,
+    free: &mut i32,
+    i: i32,
+    lo: [f32; 3],
+    hi: [f32; 3],
+) {
+    remove(pool, root, count, free, i);
+    write_bounds(pool, i, lo, hi);
+    insert(pool, root, count, free, i, false);
+}
+pub fn destroy_proxy(pool: &mut [u32], root: &mut i32, count: &mut usize, free: &mut i32, i: i32) {
+    remove(pool, root, count, free, i);
+    free_mutation(pool, count, free, i);
+}
+pub fn set_category_bits(pool: &mut [u32], i: i32, hi: u32, lo: u32) {
+    pool[i as usize * STRIDE + 6] = hi;
+    pool[i as usize * STRIDE + 7] = lo;
+    let mut index = pool[i as usize * STRIDE + 10] as i32;
+    while index != -1 {
+        let a = pool[index as usize * STRIDE + 8] as i32;
+        let b = pool[index as usize * STRIDE + 9] as i32;
+        category_union(pool, index, a, b);
+        index = pool[index as usize * STRIDE + 10] as i32;
+    }
+}
+
+pub fn enlarge_proxy(pool: &mut [u32], i: i32, lo: [f32; 3], hi: [f32; 3]) {
+    write_bounds(pool, i, lo, hi);
+    let mut p = pool[i as usize * STRIDE + 10] as i32;
+    while p != -1 {
+        let n = p as usize * STRIDE;
+        let mut changed = false;
+        for k in 0..3 {
+            if lo[k] < fget(pool, n + k) {
+                pool[n + k] = lo[k].to_bits();
+                changed = true;
+            }
+            if fget(pool, n + 3 + k) < hi[k] {
+                pool[n + 3 + k] = hi[k].to_bits();
+                changed = true;
+            }
+        }
+        pool[n + 11] |= ENLARGED;
+        p = pool[n + 10] as i32;
+        if !changed {
+            break;
+        }
+    }
+    while p != -1 {
+        let n = p as usize * STRIDE;
+        if pool[n + 11] & ENLARGED != 0 {
+            break;
+        }
+        pool[n + 11] |= ENLARGED;
+        p = pool[n + 10] as i32;
+    }
 }
 
 fn bounds(pool: &[u32], id: i32) -> (Vec3, Vec3) {
@@ -330,7 +686,7 @@ fn or_category(pool: &mut [u32], dst: i32, a: i32, b: i32) {
 /// AABB overlaps `box` in LIFO discovery order, calling `cb(leafNodeId, userData)`; a `false` return
 /// stops the walk. Returns `(node_visits, leaf_visits)`. `stack` is caller scratch (`STACK_SIZE` ints).
 ///
-/// The mask test + AABB overlap are ported verbatim from `src/tree.ts::query`; both are integer /
+/// The mask test + AABB overlap follow Box3D; both are integer /
 /// f32-compare only, so the traversal is bit-exact by replaying enumeration order.
 pub fn query<F: FnMut(i32, u32) -> bool>(
     pool: &[u32],
@@ -441,7 +797,7 @@ fn reset_to_default(pool: &mut [u32], i: i32) {
 }
 
 /// Pop a free node (rebuild never grows: the pool is sized `2*proxyCap-1` ≥ any live tree, so the free
-/// list is never empty here — see `src/tree.ts` allocateNode + the rebuild comment).
+/// list is never empty here: gathering frees the internal nodes needed by the rebuild).
 fn allocate_node(pool: &mut [u32], rb: &mut Rebuild) -> i32 {
     let node_index = rb.free_list;
     rb.free_list = pool[node_index as usize * STRIDE + 10] as i32;

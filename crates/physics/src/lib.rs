@@ -116,6 +116,8 @@ mod query_abi;
 #[cfg(target_arch = "wasm32")]
 mod shapes;
 #[cfg(target_arch = "wasm32")]
+mod treework;
+#[cfg(target_arch = "wasm32")]
 mod world_query;
 // Both wasm artifacts run the staged solve over arena columns. Native tests use owned columns.
 #[cfg(target_arch = "wasm32")]

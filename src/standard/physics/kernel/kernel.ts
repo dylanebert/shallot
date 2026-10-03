@@ -140,6 +140,41 @@ export type Kernel = {
     broadBodiesFiltered(bodyA: number, bodyB: number): number;
     broadLayoutPtr(): number;
     broadTreeCap(i: number): number;
+    reserveTreeWork(depth: number, words: number): number;
+    treeEnlargeBatch(ptr: number, count: number): void;
+    treeMutate(
+        ptr: number,
+        cap: number,
+        state: number,
+        op: number,
+        id: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+        ch: number,
+        cl: number,
+        ud: number,
+        udh: number,
+    ): number;
+    treeQuery(
+        ptr: number,
+        cap: number,
+        root: number,
+        count: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+        mh: number,
+        ml: number,
+        all: number,
+        state: number,
+    ): void;
     broadSetCap(): number;
     broadGen(): number;
 

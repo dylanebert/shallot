@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { World } from "../../../engine";
 import { BodyType } from "../common/types";
+import { kernel } from "../kernel/kernel";
 import { PhysicsWorld } from "./world";
 
 test("World.restore refuses a shared-kernel snapshot that could rewind a sibling World", () => {
@@ -54,6 +56,28 @@ test("World.restore refuses a destroyed target even when a sibling is the only l
     } finally {
         sibling.destroy();
         if (!targetDestroyed) target.destroy();
+    }
+});
+
+test("restoring a snapshot rebinds tree and pair views before another proxy mutation", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } }, new World());
+    try {
+        const body = world.createBody({ type: BodyType.Dynamic });
+        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 1 });
+        const saved = world.snapshot();
+        world.restore(saved);
+        const broad = world.state.broadPhase;
+        expect(broad.store.trees).toBe(broad.trees);
+        expect(broad.store.set).toBe(broad.pairSet);
+        expect(broad.trees[BodyType.Dynamic].ni.buffer).toBe(
+            kernel(world.state.ecsState).memory.buffer,
+        );
+        const second = world.createBody({ type: BodyType.Dynamic, position: { x: 4, y: 0, z: 0 } });
+        second.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 1 });
+        expect(broad.trees[BodyType.Dynamic].proxyCount).toBe(2);
+        world.step(Math.fround(1 / 60), 4);
+    } finally {
+        world.destroy();
     }
 });
 

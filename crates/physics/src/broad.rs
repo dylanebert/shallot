@@ -1,11 +1,10 @@
 //! The persistent broad-phase region — the three dynamic-tree node pools (static / kinematic /
 //! dynamic) plus the pair-set membership arrays, held resident across steps so the in-kernel pair
 //! query + tree rebuild (3d) run over them without a per-step marshal. Wasm-only (the columns alias
-//! linear memory); TS owns the growth policy + the tree/table algorithms that write them
-//! (`src/tree.ts`, `src/table.ts`, `src/broadcolumns.ts`).
+//! linear memory); TS owns the growth policy and pair-table writes; tree operations run in the kernel.
 //!
 //! Seven sub-columns: three tree pools, the pair-set's three parallel u32 arrays, then body filters:
-//!   tree[Static]   `cap_s` nodes, `TREE_STRIDE` u32/f32 slots each (`src/tree.ts` node record)
+//!   tree[Static]   `cap_s` nodes, `TREE_STRIDE` u32/f32 slots each (tree.rs node record)
 //!   tree[Kinematic] `cap_k` nodes
 //!   tree[Dynamic]  `cap_d` nodes
 //!   keyHi / keyLo / hashes  `set_cap` u32 each (`src/table.ts` open-addressing set)
@@ -27,7 +26,7 @@
 
 const PAGE: usize = 65536;
 
-/// f32/u32 slots per dynamic-tree node — mirrors `STRIDE` in `src/tree.ts` (sizeof(b3TreeNode)/4 = 12).
+/// f32/u32 slots per dynamic-tree node — mirrors tree.rs (sizeof(b3TreeNode)/4 = 12).
 pub const TREE_STRIDE: usize = 12;
 
 // BROAD_LAYOUT indices (byte offsets into linear memory), in memory order.
@@ -170,6 +169,7 @@ pub extern "C" fn bodies_filtered(a: u32, b: u32) -> u32 {
 }
 
 unsafe fn ensure_capacity(end_byte: usize) {
+    crate::treework::record_end(end_byte);
     let have = core::arch::wasm32::memory_size(0) * PAGE;
     if end_byte > have {
         let pages = (end_byte - have + PAGE - 1) / PAGE;

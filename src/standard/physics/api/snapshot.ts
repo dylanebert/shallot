@@ -176,6 +176,8 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     while (memory.buffer.byteLength < snapshot.bytes.byteLength) memory.grow(1);
     new Uint8Array(memory.buffer).set(snapshot.bytes);
     state.broadPhase.store.world = state;
+    state.broadPhase.store.trees = state.broadPhase.trees;
+    state.broadPhase.store.set = state.broadPhase.pairSet;
     state.broadPhase.store.refreshViews();
     state.bodyStore.refreshViews();
     state.shapeStore.refreshViews();

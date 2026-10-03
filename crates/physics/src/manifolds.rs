@@ -100,6 +100,7 @@ pub fn relocate(delta: usize) {
 }
 
 unsafe fn ensure_capacity(end_byte: usize) {
+    crate::treework::record_end(end_byte);
     let have = core::arch::wasm32::memory_size(0) * PAGE;
     if end_byte > have {
         let pages = (end_byte - have + PAGE - 1) / PAGE;

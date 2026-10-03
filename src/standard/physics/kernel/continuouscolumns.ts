@@ -1,7 +1,5 @@
 import * as bp from "../collision/broadphase";
-import * as tree from "../collision/tree";
 import { NULL_INDEX } from "../common/array";
-import { BodyType } from "../common/types";
 import { BodyFlags, type BodySim } from "../world/body";
 import { recordSensorHit } from "../world/sensor";
 import type { WorldState } from "../world/world";
@@ -84,7 +82,7 @@ export function solveBullets(world: WorldState, sims: BodySim[]): void {
     else k.runMt();
     world.shapeStore.refreshViews();
     world.broadPhase.store.refreshIfStale();
-    const dynamic = world.broadPhase.trees[BodyType.Dynamic];
+    bp.beginEnlargePass(world.broadPhase);
     for (let i = 0; i < sims.length; i++) {
         const sim = sims[i];
         if (
@@ -100,9 +98,10 @@ export function solveBullets(world: WorldState, sims: BodySim[]): void {
             const shape = world.shapes[id];
             if (shape.enlargedAABB) {
                 shape.enlargedAABB = false;
-                tree.enlargeProxy(dynamic, bp.proxyId(shape.proxyKey), shape.fatAABB);
+                bp.queueEnlargement(world.broadPhase, shape.proxyKey, shape.fatAABB);
             }
             id = shape.nextShapeId;
         }
     }
+    bp.finishEnlargePass(world.broadPhase);
 }

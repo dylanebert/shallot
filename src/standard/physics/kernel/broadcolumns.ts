@@ -1,9 +1,8 @@
 import type { World } from "../../../engine";
 // The persistent broad-phase region (kernel/src/broad.rs) — three dynamic-tree node pools, shape-pair
 // membership arrays and joint-filtered body pairs. The kernel queries them without a per-step marshal.
-// This store owns the TS views over the seven
-// sub-columns and the grow-only reservation policy; the tree/table algorithms mutate the columns
-// through the views it hands back (`src/tree.ts`, `src/table.ts`).
+// This store owns the TS views over the seven sub-columns and their grow-only reservation policy.
+// Tree operations run in the kernel; the pair table uses the resident TS views.
 //
 // A region grow (or any `memory.grow` elsewhere) detaches every typed-array view, so the store follows
 // the shared-memory view-refresh discipline: it re-derives the views from the kernel layout header
@@ -12,11 +11,11 @@ import type { World } from "../../../engine";
 // never per-iteration (that would reintroduce churn).
 
 import type { HashSet } from "../collision/table";
-import type { DynamicTree } from "../collision/tree";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
+import type { DynamicTree } from "./treecolumns";
 
-/** u32/f32 slots per dynamic-tree node — mirrors `STRIDE` in `src/tree.ts` + `TREE_STRIDE` in broad.rs. */
+/** u32/f32 slots per dynamic-tree node — mirrors tree.rs and broad.rs. */
 const TREE_STRIDE = 12;
 /** Broad layout header size (3 tree pools + keyHi/keyLo/hashes + body filters). */
 const N_BROAD = 7;
@@ -99,6 +98,19 @@ export class BroadStore {
                 s.hashes = new Uint32Array(buf, layout[5], setCap);
             }
         }
+    }
+
+    reserveTreeWork(depth: number, words: number): number {
+        const k = kernel(this.ecsState);
+        const before = k.memory.buffer.byteLength;
+        const ptr = k.reserveTreeWork(depth, words) >>> 0;
+        this.refreshIfStale();
+        if (before !== k.memory.buffer.byteLength && this.world) {
+            this.world.manifoldStore.refreshViews();
+            this.world.bodyStore.refreshViews();
+            this.world.shapeStore.refreshViews();
+        }
+        return ptr;
     }
 
     /** Grow tree pool `i` to `nodeCapacity` nodes (grow-only), refreshing all views afterward. */

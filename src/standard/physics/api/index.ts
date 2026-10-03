@@ -12,7 +12,7 @@ export {
     type PlaneSolverResult,
     solvePlanes,
 } from "../collision/mover";
-export type { TreeStats } from "../collision/tree";
+export type { TreeStats } from "../kernel/treecolumns";
 export type { AABB, Mat3, Pos, Quat, Transform, Vec3, WorldTransform } from "../common/math";
 export {
     type BodyDef,

@@ -12,7 +12,6 @@ import { ContactFlags } from "../collision/contact";
 import { emptyCache, shapeDistance } from "../collision/distance";
 import { type CollisionPlane, clipVector, solvePlanes } from "../collision/mover";
 import { kernelRay } from "../collision/shape_query_gold";
-import { createProxy, createTree, query } from "../collision/tree";
 import {
     type AABB,
     computeCosSin,
@@ -25,6 +24,7 @@ import {
 import { ShapeType } from "../common/types";
 import { uploadGeometry } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
+import { createProxy, createTree, query } from "../kernel/treecolumns";
 import {
     type Capsule,
     computeCapsuleMass,

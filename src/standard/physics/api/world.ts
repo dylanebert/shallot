@@ -8,7 +8,6 @@
 
 import type { ShapeProxy } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
-import type { TreeStats } from "../collision/tree";
 import { DEFAULT_MASK_BITS } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import { type AABB, f32, froundConfig, type Pos, type Vec3 } from "../common/math";
@@ -24,6 +23,7 @@ import {
 import { readSimTransform } from "../kernel/bodycolumns";
 import { rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
+import type { TreeStats } from "../kernel/treecolumns";
 import type { Capsule } from "../shapes/geometry";
 import { getShapeMaterials } from "../shapes/shape";
 import {

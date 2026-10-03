@@ -10,7 +10,6 @@
 // heavier diagnostic tier, out of the minimal renderer's fidelity floor.
 
 import type { BroadPhase } from "../collision/broadphase";
-import * as tree from "../collision/tree";
 import { NULL_INDEX } from "../common/array";
 import { hi32, lo32 } from "../common/bits";
 import { SetType } from "../common/constants";
@@ -23,6 +22,7 @@ import {
     xf,
 } from "../common/math";
 import { BodyType, ShapeType, type SurfaceMaterial } from "../common/types";
+import * as tree from "../kernel/treecolumns";
 import { getCompoundChild } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";

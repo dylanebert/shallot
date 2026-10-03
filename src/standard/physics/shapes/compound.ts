@@ -15,10 +15,10 @@
 // this port dropped the mesh's serialization hash). The shared counts are diagnostics the create tests
 // assert; the child instances keep their own geometry references either way.
 
-import * as tree from "../collision/tree";
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
 import { type AABB, aabb, type Transform, type Vec3, xf } from "../common/math";
 import { cloneMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
+import * as tree from "../kernel/treecolumns";
 import {
     type Capsule,
     computeCapsuleAABB,

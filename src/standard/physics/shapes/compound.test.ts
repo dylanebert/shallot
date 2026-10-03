@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { PhysicsWorld } from "../api/world";
 import type { ShapeProxy } from "../collision/distance";
 import { kernelCast, kernelMover, kernelOverlap, kernelRay } from "../collision/shape_query_gold";
-import { readNode } from "../collision/tree";
 import {
     aabb,
     f32,
@@ -15,6 +14,7 @@ import {
     xf,
 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
+import { readNode } from "../kernel/treecolumns";
 import {
     type CompoundData,
     type CompoundDef,
