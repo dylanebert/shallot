@@ -1,8 +1,8 @@
 // Builds the Rust physics kernel to wasm-simd128 and inlines it as base64 into
 // src/standard/physics/kernel/. Inlining (not a separate .wasm asset) keeps the engine pure JS — no
 // asset-path resolution for downstream bundlers, identical in browser / bun / node / deno. The
-// generated files are committed so `bun test` and `bun run build` work without a Rust toolchain;
-// regenerate here after any crates/physics/ change.
+// generated files are committed so tests and package consumers run without a Rust toolchain;
+// `bun run build` regenerates them, as does running this after any crates/physics/ change.
 //
 // Two artifacts, from the same source:
 //
