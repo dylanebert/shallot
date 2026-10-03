@@ -149,6 +149,16 @@ export class BodyStore extends KernelViews {
         this.#syncRanges.clear();
     }
 
+    override captureCheckpoint() {
+        return { syncCount: this.syncCount };
+    }
+
+    override restoreCheckpoint(state: unknown): void {
+        this.syncCount = (state as ReturnType<BodyStore["captureCheckpoint"]>).syncCount;
+        this.#continuousCount = 0;
+        this.#syncRanges.clear();
+    }
+
     refreshContinuous(count = this.#continuousCount): void {
         this.#continuousCount = count;
         const k = kernel(this.ecsState);

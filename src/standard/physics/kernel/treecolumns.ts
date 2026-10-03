@@ -24,6 +24,8 @@ export type DynamicTree = {
     store: TreeBacking | null;
     treeIndex: number;
     initNodeCapacity: number;
+    captureCheckpoint(): unknown;
+    restoreCheckpoint(state: unknown): void;
 };
 export const NULL_INDEX = -1;
 const STRIDE = 12;
@@ -32,6 +34,23 @@ class TreeMetadata {
     state: Int32Array;
     constructor(state: Int32Array) {
         this.state = state;
+    }
+    captureCheckpoint() {
+        const tree = this as unknown as DynamicTree;
+        return {
+            nodeCapacity: tree.nodeCapacity,
+            initNodeCapacity: tree.initNodeCapacity,
+            residentState: tree.residentState,
+            state: tree.residentState ? null : tree.state.slice(),
+        };
+    }
+    restoreCheckpoint(state: unknown): void {
+        const tree = this as unknown as DynamicTree;
+        const { state: privateState, ...metadata } = state as ReturnType<
+            TreeMetadata["captureCheckpoint"]
+        >;
+        Object.assign(tree, metadata);
+        if (privateState !== null) tree.state = privateState;
     }
     get root(): number {
         return this.state[0];

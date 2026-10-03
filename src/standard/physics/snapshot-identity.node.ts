@@ -1,7 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { World } from "../../engine";
-import { BodyType, makeBoxHull, PhysicsWorld } from "./api";
+import { BodyType, hash, makeBoxHull, PhysicsWorld } from "./api";
+
+import { bodySetAwake } from "./world/body";
 
 setDefaultTimeout(CEILING.node);
 
@@ -39,9 +41,58 @@ test("a restored empty queried World uploads geometry added after restore", () =
     }
 });
 
-test("every reachable WorldState after restore is the live root", () => {
+test("manifold allocation and sleeping-contact normals replay through a fresh World restore", () => {
+    const source = new PhysicsWorld({}, new World());
+    const target = new PhysicsWorld({}, new World());
+    function continueTick(world: PhysicsWorld, tick: number) {
+        if (tick === 0)
+            world
+                .createBody({ type: BodyType.Dynamic, position: { x: 5, y: 2, z: 0 } })
+                .createHull({}, makeBoxHull(1, 1, 1));
+        if (tick === 30) bodySetAwake(world.state, world.state.bodies[1], true);
+        world.step(1 / 60);
+        return hash(world);
+    }
+    try {
+        source.createBody({ type: BodyType.Static }).createHull({}, makeBoxHull(10, 1, 10));
+        const sphere = source.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 2, z: 0 },
+        });
+        sphere.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 1 });
+        for (let tick = 0; tick < 120; tick++) source.step(1 / 60);
+        sphere.setAwake(false);
+        const saved = source.snapshot();
+        const contact = source.state.contacts.find((contact) => contact.manifolds.length > 0)!;
+        const normal = { ...contact.manifolds[0].normal };
+        const expected = Array.from({ length: 120 }, (_, tick) => continueTick(source, tick));
+        target.restore(saved);
+        const restoredNormal = { ...target.state.contacts[contact.contactId].manifolds[0].normal };
+        for (let tick = 0; tick < 120; tick++)
+            expect({ tick, hash: continueTick(target, tick) }).toEqual({
+                tick,
+                hash: expected[tick],
+            });
+        expect(restoredNormal).toEqual(normal);
+    } finally {
+        target.destroy();
+        source.destroy();
+    }
+});
+
+test("every reachable WorldState in a stepped contact, sleeping-island and joint scene is the live root", () => {
     const world = new PhysicsWorld({}, new World());
     try {
+        const ground = world.createBody({ type: BodyType.Static });
+        ground.createHull({}, makeBoxHull(10, 1, 10));
+        const sphere = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 2, z: 0 } });
+        sphere.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 1 });
+        const arm = world.createBody({ type: BodyType.Dynamic, position: { x: 5, y: 3, z: 0 } });
+        arm.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
+        world.createRevoluteJoint(ground, arm);
+        for (let tick = 0; tick < 120; tick++) world.step(1 / 60);
+        sphere.setAwake(false);
+        expect(world.getCounters().contactCount).toBeGreaterThan(0);
         ray(world);
         const saved = world.snapshot();
         world.restore(saved);

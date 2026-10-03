@@ -31,6 +31,11 @@ export function guardViews(target: object, owner: ViewOwner): void {
     }
 }
 
+export interface CheckpointStore {
+    captureCheckpoint(): unknown;
+    restoreCheckpoint(state: unknown): void;
+}
+
 /** Stores expose current views, not arrays retained across a kernel allocation or restore. */
 export abstract class KernelViews {
     private readonly _owner: World | undefined;
@@ -43,6 +48,9 @@ export abstract class KernelViews {
     constructor(ecsState: World | undefined) {
         this._owner = ecsState;
     }
+
+    abstract captureCheckpoint(): unknown;
+    abstract restoreCheckpoint(state: unknown): void;
 
     protected guardViews(): void {
         guardViews(this, this);

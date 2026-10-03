@@ -2,7 +2,16 @@ import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 
 /** Resident sorted unordered pairs, with reference counts for parallel non-colliding joints. */
-export type BodyFilters = { data: Uint32Array; capacity: number };
+export class BodyFilters {
+    data = new Uint32Array(0);
+    capacity = 16;
+    captureCheckpoint() {
+        return { capacity: this.capacity };
+    }
+    restoreCheckpoint(state: unknown): void {
+        this.capacity = (state as ReturnType<BodyFilters["captureCheckpoint"]>).capacity;
+    }
+}
 
 function lowerBound(data: Uint32Array, a: number, b: number): number {
     let lo = 0;

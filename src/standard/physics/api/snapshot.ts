@@ -1,5 +1,6 @@
 import { kernel } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
+import type { CheckpointStore } from "../kernel/views";
 import type { WorldState } from "../world/world";
 import type { PhysicsWorld } from "./world";
 
@@ -143,17 +144,7 @@ function restoreClone<T>(
 
 type SnapshotState = {
     world: WorldState;
-    broad: {
-        initialization: WorldState["broadPhase"]["initialization"];
-        trees: {
-            nodeCapacity: number;
-            initNodeCapacity: number;
-            residentState: boolean;
-            state: Int32Array | null;
-        }[];
-        pairSet: { capacity: number; count: number; initCapacity: number };
-        filterCapacity: number;
-    };
+    checkpoints: Partial<Record<StoreName, unknown>>;
 };
 
 /** Capture detached logical state and this World's persistent kernel regions. */
@@ -162,30 +153,24 @@ export function snapshot(physicsWorld: PhysicsWorld): WorldSnapshot {
     const k = kernel(state.ecsState);
     const length = k.worldSnapshot(state.worldId);
     const pointer = k.worldSnapshotBuffer(length);
+    const stores = snapshotStores(state);
+    const checkpoints: Partial<Record<StoreName, unknown>> = {};
+    for (const [store, name] of stores) {
+        checkpoints[name] = clone(
+            (store as CheckpointStore).captureCheckpoint(),
+            new Map(),
+            stores,
+        );
+    }
     return {
         // The ECS owner is identity, not solver data; snapshots never clone or retain it.
         state: {
             world: clone(
                 state,
                 state.ecsState ? new Map<object, unknown>([[state.ecsState, null]]) : new Map(),
-                snapshotStores(state),
+                stores,
             ),
-            // Lazy reservation flags and TS set/tree capacities are not native region bytes.
-            broad: {
-                initialization: { ...state.broadPhase.initialization },
-                trees: state.broadPhase.trees.map((tree) => ({
-                    nodeCapacity: tree.nodeCapacity,
-                    initNodeCapacity: tree.initNodeCapacity,
-                    residentState: tree.residentState,
-                    state: tree.residentState ? null : tree.state.slice(),
-                })),
-                pairSet: {
-                    capacity: state.broadPhase.pairSet.capacity,
-                    count: state.broadPhase.pairSet.count,
-                    initCapacity: state.broadPhase.pairSet.initCapacity,
-                },
-                filterCapacity: state.bodyFilters.capacity,
-            },
+            checkpoints,
         },
         bytes: new Uint8Array(k.memory.buffer, pointer, length).slice(),
     };
@@ -213,32 +198,22 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         maxCapacity: state.maxCapacity,
     };
     const saved = snapshot.state as SnapshotState;
-    restoreClone(
-        saved.world,
-        new Map(),
-        {
-            body: state.bodyStore,
-            shape: state.shapeStore,
-            manifold: state.manifoldStore,
-            broadPhase: state.broadPhase,
-            broadStore: state.broadPhase.store,
-            bodyFilters: state.bodyFilters,
-            query: queryColumns(state),
-        },
-        state,
-    );
+    const stores: Record<StoreName, CheckpointStore> = {
+        body: state.bodyStore,
+        shape: state.shapeStore,
+        manifold: state.manifoldStore,
+        broadPhase: state.broadPhase,
+        broadStore: state.broadPhase.store,
+        bodyFilters: state.bodyFilters,
+        query: queryColumns(state),
+    };
+    restoreClone(saved.world, new Map(), stores, state);
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
     Object.assign(state, identity);
     for (const shape of state.shapes) shape.worldId = state.worldId;
-    Object.assign(state.broadPhase.initialization, saved.broad.initialization);
-    for (let i = 0; i < 3; i++) {
-        const tree = state.broadPhase.trees[i];
-        const { state: treeState, ...metadata } = saved.broad.trees[i];
-        Object.assign(tree, metadata);
-        if (treeState !== null) tree.state = treeState.slice();
+    for (const name of Object.keys(saved.checkpoints) as StoreName[]) {
+        stores[name].restoreCheckpoint(restoreClone(saved.checkpoints[name], new Map(), stores));
     }
-    Object.assign(state.broadPhase.pairSet, saved.broad.pairSet);
-    state.bodyFilters.capacity = saved.broad.filterCapacity;
     const k = kernel(state.ecsState);
     const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength);
     new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);

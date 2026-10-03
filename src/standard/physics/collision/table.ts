@@ -39,6 +39,8 @@ export type HashSet = {
     store: SetBacking | null;
     // The capacity the first resident reservation sizes to; `capacity` starts 0 until then.
     initCapacity: number;
+    captureCheckpoint(): unknown;
+    restoreCheckpoint(state: unknown): void;
 };
 
 /**
@@ -121,12 +123,22 @@ export function keyHash(kHi: number, kLo: number): number {
     return (outLo ^ (outHi >>> 1)) >>> 0;
 }
 
+const setCheckpoint = {
+    captureCheckpoint(this: HashSet) {
+        return { capacity: this.capacity, count: this.count, initCapacity: this.initCapacity };
+    },
+    restoreCheckpoint(this: HashSet, state: unknown): void {
+        Object.assign(this, state);
+    },
+};
+
 export function createSet(capacity: number, store: SetBacking | null = null): HashSet {
     const cap = capacity > 16 ? roundUpPowerOf2(capacity) : 16;
     // Resident set: the arrays live in the kernel's broad-phase region, reserved lazily on first use
     // (which sizes it to initCapacity). Starts with empty views + capacity 0.
     if (store !== null) {
         const set: HashSet = {
+            ...setCheckpoint,
             keyHi: new Uint32Array(0),
             keyLo: new Uint32Array(0),
             hashes: new Uint32Array(0),
@@ -139,6 +151,7 @@ export function createSet(capacity: number, store: SetBacking | null = null): Ha
         return set;
     }
     return {
+        ...setCheckpoint,
         keyHi: new Uint32Array(cap),
         keyLo: new Uint32Array(cap),
         hashes: new Uint32Array(cap),

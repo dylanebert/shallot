@@ -119,6 +119,12 @@ export class ShapeStore extends KernelViews {
     private _fatLayout = new Uint32Array(0);
     private _materialLayout = new Uint32Array(0);
 
+    // Shape/material lifecycle metadata and contents are entirely native region data.
+    captureCheckpoint(): null {
+        return null;
+    }
+    restoreCheckpoint(_state: unknown): void {}
+
     /** Re-derive the column views over the current region. No-op before the first `reserveShapes`, and
      * when the buffer, offset and capacity are those the views were derived at. */
     protected deriveViews(): void {

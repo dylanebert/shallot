@@ -14,6 +14,12 @@ export function queryColumns(world: WorldState): QueryColumns {
 
 /** World-owned views and input upload for the kernel query ABI. */
 export class QueryColumns extends KernelViews {
+    // Queries leave no logical state between calls; these columns are shared scratch.
+    captureCheckpoint(): null {
+        return null;
+    }
+    restoreCheckpoint(_state: unknown): void {}
+
     readonly world: WorldState;
     headerU = new Uint32Array(0);
     headerF = new Float32Array(0);

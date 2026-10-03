@@ -121,6 +121,28 @@ export class ManifoldStore extends KernelViews {
     // The held layout header view the column views are derived from.
     private _layout = new Uint32Array(0);
 
+    override captureCheckpoint() {
+        return {
+            dirCap: this._dirCap,
+            poolCap: this._poolCap,
+            needDir: this._needDir,
+            poolTop: this._poolTop,
+            freeLists: this._freeLists,
+            blocks: this._blocks,
+        };
+    }
+
+    override restoreCheckpoint(state: unknown): void {
+        const saved = state as ReturnType<ManifoldStore["captureCheckpoint"]>;
+        this._dirCap = saved.dirCap;
+        this._poolCap = saved.poolCap;
+        this._needDir = saved.needDir;
+        this._poolTop = saved.poolTop;
+        this._freeLists = saved.freeLists;
+        this._blocks = saved.blocks;
+        this._viewCache.clear();
+    }
+
     /** Track a directory slot for a contact (b3CreateContact). Grows the directory capacity if the id
      * is past the current high-water; the block itself is allocated later, on first touch. */
     ensureSlot(contactId: number): void {

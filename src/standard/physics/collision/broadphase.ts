@@ -38,6 +38,8 @@ export type BroadPhase = {
     // The resident broad-phase region's view manager: the trees + pairSet node/slot arrays live in the
     // kernel's linear memory, and this rewrites their views after any grow (broadcolumns.ts).
     store: BroadStore;
+    captureCheckpoint(): unknown;
+    restoreCheckpoint(state: unknown): void;
 };
 
 class ResidentMoves {
@@ -118,6 +120,18 @@ export function createBroadPhase(
         moveArray,
         pairSet,
         store,
+        captureCheckpoint() {
+            return {
+                trees: this.trees.map((tree) => tree.captureCheckpoint()),
+                pairSet: this.pairSet.captureCheckpoint(),
+            };
+        },
+        restoreCheckpoint(state: unknown): void {
+            const saved = state as { trees: unknown[]; pairSet: unknown };
+            for (let i = 0; i < this.trees.length; i++)
+                this.trees[i].restoreCheckpoint(saved.trees[i]);
+            this.pairSet.restoreCheckpoint(saved.pairSet);
+        },
     };
 }
 

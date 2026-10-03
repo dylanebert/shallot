@@ -48,6 +48,13 @@ export class BroadStore extends KernelViews {
     movedBits: Uint32Array[] = [EMPTY_U, EMPTY_U, EMPTY_U];
     initialization = { claimed: false, movesInitialized: false };
 
+    override captureCheckpoint() {
+        return { ...this.initialization };
+    }
+    override restoreCheckpoint(state: unknown): void {
+        Object.assign(this.initialization, state);
+    }
+
     /** Initialize this World's native broad-phase metadata on first use. */
     initialize(): void {
         const world = this.world;

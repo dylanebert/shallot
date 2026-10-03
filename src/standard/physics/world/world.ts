@@ -5,7 +5,7 @@
 //
 // fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
-import type { BodyFilters } from "../collision/bodyfilter";
+import { BodyFilters } from "../collision/bodyfilter";
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { type Contact, initializeContactRegisters } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
@@ -293,7 +293,7 @@ function makeWorldState(
     const physicsWorld: WorldState = {
         ecsState: world,
         broadPhase: createBroadPhase(world, capacity, worldId),
-        bodyFilters: { data: new Uint32Array(0), capacity: 16 },
+        bodyFilters: new BodyFilters(),
         constraintGraph: createGraph(capacity.staticBodyCount + capacity.dynamicBodyCount),
         bodies: [],
         solverSetIdPool: createIdPool(),
