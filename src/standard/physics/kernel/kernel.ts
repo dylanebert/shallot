@@ -406,6 +406,7 @@ function createKernelState(): KernelState {
 
 const kernelStateKey = { create: createKernelState };
 const standaloneKernelState = createKernelState();
+const queryImportStates = new WeakMap<Kernel, KernelState>();
 
 function kernelState(world: World | undefined): KernelState {
     return world ? world.resource(kernelStateKey) : standaloneKernelState;
@@ -419,6 +420,19 @@ export function setQueryCallback(
     const previous = state.queryCallback;
     state.queryCallback = callback;
     return previous;
+}
+
+/** @internal Snapshot of the guard and the state bound to this kernel's imported query callback. */
+export function queryCallbackState(world: World | undefined) {
+    const state = kernelState(world);
+    const imported = queryImportStates.get(kernel(world));
+    return {
+        callbackDepth: state.callbackDepth,
+        queryWorld: state.queryWorld,
+        importMatchesGuard: imported === state,
+        importCallbackDepth: imported?.callbackDepth,
+        importQueryWorld: imported?.queryWorld,
+    };
 }
 
 export function assertQueryWorld(world: World | undefined, worldId: number): void {
@@ -519,7 +533,9 @@ async function single(runtime: KernelState): Promise<void> {
     const result = await WebAssembly.instantiate(decode(KERNEL_WASM_BASE64), {
         env: { queryCallback: queryImport(runtime) },
     });
-    runtime.instance ??= result.instance.exports as unknown as Kernel;
+    const instance = result.instance.exports as unknown as Kernel;
+    queryImportStates.set(instance, runtime);
+    runtime.instance ??= instance;
 }
 
 async function multi(runtime: KernelState, want: number): Promise<void> {
@@ -563,6 +579,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
             : null;
 
     runtime.instance = { ...exports, memory } as Kernel;
+    queryImportStates.set(runtime.instance, runtime);
     runtime.sharedMemory = memory;
     runtime.pool = spawned;
     runtime.resolved = count + 1;
@@ -660,6 +677,7 @@ export function kernel(world: World | undefined): Kernel {
         runtime.instance = new WebAssembly.Instance(mod, {
             env: { queryCallback: queryImport(runtime) },
         }).exports as unknown as Kernel;
+        queryImportStates.set(runtime.instance, runtime);
     }
     return runtime.instance;
 }
