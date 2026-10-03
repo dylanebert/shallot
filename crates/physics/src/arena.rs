@@ -219,7 +219,7 @@ unsafe fn columns() -> Columns<'static> {
 
 // --- the staged solver's view of the arena (solve.rs) ----------------------------------------
 // The staged solve derives its columns once, up front, and hands the same handles to every worker —
-// which is sound exactly because no `reserve*` (and so no `memory.grow`, no region relocation) may run
+// which is sound because no allocation, memory growth or free may run
 // between the fork and the join (the MT concurrency invariant).
 
 /// The scalar solver's columns, as `solve.rs`'s `StageWork` holds them.
@@ -262,7 +262,7 @@ pub(crate) unsafe fn joint_column() -> Col<'static, f32> {
 // per-contact GJK/SAT cache folded into the directory. box3d's collide is scalar per-contact; this
 // batches only the FFI crossing, not the arithmetic — each record is the gold-verified scalar call.
 
-/// Dispatch ABI, mirrored by kernel/columns.ts. Geometry references are relocation-independent
+/// Dispatch ABI, mirrored by kernel/columns.ts. Geometry references are allocation-independent
 /// indices; mesh caches are opaque spans copied across calls, never pointers into the geometry pool.
 const DISPATCH_STRIDE: usize = 42;
 const D_OLD_COUNT: usize = 41;

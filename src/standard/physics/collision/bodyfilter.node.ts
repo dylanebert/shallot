@@ -73,7 +73,7 @@ test("direct joint filters survive parallel joints, toggles, destroy, growth and
         const saved = world.snapshot();
         first.destroy();
         expect(allows(a, b)).toBe(true);
-        // Cross the resident column's capacity, relocating the existing tree/set columns too.
+        // Grow the filter column while preserving the existing trees and pair set.
         const others = Array.from({ length: 40 }, () => world.createBody());
         for (const body of others.reverse()) world.createFilterJoint(a, body);
         for (const body of others) expect(allows(a, body)).toBe(false);

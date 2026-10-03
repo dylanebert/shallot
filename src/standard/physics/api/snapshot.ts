@@ -1,4 +1,4 @@
-import { kernel } from "../kernel/kernel";
+import { invalidateKernelViews, kernel } from "../kernel/kernel";
 import { liveWorldCount, type WorldState } from "../world/world";
 import type { PhysicsWorld } from "./world";
 
@@ -178,6 +178,7 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     while (memory.buffer.byteLength < snapshot.bytes.byteLength) memory.grow(1);
     new Uint8Array(memory.buffer).set(snapshot.bytes);
     kernel(state.ecsState).residentRestoreWorldId(sourceWorldId, state.worldId);
+    invalidateKernelViews(state.ecsState);
     state.broadPhase.store.world = state;
     state.broadPhase.store.trees = state.broadPhase.trees;
     state.broadPhase.store.set = state.broadPhase.pairSet;

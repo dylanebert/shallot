@@ -11,6 +11,7 @@
 // is the empty-slot sentinel, matching the C (which also leaves the collision unguarded).
 
 import { roundUpPowerOf2 } from "../common/bits";
+import { guardViews } from "../kernel/views";
 
 const SHAPE_MASK = (1 << 22) - 1;
 const CHILD_MASK = (1 << 20) - 1;
@@ -18,10 +19,14 @@ const CHILD_MASK = (1 << 20) - 1;
 /**
  * The kernel-resident set arrays' backing. When set, `keyHi`/`keyLo`/`hashes` are views over the
  * kernel's broad-phase region (broadcolumns.ts); `growSet` reserves the region + rewrites the views,
- * and `refreshIfStale` re-derives them if a grow/relocation moved the region. Absent (standalone sets,
+ * and guarded array access re-derives them when the kernel view key changes. Absent (standalone sets,
  * e.g. tests) → the set owns private Uint32Arrays.
  */
-export type SetBacking = { growSet(setCap: number): void; refreshIfStale(): void };
+export type SetBacking = {
+    growSet(setCap: number): void;
+    refreshIfStale(): void;
+    ensureViews(): void;
+};
 
 export type HashSet = {
     keyHi: Uint32Array;
@@ -119,10 +124,9 @@ export function keyHash(kHi: number, kLo: number): number {
 export function createSet(capacity: number, store: SetBacking | null = null): HashSet {
     const cap = capacity > 16 ? roundUpPowerOf2(capacity) : 16;
     // Resident set: the arrays live in the kernel's broad-phase region, reserved lazily on first use
-    // (which sizes it to initCapacity + zeroes the window so a singleton reused across worlds carries no
-    // phantom membership). Starts with empty views + capacity 0.
+    // (which sizes it to initCapacity). Starts with empty views + capacity 0.
     if (store !== null) {
-        return {
+        const set: HashSet = {
             keyHi: new Uint32Array(0),
             keyLo: new Uint32Array(0),
             hashes: new Uint32Array(0),
@@ -131,6 +135,8 @@ export function createSet(capacity: number, store: SetBacking | null = null): Ha
             store,
             initCapacity: cap,
         };
+        guardViews(set, store);
+        return set;
     }
     return {
         keyHi: new Uint32Array(cap),
@@ -144,8 +150,7 @@ export function createSet(capacity: number, store: SetBacking | null = null): Ha
 }
 
 // Reserve + zero the resident set's arrays on first use. Idempotent no-op once capacity is set — the
-// membership state persists across steps, so this never re-clears a live set. Zeroing the window is what
-// makes a fresh world safe over the singleton region (a stale non-zero hash would be phantom membership).
+// membership state persists across steps, so this never re-clears a live set.
 export function ensureResident(set: HashSet): void {
     if (set.store === null) return;
     if (set.capacity === 0) {
@@ -156,7 +161,7 @@ export function ensureResident(set: HashSet): void {
         set.hashes.fill(0);
         return;
     }
-    // Already reserved — re-derive the views if a grow/relocation moved the region since the last op.
+    // Select this set's World for kernel operations.
     set.store.refreshIfStale();
 }
 
@@ -185,8 +190,7 @@ function growTable(set: HashSet): void {
     const oldCapacity = set.capacity;
 
     if (set.store !== null) {
-        // Resident: copy the old contents out to JS scratch *before* reserving (the reserve relocates
-        // the arrays and rewrites the views), then reserve the larger region, zero the new window, and
+        // Preserve entries before reserve can reallocate arrays or grow memory; then zero and
         // re-insert. Membership is preserved; slot/probe order is unobservable, so the rehash is free of
         // bit-exact concern (table.c grows and re-probes identically).
         const oldKeyHi = set.keyHi.slice(0, oldCapacity);

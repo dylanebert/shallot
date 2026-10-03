@@ -15,7 +15,6 @@ struct Broad {
     tree: [usize; 3],
     set: usize,
     filter: usize,
-    generation: u32,
 }
 impl Broad {
     const EMPTY: Self = Self {
@@ -23,7 +22,6 @@ impl Broad {
         tree: [0; 3],
         set: 0,
         filter: 0,
-        generation: 0,
     };
 }
 static mut WORLDS: [Broad; MAX_WORLDS] = [Broad::EMPTY; MAX_WORLDS];
@@ -116,14 +114,6 @@ pub unsafe extern "C" fn clear_moves() {
     }
     *(base(MOVE) as *mut u32) = 0;
 }
-#[export_name = "broadGenPtr"]
-pub extern "C" fn broad_gen_ptr() -> *const u32 {
-    unsafe { &raw const world().generation }
-}
-#[export_name = "broadGen"]
-pub extern "C" fn broad_gen() -> u32 {
-    unsafe { world().generation }
-}
 #[export_name = "broadLayoutPtr"]
 pub extern "C" fn broad_layout_ptr() -> *const u32 {
     unsafe { world().columns.layout.as_ptr() }
@@ -191,7 +181,6 @@ pub extern "C" fn reserve_broad(
         w.tree = tree;
         w.set = set;
         w.filter = filter;
-        w.generation = w.generation.wrapping_add(1);
         1
     }
 }

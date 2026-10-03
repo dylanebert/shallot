@@ -130,13 +130,12 @@ export function uploadGeometry(
  * records hold counts and offsets to 11-word nodes, xyz vertices, index triples, flags and materials.
  * Height records hold bounds, quantization, scale, dimensions, winding and array offsets. Compound
  * records hold the tree root, node/child counts and offsets to 12-word tree nodes and 19-word children
- * (kind, transform, four material indices, seven geometry words). All offsets survive relocation. */
+ * (kind, transform, four material indices, seven geometry words). Pool-relative offsets survive reallocation. */
 export function rebuildGeometry(world: WorldState): void {
     const hullArray = Array.from(world.hullDatabase.values(), (entry) => entry.hull);
     for (let i = 0; i < hullArray.length; ++i) hullArray[i].geoIndex = i;
 
-    // All references in these records are word offsets in EXTRA, never absolute addresses. This
-    // keeps the body's relocation chain independent of the kind-specific record layouts.
+    // Pool-relative references need no patching when the geometry allocation moves.
     const words: number[] = [];
     const append = (values: Iterable<number>): void => {
         for (const value of values) words.push(value);

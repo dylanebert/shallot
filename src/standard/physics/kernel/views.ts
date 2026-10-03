@@ -1,0 +1,78 @@
+import type { World } from "../../../engine";
+import { kernel, kernelViewKey } from "./kernel";
+
+type ViewOwner = { ensureViews(): void };
+type ViewFields = { viewOwner: ViewOwner; viewData: Record<string, unknown> };
+
+/** Accessors resolve through their owner, including when their record is cloned by a snapshot. */
+export function guardViews(target: object, owner: ViewOwner): void {
+    const fields = target as ViewFields;
+    fields.viewOwner = owner;
+    fields.viewData = {};
+    for (const name of Object.keys(target)) {
+        const value = Object.getOwnPropertyDescriptor(target, name)!.value;
+        if (
+            !ArrayBuffer.isView(value) &&
+            !(Array.isArray(value) && value.length > 0 && value.every(ArrayBuffer.isView))
+        )
+            continue;
+        fields.viewData[name] = value;
+        Object.defineProperty(target, name, {
+            enumerable: true,
+            configurable: true,
+            get: function (this: ViewFields) {
+                this.viewOwner.ensureViews();
+                return this.viewData[name];
+            },
+            set: function (this: ViewFields, value: unknown) {
+                this.viewData[name] = value;
+            },
+        });
+    }
+}
+
+/** Stores expose current views, not arrays retained across a kernel allocation or restore. */
+export abstract class KernelViews {
+    private readonly _owner: World | undefined;
+    get ecsState(): World | undefined {
+        return this._owner;
+    }
+    private _viewKey = -1;
+    private _refreshing = false;
+
+    constructor(ecsState: World | undefined) {
+        this._owner = ecsState;
+    }
+
+    protected guardViews(): void {
+        guardViews(this, this);
+    }
+    refreshIfStale(): void {
+        this.ensureViews();
+    }
+
+    get stale(): boolean {
+        return this._viewKey !== kernelViewKey(this.ecsState);
+    }
+
+    ensureViews(): void {
+        if (!this._refreshing && this.stale) this.refreshViews();
+    }
+
+    refreshViews(): void {
+        if (this._refreshing) return;
+        const k = kernel(this.ecsState);
+        const selected = k.activeWorld();
+        this._refreshing = true;
+        try {
+            this.deriveViews();
+            this._viewKey = kernelViewKey(this.ecsState);
+        } finally {
+            // A view read inside a query callback must not switch the outer traversal's World.
+            k.bodySetActiveWorld(selected);
+            this._refreshing = false;
+        }
+    }
+
+    protected abstract deriveViews(): void;
+}

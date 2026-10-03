@@ -1,12 +1,14 @@
 import type { World } from "../../../engine";
 import type { AABB } from "../common/math";
 import { kernel, rethrowQueryError, setQueryCallback } from "./kernel";
+import { guardViews } from "./views";
 
 export type TreeStats = { nodeVisits: number; leafVisits: number };
 export type TreeBacking = {
     ecsState: World | undefined;
     growTree(index: number, capacity: number): void;
     refreshIfStale(): void;
+    ensureViews(): void;
     reserveTreeWork(depth: number, words: number): number;
 };
 export type DynamicTree = {
@@ -75,7 +77,8 @@ export function createTree(
             initNodeCapacity: cap,
         },
     );
-    if (!store) freeRun(t, 0, cap);
+    if (store) guardViews(t, store);
+    else freeRun(t, 0, cap);
     return t;
 }
 function freeRun(t: DynamicTree, start: number, end: number): void {

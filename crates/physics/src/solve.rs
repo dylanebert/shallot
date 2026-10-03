@@ -23,10 +23,8 @@
 //! written here, and the worker's `Atomics.wait`/`load` is the acquire. That ordering also means the
 //! buffers below are only ever written while every worker is parked.
 //!
-//! **No `memory.grow` between the fork and the join** (the MT concurrency invariant): the columns are derived
-//! once, here, and shared by value with every worker; a region grow would relocate them under the
-//! workers' feet. Every `reserve*` runs pre-solve on the main thread, which is why deriving once is
-//! sound.
+//! **No allocation, memory growth or free between fork and join**: columns are derived once and
+//! shared by value with workers. Reserves run before the fork, so those handles remain valid until join.
 //!
 //! Wasm-only, like the arena it reads. Native `cargo test` drives the same machinery over owned columns
 //! (`kernel/tests/stages.rs`).

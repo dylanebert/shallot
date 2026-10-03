@@ -17,6 +17,7 @@ import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
 import { type Kernel, kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
+import { guardViews } from "../kernel/views";
 import type { CompoundData } from "../shapes/compound";
 import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
@@ -363,6 +364,7 @@ function makeWorldState(
     // Wire the broad store's back-reference so a resident-region grow can refresh the sibling stores a
     // `memory.grow` detaches (the store is created before the world literal, so it can't be passed in).
     physicsWorld.broadPhase.store.world = physicsWorld;
+    guardViews(physicsWorld.bodyFilters, physicsWorld.broadPhase.store);
 
     // Create the three permanent sets in order so their ids land 0 (static), 1 (disabled), 2 (awake).
     for (let i = 0; i < 3; ++i) {

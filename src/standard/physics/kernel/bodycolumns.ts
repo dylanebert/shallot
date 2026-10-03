@@ -1,6 +1,6 @@
 import type { World } from "../../../engine";
 // The persistent body region (kernel/src/bodies.rs) — the awake body columns held resident across
-// steps, first in the kernel's linear memory: velocity/delta `state` + `flags` and the
+// steps in each World's allocations: velocity/delta `state` + `flags` and the
 // integrate/finalize `sim`/`fin`/`sim2` fields. The solver runs directly over these columns
 // (the kernel phases alias `LAYOUT[STATE]`/`LAYOUT[SIM]`/etc here), so a step no longer marshals the
 // body in and reads it back out — the column is the single source of truth. This module owns the
@@ -32,7 +32,8 @@ import {
     STATE_LIVE,
     STATE_STRIDE,
 } from "./columns";
-import { kernel, sharedBytes } from "./kernel";
+import { kernel } from "./kernel";
+import { KernelViews } from "./views";
 
 // BODY_LAYOUT header indices (bodies.rs), in memory order: world, sim, fin, finOut, flags, sim2.
 export const B_STATE = 0;
@@ -76,13 +77,12 @@ export function reserveBodies(world: World | undefined, bodyCount: number): bool
  * migration the awake-set lifecycle needs. One per world; the awake set's `bodyStates` array holds
  * `ResidentBodyState` views over this store.
  */
-export class BodyStore {
-    readonly ecsState: World | undefined;
-
+export class BodyStore extends KernelViews {
     readonly worldId: number;
     constructor(ecsState: World | undefined, worldId: number) {
-        this.ecsState = ecsState;
+        super(ecsState);
         this.worldId = worldId;
+        this.guardViews();
     }
 
     /** Resident state column (`STATE_STRIDE` f32 per body), re-derived after growth. */
@@ -109,33 +109,19 @@ export class BodyStore {
     #syncIndex = new Uint32Array(0);
     #syncVel = new Float32Array(0);
     #syncRanges = new Map<number, MovedRows>();
-    /** Memory size the views were derived at, on the shared (multithreaded) path; 0 single-threaded,
-     * where detachment is the signal instead. See `stale`. */
-    bytes = 0;
     // The held layout header view the column views are derived from.
     private _layout = new Uint32Array(0);
-
-    /** Whether a `memory.grow` has happened since the views were derived — the guard for the reads a
-     * mid-loop grow (the narrowphase's manifold `alloc`) can strand. Single-threaded that grow detaches
-     * every view (length 0). A shared memory never detaches, so the shared path compares the memory's
-     * size against the size the views were derived at (`sharedBytes`, kernel.ts). */
-    get stale(): boolean {
-        return (
-            this.simF.length === 0 ||
-            (this.bytes !== 0 && this.bytes !== sharedBytes(this.ecsState))
-        );
-    }
 
     /** Re-derive the column views over the current region. No-op before the first `reserveBodies` (the
      * region has zero capacity), and when the buffer, layout offsets and capacity are those the views were
      * derived at, so a steady step mints no typed-array views. */
-    refreshViews(): void {
+    protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
         const cap = k.bodyCap();
         if (cap === 0) return;
+        this.refreshContinuous();
         const buf = k.memory.buffer;
-        this.bytes = sharedBytes(this.ecsState);
         const ptr = k.bodyLayoutPtr();
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
             this._layout = new Uint32Array(buf, ptr, N_BODY);

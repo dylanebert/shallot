@@ -76,7 +76,7 @@ function slot(ptr: number): number {
     return ptr >>> 2;
 }
 
-// Grow-only copies of the candidate slab, taken before a pair-set grow can relocate it.
+// Grow-only candidate copies survive memory growth during pair membership and contact creation.
 let candEndCopy = new Uint32Array(64);
 let candCopy = new Uint32Array(256 * 3);
 
@@ -140,9 +140,7 @@ export function updateBroadPhasePairs(world: WorldState): void {
     // Re-derive the resident tree + pairSet views if a `memory.grow` since the last broad-phase op
     // detached them (a prior step's solve reserve, or a between-step create).
     broadPhase.store.refreshIfStale();
-    // Reserve + zero the pair-set on this world's first use — the in-kernel `queryPairs` reads it for the
-    // membership dedup, and the singleton region carries a prior world's stale hashes until it is zeroed
-    // (in the pre-3d path a TS `containsKey`/`addKey` did this; the kernel query never reserves).
+    // Kernel pair queries need the membership table reserved before they read it.
     ensureResident(broadPhase.pairSet);
 
     const k = kernel(world.ecsState);
@@ -161,16 +159,13 @@ export function updateBroadPhasePairs(world: WorldState): void {
     for (;;) {
         k.reservePairs(moveCount, movedWords, candCap, maxProxy);
 
-        // Pass the pair-set's logical capacity — the resident region is grow-only across worlds, so
-        // `broadSetCap()` can exceed this world's table.
+        // Logical capacity defines the membership table's probe mask.
         entryCount = k.queryPairs(broadPhase.pairSet.capacity);
         if (entryCount <= candCap) break;
         candCap = entryCount + (entryCount >> 1);
     }
 
-    // Copy the candidate slab out of linear memory before any pair-set grow (compound membership or a
-    // later `createContact`) can relocate it — the slab lives at the solver base, above the pair-set, so
-    // a `reserveBroad` grow shifts it out from under a view captured here.
+    // Candidate copies remain readable if pair membership or contact creation grows memory.
     const mem = heap(k.memory.buffer);
     if (candEndCopy.length < moveCount) candEndCopy = new Uint32Array(moveCount * 2);
     if (candCopy.length < entryCount * CAND_STRIDE) {

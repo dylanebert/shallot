@@ -69,9 +69,9 @@ function scene(owner: World, variant: number) {
     return { world, sleeper };
 }
 
-function tick(subject: ReturnType<typeof scene>, index: number) {
+function tick(subject: ReturnType<typeof scene>, index: number, ray = true) {
     if (index === 30) subject.sleeper.setAwake(true);
-    subject.world.castRayClosest({ x: 0, y: 10, z: 0 }, { x: 0, y: -20, z: 0 });
+    if (ray) subject.world.castRayClosest({ x: 0, y: 10, z: 0 }, { x: 0, y: -20, z: 0 });
     subject.world.step(1 / 60);
     return hash(subject.world);
 }
@@ -86,27 +86,29 @@ function solo(variant: number) {
     }
 }
 
-for (const transient of [false, true]) {
-    test(`World tick hashes match solo runs with ${transient ? "a sibling created, stepped and destroyed between ticks" : "two Worlds stepped alternately"}`, () => {
-        const expectedA = solo(0);
-        const expectedB = solo(1);
-        const owner = new World();
-        const a = scene(owner, 0);
-        let b = transient ? undefined : scene(owner, 1);
-        try {
-            for (let i = 0; i < 120; i++) {
-                if (transient) {
-                    b = scene(owner, 1);
-                    tick(b, 0);
-                    b.world.destroy();
-                    b = undefined;
+for (const ray of [false, true]) {
+    for (const transient of [false, true]) {
+        test(`World tick hashes match solo runs ${ray ? "with" : "without"} per-tick rays and ${transient ? "a sibling created, stepped and destroyed between ticks" : "two Worlds stepped alternately"}`, () => {
+            const expectedA = solo(0);
+            const expectedB = solo(1);
+            const owner = new World();
+            const a = scene(owner, 0);
+            let b = transient ? undefined : scene(owner, 1);
+            try {
+                for (let i = 0; i < 120; i++) {
+                    if (transient) {
+                        b = scene(owner, 1);
+                        tick(b, 0, ray);
+                        b.world.destroy();
+                        b = undefined;
+                    }
+                    expect(tick(a, i, ray), `target tick ${i}`).toBe(expectedA[i]);
+                    if (b) expect(tick(b, i, ray), `sibling tick ${i}`).toBe(expectedB[i]);
                 }
-                expect(tick(a, i), `target tick ${i}`).toBe(expectedA[i]);
-                if (b) expect(tick(b, i), `sibling tick ${i}`).toBe(expectedB[i]);
+            } finally {
+                b?.world.destroy();
+                a.world.destroy();
             }
-        } finally {
-            b?.world.destroy();
-            a.world.destroy();
-        }
-    });
+        });
+    }
 }

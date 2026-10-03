@@ -1,3 +1,4 @@
+import type { World } from "../../../engine";
 import type { ShapeProxy } from "../collision/distance";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS } from "../common/constants";
 import type { AABB, Pos, Vec3, WorldTransform } from "../common/math";
@@ -5,13 +6,14 @@ import type { QueryFilter } from "../common/types";
 import type { WorldState } from "../world/world";
 import { rebuildGeometry } from "./geocolumns";
 import { assertQueryWorld, type Kernel, kernel } from "./kernel";
+import { KernelViews } from "./views";
 
 export function queryColumns(world: WorldState): QueryColumns {
     return (world.queryColumns ??= new QueryColumns(world));
 }
 
 /** World-owned views and input upload for the kernel query ABI. */
-export class QueryColumns {
+export class QueryColumns extends KernelViews {
     readonly world: WorldState;
     headerU = new Uint32Array(0);
     headerF = new Float32Array(0);
@@ -21,7 +23,26 @@ export class QueryColumns {
     cast = new Float32Array(0);
 
     constructor(world: WorldState) {
+        super(world.ecsState);
         this.world = world;
+        this.guardViews();
+    }
+
+    override get ecsState(): World | undefined {
+        return this.world.ecsState;
+    }
+
+    protected deriveViews(): void {
+        const k = kernel(this.ecsState);
+        const memory = k.memory.buffer;
+        if (this.input.buffer !== memory || this.input.byteLength === 0) {
+            this.input = new Float32Array(memory, k.shapeQueryInputPtr(), 398);
+            this.cast = new Float32Array(memory, k.shapeQueryOutputPtr(), 12);
+            this.headerU = new Uint32Array(memory, k.worldQueryHeaderPtr(), 19);
+            this.headerF = new Float32Array(memory, k.worldQueryHeaderPtr(), 19);
+            this.resultU = new Uint32Array(memory, k.worldQueryResultPtr(), 16);
+            this.resultF = new Float32Array(memory, k.worldQueryResultPtr(), 16);
+        }
     }
 
     prepare(origin: Pos, filter?: QueryFilter): Kernel {
@@ -34,18 +55,7 @@ export class QueryColumns {
             rebuildGeometry(world);
             world.geometryDirty = false;
         }
-        const memory = k.memory.buffer;
-        if (world.bodyStore.stale) world.bodyStore.refreshViews();
-        if (world.shapeStore.shapeF.buffer !== memory) world.shapeStore.refreshViews();
         world.broadPhase.store.refreshIfStale();
-        if (this.input.buffer !== memory || this.input.byteLength === 0) {
-            this.input = new Float32Array(memory, k.shapeQueryInputPtr(), 398);
-            this.cast = new Float32Array(memory, k.shapeQueryOutputPtr(), 12);
-            this.headerU = new Uint32Array(memory, k.worldQueryHeaderPtr(), 19);
-            this.headerF = new Float32Array(memory, k.worldQueryHeaderPtr(), 19);
-            this.resultU = new Uint32Array(memory, k.worldQueryResultPtr(), 16);
-            this.resultF = new Float32Array(memory, k.worldQueryResultPtr(), 16);
-        }
         const h = this.headerU;
         const trees = world.broadPhase.trees;
         for (let i = 0; i < 3; ++i) {

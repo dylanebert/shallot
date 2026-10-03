@@ -3,8 +3,18 @@ use std::alloc::{alloc_zeroed, dealloc, handle_alloc_error, realloc, Layout};
 
 pub const MAX_WORLDS: usize = 128;
 static mut ACTIVE_WORLD: usize = 0;
+static mut VIEW_EPOCH: u32 = 0;
 
-pub fn active() -> usize {
+#[export_name = "viewEpochPtr"]
+pub extern "C" fn view_epoch_ptr() -> *const u32 {
+    &raw const VIEW_EPOCH
+}
+unsafe fn invalidate_views() {
+    VIEW_EPOCH = VIEW_EPOCH.wrapping_add(1);
+}
+
+#[export_name = "activeWorld"]
+pub extern "C" fn active() -> usize {
     unsafe { ACTIVE_WORLD }
 }
 pub fn select(world: u32) {
@@ -73,10 +83,12 @@ impl Buffer {
         }
         self.ptr = ptr as usize;
         self.bytes = bytes;
+        invalidate_views();
         true
     }
     pub unsafe fn release(&mut self) {
         if self.bytes != 0 {
+            invalidate_views();
             dealloc(
                 self.ptr as *mut u8,
                 Layout::from_size_align_unchecked(self.bytes, 16),
@@ -97,6 +109,7 @@ impl<const N: usize> Columns<N> {
         buffers: [Buffer::EMPTY; N],
     };
     pub unsafe fn reserve(&mut self, column: usize, bytes: usize) {
+        invalidate_views();
         self.buffers[column].reserve(bytes);
         self.layout[column] = self.buffers[column].ptr as u32;
     }

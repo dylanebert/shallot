@@ -15,6 +15,7 @@ import type { World } from "../../../engine";
 
 import { f32, type Vec3 } from "../common/math";
 import { kernel } from "../kernel/kernel";
+import { KernelViews } from "../kernel/views";
 import type { Manifold, ManifoldPoint } from "./contact";
 
 /** f32/u32 slots per directory record (DIR_STRIDE in manifold_abi.rs): the solver's per-step row —
@@ -84,13 +85,12 @@ function growCap(need: number): number {
  * bump high-water) and the current wasm-region capacities, and re-derives its column views whenever the
  * region grows (or `memory.grow` elsewhere detaches them).
  */
-export class ManifoldStore {
-    readonly ecsState: World | undefined;
-
+export class ManifoldStore extends KernelViews {
     readonly worldId: number;
     constructor(ecsState: World | undefined, worldId: number) {
-        this.ecsState = ecsState;
+        super(ecsState);
         this.worldId = worldId;
+        this.guardViews();
     }
 
     // Current wasm-region capacities (directory records / pool manifold records).
@@ -198,7 +198,7 @@ export class ManifoldStore {
     /** Re-derive the column views over the current region (after any `memory.grow`, which detaches every
      * view). No-op before the first reserve, and when the buffer, layout offsets and capacities are those
      * the views were derived at, so a steady step mints no typed-array views. */
-    refreshViews(): void {
+    protected deriveViews(): void {
         if (this._dirCap === 0) return;
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
@@ -244,7 +244,7 @@ export class ManifoldStore {
     }
 
     /** Copy a completed kernel manifold span into this contact's allocated block. Source must be
-     * independent of WASM memory: allocation can grow or relocate the pool. */
+     * independent of WASM memory: reserve can reallocate the pool or grow memory. */
     importManifolds(contactId: number, count: number, source: Uint32Array): Manifold[] {
         const views = this.alloc(contactId, count);
         const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];

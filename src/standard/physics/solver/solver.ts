@@ -160,9 +160,7 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
     const sim2F = store.sim2F;
     const outCol = cols.finOut;
 
-    // The kernel finalize wrote each convex shape's candidate AABB + escaped flag into the resident shape
-    // column; refresh the shape + fat views (the solve's column reserve, or a step-top body grow, may have
-    // relocated/detached them — the finalize refit is their one per-step read, so refresh here, before it).
+    // Finalize wrote candidate AABBs and escaped flags into this World's shape column.
     world.shapeStore.refreshViews();
     const shapeF = world.shapeStore.shapeF;
     const shapeU = world.shapeStore.shapeU;

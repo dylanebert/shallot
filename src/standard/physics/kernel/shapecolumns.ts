@@ -21,6 +21,7 @@ import type { Shape } from "../shapes/shape";
 import { type Body, type BodySim, getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
+import { KernelViews } from "./views";
 
 /** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7) attachment(2). */
 export const SHAPE_STRIDE = 51;
@@ -93,17 +94,15 @@ export function destroyShapeSlot(world: WorldState, shapeId: number): void {
 /**
  * Typed-array views over the resident shape column plus the shapeId-keyed writes. One per world. The
  * column is what the in-kernel finalize refit reads; TS writes it at shape create/destroy. Re-derives
- * its views whenever a grow detaches or relocates them.
+ * its views when the shared kernel key changes.
  */
-export class ShapeStore {
-    readonly ecsState: World | undefined;
-
+export class ShapeStore extends KernelViews {
     private readonly _worldId: number;
 
     constructor(ecsState: World | undefined, worldId: number) {
-        this.ecsState = ecsState;
-
+        super(ecsState);
         this._worldId = worldId;
+        this.guardViews();
     }
 
     /** Resident shape column as u32 (type + nextShapeId). Re-derived after every grow. */
@@ -122,7 +121,7 @@ export class ShapeStore {
 
     /** Re-derive the column views over the current region. No-op before the first `reserveShapes`, and
      * when the buffer, offset and capacity are those the views were derived at. */
-    refreshViews(): void {
+    protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.shapeSetActiveWorld(this._worldId);
         const cap = k.shapeCap();

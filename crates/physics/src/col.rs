@@ -23,9 +23,9 @@
 //!
 //! The lifetime is real — a `Col<'a, T>` borrows its storage for `'a`, so the native harnesses get
 //! use-after-free protection for free. The wasm arena's `'static` columns are the exception, and they
-//! rest on the no-`memory.grow`-while-workers-are-active invariant (the multithreading contract): a region
-//! grow relocates the columns above it, so a `Col` held across one dangles. Every arena shim
-//! re-derives its columns from `LAYOUT` per call, and reserves run pre-solve on the main thread.
+//! rest on the no-allocation-or-free-while-workers-are-active invariant: reallocating a column can
+//! invalidate a `Col` over it. Every arena shim derives columns from the selected layout per call;
+//! reserves run on the calling thread before the worker fork.
 
 use core::marker::PhantomData;
 

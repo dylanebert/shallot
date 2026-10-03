@@ -14,6 +14,7 @@ import type { HashSet } from "../collision/table";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 import type { DynamicTree } from "./treecolumns";
+import { KernelViews } from "./views";
 
 /** u32/f32 slots per dynamic-tree node — mirrors tree.rs and broad.rs. */
 const TREE_STRIDE = 12;
@@ -26,16 +27,14 @@ const EMPTY_U = new Uint32Array(0);
 
 /**
  * The resident broad-phase region's TS-side view manager. One per world. Holds references to the three
- * dynamic trees and the pair set so a refresh can rewrite their column views in place, and to the world
- * so a grow can refresh the sibling stores a `memory.grow` detached.
+ * dynamic trees, pair set and World so a refresh can rebind their column views and body-filter pairs.
  */
-export class BroadStore {
-    readonly ecsState: World | undefined;
-
+export class BroadStore extends KernelViews {
     readonly worldId: number;
     constructor(ecsState: World | undefined, worldId: number) {
-        this.ecsState = ecsState;
+        super(ecsState);
         this.worldId = worldId;
+        this.guardViews();
     }
 
     /** The three dynamic trees (static / kinematic / dynamic), set at broad-phase creation. */
@@ -47,13 +46,6 @@ export class BroadStore {
     moveData = EMPTY_I;
     moveState = EMPTY_U;
     movedBits: Uint32Array[] = [EMPTY_U, EMPTY_U, EMPTY_U];
-    /** `memory.buffer.byteLength` at the last refresh — catches a `memory.grow` (single-thread detach or
-     * shared-memory tail extension). */
-    private _lastLen = -1;
-    /** The kernel's layout generation catches column reallocation without a memory grow. */
-    private _lastGen = -1;
-    private _genPtr = 0;
-    private _gen = EMPTY_U;
     initialization = { claimed: false, movesInitialized: false };
 
     /** Initialize this World's native broad-phase metadata on first use. */
@@ -65,26 +57,19 @@ export class BroadStore {
         world.bodyFilters.data.fill(0);
     }
 
-    /** Refresh only if the region moved or memory grew since the last refresh. O(1) when fresh (a
-     * function call + a byteLength read), so it can guard every broad-phase read/mutate entry point
-     * without reintroducing churn. */
-    refreshIfStale(): void {
+    /** Select this World for native operations; rebind views only when the shared key changed. */
+    override refreshIfStale(): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
-        if (k.memory.buffer.byteLength === this._lastLen && this._gen[0] === this._lastGen) return;
-        this.refreshViews();
+        this.ensureViews();
     }
 
     /** Re-derive the column views over the current region and write them into the tree/set/filter structs.
      * Cheap — a handful of typed-array constructions, no copy. */
-    refreshViews(): void {
+    protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
         const buf = k.memory.buffer;
-        this._lastLen = buf.byteLength;
-        if (this._genPtr === 0) this._genPtr = k.broadGenPtr();
-        this._gen = new Uint32Array(buf, this._genPtr, 1);
-        this._lastGen = this._gen[0];
         const layout = new Uint32Array(buf, k.broadLayoutPtr(), N_BROAD);
 
         for (let i = 0; i < 3; ++i) {

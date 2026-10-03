@@ -12,7 +12,7 @@
 //     ex.__wasm_init_tls(tlsBase);           // global.set __tls_base + memory.init — the LLD-blessed path
 //
 // Stack slices. The shadow stack (`-zstack-size`, kernel.shared.wasm.ts) is the lowest thing in linear
-// memory, below the grow-only column arena, so a region grow never relocates it. It is partitioned into
+// memory, outside allocator-owned columns. It is partitioned into
 // `SLICE`-sized slices: the main thread keeps the top `MAIN_STACK`, workers take one slice each below it,
 // and slice 0 is left unused — a worker based there would get `__tls_base == 0`, which works but turns
 // any null deref into silent TLS corruption. Each worker's TLS block sits at the base of its slice and
@@ -261,7 +261,7 @@ export async function createPool(
             if (!alive) {
                 throw new Error("pool.run called on a dead pool — a worker already faulted");
             }
-            // No `memory.grow`/region relocation while workers are active:
+            // No allocation, memory growth or free while workers are active:
             // every `reserve*` runs pre-fork on the main thread, so parallel phases touch
             // pre-reserved columns only. Held by construction — snapshot the byte length at wake and
             // compare after the join to catch a future violator (a reserve that slipped inside a round)

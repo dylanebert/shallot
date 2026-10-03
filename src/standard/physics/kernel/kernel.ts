@@ -19,6 +19,8 @@ import { createPool, maxWorkers, type Pool } from "./pool";
 /** The kernel's exported surface — grows as each solver phase ports to wasm. */
 export type Kernel = {
     memory: WebAssembly.Memory;
+    viewEpochPtr(): number;
+    activeWorld(): number;
     /** Toolchain smoke buffer offset + scale, the standing wasm-simd128 cliff gate (kernel.test.ts). */
     scratchPtr(): number;
     /** Per-shape scratch input: transform(7), count/radius, translation(3), fraction/encroach,
@@ -159,7 +161,6 @@ export type Kernel = {
         hy: number,
         hz: number,
     ): void;
-    broadGenPtr(): number;
     broadBufferMove(key: number): void;
     broadClearMoves(): void;
     treeMutateResident(
@@ -212,10 +213,9 @@ export type Kernel = {
         state: number,
     ): void;
     broadSetCap(): number;
-    broadGen(): number;
 
     // Broad-phase pair query + tree rebuild (kernel/src/pairwork.rs, 3d). `reservePairs` lays out the
-    // per-step slab at the solver base (tree-state header + move buffer + dynamic moved-bitset + the
+    // shared per-step slab (tree-state header + move buffer + dynamic moved-bitset + the
     // candidate output + rebuild scratch); TS writes the inputs through the `pairs*Ptr` headers,
     // `queryPairs` finds the surviving pairs (dedup + pair-set membership) into the candidate slab and
     // returns the entry count (grow + re-run if it exceeds `candCap`), and `rebuildTrees` median-rebuilds
@@ -233,7 +233,7 @@ export type Kernel = {
     rebuildTrees(): void;
 
     // Static geometry columns (kernel/src/geo.rs) — convex-hull pools uploaded once per interned hull,
-    // read by the convex narrowphase. `reserveGeometry` lays out the pools (before the solver columns)
+    // read by the convex narrowphase. `reserveGeometry` sizes this World's allocations
     // for the given totals; `geoLayoutPtr` returns the byte-offset header TS writes the hulls through
     // (geocolumns.ts). `collideHullsGeo` runs the hull-hull narrowphase over two column-backed hulls,
     // writing the manifold to the buffer at `geoOutPtr` — the geometry-read verification.
@@ -248,7 +248,7 @@ export type Kernel = {
 
     // Persistent contact-manifold columns (kernel/src/manifolds.rs) — the warm-start state that
     // survives across steps, keyed by contactId. `reserveManifolds` lays out the directory + pool for
-    // the given capacities (before the geometry + solver columns), preserving live pool data across a
+    // the given capacities in this World's allocations, preserving live pool data across a
     // grow; `manifoldLayoutPtr` returns the byte-offset header TS derives its views from
     // (manifoldstore.ts).
     reserveManifolds(contactCap: number, manifoldCap: number): void;
@@ -285,7 +285,7 @@ export type Kernel = {
     ): number;
 
     // Contact narrowphase dispatch (arena.rs). `reserveDispatch` lays out the
-    // per-record input + output columns (at the solver base, consumed within collide); the collect pass
+    // per-record input + output in the shared arena, consumed within collide; the collect pass
     // writes the input through `dispatchPtr`; `dispatchContacts` computes each record
     // over the geometry + manifold columns, and the finish pass reads the touching flags at `dispatchOutPtr`.
     reserveDispatch(count: number, meshCount: number, threads: number): void;
@@ -300,7 +300,7 @@ export type Kernel = {
     continuousRoots(s: number, k: number, d: number): void;
 
     // Contact-recycle batched pass (kernel/src/arena.rs). `reserveRecycle` lays out the per-record
-    // input + output columns (at the solver base, consumed within collide, before the convex dispatch);
+    // input + output in the shared arena, consumed within collide, before convex dispatch;
     // the collide walk writes the input through `recyclePtr`, `dispatchRecycle` runs box3d's recycle branch
     // per record over the resident body + fat-AABB + manifold columns, and the finish pass reads each
     // contact's result (0 recycled / 1 needs-narrowphase / 2 disjoint) at `recycleOutPtr`.
@@ -425,6 +425,9 @@ interface KernelState {
     resolved: number;
     booting: Promise<void> | null;
     dead: boolean;
+    viewEpoch: Uint32Array | null;
+    viewValue: number;
+    viewRevision: number;
 }
 
 function createKernelState(): KernelState {
@@ -440,6 +443,9 @@ function createKernelState(): KernelState {
         resolved: 1,
         booting: null,
         dead: false,
+        viewEpoch: null,
+        viewValue: -1,
+        viewRevision: 0,
     };
 }
 
@@ -449,6 +455,28 @@ const queryImportStates = new WeakMap<Kernel, KernelState>();
 
 function kernelState(world: World | undefined): KernelState {
     return world ? world.resource(kernelStateKey) : standaloneKernelState;
+}
+
+/** One staleness key for every store on this kernel, including reallocations within existing pages. */
+export function kernelViewKey(world: World | undefined): number {
+    const state = kernelState(world);
+    const k = kernel(world);
+    const buffer = k.memory.buffer;
+    if (state.viewEpoch === null || state.viewEpoch.buffer !== buffer) {
+        state.viewEpoch = new Uint32Array(buffer, k.viewEpochPtr(), 1);
+        state.viewRevision++;
+    }
+    const value = state.viewEpoch[0];
+    if (value !== state.viewValue) {
+        state.viewValue = value;
+        state.viewRevision++;
+    }
+    return state.viewRevision;
+}
+
+/** Whole-memory restore can reinstate an epoch already observed by this kernel. */
+export function invalidateKernelViews(world: World | undefined): void {
+    kernelState(world).viewRevision++;
 }
 
 export function setQueryCallback(
