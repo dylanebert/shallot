@@ -46,17 +46,28 @@ export class WorldField<T extends FieldType = FieldType> {
     }
 
     set(eid: number, x: number, y = 0, z = 0, w = 0): void {
-        this.ensure(eid + 1);
-        const { array, dirty } = this.#column;
-        const base = eid * this.type.lanes;
-        const encode = this.type.encode ?? identity;
-        array[base] = encode(x);
-        if (this.type.lanes >= 2) array[base + 1] = encode(y);
-        if (this.type.lanes === 4) {
-            array[base + 2] = encode(z);
-            array[base + 3] = encode(w);
+        const lanes = this.type.lanes;
+        const column = this.#column;
+        const base = eid * lanes;
+        if (base >= column.array.length) this.ensure(eid + 1);
+        const array = column.array;
+        const encode = this.type.encode;
+        if (encode) {
+            array[base] = encode(x);
+            if (lanes >= 2) array[base + 1] = encode(y);
+            if (lanes === 4) {
+                array[base + 2] = encode(z);
+                array[base + 3] = encode(w);
+            }
+        } else {
+            array[base] = x;
+            if (lanes >= 2) array[base + 1] = y;
+            if (lanes === 4) {
+                array[base + 2] = z;
+                array[base + 3] = w;
+            }
         }
-        dirty[eid >>> 5] |= 1 << (eid & 31);
+        column.dirty[eid >>> 5] |= 1 << (eid & 31);
     }
 
     /** Copy encoded typed rows and publish the same change marks as scalar setters. */
@@ -99,7 +110,8 @@ export class WorldField<T extends FieldType = FieldType> {
 
     get(eid: number, lane = 0): number {
         const value = this.#column.array[eid * this.type.lanes + lane] ?? 0;
-        return this.type.decode ? this.type.decode(value) : value;
+        const type = this.type;
+        return type.decode ? type.decode(value) : value;
     }
 
     read(eid: number, out: Float32Array): Float32Array {
