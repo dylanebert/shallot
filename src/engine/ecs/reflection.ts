@@ -33,7 +33,8 @@ export function readFields(world: World, component: Component, eid: number): Fie
 }
 
 /**
- * every component on a live entity with its field values, or `null` if the entity isn't alive.
+ * each component this world registers that a live entity carries, with its field values, or `null` if the
+ * entity isn't alive. An attached but unregistered record is omitted.
  */
 export function inspect(world: World, eid: number): EntityData | null {
     if (!world.exists(eid)) return null;
@@ -46,8 +47,8 @@ export function inspect(world: World, eid: number): EntityData | null {
     return { eid, components };
 }
 
-/** every live entity's components and values: the whole world as `EntityData`, for tooling, saves, and
- * debugging */
+/** every live entity's registered components and values as `EntityData`, for tooling, saves, and
+ * debugging; unregistered records are omitted, as in {@link inspect} */
 export function snapshot(world: World): EntityData[] {
     const out: EntityData[] = [];
     for (const eid of world.entities()) {

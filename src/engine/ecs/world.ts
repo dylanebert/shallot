@@ -446,7 +446,8 @@ export class World {
 
     /**
      * Attach a component with optional field values (vectors are arrays).
-     * Missing fields keep registration defaults. Defaults and starting values go through
+     * Missing fields keep the declared defaults when this world registers the component, and
+     * required companions are added only then. Defaults and starting values go through
      * field setters, publishing changes. An already attached component is unchanged.
      */
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {

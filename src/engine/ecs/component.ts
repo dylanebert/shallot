@@ -320,9 +320,11 @@ interface Declaration<C extends Component = Component> {
 const declarations = new WeakMap<Component, Declaration>();
 
 /**
- * Declare an exact stable key and insertion defaults and companions. Returns the
- * field record unchanged; metadata stays off its fields. Reloaded records with
- * the same key share identity. One record cannot declare different keys.
+ * Declare an exact stable key with the defaults and companions a world applies on
+ * insertion once it registers the record, as listing it in a plugin's `components`
+ * does; `world.add` of an unlisted record writes neither. Returns the field record
+ * unchanged; metadata stays off its fields. Reloaded records with the same key
+ * share identity. One record cannot declare different keys.
  */
 export function component<
     C extends Component,
@@ -331,9 +333,9 @@ export function component<
     key: string,
     fields: C,
     options?: {
-        /** Default scalar values or complete vector lanes, evaluated for the owning world. */
+        /** Default scalar values or complete vector lanes, evaluated for each world that registers this record. */
         defaults?: (world: World) => V & Record<Exclude<keyof V, keyof C>, never>;
-        /** Added when missing on insertion; removal leaves companions in place. */
+        /** Added when missing on insertion in a world that registers this record; removal leaves companions in place. */
         requires?: Component[];
     },
 ): C {
