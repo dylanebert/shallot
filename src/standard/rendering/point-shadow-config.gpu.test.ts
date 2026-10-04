@@ -19,25 +19,14 @@ import { PointShadows } from "./shadows";
 
 setDefaultTimeout(CEILING.gpu);
 
-// PointShadows is set after import and before createApp, as its JSDoc instructs; each arm holds its
-// setting while its app builds and renders
+// each arm's app sets its world's PointShadows in setup, as its JSDoc instructs
 const settings = {
     default: {},
     "casters 4": { casters: 4 },
     "atlas 1024": { atlas: 1024 },
-} satisfies Record<string, Partial<typeof PointShadows>>;
+} satisfies Record<string, Partial<PointShadows>>;
 type Arm = keyof typeof settings;
 const order = Object.keys(settings) as Arm[];
-
-async function withSetting<T>(arm: Arm, run: () => T | Promise<T>): Promise<T> {
-    const saved = { ...PointShadows };
-    Object.assign(PointShadows, settings[arm]);
-    try {
-        return await run();
-    } finally {
-        Object.assign(PointShadows, saved);
-    }
-}
 
 type App = Awaited<ReturnType<typeof createApp>>;
 const subjects = compileGpuFile(import.meta.path, async () => {
@@ -45,13 +34,12 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     const device = rawDevice(owner.world.gpu.device);
     const apps = new Map<Arm, App>();
     for (const arm of order) {
-        const app = await withSetting(arm, () =>
-            createApp({
-                defaults: false,
-                plugins: [StandardRenderingPlugin, MeshRenderPlugin],
-                device,
-            }),
-        );
+        const app = await createApp({
+            defaults: false,
+            plugins: [StandardRenderingPlugin, MeshRenderPlugin],
+            device,
+            setup: (world) => Object.assign(world.resource(PointShadows), settings[arm]),
+        });
         apps.set(arm, app);
     }
     return { owner, apps };
@@ -82,10 +70,8 @@ async function frame(arm: Arm): Promise<{ rgba: Uint8ClampedArray; error: string
     const device = world.gpu.device;
     device.pushErrorScope("validation");
     // the shadow first appears on the second frame
-    await withSetting(arm, () => {
-        world.step(0);
-        world.step(0);
-    });
+    world.step(0);
+    world.step(0);
     const error = (await device.popErrorScope())?.message ?? null;
     const { rgba } = await captureTexture(world, camera);
     return { rgba, error };
@@ -107,14 +93,14 @@ test("the default point-shadow settings draw a shadowed wall without a validatio
     expect(red(12, 22)).toBeLessThan(red(28, 22));
 });
 
-test("PointShadows.casters set after import draws the default frame without a validation error", async () => {
+test("PointShadows.casters set in setup draws the default frame without a validation error", async () => {
     const expected = await defaultFrame();
     const { rgba, error } = await frame("casters 4");
     expect(error).toBeNull();
     expect(rgba).toEqual(expected);
 });
 
-test("PointShadows.atlas set after import draws without a validation error", async () => {
+test("PointShadows.atlas set in setup draws without a validation error", async () => {
     const { error } = await frame("atlas 1024");
     expect(error).toBeNull();
 });

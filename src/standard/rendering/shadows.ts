@@ -21,6 +21,7 @@ import {
     multiplyMat4,
     orthographic,
     perspective,
+    type Resource,
     Transform,
     type World,
 } from "../../engine";
@@ -30,30 +31,36 @@ import {
 export const MAX_CASCADES = 4;
 
 /**
- * the sun's cascaded-shadow-map (CSM) budget. The single directional shadow box is split into `cascades`
- * depth slices along the camera's view range so near geometry gets fine shadow texels without a giant box:
- * the practical/PSSM split ({@link cascadeSplits}), each cascade its own frustum-slice-fit ortho view
- * ({@link cascadeFit}). `cascades` + `resolution` are fixed before `createApp()` (standard compiles the cascade count
- * into its shaders and sizes the cascade atlas, `ceil(√cascades)·resolution` square, like
- * {@link PointShadows}); `resolution` is the per-cascade shadow map size: a fixed config (Bevy's
- * directional-shadow-map size), since the atlas texture + the compiled shader bake it. (Point/spot tiles are
- * importance-sized from {@link PointShadows}, not a per-light resolution.) `lambda` (the split blend, 0 =
- * uniform world depth per cascade, 1 = uniform depth *ratio*, ~0.5 the
- * three.js + Bevy default) and `overlap` (the receiver's inter-cascade blend-band fraction, Bevy's
- * `cascades_overlap_proportion`) are live-tunable (pure CPU split + a receiver uniform, not baked into a
- * shader). `cascades` clamps to [1, {@link MAX_CASCADES}].
+ * the directional shadow map size, Bevy's `DirectionalLightShadowMap`: `size` is the side in pixels of each
+ * cascade's square tile (default 2048), clamped to [256, 4096] and snapped to a power of two. It is read when
+ * the app warms and when the sun first casts, and is not changed after; set it in `AppConfig.setup` or a
+ * plugin's `initialize`, e.g. `world.resource(DirectionalLightShadowMap).size = 1024`. Each world owns its
+ * own. The cascade split itself lives on the light ({@link DirectionalLight}'s `numCascades`,
+ * `firstCascadeFarBound`, `overlapProportion` and `maximumDistance`); point and spot tiles are sized from
+ * {@link PointShadows}.
  */
-export const SunShadows = { cascades: MAX_CASCADES, lambda: 0.5, overlap: 0.2, resolution: 2048 };
-
-/** the resolved cascade count: {@link SunShadows.cascades} clamped to [1, {@link MAX_CASCADES}] */
-export function sunCascades(): number {
-    return Math.min(Math.max(Math.round(SunShadows.cascades), 1), MAX_CASCADES);
+export interface DirectionalLightShadowMap {
+    size: number;
 }
 
-/** the resolved per-cascade shadow-map resolution: {@link SunShadows.resolution} clamped to [256, 4096] and
- * snapped to a power of two (so the atlas + the per-cascade tile size + the texel-snap grid all stay aligned). */
-export function sunResolution(): number {
-    const s = Math.min(Math.max(Math.round(SunShadows.resolution), 256), 4096);
+export const DirectionalLightShadowMap: Resource<DirectionalLightShadowMap> = {
+    create: () => ({ size: 2048 }),
+};
+
+/** a directional light's resolved cascade count: its `numCascades` clamped to [1, {@link MAX_CASCADES}] */
+export function lightCascades(world: World, light: number): number {
+    const n = world.storage(DirectionalLight).numCascades.get(light);
+    return Math.min(Math.max(Math.round(n), 1), MAX_CASCADES);
+}
+
+/** the world's resolved per-cascade shadow-map size: {@link DirectionalLightShadowMap} `size` clamped to
+ * [256, 4096] and snapped to a power of two (so the atlas + the per-cascade tile size + the texel-snap grid
+ * all stay aligned). */
+export function sunResolution(world: World): number {
+    const s = Math.min(
+        Math.max(Math.round(world.resource(DirectionalLightShadowMap).size), 256),
+        4096,
+    );
     return Math.min(4096, 1 << Math.round(Math.log2(s)));
 }
 
@@ -138,27 +145,27 @@ function placeFromCenter(
 }
 
 /**
- * the N cascade far-bounds for a camera depth range `[near, far]`. The **practical / PSSM** split (three.js
- * CSM, MJP): each bound is `lerp(uniform, logarithmic, lambda)` between a uniform split (equal world depth
- * per cascade) and a logarithmic one (equal depth *ratio*), `lambda ≈ 0.5` the three.js + Bevy default.
- * Cascade `i` covers `[splits[i-1], splits[i]]` (`splits[-1]` = `near` implicitly); the last bound is `far`
- * exactly. Writes the `n` bounds into `out`; otherwise pure. The receiver selects a cascade by these bounds
- * (Bevy `get_cascade_index`), so they're the same numbers the fit and the FS read.
+ * the N cascade far-bounds out to `far`, Bevy's `calculate_cascade_bounds`: the first ends at `first` and the
+ * rest are spaced exponentially to `far` (one cascade ends at `far`). `first` must be below `far`
+ * ({@link updateCascades} refuses one that is not), and is floored just above 0.
+ * Cascade `i` covers `[splits[i-1], splits[i]]` (`splits[-1]` = the camera near implicitly); the last bound is
+ * `far` exactly. Writes the `n` bounds into `out`; otherwise pure. The receiver selects a cascade by these
+ * bounds (Bevy `get_cascade_index`), so they're the same numbers the fit and the FS read.
  */
 export function cascadeSplits(
-    near: number,
     far: number,
     n: number,
-    lambda: number,
+    first: number,
     out: Float64Array,
 ): Float64Array {
-    const ratio = far / Math.max(near, 1e-6);
-    for (let i = 1; i <= n; i++) {
-        const p = i / n;
-        const uniform = near + (far - near) * p;
-        const log = near * ratio ** p;
-        out[i - 1] = uniform + (log - uniform) * lambda;
+    if (n === 1) {
+        out[0] = far;
+        return out;
     }
+    const nearest = Math.max(first, 1e-6);
+    const base = (far / nearest) ** (1 / (n - 1));
+    for (let i = 0; i < n - 1; i++) out[i] = nearest * base ** i;
+    out[n - 1] = far;
     return out;
 }
 
@@ -374,6 +381,8 @@ interface ShadowRuntime {
     cascadeCover: Float32Array;
     cascadeDepth: Float32Array;
     sunBias: Float64Array;
+    sunCascades: number;
+    sunOverlap: number;
     cascKey: Float64Array;
     comboEids: number[];
     comboCount: number;
@@ -397,6 +406,8 @@ const createShadowRuntime = (): ShadowRuntime => ({
     cascadeCover: new Float32Array(MAX_CASCADES),
     cascadeDepth: new Float32Array(MAX_CASCADES),
     sunBias: new Float64Array(2),
+    sunCascades: 0,
+    sunOverlap: 0,
     cascKey: new Float64Array(CASC_KEY_FLOATS).fill(Number.NaN),
     comboEids: [],
     comboCount: 0,
@@ -434,7 +445,8 @@ export function cascadeComboEids(world: World): number[] {
     return shadows(world).cascadeEids;
 }
 
-/** the number of active cascades this frame ({@link sunCascades} when the sun casts, else 0). */
+/** the number of active cascades this frame (the light's {@link lightCascades}, or 1 for an orthographic
+ * main camera, when the sun casts; else 0). */
 export function cascadeCount(world: World): number {
     return shadows(world).cascadeCount;
 }
@@ -475,6 +487,17 @@ export function cascadeCovers(world: World): Float32Array {
     return shadows(world).cascadeCover;
 }
 
+/** the casting sun's resolved `numCascades` this frame ({@link lightCascades}): what sizes the cascade atlas
+ * when it first casts, whatever the active {@link cascadeCount}. */
+export function sunCascades(world: World): number {
+    return shadows(world).sunCascades;
+}
+
+/** the casting sun's `overlapProportion` this frame, floored at 0: the receiver's cascade blend band. */
+export function sunOverlap(world: World): number {
+    return shadows(world).sunOverlap;
+}
+
 /** the casting sun's bias knobs this frame, `[depthBias, normalBias]` (the residual clip-space lift, the
  * receiver normal-offset multiplier): the renderer writes them into the receiver's params. */
 export function sunBias(world: World): Float64Array {
@@ -494,7 +517,7 @@ function createCascadeCamera(world: World): number {
 }
 
 // grow/shrink the cascade-camera pool to exactly `n` (the active cascade count). The count is hysteresis-free
-// but `sunCascades()` is fixed before build, so this is effectively a one-time create
+// but `numCascades` is fixed once the light casts, so this is effectively a one-time create
 function syncCascadePool(world: World, shadow: ShadowRuntime, n: number): void {
     if (shadow.cascadeEids.length !== n) shadow.cascKey.fill(Number.NaN);
     while (shadow.cascadeEids.length < n) shadow.cascadeEids.push(createCascadeCamera(world));
@@ -558,7 +581,7 @@ export function resetCascades(world: World): void {
  * Casts nothing (sets `_cascadeCount = 0`) when the directional light has shadowMapsEnabled off or there's no
  * main camera. Two paths by main-camera projection:
  *
- * - **perspective** — split `[near, DirectionalLight.maximumDistance]` into {@link sunCascades} depth slices, fit one ortho box
+ * - **perspective** — split `[near, DirectionalLight.maximumDistance]` into the light's `numCascades` depth slices, fit one ortho box
  *   per slice ({@link cascadeFit}); the receiver selects a cascade by view-z and blends across the overlap band.
  * - **orthographic** — uniform texel density means depth cascades buy nothing, so a **single** box fit to the
  *   visible ground footprint ({@link orthoFootprintFit}); its far-bound is a sentinel so the receiver always
@@ -575,7 +598,7 @@ export function updateCascades(world: World, main: number): void {
         shadow.cascadeCount = 0;
         return;
     }
-    const resolution = sunResolution();
+    const resolution = sunResolution(world);
     const maxDist = Math.max(1e-3, world.storage(DirectionalLight).maximumDistance.get(light));
     shadow.sunBias[0] = world.storage(DirectionalLight).shadowDepthBias.get(light);
     shadow.sunBias[1] = world.storage(DirectionalLight).shadowNormalBias.get(light);
@@ -591,8 +614,18 @@ export function updateCascades(world: World, main: number): void {
     const near = Math.max(1e-3, world.storage(Camera).near.get(main));
     // ortho cameras get one footprint box; perspective gets N depth slices
     const ortho = mode === CameraMode.Orthographic;
-    const n = ortho ? 1 : sunCascades();
-    const overlap = Math.max(0, SunShadows.overlap);
+    const cascades = lightCascades(world, light);
+    const n = ortho ? 1 : cascades;
+    const overlap = Math.max(0, world.storage(DirectionalLight).overlapProportion.get(light));
+    const first = world.storage(DirectionalLight).firstCascadeFarBound.get(light);
+    // refused rather than split into degenerate cascades; the config lives in columns, so it is checked
+    // where it is read, as Bevy's builder checks its own
+    if (n > 1 && !(first < maxDist))
+        throw new Error(
+            `standard: DirectionalLight ${light} firstCascadeFarBound (${first}) must be less than its maximumDistance (${maxDist}) when numCascades is above 1`,
+        );
+    shadow.sunCascades = cascades;
+    shadow.sunOverlap = overlap;
 
     syncCascadePool(world, shadow, n);
 
@@ -603,7 +636,7 @@ export function updateCascades(world: World, main: number): void {
     _cascNext[19] = aspect;
     _cascNext[20] = near;
     _cascNext[21] = maxDist;
-    _cascNext[22] = SunShadows.lambda;
+    _cascNext[22] = first;
     _cascNext[23] = overlap;
     _cascNext[24] = resolution;
     _cascNext[25] = n;
@@ -638,7 +671,7 @@ export function updateCascades(world: World, main: number): void {
     }
     shadow.cascKey.set(_cascNext);
 
-    if (!ortho) cascadeSplits(near, maxDist, n, SunShadows.lambda, _splits);
+    if (!ortho) cascadeSplits(maxDist, n, first, _splits);
     for (let i = 0; i < n; i++) {
         let farBound: number;
         if (ortho) {
@@ -750,10 +783,12 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
 }
 
 /**
- * the point-shadow budget. `atlas` + `casters` are set before `createApp()` and not changed on a live app:
- * the atlas texture is sized from `atlas` when a light first casts, and `casters` caps the lights ranked
- * each frame. `atlas` is the square depth atlas's side in pixels (snapped to a power of two in [256, 4096],
- * default 2048 ≈ 16 MB of depth), sub-allocated by importance. `casters` is how many shadowed point/spot
+ * the point-shadow budget. `atlas` + `casters` are read when the app warms and not changed on a live app:
+ * standard compiles its shadow shaders against `atlas` and sizes the atlas texture from it when a light
+ * first casts, and `casters` caps the lights ranked each frame. Set them in `AppConfig.setup` or a plugin's
+ * `initialize`, e.g. `world.resource(PointShadows).atlas = 1024`; each world owns its own settings. `atlas`
+ * is the square depth atlas's side in pixels (snapped to a power of two in [256, 4096], default 2048 ≈ 16 MB
+ * of depth), sub-allocated by importance. `casters` is how many shadowed point/spot
  * lights compete for the atlas (clamped to [1, {@link MAX_POINT_CASTERS}]); lights beyond it stay lit but
  * cast nothing, with a non-silent warn. A caster that won't fit the atlas budget is dropped the same
  * way. A point caster claims six power-of-two face tiles, a spot one, each tile sized so its **area** tracks
@@ -765,17 +800,28 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
  * unless a challenger's importance beats it by this fraction. It stops a light's shadow flickering on/off
  * as the camera moves and re-ranks the winners by distance (set 0 for the raw nearest-wins behavior).
  */
-export const PointShadows = { atlas: 2048, casters: 8, hysteresis: 0.25 };
-
-/** the resolved caster cap: {@link PointShadows.casters} clamped to [1, {@link MAX_POINT_CASTERS}] */
-export function pointCasters(): number {
-    return Math.min(Math.max(Math.round(PointShadows.casters), 1), MAX_POINT_CASTERS);
+export interface PointShadows {
+    atlas: number;
+    casters: number;
+    hysteresis: number;
 }
 
-/** the resolved atlas side in pixels: {@link PointShadows.atlas} clamped to [256, 4096] and snapped to a
- * power of two (the buddy packer needs a power-of-two square) */
-export function pointAtlasSize(): number {
-    const s = Math.min(Math.max(Math.round(PointShadows.atlas), 256), 4096);
+export const PointShadows: Resource<PointShadows> = {
+    create: () => ({ atlas: 2048, casters: 8, hysteresis: 0.25 }),
+};
+
+/** the world's resolved caster cap: {@link PointShadows} `casters` clamped to [1, {@link MAX_POINT_CASTERS}] */
+export function pointCasters(world: World): number {
+    return Math.min(
+        Math.max(Math.round(world.resource(PointShadows).casters), 1),
+        MAX_POINT_CASTERS,
+    );
+}
+
+/** the world's resolved atlas side in pixels: {@link PointShadows} `atlas` clamped to [256, 4096] and snapped
+ * to a power of two (the buddy packer needs a power-of-two square) */
+export function pointAtlasSize(world: World): number {
+    const s = Math.min(Math.max(Math.round(world.resource(PointShadows).atlas), 256), 4096);
     return Math.min(4096, 1 << Math.round(Math.log2(s)));
 }
 
@@ -1183,8 +1229,9 @@ export function packCasters(
  */
 export function updatePointShadows(world: World, main: number, frames: PointShadowFrame[]): number {
     const shadow = shadows(world);
-    const cap = pointCasters();
-    const atlas = pointAtlasSize();
+    const cap = pointCasters(world);
+    const atlas = pointAtlasSize(world);
+    const hysteresis = Math.max(0, world.resource(PointShadows).hysteresis);
     const cx = main >= 0 ? world.storage(GlobalTransform).translation.x.get(main) : 0;
     const cy = main >= 0 ? world.storage(GlobalTransform).translation.y.get(main) : 0;
     const cz = main >= 0 ? world.storage(GlobalTransform).translation.z.get(main) : 0;
@@ -1205,9 +1252,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
             const score = (source.intensity.get(light) * range * range) / distSq;
             // an incumbent (cast last frame) ranks with the hysteresis margin so a sub-margin challenger can't
             // evict it — the set stays put under small camera moves, killing the shadow flicker
-            const rank = shadow.lastCasters.has(light)
-                ? score * (1 + Math.max(0, PointShadows.hysteresis))
-                : score;
+            const rank = shadow.lastCasters.has(light) ? score * (1 + hysteresis) : score;
             let cand = _cands[candCount];
             if (!cand) {
                 cand = { light: 0, range: 0, score: 0, rank: 0 };

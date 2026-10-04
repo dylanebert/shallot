@@ -842,7 +842,7 @@ const ShadowCameraSystem: System = {
         // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
         // again harmlessly
         if (casters > 0 && shadowReady(world))
-            world.resource(pointRegather).ensure(pointCasters() * 6, world.entityHighWater);
+            world.resource(pointRegather).ensure(pointCasters(world) * 6, world.entityHighWater);
         if (cascadeCount(world) > 0 && shadowReady(world))
             world.resource(cascadeRegather).ensure(MAX_CASCADES, world.entityHighWater);
     },

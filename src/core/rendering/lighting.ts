@@ -10,8 +10,14 @@ export const AmbientLight = component(
 );
 
 /** Directional illumination. direction is the normalized travel direction when packed.
- * intensity remains a linear multiplier, not lux. maximumDistance bounds the shadow cascades in world units.
- * shadowMapsEnabled is zero when disabled, one when enabled.
+ * intensity remains a linear multiplier, not lux. shadowMapsEnabled is zero when disabled, one when enabled.
+ * The shadow cascades follow Bevy's `CascadeShadowConfigBuilder`: numCascades depth slices (clamped to the
+ * renderer's maximum) cover the camera's view out to maximumDistance in world units, the first ending at
+ * firstCascadeFarBound and the rest spaced exponentially to maximumDistance. With more than one cascade,
+ * firstCascadeFarBound must be less than maximumDistance; the renderer throws naming the light otherwise.
+ * overlapProportion, in [0, 1), is the fraction of each cascade blended with the next. numCascades sizes the
+ * cascade atlas when the light first casts and is not changed after; the other cascade fields are read every
+ * frame.
  * Shadow normal bias is measured in shadow texels; depth bias is a residual depth offset.
  */
 export const DirectionalLight = component(
@@ -22,6 +28,9 @@ export const DirectionalLight = component(
         direction: vec4,
         shadowMapsEnabled: u32,
         maximumDistance: f32,
+        numCascades: u32,
+        firstCascadeFarBound: f32,
+        overlapProportion: f32,
         shadowDepthBias: f32,
         shadowNormalBias: f32,
     },
@@ -32,6 +41,9 @@ export const DirectionalLight = component(
             direction: [-0.6, -1.0, -0.8, 0],
             shadowMapsEnabled: 0,
             maximumDistance: 50,
+            numCascades: 4,
+            firstCascadeFarBound: 10,
+            overlapProportion: 0.2,
             shadowDepthBias: 0.0005,
             shadowNormalBias: 1.8,
         }),

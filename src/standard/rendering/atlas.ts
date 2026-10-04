@@ -47,9 +47,9 @@ import {
     pointComboMeta,
     pointFaceVP,
     pointTileRects,
-    SunShadows,
     sunBias,
     sunCascades,
+    sunOverlap,
     sunResolution,
 } from "./shadows";
 
@@ -788,7 +788,7 @@ function ensureAtlas(world: World): void {
     const _atlasState = world.resource(atlasStateKey);
 
     if (_atlasState.pointAtlas) return;
-    const side = pointAtlasSize();
+    const side = pointAtlasSize(world);
     _atlasState.pointAtlas = world.gpu.device.createTexture({
         label: "standard-point-shadow-atlas",
         size: { width: side, height: side },
@@ -798,13 +798,13 @@ function ensureAtlas(world: World): void {
     _atlasState.pointAtlasView = _atlasState.pointAtlas.createView();
 }
 
-// the cascade atlas, fixed-size (the per-cascade resolution × the grid), allocated on the first casting frame
-// — the bare path (shadowMapsEnabled off on the sun) never allocates it
+// the cascade atlas, fixed-size (the per-cascade resolution × the grid for the light's `numCascades`), allocated
+// on the first casting frame — the bare path (shadowMapsEnabled off on the sun) never allocates it
 function ensureCascadeAtlas(world: World): void {
     const _atlasState = world.resource(atlasStateKey);
 
     if (_atlasState.cascadeAtlas) return;
-    const side = cascadeAtlasSize(sunResolution(), sunCascades());
+    const side = cascadeAtlasSize(sunResolution(world), sunCascades(world));
     _atlasState.cascadeAtlas = world.gpu.device.createTexture({
         label: "standard-cascade-shadow-atlas",
         size: { width: side, height: side },
@@ -845,7 +845,7 @@ export function renderPointShadows(
         return;
     }
     ensureAtlas(world);
-    _pointRegather.ensure(pointCasters() * 6, capacity);
+    _pointRegather.ensure(pointCasters(world) * 6, capacity);
 
     // the caster params the FS samples (pos + source eid, clip planes + bias, + the spot basis —
     // right.xyz/coneTanHalf, up.xyz, fwd.xyz; coneTanHalf 0 routes the FS to the cube-face path). The tile
@@ -1073,9 +1073,11 @@ export function renderCascades(
         return;
     }
 
-    // upload the per-cascade folded tile viewProjs + meta (compacted to the survivors' dense index space)
+    // upload the per-cascade folded tile viewProjs + meta (compacted to the survivors' dense index space);
+    // meta.z carries the atlas side the cascade VS scales its tile box by, since the light sizes the atlas
     const vp = cascadeFaceVP(world);
     const meta = cascadeMeta(world);
+    for (let i = 0; i < COriginal; i++) meta[i * 4 + 2] = _atlasState.cascadeAtlas!.width;
     if (C === COriginal) {
         world.gpu.device.queue.writeBuffer(
             _atlasState.cascadeVPBuf!,
@@ -1252,7 +1254,7 @@ export function renderCascades(
     const tileRects = cascadeTileRects(world);
     const fars = cascadeFars(world);
     const covers = cascadeCovers(world);
-    const res = sunResolution();
+    const res = sunResolution(world);
     _atlasState.paramsF32.fill(0);
     for (let i = 0; i < C; i++) {
         const src = _atlasState.comboIndices[i];
@@ -1266,13 +1268,13 @@ export function renderCascades(
     }
     const bias = sunBias(world);
     _atlasState.paramsF32[SUN_PARAMS.globals.count] = C;
-    _atlasState.paramsF32[SUN_PARAMS.globals.overlap] = SunShadows.overlap;
+    _atlasState.paramsF32[SUN_PARAMS.globals.overlap] = sunOverlap(world);
     _atlasState.paramsF32[SUN_PARAMS.globals.depthBias] = bias[0];
     _atlasState.paramsF32[SUN_PARAMS.globals.enabled] = 1;
     _atlasState.paramsF32[SUN_PARAMS.globals.normalBias] = bias[1];
-    // one atlas pixel in uv — the actual texture side (allocated for the fixed sunCascades()), not the live
-    // count: an ortho main camera runs C = 1 into the whole atlas, so its PCF tap step is still 1 physical pixel
-    _atlasState.paramsF32[SUN_PARAMS.globals.texel] = 1 / cascadeAtlasSize(res, sunCascades());
+    // one atlas pixel in uv — the actual texture side (allocated for the light's count at first cast), not the
+    // live count: an ortho main camera runs C = 1 into the whole atlas, so its PCF tap step is still 1 physical pixel
+    _atlasState.paramsF32[SUN_PARAMS.globals.texel] = 1 / _atlasState.cascadeAtlas!.width;
     world.gpu.device.queue.writeBuffer(
         _atlasState.sunParams!,
         0,

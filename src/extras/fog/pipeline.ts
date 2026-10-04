@@ -20,8 +20,8 @@ import {
     clusterCell,
     LightClusters,
     LightingGpu,
+    MAX_POINT_CASTERS,
     PointLightGpu,
-    pointCasters,
     pointCastersSchema,
     pointShadowRef,
     SunShadow,
@@ -62,7 +62,7 @@ export const fogLayout0 = tgpu
 // duplicate-name suffixing only matters *within* one resolve, so a second `PointCasters`/`TileRects`
 // instance here doesn't collide with standard's).
 const _pointCastersGpu = pointCastersSchema();
-const _tileRectsGpu = tileRectsSchema(pointCasters() * 6);
+const _tileRectsGpu = tileRectsSchema(MAX_POINT_CASTERS * 6);
 
 /** group 1: the camera-independent light + shadow service — render's compacted lights + light grid, standard's
  *  point atlas + caster uniform + comparison sampler + sun shadow map + params, and the `Lighting` UBO.

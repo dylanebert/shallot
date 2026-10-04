@@ -131,8 +131,8 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `SHADOW_PARAMS_BYTES` | Derive layout size from `SunShadow` with TypeGPU. |
 | `sunShadowWgsl` | Resolve `sampleSunShadow` through TypeGPU. |
 | `sunStructWgsl` | Resolve the `SunShadow` TypeGPU schema. |
-| `cascadeCount` | Read `SunShadows` settings. |
-| `pointAtlasSize` | Read `PointShadows` settings. |
+| `cascadeCount` | Read the directional light's `DirectionalLight.numCascades`. |
+| `pointAtlasSize` | Read `world.resource(PointShadows).atlas`. |
 | `pointComboCount` | No public replacement; shadow-camera diagnostics are internal. |
 
 ### `/fog`
@@ -215,6 +215,11 @@ The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wr
 | `Shadow.depthBias`, `.normalBias` | The light's `shadowDepthBias`, `.shadowNormalBias`, with the same values and units. |
 | `SHADOW_DEFAULTS` | Removed. Light defaults are `shadowMapsEnabled: 0`, `shadowDepthBias: 0.0005`, `shadowNormalBias: 1.8`; directional `maximumDistance` defaults to `50`. |
 | `Volumetric` | `VolumetricLight`, still a marker. |
+| `SunShadows.cascades` | `DirectionalLight.numCascades`, default `4`, clamped to `MAX_CASCADES`. |
+| `SunShadows.overlap` | `DirectionalLight.overlapProportion`, default `0.2`. |
+| `SunShadows.lambda` | Removed. Set `DirectionalLight.firstCascadeFarBound`, default `10` world units: the first cascade ends there, below `maximumDistance`, and the rest are spaced exponentially to it. |
+| `SunShadows.resolution` | `world.resource(DirectionalLightShadowMap).size`, default `2048`. |
+| `PointShadows.atlas`, `.casters`, `.hysteresis` | The same fields on `world.resource(PointShadows)`. |
 
 A shadowed spot light is now authored as:
 
@@ -230,7 +235,7 @@ world.add(lamp, SpotLight, {
 world.add(lamp, VolumetricLight);
 ```
 
-`NotShadowCaster` is new in 0.10. Add it to a mesh entity to keep it visible without casting shadows. Removing it restores casting. `SunShadows` and `PointShadows` retain their settings. Light brightness units have not changed to lux or lumens.
+`NotShadowCaster` is new in 0.10. Add it to a mesh entity to keep it visible without casting shadows. Removing it restores casting. `PointShadows` and `DirectionalLightShadowMap` belong to each World: instead of assigning to an imported object, write `world.resource(PointShadows).atlas = 1024` in `AppConfig.setup` or a plugin's `initialize`. Light brightness units have not changed to lux or lumens.
 
 `Camera` remains one component: `mode`, `fov`, `near`, `far`, `size`, `clearColor` and `antialias` are unchanged, including `fov` in degrees and `antialias: 1` for 4× MSAA. `CameraMode` and `Resolution.width`/`.height` are unchanged.
 

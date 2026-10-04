@@ -16,16 +16,14 @@ import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
 import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
-import { PointShadows, SunShadows } from "./shadows";
+import { DirectionalLightShadowMap, PointShadows } from "./shadows";
 
 setDefaultTimeout(CEILING.gpu);
 
-const saved = { point: { ...PointShadows }, sun: { ...SunShadows } };
-
 // app B's shadow settings, written the way their JSDoc instructs
-function configure(): void {
-    PointShadows.atlas = 1024;
-    SunShadows.resolution = 512;
+function configure(world: World): void {
+    world.resource(PointShadows).atlas = 1024;
+    world.resource(DirectionalLightShadowMap).size = 512;
 }
 
 // a cube between a shadowed point light, a shadowed sun and a wall: the wall holds both shadows
@@ -73,8 +71,7 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     const cameraA = scene(a.world);
     // A's reference frame is taken before B exists
     const reference = await shot(a.world, cameraA);
-    configure();
-    const b = await createApp({ defaults: false, plugins, device });
+    const b = await createApp({ defaults: false, plugins, device, setup: configure });
     const cameraB = scene(b.world);
     return { owner, a, cameraA, reference, b, cameraB };
 });
@@ -93,6 +90,4 @@ afterAll(() => {
     b.dispose();
     a.dispose();
     owner.dispose();
-    Object.assign(PointShadows, saved.point);
-    Object.assign(SunShadows, saved.sun);
 });

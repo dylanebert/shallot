@@ -45,7 +45,7 @@ import type { Recorded } from "./forward";
 import { Lighting } from "./lighting";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
-import { cascadeAtlasSize, pointAtlasSize, sunCascades, sunResolution } from "./shadows";
+import { pointAtlasSize } from "./shadows";
 
 const ALPHA_BLEND: GPUBlendState = {
     color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -1639,7 +1639,7 @@ function compilePrepass(world: World, surface: AnySurface): Map<string, TgpuRend
  * `layout.depthVariant` position + the `tileBox` varying its matching vs writes.
  * Atlas-size-independent (the vs bakes the atlas scale into `tileBox` already), so ONE instance serves every
  * surface's point pipeline AND every surface's cascade pipeline (the VS's rect-index formula
- * and atlas constants differ per atlas, passed to its builder). A `clip` surface uses the wider per-surface
+ * and atlas scale differ per atlas). A `clip` surface uses the wider per-surface
  * fragment below so the same material cutoff holes its atlas depth.
  */
 const shadowFs = tgpu
@@ -1663,7 +1663,8 @@ const shadowFs = tgpu
  * surface's `eids` lane, applies the instance transform, splices the surface's own `vs` chunk when present,
  * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
  * `tileBox` seam-discard bounds from `shadowLayout.$.tileRects` (indexed `slot·6+face` for the point atlas,
- * `slot` alone for the cascade atlas — indexed differently per atlas) scaled by the atlas's pixel size.
+ * `slot` alone for the cascade atlas — indexed differently per atlas) scaled by the atlas's pixel size: `atlas`
+ * for the point atlas, `comboMeta.z` for the cascade atlas.
  * Only an **instanced** surface reaches here (only `eids`+`globalTransforms` gives a per-instance member to
  * re-gather against) — `compileShadow` gates the call, so this never runs for a non-instanced surface.
  */
@@ -1740,7 +1741,8 @@ function shadowVs(
                 ? shadowBound.tileRects.rects[m.x]
                 : shadowBound.tileRects.rects[m.x * 6 + m.y];
             const clip = std.mul(shadowBound.faceVP.m[combo], world);
-            const tileBox = d.vec4f(std.mul(atlas, rect.xy), rect.z * atlas, 0);
+            const side = cascade ? d.f32(m.z) : atlas;
+            const tileBox = d.vec4f(std.mul(side, rect.xy), rect.z * side, 0);
             return { pos: clip, tileBox };
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}Vs`);
@@ -1830,9 +1832,10 @@ function clipShadowVertex(
             const rect = cascade
                 ? shadowBound.tileRects.rects[m.x]
                 : shadowBound.tileRects.rects[m.x * 6 + m.y];
+            const side = cascade ? d.f32(m.z) : atlas;
             return ClipShadowVertex({
                 pos: std.mul(shadowBound.faceVP.m[combo], world),
-                tileBox: d.vec4f(std.mul(atlas, rect.xy), rect.z * atlas, 0),
+                tileBox: d.vec4f(std.mul(side, rect.xy), rect.z * side, 0),
                 worldNormal: std.normalize(worldNormal),
                 eid,
                 world: world.xyz,
@@ -1978,6 +1981,8 @@ function varyingShadowVs(
     const assigns = keys.map((key) => `    out.${key} = patched.${key};`).join("\n");
     const fragmentAssigns = `${surface.fragmentInputs?.uv ? "    out.uv = uv;\n" : ""}${surface.fragmentInputs?.localPos ? "    out.localPos = localPos;\n" : ""}`;
     const rect = cascade ? "m.x" : "m.x * 6u + m.y";
+    // the cascade atlas side rides meta.z, since the light's cascade count sizes that atlas at first cast
+    const side = cascade ? "f32(m.z)" : `${atlas}.0`;
     const copier = tgpu
         .fn(
             [d.u32, d.u32],
@@ -2014,7 +2019,7 @@ ${
     let rect = shadow.tileRects.rects[${rect}];
     var out: Out;
     out.pos = shadow.faceVP.m[combo] * world;
-    out.tileBox = vec4f(${atlas}.0 * rect.xy, rect.z * ${atlas}.0, 0.0);
+    out.tileBox = vec4f(${side} * rect.xy, rect.z * ${side}, 0.0);
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
     out.world = world.xyz;
@@ -2154,8 +2159,9 @@ function clipShadowFs(surface: AnySurface) {
  * `screen` surface (only an instanced, non-`screen` surface casts — a 2D overlay has no atlas placement).
  * Opaque surfaces share {@link shadowFs}; clipped surfaces use their wider cutoff
  * vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and its
- * own atlas pixel size, read when the app builds: `PointShadows.atlas` for the point atlas, the
- * per-cascade resolution × grid for the cascade atlas.
+ * atlas pixel size source: the point VS bakes the world's `PointShadows.atlas` when the app builds, and the
+ * cascade VS (passed `0`) reads its atlas side from `comboMeta.z`, since the light's `numCascades` sizes that
+ * atlas when it first casts.
  */
 function compileShadow(
     world: World,
@@ -2181,9 +2187,9 @@ function compileShadow(
         .createRenderPipeline({
             vertex: clip
                 ? varying
-                    ? varyingShadowVs(surface, pointLayout, pointAtlasSize(), false, capacity)
-                    : clipShadowVs(surface, pointLayout, pointAtlasSize(), false, capacity)
-                : shadowVs(surface, pointLayout, pointAtlasSize(), false, capacity),
+                    ? varyingShadowVs(surface, pointLayout, pointAtlasSize(world), false, capacity)
+                    : clipShadowVs(surface, pointLayout, pointAtlasSize(world), false, capacity)
+                : shadowVs(surface, pointLayout, pointAtlasSize(world), false, capacity),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : shadowFs,
@@ -2196,27 +2202,9 @@ function compileShadow(
         .createRenderPipeline({
             vertex: clip
                 ? varying
-                    ? varyingShadowVs(
-                          surface,
-                          cascadeLayout,
-                          cascadeAtlasSize(sunResolution(), sunCascades()),
-                          true,
-                          capacity,
-                      )
-                    : clipShadowVs(
-                          surface,
-                          cascadeLayout,
-                          cascadeAtlasSize(sunResolution(), sunCascades()),
-                          true,
-                          capacity,
-                      )
-                : shadowVs(
-                      surface,
-                      cascadeLayout,
-                      cascadeAtlasSize(sunResolution(), sunCascades()),
-                      true,
-                      capacity,
-                  ),
+                    ? varyingShadowVs(surface, cascadeLayout, 0, true, capacity)
+                    : clipShadowVs(surface, cascadeLayout, 0, true, capacity)
+                : shadowVs(surface, cascadeLayout, 0, true, capacity),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : shadowFs,

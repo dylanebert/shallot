@@ -45,6 +45,7 @@ export {
 } from "./physics";
 export {
     CameraBackground,
+    DirectionalLightShadowMap,
     MAX_CASCADES,
     MAX_POINT_CASTERS,
     Materials,
@@ -54,7 +55,6 @@ export {
     StandardMaterial,
     StandardRenderer,
     StandardRenderingPlugin,
-    SunShadows,
 } from "./rendering";
 
 import { BrowserInputPlugin, InputPlugin } from "../core/input";

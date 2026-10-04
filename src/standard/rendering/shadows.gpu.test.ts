@@ -18,7 +18,7 @@ import {
 
 const subjects = gpuApps(
     import.meta.path,
-    Array.from({ length: 3 }, () => ({ defaults: false, plugins: [] })),
+    Array.from({ length: 4 }, () => ({ defaults: false, plugins: [] })),
 );
 let nextSubject = 0;
 
@@ -56,6 +56,9 @@ async function sunScene() {
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     world.storage(DirectionalLight).direction.set(sun, -0.3, -0.8, -0.55, 0);
     world.storage(DirectionalLight).maximumDistance.set(sun, 80);
+    world.storage(DirectionalLight).numCascades.set(sun, 4);
+    world.storage(DirectionalLight).firstCascadeFarBound.set(sun, 10);
+    world.storage(DirectionalLight).overlapProportion.set(sun, 0.2);
     world.storage(DirectionalLight).shadowDepthBias.set(sun, 0);
     world.storage(DirectionalLight).shadowNormalBias.set(sun, 0);
     world.step(0);
@@ -134,4 +137,18 @@ test("the cascade pass rebuilds its boxes after the main camera GlobalTransform 
             moved = true;
     }
     expect(moved).toBe(true);
+});
+
+test("a sun whose firstCascadeFarBound reaches its maximumDistance is refused by name, and one cascade ignores the bound", async () => {
+    const { world, main, sun } = await sunScene();
+    const light = world.storage(DirectionalLight);
+    light.firstCascadeFarBound.set(sun, 80);
+    expect(() => updateCascades(world, main)).toThrow(
+        `standard: DirectionalLight ${sun} firstCascadeFarBound (80) must be less than its maximumDistance (80)`,
+    );
+    light.firstCascadeFarBound.set(sun, 120);
+    expect(() => updateCascades(world, main)).toThrow("firstCascadeFarBound (120)");
+    light.numCascades.set(sun, 1);
+    updateCascades(world, main);
+    expect(cascadeCount(world)).toBe(1);
 });

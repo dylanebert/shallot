@@ -38,10 +38,9 @@ export {
 } from "./shade";
 export {
     cascadeComboEids,
+    DirectionalLightShadowMap,
     MAX_CASCADES,
     MAX_POINT_CASTERS,
     PointShadows,
-    pointCasters,
     pointComboEids,
-    SunShadows,
 } from "./shadows";
