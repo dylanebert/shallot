@@ -23,6 +23,7 @@ export {
     OutlinePlugin,
 } from "./outline";
 export {
+    DrivePlayerSystem,
     Player,
     PlayerPlugin,
     type PointerLockStatus,

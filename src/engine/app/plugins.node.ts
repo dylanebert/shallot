@@ -55,6 +55,8 @@ import {
     Transform,
 } from "../../standard";
 import {
+    Character,
+    CharacterPlugin,
     hashPhysics,
     physicsWorld,
     readBody,
@@ -73,7 +75,6 @@ import {
 } from "../../standard/rendering";
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
-import { Character, CharacterPlugin, globalTransform } from "../../transitional/character";
 import { GlobalTransform, type Plugin, probeTexture, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { createApp } from "./index";
@@ -873,19 +874,13 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect(readBody(second.world, peerA)).toEqual(siblingBody);
 
             if (uses(subject, CharacterPlugin)) {
-                const firstGlobalTransformPosition = [0, 0, 0] as [number, number, number];
-                const secondGlobalTransformPosition = [0, 0, 0] as [number, number, number];
+                expect(first.world.has(firstFeatures.actor, GlobalTransform)).toBe(true);
+                expect(second.world.has(secondFeatures.actor, GlobalTransform)).toBe(true);
                 expect(
-                    globalTransform(first.world, firstFeatures.actor, firstGlobalTransformPosition),
-                ).toBe(true);
-                expect(
-                    globalTransform(
-                        second.world,
-                        secondFeatures.actor,
-                        secondGlobalTransformPosition,
-                    ),
-                ).toBe(true);
-                expect(firstGlobalTransformPosition[1]).not.toBe(secondGlobalTransformPosition[1]);
+                    first.world.storage(GlobalTransform).translation.y.get(firstFeatures.actor),
+                ).not.toBe(
+                    second.world.storage(GlobalTransform).translation.y.get(secondFeatures.actor),
+                );
             }
         }
         if (uses(subject, BvhPlugin)) {

@@ -63,6 +63,27 @@ test("the kinematic capsule mirrors the resolved endpoint without a second move 
     }
 });
 
+test("ascending platform carry stays grounded, but a jump relative to that platform leaves ground", async () => {
+    const { world, eid, dispose } = await scene();
+    try {
+        const platform = floor(world);
+        StandardPhysicsPlugin.systems![0].update!(world);
+        physicsWorld(world)!.getBody(platform)!.setLinearVelocity({ x: 0, y: 2, z: 0 });
+        const c = world.storage(Character);
+        c.velocity.set(eid, 0, 2, 0, 0);
+        world.step(Time.FIXED_DT);
+        expect(c.groundState.get(eid)).toBe(GroundState.OnGround);
+        expect(c.groundVelocity.y.get(eid)).toBe(2);
+        c.velocity.set(eid, 0, 7, 0, 0);
+        world.step(Time.FIXED_DT);
+        expect(c.groundState.get(eid)).toBe(GroundState.InAir);
+        expect(c.groundVelocity.y.get(eid)).toBe(0);
+        expect(c.pogoVelocity.get(eid)).toBe(0);
+    } finally {
+        dispose();
+    }
+});
+
 const floor = (world: World) => {
     const eid = world.create();
     world.add(eid, Body, { mass: 0, position: [0, -0.5, 0, 0], halfExtents: [20, 0.5, 20, 0] });

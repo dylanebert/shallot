@@ -184,13 +184,24 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
     const hit = q.resultU[0] !== 0xffffffff;
     s.groundShape = hit ? q.resultU[0] : -1;
     let pogo = character.pogoVelocity.column[eid];
-    if (!hit || vec3.dot(velocity, up) > 0) {
+    if (hit) {
+        s.point.x = f32(s.ray.x + q.resultF[6]);
+        s.point.y = f32(s.ray.y + q.resultF[7]);
+        s.point.z = f32(s.ray.z + q.resultF[8]);
+        groundVelocity(physics, q.resultU[0], s);
+    } else {
+        s.groundVelocity.x = 0;
+        s.groundVelocity.y = 0;
+        s.groundVelocity.z = 0;
+    }
+    // Upward platform carry is not a jump: pogo suppression uses the hit body's frame.
+    vec3.subOut(velocity, s.groundVelocity, s.vr);
+    if (!hit || vec3.dot(s.vr, up) > 0) {
         character.groundState.set(eid, GroundState.InAir);
         character.groundNormal.set(eid, 0, 0, 0, 0);
         character.groundVelocity.set(eid, 0, 0, 0, 0);
         pogo = 0;
     } else {
-        const groundShape = q.resultU[0];
         s.normal.x = q.resultF[9];
         s.normal.y = q.resultF[10];
         s.normal.z = q.resultF[11];
@@ -210,7 +221,6 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
         normals[offset + 2] = s.normal.z;
         normals[offset + 3] = 0;
         character.groundNormal.markChanged(eid);
-        groundVelocity(physics, groundShape, s);
         const gv = s.groundVelocity;
         const velocities = character.groundVelocity.column;
         velocities[offset] = gv.x;

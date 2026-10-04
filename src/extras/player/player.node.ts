@@ -13,6 +13,7 @@ import {
     Devices,
     InputPlugin,
     Player,
+    PlayerPlugin,
     pointerLockChanged,
     pointerMove,
     pressKey,
@@ -22,7 +23,6 @@ import {
     StandardPhysicsPlugin,
     Time,
     Transform,
-    UpdatePlayerControlSystem,
 } from "@dylanebert/shallot";
 
 const peerModule = "bun-webgpu";
@@ -32,8 +32,7 @@ await setupGlobals();
 test("the public Player controller consumes held, released and neutral input to look and drive an actual Character without a renderer or browser input", async () => {
     const app = await createApp({
         defaults: false,
-        plugins: [InputPlugin, CharacterPlugin, StandardPhysicsPlugin],
-        setup: (world) => world.addSystem(UpdatePlayerControlSystem, "Player"),
+        plugins: [InputPlugin, CharacterPlugin, StandardPhysicsPlugin, PlayerPlugin],
     });
     try {
         const world = app.world;
@@ -60,8 +59,8 @@ test("the public Player controller consumes held, released and neutral input to 
         world.storage(Player).sprint.set(player, 1);
         world.storage(Player).sensitivity.set(player, 1.5);
         world.storage(Player).camera.set(player, camera);
-        world.storage(Character).jumpSpeed.set(player, 7);
-        world.storage(Character).gravity.set(player, -30);
+        world.storage(Player).jumpSpeed.set(player, 7);
+        world.storage(Player).gravity.set(player, 30);
 
         // Establish the floor contact before the supplied jump edge arrives.
         world.step(Time.FIXED_DT);
@@ -96,8 +95,7 @@ test("the public Player controller consumes held, released and neutral input to 
         if (!world.resource(Devices).keys.held.has("KeyW"))
             throw new Error("Player lost the held move fact");
 
-        // UpdatePlayerControlSystem writes the intent in simulation; the next fixed tick is the real
-        // Character consumer. This deliberately uses the stepped clock rather than a private drive.
+        // Observe the composed fixed-tick consumer, not a private intent store.
         world.step(Time.FIXED_DT);
         const moved = readBody(world, player);
         if (
@@ -113,19 +111,21 @@ test("the public Player controller consumes held, released and neutral input to 
 
         releaseKey(world, "KeyW");
         releaseKey(world, "Space");
-        world.step(Time.FIXED_DT); // the released facts reach UpdatePlayerControlSystem
+        world.step(Time.FIXED_DT); // Release removes acceleration, not momentum.
         const beforeNeutral = readBody(world, player);
         if (!beforeNeutral) throw new Error("Player body disappeared after release");
-        world.step(Time.FIXED_DT); // the first neutral frame drains the previous simulation intent
+        world.step(Time.FIXED_DT); // Friction continues damping the prior velocity.
         const neutral = readBody(world, player);
         if (!neutral) throw new Error("Player body disappeared on the neutral step");
-        world.step(Time.FIXED_DT); // this fixed tick must not replay a stale movement intent
+        for (let tick = 0; tick < 120; tick++) world.step(Time.FIXED_DT);
+        const resting = readBody(world, player)!;
+        world.step(Time.FIXED_DT); // Friction has brought the released player to rest.
         const settled = readBody(world, player);
         if (!settled) throw new Error("Player body disappeared on the settled neutral step");
         if (
             Math.hypot(
-                settled.position[0] - neutral.position[0],
-                settled.position[2] - neutral.position[2],
+                settled.position[0] - resting.position[0],
+                settled.position[2] - resting.position[2],
             ) > 0.0001
         )
             throw new Error("released Player movement was replayed after the neutral step");

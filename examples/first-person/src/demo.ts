@@ -11,6 +11,7 @@ import {
     MeshMaterial,
     mountOverlay,
     Player,
+    PlayerPlugin,
     type Plugin,
     pointerLockRefusal,
     pointerLockStatus,
@@ -20,7 +21,6 @@ import {
     StandardMaterial,
     StandardPhysicsPlugin,
     StandardRenderer,
-    SweepCharactersSystem,
     type System,
     setKinematic,
     Transform,
@@ -61,17 +61,17 @@ export function route(world: World) {
     const eye = world.create();
     world.add(eye, Camera);
     world.add(eye, StandardRenderer);
-    world.add(eye, Transform, { translation: [0, 2.1, 12, 0] });
+    world.add(eye, Transform, { translation: [0, 2.7, 12, 0] });
     const player = world.create();
     world.add(player, Body, {
-        position: [0, 1.4, 12, 0],
+        position: [0, 2, 12, 0],
         shape: ShapeKind.Capsule,
         halfExtents: [0, 0.6, 0, 0.3],
         mass: 0,
     });
-    // Player keeps its default controls; Character sets the ascent's step rhythm and lift transfer.
-    world.add(player, Character, { jumpSpeed: 7, gravity: -30 });
-    world.add(player, Player, { camera: eye });
+    // The route keeps its launch and fall rhythm; pogo placement floats two radii above contact.
+    world.add(player, Character);
+    world.add(player, Player, { camera: eye, jumpSpeed: 7, gravity: 30 });
     block(world, [0, 0, -5, 0], [16, 0.5, 26, 0], GROUND_COLOR);
     const steps = [
         [
@@ -146,7 +146,7 @@ const liftVel: [number, number, number] = [0, 0, 0];
 const lift: System = {
     name: "lift",
     group: "fixed",
-    before: [SweepCharactersSystem],
+    before: CharacterPlugin.systems,
     // Every lift shares one trajectory, so the phase, the rise and the velocity are the tick's, not each
     // lift's: they are computed once here and the slot walk only adds each lift's base to them.
     update(world: World): void {
@@ -222,7 +222,7 @@ const controls: System = {
 export const Demo = {
     name: "Demo",
     components: [registration("Lift", Lift)],
-    dependencies: [CharacterPlugin, InputPlugin, StandardPhysicsPlugin],
+    dependencies: [PlayerPlugin, CharacterPlugin, InputPlugin, StandardPhysicsPlugin],
     initialize(world: World) {
         const state = world.resource(Route);
         state.entities ??= route(world);

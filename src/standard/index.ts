@@ -16,7 +16,6 @@ export {
     sfx,
 } from "../transitional/audio";
 export { BvhPlugin } from "../transitional/bvh";
-export { Character, CharacterPlugin, SweepCharactersSystem } from "../transitional/character";
 export {
     type LoadingOptions,
     minimalDark,
@@ -28,6 +27,9 @@ export {
 } from "./loading";
 export {
     type BodyStateOut,
+    Character,
+    CharacterPlugin,
+    GroundState,
     hashPhysics,
     PhysicsWorld,
     physicsWorld,

@@ -191,7 +191,8 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `state.stamp`, `state.timescale`, `state.swap` | `world.generation`, `world.setTimeScale`, `world.swapSystem` |
 | `/sear/core` `PrepassSystem`, `ColorSystem` | `/rendering` `PrepassSystem`, `MainPassSystem` |
 | `/src/standard/render/cluster.ts` `ClusterSystem`, `LightCullSystem` | Remove direct imports; these systems are now internal to `StandardRenderingPlugin`. |
-| `CharacterSweepSystem`, `PlayerControlSystem` | `SweepCharactersSystem`, `UpdatePlayerControlSystem` |
+| `CharacterSweepSystem` | Order fixed velocity producers before `CharacterPlugin.systems` |
+| `PlayerControlSystem` | `UpdatePlayerControlSystem` (look and camera); `DrivePlayerSystem` consumes fixed-tick input |
 | Physics `StepSystem` | `StepPhysicsSystem` |
 | Physics `ConstraintSystem` | Removed: author `Spring` and `Joint` entities; standard physics syncs them. |
 
@@ -375,7 +376,18 @@ These helpers use the owning World:
 
 - `Profile` data is read with `world.resource(Profile)`.
 - `cascadeComboEids()` and `pointComboEids()` take World first; `cascadeCount()` and `pointComboCount()` are removed.
-- Character helpers `move`, `jump`, `globalTransform`, `teleport` and `grounded` take World before the entity id.
+
+## Character movement and player feel
+
+Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallot/standard/physics` (also re-exported from the root). `/character` and `/character/core` are removed. `Character` requires a capsule `Body` with mass 0; its pogo spring floats the lower sphere centre three radii above ground. Retune spawn and camera heights for that float.
+
+- Replace `move` with a fixed-tick write to `world.storage(Character).velocity`, ordered before `CharacterPlugin.systems`. Standard physics resolves that velocity, without gravity or acceleration.
+- Replace `jump` with your input policy's velocity write. With `PlayerPlugin`, the Space press edge is buffered by Player; jump tuning belongs to `Player.jumpSpeed`.
+- Replace `globalTransform` with `world.storage(GlobalTransform).translation`; test membership with `world.has(eid, GlobalTransform)` when placement may not yet exist.
+- Replace `grounded` with `world.storage(Character).groundState.get(eid) === GroundState.OnGround`; steep ground is a separate state.
+- Replace `teleport` with `setKinematic(world, eid, position, rotation, true)` from `/standard/physics`, then clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn.
+- `PlayerPlugin` no longer installs `RenderingPlugin`: it authors the linked camera's pose without presentation. Keep rendering in the app's composition when presenting that camera.
+- Move gravity and jump tuning to `Player.gravity` (positive downward acceleration) and `Player.jumpSpeed`. Player owns acceleration, friction, sprint, coyote time (0.15 seconds), jump buffering (0.2 seconds) and platform carry. Its default speed is 6 m/s, sprint multiplier 1.5, jump speed 5 m/s and gravity 15 m/s².
 
 ## Replace Mirror with explicit snapshot requests
 
@@ -490,7 +502,7 @@ Custom surface, background and draw producers depend on `StandardRenderingPlugin
 
 Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. `StandardRenderingPlugin` and `MeshRenderPlugin` include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
 
-Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is `/character` and `/bvh/core` is `/bvh`. `/scene/core` is removed with the scene format. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
+Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is removed in favor of `/standard/physics` and `/bvh/core` is `/bvh`. `/scene/core` is removed with the scene format. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
 
 ## `Inputs` is now `world.resource(Devices)`
 

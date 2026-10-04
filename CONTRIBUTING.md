@@ -112,6 +112,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Box3D is the correctness authority: world hashes equal its reference with no tolerance. Two departures stay: every `mass <= 0` body marshals as kinematic, never static, so static geometry is stepped; and `Spring` authors `stiffness`, converted to Box3D's hertz and damping ratio.
 - Each standard physics phase has one implementation, in the kernel. The worker count schedules it and is not a code path: with no pool the calling thread runs the same tasks, as Box3D's serial fallback does. The shared and single-thread kernel artifacts build from one source, since a page without cross-origin isolation has no shared memory.
 - Camera rays belong to rendering's `viewportToWorld`, not physics; callers supply pointer or viewport coordinates, and `Ray` belongs to engine math.
+- Standard physics publishes the mover queries and plane solver, and its optional `CharacterPlugin` resolves a mass-zero capsule's caller-written velocity. It reports walkable or steep ground, its normal and point velocity; upward motion suppresses its pogo spring only relative to that ground velocity.
+- `extras/player` owns input, gravity, acceleration, friction, sprint, jump, coyote time, buffering and platform carry over the published standard physics barrel. Games replace that feel without reaching into physics internals.
 
 ## Commands
 

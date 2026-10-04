@@ -104,7 +104,7 @@ function authoredStepRise(app: Ascent, player: number, lift: number): number {
     return heights[heights.length - 1] - heights[0];
 }
 
-test("the actual first-person scene gives the player a tangent spawn, a contained route, a clear lift, and an adjacent upper tower stop", async () => {
+test("the actual first-person scene gives the player a pogo-rest spawn, a contained route, a clear lift, and an adjacent upper tower stop", async () => {
     const app = await ascent();
     try {
         const player = entity(app, "player");
@@ -120,9 +120,10 @@ test("the actual first-person scene gives the player a tangent spawn, a containe
             app.world.storage(Body).position.y.get(player) -
             app.world.storage(Body).halfExtents.y.get(player) -
             app.world.storage(Body).halfExtents.w.get(player);
-        if (Math.abs(playerBottom - groundTop) > 0.0001)
+        const float = 2 * app.world.storage(Body).halfExtents.w.get(player);
+        if (Math.abs(playerBottom - groundTop - float) > 0.0001)
             throw new Error(
-                `player was not tangent to ground: bottom=${playerBottom} top=${groundTop}`,
+                `player was not at pogo rest: bottom=${playerBottom} top=${groundTop} float=${float}`,
             );
         const spawnGap =
             app.world.storage(Body).position.z.get(player) -
