@@ -236,15 +236,15 @@ world.add(lamp, VolumetricLight);
 
 ## Component editor metadata and name lookups are removed
 
-Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. Registrations keep `defaults` and add-only `requires`; `excludes` is removed and runtime `provides` becomes `requires`. System annotations remain.
+Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. Component declarations keep `defaults` and add-only `requires`; `excludes` is removed and runtime `provides` becomes `requires`. System annotations remain.
 
 The reflection exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `requiredComponents` (formerly `dependencies`), `provides`, `exclusions` and `kebab` are removed. The `getComponent` and `getTraits` wrappers and registry methods are removed too. Query imported component handles with `world.query([Component])`; a game resolves components and enum values by import, not by name.
 
 Remove `Alias`, `laneAlias`, `eulerAlias`, `formatHex` and the input metadata helpers (`Input`, `Unit`, `units`, `angle`, `degrees`, `radians`; also named `FieldInput`, `FieldUnit`, `unitInput`, `angleInput`, `degreeUnit`, `radianUnit` during 0.10 development). Quaternion conversion helpers remain.
 
-## Register components as one list under exact keys
+## Declare components once under exact keys
 
-`Plugin.components` is now a list of registrations, not a component map. `Plugin.traits` and the `Traits` type are removed. Put `defaults` and `requires` directly on each registration:
+`Plugin.components` is now a list of declared field records, not a component map. `Plugin.traits` and the `Traits` type are removed. Declare the exact key, `defaults` and `requires` with the fields:
 
 ```ts
 // 0.9.5
@@ -257,14 +257,17 @@ const GamePlugin = {
 
 ```ts
 // 0.10
-import { registration, type Plugin } from "@dylanebert/shallot";
+import { component, f32, type Plugin } from "@dylanebert/shallot";
+const Health = component("Health", { value: f32 }, { defaults: () => ({ value: 100 }) });
 const GamePlugin: Plugin = {
     name: "Game",
-    components: [registration("Health", Health, { defaults: () => ({ value: 100 }) })],
+    components: [Health],
 };
 ```
 
-Defaults use declaration field names and vector arrays, as `world.add` does; replace dotted-lane defaults with complete vectors. Remove imports of `globalTransformTraits`, `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits` and `ColorTraits`; options now live on their plugins' registrations.
+Defaults use declaration field names and vector arrays, as `world.add` does; replace dotted-lane defaults with complete vectors. Remove imports of `globalTransformTraits`, `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits` and `ColorTraits`; options now live on component declarations.
+
+If using the earlier prerelease API, replace `registration(key, C, options)` with `component(key, fields, options)` at `C`'s declaration, and replace `components: [registration(…)]` with `components: [C]`. Keep the key byte-for-byte; it identifies saved data and hot reload. `registration` and `Registration` are removed. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused naming the plugin and the record's fields.
 
 `inspect`, `snapshot`, `readFields` and `dump` preserve exact registration keys and declaration field names. A component registered as `"GlobalTransform"` is no longer reported as `"global-transform"`; vectors are arrays such as `{ translation: [0, 0, 0, 0] }`, not dotted lanes. Update saved data and consumers of this output.
 

@@ -1,8 +1,9 @@
 /// <reference types="@webgpu/types" />
 
 import {
+    type Component,
+    declaration,
     initializeGlobalTransform,
-    type Registration,
     registerGlobalTransform,
     type System,
     sameComponentSchema,
@@ -35,7 +36,7 @@ export interface Plugin {
     /** systems this plugin adds to the scheduler */
     readonly systems?: readonly System[];
     /** components registered under exact stable keys, with their defaults and requirements */
-    readonly components?: readonly Registration[];
+    readonly components?: readonly Component[];
     /** other plugins that must load first; every dependency must be present in the composition */
     readonly dependencies?: readonly Plugin[];
     /**
@@ -294,8 +295,8 @@ async function buildNow(config: AppConfig): Promise<App> {
 
         for (const plugin of sorted) {
             for (const entry of plugin.components ?? []) {
-                world.registry.register(entry);
-                world.storage(entry.component);
+                world.registry.register(entry, plugin.name);
+                world.storage(entry);
             }
             for (const system of plugin.systems ?? []) {
                 world.addSystem(system, plugin.name);
@@ -599,8 +600,8 @@ export async function swapPlugins(
     for (const [name, nextPlugin] of nextByName) {
         const prevPlugin = prevByName.get(name)!;
         for (const entry of nextPlugin.components ?? []) {
-            world.registry.register(entry);
-            world.storage(entry.component);
+            world.registry.register(entry, nextPlugin.name);
+            world.storage(entry);
         }
         const prevSystems = prevPlugin.systems ?? [];
         const nextSystems = nextPlugin.systems ?? [];
@@ -633,10 +634,10 @@ function shapeDiff(
     nextIndex: Map<System, number>,
 ): string | null {
     const pc = Object.fromEntries(
-        (prev.components ?? []).map(({ key, component }) => [key, component]),
+        (prev.components ?? []).map((fields) => [declaration(fields, prev.name).key, fields]),
     );
     const nc = Object.fromEntries(
-        (next.components ?? []).map(({ key, component }) => [key, component]),
+        (next.components ?? []).map((fields) => [declaration(fields, next.name).key, fields]),
     );
     const pcKeys = Object.keys(pc).sort();
     const ncKeys = Object.keys(nc).sort();

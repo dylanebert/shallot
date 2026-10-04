@@ -7,12 +7,12 @@ import {
 } from "../../core/input";
 import { Body } from "../../core/physics";
 import {
+    component,
     entity,
     f32,
     GlobalTransform,
     not,
     type Plugin,
-    registration,
     type System,
     Time,
     Transform,
@@ -29,37 +29,58 @@ const MAX_PITCH = Math.PI / 2 - 0.01;
 const LOOK_REFERENCE_HEIGHT = 1080;
 
 /** First-person feel on a mass-zero capsule Body with Character. Input is consumed on fixed ticks; the separate camera's Transform is authored during simulation using interpolated fixed placement. */
-export const Player = {
-    /** look yaw in radians (turn around world Y); set it to face a direction at spawn */
-    yaw: f32,
-    /** look pitch in radians (clamped to ±90°); set it to tilt the view at spawn */
-    pitch: f32,
-    /** walk speed (m/s) the move input is scaled to */
-    speed: f32,
-    /** Acceleration coefficient in inverse seconds, multiplied by maximum speed. */
-    acceleration: f32,
-    /** Horizontal damping coefficient in inverse seconds. */
-    friction: f32,
-    /** Downward acceleration in metres per second squared. */
-    gravity: f32,
-    /** Launch speed relative to the ground in metres per second. */
-    jumpSpeed: f32,
-    /** Grace period after leaving walkable ground, in seconds. */
-    coyoteTime: f32,
-    /** Lifetime of a jump press before landing, in seconds. */
-    jumpBuffer: f32,
-    /** sprint multiplier applied while Shift is held */
-    sprint: f32,
-    /** mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look
-     * speed is resolution-independent, so the same mouse motion turns the same angle at any canvas size) */
-    sensitivity: f32,
-    /** camera height above the capsule centre (the eye offset) */
-    eyeHeight: f32,
-    /** camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding) */
-    distance: f32,
-    /** The linked camera: an entity with a Transform. Without a valid link, Player writes no camera pose. */
-    camera: entity,
-};
+export const Player = component(
+    "Player",
+    {
+        /** look yaw in radians (turn around world Y); set it to face a direction at spawn */
+        yaw: f32,
+        /** look pitch in radians (clamped to ±90°); set it to tilt the view at spawn */
+        pitch: f32,
+        /** walk speed (m/s) the move input is scaled to */
+        speed: f32,
+        /** Acceleration coefficient in inverse seconds, multiplied by maximum speed. */
+        acceleration: f32,
+        /** Horizontal damping coefficient in inverse seconds. */
+        friction: f32,
+        /** Downward acceleration in metres per second squared. */
+        gravity: f32,
+        /** Launch speed relative to the ground in metres per second. */
+        jumpSpeed: f32,
+        /** Grace period after leaving walkable ground, in seconds. */
+        coyoteTime: f32,
+        /** Lifetime of a jump press before landing, in seconds. */
+        jumpBuffer: f32,
+        /** sprint multiplier applied while Shift is held */
+        sprint: f32,
+        /** mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look
+         * speed is resolution-independent, so the same mouse motion turns the same angle at any canvas size) */
+        sensitivity: f32,
+        /** camera height above the capsule centre (the eye offset) */
+        eyeHeight: f32,
+        /** camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding) */
+        distance: f32,
+        /** The linked camera: an entity with a Transform. Without a valid link, Player writes no camera pose. */
+        camera: entity,
+    },
+    {
+        defaults: () => ({
+            yaw: 0,
+            pitch: 0,
+            speed: 6,
+            sprint: 1.5,
+            acceleration: 30,
+            friction: 4,
+            gravity: 15,
+            jumpSpeed: 5,
+            coyoteTime: 0.15,
+            jumpBuffer: 0.2,
+            sensitivity: 1.5,
+            eyeHeight: 0.7,
+            distance: 0,
+            camera: 0,
+        }),
+    },
+);
 
 /** Pointer-lock reads are World-scoped. */
 export type { PointerLockStatus } from "../../core/input";
@@ -71,11 +92,11 @@ function setupPointerLock(world: World): void {
     });
 }
 
-const PlayerMotion = {
+const PlayerMotion = component("PlayerMotion", {
     carry: vec4,
     coyote: f32,
     buffer: f32,
-};
+});
 
 /** Fixed-tick input and feel, before the published character movement systems. */
 export const DrivePlayerSystem: System = {
@@ -320,26 +341,6 @@ export const UpdatePlayerControlSystem: System = {
 export const PlayerPlugin: Plugin = {
     name: "Player",
     systems: [DrivePlayerSystem, SnapshotPlayerPositionSystem, UpdatePlayerControlSystem],
-    components: [
-        registration("PlayerMotion", PlayerMotion),
-        registration("Player", Player, {
-            defaults: () => ({
-                yaw: 0,
-                pitch: 0,
-                speed: 6,
-                sprint: 1.5,
-                acceleration: 30,
-                friction: 4,
-                gravity: 15,
-                jumpSpeed: 5,
-                coyoteTime: 0.15,
-                jumpBuffer: 0.2,
-                sensitivity: 1.5,
-                eyeHeight: 0.7,
-                distance: 0,
-                camera: 0,
-            }),
-        }),
-    ],
+    components: [PlayerMotion, Player],
     dependencies: [CharacterPlugin, InputPlugin],
 };

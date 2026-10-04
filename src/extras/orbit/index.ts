@@ -1,12 +1,12 @@
 import { Devices, InputPlugin, type Pointer } from "../../core/input";
 import { Camera, CameraMode } from "../../core/rendering";
 import {
+    component,
     entity,
     f32,
     GlobalTransform,
     not,
     type Plugin,
-    registration,
     type System,
     Transform,
     u8,
@@ -43,64 +43,103 @@ export const OrbitPick: { claim?: (x: number, y: number) => boolean } = {};
  * orbit camera controls: drag to rotate around a target, scroll to zoom;
  * on touch, one finger rotates, two-finger pinch zooms, two-finger drag pans
  */
-export const Orbit = {
-    /** horizontal orbit angle around the target, radians */
-    yaw: f32,
-    /** vertical orbit angle, radians; clamped to min/maxPitch */
-    pitch: f32,
-    /** camera distance from the target, world units (perspective zoom) */
-    distance: f32,
-    /** orthographic half-height, world units (ortho zoom) */
-    size: f32,
-    /** lower pitch clamp, radians */
-    minPitch: f32,
-    /** upper pitch clamp, radians */
-    maxPitch: f32,
-    /** closest perspective distance */
-    minDistance: f32,
-    /** farthest perspective distance */
-    maxDistance: f32,
-    /** smallest orthographic size */
-    minSize: f32,
-    /** largest orthographic size */
-    maxSize: f32,
-    /** follow damping, 0–1; higher snaps to the target pose faster */
-    smoothness: f32,
-    /** fly look damping, 0–1; higher is snappier; default tighter than orbit so first-person look tracks closely */
-    flySmoothness: f32,
-    /** orbit look speed (yaw/pitch), radians per pixel of mouse drag */
-    sensitivity: f32,
-    /** fly look speed (yaw/pitch), radians per pixel; separate so fly look reads calmer than orbit */
-    flySensitivity: f32,
-    /** held-arrow orbit speed, radians per second */
-    keyRate: f32,
-    /** held-arrow acceleration toward keyRate, radians per second squared */
-    keyAcceleration: f32,
-    /** released-arrow velocity damping, inverse seconds; higher stops sooner */
-    keyDamping: f32,
-    /** zoom factor applied per scroll-wheel notch */
-    zoomSpeed: f32,
-    /** mouse button that orbits: 0 left, 1 middle, 2 right */
-    orbitButton: u8,
-    /** mouse button that pans: 0 left, 1 middle, 2 right */
-    panButton: u8,
-    /** mouse button that flies (hold to look around, WASD/QE to move): 0 left, 1 middle, 2 right */
-    flyButton: u8,
-    /** pan offset from the orbit target, world units */
-    pan: vec4,
-    /** WASD/QE fly speed, world units per second; scroll while flying adjusts it (clamped to flyMin/flyMax) */
-    flySpeed: f32,
-    /** shift-held fly boost multiplier, transient; scales flySpeed while shift is down, never stored */
-    flyBoost: f32,
-    /** lower clamp for scroll-adjusted flySpeed, world units per second */
-    flyMin: f32,
-    /** upper clamp for scroll-adjusted flySpeed, world units per second */
-    flyMax: f32,
-    /** Free orbits, pans, and zooms; Locked disables all look (orbit rotation and fly look), leaving pan and zoom */
-    mode: u8,
-    /** entity to orbit; pan is relative to its position (0 = world origin) */
-    target: entity,
-};
+export const Orbit = component(
+    "Orbit",
+    {
+        /** horizontal orbit angle around the target, radians */
+        yaw: f32,
+        /** vertical orbit angle, radians; clamped to min/maxPitch */
+        pitch: f32,
+        /** camera distance from the target, world units (perspective zoom) */
+        distance: f32,
+        /** orthographic half-height, world units (ortho zoom) */
+        size: f32,
+        /** lower pitch clamp, radians */
+        minPitch: f32,
+        /** upper pitch clamp, radians */
+        maxPitch: f32,
+        /** closest perspective distance */
+        minDistance: f32,
+        /** farthest perspective distance */
+        maxDistance: f32,
+        /** smallest orthographic size */
+        minSize: f32,
+        /** largest orthographic size */
+        maxSize: f32,
+        /** follow damping, 0–1; higher snaps to the target pose faster */
+        smoothness: f32,
+        /** fly look damping, 0–1; higher is snappier; default tighter than orbit so first-person look tracks closely */
+        flySmoothness: f32,
+        /** orbit look speed (yaw/pitch), radians per pixel of mouse drag */
+        sensitivity: f32,
+        /** fly look speed (yaw/pitch), radians per pixel; separate so fly look reads calmer than orbit */
+        flySensitivity: f32,
+        /** held-arrow orbit speed, radians per second */
+        keyRate: f32,
+        /** held-arrow acceleration toward keyRate, radians per second squared */
+        keyAcceleration: f32,
+        /** released-arrow velocity damping, inverse seconds; higher stops sooner */
+        keyDamping: f32,
+        /** zoom factor applied per scroll-wheel notch */
+        zoomSpeed: f32,
+        /** mouse button that orbits: 0 left, 1 middle, 2 right */
+        orbitButton: u8,
+        /** mouse button that pans: 0 left, 1 middle, 2 right */
+        panButton: u8,
+        /** mouse button that flies (hold to look around, WASD/QE to move): 0 left, 1 middle, 2 right */
+        flyButton: u8,
+        /** pan offset from the orbit target, world units */
+        pan: vec4,
+        /** WASD/QE fly speed, world units per second; scroll while flying adjusts it (clamped to flyMin/flyMax) */
+        flySpeed: f32,
+        /** shift-held fly boost multiplier, transient; scales flySpeed while shift is down, never stored */
+        flyBoost: f32,
+        /** lower clamp for scroll-adjusted flySpeed, world units per second */
+        flyMin: f32,
+        /** upper clamp for scroll-adjusted flySpeed, world units per second */
+        flyMax: f32,
+        /** Free orbits, pans, and zooms; Locked disables all look (orbit rotation and fly look), leaving pan and zoom */
+        mode: u8,
+        /** entity to orbit; pan is relative to its position (0 = world origin) */
+        target: entity,
+    },
+    {
+        defaults: () => ({
+            yaw: Math.PI / 6,
+            pitch: Math.PI / 9,
+            distance: 10,
+            size: 5,
+            // shy of ±90° so the look-at pose never degenerates at the pole
+            minPitch: -89 * Deg2Rad,
+            maxPitch: 89 * Deg2Rad,
+            // permissive by default so a scene at any reasonable scale isn't clamped: the bounds span
+            // the default camera frustum (near 0.1 → far 1000), and the geometric zoom step makes a wide
+            // range cost nothing. Tighten per-camera for a game that wants to constrain zoom.
+            minDistance: 0.1,
+            maxDistance: 900,
+            minSize: 0.05,
+            maxSize: 900,
+            smoothness: 0.3,
+            flySmoothness: 0.6,
+            sensitivity: 0.005,
+            flySensitivity: 0.003,
+            keyRate: 3,
+            keyAcceleration: 30,
+            keyDamping: 30,
+            zoomSpeed: 0.025,
+            orbitButton: 0,
+            panButton: 1,
+            flyButton: 2,
+            pan: [0, 0, 0, 0],
+            flySpeed: 5,
+            flyBoost: 3,
+            flyMin: 0.5,
+            flyMax: 100,
+            mode: 0,
+            target: 0,
+        }),
+    },
+);
 
 function smoothLerp(smoothness: number, dt: number): number {
     const s = Math.max(0, Math.min(1, smoothness));
@@ -452,44 +491,7 @@ const OrbitSystem: System = {
 export const OrbitPlugin: Plugin = {
     name: "Orbit",
     systems: [OrbitSystem],
-    components: [
-        registration("Orbit", Orbit, {
-            defaults: () => ({
-                yaw: Math.PI / 6,
-                pitch: Math.PI / 9,
-                distance: 10,
-                size: 5,
-                // shy of ±90° so the look-at pose never degenerates at the pole
-                minPitch: -89 * Deg2Rad,
-                maxPitch: 89 * Deg2Rad,
-                // permissive by default so a scene at any reasonable scale isn't clamped: the bounds span
-                // the default camera frustum (near 0.1 → far 1000), and the geometric zoom step makes a wide
-                // range cost nothing. Tighten per-camera for a game that wants to constrain zoom.
-                minDistance: 0.1,
-                maxDistance: 900,
-                minSize: 0.05,
-                maxSize: 900,
-                smoothness: 0.3,
-                flySmoothness: 0.6,
-                sensitivity: 0.005,
-                flySensitivity: 0.003,
-                keyRate: 3,
-                keyAcceleration: 30,
-                keyDamping: 30,
-                zoomSpeed: 0.025,
-                orbitButton: 0,
-                panButton: 1,
-                flyButton: 2,
-                pan: [0, 0, 0, 0],
-                flySpeed: 5,
-                flyBoost: 3,
-                flyMin: 0.5,
-                flyMax: 100,
-                mode: 0,
-                target: 0,
-            }),
-        }),
-    ],
+    components: [Orbit],
 
     dependencies: [InputPlugin],
 };

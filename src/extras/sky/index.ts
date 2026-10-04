@@ -1,5 +1,5 @@
 import type { World } from "../../engine";
-import { registration } from "../../engine";
+import { component } from "../../engine";
 // Sky — opt-in procedural sky. A plugin behind standard's background seam: it registers a `Backgrounds` recipe
 // (the bryce3d view-ray → HDR color fragment, in `./shader`) and publishes one uniform buffer the recipe
 // reads. The engine names no sky concept — this plugin owns all of it. It *reads* the sun from the
@@ -21,36 +21,57 @@ import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
  * `sunColor`), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. The sun's direction
  * follows the directional light; this component sets only its appearance.
  */
-export const Sky = {
-    /** hex sRGB color overhead, at the zenith (e.g. 0x89b6e9) */
-    zenith: f32,
-    /** hex sRGB color at the horizon, blended up toward `zenith` */
-    horizon: f32,
-    /** bright band strength right at the horizon line [0,1] (0 = none) */
-    band: f32,
-    /** hex sRGB tint of the sun glow + disk (the sun's *position* follows the directional light) */
-    sunColor: f32,
-    /** sun disk size [0,1]: larger paints a bigger disk */
-    sunSize: f32,
-    /** sun glow strength around the disk [0,1] (0 = no glow) */
-    sunGlow: f32,
-    /** hex sRGB cloud color */
-    cloudColor: f32,
-    /** cloud coverage [0,1]: how much of the sky the clouds fill (0 = clear) */
-    cloudCoverage: f32,
-    /** cloud opacity / thickness [0,1] */
-    cloudDensity: f32,
-    /** cloud layer height: scales the projected cloud size (larger = higher, smaller clouds) */
-    cloudHeight: f32,
-    /** star brightness [0,1] (0 = no stars) */
-    starIntensity: f32,
-    /** star density [0,1]: more stars in the grid */
-    starAmount: f32,
-    /** hex sRGB haze color the horizon fades toward */
-    hazeColor: f32,
-    /** horizon haze strength [0,1] (0 = none) */
-    hazeDensity: f32,
-};
+export const Sky = component(
+    "Sky",
+    {
+        /** hex sRGB color overhead, at the zenith (e.g. 0x89b6e9) */
+        zenith: f32,
+        /** hex sRGB color at the horizon, blended up toward `zenith` */
+        horizon: f32,
+        /** bright band strength right at the horizon line [0,1] (0 = none) */
+        band: f32,
+        /** hex sRGB tint of the sun glow + disk (the sun's *position* follows the directional light) */
+        sunColor: f32,
+        /** sun disk size [0,1]: larger paints a bigger disk */
+        sunSize: f32,
+        /** sun glow strength around the disk [0,1] (0 = no glow) */
+        sunGlow: f32,
+        /** hex sRGB cloud color */
+        cloudColor: f32,
+        /** cloud coverage [0,1]: how much of the sky the clouds fill (0 = clear) */
+        cloudCoverage: f32,
+        /** cloud opacity / thickness [0,1] */
+        cloudDensity: f32,
+        /** cloud layer height: scales the projected cloud size (larger = higher, smaller clouds) */
+        cloudHeight: f32,
+        /** star brightness [0,1] (0 = no stars) */
+        starIntensity: f32,
+        /** star density [0,1]: more stars in the grid */
+        starAmount: f32,
+        /** hex sRGB haze color the horizon fades toward */
+        hazeColor: f32,
+        /** horizon haze strength [0,1] (0 = none) */
+        hazeDensity: f32,
+    },
+    {
+        defaults: () => ({
+            zenith: 0x89b6e9,
+            horizon: 0xc4cdda,
+            band: 0,
+            sunColor: 0xffffff,
+            sunSize: 0.7,
+            sunGlow: 0.5,
+            cloudColor: 0xffffff,
+            cloudCoverage: 0.5,
+            cloudDensity: 0.7,
+            cloudHeight: 4,
+            starIntensity: 0,
+            starAmount: 0.5,
+            hazeColor: 0xbcc5d4,
+            hazeDensity: 0.005,
+        }),
+    },
+);
 
 interface SkyState {
     buffer: GPUBuffer | null;
@@ -86,26 +107,7 @@ const SkySystem: System = {
  */
 export const SkyPlugin: Plugin = {
     name: "Sky",
-    components: [
-        registration("Sky", Sky, {
-            defaults: () => ({
-                zenith: 0x89b6e9,
-                horizon: 0xc4cdda,
-                band: 0,
-                sunColor: 0xffffff,
-                sunSize: 0.7,
-                sunGlow: 0.5,
-                cloudColor: 0xffffff,
-                cloudCoverage: 0.5,
-                cloudDensity: 0.7,
-                cloudHeight: 4,
-                starIntensity: 0,
-                starAmount: 0.5,
-                hazeColor: 0xbcc5d4,
-                hazeDensity: 0.005,
-            }),
-        }),
-    ],
+    components: [Sky],
 
     systems: [SkySystem],
     // StandardRenderingPlugin so this initialize runs after StandardRenderingPlugin clears the Backgrounds registry; RenderingPlugin for

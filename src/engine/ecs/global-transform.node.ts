@@ -13,7 +13,7 @@ import { createApp } from "../app";
 import { CanvasContext } from "../app/canvas.fixture";
 import * as engine from "../index";
 import { GlobalTransform, globalTransformTable, probeBuffer, Transform, u32 } from "../index";
-import { registration } from "./registration";
+import { component } from "./component";
 import type { System } from "./scheduler";
 import { Time } from "./scheduler";
 
@@ -329,7 +329,7 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
             {
                 name: "SpawnedPlacement",
                 components: [
-                    registration("SpawnedPlacement", SpawnedPlacement, {
+                    component("SpawnedPlacement", SpawnedPlacement, {
                         requires: [GlobalTransform],
                     }),
                 ],

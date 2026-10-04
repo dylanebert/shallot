@@ -1,0 +1,1007 @@
+{
+  "default": {
+    "AmbientLight": [
+      "color",
+      "intensity"
+    ],
+    "Camera": [
+      "antialias",
+      "clearColor",
+      "far",
+      "fov",
+      "mode",
+      "near",
+      "size"
+    ],
+    "CameraBackground": [
+      "name"
+    ],
+    "ColorGrading": [
+      "contrast",
+      "exposure",
+      "gain",
+      "gamma",
+      "hue",
+      "lift",
+      "midtonesRange",
+      "postSaturation",
+      "saturation",
+      "temperature",
+      "tint"
+    ],
+    "CustomPresentation": [],
+    "DepthPrepass": [],
+    "DirectionalLight": [
+      "color",
+      "direction",
+      "intensity",
+      "maximumDistance",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "MeshInstance": [
+      "mesh"
+    ],
+    "MeshMaterial": [
+      "material"
+    ],
+    "NotShadowCaster": [],
+    "PickingPrepass": [],
+    "PointLight": [
+      "color",
+      "intensity",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Resolution": [
+      "height",
+      "width"
+    ],
+    "SpotLight": [
+      "color",
+      "innerAngle",
+      "intensity",
+      "outerAngle",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "StandardRenderer": [],
+    "Tonemapping": [
+      "method"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "VolumetricLight": []
+  },
+  "examples/loading-screen/src/reveal.ts:revealAfterFirstFrame": {
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ]
+  },
+  "src/extras/fog/index.ts:FogPlugin": {
+    "AmbientLight": [
+      "color",
+      "intensity"
+    ],
+    "Camera": [
+      "antialias",
+      "clearColor",
+      "far",
+      "fov",
+      "mode",
+      "near",
+      "size"
+    ],
+    "CameraBackground": [
+      "name"
+    ],
+    "ColorGrading": [
+      "contrast",
+      "exposure",
+      "gain",
+      "gamma",
+      "hue",
+      "lift",
+      "midtonesRange",
+      "postSaturation",
+      "saturation",
+      "temperature",
+      "tint"
+    ],
+    "CustomPresentation": [],
+    "DepthPrepass": [],
+    "DirectionalLight": [
+      "color",
+      "direction",
+      "intensity",
+      "maximumDistance",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Fog": [
+      "absorption",
+      "anisotropy",
+      "color",
+      "density",
+      "heightBase",
+      "heightFalloff",
+      "jitter",
+      "scatterIntensity",
+      "scattering",
+      "steps"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "MeshInstance": [
+      "mesh"
+    ],
+    "NotShadowCaster": [],
+    "PickingPrepass": [],
+    "PointLight": [
+      "color",
+      "intensity",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Resolution": [
+      "height",
+      "width"
+    ],
+    "SpotLight": [
+      "color",
+      "innerAngle",
+      "intensity",
+      "outerAngle",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "StandardRenderer": [],
+    "Tonemapping": [
+      "method"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "VolumetricLight": []
+  },
+  "src/extras/lines/index.ts:LinesPlugin": {
+    "AmbientLight": [
+      "color",
+      "intensity"
+    ],
+    "Arrow": [
+      "end",
+      "size",
+      "start"
+    ],
+    "Camera": [
+      "antialias",
+      "clearColor",
+      "far",
+      "fov",
+      "mode",
+      "near",
+      "size"
+    ],
+    "CameraBackground": [
+      "name"
+    ],
+    "ColorGrading": [
+      "contrast",
+      "exposure",
+      "gain",
+      "gamma",
+      "hue",
+      "lift",
+      "midtonesRange",
+      "postSaturation",
+      "saturation",
+      "temperature",
+      "tint"
+    ],
+    "CustomPresentation": [],
+    "DepthPrepass": [],
+    "DirectionalLight": [
+      "color",
+      "direction",
+      "intensity",
+      "maximumDistance",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Line": [
+      "color",
+      "offset",
+      "opacity",
+      "thickness",
+      "visible"
+    ],
+    "MeshInstance": [
+      "mesh"
+    ],
+    "NotShadowCaster": [],
+    "PickingPrepass": [],
+    "PointLight": [
+      "color",
+      "intensity",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Resolution": [
+      "height",
+      "width"
+    ],
+    "SpotLight": [
+      "color",
+      "innerAngle",
+      "intensity",
+      "outerAngle",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "StandardRenderer": [],
+    "Tonemapping": [
+      "method"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "VolumetricLight": []
+  },
+  "src/extras/orbit/index.ts:OrbitOverlayPlugin": {
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ]
+  },
+  "src/extras/orbit/index.ts:OrbitPlugin": {
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Orbit": [
+      "distance",
+      "flyBoost",
+      "flyButton",
+      "flyMax",
+      "flyMin",
+      "flySensitivity",
+      "flySmoothness",
+      "flySpeed",
+      "keyAcceleration",
+      "keyDamping",
+      "keyRate",
+      "maxDistance",
+      "maxPitch",
+      "maxSize",
+      "minDistance",
+      "minPitch",
+      "minSize",
+      "mode",
+      "orbitButton",
+      "pan",
+      "panButton",
+      "pitch",
+      "sensitivity",
+      "size",
+      "smoothness",
+      "target",
+      "yaw",
+      "zoomSpeed"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ]
+  },
+  "src/extras/outline/index.ts:OutlinePlugin": {
+    "AmbientLight": [
+      "color",
+      "intensity"
+    ],
+    "Camera": [
+      "antialias",
+      "clearColor",
+      "far",
+      "fov",
+      "mode",
+      "near",
+      "size"
+    ],
+    "DirectionalLight": [
+      "color",
+      "direction",
+      "intensity",
+      "maximumDistance",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "MeshInstance": [
+      "mesh"
+    ],
+    "MeshMaterial": [
+      "material"
+    ],
+    "NotShadowCaster": [],
+    "Outline": [
+      "color",
+      "occlude",
+      "width"
+    ],
+    "PointLight": [
+      "color",
+      "intensity",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Resolution": [
+      "height",
+      "width"
+    ],
+    "SpotLight": [
+      "color",
+      "innerAngle",
+      "intensity",
+      "outerAngle",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "VolumetricLight": []
+  },
+  "src/extras/player/index.ts:PlayerPlugin": {
+    "Body": [
+      "friction",
+      "halfExtents",
+      "mass",
+      "position",
+      "rotation",
+      "shape"
+    ],
+    "Character": [
+      "groundNormal",
+      "groundState",
+      "groundVelocity",
+      "maxSlope",
+      "pogoVelocity",
+      "up",
+      "velocity"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Joint": [
+      "a",
+      "b",
+      "localAnchorA",
+      "localAnchorB",
+      "stiffnessAng"
+    ],
+    "Player": [
+      "acceleration",
+      "camera",
+      "coyoteTime",
+      "distance",
+      "eyeHeight",
+      "friction",
+      "gravity",
+      "jumpBuffer",
+      "jumpSpeed",
+      "pitch",
+      "sensitivity",
+      "speed",
+      "sprint",
+      "yaw"
+    ],
+    "PlayerMotion": [
+      "buffer",
+      "carry",
+      "coyote"
+    ],
+    "Spring": [
+      "a",
+      "b",
+      "localAnchorA",
+      "localAnchorB",
+      "rest",
+      "stiffness"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ]
+  },
+  "src/extras/profile/index.ts:ProfilePlugin": {
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ]
+  },
+  "src/extras/sky/index.ts:SkyPlugin": {
+    "AmbientLight": [
+      "color",
+      "intensity"
+    ],
+    "Camera": [
+      "antialias",
+      "clearColor",
+      "far",
+      "fov",
+      "mode",
+      "near",
+      "size"
+    ],
+    "CameraBackground": [
+      "name"
+    ],
+    "ColorGrading": [
+      "contrast",
+      "exposure",
+      "gain",
+      "gamma",
+      "hue",
+      "lift",
+      "midtonesRange",
+      "postSaturation",
+      "saturation",
+      "temperature",
+      "tint"
+    ],
+    "CustomPresentation": [],
+    "DepthPrepass": [],
+    "DirectionalLight": [
+      "color",
+      "direction",
+      "intensity",
+      "maximumDistance",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "MeshInstance": [
+      "mesh"
+    ],
+    "NotShadowCaster": [],
+    "PickingPrepass": [],
+    "PointLight": [
+      "color",
+      "intensity",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Resolution": [
+      "height",
+      "width"
+    ],
+    "Sky": [
+      "band",
+      "cloudColor",
+      "cloudCoverage",
+      "cloudDensity",
+      "cloudHeight",
+      "hazeColor",
+      "hazeDensity",
+      "horizon",
+      "starAmount",
+      "starIntensity",
+      "sunColor",
+      "sunGlow",
+      "sunSize",
+      "zenith"
+    ],
+    "SpotLight": [
+      "color",
+      "innerAngle",
+      "intensity",
+      "outerAngle",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "StandardRenderer": [],
+    "Tonemapping": [
+      "method"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "VolumetricLight": []
+  },
+  "src/extras/sprite/index.ts:SpritePlugin": {
+    "AmbientLight": [
+      "color",
+      "intensity"
+    ],
+    "Camera": [
+      "antialias",
+      "clearColor",
+      "far",
+      "fov",
+      "mode",
+      "near",
+      "size"
+    ],
+    "CameraBackground": [
+      "name"
+    ],
+    "ColorGrading": [
+      "contrast",
+      "exposure",
+      "gain",
+      "gamma",
+      "hue",
+      "lift",
+      "midtonesRange",
+      "postSaturation",
+      "saturation",
+      "temperature",
+      "tint"
+    ],
+    "CustomPresentation": [],
+    "DepthPrepass": [],
+    "DirectionalLight": [
+      "color",
+      "direction",
+      "intensity",
+      "maximumDistance",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "MeshInstance": [
+      "mesh"
+    ],
+    "NotShadowCaster": [],
+    "PickingPrepass": [],
+    "PointLight": [
+      "color",
+      "intensity",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Resolution": [
+      "height",
+      "width"
+    ],
+    "SpotLight": [
+      "color",
+      "innerAngle",
+      "intensity",
+      "outerAngle",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Sprite": [
+      "anchor",
+      "billboard",
+      "blend",
+      "color",
+      "fill",
+      "fillMode",
+      "image",
+      "opacity",
+      "size",
+      "visible"
+    ],
+    "StandardRenderer": [],
+    "Tonemapping": [
+      "method"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "VolumetricLight": []
+  },
+  "src/extras/text/index.ts:TextPlugin": {
+    "AmbientLight": [
+      "color",
+      "intensity"
+    ],
+    "Camera": [
+      "antialias",
+      "clearColor",
+      "far",
+      "fov",
+      "mode",
+      "near",
+      "size"
+    ],
+    "CameraBackground": [
+      "name"
+    ],
+    "ColorGrading": [
+      "contrast",
+      "exposure",
+      "gain",
+      "gamma",
+      "hue",
+      "lift",
+      "midtonesRange",
+      "postSaturation",
+      "saturation",
+      "temperature",
+      "tint"
+    ],
+    "CustomPresentation": [],
+    "DepthPrepass": [],
+    "DirectionalLight": [
+      "color",
+      "direction",
+      "intensity",
+      "maximumDistance",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "MeshInstance": [
+      "mesh"
+    ],
+    "NotShadowCaster": [],
+    "PickingPrepass": [],
+    "PointLight": [
+      "color",
+      "intensity",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Resolution": [
+      "height",
+      "width"
+    ],
+    "SpotLight": [
+      "color",
+      "innerAngle",
+      "intensity",
+      "outerAngle",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "StandardRenderer": [],
+    "Text": [
+      "anchor",
+      "color",
+      "content",
+      "font",
+      "fontSize",
+      "opacity",
+      "visible"
+    ],
+    "Tonemapping": [
+      "method"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "VolumetricLight": []
+  },
+  "src/extras/vignette/index.ts:VignettePlugin": {
+    "AmbientLight": [
+      "color",
+      "intensity"
+    ],
+    "Camera": [
+      "antialias",
+      "clearColor",
+      "far",
+      "fov",
+      "mode",
+      "near",
+      "size"
+    ],
+    "ColorGrading": [
+      "contrast",
+      "exposure",
+      "gain",
+      "gamma",
+      "hue",
+      "lift",
+      "midtonesRange",
+      "postSaturation",
+      "saturation",
+      "temperature",
+      "tint"
+    ],
+    "CustomPresentation": [],
+    "DepthPrepass": [],
+    "DirectionalLight": [
+      "color",
+      "direction",
+      "intensity",
+      "maximumDistance",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "NotShadowCaster": [],
+    "PickingPrepass": [],
+    "PointLight": [
+      "color",
+      "intensity",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Resolution": [
+      "height",
+      "width"
+    ],
+    "SpotLight": [
+      "color",
+      "innerAngle",
+      "intensity",
+      "outerAngle",
+      "radius",
+      "range",
+      "shadowDepthBias",
+      "shadowMapsEnabled",
+      "shadowNormalBias"
+    ],
+    "Tonemapping": [
+      "method"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Vignette": [
+      "center",
+      "color",
+      "edgeCompensation",
+      "intensity",
+      "radius",
+      "roundness",
+      "smoothness"
+    ],
+    "VolumetricLight": []
+  },
+  "examples/first-person/src/demo.ts:Demo": {
+    "Body": [
+      "friction",
+      "halfExtents",
+      "mass",
+      "position",
+      "rotation",
+      "shape"
+    ],
+    "Character": [
+      "groundNormal",
+      "groundState",
+      "groundVelocity",
+      "maxSlope",
+      "pogoVelocity",
+      "up",
+      "velocity"
+    ],
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Joint": [
+      "a",
+      "b",
+      "localAnchorA",
+      "localAnchorB",
+      "stiffnessAng"
+    ],
+    "Lift": [],
+    "Player": [
+      "acceleration",
+      "camera",
+      "coyoteTime",
+      "distance",
+      "eyeHeight",
+      "friction",
+      "gravity",
+      "jumpBuffer",
+      "jumpSpeed",
+      "pitch",
+      "sensitivity",
+      "speed",
+      "sprint",
+      "yaw"
+    ],
+    "PlayerMotion": [
+      "buffer",
+      "carry",
+      "coyote"
+    ],
+    "Spring": [
+      "a",
+      "b",
+      "localAnchorA",
+      "localAnchorB",
+      "rest",
+      "stiffness"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ]
+  },
+  "examples/loading-screen/src/scene.ts:LoadingWorld": {
+    "GlobalTransform": [
+      "linearVelocity",
+      "rotation",
+      "scale",
+      "translation"
+    ],
+    "Orbit": [
+      "distance",
+      "flyBoost",
+      "flyButton",
+      "flyMax",
+      "flyMin",
+      "flySensitivity",
+      "flySmoothness",
+      "flySpeed",
+      "keyAcceleration",
+      "keyDamping",
+      "keyRate",
+      "maxDistance",
+      "maxPitch",
+      "maxSize",
+      "minDistance",
+      "minPitch",
+      "minSize",
+      "mode",
+      "orbitButton",
+      "pan",
+      "panButton",
+      "pitch",
+      "sensitivity",
+      "size",
+      "smoothness",
+      "target",
+      "yaw",
+      "zoomSpeed"
+    ],
+    "Transform": [
+      "rotation",
+      "scale",
+      "translation"
+    ]
+  }
+}

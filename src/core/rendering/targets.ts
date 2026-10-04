@@ -1,5 +1,5 @@
 import type { World } from "../../engine";
-import { unpackColor } from "../../engine";
+import { component, unpackColor } from "../../engine";
 import { Camera } from "./camera";
 import { RenderContext } from "./render";
 import type { View } from "./view";
@@ -13,9 +13,9 @@ export const PICKING_ID_FORMAT: GPUTextureFormat = "r32uint";
 export const PICKING_ID_NONE = 0xffffffff;
 
 /** Opt a camera into stored single-sample prepass depth, published as view.depth. */
-export const DepthPrepass = {};
+export const DepthPrepass = component("DepthPrepass", {});
 /** Opt a camera into the single-sample picking lane, published as view.pickingId. */
-export const PickingPrepass = {};
+export const PickingPrepass = component("PickingPrepass", {});
 
 export interface ColorLane {
     name: string;

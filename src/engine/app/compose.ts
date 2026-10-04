@@ -1,3 +1,4 @@
+import { declaration } from "../ecs";
 import type { Plugin } from ".";
 
 /** a required plugin edge whose dependency is absent from the composition. */
@@ -24,6 +25,7 @@ export function resolvePlugins(plugins: readonly Plugin[]): PluginComposition {
     const degree = new Map(nodes.map((plugin) => [plugin, 0]));
 
     for (const plugin of nodes) {
+        for (const fields of plugin.components ?? []) declaration(fields, plugin.name);
         for (const dependency of plugin.dependencies ?? []) {
             if (!present.has(dependency)) {
                 missing.push({ plugin, dependency });

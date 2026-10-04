@@ -110,7 +110,7 @@ const coreSystems = {
 };
 const lightSystems = { UpdateLightClustersSystem, CullLightsSystem };
 
-function registration() {
+function composition() {
     // Inspect identities without lazy resource() access creating the state under test.
     return subjects()[0].world as unknown as {
         _resources: Map<Resource<unknown>, unknown>;
@@ -135,7 +135,7 @@ function assertRegistration(
     deferredResources: Record<string, Resource<unknown>>,
     deferredSystems: Record<string, System>,
 ) {
-    const { _resources, _scheduler } = registration();
+    const { _resources, _scheduler } = composition();
     expect({
         resources: exactNames(_resources.keys(), coreResources, deferredResources),
         systems: exactNames(_scheduler._systems, coreSystems, deferredSystems),
@@ -147,7 +147,7 @@ function assertRegistration(
 
 test("stage 3: core-only rendering registers no mesh resources", () => {
     for (const key of Object.values(meshResources)) {
-        expect(registration()._resources.has(key)).toBe(false);
+        expect(composition()._resources.has(key)).toBe(false);
     }
     assertRegistration({ ...contractResources, ...lightResources }, lightSystems);
 });

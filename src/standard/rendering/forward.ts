@@ -4,7 +4,7 @@ import {
     PrepassSystem,
     RenderPhases,
 } from "../../core/rendering";
-import { registration } from "../../engine";
+import { component } from "../../engine";
 import {
     CullLightsSystem,
     initializeClusterState,
@@ -165,7 +165,7 @@ function createStandardRendererState(): StandardRendererState {
  * standard's opaque and transparent records, plus core's opt-in prepass lanes requested by
  * {@link PickingPrepass} and {@link DepthPrepass}.
  */
-export const StandardRenderer = {};
+export const StandardRenderer = component("StandardRenderer", {});
 
 /**
  * select a StandardRenderer camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen
@@ -173,10 +173,10 @@ export const StandardRenderer = {};
  * (the opt-in fallback). The recipe is registered in code with `registerBackground`; this picks one per
  * camera by name.
  */
-export const CameraBackground = {
+export const CameraBackground = component("CameraBackground", {
     /** the {@link Backgrounds} id drawn behind the scene */
     name: u32,
-};
+});
 
 // a draw resolving to null is a silent skip — usually a typo'd binding or an
 // unpublished resource. Warn once per draw so it's visible without spamming
@@ -664,7 +664,7 @@ function renderColor(
     const _standardRendererState = world.resource(standardRendererStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
-    // per-camera AA: 4× MSAA when `Camera.antialias` is on (the Camera registration default), else
+    // per-camera AA: 4× MSAA when `Camera.antialias` is on (the Camera component default), else
     // single-sample. `world.storage(Camera).antialias.set(eid, 0)` flips it live
     const aa = world.storage(Camera).antialias.get(eid) !== 0;
 
@@ -981,10 +981,7 @@ const PackLightingSystem: System = {
  */
 export const StandardRenderingPlugin: Plugin = {
     name: "StandardRendering",
-    components: [
-        registration("StandardRenderer", StandardRenderer),
-        registration("CameraBackground", CameraBackground),
-    ],
+    components: [StandardRenderer, CameraBackground],
     systems: [
         PackLightingSystem,
         UpdateLightClustersSystem,

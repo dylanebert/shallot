@@ -1,4 +1,3 @@
-import { registration } from "../../engine";
 // Sprite — world-space iconography. A retained `Sprite` component (registered image, world size,
 // anchor, tint, billboard mode) draws textured unit quads instanced from one shared buffer, one
 // indirect draw per (billboard, blend) variant. Images register into one `texture_2d_array` (the
@@ -24,18 +23,7 @@ import {
     registerSurface,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import {
-    BUCKETS,
-    INITIAL,
-    packSprites,
-    resetPack,
-    SPRITE_BYTES,
-    Sprite,
-    SpriteBillboard,
-    SpriteBlend,
-    SpriteFill,
-    signature,
-} from "./pack";
+import { BUCKETS, INITIAL, packSprites, resetPack, SPRITE_BYTES, Sprite, signature } from "./pack";
 import { SpriteData, spriteSurface, surfaceName } from "./surface";
 
 export { Sprite, SpriteBillboard, SpriteBlend, SpriteFill } from "./pack";
@@ -212,22 +200,7 @@ const SpriteSystem: System = {
  */
 export const SpritePlugin: Plugin = {
     name: "Sprite",
-    components: [
-        registration("Sprite", Sprite, {
-            defaults: () => ({
-                image: 0,
-                size: [1, 1],
-                anchor: [0.5, 0.5],
-                color: 0xffffff,
-                opacity: 1,
-                visible: 1,
-                billboard: SpriteBillboard.Screen,
-                blend: SpriteBlend.Clip,
-                fill: 1,
-                fillMode: SpriteFill.None,
-            }),
-        }),
-    ],
+    components: [Sprite],
     systems: [SpriteSystem],
     dependencies: [MeshPlugin, RenderingPlugin, StandardRenderingPlugin],
 

@@ -11,7 +11,6 @@ import {
     Devices,
     InputPlugin,
     Player,
-    PlayerPlugin,
     readBody,
     StandardPhysicsPlugin,
     Time,
@@ -184,15 +183,10 @@ test("the actual first-person scene gives the player a pogo-rest spawn, a contai
             if (tuning[field].get(player) !== tuning[field].get(defaults))
                 throw new Error(`first-person player overrides default ${field}`);
         }
+        const eyeHeight = tuning.eyeHeight.get(defaults);
         app.world.destroy(defaults);
         // The eye is authored where Player would pose it at spawn: the capsule centre raised by
         // the default eye height, since the player entity authors no tuning of its own.
-        const eyeHeight = (
-            PlayerPlugin.components
-                ?.find(({ component }) => component === Player)
-                ?.defaults?.(app.world) as { eyeHeight: number } | undefined
-        )?.eyeHeight;
-        if (eyeHeight === undefined) throw new Error("Player declares no default eyeHeight");
         const eyeTransform = app.world.storage(Transform).translation;
         const eyeEid = entity(app, "eye");
         const eye = [

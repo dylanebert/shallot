@@ -23,7 +23,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { f32, registration, u32 } from "../../engine";
+import { component, f32, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
     LightCull,
@@ -46,28 +46,45 @@ import { fogKernel, fogLayout0, fogLayout1 } from "./pipeline";
  * altitude above `heightBase`); `steps` / `jitter` trade march cost for banding. The scattering knobs
  * (`absorption` / `scattering` / `anisotropy` / `scatterIntensity`) shape volumetric light shafts.
  */
-export const Fog = {
-    /** base extinction coefficient: how fast the scene fades into haze with distance (0 = clear) */
-    density: f32,
-    /** hex sRGB haze color the scene fades toward (e.g. 0xb5c4d8) */
-    color: f32,
-    /** absorbed fraction of extinction [0,1]; the rest scatters (the scattering albedo for light shafts) */
-    absorption: f32,
-    /** in-scatter strength: how brightly light shafts glow in the haze */
-    scattering: f32,
-    /** Henyey-Greenstein anisotropy [-1,1]: 0 even glow, →1 forward (bright halo toward a light) */
-    anisotropy: f32,
-    /** world height where density equals `density`: the base of the height falloff */
-    heightBase: f32,
-    /** exponential density falloff per world unit above `heightBase` (0 = uniform haze, no height fog) */
-    heightFalloff: f32,
-    /** raymarch step count along each pixel's ray (clamped to 256); more = smoother, costlier */
-    steps: u32,
-    /** per-pixel step jitter [0,1] that breaks march banding into noise (0 = fixed midpoint sampling) */
-    jitter: f32,
-    /** overall multiplier on in-scatter brightness */
-    scatterIntensity: f32,
-};
+export const Fog = component(
+    "Fog",
+    {
+        /** base extinction coefficient: how fast the scene fades into haze with distance (0 = clear) */
+        density: f32,
+        /** hex sRGB haze color the scene fades toward (e.g. 0xb5c4d8) */
+        color: f32,
+        /** absorbed fraction of extinction [0,1]; the rest scatters (the scattering albedo for light shafts) */
+        absorption: f32,
+        /** in-scatter strength: how brightly light shafts glow in the haze */
+        scattering: f32,
+        /** Henyey-Greenstein anisotropy [-1,1]: 0 even glow, →1 forward (bright halo toward a light) */
+        anisotropy: f32,
+        /** world height where density equals `density`: the base of the height falloff */
+        heightBase: f32,
+        /** exponential density falloff per world unit above `heightBase` (0 = uniform haze, no height fog) */
+        heightFalloff: f32,
+        /** raymarch step count along each pixel's ray (clamped to 256); more = smoother, costlier */
+        steps: u32,
+        /** per-pixel step jitter [0,1] that breaks march banding into noise (0 = fixed midpoint sampling) */
+        jitter: f32,
+        /** overall multiplier on in-scatter brightness */
+        scatterIntensity: f32,
+    },
+    {
+        defaults: () => ({
+            density: 0.02,
+            color: 0xb5c4d8,
+            absorption: 0,
+            scattering: 1,
+            anisotropy: 0,
+            heightBase: 0,
+            heightFalloff: 0,
+            steps: 32,
+            jitter: 1,
+            scatterIntensity: 1,
+        }),
+    },
+);
 
 interface FogState {
     fog: {
@@ -227,22 +244,7 @@ const FogSystem: System = {
  */
 export const FogPlugin: Plugin = {
     name: "Fog",
-    components: [
-        registration("Fog", Fog, {
-            defaults: () => ({
-                density: 0.02,
-                color: 0xb5c4d8,
-                absorption: 0,
-                scattering: 1,
-                anisotropy: 0,
-                heightBase: 0,
-                heightFalloff: 0,
-                steps: 32,
-                jitter: 1,
-                scatterIntensity: 1,
-            }),
-        }),
-    ],
+    components: [Fog],
 
     systems: [FogSystem],
     dependencies: [RenderingPlugin, StandardRenderingPlugin],

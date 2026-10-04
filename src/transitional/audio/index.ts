@@ -2,13 +2,13 @@
 
 import { Devices } from "../../core/input";
 import {
+    component,
     composeGlobalTransform,
     f32,
     GlobalTransform,
     i32,
     not,
     type Plugin,
-    registration,
     type System,
     Transform,
     u8,
@@ -44,26 +44,32 @@ import { getSample, Samples } from "./sample";
  * only) firehose live to the voice. `voice` is the allocated voice handle,
  * managed by {@link SoundSystem}; don't write it
  */
-export const Sound = {
-    /** registered instrument or sample name, resolved to an id (a bare sample auto-wraps a sampler) */
-    instrument: i32,
-    /** 0 = one-shot (frees itself when the envelope idles), 1 = loop until the `Sound` is removed */
-    loop: u8,
-    /** playback level 0–1, quadratic; firehoses live to the voice */
-    volume: f32,
-    /** pitch offset in semitones (oscillator instruments only); firehoses live to the voice */
-    pitch: f32,
-    /** allocated voice handle, managed by the audio system. read-only, don't author */
-    voice: i32,
-};
+export const Sound = component(
+    "Sound",
+    {
+        /** registered instrument or sample name, resolved to an id (a bare sample auto-wraps a sampler) */
+        instrument: i32,
+        /** 0 = one-shot (frees itself when the envelope idles), 1 = loop until the `Sound` is removed */
+        loop: u8,
+        /** playback level 0–1, quadratic; firehoses live to the voice */
+        volume: f32,
+        /** pitch offset in semitones (oscillator instruments only); firehoses live to the voice */
+        pitch: f32,
+        /** allocated voice handle, managed by the audio system. read-only, don't author */
+        voice: i32,
+    },
+    {
+        defaults: () => ({ instrument: -1, loop: 0, volume: 1, pitch: 0, voice: -1 }),
+    },
+);
 
 /** marks the spatial listener entity. its `Transform` orients the FOA + HRTF render */
-export const Listener = {};
+export const Listener = component("Listener", {}, {});
 
 // a Sound that holds a live voice. Presence is the liveness signal (Bevy's
 // inserted `AudioSink`): `[Sound, not(Voiced)]` needs a voice, `[Voiced,
 // not(Sound)]` is a stopped loop to free. Internal — consumers never touch it
-const Voiced = {};
+const Voiced = component("Voiced", {});
 
 const _m = new Float32Array(16);
 
@@ -369,13 +375,7 @@ export { Instruments, instrument };
  */
 export const AudioPlugin: Plugin = {
     name: "Audio",
-    components: [
-        registration("Sound", Sound, {
-            defaults: () => ({ instrument: -1, loop: 0, volume: 1, pitch: 0, voice: -1 }),
-        }),
-        registration("Listener", Listener, {}),
-        registration("Voiced", Voiced),
-    ],
+    components: [Sound, Listener, Voiced],
     systems: [SoundSystem],
 
     async initialize(world) {

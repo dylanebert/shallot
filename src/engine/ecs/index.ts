@@ -7,6 +7,8 @@ export type {
     Vector4Field,
 } from "./component";
 export {
+    component,
+    declaration,
     entity,
     f16,
     f32,
@@ -39,8 +41,6 @@ export {
     readFields,
     snapshot,
 } from "./reflection";
-export type { Registration } from "./registration";
-export { registration } from "./registration";
 export { type System, Time } from "./scheduler";
 export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
 export { type Resource, World } from "./world";

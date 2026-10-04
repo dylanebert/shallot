@@ -2,23 +2,44 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Xform } from "../utils";
-import { vec4 } from "./component";
-import { registration } from "./registration";
+import { component, vec4 } from "./component";
 import type { ComponentStorage } from "./storage";
 import type { GpuTable } from "./table";
 import type { World } from "./world";
 
-/** Authored world placement. There is no hierarchy. */
-export const Transform = { translation: vec4, rotation: vec4, scale: vec4 };
 /** Derived fixed-tick world placement, never authored. Gameplay and physics queries
  * read this, never Transform. Producers require it on insertion;
  * rendering reads `globalTransformTable(world)` instead of these fixed-tick columns. */
-export const GlobalTransform = {
-    translation: vec4,
-    rotation: vec4,
-    scale: vec4,
-    linearVelocity: vec4,
-};
+export const GlobalTransform = component(
+    "GlobalTransform",
+    {
+        translation: vec4,
+        rotation: vec4,
+        scale: vec4,
+        linearVelocity: vec4,
+    },
+    {
+        defaults: () => ({
+            translation: [0, 0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            scale: [1, 1, 1, 0],
+            linearVelocity: [0, 0, 0, 0],
+        }),
+    },
+);
+/** Authored world placement. There is no hierarchy. */
+export const Transform = component(
+    "Transform",
+    { translation: vec4, rotation: vec4, scale: vec4 },
+    {
+        defaults: () => ({
+            translation: [0, 0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            scale: [1, 1, 1, 1],
+        }),
+        requires: [GlobalTransform],
+    },
+);
 const transformTerms = [Transform];
 const globalTransformTerms = [GlobalTransform];
 const layout = tgpu.bindGroupLayout({
@@ -77,26 +98,8 @@ export interface GlobalTransformRuntime {
 
 /** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
 export function registerGlobalTransform(world: World): void {
-    world.registry.register(
-        registration("GlobalTransform", GlobalTransform, {
-            defaults: () => ({
-                translation: [0, 0, 0, 0],
-                rotation: [0, 0, 0, 1],
-                scale: [1, 1, 1, 0],
-                linearVelocity: [0, 0, 0, 0],
-            }),
-        }),
-    );
-    world.registry.register(
-        registration("Transform", Transform, {
-            defaults: () => ({
-                translation: [0, 0, 0, 0],
-                rotation: [0, 0, 0, 1],
-                scale: [1, 1, 1, 1],
-            }),
-            requires: [GlobalTransform],
-        }),
-    );
+    world.registry.register(GlobalTransform);
+    world.registry.register(Transform);
 }
 /** @internal Install once before setup authoring. GPU residency waits for a reader. */
 export function initializeGlobalTransform(world: World): void {

@@ -20,6 +20,7 @@ export {
 export {
     and,
     type Component,
+    component,
     composeGlobalTransform,
     entity,
     type FieldType,
@@ -31,9 +32,7 @@ export {
     i32,
     not,
     or,
-    type Registration,
     type Resource,
-    registration,
     type ScalarField,
     type System,
     type TableUploadPath,

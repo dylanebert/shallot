@@ -1,3 +1,4 @@
+import { component } from "../../engine";
 // the Sprite component + the CPU half of the producer: bucket every visible sprite by
 // (billboard, blend), pack each instance into a shared eid-indexed staging buffer (the shadow atlas
 // re-gather preserves only `eid`, so instance data can't be slot-major once a surface casts — see
@@ -50,28 +51,45 @@ export const SpriteFill = {
  * `fill` shows only the leading 0..1 fraction of the image along a {@link SpriteFill} `fillMode`:
  * a radial fill over a ring icon is a progress ring, a vertical fill over a bar icon a gauge
  */
-export const Sprite = {
-    /** registered image id (see {@link registerImage}) */
-    image: u32,
-    /** quad size in world units, before the transform's scale */
-    size: vec2,
-    /** 0..1 pivot within the quad; 0.5 0.5 centers, 0.5 0 pins the bottom edge to the entity */
-    anchor: vec2,
-    /** hex sRGB tint multiplied into the texture */
-    color: f32,
-    /** texture-alpha multiplier; under clip blend it shrinks the cutout, under alpha blend it fades */
-    opacity: f32,
-    /** drawn when nonzero */
-    visible: f32,
-    /** billboard orientation, a {@link SpriteBillboard} mode */
-    billboard: u32,
-    /** compositing, a {@link SpriteBlend} mode */
-    blend: u32,
-    /** leading fraction of the image shown, 0..1, along {@link fillMode} */
-    fill: f32,
-    /** fill direction, a {@link SpriteFill} mode */
-    fillMode: u32,
-};
+export const Sprite = component(
+    "Sprite",
+    {
+        /** registered image id (see {@link registerImage}) */
+        image: u32,
+        /** quad size in world units, before the transform's scale */
+        size: vec2,
+        /** 0..1 pivot within the quad; 0.5 0.5 centers, 0.5 0 pins the bottom edge to the entity */
+        anchor: vec2,
+        /** hex sRGB tint multiplied into the texture */
+        color: f32,
+        /** texture-alpha multiplier; under clip blend it shrinks the cutout, under alpha blend it fades */
+        opacity: f32,
+        /** drawn when nonzero */
+        visible: f32,
+        /** billboard orientation, a {@link SpriteBillboard} mode */
+        billboard: u32,
+        /** compositing, a {@link SpriteBlend} mode */
+        blend: u32,
+        /** leading fraction of the image shown, 0..1, along {@link fillMode} */
+        fill: f32,
+        /** fill direction, a {@link SpriteFill} mode */
+        fillMode: u32,
+    },
+    {
+        defaults: () => ({
+            image: 0,
+            size: [1, 1],
+            anchor: [0.5, 0.5],
+            color: 0xffffff,
+            opacity: 1,
+            visible: 1,
+            billboard: SpriteBillboard.Screen,
+            blend: SpriteBlend.Clip,
+            fill: 1,
+            fillMode: SpriteFill.None,
+        }),
+    },
+);
 
 // one sprite instance = the quad-local offset (-size·anchor) + size, the owning eid, the array
 // layer, a packed sRGBA tint, and the packed fill (unorm16 amount | mode << 16). 32 bytes / two

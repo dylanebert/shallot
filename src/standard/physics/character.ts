@@ -1,8 +1,8 @@
 import { Body, ShapeKind } from "../../core/physics";
 import {
+    component,
     f32 as field,
     type Plugin,
-    registration,
     type System,
     Time,
     u32,
@@ -30,21 +30,36 @@ import { bodyApplyLinearImpulse, getBodySim, getBodyState } from "./world/body";
 export const GroundState = { InAir: 0, OnGround: 1, OnSteepGround: 2 } as const;
 
 /** A mass-zero capsule Body. Write velocity in a fixed system ordered before `CharacterPlugin.systems`; movement runs after body synchronization and before the rigid solver. Resolved velocity is written back, without gravity or input policy. Ground velocity is reported, never added to motion. */
-export const Character = {
-    /** World-space metres per second in xyz; w is unused. */
-    velocity: vec4,
-    groundState: u32,
-    /** World-space unit normal at the pogo ray hit, or zero in air. */
-    groundNormal: vec4,
-    /** Hit body's velocity at the ground point, in world-space metres per second, or zero in air. */
-    groundVelocity: vec4,
-    /** Maximum walkable slope in radians, measured from up. */
-    maxSlope: field,
-    /** Unit world-space up direction. */
-    up: vec4,
-    /** Pogo spring speed in metres per second; persists between fixed ticks. */
-    pogoVelocity: field,
-};
+export const Character = component(
+    "Character",
+    {
+        /** World-space metres per second in xyz; w is unused. */
+        velocity: vec4,
+        groundState: u32,
+        /** World-space unit normal at the pogo ray hit, or zero in air. */
+        groundNormal: vec4,
+        /** Hit body's velocity at the ground point, in world-space metres per second, or zero in air. */
+        groundVelocity: vec4,
+        /** Maximum walkable slope in radians, measured from up. */
+        maxSlope: field,
+        /** Unit world-space up direction. */
+        up: vec4,
+        /** Pogo spring speed in metres per second; persists between fixed ticks. */
+        pogoVelocity: field,
+    },
+    {
+        requires: [Body],
+        defaults: () => ({
+            velocity: [0, 0, 0, 0],
+            groundState: GroundState.InAir,
+            groundNormal: [0, 0, 0, 0],
+            groundVelocity: [0, 0, 0, 0],
+            maxSlope: Math.PI / 4,
+            up: [0, 1, 0, 0],
+            pogoVelocity: 0,
+        }),
+    },
+);
 
 const terms = [Character, Body];
 
@@ -367,19 +382,6 @@ const MoveCharactersSystem: System = {
 export const CharacterPlugin: Plugin = {
     name: "Character",
     dependencies: [StandardPhysicsPlugin],
-    components: [
-        registration("Character", Character, {
-            requires: [Body],
-            defaults: () => ({
-                velocity: [0, 0, 0, 0],
-                groundState: GroundState.InAir,
-                groundNormal: [0, 0, 0, 0],
-                groundVelocity: [0, 0, 0, 0],
-                maxSlope: Math.PI / 4,
-                up: [0, 1, 0, 0],
-                pogoVelocity: 0,
-            }),
-        }),
-    ],
+    components: [Character],
     systems: [MoveCharactersSystem],
 };

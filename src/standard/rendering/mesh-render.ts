@@ -1,6 +1,6 @@
 import { MeshPlugin } from "../../core/mesh";
 import { RenderingPlugin } from "../../core/rendering";
-import { type Plugin, registration } from "../../engine";
+import type { Plugin } from "../../engine";
 import { MeshMaterial } from "./material";
 import {
     initializeMeshPreprocess,
@@ -13,7 +13,7 @@ import {
 export const MeshRenderPlugin: Plugin = {
     name: "MeshRender",
     systems: [MeshPreprocessSystem],
-    components: [registration("MeshMaterial", MeshMaterial, { defaults: () => ({ material: 0 }) })],
+    components: [MeshMaterial],
     dependencies: [RenderingPlugin, MeshPlugin],
     initialize(world) {
         initializeMeshPreprocess(world);

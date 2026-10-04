@@ -1,4 +1,4 @@
-import { registration } from "../../engine";
+import { component } from "../../engine";
 // Text — the shallot SDF-text producer. A retained `Text` component (string content, font, size,
 // anchor, color) lays each label out into instanced glyph quads, drawn as a standard `"alpha"` world-space
 // surface (one draw per font atlas). The glyph buffer holds glyph-local positions + the owning entity id;
@@ -77,22 +77,36 @@ export function internText(world: World, content: string): number {
  * {@link internText} and, optionally, a face with {@link registerFont}; the glyphs lay out once and ride the entity's
  * transform, so moving a label triggers no rebuild
  */
-export const Text = {
-    /** interned string id (see {@link internText}) */
-    content: u32,
-    /** registered font id (see {@link registerFont}); 0 is the default face */
-    font: u32,
-    /** world height of one em */
-    fontSize: f32,
-    /** 0..1 opacity multiplier */
-    opacity: f32,
-    /** drawn when nonzero */
-    visible: f32,
-    /** 0..1 pivot within the label; 0 0 = bottom-left, 0.5 0.5 centered */
-    anchor: vec2,
-    /** hex sRGB glyph color */
-    color: f32,
-};
+export const Text = component(
+    "Text",
+    {
+        /** interned string id (see {@link internText}) */
+        content: u32,
+        /** registered font id (see {@link registerFont}); 0 is the default face */
+        font: u32,
+        /** world height of one em */
+        fontSize: f32,
+        /** 0..1 opacity multiplier */
+        opacity: f32,
+        /** drawn when nonzero */
+        visible: f32,
+        /** 0..1 pivot within the label; 0 0 = bottom-left, 0.5 0.5 centered */
+        anchor: vec2,
+        /** hex sRGB glyph color */
+        color: f32,
+    },
+    {
+        defaults: () => ({
+            content: 0,
+            font: 0,
+            fontSize: 1,
+            opacity: 1,
+            visible: 1,
+            anchor: [0, 0],
+            color: 0xffffff,
+        }),
+    },
+);
 
 // one surface + draw + atlas texture per font. The glyph buffer + sampler are shared (one name each); only
 // the atlas texture binding is per-font, so its name carries the id. The default single-font case is one
@@ -357,19 +371,7 @@ const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456
  */
 export const TextPlugin: Plugin = {
     name: "Text",
-    components: [
-        registration("Text", Text, {
-            defaults: () => ({
-                content: 0,
-                font: 0,
-                fontSize: 1,
-                opacity: 1,
-                visible: 1,
-                anchor: [0, 0],
-                color: 0xffffff,
-            }),
-        }),
-    ],
+    components: [Text],
     systems: [TextSystem],
     dependencies: [MeshPlugin, RenderingPlugin, StandardRenderingPlugin],
 

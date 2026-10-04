@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import type { createApp, Plugin } from "../app";
 import { f32, u32 } from "../index";
 import { probeBuffer } from "../runtime";
-import { type Registration, registration } from "./registration";
+import { type Component, component } from "./component";
 import type { World } from "./world";
 
 setDefaultTimeout(CEILING.gpu);
@@ -23,7 +23,7 @@ const apps = gpuApps(import.meta.path, configs);
 /** Declare one independent world, built in the file's beforeAll; its table is declared at initialize. */
 function subject(
     name: string,
-    components: Registration[],
+    components: Component[],
     declare?: (world: World) => ReturnType<World["table"]>,
 ): () => Subject {
     const index = configs.length;
@@ -75,7 +75,7 @@ const Record = d.struct({ amount: d.f32, tag: d.u32 });
 const Rows = { amount: f32, tag: u32 };
 
 for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
-    const upload = subject("TableUploadProbe", [registration("Rows", Rows)], (world) =>
+    const upload = subject("TableUploadProbe", [component("Rows", Rows)], (world) =>
         world.table("table-upload-probe", Record),
     );
     test(`dense tables upload ${range} ranges with writeBuffer and skip unchanged rows`, async () => {
@@ -150,7 +150,7 @@ const Optional = { y: f32 };
 const Flag = {};
 const presence = subject(
     "TablePresenceProbe",
-    [registration("Core", Core), registration("Optional", Optional), registration("Flag", Flag)],
+    [component("Core", Core), component("Optional", Optional), component("Flag", Flag)],
     (world) => {
         const table = world.table(
             "table-presence-probe",
@@ -194,7 +194,7 @@ test("tables combine source fields, optional presence, and several row owners", 
 });
 
 const Bound = { x: f32, y: f32 };
-const bound = subject("BoundTableProbe", [registration("Bound", Bound)], (world) => {
+const bound = subject("BoundTableProbe", [component("Bound", Bound)], (world) => {
     const table = world.table("bound-table-probe", d.struct({ x: d.f32, y: d.f32 }));
     table.bindComponent(Bound, { x: "x", y: "y" });
     return table;
@@ -342,7 +342,7 @@ test("table growth changes generation and refuses beyond the named device limit"
 });
 
 const Changed = { sparse: f32, uploaded: f32 };
-const changeMarks = subject("WorldChangeMarkProbe", [registration("Changed", Changed)]);
+const changeMarks = subject("WorldChangeMarkProbe", [component("Changed", Changed)]);
 
 test("frame change marks clear at the world upload point", async () => {
     const { world } = changeMarks();

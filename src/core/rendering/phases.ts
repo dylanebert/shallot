@@ -1,4 +1,4 @@
-import { type Plugin, registration, type System, type World } from "../../engine";
+import type { Plugin, System, World } from "../../engine";
 import { Camera } from "./camera";
 import { RenderContext } from "./render";
 import { BeginFrameSystem, OverlaySystem, RenderingPlugin } from "./substrate";
@@ -16,7 +16,7 @@ import {
 import { TonemappingPlugin, TonemappingSystem } from "./tonemapping-state";
 import { type View, Views } from "./view";
 
-/** Records into a core-owned pass. Records must not end the pass. Order within each phase is registration order. */
+/** Records into a core-owned pass. Records must not end the pass. Order within each phase is component order. */
 export interface PhaseRenderer {
     prepass?(
         world: World,
@@ -81,11 +81,7 @@ export const CorePipelinePlugin: Plugin = {
     name: "CorePipeline",
     dependencies: [RenderingPlugin],
     systems: [PrepassSystem, MainPassSystem, TonemappingSystem],
-    components: [
-        ...(TonemappingPlugin.components ?? []),
-        registration("DepthPrepass", DepthPrepass),
-        registration("PickingPrepass", PickingPrepass),
-    ],
+    components: [...(TonemappingPlugin.components ?? []), DepthPrepass, PickingPrepass],
     initialize(world) {
         initializeViewTargets(world);
         world.resource(RenderPhases);

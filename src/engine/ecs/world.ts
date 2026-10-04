@@ -19,7 +19,7 @@ import {
     prepareGlobalTransformFrame,
 } from "./global-transform";
 import { Queries } from "./query";
-import { ComponentRegistry } from "./registration";
+import { ComponentRegistry } from "./registry";
 import { Scheduler, type System, Time } from "./scheduler";
 import { type ComponentStorage, WorldField } from "./storage";
 import { GpuTable, type GpuTableOptions } from "./table";

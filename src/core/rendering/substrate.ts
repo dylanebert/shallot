@@ -1,4 +1,3 @@
-import { registration } from "../../engine";
 /// <reference types="@webgpu/types" />
 
 import * as d from "typegpu/data";
@@ -408,60 +407,14 @@ export const RenderingPlugin: Plugin = {
     name: "Rendering",
     systems: [BeginFrameSystem, OverlaySystem, PresentationSystem, EndFrameSystem],
     components: [
-        registration("Camera", Camera, {
-            defaults: () => ({
-                mode: CameraMode.Perspective,
-                fov: 60,
-                near: 0.1,
-                far: 1000,
-                size: 5,
-                clearColor: 0x2e2b28,
-                antialias: 1,
-            }),
-        }),
-        registration("Resolution", Resolution, {
-            defaults: () => ({ width: 0, height: 0 }),
-        }),
-        registration("AmbientLight", AmbientLight, {
-            defaults: () => ({ color: 0xffffff, intensity: 0.5 }),
-        }),
-        registration("DirectionalLight", DirectionalLight, {
-            defaults: () => ({
-                color: 0xffffff,
-                intensity: 1.5,
-                direction: [-0.6, -1.0, -0.8, 0],
-                shadowMapsEnabled: 0,
-                maximumDistance: 50,
-                shadowDepthBias: 0.0005,
-                shadowNormalBias: 1.8,
-            }),
-        }),
-        registration("PointLight", PointLight, {
-            defaults: () => ({
-                color: 0xffffff,
-                intensity: 1,
-                range: 10,
-                radius: 0.1,
-                shadowMapsEnabled: 0,
-                shadowDepthBias: 0.0005,
-                shadowNormalBias: 1.8,
-            }),
-        }),
-        registration("SpotLight", SpotLight, {
-            defaults: () => ({
-                color: 0xffffff,
-                intensity: 1,
-                range: 10,
-                radius: 0.1,
-                innerAngle: 20,
-                outerAngle: 30,
-                shadowMapsEnabled: 0,
-                shadowDepthBias: 0.0005,
-                shadowNormalBias: 1.8,
-            }),
-        }),
-        registration("VolumetricLight", VolumetricLight),
-        registration("NotShadowCaster", NotShadowCaster),
+        Camera,
+        Resolution,
+        AmbientLight,
+        DirectionalLight,
+        PointLight,
+        SpotLight,
+        VolumetricLight,
+        NotShadowCaster,
     ],
 
     async initialize(world) {

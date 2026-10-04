@@ -13,19 +13,33 @@ import {
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
-import { f32, type Plugin, registration, vec2, vec4, type World } from "../../engine";
+import { component, f32, type Plugin, vec2, vec4, type World } from "../../engine";
 import { precompile } from "../../engine/runtime";
 
 /** Bevy's HDR vignette. Color is sRGB, center is UV; only carrying cameras run the pass. */
-export const Vignette = {
-    intensity: f32,
-    radius: f32,
-    smoothness: f32,
-    roundness: f32,
-    center: vec2,
-    edgeCompensation: f32,
-    color: vec4,
-};
+export const Vignette = component(
+    "Vignette",
+    {
+        intensity: f32,
+        radius: f32,
+        smoothness: f32,
+        roundness: f32,
+        center: vec2,
+        edgeCompensation: f32,
+        color: vec4,
+    },
+    {
+        defaults: () => ({
+            intensity: 1,
+            radius: 0.75,
+            smoothness: 5,
+            roundness: 1,
+            center: [0.5, 0.5],
+            edgeCompensation: 1,
+            color: [0, 0, 0, 1],
+        }),
+    },
+);
 const Settings = d.struct({
     intensity: d.f32,
     radius: d.f32,
@@ -101,19 +115,7 @@ const stateKey = {
 export const VignettePlugin: Plugin = {
     name: "Vignette",
     dependencies: [CorePipelinePlugin],
-    components: [
-        registration("Vignette", Vignette, {
-            defaults: () => ({
-                intensity: 1,
-                radius: 0.75,
-                smoothness: 5,
-                roundness: 1,
-                center: [0.5, 0.5],
-                edgeCompensation: 1,
-                color: [0, 0, 0, 1],
-            }),
-        }),
-    ],
+    components: [Vignette],
     systems: [
         {
             name: "vignette",

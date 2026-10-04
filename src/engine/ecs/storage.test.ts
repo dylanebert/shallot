@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ScalarField, Vector2Field, Vector4Field } from "./component";
+import { component } from "./component";
 import { f32, vec2, vec4, World } from "./index";
-import { registration } from "./registration";
 import { WorldField } from "./storage";
 
 test("bulk field writes copy typed rows, preserve other rows, publish scalar-equivalent marks and refuse mismatches", () => {
@@ -28,9 +28,9 @@ test("binding a component freezes its schema against later mutation", () => {
     const Component = { value: f32 };
     const world = new World();
     const second = new World();
-    world.registry.register(registration("FrozenComponent", Component));
+    world.registry.register(component("FrozenComponent", Component));
     world.storage(Component);
-    second.registry.register(registration("FrozenComponent", Component));
+    second.registry.register(component("FrozenComponent", Component));
     second.storage(Component);
     world.dispose();
     second.dispose();

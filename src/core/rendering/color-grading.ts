@@ -3,7 +3,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { f32, vec2, vec4 } from "../../engine";
+import { component, f32, vec2, vec4 } from "../../engine";
 import { tmLuma } from "./tonemap";
 
 /** Camera grading in Bevy's model. Exposure is an offset in stops; hue is in degrees.
@@ -11,20 +11,24 @@ import { tmLuma } from "./tonemap";
  * shadows, midtones, highlights in xyz; w is unused. All sections default to identity.
  * midtonesRange defaults to [0.2, 0.7], with a 0.1 crossfade on either side.
  */
-export const ColorGrading = {
-    exposure: f32,
-    temperature: f32,
-    tint: f32,
-    /** Hue rotation in degrees. */
-    hue: f32,
-    postSaturation: f32,
-    midtonesRange: vec2,
-    saturation: vec4,
-    contrast: vec4,
-    gamma: vec4,
-    gain: vec4,
-    lift: vec4,
-};
+export const ColorGrading = component(
+    "ColorGrading",
+    {
+        exposure: f32,
+        temperature: f32,
+        tint: f32,
+        /** Hue rotation in degrees. */
+        hue: f32,
+        postSaturation: f32,
+        midtonesRange: vec2,
+        saturation: vec4,
+        contrast: vec4,
+        gamma: vec4,
+        gain: vec4,
+        lift: vec4,
+    },
+    { defaults: () => gradingDefaults },
+);
 
 export const gradingDefaults = {
     exposure: 0,

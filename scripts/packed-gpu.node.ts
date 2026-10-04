@@ -59,7 +59,7 @@ test("a packed headless app steps on a GPU and refuses without navigator.gpu", a
             `import { expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(1000);
 import { createApp, type Plugin } from "@dylanebert/shallot/app";
-import { f32, registration, Time } from "@dylanebert/shallot/ecs";
+import { component, f32, Time } from "@dylanebert/shallot/ecs";
 import * as Rendering from "@dylanebert/shallot/rendering";
 import { drainLog, probeTexture } from "@dylanebert/shallot/runtime";
 import { setupGlobals } from "bun-webgpu";
@@ -70,7 +70,7 @@ const Ticks = { value: f32 };
 let eid = -1;
 const Counter: Plugin = {
     name: "Counter",
-    components: [registration("counter", Ticks)],
+    components: [component("counter", Ticks)],
     initialize(world) {
         eid = world.create();
         world.add(eid, Ticks);

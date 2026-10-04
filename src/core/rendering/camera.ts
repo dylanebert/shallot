@@ -1,5 +1,6 @@
 import type { World } from "../../engine";
 import {
+    component,
     composeGlobalTransform,
     f32,
     invertMat4,
@@ -25,22 +26,36 @@ export const CameraMode = {
  * from the view. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); core unpacks to linear
  * when recording the camera's render pass
  */
-export const Camera = {
-    /** a {@link CameraMode}: perspective (0) or orthographic (1) projection */
-    mode: u32,
-    /** field of view in degrees (perspective mode) */
-    fov: f32,
-    /** near plane distance */
-    near: f32,
-    /** far plane distance */
-    far: f32,
-    /** view size in world units (orthographic mode) */
-    size: f32,
-    /** render target color as sRGB-encoded hex (e.g. 0x5cbfbf) */
-    clearColor: u32,
-    /** antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp, for a pixel-art look) */
-    antialias: u32,
-};
+export const Camera = component(
+    "Camera",
+    {
+        /** a {@link CameraMode}: perspective (0) or orthographic (1) projection */
+        mode: u32,
+        /** field of view in degrees (perspective mode) */
+        fov: f32,
+        /** near plane distance */
+        near: f32,
+        /** far plane distance */
+        far: f32,
+        /** view size in world units (orthographic mode) */
+        size: f32,
+        /** render target color as sRGB-encoded hex (e.g. 0x5cbfbf) */
+        clearColor: u32,
+        /** antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp, for a pixel-art look) */
+        antialias: u32,
+    },
+    {
+        defaults: () => ({
+            mode: CameraMode.Perspective,
+            fov: 60,
+            near: 0.1,
+            far: 1000,
+            size: 5,
+            clearColor: 0x2e2b28,
+            antialias: 1,
+        }),
+    },
+);
 
 /**
  * render this camera at a fixed low resolution and scale it up to fill the canvas, crisp not blurred.
@@ -49,12 +64,18 @@ export const Camera = {
  * as wide as the canvas shape needs; set both for an exact (possibly aspect-distorting) target. Per camera,
  * so each canvas in a multi-view scene pins its own. Pairs with {@link Camera} `antialias` off.
  */
-export const Resolution = {
-    /** render width in pixels; 0 = derive from height to keep the canvas aspect */
-    width: u32,
-    /** render height in pixels; 0 = derive from width to keep the canvas aspect */
-    height: u32,
-};
+export const Resolution = component(
+    "Resolution",
+    {
+        /** render width in pixels; 0 = derive from height to keep the canvas aspect */
+        width: u32,
+        /** render height in pixels; 0 = derive from width to keep the canvas aspect */
+        height: u32,
+    },
+    {
+        defaults: () => ({ width: 0, height: 0 }),
+    },
+);
 
 const _proj = new Float32Array(16);
 const _world = new Float32Array(16);

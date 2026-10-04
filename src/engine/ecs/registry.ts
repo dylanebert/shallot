@@ -1,11 +1,10 @@
 import type { Component, ComponentValues } from "./component";
-import { idOf, intern, isType, lanes } from "./component";
+import { declaration, idOf, isType, lanes } from "./component";
 import type { World } from "./world";
 
-/** A component registered under an exact stable key, with defaults and enforced relationships. */
-export interface Registration<C extends Component = Component> {
+interface Entry {
     key: string;
-    component: C;
+    component: Component;
     /** Components added when missing on insertion; removing this component removes nothing. */
     requires?: Component[];
     /**
@@ -13,31 +12,13 @@ export interface Registration<C extends Component = Component> {
      * ScalarField fields and per-lane arrays for direct `Vector2Field`/`Vector4Field`
      * fields (`{ translation: [0, 0, 0, 0] }`).
      */
-    defaults?: (world: World) => ComponentValues<C>;
-}
-
-/** Bind defaults to the component's declared field types. Options are flat on the registration. */
-export function registration<
-    C extends Component,
-    const V extends ComponentValues<C> = ComponentValues<C>,
->(
-    key: string,
-    component: C,
-    options?: {
-        defaults?: (world: World) => V & Record<Exclude<keyof V, keyof C>, never>;
-        requires?: Component[];
-    },
-): Registration<C> {
-    return { key, component, ...options };
+    defaults?: (world: World) => ComponentValues<Component>;
+    /** lazy-compiled defaults writer. undefined = unbuilt, null = no defaults. */
+    plan?: DefaultsPlan | null;
 }
 
 interface DefaultsPlan {
     fields: { name: string; values: number[] }[];
-}
-
-interface Entry extends Registration {
-    /** lazy-compiled defaults writer. undefined = unbuilt, null = no defaults. */
-    plan?: DefaultsPlan | null;
 }
 
 export class ComponentRegistry {
@@ -45,10 +26,11 @@ export class ComponentRegistry {
     // keyed by stable component id, so a handle held across reloads resolves this world's registration
     private readonly _byId = new Map<number, Entry>();
 
-    register(registration: Registration): void {
-        const { key, component } = registration;
-        const id = intern(component, key);
-        const entry: Entry = { ...registration };
+    register(component: Component, plugin = "ComponentRegistry"): void {
+        const metadata = declaration(component, plugin);
+        const { key } = metadata;
+        const id = idOf(component);
+        const entry: Entry = { ...metadata };
         this._byName.set(key, entry);
         this._byId.set(id, entry);
     }

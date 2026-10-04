@@ -1,4 +1,5 @@
 import type { Entity } from "./entity";
+import type { World } from "./world";
 
 /** SoA component schema: each field names a type; worlds own the columns. */
 export type Component = Record<string, unknown>;
@@ -309,15 +310,55 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
     return true;
 }
 
-// Stable component identity. A component's id is interned by name at
-// registration (`intern`) and resolves back to the same id when a reloaded
-// module hands in a fresh component object under the same name — so membership,
-// queries, and storage re-attach across a hot swap, the component object being
-// the one thing a module reload recreates. An unregistered component (a bare
-// test marker) auto-mints an anonymous id on first sight, stable for the
-// object's lifetime. Process-global and monotonic: ids never reset, so no id is
-// ever reused for a different name (a `clear()` between sessions leaves them intact).
-// The WeakMap keeps identity off the frozen schema object and out of field walks.
+interface Declaration<C extends Component = Component> {
+    key: string;
+    component: C;
+    requires?: Component[];
+    defaults?: (world: World) => ComponentValues<C>;
+}
+
+const declarations = new WeakMap<Component, Declaration>();
+
+/**
+ * Declare an exact stable key and insertion defaults and companions. Returns the
+ * field record unchanged; metadata stays off its fields. Reloaded records with
+ * the same key share identity. One record cannot declare different keys.
+ */
+export function component<
+    C extends Component,
+    const V extends ComponentValues<C> = ComponentValues<C>,
+>(
+    key: string,
+    fields: C,
+    options?: {
+        /** Default scalar values or complete vector lanes, evaluated for the owning world. */
+        defaults?: (world: World) => V & Record<Exclude<keyof V, keyof C>, never>;
+        /** Added when missing on insertion; removal leaves companions in place. */
+        requires?: Component[];
+    },
+): C {
+    const previous = declarations.get(fields);
+    if (previous && previous.key !== key) {
+        throw new Error(`component "${previous.key}" cannot also declare "${key}"`);
+    }
+    intern(fields, key);
+    declarations.set(fields, { key, component: fields, ...options });
+    return fields;
+}
+
+/** @internal Refuse undeclared plugin records before composition or reload. */
+export function declaration(fields: Component, plugin: string): Declaration {
+    const entry = declarations.get(fields);
+    if (!entry) {
+        throw new Error(
+            `plugin "${plugin}" contains an undeclared component with fields [${Object.keys(fields).join(", ")}]`,
+        );
+    }
+    return entry;
+}
+
+// Process-global identity survives world disposal and fresh records on module reload.
+// Weak keys keep identity off frozen schemas and do not retain unloaded records.
 const _idByComponent = new WeakMap<object, number>();
 const _idByName = new Map<string, number>();
 let _nextId = 0;
@@ -325,7 +366,7 @@ let _nextId = 0;
 /**
  * the component's stable numeric id, the key for membership and query
  * structures. Auto-mints an anonymous id for an unregistered component;
- * {@link intern} binds it by name at registration so a reloaded handle (a fresh
+ * {@link component} binds it by key at declaration so a reloaded handle (a fresh
  * object) resolves to the same id.
  */
 export function idOf(component: object): number {
@@ -340,7 +381,7 @@ export function idOf(component: object): number {
  * intern the stable id for `name` on `component`: first sight assigns one
  * (adopting an id the component auto-minted while bare), and re-registration
  * under the same name resolves to it, the reload contract that re-attaches a
- * fresh module object. Called by `register`.
+ * fresh module object. Called by `component`.
  */
 export function intern(component: object, name: string): number {
     let id = _idByName.get(name);

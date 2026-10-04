@@ -1,7 +1,7 @@
 import type { Plugin, System, World } from "../../engine";
-import { registration, u32 } from "../../engine";
+import { component, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { ColorGrading, GradingConfig, gradingDefaults } from "./color-grading";
+import { ColorGrading, GradingConfig } from "./color-grading";
 import {
     BeginFrameSystem,
     Camera,
@@ -18,14 +18,14 @@ export { ColorGrading } from "./color-grading";
 export { TonemappingMethod } from "./tonemap";
 
 /** Per-camera operator; absent cameras use TonyMcMapface. None accepts display-ready linear images. */
-export const Tonemapping = { method: u32 };
+export const Tonemapping = component("Tonemapping", { method: u32 });
 
 /** Camera marker: core skips this view's tonemapping and EffectPasses.
  * The replacement owns grading and encoding and must write every presented pixel
  * on RenderContext.encoder after PresentationSystem and before EndFrameSystem.
  * Removing the marker resumes core presentation on the next draw.
  */
-export const CustomPresentation = {};
+export const CustomPresentation = component("CustomPresentation", {});
 
 /** An effect records commands on the frame encoder. Input and output never alias.
  * Before-tonemapping passes receive linear HDR; after-tonemapping passes receive
@@ -206,11 +206,7 @@ export const TonemappingSystem: System = {
 export const TonemappingPlugin: Plugin = {
     name: "Tonemapping",
     dependencies: [RenderingPlugin],
-    components: [
-        registration("Tonemapping", Tonemapping),
-        registration("CustomPresentation", CustomPresentation),
-        registration("ColorGrading", ColorGrading, { defaults: () => gradingDefaults }),
-    ],
+    components: [Tonemapping, CustomPresentation, ColorGrading],
     initialize(world) {
         world.resource(tonemappingStateKey);
         world.resource(EffectPasses);

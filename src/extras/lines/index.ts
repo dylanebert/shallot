@@ -1,4 +1,4 @@
-import { registration } from "../../engine";
+import { component } from "../../engine";
 // Lines — the shallot debug-line producer. One shared segment buffer, two feeders: an immediate API
 // (`drawLine` / `drawWireBox` / `drawArrow`, appended and cleared each frame — the scale path) and the retained
 // `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
@@ -35,31 +35,49 @@ export { drawArrow, drawLine, drawWireBox } from "./segments";
  * a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated
  * offset. A retained scene annotation, expanded into one screen-space segment each frame
  */
-export const Line = {
-    /** line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up) */
-    offset: vec4,
-    /** constant screen width in pixels */
-    thickness: f32,
-    /** hex sRGB color */
-    color: f32,
-    /** 0..1 opacity multiplier */
-    opacity: f32,
-    /** drawn when nonzero; set to 0 to hide without removing */
-    visible: f32,
-};
+export const Line = component(
+    "Line",
+    {
+        /** line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up) */
+        offset: vec4,
+        /** constant screen width in pixels */
+        thickness: f32,
+        /** hex sRGB color */
+        color: f32,
+        /** 0..1 opacity multiplier */
+        opacity: f32,
+        /** drawn when nonzero; set to 0 to hide without removing */
+        visible: f32,
+    },
+    {
+        defaults: () => ({
+            offset: [1, 0, 0, 0],
+            thickness: 2,
+            color: 0xffffff,
+            opacity: 1,
+            visible: 1,
+        }),
+    },
+);
 
 /**
  * an arrowhead on a {@link Line}: four world-space fins (Bevy's fletched shape) at the line's endpoints.
  * Requires a {@link Line} on the same entity
  */
-export const Arrow = {
-    /** a head at the start endpoint when nonzero */
-    start: f32,
-    /** a head at the end endpoint when nonzero */
-    end: f32,
-    /** head size relative to the shaft length */
-    size: f32,
-};
+export const Arrow = component(
+    "Arrow",
+    {
+        /** a head at the start endpoint when nonzero */
+        start: f32,
+        /** a head at the end endpoint when nonzero */
+        end: f32,
+        /** head size relative to the shaft length */
+        size: f32,
+    },
+    {
+        defaults: () => ({ start: 0, end: 1, size: 1 }),
+    },
+);
 
 // the canonical quad: posU.xyz = (t, edge, 0); normalV unused. Standard pulls these as localPos, the
 // chunk expands. 4 corners, 6 indices (two triangles)
@@ -137,20 +155,7 @@ const LinesSystem: System = {
  */
 export const LinesPlugin: Plugin = {
     name: "Lines",
-    components: [
-        registration("Line", Line, {
-            defaults: () => ({
-                offset: [1, 0, 0, 0],
-                thickness: 2,
-                color: 0xffffff,
-                opacity: 1,
-                visible: 1,
-            }),
-        }),
-        registration("Arrow", Arrow, {
-            defaults: () => ({ start: 0, end: 1, size: 1 }),
-        }),
-    ],
+    components: [Line, Arrow],
     systems: [LinesSystem],
     dependencies: [MeshPlugin, RenderingPlugin, StandardRenderingPlugin],
 

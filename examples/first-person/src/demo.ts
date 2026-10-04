@@ -4,6 +4,7 @@ import {
     Camera,
     Character,
     CharacterPlugin,
+    component,
     DirectionalLight,
     InputPlugin,
     Materials,
@@ -16,7 +17,6 @@ import {
     pointerLockRefusal,
     pointerLockStatus,
     type Resource,
-    registration,
     ShapeKind,
     StandardMaterial,
     StandardPhysicsPlugin,
@@ -101,7 +101,7 @@ export function route(world: World) {
 
 // The route owns the lift's size and starting height. This role only gives the small trajectory system a
 // declarative target; the lift is the sole moving object in the recipe.
-export const Lift = {};
+export const Lift = component("Lift", {});
 
 const TRAVEL = 1.5;
 const RATE = 0.65;
@@ -221,7 +221,7 @@ const controls: System = {
 
 export const Demo = {
     name: "Demo",
-    components: [registration("Lift", Lift)],
+    components: [Lift],
     dependencies: [PlayerPlugin, CharacterPlugin, InputPlugin, StandardPhysicsPlugin],
     initialize(world: World) {
         const state = world.resource(Route);

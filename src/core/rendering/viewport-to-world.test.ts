@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { GlobalTransform, resizeViewport, World } from "../../engine";
-import { registration } from "../../engine/ecs/registration";
+import { component } from "../../engine/ecs/component";
 import { Camera, CameraMode } from "./camera";
 import { type View, Views } from "./view";
 import { generateRay, screenToRay, viewportToWorld } from "./viewport-to-world";
@@ -63,8 +63,8 @@ test("the pixel-to-NDC conversion drops the y flip or mis-centres the canvas, so
 
 test("orthographic pixels shift ray origins by size and aspect while keeping parallel camera-forward directions", () => {
     const world = new World();
-    world.registry.register(registration("Camera", Camera));
-    world.registry.register(registration("GlobalTransform", GlobalTransform));
+    world.registry.register(component("Camera", { ...Camera }));
+    world.registry.register(component("GlobalTransform", { ...GlobalTransform }));
     const camera = world.create();
     world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 4, near: 0.5, fov: 90 });
     world.add(camera, GlobalTransform);

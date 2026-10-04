@@ -1,4 +1,4 @@
-import { registration } from "../../engine";
+import { component } from "../../engine";
 // Outline — the drop-in screen-space highlight. Add the `Outline` component to a MeshInstance entity and a
 // uniform-width band hugs its silhouette: hover/select feedback, the player's grab highlight. The
 // technique is mask → jump-flood distance field → threshold (Ben Golus, "The Quest for Very Wide
@@ -73,14 +73,24 @@ import {
  * Add it to a MeshInstance entity to highlight it; remove it to clear. Fields are per-entity, so different
  * highlights coexist in one pass.
  */
-export const Outline = {
-    /** band color, linear rgb (alpha unused in v1) */
-    color: vec4,
-    /** band thickness in pixels, clamped to 64 */
-    width: f32,
-    /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs core's `DepthPrepass` on the camera) */
-    occlude: f32,
-};
+export const Outline = component(
+    "Outline",
+    {
+        /** band color, linear rgb (alpha unused in v1) */
+        color: vec4,
+        /** band thickness in pixels, clamped to 64 */
+        width: f32,
+        /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs core's `DepthPrepass` on the camera) */
+        occlude: f32,
+    },
+    {
+        defaults: () => ({
+            color: [1, 0.85, 0.2, 1],
+            width: 4,
+            occlude: 0,
+        }),
+    },
+);
 
 // the seed texture stores the nearest covered-pixel coordinate as an INTEGER pixel index — uint, not
 // f16: pixel-center fractions (x + 0.5) stop being f16-representable at 1024, which broke the
@@ -673,15 +683,7 @@ function disposeOutline(world: World): void {
  */
 export const OutlinePlugin: Plugin = {
     name: "Outline",
-    components: [
-        registration("Outline", Outline, {
-            defaults: () => ({
-                color: [1, 0.85, 0.2, 1],
-                width: 4,
-                occlude: 0,
-            }),
-        }),
-    ],
+    components: [Outline],
     systems: [OutlineSystem],
     dependencies: [RenderingPlugin, MeshRenderPlugin],
 
