@@ -2,7 +2,13 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { compileGpuFile } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
-import { attachTexture, Camera, DirectionalLight } from "../../core/rendering";
+import {
+    attachTexture,
+    Camera,
+    captureTexture,
+    DepthPrepass,
+    DirectionalLight,
+} from "../../core/rendering";
 import { createApp, Transform, type World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { StandardRenderer } from "./forward";
@@ -19,12 +25,13 @@ import {
 
 setDefaultTimeout(CEILING.gpu);
 
-// a cube on a floor under a shadowed sun split into `cascades`
-function scene(world: World, cascades: number): number {
+// a cube on a floor under a shadowed sun split into `cascades`, seen by a camera with or without a depth prepass
+function scene(world: World, cascades: number, prepass = false): { camera: number; sun: number } {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 3, 8, 0] });
     world.add(camera, Camera);
     world.add(camera, StandardRenderer);
+    if (prepass) world.add(camera, DepthPrepass);
     attachTexture(world, camera, { width: 16, height: 16 });
     const material = world.resource(Materials).add(StandardMaterial());
     const floor = world.create();
@@ -39,7 +46,7 @@ function scene(world: World, cascades: number): number {
     world.add(sun, DirectionalLight, { direction: [-0.4, -1, -0.55, 0] });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     world.storage(DirectionalLight).numCascades.set(sun, cascades);
-    return camera;
+    return { camera, sun };
 }
 
 // each active cascade's tile side in atlas pixels (the VS reads the atlas side from meta.z)
@@ -95,7 +102,7 @@ for (const cascades of [4, 2]) {
             },
         });
         try {
-            const camera = scene(app.world, cascades);
+            const { camera } = scene(app.world, cascades);
             app.world.gpu.device.pushErrorScope("validation");
             app.world.step(0);
             app.world.step(0);
@@ -106,6 +113,53 @@ for (const cascades of [4, 2]) {
             app.dispose();
         }
     });
+}
+
+// an app whose world sets DirectionalLightShadowMap.size in setup, on the shared device
+function build(size: number) {
+    return createApp({
+        defaults: false,
+        plugins: [StandardRenderingPlugin, MeshRenderPlugin],
+        device: subjects().device,
+        setup: (world) => {
+            world.resource(DirectionalLightShadowMap).size = size;
+        },
+    });
+}
+
+for (const [size0, cascades0, size1, cascades1] of [
+    [2048, 1, 2048, 4],
+    [2048, 4, 2048, 1],
+    [1024, 4, 2048, 4],
+]) {
+    for (const prepass of [false, true]) {
+        test(`changing ${size0}x${cascades0} to ${size1}x${cascades1} after the sun first casts renders as an app built with ${size1}x${cascades1}${prepass ? ", under a depth prepass" : ""}`, async () => {
+            const app = await build(size0);
+            const fresh = await build(size1);
+            try {
+                const live = scene(app.world, cascades0, prepass);
+                app.world.step(0);
+                app.world.step(0);
+                app.world.resource(DirectionalLightShadowMap).size = size1;
+                app.world.storage(DirectionalLight).numCascades.set(live.sun, cascades1);
+                app.world.gpu.device.pushErrorScope("validation");
+                app.world.step(0);
+                app.world.step(0);
+                expect((await app.world.gpu.device.popErrorScope())?.message ?? null).toBeNull();
+                const reference = scene(fresh.world, cascades1, prepass);
+                fresh.world.step(0);
+                fresh.world.step(0);
+                expect(tileSides(app.world)).toEqual(tileSides(fresh.world));
+                expect((await captureTexture(app.world, live.camera)).rgba).toEqual(
+                    (await captureTexture(fresh.world, reference.camera)).rgba,
+                );
+                for (const d of drift(app.world, live.camera)) expect(d).toBeLessThan(1e-3);
+            } finally {
+                app.dispose();
+                fresh.dispose();
+            }
+        });
+    }
 }
 
 afterAll(() => {
