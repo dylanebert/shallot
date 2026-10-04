@@ -3,7 +3,7 @@ import { MeshInstance } from "./instance";
 
 export { MeshInstance } from "./instance";
 
-import { clearMeshes, flushMeshes, initializeMeshState } from "./mesh";
+import { clearMeshes, flushMeshes, initializeMeshState, PrepareMeshesSystem } from "./mesh";
 import { initMeshes } from "./primitives";
 
 export type { Mesh, MeshBinding, MeshIndex } from "./mesh";
@@ -13,11 +13,14 @@ export {
 } from "./mesh";
 
 /** Owns this world's mesh registry and GPU storage, including the unit cube, sphere and capsule.
- * Static registrations during initialize are packed together at warm, before the first draw.
+ * Registrations during initialize are packed together at warm, before the first draw; later
+ * ones are packed together at the start of the next draw group. `registerMesh` refuses before
+ * this plugin initializes.
  */
 export const MeshPlugin: Plugin = {
     name: "Mesh",
     components: [MeshInstance],
+    systems: [PrepareMeshesSystem],
     initialize(world) {
         initializeMeshState(world);
         clearMeshes(world);

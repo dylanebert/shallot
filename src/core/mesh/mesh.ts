@@ -1,7 +1,7 @@
 import type { IndexFlag, StorageFlag, TgpuBuffer, UniformFlag } from "typegpu";
 import type { AnyData, AnyWgslData, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
-import { Registry, type World } from "../../engine";
+import { Registry, type System, type World } from "../../engine";
 
 import { MeshQuant, octEncode, packUnorm2 } from "../../engine/utils";
 
@@ -23,14 +23,10 @@ export type MeshBinding =
  * stream. All have `STORAGE` usage: consumer renderers pull indexed vertices in
  * WGSL, never via `setVertexBuffer` / `setIndexBuffer`.
  *
- * The registry is source-agnostic. Static producers stage typed arrays via
- * {@link registerMesh}, which {@link flushMeshes} packs into one shared family buffer
- * set — every static mesh is a slice (its own `indexBase` + meshId) of the same
- * buffers, so standard binds geometry once and the layout is `multi-draw-indirect`
- * ready. Procedural producers (compute-driven terrain, particle ribbons) may still allocate their own
- * raw `GPUBuffer`s, but wrap them with `world.gpu.root.createBuffer(schema, raw).$usage(...)` at the
- * registry seam. They unwrap the same allocation again wherever a raw encoder needs it. Meshes sharing
- * a buffer set share a bind group in standard.
+ * Producers stage typed arrays via {@link registerMesh}, which {@link flushMeshes} packs into
+ * shared family buffer sets: every mesh is a slice (its own `indexBase` + meshId) of one set.
+ * Registrations during `initialize` share one set packed at warm; each later frame's
+ * registrations share one more.
  *
  * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
  * frustum cull GlobalTransforms per instance. {@link registerMesh} derives it from the staged
@@ -48,6 +44,8 @@ export interface Mesh {
     indexBase: number;
     indexCount: number;
     bounds?: [number, number, number, number];
+    /** `true` while {@link registerMesh}'s data waits for its pack, which replaces the entry before the next frame's draw */
+    pending?: true;
     /**
      * per-mesh binding overrides: resources scoped to *this* mesh's draws, keyed by the surface's binding
      * name. A surface binding resolves to `mesh.bindings?.[name]` when present, else the published global
@@ -56,7 +54,12 @@ export interface Mesh {
     bindings?: Record<string, MeshBinding>;
 }
 
-/** every registered mesh, keyed by name with a stable numeric ID */
+/**
+ * every registered mesh, keyed by name with a stable numeric ID. Each frame's draw reads the
+ * entries as they stand. Standard draws an entry only with its `position` and `quant` streams,
+ * which {@link registerMesh} builds; a direct `register` without them is skipped with a warning,
+ * and a `pending` entry is skipped silently.
+ */
 export const Meshes: import("../../engine").Resource<Registry<Mesh>> = {
     create: (world) => world.resource(meshResourcesKey).meshes,
 };
@@ -64,9 +67,8 @@ export const Meshes: import("../../engine").Resource<Registry<Mesh>> = {
 /** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
 export const VERTEX_FLOATS = 8;
 
-// static meshes pack into one shared family buffer pair. `registerMesh()` stages the
-// typed arrays + a placeholder registry entry (so `Meshes.size` is final after
-// `initialize`, before any warm); `flushMeshes()` concatenates them at warm.
+// `registerMesh()` stages the typed arrays + a placeholder registry entry, so the mesh's id and
+// `Meshes.size` are known at once; `flushMeshes()` packs everything staged into one family.
 interface PendingMesh {
     name: string;
     vertices: Float32Array;
@@ -76,8 +78,11 @@ interface PendingMesh {
 interface MeshResources {
     meshes: Registry<Mesh>;
     pending: PendingMesh[];
+    initialized: boolean;
     placeholderVertices: MeshStorage<d.Vec4u> | null;
     placeholderIndices: MeshIndex | null;
+    /** every buffer of every family flushMeshes packed since the last clear */
+    families: { destroy(): void }[];
 }
 
 export const meshResourcesKey = { create: createMeshResources };
@@ -86,8 +91,10 @@ function createMeshResources(): MeshResources {
     return {
         meshes: new Registry<Mesh>(),
         pending: [],
+        initialized: false,
         placeholderVertices: null,
         placeholderIndices: null,
+        families: [],
     };
 }
 
@@ -97,7 +104,7 @@ function meshResources(world: World): MeshResources {
 
 /** Create this world's mesh registry and staging during MeshPlugin initialization. */
 export function initializeMeshState(world: World): void {
-    world.resource(meshResourcesKey);
+    world.resource(meshResourcesKey).initialized = true;
 }
 
 /**
@@ -155,10 +162,11 @@ export function meshBounds(vertices: Float32Array): [number, number, number, num
 }
 
 /**
- * register a static mesh from typed arrays. The data is staged now and packed
- * into the shared family buffer at warm by {@link flushMeshes}; the registry
- * entry is a slice of that shared buffer. Procedural producers skip this: they
- * own their `GPUBuffer`s and call `Meshes.register(...)` directly. Requires
+ * register a mesh from typed arrays, from `MeshPlugin.initialize` on. Its id is assigned now;
+ * its data is packed by {@link flushMeshes} before the next frame's draw: at warm for
+ * registrations during `initialize`, otherwise at the start of the next draw group, so a
+ * registration in a draw-group system draws a frame later. Refuses before `MeshPlugin`
+ * initializes (`AppConfig.setup`), whose initialize would drop it. Requires
  * `world.gpu.device`; no-ops otherwise
  */
 export function registerMesh(
@@ -170,11 +178,16 @@ export function registerMesh(
             `mesh "${spec.name}": vertices length ${spec.vertices.length} is not a multiple of ${VERTEX_FLOATS} (one Vertex = posU + normalV)`,
         );
     }
+    const resources = meshResources(world);
+    if (!resources.initialized) {
+        throw new Error(
+            `mesh "${spec.name}": registerMesh needs MeshPlugin initialized; register from a plugin's initialize or later, not AppConfig.setup`,
+        );
+    }
     const device = world.gpu.device;
     if (!device) return;
-    // a placeholder reserves the registry entry now (fixing Meshes.size before
-    // warm); flushMeshes swaps in the real shared buffer + correct indexBase
-    const resources = meshResources(world);
+    // a placeholder reserves the registry entry now; flushMeshes swaps in the
+    // real shared buffer + correct indexBase
     resources.placeholderVertices ??= world.gpu.root
         .createBuffer(d.arrayOf(d.vec4u, 1))
         .$usage("storage")
@@ -192,17 +205,16 @@ export function registerMesh(
         indexBase: 0,
         indexCount: spec.indices.length,
         bounds,
+        pending: true,
     });
 }
 
 /**
  * concatenate staged meshes into one vertex + index pair, shifting each mesh's
  * indices by its vertex base so the index stream holds absolute positions.
- * Pure: exported for the index-shift test; {@link flushMeshes} uploads it
+ * Pure: {@link flushMeshes} uploads it
  */
-export function packMeshes(
-    staged: { name: string; vertices: Float32Array; indices: Uint32Array }[],
-): {
+function packMeshes(staged: { name: string; vertices: Float32Array; indices: Uint32Array }[]): {
     vertices: Float32Array;
     indices: Uint32Array;
     slices: {
@@ -271,11 +283,10 @@ export interface QuantStreams {
  * formats. One AABB per mesh slice (its own position + uv range), so a small mesh
  * keeps full unorm16 precision; meshId is the slice index, packed into the stream
  * so the decode selects the right `MeshQuant` from a plain storage table: no
- * per-draw uniform, works unchanged in render bundles. Pure: the single emitter
- * both `flushMeshes` and the glTF importer call, paired with the WGSL `decodePos`
- * (`posQuantWgsl()`) so the lattice can't drift between writer and reader.
+ * per-draw uniform, works unchanged in render bundles. Pure: the single emitter, paired with
+ * the WGSL `decodePos` (`posQuantWgsl()`) so the lattice can't drift between writer and reader.
  */
-export function quantizeMeshes(
+function quantizeMeshes(
     vertices: Float32Array,
     slices: { vertexBase: number; vertexCount: number }[],
 ): QuantStreams {
@@ -347,8 +358,9 @@ export function quantizeMeshes(
     return { main, position, quant };
 }
 
-// drop the staged-but-unflushed mesh data + the placeholder buffer. flushMeshes calls it after packing,
-// clearMeshes after discarding — one source of truth for the staging state to reset.
+// drop the staged-but-unflushed mesh data + the placeholder buffers. flushMeshes calls it after packing,
+// clearMeshes after discarding — one source of truth for the staging state to reset. No bind group holds
+// a placeholder: standard skips an entry without its quantized streams before binding it.
 function resetStaging(world: World): void {
     const resources = meshResources(world);
     resources.pending.length = 0;
@@ -359,9 +371,10 @@ function resetStaging(world: World): void {
 }
 
 /**
- * pack every staged static mesh into the quantized vertex streams + a shared
- * index buffer and re-register each as a slice. Called once from
- * `MeshPlugin.warm`, after all `initialize` hooks (so every `registerMesh(...)` has run)
+ * pack every staged mesh into one new family of quantized vertex streams + a shared index
+ * buffer and re-register each as a slice; earlier families and their entries are untouched.
+ * `MeshPlugin.warm` runs it after every `initialize`, and {@link PrepareMeshesSystem} at the
+ * start of each draw group; with nothing staged it does nothing.
  */
 export function flushMeshes(world: World): void {
     const device = world.gpu.device;
@@ -389,6 +402,7 @@ export function flushMeshes(world: World): void {
     position.write(q.position.buffer as ArrayBuffer);
     quant.write(q.quant.buffer as ArrayBuffer);
     indices.write(packed.indices.buffer as ArrayBuffer);
+    resources.families.push(vertices, position, quant, indices);
     const bounds = new Map(resources.pending.map((m) => [m.name, m.bounds]));
     for (const s of packed.slices) {
         world.resource(Meshes).register({
@@ -405,13 +419,27 @@ export function flushMeshes(world: World): void {
     resetStaging(world);
 }
 
+/** packs the meshes registered since the last pack before this frame's draw, as Bevy prepares
+ * render assets added during the frame */
+export const PrepareMeshesSystem: System = {
+    name: "prepareMeshes",
+    group: "draw",
+    first: true,
+    update: flushMeshes,
+};
+
 /**
- * drop every registered mesh + any staged-but-unflushed data, resetting the registry for a fresh build
- * (`RenderingPlugin.initialize`, clear then rebuild). Static producers re-stage via {@link registerMesh} in
+ * drop every registered mesh + any staged-but-unflushed data and destroy every family packed for them,
+ * resetting the registry for a fresh build (`MeshPlugin.initialize`, clear then rebuild). Static producers re-stage via {@link registerMesh} in
  * their own initialize, so a producer toggled off leaves no stale slice to be paired against
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */
 export function clearMeshes(world: World): void {
     world.resource(Meshes).clear();
     resetStaging(world);
+    // initialize runs between frames, so no open encoder holds a family, submitted work keeps its
+    // storage, and a cleared registry names none of them for any later bind group
+    const families = meshResources(world).families;
+    for (const buffer of families) buffer.destroy();
+    families.length = 0;
 }
