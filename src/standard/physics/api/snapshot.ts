@@ -145,10 +145,12 @@ function restoreClone<T>(
 type SnapshotState = {
     world: WorldState;
     checkpoints: Partial<Record<StoreName, unknown>>;
+    /** plain data an owner records beside the solver; {@link restore} ignores it */
+    bindings?: unknown;
 };
 
-/** Capture detached logical state and this World's persistent kernel regions. */
-export function snapshot(physicsWorld: PhysicsWorld): WorldSnapshot {
+/** Capture detached logical state and this World's persistent kernel regions, with an owner's plain `bindings`. */
+export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldSnapshot {
     const state = physicsWorld.state;
     const k = kernel(state.ecsState);
     const length = k.worldSnapshot(state.worldId);
@@ -171,9 +173,15 @@ export function snapshot(physicsWorld: PhysicsWorld): WorldSnapshot {
                 stores,
             ),
             checkpoints,
+            bindings,
         },
         bytes: new Uint8Array(k.memory.buffer, pointer, length).slice(),
     };
+}
+
+/** @returns the `bindings` a snapshot was captured with, if any. */
+export function snapshotBindings(snapshot: WorldSnapshot): unknown {
+    return (snapshot.state as SnapshotState | null)?.bindings;
 }
 
 /** Restore into a live compatible World, preserving its identity and every sibling's state. */

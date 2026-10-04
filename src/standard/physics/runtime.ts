@@ -22,15 +22,19 @@ import {
     init,
     PhysicsWorld,
     restore as restoreWorld,
-    type Body as SolverBody,
+    Body as SolverBody,
     shutdown,
     snapshot as snapshotWorld,
     type WorldSnapshot,
 } from "./api";
+import { snapshotBindings } from "./api/snapshot";
 import {
     type ConstraintCache,
+    type ConstraintIds,
+    captureConstraints,
     createConstraintCache,
     resetConstraints,
+    restoreConstraints,
     resyncConstraints,
     syncJoints,
     syncSprings,
@@ -499,41 +503,114 @@ export function setVelocity(world: World, eid: number, vx: number, vy: number, v
 export function physicsCounters(world: World): PhysicsCounters {
     return { ...runtimeFor(world).counters };
 }
-export function snapshotPhysics(world: World): WorldSnapshot {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return snapshotWorld(physicsWorld);
-    })();
+
+// The runtime's maps from entities to solver handles, as plain ids, so a restore rebinds them for its
+// target World and the sync systems reconcile them against the live ECS on the next tick.
+interface Bindings {
+    /** eid, body index1, generation, create stamp */
+    bodies: number[];
+    /** eid, then the last kinematic position and quaternion */
+    kinPrev: number[];
+    /** eid, stamp, hull count */
+    failed: number[];
+    constraints: ConstraintIds;
+    springSig: number;
+    jointSig: number;
 }
-export function restorePhysics(world: World, saved: WorldSnapshot): void {
-    (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        restoreWorld(physicsWorld, saved);
-        const p = { x: 0, y: 0, z: 0 };
-        const q = { v: { x: 0, y: 0, z: 0 }, s: 1 };
-        const v = { x: 0, y: 0, z: 0 };
-        runtimeFor(world).bodies.forEach((body, eid) => {
-            body.getPosition(p);
-            body.getRotation(q);
-            body.getLinearVelocity(v);
-            writeGlobalTransform(
-                world,
-                eid,
-                [p.x, p.y, p.z],
-                [q.v.x, q.v.y, q.v.z, q.s],
-                [v.x, v.y, v.z],
-            );
+
+function warmWorld(runtime: PhysicsRuntime): PhysicsWorld {
+    const physicsWorld = runtime.physicsWorld;
+    if (!physicsWorld) throw new Error("physics: world is not warm");
+    return physicsWorld;
+}
+
+function captureBindings(runtime: PhysicsRuntime): Bindings {
+    const bodies: number[] = [];
+    for (const [eid, body] of runtime.bodies)
+        bodies.push(eid, body.id.index1, body.id.generation, runtime.stamps.get(eid)!);
+    const kinPrev: number[] = [];
+    for (const [eid, prev] of runtime.kinPrev) kinPrev.push(eid, ...prev.pos, ...prev.quat);
+    const failed: number[] = [];
+    for (const [eid, f] of runtime.failed) failed.push(eid, f.stamp, f.hulls);
+    return {
+        bodies,
+        kinPrev,
+        failed,
+        constraints: captureConstraints(runtime.constraints),
+        springSig: runtime.springSig,
+        jointSig: runtime.jointSig,
+    };
+}
+
+function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b: Bindings): void {
+    const state = physicsWorld.state;
+    runtime.bodies.clear();
+    runtime.stamps.clear();
+    for (let i = 0; i < b.bodies.length; i += 4) {
+        const eid = b.bodies[i];
+        runtime.bodies.set(
+            eid,
+            new SolverBody(state, {
+                index1: b.bodies[i + 1],
+                world0: state.worldId,
+                generation: b.bodies[i + 2],
+            }),
+        );
+        runtime.stamps.set(eid, b.bodies[i + 3]);
+    }
+    runtime.kinPrev.clear();
+    for (let i = 0; i < b.kinPrev.length; i += 8) {
+        const k = b.kinPrev;
+        runtime.kinPrev.set(k[i], {
+            pos: [k[i + 1], k[i + 2], k[i + 3]],
+            quat: [k[i + 4], k[i + 5], k[i + 6], k[i + 7]],
         });
-    })();
+    }
+    runtime.failed.clear();
+    for (let i = 0; i < b.failed.length; i += 3)
+        runtime.failed.set(b.failed[i], { stamp: b.failed[i + 1], hulls: b.failed[i + 2] });
+    restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
+    runtime.springSig = b.springSig;
+    runtime.jointSig = b.jointSig;
+}
+
+/** Capture the solver and this World's entity-to-body and constraint bindings for {@link restorePhysics}. */
+export function snapshotPhysics(world: World): WorldSnapshot {
+    const runtime = runtimeFor(world);
+    return snapshotWorld(warmWorld(runtime), captureBindings(runtime));
+}
+/**
+ * Restore a {@link snapshotPhysics} snapshot and its bindings; the next fixed tick marshals bodies and
+ * constraints authored since and removes those despawned since. Refuses a snapshot without bindings.
+ */
+export function restorePhysics(world: World, saved: WorldSnapshot): void {
+    const runtime = runtimeFor(world);
+    const physicsWorld = warmWorld(runtime);
+    const bindings = snapshotBindings(saved) as Bindings | undefined;
+    if (bindings === undefined)
+        throw new Error(
+            "physics: restorePhysics needs a snapshot from snapshotPhysics; restore a PhysicsWorld.snapshot() with PhysicsWorld.restore",
+        );
+    restoreWorld(physicsWorld, saved);
+    restoreBindings(runtime, physicsWorld, bindings);
+    const p = { x: 0, y: 0, z: 0 };
+    const q = { v: { x: 0, y: 0, z: 0 }, s: 1 };
+    const v = { x: 0, y: 0, z: 0 };
+    runtime.bodies.forEach((body, eid) => {
+        body.getPosition(p);
+        body.getRotation(q);
+        body.getLinearVelocity(v);
+        writeGlobalTransform(
+            world,
+            eid,
+            [p.x, p.y, p.z],
+            [q.v.x, q.v.y, q.v.z, q.s],
+            [v.x, v.y, v.z],
+        );
+    });
 }
 export function hashPhysics(world: World): bigint {
-    return (() => {
-        const physicsWorld = runtimeFor(world).physicsWorld;
-        if (!physicsWorld) throw new Error("physics: world is not warm");
-        return hashWorld(physicsWorld);
-    })();
+    return hashWorld(warmWorld(runtimeFor(world)));
 }
 
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */

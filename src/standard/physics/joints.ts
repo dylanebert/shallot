@@ -2,7 +2,7 @@ import {
     BodyType,
     type Quat,
     type Body as SolverBody,
-    type Joint as SolverJoint,
+    Joint as SolverJoint,
     type PhysicsWorld as SolverWorld,
     type Transform,
 } from "./api";
@@ -332,6 +332,60 @@ export function resyncConstraints(
         syncSet(cache.liveJoints, cache.retainedJoints, jointKey, (d) =>
             createJoint(physicsWorld, bodies, d, isDeferred, cache.warnedJoints),
         );
+}
+
+/** a {@link ConstraintCache}'s live joints as plain ids per def key (index1, generation pairs) and its retained defs, detached from any world. */
+export interface ConstraintIds {
+    springs: [string, number[]][];
+    joints: [string, number[]][];
+    retainedSprings: SpringDef[];
+    retainedJoints: JointDef[];
+}
+
+const liveIds = (live: Map<string, SolverJoint[]>): [string, number[]][] =>
+    Array.from(live, ([key, pool]) => [key, pool.flatMap((j) => [j.id.index1, j.id.generation])]);
+
+function liveHandles(
+    ids: readonly [string, number[]][],
+    physicsWorld: SolverWorld,
+): Map<string, SolverJoint[]> {
+    const state = physicsWorld.state;
+    const live = new Map<string, SolverJoint[]>();
+    for (const [key, flat] of ids) {
+        const pool: SolverJoint[] = [];
+        for (let i = 0; i < flat.length; i += 2)
+            pool.push(
+                new SolverJoint(state, {
+                    index1: flat[i],
+                    world0: state.worldId,
+                    generation: flat[i + 1],
+                }),
+            );
+        live.set(key, pool);
+    }
+    return live;
+}
+
+/** copy the cache's live joint ids and retained defs out for a snapshot; the warned-key sets stay, as diagnostics. */
+export function captureConstraints(cache: ConstraintCache): ConstraintIds {
+    return {
+        springs: liveIds(cache.liveSprings),
+        joints: liveIds(cache.liveJoints),
+        retainedSprings: structuredClone(cache.retainedSprings) as SpringDef[],
+        retainedJoints: structuredClone(cache.retainedJoints) as JointDef[],
+    };
+}
+
+/** replace the cache's live joints and retained defs with fresh handles into `physicsWorld` for captured ids. */
+export function restoreConstraints(
+    cache: ConstraintCache,
+    ids: ConstraintIds,
+    physicsWorld: SolverWorld,
+): void {
+    cache.liveSprings = liveHandles(ids.springs, physicsWorld);
+    cache.liveJoints = liveHandles(ids.joints, physicsWorld);
+    cache.retainedSprings = structuredClone(ids.retainedSprings);
+    cache.retainedJoints = structuredClone(ids.retainedJoints);
 }
 
 /** drop every tracked joint handle without destroying (the world they lived in is gone). Call beside the world teardown in `warm()`/`dispose()`. */
