@@ -16,7 +16,7 @@ import {
 import { TonemappingPlugin, TonemappingSystem } from "./tonemapping-state";
 import { type View, Views } from "./view";
 
-/** Records into a core-owned pass. Records must not end the pass. Order within each phase is component order. */
+/** Records into a core-owned pass. Records must not end the pass. Each phase runs renderers in the order they are pushed to `RenderPhases`; plugins push in `initialize`, which runs in the composition's dependency order. */
 export interface PhaseRenderer {
     prepass?(
         world: World,
