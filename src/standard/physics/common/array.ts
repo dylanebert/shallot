@@ -109,11 +109,35 @@ export function swapRemove<T>(arr: T[], index: number): number {
     return NULL_INDEX;
 }
 
+// qsort's subfile stacks, kept at their high-water capacity so a sort allocates nothing.
+const stackL: number[] = [];
+const stackR: number[] = [];
+
+function sort3(
+    less: (i: number, j: number) => boolean,
+    swap: (i: number, j: number) => void,
+    a1: number,
+    a2: number,
+    a3: number,
+): void {
+    if (less(a2, a1)) {
+        if (less(a3, a2)) {
+            swap(a1, a3);
+        } else {
+            swap(a1, a2);
+            if (less(a3, a2)) swap(a2, a3);
+        }
+    } else if (less(a3, a2)) {
+        swap(a2, a3);
+        if (less(a2, a1)) swap(a1, a2);
+    }
+}
+
 /**
  * In-place quicksort operating purely on indices through `less`/`swap` callbacks — a faithful port
  * of Box3D's QSORT macro (qsort.h, Alexey Tourbin): median-of-3 pivot with an insertion-sort cutoff
- * at 16. The exact comparison + swap sequence is load-bearing: it fixes the order of equal keys,
- * which the mesh-contact tentative-triangle pass relies on for bit-exact manifold selection.
+ * at 16. It keeps the C's comparison and swap sequence, so equal keys land where the C leaves them.
+ * Not reentrant: `less` and `swap` must not sort.
  */
 export function qsort(
     n: number,
@@ -125,29 +149,14 @@ export function qsort(
     }
     const Thresh = 16;
 
-    const sort3 = (a1: number, a2: number, a3: number): void => {
-        if (less(a2, a1)) {
-            if (less(a3, a2)) {
-                swap(a1, a3);
-            } else {
-                swap(a1, a2);
-                if (less(a3, a2)) swap(a2, a3);
-            }
-        } else if (less(a3, a2)) {
-            swap(a2, a3);
-            if (less(a2, a1)) swap(a1, a2);
-        }
-    };
-
+    let top = 0;
     let l = 0;
     let r = n - 1;
-    const stackL: number[] = [];
-    const stackR: number[] = [];
 
     while (true) {
         if (r - l + 1 >= Thresh) {
             const m = l + ((r - l) >> 1);
-            sort3(l + 1, m, r);
+            sort3(less, swap, l + 1, m, r);
             swap(l, m);
             let i = l + 1;
             let j = r;
@@ -185,8 +194,9 @@ export function qsort(
                 l = l1;
                 r = r1;
             } else {
-                stackL.push(l1);
-                stackR.push(r1);
+                stackL[top] = l1;
+                stackR[top] = r1;
+                top++;
                 l = l2;
                 r = r2;
             }
@@ -196,9 +206,10 @@ export function qsort(
                     swap(j, j - 1);
                 }
             }
-            if (stackL.length === 0) break;
-            l = stackL.pop() as number;
-            r = stackR.pop() as number;
+            if (top === 0) break;
+            top--;
+            l = stackL[top];
+            r = stackR[top];
         }
     }
 }

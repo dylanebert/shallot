@@ -845,5 +845,6 @@ export function getSensorData(world: WorldState, shape: Shape): Visitor[] {
     if (shape.sensorIndex === NULL_INDEX) {
         return [];
     }
-    return world.sensors[shape.sensorIndex].overlaps2.map((r) => ({ ...r }));
+    const overlaps = world.sensors[shape.sensorIndex].overlaps2;
+    return overlaps.data.slice(0, overlaps.count).map((r) => ({ ...r }));
 }

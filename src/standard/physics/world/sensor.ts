@@ -7,10 +7,11 @@
 // one loop, and the eventBits optimization drops out (a sensor whose overlaps didn't change emits no
 // events regardless, so the diff always runs). fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
-import { NULL_INDEX } from "../common/array";
+import { NULL_INDEX, qsort } from "../common/array";
 import { SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
-import { queryColumns } from "../kernel/querycolumns";
+import type { Kernel } from "../kernel/kernel";
+import { type QueryColumns, queryColumns } from "../kernel/querycolumns";
 import { SHAPE_STRIDE } from "../kernel/shapecolumns";
 import type { Shape } from "../shapes/shape";
 import type { WorldState } from "./world";
@@ -24,11 +25,25 @@ export type Visitor = { shapeId: number; generation: number };
  * time-of-impact detections from the continuous solver, appended into `overlaps2` each step.
  */
 export type Sensor = {
-    hits: Visitor[];
-    overlaps1: Visitor[];
-    overlaps2: Visitor[];
+    hits: VisitorArray;
+    overlaps1: VisitorArray;
+    overlaps2: VisitorArray;
     shapeId: number;
 };
+
+/** Visitors in the first `count` slots of retained records (b3Array(b3Visitor)); slots past it are spare. */
+export type VisitorArray = { data: Visitor[]; count: number };
+
+/** Append a visitor, reusing a spare record when one exists (b3Array_Emplace). */
+function emplace(array: VisitorArray, shapeId: number, generation: number): void {
+    if (array.count === array.data.length) array.data.push({ shapeId, generation });
+    else {
+        const r = array.data[array.count];
+        r.shapeId = shapeId;
+        r.generation = generation;
+    }
+    array.count += 1;
+}
 
 /** A begin-touch event between a sensor and a visitor shape (b3SensorBeginTouchEvent). */
 export type SensorBeginTouchEvent = { sensorShapeId: EntityId; visitorShapeId: EntityId };
@@ -37,7 +52,12 @@ const WORLD_ORIGIN = { x: 0, y: 0, z: 0 };
 
 /** A fresh sensor bound to `shapeId` (b3CreateShape's sensor branch). */
 export function createSensor(shapeId: number): Sensor {
-    return { hits: [], overlaps1: [], overlaps2: [], shapeId };
+    return {
+        hits: { data: [], count: 0 },
+        overlaps1: { data: [], count: 0 },
+        overlaps2: { data: [], count: 0 },
+        shapeId,
+    };
 }
 
 /** A shape's public id from its slot index and generation (b3ShapeId). */
@@ -56,10 +76,22 @@ export function recordSensorHit(world: WorldState, sensorId: number, visitorId: 
     const sensorShape = world.shapes[sensorId];
     const visitor = world.shapes[visitorId];
     const sensor = world.sensors[sensorShape.sensorIndex];
-    sensor.hits.push({ shapeId: visitorId, generation: visitor.generation });
+    emplace(sensor.hits, visitorId, visitor.generation);
 }
 
-const byShapeId = (a: Visitor, b: Visitor): number => a.shapeId - b.shapeId;
+// qsort's index callbacks over the array being sorted; swapping fields keeps every record distinct.
+let sorting: Visitor[] = [];
+const lessShapeId = (i: number, j: number): boolean => sorting[i].shapeId < sorting[j].shapeId;
+const swapVisitors = (i: number, j: number): void => {
+    const a = sorting[i];
+    const b = sorting[j];
+    const shapeId = a.shapeId;
+    const generation = a.generation;
+    a.shapeId = b.shapeId;
+    a.generation = b.generation;
+    b.shapeId = shapeId;
+    b.generation = generation;
+};
 
 /**
  * Refresh every sensor's overlaps and publish begin/end events (b3OverlapSensors + b3SensorTask,
@@ -74,48 +106,51 @@ export function overlapSensors(world: WorldState): void {
     const q = queryColumns(world);
     const k = q.prepare(WORLD_ORIGIN);
 
-    for (let sensorIndex = 0; sensorIndex < sensorCount; ++sensorIndex) {
-        const sensor = world.sensors[sensorIndex];
-        const sensorShape = world.shapes[sensor.shapeId];
+    for (let sensorIndex = 0; sensorIndex < sensorCount; ++sensorIndex)
+        refreshSensor(world, world.sensors[sensorIndex], q, k);
+}
 
-        // Swap overlap buffers, seed the new frame with this step's time-of-impact hits. The retired
-        // previous-frame buffer becomes the empty hit list; nothing outside this pass holds it.
-        const retired = sensor.overlaps1;
-        sensor.overlaps1 = sensor.overlaps2;
-        sensor.overlaps2 = sensor.hits;
-        retired.length = 0;
-        sensor.hits = retired;
-        const overlaps2 = sensor.overlaps2;
+// Refresh one sensor's overlaps and publish its events (b3SensorTask, then its diff). Kept out of
+// overlapSensors so a sensorless world's early return stays small enough to tier up during warm-up.
+function refreshSensor(world: WorldState, sensor: Sensor, q: QueryColumns, k: Kernel): void {
+    const sensorShape = world.shapes[sensor.shapeId];
 
-        const body = world.bodies[sensorShape.bodyId];
-        const disabled =
-            body.setIndex === SetType.Disabled || sensorShape.enableSensorEvents === false;
+    // Swap overlap buffers, seed the new frame with this step's time-of-impact hits. The retired
+    // previous-frame buffer becomes the empty hit list; nothing outside this pass holds it.
+    const retired = sensor.overlaps1;
+    sensor.overlaps1 = sensor.overlaps2;
+    sensor.overlaps2 = sensor.hits;
+    retired.count = 0;
+    sensor.hits = retired;
+    const overlaps2 = sensor.overlaps2;
 
-        if (disabled === false) {
-            q.bounds(sensorShape.aabb);
-            let shapeId = k.sensorQuery(world.worldId, sensor.shapeId) >>> 0;
-            while (shapeId !== 0xffffffff) {
-                overlaps2.push({ shapeId, generation: world.shapes[shapeId].generation });
-                shapeId = world.shapeStore.shapeU[shapeId * SHAPE_STRIDE + 33];
-            }
+    const body = world.bodies[sensorShape.bodyId];
+    const disabled = body.setIndex === SetType.Disabled || sensorShape.enableSensorEvents === false;
 
-            // Sort by shape id, then drop duplicates (a hit may repeat a queried overlap).
-            overlaps2.sort(byShapeId);
-            let uniqueCount = 0;
-            for (let i = 0; i < overlaps2.length; ++i) {
-                if (
-                    uniqueCount === 0 ||
-                    overlaps2[i].shapeId !== overlaps2[uniqueCount - 1].shapeId
-                ) {
-                    overlaps2[uniqueCount] = overlaps2[i];
-                    uniqueCount += 1;
-                }
-            }
-            overlaps2.length = uniqueCount;
+    if (disabled === false) {
+        q.bounds(sensorShape.aabb);
+        let shapeId = k.sensorQuery(world.worldId, sensor.shapeId) >>> 0;
+        while (shapeId !== 0xffffffff) {
+            emplace(overlaps2, shapeId, world.shapes[shapeId].generation);
+            shapeId = world.shapeStore.shapeU[shapeId * SHAPE_STRIDE + 33];
         }
 
-        emitSensorEvents(world, sensorShape, sensor.overlaps1, overlaps2);
+        // Sort by shape id, then drop duplicates (a hit may repeat a queried overlap).
+        sorting = overlaps2.data;
+        qsort(overlaps2.count, lessShapeId, swapVisitors);
+        const data = overlaps2.data;
+        let uniqueCount = 0;
+        for (let i = 0; i < overlaps2.count; ++i) {
+            if (uniqueCount === 0 || data[i].shapeId !== data[uniqueCount - 1].shapeId) {
+                data[uniqueCount].shapeId = data[i].shapeId;
+                data[uniqueCount].generation = data[i].generation;
+                uniqueCount += 1;
+            }
+        }
+        overlaps2.count = uniqueCount;
     }
+
+    emitSensorEvents(world, sensorShape, sensor.overlaps1, overlaps2);
 }
 
 /**
@@ -126,23 +161,26 @@ export function overlapSensors(world: WorldState): void {
 function emitSensorEvents(
     world: WorldState,
     sensorShape: Shape,
-    refs1: Visitor[],
-    refs2: Visitor[],
+    array1: VisitorArray,
+    array2: VisitorArray,
 ): void {
-    const sensorId = shapeEntityId(world, sensorShape.id, sensorShape.generation);
-    const beginEvents = world.sensorBeginEvents;
-    const endEvents = world.sensorEndEvents[world.endEventArrayIndex];
-
-    const visitorId = (r: Visitor): EntityId => shapeEntityId(world, r.shapeId, r.generation);
+    const refs1 = array1.data;
+    const refs2 = array2.data;
     const begin = (r: Visitor): void => {
-        beginEvents.push({ sensorShapeId: sensorId, visitorShapeId: visitorId(r) });
+        world.sensorBeginEvents.push({
+            sensorShapeId: shapeEntityId(world, sensorShape.id, sensorShape.generation),
+            visitorShapeId: shapeEntityId(world, r.shapeId, r.generation),
+        });
     };
     const end = (r: Visitor): void => {
-        endEvents.push({ sensorShapeId: sensorId, visitorShapeId: visitorId(r) });
+        world.sensorEndEvents[world.endEventArrayIndex].push({
+            sensorShapeId: shapeEntityId(world, sensorShape.id, sensorShape.generation),
+            visitorShapeId: shapeEntityId(world, r.shapeId, r.generation),
+        });
     };
 
-    const count1 = refs1.length;
-    const count2 = refs2.length;
+    const count1 = array1.count;
+    const count2 = array2.count;
     let index1 = 0;
     let index2 = 0;
     while (index1 < count1 && index2 < count2) {
@@ -187,7 +225,8 @@ export function destroySensor(world: WorldState, sensorShape: Shape): void {
     const sensor = world.sensors[sensorIndex];
     const sensorId = shapeEntityId(world, sensorShape.id, sensorShape.generation);
     const endEvents = world.sensorEndEvents[world.endEventArrayIndex];
-    for (const ref of sensor.overlaps2) {
+    for (let i = 0; i < sensor.overlaps2.count; i++) {
+        const ref = sensor.overlaps2.data[i];
         endEvents.push({
             sensorShapeId: sensorId,
             visitorShapeId: shapeEntityId(world, ref.shapeId, ref.generation),
