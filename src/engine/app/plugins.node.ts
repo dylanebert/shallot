@@ -516,19 +516,7 @@ function uses(subject: Plugin, dependency: Plugin): boolean {
 }
 
 function featurePlugin(subject: Plugin): Plugin {
-    const components = everyPlugin
-        .flatMap((plugin) => plugin.components ?? [])
-        .map((entry) => {
-            // Body only produces placement when the physics systems that sync it are composed.
-            if (
-                entry.key === "Body" &&
-                !uses(subject, StandardPhysicsPlugin) &&
-                !uses(subject, CharacterPlugin)
-            ) {
-                return { ...entry, requires: undefined };
-            }
-            return entry;
-        });
+    const components = everyPlugin.flatMap((plugin) => plugin.components ?? []);
     return {
         name: "GpuIsolationFeatureSeed",
         components,
