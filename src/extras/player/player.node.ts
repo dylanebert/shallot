@@ -6,7 +6,6 @@ setDefaultTimeout(CEILING.node);
 
 import {
     Body,
-    Camera,
     Character,
     CharacterPlugin,
     createApp,
@@ -29,7 +28,7 @@ const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
-test("the public Player controller consumes held, released and neutral input to look and drive an actual Character without a renderer or browser input", async () => {
+test("the public Player controller consumes held, released and neutral input to drive a Character and a linked Transform without a Camera, renderer or browser input", async () => {
     const app = await createApp({
         defaults: false,
         plugins: [InputPlugin, CharacterPlugin, StandardPhysicsPlugin, PlayerPlugin],
@@ -44,7 +43,6 @@ test("the public Player controller consumes held, released and neutral input to 
         world.storage(Body).mass.set(floor, 0);
 
         const camera = world.create();
-        world.add(camera, Camera);
         world.add(camera, Transform);
 
         const player = world.create();

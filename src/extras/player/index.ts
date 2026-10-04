@@ -6,7 +6,6 @@ import {
     requirePointerLock,
 } from "../../core/input";
 import { Body } from "../../core/physics";
-import { Camera, RenderingPlugin } from "../../core/rendering";
 import {
     entity,
     f32,
@@ -58,7 +57,7 @@ export const Player = {
     eyeHeight: f32,
     /** camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding) */
     distance: f32,
-    /** the linked camera entity (a Camera + Transform); set this or the camera never moves */
+    /** The linked camera: an entity with a Transform. Without a valid link, Player writes no camera pose. */
     camera: entity,
 };
 
@@ -223,7 +222,7 @@ function followPos(world: World, eid: number, out: [number, number, number]): vo
 
 function findCamera(world: World, eid: number): number {
     const cam = world.storage(Player).camera.get(eid);
-    if (!cam || !world.has(cam, Camera)) {
+    if (!cam || !world.has(cam, Transform)) {
         // warn once, latched on the derived PlayerFollow (added by the snapshot system); if it isn't up yet
         // (the character hasn't registered), skip — the next frame with GlobalTransform warns.
         if (
@@ -232,7 +231,7 @@ function findCamera(world: World, eid: number): number {
         ) {
             world.storage(PlayerFollow).missingCameraWarned.set(eid, 1);
             console.warn(
-                `[player] entity ${eid} has Player but Player.camera points at no Camera — set it to a camera eid`,
+                `[player] entity ${eid}: Player.camera must point to an entity with a Transform`,
             );
         }
         return -1;
@@ -342,5 +341,5 @@ export const PlayerPlugin: Plugin = {
             }),
         }),
     ],
-    dependencies: [CharacterPlugin, InputPlugin, RenderingPlugin],
+    dependencies: [CharacterPlugin, InputPlugin],
 };
