@@ -1,4 +1,4 @@
-import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createApp } from "@dylanebert/shallot";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
 import { Body, ShapeKind } from "@dylanebert/shallot/physics";
@@ -27,7 +27,14 @@ test("composed physics records phases as parts of its scheduler timing", async (
     bodies.position.set(eid, 0, 5, 0, 0);
     bodies.rotation.set(eid, 0, 0, 0, 1);
     bodies.mass.set(eid, 1);
-    for (let i = 0; i < 10; i++) world.step(1 / 60);
+    // A phase with no work can read 0 ms on a real clock and go unrecorded; each read advances 1 ms here.
+    let clock = 0;
+    const now = spyOn(performance, "now").mockImplementation(() => ++clock);
+    try {
+        for (let i = 0; i < 10; i++) world.step(1 / 60);
+    } finally {
+        now.mockRestore();
+    }
     const cpu = world.resource(Profile).cpu;
     expect(cpu.get("StandardPhysics/step/collide")).toBeGreaterThan(0);
     expect(cpu.get("StandardPhysics/step/solve")).toBeGreaterThan(0);
