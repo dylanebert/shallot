@@ -223,24 +223,7 @@ export const TonemappingPlugin: Plugin = {
         const display = composite(world, "rgba8unorm");
         state.displayPipeline = world.gpu.root.unwrap(display.pipeline);
         precompile(world, "tonemapping-display", () => [state.displayPipeline!]);
-        const { pipeline, layout, lut, sampler } = state.built;
-        precompile(world, "tonemapping", () => {
-            const source = world.gpu.device.createTexture({
-                size: [1, 1],
-                format: "rgba8unorm",
-                usage: GPUTextureUsage.TEXTURE_BINDING,
-            });
-            const bound = pipeline.with(
-                world.gpu.root.createBindGroup(layout, {
-                    input: source.createView(),
-                    grading: state.configs[0],
-                    lut,
-                    sampler,
-                }),
-            );
-            source.destroy();
-            return bound;
-        });
+        precompile(world, "tonemapping", () => [state.pipeline!]);
     },
     dispose(world) {
         const state = world.resource(tonemappingStateKey);
