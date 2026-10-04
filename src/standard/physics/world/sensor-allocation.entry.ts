@@ -9,7 +9,8 @@ export const control = () => {
 };
 
 // Boxes resting on a sliding kinematic platform stay awake inside one static sensor: every step
-// refreshes the sensor's overlaps, and none begins or ends.
+// refreshes the sensor's overlaps, and none begins or ends. A game polls every event kind each step
+// whether or not any arrived.
 export default async function create(input: string) {
     const count = Number(input);
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
@@ -58,6 +59,18 @@ export default async function create(input: string) {
                 state.sensorEndEvents[state.endEventArrayIndex].length !== 0
             )
                 throw new Error("allocation subject's sensor overlaps changed in steady play");
+            const sensorEvents = physics.getSensorEvents();
+            const contactEvents = physics.getContactEvents();
+            if (
+                sensorEvents.beginEvents.length +
+                    sensorEvents.endEvents.length +
+                    contactEvents.beginEvents.length +
+                    contactEvents.endEvents.length +
+                    contactEvents.hitEvents.length +
+                    physics.getJointEvents().length !==
+                0
+            )
+                throw new Error("allocation subject polled events in steady play");
             if (state.awakeContacts.length !== count)
                 throw new Error("allocation subject lost its awake box contacts");
         },
