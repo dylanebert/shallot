@@ -34,11 +34,11 @@ export const MAX_CASCADES = 4;
  * the directional shadow map size, Bevy's `DirectionalLightShadowMap`: `size` is the side in pixels of each
  * cascade's square tile (default 2048), clamped to [256, 4096] and snapped to a power of two. The tiles share
  * one depth32float atlas `ceil(√numCascades)` tiles on a side, so 4096 with more than one cascade allocates
- * an 8192² atlas (256 MiB). It is read when the app warms and when the sun first casts, and is not changed
- * after; set it in `AppConfig.setup` or a plugin's `initialize`, e.g.
- * `world.resource(DirectionalLightShadowMap).size = 1024`. Each world owns its own. The cascade split itself
- * lives on the light ({@link DirectionalLight}'s `numCascades`, `firstCascadeFarBound`, `overlapProportion`
- * and `maximumDistance`); point and spot tiles are sized from {@link PointShadows}.
+ * an 8192² atlas (256 MiB). It is read every frame the sun casts, and a change reallocates the atlas before
+ * that frame draws, e.g. `world.resource(DirectionalLightShadowMap).size = 1024`. Each world owns its own.
+ * The cascade split itself lives on the light ({@link DirectionalLight}'s `numCascades`,
+ * `firstCascadeFarBound`, `overlapProportion` and `maximumDistance`); point and spot tiles are sized from
+ * {@link PointShadows}.
  */
 export interface DirectionalLightShadowMap {
     size: number;
@@ -487,8 +487,8 @@ export function cascadeCovers(world: World): Float32Array {
     return shadows(world).cascadeCover;
 }
 
-/** the casting sun's resolved `numCascades` this frame ({@link lightCascades}): what sizes the cascade atlas
- * when it first casts, whatever the active {@link cascadeCount}. */
+/** the casting sun's resolved `numCascades` this frame ({@link lightCascades}): what sizes the cascade atlas,
+ * whatever the active {@link cascadeCount}. */
 export function sunCascades(world: World): number {
     return shadows(world).sunCascades;
 }
@@ -516,8 +516,8 @@ function createCascadeCamera(world: World): number {
     return eid;
 }
 
-// grow/shrink the cascade-camera pool to exactly `n` (the active cascade count). The count is hysteresis-free
-// but `numCascades` is fixed once the light casts, so this is effectively a one-time create
+// grow/shrink the cascade-camera pool to exactly `n` (the active cascade count), with no hysteresis: it
+// changes only when `numCascades` or the main camera's projection does
 function syncCascadePool(world: World, shadow: ShadowRuntime, n: number): void {
     if (shadow.cascadeEids.length !== n) shadow.cascKey.fill(Number.NaN);
     while (shadow.cascadeEids.length < n) shadow.cascadeEids.push(createCascadeCamera(world));

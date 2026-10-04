@@ -15,8 +15,7 @@ export const AmbientLight = component(
  * renderer's maximum) cover the camera's view out to maximumDistance in world units, the first ending at
  * firstCascadeFarBound and the rest spaced exponentially to maximumDistance; with one cascade the bound is
  * ignored and maximumDistance takes precedence. overlapProportion, in [0, 1), is the fraction of each
- * cascade blended with the next. numCascades sizes the cascade atlas when the light first casts and is not
- * changed after; the other cascade fields are read every frame.
+ * cascade blended with the next. All are read every frame; a numCascades change resizes the cascade atlas.
  * Shadow normal bias is measured in shadow texels; depth bias is a residual depth offset.
  */
 export const DirectionalLight = component(

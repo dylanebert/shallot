@@ -798,13 +798,17 @@ function ensureAtlas(world: World): void {
     _atlasState.pointAtlasView = _atlasState.pointAtlas.createView();
 }
 
-// the cascade atlas, fixed-size (the per-cascade resolution × the grid for the light's `numCascades`), allocated
-// on the first casting frame — the bare path (shadowMapsEnabled off on the sun) never allocates it
-function ensureCascadeAtlas(world: World): void {
+/** allocate the cascade atlas (the per-cascade resolution × the grid for the light's `numCascades`) on the
+ * first casting frame, and reallocate it when either changes, as Bevy's per-frame texture-cache request does;
+ * the bare path (shadowMapsEnabled off on the sun) never allocates it. `ShadowCameraSystem` calls it before
+ * the draw group records, since the depth prepass binds {@link shadowGroup} ahead of the shadow pass and a
+ * texture destroyed after that binding fails the frame's submit. */
+export function ensureCascadeAtlas(world: World): void {
     const _atlasState = world.resource(atlasStateKey);
 
-    if (_atlasState.cascadeAtlas) return;
     const side = cascadeAtlasSize(sunResolution(world), sunCascades(world));
+    if (_atlasState.cascadeAtlas?.width === side) return;
+    _atlasState.cascadeAtlas?.destroy();
     _atlasState.cascadeAtlas = world.gpu.device.createTexture({
         label: "standard-cascade-shadow-atlas",
         size: { width: side, height: side },
@@ -1272,8 +1276,8 @@ export function renderCascades(
     _atlasState.paramsF32[SUN_PARAMS.globals.depthBias] = bias[0];
     _atlasState.paramsF32[SUN_PARAMS.globals.enabled] = 1;
     _atlasState.paramsF32[SUN_PARAMS.globals.normalBias] = bias[1];
-    // one atlas pixel in uv — the actual texture side (allocated for the light's count at first cast), not the
-    // live count: an ortho main camera runs C = 1 into the whole atlas, so its PCF tap step is still 1 physical pixel
+    // one atlas pixel in uv — the actual texture side (allocated for the light's count), not the active
+    // count: an ortho main camera runs C = 1 into the whole atlas, so its PCF tap step is still 1 physical pixel
     _atlasState.paramsF32[SUN_PARAMS.globals.texel] = 1 / _atlasState.cascadeAtlas!.width;
     world.gpu.device.queue.writeBuffer(
         _atlasState.sunParams!,

@@ -2160,8 +2160,8 @@ function clipShadowFs(surface: AnySurface) {
  * Opaque surfaces share {@link shadowFs}; clipped surfaces use their wider cutoff
  * vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and its
  * atlas pixel size source: the point VS bakes the world's `PointShadows.atlas` when the app builds, and the
- * cascade VS (passed `0`) reads its atlas side from `comboMeta.z`, since the light's `numCascades` sizes that
- * atlas when it first casts.
+ * cascade VS (passed `0`) reads its atlas side from `comboMeta.z`, since the light's live `numCascades` and
+ * `DirectionalLightShadowMap.size` size that atlas.
  */
 function compileShadow(
     world: World,
