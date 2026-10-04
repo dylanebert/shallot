@@ -135,6 +135,6 @@ pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) 
             result[7] = point.y.to_bits();
             result[8] = point.z.to_bits();
         }
-        world_query::RESULT = result;
+        world_query::RESULT[..16].copy_from_slice(&result);
     }
 }

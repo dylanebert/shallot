@@ -7,10 +7,11 @@ use crate::query::{self, PlaneResult, RayCastInput, ShapeCastInput};
 use crate::shapes::*;
 use crate::{broad, query_abi, tree};
 
-// roots/counts, category hi/lo, mask hi/lo, origin xyz, box lower/upper xyz.
-pub(crate) static mut HEADER: [u32; 19] = [0; 19];
+// roots/counts, category hi/lo, mask hi/lo, origin xyz, box lower/upper xyz, excluded body + 1.
+pub(crate) static mut HEADER: [u32; 20] = [0; 20];
 // shape id (-1 for no hit), node/leaf visits, final fraction, followed by cast output.
-pub(crate) static mut RESULT: [u32; 16] = [0; 16];
+// Callback-free collide mover: count at 0, then eight shape/normal/offset/point records at 16.
+pub(crate) static mut RESULT: [u32; 80] = [0; 80];
 #[export_name = "worldQueryHeaderPtr"]
 pub extern "C" fn header_ptr() -> *mut u32 {
     &raw mut HEADER as *mut u32
@@ -73,10 +74,11 @@ unsafe fn pose(id: usize, origin: Vec3) -> Transform {
         },
     }
 }
-pub(crate) fn accepts(id: usize, header: &[u32; 19]) -> bool {
+pub(crate) fn accepts(id: usize, header: &[u32; 20]) -> bool {
     let r = crate::shapes::col_slice();
     let n = id * SHAPE_STRIDE;
-    ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY + 1] & header[9])) != 0
+    (header[19] == 0 || r[n + S_QUERY_BODY] + 1 != header[19])
+        && ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY + 1] & header[9])) != 0
         && ((r[n + S_QUERY_MASK] & header[6]) | (r[n + S_QUERY_MASK + 1] & header[7])) != 0
 }
 pub(crate) fn cast_record(out: &CastOutput) -> [f32; 12] {
@@ -196,7 +198,7 @@ pub extern "C" fn sensor(world: usize, sensor_id: usize) -> u32 {
 }
 
 /// Operations: AABB overlap, shape overlap, ray, closest ray, shape cast, collide mover, cast mover.
-/// Internal callers select no callback; mover planes and hit records remain on the kernel stack.
+/// Without a callback, collide mover publishes the first eight planes in traversal order.
 #[export_name = "worldQuery"]
 pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
     unsafe {
@@ -223,8 +225,8 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
             lo = lo.add(origin);
             hi = hi.add(origin);
         }
-        let mut result = [0u32; 16];
-        result[0] = u32::MAX;
+        let mut result = [0u32; 80];
+        result[0] = if operation == 5 { 0 } else { u32::MAX };
         let mut stack = [0; tree::STACK_SIZE];
         for i in 0..3 {
             let pool =
@@ -271,6 +273,29 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                     let mut planes = [PlaneResult::ZERO; 64];
                     let count =
                         query::collide_mover(&mut planes, &shape, transform, &mover, materials);
+                    if user_callback == 0 {
+                        for plane in &planes[..count] {
+                            let index = result[0] as usize;
+                            if index == 8 {
+                                break;
+                            }
+                            let n = 16 + index * 8;
+                            result[n] = shape_id;
+                            let values = [
+                                plane.plane.normal.x,
+                                plane.plane.normal.y,
+                                plane.plane.normal.z,
+                                plane.plane.offset,
+                                plane.point.x,
+                                plane.point.y,
+                                plane.point.z,
+                            ];
+                            for j in 0..7 {
+                                result[n + 1 + j] = values[j].to_bits();
+                            }
+                            result[0] += 1;
+                        }
+                    }
                     return if count != 0 && user_callback != 0 {
                         callback(2, id, planes.as_ptr() as *const u8, count)
                     } else {

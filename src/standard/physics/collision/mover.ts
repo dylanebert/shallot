@@ -8,7 +8,7 @@
 // the into-plane velocity component.
 
 import { LINEAR_SLOP } from "../common/constants";
-import { absf, clampf, f32, minf, type Plane, plane, type Vec3, vec3 } from "../common/math";
+import { absf, clampf, f32, minf, type Plane, type Vec3 } from "../common/math";
 
 /** The plane between a mover and a shape, plus the closest point on that shape (b3PlaneResult). */
 export type PlaneResult = {
@@ -37,18 +37,22 @@ export type PlaneSolverResult = {
 /**
  * Resolve `targetDelta` against the collision planes, accumulating a clamped push per plane until the
  * motion no longer drives into any of them (b3SolvePlanes). Mutates each plane's `push`.
+ * Writes into caller-owned `out` when supplied; otherwise returns a fresh result and delta.
  * @returns the resolved delta and the iterations used (for diagnostics).
  */
 export function solvePlanes(
     targetDelta: Vec3,
     planes: CollisionPlane[],
     count: number,
+    out: PlaneSolverResult = { delta: { x: 0, y: 0, z: 0 }, iterationCount: 0 },
 ): PlaneSolverResult {
     for (let i = 0; i < count; ++i) {
         planes[i].push = 0;
     }
 
-    let delta = targetDelta;
+    let x = targetDelta.x;
+    let y = targetDelta.y;
+    let z = targetDelta.z;
     const tolerance = LINEAR_SLOP;
 
     let iteration = 0;
@@ -58,7 +62,9 @@ export function solvePlanes(
             const pl = planes[planeIndex];
 
             // Add slop to prevent jitter
-            const separation = f32(plane.separation(pl.plane, delta) + LINEAR_SLOP);
+            const n = pl.plane.normal;
+            const dot = f32(f32(f32(n.x * x) + f32(n.y * y)) + f32(n.z * z));
+            const separation = f32(f32(dot - pl.plane.offset) + LINEAR_SLOP);
 
             let push = -separation;
 
@@ -66,7 +72,9 @@ export function solvePlanes(
             const accumulatedPush = pl.push;
             pl.push = clampf(f32(pl.push + push), 0, pl.pushLimit);
             push = f32(pl.push - accumulatedPush);
-            delta = vec3.mulAdd(delta, push, pl.plane.normal);
+            x = f32(x + f32(push * n.x));
+            y = f32(y + f32(push * n.y));
+            z = f32(z + f32(push * n.z));
 
             // Track total push for convergence
             totalPush = f32(totalPush + absf(push));
@@ -77,15 +85,27 @@ export function solvePlanes(
         }
     }
 
-    return { delta, iterationCount: iteration };
+    out.delta.x = x;
+    out.delta.y = y;
+    out.delta.z = z;
+    out.iterationCount = iteration;
+    return out;
 }
 
 /**
  * Remove the into-plane component of `vector` for every plane that got a push and opts into velocity
  * clipping (b3ClipVector). Used to project the mover's velocity along the surfaces it hit.
+ * Writes into caller-owned `out` when supplied (which may alias `vector`); otherwise returns a fresh vector.
  */
-export function clipVector(vector: Vec3, planes: CollisionPlane[], count: number): Vec3 {
-    let v = vector;
+export function clipVector(
+    vector: Vec3,
+    planes: CollisionPlane[],
+    count: number,
+    out: Vec3 = { x: 0, y: 0, z: 0 },
+): Vec3 {
+    let x = vector.x;
+    let y = vector.y;
+    let z = vector.z;
 
     for (let planeIndex = 0; planeIndex < count; ++planeIndex) {
         const pl = planes[planeIndex];
@@ -93,8 +113,15 @@ export function clipVector(vector: Vec3, planes: CollisionPlane[], count: number
             continue;
         }
 
-        v = vec3.mulSub(v, minf(0, vec3.dot(v, pl.plane.normal)), pl.plane.normal);
+        const n = pl.plane.normal;
+        const s = minf(0, f32(f32(f32(x * n.x) + f32(y * n.y)) + f32(z * n.z)));
+        x = f32(x - f32(s * n.x));
+        y = f32(y - f32(s * n.y));
+        z = f32(z - f32(s * n.z));
     }
 
-    return v;
+    out.x = x;
+    out.y = y;
+    out.z = z;
+    return out;
 }

@@ -387,6 +387,14 @@ class ResidentBodyState implements BodyState {
         f[o + 1] = v.y;
         f[o + 2] = v.z;
     }
+    readAngularVelocity(out: Vec3): Vec3 {
+        const f = this._s.stateF;
+        const o = this._o;
+        out.x = f[o + 3];
+        out.y = f[o + 4];
+        out.z = f[o + 5];
+        return out;
+    }
     get angularVelocity(): Vec3 {
         const f = this._s.stateF;
         const o = this._o;
@@ -510,6 +518,14 @@ class ResidentBodySim implements BodySim {
             p: { x: ff[fo + 9], y: ff[fo + 10], z: ff[fo + 11] },
             q: { v: { x: sf[so + 28], y: sf[so + 29], z: sf[so + 30] }, s: sf[so + 31] },
         };
+    }
+    readCenter(out: Vec3): Vec3 {
+        const f = this._s.finF;
+        const o = this._fo;
+        out.x = f[o];
+        out.y = f[o + 1];
+        out.z = f[o + 2];
+        return out;
     }
     get center(): Vec3 {
         const ff = this._s.finF;
@@ -741,6 +757,26 @@ export function readSimTransform(sim: BodySim, out: WorldTransform): WorldTransf
     out.q.v.y = t.q.v.y;
     out.q.v.z = t.q.v.z;
     out.q.s = t.q.s;
+    return out;
+}
+
+/** Copy a sim's world center of mass into `out`. */
+export function readSimCenter(sim: BodySim, out: Vec3): Vec3 {
+    if (sim instanceof ResidentBodySim) return sim.readCenter(out);
+    const c = sim.center;
+    out.x = c.x;
+    out.y = c.y;
+    out.z = c.z;
+    return out;
+}
+
+/** Copy a state's angular velocity into `out`. */
+export function readStateAngularVelocity(state: BodyState, out: Vec3): Vec3 {
+    if (state instanceof ResidentBodyState) return state.readAngularVelocity(out);
+    const v = state.angularVelocity;
+    out.x = v.x;
+    out.y = v.y;
+    out.z = v.z;
     return out;
 }
 

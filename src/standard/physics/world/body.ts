@@ -14,6 +14,7 @@ import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "../common
 import { allocId, type EntityId } from "../common/ids";
 import {
     aabb,
+    FLT_MIN,
     f32,
     froundConfig,
     type Mat3,
@@ -33,8 +34,11 @@ import { type BodyDef, BodyType, ShapeType } from "../common/types";
 import {
     isResidentSim,
     isResidentState,
+    readSimCenter,
     readSimLocalCenter,
     readSimTransform,
+    readStateAngularVelocity,
+    readStateLinearVelocity,
     reserveBodies,
     residentPush,
     residentRemove,
@@ -373,7 +377,7 @@ function clampLinearSpeed(world: WorldState, v: Vec3): Vec3 {
 /**
  * Apply an instantaneous world-space impulse at a world-space point, changing velocity immediately
  * (b3Body_ApplyLinearImpulse). An off-center point also changes angular velocity. Linear speed is
- * clamped to the world's max.
+ * clamped to the world's max. Caller-owned scratch is borrowed for this call, never retained by the body.
  */
 export function bodyApplyLinearImpulse(
     world: WorldState,
@@ -381,6 +385,13 @@ export function bodyApplyLinearImpulse(
     impulse: Vec3,
     point: Pos,
     wake: boolean,
+    scratch = {
+        linear: vec3.zero(),
+        angular: vec3.zero(),
+        center: vec3.zero(),
+        r: vec3.zero(),
+        mrn: vec3.zero(),
+    },
 ): void {
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
@@ -388,13 +399,31 @@ export function bodyApplyLinearImpulse(
     const state = getBodyState(world, body);
     if (state === null) return;
 
-    state.linearVelocity = clampLinearSpeed(
-        world,
-        vec3.mulAdd(state.linearVelocity, sim.invMass, impulse),
-    );
+    const v = readStateLinearVelocity(state, scratch.linear);
+    vec3.mulAddOut(v, sim.invMass, impulse, v);
+    const lengthSq = vec3.lengthSq(v);
+    const max = world.maxLinearSpeed;
+    if (lengthSq > f32(max * max)) {
+        if (lengthSq > f32(1000 * FLT_MIN)) {
+            const scale = f32(1 / f32(Math.sqrt(lengthSq)));
+            v.x = f32(max * f32(v.x * scale));
+            v.y = f32(max * f32(v.y * scale));
+            v.z = f32(max * f32(v.z * scale));
+        } else {
+            v.x = 0;
+            v.y = 0;
+            v.z = 0;
+        }
+    }
+    state.linearVelocity = isResidentState(state) ? v : { ...v };
 
-    const delta = mat3.mulV(sim.invInertiaWorld, vec3.cross(subPos(point, sim.center), impulse));
-    state.angularVelocity = vec3.add(state.angularVelocity, delta);
+    readSimCenter(sim, scratch.center);
+    vec3.subOut(point, scratch.center, scratch.r);
+    vec3.crossOut(scratch.r, impulse, scratch.r);
+    mat3.mulVOut(sim.invInertiaWorld, scratch.r, scratch.mrn);
+    const angular = readStateAngularVelocity(state, scratch.angular);
+    vec3.addOut(angular, scratch.mrn, angular);
+    state.angularVelocity = isResidentState(state) ? angular : { ...angular };
 }
 
 /** Apply an instantaneous impulse at the center of mass (b3Body_ApplyLinearImpulseToCenter). */

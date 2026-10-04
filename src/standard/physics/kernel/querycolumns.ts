@@ -1,4 +1,3 @@
-import type { World } from "../../../engine";
 import type { ShapeProxy } from "../collision/distance";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS } from "../common/constants";
 import type { AABB, Pos, Vec3, WorldTransform } from "../common/math";
@@ -34,20 +33,16 @@ export class QueryColumns extends KernelViews {
         this.guardViews();
     }
 
-    override get ecsState(): World | undefined {
-        return this.world.ecsState;
-    }
-
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
         const memory = k.memory.buffer;
         if (this.input.buffer !== memory || this.input.byteLength === 0) {
             this.input = new Float32Array(memory, k.shapeQueryInputPtr(), 398);
             this.cast = new Float32Array(memory, k.shapeQueryOutputPtr(), 12);
-            this.headerU = new Uint32Array(memory, k.worldQueryHeaderPtr(), 19);
-            this.headerF = new Float32Array(memory, k.worldQueryHeaderPtr(), 19);
-            this.resultU = new Uint32Array(memory, k.worldQueryResultPtr(), 16);
-            this.resultF = new Float32Array(memory, k.worldQueryResultPtr(), 16);
+            this.headerU = new Uint32Array(memory, k.worldQueryHeaderPtr(), 20);
+            this.headerF = new Float32Array(memory, k.worldQueryHeaderPtr(), 20);
+            this.resultU = new Uint32Array(memory, k.worldQueryResultPtr(), 80);
+            this.resultF = new Float32Array(memory, k.worldQueryResultPtr(), 80);
         }
     }
 
@@ -63,6 +58,7 @@ export class QueryColumns extends KernelViews {
         }
         world.broadPhase.store.refreshIfStale();
         const h = this.headerU;
+        h[19] = 0;
         const trees = world.broadPhase.trees;
         for (let i = 0; i < 3; ++i) {
             h[2 * i] = trees[i].root;

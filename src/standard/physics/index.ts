@@ -1,6 +1,7 @@
 export type { WorldSnapshot } from "./api";
 export type { MoverFilterCallback, PlaneResultCallback } from "./api/config";
 export { PhysicsWorld } from "./api/world";
+export { Character, CharacterPlugin, GroundState } from "./character";
 export {
     type CollisionPlane,
     clipVector,

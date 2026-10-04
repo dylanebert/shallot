@@ -38,15 +38,16 @@ export interface CheckpointStore {
 
 /** Stores expose current views, not arrays retained across a kernel allocation or restore. */
 export abstract class KernelViews {
-    private readonly _owner: World | undefined;
-    get ecsState(): World | undefined {
-        return this._owner;
-    }
+    readonly ecsState: World | undefined;
     private _viewKey = -1;
     private _refreshing = false;
 
     constructor(ecsState: World | undefined) {
-        this._owner = ecsState;
+        this.ecsState = ecsState;
+        // Resolve guarded calls once per owner, rather than inherited lookups across store kinds.
+        this.ensureViews = this.ensureViews.bind(this);
+        this.refreshViews = this.refreshViews.bind(this);
+        this.deriveViews = this.deriveViews.bind(this);
     }
 
     abstract captureCheckpoint(): unknown;
@@ -64,7 +65,8 @@ export abstract class KernelViews {
     }
 
     ensureViews(): void {
-        if (!this._refreshing && this.stale) this.refreshViews();
+        if (!this._refreshing && this._viewKey !== kernelViewKey(this.ecsState))
+            this.refreshViews();
     }
 
     refreshViews(): void {
