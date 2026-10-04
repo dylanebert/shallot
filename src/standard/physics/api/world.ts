@@ -9,7 +9,6 @@
 import type { ShapeProxy } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
 import { DEFAULT_MASK_BITS } from "../common/constants";
-import type { EntityId } from "../common/ids";
 import { type AABB, f32, froundConfig, type Pos, type Vec3 } from "../common/math";
 import {
     type BodyDef,
@@ -60,10 +59,14 @@ import { createBody, getBodySim, makeBodyId } from "../world/body";
 import { type DebugDraw, worldDraw } from "../world/draw";
 import type { StepProfile } from "../world/profile";
 import {
+    type ContactHitEvent as ContactHitRecord,
+    type ContactTouchEvent as ContactTouchRecord,
     type Counters,
     createWorld,
     destroyWorld,
     getWorld,
+    type JointEvent as JointRecord,
+    type SensorEndTouchEvent as SensorTouchRecord,
     type WorldId,
     type WorldState,
     worldCounters,
@@ -79,6 +82,7 @@ import {
     type CastCallback,
     type CastHit,
     type ContactEvents,
+    type ContactHitEvent,
     type ContactTouchEvent,
     type DistanceJointConfig,
     type JointEvent,
@@ -133,6 +137,73 @@ function castHit(world: WorldState, id: number, f: Float32Array, n: number, orig
     };
 }
 
+// The event getters refill per-world lists in place; each event and handle is fresh, so only a
+// list, never an event, is shared across steps.
+function fillSensorTouches(
+    world: WorldState,
+    out: SensorTouchEvent[],
+    records: readonly SensorTouchRecord[],
+): void {
+    out.length = 0;
+    for (let i = 0; i < records.length; ++i) {
+        const e = records[i];
+        out.push({
+            sensor: new Shape(world, e.sensorShapeId),
+            visitor: new Shape(world, e.visitorShapeId),
+        });
+    }
+}
+
+function fillContactTouches(
+    world: WorldState,
+    out: ContactTouchEvent[],
+    records: readonly ContactTouchRecord[],
+): void {
+    out.length = 0;
+    for (let i = 0; i < records.length; ++i) {
+        const e = records[i];
+        out.push({
+            shapeA: new Shape(world, e.shapeIdA),
+            shapeB: new Shape(world, e.shapeIdB),
+            contact: new Contact(world, e.contactId),
+            normalImpulse: e.normalImpulse,
+        });
+    }
+}
+
+function fillContactHits(
+    world: WorldState,
+    out: ContactHitEvent[],
+    records: readonly ContactHitRecord[],
+): void {
+    out.length = 0;
+    for (let i = 0; i < records.length; ++i) {
+        const e = records[i];
+        out.push({
+            shapeA: new Shape(world, e.shapeIdA),
+            shapeB: new Shape(world, e.shapeIdB),
+            contact: new Contact(world, e.contactId),
+            point: { ...e.point },
+            normal: { ...e.normal },
+            approachSpeed: e.approachSpeed,
+            userMaterialIdA: e.userMaterialIdA,
+            userMaterialIdB: e.userMaterialIdB,
+        });
+    }
+}
+
+function fillJointEvents(
+    world: WorldState,
+    out: JointEvent[],
+    records: readonly JointRecord[],
+): void {
+    out.length = 0;
+    for (let i = 0; i < records.length; ++i) {
+        const e = records[i];
+        out.push({ joint: new Joint(world, e.jointId), userData: e.userData });
+    }
+}
+
 /**
  * Query callbacks may query this world again, but querying another world on the same kernel is
  * refused. Callback exceptions are rethrown after the kernel traversal returns normally.
@@ -147,6 +218,13 @@ export class PhysicsWorld {
     private readonly _moveEventPool: BodyMoveEvent[] = [];
     private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
     private readonly _moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
+    private readonly _sensorEvents: SensorEvents = { beginEvents: [], endEvents: [] };
+    private readonly _contactEvents: ContactEvents = {
+        beginEvents: [],
+        endEvents: [],
+        hitEvents: [],
+    };
+    private readonly _jointEvents: JointEvent[] = [];
 
     constructor(
         def: Partial<WorldDef> = {},
@@ -228,61 +306,44 @@ export class PhysicsWorld {
 
     /**
      * Sensor begin/end touch events accumulated during the last {@link step} (b3World_GetSensorEvents).
-     * Valid until the next step; end events read from the previous buffer, so they survive one step.
+     * End events read from the previous buffer, so they survive one step. The returned object and its
+     * arrays are reused: the next step or the next call overwrites them, so copy an array to keep it.
+     * Each event and its handles are fresh.
      * @example for (const e of world.getSensorEvents().beginEvents) onEnter(e.sensor, e.visitor)
      */
     getSensorEvents(): SensorEvents {
         const state = this.state;
-        const wrap = (e: {
-            sensorShapeId: EntityId;
-            visitorShapeId: EntityId;
-        }): SensorTouchEvent => ({
-            sensor: new Shape(state, e.sensorShapeId),
-            visitor: new Shape(state, e.visitorShapeId),
-        });
+        const events = this._sensorEvents;
+        fillSensorTouches(state, events.beginEvents, state.sensorBeginEvents);
         // Careful to read the previous end-event buffer (the swap already happened this step).
-        const endEvents = state.sensorEndEvents[1 - state.endEventArrayIndex];
-        return {
-            beginEvents: state.sensorBeginEvents.map(wrap),
-            endEvents: endEvents.map(wrap),
-        };
+        fillSensorTouches(
+            state,
+            events.endEvents,
+            state.sensorEndEvents[1 - state.endEventArrayIndex],
+        );
+        return events;
     }
 
     /**
      * Contact begin/end/hit events from the last {@link step} (b3World_GetContactEvents). Begin/end
      * carry {@link Contact} handles (validate before use); hit events carry the impact point, normal,
-     * and approach speed. End events read the previous buffer, so they survive one step.
+     * and approach speed. End events read the previous buffer, so they survive one step. The returned
+     * object and its arrays are reused: the next step or the next call overwrites them, so copy an
+     * array to keep it. Each event and its handles are fresh.
      * @example for (const e of world.getContactEvents().hitEvents) spark(e.point, e.approachSpeed)
      */
     getContactEvents(): ContactEvents {
         const state = this.state;
-        const wrapTouch = (e: {
-            shapeIdA: EntityId;
-            shapeIdB: EntityId;
-            contactId: EntityId;
-            normalImpulse: number;
-        }): ContactTouchEvent => ({
-            shapeA: new Shape(state, e.shapeIdA),
-            shapeB: new Shape(state, e.shapeIdB),
-            contact: new Contact(state, e.contactId),
-            normalImpulse: e.normalImpulse,
-        });
+        const events = this._contactEvents;
+        fillContactTouches(state, events.beginEvents, state.contactBeginEvents);
         // Careful to read the previous end-event buffer (the swap already happened this step).
-        const endEvents = state.contactEndEvents[1 - state.endEventArrayIndex];
-        return {
-            beginEvents: state.contactBeginEvents.map(wrapTouch),
-            endEvents: endEvents.map(wrapTouch),
-            hitEvents: state.contactHitEvents.map((e) => ({
-                shapeA: new Shape(state, e.shapeIdA),
-                shapeB: new Shape(state, e.shapeIdB),
-                contact: new Contact(state, e.contactId),
-                point: { ...e.point },
-                normal: { ...e.normal },
-                approachSpeed: e.approachSpeed,
-                userMaterialIdA: e.userMaterialIdA,
-                userMaterialIdB: e.userMaterialIdB,
-            })),
-        };
+        fillContactTouches(
+            state,
+            events.endEvents,
+            state.contactEndEvents[1 - state.endEventArrayIndex],
+        );
+        fillContactHits(state, events.hitEvents, state.contactHitEvents);
+        return events;
     }
 
     /**
@@ -321,13 +382,13 @@ export class PhysicsWorld {
     /**
      * Joint events from the last {@link step} (b3World_GetJointEvents): awake joints whose force or
      * torque exceeded the threshold set via {@link Joint.setForceThreshold}/{@link Joint.setTorqueThreshold}.
+     * The returned array is reused: the next step or the next call overwrites it, so copy it to keep
+     * it. Each event and its handle are fresh.
      */
     getJointEvents(): JointEvent[] {
-        const state = this.state;
-        return state.jointEvents.map((e) => ({
-            joint: new Joint(state, e.jointId),
-            userData: e.userData,
-        }));
+        const events = this._jointEvents;
+        fillJointEvents(this.state, events, this.state.jointEvents);
+        return events;
     }
 
     /** @returns the collision speed above which a contact reports a hit event (b3World_GetHitEventThreshold). */

@@ -586,6 +586,14 @@ Read gravity through `physicsWorld(world)!.getGravity(out)` after
 warm-up and use `Time.FIXED_DT` for the step duration. There is no public
 substep setting.
 
+`getSensorEvents`, `getContactEvents` and `getJointEvents` now return arrays
+that the next step or the next call overwrites. Copy an array to keep it
+across a step; the events and handles inside it stay usable.
+
+```ts
+const hits = [...physicsWorld(world)!.getContactEvents().hitEvents];
+```
+
 ## `/avbd` is gone
 
 The engine no longer ships its AVBD solver or `AvbdPlugin`. Select the built-in `StandardPhysicsPlugin` instead.

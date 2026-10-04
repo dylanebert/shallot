@@ -253,7 +253,10 @@ export type BodyPlane = {
 /** A sensor begin- or end-touch event (b3SensorBeginTouchEvent / b3SensorEndTouchEvent). */
 export type SensorTouchEvent = { sensor: Shape; visitor: Shape };
 
-/** Sensor events since the last step (b3SensorEvents), from {@link World.getSensorEvents}. */
+/**
+ * Sensor events since the last step (b3SensorEvents), from {@link World.getSensorEvents}. Reused: the
+ * next step or the next call overwrites the object and its arrays.
+ */
 export type SensorEvents = { beginEvents: SensorTouchEvent[]; endEvents: SensorTouchEvent[] };
 
 /** A contact begin- or end-touch event (b3ContactBeginTouchEvent / b3ContactEndTouchEvent). */
@@ -280,7 +283,11 @@ export type ContactHitEvent = {
     userMaterialIdB: bigint;
 };
 
-/** Contact events since the last {@link World.step} (b3ContactEvents). */
+/**
+ * Contact events since the last {@link World.step} (b3ContactEvents), from
+ * {@link World.getContactEvents}. Reused: the next step or the next call overwrites the object and its
+ * arrays.
+ */
 export type ContactEvents = {
     beginEvents: ContactTouchEvent[];
     endEvents: ContactTouchEvent[];
