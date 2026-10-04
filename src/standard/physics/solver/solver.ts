@@ -28,7 +28,10 @@ import {
     FIN_OUT_STRIDE,
     FIN_STRIDE,
     reserveColumns,
+    S2_BODY_ID,
     S2_CENTER0,
+    S2_FLAGS,
+    S2_MIN_EXTENT,
     S2_ROTATION0,
     SIM_STRIDE,
     SIM2_STRIDE,
@@ -38,7 +41,7 @@ import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/joi
 import { kernel, runPool, workers } from "../kernel/kernel";
 import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
 import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
-import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../world/body";
+import { BODY_TRANSIENT_FLAGS, BodyFlags, getBodySim } from "../world/body";
 
 import { splitIsland } from "../world/island";
 import { trySleepIsland } from "../world/solverset";
@@ -136,12 +139,13 @@ function commitRefit(world: WorldState, shape: Shape, box: AABB): void {
  * function) publishes kernel sweep outputs and owns sleep, proxy enlargement and island bookkeeping.
  * The pose advance already ran as the staged solve's terminal stage. The awake
  * `sim`/`fin`/`sim2` + `state` are all resident (bodycolumns.ts), so nothing marshals in or back out.
- * This loop reads/writes the pose/inertia columns **raw** (by localIndex) rather than through the
- * `ResidentBodySim` view whose vector getters would allocate per field per body; the view (`sim`) is
- * used only for scalar fields (no allocation). `states` is the
- * awake-set body-state view array.
+ * This loop reads/writes the body columns **raw** by localIndex, as b3FinalizeBodiesTask indexes
+ * `sims + simIndex` and `states + simIndex`, rather than through the `ResidentBodySim` and
+ * `ResidentBodyState` views, whose getters each revalidate the views; `residentPush` keeps the awake
+ * set's states and sims in lockstep at that index. The `sim` view is passed only to the continuous
+ * consumer and the bullet list.
  */
-function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]): void {
+function finalizeBodies(context: StepContext, cols: Columns): void {
     const world = context.world;
     const sims = context.sims;
     const enableSleep = world.enableSleep;
@@ -158,6 +162,8 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
     const simF = store.simF;
     const finF = store.finF;
     const sim2F = store.sim2F;
+    const sim2U = store.sim2U;
+    const flagsU = store.flagsU;
     const outCol = cols.finOut;
 
     // Finalize wrote candidate AABBs and escaped flags into this World's shape column.
@@ -166,12 +172,12 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
     const shapeU = world.shapeStore.shapeU;
 
     for (let simIndex = 0; simIndex < count; ++simIndex) {
-        const state = states[simIndex];
         const sim = sims[simIndex];
         const so = simIndex * SIM_STRIDE;
         const fo = simIndex * FIN_STRIDE;
         const s2o = simIndex * SIM2_STRIDE;
-        if ((sim.flags & (BodyFlags.isFast | BodyFlags.isBullet)) === BodyFlags.isFast) {
+        let simFlags = sim2U[s2o + S2_FLAGS];
+        if ((simFlags & (BodyFlags.isFast | BodyFlags.isBullet)) === BodyFlags.isFast) {
             consumeContinuous(world, sim, simIndex);
         }
 
@@ -187,17 +193,19 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
         finTransform.q.v.z = simF[so + 30];
         finTransform.q.s = simF[so + 31];
 
-        const body = world.bodies[sim.bodyId];
+        const body = world.bodies[sim2U[s2o + S2_BODY_ID]];
         body.bodyMoveIndex = simIndex;
 
         // Kernel finalization already published this body's move identity. Keep the local index only
         // so the TS sleep policy can mark the retained kernel record if the body falls asleep.
 
         body.flags &= ~BODY_TRANSIENT_FLAGS;
-        body.flags |= sim.flags & (SPEED_CAPPED | TOI);
-        body.flags |= state.flags & (SPEED_CAPPED | TOI);
-        sim.flags &= ~BODY_TRANSIENT_FLAGS;
-        state.flags &= ~BODY_TRANSIENT_FLAGS;
+        body.flags |= simFlags & (SPEED_CAPPED | TOI);
+        const stateFlags = flagsU[simIndex];
+        body.flags |= stateFlags & (SPEED_CAPPED | TOI);
+        simFlags &= ~BODY_TRANSIENT_FLAGS;
+        sim2U[s2o + S2_FLAGS] = simFlags;
+        flagsU[simIndex] = stateFlags & ~BODY_TRANSIENT_FLAGS;
 
         // The kernel emits the two sleep/continuous decision scalars; TS owns the branches.
         const oo = simIndex * FIN_OUT_STRIDE;
@@ -216,14 +224,15 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
             if (
                 body.type === BodyType.Dynamic &&
                 enableContinuous &&
-                maxMotion > f32(safetyFactor * sim.minExtent)
+                maxMotion > f32(safetyFactor * sim2F[s2o + S2_MIN_EXTENT])
             ) {
                 // Fast body: sweep it to its first impact instead of the discrete advance. The isFast
                 // flag is retained for the refit branch below (and for debug draw). Bullets are
                 // deferred to the post-finalize stage (they must sweep the enlarged dynamic proxies);
                 // non-bullets have already swept the read-only static tree in kernel finalize.
-                sim.flags |= BodyFlags.isFast;
-                if (sim.flags & BodyFlags.isBullet) {
+                simFlags |= BodyFlags.isFast;
+                sim2U[s2o + S2_FLAGS] = simFlags;
+                if (simFlags & BodyFlags.isBullet) {
                     context.bulletBodies.push(sim);
                 }
             }
@@ -244,7 +253,7 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
         // from the post-sweep rotation (solver.c b3FinalizeBodiesTask, after b3SolveContinuous); match
         // that for fast bodies only — read the current rotation + invInertiaLocal and write
         // R · invInertiaLocal · Rᵀ back raw.
-        if (sim.flags & BodyFlags.isFast) {
+        if (simFlags & BodyFlags.isFast) {
             finQuat.v.x = simF[so + 28];
             finQuat.v.y = simF[so + 29];
             finQuat.v.z = simF[so + 30];
@@ -282,7 +291,7 @@ function finalizeBodies(context: StepContext, cols: Columns, states: BodyState[]
 
         // Sweeps already published fast-body AABBs. The serial kernel tail enlarges non-bullets
         // and buffers fast bullet moves before their deferred sweep.
-        if (sim.flags & BodyFlags.isFast) continue;
+        if (simFlags & BodyFlags.isFast) continue;
 
         // Non-fast body: commit the refit the kernel computed. For each convex shape the kernel wrote its
         // candidate AABB (the tight box + speculative margin) and an escaped flag into the shape column;
@@ -445,9 +454,7 @@ export function solve(world: WorldState, context: StepContext): void {
     }
 
     context.sims = awakeSet.bodySims;
-    // Body `state` (velocity/delta/flags) is resident: `bodyStates` are offset-backed views over the
-    // persistent column the kernel runs over directly. The layout fixes the contact and joint ranges.
-    const persistentStates = awakeSet.bodyStates;
+    // The layout fixes the contact and joint ranges.
     const layout = computeLayout(world);
     const pool = workers(world.ecsState);
     const cols = reserveColumns(
@@ -551,7 +558,7 @@ export function solve(world: WorldState, context: StepContext): void {
     context.splitIslandId = NULL_INDEX;
     context.splitSleepTime = 0;
 
-    finalizeBodies(context, cols, persistentStates);
+    finalizeBodies(context, cols);
     profile.transforms = performance.now() - phaseStart;
 
     // The contact-begin records are created during collision detection, but their normal impulses are
