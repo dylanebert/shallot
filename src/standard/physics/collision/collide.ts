@@ -10,8 +10,10 @@ import {
     type Vec3,
     vec3,
     type WorldTransform,
+    xf,
 } from "../common/math";
-import { BodyType, ShapeType } from "../common/types";
+import { BodyType, defaultSurfaceMaterial, ShapeType } from "../common/types";
+import { readSimLocalCenter, readSimTransform } from "../kernel/bodycolumns";
 import {
     D_CACHE_VALID,
     D_CHILD,
@@ -41,7 +43,7 @@ import {
     R_WAS_TOUCHING,
     RECYCLE_STRIDE,
 } from "../kernel/columns";
-import { kernel, ParKind, runPar, threads } from "../kernel/kernel";
+import { type Kernel, kernel, ParKind, runPool, threads, workers } from "../kernel/kernel";
 import { getCompoundChild } from "../shapes/compound";
 import {
     getShapeMaterial,
@@ -65,6 +67,17 @@ const centerA = vec3.zero();
 const centerB = vec3.zero();
 const tangentA = vec3.zero();
 const tangentB = vec3.zero();
+const materialA = defaultSurfaceMaterial();
+const materialB = defaultSurfaceMaterial();
+const ascending = (a: number, b: number) => a - b;
+// Whole-memory views, re-made only when growth replaces the buffer, so a step mints none per phase.
+let memoryU = new Uint32Array(0);
+let memoryF = new Float32Array(0);
+function memory(k: Kernel): void {
+    if (memoryU.buffer === k.memory.buffer) return;
+    memoryU = new Uint32Array(k.memory.buffer);
+    memoryF = new Float32Array(k.memory.buffer);
+}
 
 type ContactJob = {
     contact: Contact;
@@ -164,10 +177,10 @@ function collect(world: WorldState, contact: Contact): void {
             contact,
             shapeA,
             shapeB,
-            xfA: simA.transform,
-            xfB: simB.transform,
-            localCenterA: simA.localCenter,
-            localCenterB: simB.localCenter,
+            xfA: xf.identity(),
+            xfB: xf.identity(),
+            localCenterA: vec3.zero(),
+            localCenterB: vec3.zero(),
             wasTouching: false,
             isFast: false,
             meshSlot: -1,
@@ -179,10 +192,10 @@ function collect(world: WorldState, contact: Contact): void {
     job.contact = contact;
     job.shapeA = shapeA;
     job.shapeB = shapeB;
-    job.xfA = simA.transform;
-    job.xfB = simB.transform;
-    job.localCenterA = simA.localCenter;
-    job.localCenterB = simB.localCenter;
+    readSimTransform(simA, job.xfA);
+    readSimTransform(simB, job.xfB);
+    readSimLocalCenter(simA, job.localCenterA);
+    readSimLocalCenter(simB, job.localCenterB);
     job.wasTouching = (contact.flags & ContactFlags.simTouchingFlag) !== 0;
     job.isFast = ((simA.flags | simB.flags) & BodyFlags.isFast) !== 0;
     job.meshSlot = mesh ? 0 : -1;
@@ -197,7 +210,7 @@ function finishMeshMaterial(
 ): void {
     const contact = job.contact;
     const materialsA = getShapeMaterials(world.ecsState, shapeA);
-    const materialB = getShapeMaterial(world.ecsState, job.shapeB);
+    getShapeMaterial(world, job.shapeB, materialB);
     vec3.copy(zero, tangentA);
     const materialCount = getShapeMaterialCount(world.ecsState, shapeA);
     if (materialCount > 0) {
@@ -320,13 +333,13 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
     if (job.meshSlot !== -1) {
         finishMeshMaterial(world, job, shapeA, xfA, materialMap);
     } else {
-        const materialA =
+        const ownA =
             materialMap === null
-                ? getShapeMaterial(world.ecsState, job.shapeA)
+                ? getShapeMaterial(world, job.shapeA, materialA)
                 : getShapeMaterials(world.ecsState, job.shapeA)[materialMap[0]];
-        const materialB = getShapeMaterial(world.ecsState, job.shapeB);
-        const a = shapeA === job.shapeB ? materialB : materialA;
-        const b = shapeA === job.shapeB ? materialA : materialB;
+        getShapeMaterial(world, job.shapeB, materialB);
+        const a = shapeA === job.shapeB ? materialB : ownA;
+        const b = shapeA === job.shapeB ? ownA : materialB;
         contact.friction = world.frictionCallback(
             a.friction,
             a.userMaterialId,
@@ -371,12 +384,14 @@ function dispatch(world: WorldState): void {
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
     const buf = k.memory.buffer;
-    const f = new Float32Array(buf, k.dispatchPtr(), jobCount * DISPATCH_STRIDE);
-    const u = new Uint32Array(buf, k.dispatchPtr(), jobCount * DISPATCH_STRIDE);
+    memory(k);
+    const f = memoryF,
+        u = memoryU,
+        base = k.dispatchPtr() >>> 2;
     const cacheWords = k.meshCacheBytes() / 4;
     for (let i = 0; i < jobCount; ++i) {
         const job = jobs[i],
-            r = i * DISPATCH_STRIDE;
+            r = base + i * DISPATCH_STRIDE;
         u[r + D_CONTACT] = job.contact.contactId;
         u[r + D_TYPE_A] = job.shapeA.type;
         u[r + D_TYPE_B] = job.shapeB.type;
@@ -400,12 +415,15 @@ function dispatch(world: WorldState): void {
                 ).set(job.contact.kernelMeshCache);
         }
     }
-    runPar(world.ecsState, ParKind.Contacts, jobCount, 0, 0, () => k.dispatchContacts(jobCount));
-    const out = new Uint32Array(buf, k.dispatchOutPtr(), jobCount);
+    const pool = workers(world.ecsState);
+    if (pool !== null && k.parBuild(ParKind.Contacts, jobCount, pool.size + 1, 0, 0))
+        runPool(world.ecsState, pool, k.runMt);
+    else k.dispatchContacts(jobCount);
+    const out = k.dispatchOutPtr() >>> 2;
     // Read every result before allocating manifold blocks: growth can detach or overwrite transient columns.
     for (let i = 0; i < jobCount; ++i) {
         const job = jobs[i];
-        results[i] = out[i];
+        results[i] = u[out + i];
         if (job.meshSlot === -1) continue;
         job.contact.kernelMeshCache ??= new Uint32Array(cacheWords);
         job.contact.kernelMeshCache.set(
@@ -417,28 +435,31 @@ function dispatch(world: WorldState): void {
             new Uint32Array(
                 buf,
                 k.meshOutputPtr() + job.meshSlot * 256 * MANIFOLD_STRIDE * 4,
-                out[i] * MANIFOLD_STRIDE,
+                results[i] * MANIFOLD_STRIDE,
             ),
         );
         job.materials.set(
-            new Uint32Array(buf, k.meshMaterialPtr() + job.meshSlot * 256 * 4 * 4, out[i] * 4),
+            new Uint32Array(buf, k.meshMaterialPtr() + job.meshSlot * 256 * 4 * 4, results[i] * 4),
         );
     }
     for (let i = 0; i < jobCount; ++i) finish(world, jobs[i], results[i]);
 }
-function recycle(world: WorldState, distance: number): void {
+function recycle(world: WorldState): void {
+    // Read here, not passed in: a double crossing a call is boxed every step.
+    const distance = world.contactRecycleDistance;
     const k = kernel(world.ecsState),
         contacts = world.awakeContacts,
         count = contacts.length;
     k.reserveRecycle(count);
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
-    const buf = k.memory.buffer;
-    const u = new Uint32Array(buf, k.recyclePtr(), count * RECYCLE_STRIDE);
-    const f = new Float32Array(buf, k.recyclePtr(), count * RECYCLE_STRIDE);
+    memory(k);
+    const u = memoryU,
+        f = memoryF,
+        base = k.recyclePtr() >>> 2;
     for (let i = 0; i < count; ++i) {
         const contact = world.contacts[contacts[i]],
-            r = i * RECYCLE_STRIDE;
+            r = base + i * RECYCLE_STRIDE;
         const bodyA = world.bodies[contact.edges[0].bodyId],
             bodyB = world.bodies[contact.edges[1].bodyId];
         const simA = getBodySim(world, bodyA),
@@ -482,11 +503,12 @@ function recycle(world: WorldState, distance: number): void {
         }
     }
     const speculative = minf(distance, SPECULATIVE_DISTANCE);
-    runPar(world.ecsState, ParKind.Recycle, count, distance, speculative, () =>
-        k.dispatchRecycle(count, distance, speculative),
-    );
-    const out = new Uint32Array(buf, k.recycleOutPtr(), count);
-    for (let i = 0; i < count; ++i) results[i] = out[i];
+    const pool = workers(world.ecsState);
+    if (pool !== null && k.parBuild(ParKind.Recycle, count, pool.size + 1, distance, speculative))
+        runPool(world.ecsState, pool, k.runMt);
+    else k.dispatchRecycle(count, distance, speculative);
+    const out = k.recycleOutPtr() >>> 2;
+    for (let i = 0; i < count; ++i) results[i] = u[out + i];
     for (let i = 0; i < count; ++i) {
         const contact = world.contacts[contacts[i]];
         if (results[i] === 0) continue;
@@ -518,13 +540,13 @@ export function collide(context: StepContext): void {
     world.manifoldStore.refreshViews();
     stateChanges.length = 0;
     jobCount = 0;
-    recycle(world, world.contactRecycleDistance);
+    recycle(world);
     if (jobCount > 0) dispatch(world);
-    stateChanges.sort((a, b) => a - b);
+    stateChanges.sort(ascending);
     const endEventArrayIndex = world.endEventArrayIndex,
         worldId = world.worldId;
-    for (const contactId of stateChanges) {
-        const contact = world.contacts[contactId];
+    for (let i = 0; i < stateChanges.length; ++i) {
+        const contact = world.contacts[stateChanges[i]];
         const shapeA = world.shapes[contact.shapeIdA],
             shapeB = world.shapes[contact.shapeIdB];
         const flags = contact.flags;

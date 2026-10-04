@@ -46,6 +46,7 @@ import { kernel } from "../kernel/kernel";
 import {
     createShapeSlot,
     destroyShapeSlot,
+    MATERIAL_STRIDE,
     readShapeMaterials,
     S_PROXY_KEY,
     SHAPE_STRIDE,
@@ -153,10 +154,31 @@ export function getShapeMaterialCount(world: World | undefined, shape: Shape): n
     return shapeMaterialCount(world, shape);
 }
 
-/** The shape's material 0 — what a convex contact mixes — without the fresh single-element array
- * `getShapeMaterials` builds for a one-material shape. */
-export function getShapeMaterial(world: World | undefined, shape: Shape): SurfaceMaterial {
-    return getShapeMaterials(world, shape)[0];
+/** The shape's material 0 — what a convex contact mixes — read in place into `out`, as Box3D reads
+ * `b3GetShapeMaterials(shape)[0]`; valid until the next read into the same record. */
+export function getShapeMaterial(
+    world: WorldState,
+    shape: Shape,
+    out: SurfaceMaterial,
+): SurfaceMaterial {
+    const k = kernel(world.ecsState);
+    k.shapeSetActiveWorld(shape.worldId);
+    const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
+    const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
+    if (count === 0 || k.materialListCount(shape.worldId, head) >>> 0 !== count)
+        throw new Error(`physics: material attachment mismatch on shape ${shape.id}`);
+    const u = world.shapeStore.materialU;
+    const f = world.shapeStore.materialF;
+    const o = head * MATERIAL_STRIDE;
+    out.friction = f[o];
+    out.restitution = f[o + 1];
+    out.rollingResistance = f[o + 2];
+    out.tangentVelocity.x = f[o + 3];
+    out.tangentVelocity.y = f[o + 4];
+    out.tangentVelocity.z = f[o + 5];
+    out.userMaterialId = world.shapeStore.userMaterialId(head);
+    out.customColor = u[o + 8];
+    return out;
 }
 
 /**

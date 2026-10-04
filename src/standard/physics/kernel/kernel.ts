@@ -350,7 +350,8 @@ export type Kernel = {
     // threads and names the job the next `runMt` round drives; `a`/`b` carry the phase's scalars
     // (recycle's two tolerances; the convex dispatch has none). It **returns 1 to fork, 0 to run the
     // serial shim** — the fork floor (a sweep too small to beat its own wake) is priced in the kernel,
-    // next to the machinery (kernel/src/parfor.rs).
+    // next to the machinery (kernel/src/parfor.rs). The build names the job, so it always immediately
+    // precedes its run. Callers fork inline: a phase's scalars passed through a helper are boxed every step.
     parBuild(kind: ParKind, count: number, threadCount: number, a: number, b: number): number;
     /** Run the built job (staged solve or parallel-for) on the calling thread — the orchestrator. */
     runMt(): void;
@@ -368,36 +369,6 @@ export const ParKind = {
     Bullets: 3,
 } as const;
 export type ParKind = (typeof ParKind)[keyof typeof ParKind];
-
-/**
- * Run one outer phase (`kind`, over `count` records) across the pool, or `serial` on the calling thread
- * when there is no pool or `parBuild` prices the fork above the work. `a`/`b` are the phase's scalars.
- *
- * The caller must have run the phase's `reserve*` already: `parBuild` fixes the columns the blocks read,
- * and nothing may grow memory between the fork and the join (the MT concurrency invariant). The build is what
- * names the job, so it always immediately precedes the run — a `pool.run` with no build ahead of it would
- * drive whatever the last one left behind.
- */
-export function runPar(
-    world: World | undefined,
-    kind: ParKind,
-    count: number,
-    a: number,
-    b: number,
-    serial: () => void,
-): void {
-    const pool = workers(world);
-    if (pool === null) {
-        serial();
-        return;
-    }
-    const k = kernel(world);
-    if (k.parBuild(kind, count, pool.size + 1, a, b) === 0) {
-        serial();
-        return;
-    }
-    runPool(world, pool, k.runMt);
-}
 
 /** Options for {@link init}. */
 export type InitOptions = {

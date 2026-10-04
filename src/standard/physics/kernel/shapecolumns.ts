@@ -114,6 +114,9 @@ export class ShapeStore extends KernelViews {
     /** Kernel-owned material records for this world's shape slots. */
     materialU = new Uint32Array(0);
     materialF = new Float32Array(0);
+    // User material ids built per material record, with the id words each was built from. Held in an
+    // object so the view guard leaves its words alone; ids are rebuilt only when a record's words change.
+    private readonly _ids = { ids: [] as bigint[], words: new Uint32Array(0) };
     // The held layout header views are derived from.
     private _layout = new Uint32Array(0);
     private _fatLayout = new Uint32Array(0);
@@ -311,6 +314,26 @@ export class ShapeStore extends KernelViews {
         const o = shape.id * SHAPE_STRIDE;
         this.shapeU[o + S_MATERIAL_HEAD] = head < 0 ? 0xffffffff : head;
         this.shapeU[o + S_MATERIAL_COUNT] = materials.length;
+    }
+
+    /** Material record `id`'s user material id, built once per distinct value of its id words. */
+    userMaterialId(id: number): bigint {
+        const o = id * MATERIAL_STRIDE;
+        const low = this.materialU[o + 6];
+        const high = this.materialU[o + 7];
+        const cache = this._ids;
+        if (cache.words.length < 2 * id + 2) {
+            const words = new Uint32Array(Math.max(32, 4 * id + 4));
+            words.set(cache.words);
+            cache.words = words;
+        }
+        const words = cache.words;
+        if (cache.ids[id] === undefined || words[2 * id] !== low || words[2 * id + 1] !== high) {
+            words[2 * id] = low;
+            words[2 * id + 1] = high;
+            cache.ids[id] = BigInt(low) | (BigInt(high) << 32n);
+        }
+        return cache.ids[id];
     }
 
     /** Detach and release the kernel material records owned by a shape. */
