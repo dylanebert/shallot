@@ -43,6 +43,11 @@ const CTL_DONE = 2;
 const CTL_FAULT = 3;
 const CTL_WORDS = 4;
 
+/** Most spin hints between two loads of the join's done count: crossbeam's `1 << SPIN_LIMIT`. */
+const JOIN_SPIN_CAP = 64;
+// Absent before Chrome 133, Firefox 137 and Safari 18.4; the join then reads the clock, as Emscripten's does.
+const HAS_PAUSE = typeof Atomics.pause === "function";
+
 const OP_EXIT = 0;
 const OP_SOLVE = 1;
 
@@ -276,8 +281,21 @@ export async function createPool(
             orchestrate();
 
             // Spin, never `Atomics.wait`: a browser main thread is not allowed to block on it, and the
-            // orchestrator arrives here with the workers already nearly done.
-            while (Atomics.load(ctlView, CTL_DONE) < count) {}
+            // orchestrator arrives here with the workers already nearly done. Back-to-back loads of the
+            // word the workers ack on can hold those acks off for milliseconds
+            // (diagnostics/pool-slowdown), so each pass doubles its spin hints up to a cap, as
+            // crossbeam's `Backoff::spin` does; there is no yield to fall back on.
+            if (HAS_PAUSE) {
+                let spins = 1;
+                while (Atomics.load(ctlView, CTL_DONE) < count) {
+                    for (let i = 0; i < spins; i++) Atomics.pause();
+                    spins = Math.min(spins * 2, JOIN_SPIN_CAP);
+                }
+            } else {
+                // `performance.now()` is never negative, so the comparison never exits; it keeps the read,
+                // which the JIT drops when its result is discarded, leaving the loads back to back.
+                while (Atomics.load(ctlView, CTL_DONE) < count && performance.now() >= 0) {}
+            }
             if (memory.buffer.byteLength !== bytesAtWake) {
                 throw new Error(
                     "shared memory grew while workers were active — violates the no-grow-while-workers-active invariant (every reserve must run pre-fork)",

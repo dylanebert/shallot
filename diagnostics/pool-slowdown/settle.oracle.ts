@@ -1,25 +1,42 @@
-// Manual oracle for the pool's step-count slowdown (strategy unit pool-slowdown, stage 1). Run by path:
+// Manual oracle for the pool's step-count slowdown (strategy unit pool-slowdown). Run by path:
 //
 //     bun test ./diagnostics/pool-slowdown/settle.oracle.ts
 //
 // Bundles pyramid.entry.ts once per variant, each with `kernel/pool.ts` patched in the bundle only, and
 // runs the variants interleaved as child processes on the same host. Reports per-variant early and late
 // step times; timings are reported, never asserted. Knobs: POOL_STEPS (2000), POOL_REPEATS (2),
-// POOL_THREADS (4), POOL_VARIANTS (comma list of the names below), POOL_RUNTIME (bun or node).
+// POOL_THREADS (4), POOL_VARIANTS (comma list of the names below), POOL_RUNTIME (bun or node),
+// POOL_SCENE (large or small, pyramid.entry.ts).
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const JOIN = "            while (Atomics.load(ctlView, CTL_DONE) < count) {}";
+const JOIN = [
+    "            if (HAS_PAUSE) {",
+    "                let spins = 1;",
+    "                while (Atomics.load(ctlView, CTL_DONE) < count) {",
+    "                    for (let i = 0; i < spins; i++) Atomics.pause();",
+    "                    spins = Math.min(spins * 2, JOIN_SPIN_CAP);",
+    "                }",
+    "            } else {",
+    "                // `performance.now()` is never negative, so the comparison never exits; it keeps the read,",
+    "                // which the JIT drops when its result is discarded, leaving the loads back to back.",
+    "                while (Atomics.load(ctlView, CTL_DONE) < count && performance.now() >= 0) {}",
+    "            }",
+].join("\n");
 const ACK = "        Atomics.add(ctl, ${CTL_DONE}, 1);\n    }";
 const WORDS = "const CTL_WORDS = 4;";
 
-/** Each variant rewrites pool.ts source text, `[from, to]`, and nothing else. `single` runs the
- * unchanged pool at threads 0. */
+/** Each variant rewrites pool.ts source text, `[from, to]`, and nothing else. `shipped` is pool.ts as
+ * it stands, its join backing off with doubling `Atomics.pause` runs; `single` runs it at threads 0. */
 const VARIANTS: Record<string, [string, string][]> = {
-    unchanged: [],
+    shipped: [],
     single: [],
+    // The shipped join on a host without `Atomics.pause`: one clock read per pass.
+    nopause: [["const HAS_PAUSE = typeof Atomics.pause === \"function\";", "const HAS_PAUSE = false;"]],
+    // The join before the backoff: back-to-back loads with an empty body.
+    empty: [[JOIN, "            while (Atomics.load(ctlView, CTL_DONE) < count) {}"]],
     // The TC39 spin-wait hint each pass.
     pause: [[JOIN, "            while (Atomics.load(ctlView, CTL_DONE) < count) Atomics.pause();"]],
     // A clock read each pass, as Emscripten's main-thread futex wait does; the comparison keeps it live.
@@ -45,7 +62,8 @@ const steps = Number(process.env.POOL_STEPS ?? 2000);
 const repeats = Number(process.env.POOL_REPEATS ?? 2);
 const threads = Number(process.env.POOL_THREADS ?? 4);
 const runtime = process.env.POOL_RUNTIME ?? "bun";
-const names = (process.env.POOL_VARIANTS ?? "unchanged,pause,now,spaced,store").split(",");
+const scene = process.env.POOL_SCENE ?? "large";
+const names = (process.env.POOL_VARIANTS ?? "shipped,empty,pause,now,spaced,store").split(",");
 
 const median = (a: number[]) => [...a].sort((x, y) => x - y)[a.length >> 1];
 const quantile = (a: number[], q: number) => [...a].sort((x, y) => x - y)[Math.floor(a.length * q)];
@@ -85,7 +103,7 @@ test("report step times per join variant, interleaved", async () => {
         for (let r = 0; r < repeats; r++)
             for (const name of names) {
                 const proc = Bun.spawn(
-                    [runtime, join(dir, `${name}.mjs`), String(name === "single" ? 0 : threads), String(steps)],
+                    [runtime, join(dir, `${name}.mjs`), String(name === "single" ? 0 : threads), String(steps), scene],
                     { stdout: "pipe", stderr: "inherit" },
                 );
                 const out = await new Response(proc.stdout).text();
@@ -102,7 +120,7 @@ test("report step times per join variant, interleaved", async () => {
                 );
             }
         console.info(
-            `[pool-slowdown] ${runtime} ${runtime === "bun" ? Bun.version : ""}, ${threads} threads, ${steps} steps; early = steps 100-399, late = 800 on (ms)\n` +
+            `[pool-slowdown] ${runtime} ${Bun.spawnSync([runtime, "--version"]).stdout.toString().trim()}, ${scene} scene, ${threads} threads, ${steps} steps; early = steps 100-399, late = 800 on (ms)\n` +
                 "| join | run | early median | late median | late mean | late p90 | late collide > 1 ms |\n|---|---|---|---|---|---|---|\n" +
                 rows.join("\n"),
         );

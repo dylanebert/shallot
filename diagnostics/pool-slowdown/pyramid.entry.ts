@@ -1,5 +1,7 @@
-// One pool-slowdown run: a 3,192-box pyramid pair in a sole world, stepped back to back. Prints one JSON
-// line of per-step wall times and collide/solve phase times. Bundled per join variant by settle.oracle.ts.
+// One pool-slowdown run: a box pyramid pair in a sole world, stepped back to back. Prints one JSON line of
+// per-step wall times and collide/solve phase times. Bundled per join variant by settle.oracle.ts. The
+// `large` scene is 3,192 boxes; `small` is 72 boxes that never sleep, below the size where the pool's fixed
+// cost outweighs its split.
 import { PhysicsWorld } from "../../src/standard/physics/api/world";
 import { BodyType } from "../../src/standard/physics/common/types";
 import { init } from "../../src/standard/physics/kernel/kernel";
@@ -7,11 +9,12 @@ import { makeBoxHull } from "../../src/standard/physics/shapes/hull";
 
 const threads = Number(process.argv[2]);
 const steps = Number(process.argv[3]);
-const base = 56;
+const small = process.argv[4] === "small";
+const base = small ? 8 : 56;
 
 await init(undefined, { threads });
 const hull = makeBoxHull(0.5, 0.5, 0.5);
-const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 } });
+const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableSleep: !small });
 world.createBody({ position: { x: 0, y: -1, z: 0 } }).createHull({}, makeBoxHull(200, 1, 200));
 for (let z = 0; z < 2; z++)
     for (let row = 0; row < base; row++)
