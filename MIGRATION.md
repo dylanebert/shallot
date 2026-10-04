@@ -238,9 +238,9 @@ world.add(lamp, VolumetricLight);
 
 Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. Component declarations keep `defaults` and add-only `requires`; `excludes` is removed and runtime `provides` becomes `requires`. System annotations remain.
 
-The reflection exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `requiredComponents` (formerly `dependencies`), `provides`, `exclusions` and `kebab` are removed. The `getComponent` and `getTraits` wrappers and registry methods are removed too. Query imported component handles with `world.query([Component])`; a game resolves components and enum values by import, not by name.
+The reflection exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `dependencies`, `provides`, `exclusions` and `kebab` are removed. The `getComponent` and `getTraits` wrappers and registry methods are removed too. Query imported component handles with `world.query([Component])`; a game resolves components and enum values by import, not by name.
 
-Remove `Alias`, `laneAlias`, `eulerAlias`, `formatHex` and the input metadata helpers (`Input`, `Unit`, `units`, `angle`, `degrees`, `radians`; also named `FieldInput`, `FieldUnit`, `unitInput`, `angleInput`, `degreeUnit`, `radianUnit` during 0.10 development). Quaternion conversion helpers remain.
+Remove `Alias`, `laneAlias`, `eulerAlias`, `formatHex` and the input metadata helpers (`Input`, `Unit`, `units`, `angle`, `degrees`, `radians`). Quaternion conversion helpers remain.
 
 ## Declare components once under exact keys
 
@@ -265,9 +265,9 @@ const GamePlugin: Plugin = {
 };
 ```
 
-Defaults use declaration field names and vector arrays, as `world.add` does; replace dotted-lane defaults with complete vectors. Remove imports of `globalTransformTraits`, `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits` and `ColorTraits`; options now live on component declarations.
+Defaults use declaration field names and vector arrays, as `world.add` does; replace dotted-lane defaults with complete vectors. Remove imports of `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits` and `ColorTraits`; options now live on component declarations.
 
-If using the earlier prerelease API, replace `registration(key, C, options)` with `component(key, fields, options)` at `C`'s declaration, and replace `components: [registration(…)]` with `components: [C]`. Keep the key byte-for-byte; it identifies saved data and hot reload. `registration` and `Registration` are removed. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused naming the plugin and the record's fields.
+Keep each key byte-for-byte; it identifies saved data and hot reload. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused, naming the plugin and the record's fields.
 
 `inspect`, `snapshot`, `readFields` and `dump` preserve exact registration keys and declaration field names. A component registered as `"GlobalTransform"` is no longer reported as `"global-transform"`; vectors are arrays such as `{ translation: [0, 0, 0, 0] }`, not dotted lanes. Update saved data and consumers of this output.
 
@@ -595,7 +595,7 @@ There is no animation plugin in this release line. Implement animation in app co
 
 ## Scene format and save/restore are removed
 
-The `.scene` format, `parseScene`, `loadScene`, `serializeScene`, `stringifyScene` and `normalizeAttribute` are removed with no replacement. Remove the app's and manifest's `scene` option. A game saves the component values it needs from `snapshot(world)`, using exact registration keys and declaration field names with vector arrays, and restores them itself.
+The `.scene` format is removed with no replacement: the root's `load`, `serialize`, `diagnose`, `parse` and `stringify` and the `Node`, `Attr`, `ParseError` and `Diagnostic` types, and `/scene/core`'s `normalizeAttr`, `parseFields`, `formatFields`, `readComponent`, `setFieldValue`, `findNodeById` and `findParent`. Remove the app's and manifest's `scene` option. A game saves the component values it needs from `snapshot(world)`, using exact registration keys and declaration field names with vector arrays, and restores them itself.
 
 `Identity`, `world.identity`, `refs()` and the `derived` component trait are removed. Keep the eids returned by `world.create()` instead of naming entities. The `entity` field type still stores a plain eid; save and restore references yourself. `GlobalTransform` remains engine-managed through its producers' `requires`, without the trait.
 
