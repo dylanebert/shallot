@@ -32,12 +32,13 @@ export const MAX_CASCADES = 4;
 
 /**
  * the directional shadow map size, Bevy's `DirectionalLightShadowMap`: `size` is the side in pixels of each
- * cascade's square tile (default 2048), clamped to [256, 4096] and snapped to a power of two. It is read when
- * the app warms and when the sun first casts, and is not changed after; set it in `AppConfig.setup` or a
- * plugin's `initialize`, e.g. `world.resource(DirectionalLightShadowMap).size = 1024`. Each world owns its
- * own. The cascade split itself lives on the light ({@link DirectionalLight}'s `numCascades`,
- * `firstCascadeFarBound`, `overlapProportion` and `maximumDistance`); point and spot tiles are sized from
- * {@link PointShadows}.
+ * cascade's square tile (default 2048), clamped to [256, 4096] and snapped to a power of two. The tiles share
+ * one depth32float atlas `ceil(√numCascades)` tiles on a side, so 4096 with more than one cascade allocates
+ * an 8192² atlas (256 MiB). It is read when the app warms and when the sun first casts, and is not changed
+ * after; set it in `AppConfig.setup` or a plugin's `initialize`, e.g.
+ * `world.resource(DirectionalLightShadowMap).size = 1024`. Each world owns its own. The cascade split itself
+ * lives on the light ({@link DirectionalLight}'s `numCascades`, `firstCascadeFarBound`, `overlapProportion`
+ * and `maximumDistance`); point and spot tiles are sized from {@link PointShadows}.
  */
 export interface DirectionalLightShadowMap {
     size: number;
@@ -359,12 +360,11 @@ export function cascadeTileRect(k: number, n: number, out: Float32Array, at: num
     out[at + 3] = d;
 }
 
-/** the cascade atlas side in pixels: `ceil(√n) · resolution` (each cascade a `resolution`-square tile in the
- * fixed grid), clamped to [256, 4096] and snapped to a power of two: the {@link pointAtlasSize} shape. */
+/** the cascade atlas side in pixels: `ceil(√n) · resolution`, each cascade a `resolution`-square tile in the
+ * fixed grid. With {@link sunResolution}'s power of two in [256, 4096] and {@link MAX_CASCADES} 4, it is a
+ * power of two of at most 8192, WebGPU's default `maxTextureDimension2D`. */
 export function cascadeAtlasSize(resolution: number, n: number): number {
-    const side = Math.ceil(Math.sqrt(n)) * resolution;
-    const s = Math.min(Math.max(side, 256), 4096);
-    return Math.min(4096, 1 << Math.round(Math.log2(s)));
+    return Math.ceil(Math.sqrt(n)) * resolution;
 }
 
 // shadow cameras and their retained atlas inputs belong to the World that authors the lights. Frame-local
