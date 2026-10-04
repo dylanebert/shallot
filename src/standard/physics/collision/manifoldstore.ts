@@ -317,16 +317,18 @@ export class ManifoldStore extends KernelViews {
         indexB: number,
     ): void {
         const o = contactId * DIR_STRIDE;
-        this.dirF[o + DIR_FRICTION] = friction;
-        this.dirF[o + DIR_RESTITUTION] = restitution;
-        this.dirF[o + DIR_ROLLING_RESISTANCE] = rollingResistance;
-        this.dirF[o + DIR_TANGENT_VELOCITY] = tangentVelocity.x;
-        this.dirF[o + DIR_TANGENT_VELOCITY + 1] = tangentVelocity.y;
-        this.dirF[o + DIR_TANGENT_VELOCITY + 2] = tangentVelocity.z;
-        this.dirU[o + DIR_FLAGS] = flags;
-        this.dirU[o + DIR_INDEX_A] = indexA;
-        this.dirU[o + DIR_INDEX_B] = indexB;
-        this.dirU[o + DIR_HIT] = 0;
+        const f = this.dirF;
+        const u = this.dirU;
+        f[o + DIR_FRICTION] = friction;
+        f[o + DIR_RESTITUTION] = restitution;
+        f[o + DIR_ROLLING_RESISTANCE] = rollingResistance;
+        f[o + DIR_TANGENT_VELOCITY] = tangentVelocity.x;
+        f[o + DIR_TANGENT_VELOCITY + 1] = tangentVelocity.y;
+        f[o + DIR_TANGENT_VELOCITY + 2] = tangentVelocity.z;
+        u[o + DIR_FLAGS] = flags;
+        u[o + DIR_INDEX_A] = indexA;
+        u[o + DIR_INDEX_B] = indexB;
+        u[o + DIR_HIT] = 0;
     }
 
     /** @returns true if the kernel `store` flagged a hit event for this contact this step. */

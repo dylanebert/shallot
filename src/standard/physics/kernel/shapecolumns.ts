@@ -361,23 +361,25 @@ export class ShapeStore extends KernelViews {
     /** Keep the last shape bounds resident for the next continuous sweep. */
     writeTightAabb(shapeId: number, box: AABB): void {
         const o = shapeId * SHAPE_STRIDE + 34;
-        this.shapeF[o] = box.lowerBound.x;
-        this.shapeF[o + 1] = box.lowerBound.y;
-        this.shapeF[o + 2] = box.lowerBound.z;
-        this.shapeF[o + 3] = box.upperBound.x;
-        this.shapeF[o + 4] = box.upperBound.y;
-        this.shapeF[o + 5] = box.upperBound.z;
+        const f = this.shapeF;
+        f[o] = box.lowerBound.x;
+        f[o + 1] = box.lowerBound.y;
+        f[o + 2] = box.lowerBound.z;
+        f[o + 3] = box.upperBound.x;
+        f[o + 4] = box.upperBound.y;
+        f[o + 5] = box.upperBound.z;
     }
 
     /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
     writeFatAabb(shapeId: number, fat: AABB): void {
         const o = shapeId * 6;
-        this.fatF[o] = fat.lowerBound.x;
-        this.fatF[o + 1] = fat.lowerBound.y;
-        this.fatF[o + 2] = fat.lowerBound.z;
-        this.fatF[o + 3] = fat.upperBound.x;
-        this.fatF[o + 4] = fat.upperBound.y;
-        this.fatF[o + 5] = fat.upperBound.z;
+        const f = this.fatF;
+        f[o] = fat.lowerBound.x;
+        f[o + 1] = fat.lowerBound.y;
+        f[o + 2] = fat.lowerBound.z;
+        f[o + 3] = fat.upperBound.x;
+        f[o + 4] = fat.upperBound.y;
+        f[o + 5] = fat.upperBound.z;
     }
 }
 
