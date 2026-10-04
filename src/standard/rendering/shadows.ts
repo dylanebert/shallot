@@ -777,9 +777,8 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
 }
 
 /**
- * the point-shadow budget. `atlas` + `casters` are read when the app warms and not changed on a live app:
- * standard compiles its shadow shaders against `atlas` and sizes the atlas texture from it when a light
- * first casts, and `casters` caps the lights ranked each frame. Set them in `AppConfig.setup` or a plugin's
+ * the point-shadow budget, read each frame, so a change applies to the next frame drawn: `atlas` reallocates
+ * the atlas texture and `casters` re-ranks the lights. Set them in `AppConfig.setup` or a plugin's
  * `initialize`, e.g. `world.resource(PointShadows).atlas = 1024`; each world owns its own settings. `atlas`
  * is the square depth atlas's side in pixels (snapped to a power of two in [256, 4096], default 2048 ≈ 16 MB
  * of depth), sub-allocated by importance. `casters` is how many shadowed point/spot
@@ -789,9 +788,8 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
  * the light's apparent contribution (`intensity·range²/dist²`): the hero light renders large, distant lights
  * small, and a spot costs one tile rather than six.
  *
- * `hysteresis` is the over-cap incumbent margin and IS live-tunable (pure CPU ranking, not baked into a
- * shader): when more shadowed lights exist than `casters`, a light that cast last frame keeps its slot
- * unless a challenger's importance beats it by this fraction. It stops a light's shadow flickering on/off
+ * `hysteresis` is the over-cap incumbent margin: when more shadowed lights exist than `casters`, a light
+ * that cast last frame keeps its slot unless a challenger's importance beats it by this fraction. It stops a light's shadow flickering on/off
  * as the camera moves and re-ranks the winners by distance (set 0 for the raw nearest-wins behavior).
  */
 export interface PointShadows {

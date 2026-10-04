@@ -60,6 +60,7 @@ import {
     cascadeRegather,
     disposeShadowAtlas,
     ensureCascadeAtlas,
+    ensurePointAtlas,
     initializeShadowAtlasState,
     pointRegather,
     renderCascades,
@@ -841,9 +842,11 @@ const ShadowCameraSystem: System = {
         // allocate each atlas's re-gather list here, before record() (PrepassSystem) builds the cast bind
         // groups that bind it — so the first casting frame's groups include it (the alloc clears the
         // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
-        // again harmlessly. The cascade atlas (re)allocates here too, before the prepass binds the shadow group
-        if (casters > 0 && shadowReady(world))
+        // again harmlessly. Both atlases (re)allocate here too, before the prepass binds the shadow group
+        if (casters > 0 && shadowReady(world)) {
             world.resource(pointRegather).ensure(pointCasters(world) * 6, world.entityHighWater);
+            ensurePointAtlas(world);
+        }
         if (cascadeCount(world) > 0 && shadowReady(world)) {
             world.resource(cascadeRegather).ensure(MAX_CASCADES, world.entityHighWater);
             ensureCascadeAtlas(world);

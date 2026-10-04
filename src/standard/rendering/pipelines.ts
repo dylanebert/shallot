@@ -45,7 +45,6 @@ import type { Recorded } from "./forward";
 import { Lighting } from "./lighting";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
-import { pointAtlasSize } from "./shadows";
 
 const ALPHA_BLEND: GPUBlendState = {
     color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -1663,15 +1662,15 @@ const shadowFs = tgpu
  * surface's `eids` lane, applies the instance transform, splices the surface's own `vs` chunk when present,
  * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
  * `tileBox` seam-discard bounds from `shadowLayout.$.tileRects` (indexed `slot·6+face` for the point atlas,
- * `slot` alone for the cascade atlas — indexed differently per atlas) scaled by the atlas's pixel size: `atlas`
- * for the point atlas, `comboMeta.z` for the cascade atlas.
+ * `slot` alone for the cascade atlas — indexed differently per atlas) scaled by the atlas's pixel size from
+ * `comboMeta.z`, since `PointShadows.atlas` and the light's `numCascades` and `DirectionalLightShadowMap.size`
+ * size the atlases live.
  * Only an **instanced** surface reaches here (only `eids`+`globalTransforms` gives a per-instance member to
  * re-gather against) — `compileShadow` gates the call, so this never runs for a non-instanced surface.
  */
 function shadowVs(
     surface: AnySurface,
     shadowGroup: TgpuBindGroupLayout<any>,
-    atlas: number,
     cascade: boolean,
     _capacity: number,
 ) {
@@ -1741,7 +1740,7 @@ function shadowVs(
                 ? shadowBound.tileRects.rects[m.x]
                 : shadowBound.tileRects.rects[m.x * 6 + m.y];
             const clip = std.mul(shadowBound.faceVP.m[combo], world);
-            const side = cascade ? d.f32(m.z) : atlas;
+            const side = d.f32(m.z);
             const tileBox = d.vec4f(std.mul(side, rect.xy), rect.z * side, 0);
             return { pos: clip, tileBox };
         })
@@ -1765,7 +1764,6 @@ const ClipShadowVertex = d
 function clipShadowVertex(
     surface: AnySurface,
     shadowGroup: TgpuBindGroupLayout<any>,
-    atlas: number,
     cascade: boolean,
     _capacity: number,
 ) {
@@ -1832,7 +1830,7 @@ function clipShadowVertex(
             const rect = cascade
                 ? shadowBound.tileRects.rects[m.x]
                 : shadowBound.tileRects.rects[m.x * 6 + m.y];
-            const side = cascade ? d.f32(m.z) : atlas;
+            const side = d.f32(m.z);
             return ClipShadowVertex({
                 pos: std.mul(shadowBound.faceVP.m[combo], world),
                 tileBox: d.vec4f(std.mul(side, rect.xy), rect.z * side, 0),
@@ -1851,11 +1849,10 @@ function clipShadowVertex(
 function clipShadowVs(
     surface: AnySurface,
     shadowGroup: TgpuBindGroupLayout<any>,
-    atlas: number,
     cascade: boolean,
     capacity: number,
 ) {
-    const vertex = clipShadowVertex(surface, shadowGroup, atlas, cascade, capacity);
+    const vertex = clipShadowVertex(surface, shadowGroup, cascade, capacity);
     const name = `${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`;
     const input = { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex };
     const fixed = {
@@ -1947,7 +1944,6 @@ function clipShadowVs(
 function varyingShadowVs(
     surface: AnySurface,
     shadowGroup: TgpuBindGroupLayout<any>,
-    atlas: number,
     cascade: boolean,
     _capacity: number,
 ) {
@@ -1981,8 +1977,6 @@ function varyingShadowVs(
     const assigns = keys.map((key) => `    out.${key} = patched.${key};`).join("\n");
     const fragmentAssigns = `${surface.fragmentInputs?.uv ? "    out.uv = uv;\n" : ""}${surface.fragmentInputs?.localPos ? "    out.localPos = localPos;\n" : ""}`;
     const rect = cascade ? "m.x" : "m.x * 6u + m.y";
-    // the cascade atlas side rides meta.z, since the light's cascade count sizes that atlas at first cast
-    const side = cascade ? "f32(m.z)" : `${atlas}.0`;
     const copier = tgpu
         .fn(
             [d.u32, d.u32],
@@ -2019,7 +2013,7 @@ ${
     let rect = shadow.tileRects.rects[${rect}];
     var out: Out;
     out.pos = shadow.faceVP.m[combo] * world;
-    out.tileBox = vec4f(${side} * rect.xy, rect.z * ${side}, 0.0);
+    out.tileBox = vec4f(f32(m.z) * rect.xy, rect.z * f32(m.z), 0.0);
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
     out.world = world.xyz;
@@ -2158,10 +2152,8 @@ function clipShadowFs(surface: AnySurface) {
  * compile a `Surface`'s point + cascade shadow-atlas pipelines — `null` for a non-instanced or
  * `screen` surface (only an instanced, non-`screen` surface casts — a 2D overlay has no atlas placement).
  * Opaque surfaces share {@link shadowFs}; clipped surfaces use their wider cutoff
- * vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and its
- * atlas pixel size source: the point VS bakes the world's `PointShadows.atlas` when the app builds, and the
- * cascade VS (passed `0`) reads its atlas side from `comboMeta.z`, since the light's live `numCascades` and
- * `DirectionalLightShadowMap.size` size that atlas.
+ * vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and
+ * reads its atlas side from `comboMeta.z`, so neither bakes a shadow setting.
  */
 function compileShadow(
     world: World,
@@ -2187,9 +2179,9 @@ function compileShadow(
         .createRenderPipeline({
             vertex: clip
                 ? varying
-                    ? varyingShadowVs(surface, pointLayout, pointAtlasSize(world), false, capacity)
-                    : clipShadowVs(surface, pointLayout, pointAtlasSize(world), false, capacity)
-                : shadowVs(surface, pointLayout, pointAtlasSize(world), false, capacity),
+                    ? varyingShadowVs(surface, pointLayout, false, capacity)
+                    : clipShadowVs(surface, pointLayout, false, capacity)
+                : shadowVs(surface, pointLayout, false, capacity),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : shadowFs,
@@ -2202,9 +2194,9 @@ function compileShadow(
         .createRenderPipeline({
             vertex: clip
                 ? varying
-                    ? varyingShadowVs(surface, cascadeLayout, 0, true, capacity)
-                    : clipShadowVs(surface, cascadeLayout, 0, true, capacity)
-                : shadowVs(surface, cascadeLayout, 0, true, capacity),
+                    ? varyingShadowVs(surface, cascadeLayout, true, capacity)
+                    : clipShadowVs(surface, cascadeLayout, true, capacity)
+                : shadowVs(surface, cascadeLayout, true, capacity),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : shadowFs,

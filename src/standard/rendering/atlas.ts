@@ -227,9 +227,9 @@ export function initializeShadowAtlasState(world: World): void {
 
 // ---- point-light shadows: the GPU half (face viewProjs + tile math in ./shadows) ----
 //
-// One fixed-size depth atlas shared by every shadowed point light (cube faces as tiles, the
-// PlayCanvas model), allocated lazily on the first casting frame. `_atlas.pointParams` is the PointCaster
-// uniform array the FS matches compacted lights against — always bound on group 1 (an empty slot's
+// One depth atlas shared by every shadowed point light (cube faces as tiles, the PlayCanvas model),
+// allocated lazily on the first casting frame at `PointShadows.atlas`'s side. `_atlas.pointParams` is the
+// PointCaster uniform array the FS matches compacted lights against — always bound on group 1 (an empty slot's
 // pos.w = -1 never matches a real eid, so the no-caster path reads the fallback atlas never).
 // Published as "pointShadows" so a one-shot probe can pin the metadata to the TS oracle.
 // `_atlas.pointAtlasView` doubles as the seam: non-null once the atlas exists.
@@ -782,13 +782,17 @@ export function disposeShadowAtlas(world: World): void {
     _atlasState.shadowReady = false;
 }
 
-// the point-shadow atlas, fixed-size, allocated on the first casting frame (the bare path — no
-// shadowMapsEnabled on any point/spot light — never allocates it)
-function ensureAtlas(world: World): void {
+/** allocate the point-shadow atlas at the world's {@link pointAtlasSize} on the first casting frame, and
+ * reallocate it when that side changes, as Bevy's per-frame texture-cache request does; the bare path (no
+ * shadowMapsEnabled on any point/spot light) never allocates it. `ShadowCameraSystem` calls it before the draw
+ * group records, since the depth prepass binds {@link shadowGroup} ahead of the shadow pass and a texture
+ * destroyed after that binding fails the frame's submit. */
+export function ensurePointAtlas(world: World): void {
     const _atlasState = world.resource(atlasStateKey);
 
-    if (_atlasState.pointAtlas) return;
     const side = pointAtlasSize(world);
+    if (_atlasState.pointAtlas?.width === side) return;
+    _atlasState.pointAtlas?.destroy();
     _atlasState.pointAtlas = world.gpu.device.createTexture({
         label: "standard-point-shadow-atlas",
         size: { width: side, height: side },
@@ -848,7 +852,7 @@ export function renderPointShadows(
         }
         return;
     }
-    ensureAtlas(world);
+    ensurePointAtlas(world);
     _pointRegather.ensure(pointCasters(world) * 6, capacity);
 
     // the caster params the FS samples (pos + source eid, clip planes + bias, + the spot basis —
@@ -895,6 +899,8 @@ export function renderPointShadows(
     const C = comboViewSlots(world, combos, _atlasState.comboSlots, _atlasState.comboIndices);
     const faceVP = pointFaceVP(world);
     const comboMeta = pointComboMeta(world);
+    // meta.z carries the atlas side the point VS scales its tile box by, since PointShadows.atlas sizes it live
+    for (let i = 0; i < combos.length; i++) comboMeta[i * 4 + 2] = _atlasState.pointAtlas!.width;
     if (C === combos.length) {
         // no misses — upload the full arrays as before
         world.gpu.device.queue.writeBuffer(
