@@ -243,9 +243,21 @@ export class PhysicsWorld {
         const world = Object.create(PhysicsWorld.prototype) as {
             state: WorldState;
             _worldId: WorldId;
+            _sensorEvents: SensorEvents;
+            _contactEvents: ContactEvents;
+            _jointEvents: JointEvent[];
+            _moveEventPool: BodyMoveEvent[];
+            _bodyEvents: BodyEvents;
+            _moveRecord: { bodyId: number; generation: number; fellAsleep: boolean };
         };
         world.state = state;
         world._worldId = { index1: state.worldId + 1, generation: state.generation };
+        world._sensorEvents = { beginEvents: [], endEvents: [] };
+        world._contactEvents = { beginEvents: [], endEvents: [], hitEvents: [] };
+        world._jointEvents = [];
+        world._moveEventPool = [];
+        world._bodyEvents = { moveEvents: world._moveEventPool, count: 0 };
+        world._moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
         return world as unknown as PhysicsWorld;
     }
 
