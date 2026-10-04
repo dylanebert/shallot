@@ -6,7 +6,7 @@ import {
     requirePointerLock,
 } from "../../core/input";
 import { Body } from "../../core/physics";
-import { Camera } from "../../core/rendering";
+import { Camera, RenderingPlugin } from "../../core/rendering";
 import {
     entity,
     f32,
@@ -342,5 +342,5 @@ export const PlayerPlugin: Plugin = {
             }),
         }),
     ],
-    dependencies: [CharacterPlugin, InputPlugin],
+    dependencies: [CharacterPlugin, InputPlugin, RenderingPlugin],
 };

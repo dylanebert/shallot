@@ -386,7 +386,6 @@ Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallo
 - Replace `globalTransform` with `world.storage(GlobalTransform).translation`; test membership with `world.has(eid, GlobalTransform)` when placement may not yet exist.
 - Replace `grounded` with `world.storage(Character).groundState.get(eid) === GroundState.OnGround`; steep ground is a separate state.
 - Replace `teleport` with `setKinematic(world, eid, position, rotation, true)` from `/standard/physics`, then clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn.
-- `PlayerPlugin` no longer installs `RenderingPlugin`: it authors the linked camera's pose without presentation. Keep rendering in the app's composition when presenting that camera.
 - Move gravity and jump tuning to `Player.gravity` (positive downward acceleration) and `Player.jumpSpeed`. Player owns acceleration, friction, sprint, coyote time (0.15 seconds), jump buffering (0.2 seconds) and platform carry. Its default speed is 6 m/s, sprint multiplier 1.5, jump speed 5 m/s and gravity 15 m/s².
 
 ## Replace Mirror with explicit snapshot requests
