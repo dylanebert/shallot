@@ -217,7 +217,7 @@ The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wr
 | `Volumetric` | `VolumetricLight`, still a marker. |
 | `SunShadows.cascades` | `DirectionalLight.numCascades`, default `4`, clamped to `MAX_CASCADES`. |
 | `SunShadows.overlap` | `DirectionalLight.overlapProportion`, default `0.2`. |
-| `SunShadows.lambda` | Removed. Set `DirectionalLight.firstCascadeFarBound`, default `10` world units: the first cascade ends there, below `maximumDistance`, and the rest are spaced exponentially to it. |
+| `SunShadows.lambda` | Removed. Set `DirectionalLight.firstCascadeFarBound`, default `10` world units: the first cascade ends there and the rest are spaced exponentially to `maximumDistance`. |
 | `SunShadows.resolution` | `world.resource(DirectionalLightShadowMap).size`, default `2048`. |
 | `PointShadows.atlas`, `.casters`, `.hysteresis` | The same fields on `world.resource(PointShadows)`. |
 

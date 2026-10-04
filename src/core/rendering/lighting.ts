@@ -13,11 +13,10 @@ export const AmbientLight = component(
  * intensity remains a linear multiplier, not lux. shadowMapsEnabled is zero when disabled, one when enabled.
  * The shadow cascades follow Bevy's `CascadeShadowConfigBuilder`: numCascades depth slices (clamped to the
  * renderer's maximum) cover the camera's view out to maximumDistance in world units, the first ending at
- * firstCascadeFarBound and the rest spaced exponentially to maximumDistance. With more than one cascade,
- * firstCascadeFarBound must be less than maximumDistance; the renderer throws naming the light otherwise.
- * overlapProportion, in [0, 1), is the fraction of each cascade blended with the next. numCascades sizes the
- * cascade atlas when the light first casts and is not changed after; the other cascade fields are read every
- * frame.
+ * firstCascadeFarBound and the rest spaced exponentially to maximumDistance; with one cascade the bound is
+ * ignored and maximumDistance takes precedence. overlapProportion, in [0, 1), is the fraction of each
+ * cascade blended with the next. numCascades sizes the cascade atlas when the light first casts and is not
+ * changed after; the other cascade fields are read every frame.
  * Shadow normal bias is measured in shadow texels; depth bias is a residual depth offset.
  */
 export const DirectionalLight = component(

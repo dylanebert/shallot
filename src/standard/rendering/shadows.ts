@@ -147,8 +147,8 @@ function placeFromCenter(
 
 /**
  * the N cascade far-bounds out to `far`, Bevy's `calculate_cascade_bounds`: the first ends at `first` and the
- * rest are spaced exponentially to `far` (one cascade ends at `far`). `first` must be below `far`
- * ({@link updateCascades} refuses one that is not), and is floored just above 0.
+ * rest are spaced exponentially to `far` (one cascade ends at `far`). A `first` at or beyond `far` gives
+ * equal or shrinking bounds, as in Bevy; `first` is floored just above 0.
  * Cascade `i` covers `[splits[i-1], splits[i]]` (`splits[-1]` = the camera near implicitly); the last bound is
  * `far` exactly. Writes the `n` bounds into `out`; otherwise pure. The receiver selects a cascade by these
  * bounds (Bevy `get_cascade_index`), so they're the same numbers the fit and the FS read.
@@ -618,12 +618,6 @@ export function updateCascades(world: World, main: number): void {
     const n = ortho ? 1 : cascades;
     const overlap = Math.max(0, world.storage(DirectionalLight).overlapProportion.get(light));
     const first = world.storage(DirectionalLight).firstCascadeFarBound.get(light);
-    // refused rather than split into degenerate cascades; the config lives in columns, so it is checked
-    // where it is read, as Bevy's builder checks its own
-    if (n > 1 && !(first < maxDist))
-        throw new Error(
-            `standard: DirectionalLight ${light} firstCascadeFarBound (${first}) must be less than its maximumDistance (${maxDist}) when numCascades is above 1`,
-        );
     shadow.sunCascades = cascades;
     shadow.sunOverlap = overlap;
 
