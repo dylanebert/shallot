@@ -96,10 +96,11 @@ export function resetSignatures(world: World): void {
 /** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
 function springSignature(world: World): number {
     let h = FNV_BASIS;
+    const spring = world.storage(Spring);
     for (const eid of world.query(SPRING_TERMS)) {
         h = fold(h, eid);
-        const a = world.storage(Spring).a.get(eid);
-        const b = world.storage(Spring).b.get(eid);
+        const a = spring.a.get(eid);
+        const b = spring.b.get(eid);
         h = fold(h, a);
         h = fold(h, b);
         // fold the referenced bodies' create-stamps: a same-update realias of an endpoint (destroy+create
@@ -107,14 +108,14 @@ function springSignature(world: World): number {
         // solver joint pins the NEW occupant at the old anchors.
         h = fold(h, world.generation(a));
         h = fold(h, world.generation(b));
-        h = fold(h, sigBits(world.storage(Spring).localAnchorA.x.get(eid)));
-        h = fold(h, sigBits(world.storage(Spring).localAnchorA.y.get(eid)));
-        h = fold(h, sigBits(world.storage(Spring).localAnchorA.z.get(eid)));
-        h = fold(h, sigBits(world.storage(Spring).localAnchorB.x.get(eid)));
-        h = fold(h, sigBits(world.storage(Spring).localAnchorB.y.get(eid)));
-        h = fold(h, sigBits(world.storage(Spring).localAnchorB.z.get(eid)));
-        h = fold(h, sigBits(world.storage(Spring).stiffness.get(eid)));
-        h = fold(h, sigBits(world.storage(Spring).rest.get(eid)));
+        h = fold(h, sigBits(spring.localAnchorA.x.get(eid)));
+        h = fold(h, sigBits(spring.localAnchorA.y.get(eid)));
+        h = fold(h, sigBits(spring.localAnchorA.z.get(eid)));
+        h = fold(h, sigBits(spring.localAnchorB.x.get(eid)));
+        h = fold(h, sigBits(spring.localAnchorB.y.get(eid)));
+        h = fold(h, sigBits(spring.localAnchorB.z.get(eid)));
+        h = fold(h, sigBits(spring.stiffness.get(eid)));
+        h = fold(h, sigBits(spring.rest.get(eid)));
     }
     return h;
 }
@@ -122,23 +123,24 @@ function springSignature(world: World): number {
 /** a hash of the authored {@link Joint} set, endpoint create-stamps included: the {@link springSignature} twin. */
 function jointSignature(world: World): number {
     let h = FNV_BASIS;
+    const joint = world.storage(Joint);
     for (const eid of world.query(JOINT_TERMS)) {
         h = fold(h, eid);
-        const a = world.storage(Joint).a.get(eid);
-        const b = world.storage(Joint).b.get(eid);
+        const a = joint.a.get(eid);
+        const b = joint.b.get(eid);
         h = fold(h, a);
         h = fold(h, b);
         // fold the referenced bodies' create-stamps — see springSignature: a realias of an endpoint must
         // force the re-upload so the solver joint rebinds to the new occupant.
         h = fold(h, world.generation(a));
         h = fold(h, world.generation(b));
-        h = fold(h, sigBits(world.storage(Joint).localAnchorA.x.get(eid)));
-        h = fold(h, sigBits(world.storage(Joint).localAnchorA.y.get(eid)));
-        h = fold(h, sigBits(world.storage(Joint).localAnchorA.z.get(eid)));
-        h = fold(h, sigBits(world.storage(Joint).localAnchorB.x.get(eid)));
-        h = fold(h, sigBits(world.storage(Joint).localAnchorB.y.get(eid)));
-        h = fold(h, sigBits(world.storage(Joint).localAnchorB.z.get(eid)));
-        h = fold(h, sigBits(world.storage(Joint).stiffnessAng.get(eid)));
+        h = fold(h, sigBits(joint.localAnchorA.x.get(eid)));
+        h = fold(h, sigBits(joint.localAnchorA.y.get(eid)));
+        h = fold(h, sigBits(joint.localAnchorA.z.get(eid)));
+        h = fold(h, sigBits(joint.localAnchorB.x.get(eid)));
+        h = fold(h, sigBits(joint.localAnchorB.y.get(eid)));
+        h = fold(h, sigBits(joint.localAnchorB.z.get(eid)));
+        h = fold(h, sigBits(joint.stiffnessAng.get(eid)));
     }
     return h;
 }
