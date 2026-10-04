@@ -176,10 +176,7 @@ export interface WorldGpu {
     indirect?: (name: string, count: number) => void;
     /**
      * optional pipeline-compile timing hook installed by `ProfilePlugin`, mirroring {@link span} /
-     * {@link indirect}. typegpu pipelines are sync-created (`root.unwrap` calls the synchronous
-     * `create*Pipeline`), and Dawn defers the real shader compile to the forced {@link precompile}
-     * drain — so timing the creation call would report a number that reads like a compile time and
-     * isn't one. {@link precompileAll} instead measures each forcer's own `initAsync()` await and
+     * {@link indirect}. {@link precompileAll} measures each forcer's own `initAsync()` await and
      * reports the resolved span here, called only when at least one element actually awaited an
      * `initAsync` — an array with none (the standard renderer's already-unwrapped raw pipelines, or `[]`)
      * never calls this, since reporting a span for a skip would read like a compile that never ran; a
@@ -777,11 +774,11 @@ function compile({ label, force }: Forcer): unknown {
     } catch (cause) {
         throw new Error(`precompile "${label}" failed — its pipeline did not compile`, { cause });
     }
-    // a forcer that binds nothing has no pipeline to init, so the compile silently falls through to
+    // a forcer that returns nothing has no pipeline to init, so the compile silently falls through to
     // the first frame — the exact stall the queue exists to prevent, and invisible without this
     if (!forced)
         throw new Error(
-            `precompile "${label}" bound nothing — its pipeline would compile on the first frame instead`,
+            `precompile "${label}" returned nothing — its pipeline would compile on the first frame instead`,
         );
     return forced;
 }
@@ -790,21 +787,22 @@ function compile({ label, force }: Forcer): unknown {
  * force a pipeline to compile before the first frame. A typegpu pipeline is created synchronously
  * (`root.unwrap` calls the synchronous `create*Pipeline`), and Dawn can defer the real compile to the
  * first dispatch (measured ~3 s of first-frame drain at engine scale). A pipeline owner registers its
- * bound pipeline from `warm`; `createApp` drains the queue once every plugin has warmed, awaiting
+ * pipeline from `warm`; `createApp` drains the queue once every plugin has warmed, awaiting
  * `initAsync()` on each returned pipeline, so the compile is paid under the loading screen. Registered
  * *after* that drain (a lazily-built pipeline, a post-warm producer), the drain runs on arrival and the
  * returned promise must be awaited — late is better than silently dropped, but it still owes the same
  * validation.
  *
- * `force` **returns the bound pipeline** — never dispatch from the callback: a zero-workgroup dispatch
- * trips Dawn's `DispatchWorkgroups with a workgroup count of 0 is unusual` warning in your own code. The
- * drain classifies the return exhaustively: a typegpu pipeline (compute / render / guarded) is awaited
- * via its `initAsync`; an **array** is awaited element-wise — each entry exposing `initAsync` is
- * awaited, each that doesn't (the standard renderer's already-unwrapped raw pipelines) is skipped, and `[]`
- * (nothing specializes) awaits nothing; anything else truthy is a labelled throw. A nullish
- * return also throws, because a forcer whose buffers aren't up yet no-ops and hands the compile back to
- * frame one without a word. Allocate inside the thunk if the buffers are late — the drain runs after
- * every plugin's warm, which is the point. `label` names the pipeline in either failure and must be
+ * `force` **returns the pipeline** — never dispatch from the callback: a zero-workgroup dispatch
+ * trips Dawn's `DispatchWorkgroups with a workgroup count of 0 is unusual` warning in your own code.
+ * Bindings do not matter: `initAsync` compiles the pipeline core every `.with()` shares. A pipeline
+ * already unwrapped (`root.unwrap`, a dispatch or a draw) was created synchronously, so the drain has
+ * nothing left to await for it. The drain classifies the return exhaustively: a typegpu pipeline
+ * (compute / render / guarded) is awaited via its `initAsync`; an **array** is awaited element-wise —
+ * each entry exposing `initAsync` is awaited, each that doesn't (the standard renderer's
+ * already-unwrapped raw pipelines) is skipped, and `[]` (nothing specializes) awaits nothing;
+ * anything else truthy is a labelled throw. A nullish return also throws, since it would hand the
+ * compile back to frame one without a word. `label` names the pipeline in either failure and must be
  * unique within the build. `options.after` names other queued labels that must drain first. Unknown
  * labels are ignored because the plugin that owns a predecessor may be absent.
  */
