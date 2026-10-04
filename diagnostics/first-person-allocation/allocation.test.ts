@@ -4,7 +4,24 @@ import {
     type AllocationSample,
     allocatesNothing,
     allocationFailure,
+    sampleAllocation,
+    windowBytes,
 } from "./allocation";
+
+const PLANTED = resolve(import.meta.dir, "planted.entry.ts");
+
+test("a first optimization inside a window is currently charged to its caller", async () => {
+    const sample = await sampleAllocation(PLANTED, { warm: 120, frames: 120, input: "compile" });
+    expect(windowBytes(sample.windows[0])).toBeGreaterThan(0);
+    expect(sample.windows[0].sites.some((row) => /step/.test(row.site))).toBe(true);
+    expect(allocationFailure(sample)).toContain("after warm 120");
+});
+
+test("a planted steady literal is reported as bytes", async () => {
+    const sample = await sampleAllocation(PLANTED, { warm: 120, frames: 120, input: "steady" });
+    expect(sample.windows.every((window) => windowBytes(window) > 0)).toBe(true);
+    expect(allocationFailure(sample)).toContain("steady play allocated JavaScript heap");
+});
 
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
 const ROOT = resolve(import.meta.dir, "../..");
