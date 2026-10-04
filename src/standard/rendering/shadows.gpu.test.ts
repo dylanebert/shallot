@@ -5,21 +5,37 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.gpu);
 
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { Camera, CameraMode, DirectionalLight } from "../../core/rendering";
-import { Transform } from "../../engine";
+import { MeshInstance } from "../../core/mesh";
+import {
+    attachTexture,
+    Camera,
+    CameraMode,
+    captureTexture,
+    DirectionalLight,
+} from "../../core/rendering";
+import { Transform, type World } from "../../engine";
+import { StandardRenderer } from "./forward";
+import { StandardRenderingPlugin } from "./index";
+import { Materials, MeshMaterial, StandardMaterial } from "./material";
+import { MeshRenderPlugin } from "./mesh-render";
 import {
     cascadeComboEids,
     cascadeCount,
     cascadeCovers,
+    cascadeFars,
     destroyCascades,
     resetCascades,
     updateCascades,
 } from "./shadows";
 
-const subjects = gpuApps(
-    import.meta.path,
-    Array.from({ length: 4 }, () => ({ defaults: false, plugins: [] })),
-);
+const rendering = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
+// three headless worlds for the cascade-pool rows, then three rendering worlds for the bound row
+const subjects = gpuApps(import.meta.path, [
+    ...Array.from({ length: 3 }, () => ({ defaults: false, plugins: [] })),
+    rendering,
+    rendering,
+    rendering,
+]);
 let nextSubject = 0;
 
 // `updateCascades` rebuilds the sun's boxes only when its inputs change, so the pooled cascade cameras keep
@@ -139,16 +155,74 @@ test("the cascade pass rebuilds its boxes after the main camera GlobalTransform 
     expect(moved).toBe(true);
 });
 
-test("a sun whose firstCascadeFarBound reaches its maximumDistance is refused by name, and one cascade ignores the bound", async () => {
-    const { world, main, sun } = await sunScene();
-    const light = world.storage(DirectionalLight);
-    light.firstCascadeFarBound.set(sun, 80);
-    expect(() => updateCascades(world, main)).toThrow(
-        `standard: DirectionalLight ${sun} firstCascadeFarBound (80) must be less than its maximumDistance (80)`,
-    );
-    light.firstCascadeFarBound.set(sun, 120);
-    expect(() => updateCascades(world, main)).toThrow("firstCascadeFarBound (120)");
-    light.numCascades.set(sun, 1);
-    updateCascades(world, main);
-    expect(cascadeCount(world)).toBe(1);
+// a cube on a floor under a shadowed sun with default cascade fields, drawn by a 32×32 camera
+function renderedScene(world: World): { camera: number; sun: number } {
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 3, 8, 0] });
+    world.add(camera, Camera);
+    world.add(camera, StandardRenderer);
+    attachTexture(world, camera, { width: 32, height: 32 });
+    const material = world.resource(Materials).add(StandardMaterial());
+    const floor = world.create();
+    world.add(floor, Transform, { translation: [0, -0.5, 0, 0], scale: [40, 0.2, 40, 0] });
+    world.add(floor, MeshInstance);
+    world.add(floor, MeshMaterial, { material });
+    const cube = world.create();
+    world.add(cube, Transform, { translation: [0, 0.5, 0, 0] });
+    world.add(cube, MeshInstance);
+    world.add(cube, MeshMaterial, { material });
+    const sun = world.create();
+    world.add(sun, DirectionalLight, { direction: [-0.4, -1, -0.55, 0] });
+    world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
+    return { camera, sun };
+}
+
+// two frames, since the shadows first appear on the second; returns the validation error, if any
+async function frames(world: World): Promise<string | null> {
+    world.gpu.device.pushErrorScope("validation");
+    world.step(0);
+    world.step(0);
+    return (await world.gpu.device.popErrorScope())?.message ?? null;
+}
+
+// asserts the first `n` cascade far bounds follow Bevy's `calculate_cascade_bounds` (bevy_light cascade.rs)
+// within f32 rounding: Bevy evaluates it in f32, Shallot in f64 stored as f32, so the bits may differ in
+// the last place, while a different split misses by far more than the 1e-6 relative tolerance
+function expectBevyBounds(fars: Float32Array, n: number, first: number, max: number): void {
+    const base = n === 1 ? 1 : (max / first) ** (1 / (n - 1));
+    for (let i = 0; i < n; i++) {
+        const bound = n === 1 ? max : first * base ** i;
+        expect(Math.abs(fars[i] / bound - 1)).toBeLessThanOrEqual(1e-6);
+    }
+}
+
+test("a sun whose firstCascadeFarBound reaches or passes its maximumDistance splits by Bevy's cascade bounds and keeps rendering, and one cascade ignores the bound", async () => {
+    const [a, b, reference] = subjects().slice(3);
+    const light = (world: World) => world.storage(DirectionalLight);
+
+    // Bevy's deferred_rendering example: 3 cascades out to 10, the first bound left at its default 10
+    const sceneA = renderedScene(a.world);
+    light(a.world).numCascades.set(sceneA.sun, 3);
+    light(a.world).maximumDistance.set(sceneA.sun, 10);
+    expect(await frames(a.world)).toBeNull();
+    expect(cascadeCount(a.world)).toBe(3);
+    expectBevyBounds(cascadeFars(a.world), 3, 10, 10);
+    light(a.world).numCascades.set(sceneA.sun, 1);
+    expect(await frames(a.world)).toBeNull();
+    expectBevyBounds(cascadeFars(a.world), 1, 10, 10);
+
+    // 4 cascades out to 8, past the default bound: Bevy's bounds shrink from 10 to 8
+    const sceneB = renderedScene(b.world);
+    light(b.world).maximumDistance.set(sceneB.sun, 8);
+    expect(await frames(b.world)).toBeNull();
+    expect(cascadeCount(b.world)).toBe(4);
+    expectBevyBounds(cascadeFars(b.world), 4, 10, 8);
+
+    // the corrected distance renders the frame a fresh default app does
+    light(b.world).maximumDistance.set(sceneB.sun, 50);
+    expect(await frames(b.world)).toBeNull();
+    const sceneR = renderedScene(reference.world);
+    expect(await frames(reference.world)).toBeNull();
+    const { rgba } = await captureTexture(b.world, sceneB.camera);
+    expect(rgba).toEqual((await captureTexture(reference.world, sceneR.camera)).rgba);
 });
