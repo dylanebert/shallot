@@ -4,6 +4,7 @@ import {
     type Component,
     Components,
     type ComponentValues,
+    declaration,
     fields,
     freezeComponent,
     idOf,
@@ -330,7 +331,7 @@ export class World {
             if (existing.schemas.has(component)) return existing.storage as ComponentStorage<T>;
             if (!sameComponentSchema(existing.schema, component)) {
                 throw new Error(
-                    `world.storage: component schema changed for "${String(id)}"; rebuild this world`,
+                    `world.storage: component "${declaration(component, "world.storage").key}" schema changed: this world already stores another record under that key with different fields`,
                 );
             }
             freezeComponent(component);
