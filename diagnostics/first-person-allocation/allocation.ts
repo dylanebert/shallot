@@ -13,6 +13,8 @@ export interface AllocationSite {
 
 export interface AllocationWindow {
     label: string;
+    /** functions optimized during this window; its byte reading is refused */
+    optimizations?: readonly string[];
     /** attributed sites, most bytes first; builtin bytes credit their caller */
     sites: readonly AllocationSite[];
     /** the fewest frames this window can have stepped */
@@ -50,13 +52,10 @@ export interface TransitionSample extends AllocationSample {
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
 
 /**
- * Lowered V8 tier thresholds (defaults 400 and 3,000 in Node 26), so every function in a stepped loop
- * reaches TurboFan inside the warm: warm-up boxing and Maglev-only literals are JIT transitions, not
- * steady-state cost. An unoptimized path allocates more, never less, so tiering can only redden a reading.
- * The short empty-sensor return needs the lower TurboFan threshold to tier within first-person's warm.
- * Compile synchronously: concurrent finalization of inspector and source-map helpers can allocate on
- * the subject's stack. This changes compilation timing, not subject allocation. The same V8 flags
- * apply to Node and Chromium via display.ts's --js-flags.
+ * Lower thresholds bring compiles into warm-up; synchronous compilation keeps installation in its run.
+ * These flags do not guarantee a final tier, so Node refuses profiled runs that trace an optimization.
+ * Keep production's lazy feedback: eager feedback changes steady allocation, not just compile timing.
+ * Chromium receives these same timing flags, without the Node trace refusal.
  */
 export const TIER_FLAGS = [
     "--no-concurrent-recompilation",
@@ -73,12 +72,14 @@ const expectedSteadyWindows = (warm: number) => [
     "A/A repeat",
 ];
 
-/** True only when every expected window is present and reads zero bytes at zero sites. */
+/** True only when every expected window is present, has no optimization, and reads zero bytes at zero sites. */
 export const allocatesNothing = (sample: Pick<AllocationSample, "warm" | "windows">) => {
     const expected = expectedSteadyWindows(sample.warm);
     return (
         expected.every((label) => sample.windows.some((window) => window.label === label)) &&
-        sample.windows.every((window) => window.sites.length === 0 && windowBytes(window) === 0)
+        sample.windows.every((window) =>
+            !window.optimizations?.length && window.sites.length === 0 && windowBytes(window) === 0
+        )
     );
 };
 
@@ -95,8 +96,12 @@ export function allocationFailure(
         failures.push(
             `steady allocation sample is missing expected windows: ${missing.join(", ")}`,
         );
+    for (const window of sample.windows) {
+        if (window.optimizations?.length)
+            failures.push(`steady allocation window refused: ${window.label}; optimized ${window.optimizations.join(", ")}; no byte reading`);
+    }
     const allocating = sample.windows.filter(
-        (window) => window.sites.length > 0 || windowBytes(window) !== 0,
+        (window) => !window.optimizations?.length && (window.sites.length > 0 || windowBytes(window) !== 0),
     );
     if (allocating.length > 0) {
         const sites = allocating.flatMap((window) =>
@@ -113,7 +118,8 @@ export function allocationFailure(
 
 /**
  * Bundle `entry` for Node, build its default export with `input`, step it `warm` frames, collect,
- * then sample `frames` more under V8's sampling heap profiler. Needs the `node` requirement resolved.
+ * then sample `frames` more under V8's sampling heap profiler. Only the harness's chunk loops are
+ * kept unoptimized; the subject tiers normally. Needs the `node` requirement resolved.
  */
 export function sampleAllocation(
     entry: string,
@@ -159,6 +165,8 @@ async function runSampler(
                 "--expose-gc",
                 "--enable-source-maps",
                 ...TIER_FLAGS,
+                "--trace-opt",
+                "--allow-natives-syntax",
                 SAMPLER,
                 join(dir, "subject.mjs"),
                 String(warm),
@@ -174,17 +182,58 @@ async function runSampler(
             proc.exited,
         ]);
         if (code !== 0) throw new Error(`allocation sampler exited ${code}: ${stderr.trim()}`);
-        return JSON.parse(stdout) as AllocationSample;
+        return tracedSample(stdout);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
+}
+
+/** Read synchronous V8 optimization traces bracketed by the child's run markers. */
+export function tracedSample(stdout: string): AllocationSample {
+    const optimizations = new Map<string, Set<string>>();
+    const marked = new Set<string>();
+    let label: string | undefined;
+    let json: string | undefined;
+    for (const line of stdout.split("\n")) {
+        if (line.startsWith("SHALLOT_SAMPLE_BEGIN ")) {
+            if (label !== undefined) throw new Error("nested allocation trace marker");
+            label = JSON.parse(line.slice("SHALLOT_SAMPLE_BEGIN ".length)) as string;
+            marked.add(label);
+        } else if (line === "SHALLOT_SAMPLE_END") {
+            if (label === undefined) throw new Error("unpaired allocation trace marker");
+            label = undefined;
+        } else if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
+            const match = /<JSFunction(.*?) \(sfi =/.exec(line);
+            if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
+            const names = optimizations.get(label) ?? new Set<string>();
+            names.add(match[1].trim() || "(anonymous)");
+            optimizations.set(label, names);
+        } else if (line.startsWith('{"runtime":')) {
+            json = line;
+        }
+    }
+    if (label !== undefined || json === undefined) throw new Error("incomplete allocation trace");
+    const sample = JSON.parse(json) as TransitionSample;
+    for (const window of sample.windows) {
+        if (!marked.has(window.label)) throw new Error(`missing allocation trace markers: ${window.label}`);
+        const names = optimizations.get(window.label);
+        if (names?.size) {
+            window.optimizations = [...names];
+            window.sites = [];
+        }
+    }
+    if (optimizations.has("transition"))
+        throw new Error(`transition allocation run refused; optimized ${[...optimizations.get("transition")!].join(", ")}; no byte reading`);
+    return sample;
 }
 
 export function siteTable(sample: AllocationSample, limit = 30): string {
     const perFrame = (bytes: number, frames: number) => (bytes / frames).toFixed(1);
     const totals = sample.windows.map(
         (window) =>
-            `${window.label}: ${windowBytes(window)} bytes (${perFrame(windowBytes(window), window.frames)}/f) over ${window.frames} frames at ${window.sites.length} sites`,
+            window.optimizations?.length
+                ? `${window.label}: refused; optimized ${window.optimizations.join(", ")}; no byte reading`
+                : `${window.label}: ${windowBytes(window)} bytes (${perFrame(windowBytes(window), window.frames)}/f) over ${window.frames} frames at ${window.sites.length} sites`,
     );
     const heaviest = sample.windows.reduce((a, b) => (windowBytes(b) > windowBytes(a) ? b : a));
     const rows = heaviest.sites

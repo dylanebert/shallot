@@ -1,10 +1,12 @@
 // Node's V8 sampling heap profiler and allocation attribution. Its source-map helpers are also used by the
 // first-person display diagnostic; the rest runs only when Node executes this file, never in the Bun host.
 // JSC's statistics hold still between collections.
+// Needs node --expose-gc --allow-natives-syntax.
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
-// its `control` export allocates one known literal per call. Prints one JSON sample on stdout.
-import { readFileSync, realpathSync } from "node:fs";
+// its `control` export allocates one known literal per call. Prints optimization trace markers and
+// one JSON sample on stdout.
+import { readFileSync, realpathSync, writeSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
 import { dirname, relative, resolve } from "node:path";
@@ -106,11 +108,8 @@ async function main() {
         const bundleUrl = pathToFileURL(bundlePath).href;
         const samplerUrl = import.meta.url;
 
-        // Frames step in short calls, so the warm compiles this loop for an ordinary entry. One long call would
-        // tier it only by on-stack replacement, and each window's fresh entry would install new code, whose
-        // allocation lands on whichever subject frame is running. Each chunk closes over its one callee, so its
-        // call site stays monomorphic. Every sampled byte under a chunk frame is the subject's, including what
-        // TurboFan inlines up into it.
+        // Short chunks leave GPU drains outside the attributed run. Every sampled byte under a chunk
+        // frame is attributed to the subject, including builtin bytes above its own call frames.
         const CHUNK = 60;
         const RUN_FRAMES = new Set(["stepChunk", "controlChunk"]);
 
@@ -128,18 +127,25 @@ async function main() {
         connected = true;
         await session.post("HeapProfiler.enable");
 
-        async function sample(run, n) {
+        async function sample(run, n, label = "transition") {
             collect();
             await session.post("HeapProfiler.startSampling", {
                 samplingInterval: 1,
                 includeObjectsCollectedByMajorGC: true,
                 includeObjectsCollectedByMinorGC: true,
             });
+            // These synchronous markers share V8's trace stream and bracket the profiled run,
+            // excluding inspector and attribution work, just as the heap attribution does.
+            writeSync(1, `SHALLOT_SAMPLE_BEGIN ${JSON.stringify(label)}\n`);
             const running = run(n);
             if (running && typeof running.then === "function") await running;
+            writeSync(1, "SHALLOT_SAMPLE_END\n");
             const { profile } = await session.post("HeapProfiler.stopSampling");
             return sites(profile);
         }
+
+        // Warm marker writes separately so their first compiles do not land in subject runs.
+        for (let i = 0; i < 10000; i++) writeSync(1, "");
 
         const { default: create, control } = await import(bundleUrl);
         if (typeof control !== "function")
@@ -153,16 +159,25 @@ async function main() {
         const controlChunk = () => {
             for (let i = 0; i < CHUNK; i++) control();
         };
+        // Keep no optimized harness code for GC to invalidate; the subject still tiers normally.
+        // V8's CPU-profiler harness does this to `start` while optimizing its callees:
+        // test/cctest/test-cpu-profiler.cc, inlining_test_source2.
+        const neverOptimize = new Function("fn", "%NeverOptimizeFunction(fn)");
+        neverOptimize(stepChunk);
+        neverOptimize(controlChunk);
         const steps = async (n) => {
             for (let i = 0; i < n; i += CHUNK) {
+                // Match the sampled chunks' collections during warm-up too: a full collection can
+                // clear weak code dependencies and cause a recompile on the next subject call.
+                collect();
                 stepChunk();
                 await subject.wait?.();
             }
         };
-        const sampleSteps = async (n) => {
+        const sampleSteps = async (n, label) => {
             const totals = new Map();
             for (let i = 0; i < n; i += CHUNK) {
-                for (const row of await sample(() => stepChunk(), CHUNK)) {
+                for (const row of await sample(stepChunk, CHUNK, label)) {
                     const current = totals.get(row.site) ?? { site: row.site, bytes: 0, count: 0 };
                     current.bytes += row.bytes;
                     current.count += row.count;
@@ -181,14 +196,13 @@ async function main() {
         const despawnFrame = () => subject.despawn();
         RUN_FRAMES.add("spawnFrame").add("despawnFrame");
 
-        // Three windows: after `warm` frames, after twice that, and an A/A repeat. Tiering only adds
-        // allocation, so each must read zero on its own.
+        // Each window must read zero independently and have no optimization during its runs.
         async function steadyWindows() {
             await steps(warm);
-            const atWarm = await sampleSteps(frames);
+            const atWarm = await sampleSteps(frames, `after warm ${warm}`);
             await steps(warm - frames);
-            const atDoubleWarm = await sampleSteps(frames);
-            const repeat = await sampleSteps(frames);
+            const atDoubleWarm = await sampleSteps(frames, `after warm ${2 * warm}`);
+            const repeat = await sampleSteps(frames, "A/A repeat");
             // Node steps its own frames, so each window's frame count is exact by construction; the page
             // sampler has to measure its windows, because a page window overshoots what it was asked for.
             return [
@@ -210,18 +224,18 @@ async function main() {
                 await subject.wait?.();
             }
             const drainedSample = async (run) => {
-                const result = await sample(run, 1);
+                const result = await sample(run, 1, "transition");
                 await subject.wait?.();
                 return result;
             };
             const spawn = await drainedSample(spawnFrame);
-            const afterSpawn = await sample(steps, CHUNK);
+            const afterSpawn = await sample(steps, CHUNK, "transition");
             const despawn = await drainedSample(despawnFrame);
-            const afterDespawn = await sample(steps, CHUNK);
+            const afterDespawn = await sample(steps, CHUNK, "transition");
             const spawnAgain = await drainedSample(spawnFrame);
-            const afterSpawnAgain = await sample(steps, CHUNK);
+            const afterSpawnAgain = await sample(steps, CHUNK, "transition");
             const despawnAgain = await drainedSample(despawnFrame);
-            const afterDespawnAgain = await sample(steps, CHUNK);
+            const afterDespawnAgain = await sample(steps, CHUNK, "transition");
             const afterEvents = [
                 { label: `${CHUNK} frames after spawn`, sites: afterSpawn, frames: CHUNK, framesAtMost: CHUNK },
                 { label: `${CHUNK} frames after despawn`, sites: afterDespawn, frames: CHUNK, framesAtMost: CHUNK },
@@ -255,7 +269,7 @@ async function main() {
 
         // Control: the bundle's known per-call literal, run and attributed exactly as the windows are, so an
         // empty site set is not a dead probe. It runs last, so it never reaches the windows' code.
-        const controlSites = await sample(controls, frames);
+        const controlSites = await sample(controls, frames, "control");
 
         process.stdout.write(
             `${JSON.stringify({

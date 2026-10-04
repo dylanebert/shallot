@@ -6,20 +6,34 @@ import {
     allocationFailure,
     sampleAllocation,
     windowBytes,
+    tracedSample,
+    TIER_FLAGS,
 } from "./allocation";
+
+test("the sampler keeps lazy feedback and Chromium's existing timing flags", () => {
+    expect(TIER_FLAGS).not.toContain("--no-lazy-feedback-allocation");
+    expect(TIER_FLAGS).toEqual([
+        "--no-concurrent-recompilation",
+        "--invocation-count-for-maglev=10",
+        "--invocation-count-for-turbofan=10",
+    ]);
+});
 
 const PLANTED = resolve(import.meta.dir, "planted.entry.ts");
 
-test("a first optimization inside a window is currently charged to its caller", async () => {
+test("a first optimization inside a window refuses its byte reading and names the function", async () => {
     const sample = await sampleAllocation(PLANTED, { warm: 120, frames: 120, input: "compile" });
-    expect(windowBytes(sample.windows[0])).toBeGreaterThan(0);
-    expect(sample.windows[0].sites.some((row) => /step/.test(row.site))).toBe(true);
-    expect(allocationFailure(sample)).toContain("after warm 120");
+    expect(sample.windows[0].optimizations).toContain("lateCompile");
+    expect(sample.windows[0].sites).toEqual([]);
+    expect(allocatesNothing(sample)).toBe(false);
+    expect(allocationFailure(sample)).toContain("after warm 120; optimized");
+    expect(allocationFailure(sample)).toContain("lateCompile");
+    expect(allocationFailure(sample)).toContain("no byte reading");
 });
 
 test("a planted steady literal is reported as bytes", async () => {
     const sample = await sampleAllocation(PLANTED, { warm: 120, frames: 120, input: "steady" });
-    expect(sample.windows.every((window) => windowBytes(window) > 0)).toBe(true);
+    expect(sample.windows.every((window) => !window.optimizations?.length && windowBytes(window) > 0)).toBe(true);
     expect(allocationFailure(sample)).toContain("steady play allocated JavaScript heap");
 });
 
@@ -89,6 +103,32 @@ test("the allocation-gated first-person composition carries no timing or profili
         throw new Error(
             `gated bundle imports profiler modules:\n${found.map((path) => `  ${path} <- ${importers(path).join(", ")}`).join("\n")}`,
         );
+});
+
+test("optimization traces refuse even a zero-byte window, including anonymous OSR and repeated compiles", () => {
+    const sample = { runtime: "planted trace", warm: 120, frames: 120, control: [], windows: [
+        { label: "after warm 120", sites: [], frames: 120, framesAtMost: 120 },
+        { label: "after warm 240", sites: [], frames: 120, framesAtMost: 120 },
+        { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
+    ] };
+    const lines = [
+        'SHALLOT_SAMPLE_BEGIN "after warm 120"',
+        '[compiling method 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV), mode: ConcurrencyMode::kSynchronous]',
+        '[completed compiling 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV)]',
+        '[compiling method 0x1 <JSFunction (sfi = 0x3)> (target TURBOFAN_JS) OSR, mode: ConcurrencyMode::kSynchronous]',
+        'SHALLOT_SAMPLE_END',
+        'SHALLOT_SAMPLE_BEGIN "after warm 240"',
+        'SHALLOT_SAMPLE_END',
+        'SHALLOT_SAMPLE_BEGIN "A/A repeat"',
+        'SHALLOT_SAMPLE_END',
+        JSON.stringify(sample),
+    ];
+    const result = tracedSample(lines.join("\n"));
+    expect(result.windows[0].optimizations).toEqual(["late", "(anonymous)"]);
+    expect(allocatesNothing(result)).toBe(false);
+    expect(allocationFailure(result)).toContain("after warm 120; optimized late, (anonymous); no byte reading");
+    expect(() => tracedSample(JSON.stringify(sample))).toThrow("missing allocation trace markers");
+    expect(() => tracedSample('SHALLOT_SAMPLE_BEGIN "A/A repeat"')).toThrow("incomplete allocation trace");
 });
 
 const steadySample = (sites: AllocationSample["windows"][number]["sites"]) => ({

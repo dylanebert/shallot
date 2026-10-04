@@ -9,7 +9,6 @@ import { CEILING } from "../../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 test("warm internal mover and closest-ray queries over every collider kind allocate no JavaScript heap", async () => {
-    // QueryColumns.prepare/stale and the chunk's inlined query glue tier late; the margin covers concurrent compilation.
     const sample = await sampleAllocation(resolve(import.meta.dir, "query-allocation.entry.ts"), {
         warm: 1800,
     });
