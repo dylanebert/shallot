@@ -2154,9 +2154,8 @@ function clipShadowFs(surface: AnySurface) {
  * `screen` surface (only an instanced, non-`screen` surface casts — a 2D overlay has no atlas placement).
  * Opaque surfaces share {@link shadowFs}; clipped surfaces use their wider cutoff
  * vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and its
- * own atlas pixel size (the
- * two atlases are sized independently — the point atlas's live caster cap vs the cascade atlas's fixed
- * resolution × grid).
+ * own atlas pixel size, read when the app builds: `PointShadows.atlas` for the point atlas, the
+ * per-cascade resolution × grid for the cascade atlas.
  */
 function compileShadow(
     world: World,

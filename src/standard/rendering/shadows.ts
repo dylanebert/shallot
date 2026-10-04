@@ -750,9 +750,9 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
 }
 
 /**
- * the point-shadow budget. `atlas` + `casters` are fixed before `createApp()` (standard compiles the caster array
- * size and atlas resolution into its shaders + textures at warm, like `capacity`, don't change them on a
- * live app). `atlas` is the square depth atlas's side in pixels (snapped to a power of two in [256, 4096],
+ * the point-shadow budget. `atlas` + `casters` are set before `createApp()` and not changed on a live app:
+ * the atlas texture is sized from `atlas` when a light first casts, and `casters` caps the lights ranked
+ * each frame. `atlas` is the square depth atlas's side in pixels (snapped to a power of two in [256, 4096],
  * default 2048 ≈ 16 MB of depth), sub-allocated by importance. `casters` is how many shadowed point/spot
  * lights compete for the atlas (clamped to [1, {@link MAX_POINT_CASTERS}]); lights beyond it stay lit but
  * cast nothing, with a non-silent warn. A caster that won't fit the atlas budget is dropped the same

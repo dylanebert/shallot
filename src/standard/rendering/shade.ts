@@ -22,7 +22,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { chunk, spliceNs } from "../../engine/utils";
 import { PointLightGpu } from "./lighting";
-import { EDGE_TEXELS, MAX_CASCADES, pointAtlasSize, pointCasters } from "./shadows";
+import { EDGE_TEXELS, MAX_CASCADES, MAX_POINT_CASTERS } from "./shadows";
 
 // ---- the metallic-roughness shading model (glTF 2.0), the `default` / `vertex` / glTF surfaces' lobe ----
 
@@ -190,37 +190,12 @@ export const PointCaster = d.struct({
 /** the `PointCaster` stride in f32 (5 vec4) — the staging mirror's row size, from the schema. */
 export const POINT_CASTER_FLOATS = d.sizeOf(PointCaster) / 4;
 
-/** the caster-slot uniform, sized by the `PointShadows.casters` cap (fixed before `createApp()`). */
+/** the caster-slot uniform, sized to {@link MAX_POINT_CASTERS}; a slot past the `PointShadows.casters`
+ * limit stays empty (`pos.w = -1`), so no light matches it. */
 export function pointCastersSchema() {
     // a factory-built schema is anonymous, and an unnamed one resolves to `struct item` — name it, or
     // the raw splice sites that declare `var<uniform> pointShadows: PointCasters` reference nothing
-    return d.struct({ casters: d.arrayOf(PointCaster, pointCasters()) }).$name("PointCasters");
-}
-
-// the `PointShadows` config the caster chunks folded into their WGSL, captured at first resolve. The
-// chunks are memoized process-wide (a resolved schema can't be re-emitted under the same name — a second
-// resolve suffixes it `PointCasters_1`, which the raw splice site couldn't reference), while the uniforms
-// are re-sized from the live config at every warm. So a config change between builds would bind a
-// re-sized buffer against a stale struct: `checkShadowConfig` turns that into a named throw at warm,
-// which is what "fixed before createApp(), like capacity" means.
-let _folded: { casters: number; atlas: number } | null = null;
-
-/**
- * assert the live `PointShadows` config still matches what the resolved shadow WGSL folded in, throwing a
- * named error when it doesn't. Called at warm, after the chunks a build compiled: the config is fixed
- * before `createApp()`, so a live host that mutates it between builds fails loud rather than binding a
- * re-sized uniform against a stale struct.
- * @internal
- */
-export function checkShadowConfig(): void {
-    if (!_folded) return;
-    const live = { casters: pointCasters(), atlas: pointAtlasSize() };
-    if (_folded.casters === live.casters && _folded.atlas === live.atlas) return;
-    throw new Error(
-        `PointShadows changed after the shadow shaders were compiled (casters ${_folded.casters} → ` +
-            `${live.casters}, atlas ${_folded.atlas} → ${live.atlas}). Both are fixed before build(), ` +
-            "like capacity — set them once at startup, before the first build.",
-    );
+    return d.struct({ casters: d.arrayOf(PointCaster, MAX_POINT_CASTERS) }).$name("PointCasters");
 }
 
 /**
@@ -235,9 +210,9 @@ export function tileRectsSchema(slots: number) {
 /**
  * the atlas VS's per-combo tile-folded view-projections: each
  * combo's viewProj has its atlas tile placement folded in (`tileTransform`), so the VS projects straight
- * into its tile with no manual divide. `slots` is `6 · casters` for the point atlas, `MAX_CASCADES` for
- * the cascade atlas — the same config-folded sizing {@link tileRectsSchema} takes, so the three schemas
- * always agree on slot count for one atlas pass.
+ * into its tile with no manual divide. `slots` is `6 · MAX_POINT_CASTERS` for the point atlas,
+ * `MAX_CASCADES` for the cascade atlas — the same sizing {@link tileRectsSchema} takes, so the three
+ * schemas always agree on slot count for one atlas pass.
  */
 export function faceVPsSchema(slots: number) {
     return d.struct({ m: d.arrayOf(d.mat4x4f, slots) }).$name("FaceVPs");
@@ -246,7 +221,7 @@ export function faceVPsSchema(slots: number) {
 /**
  * the atlas VS's per-combo meta: the (caster slot, face) — or
  * (cascade index, …) for the cascade atlas — each dense combo maps to, which the VS reads to index its
- * tile rect. Same config-folded `slots` as {@link faceVPsSchema} / {@link tileRectsSchema}.
+ * tile rect. Same `slots` as {@link faceVPsSchema} / {@link tileRectsSchema}.
  */
 export function comboMetaSchema(slots: number) {
     return d.struct({ m: d.arrayOf(d.vec4u, slots) }).$name("ComboMeta");
@@ -308,8 +283,7 @@ export const pointReceiver = tgpu.fn(
 export const casterWgsl = chunk(
     "casterWgsl",
     () => {
-        _folded = { casters: pointCasters(), atlas: pointAtlasSize() };
-        return [pointCastersSchema(), tileRectsSchema(pointCasters() * 6)];
+        return [pointCastersSchema(), tileRectsSchema(MAX_POINT_CASTERS * 6)];
     },
     spliceNs,
 );
@@ -319,8 +293,8 @@ export const casterWgsl = chunk(
 // fog march's). Match the light to a caster slot by source entity id (`color.a`, baked by the light
 // compact pass; `pos.w` is -1 for an empty slot, so a non-caster never matches), pick the cube face (or
 // spot tile) from the light→fragment direction, project into the atlas tile, and 3×3 PCF-compare.
-// built lazily: its body folds the `PointShadows` config (the atlas size + the caster cap), which is only
-// final after this module loads — the same reason the chunk itself is a thunk
+// It reads the atlas size from the bound texture and loops every slot, so no `PointShadows` setting
+// enters the WGSL.
 function pointShadowFn() {
     return (
         tgpu
@@ -328,9 +302,9 @@ function pointShadowFn() {
                 [PointLightGpu, d.vec3f, d.vec3f],
                 d.f32,
             )(/* wgsl */ `(light: PointLightGpu, normal: vec3f, fragWorld: vec3f) -> f32 {
-    let atlas = ${pointAtlasSize()}.0;
+    let atlas = f32(textureDimensions(pointAtlas).x);
     let texel = 1.0 / atlas; // one atlas pixel in uv — tile-size-independent
-    for (var k = 0u; k < ${pointCasters()}u; k = k + 1u) {
+    for (var k = 0u; k < ${MAX_POINT_CASTERS}u; k = k + 1u) {
         let c = pointShadows.casters[k];
         if (c.pos.w != light.color.a) { continue; }
         let toFrag = fragWorld - c.pos.xyz;
@@ -390,8 +364,7 @@ function pointShadowFn() {
 }
 
 // the real reference, memoized so every pipeline calling it (standard's color FS, the fog march)
-// shares the exact same object — `pointShadowFn()` is a factory only because its body folds the `PointShadows` config (the atlas
-// size + caster cap), which must stay fixed to one instance regardless of caller.
+// shares the exact same object.
 let _pointShadowOf: ReturnType<typeof pointShadowFn> | undefined;
 
 /** the point/spot shadow receiver as a real callable reference: `pointShadowOf(light, normal, fragWorld)`.

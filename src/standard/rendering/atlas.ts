@@ -39,6 +39,7 @@ import {
     cascadeRecvVP,
     cascadeTileRects,
     MAX_CASCADES,
+    MAX_POINT_CASTERS,
     type PointShadowFrame,
     pointAtlasSize,
     pointCasters,
@@ -239,11 +240,11 @@ export function initializeShadowAtlasState(world: World): void {
 
 // the per-(caster, face) allocated atlas-UV rects, indexed slot·6 + face — the receiver samples it (color
 // group 1) and the atlas VS reads it for the tile-discard bounds (point group 1). Published "pointTileRects"
-// so a one-shot probe can pin the allocation; (re)sized at warm when the PointShadows config is final
+// so a one-shot probe can pin the allocation; (re)created at warm
 
 // this frame's ranked casters: the first `_atlas.pointFrameCount` of `_atlas.pointFrames`
 
-// pos + nf + spotA/B/C vec4s per caster — (re)sized at warm, when the PointShadows config is final
+// pos + nf + spotA/B/C vec4s per caster — (re)created at warm
 
 // whether the params buffer on the GPU already holds the cleared set. This replaces reading slot 0's
 // `light` lane back as a sentinel: that lane is data, not a flag, so a caster whose `light` lane happened
@@ -309,7 +310,7 @@ export function shadowReady(world: World): boolean {
 // tries to combine two of these resolves in one shader module must give one a fresh, deliberately-shared
 // instance instead.
 const _shadowCasters = pointCastersSchema();
-const _shadowRects = tileRectsSchema(pointCasters() * 6);
+const _shadowRects = tileRectsSchema(MAX_POINT_CASTERS * 6);
 
 /**
  * the group-1 shadow layout a color pipeline references to force `shadowMap` / `shadowSamp` /
@@ -340,14 +341,13 @@ export const shadowLayout = tgpu
 // `tgpu.resolve` call, so the point layout's instances and the cascade layout's instances must never land in
 // the same pipeline's resolve — true here, since `compileSurface`'s point pipeline and cascade pipeline
 // are two independent `world.gpu.root.createRenderPipeline` calls (pipelines.ts), never combined.
-const _pointFaceVP = faceVPsSchema(pointCasters() * 6);
-const _pointCombo = comboMetaSchema(pointCasters() * 6);
-const _pointRects = tileRectsSchema(pointCasters() * 6);
+const _pointFaceVP = faceVPsSchema(MAX_POINT_CASTERS * 6);
+const _pointCombo = comboMetaSchema(MAX_POINT_CASTERS * 6);
+const _pointRects = tileRectsSchema(MAX_POINT_CASTERS * 6);
 
 /** the point-atlas pipeline's group-1 layout: the combo-major face viewProjs, the per-combo (caster
  * slot, face) meta, and the per-(caster, face) tile rects — all vertex-only uniforms.
- * AppConfig-folded to `6 · pointCasters()` slots at module load (the caster cap is fixed
- * before `createApp()`, like `capacity` — `checkShadowConfig`'s law). */
+ * Sized to `6 · MAX_POINT_CASTERS` slots; the `PointShadows.casters` limit only caps the ranked casters. */
 export const pointLayout = tgpu
     .bindGroupLayout({
         faceVP: { uniform: _pointFaceVP, visibility: ["vertex"] },
@@ -360,8 +360,8 @@ const _cascadeFaceVP = faceVPsSchema(MAX_CASCADES);
 const _cascadeCombo = comboMetaSchema(MAX_CASCADES);
 const _cascadeRects = tileRectsSchema(MAX_CASCADES);
 
-/** the cascade-atlas pipeline's group-1 layout — {@link pointLayout}'s twin, config-folded to
- * `MAX_CASCADES` slots (fixed, unlike the point atlas's live caster count). */
+/** the cascade-atlas pipeline's group-1 layout — {@link pointLayout}'s twin, sized to
+ * `MAX_CASCADES` slots. */
 export const cascadeLayout = tgpu
     .bindGroupLayout({
         faceVP: { uniform: _cascadeFaceVP, visibility: ["vertex"] },
@@ -509,7 +509,8 @@ function clearPointParams(world: World): void {
     const _atlasState = world.resource(atlasStateKey);
 
     _atlasState.pointF32.fill(0);
-    for (let k = 0; k < pointCasters(); k++) _atlasState.pointF32[k * POINT_CASTER_FLOATS + 3] = -1;
+    for (let k = 0; k < MAX_POINT_CASTERS; k++)
+        _atlasState.pointF32[k * POINT_CASTER_FLOATS + 3] = -1;
 }
 
 // The shared color-pass shadow group, cached on resource identity.
@@ -658,7 +659,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     _atlasState.pointFrameCount = 0;
     _atlasState.pointParams?.destroy();
     // both uniforms are sized from the schemas the shadow WGSL emits, so the binding and the struct the
-    // receiver reads can't drift apart (checkShadowConfig catches a config change after that resolve)
+    // receiver reads can't drift apart
     _atlasState.pointBuf = new ArrayBuffer(d.sizeOf(pointCastersSchema()));
     _atlasState.pointF32 = new Float32Array(_atlasState.pointBuf);
     _atlasState.pointParams = device.createBuffer({
@@ -683,13 +684,13 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     _atlasState.pointTileRects?.destroy();
     _atlasState.pointTileRects = device.createBuffer({
         label: "standard-point-tilerects",
-        size: d.sizeOf(tileRectsSchema(pointCasters() * 6)),
+        size: d.sizeOf(tileRectsSchema(MAX_POINT_CASTERS * 6)),
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     device.queue.writeBuffer(
         _atlasState.pointTileRects,
         0,
-        new Float32Array(pointCasters() * 6 * 4),
+        new Float32Array(MAX_POINT_CASTERS * 6 * 4),
     );
     world.gpu.buffers.set("pointTileRects", _atlasState.pointTileRects);
     world.gpu.typed.set(
@@ -705,13 +706,13 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     _atlasState.faceVP?.destroy();
     _atlasState.faceVP = device.createBuffer({
         label: "standard-point-facevp",
-        size: pointCasters() * 6 * 64,
+        size: MAX_POINT_CASTERS * 6 * 64,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _atlasState.comboMeta?.destroy();
     _atlasState.comboMeta = device.createBuffer({
         label: "standard-point-combometa",
-        size: pointCasters() * 6 * 16, // vec4<u32> per combo
+        size: MAX_POINT_CASTERS * 6 * 16, // vec4<u32> per combo
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     // the cascade pipeline's group 1 buffers: the dense

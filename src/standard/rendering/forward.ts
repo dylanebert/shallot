@@ -106,7 +106,7 @@ import {
 import { initializeRegatherState, prepareRegather } from "./regather";
 import type { Draw } from "./registry";
 import { Draws } from "./registry";
-import { checkShadowConfig, Pbr } from "./shade";
+import { Pbr } from "./shade";
 import {
     cascadeCount,
     destroyCascades,
@@ -791,9 +791,6 @@ async function prepareStandardRenderer(
     device: GPUDevice,
     capacity: number,
 ): Promise<void> {
-    // the caster count + atlas size fold into the shadow WGSL at its first resolve and the uniforms below
-    // size from the same schemas, so a config mutated between builds is a hard error, not a silent mismatch
-    checkShadowConfig();
     resetPipelineCaches(world);
     world.resource(standardRendererStateKey).warned.clear();
     resetShadowAtlas(world, device);
