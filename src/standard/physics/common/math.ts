@@ -78,12 +78,23 @@ export function froundConfig<T>(cfg: T): T {
     if (typeof cfg === "number") return f32(cfg) as T;
     if (cfg === null || typeof cfg !== "object") return cfg;
     if (Array.isArray(cfg)) return cfg.map((v) => froundConfig(v)) as T;
-    const out: Record<string, unknown> = {};
-    for (const key in cfg) {
-        out[key] =
-            key === "userData"
-                ? (cfg as Record<string, unknown>)[key]
-                : froundConfig((cfg as Record<string, unknown>)[key]);
+    const source = cfg as Record<string, unknown>;
+    // Start from the caller's shape: a copy grown key by key from `{}` gets a hidden class unlike the
+    // port's `{x, y, z}` literals, and marshal reads that meet both kinds box every double. Only plain
+    // data is spread: an `Object.prototype` object whose own properties are all enumerable string-keyed
+    // data other than `__proto__`; anything else is grown from `{}`.
+    let plain =
+        Object.getPrototypeOf(source) === Object.prototype &&
+        Object.getOwnPropertySymbols(source).length === 0;
+    const descriptors = Object.getOwnPropertyDescriptors(source);
+    for (const key in descriptors) {
+        const descriptor = descriptors[key];
+        if (key === "__proto__" || !descriptor.enumerable || !("value" in descriptor))
+            plain = false;
+    }
+    const out: Record<string, unknown> = plain ? { ...source } : {};
+    for (const key in source) {
+        out[key] = key === "userData" ? source[key] : froundConfig(source[key]);
     }
     return out as T;
 }
