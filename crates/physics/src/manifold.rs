@@ -2017,28 +2017,30 @@ pub fn collide_hulls(
                         let t = cba / (cba - dba);
                         let normal = u2.lerp(v2, t).normalize();
                         let separation = normal.dot(q1.sub(q2));
-                        if separation <= speculative_distance {
-                            let edge_query = EdgeQuery {
-                                normal: normal.neg(),
-                                index_a: cache.index_a as i32,
-                                index_b: cache.index_b as i32,
-                                separation,
-                            };
-                            let mut local_cache = SatCache::empty();
-                            let touching = build_edge_contact(
-                                manifold,
-                                hull_a,
-                                hull_b,
-                                transform_b_to_a,
-                                edge_query,
-                                &mut local_cache,
-                            );
-                            if touching
-                                && absf(cache.separation - local_cache.separation) < linear_slop
-                            {
-                                cache.hit = 1;
-                                return;
-                            }
+                        if separation > speculative_distance {
+                            // Box3D counts a cached edge pair still separated as a hit and keeps the cache.
+                            cache.hit = 1;
+                            return;
+                        }
+                        let edge_query = EdgeQuery {
+                            normal: normal.neg(),
+                            index_a: cache.index_a as i32,
+                            index_b: cache.index_b as i32,
+                            separation,
+                        };
+                        let mut local_cache = SatCache::empty();
+                        let touching = build_edge_contact(
+                            manifold,
+                            hull_a,
+                            hull_b,
+                            transform_b_to_a,
+                            edge_query,
+                            &mut local_cache,
+                        );
+                        if touching && absf(cache.separation - local_cache.separation) < linear_slop
+                        {
+                            cache.hit = 1;
+                            return;
                         }
                     }
                 }
