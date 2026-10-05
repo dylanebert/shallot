@@ -9,7 +9,8 @@
 
 import { ContactFlags, reclassifyBodyContacts, writeBodySimIndex } from "../collision/contact";
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { SetType } from "../common/constants";
+import { clearBit } from "../common/bitset";
+import { OVERFLOW_INDEX, SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import { residentPush, residentRemove } from "../kernel/bodycolumns";
 import { syncBodyQuery } from "../kernel/shapecolumns";
@@ -418,6 +419,10 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
         const localIndex = joint.localIndex;
         const jointColor = world.constraintGraph.colors[colorIndex];
         const awakeJointSim = jointColor.jointSims[localIndex];
+        if (colorIndex !== OVERFLOW_INDEX) {
+            clearBit(jointColor.bodySet, joint.edges[0].bodyId);
+            clearBit(jointColor.bodySet, joint.edges[1].bodyId);
+        }
 
         const sleepJointIndex = sleepSet.jointSims.length;
         sleepSet.jointSims.push(awakeJointSim);
