@@ -144,10 +144,12 @@ mod tests {
         assert!(worth_forking(COLLIDE_FORK_MIN, 1, COLLIDE_FORK_MIN));
         assert!(!worth_forking(COLLIDE_FORK_MIN * 6, 7, COLLIDE_FORK_MIN));
         assert!(worth_forking(COLLIDE_FORK_MIN * 7, 7, COLLIDE_FORK_MIN));
-        // large_pyramid at 1035 bodies on 8 threads: the measured loss — the collide sweep must not fork.
-        assert!(!worth_forking(2970, 7, COLLIDE_FORK_MIN));
-        // …and at 4095 bodies, the measured win — it must.
-        assert!(worth_forking(12015, 7, COLLIDE_FORK_MIN));
+        // 200 contacts on 4 threads: the measured loss — the collide sweep must not fork.
+        assert!(!worth_forking(200, 3, COLLIDE_FORK_MIN));
+        // …and the measured wins it must take: 1,000 contacts on 4 threads, and large_pyramid's 3,015
+        // at 1,035 bodies on 8.
+        assert!(worth_forking(1000, 3, COLLIDE_FORK_MIN));
+        assert!(worth_forking(3015, 7, COLLIDE_FORK_MIN));
     }
 
     /// The claim loop under real contention: every block runs exactly once across the pool however the
