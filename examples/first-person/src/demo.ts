@@ -101,13 +101,7 @@ export function route(world: World) {
         ],
     ] as const satisfies readonly (readonly [Vec4, Vec4])[];
     for (const [at, size] of steps) block(world, at, size, STEP_COLOR);
-    const lift = block(
-        world,
-        [0, 1.75, -6.5, 0],
-        [3, 0.25, 2, 0],
-        LIFT_COLOR,
-        BodyType.Kinematic,
-    );
+    const lift = block(world, [0, 1.75, -6.5, 0], [3, 0.25, 2, 0], LIFT_COLOR, BodyType.Kinematic);
     world.add(lift, Lift);
     const tower = [
         [[0.7, 2.5, -10, 0], [2.2, 0.5, 1.2, 0], TOWER_COLOR],
