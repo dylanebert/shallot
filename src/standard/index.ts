@@ -1,4 +1,17 @@
-export { Body, Joint, ShapeKind, Spring } from "../core/physics";
+export {
+    Body,
+    BodyType,
+    DistanceJoint,
+    FilterJoint,
+    MotorJoint,
+    ParallelJoint,
+    PrismaticJoint,
+    RevoluteJoint,
+    ShapeKind,
+    SphericalJoint,
+    WeldJoint,
+    WheelJoint,
+} from "../core/physics";
 export { composeGlobalTransform, GlobalTransform, Transform } from "../engine";
 export {
     AudioPlugin,

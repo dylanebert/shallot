@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { createApp, Time, type World } from "@dylanebert/shallot";
-import { Body, BodyType, ShapeKind, Spring } from "@dylanebert/shallot/physics";
+import { Body, BodyType, DistanceJoint, ShapeKind } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
     physicsWorld,
@@ -88,7 +88,14 @@ test("a spring added between snapshot and restore returns after it, and despawni
         world.step(Time.FIXED_DT);
         const saved = snapshotPhysics(world);
         const spring = world.create();
-        world.add(spring, Spring, { a: anchor, b: bob, rest: 4, stiffness: 100 });
+        world.add(spring, DistanceJoint, {
+            a: anchor,
+            b: bob,
+            enableSpring: 1,
+            length: 4,
+            hertz: 2,
+            dampingRatio: 1,
+        });
         world.step(Time.FIXED_DT);
         restorePhysics(world, saved);
         world.step(Time.FIXED_DT);

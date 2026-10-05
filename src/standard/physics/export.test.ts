@@ -6,12 +6,19 @@ test("core physics exports shared authoring data without engine aliases or analy
     expect(Object.keys(physics).sort()).toEqual([
         "Body",
         "BodyType",
+        "DistanceJoint",
+        "FilterJoint",
         "Hulls",
-        "Joint",
+        "MotorJoint",
+        "ParallelJoint",
         "PhysicsPlugin",
+        "PrismaticJoint",
+        "RevoluteJoint",
         "ShapeKind",
-        "Spring",
+        "SphericalJoint",
         "UNIT_CUBE_ID",
+        "WeldJoint",
+        "WheelJoint",
     ]);
 });
 

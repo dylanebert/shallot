@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { MeshInstance } from "../../core/mesh";
-import { Body, BodyType, Joint, ShapeKind, Spring } from "../../core/physics";
+import { Body, BodyType, DistanceJoint, ShapeKind, SphericalJoint } from "../../core/physics";
 import {
     AmbientLight,
     attachCanvas,
@@ -455,18 +455,20 @@ function addBody(world: World, y: number): number {
 
 function addSpring(world: World, a: number, b: number): void {
     const eid = world.create();
-    world.add(eid, Spring);
-    const spring = world.storage(Spring);
+    world.add(eid, DistanceJoint);
+    const spring = world.storage(DistanceJoint);
     spring.a.set(eid, a);
     spring.b.set(eid, b);
-    spring.stiffness.set(eid, 10);
-    spring.rest.set(eid, 1);
+    spring.enableSpring.set(eid, 1);
+    spring.hertz.set(eid, 1);
+    spring.dampingRatio.set(eid, 1);
+    spring.length.set(eid, 1);
 }
 
 function addJoint(world: World, a: number, b: number): void {
     const eid = world.create();
-    world.add(eid, Joint);
-    const joint = world.storage(Joint);
+    world.add(eid, SphericalJoint);
+    const joint = world.storage(SphericalJoint);
     joint.a.set(eid, a);
     joint.b.set(eid, b);
 }

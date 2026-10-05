@@ -205,7 +205,7 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `CharacterSweepSystem` | Order fixed velocity producers before `CharacterPlugin.systems` |
 | `PlayerControlSystem` | `UpdatePlayerControlSystem` (look and camera); `DrivePlayerSystem` consumes fixed-tick input |
 | Physics `StepSystem` | `StepPhysicsSystem` |
-| Physics `ConstraintSystem` | Removed: author `Spring` and `Joint` entities; standard physics syncs them. |
+| Physics `ConstraintSystem` | Removed: author the joint-kind components; standard physics syncs them. |
 
 The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wrappers `register`, `getExclusions`, `entries` and `clear` are removed; use `world.registry`.
 
@@ -556,7 +556,7 @@ if (at !== undefined && world.time.fixedTick - at < 6) jump();
 
 Replace the old `Tumble`/`Physics` simulation plugin with `StandardPhysicsPlugin` from
 `@dylanebert/shallot/standard/physics`. It depends on core's `PhysicsPlugin`, which
-registers `Body`, `Spring` and `Joint` with their defaults but installs no solver.
+registers `Body` and the nine joint-kind components with their defaults but installs no solver.
 `createApp` includes that dependency automatically.
 
 Import shared components, `ShapeKind`, `Hulls`, `Hull`, `HullFace`, `UNIT_CUBE_ID`,
@@ -567,10 +567,22 @@ and `hashPhysics` from `@dylanebert/shallot/standard/physics`. Both subpaths
 are also exported by the root barrel. Import `GlobalTransform` from the root,
 not `/physics`.
 
-On `Spring` and `Joint`, rename `rA` and `rB` to `localAnchorA` and
-`localAnchorB`; these are points in each body's local frame.
-The constraint definitions, signatures and sync system are internal; author
-`Spring` and `Joint` entities instead. Read body poses with `readBody`.
+`Spring` and `Joint` are replaced by `DistanceJoint`, `FilterJoint`, `MotorJoint`,
+`ParallelJoint`, `PrismaticJoint`, `RevoluteJoint`, `SphericalJoint`, `WeldJoint`
+and `WheelJoint`. Each has body entity references `a` and `b`. Rename `rA` and
+`rB` to `localAnchorA` and `localAnchorB` (local-frame origins in meters), and
+write `localRotationA` and `localRotationB` as normalized `(x, y, z, w)`
+quaternions; both default to identity. Enable flags are authored as 0 or 1.
+
+| Replaced authoring | Write instead |
+| --- | --- |
+| `Joint` with `stiffnessAng: 0` | `SphericalJoint` |
+| `Joint` with `stiffnessAng: Infinity` | `WeldJoint`; write frame B's `localRotationB` explicitly to preserve the old relative orientation (`inverse(bodyRotationB) * bodyRotationA` when frame A's rotation is identity). |
+| `Joint` with intermediate `stiffnessAng` | `WeldJoint` with `angularHertz` in Hz and an authored `angularDampingRatio`; stiffness is no longer converted. |
+| `Spring` with `rest` and `stiffness` | `DistanceJoint` with `enableSpring: 1`, `length` (formerly `rest`), `hertz` in Hz and `dampingRatio` (1 for critical damping); stiffness is no longer converted. |
+
+The constraint definitions, signatures and sync system are internal. Read body
+poses with `readBody`.
 
 `raycast`, `RayBody`, `RayHit`, `bodyCandidates`, `grabHit` and `worldToLocal`
 are removed. For picking, cast a camera ray through standard physics. Coordinates

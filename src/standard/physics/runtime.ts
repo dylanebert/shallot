@@ -1,14 +1,6 @@
 /// <reference types="@webgpu/types" />
 
-import {
-    Body,
-    type BodyState,
-    BodyType,
-    Hulls,
-    Joint,
-    PhysicsPlugin,
-    Spring,
-} from "../../core/physics";
+import { Body, type BodyState, BodyType, Hulls, PhysicsPlugin } from "../../core/physics";
 import {
     type EntityRef,
     GlobalTransform,
@@ -29,6 +21,7 @@ import {
     type WorldSnapshot,
 } from "./api";
 import { snapshotBindings } from "./api/snapshot";
+import { FNV_BASIS, jointDefs, jointSignature } from "./authoring";
 import {
     type ConstraintCache,
     type ConstraintIds,
@@ -38,197 +31,13 @@ import {
     restoreConstraints,
     resyncConstraints,
     syncJoints,
-    syncSprings,
 } from "./joints";
 import { kernel } from "./kernel/kernel";
 import { marshalBody } from "./marshal";
 import { PROFILE_FIELDS } from "./world/profile";
 
-/** an authored spring: two body eids + local anchors + stiffness/rest, derived from the world's {@link Spring} entities by {@link springDefs}. */
-export interface SpringDef {
-    a: number;
-    b: number;
-    localAnchorA: readonly [number, number, number];
-    localAnchorB: readonly [number, number, number];
-    stiffness: number;
-    rest: number;
-}
-
-/** an authored joint: two body eids + local anchors + the angular lock, derived from the world's {@link Joint} entities by {@link jointDefs}. Richer joints (motors, limits, the nine solver joint types) ride {@link physicsWorld}. */
-export interface JointDef {
-    a: number;
-    b: number;
-    localAnchorA: readonly [number, number, number];
-    localAnchorB: readonly [number, number, number];
-    stiffnessAng: number;
-}
-
-const FNV_BASIS = 2166136261;
-const fold = (h: number, v: number): number => Math.imul(h ^ (v >>> 0), 16777619);
-const _sigF32 = new Float32Array(1);
-const _sigU32 = new Uint32Array(_sigF32.buffer);
-const sigBits = (x: number): number => {
-    _sigF32[0] = x;
-    return _sigU32[0];
-};
-
-// the signature query terms, held once so the per-step signature walk mints no array.
-const SPRING_TERMS = [Spring];
-const JOINT_TERMS = [Joint];
-
-// FNV_BASIS is the empty-set signature, so an unconstrained scene's first frame already matches → no upload.
-/** re-arm the warning dedupe when a plugin world is warmed. Signatures themselves are World-owned. */
-const signatureWarningsKey = {
-    create: () => ({
-        joints: new Set<number>(),
-        springs: new Set<number>(),
-    }),
-};
-
-function signatureWarningsFor(world: World) {
-    return world.resource(signatureWarningsKey);
-}
-
 export function resetSignatures(world: World): void {
-    (() => {
-        const warnings = signatureWarningsFor(world);
-        warnings.joints.clear();
-        warnings.springs.clear();
-        resetConstraints(world.resource(physicsRuntimeKey).constraints);
-    })();
-}
-
-/** A hash of authored springs and their resolved endpoints; stale references drop constraints. */
-function springSignature(world: World): number {
-    let h = FNV_BASIS;
-    const spring = world.storage(Spring);
-    for (const eid of world.query(SPRING_TERMS)) {
-        h = fold(h, eid);
-        const a = spring.a.get(eid);
-        const b = spring.b.get(eid);
-        h = fold(h, a);
-        h = fold(h, b);
-        // Keep the reference's upper bits so reauthoring a recycled endpoint changes the signature.
-        h = fold(h, spring.a.column[eid]);
-        h = fold(h, Math.floor(spring.a.column[eid] / 2 ** 32));
-        h = fold(h, spring.b.column[eid]);
-        h = fold(h, Math.floor(spring.b.column[eid] / 2 ** 32));
-        h = fold(h, sigBits(spring.localAnchorA.x.get(eid)));
-        h = fold(h, sigBits(spring.localAnchorA.y.get(eid)));
-        h = fold(h, sigBits(spring.localAnchorA.z.get(eid)));
-        h = fold(h, sigBits(spring.localAnchorB.x.get(eid)));
-        h = fold(h, sigBits(spring.localAnchorB.y.get(eid)));
-        h = fold(h, sigBits(spring.localAnchorB.z.get(eid)));
-        h = fold(h, sigBits(spring.stiffness.get(eid)));
-        h = fold(h, sigBits(spring.rest.get(eid)));
-    }
-    return h;
-}
-
-/** The {@link springSignature} twin for authored joints. */
-function jointSignature(world: World): number {
-    let h = FNV_BASIS;
-    const joint = world.storage(Joint);
-    for (const eid of world.query(JOINT_TERMS)) {
-        h = fold(h, eid);
-        const a = joint.a.get(eid);
-        const b = joint.b.get(eid);
-        h = fold(h, a);
-        h = fold(h, b);
-        h = fold(h, joint.a.column[eid]);
-        h = fold(h, Math.floor(joint.a.column[eid] / 2 ** 32));
-        h = fold(h, joint.b.column[eid]);
-        h = fold(h, Math.floor(joint.b.column[eid] / 2 ** 32));
-        h = fold(h, sigBits(joint.localAnchorA.x.get(eid)));
-        h = fold(h, sigBits(joint.localAnchorA.y.get(eid)));
-        h = fold(h, sigBits(joint.localAnchorA.z.get(eid)));
-        h = fold(h, sigBits(joint.localAnchorB.x.get(eid)));
-        h = fold(h, sigBits(joint.localAnchorB.y.get(eid)));
-        h = fold(h, sigBits(joint.localAnchorB.z.get(eid)));
-        h = fold(h, sigBits(joint.stiffnessAng.get(eid)));
-    }
-    return h;
-}
-
-/** the authored {@link Spring} set as {@link SpringDef}s, dropping (and warning once for) a negative or NaN stiffness. */
-export function springDefs(world: World): SpringDef[] {
-    return (() => {
-        const warnings = signatureWarningsFor(world);
-        const out: SpringDef[] = [];
-        for (const eid of world.query([Spring])) {
-            const stiffness = world.storage(Spring).stiffness.get(eid);
-            // NaN is transparent to comparison-only guards (NaN < 0 is false), so state finiteness explicitly.
-            // 0 and ∞ are valid authored values (0 = non-positive → downstream skip; ∞ = rigid) — only negative
-            // and NaN are rejected, at the authoring layer so every solver inherits one behavior.
-            if (Number.isNaN(stiffness) || stiffness < 0) {
-                if (!warnings.springs.has(eid)) {
-                    console.warn(
-                        `[physics] spring (a: ${world.storage(Spring).a.get(eid)}, b: ${world.storage(Spring).b.get(eid)}) has negative or NaN stiffness — skipped`,
-                    );
-                    warnings.springs.add(eid);
-                }
-                continue;
-            }
-            warnings.springs.delete(eid);
-            out.push({
-                a: world.storage(Spring).a.get(eid),
-                b: world.storage(Spring).b.get(eid),
-                localAnchorA: [
-                    world.storage(Spring).localAnchorA.x.get(eid),
-                    world.storage(Spring).localAnchorA.y.get(eid),
-                    world.storage(Spring).localAnchorA.z.get(eid),
-                ],
-                localAnchorB: [
-                    world.storage(Spring).localAnchorB.x.get(eid),
-                    world.storage(Spring).localAnchorB.y.get(eid),
-                    world.storage(Spring).localAnchorB.z.get(eid),
-                ],
-                stiffness,
-                rest: world.storage(Spring).rest.get(eid),
-            });
-        }
-        return out;
-    })();
-}
-
-/** the authored {@link Joint} set as {@link JointDef}s, dropping (and warning once for) a negative or NaN angular stiffness. */
-export function jointDefs(world: World): JointDef[] {
-    return (() => {
-        const warnings = signatureWarningsFor(world);
-        const out: JointDef[] = [];
-        for (const eid of world.query([Joint])) {
-            const stiffnessAng = world.storage(Joint).stiffnessAng.get(eid);
-            // NaN is transparent to comparison-only guards (NaN < 0 is false), so state finiteness explicitly.
-            // 0 (spherical) and ∞ (fixed) are valid authored values — only negative and NaN are rejected, at the
-            // authoring layer so every solver inherits one behavior.
-            if (Number.isNaN(stiffnessAng) || stiffnessAng < 0) {
-                if (!warnings.joints.has(eid)) {
-                    console.warn(
-                        `[physics] joint (a: ${world.storage(Joint).a.get(eid)}, b: ${world.storage(Joint).b.get(eid)}) has negative or NaN angular stiffness — skipped`,
-                    );
-                    warnings.joints.add(eid);
-                }
-                continue;
-            }
-            warnings.joints.delete(eid);
-            out.push({
-                a: world.storage(Joint).a.get(eid),
-                b: world.storage(Joint).b.get(eid),
-                localAnchorA: [
-                    world.storage(Joint).localAnchorA.x.get(eid),
-                    world.storage(Joint).localAnchorA.y.get(eid),
-                    world.storage(Joint).localAnchorA.z.get(eid),
-                ],
-                localAnchorB: [
-                    world.storage(Joint).localAnchorB.x.get(eid),
-                    world.storage(Joint).localAnchorB.y.get(eid),
-                    world.storage(Joint).localAnchorB.z.get(eid),
-                ],
-                stiffnessAng,
-            });
-        }
-        return out;
-    })();
+    resetConstraints(world.resource(physicsRuntimeKey).constraints);
 }
 
 const fixedDeltaTime = Time.FIXED_DT;
@@ -254,7 +63,6 @@ interface PhysicsRuntime {
     isFailed: (eid: number) => boolean;
     stale: StaleScan;
     counters: PhysicsCounters;
-    springSig: number;
     jointSig: number;
 }
 
@@ -275,7 +83,6 @@ function newRuntime(): PhysicsRuntime {
         isFailed: (eid) => failed.has(eid),
         stale: { world: null, eids: [], count: 0 },
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
-        springSig: FNV_BASIS,
         jointSig: FNV_BASIS,
     };
 }
@@ -330,15 +137,14 @@ function clearBodies(runtime: PhysicsRuntime): void {
     runtime.stamps.clear();
     runtime.kinPrev.clear();
     runtime.failed.clear();
-    runtime.springSig = FNV_BASIS;
     runtime.jointSig = FNV_BASIS;
     runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
     resetConstraints(runtime.constraints);
 }
 
 /**
- * World-owned physics accessors. `physicsWorld(state)` is the solver escape hatch: joint types past
- * `Joint`, sensors, contact/hit events, mesh/heightfield/compound colliders and native queries; it is
+ * World-owned physics accessors. `physicsWorld(state)` exposes imperative joints, sensors,
+ * contact/hit events, mesh/heightfield/compound colliders and native queries. It is
  * `null` until {@link StandardPhysicsPlugin} warms. Its `getBody(eid)` resolves an authored
  * `Body` entity to a live solver handle for joint creation, or null before marshaling.
  * The pose functions are no-ops before warm.
@@ -496,7 +302,6 @@ interface Bindings {
     /** eid, EntityRef, hull count */
     failed: number[];
     constraints: ConstraintIds;
-    springSig: number;
     jointSig: number;
 }
 
@@ -519,7 +324,6 @@ function captureBindings(runtime: PhysicsRuntime): Bindings {
         kinPrev,
         failed,
         constraints: captureConstraints(runtime.constraints),
-        springSig: runtime.springSig,
         jointSig: runtime.jointSig,
     };
 }
@@ -555,7 +359,6 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
             hulls: b.failed[i + 2],
         });
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
-    runtime.springSig = b.springSig;
     runtime.jointSig = b.jointSig;
 }
 
@@ -624,7 +427,7 @@ export const StepPhysicsSystem: System = {
     },
 };
 
-/** uploads a scene's authored {@link Spring} / {@link Joint} entities to the solver, on change only. Fixed group, `before: [StepPhysicsSystem]` so a constraint authored or edited this frame lands in this frame's solve. */
+/** Uploads authored constraints on change, before this tick's physics step. */
 export const SyncPhysicsConstraintsSystem: System = {
     name: "constraints",
     group: "fixed",
@@ -633,19 +436,7 @@ export const SyncPhysicsConstraintsSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
-        const ss = springSignature(world);
         const js = jointSignature(world);
-        if (ss === runtime.springSig && js === runtime.jointSig) return;
-        if (ss !== runtime.springSig) {
-            runtime.springSig = ss;
-            syncSprings(
-                runtime.constraints,
-                physicsWorld,
-                runtime.bodies,
-                springDefs(world),
-                runtime.isFailed,
-            );
-        }
         if (js !== runtime.jointSig) {
             runtime.jointSig = js;
             syncJoints(
@@ -747,9 +538,9 @@ const SyncSystem: System = {
 };
 
 /**
- * rigid-body physics: depends on the shared `Body`/`Spring`/`Joint` data and installs a CPU solver (Rust/WASM kernel, no GPU device
- * needed to step). Opt-in — add it to a scene to run physics (it's not in the default plugins). Nine joint
- * types, mesh/heightfield/compound colliders, sensors, CCD and sleeping ride {@link physicsWorld}.
+ * Rigid-body physics over shared bodies and the nine joint kinds, with a CPU solver (Rust/WASM kernel, no GPU device
+ * needed to step). Opt-in — add it to a scene to run physics (it's not in the default plugins).
+ * Mesh/heightfield/compound colliders, sensors, CCD and sleeping ride {@link physicsWorld}.
  *
  * @example
  * ```
@@ -785,9 +576,6 @@ export const StandardPhysicsPlugin: Plugin = {
     dispose(world) {
         const runtime = runtimeFor(world);
         clearBodies(runtime);
-        const warnings = signatureWarningsFor(world);
-        warnings.joints.clear();
-        warnings.springs.clear();
         runtime.physicsWorld?.destroy();
         runtime.physicsWorld = null;
         void shutdown(world);

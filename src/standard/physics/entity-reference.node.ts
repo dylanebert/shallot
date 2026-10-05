@@ -1,6 +1,12 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createApp, Time, Transform } from "@dylanebert/shallot";
-import { Body, BodyType, Joint, ShapeKind, Spring } from "@dylanebert/shallot/physics";
+import {
+    Body,
+    BodyType,
+    DistanceJoint,
+    ShapeKind,
+    SphericalJoint,
+} from "@dylanebert/shallot/physics";
 import {
     physicsWorld,
     restorePhysics,
@@ -52,8 +58,8 @@ test("recycled bodies retry failed marshals and placement warnings, including re
     }
 });
 
-for (const constraint of [Joint, Spring]) {
-    test(`${constraint === Joint ? "a joint" : "a spring"} constrains nothing when its endpoint is destroyed and recycled in one update`, async () => {
+for (const constraint of [SphericalJoint, DistanceJoint]) {
+    test(`${constraint === SphericalJoint ? "a spherical joint" : "a distance joint"} constrains nothing when its endpoint is destroyed and recycled in one update`, async () => {
         const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
         try {
             const world = app.world;

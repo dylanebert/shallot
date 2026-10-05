@@ -10,8 +10,8 @@ import {
 } from "./api";
 
 // ECS → physics marshaling — the ONLY place a Body's authored fields become a physics rigid body, so the
-// dual-run hash gate (physics.test.ts) and StandardPhysicsPlugin's sync system read this one path. The Spring/Joint
-// half of the seam is joints.ts; this module is shape + mass + pose.
+// dual-run hash gate (physics.test.ts) and StandardPhysicsPlugin's sync system read this one path.
+// Constraint definitions are composed in authoring.ts and reconciled in joints.ts.
 
 // null (not throw) on a missing/unbuildable hull: an unregistered hull id must not take down the whole
 // SyncSystem frame loop — the caller warns + skips that one body, mirroring joints.ts's skip-a-bad-

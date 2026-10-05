@@ -9,7 +9,7 @@ import { CEILING } from "../../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 const scenes = {
-    authored: "64 authored Spring and Joint pendulums",
+    authored: "64 authored distance and spherical joint pendulums",
     spherical: "64 spherical joints with a localFrameB on static anchors",
 };
 

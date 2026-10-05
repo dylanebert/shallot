@@ -1,7 +1,15 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp, GlobalTransform } from "../../engine";
-import { Body, Hulls, Joint, PhysicsPlugin, ShapeKind, Spring, UNIT_CUBE_ID } from "./index";
+import {
+    Body,
+    DistanceJoint,
+    Hulls,
+    PhysicsPlugin,
+    ShapeKind,
+    SphericalJoint,
+    UNIT_CUBE_ID,
+} from "./index";
 
 setDefaultTimeout(CEILING.node);
 
@@ -39,8 +47,8 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         expect(b.mass.get(body)).toBe(1);
         expect(b.friction.get(body)).toBe(0.5);
         const spring = world.create();
-        world.add(spring, Spring);
-        const s = world.storage(Spring);
+        world.add(spring, DistanceJoint);
+        const s = world.storage(DistanceJoint);
         expect(s.a.get(spring)).toBe(0);
         expect(s.b.get(spring)).toBe(0);
         expect([
@@ -55,11 +63,11 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
             s.localAnchorB.z.get(spring),
             s.localAnchorB.w.get(spring),
         ]).toEqual([0, 0, 0, 0]);
-        expect(s.stiffness.get(spring)).toBe(100);
-        expect(s.rest.get(spring)).toBe(1);
+        expect(s.hertz.get(spring)).toBe(0);
+        expect(s.length.get(spring)).toBe(1);
         const joint = world.create();
-        world.add(joint, Joint);
-        const j = world.storage(Joint);
+        world.add(joint, SphericalJoint);
+        const j = world.storage(SphericalJoint);
         expect(j.a.get(joint)).toBe(0);
         expect(j.b.get(joint)).toBe(0);
         expect([
@@ -74,7 +82,8 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
             j.localAnchorB.z.get(joint),
             j.localAnchorB.w.get(joint),
         ]).toEqual([0, 0, 0, 0]);
-        expect(j.stiffnessAng.get(joint)).toBe(0);
+        expect(j.enableSpring.get(joint)).toBe(0);
+        expect(j.localRotationB.w.get(joint)).toBe(1);
         expect(world.resource(Hulls).id("__unit_cube__")).toBe(UNIT_CUBE_ID);
     } finally {
         app.dispose();

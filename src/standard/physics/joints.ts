@@ -1,119 +1,35 @@
 import {
-    BodyType,
     type Quat,
     type Body as SolverBody,
     Joint as SolverJoint,
     type PhysicsWorld as SolverWorld,
     type Transform,
 } from "./api";
-import type { JointDef, SpringDef } from "./runtime";
+import type { JointDef } from "./authoring";
 
-// Spring/Joint def → physics joint marshaling — the constraint half of the ECS→physics path
-// (marshal.ts is the body half). The substrate's SyncPhysicsConstraintsSystem uploads the full authored set on
-// change; this module diffs it against the live set by def CONTENT, so an unchanged constraint keeps
-// its live physics joint and its warm-started impulses survive a re-author. The mapping:
-// Spring → DistanceJoint-with-spring (stiffness N/m → hertz via the pair's
-// reduced mass), Joint → Spherical (stiffnessAng 0) / Weld (rigid past the ∞ sentinel; intermediate
-// is the documented hertz-based approximation). A constraint no dynamic body can satisfy warns + skips. This module
-// also retains the last authored def sets and lets `SyncSystem` re-invoke `syncJoints`/`syncSprings` over
-// them on any body-set change, so a constraint whose endpoint was merely deferred at authored time retries
-// instead of being dropped permanently.
-
-/** the ∞-stiffness sentinel: past this, `stiffnessAng` reads rigid. */
-const RIGID_THRESHOLD = 1e29;
-
-/**
- * convert a stiffness (N/m) to the box3d soft-constraint frequency (Hz) for the pair's reduced mass:
- * `k = m_eff·ω²` with `m_eff = mA·mB/(mA+mB)`, a non-dynamic endpoint contributing ∞ mass (so
- * `m_eff` = the dynamic side's mass). Reproduces the N/m force law — the static extension under
- * gravity is `mg/k` on both backends. Pass 0 for a non-dynamic endpoint; returns 0 when neither
- * endpoint is dynamic (nothing the constraint could move — the caller skips it).
- */
-export function stiffnessHertz(stiffness: number, massA: number, massB: number): number {
-    const meff =
-        massA > 0 && massB > 0 ? (massA * massB) / (massA + massB) : Math.max(massA, massB);
-    // NaN is transparent to the comparison-only guard (NaN <= 0 is false), so state finiteness explicitly —
-    // defense in depth even after the authoring-layer guard, because the physics singleton escape hatch
-    // (Physics.world / imperative spawn scripts) bypasses SyncPhysicsConstraintsSystem. ∞ is a valid stiffness (rigid),
-    // so the finite check exempts it; -∞ is already caught by `stiffness <= 0`.
-    if (
-        meff <= 0 ||
-        stiffness <= 0 ||
-        (!Number.isFinite(stiffness) && stiffness !== Number.POSITIVE_INFINITY)
-    )
-        return 0;
-    return Math.sqrt(stiffness / meff) / (2 * Math.PI);
-}
-
-const IDENTITY: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
-
-function frame(p: readonly [number, number, number], q: Quat = IDENTITY): Transform {
-    return { p: { x: p[0], y: p[1], z: p[2] }, q };
-}
-
-// qB⁻¹ ⊗ qA: the frame-B rotation that makes both weld frames coincide in world at the spawn pose,
-// so the weld holds the AUTHORED relative orientation (frame q identity would snap the pair to
-// aligned axes instead). qA·qfA = qB·qfB with qfA = identity ⇒ qfB = qB⁻¹·qA.
-function relRotation(a: SolverBody, b: SolverBody): Quat {
-    const qa = a.getRotation();
-    const qb = b.getRotation();
-    const bx = -qb.v.x;
-    const by = -qb.v.y;
-    const bz = -qb.v.z;
-    const bs = qb.s;
-    return {
-        v: {
-            x: bs * qa.v.x + qa.s * bx + by * qa.v.z - bz * qa.v.y,
-            y: bs * qa.v.y + qa.s * by + bz * qa.v.x - bx * qa.v.z,
-            z: bs * qa.v.z + qa.s * bz + bx * qa.v.y - by * qa.v.x,
-        },
-        s: bs * qa.s - bx * qa.v.x - by * qa.v.y - bz * qa.v.z,
-    };
-}
-
-const dynMass = (tb: SolverBody): number =>
-    tb.getType() === BodyType.Dynamic ? tb.getMassData().mass : 0;
-
-const springKey = (d: SpringDef): string =>
-    `${d.a}|${d.b}|${d.localAnchorA}|${d.localAnchorB}|${d.stiffness}|${d.rest}`;
-const jointKey = (d: JointDef): string =>
-    `${d.a}|${d.b}|${d.localAnchorA}|${d.localAnchorB}|${d.stiffnessAng}`;
-
-// The authored defs, live handles, and diagnostics belong to one Physics world. Arrays are needed because
-// identical defs are legal (two equal springs both pull); a destroyed Body takes its joints with it, so a
-// kept handle is re-checked via isValid() before reuse.
+// Definitions are keyed by content to preserve warm-start impulses on unchanged joints.
+const keyValue = (_key: string, value: unknown): unknown =>
+    typeof value === "number" && !Number.isFinite(value) ? String(value) : value;
+const jointKey = (def: JointDef): string => JSON.stringify(def, keyValue);
 export interface ConstraintCache {
-    liveSprings: Map<string, SolverJoint[]>;
     liveJoints: Map<string, SolverJoint[]>;
-    retainedSprings: readonly SpringDef[];
     retainedJoints: readonly JointDef[];
-    warnedSprings: Set<string>;
     warnedJoints: Set<string>;
 }
-
 export function createConstraintCache(): ConstraintCache {
-    return {
-        liveSprings: new Map(),
-        liveJoints: new Map(),
-        retainedSprings: [],
-        retainedJoints: [],
-        warnedSprings: new Set(),
-        warnedJoints: new Set(),
-    };
+    return { liveJoints: new Map(), retainedJoints: [], warnedJoints: new Set() };
 }
-
-const warnOnce = (warned: Set<string>, key: string, message: string): void => {
+function warnOnce(warned: Set<string>, key: string, message: string): void {
     if (warned.has(key)) return;
     console.warn(message);
     warned.add(key);
-};
+}
 
-// exported as a test seam only (joints.test.ts pins the diff semantics with stub joints); not on any barrel
 export function syncSet<D>(
     live: Map<string, SolverJoint[]>,
     defs: readonly D[],
-    keyOf: (d: D) => string,
-    create: (d: D) => SolverJoint | null,
+    keyOf: (def: D) => string,
+    create: (def: D) => SolverJoint | null,
 ): void {
     const next = new Map<string, SolverJoint[]>();
     for (const def of defs) {
@@ -129,273 +45,198 @@ export function syncSet<D>(
         joint ??= create(def);
         if (!joint) continue;
         const bucket = next.get(key);
-        if (bucket) {
-            bucket.push(joint);
-        } else {
-            next.set(key, [joint]);
-        }
+        if (bucket) bucket.push(joint);
+        else next.set(key, [joint]);
     }
-    for (const pool of live.values()) {
-        for (const j of pool) {
-            if (j.isValid()) j.destroy();
-        }
-    }
+    for (const pool of live.values()) for (const j of pool) if (j.isValid()) j.destroy();
     live.clear();
-    for (const [k, v] of next) live.set(k, v);
+    for (const [key, pool] of next) live.set(key, pool);
 }
 
-// the discriminator for the deferred-marshal case: `endpoints()` is handed only the `bodies` map, so without
-// this predicate it cannot separate "not a Body" from "a Body whose marshal is pending" — which is why the
-// old warning named the wrong cause. The `failed` map (index.ts) sits beside `bodies` in the same module;
-// pass a predicate over it so the deferred case reads as deferred-and-will-retry, not a permanent skip.
-// EACH missing endpoint is classified on its own cause: a mixed pair (one truly non-`Body`, one deferred)
-// names both, so neither half inherits the other's cause — the misdirection this discriminator exists to end.
-// The diagnostic is deduped (not silenced): `warned` is the per-cause key set cleared on authored upload, so
-// the authored upload's warning fires once and the retry's re-warn is suppressed only for the SAME cause —
-// a deferred endpoint that resolves into a both-static pair warns the both-static cause on the retry because
-// that composite key was never banked. The endpoint key itself folds in `parts`, so a narrowed composition
-// (a deferred half marshals, leaving fewer missing endpoints) is a distinct key that re-warns once — the
-// authored upload's broader warning does not swallow the retry's corrected, narrower diagnostic.
 function endpoints(
     bodies: ReadonlyMap<number, SolverBody>,
-    a: number,
-    b: number,
-    kind: string,
+    def: JointDef,
     isDeferred: (eid: number) => boolean,
     warned: Set<string>,
     key: string,
 ): [SolverBody, SolverBody] | null {
-    const ta = bodies.get(a);
-    const tb = bodies.get(b);
-    if (!ta || !tb) {
-        const cause = (label: string, eid: number): string =>
-            isDeferred(eid)
-                ? `${label}: ${eid} is a deferred body (marshal pending, will retry)`
-                : `${label}: ${eid} is not a Body (skipped)`;
-        const parts: string[] = [];
-        if (!ta) parts.push(cause("a", a));
-        if (!tb) parts.push(cause("b", b));
-        warnOnce(
-            warned,
-            `${key}|endpoint|${parts.join(";")}`,
-            `[physics] ${kind} endpoint unavailable — ${parts.join("; ")}`,
-        );
-        return null;
-    }
-    return [ta, tb];
+    const a = bodies.get(def.a);
+    const b = bodies.get(def.b);
+    if (a && b) return [a, b];
+    const cause = (label: string, eid: number) =>
+        isDeferred(eid)
+            ? `${label}: ${eid} is a deferred body (marshal pending, will retry)`
+            : `${label}: ${eid} is not a Body (skipped)`;
+    const parts: string[] = [];
+    if (!a) parts.push(cause("a", def.a));
+    if (!b) parts.push(cause("b", def.b));
+    warnOnce(
+        warned,
+        `${key}|endpoint|${parts.join(";")}`,
+        `[physics] ${def.kind}Joint ${def.eid} endpoint unavailable — ${parts.join("; ")}`,
+    );
+    return null;
 }
+const validQuat = (q: Quat): boolean => {
+    if (![q.v.x, q.v.y, q.v.z, q.s].every(Number.isFinite)) return false;
+    const f = Math.fround;
+    const lengthSquared = f(
+        f(f(f(q.v.x * q.v.x) + f(q.v.y * q.v.y)) + f(q.v.z * q.v.z)) + f(q.s * q.s),
+    );
+    const tolerance = 20 * 2 ** -23;
+    return 1 - tolerance < lengthSquared && lengthSquared < 1 + tolerance;
+};
+const validFrame = (frame: Transform): boolean =>
+    [frame.p.x, frame.p.y, frame.p.z].every(Number.isFinite) && validQuat(frame.q);
 
-function createSpring(
-    physicsWorld: SolverWorld,
-    bodies: ReadonlyMap<number, SolverBody>,
-    def: SpringDef,
-    isDeferred: (eid: number) => boolean,
-    warned: Set<string>,
-): SolverJoint | null {
-    const key = springKey(def);
-    const pair = endpoints(bodies, def.a, def.b, "spring", isDeferred, warned, key);
-    if (!pair) return null;
-    const hasDynamic =
-        pair[0].getType() === BodyType.Dynamic || pair[1].getType() === BodyType.Dynamic;
-    const hertz = stiffnessHertz(def.stiffness, dynMass(pair[0]), dynMass(pair[1]));
-    if (!hasDynamic || hertz === 0) {
-        warnOnce(
-            warned,
-            `${key}|hertz`,
-            `[physics] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive effective mass or stiffness — skipped`,
-        );
-        return null;
+/** Only the assertions in Box3D's create functions refuse authored values; solver clamping stays in the solver. */
+export function invalidJointField(def: JointDef): string | null {
+    const c = def.config;
+    if (!validFrame(c.localFrameA)) return "localFrameA";
+    if (!validFrame(c.localFrameB)) return "localFrameB";
+    switch (def.kind) {
+        case "Distance":
+            if (!Number.isFinite(c.length) || !(c.length! > 0)) return "length";
+            if (!(c.lowerSpringForce! <= c.upperSpringForce!))
+                return "lowerSpringForce/upperSpringForce";
+            break;
+        case "Parallel":
+            for (const name of ["hertz", "dampingRatio", "maxTorque"] as const)
+                if (!Number.isFinite(c[name]) || !(c[name]! >= 0)) return name;
+            break;
+        case "Prismatic":
+            if (!(c.lowerTranslation! <= c.upperTranslation!))
+                return "lowerTranslation/upperTranslation";
+            break;
+        case "Spherical":
+            if (
+                !(
+                    c.coneAngle! >= 0 &&
+                    c.coneAngle! <= Math.fround(Math.fround(0.99) * Math.fround(Math.PI))
+                )
+            )
+                return "coneAngle";
+            if (!validQuat(c.targetRotation!)) return "targetRotation";
+            break;
+        case "Weld":
+            for (const name of [
+                "angularHertz",
+                "angularDampingRatio",
+                "linearHertz",
+                "linearDampingRatio",
+            ] as const)
+                if (!(c[name]! >= 0)) return name;
+            break;
+        case "Wheel":
+            if (!(c.lowerSuspensionLimit! <= c.upperSuspensionLimit!))
+                return "lowerSuspensionLimit/upperSuspensionLimit";
+            break;
     }
-    return physicsWorld.createDistanceJoint(pair[0], pair[1], {
-        localFrameA: frame(def.localAnchorA),
-        localFrameB: frame(def.localAnchorB),
-        length: def.rest,
-        enableSpring: true,
-        hertz,
-        // critically damped, NOT the literal undamped elastic law: an implicit (BDF1) integrator heavily
-        // damps its f = k·C spring, so both backends settling to the same mg/k equilibrium (which is
-        // damping-independent) is the parity behavior the swap contract asserts; an undamped physics
-        // spring would ring forever where an implicit one settles.
-        dampingRatio: 1,
-    });
+    return null;
 }
-
 function createJoint(
-    physicsWorld: SolverWorld,
+    world: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     def: JointDef,
     isDeferred: (eid: number) => boolean,
     warned: Set<string>,
 ): SolverJoint | null {
     const key = jointKey(def);
-    const pair = endpoints(bodies, def.a, def.b, "joint", isDeferred, warned, key);
+    const pair = endpoints(bodies, def, isDeferred, warned, key);
     if (!pair) return null;
-    const [ta, tb] = pair;
-    const mA = dynMass(ta);
-    const mB = dynMass(tb);
-    if (ta.getType() !== BodyType.Dynamic && tb.getType() !== BodyType.Dynamic) {
+    const invalid = invalidJointField(def);
+    if (invalid) {
         warnOnce(
             warned,
-            `${key}|both-static`,
-            `[physics] joint (a: ${def.a}, b: ${def.b}) has no dynamic endpoint — unsatisfiable, skipped (the both-static guard)`,
+            `${key}|${invalid}`,
+            `[physics] ${def.kind}Joint ${def.eid} has invalid ${invalid} — skipped`,
         );
         return null;
     }
-    if (def.stiffnessAng === 0) {
-        return physicsWorld.createSphericalJoint(ta, tb, {
-            localFrameA: frame(def.localAnchorA),
-            localFrameB: frame(def.localAnchorB),
-        });
+    const [a, b] = pair;
+    const config = def.config;
+    switch (def.kind) {
+        case "Distance":
+            return world.createDistanceJoint(a, b, config);
+        case "Filter":
+            return world.createFilterJoint(a, b, config);
+        case "Motor":
+            return world.createMotorJoint(a, b, config);
+        case "Parallel":
+            return world.createParallelJoint(a, b, config);
+        case "Prismatic":
+            return world.createPrismaticJoint(a, b, config);
+        case "Revolute":
+            return world.createRevoluteJoint(a, b, config);
+        case "Spherical":
+            return world.createSphericalJoint(a, b, config);
+        case "Weld":
+            return world.createWeldJoint(a, b, config);
+        case "Wheel":
+            return world.createWheelJoint(a, b, config);
     }
-    // NaN is transparent to the comparison-only `< 0` guard (NaN < 0 is false), so state it explicitly —
-    // without this, NaN reaches stiffnessHertz, whose Number.isFinite guard returns 0 → angularHertz 0 →
-    // box3d's RIGID angular constraint → a rigid weld with no diagnostic (the exact defect the spec's Goal
-    // names). This is the escape-hatch defense: Physics.world / imperative spawn bypasses SyncPhysicsConstraintsSystem and
-    // therefore the authoring-layer guard, so createJoint must be NaN-symmetric with its own negative case.
-    if (def.stiffnessAng < 0 || Number.isNaN(def.stiffnessAng)) {
-        warnOnce(
-            warned,
-            `${key}|stiffness`,
-            `[physics] joint (a: ${def.a}, b: ${def.b}) has negative or NaN angular stiffness — skipped`,
-        );
-        return null;
-    }
-    // angularHertz 0 is box3d's RIGID angular constraint; an intermediate stiffnessAng maps to a soft
-    // angular spring via the same reduced-mass conversion (a unit-arm approximation, I_eff ≈ m_eff —
-    // the documented backend-approximate seam)
-    const angularHertz =
-        def.stiffnessAng > RIGID_THRESHOLD ? 0 : stiffnessHertz(def.stiffnessAng, mA, mB);
-    return physicsWorld.createWeldJoint(ta, tb, {
-        localFrameA: frame(def.localAnchorA),
-        localFrameB: {
-            p: { x: def.localAnchorB[0], y: def.localAnchorB[1], z: def.localAnchorB[2] },
-            q: relRotation(ta, tb),
-        },
-        linearHertz: 0, // rigid pin, both mappings
-        angularHertz,
-        // critically damped, matching the spring path (joints.ts createSpring) and the swap-parity rule
-        // this file states above (dampingRatio: 1 because settle-to-equilibrium is the behavior that
-        // matches across the swap); an undamped angular spring would ring where an implicit one settles.
-        angularDampingRatio: 1,
-    });
 }
-
-/** reconcile the authored spring set against the live physics joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
-export function syncSprings(
-    cache: ConstraintCache,
-    physicsWorld: SolverWorld,
-    bodies: ReadonlyMap<number, SolverBody>,
-    defs: readonly SpringDef[],
-    isDeferred: (eid: number) => boolean,
-): void {
-    cache.retainedSprings = defs;
-    cache.warnedSprings.clear();
-    syncSet(cache.liveSprings, defs, springKey, (d) =>
-        createSpring(physicsWorld, bodies, d, isDeferred, cache.warnedSprings),
-    );
-}
-
-/** reconcile the authored joint set against the live physics joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncJoints(
     cache: ConstraintCache,
-    physicsWorld: SolverWorld,
+    world: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     defs: readonly JointDef[],
     isDeferred: (eid: number) => boolean,
 ): void {
     cache.retainedJoints = defs;
     cache.warnedJoints.clear();
-    syncSet(cache.liveJoints, defs, jointKey, (d) =>
-        createJoint(physicsWorld, bodies, d, isDeferred, cache.warnedJoints),
+    syncSet(cache.liveJoints, defs, jointKey, (def) =>
+        createJoint(world, bodies, def, isDeferred, cache.warnedJoints),
     );
 }
-
-/** re-invoke `syncJoints`/`syncSprings` over the retained def sets — the pump half of the late-marshal fix.
- *  Called by `SyncSystem` on ANY body-set change: normally that is the deferred-marshal transition or a body
- *  going stale, but a continuously spawning scene changes its body set every tick and so re-syncs every tick —
- *  a no-op walk over the live joints (each `isValid()` handle is reused, nothing is created or destroyed).
- *  `syncSet` needs no new diff semantics: an unchanged def whose live joint `isValid()` is reused (warm-started
- *  impulses survive), a dropped def's `create` retries, leftovers destroy — the semantics `joints.test.ts`
- *  already pins. The retry's diagnostics are deduped (not silenced): the warned-key set is NOT cleared here, so
- *  a warning that already fired for a given cause on the authored upload is suppressed on the retry — but a
- *  cause that only becomes visible after the marshal resolves (the both-static guard) fires once, because its
- *  composite key was never banked (index.ts's never-thrash-the-frame-loop invariant). */
+/** Retry deferred endpoints when the body set changes, preserving valid handles and deduplicating diagnostics by cause. */
 export function resyncConstraints(
     cache: ConstraintCache,
-    physicsWorld: SolverWorld,
+    world: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     isDeferred: (eid: number) => boolean,
 ): void {
-    if (cache.retainedSprings.length > 0)
-        syncSet(cache.liveSprings, cache.retainedSprings, springKey, (d) =>
-            createSpring(physicsWorld, bodies, d, isDeferred, cache.warnedSprings),
-        );
-    if (cache.retainedJoints.length > 0)
-        syncSet(cache.liveJoints, cache.retainedJoints, jointKey, (d) =>
-            createJoint(physicsWorld, bodies, d, isDeferred, cache.warnedJoints),
+    if (cache.retainedJoints.length)
+        syncSet(cache.liveJoints, cache.retainedJoints, jointKey, (def) =>
+            createJoint(world, bodies, def, isDeferred, cache.warnedJoints),
         );
 }
-
-/** a {@link ConstraintCache}'s live joints as plain ids per def key (index1, generation pairs) and its retained defs, detached from any world. */
 export interface ConstraintIds {
-    springs: [string, number[]][];
     joints: [string, number[]][];
-    retainedSprings: SpringDef[];
     retainedJoints: JointDef[];
 }
-
-const liveIds = (live: Map<string, SolverJoint[]>): [string, number[]][] =>
-    Array.from(live, ([key, pool]) => [key, pool.flatMap((j) => [j.id.index1, j.id.generation])]);
-
-function liveHandles(
-    ids: readonly [string, number[]][],
-    physicsWorld: SolverWorld,
-): Map<string, SolverJoint[]> {
-    const state = physicsWorld.state;
-    const live = new Map<string, SolverJoint[]>();
-    for (const [key, flat] of ids) {
-        const pool: SolverJoint[] = [];
-        for (let i = 0; i < flat.length; i += 2)
-            pool.push(
-                new SolverJoint(state, {
-                    index1: flat[i],
-                    world0: state.worldId,
-                    generation: flat[i + 1],
-                }),
-            );
-        live.set(key, pool);
-    }
-    return live;
-}
-
-/** copy the cache's live joint ids and retained defs out for a snapshot; the warned-key sets stay, as diagnostics. */
 export function captureConstraints(cache: ConstraintCache): ConstraintIds {
     return {
-        springs: liveIds(cache.liveSprings),
-        joints: liveIds(cache.liveJoints),
-        retainedSprings: structuredClone(cache.retainedSprings) as SpringDef[],
+        joints: Array.from(cache.liveJoints, ([key, pool]) => [
+            key,
+            pool.flatMap((j) => [j.id.index1, j.id.generation]),
+        ]),
         retainedJoints: structuredClone(cache.retainedJoints) as JointDef[],
     };
 }
-
-/** replace the cache's live joints and retained defs with fresh handles into `physicsWorld` for captured ids. */
 export function restoreConstraints(
     cache: ConstraintCache,
     ids: ConstraintIds,
-    physicsWorld: SolverWorld,
+    world: SolverWorld,
 ): void {
-    cache.liveSprings = liveHandles(ids.springs, physicsWorld);
-    cache.liveJoints = liveHandles(ids.joints, physicsWorld);
-    cache.retainedSprings = structuredClone(ids.retainedSprings);
+    cache.liveJoints = new Map(
+        ids.joints.map(([key, flat]) => {
+            const pool: SolverJoint[] = [];
+            for (let i = 0; i < flat.length; i += 2)
+                pool.push(
+                    new SolverJoint(world.state, {
+                        index1: flat[i],
+                        world0: world.state.worldId,
+                        generation: flat[i + 1],
+                    }),
+                );
+            return [key, pool];
+        }),
+    );
     cache.retainedJoints = structuredClone(ids.retainedJoints);
 }
-
-/** drop every tracked joint handle without destroying (the world they lived in is gone). Call beside the world teardown in `warm()`/`dispose()`. */
 export function resetConstraints(cache: ConstraintCache): void {
-    cache.liveSprings.clear();
     cache.liveJoints.clear();
-    cache.retainedSprings = [];
     cache.retainedJoints = [];
-    cache.warnedSprings.clear();
     cache.warnedJoints.clear();
 }

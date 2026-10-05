@@ -103,13 +103,13 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### Physics
 
-- `PhysicsPlugin` (`core/physics`) registers shared `Body`, `Spring` and `Joint` authoring data with their defaults; it installs no simulation.
+- `PhysicsPlugin` (`core/physics`) registers `Body` and the nine joint kinds with their defaults; it installs no simulation: `DistanceJoint`, `FilterJoint`, `MotorJoint`, `ParallelJoint`, `PrismaticJoint`, `RevoluteJoint`, `SphericalJoint`, `WeldJoint` and `WheelJoint`.
 - Core owns `ShapeKind`, the world-owned `Hulls` registry and solver-neutral observation of caller-supplied body poses; it knows no solver.
 - Neither core nor standard physics imports rendering or input.
 - `StandardPhysicsPlugin` (`standard/physics`) depends on `PhysicsPlugin` and owns the whole Box3D-based simulation: body and constraint synchronization, stepping, events and world operations.
 - A body belongs to one simulation. A replacement backend consumes core's data and replaces all of standard physics, not individual solver phases.
 - Standard physics steps at `Time.FIXED_DT`; gravity belongs to its solver world and the substep count is internal.
-- Box3D is the correctness authority: world hashes equal its reference with no tolerance. One departure stays: `Spring` authors `stiffness`, converted to Box3D's hertz and damping ratio.
+- Box3D is the correctness authority: world hashes equal its reference with no tolerance. Joint authoring takes its definitions and defaults; each local frame splits into an anchor and quaternion rotation, like a body's pose.
 - Each standard physics phase has one implementation, in the kernel. The worker count schedules it and is not a code path: with no pool the calling thread runs the same tasks, as Box3D's serial fallback does. The shared and single-thread kernel artifacts build from one source, since a page without cross-origin isolation has no shared memory.
 - Camera rays belong to rendering's `viewportToWorld`, not physics; callers supply pointer or viewport coordinates, and `Ray` belongs to engine math.
 - Standard physics publishes the mover queries and plane solver, and its optional `CharacterPlugin` resolves a kinematic capsule's caller-written velocity. It reports walkable or steep ground, its normal and point velocity; upward motion suppresses its pogo spring only relative to that ground velocity.

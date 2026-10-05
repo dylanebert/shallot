@@ -1,4 +1,27 @@
-import { component, entity, f32, GlobalTransform, type Plugin, u32, vec4 } from "../../engine";
+import { component, f32, GlobalTransform, type Plugin, u32, vec4 } from "../../engine";
+import {
+    DistanceJoint,
+    FilterJoint,
+    MotorJoint,
+    ParallelJoint,
+    PrismaticJoint,
+    RevoluteJoint,
+    SphericalJoint,
+    WeldJoint,
+    WheelJoint,
+} from "./joints";
+
+export {
+    DistanceJoint,
+    FilterJoint,
+    MotorJoint,
+    ParallelJoint,
+    PrismaticJoint,
+    RevoluteJoint,
+    SphericalJoint,
+    WeldJoint,
+    WheelJoint,
+} from "./joints";
 
 /** collision-shape tag for {@link Body}. Box collides as an OBB; sphere/capsule as a core + radius; hull as a convex polytope (geometry registered in `Hulls`, referenced by `halfExtents.w` = the hull id). */
 export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
@@ -56,91 +79,6 @@ export const Body = component(
     },
 );
 
-/**
- * a soft distance spring linking two bodies, pulling them toward a rest length; its own entity, holding both bodies' eids.
- *
- * @example
- * ```
- * const anchor = world.create();
- * world.add(anchor, Body, { position: [0, 10, 0, 0] });
- * const block = world.create();
- * world.add(block, Body, { type: BodyType.Dynamic, position: [0, 6, 0, 0] });
- * world.add(world.create(), Spring, { a: anchor, b: block, rest: 4, stiffness: 100 });
- * ```
- */
-export const Spring = component(
-    "Spring",
-    {
-        /** the first body's eid. */
-        a: entity,
-        /** the second body. */
-        b: entity,
-        /** anchor point on body `a`, in its local frame. */
-        localAnchorA: vec4,
-        /** anchor point on body `b`, in its local frame. */
-        localAnchorB: vec4,
-        /** pull strength; higher is stiffer. */
-        stiffness: f32,
-        /** the target distance the spring pulls the anchors toward. */
-        rest: f32,
-    },
-    {
-        defaults: () => ({
-            a: 0,
-            b: 0,
-            localAnchorA: [0, 0, 0, 0],
-            localAnchorB: [0, 0, 0, 0],
-            stiffness: 100,
-            rest: 1,
-        }),
-    },
-);
-
-/**
- * a hard joint pinning two bodies together: a rigid linear pin plus an optional angular lock, holding both bodies' eids.
- *
- * the anchors must start coincident at the bodies' spawn poses (join a dynamic body to a static/kinematic anchor),
- * or construction rejects the joint.
- *
- * @example
- * ```
- * const pivot = world.create();
- * world.add(pivot, Body, { position: [0, 10, 0, 0] });
- * const bob = world.create();
- * world.add(bob, Body, { type: BodyType.Dynamic, position: [0, 7.5, 0, 0] });
- * // spherical
- * world.add(world.create(), Joint, { a: pivot, b: bob, localAnchorA: [0, 0, 0, 0], localAnchorB: [0, 2.5, 0, 0] });
- * const link = world.create();
- * world.add(link, Body, { type: BodyType.Dynamic, position: [1, 10, 0, 0] });
- * // fixed
- * world.add(world.create(), Joint, { a: pivot, b: link, localAnchorA: [0.5, 0, 0, 0], localAnchorB: [-0.5, 0, 0, 0], stiffnessAng: Infinity });
- * ```
- */
-export const Joint = component(
-    "Joint",
-    {
-        /** the first body's eid. */
-        a: entity,
-        /** the second body. */
-        b: entity,
-        /** the pin's anchor on body `a`, in its local frame. */
-        localAnchorA: vec4,
-        /** the pin's anchor on body `b`, in its local frame. */
-        localAnchorB: vec4,
-        /** angular lock: `0` (default) leaves rotation free (spherical); `Infinity` locks orientation. */
-        stiffnessAng: f32,
-    },
-    {
-        defaults: () => ({
-            a: 0,
-            b: 0,
-            localAnchorA: [0, 0, 0, 0],
-            localAnchorB: [0, 0, 0, 0],
-            stiffnessAng: 0,
-        }),
-    },
-);
-
 /** one body's live pose + velocity at the last fixed step; sleeping bodies read zero velocity. */
 export interface BodyState {
     position: readonly [number, number, number];
@@ -151,6 +89,17 @@ export interface BodyState {
 /** Registers shared physics authoring data without installing a simulation. */
 export const PhysicsPlugin: Plugin = {
     name: "Physics",
-    components: [Body, Spring, Joint],
+    components: [
+        Body,
+        DistanceJoint,
+        FilterJoint,
+        MotorJoint,
+        ParallelJoint,
+        PrismaticJoint,
+        RevoluteJoint,
+        SphericalJoint,
+        WeldJoint,
+        WheelJoint,
+    ],
 };
 export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
