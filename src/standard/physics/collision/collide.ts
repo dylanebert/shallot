@@ -20,25 +20,24 @@ import {
     D_CACHE_VALID,
     D_CHILD,
     D_CONTACT,
-    D_GEOM_A,
-    D_GEOM_B,
     D_LOWER,
     D_MESH_SLOT,
     D_OLD_COUNT,
-    D_TYPE_A,
-    D_TYPE_B,
+    D_SHAPE_A,
+    D_SHAPE_B,
     D_UPPER,
     DISPATCH_STRIDE,
     R_BITS,
     R_CONTACT,
     R_COUNT,
     R_ELIGIBLE,
-    R_FALLBACK_A,
-    R_FALLBACK_B,
     R_LOCAL_A,
     R_LOCAL_B,
+    R_MESH,
     R_SHAPE_A,
     R_SHAPE_B,
+    R_STATIC_A,
+    R_STATIC_B,
     R_WAS_TOUCHING,
     RECYCLE_STRIDE,
 } from "../kernel/columns";
@@ -53,7 +52,7 @@ import {
 } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
-import { BodyFlags, getBodySim } from "../world/body";
+import { getBodySim } from "../world/body";
 import { linkContact, unlinkContact } from "../world/island";
 import type { WorldState } from "../world/world";
 import { type Contact, ContactFlags, destroyContact, type Manifold } from "./contact";
@@ -93,51 +92,10 @@ type ContactJob = {
 const jobs: ContactJob[] = [];
 let jobCount = 0;
 
-function writeXf(f: Float32Array, o: number, xf: WorldTransform): void {
-    f[o] = xf.p.x;
-    f[o + 1] = xf.p.y;
-    f[o + 2] = xf.p.z;
-    f[o + 3] = xf.q.v.x;
-    f[o + 4] = xf.q.v.y;
-    f[o + 5] = xf.q.v.z;
-    f[o + 6] = xf.q.s;
-}
 function writeVec(f: Float32Array, o: number, v: Vec3): void {
     f[o] = v.x;
     f[o + 1] = v.y;
     f[o + 2] = v.z;
-}
-function writeGeom(
-    world: WorldState,
-    f: Float32Array,
-    u: Uint32Array,
-    o: number,
-    shape: Shape,
-): void {
-    switch (shape.type) {
-        case ShapeType.Hull:
-            u[o] = shape.hull!.geoIndex;
-            break;
-        case ShapeType.Sphere:
-            writeVec(f, o, shape.sphere!.center);
-            f[o + 3] = shape.sphere!.radius;
-            break;
-        case ShapeType.Capsule:
-            writeVec(f, o, shape.capsule!.center1);
-            writeVec(f, o + 3, shape.capsule!.center2);
-            f[o + 6] = shape.capsule!.radius;
-            break;
-        case ShapeType.Mesh:
-            u[o] = world.meshDatabase.get(shape.mesh!.data)!.geoIndex;
-            writeVec(f, o + 1, shape.mesh!.scale);
-            break;
-        case ShapeType.HeightField:
-            u[o] = world.heightFieldDatabase.get(shape.heightField!)!.geoIndex;
-            break;
-        case ShapeType.Compound:
-            u[o] = world.compoundDatabase.get(shape.compound!)!.geoIndex;
-            break;
-    }
 }
 function rollingRadius(shape: Shape): number {
     switch (shape.type) {
@@ -152,7 +110,6 @@ function rollingRadius(shape: Shape): number {
     }
 }
 function collect(world: WorldState, contact: Contact): void {
-    if (world.bodyStore.stale) world.bodyStore.refreshViews();
     const shapeA = world.shapes[contact.shapeIdA];
     const shapeB = world.shapes[contact.shapeIdB];
     const mesh = (contact.flags & ContactFlags.simMeshContact) !== 0;
@@ -380,12 +337,10 @@ function dispatch(world: WorldState): void {
         const job = jobs[i],
             r = base + i * DISPATCH_STRIDE;
         u[r + D_CONTACT] = job.contact.contactId;
-        u[r + D_TYPE_A] = job.shapeA.type;
-        u[r + D_TYPE_B] = job.shapeB.type;
+        u[r + D_SHAPE_A] = job.shapeA.id;
+        u[r + D_SHAPE_B] = job.shapeB.id;
         u[r + D_BODY_A] = job.bodyA;
         u[r + D_BODY_B] = job.bodyB;
-        writeGeom(world, f, u, r + D_GEOM_A, job.shapeA);
-        writeGeom(world, f, u, r + D_GEOM_B, job.shapeB);
         u[r + D_CHILD] = job.contact.childIndex;
         u[r + D_MESH_SLOT] = job.meshSlot;
         u[r + D_OLD_COUNT] = job.contact.manifoldCount;
@@ -449,26 +404,22 @@ function recycle(world: WorldState): void {
     world.bodyStore.refreshViews();
     memory(k);
     const u = memoryU,
-        f = memoryF,
         base = k.recyclePtr() >>> 2;
     for (let i = 0; i < count; ++i) {
         const contact = world.contacts[contacts[i]],
             r = base + i * RECYCLE_STRIDE;
         const bodyA = world.bodies[contact.edges[0].bodyId],
             bodyB = world.bodies[contact.edges[1].bodyId];
-        const simA = getBodySim(world, bodyA),
-            simB = getBodySim(world, bodyB);
         u[r + R_CONTACT] = contact.contactId;
-        u[r + R_LOCAL_A] = bodyA.setIndex === SetType.Awake ? contact.bodySimIndexA : NULL_INDEX;
-        u[r + R_LOCAL_B] = bodyB.setIndex === SetType.Awake ? contact.bodySimIndexB : NULL_INDEX;
+        u[r + R_LOCAL_A] = bodyColumnIndex(world, bodyA);
+        u[r + R_LOCAL_B] = bodyColumnIndex(world, bodyB);
         u[r + R_SHAPE_A] = contact.shapeIdA;
         u[r + R_SHAPE_B] = contact.shapeIdB;
-        const fastMesh =
-            (contact.flags & ContactFlags.simMeshContact) !== 0 &&
-            ((simA.flags | simB.flags) & BodyFlags.isFast) !== 0;
         let bits = 0;
+        if (bodyA.type === BodyType.Static) bits |= R_STATIC_A;
+        if (bodyB.type === BodyType.Static) bits |= R_STATIC_B;
+        if ((contact.flags & ContactFlags.simMeshContact) !== 0) bits |= R_MESH;
         if (
-            !fastMesh &&
             distance > 0 &&
             (contact.flags & ContactFlags.relativeTransformValid) !== 0 &&
             (contact.flags & ContactFlags.contactRecycleFlag) !== 0
@@ -477,24 +428,6 @@ function recycle(world: WorldState): void {
         if ((contact.flags & ContactFlags.simTouchingFlag) !== 0) bits |= R_WAS_TOUCHING;
         u[r + R_BITS] = bits;
         u[r + R_COUNT] = contact.manifoldCount;
-        if (bodyA.setIndex !== SetType.Awake) {
-            writeXf(f, r + R_FALLBACK_A, simA.transform);
-            writeVec(f, r + R_FALLBACK_A + 7, simA.center);
-            writeVec(
-                f,
-                r + R_FALLBACK_A + 10,
-                bodyA.type === BodyType.Static ? zero : simA.maxExtent,
-            );
-        }
-        if (bodyB.setIndex !== SetType.Awake) {
-            writeXf(f, r + R_FALLBACK_B, simB.transform);
-            writeVec(f, r + R_FALLBACK_B + 7, simB.center);
-            writeVec(
-                f,
-                r + R_FALLBACK_B + 10,
-                bodyB.type === BodyType.Static ? zero : simB.maxExtent,
-            );
-        }
     }
     const speculative = minf(distance, SPECULATIVE_DISTANCE);
     const pool = workers(world.ecsState);

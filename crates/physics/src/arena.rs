@@ -264,7 +264,9 @@ pub(crate) unsafe fn joint_column() -> Col<'static, f32> {
 
 /// Dispatch ABI, mirrored by kernel/columns.ts. Geometry references are allocation-independent
 /// indices; mesh caches are opaque spans copied across calls, never pointers into the geometry pool.
-const DISPATCH_STRIDE: usize = 29;
+const DISPATCH_STRIDE: usize = 31;
+const D_SHAPE_A: usize = 29;
+const D_SHAPE_B: usize = 30;
 const D_OLD_COUNT: usize = 28;
 const D_CHILD: usize = 19;
 const D_MESH_SLOT: usize = 20;
@@ -673,7 +675,27 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             cap * SIM2_STRIDE,
         );
         for i in start..end {
-            let r = i * DISPATCH_STRIDE;
+            let mut record = [0u32; DISPATCH_STRIDE];
+            record.copy_from_slice(&disp[i * DISPATCH_STRIDE..(i + 1) * DISPATCH_STRIDE]);
+            let shapes = crate::shapes::col_slice();
+            for (id_slot, type_slot, geom_slot) in [
+                (D_SHAPE_A, D_TYPE_A, D_GEOM_A),
+                (D_SHAPE_B, D_TYPE_B, D_GEOM_B),
+            ] {
+                let s = record[id_slot] as usize * crate::shapes::SHAPE_STRIDE;
+                let ty = shapes[s + crate::shapes::S_TYPE];
+                record[type_slot] = ty;
+                if ty == TY_SPHERE || ty == TY_CAPSULE {
+                    record[geom_slot..geom_slot + 7].copy_from_slice(&shapes[s + 2..s + 9]);
+                } else {
+                    record[geom_slot] = shapes[s + crate::shapes::S_GEO_REFERENCE];
+                    if ty == 4 {
+                        record[geom_slot + 1..geom_slot + 4].copy_from_slice(&shapes[s + 2..s + 5]);
+                    }
+                }
+            }
+            let disp = &record[..];
+            let r = 0;
             let contact_id = disp[r + D_CONTACT] as usize;
             let mut type_a = disp[r + D_TYPE_A];
             let type_b = disp[r + D_TYPE_B];
@@ -797,17 +819,17 @@ pub extern "C" fn dispatch_contacts(count: usize) {
 }
 
 // --- contact recycle -----------------------------------------------------------------------
-// Every awake contact takes this overlap/recycle gate. Awake body poses are resident; static and
-// sleeping partners use the marshaled pose/center/extent tail. Pose caches are directory-resident for
-// all contacts, so a sleep/wake transition never changes the recycling implementation.
+// Every awake contact takes this overlap/recycle gate. Body indices address resident or staged
+// columns; pose caches remain directory-resident across sleep/wake transitions.
 
 /// u32 stride of a recycle input record, matching `src/columns.ts` `RECYCLE_STRIDE`.
-const RECYCLE_STRIDE: usize = 33;
-const R_FALLBACK_A: usize = 6;
-const R_FALLBACK_B: usize = 19;
-const R_COUNT: usize = 32;
+const RECYCLE_STRIDE: usize = 7;
+const R_COUNT: usize = 6;
+const R_STATIC_A: u32 = 4;
+const R_STATIC_B: u32 = 8;
+const R_MESH: u32 = 16;
 const R_CONTACT: usize = 0;
-const R_LOCAL_A: usize = 1; // body A's awake localIndex (resident-column record)
+const R_LOCAL_A: usize = 1;
 const R_LOCAL_B: usize = 2;
 const R_SHAPE_A: usize = 3; // shapeId → fat-AABB column record
 const R_SHAPE_B: usize = 4;
@@ -975,6 +997,10 @@ pub(crate) unsafe fn recycle_block(
         let fin_ptr = crate::bodies::fin_base() as *const f32;
         let sim = core::slice::from_raw_parts(sim_ptr, cap * SIM_STRIDE);
         let fin = core::slice::from_raw_parts(fin_ptr, cap * FIN_STRIDE);
+        let sim2 = core::slice::from_raw_parts(
+            crate::bodies::sim2_base() as *const u32,
+            cap * SIM2_STRIDE,
+        );
 
         for i in start..end {
             let r = i * RECYCLE_STRIDE;
@@ -993,34 +1019,31 @@ pub(crate) unsafe fn recycle_block(
             let la = input[r + R_LOCAL_A] as usize;
             let lb = input[r + R_LOCAL_B] as usize;
             let bits = input[r + R_BITS];
-            let body = |index: usize, offset: usize| {
-                if index != u32::MAX as usize {
-                    (
-                        read_body_xf(sim, fin, index),
-                        read_center(fin, index),
-                        read_max_extent(fin, index),
-                    )
-                } else {
-                    let xf = read_xf(input, r + offset);
-                    let v = |o: usize| {
-                        Vec3::new(
-                            f32::from_bits(input[r + offset + o]),
-                            f32::from_bits(input[r + offset + o + 1]),
-                            f32::from_bits(input[r + offset + o + 2]),
-                        )
-                    };
-                    (xf, v(7), v(10))
-                }
+            let body = |index: usize, static_bit: u32| {
+                (
+                    read_body_xf(sim, fin, index),
+                    read_center(fin, index),
+                    if bits & static_bit != 0 {
+                        Vec3::ZERO
+                    } else {
+                        read_max_extent(fin, index)
+                    },
+                )
             };
-            let (xf_a, center_a, extent_a) = body(la, R_FALLBACK_A);
-            let (xf_b, center_b, extent_b) = body(lb, R_FALLBACK_B);
+            let (xf_a, center_a, extent_a) = body(la, R_STATIC_A);
+            let (xf_b, center_b, extent_b) = body(lb, R_STATIC_B);
+            let fast_mesh = bits & R_MESH != 0
+                && (sim2[la * SIM2_STRIDE + crate::body::S2_FLAGS]
+                    | sim2[lb * SIM2_STRIDE + crate::body::S2_FLAGS])
+                    & 0x40
+                    != 0;
             let tol = if bits & R_WAS_TOUCHING != 0 {
                 recycle_dist
             } else {
                 recycle_dist_non_touching
             };
 
-            if bits & R_ELIGIBLE != 0 {
+            if bits & R_ELIGIBLE != 0 && !fast_mesh {
                 let (rot_a, rot_b, rel) = read_pose_cache(dir, contact_id);
                 let mc = input[r + R_COUNT] as usize;
                 if try_recycle(
