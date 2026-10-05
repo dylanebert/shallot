@@ -69,8 +69,7 @@ pub fn fin_out_base() -> usize {
 pub fn sim2_base() -> usize {
     base(B_SIM2)
 }
-#[export_name = "bodyGetType"]
-pub unsafe extern "C" fn get_type(world_id: usize, id: usize) -> u32 {
+pub unsafe fn get_type(world_id: usize, id: usize) -> u32 {
     *(world(world_id).columns.layout[B_RECORD_TYPE] as *const u32).add(id)
 }
 /// body.c's velocity-setter eligibility: -1 for static, 0 for no wake, 1 for wake.
@@ -82,10 +81,6 @@ pub unsafe extern "C" fn velocity_wake(world_id: usize, id: usize, x: f32, y: f3
         return -1;
     }
     (crate::math::Vec3::new(x, y, z).length_sq() > 0.0) as i32
-}
-#[export_name = "bodySetType"]
-pub unsafe extern "C" fn set_type(world_id: usize, id: usize, value: u32) {
-    *(world(world_id).columns.layout[B_RECORD_TYPE] as *mut u32).add(id) = value;
 }
 pub fn record_generation_base() -> usize {
     base(B_RECORD_GENERATION)

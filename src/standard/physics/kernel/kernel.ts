@@ -246,8 +246,6 @@ export type Kernel = {
     ): void;
     broadClearMoved(type: number, id: number): void;
     bodyVelocityWake(world: number, id: number, x: number, y: number, z: number): number;
-    bodyGetType(world: number, id: number): number;
-    bodySetType(world: number, id: number, type: number): void;
     broadCreateSet(capacity: number): void;
     broadSetCap(): number;
     broadAddPair(a: number, b: number, child: number): number;

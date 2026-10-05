@@ -293,7 +293,7 @@ export function createContact(
 
     // Connect to body A
     {
-        contact.edges[0].bodyId = shapeBodyId(world, shapeA.id);
+        contact.edges[0].bodyId = bodyA.id;
         contact.edges[0].prevKey = NULL_INDEX;
         contact.edges[0].nextKey = bodyA.headContactKey;
 
@@ -309,7 +309,7 @@ export function createContact(
 
     // Connect to body B
     {
-        contact.edges[1].bodyId = shapeBodyId(world, shapeB.id);
+        contact.edges[1].bodyId = bodyB.id;
         contact.edges[1].prevKey = NULL_INDEX;
         contact.edges[1].nextKey = bodyB.headContactKey;
 

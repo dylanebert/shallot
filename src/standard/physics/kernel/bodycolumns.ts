@@ -47,6 +47,7 @@ const B_SYNC_POS = 12;
 const B_SYNC_QUAT = 13;
 const B_SYNC_VEL = 14;
 const B_SYNC_INDEX = 15;
+const B_RECORD_TYPE = 16;
 export const N_BODY = 17;
 export const CONTINUOUS_STRIDE = 18;
 
@@ -89,6 +90,8 @@ export class BodyStore extends KernelViews {
     stateF = new Float32Array(0);
     /** Resident flags column (one u32 per body), the sidecar paired with `state`. */
     flagsU = new Uint32Array(0);
+    /** Body-id-indexed type, independent of awake-set row moves. */
+    typeU = new Uint32Array(0);
     /** Resident sim column (`SIM_STRIDE` f32 per body) — the integrate/finalize `BodySim` fields the
      * kernel gathers. Backs the awake `ResidentBodySim` view; finalize also indexes it raw. */
     simF = new Float32Array(0);
@@ -134,11 +137,13 @@ export class BodyStore extends KernelViews {
             this.simF.byteOffset === layout[B_SIM] &&
             this.finF.byteOffset === layout[B_FIN] &&
             this.sim2F.byteOffset === layout[B_SIM2] &&
-            this.moveU.byteOffset === layout[B_MOVE]
+            this.moveU.byteOffset === layout[B_MOVE] &&
+            this.typeU.byteOffset === layout[B_RECORD_TYPE]
         )
             return;
         this.stateF = new Float32Array(buf, layout[B_STATE], cap * STATE_STRIDE);
         this.flagsU = new Uint32Array(buf, layout[B_FLAGS], cap);
+        this.typeU = new Uint32Array(buf, layout[B_RECORD_TYPE], cap);
         this.simF = new Float32Array(buf, layout[B_SIM], cap * SIM_STRIDE);
         this.finF = new Float32Array(buf, layout[B_FIN], cap * FIN_STRIDE);
         this.sim2F = new Float32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);

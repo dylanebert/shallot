@@ -1,13 +1,12 @@
 import type { BodyType, FilterBits } from "../common/types";
 import type { WorldState } from "../world/world";
-import { kernel } from "./kernel";
 import { SHAPE_STRIDE } from "./shapecolumns";
 
 export function bodyType(world: WorldState, id: number): BodyType {
-    return kernel(world.ecsState).bodyGetType(world.worldId, id) as BodyType;
+    return world.bodyStore.typeU[id] as BodyType;
 }
 export function setBodyType(world: WorldState, id: number, type: BodyType): void {
-    kernel(world.ecsState).bodySetType(world.worldId, id, type);
+    world.bodyStore.typeU[id] = type;
 }
 export function shapeBodyId(world: WorldState, id: number): number {
     return world.shapeStore.shapeU[id * SHAPE_STRIDE + 29] | 0;
