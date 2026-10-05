@@ -86,7 +86,6 @@ import { wakeJointBodies } from "../solver/joint";
 import { sphericalJointConeAngle, sphericalJointTwistAngle } from "../solver/sphericalJoint";
 import { wheelJointSpinSpeed, wheelJointSteeringAngle } from "../solver/wheelJoint";
 import type { Body } from "./body";
-import { cloneQuat } from "./config";
 import { DistanceJoint, Joint } from "./joint";
 
 /** A spring joint from a body anchor to a point fixed in world space. */
@@ -231,7 +230,7 @@ export class SphericalJoint extends Joint {
 
     /** @returns the spring target relative rotation. */
     getTargetRotation(): Quat {
-        return cloneQuat(readJointQuat(this.world, this.record(), SJ_TARGET_ROTATION));
+        return readJointQuat(this.world, this.record(), SJ_TARGET_ROTATION);
     }
 
     /** Set the spring frequency (Hz). */
@@ -282,9 +281,7 @@ export class SphericalJoint extends Joint {
 
     /** @returns the motor target angular velocity. */
     getMotorVelocity(): Vec3 {
-        return {
-            ...readJointVec3(this.world, this.record(), SJ_MOTOR_VELOCITY),
-        };
+        return readJointVec3(this.world, this.record(), SJ_MOTOR_VELOCITY);
     }
 
     /**
@@ -362,9 +359,7 @@ export class MotorJoint extends Joint {
 
     /** @returns the target relative linear velocity. */
     getLinearVelocity(): Vec3 {
-        return {
-            ...readJointVec3(this.world, this.record(), MJ_LINEAR_VELOCITY),
-        };
+        return readJointVec3(this.world, this.record(), MJ_LINEAR_VELOCITY);
     }
 
     /** Set the target relative angular velocity, waking the connected bodies. */
@@ -375,9 +370,7 @@ export class MotorJoint extends Joint {
 
     /** @returns the target relative angular velocity. */
     getAngularVelocity(): Vec3 {
-        return {
-            ...readJointVec3(this.world, this.record(), MJ_ANGULAR_VELOCITY),
-        };
+        return readJointVec3(this.world, this.record(), MJ_ANGULAR_VELOCITY);
     }
 
     /**

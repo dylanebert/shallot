@@ -69,7 +69,7 @@ import { BodyType } from "../common/types";
 import { J_JOINT_ID, J_TYPE } from "../kernel/columns";
 import {
     appendJointRecord,
-    readJointTransform,
+    readJointVec3,
     removeJointRecord,
     writeJointWord,
 } from "../kernel/jointcolumns";
@@ -294,7 +294,6 @@ export function createJoint(
     writeJointWord(world, joint, J_TYPE, type);
     writeJointTransform(world, sim, J_LOCAL_FRAME_A, def.localFrameA);
     writeJointTransform(world, sim, J_LOCAL_FRAME_B, def.localFrameB);
-    sim.type = type;
     writeJointFloat(world, sim, J_CONSTRAINT_HERTZ, def.constraintHertz);
     writeJointFloat(world, sim, J_CONSTRAINT_DAMPING, def.constraintDampingRatio);
     writeJointFloat(world, sim, J_FORCE_THRESHOLD, def.forceThreshold);
@@ -513,8 +512,8 @@ export function getJointLinearSeparation(world: WorldState, joint: Joint): numbe
     const sim = joint;
     const xfA = getBodyTransformQuick(world, world.bodies[joint.edges[0].bodyId]);
     const xfB = getBodyTransformQuick(world, world.bodies[joint.edges[1].bodyId]);
-    const pA = transformWorldPoint(xfA, readJointTransform(world, sim, J_LOCAL_FRAME_A).p);
-    const pB = transformWorldPoint(xfB, readJointTransform(world, sim, J_LOCAL_FRAME_B).p);
+    const pA = transformWorldPoint(xfA, readJointVec3(world, sim, J_LOCAL_FRAME_A));
+    const pB = transformWorldPoint(xfB, readJointVec3(world, sim, J_LOCAL_FRAME_B));
     const dp = vec3.sub(pB, pA);
     switch (joint.type) {
         case JointType.Parallel:

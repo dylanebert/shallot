@@ -23,7 +23,7 @@ import {
 } from "../kernel/columns";
 import {
     readJointFloat,
-    readJointTransform,
+    readJointVec3,
     writeJointFlag,
     writeJointFloat,
 } from "../kernel/jointcolumns";
@@ -99,11 +99,11 @@ export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
     const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
     const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
     const pA = vec3.add(
-        quat.rotate(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).p),
+        quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A)),
         transformA.p,
     );
     const pB = vec3.add(
-        quat.rotate(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).p),
+        quat.rotate(transformB.q, readJointVec3(world, sim, J_LOCAL_FRAME_B)),
         transformB.p,
     );
     const d = vec3.sub(pB, pA);
@@ -126,11 +126,11 @@ export function distanceJointCurrentLength(world: WorldState, sim: Joint): numbe
     const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
     const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
     const pA = vec3.add(
-        quat.rotate(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).p),
+        quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A)),
         transformA.p,
     );
     const pB = vec3.add(
-        quat.rotate(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).p),
+        quat.rotate(transformB.q, readJointVec3(world, sim, J_LOCAL_FRAME_B)),
         transformB.p,
     );
     const d = vec3.sub(pB, pA);

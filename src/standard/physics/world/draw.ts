@@ -23,7 +23,7 @@ import {
 } from "../common/math";
 import { BodyType, ShapeType, type SurfaceMaterial } from "../common/types";
 import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
-import { readJointTransform } from "../kernel/jointcolumns";
+import { readJointVec3 } from "../kernel/jointcolumns";
 import { readFatAabb } from "../kernel/shapecolumns";
 import * as tree from "../kernel/treecolumns";
 
@@ -232,12 +232,12 @@ function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
     const bodyB = world.bodies[joint.edges[1].bodyId];
     if (bodyA.setIndex === SetType.Disabled || bodyB.setIndex === SetType.Disabled) return;
 
-    const frameA = readJointTransform(world, joint, J_LOCAL_FRAME_A);
-    const frameB = readJointTransform(world, joint, J_LOCAL_FRAME_B);
+    const anchorA = readJointVec3(world, joint, J_LOCAL_FRAME_A);
+    const anchorB = readJointVec3(world, joint, J_LOCAL_FRAME_B);
     const transformA = getBodyTransformQuick(world, bodyA);
     const transformB = getBodyTransformQuick(world, bodyB);
-    const pA = transformWorldPoint(transformA, frameA.p);
-    const pB = transformWorldPoint(transformB, frameB.p);
+    const pA = transformWorldPoint(transformA, anchorA);
+    const pB = transformWorldPoint(transformB, anchorB);
 
     if (joint.type === JointType.Filter) {
         draw.drawSegment(pA, pB, DebugColor.gold);

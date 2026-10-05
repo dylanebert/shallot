@@ -24,7 +24,7 @@ import {
 } from "../kernel/columns";
 import {
     readJointFloat,
-    readJointTransform,
+    readJointQuat,
     readJointVec3,
     writeJointFlag,
     writeJointFloat,
@@ -146,8 +146,8 @@ export function getSphericalJointForce(world: WorldState, sim: Joint): Vec3 {
 export function getSphericalJointTorque(world: WorldState, sim: Joint): Vec3 {
     const xfA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
     const xfB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
-    const qA = quat.mul(xfA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).q);
-    const qB = quat.mul(xfB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).q);
+    const qA = quat.mul(xfA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
+    const qB = quat.mul(xfB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     const coneAxis = quat.rotate(qA, vec3.axisZ());
     const twistAxis = quat.rotate(qB, vec3.axisZ());
     const swingAxis = vec3.normalize(vec3.cross(coneAxis, twistAxis));
@@ -171,8 +171,8 @@ export function getSphericalJointTorque(world: WorldState, sim: Joint): Vec3 {
 function relativeFrameRotation(world: WorldState, sim: Joint): Quat {
     const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
     const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
-    const quatA = quat.mul(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).q);
-    let quatB = quat.mul(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).q);
+    const quatA = quat.mul(transformA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
+    let quatB = quat.mul(transformB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     if (quat.dot(quatA, quatB) < 0) {
         quatB = quat.negate(quatB);
     }

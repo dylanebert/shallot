@@ -28,7 +28,6 @@ import {
 import {
     readJointFloat,
     readJointQuat,
-    readJointTransform,
     readJointVec2,
     readJointVec3,
     writeJointFlag,
@@ -148,15 +147,11 @@ export function getRevoluteJointForce(world: WorldState, sim: Joint): Vec3 {
 /** The reaction torque this joint applies (b3GetRevoluteJointTorque). */
 export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
     const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
-    let axis = quat.rotate(readJointTransform(world, sim, J_LOCAL_FRAME_A).q, vec3.axisZ());
+    let axis = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisZ());
     axis = quat.rotate(transformA.q, axis);
     const relQ = quat.invMul(
-        {
-            q: readJointQuat(world, sim, RJ_FRAME_A + 3),
-        }.q,
-        {
-            q: readJointQuat(world, sim, RJ_FRAME_B + 3),
-        }.q,
+        readJointQuat(world, sim, RJ_FRAME_A + 3),
+        readJointQuat(world, sim, RJ_FRAME_B + 3),
     );
     writeJointVec3(
         world,
@@ -165,9 +160,7 @@ export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
         vec3.scale(
             f32(0.5),
             quat.rotate(
-                {
-                    q: readJointQuat(world, sim, RJ_FRAME_A + 3),
-                }.q,
+                readJointQuat(world, sim, RJ_FRAME_A + 3),
                 vec3.add(vec3.scale(relQ.s, vec3.axisX()), vec3.cross(relQ.v, vec3.axisX())),
             ),
         ),
@@ -179,9 +172,7 @@ export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
         vec3.scale(
             f32(0.5),
             quat.rotate(
-                {
-                    q: readJointQuat(world, sim, RJ_FRAME_A + 3),
-                }.q,
+                readJointQuat(world, sim, RJ_FRAME_A + 3),
                 vec3.add(vec3.scale(relQ.s, vec3.axisY()), vec3.cross(relQ.v, vec3.axisY())),
             ),
         ),
@@ -217,8 +208,8 @@ export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
 export function revoluteJointAngle(world: WorldState, sim: Joint): number {
     const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
     const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
-    const quatA = quat.mul(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).q);
-    let quatB = quat.mul(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).q);
+    const quatA = quat.mul(transformA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
+    let quatB = quat.mul(transformB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     if (quat.dot(quatA, quatB) < 0) {
         // keeps the twist angle in [-pi, pi]
         quatB = quat.negate(quatB);

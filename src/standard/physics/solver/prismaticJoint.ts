@@ -22,7 +22,7 @@ import {
 } from "../kernel/columns";
 import {
     readJointFloat,
-    readJointTransform,
+    readJointQuat,
     readJointVec2,
     readJointVec3,
     writeJointFlag,
@@ -118,7 +118,7 @@ export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {
         ),
     };
     let force = vec3.scale(world.invH, impulse);
-    force = quat.rotate(readJointTransform(world, sim, J_LOCAL_FRAME_A).q, force);
+    force = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), force);
     force = quat.rotate(transformA.q, force);
     return force;
 }
@@ -127,7 +127,7 @@ export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {
 export function getPrismaticJointTorque(world: WorldState, sim: Joint): Vec3 {
     const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
     let torque = vec3.scale(world.invH, readJointVec3(world, sim, PJ_ANGULAR_IMPULSE));
-    torque = quat.rotate(readJointTransform(world, sim, J_LOCAL_FRAME_A).q, torque);
+    torque = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), torque);
     torque = quat.rotate(transformA.q, torque);
     return torque;
 }
@@ -136,10 +136,10 @@ export function getPrismaticJointTorque(world: WorldState, sim: Joint): Vec3 {
 export function prismaticJointTranslation(world: WorldState, sim: Joint): number {
     const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
     const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
-    let jointAxis = quat.rotate(readJointTransform(world, sim, J_LOCAL_FRAME_A).q, vec3.axisX());
+    let jointAxis = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisX());
     jointAxis = quat.rotate(transformA.q, jointAxis);
-    const anchorA = quat.rotate(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).p);
-    const anchorB = quat.rotate(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).p);
+    const anchorA = quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A));
+    const anchorB = quat.rotate(transformB.q, readJointVec3(world, sim, J_LOCAL_FRAME_B));
     const d = vec3.add(vec3.sub(transformB.p, transformA.p), vec3.sub(anchorB, anchorA));
     return vec3.dot(d, jointAxis);
 }
@@ -156,15 +156,15 @@ export function prismaticJointSpeed(world: WorldState, sim: Joint): number {
     const qB = bodySimB.transform.q;
     const axisA = quat.rotate(
         qA,
-        quat.rotate(readJointTransform(world, sim, J_LOCAL_FRAME_A).q, vec3.axisX()),
+        quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisX()),
     );
     const rA = quat.rotate(
         qA,
-        vec3.sub(readJointTransform(world, sim, J_LOCAL_FRAME_A).p, bodySimA.localCenter),
+        vec3.sub(readJointVec3(world, sim, J_LOCAL_FRAME_A), bodySimA.localCenter),
     );
     const rB = quat.rotate(
         qB,
-        vec3.sub(readJointTransform(world, sim, J_LOCAL_FRAME_B).p, bodySimB.localCenter),
+        vec3.sub(readJointVec3(world, sim, J_LOCAL_FRAME_B), bodySimB.localCenter),
     );
 
     // Difference the centers directly; positions are f32 in the single-precision build.

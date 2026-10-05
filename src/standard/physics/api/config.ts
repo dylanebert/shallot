@@ -30,14 +30,6 @@ export type BaseJointConfig = {
     userData: unknown;
 };
 
-export function cloneQuat(q: Quat): Quat {
-    return { v: { x: q.v.x, y: q.v.y, z: q.v.z }, s: q.s };
-}
-
-export function cloneTransform(t: Transform): Transform {
-    return { p: { x: t.p.x, y: t.p.y, z: t.p.z }, q: cloneQuat(t.q) };
-}
-
 /** Resolve the shared base joint definition from a config, filling gaps from the ported defaults. */
 export function baseJointDef(
     bodyA: Body,

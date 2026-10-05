@@ -82,7 +82,6 @@ import { revoluteJointAngle } from "../solver/revoluteJoint";
 import { makeBodyId } from "../world/body";
 import type { WorldState } from "../world/world";
 import { Body } from "./body";
-import { cloneTransform } from "./config";
 import { PhysicsWorld } from "./world";
 
 /** A joint handle connecting two bodies. */
@@ -169,7 +168,7 @@ export class Joint {
 
     /** @returns body A's local joint frame. */
     getLocalFrameA(): Transform {
-        return cloneTransform(readJointTransform(this.world, this.record(), J_LOCAL_FRAME_A));
+        return readJointTransform(this.world, this.record(), J_LOCAL_FRAME_A);
     }
 
     /** Set body A's local joint frame. */
@@ -180,7 +179,7 @@ export class Joint {
 
     /** @returns body B's local joint frame. */
     getLocalFrameB(): Transform {
-        return cloneTransform(readJointTransform(this.world, this.record(), J_LOCAL_FRAME_B));
+        return readJointTransform(this.world, this.record(), J_LOCAL_FRAME_B);
     }
 
     /** Set body B's local joint frame. */
@@ -203,7 +202,6 @@ export class Joint {
         hertz: number;
         dampingRatio: number;
     } {
-        const _sim = this.record();
         return {
             hertz: readJointFloat(this.world, this.record(), J_CONSTRAINT_HERTZ),
             dampingRatio: readJointFloat(this.world, this.record(), J_CONSTRAINT_DAMPING),
@@ -212,7 +210,6 @@ export class Joint {
 
     /** Set the joint's constraint softness (hertz + damping ratio). */
     setConstraintTuning(hertz: number, dampingRatio: number): void {
-        const _sim = this.record();
         writeJointFloat(this.world, this.record(), J_CONSTRAINT_HERTZ, f32(hertz));
         writeJointFloat(this.world, this.record(), J_CONSTRAINT_DAMPING, f32(dampingRatio));
     }
