@@ -26,8 +26,7 @@ import { KernelViews } from "./views";
 /** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7) attachment(2). */
 export const SHAPE_STRIDE = 51;
 export const S_PROXY_KEY = 50;
-/** Shape type code — the `ShapeType` value verbatim (sphere/capsule/hull dispatch in-kernel; every
- * other value is the TS-fallback partition the kernel skips). */
+/** Shape type code — the `ShapeType` value verbatim. */
 export const S_TYPE = 0;
 /** Next shape in the body's list, or `NULL_INDEX` (0xFFFFFFFF through the u32 view). */
 export const S_NEXT = 1;
@@ -36,9 +35,7 @@ export const S_NEXT = 1;
 export const S_GEOM = 2;
 /** Hull record index or non-convex geometry word offset; capsule uses this lane for its radius. */
 export const S_GEO_REFERENCE = 8;
-/** Finalize-refit output the kernel writes per convex shape and TS reads in `finalizeBodies`: the
- * candidate fat AABB (`[lower.xyz, upper.xyz]`, 6 f32) then the escaped flag (u32, 0/1). */
-export const S_CAND = 9;
+/** Refit escaped its fat margin; consumed and cleared by the serial tree enlarge pass. */
 export const S_ESCAPED = 15;
 /** Kernel shape-record attachment lanes, outside finalize output. */
 export const S_MATERIAL_HEAD = 16;
@@ -48,12 +45,6 @@ export const S_MATERIAL_COUNT = 17;
  * generation and alive. */
 export const MATERIAL_STRIDE = 12;
 const M_NEXT = 9;
-
-/** Which shape types the in-kernel finalize refit computes; the rest (mesh/height-field/compound) fall
- * back to the TS AABB path at their list position. Mirrors kernel `is_convex_refit` (`finalize.rs`). */
-export function isConvexRefit(type: ShapeType): boolean {
-    return type === ShapeType.Sphere || type === ShapeType.Capsule || type === ShapeType.Hull;
-}
 
 /** @returns the smallest power-of-two capacity ≥ `need`, at least 16 (amortizes region grows). */
 function growCap(need: number): number {

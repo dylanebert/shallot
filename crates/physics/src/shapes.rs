@@ -13,7 +13,6 @@ pub const S_TYPE: usize = 0;
 pub const S_NEXT: usize = 1;
 pub const S_GEOM: usize = 2;
 pub const S_GEO_REFERENCE: usize = 8;
-pub const S_CAND: usize = 9;
 pub const S_ESCAPED: usize = 15;
 pub const S_MATERIAL_HEAD: usize = 16;
 pub const S_MATERIAL_COUNT: usize = 17;

@@ -10,18 +10,8 @@
 // fround-wrapped; see the README.
 
 import { NULL_INDEX } from "../common/array";
-import { OVERFLOW_INDEX, SetType, SPECULATIVE_DISTANCE, TIME_TO_SLEEP } from "../common/constants";
-import {
-    type AABB,
-    aabb,
-    f32,
-    type Mat3,
-    mat3,
-    type Quat,
-    type Vec3,
-    vec3,
-    type WorldTransform,
-} from "../common/math";
+import { OVERFLOW_INDEX, SetType, TIME_TO_SLEEP } from "../common/constants";
+import { f32, type Mat3, mat3, type Quat, type Vec3, vec3 } from "../common/math";
 import { BodyType } from "../common/types";
 import {
     type Columns,
@@ -39,15 +29,7 @@ import {
 import { consumeContinuous, prepareContinuous, solveBullets } from "../kernel/continuouscolumns";
 import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
-import {
-    isConvexRefit,
-    readFatAabb,
-    S_CAND,
-    S_ESCAPED,
-    SHAPE_STRIDE,
-    writeTightAabb,
-} from "../kernel/shapecolumns";
-import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
+import { getShapeUserMaterialId } from "../shapes/shape";
 import { BODY_TRANSIENT_FLAGS, BodyFlags, getBodySim } from "../world/body";
 
 import { splitIsland } from "../world/island";
@@ -67,18 +49,12 @@ const TOI = BodyFlags.hadTimeOfImpact;
 // Scratch for finalizeBodies, all reused per body (never live across bodies) so the per-body loop over
 // the resident columns allocates nothing — the awake `ResidentBodySim` getters would allocate a
 // Vec3/Quat/Mat3 per pose/inertia field, so finalize indexes the columns raw instead.
-const finBox: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
-const finFat: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
 const finRotation = mat3.zero();
 const finRotationT = mat3.zero();
 const finInertiaTmp = mat3.zero(); // R · I⁻¹ (world-inertia update)
 const finInvIWorld = mat3.zero(); // R · I⁻¹ · Rᵀ, staged before the column write
 const finInvILocal = mat3.zero(); // invInertiaLocal, staged from the column
 const finQuat: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 }; // the current rotation, read from the column
-const finTransform: WorldTransform = {
-    p: { x: 0, y: 0, z: 0 },
-    q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-}; // the advanced pose, for the move event + shape refit
 
 // Per-island awake marks, reused across steps (grow-only; valid prefix reset in `solve` before
 // finalize). Module scratch is safe across sequential worlds: the buffer is write-before-read within
@@ -121,25 +97,6 @@ function setSweepBase(
 // --- Finalize --------------------------------------------------------------------------------
 
 /**
- * Commit an escaped shape's refit to its resident fat-AABB column and mark it for the serial enlarge pass. `box` is the shape's just-updated tight
- * AABB — the kernel candidate for a convex shape, the TS-computed one for a fallback shape. The tail of
- * `finalizeBodies`, factored out because both branches share it; the fat-column view is refreshed once at
- * the top of the pass, so the write here is raw (no reserve, no per-shape refresh).
- */
-function commitRefit(world: WorldState, shape: Shape, box: AABB): void {
-    const margin = shape.aabbMargin;
-    const fat = finFat;
-    fat.lowerBound.x = f32(box.lowerBound.x - margin);
-    fat.lowerBound.y = f32(box.lowerBound.y - margin);
-    fat.lowerBound.z = f32(box.lowerBound.z - margin);
-    fat.upperBound.x = f32(box.upperBound.x + margin);
-    fat.upperBound.y = f32(box.upperBound.y + margin);
-    fat.upperBound.z = f32(box.upperBound.z + margin);
-    world.shapeStore.writeFatAabb(shape.id, fat);
-    world.shapeStore.shapeU[shape.id * SHAPE_STRIDE + S_ESCAPED] = 1;
-}
-
-/**
  * Advance body transforms from the solved deltas and re-fit broad-phase AABBs (b3FinalizeBodies). The
  * substep solve already ran over the resident columns, so finalize consumes them directly: kernel
  * `finalize` does the per-body pose-advance arithmetic straight into the columns, and the TS tail (this
@@ -158,7 +115,6 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
     const enableSleep = world.enableSleep;
     const enableContinuous = world.enableContinuous;
     const timeStep = context.dt;
-    const speculativeScalar = SPECULATIVE_DISTANCE;
     const count = sims.length;
 
     // Kernel finalization publishes one retained move record per awake body. Keep only its valid
@@ -173,11 +129,6 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
     const flagsU = store.flagsU;
     const outCol = cols.finOut;
 
-    // Finalize wrote candidate AABBs and escaped flags into this World's shape column.
-    world.shapeStore.refreshViews();
-    const shapeF = world.shapeStore.shapeF;
-    const shapeU = world.shapeStore.shapeU;
-
     for (let simIndex = 0; simIndex < count; ++simIndex) {
         const sim = sims[simIndex];
         const so = simIndex * SIM_STRIDE;
@@ -187,18 +138,6 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
         if ((simFlags & (BodyFlags.isFast | BodyFlags.isBullet)) === BodyFlags.isFast) {
             consumeContinuous(world, simIndex);
         }
-
-        // The kernel finalize advanced the pose (center/rotation/transform.p), rebuilt the world inertia,
-        // and zeroed the deltas + force/torque straight into the resident columns. Read the advanced pose
-        // into scratch (no per-field alloc) for the move event + shape refit below; `state` (velocity +
-        // reset deltas + the transient IS_SPEED_CAPPED flag) is already resident for the next step.
-        finTransform.p.x = finF[fo + 9];
-        finTransform.p.y = finF[fo + 10];
-        finTransform.p.z = finF[fo + 11];
-        finTransform.q.v.x = simF[so + 28];
-        finTransform.q.v.y = simF[so + 29];
-        finTransform.q.v.z = simF[so + 30];
-        finTransform.q.s = simF[so + 31];
 
         const body = world.bodies[sim2U[s2o + S2_BODY_ID]];
         body.bodyMoveIndex = simIndex;
@@ -294,37 +233,6 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
                 context.splitIslandId = body.islandId;
                 context.splitSleepTime = body.sleepTime;
             }
-        }
-
-        // Sweeps already published fast-body AABBs. The serial kernel tail enlarges non-bullets
-        // and buffers fast bullet moves before their deferred sweep.
-        if (simFlags & BodyFlags.isFast) continue;
-
-        // Commit non-fast refits in sim / head→next order, preserving the buffered move order.
-        // Convex candidates come from the task; non-convex bounds still compute here.
-        let shapeId = body.headShapeId;
-        while (shapeId !== -1) {
-            const shape = world.shapes[shapeId];
-            if (isConvexRefit(shape.type)) {
-                const c = shape.id * SHAPE_STRIDE + S_CAND;
-                const box = finBox;
-                box.lowerBound.x = shapeF[c];
-                box.lowerBound.y = shapeF[c + 1];
-                box.lowerBound.z = shapeF[c + 2];
-                box.upperBound.x = shapeF[c + 3];
-                box.upperBound.y = shapeF[c + 4];
-                box.upperBound.z = shapeF[c + 5];
-                if (shapeU[shape.id * SHAPE_STRIDE + S_ESCAPED] !== 0) {
-                    commitRefit(world, shape, box);
-                }
-            } else {
-                const box = computeFatShapeAABBOut(shape, finTransform, speculativeScalar, finBox);
-                if (aabb.contains(readFatAabb(world, shape.id, finFat), box) === false) {
-                    commitRefit(world, shape, box);
-                }
-            }
-            writeTightAabb(shapeF, shape.id, finBox);
-            shapeId = shape.nextShapeId;
         }
     }
     kernel(world.ecsState).treeEnlargePass(count, 0);

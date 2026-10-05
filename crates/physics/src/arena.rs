@@ -1281,14 +1281,9 @@ pub(crate) unsafe fn finalize_block(
     }
 }
 
-/// Walk each body's shape list and compute the finalize refit for its convex shapes: the speculative-
-/// inflated tight AABB (candidate) + whether it escaped the resident fat AABB. Reads the body's advanced
-/// pose from the just-finalized `sim`/`fin` columns and the shape geometry + list links from the resident
-/// shape column (`shapes.rs`, walked head → `next` from the body's `S2_HEAD_SHAPE` lane); writes the
-/// candidate + escaped flag back into that shape column. It does **not** commit — TS margin-inflates the
-/// escaped shapes and touches the fat column + broad phase serially (`solver.ts`), because the fast/CCD
-/// branch that would invalidate a fast body's refit is TS-owned. Fallback shapes (mesh/height-field/
-/// compound) are skipped; TS computes them at their list position.
+/// Commit each non-fast body's shape bounds and enlarge flags in the finalize task.
+/// Fast non-bullets already committed in continuous; bullets commit during their deferred sweep.
+/// Tree mutation stays in the serial enlarge pass, as in Box3D.
 ///
 /// Per-body write-disjoint: a shape belongs to one body, so two parallel-for blocks never write the same
 /// shape record — the shared-mutable [`Col`] carries that promise. Indexed only through the awake head
@@ -1324,36 +1319,20 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
             let mut shape_id = sim2.get(i * SIM2_STRIDE + S2_HEAD_SHAPE);
             while shape_id != crate::shapes::NULL_SHAPE {
                 let o = shape_id as usize * crate::shapes::SHAPE_STRIDE;
-                let ty = shape_u.get(o + crate::shapes::S_TYPE);
-                if finalize::is_convex_refit(ty) {
-                    let g = o + crate::shapes::S_GEOM;
-                    let geom = [
-                        shape_f.get(g),
-                        shape_f.get(g + 1),
-                        shape_f.get(g + 2),
-                        shape_f.get(g + 3),
-                        shape_f.get(g + 4),
-                        shape_f.get(g + 5),
-                        shape_f.get(g + 6),
-                    ];
-                    let fb = shape_id as usize * FAT_STRIDE;
-                    let fat_aabb = [
-                        fat.get(fb),
-                        fat.get(fb + 1),
-                        fat.get(fb + 2),
-                        fat.get(fb + 3),
-                        fat.get(fb + 4),
-                        fat.get(fb + 5),
-                    ];
-                    let (cand, escaped) = finalize::refit_convex(ty, &geom, xf, &fat_aabb);
-                    let c = o + crate::shapes::S_CAND;
-                    shape_f.set(c, cand[0]);
-                    shape_f.set(c + 1, cand[1]);
-                    shape_f.set(c + 2, cand[2]);
-                    shape_f.set(c + 3, cand[3]);
-                    shape_f.set(c + 4, cand[4]);
-                    shape_f.set(c + 5, cand[5]);
-                    shape_u.set(o + crate::shapes::S_ESCAPED, escaped as u32);
+                let bounds = crate::continuous::bounds(shape_id as usize, xf);
+                let fb = shape_id as usize * FAT_STRIDE;
+                let fat_aabb = core::array::from_fn(|n| fat.get(fb + n));
+                let (cand, escaped) = finalize::refit_bounds(bounds, &fat_aabb);
+                for n in 0..6 {
+                    shape_f.set(o + 34 + n, cand[n]);
+                }
+                shape_u.set(o + crate::shapes::S_ESCAPED, escaped as u32);
+                if escaped {
+                    let margin = shape_f.get(o + 40);
+                    for n in 0..3 {
+                        fat.set(fb + n, cand[n] - margin);
+                        fat.set(fb + 3 + n, cand[3 + n] + margin);
+                    }
                 }
                 shape_id = shape_u.get(o + crate::shapes::S_NEXT);
             }

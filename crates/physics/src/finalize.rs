@@ -5,7 +5,7 @@
 //! decision scalars TS branches on.
 //!
 //! This module owns the pose arithmetic. The arena follows it with the continuous sweep and shape
-//! refit; TypeScript consumes the resident outputs for sleep/island bookkeeping and proxy enlargement.
+//! bounds commit. TypeScript consumes sleep outputs; the kernel enlarges proxies serially.
 //!
 //! Every arithmetic op maps one-to-one to the C scalar path (no SIMD, no FMA); bit-identical to the
 //! the frozen historical oracle vectors; current target evidence belongs to the standalone oracle.
@@ -27,14 +27,10 @@ const POSITION_SLEEP_FACTOR: f32 = 0.5;
 const SAFETY_FACTOR: f32 = 0.5;
 
 // --- shape-AABB refit -----------------------------------------------------------------------
-// The pure per-shape half of the refit (T4): the tight AABB compute + speculative inflate + escape
-// test, mirroring `src/solver.ts` finalizeBodies op-for-op. Kept here (native, gold/fixture-verified)
-// and free of the wasm-only region layers; `arena::refit_block` gathers each shape's transform +
-// geometry + resident fat AABB out of the columns and calls in, writing the candidate + escaped flag
-// back for TS to commit serially.
+// Pure bounds arithmetic stays independent of the wasm regions for bit-pinned native tests.
+// The arena commits the resulting bounds and enlarge flags to the owning shape columns.
 
-/// Shape type codes (`src/types.ts` `ShapeType`) the kernel refits in-kernel — sphere/capsule/hull are
-/// convex and transform-only. Mesh(4) / height-field(2) / compound(1) fall back to the TS path.
+/// Shape type codes (`ShapeType`) whose bounds use inline convex geometry.
 pub const TY_CAPSULE: u32 = 0;
 pub const TY_HULL: u32 = 3;
 pub const TY_SPHERE: u32 = 5;
@@ -43,8 +39,7 @@ pub const TY_SPHERE: u32 = 5;
 /// `4.0 * 0.005` const-evaluates to the same f32 as the TS `f32(4.0 * f32(0.005))`.
 const SPECULATIVE_DISTANCE: f32 = 4.0 * 0.005;
 
-/// Does the kernel compute this shape type's refit AABB in-kernel? The convex/fallback partition the
-/// finalize refit rests on; the TS side mirrors it (`isConvexRefit`, `src/shapecolumns.ts`).
+/// Does this shape type use inline convex geometry rather than the non-convex geometry pools?
 #[inline]
 pub fn is_convex_refit(shape_type: u32) -> bool {
     matches!(shape_type, TY_SPHERE | TY_CAPSULE | TY_HULL)
@@ -112,7 +107,11 @@ pub fn refit_convex(
     xf: Transform,
     fat: &[f32; 6],
 ) -> ([f32; 6], bool) {
-    let b = convex_bounds(shape_type, geom, xf);
+    refit_bounds(convex_bounds(shape_type, geom, xf), fat)
+}
+
+/// Inflate a tight shape bound by the speculative distance and test its resident fat margin.
+pub fn refit_bounds(b: [f32; 6], fat: &[f32; 6]) -> ([f32; 6], bool) {
     let lo = Vec3::new(b[0], b[1], b[2]);
     let hi = Vec3::new(b[3], b[4], b[5]);
     let s = SPECULATIVE_DISTANCE;

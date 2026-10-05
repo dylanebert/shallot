@@ -110,7 +110,7 @@ fn box_transform(lower: Vec3, upper: Vec3, xf: Transform) -> [f32; 6] {
     let b = center.add(extent);
     [a.x, a.y, a.z, b.x, b.y, b.z]
 }
-fn bounds(id: usize, xf: Transform) -> [f32; 6] {
+pub(crate) fn bounds(id: usize, xf: Transform) -> [f32; 6] {
     let r = shapes::col_f();
     let o = id * shapes::SHAPE_STRIDE;
     let geom = [
