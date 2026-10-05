@@ -11,19 +11,13 @@
 
 import { NULL_INDEX } from "../common/array";
 import { OVERFLOW_INDEX, SetType, TIME_TO_SLEEP } from "../common/constants";
-import { f32, type Mat3, mat3, type Quat, type Vec3, vec3 } from "../common/math";
-import { BodyType } from "../common/types";
+import { f32, type Vec3, vec3 } from "../common/math";
 import {
     type Columns,
     FIN_OUT_STRIDE,
-    FIN_STRIDE,
     reserveColumns,
     S2_BODY_ID,
-    S2_CENTER0,
     S2_FLAGS,
-    S2_MIN_EXTENT,
-    S2_ROTATION0,
-    SIM_STRIDE,
     SIM2_STRIDE,
 } from "../kernel/columns";
 import { consumeContinuous, prepareContinuous, solveBullets } from "../kernel/continuouscolumns";
@@ -46,74 +40,18 @@ import {
 const SPEED_CAPPED = BodyFlags.isSpeedCapped;
 const TOI = BodyFlags.hadTimeOfImpact;
 
-// Scratch for finalizeBodies, all reused per body (never live across bodies) so the per-body loop over
-// the resident columns allocates nothing — the awake `ResidentBodySim` getters would allocate a
-// Vec3/Quat/Mat3 per pose/inertia field, so finalize indexes the columns raw instead.
-const finRotation = mat3.zero();
-const finRotationT = mat3.zero();
-const finInertiaTmp = mat3.zero(); // R · I⁻¹ (world-inertia update)
-const finInvIWorld = mat3.zero(); // R · I⁻¹ · Rᵀ, staged before the column write
-const finInvILocal = mat3.zero(); // invInertiaLocal, staged from the column
-const finQuat: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 }; // the current rotation, read from the column
-
 // Per-island awake marks, reused across steps (grow-only; valid prefix reset in `solve` before
 // finalize). Module scratch is safe across sequential worlds: the buffer is write-before-read within
 // one synchronous `solve` and never read across steps.
 const awakeIslandsScratch: boolean[] = [];
 
-/** Read a Mat3 out of `col` at `o` into `out` (kernel row order cx, cy, cz — read_sim, body.rs). */
-function readMat3(col: Float32Array, o: number, out: Mat3): void {
-    out.cx.x = col[o];
-    out.cx.y = col[o + 1];
-    out.cx.z = col[o + 2];
-    out.cy.x = col[o + 3];
-    out.cy.y = col[o + 4];
-    out.cy.z = col[o + 5];
-    out.cz.x = col[o + 6];
-    out.cz.y = col[o + 7];
-    out.cz.z = col[o + 8];
-}
-
-/** Set a body's sweep base (center0, rotation0 in the sim2 column) to its just-advanced pose (center in
- * the fin column, transform.q in the sim column) — b3FinalizeBodies' `center0 = center; rotation0 = q`
- * for a discretely-advanced (non-fast) body, written column-to-column with no allocation. */
-function setSweepBase(
-    sim2F: Float32Array,
-    s2o: number,
-    finF: Float32Array,
-    fo: number,
-    simF: Float32Array,
-    so: number,
-): void {
-    sim2F[s2o + S2_CENTER0] = finF[fo];
-    sim2F[s2o + S2_CENTER0 + 1] = finF[fo + 1];
-    sim2F[s2o + S2_CENTER0 + 2] = finF[fo + 2];
-    sim2F[s2o + S2_ROTATION0] = simF[so + 28];
-    sim2F[s2o + S2_ROTATION0 + 1] = simF[so + 29];
-    sim2F[s2o + S2_ROTATION0 + 2] = simF[so + 30];
-    sim2F[s2o + S2_ROTATION0 + 3] = simF[so + 31];
-}
-
 // --- Finalize --------------------------------------------------------------------------------
 
-/**
- * Advance body transforms from the solved deltas and re-fit broad-phase AABBs (b3FinalizeBodies). The
- * substep solve already ran over the resident columns, so finalize consumes them directly: kernel
- * `finalize` does the per-body pose-advance arithmetic straight into the columns, and the TS tail (this
- * function) publishes kernel sweep outputs and owns sleep, proxy enlargement and island bookkeeping.
- * The pose advance already ran as the staged solve's terminal stage. The awake
- * `sim`/`fin`/`sim2` + `state` are all resident (bodycolumns.ts), so nothing marshals in or back out.
- * This loop reads/writes the body columns **raw** by localIndex, as b3FinalizeBodiesTask indexes
- * `sims + simIndex` and `states + simIndex`, rather than through the `ResidentBodySim` and
- * `ResidentBodyState` views, whose getters each revalidate the views; `residentPush` keeps the awake
- * set's states and sims in lockstep at that index. The `sim` view is passed only to the continuous
- * consumer and the bullet list.
- */
+/** Publish continuous hits and apply the retained body/island metadata policy after kernel finalization. */
 function finalizeBodies(context: StepContext, cols: Columns): void {
     const world = context.world;
     const sims = context.sims;
     const enableSleep = world.enableSleep;
-    const enableContinuous = world.enableContinuous;
     const timeStep = context.dt;
     const count = sims.length;
 
@@ -122,22 +60,16 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
     world.bodyMoveCount = count;
 
     const store = world.bodyStore;
-    const simF = store.simF;
-    const finF = store.finF;
-    const sim2F = store.sim2F;
     const sim2U = store.sim2U;
     const flagsU = store.flagsU;
     const outCol = cols.finOut;
+    consumeContinuous(world, count, false);
 
     for (let simIndex = 0; simIndex < count; ++simIndex) {
-        const sim = sims[simIndex];
-        const so = simIndex * SIM_STRIDE;
-        const fo = simIndex * FIN_STRIDE;
         const s2o = simIndex * SIM2_STRIDE;
-        let simFlags = sim2U[s2o + S2_FLAGS];
-        if ((simFlags & (BodyFlags.isFast | BodyFlags.isBullet)) === BodyFlags.isFast) {
-            consumeContinuous(world, simIndex);
-        }
+        const simFlags = sim2U[s2o + S2_FLAGS];
+        const fast = simFlags & BodyFlags.isFast;
+        if (fast && simFlags & BodyFlags.isBullet) context.bulletBodies.push(sims[simIndex]);
 
         const body = world.bodies[sim2U[s2o + S2_BODY_ID]];
         body.bodyMoveIndex = simIndex;
@@ -149,75 +81,19 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
         body.flags |= simFlags & (SPEED_CAPPED | TOI);
         const stateFlags = flagsU[simIndex];
         body.flags |= stateFlags & (SPEED_CAPPED | TOI);
-        simFlags &= ~BODY_TRANSIENT_FLAGS;
-        sim2U[s2o + S2_FLAGS] = simFlags;
+        sim2U[s2o + S2_FLAGS] = (simFlags & ~BODY_TRANSIENT_FLAGS) | fast;
         flagsU[simIndex] = stateFlags & ~BODY_TRANSIENT_FLAGS;
 
-        // The kernel emits the two sleep/continuous decision scalars; TS owns the branches.
-        const oo = simIndex * FIN_OUT_STRIDE;
-        const sleepVelocity = outCol[oo];
-        const maxMotion = outCol[oo + 1];
+        const sleepVelocity = outCol[simIndex * FIN_OUT_STRIDE];
 
         if (
             enableSleep === false ||
             (body.flags & BodyFlags.enableSleep) === 0 ||
             sleepVelocity > body.sleepThreshold
         ) {
-            // Body is not sleepy
             body.sleepTime = 0;
-
-            const safetyFactor = f32(0.5);
-            if (
-                body.type === BodyType.Dynamic &&
-                enableContinuous &&
-                maxMotion > f32(safetyFactor * sim2F[s2o + S2_MIN_EXTENT])
-            ) {
-                // Fast body: sweep it to its first impact instead of the discrete advance. The isFast
-                // flag is retained for the refit branch below (and for debug draw). Bullets are
-                // deferred to the post-finalize stage (they must sweep the enlarged dynamic proxies);
-                // non-bullets have already swept the read-only static tree in kernel finalize.
-                simFlags |= BodyFlags.isFast;
-                sim2U[s2o + S2_FLAGS] = simFlags;
-                if (simFlags & BodyFlags.isBullet) {
-                    context.bulletBodies.push(sim);
-                }
-            }
-            // else: the body advances discretely. Its sweep base (center0 = center, rotation0 = q) was
-            // already written by the kernel finalize for every non-fast body — no TS copy needed here.
         } else {
-            // Body is safe to advance and is falling asleep. The kernel wrote the sweep base for a
-            // non-fast body, but not for a fast candidate (skipped there), and a sleepy fast candidate
-            // still needs one — so write it here, the sleepy branch's own copy (harmlessly redundant
-            // with the kernel's for a non-fast sleepy body).
-            setSweepBase(sim2F, s2o, finF, fo, simF, so);
             body.sleepTime = f32(body.sleepTime + timeStep);
-        }
-
-        // Update world-space inverse inertia tensor. The kernel finalize already wrote it (from the
-        // finalize rotation) for every body, so a discretely-advanced body needs no re-derivation. A
-        // CCD-clipped fast body's transform.q was changed by the kernel sweep, so C recomputes it
-        // from the post-sweep rotation (solver.c b3FinalizeBodiesTask, after b3SolveContinuous); match
-        // that for fast bodies only — read the current rotation + invInertiaLocal and write
-        // R · invInertiaLocal · Rᵀ back raw.
-        if (simFlags & BodyFlags.isFast) {
-            finQuat.v.x = simF[so + 28];
-            finQuat.v.y = simF[so + 29];
-            finQuat.v.z = simF[so + 30];
-            finQuat.s = simF[so + 31];
-            mat3.fromQuatOut(finQuat, finRotation);
-            readMat3(simF, so + 10, finInvILocal);
-            mat3.mulOut(finRotation, finInvILocal, finInertiaTmp);
-            mat3.transposeOut(finRotation, finRotationT);
-            mat3.mulOut(finInertiaTmp, finRotationT, finInvIWorld);
-            simF[so + 19] = finInvIWorld.cx.x;
-            simF[so + 20] = finInvIWorld.cx.y;
-            simF[so + 21] = finInvIWorld.cx.z;
-            simF[so + 22] = finInvIWorld.cy.x;
-            simF[so + 23] = finInvIWorld.cy.y;
-            simF[so + 24] = finInvIWorld.cy.z;
-            simF[so + 25] = finInvIWorld.cz.x;
-            simF[so + 26] = finInvIWorld.cz.y;
-            simF[so + 27] = finInvIWorld.cz.z;
         }
 
         // Any single body in an island can keep it awake; a sleepy body in a split-pending island is
@@ -448,9 +324,8 @@ export function solve(world: WorldState, context: StepContext): void {
     world.splitIslandId = NULL_INDEX;
     profile.constraints = performance.now() - constraintsStart;
 
-    // Finalize: advance transforms, re-fit AABBs (the port folds refit in, so its cost lands here).
-    // The kernel pose advance already ran inside the solve crossing, so
-    // `profile.constraints` absorbs it and `transforms` times only the serial TS tail.
+    // Kernel finalization (pose, continuous and refit) ran inside the solve crossing.
+    // `profile.constraints` absorbs that task; `transforms` times the retained serial tail.
     phaseStart = performance.now();
 
     // Reset the per-step sleep bookkeeping (the C per-worker b3TaskContext reset before finalize).
