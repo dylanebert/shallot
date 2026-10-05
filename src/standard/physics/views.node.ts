@@ -60,6 +60,44 @@ test("public body, shape and contact reads survive a sibling's memory growth and
     }
 });
 
+test("public body, shape and contact reads survive a memory growth that moves no column", () => {
+    const owner = new World();
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } }, owner);
+    try {
+        const mover = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 1, y: 2, z: 3 },
+            linearVelocity: { x: 7, y: 0, z: 0 },
+        });
+        const shape = mover.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        world
+            .createBody({ type: BodyType.Static, position: { x: 5, y: 0, z: 0 } })
+            .createHull({}, makeBoxHull(2, 0.5, 2));
+        world
+            .createBody({ type: BodyType.Dynamic, position: { x: 5, y: 1, z: 0 } })
+            .createSphere(
+                { enableContactEvents: true },
+                { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+            );
+        world.step(1 / 60);
+        const contact = world.getContactEvents().beginEvents[0].contact;
+        const position = mover.getPosition();
+        const bounds = shape.getAABB();
+        const manifolds = contact.getData().manifolds;
+        expect(manifolds.length).toBeGreaterThan(0);
+        const memory = kernel(owner).memory;
+        const buffer = memory.buffer;
+        expect(buffer).not.toBeInstanceOf(SharedArrayBuffer);
+        memory.grow(1);
+        expect(buffer.byteLength).toBe(0);
+        expect(mover.getPosition()).toEqual(position);
+        expect(shape.getAABB()).toEqual(bounds);
+        expect(contact.getData().manifolds).toEqual(manifolds);
+    } finally {
+        world.destroy();
+    }
+});
+
 test("a query callback reads a sibling's stale resident views without changing the traversal World", () => {
     const owner = new World();
     const a = new PhysicsWorld({}, owner);
