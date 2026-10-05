@@ -1,6 +1,6 @@
 //! The in-kernel broad-phase pair-finding + tree-rebuild pass (3d) — box3d's
 //! `b3UpdateBroadPhasePairs` phase 1 (query) + phase 2 (rebuild), over the resident tree pools +
-//! pair-set (`broad.rs`). Serial, main-thread: it runs at step top before the worker pool wakes.
+//! pair-set (`broad.rs`). Pair queries run on the pool; tree rebuilds run after the join.
 //!
 //! Phase 1 (`queryPairs`) replays the TS enumeration order byte-for-byte — move-buffer order × per-proxy
 //! kinematic→static→dynamic × LIFO DFS × per-proxy reverse walk (the reverse is TS's, phase 3) + the
@@ -13,6 +13,9 @@
 //! Native `cargo test` drives `tree::query`/`tree::rebuild` + `table::contains` against gold vectors.
 
 use crate::broad;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+static CAND_COUNT: AtomicUsize = AtomicUsize::new(0);
 use crate::shapes::{col_slice as shape_col, SHAPE_STRIDE, S_TYPE};
 use crate::table;
 use crate::tree;
@@ -25,8 +28,9 @@ const SHAPE_COMPOUND: u32 = 1;
 const KINEMATIC: u32 = 1;
 const DYNAMIC: u32 = 2;
 
-/// u32 slots per candidate slab entry: flag (0 direct / 1 compound placeholder), shapeA, shapeB.
-const CAND_STRIDE: usize = 3;
+/// u32 slots per candidate: flag (0 direct / 1 compound placeholder), shapeA, shapeB, next.
+/// Each proxy owns a discovery-order list; allocation order across proxies is immaterial.
+const CAND_STRIDE: usize = 4;
 /// u32 per input tree-state record: root, nodeCount, freeList, proxyCount.
 const STATE_STRIDE: usize = 4;
 /// u32 per rebuilt-tree output record: root, nodeCount, freeList.
@@ -59,6 +63,7 @@ pub extern "C" fn reserve_pairs(
     max_proxy: usize,
 ) {
     unsafe {
+        CAND_COUNT.store(0, Ordering::Relaxed);
         MOVE_COUNT = broad::move_count();
         MOVED_WORDS = broad::bits_words(DYNAMIC as usize);
         CAND_CAP = cand_cap;
@@ -164,9 +169,10 @@ struct Emitter<'a> {
     key_lo: &'a [u32],
     hashes: &'a [u32],
     set_cap: usize,
-    cand: &'a mut [u32],
+    cand: *mut u32,
     cand_cap: usize,
-    count: usize,
+    head: u32,
+    tail: u32,
     query_shape: u32,
     query_key: u32,
     query_dynamic: bool,
@@ -195,13 +201,23 @@ impl<'a> Emitter<'a> {
 
     #[inline]
     fn emit(&mut self, flag: u32, a: u32, b: u32) {
-        if self.count < self.cand_cap {
-            let o = self.count * CAND_STRIDE;
-            self.cand[o] = flag;
-            self.cand[o + 1] = a;
-            self.cand[o + 2] = b;
+        let index = CAND_COUNT.fetch_add(1, Ordering::Relaxed);
+        if index < self.cand_cap {
+            // Allocation order may race; only this proxy owns its links.
+            unsafe {
+                let entry = self.cand.add(index * CAND_STRIDE);
+                *entry = flag;
+                *entry.add(1) = a;
+                *entry.add(2) = b;
+                *entry.add(3) = u32::MAX;
+                if self.tail != u32::MAX {
+                    *self.cand.add(self.tail as usize * CAND_STRIDE + 3) = index as u32;
+                } else {
+                    self.head = index as u32;
+                }
+            }
+            self.tail = index as u32;
         }
-        self.count += 1;
     }
 
     fn record(&mut self, other: i32, found_shape: u32) -> bool {
@@ -238,31 +254,32 @@ impl<'a> Emitter<'a> {
     }
 }
 
-/// Phase 1 — find candidate pairs for every moved proxy, in move-buffer order, into the candidate slab.
-/// Returns the total entry count (which may exceed `cand_cap` on a cold step; the slab holds only the
-/// first `cand_cap`, and TS grows + re-runs — the query mutates neither the trees nor the pair-set, so a
-/// re-run is free of side effects). `candEnd[i]` delimits moved proxy `i`'s entries.
-///
-/// `set_cap` is the pair-set's logical capacity (TS `HashSet.capacity`), which defines its probe mask.
+/// Entry count after the pair-query join. On overflow TS grows and reruns the read-only queries.
+#[export_name = "queryPairs"]
+pub extern "C" fn query_pairs() -> u32 {
+    CAND_COUNT.load(Ordering::Relaxed) as u32
+}
+
+/// Each task owns its moved-proxy heads and traversal stack. The shared candidate allocator only
+/// assigns storage; TS merges heads in move-buffer order, then reverses each proxy's survivors, as
+/// Box3D's b3UpdateBroadPhasePairs walks its prepended pair lists (broad_phase.c).
 ///
 /// # Safety
-/// `reservePairs` must have run this step with enough candidate and rebuild scratch
-/// written into the slab, and no thread may grow memory while this runs.
-#[export_name = "queryPairs"]
-pub extern "C" fn query_pairs(set_cap: usize) -> u32 {
+/// reservePairs must precede the round; trees, shapes and membership stay fixed until its join.
+pub unsafe fn query_block(start: usize, end: usize, set_cap: usize) {
     unsafe {
         let move_count = MOVE_COUNT;
         let state = core::slice::from_raw_parts(STATE_PTR as *const u32, 3 * STATE_STRIDE);
         let move_buf = core::slice::from_raw_parts(MOVE_PTR as *const u32, move_count);
         let moved = core::slice::from_raw_parts(MOVED_PTR as *const u32, MOVED_WORDS);
-        let cand_end = core::slice::from_raw_parts_mut(CANDEND_PTR as *mut u32, move_count);
-        let cand = core::slice::from_raw_parts_mut(CAND_PTR as *mut u32, CAND_CAP * CAND_STRIDE);
+        let cand_end = CANDEND_PTR as *mut u32;
+        let cand = CAND_PTR as *mut u32;
         let (khi, klo, hp) = broad::set_ptrs();
         let key_hi = core::slice::from_raw_parts(khi, set_cap);
         let key_lo = core::slice::from_raw_parts(klo, set_cap);
         let hashes = core::slice::from_raw_parts(hp, set_cap);
         let shape = shape_col();
-        let stack = core::slice::from_raw_parts_mut(GATHER_PTR as *mut i32, tree::STACK_SIZE);
+        let stack = &mut [0i32; tree::STACK_SIZE];
 
         let pools = [pool_slice(0), pool_slice(1), pool_slice(2)];
         let roots = [
@@ -285,14 +302,17 @@ pub extern "C" fn query_pairs(set_cap: usize) -> u32 {
             set_cap,
             cand,
             cand_cap: CAND_CAP,
-            count: 0,
+            head: u32::MAX,
+            tail: u32::MAX,
             query_shape: 0,
             query_key: 0,
             query_dynamic: false,
             tree_type: 0,
         };
 
-        for i in 0..move_count {
+        for i in start..end {
+            em.head = u32::MAX;
+            em.tail = u32::MAX;
             let query_key = move_buf[i];
             let proxy_type = (query_key & 3) as usize;
             let proxy_id = (query_key >> 2) as i32;
@@ -319,10 +339,8 @@ pub extern "C" fn query_pairs(set_cap: usize) -> u32 {
                 pools[d], roots[d], counts[d], lo, hi, stack, &mut em, DYNAMIC,
             );
 
-            cand_end[i] = em.count as u32;
+            *cand_end.add(i) = em.head;
         }
-
-        em.count as u32
     }
 }
 

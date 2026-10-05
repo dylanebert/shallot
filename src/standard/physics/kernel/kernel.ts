@@ -219,8 +219,9 @@ export type Kernel = {
     // Broad-phase pair query + tree rebuild (kernel/src/pairwork.rs, 3d). `reservePairs` lays out the
     // shared per-step slab (tree-state header + move buffer + dynamic moved-bitset + the
     // candidate output + rebuild scratch); TS writes the inputs through the `pairs*Ptr` headers,
-    // `queryPairs` finds the surviving pairs (dedup + pair-set membership) into the candidate slab and
-    // returns the entry count (grow + re-run if it exceeds `candCap`), and `rebuildTrees` median-rebuilds
+    // ParKind.Pairs finds surviving pairs (dedup + pair-set membership); `queryPairs` reads the joined
+    // entry count (grow + re-run if it exceeds `candCap`). `pairsCandEndPtr` holds per-proxy list heads
+    // (u32::MAX for empty), with discovery-order next links in candidate slot 3. `rebuildTrees` median-rebuilds
     // the dynamic then kinematic trees, writing each new `[root, nodeCount, freeList]` to the rebuild-out
     // header. Both run over the resident broad-phase region (kernel/src/broad.rs); TS applies the
     // remaining filters + creates contacts over the returned slab (src/pairs.ts).
@@ -231,7 +232,7 @@ export type Kernel = {
     pairsCandEndPtr(): number;
     pairsCandPtr(): number;
     pairsRebuildOutPtr(): number;
-    queryPairs(setCap: number): number;
+    queryPairs(): number;
     rebuildTrees(): void;
 
     // Static geometry columns (kernel/src/geo.rs) — convex-hull pools uploaded once per interned hull,
@@ -367,6 +368,7 @@ export const ParKind = {
     Recycle: 1,
     Contacts: 2,
     Bullets: 3,
+    Pairs: 4,
 } as const;
 export type ParKind = (typeof ParKind)[keyof typeof ParKind];
 

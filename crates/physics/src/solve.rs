@@ -484,6 +484,7 @@ enum Job {
     Recycle,
     Contacts,
     Bullets,
+    Pairs,
 }
 
 /// `parBuild`'s `kind` argument, mirrored in `src/kernel.ts`.
@@ -516,6 +517,7 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
         KIND_RECYCLE => Job::Recycle,
         KIND_CONTACTS => Job::Contacts,
         3 => Job::Bullets,
+        4 => Job::Pairs,
         _ => panic!("unknown parallel-for kind"),
     };
     let par = ParFor::new(count, COLLIDE_MIN_RANGE, thread_count);
@@ -556,6 +558,9 @@ fn run_job(index: usize) {
                         .run(|s, e| arena::recycle_block(s, e, p.count, p.a, p.b)),
                     Job::Contacts => p.par.run(|s, e| arena::contact_block(s, e, p.count, index)),
                     Job::Bullets => p.par.run(|s, e| crate::continuous::bullets(s, e)),
+                    Job::Pairs => p
+                        .par
+                        .run(|s, e| crate::pairwork::query_block(s, e, p.a as usize)),
                     Job::Solve | Job::None => unreachable!(),
                 }
             }

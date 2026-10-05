@@ -15,7 +15,7 @@
 import { intVec, NULL_INDEX } from "../common/array";
 import { type AABB, aabb, vec3, xf } from "../common/math";
 import { BodyType, type FilterBits } from "../common/types";
-import { kernel } from "../kernel/kernel";
+import { kernel, ParKind, runPool, workers } from "../kernel/kernel";
 import * as tree from "../kernel/treecolumns";
 import { type CompoundData, queryCompound } from "../shapes/compound";
 import { type Body, getBodyTransformQuick } from "../world/body";
@@ -57,8 +57,8 @@ const survEnd = intVec();
 // the tree holds no live AABB object to alias).
 const fatScratch: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
 
-// u32 slots per kernel candidate entry (flag, shapeA, shapeB) — mirrors CAND_STRIDE in pairwork.rs.
-const CAND_STRIDE = 3;
+// u32 slots per kernel candidate entry (flag, shapeA, shapeB, next) — mirrors pairwork.rs.
+const CAND_STRIDE = 4;
 // The candidate-slab capacity handed to the kernel; grows monotonically on overflow (a cold-step event
 // only — steady state emits ≈0 entries). Persisted across steps to avoid re-growing.
 let candCap = 256;
@@ -78,7 +78,7 @@ function slot(ptr: number): number {
 
 // Grow-only candidate copies survive memory growth during pair membership and contact creation.
 let candEndCopy = new Uint32Array(64);
-let candCopy = new Uint32Array(256 * 3);
+let candCopy = new Uint32Array(256 * CAND_STRIDE);
 
 /** @returns whether shapes `a`/`b` pass every non-membership filter (self-body, sensor, category, joint). */
 function filtersPass(world: WorldState, shapeA: number, shapeB: number): boolean {
@@ -160,7 +160,17 @@ export function updateBroadPhasePairs(world: WorldState): void {
         k.reservePairs(moveCount, movedWords, candCap, maxProxy);
 
         // Logical capacity defines the membership table's probe mask.
-        entryCount = k.queryPairs(broadPhase.pairSet.capacity);
+        const pool = workers(world.ecsState);
+        const fork = k.parBuild(
+            ParKind.Pairs,
+            moveCount,
+            (pool?.size ?? 0) + 1,
+            broadPhase.pairSet.capacity,
+            0,
+        );
+        if (fork && pool) runPool(world.ecsState, pool, k.runMt);
+        else k.runMt();
+        entryCount = k.queryPairs();
         if (entryCount <= candCap) break;
         candCap = entryCount + (entryCount >> 1);
     }
@@ -189,11 +199,9 @@ export function updateBroadPhasePairs(world: WorldState): void {
     // Phase 1 (TS half) — apply the surviving filters over the kernel's candidates, expanding compound
     // placeholders against their inner trees, in discovery order. All membership tests run against the
     // step-start pair-set (no contact is created until phase 3), matching the C's ordering.
-    let entryStart = 0;
     for (let i = 0; i < moveCount; ++i) {
-        const end = candEnd[i];
         const queryKey = moveArray.get(i);
-        for (let e = entryStart; e < end; ++e) {
+        for (let e = candEnd[i]; e !== 0xffffffff; e = cand[e * CAND_STRIDE + 3]) {
             const o = e * CAND_STRIDE;
             const flag = cand[o];
             const shapeA = cand[o + 1];
@@ -209,7 +217,6 @@ export function updateBroadPhasePairs(world: WorldState): void {
             }
         }
         survEnd.push(candShapeA.count);
-        entryStart = end;
     }
 
     // Phase 2 — rebuild dynamic then kinematic, including their resident metadata.
