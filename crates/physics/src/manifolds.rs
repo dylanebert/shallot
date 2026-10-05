@@ -5,6 +5,12 @@ use crate::regions::{self, Columns, MAX_WORLDS};
 static mut COLUMNS: [Columns<2>; MAX_WORLDS] = [Columns::EMPTY; MAX_WORLDS];
 static mut MESH_CACHES: [Vec<Columns<1>>; MAX_WORLDS] = [const { Vec::new() }; MAX_WORLDS];
 
+#[export_name = "meshCacheCapacity"]
+pub extern "C" fn mesh_cache_capacity(world: usize) -> usize {
+    assert!(world < MAX_WORLDS);
+    unsafe { MESH_CACHES[world].capacity() }
+}
+
 #[export_name = "ensureMeshCache"]
 pub extern "C" fn ensure_mesh_cache(contact: usize) {
     unsafe {
@@ -79,7 +85,7 @@ pub unsafe fn reset(id: usize) {
     for cache in &mut MESH_CACHES[id] {
         cache.release();
     }
-    MESH_CACHES[id].clear();
+    MESH_CACHES[id] = Vec::new();
     COLUMNS[id].release();
     CAPS[id] = [0; 2];
 }
