@@ -1,23 +1,27 @@
 import { SetType } from "../common/constants";
-import type { Body } from "../world/body";
+import { type Body, getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 
-// Keep static rows above every possible awake row: contact linking can wake sleeping sets.
-export function stageBodies(world: WorldState): void {
-    const offsets = world.stagedBodyOffsets;
-    let cursor = world.solverSets[SetType.Awake].bodySims.length;
-    for (let set = SetType.FirstSleeping; set < world.solverSets.length; ++set) {
-        offsets[set] = cursor;
-        for (const sim of world.solverSets[set].bodySims) world.bodyStore.writeSim(cursor++, sim);
-    }
-    const sims = world.solverSets[SetType.Static].bodySims;
-    offsets[SetType.Static] = world.bodies.length - sims.length;
-    for (let i = 0; i < sims.length; ++i)
-        world.bodyStore.writeSim(offsets[SetType.Static] + i, sims[i]);
+export function beginBodyStaging(world: WorldState): void {
+    ++world.bodyStagingEpoch;
+    world.bodyStagingCursor = world.solverSets[SetType.Awake].bodySims.length;
 }
 
 export function bodyColumnIndex(world: WorldState, body: Body): number {
-    return body.setIndex === SetType.Awake
-        ? body.localIndex
-        : world.stagedBodyOffsets[body.setIndex] + body.localIndex;
+    if (body.setIndex === SetType.Awake) return body.localIndex;
+    if (world.bodyStagingStamps[body.id] !== world.bodyStagingEpoch) {
+        // Static rows must survive contact linking waking any number of sleeping bodies.
+        // Sleeping rows are consumed before linking; joint prepare only references awake/static sims.
+        const index =
+            body.setIndex === SetType.Static
+                ? world.bodies.length -
+                  world.solverSets[SetType.Static].bodySims.length +
+                  body.localIndex
+                : world.bodyStagingCursor++;
+        if (world.bodyStore.stale) world.bodyStore.refreshViews();
+        world.bodyStore.writeSim(index, getBodySim(world, body));
+        world.bodyStagingIndices[body.id] = index;
+        world.bodyStagingStamps[body.id] = world.bodyStagingEpoch;
+    }
+    return world.bodyStagingIndices[body.id];
 }

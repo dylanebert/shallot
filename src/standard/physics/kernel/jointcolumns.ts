@@ -161,6 +161,7 @@ import {
     WJ_LINEAR_HERTZ,
     WJ_LINEAR_IMPULSE,
 } from "./columns";
+import { bodyColumnIndex } from "./stagedbodies";
 
 function writeVec3(f32: Float32Array, o: number, v: Vec3): void {
     f32[o] = v.x;
@@ -217,11 +218,8 @@ function writeRecord(
     u32[base + J_SIM_INDEX_B] =
         bodyB.setIndex === SetType.Awake ? bodyB.localIndex : NULL_INDEX >>> 0;
 
-    const staticBase = world.stagedBodyOffsets[SetType.Static];
-    u32[base + J_BODY_INDEX_A] =
-        bodyA.setIndex === SetType.Awake ? bodyA.localIndex : staticBase + bodyA.localIndex;
-    u32[base + J_BODY_INDEX_B] =
-        bodyB.setIndex === SetType.Awake ? bodyB.localIndex : staticBase + bodyB.localIndex;
+    u32[base + J_BODY_INDEX_A] = bodyColumnIndex(world, bodyA);
+    u32[base + J_BODY_INDEX_B] = bodyColumnIndex(world, bodyB);
     writeTransform(f32, base + J_LOCAL_FRAME_A, sim.localFrameA);
     writeTransform(f32, base + J_LOCAL_FRAME_B, sim.localFrameB);
     f32[base + J_CONSTRAINT_HERTZ] = sim.constraintHertz;
