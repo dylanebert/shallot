@@ -41,6 +41,10 @@ export const SURFACE_GROUP = 2;
  */
 export type Binding =
     | { type: "uniform"; struct: AnyWgslStruct }
+    /** Mesh-only per-vertex storage array at absolute `vidx`, with the element's storage
+     * array stride (including padding). Missing or different schemas refuse the draw,
+     * naming mesh, surface and stream; no world resource or mesh binding override is used. */
+    | { type: "attribute"; element: AnyWgslData }
     // `AnyWgslData`, not the wider `AnyData`: `AnyData` also admits loose vertex-format-only schemas that
     // can't back a storage declaration — the narrower type is deliberate, not an accident of the spec's wording
     | {
@@ -63,7 +67,7 @@ export type Binding =
 // biome-ignore format: one row per Binding variant reads clearer un-wrapped
 type EntryFor<B extends Binding> = B extends { type: "uniform" }
     ? { uniform: B["struct"]; visibility: ShaderStage[] }
-    : B extends { type: "storage" }
+    : B extends { type: "storage" | "attribute" }
       ? {
             // `d.arrayOf(element)` with no length is a runtime-sized-array *constructor* — this is the
             // unsized `array<T>` shape a storage binding needs
@@ -85,6 +89,12 @@ function layoutEntry<B extends Binding>(b: B): EntryFor<B> {
     switch (b.type) {
         case "uniform":
             return { uniform: b.struct, visibility: VS_FS } as EntryFor<B>;
+        case "attribute":
+            return {
+                storage: d.arrayOf(b.element),
+                access: "readonly",
+                visibility: VS_FS,
+            } as EntryFor<B>;
         case "storage":
             return {
                 // a storage binding is always `array<element>` — the contract keeps that
@@ -155,6 +165,7 @@ export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayo
         vertices: typeof verticesColor;
     }
 > & {
+    readonly attributes: Readonly<Record<string, AnyWgslData>>;
     readonly depthVariant: TgpuBindGroupLayout<
         { [K in keyof B]: EntryFor<B[K]> } & {
             meshInstances: typeof meshInstancesEntry;
@@ -196,7 +207,15 @@ export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): S
             vertices: verticesDepth,
         })
         .$idx(SURFACE_GROUP);
-    return Object.assign(color, { depthVariant: depth }) as SurfaceLayout<B>;
+    const attributes = Object.fromEntries(
+        Object.entries(bindings)
+            .filter(([, binding]) => binding.type === "attribute")
+            .map(([name, binding]) => [
+                name,
+                (binding as Extract<Binding, { type: "attribute" }>).element,
+            ]),
+    );
+    return Object.assign(color, { depthVariant: depth, attributes }) as SurfaceLayout<B>;
 }
 
 /** a synthesized background layout: group 2 (the same group a surface's own bindings pin to — the

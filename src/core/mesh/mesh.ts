@@ -25,8 +25,8 @@ export type MeshBinding =
  *
  * Producers stage typed arrays via {@link registerMesh}, which {@link flushMeshes} packs into
  * shared family buffer sets: every mesh is a slice (its own `indexBase` + meshId) of one set.
- * Registrations during `initialize` share one set packed at warm; each later frame's
- * registrations share one more.
+ * Registrations during `initialize` pack at warm; each later frame's registrations pack
+ * before drawing. Each batch splits into families by attribute names and element schemas.
  *
  * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
  * frustum cull GlobalTransforms per instance. {@link registerMesh} derives it from the staged
@@ -52,6 +52,11 @@ export interface Mesh {
      * (`world.gpu.*`). Per-mesh resources are shared by that mesh's draws.
      */
     bindings?: Record<string, MeshBinding>;
+    /** Named storage arrays, indexed by the same absolute vertex index as `vertices`.
+     * Each batch splits by names and element schemas; buffers belong to that family and
+     * clearMeshes destroys them. Standard resolves attribute bindings only here and refuses
+     * a missing or incompatible stream rather than using published world resources. */
+    attributes?: Record<string, MeshStorage<AnyWgslData>>;
 }
 
 /**
@@ -68,12 +73,13 @@ export const Meshes: import("../../engine").Resource<Registry<Mesh>> = {
 export const VERTEX_FLOATS = 8;
 
 // `registerMesh()` stages the typed arrays + a placeholder registry entry, so the mesh's id and
-// `Meshes.size` are known at once; `flushMeshes()` packs everything staged into one family.
+// `Meshes.size` are known at once; `flushMeshes()` packs staged meshes by stream signature.
 interface PendingMesh {
     name: string;
     vertices: Float32Array;
     indices: Uint32Array;
     bounds: [number, number, number, number];
+    attributes?: Record<string, { element: AnyWgslData; data: ArrayBufferView }>;
 }
 interface MeshResources {
     meshes: Registry<Mesh>;
@@ -167,16 +173,32 @@ export function meshBounds(vertices: Float32Array): [number, number, number, num
  * registrations during `initialize`, otherwise at the start of the next draw group, so a
  * registration in a draw-group system draws a frame later. Refuses before `MeshPlugin`
  * initializes (`AppConfig.setup`), whose initialize would drop it. Requires
- * `world.gpu.device`; no-ops otherwise
+ * `world.gpu.device`; no-ops otherwise. Optional named attributes contain raw storage bytes:
+ * each byte length must equal vertex count times the element's storage-array stride
+ * (including padding), otherwise registration refuses naming mesh and stream. A batch splits
+ * into families by attribute names and schemas; each array uses absolute vertex indices.
  */
 export function registerMesh(
     world: World,
-    spec: { name: string; vertices: Float32Array; indices: Uint32Array },
+    spec: {
+        name: string;
+        vertices: Float32Array;
+        indices: Uint32Array;
+        attributes?: PendingMesh["attributes"];
+    },
 ): void {
     if (spec.vertices.length % VERTEX_FLOATS !== 0) {
         throw new Error(
             `mesh "${spec.name}": vertices length ${spec.vertices.length} is not a multiple of ${VERTEX_FLOATS} (one Vertex = posU + normalV)`,
         );
+    }
+    for (const [name, stream] of Object.entries(spec.attributes ?? {})) {
+        const stride = d.sizeOf(d.arrayOf(stream.element, 1));
+        const expected = (spec.vertices.length / VERTEX_FLOATS) * stride;
+        if (stream.data.byteLength !== expected)
+            throw new Error(
+                `mesh "${spec.name}": attribute "${name}" has ${stream.data.byteLength} bytes; expected ${expected} (storage stride ${stride})`,
+            );
     }
     const resources = meshResources(world);
     if (!resources.initialized) {
@@ -371,8 +393,9 @@ function resetStaging(world: World): void {
 }
 
 /**
- * pack every staged mesh into one new family of quantized vertex streams + a shared index
- * buffer and re-register each as a slice; earlier families and their entries are untouched.
+ * pack staged meshes into families keyed by attribute names and element schemas, each with
+ * quantized vertex streams and a shared index buffer. Re-register each as a slice;
+ * earlier families and their entries are untouched.
  * `MeshPlugin.warm` runs it after every `initialize`, and {@link PrepareMeshesSystem} at the
  * start of each draw group; with nothing staged it does nothing.
  */
@@ -380,7 +403,31 @@ export function flushMeshes(world: World): void {
     const device = world.gpu.device;
     const resources = meshResources(world);
     if (!device || resources.pending.length === 0) return;
-    const packed = packMeshes(resources.pending);
+    const families: PendingMesh[][] = [];
+    for (const mesh of resources.pending) {
+        const names = Object.keys(mesh.attributes ?? {}).sort();
+        const family = families.find((group) => {
+            const other = group[0].attributes ?? {};
+            const keys = Object.keys(other).sort();
+            return (
+                names.length === keys.length &&
+                names.every(
+                    (name, i) =>
+                        name === keys[i] &&
+                        d.deepEqual(mesh.attributes![name].element, other[name].element),
+                )
+            );
+        });
+        if (family) family.push(mesh);
+        else families.push([mesh]);
+    }
+    for (const staged of families) packFamily(world, staged);
+    resetStaging(world);
+}
+
+function packFamily(world: World, staged: PendingMesh[]): void {
+    const resources = meshResources(world);
+    const packed = packMeshes(staged);
     const q = quantizeMeshes(packed.vertices, packed.slices);
     const vertices = world.gpu.root
         .createBuffer(d.arrayOf(d.vec4u, q.main.length / 4))
@@ -403,7 +450,25 @@ export function flushMeshes(world: World): void {
     quant.write(q.quant.buffer as ArrayBuffer);
     indices.write(packed.indices.buffer as ArrayBuffer);
     resources.families.push(vertices, position, quant, indices);
-    const bounds = new Map(resources.pending.map((m) => [m.name, m.bounds]));
+    const attributes: NonNullable<Mesh["attributes"]> = {};
+    for (const [name, stream] of Object.entries(staged[0].attributes ?? {})) {
+        const stride = d.sizeOf(d.arrayOf(stream.element, 1));
+        const bytes = new Uint8Array((packed.vertices.length / VERTEX_FLOATS) * stride);
+        let offset = 0;
+        for (const mesh of staged) {
+            const data = mesh.attributes![name].data;
+            bytes.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), offset);
+            offset += data.byteLength;
+        }
+        const buffer = world.gpu.root
+            .createBuffer(d.arrayOf(stream.element, bytes.length / stride))
+            .$usage("storage")
+            .$name(`shallot-mesh-attribute-${name}`);
+        buffer.write(bytes.buffer);
+        attributes[name] = buffer;
+        resources.families.push(buffer);
+    }
+    const bounds = new Map(staged.map((m) => [m.name, m.bounds]));
     for (const s of packed.slices) {
         world.resource(Meshes).register({
             name: s.name,
@@ -414,9 +479,9 @@ export function flushMeshes(world: World): void {
             indexBase: s.indexBase,
             indexCount: s.indexCount,
             bounds: bounds.get(s.name),
+            attributes,
         });
     }
-    resetStaging(world);
 }
 
 /** packs the meshes registered since the last pack before this frame's draw, as Bevy prepares

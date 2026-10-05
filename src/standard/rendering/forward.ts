@@ -327,7 +327,11 @@ function sameResources(
     let k = 4;
     for (let i = 0; i < g.names.length; i++, k++) {
         const name = g.names[i];
-        if ((override?.[name] ?? g.registries[i].get(name)) !== res[k]) return false;
+        const live =
+            name in g.owner.layout.attributes
+                ? mesh.attributes?.[name]
+                : (override?.[name] ?? g.registries[i].get(name));
+        if (live !== res[k]) return false;
     }
     if (pointList && res[k++] !== pointList) return false;
     if (cascadeList && res[k++] !== cascadeList) return false;
@@ -404,10 +408,21 @@ function recordSurface(
         return prev.item;
     }
 
+    const overrides = { ...mesh.bindings } as Record<string, MeshBinding>;
+    for (const [name, element] of Object.entries(surface.layout.attributes)) {
+        const stream = mesh.attributes?.[name];
+        if (!stream || !d.deepEqual(stream.dataType.elementType, element))
+            return warnSkip(
+                world,
+                draw.name,
+                `mesh "${mesh.name}" ${stream ? "has a different schema for" : "has no"} attribute "${name}" that surface "${surface.name}" reads`,
+            );
+        overrides[name] = stream;
+    }
     const resolved = layoutResources(
         world,
         surface.layout.entries as Record<string, object>,
-        mesh.bindings as Record<string, MeshBinding> | undefined,
+        overrides,
     );
     if (typeof resolved === "string")
         return warnSkip(world, draw.name, `binding "${resolved}" not published`);
