@@ -79,6 +79,7 @@ struct Work {
     /// (per-color concatenated, swept by `PrepareJoints` + the color blocks); the overflow joints
     /// follow (`overflow_joint_start..+overflow_joint_count`, run serially).
     joints: Col<'static, f32>,
+    fin: Col<'static, f32>,
     overflow_joint_start: usize,
     overflow_joint_count: usize,
     /// box3d's `context->enableWarmStarting` — `prepare` zeroes the impulses when false.
@@ -281,6 +282,8 @@ impl StageWork for Work {
             crate::joint::prepare(
                 self.joints,
                 slot,
+                self.cols.sim,
+                self.fin,
                 self.h,
                 self.inv_h,
                 self.enable_warm_starting,
@@ -314,6 +317,8 @@ impl StageWork for Work {
             crate::joint::prepare(
                 self.joints,
                 slot,
+                self.cols.sim,
+                self.fin,
                 self.h,
                 self.inv_h,
                 self.enable_warm_starting,
@@ -412,6 +417,10 @@ pub extern "C" fn solve_build(
             overflow_start,
             overflow_count,
             joints: arena::joint_column(),
+            fin: Col::new(
+                crate::bodies::fin_base() as *mut f32,
+                crate::bodies::body_cap() * crate::body::FIN_STRIDE,
+            ),
             overflow_joint_start,
             overflow_joint_count,
             enable_warm_starting: warm_start_scale != 0.0,

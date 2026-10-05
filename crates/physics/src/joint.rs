@@ -12,42 +12,42 @@ use crate::body::{flags::DYNAMIC, read_state, State, STATE_STRIDE};
 use crate::col::Col;
 use crate::contact::Softness;
 use crate::joint_abi::{
-    get, get_mat3, get_quat, get_transform, get_vec3, joint_type, read_base, read_pose, set,
-    set_mat3, set_quat, set_transform, set_vec3, JointBase, DJ_ANCHOR_A, DJ_ANCHOR_B,
+    get, get_mat3, get_quat, get_transform, get_vec3, joint_type, read_base, set, set_mat3,
+    set_quat, set_transform, set_vec3, JointBase, JointPose, DJ_ANCHOR_A, DJ_ANCHOR_B,
     DJ_AXIAL_MASS, DJ_DAMPING_RATIO, DJ_DELTA_CENTER, DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT,
     DJ_ENABLE_MOTOR, DJ_ENABLE_SPRING, DJ_HERTZ, DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE,
     DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH, DJ_MAX_MOTOR_FORCE, DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE,
-    DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE, DJ_UPPER_SPRING_FORCE, J_CONSTRAINT_DAMPING,
-    J_CONSTRAINT_HERTZ, J_CONSTRAINT_SOFTNESS, MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ,
-    MJ_ANGULAR_MASS, MJ_ANGULAR_SPRING, MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY,
-    MJ_ANGULAR_VELOCITY_IMPULSE, MJ_DELTA_CENTER, MJ_FRAME_A, MJ_FRAME_B, MJ_LINEAR_DAMPING_RATIO,
-    MJ_LINEAR_HERTZ, MJ_LINEAR_SPRING, MJ_LINEAR_SPRING_IMPULSE, MJ_LINEAR_VELOCITY,
-    MJ_LINEAR_VELOCITY_IMPULSE, MJ_MAX_SPRING_FORCE, MJ_MAX_SPRING_TORQUE, MJ_MAX_VELOCITY_FORCE,
-    MJ_MAX_VELOCITY_TORQUE, NULL_INDEX, PJ_ANGULAR_IMPULSE, PJ_DAMPING_RATIO, PJ_DELTA_CENTER,
-    PJ_ENABLE, PJ_ENABLE_LIMIT, PJ_ENABLE_MOTOR, PJ_ENABLE_SPRING, PJ_FIXED_ROTATION, PJ_FRAME_A,
-    PJ_FRAME_B, PJ_HERTZ, PJ_JOINT_AXIS, PJ_LOWER_IMPULSE, PJ_LOWER_TRANSLATION,
-    PJ_MAX_MOTOR_FORCE, PJ_MOTOR_IMPULSE, PJ_MOTOR_SPEED, PJ_PERP_AXIS_Y, PJ_PERP_AXIS_Z,
-    PJ_PERP_IMPULSE, PJ_ROTATION_MASS, PJ_SPRING_IMPULSE, PJ_SPRING_SOFTNESS,
-    PJ_TARGET_TRANSLATION, PJ_UPPER_IMPULSE, PJ_UPPER_TRANSLATION, PLJ_DAMPING_RATIO,
-    PLJ_FIXED_ROTATION, PLJ_HERTZ, PLJ_MAX_TORQUE, PLJ_PERP_AXIS_X, PLJ_PERP_AXIS_Y,
-    PLJ_PERP_IMPULSE, PLJ_QUAT_A, PLJ_QUAT_B, PLJ_SOFTNESS, RJ_AXIAL_MASS, RJ_DAMPING_RATIO,
-    RJ_DELTA_CENTER, RJ_ENABLE, RJ_ENABLE_LIMIT, RJ_ENABLE_MOTOR, RJ_ENABLE_SPRING,
-    RJ_FIXED_ROTATION, RJ_FRAME_A, RJ_FRAME_B, RJ_HERTZ, RJ_LINEAR_IMPULSE, RJ_LOWER_ANGLE,
-    RJ_LOWER_IMPULSE, RJ_MAX_MOTOR_TORQUE, RJ_MOTOR_IMPULSE, RJ_MOTOR_SPEED, RJ_PERP_AXIS_X,
-    RJ_PERP_AXIS_Y, RJ_PERP_IMPULSE, RJ_ROTATION_AXIS_Z, RJ_SPRING_IMPULSE, RJ_SPRING_SOFTNESS,
-    RJ_TARGET_ANGLE, RJ_UPPER_ANGLE, RJ_UPPER_IMPULSE, SJ_CONE_ANGLE, SJ_DAMPING_RATIO,
-    SJ_DELTA_CENTER, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT, SJ_ENABLE_MOTOR, SJ_ENABLE_SPRING,
-    SJ_ENABLE_TWIST_LIMIT, SJ_FIXED_ROTATION, SJ_FRAME_A, SJ_FRAME_B, SJ_HERTZ, SJ_LINEAR_IMPULSE,
-    SJ_LOWER_TWIST_ANGLE, SJ_LOWER_TWIST_IMPULSE, SJ_MAX_MOTOR_TORQUE, SJ_MOTOR_IMPULSE,
-    SJ_MOTOR_VELOCITY, SJ_ROTATION_MASS, SJ_SPRING_IMPULSE, SJ_SPRING_SOFTNESS, SJ_SWING_AXIS,
-    SJ_SWING_IMPULSE, SJ_SWING_MASS, SJ_TARGET_ROTATION, SJ_TWIST_JACOBIAN, SJ_TWIST_MASS,
-    SJ_UPPER_TWIST_ANGLE, SJ_UPPER_TWIST_IMPULSE, TY_DISTANCE, TY_MOTOR, TY_PARALLEL, TY_PRISMATIC,
-    TY_REVOLUTE, TY_SPHERICAL, TY_WELD, TY_WHEEL, WHJ_ANGULAR_IMPULSE, WHJ_DELTA_CENTER,
-    WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR, WHJ_ENABLE_STEERING, WHJ_ENABLE_STEERING_LIMIT,
-    WHJ_ENABLE_SUSPENSION_LIMIT, WHJ_ENABLE_SUSPENSION_SPRING, WHJ_FIXED_ROTATION, WHJ_FRAME_A,
-    WHJ_FRAME_B, WHJ_LINEAR_IMPULSE, WHJ_LOWER_STEERING_IMPULSE, WHJ_LOWER_STEERING_LIMIT,
-    WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_LOWER_SUSPENSION_LIMIT, WHJ_MAX_SPIN_TORQUE,
-    WHJ_MAX_STEERING_TORQUE, WHJ_SPIN_IMPULSE, WHJ_SPIN_MASS, WHJ_SPIN_SPEED,
+    DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE, DJ_UPPER_SPRING_FORCE, J_BODY_INDEX_A, J_BODY_INDEX_B,
+    J_CONSTRAINT_DAMPING, J_CONSTRAINT_HERTZ, J_CONSTRAINT_SOFTNESS, J_INV_IA, J_INV_IB,
+    J_INV_MASS_A, J_INV_MASS_B, MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ, MJ_ANGULAR_MASS,
+    MJ_ANGULAR_SPRING, MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE,
+    MJ_DELTA_CENTER, MJ_FRAME_A, MJ_FRAME_B, MJ_LINEAR_DAMPING_RATIO, MJ_LINEAR_HERTZ,
+    MJ_LINEAR_SPRING, MJ_LINEAR_SPRING_IMPULSE, MJ_LINEAR_VELOCITY, MJ_LINEAR_VELOCITY_IMPULSE,
+    MJ_MAX_SPRING_FORCE, MJ_MAX_SPRING_TORQUE, MJ_MAX_VELOCITY_FORCE, MJ_MAX_VELOCITY_TORQUE,
+    NULL_INDEX, PJ_ANGULAR_IMPULSE, PJ_DAMPING_RATIO, PJ_DELTA_CENTER, PJ_ENABLE, PJ_ENABLE_LIMIT,
+    PJ_ENABLE_MOTOR, PJ_ENABLE_SPRING, PJ_FIXED_ROTATION, PJ_FRAME_A, PJ_FRAME_B, PJ_HERTZ,
+    PJ_JOINT_AXIS, PJ_LOWER_IMPULSE, PJ_LOWER_TRANSLATION, PJ_MAX_MOTOR_FORCE, PJ_MOTOR_IMPULSE,
+    PJ_MOTOR_SPEED, PJ_PERP_AXIS_Y, PJ_PERP_AXIS_Z, PJ_PERP_IMPULSE, PJ_ROTATION_MASS,
+    PJ_SPRING_IMPULSE, PJ_SPRING_SOFTNESS, PJ_TARGET_TRANSLATION, PJ_UPPER_IMPULSE,
+    PJ_UPPER_TRANSLATION, PLJ_DAMPING_RATIO, PLJ_FIXED_ROTATION, PLJ_HERTZ, PLJ_MAX_TORQUE,
+    PLJ_PERP_AXIS_X, PLJ_PERP_AXIS_Y, PLJ_PERP_IMPULSE, PLJ_QUAT_A, PLJ_QUAT_B, PLJ_SOFTNESS,
+    RJ_AXIAL_MASS, RJ_DAMPING_RATIO, RJ_DELTA_CENTER, RJ_ENABLE, RJ_ENABLE_LIMIT, RJ_ENABLE_MOTOR,
+    RJ_ENABLE_SPRING, RJ_FIXED_ROTATION, RJ_FRAME_A, RJ_FRAME_B, RJ_HERTZ, RJ_LINEAR_IMPULSE,
+    RJ_LOWER_ANGLE, RJ_LOWER_IMPULSE, RJ_MAX_MOTOR_TORQUE, RJ_MOTOR_IMPULSE, RJ_MOTOR_SPEED,
+    RJ_PERP_AXIS_X, RJ_PERP_AXIS_Y, RJ_PERP_IMPULSE, RJ_ROTATION_AXIS_Z, RJ_SPRING_IMPULSE,
+    RJ_SPRING_SOFTNESS, RJ_TARGET_ANGLE, RJ_UPPER_ANGLE, RJ_UPPER_IMPULSE, SJ_CONE_ANGLE,
+    SJ_DAMPING_RATIO, SJ_DELTA_CENTER, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT, SJ_ENABLE_MOTOR,
+    SJ_ENABLE_SPRING, SJ_ENABLE_TWIST_LIMIT, SJ_FIXED_ROTATION, SJ_FRAME_A, SJ_FRAME_B, SJ_HERTZ,
+    SJ_LINEAR_IMPULSE, SJ_LOWER_TWIST_ANGLE, SJ_LOWER_TWIST_IMPULSE, SJ_MAX_MOTOR_TORQUE,
+    SJ_MOTOR_IMPULSE, SJ_MOTOR_VELOCITY, SJ_ROTATION_MASS, SJ_SPRING_IMPULSE, SJ_SPRING_SOFTNESS,
+    SJ_SWING_AXIS, SJ_SWING_IMPULSE, SJ_SWING_MASS, SJ_TARGET_ROTATION, SJ_TWIST_JACOBIAN,
+    SJ_TWIST_MASS, SJ_UPPER_TWIST_ANGLE, SJ_UPPER_TWIST_IMPULSE, TY_DISTANCE, TY_MOTOR,
+    TY_PARALLEL, TY_PRISMATIC, TY_REVOLUTE, TY_SPHERICAL, TY_WELD, TY_WHEEL, WHJ_ANGULAR_IMPULSE,
+    WHJ_DELTA_CENTER, WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR, WHJ_ENABLE_STEERING,
+    WHJ_ENABLE_STEERING_LIMIT, WHJ_ENABLE_SUSPENSION_LIMIT, WHJ_ENABLE_SUSPENSION_SPRING,
+    WHJ_FIXED_ROTATION, WHJ_FRAME_A, WHJ_FRAME_B, WHJ_LINEAR_IMPULSE, WHJ_LOWER_STEERING_IMPULSE,
+    WHJ_LOWER_STEERING_LIMIT, WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_LOWER_SUSPENSION_LIMIT,
+    WHJ_MAX_SPIN_TORQUE, WHJ_MAX_STEERING_TORQUE, WHJ_SPIN_IMPULSE, WHJ_SPIN_MASS, WHJ_SPIN_SPEED,
     WHJ_STEERING_DAMPING_RATIO, WHJ_STEERING_HERTZ, WHJ_STEERING_MASS, WHJ_STEERING_SOFTNESS,
     WHJ_STEERING_SPRING_IMPULSE, WHJ_SUSPENSION_DAMPING_RATIO, WHJ_SUSPENSION_HERTZ,
     WHJ_SUSPENSION_MASS, WHJ_SUSPENSION_SOFTNESS, WHJ_SUSPENSION_SPRING_IMPULSE,
@@ -128,7 +128,35 @@ fn write_velocity(state_col: Col<f32>, index: u32, v: Vec3, w: Vec3) {
 // --- base dispatch ----------------------------------------------------------------------------
 
 /// b3PrepareJoint: clamp the base constraint hertz, compute `constraintSoftness`, dispatch to the type.
-pub fn prepare(joints: Col<f32>, slot: usize, h: f32, inv_h: f32, enable_warm_starting: bool) {
+pub fn prepare(
+    joints: Col<f32>,
+    slot: usize,
+    sim: Col<f32>,
+    fin: Col<f32>,
+    h: f32,
+    inv_h: f32,
+    enable_warm_starting: bool,
+) {
+    // Box3D's per-type prepare reads both body sims, caches mass/inertia for subsequent solves,
+    // and derives anchors from their poses. The prepare stage precedes any body-column writes.
+    let a = get(joints, slot, J_BODY_INDEX_A).to_bits() as usize;
+    let b = get(joints, slot, J_BODY_INDEX_B).to_bits() as usize;
+    let sim_a = crate::body::read_sim(sim, a);
+    let sim_b = crate::body::read_sim(sim, b);
+    let fin_a = crate::body::read_fin(fin, a);
+    let fin_b = crate::body::read_fin(fin, b);
+    set(joints, slot, J_INV_MASS_A, sim_a.inv_mass);
+    set(joints, slot, J_INV_MASS_B, sim_b.inv_mass);
+    set_mat3(joints, slot, J_INV_IA, sim_a.inv_inertia_world);
+    set_mat3(joints, slot, J_INV_IB, sim_b.inv_inertia_world);
+    let pose = JointPose {
+        qa: sim_a.rotation,
+        qb: sim_b.rotation,
+        center_a: fin_a.center,
+        center_b: fin_b.center,
+        local_center_a: fin_a.local_center,
+        local_center_b: fin_b.local_center,
+    };
     set(joints, slot, J_EVENT, 0.0);
     let hertz = minf(get(joints, slot, J_CONSTRAINT_HERTZ), 0.25 * inv_h);
     let soft = make_soft(hertz, get(joints, slot, J_CONSTRAINT_DAMPING), h);
@@ -137,14 +165,14 @@ pub fn prepare(joints: Col<f32>, slot: usize, h: f32, inv_h: f32, enable_warm_st
     set(joints, slot, J_CONSTRAINT_SOFTNESS + 2, soft.impulse_scale);
 
     match joint_type(joints, slot) {
-        TY_DISTANCE => prepare_distance(joints, slot, h, enable_warm_starting),
-        TY_WELD => prepare_weld(joints, slot, h, enable_warm_starting),
-        TY_REVOLUTE => prepare_revolute(joints, slot, h, enable_warm_starting),
-        TY_SPHERICAL => prepare_spherical(joints, slot, h, enable_warm_starting),
-        TY_PRISMATIC => prepare_prismatic(joints, slot, h, enable_warm_starting),
-        TY_WHEEL => prepare_wheel(joints, slot, h, enable_warm_starting),
-        TY_MOTOR => prepare_motor(joints, slot, h, enable_warm_starting),
-        TY_PARALLEL => prepare_parallel(joints, slot, h, enable_warm_starting),
+        TY_DISTANCE => prepare_distance(joints, slot, pose, h, enable_warm_starting),
+        TY_WELD => prepare_weld(joints, slot, pose, h, enable_warm_starting),
+        TY_REVOLUTE => prepare_revolute(joints, slot, pose, h, enable_warm_starting),
+        TY_SPHERICAL => prepare_spherical(joints, slot, pose, h, enable_warm_starting),
+        TY_PRISMATIC => prepare_prismatic(joints, slot, pose, h, enable_warm_starting),
+        TY_WHEEL => prepare_wheel(joints, slot, pose, h, enable_warm_starting),
+        TY_MOTOR => prepare_motor(joints, slot, pose, h, enable_warm_starting),
+        TY_PARALLEL => prepare_parallel(joints, slot, pose, h, enable_warm_starting),
         _ => {} // TY_FILTER is a no-op (collision filter, no solve); no other awake type remains.
     }
 }
@@ -299,10 +327,15 @@ fn write_softness(joints: Col<f32>, slot: usize, field: usize, s: Softness) {
 // --- distance joint ---------------------------------------------------------------------------
 
 /// b3PrepareDistanceJoint (`src/distanceJoint.ts` `prepareDistanceJoint`). The two sim indices +
-/// invMass/invInertia are marshaled by TS; the pose fields feed the anchor computation.
-fn prepare_distance(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bool) {
+/// invMass/invInertia are cached by base prepare; the body-column pose feeds the anchors.
+fn prepare_distance(
+    joints: Col<f32>,
+    slot: usize,
+    pose: JointPose,
+    h: f32,
+    enable_warm_starting: bool,
+) {
     let base = read_base(joints, slot);
-    let pose = read_pose(joints, slot);
 
     let anchor_a = pose
         .qa
@@ -608,9 +641,14 @@ fn solve_distance(
 
 /// b3PrepareWeldJoint (`src/weldJoint.ts` `prepareWeldJoint`). Frames are world-space relative to each
 /// COM; a zero linear/angular hertz falls the corresponding spring back to the base constraint softness.
-fn prepare_weld(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bool) {
+fn prepare_weld(
+    joints: Col<f32>,
+    slot: usize,
+    pose: JointPose,
+    h: f32,
+    enable_warm_starting: bool,
+) {
     let base = read_base(joints, slot);
-    let pose = read_pose(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -827,9 +865,14 @@ fn solve_weld(
 
 /// b3PrepareRevoluteJoint (`src/revoluteJoint.ts` `prepareRevoluteJoint`). The hinge axis is body A's
 /// local z; the perp axes are the warm-start collinearity basis.
-fn prepare_revolute(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bool) {
+fn prepare_revolute(
+    joints: Col<f32>,
+    slot: usize,
+    pose: JointPose,
+    h: f32,
+    enable_warm_starting: bool,
+) {
     let base = read_base(joints, slot);
-    let pose = read_pose(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -1200,9 +1243,14 @@ fn solve_revolute(
 /// b3PrepareSphericalJoint (`src/sphericalJoint.ts` `prepareSphericalJoint`). The cone axis is body A's
 /// local z, the twist axis body B's; the swing axis / twist jacobian / masses are zero when their limit
 /// is off (matching the serial path's zero-defaulted fields, so the read in warm-start no-ops safely).
-fn prepare_spherical(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bool) {
+fn prepare_spherical(
+    joints: Col<f32>,
+    slot: usize,
+    pose: JointPose,
+    h: f32,
+    enable_warm_starting: bool,
+) {
     let base = read_base(joints, slot);
-    let pose = read_pose(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -1569,9 +1617,14 @@ fn solve_spherical(
 /// b3PreparePrismaticJoint (`src/prismaticJoint.ts`). The joint axis is body A's local x; perpY/perpZ are
 /// its local y/z. `rotationMass` is always inverted (unlike spherical); the axial effective mass is not
 /// prepared — it is recomputed fresh each solve step.
-fn prepare_prismatic(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bool) {
+fn prepare_prismatic(
+    joints: Col<f32>,
+    slot: usize,
+    pose: JointPose,
+    h: f32,
+    enable_warm_starting: bool,
+) {
     let base = read_base(joints, slot);
-    let pose = read_pose(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -1991,9 +2044,14 @@ fn steering_axis(matrix_a: Mat3, matrix_b: Mat3) -> Vec3 {
 
 /// b3PrepareWheelJoint (`src/wheelJoint.ts`). All three effective masses + both softnesses are written
 /// unconditionally, so no scratch needs zeroing when a feature is off.
-fn prepare_wheel(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bool) {
+fn prepare_wheel(
+    joints: Col<f32>,
+    slot: usize,
+    pose: JointPose,
+    h: f32,
+    enable_warm_starting: bool,
+) {
     let base = read_base(joints, slot);
-    let pose = read_pose(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -2664,9 +2722,14 @@ fn linear_k(m_a: f32, m_b: f32, inv_ia: Mat3, inv_ib: Mat3, r_a: Vec3, r_b: Vec3
 /// b3PrepareMotorJoint (`src/motorJoint.ts` `prepareMotorJoint`). Frames are world-space relative to
 /// each COM; the two springs resolve straight from the type hertz (no base-softness fallback). The C's
 /// `fixedRotation` is computed but never read by the motor solve, so it is not stored.
-fn prepare_motor(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bool) {
+fn prepare_motor(
+    joints: Col<f32>,
+    slot: usize,
+    pose: JointPose,
+    h: f32,
+    enable_warm_starting: bool,
+) {
     let base = read_base(joints, slot);
-    let pose = read_pose(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -2930,9 +2993,14 @@ fn perp_axes(q_a: Quat, rel_q: Quat) -> (Vec3, Vec3) {
 
 /// b3PrepareParallelJoint (`src/parallelJoint.ts` `prepareParallelJoint`). Unlike motor, `fixedRotation`
 /// IS read by the solve, so it is stored.
-fn prepare_parallel(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bool) {
+fn prepare_parallel(
+    joints: Col<f32>,
+    slot: usize,
+    pose: JointPose,
+    h: f32,
+    enable_warm_starting: bool,
+) {
     let base = read_base(joints, slot);
-    let pose = read_pose(joints, slot);
 
     let fixed_rotation = base.inv_ia.add(base.inv_ib).det() < 1000.0 * FLT_MIN;
 

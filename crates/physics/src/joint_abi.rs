@@ -6,12 +6,12 @@
 //!
 //! **The record is one f32 column, slot-scalar (indexed one joint at a time), keyed by a flat
 //! per-color-concatenated joint slot** — box3d's `jointPrepareSpans` order. Unlike contacts there is
-//! no separate persistent store: joints are few, so the whole record (config + the warm-start impulses
-//! + the per-step prepared scratch) marshals in each step and reads back out (`src/jointcolumns.ts`),
+//! no separate persistent store: config and warm-start impulses marshal in each step; prepare writes
+//! the scratch and only persistent impulses read back out (`src/jointcolumns.ts`),
 //! and the impulses live authoritatively TS-side (`JointSim.data`). The column is a per-step transient
 //! arena column, reserved pre-solve like the wide/mesh columns.
 //!
-//! Three integer fields (type, the two resident state indices) ride the f32 column through
+//! Integer fields (type, state indices and body-column indices) ride the f32 column through
 //! `f32::to_bits`/`from_bits`, matching the manifold pool's `pointCount`/`featureId` pattern.
 //!
 //! ## The template (joints-in-kernel 3c copies)
@@ -20,10 +20,8 @@
 //! joint type; the payload is the per-type union (box3d's `b3JointSim` union), reinterpreted by
 //! `J_TYPE`. Adding a joint type in 3c: give it a `prepare`/`warm_start`/`solve` over the header + its
 //! own payload reading; grow `JOINT_STRIDE` if its payload is wider than the current max. The header
-//! carries everything `prepare` needs from the bodies (marshaled by TS each step: the two sim indices,
-//! invMass/invInertiaWorld, and the pose fields `prepare` derives the anchors from — a body's world
-//! rotation, local center, and center) plus the base constraint frequency + the base-computed
-//! `constraintSoftness`. The payload carries the type config, the persistent impulses, and the prepared
+//! carries state and body-column indices, the mass/inertia cached by prepare, the local joint frames,
+//! the base constraint frequency and the base-computed `constraintSoftness`. The payload carries the type config, the persistent impulses, and the prepared
 //! scratch (`prepare` writes, `warm_start`/`solve` read).
 
 use crate::col::Col;
@@ -61,18 +59,10 @@ pub const J_INV_MASS_B: usize = 4;
 pub const J_INV_IA: usize = 5;
 /// Body B world inverse inertia (mat3: 14..22).
 pub const J_INV_IB: usize = 14;
-/// Body A world rotation quaternion (23..26) — `prepare` rotates the local anchor by it.
-pub const J_QA: usize = 23;
-/// Body A local center of mass (27..29).
-pub const J_LOCAL_CENTER_A: usize = 27;
-/// Body A center (world COM, 30..32) — `prepare`'s `deltaCenter`.
-pub const J_CENTER_A: usize = 30;
-/// Body B world rotation quaternion (33..36).
-pub const J_QB: usize = 33;
-/// Body B local center of mass (37..39).
-pub const J_LOCAL_CENTER_B: usize = 37;
-/// Body B center (world COM, 40..42).
-pub const J_CENTER_B: usize = 40;
+/// Body A sim/fin column index, including static bodies staged after the awake prefix (u32 bits).
+pub const J_BODY_INDEX_A: usize = 23;
+/// Body B sim/fin column index (u32 bits).
+pub const J_BODY_INDEX_B: usize = 33;
 /// Body-A local joint frame (Transform: p 43..45, q 46..49) — the anchor point + frame in A's body space.
 pub const J_LOCAL_FRAME_A: usize = 43;
 /// Body-B local joint frame (Transform: p 50..52, q 53..56).
@@ -491,7 +481,7 @@ pub struct JointBase {
     pub local_frame_b: Transform,
 }
 
-/// The body-pose inputs `prepare` derives the anchors from (marshaled by TS; awake or static alike).
+/// The body-column poses prepare derives the anchors from.
 pub struct JointPose {
     pub qa: Quat,
     pub local_center_a: Vec3,
@@ -519,19 +509,6 @@ pub fn read_base(col: Col<f32>, slot: usize) -> JointBase {
             p: read_vec3(col, o + J_LOCAL_FRAME_B),
             q: read_quat(col, o + J_LOCAL_FRAME_B + 3),
         },
-    }
-}
-
-#[inline]
-pub fn read_pose(col: Col<f32>, slot: usize) -> JointPose {
-    let o = slot * JOINT_STRIDE;
-    JointPose {
-        qa: read_quat(col, o + J_QA),
-        local_center_a: read_vec3(col, o + J_LOCAL_CENTER_A),
-        center_a: read_vec3(col, o + J_CENTER_A),
-        qb: read_quat(col, o + J_QB),
-        local_center_b: read_vec3(col, o + J_LOCAL_CENTER_B),
-        center_b: read_vec3(col, o + J_CENTER_B),
     }
 }
 

@@ -1,8 +1,5 @@
-// Marshal jointed scenes into the kernel joint column (kernel/src/joint_abi.rs) and read the solved
-// impulses back. Joints are few, so — unlike contacts — the whole record marshals in each step and
-// reads back out; the impulses live authoritatively in `JointSim.data`. The kernel derives the anchors
-// + softness in `prepare`, so this only copies the raw body-sim inputs + config + the persistent
-// impulses (no arithmetic — bit-exact by construction against the serial prepare's identical inputs).
+// Marshal joint configuration and persistent impulses into the kernel joint column and read solved
+// impulses back to `JointSim.data`. Prepare reads mass, inertia and pose from the body columns.
 //
 // All eight solver joint types are wired. Filter joints carry a header-only no-op
 // record (a collision filter has no solve), so every awake joint type is kernel-resident and
@@ -10,7 +7,7 @@
 
 import { NULL_INDEX } from "../common/array";
 import { OVERFLOW_INDEX, SetType } from "../common/constants";
-import type { Mat3, Quat, Transform, Vec3 } from "../common/math";
+import type { Quat, Transform, Vec3 } from "../common/math";
 import type { SolveLayout } from "../solver/contactsolver";
 import type { DistanceJoint } from "../solver/distanceJoint";
 import { type JointSim, JointType } from "../solver/joint";
@@ -41,23 +38,14 @@ import {
     DJ_MOTOR_SPEED,
     DJ_UPPER_IMPULSE,
     DJ_UPPER_SPRING_FORCE,
-    FIN_STRIDE,
-    J_CENTER_A,
-    J_CENTER_B,
+    J_BODY_INDEX_A,
+    J_BODY_INDEX_B,
     J_CONSTRAINT_DAMPING,
     J_CONSTRAINT_HERTZ,
     J_EVENT,
     J_FORCE_THRESHOLD,
-    J_INV_IA,
-    J_INV_IB,
-    J_INV_MASS_A,
-    J_INV_MASS_B,
-    J_LOCAL_CENTER_A,
-    J_LOCAL_CENTER_B,
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
-    J_QA,
-    J_QB,
     J_SIM_INDEX_A,
     J_SIM_INDEX_B,
     J_TORQUE_THRESHOLD,
@@ -120,7 +108,6 @@ import {
     RJ_TARGET_ANGLE,
     RJ_UPPER_ANGLE,
     RJ_UPPER_IMPULSE,
-    SIM_STRIDE,
     SJ_CONE_ANGLE,
     SJ_DAMPING_RATIO,
     SJ_ENABLE,
@@ -206,59 +193,12 @@ function writeQuat(f32: Float32Array, o: number, q: Quat): void {
     f32[o + 3] = q.s;
 }
 
-function writeMat3(f32: Float32Array, o: number, m: Mat3): void {
-    f32[o] = m.cx.x;
-    f32[o + 1] = m.cx.y;
-    f32[o + 2] = m.cx.z;
-    f32[o + 3] = m.cy.x;
-    f32[o + 4] = m.cy.y;
-    f32[o + 5] = m.cy.z;
-    f32[o + 6] = m.cz.x;
-    f32[o + 7] = m.cz.y;
-    f32[o + 8] = m.cz.z;
-}
-
 function writeTransform(f32: Float32Array, o: number, t: Transform): void {
     writeVec3(f32, o, t.p);
     writeQuat(f32, o + 3, t.q);
 }
 
-function writeBody(
-    world: WorldState,
-    bodyId: number,
-    f32: Float32Array,
-    base: number,
-    a: boolean,
-): void {
-    const body = world.bodies[bodyId];
-    const sim = world.solverSets[body.setIndex].bodySims[body.localIndex];
-    const inertia = base + (a ? J_INV_IA : J_INV_IB);
-    const rotation = base + (a ? J_QA : J_QB);
-    const localCenter = base + (a ? J_LOCAL_CENTER_A : J_LOCAL_CENTER_B);
-    const center = base + (a ? J_CENTER_A : J_CENTER_B);
-    f32[base + (a ? J_INV_MASS_A : J_INV_MASS_B)] = sim.invMass;
-    if (body.setIndex === SetType.Awake) {
-        const sf = world.bodyStore.simF;
-        const ff = world.bodyStore.finF;
-        const so = body.localIndex * SIM_STRIDE;
-        const fo = body.localIndex * FIN_STRIDE;
-        for (let i = 0; i < 9; i++) f32[inertia + i] = sf[so + 19 + i];
-        for (let i = 0; i < 4; i++) f32[rotation + i] = sf[so + 28 + i];
-        for (let i = 0; i < 3; i++) {
-            f32[center + i] = ff[fo + i];
-            f32[localCenter + i] = ff[fo + 3 + i];
-        }
-    } else {
-        writeMat3(f32, inertia, sim.invInertiaWorld);
-        writeQuat(f32, rotation, sim.transform.q);
-        writeVec3(f32, localCenter, sim.localCenter);
-        writeVec3(f32, center, sim.center);
-    }
-}
-
-/** Write one joint's full record into slot `slot` of the flat joint column. Reads the two bodies' sim
- * data (invMass/invInertia + pose) straight from their solver sets — the same fields the serial
- * prepare reads — and the type config + persistent impulses from the sim payload. */
+/** Write joint configuration, body-column indices and persistent impulses into slot `slot`. */
 function writeRecord(
     world: WorldState,
     f32: Float32Array,
@@ -277,8 +217,11 @@ function writeRecord(
     u32[base + J_SIM_INDEX_B] =
         bodyB.setIndex === SetType.Awake ? bodyB.localIndex : NULL_INDEX >>> 0;
 
-    writeBody(world, sim.bodyIdA, f32, base, true);
-    writeBody(world, sim.bodyIdB, f32, base, false);
+    const awakeCount = world.solverSets[SetType.Awake].bodySims.length;
+    u32[base + J_BODY_INDEX_A] =
+        bodyA.setIndex === SetType.Awake ? bodyA.localIndex : awakeCount + bodyA.localIndex;
+    u32[base + J_BODY_INDEX_B] =
+        bodyB.setIndex === SetType.Awake ? bodyB.localIndex : awakeCount + bodyB.localIndex;
     writeTransform(f32, base + J_LOCAL_FRAME_A, sim.localFrameA);
     writeTransform(f32, base + J_LOCAL_FRAME_B, sim.localFrameB);
     f32[base + J_CONSTRAINT_HERTZ] = sim.constraintHertz;
@@ -446,6 +389,16 @@ export function marshalJoints(world: WorldState, layout: SolveLayout, cols: Colu
     const f32 = cols.joint;
     const u32 = cols.jointU;
     const span = cols.colorSpan;
+
+    // Awake joints only connect awake or static bodies. Static sims are not resident; stage them
+    // once per body in the unused tail, outside the active prefix integrated by the solver.
+    // The body region is sized for the total-body high-water, so both sets fit without a reserve.
+    if (countJoints(world, layout) > 0) {
+        const awakeCount = world.solverSets[SetType.Awake].bodySims.length;
+        const staticSims = world.solverSets[SetType.Static].bodySims;
+        for (let i = 0; i < staticSims.length; i++)
+            world.bodyStore.writeSim(awakeCount + i, staticSims[i]);
+    }
 
     let slot = 0;
     for (let i = 0; i < layout.colors.length; ++i) {

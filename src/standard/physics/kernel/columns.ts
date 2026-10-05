@@ -51,8 +51,8 @@ export const WIDE_META_STRIDE = 5;
 export const COLOR_SPAN_STRIDE = 6;
 
 // Joint record (kernel/src/joint_abi.rs). One flat f32 record per joint slot: a common header (the
-// two resident state indices via u32 bits, invMass/invInertia, the pose fields prepare derives anchors
-// from, the local frames, the base constraint frequency + softness) then a per-type payload (distance's
+// state and body-column indices via u32 bits, cached invMass/invInertia, the local frames,
+// the base constraint frequency + softness) then a per-type payload (distance's
 // config, its persistent impulses, and prepare's scratch). Mirror of `joint_abi.rs` — keep in sync.
 export const J_FORCE_THRESHOLD = 126;
 export const J_TORQUE_THRESHOLD = 127;
@@ -65,12 +65,8 @@ export const J_INV_MASS_A = 3;
 export const J_INV_MASS_B = 4;
 export const J_INV_IA = 5; // mat3 5..13
 export const J_INV_IB = 14; // mat3 14..22
-export const J_QA = 23; // quat 23..26
-export const J_LOCAL_CENTER_A = 27; // 27..29
-export const J_CENTER_A = 30; // 30..32
-export const J_QB = 33; // quat 33..36
-export const J_LOCAL_CENTER_B = 37; // 37..39
-export const J_CENTER_B = 40; // 40..42
+export const J_BODY_INDEX_A = 23; // sim/fin column index (including staged static bodies)
+export const J_BODY_INDEX_B = 33; // sim/fin column index
 export const J_LOCAL_FRAME_A = 43; // Transform p 43..45 q 46..49
 export const J_LOCAL_FRAME_B = 50; // Transform p 50..52 q 53..56
 export const J_CONSTRAINT_HERTZ = 57;

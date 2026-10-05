@@ -8,17 +8,79 @@ use serde_json::Value;
 use shallot_physics::body::flags::DYNAMIC;
 use shallot_physics::body::{write_state, State, STATE_STRIDE};
 use shallot_physics::col::Col;
-use shallot_physics::joint::{prepare, solve, warm_start};
+use shallot_physics::joint::{prepare as kernel_prepare, solve, warm_start};
+
+// The fixture adapter's pose slots are not part of the solver ABI.
+const J_QA: usize = 23;
+const J_LOCAL_CENTER_A: usize = 27;
+const J_CENTER_A: usize = 30;
+const J_QB: usize = 33;
+const J_LOCAL_CENTER_B: usize = 37;
+const J_CENTER_B: usize = 40;
+
+// Adapt the frozen vector layout into body columns; the solver never consumes its copied pose.
+fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
+    use shallot_physics::body::{FIN_STRIDE, SIM_STRIDE};
+    use shallot_physics::joint_abi::{set, J_BODY_INDEX_A, J_BODY_INDEX_B};
+    let mut sim = [0.0; 2 * SIM_STRIDE];
+    let mut fin = [0.0; 2 * FIN_STRIDE];
+    for (i, mass, inertia, rotation, center, local_center) in [
+        (
+            0,
+            J_INV_MASS_A,
+            J_INV_IA,
+            J_QA,
+            J_CENTER_A,
+            J_LOCAL_CENTER_A,
+        ),
+        (
+            1,
+            J_INV_MASS_B,
+            J_INV_IB,
+            J_QB,
+            J_CENTER_B,
+            J_LOCAL_CENTER_B,
+        ),
+    ] {
+        sim[i * SIM_STRIDE] = get(jc, slot, mass);
+        for k in 0..9 {
+            sim[i * SIM_STRIDE + 19 + k] = get(jc, slot, inertia + k);
+        }
+        for k in 0..4 {
+            sim[i * SIM_STRIDE + 28 + k] = get(jc, slot, rotation + k);
+        }
+        for k in 0..3 {
+            fin[i * FIN_STRIDE + k] = get(jc, slot, center + k);
+            fin[i * FIN_STRIDE + 3 + k] = get(jc, slot, local_center + k);
+        }
+    }
+    // Poison the old mass/inertia cache: every vector must derive these values from body columns.
+    for field in J_INV_MASS_A..J_INV_IB + 9 {
+        set(jc, slot, field, f32::NAN);
+    }
+    set(jc, slot, J_BODY_INDEX_A, f32::from_bits(0));
+    set(jc, slot, J_BODY_INDEX_B, f32::from_bits(1));
+    unsafe {
+        kernel_prepare(
+            jc,
+            slot,
+            Col::of(&mut sim),
+            Col::of(&mut fin),
+            h,
+            inv_h,
+            warm,
+        );
+    }
+}
 use shallot_physics::joint_abi::{
     get, get_vec3, DJ_ANCHOR_A, DJ_ANCHOR_B, DJ_AXIAL_MASS, DJ_DAMPING_RATIO, DJ_DELTA_CENTER,
     DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT, DJ_ENABLE_MOTOR, DJ_ENABLE_SPRING, DJ_HERTZ,
     DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE, DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH,
     DJ_MAX_MOTOR_FORCE, DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE, DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE,
-    DJ_UPPER_SPRING_FORCE, JOINT_STRIDE, J_CENTER_A, J_CENTER_B, J_CONSTRAINT_DAMPING,
-    J_CONSTRAINT_HERTZ, J_CONSTRAINT_SOFTNESS, J_INV_IA, J_INV_IB, J_INV_MASS_A, J_INV_MASS_B,
-    J_LOCAL_CENTER_A, J_LOCAL_CENTER_B, J_LOCAL_FRAME_A, J_LOCAL_FRAME_B, J_QA, J_QB,
-    J_SIM_INDEX_A, J_SIM_INDEX_B, J_TYPE, MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ,
-    MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE,
+    DJ_UPPER_SPRING_FORCE, JOINT_STRIDE, J_CONSTRAINT_DAMPING, J_CONSTRAINT_HERTZ,
+    J_CONSTRAINT_SOFTNESS, J_INV_IA, J_INV_IB, J_INV_MASS_A, J_INV_MASS_B, J_LOCAL_FRAME_A,
+    J_LOCAL_FRAME_B, J_SIM_INDEX_A, J_SIM_INDEX_B, J_TYPE, MJ_ANGULAR_DAMPING_RATIO,
+    MJ_ANGULAR_HERTZ, MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE,
     MJ_LINEAR_DAMPING_RATIO, MJ_LINEAR_HERTZ, MJ_LINEAR_SPRING_IMPULSE, MJ_LINEAR_VELOCITY,
     MJ_LINEAR_VELOCITY_IMPULSE, MJ_MAX_SPRING_FORCE, MJ_MAX_SPRING_TORQUE, MJ_MAX_VELOCITY_FORCE,
     MJ_MAX_VELOCITY_TORQUE, NULL_INDEX, PJ_ANGULAR_IMPULSE, PJ_DAMPING_RATIO, PJ_ENABLE,

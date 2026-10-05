@@ -245,7 +245,8 @@ export class BodyStore extends KernelViews {
     }
 
     /** Marshal a `BodySim` into the resident sim/fin/sim2 columns at record `i` — the object→view write
-     * on a body entering the awake set (create / wake / transfer), not a per-step cost. `s` may be a
+     * on a body entering the awake set (create / wake / transfer). Joint prepare also stages static
+     * bodies in the unused tail before a solve. `s` may be a
      * plain `BodySim` (from a sleeping/static set) or already a view (reads its getters either way).
      * Field order mirrors read_sim / read_fin (kernel/src/body.rs) + the sim2 offsets (columns.ts). */
     writeSim(i: number, s: BodySim): void {
