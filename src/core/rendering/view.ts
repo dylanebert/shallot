@@ -85,16 +85,9 @@ export const linearToSrgb3 = tgpu.fn(
  * the view; a composite `textureLoad`s it and writes the result into `present`. `present` is the swapchain
  * backbuffer, as a render attachment in the base canvas format (not sRGB). The final pass
  * writes it, encoding linear→sRGB once. The split from `framebuffer` exists so postfx
- * has a rendered color to read: writing the swapchain in place leaves nothing to read back. `depth` + `pickingId`
- * are core's opt-in **prepass lanes**, each gated by a per-camera marker (`DepthPrepass` / `PickingPrepass`).
- * `depth` is the camera's single-sample depth, *stored* + published by the prepass only when the camera
- * carries `DepthPrepass`, read by screen-space consumers (AO, fog). `null` otherwise (a tag-only camera tests
- * depth but discards it). `pickingId` is the screen-space surface-tag (object-id) target, written by the same
- * prepass for a camera carrying `PickingPrepass`: the front-most opaque fragment's surface-authored tag per pixel
- * (`PICKING_ID_NONE` where no surface owns it, defaulting to the entity's eid for an instanced surface). It's
- * the `GPUTexture` (not a view, unlike `depth` / `framebuffer`) because its consumers need the texture:
- * a hover readback `copyTextureToBuffer`s the cursor pixel, and a view can't be turned back into a
- * texture; an outline pass `createView`s it to sample. `null` until the prepass has drawn the camera. A
+ * has a rendered color to read: writing the swapchain in place leaves nothing to read back.
+ * `depth` is the camera's single-sample depth, stored and published by the prepass only when the camera
+ * carries `DepthPrepass`, read by screen-space consumers (AO, fog); otherwise it is null. A
  * canvas-bound view (`attachCanvas`) renders to that canvas; a canvas-less view (`attachView`) has
  * no `canvas` / `context` / `observer` and a null `framebuffer` / `present`. It still takes a cull slot
  * (a shadow light's off-screen camera renders to its own target, not the screen). Every view
@@ -124,7 +117,6 @@ export interface View {
     framebufferFormat?: GPUTextureFormat;
     present: GPUTextureView | null;
     depth: GPUTextureView | null;
-    pickingId: GPUTexture | null;
     slot: number;
     observer: ResizeObserver | null;
     camera: EntityRef;
@@ -250,7 +242,6 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
         framebuffer: null,
         present: null,
         depth: null,
-        pickingId: null,
         slot: 0,
         observer: null!,
         camera: world.ref(eid),
@@ -411,7 +402,6 @@ export function attachView(world: World, eid: number): void {
         framebuffer: null,
         present: null,
         depth: null,
-        pickingId: null,
         slot: 0,
         observer: null,
         camera: world.ref(eid),

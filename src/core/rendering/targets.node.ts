@@ -26,7 +26,6 @@ import {
     captureTexture,
     DepthPrepass,
     DirectionalLight,
-    PickingPrepass,
     PointLight,
     SpotLight,
     Tonemapping,
@@ -42,7 +41,7 @@ const subjects = gpuApps(import.meta.path, [
     },
 ]);
 
-test("view targets preserve non-uniform lit background, fog and outline frames for every AA and lane set", async () => {
+test("view targets preserve non-uniform lit background, fog and outline frames for every AA and depth-prepass setting", async () => {
     const { world } = subjects()[0];
     let renderPasses = 0;
     const device = world.gpu.device;
@@ -117,22 +116,16 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     const frames: Uint8ClampedArray[][] = [[], []];
     for (const aa of [0, 1]) {
         world.storage(Camera).antialias.set(camera, aa);
-        for (const lanes of [0, 1, 2, 3]) {
-            for (const [bit, marker] of [
-                [1, DepthPrepass],
-                [2, PickingPrepass],
-            ] as const) {
-                if (lanes & bit) {
-                    if (!world.has(camera, marker)) world.add(camera, marker);
-                } else world.remove(camera, marker);
-            }
+        for (const depth of [0, 1]) {
+            if (depth) world.add(camera, DepthPrepass);
+            else world.remove(camera, DepthPrepass);
             world.gpu.device.pushErrorScope("validation");
             world.step(0);
             renderPasses = 0;
             world.step(0);
-            expect(renderPasses).toBe(lanes ? 9 : 8);
+            expect(renderPasses).toBe(depth ? 9 : 8);
             const { rgba } = await captureTexture(world, camera);
-            frames[aa][lanes] = rgba;
+            frames[aa][depth] = rgba;
             expect(await world.gpu.device.popErrorScope()).toBeNull();
             const colors = new Set<string>();
             let outlinePixels = 0;
@@ -144,16 +137,16 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
             expect(outlinePixels).toBeGreaterThan(20);
             if (directory) {
                 await mkdir(directory, { recursive: true });
-                const path = `${directory}/${aa}-${lanes}.rgba`;
+                const path = `${directory}/${aa}-${depth}.rgba`;
                 if (process.env.SHALLOT_RECORD_TARGET_FRAMES) await writeFile(path, rgba);
                 else expect(Buffer.from(rgba).equals(await readFile(path))).toBe(true);
             }
             console.log(
-                `targets AA=${aa} lanes=${lanes}: ${colors.size} distinct RGB values; ${outlinePixels} green outline pixels; ${renderPasses} render passes${directory ? (process.env.SHALLOT_RECORD_TARGET_FRAMES ? "; frame recorded" : "; matches parent bytes") : ""}`,
+                `targets AA=${aa} depth=${depth}: ${colors.size} distinct RGB values; ${outlinePixels} green outline pixels; ${renderPasses} render passes${directory ? (process.env.SHALLOT_RECORD_TARGET_FRAMES ? "; frame recorded" : "; matches parent bytes") : ""}`,
             );
         }
     }
-    for (let lanes = 0; lanes < 4; lanes++) {
-        expect(Buffer.from(frames[0][lanes]).equals(Buffer.from(frames[1][lanes]))).toBe(false);
+    for (let depth = 0; depth < 2; depth++) {
+        expect(Buffer.from(frames[0][depth]).equals(Buffer.from(frames[1][depth]))).toBe(false);
     }
 });

@@ -3,28 +3,19 @@ import { Camera } from "./camera";
 import { RenderContext } from "./render";
 import { BeginFrameSystem, OverlaySystem, RenderingPlugin } from "./substrate";
 import {
-    type ColorLane,
     colorPassDescriptor,
     colorTargets,
     DepthPrepass,
     disposeViewTargets,
     initializeViewTargets,
-    PickingPrepass,
     prepassDescriptor,
-    prepassLanes,
 } from "./targets";
 import { TonemappingPlugin, TonemappingSystem } from "./tonemapping-state";
 import { type View, Views } from "./view";
 
 /** Records into a core-owned pass. Records must not end the pass. Each phase runs renderers in the order they are pushed to `RenderPhases`; plugins push in `initialize`, which runs in the composition's dependency order. */
 export interface PhaseRenderer {
-    prepass?(
-        world: World,
-        eid: number,
-        view: View,
-        pass: GPURenderPassEncoder,
-        lanes: ColorLane[],
-    ): void;
+    prepass?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
     opaque?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
     transparent?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
 }
@@ -37,13 +28,11 @@ export const PrepassSystem: System = {
         if (!encoder) return;
         for (const [eid, view] of world.resource(Views)) {
             if (!view.framebuffer) continue;
-            const requested = prepassLanes(world, eid, view);
-            if (!requested) continue;
-            const pass = encoder.beginRenderPass(
-                prepassDescriptor(world, eid, view, requested.lanes, requested.storeDepth),
-            );
+            view.depth = null;
+            if (!world.has(eid, DepthPrepass)) continue;
+            const pass = encoder.beginRenderPass(prepassDescriptor(world, eid, view));
             for (const renderer of world.resource(RenderPhases))
-                renderer.prepass?.(world, eid, view, pass, requested.lanes);
+                renderer.prepass?.(world, eid, view, pass);
             pass.end();
         }
     },
@@ -76,12 +65,12 @@ export const MainPassSystem: System = {
     },
 };
 
-/** Optional shared view pipeline: clear, targets, prepass lanes and opaque/transparent records. */
+/** Optional shared view pipeline: clear, targets, depth prepass and opaque/transparent records. */
 export const CorePipelinePlugin: Plugin = {
     name: "CorePipeline",
     dependencies: [RenderingPlugin],
     systems: [PrepassSystem, MainPassSystem, TonemappingSystem],
-    components: [...(TonemappingPlugin.components ?? []), DepthPrepass, PickingPrepass],
+    components: [...(TonemappingPlugin.components ?? []), DepthPrepass],
     initialize(world) {
         initializeViewTargets(world);
         world.resource(RenderPhases);

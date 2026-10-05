@@ -298,13 +298,6 @@ export type FsFn<V extends Record<string, AnyWgslData> = Record<string, never>> 
     (ctx: ReturnType<typeof fsCtxSchema<V>>) => d.Vec4f
 >;
 
-/** a surface's optional id-lane hook: the same fragment context as {@link FsFn}, plus the
- * renderer's default (`eid` for an instanced surface, the no-surface sentinel otherwise), returning
- * the u32 written to `view.pickingId`. */
-export type PickingIdFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
-    (ctx: ReturnType<typeof fsCtxSchema<V>>, defaultTag: d.U32) => d.U32
->;
-
 /**
  * a surface authored against the contract: TGSL fns as the code (a synthesized `surfaceLayout()` is what
  * lets `vs`/`fs` close over `layout.$.name`, the accessor chicken-egg {@link surfaceLayout} solves). Structural
@@ -328,9 +321,6 @@ export interface Surface<
     vs?: VsFn<V>;
     /** fragment shader returning linear HDR RGBA. */
     fs: FsFn<V>;
-    /** optional id-lane shader evaluated by the tag prepass. It receives the fragment context and the
-     * renderer's default tag, and replaces the color fragment function for that pass. */
-    tag?: PickingIdFn<V>;
     /** alpha blends without depth writes; clip retains opaque depth/shadow routing and honors any
      * `discard` authored by {@link fs}. */
     blend?: "alpha" | "clip";
@@ -385,7 +375,6 @@ export function registerSurface<
 >(world: World, spec: Surface<B, V>): number {
     assertOwnFn(`registerSurface "${spec.name}" vs`, spec.vs);
     assertOwnFn(`registerSurface "${spec.name}" fs`, spec.fs);
-    assertOwnFn(`registerSurface "${spec.name}" tag`, spec.tag);
     return world.resource(surfacesKey).register(spec as Surface);
 }
 

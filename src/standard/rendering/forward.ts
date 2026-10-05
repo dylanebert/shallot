@@ -24,9 +24,8 @@ import { initializeDrawState } from "./registry";
 // submission spine, primary visibility only) with sun shadows sampled inline in the FS, matching Bevy's
 // clustered-forward shape. One renderer, one plugin (`StandardRenderingPlugin`), no layers behind seams: one color
 // pass (opaque draws then `blend` draws composited over them in a single `beginRenderPass`), an
-// opt-in single-sample **prepass** emitting per-camera lanes (the `PickingPrepass` / `DepthPrepass` markers, Bevy's
-// `DepthPrepass` / `NormalPrepass` shape), and sun shadows (shadowMapsEnabled on a directional
-// light) are gated by camera and light data; core owns the view targets and lane markers —
+// opt-in single-sample depth prepass (`DepthPrepass`), and sun shadows (shadowMapsEnabled on a directional
+// light) are gated by camera and light data; core owns the view targets and depth marker —
 // not composed plugins coordinating through a singleton.
 //
 // Sun shadows: the CPU/ECS half (the off-screen light camera + placement) lives in ./shadows; the GPU half
@@ -47,9 +46,7 @@ import type { View } from "../../core/rendering";
 import {
     BeginFrameSystem,
     Camera,
-    type ColorLane,
     DEPTH_FORMAT,
-    laneKey,
     RenderContext,
     SAMPLE_COUNT,
 } from "../../core/rendering";
@@ -164,8 +161,7 @@ function createStandardRendererState(): StandardRendererState {
 
 /**
  * marker selecting StandardRenderer as the active renderer on a Camera entity. A camera carrying it renders through
- * standard's opaque and transparent records, plus core's opt-in prepass lanes requested by
- * {@link PickingPrepass} and {@link DepthPrepass}.
+ * standard's opaque and transparent records, plus core's opt-in depth prepass.
  */
 export const StandardRenderer = component("StandardRenderer", {});
 
@@ -250,7 +246,7 @@ export type Recorded = RecordedSurface;
 type FrameDraw = { draw: Draw; r: Recorded };
 
 /**
- * the color + transparent + per-lane-set prepass pipelines and the bind-group state standard records a draw
+ * the color, transparent and depth prepass pipelines and the bind-group state standard records a draw
  * with, or null to skip it. All pipelines share one bind group (same group-0 layout). A surface with
  * no compiled pipeline isn't standard's (silent skip); a missing mesh or unpublished binding warns once.
  * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
@@ -453,11 +449,6 @@ function recordSurface(
             surface.blend === "alpha"
                 ? null
                 : surfaceGroup(world, resolved.values, depthLayout, depthVertices),
-        // an authored tag receives the full fragment context (requested uv/localPos + custom varyings),
-        // so its tag pair reads the main stream even while an opaque depth-only pass stays compact
-        tag: surface.tag
-            ? surfaceGroup(world, resolved.values, surface.layout, mesh.vertices)
-            : null,
         point:
             t.point && pointList
                 ? surfaceGroup(world, resolved.values, depthLayout, depthVertices, {
@@ -510,39 +501,27 @@ function resolveDraw(world: World, draw: Draw, capacity: number): void {
     if (item) _standardRendererState.frameDraws[_standardRendererState.frameCount++] = item;
 }
 
-/**
- * Records standard's prepass bundles into core's single-sample pass,
- * emitting the camera's opt-in lanes into core's targets (cleared + `less` + write, so only the
- * front-most opaque / `clip` fragment writes each lane); that depth is *stored* + published as
- * `view.depth` when the camera carries {@link DepthPrepass}, otherwise discarded (TBDR: it stays in tile memory,
- * never reaching main RAM). Each requested color lane is one MRT attachment cleared to the lane's clear
- * value and published onto `view.<lane>` (today the id lane → `view.pickingId`). Binds group 0 only: no shadow
- * map, no lighting. `alpha` surfaces are excluded (a transparent pixel has no single owner). **One
- * prepass regardless of lane count**: the lane set selects the pipeline + the attachment list, not the
- * pass count; an empty draw list still clears every lane
- */
+/** Records opaque and clipped surfaces into core's single-sample depth prepass.
+ * Alpha surfaces write no depth; an empty draw list still clears the depth target. */
 function renderPrepass(
     world: World,
     eid: number,
     view: View,
     items: FrameDraw[],
     count: number,
-    lanes: ColorLane[],
     pass: GPURenderPassEncoder,
 ): void {
     const _render = world.resource(RenderContext);
     const _standardRendererState = world.resource(standardRendererStateKey);
 
     if (!_render.encoder || !view.framebuffer) return;
-    const key = laneKey(lanes);
 
     let draws = 0;
-    const tagLane = lanes.some((lane) => lane.name === "tag");
     const shadow = shadowGroup(world);
     for (let i = 0; i < count; i++) {
         const { draw, r } = items[i];
-        const pipe = r.t.prepass.get(key);
-        const group = tagLane ? (r.g.tag ?? r.g.depth) : r.g.depth;
+        const pipe = r.t.prepass;
+        const group = r.g.depth;
         if (pipe && group) {
             const step = bundleDraw(_standardRendererState.prepassProgram, draws);
             step.pipeline = boundPipeline(r.g, pipe, group, true, r.index) as never;
@@ -557,16 +536,12 @@ function renderPrepass(
             draws++;
         }
     }
-    // the prepass runs only for a camera carrying a lane marker; its lane set, and so its attachment
-    // shape, is per camera, so each camera keeps its own recording
+    // Each camera's view slot selects its own indirect range and engine group.
     let bundle = _standardRendererState.prepassBundles.get(eid);
     if (!bundle) {
         bundle = newPassBundle();
         _standardRendererState.prepassBundles.set(eid, bundle);
     }
-    _standardRendererState.prepassBundleDesc.colorFormats.length = 0;
-    for (let l = 0; l < lanes.length; l++)
-        _standardRendererState.prepassBundleDesc.colorFormats.push(lanes[l].format);
     if (
         bundleChanged(
             bundle,
@@ -659,7 +634,7 @@ function drawColor(
 /**
  * Records standard's geometry bundles into core's main pass: shades every opaque draw,
  * then composites every `blend` draw over them (`less-equal` depth-tested against the opaque depth,
- * depth-write off) in core's targets: one HDR color target, no MRT (the screen-space lanes are {@link renderPrepass}'s),
+ * depth-write off) in core's targets: one HDR color target, no MRT,
  * because each extra target costs bandwidth on every pixel and tile-based GPUs pay it hardest. With
  * `Camera.antialias` on (the default) it's a 4× MSAA pass resolved into the offscreen; off, it renders
  * single-sample straight into the offscreen (and binds the surfaces' single-sample pipeline twins,
@@ -793,12 +768,9 @@ const STANDARD_RENDERER_CAMERAS = [Camera, StandardRenderer];
 /**
  * compile the forward pipelines for every registered surface, sharing one shader module: a 4× MSAA
  * single-target color pipeline (its own depth, `less` + write) that writes shaded color resolved into
- * the offscreen framebuffer, a 1× tag pipeline (its own single-sample depth, `less` + write, single
- * `r32uint` target) that stamps the front-most fragment's surface tag into `view.pickingId`, and a 1× depth
- * pipeline (position-only, the shadow map renders through it). Color is one camera-independent shape
- * across opaque / `clip` / `alpha`: no MRT; the tag is its own single-sample lane. Color samples the
- * sun shadow inline (group 1 = the map + comparison sampler + light params); the tag + depth pipelines
- * omit group 1. StandardRenderer declares the vertex-pull bindings itself; each draw selects its mesh via
+ * the offscreen framebuffer, and a 1× depth pipeline (position-only except for clipped surfaces).
+ * Color is one camera-independent shape across opaque / `clip` / `alpha`, with no MRT, and samples the
+ * sun shadow inline (group 1 = the map + comparison sampler + light params). StandardRenderer declares the vertex-pull bindings itself; each draw selects its mesh via
  * `Draw.mesh`. Uniform across surfaces: no "MeshInstance-shaped" detection. Also (re)creates the sun-shadow
  * GPU resources standard owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
  * params buffer — `./atlas`), surviving HMR re-warms
@@ -1015,10 +987,10 @@ export const StandardRenderingPlugin: Plugin = {
 
     initialize(world) {
         world.resource(RenderPhases).push({
-            prepass(world, eid, view, pass, lanes) {
+            prepass(world, eid, view, pass) {
                 if (!world.has(eid, StandardRenderer)) return;
                 const state = world.resource(standardRendererStateKey);
-                renderPrepass(world, eid, view, state.frameDraws, state.frameCount, lanes, pass);
+                renderPrepass(world, eid, view, state.frameDraws, state.frameCount, pass);
             },
             opaque(world, eid, view, pass) {
                 if (!world.has(eid, StandardRenderer)) return;

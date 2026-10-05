@@ -66,7 +66,7 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 |---|---|
 | `Render` | `RenderContext`, the world-owned shared GPU context. |
 | `backingSize` | Use `Resolution` to pin a view's render size; viewport sizing is internal. |
-| `COLOR_LANES` | Core owns the lane set; match `PICKING_ID_FORMAT` for the picking output. |
+| `COLOR_LANES` | Removed; there is no replacement color lane. |
 | `frameWgsl` | Resolve the `FrameGpu` TypeGPU schema. |
 | `FRUSTUM_FLOATS` | Read `CullVolumes` with `CULL_VOLUME_FLOATS`. |
 | `frustumPlanes` | No public replacement; consume the packed `CullVolumes`. |
@@ -186,8 +186,8 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `Part` | `MeshInstance` |
 | `RenderPlugin` | `RenderingPlugin` for the frame/view substrate; add `CorePipelinePlugin` for shared targets and phases (`StandardRenderingPlugin` includes it) |
 | `SearPlugin` | `StandardRenderingPlugin` |
-| `Sear`, `Depth`, `Tag`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `PickingPrepass`, `CameraBackground` |
-| `TAG_FORMAT`, `TAG_NONE`, `TagFn`, `view.tag` | `PICKING_ID_FORMAT`, `PICKING_ID_NONE`, `PickingIdFn`, `view.pickingId` |
+| `Sear`, `Depth`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `CameraBackground` |
+| `Tag`, `TAG_FORMAT`, `TAG_NONE`, `TagFn`, `view.tag` | Removed; there is no replacement picking lane. |
 | `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |
 | `/render/core` GPU `View` schema and `linearToSrgb` | `/rendering` `ViewUniforms` and `linearToSrgb3` |
 | GPU `View.cluster` | `ViewUniforms.projection` (near, far, perspective flag, slot; unchanged byte layout) |
@@ -494,7 +494,7 @@ Surface, background and draw contracts belong to `/standard/rendering`. Update i
 | --- | --- |
 | `/render/core` `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface` | `/standard/rendering`, same names |
 | `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | `/standard/rendering`, same names |
-| `/render/core` `TagFn` | Removed; infer the picking function from `Surface` or `registerSurface`. |
+| `/render/core` `TagFn` | Removed; there is no replacement picking lane. |
 | `/render/core` `BgCtx` | `/standard/rendering` `BackgroundContext` |
 | `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |
 | `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
@@ -508,10 +508,11 @@ Camera prepass markers and attachment constants are imported from `/rendering`:
 
 | 0.9.5 import | 0.10 import |
 | --- | --- |
-| Root or `/sear/core` `Depth`, `Tag` | `/rendering` `DepthPrepass`, `PickingPrepass` |
-| `/sear/core` `DEPTH_FORMAT`, `TAG_FORMAT`, `TAG_NONE` | `/rendering` `DEPTH_FORMAT`, `PICKING_ID_FORMAT`, `PICKING_ID_NONE` |
+| Root or `/sear/core` `Depth` | `/rendering` `DepthPrepass` |
+| `/sear/core` `DEPTH_FORMAT` | `/rendering` `DEPTH_FORMAT` |
+| Root or `/sear/core` `Tag`, `/sear/core` `TAG_FORMAT`, `TAG_NONE` | Removed; there is no replacement picking lane. |
 
-`CorePipelinePlugin` from `/rendering` registers both prepass markers and owns view targets, clear, resolve and prepass/opaque/transparent phases. `StandardRenderingPlugin` includes it as a dependency. Custom renderers using these phases depend on `CorePipelinePlugin` and register records in `RenderPhases`; records do not end the shared pass. `RenderingPlugin` alone supplies views and frame/presentation anchors without the shared pipeline. Each marker requests its own camera output; neither requires the other.
+`CorePipelinePlugin` from `/rendering` registers `DepthPrepass` and owns view targets, clear, resolve and prepass/opaque/transparent phases. `StandardRenderingPlugin` includes it as a dependency. Custom renderers using these phases depend on `CorePipelinePlugin` and register records in `RenderPhases`; records do not end the shared pass. `RenderingPlugin` alone supplies views and frame/presentation anchors without the shared pipeline. `DepthPrepass` requests the camera's stored depth output.
 
 Custom surface, background and draw producers depend on `StandardRenderingPlugin`; `RenderingPlugin` alone no longer initializes their registries.
 
@@ -557,8 +558,7 @@ registers `Body`, `Spring` and `Joint` with their defaults but installs no solve
 `createApp` includes that dependency automatically.
 
 Import shared components, `ShapeKind`, `Hulls`, `Hull`, `HullFace`, `UNIT_CUBE_ID`,
-`BodyState`, `RayBody`, `RayHit`, `raycast`, `bodyCandidates`, `grabHit` and
-`worldToLocal` from `@dylanebert/shallot/physics`. Import
+`BodyState` from `@dylanebert/shallot/physics`. Import
 `StandardPhysicsPlugin`, `StepPhysicsSystem`, `PhysicsWorld`, `physicsWorld`,
 `readBody`, `setKinematic`, `setVelocity`, `snapshotPhysics`, `restorePhysics`
 and `hashPhysics` from `@dylanebert/shallot/standard/physics`. Both subpaths
@@ -568,9 +568,30 @@ not `/physics`.
 On `Spring` and `Joint`, rename `rA` and `rB` to `localAnchorA` and
 `localAnchorB`; these are points in each body's local frame.
 The constraint definitions, signatures and sync system are internal; author
-`Spring` and `Joint` entities instead. Read body poses with `readBody`;
-`raycast` and the pick helpers provide solver-neutral picking observation.
-Use the solver world's `castRayClosest` for simulation ray queries.
+`Spring` and `Joint` entities instead. Read body poses with `readBody`.
+
+`raycast`, `RayBody`, `RayHit`, `bodyCandidates`, `grabHit` and `worldToLocal`
+are removed. For picking, cast a camera ray through standard physics. Coordinates
+are CSS pixels relative to the camera's bound canvas; the ray length is in world units.
+A hit body's user data carries the entity id:
+
+```ts
+import type { World } from "@dylanebert/shallot";
+import { viewportToWorld } from "@dylanebert/shallot/rendering";
+import { physicsWorld } from "@dylanebert/shallot/standard/physics";
+
+function pick(world: World, camera: number, x: number, y: number, maxDistance = 100) {
+    const ray = viewportToWorld(world, camera, x, y);
+    const physics = physicsWorld(world);
+    if (!ray || !physics) return null;
+    const hit = physics.castRayClosest(
+        { x: ray.origin[0], y: ray.origin[1], z: ray.origin[2] },
+        { x: ray.dir[0] * maxDistance, y: ray.dir[1] * maxDistance, z: ray.dir[2] * maxDistance },
+    );
+    if (!hit.hit || !hit.shape) return null;
+    return hit.shape.getBody().getUserData() as number;
+}
+```
 
 `Physics.backend` is gone. Read and drive bodies through World-first functions:
 

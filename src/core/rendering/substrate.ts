@@ -59,13 +59,8 @@ export {
     VolumetricLight,
 } from "./lighting";
 export {
-    type ColorLane,
     DEPTH_FORMAT,
     DepthPrepass,
-    laneKey,
-    PICKING_ID_FORMAT,
-    PICKING_ID_NONE,
-    PickingPrepass,
     SAMPLE_COUNT,
 } from "./targets";
 

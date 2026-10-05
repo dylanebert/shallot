@@ -88,9 +88,9 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - `RenderingPlugin` (`core/rendering`) owns cameras, shared views, canvas binding, projection, view and frame uniforms, capture, light components and the frame-ordering anchors; it knows no meshes or materials.
 - Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor.
-- `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` and `PickingPrepass` lanes, `RenderPhases` and the tonemapping pass.
+- `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` lane, `RenderPhases` and the tonemapping pass.
 - Core opens the prepass and one main render pass per view; renderers record opaque, then transparent, work into it with core's formats and sample count.
-- A renderer reaches an effect's depth or picking input only by recording into that prepass lane.
+- A renderer reaches an effect's depth input only by recording into that prepass lane.
 - Transparent work is ordered by renderer, not by object across renderers, since standard submits GPU-driven indirect draws per surface.
 - `Tonemapping` selects the operator, TonyMcMapface by default; `TonemappingMethod.None` skips it for display-ready linear images, but not grading or encoding.
 - `ColorGrading` grades the image, and presentation encodes it for the screen.

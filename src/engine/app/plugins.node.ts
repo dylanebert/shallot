@@ -12,7 +12,6 @@ import {
     Camera,
     DepthPrepass,
     DirectionalLight,
-    PickingPrepass,
     RenderingPlugin,
     Resolution,
     SpotLight,
@@ -548,7 +547,6 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(camera, Camera);
             world.add(camera, Resolution);
             world.add(camera, StandardRenderer);
-            world.add(camera, PickingPrepass);
             world.add(camera, DepthPrepass);
             world.add(camera, CameraBackground);
             world.add(camera, Tonemapping);

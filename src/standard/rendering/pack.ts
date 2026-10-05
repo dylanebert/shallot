@@ -70,7 +70,7 @@ const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
 
 /**
  * test the instance's world bounding sphere against this slot's frustum cull volume, dispatched on the
- * leading tag word. PickingPrepass `CULL_FRUSTUM` = a 6-plane AND (every camera, the sun, and each point/spot shadow
+ * leading tag word. `CULL_FRUSTUM` = a 6-plane AND (every camera, the sun, and each point/spot shadow
  * combo's depth view). An unknown tag (an unwritten slot) keeps the instance, and so does a slot past the
  * active view count (headless, or the synthetic slot 0 when no camera exists) — the pack then degrades to
  * plain compaction. The radius scales by the largest |scale| axis, conservative for non-uniform scale.

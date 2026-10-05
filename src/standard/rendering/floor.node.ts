@@ -12,7 +12,6 @@ import {
     DepthPrepass,
     DirectionalLight,
     EffectPasses,
-    PickingPrepass,
     PointLight,
     RenderContext,
     SpotLight,
@@ -231,20 +230,14 @@ test("the standard composition and points render every variant on default eight-
         world.add(text, Text, { content: internText(world, "isolation"), fontSize: 0.2 });
         for (const aa of [0, 1]) {
             world.storage(Camera).antialias.set(camera, aa);
-            for (const lanes of [0, 1, 2, 3]) {
-                for (const [bit, marker] of [
-                    [1, DepthPrepass],
-                    [2, PickingPrepass],
-                ] as const) {
-                    if (lanes & bit) {
-                        if (!world.has(camera, marker)) world.add(camera, marker);
-                    } else world.remove(camera, marker);
-                }
+            for (const depth of [0, 1]) {
+                if (depth) world.add(camera, DepthPrepass);
+                else world.remove(camera, DepthPrepass);
                 world.step(0);
                 work.uploadedBytes = work.renderPasses = work.computePasses = work.dispatches = 0;
                 world.step(0);
                 console.log(
-                    `floor work meshes=195 sprites=6 glyphs=9 AA=${aa} lanes=${lanes}`,
+                    `floor work meshes=195 sprites=6 glyphs=9 AA=${aa} depth=${depth}`,
                     JSON.stringify(work),
                 );
                 const shot = await captureTexture(world, camera);
