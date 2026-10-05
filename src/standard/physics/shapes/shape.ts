@@ -54,6 +54,7 @@ import {
     unlinkShape,
     writeFatAabb,
     writeShape,
+    writeTightAabb,
 } from "../kernel/shapecolumns";
 import { type Body, getBodyTransformQuick, updateBodyMassData } from "../world/body";
 import { createSensor, destroySensor, type Visitor } from "../world/sensor";
@@ -109,8 +110,6 @@ export type Shape = {
     density: number;
     explosionScale: number;
     aabbMargin: number;
-    aabb: AABB;
-    fatAABB: AABB;
     localCentroid: Vec3;
     material: SurfaceMaterial;
     /** Authored material bridge values; live attachment/count lives in the kernel shape record. */
@@ -231,8 +230,6 @@ function createShapeRecord(): Shape {
         density: 0,
         explosionScale: 0,
         aabbMargin: 0,
-        aabb: { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } },
-        fatAABB: { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } },
         localCentroid: { x: 0, y: 0, z: 0 },
         material: {
             friction: 0,
@@ -454,16 +451,22 @@ function computeShapeMargin(shape: Shape): number {
 
 // --- proxy -----------------------------------------------------------------------------------
 
-function updateShapeAABBs(shape: Shape, transform: WorldTransform, proxyType: BodyType): void {
+function updateShapeAABBs(
+    world: WorldState,
+    shape: Shape,
+    transform: WorldTransform,
+    proxyType: BodyType,
+): AABB {
     const speculativeDistance = SPECULATIVE_DISTANCE;
     const aabbMargin = shape.aabbMargin;
 
     const box = computeFatShapeAABB(shape, transform, speculativeDistance);
-    shape.aabb = box;
+    world.shapeStore.refreshViews();
+    writeTightAabb(world.shapeStore.shapeF, shape.id, box);
 
     // Smaller margin for static bodies. Cannot be zero due to TOI tolerance.
     const margin = proxyType === BodyType.Static ? speculativeDistance : aabbMargin;
-    shape.fatAABB = {
+    const fat = {
         lowerBound: {
             x: f32(box.lowerBound.x - margin),
             y: f32(box.lowerBound.y - margin),
@@ -475,6 +478,8 @@ function updateShapeAABBs(shape: Shape, transform: WorldTransform, proxyType: Bo
             z: f32(box.upperBound.z + margin),
         },
     };
+    writeFatAabb(world, shape.id, fat);
+    return fat;
 }
 
 export function createShapeProxy(
@@ -484,11 +489,13 @@ export function createShapeProxy(
     transform: WorldTransform,
     forcePairCreation: boolean,
 ): void {
-    updateShapeAABBs(shape, transform, type);
+    const world = broadPhase.store.world;
+    if (!world) throw new Error("physics: shape proxies require a world-owned broad phase");
+    const fat = updateShapeAABBs(world, shape, transform, type);
     shape.proxyKey = bp.createProxy(
         broadPhase,
         type as bp.BodyTypeValue,
-        shape.fatAABB,
+        fat,
         shape.filter.categoryHi,
         shape.filter.categoryLo,
         shape.id,
@@ -528,7 +535,6 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
             getBodyTransformQuick(world, body),
             true,
         );
-        writeFatAabb(world, shape);
     }
     world.shapeStore.refreshViews();
     world.shapeStore.writeQueryProperties(shape);
@@ -646,7 +652,6 @@ function createShapeInternal(
         // (b3CreateShapeInternal). The inner tree's proxies are found through the outer query instead.
         const forcePairCreation = def.invokeContactCreation && shapeType !== ShapeType.Compound;
         createShapeProxy(shape, world.broadPhase, body.type, bodyTransform, forcePairCreation);
-        writeFatAabb(world, shape);
     }
 
     // Add to the body's shape doubly-linked list at the head

@@ -14,6 +14,10 @@ import {
 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
+import { readShapeAabb } from "../kernel/shapecolumns";
+
+const dispatchBounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
+
 import {
     D_BODY_A,
     D_BODY_B,
@@ -393,8 +397,9 @@ function dispatch(world: WorldState): void {
         u[r + D_OLD_COUNT] = job.contact.manifoldCount;
         u[r + D_CACHE_VALID] = Number(job.contact.kernelMeshCache !== null);
         if (job.meshSlot !== -1) {
-            writeVec(f, r + D_LOWER, job.shapeB.aabb.lowerBound);
-            writeVec(f, r + D_UPPER, job.shapeB.aabb.upperBound);
+            const bounds = readShapeAabb(world, job.shapeB.id, dispatchBounds);
+            writeVec(f, r + D_LOWER, bounds.lowerBound);
+            writeVec(f, r + D_UPPER, bounds.upperBound);
             if (job.contact.kernelMeshCache !== null)
                 new Uint32Array(
                     buf,

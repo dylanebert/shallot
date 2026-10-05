@@ -46,7 +46,13 @@ import {
     writeSimTransform,
 } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
-import { destroyShapeSlot, syncBodyQuery, writeFatAabb } from "../kernel/shapecolumns";
+import {
+    destroyShapeSlot,
+    readFatAabb,
+    syncBodyQuery,
+    writeFatAabb,
+    writeTightAabb,
+} from "../kernel/shapecolumns";
 import type { MassData } from "../shapes/geometry";
 import {
     computeFatShapeAABBOut,
@@ -471,6 +477,8 @@ export function bodyApplyAngularImpulse(
 
 // Registers for bodySetTransform's column-view path; never live across calls.
 const setPose: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+const setBox = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
+const setFat = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
 const setCenter: Vec3 = { x: 0, y: 0, z: 0 };
 const setLocalCenter: Vec3 = { x: 0, y: 0, z: 0 };
 const setRotation = mat3.zero();
@@ -552,19 +560,19 @@ export function bodySetTransform(
     let shapeId = body.headShapeId;
     while (shapeId !== NULL_INDEX) {
         const shape = world.shapes[shapeId];
-        // In-place refit: shape.aabb/fatAABB are shape-owned, as in the finalize refit.
-        const box = computeFatShapeAABBOut(shape, transform, SPECULATIVE_DISTANCE, shape.aabb);
-
-        if (aabb.contains(shape.fatAABB, box) === false) {
+        const box = computeFatShapeAABBOut(shape, transform, SPECULATIVE_DISTANCE, setBox);
+        world.shapeStore.refreshViews();
+        writeTightAabb(world.shapeStore.shapeF, shape.id, box);
+        const fatAABB = readFatAabb(world, shape.id, setFat);
+        if (aabb.contains(fatAABB, box) === false) {
             const margin = shape.aabbMargin;
-            const fatAABB = shape.fatAABB;
             fatAABB.lowerBound.x = f32(box.lowerBound.x - margin);
             fatAABB.lowerBound.y = f32(box.lowerBound.y - margin);
             fatAABB.lowerBound.z = f32(box.lowerBound.z - margin);
             fatAABB.upperBound.x = f32(box.upperBound.x + margin);
             fatAABB.upperBound.y = f32(box.upperBound.y + margin);
             fatAABB.upperBound.z = f32(box.upperBound.z + margin);
-            writeFatAabb(world, shape);
+            writeFatAabb(world, shape.id, fatAABB);
 
             // The body could be disabled, in which case it has no proxy.
             if (shape.proxyKey !== NULL_INDEX) {
@@ -683,7 +691,6 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
         shapeId = shape.nextShapeId;
         destroyShapeProxy(shape, world.broadPhase);
         createShapeProxy(shape, world.broadPhase, type, transform, true);
-        writeFatAabb(world, shape);
     }
 
     // Relink joints where at least one attached body is dynamic and enabled.

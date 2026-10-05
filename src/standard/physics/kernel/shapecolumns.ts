@@ -84,6 +84,8 @@ export function createShapeSlot(world: WorldState): number {
     }
     const id = kernel(world.ecsState).shapeCreate(world.worldId);
     world.shapeStore.refreshViews();
+    world.shapeStore.shapeF.fill(0, id * SHAPE_STRIDE + 34, id * SHAPE_STRIDE + 40);
+    world.shapeStore.fatF.fill(0, id * 6, id * 6 + 6);
     return id;
 }
 
@@ -189,7 +191,9 @@ export class ShapeStore extends KernelViews {
         const materialCount = u[o + S_MATERIAL_COUNT];
         u[o + S_TYPE] = shape.type;
         u[o + S_NEXT] = shape.nextShapeId;
-        for (let i = S_GEOM; i < SHAPE_STRIDE; ++i) f[o + i] = 0;
+        for (let i = S_GEOM; i < SHAPE_STRIDE; ++i) {
+            if (i < 34 || i > 39) f[o + i] = 0;
+        }
         u[o + S_MATERIAL_HEAD] = materialHead;
         u[o + S_MATERIAL_COUNT] = materialCount;
 
@@ -226,7 +230,6 @@ export class ShapeStore extends KernelViews {
         }
         this.writeGeometryReference(world, shape);
         this.writeQueryProperties(shape);
-        writeTightAabb(this.shapeF, shape.id, shape.aabb);
         const body = world.bodies[shape.bodyId];
         this.writeQueryPose(shape.id, body, getBodySim(world, body));
     }
@@ -377,7 +380,6 @@ export function syncBodyQuery(world: WorldState, body: Body): void {
     const sim = body.setIndex === SetType.Awake ? undefined : getBodySim(world, body);
     for (let id = body.headShapeId; id !== NULL_INDEX; id = world.shapes[id].nextShapeId) {
         store.writeQueryPose(id, body, sim);
-        writeTightAabb(store.shapeF, id, world.shapes[id].aabb);
     }
 }
 
@@ -470,14 +472,35 @@ export function writeTightAabb(shapeF: Float32Array, shapeId: number, box: AABB)
     shapeF[o + 5] = box.upperBound.z;
 }
 
+/** Copy the kernel-owned tight bounds into caller-owned scratch. */
+export function readShapeAabb(world: WorldState, shapeId: number, out: AABB): AABB {
+    world.shapeStore.refreshViews();
+    return readBounds(world.shapeStore.shapeF, shapeId * SHAPE_STRIDE + 34, out);
+}
+
+/** Copy the kernel-owned fat bounds into caller-owned scratch. */
+export function readFatAabb(world: WorldState, shapeId: number, out: AABB): AABB {
+    world.shapeStore.refreshViews();
+    return readBounds(world.shapeStore.fatF, shapeId * 6, out);
+}
+
+function readBounds(f: Float32Array, o: number, out: AABB): AABB {
+    out.lowerBound.x = f[o];
+    out.lowerBound.y = f[o + 1];
+    out.lowerBound.z = f[o + 2];
+    out.upperBound.x = f[o + 3];
+    out.upperBound.y = f[o + 4];
+    out.upperBound.z = f[o + 5];
+    return out;
+}
+
 /** Size and write the resident fat-AABB lane owned by the shape store. */
-export function writeFatAabb(world: WorldState, shape: Shape): void {
+export function writeFatAabb(world: WorldState, shapeId: number, box: AABB): void {
     kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
     if (reserveShapes(world.ecsState, world.shapes.length)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
     }
     world.shapeStore.refreshViews();
-    world.shapeStore.writeFatAabb(shape.id, shape.fatAABB);
-    writeTightAabb(world.shapeStore.shapeF, shape.id, shape.aabb);
+    world.shapeStore.writeFatAabb(shapeId, box);
 }

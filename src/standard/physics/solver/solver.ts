@@ -41,6 +41,7 @@ import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/joi
 import { kernel, runPool, workers } from "../kernel/kernel";
 import {
     isConvexRefit,
+    readFatAabb,
     S_CAND,
     S_ESCAPED,
     SHAPE_STRIDE,
@@ -66,6 +67,8 @@ const TOI = BodyFlags.hadTimeOfImpact;
 // Scratch for finalizeBodies, all reused per body (never live across bodies) so the per-body loop over
 // the resident columns allocates nothing — the awake `ResidentBodySim` getters would allocate a
 // Vec3/Quat/Mat3 per pose/inertia field, so finalize indexes the columns raw instead.
+const finBox: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
+const finFat: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
 const finRotation = mat3.zero();
 const finRotationT = mat3.zero();
 const finInertiaTmp = mat3.zero(); // R · I⁻¹ (world-inertia update)
@@ -118,16 +121,14 @@ function setSweepBase(
 // --- Finalize --------------------------------------------------------------------------------
 
 /**
- * Commit an escaped shape's refit: margin-inflate the (speculative) tight box into `shape.fatAABB`,
- * mirror it into the resident fat-AABB column (the in-kernel recycle + finalize escape tests read it),
- * and mark it for the kernel enlarge pass. `box` is the shape's just-updated tight
+ * Commit an escaped shape's refit to its resident fat-AABB column and mark it for the serial enlarge pass. `box` is the shape's just-updated tight
  * AABB — the kernel candidate for a convex shape, the TS-computed one for a fallback shape. The tail of
  * `finalizeBodies`, factored out because both branches share it; the fat-column view is refreshed once at
  * the top of the pass, so the write here is raw (no reserve, no per-shape refresh).
  */
 function commitRefit(world: WorldState, shape: Shape, box: AABB): void {
     const margin = shape.aabbMargin;
-    const fat = shape.fatAABB;
+    const fat = finFat;
     fat.lowerBound.x = f32(box.lowerBound.x - margin);
     fat.lowerBound.y = f32(box.lowerBound.y - margin);
     fat.lowerBound.z = f32(box.lowerBound.z - margin);
@@ -184,7 +185,7 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
         const s2o = simIndex * SIM2_STRIDE;
         let simFlags = sim2U[s2o + S2_FLAGS];
         if ((simFlags & (BodyFlags.isFast | BodyFlags.isBullet)) === BodyFlags.isFast) {
-            consumeContinuous(world, sim, simIndex);
+            consumeContinuous(world, simIndex);
         }
 
         // The kernel finalize advanced the pose (center/rotation/transform.p), rebuilt the world inertia,
@@ -299,18 +300,14 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
         // and buffers fast bullet moves before their deferred sweep.
         if (simFlags & BodyFlags.isFast) continue;
 
-        // Non-fast body: commit the refit the kernel computed. For each convex shape the kernel wrote its
-        // candidate AABB (the tight box + speculative margin) and an escaped flag into the shape column;
-        // copy the candidate into `shape.aabb` (the mesh narrowphase + sensors read it next step) and
-        // enlarge the proxy only if it escaped its cached fat margin. Fallback shapes (mesh/height-field/
-        // compound) the kernel skips — compute them here at their list position, exactly as before. The
-        // walk stays in ascending sim / head→next order, so the buffered moves keep their world-hash order.
+        // Commit non-fast refits in sim / head→next order, preserving the buffered move order.
+        // Convex candidates come from the task; non-convex bounds still compute here.
         let shapeId = body.headShapeId;
         while (shapeId !== -1) {
             const shape = world.shapes[shapeId];
             if (isConvexRefit(shape.type)) {
                 const c = shape.id * SHAPE_STRIDE + S_CAND;
-                const box = shape.aabb;
+                const box = finBox;
                 box.lowerBound.x = shapeF[c];
                 box.lowerBound.y = shapeF[c + 1];
                 box.lowerBound.z = shapeF[c + 2];
@@ -321,18 +318,12 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
                     commitRefit(world, shape, box);
                 }
             } else {
-                // In-place refit: shape.aabb/fatAABB are shape-owned (the tree clones on enlarge).
-                const box = computeFatShapeAABBOut(
-                    shape,
-                    finTransform,
-                    speculativeScalar,
-                    shape.aabb,
-                );
-                if (aabb.contains(shape.fatAABB, box) === false) {
+                const box = computeFatShapeAABBOut(shape, finTransform, speculativeScalar, finBox);
+                if (aabb.contains(readFatAabb(world, shape.id, finFat), box) === false) {
                     commitRefit(world, shape, box);
                 }
             }
-            writeTightAabb(shapeF, shape.id, shape.aabb);
+            writeTightAabb(shapeF, shape.id, finBox);
             shapeId = shape.nextShapeId;
         }
     }

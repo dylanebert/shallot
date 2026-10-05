@@ -22,7 +22,11 @@ import {
     xf,
 } from "../common/math";
 import { BodyType, ShapeType, type SurfaceMaterial } from "../common/types";
+import { readFatAabb } from "../kernel/shapecolumns";
 import * as tree from "../kernel/treecolumns";
+
+const drawBounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
+
 import { getCompoundChild } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
@@ -294,7 +298,7 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
                 drawSolidShape(draw, shape, sim.transform, color);
             }
             if (draw.drawBounds) {
-                draw.drawAabb(shape.fatAABB, DebugColor.gold);
+                draw.drawAabb(readFatAabb(world, shape.id, drawBounds), DebugColor.gold);
             }
             return true;
         });

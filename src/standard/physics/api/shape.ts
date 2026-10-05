@@ -4,6 +4,7 @@ import type { EntityId } from "../common/ids";
 import type { AABB } from "../common/math";
 import type { Filter, ShapeType } from "../common/types";
 import { kernel } from "../kernel/kernel";
+import { readShapeAabb } from "../kernel/shapecolumns";
 import type { MassData } from "../shapes/geometry";
 import {
     computeShapeMass,
@@ -159,8 +160,10 @@ export class Shape {
 
     /** @returns the shape's world AABB (as of the last proxy update). */
     getAABB(): AABB {
-        const a = this.record().aabb;
-        return { lowerBound: { ...a.lowerBound }, upperBound: { ...a.upperBound } };
+        return readShapeAabb(this.world, this.record().id, {
+            lowerBound: { x: 0, y: 0, z: 0 },
+            upperBound: { x: 0, y: 0, z: 0 },
+        });
     }
 
     /** @returns the shape density. */

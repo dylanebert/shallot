@@ -12,7 +12,10 @@ import { SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import type { Kernel } from "../kernel/kernel";
 import { type QueryColumns, queryColumns } from "../kernel/querycolumns";
-import { SHAPE_STRIDE } from "../kernel/shapecolumns";
+import { readShapeAabb, SHAPE_STRIDE } from "../kernel/shapecolumns";
+
+const sensorBounds = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } };
+
 import type { Shape } from "../shapes/shape";
 import type { WorldState } from "./world";
 
@@ -128,7 +131,7 @@ function refreshSensor(world: WorldState, sensor: Sensor, q: QueryColumns, k: Ke
     const disabled = body.setIndex === SetType.Disabled || sensorShape.enableSensorEvents === false;
 
     if (disabled === false) {
-        q.bounds(sensorShape.aabb);
+        q.bounds(readShapeAabb(world, sensorShape.id, sensorBounds));
         let shapeId = k.sensorQuery(world.worldId, sensor.shapeId) >>> 0;
         while (shapeId !== 0xffffffff) {
             emplace(overlaps2, shapeId, world.shapes[shapeId].generation);
