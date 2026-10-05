@@ -1,4 +1,4 @@
-import { test } from "bun:test";
+import { expect, test } from "bun:test";
 import {
     audioContextState,
     BrowserInputPlugin,
@@ -279,13 +279,9 @@ test("a browser adapter setup exception leaves listeners or canvas capture effec
     const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
     for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
-    const report = console.error;
-    console.error = () => {};
-    try {
-        world.step(0);
-    } finally {
-        console.error = report;
-    }
+    expect(() => world.step(0)).toThrow(
+        'System "BrowserInput/browser" threw: fixture listener failure',
+    );
     world.dispose();
     if (fixture.listenerCount() !== 0 || fixture.canvas.style.touchAction !== "auto")
         throw new Error("partial adapter setup was not unwound");

@@ -1,6 +1,51 @@
 import { expect, test } from "bun:test";
 import { Scheduler } from "./scheduler";
-import type { World } from "./world";
+import { World } from "./world";
+
+for (const phase of ["update", "setup"] as const) {
+    test(`a throwing ${phase} ends the step, retries next step and leaves the world disposable`, () => {
+        const world = new World();
+        const cause = phase === "update" ? new Error("broken") : "broken";
+        let attempts = 0;
+        let later = 0;
+        let disposed = false;
+        const broken = {
+            name: "spawn",
+            [phase]: () => {
+                attempts++;
+                throw cause;
+            },
+            dispose: () => {
+                disposed = true;
+            },
+        };
+        world.addSystem(broken, "Game");
+        world.addSystem({
+            after: [broken],
+            update: () => {
+                later++;
+            },
+        });
+        try {
+            for (let i = 1; i <= 2; i++) {
+                let error: unknown;
+                try {
+                    world.step();
+                } catch (caught) {
+                    error = caught;
+                }
+                expect(error).toBeInstanceOf(Error);
+                expect((error as Error).message).toBe('System "Game/spawn" threw: broken');
+                expect((error as Error).cause).toBe(cause);
+                expect(attempts).toBe(i);
+                expect(later).toBe(0);
+            }
+        } finally {
+            world.dispose();
+        }
+        expect(disposed).toBe(true);
+    });
+}
 
 test("the scheduler consumes each updated duration from its lifetime frame input", () => {
     const scheduler = new Scheduler();

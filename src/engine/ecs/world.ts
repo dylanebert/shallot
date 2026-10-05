@@ -360,7 +360,10 @@ export class World {
         return this._scheduler.time;
     }
 
-    /** Advance one frame by `deltaTime` seconds; throws on a negative or non-finite delta. */
+    /** Advance one frame by `deltaTime` seconds; refuses a negative or non-finite delta.
+     * A system setup/update throw ends the step with a named Error and the thrown value as cause.
+     * Later systems and the GPU frame do not advance; the next step retries the system.
+     * Under `runApp`, errors instead log and pause the system until swapped or rebuilt. */
     step(deltaTime = Time.DEFAULT_DT): void {
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
@@ -581,6 +584,12 @@ export class World {
 
     set recordSink(fn: ((name: string, ms: number) => void) | undefined) {
         this._scheduler.record = fn;
+    }
+
+    /** @internal The running host chooses log-and-pause so a hot-reloaded bug cannot wedge it.
+     * Failed systems pause until swapped or rebuilt; the rest of the frame finishes. */
+    logAndPauseSystemErrors(): void {
+        this._scheduler.logAndPauseErrors = true;
     }
 
     /** report a GPU fence-wait duration; no-op when no sink is installed */

@@ -2,6 +2,15 @@
 
 These changes require updates to a 0.9.5 app.
 
+## System errors end a stepped frame
+
+Outside `runApp`, `world.step()` now throws when a system's setup or update throws.
+The Error names the system and carries the thrown value as `cause`; later systems
+do not run, and the next step retries the failing system. Checks that provoke an
+error must expect it with `expect(() => world.step()).toThrow(...)`. Catch the error
+in a custom frame loop. `runApp` still logs, pauses the failing system until a swap
+or rebuild, and finishes the frame.
+
 ## Camera rays belong to rendering
 
 Import `Ray` from the root instead of `/physics`. Replace `cursorRay(world, camera)`

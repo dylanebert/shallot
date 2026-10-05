@@ -68,6 +68,7 @@ export interface System {
 }
 
 export class Scheduler {
+    logAndPauseErrors = false;
     private readonly _systems = new Set<System>();
     private _systemsVersion = 0;
     private _accumulator = 0;
@@ -231,9 +232,6 @@ export class Scheduler {
         for (let i = 0; i < systems.length; i++) {
             const system = systems[i];
             if (this._errored.has(system)) continue;
-            // quarantine, not crash: a throwing system must not kill the frame loop (a hot-reloaded
-            // bug would wedge a live host). It pauses after the first throw — a failed setup stays
-            // uninitialized so the fix retries it — and resumes on its next swap or a rebuild.
             try {
                 if (!this._initialized.has(system)) {
                     system.setup?.(world);
@@ -249,6 +247,15 @@ export class Scheduler {
                     }
                 }
             } catch (e) {
+                if (!this.logAndPauseErrors) {
+                    const name = this._names.get(system) ?? system.name ?? "?";
+                    throw new Error(
+                        `System "${name}" threw: ${e instanceof Error ? e.message : String(e)}`,
+                        { cause: e },
+                    );
+                }
+                // A hot-reloaded bug must not wedge a live host. Pause until a swap supplies the fix;
+                // failed setup stays uninitialized so the replacement retries it.
                 this._errored.add(system);
                 console.error(
                     `System "${this._names.get(system) ?? system.name ?? "?"}" threw and is paused until its next reload:`,

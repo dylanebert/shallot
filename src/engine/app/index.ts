@@ -419,11 +419,13 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
 /**
  * build the app and start the `requestAnimationFrame` frame loop, mounting `config.ui` (web only). the
  * loop drives `world.step(dt)` each frame, GPU-fence backpressured so it never runs far ahead of the GPU.
+ * System setup/update errors are logged and the system pauses until swapped or rebuilt; the frame finishes.
  */
 export async function runApp(config: AppConfig): Promise<App> {
     const app = await createApp(config);
     try {
         const world = app.world;
+        world.logAndPauseSystemErrors();
         const { device, pending, sync } = world.gpu;
         // UI teardown is World-owned: the overlay auto-registers its removal (mountOverlay above), and the
         // ui cleanup registers beside it. Both run at world.dispose() — after the plugin dispose hooks on the
