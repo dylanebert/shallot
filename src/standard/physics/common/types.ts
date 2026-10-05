@@ -68,8 +68,8 @@ export function defaultQueryFilter(): QueryFilter {
 }
 
 /**
- * A {@link Filter} with the u64 bit sets split into u32 halves. This is what a shape stores and
- * what every filter test reads; `bigint` lives only on the public boundary.
+ * A {@link Filter} with the u64 bit sets split into u32 halves for writing the kernel shape columns.
+ * The live filter is held in those columns; `bigint` lives only on the public boundary.
  */
 export type FilterBits = {
     categoryHi: number;

@@ -222,7 +222,7 @@ function emitSensorEvents(
 /**
  * Destroy a sensor when its shape is destroyed (b3DestroySensor). Emits an end-touch event for every
  * current overlap, then swap-removes the sensor from the dense array and fixes up the moved sensor's
- * back-reference so `shape.sensorIndex` stays valid.
+ * back-reference in the shape column, read through `shapeSensorIndex`.
  */
 export function destroySensor(world: WorldState, sensorShape: Shape): void {
     const sensorIndex = shapeSensorIndex(world, sensorShape.id);
