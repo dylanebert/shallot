@@ -124,7 +124,6 @@ export type Shape = {
     enableCustomFiltering: boolean;
     enableHitEvents: boolean;
     enablePreSolveEvents: boolean;
-    enlargedAABB: boolean;
     sphere?: Sphere;
     capsule?: Capsule;
     hull?: HullData;
@@ -249,7 +248,6 @@ function createShapeRecord(): Shape {
         enableCustomFiltering: false,
         enableHitEvents: false,
         enablePreSolveEvents: false,
-        enlargedAABB: false,
     };
 }
 
@@ -617,7 +615,6 @@ function createShapeInternal(
     shape.explosionScale = def.explosionScale;
     shape.filter = toFilterBits(def.filter);
     shape.userData = def.userData;
-    shape.enlargedAABB = false;
     shape.enableSensorEvents = def.enableSensorEvents;
     shape.enableContactEvents = def.enableContactEvents;
     shape.enableCustomFiltering = def.enableCustomFiltering;

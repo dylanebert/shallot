@@ -6,7 +6,7 @@
 //
 // After finalize, a deferred island split runs (b3SplitIsland), then the bullet CCD stage sweeps any
 // fast bullet bodies, then the island-sleep pass moves islands with no still-moving body into sleeping
-// sets. Fast non-bullet bodies are swept inline during finalize (continuous.ts). Every op is
+// sets. Fast non-bullet bodies are swept inline during kernel finalize (continuous.rs). Every op is
 // fround-wrapped; see the README.
 
 import { NULL_INDEX } from "../common/array";

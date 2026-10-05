@@ -1,8 +1,7 @@
 //! Pose finalize: the per-body pose-advance phase of box3d's soft-step solver, ported op-for-op from
-//! `solver.c` (b3FinalizeBodiesTask) via the TS port (`solver.ts` `finalizeBodies`). It advances the
-//! center + rotation from the solved deltas, rebuilds the world inertia tensor and body-origin
-//! transform, resets the per-step delta/force accumulators, and emits the two sleep/continuous
-//! decision scalars TS branches on.
+//! `solver.c` (b3FinalizeBodiesTask). It advances the center + rotation from the solved deltas,
+//! rebuilds the world inertia tensor and body-origin transform, resets the per-step delta/force
+//! accumulators, and emits sleep velocity and maximum motion for the sleep policy and kernel CCD.
 //!
 //! This module owns the pose arithmetic. The arena follows it with the continuous sweep and shape
 //! bounds commit. TypeScript consumes sleep outputs; the kernel enlarges proxies serially.
@@ -22,8 +21,7 @@ use crate::math::{maxf, minf, Mat3, Quat, Transform, Vec3};
 const POSITION_SLEEP_FACTOR: f32 = 0.5;
 
 /// The continuous-collision safety factor (b3FinalizeBodies `safetyFactor`): a body whose step motion
-/// exceeds `SAFETY_FACTOR * minExtent` is a fast-body candidate. `0.5` is exact in f32, so `0.5 * x`
-/// matches the TS `f32(0.5 * minExtent)` bit-for-bit.
+/// exceeds `SAFETY_FACTOR * minExtent` is a fast-body candidate.
 const SAFETY_FACTOR: f32 = 0.5;
 
 // --- shape-AABB refit -----------------------------------------------------------------------
@@ -96,20 +94,6 @@ fn hull_aabb(geom: &[f32], xf: Transform) -> (Vec3, Vec3) {
     (center.sub(extent), center.add(extent))
 }
 
-/// The speculative-inflated tight world AABB of convex shape `geom` (type `shape_type`) under world
-/// transform `xf`, and whether it escaped the shape's resident fat AABB `fat`. Mirrors the TS finalize
-/// refit op-for-op: `computeShapeAABBOut` (tight) → `computeFatShapeAABBOut` (inflate by the speculative
-/// margin, each bound its own round) → `aabb.contains`. `shape_type` must be convex (caller partitions
-/// on [`is_convex_refit`]). Returns the candidate `[lower.xyz, upper.xyz]` + the escaped flag.
-pub fn refit_convex(
-    shape_type: u32,
-    geom: &[f32],
-    xf: Transform,
-    fat: &[f32; 6],
-) -> ([f32; 6], bool) {
-    refit_bounds(convex_bounds(shape_type, geom, xf), fat)
-}
-
 /// Inflate a tight shape bound by the speculative distance and test its resident fat margin.
 pub fn refit_bounds(b: [f32; 6], fat: &[f32; 6]) -> ([f32; 6], bool) {
     let lo = Vec3::new(b[0], b[1], b[2]);
@@ -137,15 +121,10 @@ pub fn convex_bounds(shape_type: u32, geom: &[f32], xf: Transform) -> [f32; 6] {
 /// (sim), the reset deltas (state), `[sleepVelocity, maxMotion]` per body (out column), and — for every
 /// non-fast body — the sweep base center0/rotation0 (sim2). `h` is the full-step dt, `inv_dt` its inverse.
 ///
-/// The sweep base fold mirrors b3FinalizeBodiesTask's `sim->center0 = sim->center; sim->rotation0 = q`,
-/// which the C task runs for every body that isn't a fast (continuous) candidate. A fast candidate is
-/// skipped here and gets its base from the CCD sweep instead (`solveContinuous`, TS-side); the TS tail
-/// still writes the base for the sleepy branch (a sleepy fast candidate's one writer). Bit-exact-safe
-/// because center0/rotation0 are read only by the CCD sweep and never hashed/dumped. `enable_continuous`
-/// is the world's continuous toggle (the TS test's third term): with it off no body is a fast candidate
-/// and every dynamic body gets its base here, exactly as the C task does — keeping the predicate
-/// identical to TS's unconditionally, so a future runtime `enableContinuous` setter (upstream
-/// b3World_EnableContinuous) can't silently diverge the two.
+/// The sweep base is updated here for bodies below the motion threshold. Kernel continuous
+/// finalization completes the sleep-aware decision: sleepy bodies advance discretely, and fast
+/// non-bullets get their base from the clipped CCD pose. Bullets retain their base until their
+/// deferred sweep. With continuous disabled every body advances discretely.
 pub fn finalize(
     state_col: Col<f32>,
     sim_col: Col<f32>,
@@ -239,8 +218,16 @@ mod refit_tests {
     use super::*;
     use crate::math::{Quat, Vec3};
 
-    /// The convex/fallback partition the finalize refit rests on — sphere/capsule/hull in-kernel, every
-    /// other `ShapeType` value in TS. Pins each of the six codes against `src/types.ts`.
+    fn refit_convex(
+        shape_type: u32,
+        geom: &[f32],
+        xf: Transform,
+        fat: &[f32; 6],
+    ) -> ([f32; 6], bool) {
+        refit_bounds(convex_bounds(shape_type, geom, xf), fat)
+    }
+
+    /// Convex types use inline geometry; the other types use the kernel geometry pools.
     #[test]
     fn convex_refit_partition() {
         assert!(is_convex_refit(0)); // capsule

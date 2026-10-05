@@ -435,7 +435,6 @@ unsafe fn solve(i: usize) {
         }
         for n in 0..6 {
             f.set(o + 34 + n, b[n]);
-            f.set(o + 9 + n, b[n]);
         }
         let fat = crate::fataabb::col();
         let fb = id as usize * 6;

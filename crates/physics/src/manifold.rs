@@ -2371,16 +2371,16 @@ pub fn collide_hulls(
 // │ OVERLAP_SLOP               │ 0.00050000002, 0x3A03126F   │ *absent*                      │ 0.1f * B3_LINEAR_SLOP                         │
 // │ (TS constants.ts:23)       │ constants.ts (OVERLAP_SLOP)   │ (see below)                  │ constants.h:60 (B3_OVERLAP_SLOP)              │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ kToleranceSquared (0.05²)  │ 0.0025000002, 0x3B23D70B    │ *absent*                      │ 0.05f * 0.05f                                 │
-// │ (TS distance.ts:1154)      │ distance.ts (kToleranceSquared)│ (see below)                  │ distance.c:1307 (kToleranceSquared)           │
+// │ kToleranceSquared (0.05²)  │ 0.0025000002, 0x3B23D70B    │ not asserted                  │ 0.05f * 0.05f                                 │
+// │ (TS distance.ts:1154)      │ distance.ts (kToleranceSquared)│ toi.rs (inline, see below)    │ distance.c:1307 (kToleranceSquared)           │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ kToleranceSquared (0.005²) │ 2.5e-5, 0x37D1B717          │ *absent*                      │ 0.005f * 0.005f                               │
-// │ (TS distance.ts:1249)      │ distance.ts (kToleranceSquared)│ (see below)                  │ distance.c:1436 (kToleranceSquared)           │
+// │ kToleranceSquared (0.005²) │ 2.5e-5, 0x37D1B717          │ not asserted                  │ 0.005f * 0.005f                               │
+// │ (TS distance.ts:1249)      │ distance.ts (kToleranceSquared)│ toi.rs (inline, see below)    │ distance.c:1436 (kToleranceSquared)           │
 // └────────────────────────────┴───────────────────────────────┴───────────────────────────────┴──────────────────────────────────────────────┘
 //
-// Reconciliation (ungated prose, not a checked claim): 15 assertions + 13 not assertable = 28 rows.
+// Reconciliation (ungated prose, not a checked claim): 15 assertions + 13 rows without assertions = 28 rows.
 
-// Absent constants — reachability readings:
+// Other constants — reachability readings:
 //
 // OVERLAP_SLOP (C B3_OVERLAP_SLOP = 0.1f * B3_LINEAR_SLOP, constants.h:60, bits 0x3A03126F):
 //   Used in C overlap-query predicates: b3OverlapCapsule (capsule.c:84), b3OverlapHull
@@ -2392,12 +2392,8 @@ pub fn collide_hulls(
 //   constant.
 //
 // kToleranceSquared (C 0.05f * 0.05f at distance.c:1307, bits 0x3B23D70B; 0.005f * 0.005f at
-//   distance.c:1436, bits 0x37D1B717): Used in b3MakeSeparationFunction (distance.c:1249), the
-//   CCD/TOI conservative-advancement separation function. The Rust kernel does not port
-//   b3MakeSeparationFunction — grep for 'SeparationFunction|make_separation|separation_function'
-//   in crates/physics/src/** returns nothing. distance.rs:3 states 'shape-cast and time-of-impact are
-//   CCD and stay TS-side'; finalize.rs:8 states 'the continuous (CCD) sweep' stays TS-side.
-//   No Rust code path needs this constant.
+//   distance.c:1436, bits 0x37D1B717): Kernel toi.rs uses these expressions in Function::new for the
+//   conservative-advancement separation function. This module's assertions do not cover them.
 
 #[cfg(test)]
 mod c_parity {

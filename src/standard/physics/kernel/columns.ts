@@ -262,7 +262,7 @@ export const R_WAS_TOUCHING = 2;
 // LAYOUT header indices (arena.rs), in memory order. STATE/FLAGS/SIM/FIN are resident (their LAYOUT
 // entries point into the body region — bodycolumns.ts), consumed through the `BodySim`/`BodyState`
 // views, so the per-step reservation never derives a scratch view for them. FIN_OUT is resident too
-// but transient (finalize's two decision scalars), read TS-side per step through `finOut` below.
+// but transient (sleep velocity and maximum motion); TS reads sleep velocity through `finOut`.
 const FIN_OUT = 4;
 const SLOT_SCALAR = 5;
 const WIDE_META = 12;
@@ -275,8 +275,8 @@ const N_COLS = 16;
  * views (bodycolumns.ts), not here. The transient constraint columns (cc/mc/mcp) and the persistent
  * directory/pool are kernel-internal. */
 export type Columns = {
-    /** Finalize's two per-body decision scalars (sleepVelocity, maxMotion). Resident (in the body
-     * region) but transient — recomputed each step, read once TS-side in finalize. */
+    /** Per-body sleepVelocity and maxMotion, recomputed each step. TS reads sleepVelocity for the
+     * retained sleep policy; kernel continuous finalization reads both. */
     finOut: Float32Array;
     /** Per scalar solver-record slot (contactId, transient mc base, transient mcp base). TS writes it
      * in graph-color order; the kernel scalar `prepare`/`store` gather each contact through it. */

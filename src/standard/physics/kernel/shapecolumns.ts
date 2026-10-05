@@ -23,7 +23,7 @@ import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 import { KernelViews } from "./views";
 
-/** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7) attachment(2). */
+/** Word stride of one kernel shape record, mirroring `shapes.rs`. */
 export const SHAPE_STRIDE = 51;
 export const S_PROXY_KEY = 50;
 /** Shape type code — the `ShapeType` value verbatim. */
@@ -31,7 +31,7 @@ export const S_TYPE = 0;
 /** Next shape in the body's list, or `NULL_INDEX` (0xFFFFFFFF through the u32 view). */
 export const S_NEXT = 1;
 /** Local geometry the AABB compute needs: sphere center(3)+radius(1), capsule center1(3)+center2(3)+
- * radius(1), hull local-AABB lower(3)+upper(3). Unwritten for the fallback types. */
+ * radius(1), hull local-AABB lower(3)+upper(3). Non-convex bounds use the geometry pools. */
 export const S_GEOM = 2;
 /** Hull record index or non-convex geometry word offset; capsule uses this lane for its radius. */
 export const S_GEO_REFERENCE = 8;
@@ -183,7 +183,7 @@ export class ShapeStore extends KernelViews {
         u[o + S_TYPE] = shape.type;
         u[o + S_NEXT] = shape.nextShapeId;
         for (let i = S_GEOM; i < SHAPE_STRIDE; ++i) {
-            if (i < 34 || i > 39) f[o + i] = 0;
+            if ((i < 9 || i > 14) && (i < 34 || i > 39)) f[o + i] = 0;
         }
         u[o + S_MATERIAL_HEAD] = materialHead;
         u[o + S_MATERIAL_COUNT] = materialCount;
