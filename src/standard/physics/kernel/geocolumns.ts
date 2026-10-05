@@ -98,7 +98,7 @@ export function uploadGeometry(
         recU[r + 11] = soaOff;
 
         // Authoring and snapshots keep points/planes as their one source; derive Box3D's padded
-        // streams only at upload. Tail vertices and normals repeat element zero.
+        // streams only at upload. Tail vertices repeat element zero; tail normals are zero.
         const nv = (h.vertexCount + 3) & ~3;
         const nf = (h.faceCount + 3) & ~3;
         for (let p = 0; p < nv; ++p) {
@@ -109,10 +109,10 @@ export function uploadGeometry(
         }
         soaOff += 3 * nv;
         for (let f = 0; f < nf; ++f) {
-            const normal = h.planes[f < h.faceCount ? f : 0].normal;
-            soa[soaOff + f] = normal.x;
-            soa[soaOff + nf + f] = normal.y;
-            soa[soaOff + 2 * nf + f] = normal.z;
+            const normal = f < h.faceCount ? h.planes[f].normal : undefined;
+            soa[soaOff + f] = normal?.x ?? 0;
+            soa[soaOff + nf + f] = normal?.y ?? 0;
+            soa[soaOff + 2 * nf + f] = normal?.z ?? 0;
         }
         soaOff += 3 * nf;
 

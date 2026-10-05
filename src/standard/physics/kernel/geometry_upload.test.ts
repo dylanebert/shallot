@@ -57,7 +57,7 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
             expect([soa[lane], soa[nv + lane], soa[2 * nv + lane]]).toEqual([p.x, p.y, p.z]);
         }
         for (let lane = 0; lane < nf; ++lane) {
-            const n = h.planes[lane < h.faceCount ? lane : 0].normal;
+            const n = lane < h.faceCount ? h.planes[lane].normal : { x: 0, y: 0, z: 0 };
             expect([
                 soa[3 * nv + lane],
                 soa[3 * nv + nf + lane],

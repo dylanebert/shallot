@@ -5,12 +5,12 @@
 //! borrowed view over the geometry pools: native `cargo test` borrows owned `Vec`s, the wasm kernel
 //! borrows slices reinterpreted over the static geometry columns (3c.2b).
 
-use crate::math::{Plane, Vec3, FLT_MAX};
+use crate::math::{Plane, Vec3, FLT_MAX, HUGE};
 use crate::simd::FloatW;
 use std::borrow::Cow;
 
-/// Derive Box3D's padded SoA stream from the authored vectors.
-pub fn soa_vectors(points: impl ExactSizeIterator<Item = Vec3>) -> Vec<f32> {
+/// Derive Box3D's padded SoA stream; vertices repeat the first point, normals have zero tails.
+pub fn soa_vectors(points: impl ExactSizeIterator<Item = Vec3>, repeat_first: bool) -> Vec<f32> {
     let count = points.len();
     let n = (count + 3) & !3;
     let mut out = vec![0.0; n * 3];
@@ -19,10 +19,12 @@ pub fn soa_vectors(points: impl ExactSizeIterator<Item = Vec3>) -> Vec<f32> {
         out[n + i] = p.y;
         out[2 * n + i] = p.z;
     }
-    for i in count..n {
-        out[i] = out[0];
-        out[n + i] = out[n];
-        out[2 * n + i] = out[2 * n];
+    if repeat_first {
+        for i in count..n {
+            out[i] = out[0];
+            out[n + i] = out[n];
+            out[2 * n + i] = out[2 * n];
+        }
     }
     out
 }
@@ -101,7 +103,7 @@ impl HullData<'_> {
         let ny = FloatW::splat(direction.y);
         let nz = FloatW::splat(direction.z);
         let bias = FloatW::splat(bias);
-        let mut minimum = FloatW::splat(f32::INFINITY);
+        let mut minimum = FloatW::splat(HUGE);
         for i in (0..soa_count).step_by(4) {
             let x = FloatW::load(&self.soa_points[i..]);
             let y = FloatW::load(&self.soa_points[soa_count + i..]);
@@ -137,6 +139,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn soa_padding_repeats_vertices_but_zero_fills_normals() {
+        let vectors = [Vec3::new(1.0, 2.0, 3.0)];
+        assert_eq!(
+            soa_vectors(vectors.into_iter(), true),
+            vec![1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0]
+        );
+        assert_eq!(
+            soa_vectors(vectors.into_iter(), false),
+            vec![1.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn wide_support_keeps_box3d_huge_sentinel_when_all_candidates_exceed_it() {
+        let points = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        ];
+        let hull = HullData {
+            center: Vec3::ZERO,
+            vertex_count: points.len(),
+            edge_count: 0,
+            face_count: 0,
+            points: &points,
+            soa_points: soa_vectors(points.iter().copied(), true).into(),
+            soa_normals: Vec::new().into(),
+            vertices: &[],
+            edges: &[],
+            faces: &[],
+            planes: &[],
+        };
+        assert_eq!(
+            hull.support_vertex_wide(Vec3::new(1.0, 0.0, 0.0), 200_000.0),
+            0
+        );
+    }
+
+    #[test]
     fn wide_support_embeds_indices_and_never_selects_padding() {
         for count in 1..=128 {
             let points: Vec<_> = (0..count)
@@ -148,7 +190,7 @@ mod tests {
                 edge_count: 0,
                 face_count: 0,
                 points: &points,
-                soa_points: soa_vectors(points.iter().copied()).into(),
+                soa_points: soa_vectors(points.iter().copied(), true).into(),
                 soa_normals: Vec::new().into(),
                 vertices: &[],
                 edges: &[],

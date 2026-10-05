@@ -111,9 +111,13 @@ impl HullStore {
             edge_count: self.edge_count,
             face_count: self.face_count,
             points: &self.points,
-            soa_points: shallot_physics::hull::soa_vectors(self.points.iter().copied()).into(),
-            soa_normals: shallot_physics::hull::soa_vectors(self.planes.iter().map(|p| p.normal))
+            soa_points: shallot_physics::hull::soa_vectors(self.points.iter().copied(), true)
                 .into(),
+            soa_normals: shallot_physics::hull::soa_vectors(
+                self.planes.iter().map(|p| p.normal),
+                false,
+            )
+            .into(),
             vertices: &self.vertices,
             edges: &self.edges,
             faces: &self.faces,
