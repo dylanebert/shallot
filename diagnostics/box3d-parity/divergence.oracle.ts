@@ -3,66 +3,19 @@
 //
 //     BOX3D=/path/to/box3d bun test ./diagnostics/box3d-parity/divergence.oracle.ts
 //
-// Builds Box3D's box3d and shared libraries (Release, default SIMD) and native.c into a cache under the
-// system temp directory, then runs native.c and scenes.ts on each scene at one thread and diffs them. Each
+// Builds native.c (native.ts), then runs it and scenes.ts on each scene at one thread and diffs them. Each
 // test asserts equality with native at the state where its cause showed.
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { existsSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { createCylinder, createRock } from "../../src/standard/physics/api";
 import { uploadGeometry } from "../../src/standard/physics/kernel/geocolumns";
 import { kernel } from "../../src/standard/physics/kernel/kernel";
+import { nativeBinary, run } from "./native";
 
 setDefaultTimeout(180_000);
 
-const SHA = "47d7f7cc7e091142c08d11dc7d2e493c5d34f536";
 const here = import.meta.dir;
-const box3d = process.env.BOX3D;
-if (!box3d) throw new Error("set BOX3D to a Box3D checkout at 47d7f7cc");
-const head = Bun.spawnSync(["git", "-C", box3d, "rev-parse", "HEAD"]).stdout.toString().trim();
-if (head !== SHA) throw new Error(`BOX3D is at ${head || "no git revision"}, not ${SHA}`);
-
-const build = join(tmpdir(), `box3d-parity-${SHA.slice(0, 8)}`);
-const native = join(build, "native");
-
-function run(cmd: string[], env: Record<string, string> = {}): string {
-    const proc = Bun.spawnSync(cmd, {
-        env: { ...process.env, ...env },
-        cwd: resolve(here, "../.."),
-    });
-    if (proc.exitCode !== 0) throw new Error(`${cmd.join(" ")} failed:\n${proc.stderr.toString()}`);
-    return proc.stdout.toString();
-}
-
-if (!existsSync(native)) {
-    mkdirSync(build, { recursive: true });
-    const cmake = join(build, "cmake");
-    run([
-        "cmake",
-        "-S",
-        box3d,
-        "-B",
-        cmake,
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DBOX3D_BENCHMARKS=ON",
-        `-DFETCHCONTENT_BASE_DIR=${join(build, "fetch")}`,
-    ]);
-    run(["cmake", "--build", cmake, "-j", "8", "--target", "box3d", "shared"]);
-    const inc = ["include", "src", "shared"].map((d) => `-I${join(box3d, d)}`);
-    run([
-        "cc",
-        "-O2",
-        "-std=c17",
-        "-ffp-contract=off",
-        ...inc,
-        join(here, "native.c"),
-        join(cmake, "shared/libshared.a"),
-        join(cmake, "src/libbox3d.a"),
-        "-o",
-        native,
-    ]);
-}
+const native = nativeBinary();
 
 type Side = { native: string[]; shallot: string[] };
 function both(scene: string, steps: number, env: Record<string, string>): Side {

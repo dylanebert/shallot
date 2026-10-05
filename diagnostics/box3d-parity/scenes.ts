@@ -5,9 +5,7 @@
 //
 // The builders transcribe Box3D 47d7f7cc's shared/benchmarks.c and shared/human.c with their f32
 // arithmetic; human.c's bone table is read from the frozen ragdoll fixture. Environment as native.c:
-// RAIN_COUNT, RAIN_GROUP, ROCKS, COLORS, CACHE.
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+// RAIN_COUNT, RAIN_GROUP, ROCKS, COLORS, CACHE, PROFILE, and on Node CPU (cpu.ts).
 import { World } from "../../src/engine";
 import {
     type Body,
@@ -34,6 +32,8 @@ import {
     PI,
     quat,
 } from "../../src/standard/physics/common/math";
+import BONE_TABLE from "../../src/standard/physics/solver/fixtures/human.json";
+import { PROFILE_FIELDS } from "../../src/standard/physics/world/profile";
 import type { WorldState } from "../../src/standard/physics/world/world";
 
 const f = Math.fround;
@@ -66,12 +66,7 @@ type Bone = {
     twistDeg?: [number, number];
     friction: number;
 };
-const BONES: Bone[] = JSON.parse(
-    readFileSync(
-        resolve(import.meta.dir, "../../src/standard/physics/solver/fixtures/human.json"),
-        "utf8",
-    ),
-);
+const BONES = BONE_TABLE as Bone[];
 type Human = { bodies: Body[]; joints: Joint[]; filter: Joint };
 
 function createHuman(
@@ -235,6 +230,46 @@ function junk(rocks: V3[], def: object): Scene {
     };
 }
 
+// benchmarks.c CreateJointGrid.
+function jointGrid(): Scene {
+    const frame = (x: number, y: number, z: number) => ({
+        p: { x, y, z },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    });
+    return {
+        def: { enableSleep: false },
+        create(w) {
+            const n = 100;
+            const bodies: Body[] = [];
+            const filter = { categoryBits: 2n, maskBits: 0xffffffffn ^ 2n, groupIndex: 0 };
+            const sphere = { center: { x: 0, y: 0, z: 0 }, radius: f(0.4) };
+            for (let k = 0; k < n; ++k) {
+                for (let i = 0; i < n; ++i) {
+                    const body = w.createBody({
+                        type: i === 0 ? BodyType.Static : BodyType.Dynamic,
+                        enableSleep: false,
+                        position: { x: k, y: -i, z: 0 },
+                    });
+                    body.createSphere({ filter }, sphere);
+                    const index = bodies.length;
+                    if (i > 0)
+                        w.createSphericalJoint(bodies[index - 1], body, {
+                            localFrameA: frame(0, -0.5, 0),
+                            localFrameB: frame(0, 0.5, 0),
+                        });
+                    if (k > 0)
+                        w.createSphericalJoint(bodies[index - n], body, {
+                            localFrameA: frame(0.5, 0, 0),
+                            localFrameB: frame(-0.5, 0, 0),
+                        });
+                    bodies.push(body);
+                }
+            }
+        },
+        step() {},
+    };
+}
+
 const all: V3[] = [];
 for (let Y = 0; Y < 24; ++Y)
     for (let X = 0; X <= 20; ++X) for (let Z = 0; Z <= 20; ++Z) all.push([X, Y, Z]);
@@ -258,9 +293,11 @@ const scenes: Record<string, () => Scene> = {
     "rain-n": () => rain(env("RAIN_COUNT", 10), env("RAIN_GROUP", 3)),
     junkyard: () => junk(all, junkyardCapacity),
     junk: () => junk(chosen, {}),
+    // biome-ignore lint/style/useNamingConvention: Box3D's benchmark name, as native.c takes it.
+    joint_grid: jointGrid,
 };
 if (!scenes[name] || stepArg === undefined) {
-    console.error("usage: scenes.ts rain|rain-n|junkyard|junk <threads> <steps>");
+    console.error("usage: scenes.ts rain|rain-n|junkyard|junk|joint_grid <threads> <steps>");
     process.exit(2);
 }
 const owner = new World();
@@ -271,12 +308,21 @@ const w = new PhysicsWorld({ enableContinuous: true, ...scene.def }, owner);
 scene.create(w);
 const state = w.state as WorldState;
 const colors = env("COLORS", -1),
-    cache = env("CACHE", -1);
+    cache = env("CACHE", -1),
+    profileFrom = env("PROFILE", -1),
+    cpuFrom = env("CPU", -1),
+    steps = Number(stepArg);
+const cpu = cpuFrom >= 0 ? await import("./cpu") : null;
 const lines: string[] = [];
-for (let i = 0; i < Number(stepArg); ++i) {
+for (let i = 0; i < steps; ++i) {
     scene.step(w, i);
+    if (i === cpuFrom) cpu?.startCpu();
     w.step(f(1 / 60), 4);
     lines.push(`${i} 0x${hash(w).toString(16).padStart(16, "0")}`);
+    if (profileFrom >= 0 && i >= profileFrom) {
+        const p = w.getProfile();
+        lines.push(`F ${i} ${PROFILE_FIELDS.map((k) => p[k].toFixed(4)).join(" ")}`);
+    }
     if (i === colors) {
         const graph = state.constraintGraph.colors;
         for (let c = 0; c < graph.length - 1; ++c) {
@@ -295,6 +341,7 @@ for (let i = 0; i < Number(stepArg); ++i) {
         );
     }
 }
+if (cpu && cpuFrom < steps) lines.push(...cpu.stopCpu(steps - cpuFrom, threads !== 1));
 console.log(lines.join("\n"));
 w.destroy();
 await shutdown(owner);

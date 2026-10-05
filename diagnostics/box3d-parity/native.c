@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: MIT
-// Native side of the box3d-parity divergence oracle (divergence.oracle.ts), linked against Box3D 47d7f7cc's
-// box3d and shared libraries. Builds a scene as benchmark/main.c does, steps it at 1/60 with 4 substeps,
-// and prints the world hash after every step, plus the state the oracle diffs at one step.
+// Native side of the box3d-parity oracles (divergence.oracle.ts, phases.oracle.ts), linked against Box3D
+// 47d7f7cc's box3d and shared libraries. Builds a scene as benchmark/main.c does, steps it at 1/60 with 4
+// substeps, and prints the world hash after every step, plus the state the oracles diff or time.
 //
 //   native <scene> <workers> <steps>
 //
-// Scenes: rain and junkyard are shared/benchmarks.c's CreateRain/StepRain and CreateJunkyard/StepJunkyard
-// at full size. rain-n and junk are copies of them with the size as a parameter: rain-n takes RAIN_COUNT
-// (grid count, 10 in rain) and RAIN_GROUP (humans per group, 3); junk takes ROCKS="X,Y,Z;..." (grid
-// indices of the rocks to keep, all 24 x 21 x 21 in junkyard).
+// Scenes: joint_grid, rain and junkyard are shared/benchmarks.c's CreateJointGrid, CreateRain/StepRain and
+// CreateJunkyard/StepJunkyard at full size. rain-n and junk are copies of the last two with the size as a
+// parameter: rain-n takes RAIN_COUNT (grid count, 10 in rain) and RAIN_GROUP (humans per group, 3); junk
+// takes ROCKS="X,Y,Z;..." (grid indices of the rocks to keep, all 24 x 21 x 21 in junkyard).
 // Environment: COLORS=<step> prints the graph colors' body bits after that step; CACHE=<contact> prints
 // that contact's SAT cache after every step; PROBE=<step> FOCUS=<body> calls b3CollideHulls before that
-// step on each hull pair touching the body, with a fresh and with the live cache.
+// step on each hull pair touching the body, with a fresh and with the live cache; PROFILE=<step> prints
+// b3World_GetProfile's fields, in b3Profile order and in milliseconds, and b3World_GetCounters' contact
+// counts after that step and every later one.
 #include "benchmarks.h"
 #include "human.h"
 
@@ -236,15 +238,16 @@ int main( int argc, char** argv )
 		{ "rain-n", NULL, CreateRainN, StepRainN },
 		{ "junkyard", GetJunkyardCapacity, CreateJunkyard, StepJunkyard },
 		{ "junk", NULL, CreateJunk, StepJunk },
+		{ "joint_grid", NULL, CreateJointGrid, NULL },
 	};
 	Scene* scene = NULL;
-	for ( int i = 0; argc == 4 && i < 4; ++i )
+	for ( int i = 0; argc == 4 && i < 5; ++i )
 	{
 		if ( strcmp( scenes[i].name, argv[1] ) == 0 ) scene = scenes + i;
 	}
 	if ( scene == NULL )
 	{
-		fprintf( stderr, "usage: native rain|rain-n|junkyard|junk <workers> <steps>\n" );
+		fprintf( stderr, "usage: native rain|rain-n|junkyard|junk|joint_grid <workers> <steps>\n" );
 		return 2;
 	}
 	int steps = atoi( argv[3] );
@@ -252,6 +255,7 @@ int main( int argc, char** argv )
 	int cache = getenv( "CACHE" ) ? atoi( getenv( "CACHE" ) ) : -1;
 	int probeStep = getenv( "PROBE" ) ? atoi( getenv( "PROBE" ) ) : -1;
 	int focus = getenv( "FOCUS" ) ? atoi( getenv( "FOCUS" ) ) : -1;
+	int profileFrom = getenv( "PROFILE" ) ? atoi( getenv( "PROFILE" ) ) : -1;
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
 	worldDef.enableContinuous = true;
@@ -262,10 +266,23 @@ int main( int argc, char** argv )
 	scene->create( worldId );
 	for ( int i = 0; i < steps; ++i )
 	{
-		scene->step( worldId, i );
+		if ( scene->step != NULL ) scene->step( worldId, i );
 		if ( i == probeStep ) probe( world, i, focus );
 		b3World_Step( worldId, 1.0f / 60.0f, 4 );
 		printf( "%d 0x%016llx\n", i, (unsigned long long)b3HashWorldState( world ) );
+		if ( profileFrom >= 0 && i >= profileFrom )
+		{
+			b3Profile p = b3World_GetProfile( worldId );
+			const float* field = &p.step;
+			printf( "F %d", i );
+			for ( int k = 0; k < (int)( sizeof( p ) / sizeof( float ) ); ++k ) printf( " %.4f", field[k] );
+			printf( "\n" );
+			b3Counters n = b3World_GetCounters( worldId );
+			int manifolds = 0;
+			for ( int k = 0; k < B3_CONTACT_MANIFOLD_COUNT_BUCKETS; ++k ) manifolds += n.manifoldCounts[k];
+			printf( "N %d contacts %d awake %d manifolds %d recycled %d sat %d satHit %d joints %d\n", i, n.contactCount,
+					n.awakeContactCount, manifolds, n.recycledContactCount, n.satCallCount, n.satCacheHitCount, n.jointCount );
+		}
 		if ( i == colors ) printColors( world, i );
 		if ( cache >= 0 ) printCache( world, i, cache );
 	}
