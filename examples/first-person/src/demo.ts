@@ -39,9 +39,15 @@ const LIFT_COLOR = [0.83, 0.53, 0.24, 1] as const;
 const TOWER_COLOR = [0.34, 0.4, 0.39, 1] as const;
 const PERCH_COLOR = [0.39, 0.45, 0.43, 1] as const;
 
-function block(world: World, at: Vec4, size: Vec4, rgba: Vec4): number {
+function block(
+    world: World,
+    at: Vec4,
+    size: Vec4,
+    rgba: Vec4,
+    type: BodyType = BodyType.Static,
+): number {
     const eid = world.create();
-    world.add(eid, Body, { position: at, halfExtents: size });
+    world.add(eid, Body, { type, position: at, halfExtents: size });
     const name = `block-${eid}`;
     registerMesh(world, { name, ...cube([size[0], size[1], size[2]]) });
     world.add(eid, MeshInstance, { mesh: world.resource(Meshes).id(name)! });
@@ -95,8 +101,13 @@ export function route(world: World) {
         ],
     ] as const satisfies readonly (readonly [Vec4, Vec4])[];
     for (const [at, size] of steps) block(world, at, size, STEP_COLOR);
-    const lift = block(world, [0, 1.75, -6.5, 0], [3, 0.25, 2, 0], LIFT_COLOR);
-    world.storage(Body).type.set(lift, BodyType.Kinematic);
+    const lift = block(
+        world,
+        [0, 1.75, -6.5, 0],
+        [3, 0.25, 2, 0],
+        LIFT_COLOR,
+        BodyType.Kinematic,
+    );
     world.add(lift, Lift);
     const tower = [
         [[0.7, 2.5, -10, 0], [2.2, 0.5, 1.2, 0], TOWER_COLOR],

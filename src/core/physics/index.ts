@@ -3,11 +3,26 @@ import { component, entity, f32, GlobalTransform, type Plugin, u32, vec4 } from 
 /** collision-shape tag for {@link Body}. Box collides as an OBB; sphere/capsule as a core + radius; hull as a convex polytope (geometry registered in `Hulls`, referenced by `halfExtents.w` = the hull id). */
 export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
 
+/** Box3D's static, kinematic and dynamic motion types; Body defaults to static. */
 export const BodyType = { Static: 0, Kinematic: 1, Dynamic: 2 } as const;
 export type BodyType = (typeof BodyType)[keyof typeof BodyType];
 
 /**
  * shared rigid-body authoring data; a simulation plugin owns its motion and collisions.
+ *
+ * @example
+ * ```
+ * const box = world.create();
+ * world.add(box, Body, { type: BodyType.Dynamic, shape: ShapeKind.Box, position: [0, 5, 0, 0], halfExtents: [0.5, 0.5, 0.5, 0], friction: 0.5 });
+ * // Omitting type gives static geometry.
+ * world.add(world.create(), Body, { position: [0, -0.5, 0, 0], halfExtents: [10, 0.5, 10, 0] });
+ * // sphere, radius 0.5
+ * world.add(world.create(), Body, { shape: ShapeKind.Sphere, position: [0, 5, 0, 0], halfExtents: [0, 0, 0, 0.5] });
+ * // capsule, half-height 0.5, radius 0.3
+ * world.add(world.create(), Body, { shape: ShapeKind.Capsule, position: [0, 5, 0, 0], halfExtents: [0, 0.5, 0, 0.3] });
+ * // hull id 2, AABB half 1×1×1
+ * world.add(world.create(), Body, { shape: ShapeKind.Hull, position: [0, 5, 0, 0], halfExtents: [1, 1, 1, 2] });
+ * ```
  */
 export const Body = component(
     "Body",
