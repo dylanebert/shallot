@@ -49,7 +49,7 @@ const FIELDS = [
     "sleepIslands",
     "sensors",
 ];
-const SHOWN = ["step", "pairs", "collide", "solve", "constraints", "transforms", "sleepIslands"];
+const SHOWN = FIELDS;
 const threadCounts = (process.env.PHASE_THREADS ?? "1,4").split(",").map(Number);
 
 const native = nativeBinary();
@@ -107,11 +107,20 @@ for (const [scene, [from, to]] of Object.entries(WINDOWS)) {
                 `step ratio median, first and second half: ${median(ratio.slice(0, half)).toFixed(1)}, ${median(ratio.slice(half)).toFixed(1)}`,
             );
             const counters = n.filter((l) => l.startsWith("N ")).map((l) => l.split(" "));
+            const worldCounts = s.filter((l) => l.startsWith("W ")).map((l) => l.split(" "));
+            for (let i = 0; i < counters.length; ++i) {
+                for (const name of ["contacts", "awake", "joints"]) {
+                    expect(Number(worldCounts[i][worldCounts[i].indexOf(name) + 1])).toBe(
+                        Number(counters[i][counters[i].indexOf(name) + 1]),
+                    );
+                }
+            }
             const count = (name: string) =>
                 median(counters.map((c) => Number(c[c.indexOf(name) + 1])));
             report.push(
                 `native counters (median): contacts ${count("contacts")}, awake ${count("awake")}, with a manifold ${count("manifolds")}, recycled ${count("recycled")}, sat calls ${count("sat")}, sat cache hits ${count("satHit")}, joints ${count("joints")}`,
-                "shallot main thread, CPU profile ms per step (J phase total wasm join ts; JC inclusive callees):",
+                "Shallot contacts, awake contacts and joints equal native at every measured step; SAT calls/cache hits are native denominators, not Shallot instrumentation.",
+                "shallot main thread, CPU profile ms per step (J phase total wasm join ts; JC inclusive callees; wasm includes internal stage waits, join is only the JS pool tail):",
                 ...s.filter((l) => l.startsWith("J")),
                 "",
             );

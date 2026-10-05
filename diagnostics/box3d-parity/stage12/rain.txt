@@ -1,0 +1,356 @@
+bun test v1.4.2 (744846f84)
+
+diagnostics/box3d-parity/phases.oracle.ts:
+rain, 1 thread: median ms per step over steps 280-319
+| phase | native | shallot | ratio |
+|---|---|---|---|
+| step | 4.93 | 9.71 | 2.0 |
+| pairs | 0.89 | 1.97 | 2.2 |
+| collide | 0.38 | 2.05 | 5.4 |
+| solve | 3.63 | 5.46 | 1.5 |
+| solverSetup | 0.00 | 0.00 | - |
+| constraints | 3.25 | 5.13 | 1.6 |
+| prepareConstraints | 0.17 | 0.00 | 0.0 |
+| integrateVelocities | 0.33 | 0.00 | 0.0 |
+| warmStart | 0.21 | 0.00 | 0.0 |
+| solveImpulses | 1.16 | 0.00 | 0.0 |
+| integratePositions | 0.07 | 0.00 | 0.0 |
+| relaxImpulses | 1.30 | 0.00 | 0.0 |
+| applyRestitution | 0.00 | 0.00 | - |
+| storeImpulses | 0.01 | 0.00 | - |
+| splitIslands | 0.00 | 0.00 | - |
+| transforms | 0.28 | 0.21 | 0.7 |
+| sensorHits | 0.00 | 0.00 | - |
+| jointEvents | 0.00 | 0.00 | - |
+| hitEvents | 0.00 | 0.00 | - |
+| refit | 0.09 | 0.00 | 0.0 |
+| bullets | 0.00 | 0.00 | - |
+| sleepIslands | 0.00 | 0.00 | - |
+| sensors | 0.00 | 0.00 | - |
+step ratio median, first and second half: 1.9, 2.0
+native counters (median): contacts 7536, awake 6122.5, with a manifold 1459.5, recycled 4444, sat calls 0, sat cache hits 0, joints 4200
+Shallot contacts, awake contacts and joints equal native at every measured step; SAT calls/cache hits are native denominators, not Shallot instrumentation.
+shallot main thread, CPU profile ms per step (J phase total wasm join ts; JC inclusive callees; wasm includes internal stage waits, join is only the JS pool tail):
+J pairs total 2.039 wasm 1.130 join 0.000 ts 0.909
+JC pairs 0.776 runMt
+JC pairs 0.776 runMt > wasm-function[99]
+JC pairs 0.764 runMt > wasm-function[99] > wasm-function[4]
+JC pairs 0.635 filtersPass
+JC pairs 0.496 filtersPass > shouldBodiesCollide
+JC pairs 0.427 filtersPass > shouldBodiesCollide > bodiesFiltered
+JC pairs 0.201 filtersPass > shouldBodiesCollide > bodiesFiltered > broadBodiesFiltered
+JC pairs 0.189 filtersPass > shouldBodiesCollide > bodiesFiltered > refreshIfStale
+JC pairs 0.164 filtersPass > shouldBodiesCollide > bodiesFiltered > refreshIfStale > ensureViews
+JC pairs 0.012 filtersPass > shouldBodiesCollide > bodiesFiltered > refreshIfStale > kernel2
+JC pairs 0.013 filtersPass > shouldBodiesCollide > bodiesFiltered > kernel2
+JC pairs 0.013 filtersPass > shouldBodiesCollide > bodiesFiltered > kernel2 > kernelState
+JC pairs 0.013 filtersPass > shouldBodiesCollide > shapeSetActiveWorld
+JC pairs 0.040 filtersPass > shouldShapesCollide
+JC pairs 0.224 createContact
+JC pairs 0.199 createContact > addKey
+JC pairs 0.075 createContact > addKey > growTable
+JC pairs 0.062 createContact > addKey > growTable > addKeyHaveCapacity
+JC pairs 0.062 createContact > addKey > growTable > addKeyHaveCapacity > findSlot
+JC pairs 0.013 createContact > addKey > growTable > growSet
+JC pairs 0.013 createContact > addKey > growTable > growSet > reserve
+JC pairs 0.049 createContact > addKey > addKeyHaveCapacity
+JC pairs 0.025 createContact > addKey > addKeyHaveCapacity > get
+JC pairs 0.012 createContact > addKey > addKeyHaveCapacity > get > ensureViews
+JC pairs 0.011 createContact > addKey > addKeyHaveCapacity > findSlot
+JC pairs 0.011 createContact > addKey > addKeyHaveCapacity > findSlot > get
+JC pairs 0.038 createContact > addKey > ensureResident
+JC pairs 0.013 createContact > addKey > ensureResident > refreshIfStale
+JC pairs 0.013 createContact > addKey > ensureResident > refreshIfStale > ensureViews
+JC pairs 0.024 createContact > addKey > findSlot
+JC pairs 0.013 createContact > addKey > findSlot > get
+JC pairs 0.128 rebuildTrees
+JC pairs 0.128 rebuildTrees > wasm-function[85]
+JC pairs 0.086 rebuildTrees > wasm-function[85] > wasm-function[81]
+JC pairs 0.087 get
+JC pairs 0.050 get > refreshIfStale
+JC pairs 0.050 get > refreshIfStale > ensureViews
+JC pairs 0.013 get > refreshIfStale > ensureViews > kernelViewsCurrent
+JC pairs 0.037 get > get
+JC pairs 0.025 get > get > ensureViews
+JC pairs 0.012 get > get > ensureViews > kernelViewsCurrent
+JC pairs 0.025 clear
+JC pairs 0.013 clear > get count
+JC pairs 0.012 clear > broadClearMoves
+JC pairs 0.013 push
+J collide total 2.009 wasm 0.892 join 0.000 ts 1.118
+JC collide 0.913 dispatch
+JC collide 0.463 dispatch > dispatchContacts
+JC collide 0.463 dispatch > dispatchContacts > wasm-function[90]
+JC collide 0.063 dispatch > dispatchContacts > wasm-function[90] > wasm-function[72]
+JC collide 0.038 dispatch > dispatchContacts > wasm-function[90] > wasm-function[50]
+JC collide 0.012 dispatch > dispatchContacts > wasm-function[90] > wasm-function[87]
+JC collide 0.275 dispatch > readShapeAabb
+JC collide 0.249 dispatch > readShapeAabb > refreshViews
+JC collide 0.224 dispatch > readShapeAabb > refreshViews > deriveViews
+JC collide 0.112 dispatch > readShapeAabb > refreshViews > deriveViews > get
+JC collide 0.025 dispatch > readShapeAabb > refreshViews > deriveViews > get buffer
+JC collide 0.012 dispatch > readShapeAabb > refreshViews > deriveViews > shapeLayoutPtr
+JC collide 0.025 dispatch > readShapeAabb > get
+JC collide 0.101 dispatch > finish
+JC collide 0.063 dispatch > finish > importKernelManifolds
+JC collide 0.050 dispatch > finish > importKernelManifolds > alloc
+JC collide 0.038 dispatch > finish > importKernelManifolds > alloc > allocBlock
+JC collide 0.013 dispatch > finish > importKernelManifolds > alloc > views
+JC collide 0.013 dispatch > finish > importKernelManifolds > get
+JC collide 0.013 dispatch > finish > clear
+JC collide 0.013 dispatch > reserveDispatch
+JC collide 0.752 recycle
+JC collide 0.366 recycle > dispatchRecycle
+JC collide 0.366 recycle > dispatchRecycle > wasm-function[92]
+JC collide 0.203 recycle > bodyColumnIndex
+JC collide 0.025 recycle > bodyColumnIndex > writeSim
+JC collide 0.012 recycle > bodyColumnIndex > writeSim > get
+JC collide 0.025 recycle > collect
+JC collide 0.224 destroyContact
+JC collide 0.111 destroyContact > freeSlot
+JC collide 0.050 destroyContact > freeSlot > get
+JC collide 0.013 destroyContact > freeSlot > get > ensureViews
+JC collide 0.037 destroyContact > freeSlot > clear
+JC collide 0.037 destroyContact > freeSlot > clear > get
+JC collide 0.012 destroyContact > freeSlot > clear > get > ensureViews
+JC collide 0.100 destroyContact > removeKey
+JC collide 0.025 destroyContact > removeKey > get
+JC collide 0.013 destroyContact > removeKey > findSlot
+JC collide 0.013 destroyContact > removeKey > findSlot > get
+JC collide 0.013 destroyContact > removeKey > findSlot > get > ensureViews
+JC collide 0.012 destroyContact > removeKey > ensureResident
+JC collide 0.012 destroyContact > removeKey > ensureResident > refreshIfStale
+JC collide 0.012 destroyContact > removeKey > ensureResident > refreshIfStale > ensureViews
+JC collide 0.037 dispatchRecycle
+JC collide 0.037 dispatchRecycle > wasm-function[92]
+JC collide 0.025 dispatchRecycle > wasm-function[92] > wasm-function[28]
+JC collide 0.013 linkContact
+JC collide 0.012 unlinkContact
+JC collide 0.012 unlinkContact > swapRemove
+JC collide 0.012 addContactToGraph
+JC collide 0.012 addContactToGraph > assignColor
+JC collide 0.012 addContactToGraph > assignColor > greedyColor
+JC collide 0.012 addContactToGraph > assignColor > greedyColor > getBit
+JC collide 0.010 get stale
+J solve total 5.514 wasm 4.435 join 0.000 ts 1.080
+JC solve 4.333 runMt
+JC solve 4.333 runMt > wasm-function[99]
+JC solve 4.333 runMt > wasm-function[99] > wasm-function[15]
+JC solve 4.333 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5]
+JC solve 2.616 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[12]
+JC solve 0.341 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[49]
+JC solve 0.240 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[11]
+JC solve 0.205 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[13]
+JC solve 0.182 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[10]
+JC solve 0.133 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[6]
+JC solve 0.038 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[9]
+JC solve 0.492 marshalJoints
+JC solve 0.454 marshalJoints > writeRecord
+JC solve 0.064 marshalJoints > writeRecord > writeTransform
+JC solve 0.050 marshalJoints > writeRecord > writeVec3
+JC solve 0.040 marshalJoints > writeRecord > bodyColumnIndex
+JC solve 0.275 readbackJointImpulses
+JC solve 0.237 readbackJointImpulses > readbackJoint
+JC solve 0.062 readbackJointImpulses > readbackJoint > readVec3
+JC solve 0.178 finalizeBodies
+JC solve 0.102 finalizeBodies > treeEnlargePass
+JC solve 0.089 finalizeBodies > treeEnlargePass > wasm-function[80]
+JC solve 0.152 trySleepIsland
+JC solve 0.061 trySleepIsland > cloneBodySim
+JC solve 0.037 trySleepIsland > syncBodyQuery
+JC solve 0.037 prepareContinuous
+JC solve 0.036 writeSlots
+
+rain, 4 threads: median ms per step over steps 280-319
+| phase | native | shallot | ratio |
+|---|---|---|---|
+| step | 1.55 | 5.64 | 3.6 |
+| pairs | 0.25 | 1.58 | 6.4 |
+| collide | 0.15 | 1.73 | 11.4 |
+| solve | 1.14 | 2.32 | 2.0 |
+| solverSetup | 0.00 | 0.00 | - |
+| constraints | 0.97 | 2.00 | 2.1 |
+| prepareConstraints | 0.06 | 0.00 | 0.0 |
+| integrateVelocities | 0.09 | 0.00 | 0.0 |
+| warmStart | 0.07 | 0.00 | 0.0 |
+| solveImpulses | 0.34 | 0.00 | 0.0 |
+| integratePositions | 0.02 | 0.00 | 0.0 |
+| relaxImpulses | 0.38 | 0.00 | 0.0 |
+| applyRestitution | 0.00 | 0.00 | - |
+| storeImpulses | 0.00 | 0.00 | - |
+| splitIslands | 0.00 | 0.00 | - |
+| transforms | 0.08 | 0.20 | 2.3 |
+| sensorHits | 0.00 | 0.00 | - |
+| jointEvents | 0.00 | 0.00 | - |
+| hitEvents | 0.00 | 0.00 | - |
+| refit | 0.09 | 0.00 | 0.0 |
+| bullets | 0.00 | 0.00 | - |
+| sleepIslands | 0.00 | 0.00 | - |
+| sensors | 0.00 | 0.00 | - |
+step ratio median, first and second half: 3.7, 3.5
+native counters (median): contacts 7536, awake 6122.5, with a manifold 1459.5, recycled 4444, sat calls 0, sat cache hits 0, joints 4200
+Shallot contacts, awake contacts and joints equal native at every measured step; SAT calls/cache hits are native denominators, not Shallot instrumentation.
+shallot main thread, CPU profile ms per step (J phase total wasm join ts; JC inclusive callees; wasm includes internal stage waits, join is only the JS pool tail):
+J pairs total 1.702 wasm 0.728 join 0.038 ts 0.937
+JC pairs 0.577 filtersPass
+JC pairs 0.528 filtersPass > shouldBodiesCollide
+JC pairs 0.428 filtersPass > shouldBodiesCollide > bodiesFiltered
+JC pairs 0.224 filtersPass > shouldBodiesCollide > bodiesFiltered > broadBodiesFiltered
+JC pairs 0.154 filtersPass > shouldBodiesCollide > bodiesFiltered > refreshIfStale
+JC pairs 0.063 filtersPass > shouldBodiesCollide > bodiesFiltered > refreshIfStale > ensureViews
+JC pairs 0.012 filtersPass > shouldBodiesCollide > bodiesFiltered > kernel2
+JC pairs 0.305 runPool
+JC pairs 0.305 runPool > run
+JC pairs 0.268 runPool > run > runMt
+JC pairs 0.268 runPool > run > runMt > wasm-function[101]
+JC pairs 0.268 runPool > run > runMt > wasm-function[101] > wasm-function[6]
+JC pairs 0.248 createContact
+JC pairs 0.223 createContact > addKey
+JC pairs 0.062 createContact > addKey > addKeyHaveCapacity
+JC pairs 0.025 createContact > addKey > addKeyHaveCapacity > findSlot
+JC pairs 0.025 createContact > addKey > addKeyHaveCapacity > findSlot > get
+JC pairs 0.025 createContact > addKey > addKeyHaveCapacity > get
+JC pairs 0.013 createContact > addKey > addKeyHaveCapacity > get > ensureViews
+JC pairs 0.062 createContact > addKey > growTable
+JC pairs 0.062 createContact > addKey > growTable > addKeyHaveCapacity
+JC pairs 0.028 createContact > addKey > growTable > addKeyHaveCapacity > get
+JC pairs 0.013 createContact > addKey > growTable > addKeyHaveCapacity > findSlot
+JC pairs 0.049 createContact > addKey > ensureResident
+JC pairs 0.025 createContact > addKey > ensureResident > refreshIfStale
+JC pairs 0.036 createContact > addKey > findSlot
+JC pairs 0.023 createContact > addKey > findSlot > get
+JC pairs 0.012 createContact > addKey > findSlot > get > ensureViews
+JC pairs 0.013 createContact > ensureSlot
+JC pairs 0.241 get
+JC pairs 0.075 get > refreshIfStale
+JC pairs 0.026 get > refreshIfStale > kernel2
+JC pairs 0.026 get > refreshIfStale > kernel2 > kernelState
+JC pairs 0.026 get > refreshIfStale > kernel2 > kernelState > resource
+JC pairs 0.025 get > refreshIfStale > ensureViews
+JC pairs 0.025 get > refreshIfStale > ensureViews > kernelViewsCurrent
+JC pairs 0.065 get > get
+JC pairs 0.013 get > get > ensureViews
+JC pairs 0.013 get > get > ensureViews > kernelViewsCurrent
+JC pairs 0.013 get > get > ensureViews > kernelViewsCurrent > get buffer
+JC pairs 0.185 rebuildTrees
+JC pairs 0.173 rebuildTrees > wasm-function[87]
+JC pairs 0.124 rebuildTrees > wasm-function[87] > wasm-function[83]
+JC pairs 0.012 rebuildTrees > wasm-function[78]
+JC pairs 0.013 shapeSetActiveWorld
+JC pairs 0.013 clear
+JC pairs 0.013 clear > broadClearMoves
+J collide total 1.796 wasm 0.290 join 0.013 ts 1.492
+JC collide 0.814 dispatch
+JC collide 0.431 dispatch > readShapeAabb
+JC collide 0.406 dispatch > readShapeAabb > refreshViews
+JC collide 0.393 dispatch > readShapeAabb > refreshViews > deriveViews
+JC collide 0.256 dispatch > readShapeAabb > refreshViews > deriveViews > get
+JC collide 0.025 dispatch > readShapeAabb > get
+JC collide 0.013 dispatch > readShapeAabb > get > ensureViews
+JC collide 0.158 dispatch > finish
+JC collide 0.084 dispatch > finish > importKernelManifolds
+JC collide 0.072 dispatch > finish > importKernelManifolds > alloc
+JC collide 0.036 dispatch > finish > importKernelManifolds > alloc > allocBlock
+JC collide 0.024 dispatch > finish > importKernelManifolds > alloc > get
+JC collide 0.012 dispatch > finish > importKernelManifolds > kernel2
+JC collide 0.012 dispatch > finish > importKernelManifolds > kernel2 > kernelState
+JC collide 0.037 dispatch > finish > clear
+JC collide 0.013 dispatch > finish > clear > get
+JC collide 0.012 dispatch > finish > clear > freeBlock
+JC collide 0.089 dispatch > runPool
+JC collide 0.089 dispatch > runPool > run
+JC collide 0.089 dispatch > runPool > run > runMt
+JC collide 0.089 dispatch > runPool > run > runMt > wasm-function[101]
+JC collide 0.075 dispatch > ensureMeshCache
+JC collide 0.075 dispatch > ensureMeshCache > wasm-function[231]
+JC collide 0.050 dispatch > ensureMeshCache > wasm-function[231] > wasm-function[226]
+JC collide 0.050 dispatch > ensureMeshCache > wasm-function[231] > wasm-function[226] > wasm-function[227]
+JC collide 0.557 recycle
+JC collide 0.209 recycle > bodyColumnIndex
+JC collide 0.050 recycle > bodyColumnIndex > writeSim
+JC collide 0.025 recycle > bodyColumnIndex > writeSim > get
+JC collide 0.013 recycle > bodyColumnIndex > get stale
+JC collide 0.013 recycle > bodyColumnIndex > get stale > kernelViewKey
+JC collide 0.013 recycle > bodyColumnIndex > get stale > kernelViewKey > kernelState
+JC collide 0.101 recycle > runPool
+JC collide 0.101 recycle > runPool > run
+JC collide 0.089 recycle > runPool > run > runMt
+JC collide 0.089 recycle > runPool > run > runMt > wasm-function[101]
+JC collide 0.013 recycle > collect
+JC collide 0.013 recycle > collect > bodyColumnIndex
+JC collide 0.388 destroyContact
+JC collide 0.226 destroyContact > removeKey
+JC collide 0.051 destroyContact > removeKey > ensureResident
+JC collide 0.038 destroyContact > removeKey > ensureResident > refreshIfStale
+JC collide 0.038 destroyContact > removeKey > ensureResident > refreshIfStale > ensureViews
+JC collide 0.050 destroyContact > removeKey > get
+JC collide 0.038 destroyContact > removeKey > get > ensureViews
+JC collide 0.025 destroyContact > removeKey > get > ensureViews > kernelViewsCurrent
+JC collide 0.037 destroyContact > removeKey > findSlot
+JC collide 0.012 destroyContact > removeKey > findSlot > get
+JC collide 0.012 destroyContact > removeKey > findSlot > get > ensureViews
+JC collide 0.025 destroyContact > removeKey > keyHash
+JC collide 0.012 destroyContact > removeKey > pairKeyLo
+JC collide 0.149 destroyContact > freeSlot
+JC collide 0.088 destroyContact > freeSlot > get
+JC collide 0.025 destroyContact > freeSlot > get > ensureViews
+JC collide 0.012 destroyContact > freeSlot > get > ensureViews > kernelViewsCurrent
+JC collide 0.025 destroyContact > freeSlot > clear
+JC collide 0.025 destroyContact > freeSlot > clear > get
+JC collide 0.025 destroyContact > freeSlot > clear > get > ensureViews
+JC collide 0.012 destroyContact > freeSlot > freeMeshCache
+JC collide 0.013 refreshViews
+JC collide 0.013 refreshViews > deriveViews
+JC collide 0.013 refreshViews > deriveViews > get
+J solve total 2.336 wasm 1.309 join 0.000 ts 1.027
+JC solve 1.246 runPool
+JC solve 1.246 runPool > run
+JC solve 1.246 runPool > run > runMt
+JC solve 1.246 runPool > run > runMt > wasm-function[101]
+JC solve 1.246 runPool > run > runMt > wasm-function[101] > wasm-function[17]
+JC solve 0.460 marshalJoints
+JC solve 0.423 marshalJoints > writeRecord
+JC solve 0.074 marshalJoints > writeRecord > writeTransform
+JC solve 0.050 marshalJoints > writeRecord > writeTransform > writeQuat
+JC solve 0.024 marshalJoints > writeRecord > writeTransform > writeVec3
+JC solve 0.038 marshalJoints > writeRecord > writeVec3
+JC solve 0.013 marshalJoints > writeRecord > bodyColumnIndex
+JC solve 0.261 readbackJointImpulses
+JC solve 0.261 readbackJointImpulses > readbackJoint
+JC solve 0.086 readbackJointImpulses > readbackJoint > readVec3
+JC solve 0.037 readbackJointImpulses > readbackJoint > readVec2
+JC solve 0.151 trySleepIsland
+JC solve 0.064 trySleepIsland > syncBodyQuery
+JC solve 0.038 trySleepIsland > syncBodyQuery > refreshViews
+JC solve 0.038 trySleepIsland > syncBodyQuery > refreshViews > deriveViews
+JC solve 0.013 trySleepIsland > syncBodyQuery > refreshViews > deriveViews > get
+JC solve 0.025 trySleepIsland > syncBodyQuery > writeQueryPose
+JC solve 0.025 trySleepIsland > syncBodyQuery > writeQueryPose > get
+JC solve 0.025 trySleepIsland > syncBodyQuery > writeQueryPose > get > ensureViews
+JC solve 0.064 trySleepIsland > cloneBodySim
+JC solve 0.013 trySleepIsland > cloneBodySim > get transform
+JC solve 0.013 trySleepIsland > cloneBodySim > get transform > get
+JC solve 0.013 trySleepIsland > cloneBodySim > get transform > get > ensureViews
+JC solve 0.013 trySleepIsland > cloneBodySim > get torque
+JC solve 0.013 trySleepIsland > cloneBodySim > get force
+JC solve 0.013 trySleepIsland > cloneBodySim > get force > get
+JC solve 0.012 trySleepIsland > cloneBodySim > get maxAngularVelocity
+JC solve 0.012 trySleepIsland > cloneBodySim > get maxAngularVelocity > get
+JC solve 0.012 trySleepIsland > cloneBodySim > get maxAngularVelocity > get > ensureViews
+JC solve 0.113 finalizeBodies
+JC solve 0.064 finalizeBodies > treeEnlargePass
+JC solve 0.051 finalizeBodies > treeEnlargePass > wasm-function[82]
+JC solve 0.042 readbackHitEvents
+JC solve 0.013 readbackHitEvents > contactHit
+JC solve 0.025 prepareContinuous
+JC solve 0.025 writeSlots
+JC solve 0.012 writeSlots > contactExtent
+JC solve 0.013 computeLayout
+
+(pass) rain hashes equal native over steps 280-319; its phase times are reported against b3Profile [7489.90ms]
+
+ 1 pass
+ 2 filtered out
+ 0 fail
+ 242 expect() calls
+Ran 1 test across 1 file. [7.58s]

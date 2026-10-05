@@ -322,6 +322,8 @@ for (let i = 0; i < steps; ++i) {
     if (profileFrom >= 0 && i >= profileFrom) {
         const p = w.getProfile();
         lines.push(`F ${i} ${PROFILE_FIELDS.map((k) => p[k].toFixed(4)).join(" ")}`);
+        const c = w.getCounters();
+        lines.push(`W ${i} contacts ${c.contactCount} awake ${state.awakeContacts.length} joints ${c.jointCount}`);
     }
     if (i === colors) {
         const graph = state.constraintGraph.colors;

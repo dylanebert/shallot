@@ -2,7 +2,7 @@
 // Node only: V8's sampling profiler through node:inspector. A sample is charged to the innermost step
 // phase on its stack, and its self time is split into kernel (wasm), pool join (the main thread spinning
 // in the worker pool's `run` until the workers ack) and TypeScript; each phase also lists the inclusive
-// time of the functions it calls, three levels deep.
+// time of the functions it calls, five levels deep.
 import { Session } from "node:inspector";
 import { KERNEL_SHARED_WASM_BASE64 } from "../../src/standard/physics/kernel/kernel.shared.wasm";
 import { KERNEL_WASM_BASE64 } from "../../src/standard/physics/kernel/kernel.wasm";
@@ -16,8 +16,9 @@ const PHASES = new Map([
     ["updateBroadPhasePairs", "pairs"],
     ["collide", "collide"],
     ["solve", "solve"],
+    ["overlapSensors", "sensors"],
 ]);
-const DEPTH = 3;
+const DEPTH = 5;
 
 const session = new Session();
 
@@ -140,7 +141,7 @@ export function stopCpu(steps: number, shared: boolean): string[] {
         lines.push(
             `J ${key} total ${p.total.toFixed(3)} wasm ${p.wasm.toFixed(3)} join ${p.join.toFixed(3)} ts ${p.ts.toFixed(3)}`,
         );
-        // Depth first, heaviest first, dropping callees under 2% of the phase.
+        // Depth first, heaviest first, dropping callees under 0.5% of the phase.
         const visit = (prefix: string) => {
             const depth = prefix === "" ? 1 : prefix.split(" > ").length + 1;
             const children = [...p.calls]
@@ -149,7 +150,7 @@ export function stopCpu(steps: number, shared: boolean): string[] {
                     return (
                         parts.length === depth &&
                         (prefix === "" || k.startsWith(`${prefix} > `)) &&
-                        ms >= 0.02 * p.total
+                        ms >= 0.005 * p.total
                     );
                 })
                 .sort((a, b) => b[1] - a[1]);

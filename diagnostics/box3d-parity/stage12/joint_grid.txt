@@ -1,0 +1,143 @@
+bun test v1.4.2 (744846f84)
+
+diagnostics/box3d-parity/phases.oracle.ts:
+joint_grid, 1 thread: median ms per step over steps 20-39
+| phase | native | shallot | ratio |
+|---|---|---|---|
+| step | 8.00 | 13.94 | 1.7 |
+| pairs | 0.54 | 0.89 | 1.6 |
+| collide | 0.00 | 0.00 | - |
+| solve | 7.40 | 12.81 | 1.7 |
+| solverSetup | 0.00 | 0.00 | - |
+| constraints | 6.94 | 12.47 | 1.8 |
+| prepareConstraints | 0.32 | 0.00 | 0.0 |
+| integrateVelocities | 0.86 | 0.00 | 0.0 |
+| warmStart | 0.70 | 0.00 | 0.0 |
+| solveImpulses | 2.47 | 0.00 | 0.0 |
+| integratePositions | 0.19 | 0.00 | 0.0 |
+| relaxImpulses | 2.39 | 0.00 | 0.0 |
+| applyRestitution | 0.00 | 0.00 | - |
+| storeImpulses | 0.00 | 0.00 | - |
+| splitIslands | 0.00 | 0.00 | - |
+| transforms | 0.35 | 0.28 | 0.8 |
+| sensorHits | 0.00 | 0.00 | - |
+| jointEvents | 0.00 | 0.00 | - |
+| hitEvents | 0.00 | 0.00 | - |
+| refit | 0.06 | 0.00 | 0.0 |
+| bullets | 0.00 | 0.00 | - |
+| sleepIslands | 0.00 | 0.00 | - |
+| sensors | 0.00 | 0.00 | - |
+step ratio median, first and second half: 1.7, 1.7
+native counters (median): contacts 0, awake 0, with a manifold 0, recycled 0, sat calls 0, sat cache hits 0, joints 19800
+Shallot contacts, awake contacts and joints equal native at every measured step; SAT calls/cache hits are native denominators, not Shallot instrumentation.
+shallot main thread, CPU profile ms per step (J phase total wasm join ts; JC inclusive callees; wasm includes internal stage waits, join is only the JS pool tail):
+J solve total 12.718 wasm 9.590 join 0.000 ts 3.128
+JC solve 9.567 runMt
+JC solve 9.567 runMt > wasm-function[99]
+JC solve 9.542 runMt > wasm-function[99] > wasm-function[15]
+JC solve 9.517 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5]
+JC solve 6.996 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[12]
+JC solve 0.858 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[10]
+JC solve 0.526 runMt > wasm-function[99] > wasm-function[15] > wasm-function[5] > wasm-function[6]
+JC solve 1.390 marshalJoints
+JC solve 1.239 marshalJoints > writeRecord
+JC solve 0.120 marshalJoints > writeRecord > writeVec3
+JC solve 0.101 marshalJoints > writeRecord > writeTransform
+JC solve 0.099 marshalJoints > writeRecord > bodyColumnIndex
+JC solve 1.304 readbackJointImpulses
+JC solve 1.128 readbackJointImpulses > readbackJoint
+JC solve 0.123 readbackJointImpulses > readbackJoint > readVec3
+J pairs total 0.984 wasm 0.705 join 0.000 ts 0.279
+JC pairs 0.523 runMt
+JC pairs 0.523 runMt > wasm-function[99]
+JC pairs 0.523 runMt > wasm-function[99] > wasm-function[4]
+JC pairs 0.205 get
+JC pairs 0.101 get > get
+JC pairs 0.050 get > get > ensureViews
+JC pairs 0.026 get > refreshIfStale
+JC pairs 0.026 get > refreshIfStale > ensureViews
+JC pairs 0.182 rebuildTrees
+JC pairs 0.182 rebuildTrees > wasm-function[85]
+JC pairs 0.107 rebuildTrees > wasm-function[85] > wasm-function[81]
+JC pairs 0.051 rebuildTrees > wasm-function[85] > wasm-function[79]
+
+joint_grid, 4 threads: median ms per step over steps 20-39
+| phase | native | shallot | ratio |
+|---|---|---|---|
+| step | 2.29 | 7.03 | 3.1 |
+| pairs | 0.15 | 0.79 | 5.2 |
+| collide | 0.00 | 0.00 | - |
+| solve | 2.07 | 6.10 | 2.9 |
+| solverSetup | 0.00 | 0.00 | - |
+| constraints | 1.89 | 5.61 | 3.0 |
+| prepareConstraints | 0.13 | 0.00 | 0.0 |
+| integrateVelocities | 0.23 | 0.00 | 0.0 |
+| warmStart | 0.19 | 0.00 | 0.0 |
+| solveImpulses | 0.64 | 0.00 | 0.0 |
+| integratePositions | 0.05 | 0.00 | 0.0 |
+| relaxImpulses | 0.62 | 0.00 | 0.0 |
+| applyRestitution | 0.00 | 0.00 | - |
+| storeImpulses | 0.00 | 0.00 | - |
+| splitIslands | 0.00 | 0.00 | - |
+| transforms | 0.10 | 0.43 | 4.3 |
+| sensorHits | 0.00 | 0.00 | - |
+| jointEvents | 0.00 | 0.00 | - |
+| hitEvents | 0.00 | 0.00 | - |
+| refit | 0.09 | 0.00 | 0.0 |
+| bullets | 0.00 | 0.00 | - |
+| sleepIslands | 0.00 | 0.00 | - |
+| sensors | 0.00 | 0.00 | - |
+step ratio median, first and second half: 3.0, 3.1
+native counters (median): contacts 0, awake 0, with a manifold 0, recycled 0, sat calls 0, sat cache hits 0, joints 19800
+Shallot contacts, awake contacts and joints equal native at every measured step; SAT calls/cache hits are native denominators, not Shallot instrumentation.
+shallot main thread, CPU profile ms per step (J phase total wasm join ts; JC inclusive callees; wasm includes internal stage waits, join is only the JS pool tail):
+J pairs total 0.809 wasm 0.349 join 0.051 ts 0.409
+JC pairs 0.373 get
+JC pairs 0.180 get > refreshIfStale
+JC pairs 0.154 get > refreshIfStale > ensureViews
+JC pairs 0.102 get > refreshIfStale > ensureViews > kernelViewsCurrent
+JC pairs 0.051 get > refreshIfStale > ensureViews > kernelViewsCurrent > get buffer
+JC pairs 0.025 get > refreshIfStale > kernel2
+JC pairs 0.025 get > refreshIfStale > kernel2 > kernelState
+JC pairs 0.025 get > refreshIfStale > kernel2 > kernelState > resource
+JC pairs 0.094 get > get
+JC pairs 0.051 get > get > ensureViews
+JC pairs 0.172 rebuildTrees
+JC pairs 0.172 rebuildTrees > wasm-function[87]
+JC pairs 0.121 rebuildTrees > wasm-function[87] > wasm-function[83]
+JC pairs 0.026 rebuildTrees > wasm-function[87] > wasm-function[81]
+JC pairs 0.154 runPool
+JC pairs 0.154 runPool > run
+JC pairs 0.103 runPool > run > runMt
+JC pairs 0.103 runPool > run > runMt > wasm-function[101]
+JC pairs 0.103 runPool > run > runMt > wasm-function[101] > wasm-function[6]
+JC pairs 0.074 clear
+JC pairs 0.074 clear > broadClearMoves
+J solve total 6.129 wasm 2.745 join 0.026 ts 3.359
+JC solve 2.732 runPool
+JC solve 2.707 runPool > run
+JC solve 2.681 runPool > run > runMt
+JC solve 2.681 runPool > run > runMt > wasm-function[101]
+JC solve 2.681 runPool > run > runMt > wasm-function[101] > wasm-function[17]
+JC solve 1.440 marshalJoints
+JC solve 1.390 marshalJoints > writeRecord
+JC solve 0.208 marshalJoints > writeRecord > writeVec3
+JC solve 0.101 marshalJoints > writeRecord > bodyColumnIndex
+JC solve 0.051 marshalJoints > writeRecord > bodyColumnIndex > get stale
+JC solve 0.051 marshalJoints > writeRecord > bodyColumnIndex > get stale > kernelViewKey
+JC solve 0.049 marshalJoints > writeRecord > writeQuat
+JC solve 0.048 marshalJoints > writeRecord > writeTransform
+JC solve 0.048 marshalJoints > writeRecord > writeTransform > writeVec3
+JC solve 1.249 readbackJointImpulses
+JC solve 1.074 readbackJointImpulses > readbackJoint
+JC solve 0.228 readbackJointImpulses > readbackJoint > readVec3
+JC solve 0.077 finalizeBodies
+JC solve 0.051 finalizeBodies > consumeContinuous
+
+(pass) joint_grid hashes equal native over steps 20-39; its phase times are reported against b3Profile [3699.70ms]
+
+ 1 pass
+ 2 filtered out
+ 0 fail
+ 122 expect() calls
+Ran 1 test across 1 file. [3.80s]
