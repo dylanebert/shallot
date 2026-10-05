@@ -902,7 +902,7 @@ test("a World-scoped viewport row supplies CSS size and DPR to sizeView through 
         observer: null,
         present: null,
         slot: 0,
-        stamp: 0,
+        camera: world.ref(0),
         pickingId: null,
         viewportIndex: 0,
         width: 0,

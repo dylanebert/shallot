@@ -152,16 +152,15 @@ function slotInputsChanged(
     const _renderFrame = world.resource(renderFrameKey);
 
     _renderFrame.viewKeyNext[0] = eid;
-    _renderFrame.viewKeyNext[1] = world.generation(eid);
-    _renderFrame.viewKeyNext[2] = shading ? 1 : 0;
-    _renderFrame.viewKeyNext[3] = view.width;
-    _renderFrame.viewKeyNext[4] = view.height;
-    _renderFrame.viewKeyNext[5] = world.storage(Camera).mode.get(eid);
-    _renderFrame.viewKeyNext[6] = world.storage(Camera).fov.get(eid);
-    _renderFrame.viewKeyNext[7] = world.storage(Camera).size.get(eid);
-    _renderFrame.viewKeyNext[8] = world.storage(Camera).near.get(eid);
-    _renderFrame.viewKeyNext[9] = world.storage(Camera).far.get(eid);
-    _renderFrame.viewKeyNext.set(_renderFrame.camWorld, 10);
+    _renderFrame.viewKeyNext[1] = shading ? 1 : 0;
+    _renderFrame.viewKeyNext[2] = view.width;
+    _renderFrame.viewKeyNext[3] = view.height;
+    _renderFrame.viewKeyNext[4] = world.storage(Camera).mode.get(eid);
+    _renderFrame.viewKeyNext[5] = world.storage(Camera).fov.get(eid);
+    _renderFrame.viewKeyNext[6] = world.storage(Camera).size.get(eid);
+    _renderFrame.viewKeyNext[7] = world.storage(Camera).near.get(eid);
+    _renderFrame.viewKeyNext[8] = world.storage(Camera).far.get(eid);
+    _renderFrame.viewKeyNext.set(_renderFrame.camWorld, 9);
     const at = slot * VIEW_KEY_FLOATS;
     let changed = false;
     for (let i = 0; i < VIEW_KEY_FLOATS; i++) {
@@ -194,10 +193,8 @@ export const BeginFrameSystem: System = {
         if (!device) return;
 
         // auto-bind's inverse. A destroyed camera leaves a stale View whose ResizeObserver leaks
-        // and whose eid, once recycled, re-binds to the wrong canvas. Membership is the liveness
-        // signal (re-derived each frame, the gate MeshInstance's pack also applies) and the create-stamp
-        // catches a same-update realias membership misses, so a View lacking a live camera — or bound
-        // to a recycled eid — is dropped here.
+        // and whose eid, once recycled, re-binds to the wrong canvas. Resolving the kept camera
+        // reference drops the old View even when the replacement also carries Camera.
         pruneViews(world);
 
         const encoder = device.createCommandEncoder(FRAME_ENCODER);

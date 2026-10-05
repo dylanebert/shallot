@@ -184,7 +184,11 @@ export class WorldField<T extends FieldType = FieldType> {
                 },
 
                 set: (eid: number, value: number) => this.set(eid, value),
-                get: (eid: number) => this.get(eid),
+                get:
+                    this.type === entity
+                        ? (eid: number) =>
+                              this._world!.resolve((this.#column.array[eid] ?? 0) as EntityRef)
+                        : (eid: number) => this.get(eid),
             } as unknown as FieldStorage<T>;
         }
         if (this.type.lanes === 2) {

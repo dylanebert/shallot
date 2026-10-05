@@ -446,7 +446,7 @@ export class World {
      * and run; after the 21-bit generation wraps, an old reference can alias a live eid.
      */
     resolve(ref: EntityRef): number {
-        const eid = ref % 2 ** 32;
+        const eid = ref >>> 0;
         return this._entities.exists(eid) &&
             this._entities.generation(eid) === Math.floor(ref / 2 ** 32)
             ? eid
@@ -456,17 +456,6 @@ export class World {
     /** snapshot of every alive entity id */
     entities(): readonly number[] {
         return this._entities.all();
-    }
-
-    /**
-     * generation of an entity id, bumped on every allocation (`create`), fresh or recycled. A
-     * consumer holding an eid across frames caches the generation beside it and compares alongside a
-     * membership check: `has(eid, Component)` catches a plain despawn (destroy leaves the generation
-     * unchanged), the generation catches a same-update destroy+create realias that membership misses.
-     * Neither alone suffices. `0` for an eid never created.
-     */
-    generation(eid: number): number {
-        return this._entities.generation(eid);
     }
 
     /**

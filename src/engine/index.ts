@@ -22,6 +22,7 @@ export {
     type Component,
     component,
     composeGlobalTransform,
+    type EntityRef,
     entity,
     type FieldType,
     f16,

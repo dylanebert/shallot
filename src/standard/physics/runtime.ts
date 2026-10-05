@@ -10,6 +10,7 @@ import {
     Spring,
 } from "../../core/physics";
 import {
+    type EntityRef,
     GlobalTransform,
     type Plugin,
     type System,
@@ -97,7 +98,7 @@ export function resetSignatures(world: World): void {
     })();
 }
 
-/** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
+/** A hash of authored springs and their resolved endpoints; stale references drop constraints. */
 function springSignature(world: World): number {
     let h = FNV_BASIS;
     const spring = world.storage(Spring);
@@ -107,11 +108,11 @@ function springSignature(world: World): number {
         const b = spring.b.get(eid);
         h = fold(h, a);
         h = fold(h, b);
-        // fold the referenced bodies' create-stamps: a same-update realias of an endpoint (destroy+create
-        // recycling its eid) leaves a/b unchanged, so without the stamp the re-upload is suppressed and the
-        // solver joint pins the NEW occupant at the old anchors.
-        h = fold(h, world.generation(a));
-        h = fold(h, world.generation(b));
+        // Keep the reference's upper bits so reauthoring a recycled endpoint changes the signature.
+        h = fold(h, spring.a.column[eid]);
+        h = fold(h, Math.floor(spring.a.column[eid] / 2 ** 32));
+        h = fold(h, spring.b.column[eid]);
+        h = fold(h, Math.floor(spring.b.column[eid] / 2 ** 32));
         h = fold(h, sigBits(spring.localAnchorA.x.get(eid)));
         h = fold(h, sigBits(spring.localAnchorA.y.get(eid)));
         h = fold(h, sigBits(spring.localAnchorA.z.get(eid)));
@@ -124,7 +125,7 @@ function springSignature(world: World): number {
     return h;
 }
 
-/** a hash of the authored {@link Joint} set, endpoint create-stamps included: the {@link springSignature} twin. */
+/** The {@link springSignature} twin for authored joints. */
 function jointSignature(world: World): number {
     let h = FNV_BASIS;
     const joint = world.storage(Joint);
@@ -134,10 +135,10 @@ function jointSignature(world: World): number {
         const b = joint.b.get(eid);
         h = fold(h, a);
         h = fold(h, b);
-        // fold the referenced bodies' create-stamps — see springSignature: a realias of an endpoint must
-        // force the re-upload so the solver joint rebinds to the new occupant.
-        h = fold(h, world.generation(a));
-        h = fold(h, world.generation(b));
+        h = fold(h, joint.a.column[eid]);
+        h = fold(h, Math.floor(joint.a.column[eid] / 2 ** 32));
+        h = fold(h, joint.b.column[eid]);
+        h = fold(h, Math.floor(joint.b.column[eid] / 2 ** 32));
         h = fold(h, sigBits(joint.localAnchorA.x.get(eid)));
         h = fold(h, sigBits(joint.localAnchorA.y.get(eid)));
         h = fold(h, sigBits(joint.localAnchorA.z.get(eid)));
@@ -243,10 +244,10 @@ interface PhysicsRuntime {
     initialized: boolean;
     physicsWorld: PhysicsWorld | null;
     bodies: Map<number, SolverBody>;
-    stamps: Map<number, number>;
-    placementWarnings: Map<number, number>;
+    stamps: Map<number, EntityRef>;
+    placementWarnings: Map<number, EntityRef>;
     kinPrev: Map<number, { pos: [number, number, number]; quat: [number, number, number, number] }>;
-    failed: Map<number, { stamp: number; hulls: number }>;
+    failed: Map<number, { stamp: EntityRef; hulls: number }>;
     constraints: ConstraintCache;
 
     // whether a body's marshal failed, so the constraint uploads defer its joints; made once per runtime
@@ -285,12 +286,6 @@ function runtimeFor(world: World): PhysicsRuntime {
         throw new Error("physics: StandardPhysicsPlugin is not initialized for this World");
     return runtime;
 }
-
-// the create-stamp each body was marshaled at. Presence in `bodies` catches a
-// plain spawn/despawn; a same-update destroy+create recycling an eid keeps Body membership AND the map entry,
-// so the stamp is the only signal that the slot now holds a new body, and a mismatch re-marshals it.
-// The remaining fields live in PhysicsRuntime; keeping them beside the state map prevents one World from
-// observing another World's handles, interpolation buffers or failed marshals.
 
 function writeGlobalTransform(
     world: World,
@@ -507,11 +502,11 @@ export function physicsCounters(world: World): PhysicsCounters {
 // The runtime's maps from entities to solver handles, as plain ids, so a restore rebinds them for its
 // target World and the sync systems reconcile them against the live ECS on the next tick.
 interface Bindings {
-    /** eid, body index1, generation, create stamp */
+    /** eid, solver body index1, solver generation, EntityRef */
     bodies: number[];
     /** eid, then the last kinematic position and quaternion */
     kinPrev: number[];
-    /** eid, stamp, hull count */
+    /** eid, EntityRef, hull count */
     failed: number[];
     constraints: ConstraintIds;
     springSig: number;
@@ -556,7 +551,7 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
                 generation: b.bodies[i + 2],
             }),
         );
-        runtime.stamps.set(eid, b.bodies[i + 3]);
+        runtime.stamps.set(eid, b.bodies[i + 3] as EntityRef);
     }
     runtime.kinPrev.clear();
     for (let i = 0; i < b.kinPrev.length; i += 8) {
@@ -568,7 +563,10 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
     }
     runtime.failed.clear();
     for (let i = 0; i < b.failed.length; i += 3)
-        runtime.failed.set(b.failed[i], { stamp: b.failed[i + 1], hulls: b.failed[i + 2] });
+        runtime.failed.set(b.failed[i], {
+            stamp: b.failed[i + 1] as EntityRef,
+            hulls: b.failed[i + 2],
+        });
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
     runtime.springSig = b.springSig;
     runtime.jointSig = b.jointSig;
@@ -717,19 +715,20 @@ const SyncSystem: System = {
         let bodySetChanged = false;
         for (const eid of world.query(BODY_TERMS)) {
             runtime.counters.bodiesVisited += 1;
-            const stamp = world.generation(eid);
-            if (world.has(eid, Transform) && runtime.placementWarnings.get(eid) !== stamp) {
+            const stamp = world.ref(eid);
+            const warning = runtime.placementWarnings.get(eid);
+            if (world.has(eid, Transform) && (!warning || !world.resolve(warning))) {
                 console.warn(
                     `physics-sync: entity ${eid} carries both Body and Transform; both write GlobalTransform`,
                 );
                 runtime.placementWarnings.set(eid, stamp);
             }
             if (runtime.bodies.has(eid)) {
-                if (runtime.stamps.get(eid) === stamp) continue;
+                if (world.resolve(runtime.stamps.get(eid)!)) continue;
                 forget(runtime, eid); // recycled to a new Body in one update
             }
             const f = runtime.failed.get(eid);
-            if (f && f.stamp === stamp && f.hulls === world.resource(Hulls).size) continue;
+            if (f && world.resolve(f.stamp) && f.hulls === world.resource(Hulls).size) continue;
             const tb = marshalBody(world, physicsWorld, eid);
             if (!tb) {
                 runtime.failed.set(eid, { stamp, hulls: world.resource(Hulls).size });
@@ -787,8 +786,8 @@ export const StandardPhysicsPlugin: Plugin = {
             { gravity: { x: 0, y: GRAVITY, z: 0 } },
             world,
             (eid) => {
-                if (!world.has(eid, Body) || runtime.stamps.get(eid) !== world.generation(eid))
-                    return null;
+                const ref = runtime.stamps.get(eid);
+                if (!world.has(eid, Body) || !ref || !world.resolve(ref)) return null;
                 return runtime.bodies.get(eid) ?? null;
             },
         );

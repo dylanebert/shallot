@@ -1,13 +1,56 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
-import { createApp, Time } from "@dylanebert/shallot";
-import { Body, Joint, Spring } from "@dylanebert/shallot/physics";
-import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { createApp, Time, Transform } from "@dylanebert/shallot";
+import { Body, Joint, ShapeKind, Spring } from "@dylanebert/shallot/physics";
+import {
+    physicsWorld,
+    restorePhysics,
+    StandardPhysicsPlugin,
+    snapshotPhysics,
+} from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
+
+test("recycled bodies retry failed marshals and placement warnings, including restored bindings", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+        const world = app.world;
+        const eid = world.create();
+        world.add(eid, Body, { shape: ShapeKind.Hull, halfExtents: [1, 1, 1, 999] });
+        world.add(eid, Transform);
+        world.step(Time.FIXED_DT);
+        world.step(Time.FIXED_DT);
+        expect(warning).toHaveBeenCalledTimes(2);
+        const failed = snapshotPhysics(world);
+        world.destroy(eid);
+        expect(world.create()).toBe(eid);
+        world.add(eid, Body);
+        world.add(eid, Transform);
+        restorePhysics(world, failed);
+        world.step(Time.FIXED_DT);
+        expect(warning).toHaveBeenCalledTimes(3);
+        const solver = physicsWorld(world)!;
+        expect(solver.getBody(eid)).not.toBeNull();
+        const live = snapshotPhysics(world);
+        world.destroy(eid);
+        expect(world.create()).toBe(eid);
+        world.add(eid, Body, { position: [0, 7, 0, 0], mass: 0 });
+        restorePhysics(world, live);
+        expect(solver.getBody(eid)).toBeNull();
+        world.step(Time.FIXED_DT);
+        const position = { x: 0, y: 0, z: 0 };
+        solver.getBody(eid)!.getPosition(position);
+        expect(position.y).toBe(7);
+        expect(solver.getCounters().bodyCount).toBe(1);
+    } finally {
+        warning.mockRestore();
+        app.dispose();
+    }
+});
 
 for (const constraint of [Joint, Spring]) {
     test(`${constraint === Joint ? "a joint" : "a spring"} constrains nothing when its endpoint is destroyed and recycled in one update`, async () => {

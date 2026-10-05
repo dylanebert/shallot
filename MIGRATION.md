@@ -188,7 +188,7 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
 | `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
 | `composeTransform` | `composeGlobalTransform` |
-| `state.stamp`, `state.timescale`, `state.swap` | `world.generation`, `world.setTimeScale`, `world.swapSystem` |
+| `state.stamp`, `state.timescale`, `state.swap` | `world.ref` and `world.resolve`, `world.setTimeScale`, `world.swapSystem` |
 | `/sear/core` `PrepassSystem`, `ColorSystem` | `/rendering` `PrepassSystem`, `MainPassSystem` |
 | `/src/standard/render/cluster.ts` `ClusterSystem`, `LightCullSystem` | Remove direct imports; these systems are now internal to `StandardRenderingPlugin`. |
 | `CharacterSweepSystem` | Order fixed velocity producers before `CharacterPlugin.systems` |
