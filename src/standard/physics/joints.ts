@@ -195,12 +195,14 @@ function createSpring(
     const key = springKey(def);
     const pair = endpoints(bodies, def.a, def.b, "spring", isDeferred, warned, key);
     if (!pair) return null;
+    const hasDynamic =
+        pair[0].getType() === BodyType.Dynamic || pair[1].getType() === BodyType.Dynamic;
     const hertz = stiffnessHertz(def.stiffness, dynMass(pair[0]), dynMass(pair[1]));
-    if (hertz === 0) {
+    if (!hasDynamic || hertz === 0) {
         warnOnce(
             warned,
             `${key}|hertz`,
-            `[physics] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive stiffness — skipped`,
+            `[physics] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive effective mass or stiffness — skipped`,
         );
         return null;
     }
@@ -231,7 +233,7 @@ function createJoint(
     const [ta, tb] = pair;
     const mA = dynMass(ta);
     const mB = dynMass(tb);
-    if (mA <= 0 && mB <= 0) {
+    if (ta.getType() !== BodyType.Dynamic && tb.getType() !== BodyType.Dynamic) {
         warnOnce(
             warned,
             `${key}|both-static`,

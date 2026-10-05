@@ -183,6 +183,8 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `Single`, `Pair`, `Quad`, field `Type` | `ScalarField`, `Vector2Field`, `Vector4Field`, `FieldType` |
 | `Transform.pos`, `.rot` | `translation`, `rotation` |
 | `Body.pos`, `.quat` | `position`, `rotation` |
+| Moving `Body` with positive `mass` | Write `type: BodyType.Dynamic`; `mass` is the dynamic body's mass. |
+| `Body` with `mass: 0` | Omit `type` for static geometry, or write `type: BodyType.Kinematic` for caller-driven motion. |
 | `Part` | `MeshInstance` |
 | `RenderPlugin` | `RenderingPlugin` for the frame/view substrate; add `CorePipelinePlugin` for shared targets and phases (`StandardRenderingPlugin` includes it) |
 | `SearPlugin` | `StandardRenderingPlugin` |
@@ -365,7 +367,7 @@ world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
 
 ## Authored Transform and world GlobalTransform are separate
 
-`Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, never authored, and has no hierarchy.
+`Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, never authored, and has no hierarchy. Physics publishes rigid pose and velocity, not collider-derived scale. Register a sized mesh with `cube([hx, hy, hz])`, `sphere(radius)` or `capsule(halfHeight, radius)` from `/mesh` when the visual should match the collider; these builders default to the built-in sizes.
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 
@@ -396,7 +398,7 @@ These helpers use the owning World:
 
 ## Character movement and player feel
 
-Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallot/standard/physics` (also re-exported from the root). `/character` and `/character/core` are removed. `Character` requires a capsule `Body` with mass 0; its pogo spring floats the lower sphere centre three radii above ground. Retune spawn and camera heights for that float.
+Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallot/standard/physics` (also re-exported from the root). `/character` and `/character/core` are removed. `Character` requires a capsule `Body` with `type: BodyType.Kinematic`; its pogo spring floats the lower sphere centre three radii above ground. Retune spawn and camera heights for that float.
 
 - Replace `move` with a fixed-tick write to `world.storage(Character).velocity`, ordered before `CharacterPlugin.systems`. Standard physics resolves that velocity, without gravity or acceleration.
 - Replace `jump` with your input policy's velocity write. With `PlayerPlugin`, the Space press edge is buffered by Player; jump tuning belongs to `Player.jumpSpeed`.

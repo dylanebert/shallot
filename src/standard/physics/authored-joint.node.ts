@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, Time } from "@dylanebert/shallot";
-import { Body } from "@dylanebert/shallot/physics";
+import { Body, BodyType } from "@dylanebert/shallot/physics";
 import {
     physicsWorld,
     readBody,
@@ -18,11 +18,11 @@ test("the solver world's entity lookup lets a revolute joint constrain two autho
     try {
         const world = app.world;
         const anchor = world.create();
-        world.add(anchor, Body, { mass: 0, position: [0, 3, 0, 0] });
+        world.add(anchor, Body, { position: [0, 3, 0, 0] });
         const bob = world.create();
-        world.add(bob, Body, { position: [0, 1, 0, 0] });
+        world.add(bob, Body, { type: BodyType.Dynamic, position: [0, 1, 0, 0] });
         const free = world.create();
-        world.add(free, Body, { position: [4, 1, 0, 0] });
+        world.add(free, Body, { type: BodyType.Dynamic, position: [4, 1, 0, 0] });
         const empty = world.create();
         const solver = physicsWorld(world)!;
         expect(solver.getBody(bob)).toBeNull();

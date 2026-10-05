@@ -29,7 +29,7 @@ import { bodyApplyLinearImpulse, getBodySim, getBodyState } from "./world/body";
 
 export const GroundState = { InAir: 0, OnGround: 1, OnSteepGround: 2 } as const;
 
-/** A mass-zero capsule Body. Write velocity in a fixed system ordered before `CharacterPlugin.systems`; movement runs after body synchronization and before the rigid solver. Resolved velocity is written back, without gravity or input policy. Ground velocity is reported, never added to motion. */
+/** A kinematic capsule Body. Write velocity in a fixed system ordered before `CharacterPlugin.systems`; movement runs after body synchronization and before the rigid solver. Resolved velocity is written back, without gravity or input policy. Ground velocity is reported, never added to motion. */
 export const Character = component(
     "Character",
     {
@@ -117,8 +117,11 @@ function moveCharacter(world: World, eid: number): void {
     const handle = physics?.getBody(eid);
     if (!physics || !handle) return;
     const body = world.storage(Body);
-    if (body.shape.column[eid] !== ShapeKind.Capsule || body.mass.column[eid] !== 0)
-        throw new Error("Character requires a capsule Body with mass 0");
+    if (
+        body.shape.column[eid] !== ShapeKind.Capsule ||
+        body.type.column[eid] !== BodyType.Kinematic
+    )
+        throw new Error(`Character entity ${eid} requires a kinematic capsule Body`);
     const character = world.storage(Character);
     const s = world.resource(characterScratch);
     s.dt = Time.FIXED_DT;

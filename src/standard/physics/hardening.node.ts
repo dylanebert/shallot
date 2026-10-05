@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { createApp, Time, type World } from "@dylanebert/shallot";
-import { Body, ShapeKind } from "@dylanebert/shallot/physics";
+import { Body, BodyType, ShapeKind } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
     physicsWorld,
@@ -39,6 +39,7 @@ function addBody(
     world.storage(Body).halfExtents.set(eid, ...data.halfExtents);
     world.storage(Body).position.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
     world.storage(Body).rotation.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
+    world.storage(Body).type.set(eid, BodyType.Dynamic);
     world.storage(Body).mass.set(eid, data.mass);
     world.storage(Body).friction.set(eid, data.friction ?? 0.5);
     return eid;

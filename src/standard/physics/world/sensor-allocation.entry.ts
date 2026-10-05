@@ -18,7 +18,7 @@ export default async function create(input: string) {
     const physics = physicsWorld(world)!;
     const platform = world.create();
     world.add(platform, Body, {
-        mass: 0,
+        type: BodyType.Kinematic,
         position: [0, -0.5, 0, 0],
         halfExtents: [100, 0.5, 100, 0],
     });

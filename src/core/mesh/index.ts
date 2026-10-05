@@ -2,6 +2,7 @@ import type { Plugin } from "../../engine";
 import { MeshInstance } from "./instance";
 
 export { MeshInstance } from "./instance";
+export { capsule, cube, sphere } from "./primitives";
 
 import { clearMeshes, flushMeshes, initializeMeshState, PrepareMeshesSystem } from "./mesh";
 import { initMeshes } from "./primitives";

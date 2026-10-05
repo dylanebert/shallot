@@ -46,11 +46,14 @@ function pack(verts: Vert[]): Float32Array {
 }
 
 /**
- * unit cube (half-extent 0.5), flat-shaded: four vertices per face for
+ * Box with the supplied xyz half-extents (default 0.5), flat-shaded: four vertices per face for
  * per-face normals, each face's uv running (0,0)→(1,0)→(1,1)→(0,1) over its
  * BL→BR→TR→TL corners. Winding is CCW outward, matching standard's back-face cull
  */
-export function cube(): { vertices: Float32Array; indices: Uint32Array } {
+export function cube(halfExtents: readonly [number, number, number] = [0.5, 0.5, 0.5]): {
+    vertices: Float32Array;
+    indices: Uint32Array;
+} {
     const uv = [
         [0, 0],
         [1, 0],
@@ -121,9 +124,9 @@ export function cube(): { vertices: Float32Array; indices: Uint32Array } {
         const base = verts.length;
         for (let i = 0; i < 4; i++) {
             verts.push({
-                px: corners[i][0],
-                py: corners[i][1],
-                pz: corners[i][2],
+                px: corners[i][0] * 2 * halfExtents[0],
+                py: corners[i][1] * 2 * halfExtents[1],
+                pz: corners[i][2] * 2 * halfExtents[2],
                 nx: normal[0],
                 ny: normal[1],
                 nz: normal[2],
@@ -138,17 +141,17 @@ export function cube(): { vertices: Float32Array; indices: Uint32Array } {
 }
 
 /**
- * UV sphere of radius 0.5, smooth-shaded (vertex normal = surface direction).
+ * UV sphere with the supplied radius (default 0.5), smooth-shaded (vertex normal = surface direction).
  * `segments` divisions around the axis, `rings` from pole to pole. Winding is
  * CCW outward, matching standard's back-face cull
  */
 export function sphere(
+    radius = 0.5,
     segments = 32,
     rings = 16,
 ): { vertices: Float32Array; indices: Uint32Array } {
     const verts: Vert[] = [];
     const indices: number[] = [];
-    const radius = 0.5;
 
     for (let y = 0; y <= rings; y++) {
         const v = y / rings;
@@ -176,21 +179,21 @@ export function sphere(
 }
 
 /**
- * capsule of radius 0.5 and cylinder half-height 0.5: two hemispherical caps
- * over a cylindrical mid-section, spanning y ∈ [-1, 1], smooth-shaded.
+ * Capsule with the supplied cylinder half-height and radius (both default 0.5):
+ * two hemispherical caps over a cylindrical mid-section, smooth-shaded.
  * `segments` divisions around the axis, `rings` from cap pole to cap pole
  * (rounded down to an even count). The bottom cap winds the opposite direction
  * from the top because its rings run pole→equator (the top runs equator→pole),
  * keeping every triangle CCW outward
  */
 export function capsule(
+    halfHeight = 0.5,
+    radius = 0.5,
     segments = 32,
     rings = 16,
 ): { vertices: Float32Array; indices: Uint32Array } {
     const verts: Vert[] = [];
     const indices: number[] = [];
-    const radius = 0.5;
-    const halfHeight = 0.5;
     const halfRings = Math.floor(rings / 2);
 
     // top cap: pole (theta 0) down to the equator (theta PI/2), lifted +halfHeight

@@ -21,13 +21,13 @@ export default async function create(input: string) {
     }
     const platform = world.create();
     world.add(platform, Body, {
-        mass: 0,
+        type: BodyType.Kinematic,
         position: [0, -0.5, 0, 0],
         halfExtents: [1000, 0.5, 1000, 0],
     });
     const eid = world.create();
     world.add(eid, Body, {
-        mass: 0,
+        type: BodyType.Kinematic,
         shape: ShapeKind.Capsule,
         position: [0, pushing ? 2 : 1.3, 0, 0],
         halfExtents: [0, 0.5, 0, 0.3],

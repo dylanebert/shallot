@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { MeshInstance } from "../../core/mesh";
-import { Body, Joint, ShapeKind, Spring } from "../../core/physics";
+import { Body, BodyType, Joint, ShapeKind, Spring } from "../../core/physics";
 import {
     AmbientLight,
     attachCanvas,
@@ -449,7 +449,7 @@ function addBody(world: World, y: number): number {
     body.shape.set(eid, ShapeKind.Box);
     body.position.set(eid, 0, y, 0, 0);
     body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-    body.mass.set(eid, 1);
+    body.type.set(eid, BodyType.Dynamic);
     return eid;
 }
 
@@ -637,7 +637,7 @@ function featurePlugin(subject: Plugin): Plugin {
             world.storage(Body).shape.set(actor, ShapeKind.Capsule);
             world.storage(Body).position.set(actor, 0, 2, 2, 0);
             world.storage(Body).halfExtents.set(actor, 0, 0.6, 0, 0.35);
-            world.storage(Body).mass.set(actor, 0);
+            world.storage(Body).type.set(actor, BodyType.Kinematic);
             world.storage(Player).camera.set(actor, camera);
 
             const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");

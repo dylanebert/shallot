@@ -3,25 +3,17 @@ import { component, entity, f32, GlobalTransform, type Plugin, u32, vec4 } from 
 /** collision-shape tag for {@link Body}. Box collides as an OBB; sphere/capsule as a core + radius; hull as a convex polytope (geometry registered in `Hulls`, referenced by `halfExtents.w` = the hull id). */
 export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
 
+export const BodyType = { Static: 0, Kinematic: 1, Dynamic: 2 } as const;
+export type BodyType = (typeof BodyType)[keyof typeof BodyType];
+
 /**
- * shared rigid-body authoring data; a simulation plugin owns its motion and collisions
- * (`mass: 0` = static).
- *
- * @example
- * ```
- * const box = world.create();
- * world.add(box, Body, { shape: ShapeKind.Box, position: [0, 5, 0, 0], halfExtents: [0.5, 0.5, 0.5, 0], friction: 0.5 });
- * // sphere, radius 0.5
- * world.add(world.create(), Body, { shape: ShapeKind.Sphere, position: [0, 5, 0, 0], halfExtents: [0, 0, 0, 0.5] });
- * // capsule, half-height 0.5, radius 0.3
- * world.add(world.create(), Body, { shape: ShapeKind.Capsule, position: [0, 5, 0, 0], halfExtents: [0, 0.5, 0, 0.3] });
- * // hull id 2, AABB half 1×1×1
- * world.add(world.create(), Body, { shape: ShapeKind.Hull, position: [0, 5, 0, 0], halfExtents: [1, 1, 1, 2] });
- * ```
+ * shared rigid-body authoring data; a simulation plugin owns its motion and collisions.
  */
 export const Body = component(
     "Body",
     {
+        /** Spawn motion type; static by default. Read once when the body is synchronized. */
+        type: u32,
         /** the collider, a `ShapeKind`: `Box` (an OBB of `halfExtents`), `Sphere`, `Capsule` (a segment along local Y inflated by the radius), or `Hull` (a convex polytope registered in `Hulls`). */
         shape: u32,
         /** spawn position; physics owns it after spawn. */
@@ -30,13 +22,14 @@ export const Body = component(
         rotation: vec4,
         /** box/AABB half-extents in `xyz`; `w` doubles as the rounding radius (sphere/capsule) or the `Hull` id (a hull has radius 0, so the lane is free). */
         halfExtents: vec4,
-        /** mass in kg; `0` or less marks a static body that never moves. */
+        /** Dynamic mass in kg; non-positive mass gives zero density. */
         mass: f32,
         /** coulomb friction coefficient: `0` slides freely, higher grips. */
         friction: f32,
     },
     {
         defaults: () => ({
+            type: BodyType.Static,
             shape: ShapeKind.Box,
             position: [0, 0, 0, 0],
             rotation: [0, 0, 0, 1],
@@ -54,9 +47,9 @@ export const Body = component(
  * @example
  * ```
  * const anchor = world.create();
- * world.add(anchor, Body, { mass: 0, position: [0, 10, 0, 0] });
+ * world.add(anchor, Body, { position: [0, 10, 0, 0] });
  * const block = world.create();
- * world.add(block, Body, { mass: 1, position: [0, 6, 0, 0] });
+ * world.add(block, Body, { type: BodyType.Dynamic, position: [0, 6, 0, 0] });
  * world.add(world.create(), Spring, { a: anchor, b: block, rest: 4, stiffness: 100 });
  * ```
  */
@@ -97,13 +90,13 @@ export const Spring = component(
  * @example
  * ```
  * const pivot = world.create();
- * world.add(pivot, Body, { mass: 0, position: [0, 10, 0, 0] });
+ * world.add(pivot, Body, { position: [0, 10, 0, 0] });
  * const bob = world.create();
- * world.add(bob, Body, { mass: 1, position: [0, 7.5, 0, 0] });
+ * world.add(bob, Body, { type: BodyType.Dynamic, position: [0, 7.5, 0, 0] });
  * // spherical
  * world.add(world.create(), Joint, { a: pivot, b: bob, localAnchorA: [0, 0, 0, 0], localAnchorB: [0, 2.5, 0, 0] });
  * const link = world.create();
- * world.add(link, Body, { mass: 1, position: [1, 10, 0, 0] });
+ * world.add(link, Body, { type: BodyType.Dynamic, position: [1, 10, 0, 0] });
  * // fixed
  * world.add(world.create(), Joint, { a: pivot, b: link, localAnchorA: [0.5, 0, 0, 0], localAnchorB: [-0.5, 0, 0, 0], stiffnessAng: Infinity });
  * ```

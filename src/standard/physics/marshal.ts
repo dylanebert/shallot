@@ -1,9 +1,7 @@
-import { Body, Hulls, ShapeKind } from "../../core/physics";
+import { Body, type BodyType, Hulls, ShapeKind } from "../../core/physics";
 import type { World } from "../../engine";
 import {
-    BodyType,
     createHull,
-    defaultShapeDef,
     defaultSurfaceMaterial,
     type HullData,
     makeBoxHull,
@@ -14,14 +12,6 @@ import {
 // ECS → physics marshaling — the ONLY place a Body's authored fields become a physics rigid body, so the
 // dual-run hash gate (physics.test.ts) and StandardPhysicsPlugin's sync system read this one path. The Spring/Joint
 // half of the seam is joints.ts; this module is shape + mass + pose.
-
-/** a `mass <= 0` `Body` marshals as `Kinematic` (velocity set via `PhysicsBackend.setKinematic`), never
- *  `Static` (which the engine never moves) — the substrate's mass<=0 contract covers both "never moves" and
- *  "scene-driven" (a platform, a grab anchor, the character sweep) uniformly, so every mass<=0 Body needs the
- *  type that accepts a velocity write. */
-function bodyType(mass: number): BodyType {
-    return mass > 0 ? BodyType.Dynamic : BodyType.Kinematic;
-}
 
 // null (not throw) on a missing/unbuildable hull: an unregistered hull id must not take down the whole
 // SyncSystem frame loop — the caller warns + skips that one body, mirroring joints.ts's skip-a-bad-
@@ -60,8 +50,7 @@ function attachShape(
     friction: number,
 ): boolean {
     const baseMaterial = { ...defaultSurfaceMaterial(), friction };
-    const density = (volume: number) =>
-        mass > 0 && volume > 0 ? mass / volume : defaultShapeDef().density;
+    const density = (volume: number) => (mass > 0 && volume > 0 ? mass / volume : 0);
 
     if (kind === ShapeKind.Sphere) {
         const volume = (4 / 3) * Math.PI * w ** 3;
@@ -101,7 +90,7 @@ export function marshalBody(
     const kind = world.storage(Body).shape.get(eid);
     const mass = world.storage(Body).mass.get(eid);
     const tb = physicsWorld.createBody({
-        type: bodyType(mass),
+        type: world.storage(Body).type.get(eid) as BodyType,
         position: {
             x: world.storage(Body).position.x.get(eid),
             y: world.storage(Body).position.y.get(eid),

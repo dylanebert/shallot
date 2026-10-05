@@ -6,6 +6,7 @@ setDefaultTimeout(CEILING.node);
 
 import {
     Body,
+    BodyType,
     CharacterPlugin,
     createApp,
     Devices,
@@ -93,7 +94,10 @@ function extent(world: World, eid: number, axis: "x" | "z", radius = 0): readonl
 function authoredStepRise(app: Ascent, player: number, lift: number): number {
     const heights = [...app.world.query([Body])]
         .filter(
-            (eid) => eid !== player && eid !== lift && app.world.storage(Body).mass.get(eid) <= 0,
+            (eid) =>
+                eid !== player &&
+                eid !== lift &&
+                app.world.storage(Body).type.get(eid) === BodyType.Static,
         )
         .map((eid) => app.world.storage(Body).position.y.get(eid))
         .filter((y) => y > 0 && y < 1.6)

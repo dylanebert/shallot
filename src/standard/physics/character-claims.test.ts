@@ -22,7 +22,7 @@ async function scene() {
         world.addSystem(system);
     const eid = world.create();
     world.add(eid, Body, {
-        mass: 0,
+        type: BodyType.Kinematic,
         shape: ShapeKind.Capsule,
         position: [0, 0.9, 0, 0],
         halfExtents: [0, 0.5, 0, 0.3],
@@ -66,7 +66,7 @@ test("the kinematic capsule mirrors the resolved endpoint without a second move 
 test("ascending platform carry stays grounded, but a jump relative to that platform leaves ground", async () => {
     const { world, eid, dispose } = await scene();
     try {
-        const platform = floor(world);
+        const platform = floor(world, BodyType.Kinematic);
         StandardPhysicsPlugin.systems![0].update!(world);
         physicsWorld(world)!.getBody(platform)!.setLinearVelocity({ x: 0, y: 2, z: 0 });
         const c = world.storage(Character);
@@ -84,9 +84,9 @@ test("ascending platform carry stays grounded, but a jump relative to that platf
     }
 });
 
-const floor = (world: World) => {
+const floor = (world: World, type: BodyType = BodyType.Static) => {
     const eid = world.create();
-    world.add(eid, Body, { mass: 0, position: [0, -0.5, 0, 0], halfExtents: [20, 0.5, 20, 0] });
+    world.add(eid, Body, { type, position: [0, -0.5, 0, 0], halfExtents: [20, 0.5, 20, 0] });
     return eid;
 };
 
@@ -156,7 +156,7 @@ test("ground above maxSlope reports steep ground and its normal", async () => {
 test("a sideways-moving kinematic platform reports velocity but does not carry the character", async () => {
     const { world, eid, dispose } = await scene();
     try {
-        const platform = floor(world);
+        const platform = floor(world, BodyType.Kinematic);
         StandardPhysicsPlugin.systems![0].update!(world);
         const physics = physicsWorld(world)!;
         physics.getBody(platform)!.setLinearVelocity({ x: 2, y: 0, z: 0 });

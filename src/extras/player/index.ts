@@ -28,7 +28,7 @@ const MAX_PITCH = Math.PI / 2 - 0.01;
 // UpdatePlayerControlSystem.update (resolution-independence).
 const LOOK_REFERENCE_HEIGHT = 1080;
 
-/** First-person feel on a mass-zero capsule Body with Character. Input is consumed on fixed ticks; the separate camera's Transform is authored during simulation using interpolated fixed placement. */
+/** First-person feel on a kinematic capsule Body with Character. Input is consumed on fixed ticks; the separate camera's Transform is authored during simulation using interpolated fixed placement. */
 export const Player = component(
     "Player",
     {

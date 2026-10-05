@@ -1,15 +1,19 @@
 import {
     AmbientLight,
     Body,
+    BodyType,
     Camera,
     Character,
     CharacterPlugin,
     component,
+    cube,
     DirectionalLight,
     InputPlugin,
     Materials,
+    Meshes,
     MeshInstance,
     MeshMaterial,
+    MeshPlugin,
     mountOverlay,
     Player,
     PlayerPlugin,
@@ -17,6 +21,7 @@ import {
     pointerLockRefusal,
     pointerLockStatus,
     type Resource,
+    registerMesh,
     ShapeKind,
     StandardMaterial,
     StandardPhysicsPlugin,
@@ -36,8 +41,10 @@ const PERCH_COLOR = [0.39, 0.45, 0.43, 1] as const;
 
 function block(world: World, at: Vec4, size: Vec4, rgba: Vec4): number {
     const eid = world.create();
-    world.add(eid, Body, { position: at, halfExtents: size, mass: 0 });
-    world.add(eid, MeshInstance);
+    world.add(eid, Body, { position: at, halfExtents: size });
+    const name = `block-${eid}`;
+    registerMesh(world, { name, ...cube([size[0], size[1], size[2]]) });
+    world.add(eid, MeshInstance, { mesh: world.resource(Meshes).id(name)! });
     world.add(eid, MeshMaterial, {
         material: world.resource(Materials).add(StandardMaterial({ baseColor: rgba })),
     });
@@ -67,7 +74,7 @@ export function route(world: World) {
         position: [0, 2, 12, 0],
         shape: ShapeKind.Capsule,
         halfExtents: [0, 0.6, 0, 0.3],
-        mass: 0,
+        type: BodyType.Kinematic,
     });
     // The route keeps its launch and fall rhythm; pogo placement floats two radii above contact.
     world.add(player, Character);
@@ -89,6 +96,7 @@ export function route(world: World) {
     ] as const satisfies readonly (readonly [Vec4, Vec4])[];
     for (const [at, size] of steps) block(world, at, size, STEP_COLOR);
     const lift = block(world, [0, 1.75, -6.5, 0], [3, 0.25, 2, 0], LIFT_COLOR);
+    world.storage(Body).type.set(lift, BodyType.Kinematic);
     world.add(lift, Lift);
     const tower = [
         [[0.7, 2.5, -10, 0], [2.2, 0.5, 1.2, 0], TOWER_COLOR],
@@ -222,7 +230,7 @@ const controls: System = {
 export const Demo = {
     name: "Demo",
     components: [Lift],
-    dependencies: [PlayerPlugin, CharacterPlugin, InputPlugin, StandardPhysicsPlugin],
+    dependencies: [PlayerPlugin, CharacterPlugin, InputPlugin, StandardPhysicsPlugin, MeshPlugin],
     initialize(world: World) {
         const state = world.resource(Route);
         state.entities ??= route(world);

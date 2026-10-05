@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { Body, ShapeKind } from "../../core/physics";
+import { Body, BodyType, ShapeKind } from "../../core/physics";
 import { hashPhysics, readBody, StandardPhysicsPlugin } from "../../standard/physics";
 import "../../standard";
 import { globalTransformTable, Time, type World } from "../index";
@@ -128,7 +128,7 @@ test("overlapping public builds serialize their setup and then coexist as indepe
 test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
     const author = (world: World, y: number) => {
         const eid = world.create();
-        world.add(eid, Body);
+        world.add(eid, Body, { type: BodyType.Dynamic });
         const body = world.storage(Body);
         body.shape.set(eid, ShapeKind.Box);
         body.position.set(eid, 0, y, 0, 0);
@@ -167,7 +167,7 @@ test("live Physics apps keep their authored component values and solver worlds i
 test("two live Physics apps keep sibling bodies and hash unchanged when only one steps", async () => {
     const author = (world: World, y: number) => {
         const eid = world.create();
-        world.add(eid, Body);
+        world.add(eid, Body, { type: BodyType.Dynamic });
         const body = world.storage(Body);
         body.shape.set(eid, ShapeKind.Box);
         body.position.set(eid, 0, y, 0, 0);
@@ -222,7 +222,7 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
         world.storage(Body).shape.set(eid, ShapeKind.Box);
         world.storage(Body).position.set(eid, 0, 2, 0, 0);
         world.storage(Body).halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-        world.storage(Body).mass.set(eid, 1);
+        world.storage(Body).type.set(eid, BodyType.Dynamic);
         return eid;
     };
     const stepAndHash = (world: World): bigint => {

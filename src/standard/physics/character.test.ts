@@ -162,7 +162,7 @@ for (const item of lane.cases) {
                         expect(center2).toEqual({ x: 0, y: 0.5, z: 0 });
                         const eid = world.create();
                         world.add(eid, Body, {
-                            mass: 0,
+                            type: BodyType.Kinematic,
                             shape: ShapeKind.Capsule,
                             position: [position.x, position.y, position.z, 0],
                             halfExtents: [0, 0.5, 0, f32(command.radius)],

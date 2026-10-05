@@ -60,7 +60,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - A teleport discards interpolation across the discontinuity.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
 - Standard physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`.
-- A body's simulation owns its `GlobalTransform` pose, velocity and collider-derived scale; no other producer writes that body's scale.
+- A body's simulation writes its `GlobalTransform` translation, rotation and velocity, not scale.
 - Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
 - Hierarchy belongs to the domain deriving placement. A general attachment relation enters core only when two examples need the same one.
 
@@ -109,10 +109,10 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - `StandardPhysicsPlugin` (`standard/physics`) depends on `PhysicsPlugin` and owns the whole Box3D-based simulation: body and constraint synchronization, stepping, events and world operations.
 - A body belongs to one simulation. A replacement backend consumes core's data and replaces all of standard physics, not individual solver phases.
 - Standard physics steps at `Time.FIXED_DT`; gravity belongs to its solver world and the substep count is internal.
-- Box3D is the correctness authority: world hashes equal its reference with no tolerance. Two departures stay: every `mass <= 0` body marshals as kinematic, never static, so static geometry is stepped; and `Spring` authors `stiffness`, converted to Box3D's hertz and damping ratio.
+- Box3D is the correctness authority: world hashes equal its reference with no tolerance. One departure stays: `Spring` authors `stiffness`, converted to Box3D's hertz and damping ratio.
 - Each standard physics phase has one implementation, in the kernel. The worker count schedules it and is not a code path: with no pool the calling thread runs the same tasks, as Box3D's serial fallback does. The shared and single-thread kernel artifacts build from one source, since a page without cross-origin isolation has no shared memory.
 - Camera rays belong to rendering's `viewportToWorld`, not physics; callers supply pointer or viewport coordinates, and `Ray` belongs to engine math.
-- Standard physics publishes the mover queries and plane solver, and its optional `CharacterPlugin` resolves a mass-zero capsule's caller-written velocity. It reports walkable or steep ground, its normal and point velocity; upward motion suppresses its pogo spring only relative to that ground velocity.
+- Standard physics publishes the mover queries and plane solver, and its optional `CharacterPlugin` resolves a kinematic capsule's caller-written velocity. It reports walkable or steep ground, its normal and point velocity; upward motion suppresses its pogo spring only relative to that ground velocity.
 - `extras/player` owns input, gravity, acceleration, friction, sprint, jump, coyote time, buffering and platform carry over the published standard physics barrel. Games replace that feel without reaching into physics internals.
 
 ## Commands

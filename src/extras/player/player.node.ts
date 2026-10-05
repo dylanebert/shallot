@@ -6,6 +6,7 @@ setDefaultTimeout(CEILING.node);
 
 import {
     Body,
+    BodyType,
     Character,
     CharacterPlugin,
     createApp,
@@ -40,7 +41,6 @@ test("the public Player controller consumes held, released and neutral input to 
         world.storage(Body).shape.set(floor, ShapeKind.Box);
         world.storage(Body).position.set(floor, 0, 0, 0, 0);
         world.storage(Body).halfExtents.set(floor, 4, 0.5, 4, 0);
-        world.storage(Body).mass.set(floor, 0);
 
         const camera = world.create();
         world.add(camera, Transform);
@@ -52,7 +52,7 @@ test("the public Player controller consumes held, released and neutral input to 
         world.storage(Body).shape.set(player, ShapeKind.Capsule);
         world.storage(Body).position.set(player, 0, 1.3, 0, 0);
         world.storage(Body).halfExtents.set(player, 0, 0.5, 0, 0.3);
-        world.storage(Body).mass.set(player, 0);
+        world.storage(Body).type.set(player, BodyType.Kinematic);
         world.storage(Player).speed.set(player, 6);
         world.storage(Player).sprint.set(player, 1);
         world.storage(Player).sensitivity.set(player, 1.5);

@@ -3,10 +3,10 @@
 import {
     Body,
     type BodyState,
+    BodyType,
     Hulls,
     Joint,
     PhysicsPlugin,
-    ShapeKind,
     Spring,
 } from "../../core/physics";
 import {
@@ -300,30 +300,6 @@ function writeGlobalTransform(
 }
 
 function seedGlobalTransform(world: World, eid: number): void {
-    const shape = world.storage(Body).shape.get(eid);
-    const radius = world.storage(Body).halfExtents.w.get(eid);
-    if (shape === ShapeKind.Sphere)
-        world.storage(GlobalTransform).scale.set(eid, 2 * radius, 2 * radius, 2 * radius, 0);
-    else if (shape === ShapeKind.Capsule)
-        world
-            .storage(GlobalTransform)
-            .scale.set(
-                eid,
-                2 * radius,
-                world.storage(Body).halfExtents.y.get(eid) + radius,
-                2 * radius,
-                0,
-            );
-    else
-        world
-            .storage(GlobalTransform)
-            .scale.set(
-                eid,
-                2 * world.storage(Body).halfExtents.x.get(eid),
-                2 * world.storage(Body).halfExtents.y.get(eid),
-                2 * world.storage(Body).halfExtents.z.get(eid),
-                0,
-            );
     writeGlobalTransform(
         world,
         eid,
@@ -408,10 +384,12 @@ export function readBody(world: World, eid: number, out?: BodyStateOut): BodySta
 }
 
 // registers setKinematic hands the solver body; its setters round and copy them.
+const staticMotionWarnings = { create: () => new Map<number, EntityRef>() };
 const kinPos = { x: 0, y: 0, z: 0 };
 const kinQuat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 const kinVel = { x: 0, y: 0, z: 0 };
 
+/** Drives a kinematic or dynamic body's target pose. Static bodies are ignored with one warning per entity; an unavailable body is ignored. Teleports discard interpolation across the move. */
 export function setKinematic(
     world: World,
     eid: number,
@@ -423,6 +401,15 @@ export function setKinematic(
     const runtime = runtimeFor(world);
     const tb = runtime.bodies.get(eid);
     if (!tb) return;
+    if (tb.getType() === BodyType.Static) {
+        const warned = world.resource(staticMotionWarnings);
+        const previous = warned.get(eid);
+        if (!previous || !world.resolve(previous)) {
+            warned.set(eid, world.ref(eid));
+            console.warn(`[physics] setKinematic ignores static body entity ${eid}`);
+        }
+        return;
+    }
     let prev = runtime.kinPrev.get(eid);
     const moved =
         !prev ||

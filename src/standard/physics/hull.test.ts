@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Body, Hulls, ShapeKind, UNIT_CUBE_ID } from "../../core/physics";
+import { Body, BodyType, Hulls, ShapeKind, UNIT_CUBE_ID } from "../../core/physics";
 import { World } from "../../engine";
 import { PhysicsWorld } from "./api";
 import { marshalBody } from "./marshal";
@@ -23,6 +23,7 @@ test("two worlds marshal their own hull registered under the same name", () => {
             world.add(eid, Body);
             world.storage(Body).shape.set(eid, ShapeKind.Hull);
             world.storage(Body).halfExtents.w.set(eid, id);
+            world.storage(Body).type.set(eid, BodyType.Dynamic);
             world.storage(Body).mass.set(eid, 1);
             return marshalBody(world, solver, eid)!;
         });

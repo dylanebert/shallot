@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import {
     Body,
+    BodyType,
     Camera,
     Character,
     CharacterPlugin,
@@ -32,7 +33,7 @@ test("a Player capsule retains its collider geometry and rests above the floor",
                 position: [0, 2, 0, 0],
                 shape: ShapeKind.Capsule,
                 halfExtents: [0, 0.6, 0, 0.3],
-                mass: 0,
+                type: BodyType.Kinematic,
             });
             world.add(player, Character);
             world.add(player, Player, { camera: eye });
@@ -40,7 +41,6 @@ test("a Player capsule retains its collider geometry and rests above the floor",
             world.add(floor, Body, {
                 position: [0, 0, 0, 0],
                 halfExtents: [10, 0.5, 10, 0],
-                mass: 0,
             });
         },
     });

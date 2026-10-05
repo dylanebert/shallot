@@ -23,13 +23,11 @@ test("published mover queries land a falling capsule on an authored floor slidin
     try {
         world.add(world.create(), Body, {
             shape: ShapeKind.Box,
-            mass: 0,
             position: [0, -0.5, 0, 0],
             halfExtents: [10, 0.5, 10, 0],
         });
         world.add(world.create(), Body, {
             shape: ShapeKind.Box,
-            mass: 0,
             position: [1.5, 2, 0, 0],
             halfExtents: [0.5, 2, 10, 0],
         });

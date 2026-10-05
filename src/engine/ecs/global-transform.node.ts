@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { Body } from "../../core/physics";
+import { Body, BodyType } from "../../core/physics";
 import {
     attachCanvas,
     Camera,
@@ -86,7 +86,7 @@ test("Transform placement lands in the fixed-tick GlobalTransform column and the
     }
 });
 
-test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriving it only in renderer rows", async () => {
+test("a Body publishes unit scale to fixed-tick GlobalTransform and renderer rows", async () => {
     const app = await createApp({
         defaults: false,
         plugins: [StandardPhysicsPlugin, RenderingPlugin],
@@ -97,20 +97,19 @@ test("a Body writes scale as part of fixed-tick GlobalTransform instead of deriv
         world.add(eid, Body);
         world.storage(Body).position.set(eid, 12, 7, -3, 0);
         world.storage(Body).halfExtents.set(eid, 1, 2, 3, 0);
-        world.storage(Body).mass.set(eid, 0);
         attachTestCamera(world);
         world.step(Time.FIXED_DT);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(12);
         expect(Reflect.get(GlobalTransform, "scale")).toBeDefined();
         const scale = Reflect.get(world.storage(GlobalTransform), "scale");
-        expect([scale.x.get(eid), scale.y.get(eid), scale.z.get(eid)]).toEqual([2, 4, 6]);
+        expect([scale.x.get(eid), scale.y.get(eid), scale.z.get(eid)]).toEqual([1, 1, 1]);
         const table = globalTransformTable(world);
         const row = table.rowIndex(eid);
         const words = new Float32Array(
             (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
-        expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([2, 4, 6]);
+        expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([1, 1, 1]);
     } finally {
         app.dispose();
     }
@@ -127,7 +126,6 @@ test("viewportToWorld reads a body camera's fixed-tick GlobalTransform without r
         world.add(eid, Body);
         world.add(eid, Camera);
         world.storage(Body).position.set(eid, 12, 7, -3, 0);
-        world.storage(Body).mass.set(eid, 0);
         world.step(Time.FIXED_DT);
         expect(world.has(eid, Transform)).toBe(false);
         const bound = attachTestCamera(world, eid);
@@ -147,7 +145,6 @@ test("viewportToWorld reads a body camera's fixed-tick GlobalTransform without r
 function addStaticBody(world: engine.World, eid: number, x: number): void {
     world.add(eid, Body);
     world.storage(Body).position.set(eid, x, 0, 0, 0);
-    world.storage(Body).mass.set(eid, 0);
 }
 
 function addTransform(world: engine.World, eid: number, x: number): void {
@@ -388,6 +385,7 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
         const { world } = app;
         const eid = world.create();
         addStaticBody(world, eid, 0);
+        world.storage(Body).type.set(eid, BodyType.Kinematic);
         attachTestCamera(world);
         globalTransformTable(world);
         world.step(Time.FIXED_DT);
@@ -415,6 +413,7 @@ test("a kinematic teleport renders at its new placement at half a fixed step", a
         const { world } = app;
         const eid = world.create();
         addStaticBody(world, eid, 0);
+        world.storage(Body).type.set(eid, BodyType.Kinematic);
         attachTestCamera(world);
         const table = globalTransformTable(world);
         world.step(Time.FIXED_DT);

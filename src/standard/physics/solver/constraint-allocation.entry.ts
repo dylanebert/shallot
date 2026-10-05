@@ -13,7 +13,7 @@ const COUNT = 64;
 // Pendulums 8 m apart reach at most 3 m from their anchors, so no pair makes a contact.
 const SPACING = 8;
 
-// `authored`: Spring and Joint entities alternate, each swinging a bob from a mass-zero anchor through the
+// `authored`: Spring and Joint entities alternate, each swinging a bob from a static anchor through the
 // plugin's sync. `spherical`: solver-API spherical joints with a `localFrameB`, each on a static anchor.
 export default async function create(input: string) {
     if (input === "authored") return authored();
@@ -27,9 +27,9 @@ async function authored() {
     const bobs: number[] = [];
     for (let i = 0; i < COUNT; i++) {
         const anchor = world.create();
-        world.add(anchor, Body, { mass: 0, position: [i * SPACING, 10, 0, 0] });
+        world.add(anchor, Body, { position: [i * SPACING, 10, 0, 0] });
         const bob = world.create();
-        world.add(bob, Body, { position: [i * SPACING + 2.5, 10, 0, 0] });
+        world.add(bob, Body, { type: BodyType.Dynamic, position: [i * SPACING + 2.5, 10, 0, 0] });
         bobs.push(bob);
         if (i % 2 === 0) world.add(world.create(), Spring, { a: anchor, b: bob, rest: 2.5 });
         else world.add(world.create(), Joint, { a: anchor, b: bob, localAnchorB: [-2.5, 0, 0, 0] });

@@ -5,6 +5,7 @@ import * as standard from "@dylanebert/shallot/standard/physics";
 test("core physics exports shared authoring data without engine aliases or analytic shape helpers", () => {
     expect(Object.keys(physics).sort()).toEqual([
         "Body",
+        "BodyType",
         "Hulls",
         "Joint",
         "PhysicsPlugin",

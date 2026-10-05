@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { Body } from "../../core/physics";
+import { Body, BodyType } from "../../core/physics";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { readBody, StandardPhysicsPlugin } from "../../standard/physics";
 import { CanvasContext } from "../app/canvas.fixture";
@@ -69,7 +69,7 @@ test("engine interpolation uploads one GlobalTransform range and preserves unmov
         world.add(eid, Body);
         body.position.set(eid, 0, y, 0, 0);
         body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-        body.mass.set(eid, 1);
+        body.type.set(eid, BodyType.Dynamic);
         return eid;
     }
     const first = falling(10);

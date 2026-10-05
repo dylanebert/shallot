@@ -1,7 +1,7 @@
 import { afterEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createApp } from "@dylanebert/shallot";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
-import { Body, ShapeKind } from "@dylanebert/shallot/physics";
+import { Body, BodyType, ShapeKind } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
 import { cpuTotal } from "../../extras/profile/cpu";
@@ -26,6 +26,7 @@ test("composed physics records phases as parts of its scheduler timing", async (
     bodies.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
     bodies.position.set(eid, 0, 5, 0, 0);
     bodies.rotation.set(eid, 0, 0, 0, 1);
+    bodies.type.set(eid, BodyType.Dynamic);
     bodies.mass.set(eid, 1);
     // A phase with no work can read 0 ms on a real clock and go unrecorded; each read advances 1 ms here.
     let clock = 0;

@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import {
     Body,
+    BodyType,
     Camera,
     Character,
     CharacterPlugin,
@@ -33,10 +34,10 @@ async function scene(y = 2) {
             world.add(camera, Camera);
             world.add(camera, Transform);
             floor = world.create();
-            world.add(floor, Body, { mass: 0, halfExtents: [4, 0.5, 4, 0] });
+            world.add(floor, Body, { type: BodyType.Kinematic, halfExtents: [4, 0.5, 4, 0] });
             player = world.create();
             world.add(player, Body, {
-                mass: 0,
+                type: BodyType.Kinematic,
                 shape: ShapeKind.Capsule,
                 halfExtents: [0, 0.6, 0, 0.3],
                 position: [0, y, 0, 0],

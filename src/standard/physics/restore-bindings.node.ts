@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { createApp, Time, type World } from "@dylanebert/shallot";
-import { Body, ShapeKind, Spring } from "@dylanebert/shallot/physics";
+import { Body, BodyType, ShapeKind, Spring } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
     physicsWorld,
@@ -20,13 +20,20 @@ const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
-function addBox(world: World, x: number, y: number, mass: number): number {
+function addBox(
+    world: World,
+    x: number,
+    y: number,
+    mass: number,
+    type: BodyType = BodyType.Dynamic,
+): number {
     const eid = world.create();
     world.add(eid, Body);
     world.storage(Body).shape.set(eid, ShapeKind.Box);
     world.storage(Body).halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
     world.storage(Body).position.set(eid, x, y, 0, 0);
     world.storage(Body).rotation.set(eid, 0, 0, 0, 1);
+    world.storage(Body).type.set(eid, type);
     world.storage(Body).mass.set(eid, mass);
     return eid;
 }
@@ -76,7 +83,7 @@ test("a body despawned between snapshot and restore leaves no orphan solver body
 test("a spring added between snapshot and restore returns after it, and despawning it removes it", async () => {
     const { app, world } = await scene();
     try {
-        const anchor = addBox(world, 0, 2, 0);
+        const anchor = addBox(world, 0, 2, 1, BodyType.Static);
         const bob = addBox(world, 0, -2, 1);
         world.step(Time.FIXED_DT);
         const saved = snapshotPhysics(world);
@@ -97,7 +104,7 @@ test("a spring added between snapshot and restore returns after it, and despawni
 test("a kinematic body driven without velocity replays every tick's hash after a restore", async () => {
     const { app, world } = await scene();
     try {
-        const platform = addBox(world, 0, 0, 0);
+        const platform = addBox(world, 0, 0, 1, BodyType.Kinematic);
         addBox(world, 0.2, 1, 1);
         const place = (tick: number) =>
             setKinematic(world, platform, [tick * 0.05, 0, 0], [0, 0, 0, 1]);

@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createApp, Time, Transform } from "@dylanebert/shallot";
-import { Body, Joint, ShapeKind, Spring } from "@dylanebert/shallot/physics";
+import { Body, BodyType, Joint, ShapeKind, Spring } from "@dylanebert/shallot/physics";
 import {
     physicsWorld,
     restorePhysics,
@@ -38,7 +38,7 @@ test("recycled bodies retry failed marshals and placement warnings, including re
         const live = snapshotPhysics(world);
         world.destroy(eid);
         expect(world.create()).toBe(eid);
-        world.add(eid, Body, { position: [0, 7, 0, 0], mass: 0 });
+        world.add(eid, Body, { position: [0, 7, 0, 0] });
         restorePhysics(world, live);
         expect(solver.getBody(eid)).toBeNull();
         world.step(Time.FIXED_DT);
@@ -58,9 +58,9 @@ for (const constraint of [Joint, Spring]) {
         try {
             const world = app.world;
             const anchor = world.create();
-            world.add(anchor, Body, { mass: 0, position: [0, 3, 0, 0] });
+            world.add(anchor, Body, { position: [0, 3, 0, 0] });
             const bob = world.create();
-            world.add(bob, Body, { position: [0, 1, 0, 0] });
+            world.add(bob, Body, { type: BodyType.Dynamic, position: [0, 1, 0, 0] });
             const link = world.create();
             world.add(link, constraint, { a: anchor, b: bob });
             world.step(Time.FIXED_DT);
@@ -69,7 +69,7 @@ for (const constraint of [Joint, Spring]) {
             world.destroy(bob);
             const replacement = world.create();
             expect(replacement).toBe(bob);
-            world.add(replacement, Body, { position: [0, 1, 0, 0] });
+            world.add(replacement, Body, { type: BodyType.Dynamic, position: [0, 1, 0, 0] });
             world.step(Time.FIXED_DT);
             expect(solver.getBody(replacement)).not.toBeNull();
             expect(solver.getCounters().jointCount).toBe(0);
