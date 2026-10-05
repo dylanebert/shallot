@@ -105,6 +105,34 @@ impl FloatW {
             f32x4_extract_lane::<3>(self.0),
         ]
     }
+    #[inline]
+    pub fn load(values: &[f32]) -> Self {
+        assert!(values.len() >= 4);
+        unsafe { FloatW(v128_load(values.as_ptr() as *const v128)) }
+    }
+    #[inline]
+    pub fn and(self, o: Self) -> Self {
+        FloatW(v128_and(self.0, o.0))
+    }
+    #[inline]
+    pub fn less_than(self, o: Self) -> Self {
+        FloatW(f32x4_lt(self.0, o.0))
+    }
+    #[inline]
+    pub fn any_true(self) -> bool {
+        v128_any_true(self.0)
+    }
+    #[inline]
+    pub fn embed_index(self, index: usize) -> Self {
+        let mask = i32x4_splat(!0x7f);
+        let indices = i32x4(
+            index as i32,
+            (index + 1) as i32,
+            (index + 2) as i32,
+            (index + 3) as i32,
+        );
+        FloatW(v128_or(v128_and(self.0, mask), indices))
+    }
     /// Wrap a raw lane vector (4c's record-transpose gather builds lanes as `v128` directly).
     #[inline]
     pub fn from_v128(v: v128) -> Self {
@@ -201,6 +229,28 @@ impl FloatW {
         self.0
     }
 
+    #[inline]
+    pub fn load(values: &[f32]) -> Self {
+        FloatW(values[..4].try_into().unwrap())
+    }
+    #[inline]
+    pub fn and(self, o: Self) -> Self {
+        self.bits(o, |a, b| a & b)
+    }
+    #[inline]
+    pub fn less_than(self, o: Self) -> Self {
+        self.mask(o, |a, b| a < b)
+    }
+    #[inline]
+    pub fn any_true(self) -> bool {
+        self.0.iter().any(|x| x.to_bits() != 0)
+    }
+    #[inline]
+    pub fn embed_index(self, index: usize) -> Self {
+        FloatW(core::array::from_fn(|lane| {
+            f32::from_bits((self.0[lane].to_bits() & !0x7f) | (index + lane) as u32)
+        }))
+    }
     #[inline]
     fn map(self, f: impl Fn(f32) -> f32) -> Self {
         FloatW(core::array::from_fn(|i| f(self.0[i])))

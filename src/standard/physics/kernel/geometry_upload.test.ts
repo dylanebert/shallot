@@ -21,7 +21,8 @@ import {
 import { step } from "../solver/step";
 import { createBody, destroyBody } from "../world/body";
 import { createWorld, destroyWorld, getWorld, type WorldState } from "../world/world";
-import { init } from "./kernel";
+import { uploadGeometry } from "./geocolumns";
+import { init, kernel } from "./kernel";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 
 await init(undefined, { threads: 0 });
@@ -29,6 +30,42 @@ const unit = { x: 1, y: 1, z: 1 };
 const advance = (world: WorldState): void => step(world, 1 / 60, 4);
 const body = (world: WorldState) =>
     world.bodies[createBody(world, { ...defaultBodyDef(), position: { x: 100, y: 100, z: 100 } })];
+
+test("hull upload derives padded SoA vertices and normals from authoring, without overlapping adjacent hulls", () => {
+    const box = makeBoxHull(1, 2, 3);
+    const hulls = [5, 8].map((count) => ({
+        ...box,
+        vertexCount: count,
+        faceCount: 5,
+        points: box.points.slice(0, count),
+        planes: box.planes.slice(0, 5),
+    }));
+    uploadGeometry(undefined, hulls);
+    const k = kernel(undefined);
+    const layout = new Uint32Array(k.memory.buffer, k.geoLayoutPtr(), 8);
+    const records = new Uint32Array(k.memory.buffer, layout[0], hulls.length * 12);
+    for (const [i, h] of hulls.entries()) {
+        const nv = (h.vertexCount + 3) & ~3;
+        const nf = (h.faceCount + 3) & ~3;
+        const soa = new Float32Array(
+            k.memory.buffer,
+            layout[7] + 4 * records[i * 12 + 11],
+            3 * (nv + nf),
+        );
+        for (let lane = 0; lane < nv; ++lane) {
+            const p = h.points[lane < h.vertexCount ? lane : 0];
+            expect([soa[lane], soa[nv + lane], soa[2 * nv + lane]]).toEqual([p.x, p.y, p.z]);
+        }
+        for (let lane = 0; lane < nf; ++lane) {
+            const n = h.planes[lane < h.faceCount ? lane : 0].normal;
+            expect([
+                soa[3 * nv + lane],
+                soa[3 * nv + nf + lane],
+                soa[3 * nv + 2 * nf + lane],
+            ]).toEqual([n.x, n.y, n.z]);
+        }
+    }
+});
 
 test("sphere and capsule body churn uploads no geometry, and only a mesh datum entering or leaving the set uploads", () => {
     const world = getWorld(

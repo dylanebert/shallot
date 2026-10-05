@@ -57,6 +57,8 @@ fn hull<'a>(g: &Value, points: &'a [Vec3], planes: &'a [Plane]) -> HullData<'a> 
         edge_count: 0,
         face_count: planes.len(),
         points,
+        soa_points: shallot_physics::hull::soa_vectors(points.iter().copied()).into(),
+        soa_normals: shallot_physics::hull::soa_vectors(planes.iter().map(|p| p.normal)).into(),
         vertices: &[],
         edges: &[],
         faces: &[],

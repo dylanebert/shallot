@@ -6,6 +6,26 @@
 //! borrows slices reinterpreted over the static geometry columns (3c.2b).
 
 use crate::math::{Plane, Vec3, FLT_MAX};
+use crate::simd::FloatW;
+use std::borrow::Cow;
+
+/// Derive Box3D's padded SoA stream from the authored vectors.
+pub fn soa_vectors(points: impl ExactSizeIterator<Item = Vec3>) -> Vec<f32> {
+    let count = points.len();
+    let n = (count + 3) & !3;
+    let mut out = vec![0.0; n * 3];
+    for (i, p) in points.enumerate() {
+        out[i] = p.x;
+        out[n + i] = p.y;
+        out[2 * n + i] = p.z;
+    }
+    for i in count..n {
+        out[i] = out[0];
+        out[n + i] = out[n];
+        out[2 * n + i] = out[2 * n];
+    }
+    out
+}
 
 // The index fields stay `usize`: on the wasm32 target `usize` is a 4-byte word, so a hull's topology
 // pools (one u32 per field) reinterpret directly as `&[HullVertex]` / `&[HullHalfEdge]` / `&[HullFace]`
@@ -45,6 +65,8 @@ pub struct HullData<'a> {
     pub edge_count: usize,
     pub face_count: usize,
     pub points: &'a [Vec3],
+    pub soa_points: Cow<'a, [f32]>,
+    pub soa_normals: Cow<'a, [f32]>,
     pub vertices: &'a [HullVertex],
     pub edges: &'a [HullHalfEdge],
     pub faces: &'a [HullFace],
@@ -75,26 +97,24 @@ impl HullData<'_> {
     #[inline]
     pub fn support_vertex_wide(&self, direction: Vec3, bias: f32) -> usize {
         let soa_count = (self.vertex_count + 3) & !3;
-        let mut best_value = f32::INFINITY;
-        let mut best_index = 0usize;
-        for lane in 0..soa_count {
-            let index = if lane < self.vertex_count { lane } else { 0 };
-            let p = self.points[index];
-            // Match b3Dot3W's SIMD association: z + (y + x).
-            let dot = direction.z * p.z + (direction.y * p.y + direction.x * p.x);
-            let value = bias - dot;
-            let bits = (value.to_bits() & !0x7f) | lane as u32;
-            let augmented = f32::from_bits(bits);
-            if augmented < best_value {
-                best_value = augmented;
-                best_index = lane;
-            }
+        let nx = FloatW::splat(direction.x);
+        let ny = FloatW::splat(direction.y);
+        let nz = FloatW::splat(direction.z);
+        let bias = FloatW::splat(bias);
+        let mut minimum = FloatW::splat(f32::INFINITY);
+        for i in (0..soa_count).step_by(4) {
+            let x = FloatW::load(&self.soa_points[i..]);
+            let y = FloatW::load(&self.soa_points[soa_count + i..]);
+            let z = FloatW::load(&self.soa_points[2 * soa_count + i..]);
+            // b3GetSupportWide deliberately differs from b3Dot3W's association.
+            let dot = nz.mul(z).add(ny.mul(y).add(nx.mul(x)));
+            minimum = minimum.min(bias.sub(dot).embed_index(i));
         }
-        if best_index < self.vertex_count {
-            best_index
-        } else {
-            0
-        }
+        let lanes = minimum.to_array();
+        let value = lanes
+            .into_iter()
+            .fold(f32::INFINITY, |a, b| if a < b { a } else { b });
+        (value.to_bits() & 0x7f) as usize
     }
 
     /// Index of the hull face whose normal is most aligned with `direction` (b3FindHullSupportFace).
@@ -109,5 +129,54 @@ impl HullData<'_> {
             }
         }
         best_index
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wide_support_embeds_indices_and_never_selects_padding() {
+        for count in 1..=128 {
+            let points: Vec<_> = (0..count)
+                .map(|i| Vec3::new((i % 5) as f32, (i % 7) as f32, (i % 3) as f32))
+                .collect();
+            let hull = HullData {
+                center: Vec3::ZERO,
+                vertex_count: count,
+                edge_count: 0,
+                face_count: 0,
+                points: &points,
+                soa_points: soa_vectors(points.iter().copied()).into(),
+                soa_normals: Vec::new().into(),
+                vertices: &[],
+                edges: &[],
+                faces: &[],
+                planes: &[],
+            };
+            for direction in [
+                Vec3::ZERO,
+                Vec3::new(1.0, 2.0, 3.0),
+                Vec3::new(-1.0, 1.0, -2.0),
+            ] {
+                let bias = 64.0;
+                let mut best = f32::INFINITY;
+                let mut index = 0;
+                for (i, p) in points.iter().enumerate() {
+                    let dot = direction.z * p.z + (direction.y * p.y + direction.x * p.x);
+                    let value = f32::from_bits(((bias - dot).to_bits() & !0x7f) | i as u32);
+                    if value < best {
+                        best = value;
+                        index = i;
+                    }
+                }
+                assert_eq!(
+                    hull.support_vertex_wide(direction, bias),
+                    index,
+                    "count {count}"
+                );
+            }
+        }
     }
 }

@@ -8,7 +8,7 @@ import type { HullData } from "../shapes/hull";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
-/** u32 words per hull record (RECORD_STRIDE in geo.rs): center.xyz + v/e/f counts + 5 pool offsets. */
+/** u32 words per hull record (RECORD_STRIDE in geo.rs): center.xyz + v/e/f counts + 6 pool offsets. */
 const RECORD_STRIDE = 12;
 
 // GEO_LAYOUT header indices (geo.rs), in memory order.
@@ -19,7 +19,8 @@ const EDGES = 3;
 const FACES = 4;
 const PLANES = 5;
 const EXTRA = 6;
-const N_GEO = 7;
+const SOA = 7;
+const N_GEO = 8;
 
 /** The subset of a hull the geometry upload reads (and `geoIndex`, which it writes). `HullData`
  * satisfies it structurally. */
@@ -51,9 +52,9 @@ export function uploadGeometry(
     let edges = 0;
     let faces = 0;
     for (const h of hulls) {
-        verts += h.vertexCount;
+        verts += (h.vertexCount + 3) & ~3;
         edges += h.edgeCount;
-        faces += h.faceCount;
+        faces += (h.faceCount + 3) & ~3;
     }
 
     const k = kernel(world);
@@ -70,12 +71,14 @@ export function uploadGeometry(
     const edgeCol = new Uint32Array(buf, layout[EDGES], edges * 4);
     const faceCol = new Uint32Array(buf, layout[FACES], faces);
     const planes = new Float32Array(buf, layout[PLANES], faces * 4);
+    const soa = new Float32Array(buf, layout[SOA], (verts + faces) * 3);
 
     // Point and vertex pools share an element offset (one point per vertex); edge/face/plane advance
     // independently.
     let vOff = 0;
     let eOff = 0;
     let fOff = 0;
+    let soaOff = 0;
     for (let i = 0; i < hulls.length; ++i) {
         const h = hulls[i];
         h.geoIndex = i;
@@ -92,6 +95,26 @@ export function uploadGeometry(
         recU[r + 8] = eOff;
         recU[r + 9] = fOff;
         recU[r + 10] = fOff; // planeOff (one plane per face)
+        recU[r + 11] = soaOff;
+
+        // Authoring and snapshots keep points/planes as their one source; derive Box3D's padded
+        // streams only at upload. Tail vertices and normals repeat element zero.
+        const nv = (h.vertexCount + 3) & ~3;
+        const nf = (h.faceCount + 3) & ~3;
+        for (let p = 0; p < nv; ++p) {
+            const pt = h.points[p < h.vertexCount ? p : 0];
+            soa[soaOff + p] = pt.x;
+            soa[soaOff + nv + p] = pt.y;
+            soa[soaOff + 2 * nv + p] = pt.z;
+        }
+        soaOff += 3 * nv;
+        for (let f = 0; f < nf; ++f) {
+            const normal = h.planes[f < h.faceCount ? f : 0].normal;
+            soa[soaOff + f] = normal.x;
+            soa[soaOff + nf + f] = normal.y;
+            soa[soaOff + 2 * nf + f] = normal.z;
+        }
+        soaOff += 3 * nf;
 
         for (let p = 0; p < h.vertexCount; ++p) {
             const pt = h.points[p];

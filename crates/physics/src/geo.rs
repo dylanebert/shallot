@@ -11,7 +11,7 @@ use crate::manifold::{collide_hulls, make_feature_id, LocalManifold, SatCache};
 use crate::math::{Plane, Quat, Transform, Vec3};
 
 /// u32 words per hull record: center.xyz (f32 bits), vertex/edge/face counts, and the element offset
-/// of this hull's slice into each of the five pools; slot 11 is padding.
+/// of this hull's slice into each pool; slot 11 locates the derived SoA vertices and normals.
 const RECORD_STRIDE: usize = 12;
 
 // GEO_LAYOUT indices (byte offsets into linear memory), in memory order.
@@ -22,7 +22,8 @@ const EDGES: usize = 3;
 const FACES: usize = 4;
 const PLANES: usize = 5;
 const EXTRA: usize = 6;
-const N_GEO: usize = 7;
+const SOA: usize = 7;
+const N_GEO: usize = 8;
 
 use crate::regions::{self, Columns, MAX_WORLDS};
 static mut COLUMNS: [Columns<N_GEO>; MAX_WORLDS] = [Columns::EMPTY; MAX_WORLDS];
@@ -50,6 +51,7 @@ pub extern "C" fn reserve_geometry(
             (FACES, faces),
             (PLANES, faces * 4),
             (EXTRA, extra_words),
+            (SOA, (verts + faces) * 3),
         ] {
             columns.reserve(column, words * 4);
         }
@@ -84,6 +86,10 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
     let edge_off = *rec.add(8) as usize;
     let face_off = *rec.add(9) as usize;
     let plane_off = *rec.add(10) as usize;
+    let soa_off = *rec.add(11) as usize;
+    let nv = (vertex_count + 3) & !3;
+    let nf = (face_count + 3) & !3;
+    let soa = (layout[SOA] as *const f32).add(soa_off);
 
     let points = core::slice::from_raw_parts(
         (layout[POINTS] as *const f32).add(point_off * 3) as *const Vec3,
@@ -112,6 +118,8 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
         edge_count,
         face_count,
         points,
+        soa_points: core::slice::from_raw_parts(soa, 3 * nv).into(),
+        soa_normals: core::slice::from_raw_parts(soa.add(3 * nv), 3 * nf).into(),
         vertices,
         edges,
         faces,

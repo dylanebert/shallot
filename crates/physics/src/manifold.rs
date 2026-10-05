@@ -1693,23 +1693,6 @@ struct AxisQuery {
     separated: u32,
 }
 
-#[inline]
-// b3Dot3W's association, x + (y + z), on every target (simd.h NEON, SSE2 and scalar).
-fn dot3_w(a: Vec3, b: Vec3) -> f32 {
-    a.x * b.x + (a.y * b.y + a.z * b.z)
-}
-
-#[inline]
-fn normalize3_w(v: Vec3) -> Vec3 {
-    let length_sq = dot3_w(v, v);
-    if length_sq > 1000.0 * FLT_MIN {
-        let inv = 1.0 / length_sq.sqrt();
-        Vec3::new(v.x * inv, v.y * inv, v.z * inv)
-    } else {
-        Vec3::ZERO
-    }
-}
-
 fn hull_aabb_center_extents(hull: &HullData) -> (Vec3, Vec3) {
     let mut lower = hull.points[0];
     let mut upper = hull.points[0];
@@ -1724,17 +1707,83 @@ fn hull_aabb_center_extents(hull: &HullData) -> (Vec3, Vec3) {
     (lower.add(upper).scale(0.5), upper.sub(lower).scale(0.5))
 }
 
-#[inline]
-fn negative_transform_w(matrix: Mat3, translation: Vec3, value: Vec3, point: bool) -> Vec3 {
-    let mut result = Vec3::new(
-        dot3_w(Vec3::new(matrix.cx.x, matrix.cy.x, matrix.cz.x), value),
-        dot3_w(Vec3::new(matrix.cx.y, matrix.cy.y, matrix.cz.y), value),
-        dot3_w(Vec3::new(matrix.cx.z, matrix.cy.z, matrix.cz.z), value),
-    );
-    if point {
-        result = result.add(translation);
+// Box3D's NV/NF/NE scratch arrays include four zero tail lanes.
+const HULL_SOA_CAPACITY: usize = 132;
+
+struct HullSoa3 {
+    x: [f32; HULL_SOA_CAPACITY],
+    y: [f32; HULL_SOA_CAPACITY],
+    z: [f32; HULL_SOA_CAPACITY],
+}
+
+impl HullSoa3 {
+    fn zero() -> Self {
+        Self {
+            x: [0.0; HULL_SOA_CAPACITY],
+            y: [0.0; HULL_SOA_CAPACITY],
+            z: [0.0; HULL_SOA_CAPACITY],
+        }
     }
-    result.neg()
+    fn set(&mut self, i: usize, v: Vec3) {
+        self.x[i] = v.x;
+        self.y[i] = v.y;
+        self.z[i] = v.z;
+    }
+    fn get(&self, i: usize) -> Vec3 {
+        Vec3::new(self.x[i], self.y[i], self.z[i])
+    }
+    fn load(&self, i: usize) -> [crate::simd::FloatW; 3] {
+        use crate::simd::FloatW;
+        [
+            FloatW::load(&self.x[i..]),
+            FloatW::load(&self.y[i..]),
+            FloatW::load(&self.z[i..]),
+        ]
+    }
+}
+
+// b3Dot3W's association, x + (y + z), on every target (simd.h NEON, SSE2 and scalar).
+#[inline]
+fn dot_wide(a: [crate::simd::FloatW; 3], b: [crate::simd::FloatW; 3]) -> crate::simd::FloatW {
+    a[0].mul(b[0]).add(a[1].mul(b[1]).add(a[2].mul(b[2])))
+}
+
+#[inline]
+fn splat3(v: Vec3) -> [crate::simd::FloatW; 3] {
+    use crate::simd::FloatW;
+    [FloatW::splat(v.x), FloatW::splat(v.y), FloatW::splat(v.z)]
+}
+
+fn negative_transform_from_soa(
+    matrix: Mat3,
+    translation: Vec3,
+    input: &[f32],
+    point: bool,
+) -> HullSoa3 {
+    use crate::simd::FloatW;
+    let n = input.len() / 3;
+    let rows = [
+        splat3(Vec3::new(matrix.cx.x, matrix.cy.x, matrix.cz.x)),
+        splat3(Vec3::new(matrix.cx.y, matrix.cy.y, matrix.cz.y)),
+        splat3(Vec3::new(matrix.cx.z, matrix.cy.z, matrix.cz.z)),
+    ];
+    let t = splat3(translation);
+    let mut out = HullSoa3::zero();
+    for i in (0..n).step_by(4) {
+        let v = [
+            FloatW::load(&input[i..]),
+            FloatW::load(&input[n + i..]),
+            FloatW::load(&input[2 * n + i..]),
+        ];
+        for (axis, values) in [&mut out.x, &mut out.y, &mut out.z].into_iter().enumerate() {
+            let mut value = dot_wide(rows[axis], v);
+            if point {
+                value = value.add(t[axis]);
+            }
+            values[i..i + 4].copy_from_slice(&value.neg().to_array());
+        }
+    }
+    out
 }
 
 fn compute_separating_axis(
@@ -1774,7 +1823,7 @@ fn compute_separating_axis(
         let bias = direction.dot(center_b) + 1.0625 * direction.abs().dot(extent_b);
         let vertex = hull_b.support_vertex_wide(direction, bias);
         let p = hull_b.points[vertex];
-        let support = dot3_w(direction, p);
+        let support = direction.dot(p);
         let separation = plane_separation - support;
         if separation > result.face_a.separation {
             result.face_a = FaceQuery {
@@ -1795,7 +1844,7 @@ fn compute_separating_axis(
         let plane_separation = direction.dot(transform_b_to_a.p) - plane.offset;
         let bias = direction.dot(center_a) + 1.0625 * direction.abs().dot(extent_a);
         let vertex = hull_a.support_vertex_wide(direction, bias);
-        let support = dot3_w(direction, hull_a.points[vertex]);
+        let support = direction.dot(hull_a.points[vertex]);
         let separation = plane_separation - support;
         if separation > result.face_b.separation {
             result.face_b = FaceQuery {
@@ -1810,71 +1859,85 @@ fn compute_separating_axis(
         }
     }
 
+    use crate::simd::FloatW;
+    let b_normals =
+        negative_transform_from_soa(rotation, transform_b_to_a.p, &hull_b.soa_normals, false);
+    let b_points =
+        negative_transform_from_soa(rotation, transform_b_to_a.p, &hull_b.soa_points, true);
+    let mut a_n0 = HullSoa3::zero();
+    let mut a_n1 = HullSoa3::zero();
+    let mut a_dir = HullSoa3::zero();
+    let mut a_v0 = HullSoa3::zero();
+    let mut a_tol = [0.0; HULL_SOA_CAPACITY];
+    let na = hull_a.edge_count / 2;
     let squared_tol = 0.005 * 0.005;
-    let edge_count_b = hull_b.edge_count / 2;
-    for edge_b_index in 0..edge_count_b {
-        let index_b = edge_b_index * 2;
-        let edge_b = hull_b.edges[index_b];
-        let twin_b = hull_b.edges[index_b + 1];
-        let c = negative_transform_w(
-            rotation,
-            transform_b_to_a.p,
-            hull_b.planes[edge_b.face].normal,
-            false,
-        );
-        let d = negative_transform_w(
-            rotation,
-            transform_b_to_a.p,
-            hull_b.planes[twin_b.face].normal,
-            false,
-        );
-        let v0 = negative_transform_w(
-            rotation,
-            transform_b_to_a.p,
-            hull_b.points[edge_b.origin],
-            true,
-        );
-        let v1 = negative_transform_w(
-            rotation,
-            transform_b_to_a.p,
-            hull_b.points[twin_b.origin],
-            true,
-        );
-        let dc = v1.sub(v0);
-
-        for edge_a_index in 0..(hull_a.edge_count / 2) {
-            let index_a = edge_a_index * 2;
-            let edge_a = hull_a.edges[index_a];
-            let twin_a = hull_a.edges[index_a + 1];
-            let n0 = hull_a.planes[edge_a.face].normal;
-            let n1 = hull_a.planes[twin_a.face].normal;
-            let av0 = hull_a.points[edge_a.origin];
-            let av1 = hull_a.points[twin_a.origin];
-            let da = av1.sub(av0);
-            let cba = dot3_w(c, da);
-            let dba = dot3_w(d, da);
-            let adc = dot3_w(n0, dc);
-            let bdc = dot3_w(n1, dc);
-            if cba * dba >= -0.0001 || adc * bdc >= -0.0001 || cba * bdc >= -0.0001 {
+    for i in 0..na {
+        let edge = hull_a.edges[2 * i];
+        let twin = hull_a.edges[2 * i + 1];
+        let v0 = hull_a.points[edge.origin];
+        let dir = hull_a.points[twin.origin].sub(v0);
+        a_n0.set(i, hull_a.planes[edge.face].normal);
+        a_n1.set(i, hull_a.planes[twin.face].normal);
+        a_dir.set(i, dir);
+        a_v0.set(i, v0);
+        // b3ComputeSeparatingAxis computes this scalar sum left-to-right, not b3Dot3W.
+        a_tol[i] = squared_tol * (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    }
+    let zero = FloatW::zero();
+    let eps = FloatW::splat(-0.0001);
+    let inf = FloatW::splat(f32::INFINITY);
+    for j in 0..hull_b.edge_count / 2 {
+        let edge = hull_b.edges[2 * j];
+        let twin = hull_b.edges[2 * j + 1];
+        let c = splat3(b_normals.get(edge.face));
+        let d = splat3(b_normals.get(twin.face));
+        let v0 = b_points.get(edge.origin);
+        let dc = splat3(b_points.get(twin.origin).sub(v0));
+        let bv0 = splat3(v0);
+        for i in (0..na).step_by(4) {
+            let dir = a_dir.load(i);
+            let cba = dot_wide(c, dir);
+            let dba = dot_wide(d, dir);
+            let adc = dot_wide(a_n0.load(i), dc);
+            let bdc = dot_wide(a_n1.load(i), dc);
+            let max_cd = cba.mul(cba).max(dba.mul(dba));
+            let mask = cba
+                .mul(dba)
+                .less_than(eps)
+                .and(adc.mul(bdc).less_than(eps))
+                .and(cba.mul(bdc).less_than(eps))
+                .and(max_cd.greater_than(FloatW::load(&a_tol[i..])));
+            if !mask.any_true() {
                 continue;
             }
-            if maxf(cba * cba, dba * dba) <= squared_tol * dot3_w(da, da) {
+            let t = zero.sub(cba).div(dba.sub(cba));
+            let mut normal = core::array::from_fn::<_, 3, _>(|k| c[k].mul_add(t, d[k].sub(c[k])));
+            let inv = FloatW::splat(1.0).div(dot_wide(normal, normal).sqrt());
+            normal = normal.map(|n| n.mul(inv));
+            let av0 = a_v0.load(i);
+            let support = dot_wide(core::array::from_fn(|k| av0[k].add(bv0[k])), normal);
+            let separation = zero.sub(FloatW::blend(inf, support, mask));
+            if !separation
+                .greater_than(FloatW::splat(result.edge.separation))
+                .any_true()
+            {
                 continue;
             }
-            let t = -cba / (dba - cba);
-            let axis = normalize3_w(c.add(d.sub(c).scale(t)));
-            let support = dot3_w(av0.add(v0), axis);
-            let separation = -support;
-            if separation > result.edge.separation {
-                result.edge = EdgeQuery {
-                    normal: axis,
-                    separation,
-                    index_a: index_a as i32,
-                    index_b: index_b as i32,
-                };
-                if early_return && separation > SPECULATIVE_DISTANCE {
-                    result.separated = separating_feature::EDGE_PAIR_AXIS;
-                    return result;
+            let s = separation.to_array();
+            let n = normal.map(|v| v.to_array());
+            // Lane order preserves Box3D's ties and first early return; zero tail fails the Gauss mask.
+            for lane in 0..4 {
+                if s[lane] > result.edge.separation {
+                    result.edge = EdgeQuery {
+                        normal: Vec3::new(n[0][lane], n[1][lane], n[2][lane]),
+                        separation: s[lane],
+                        index_a: (2 * (i + lane)) as i32,
+                        index_b: (2 * j) as i32,
+                    };
+                    if early_return && s[lane] > SPECULATIVE_DISTANCE {
+                        result.separated = separating_feature::EDGE_PAIR_AXIS;
+                        return result;
+                    }
                 }
             }
         }

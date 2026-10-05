@@ -51,7 +51,7 @@ test("junkyard with one rock matches native through step 12, its edge-pair norma
     const env = { ROCKS: "19,0,11", PROBE: "12", FOCUS: "1" };
     const side = both("junk", 13, env);
     // Step 12's manifold for the pusher's cylinder (A) and the rock (B) is one edge-pair point, whose normal
-    // compute_separating_axis (crates/physics/src/manifold.rs) derives through dot3_w; Box3D's b3Dot3W sums
+    // compute_separating_axis (crates/physics/src/manifold.rs) derives through dot_wide; Box3D's b3Dot3W sums
     // x + (y + z) (simd.h:527 NEON, :691 SSE2, :888 scalar). Fed native's transformBtoA with a fresh cache,
     // Shallot's kernel returns native's normal bit for bit.
     const x = side.native
