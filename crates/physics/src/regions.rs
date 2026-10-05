@@ -30,6 +30,7 @@ pub extern "C" fn reset(world: u32) {
     unsafe {
         crate::fataabb::reset(id);
         crate::manifolds::reset(id);
+        crate::joints::reset(id);
         crate::broad::reset(id);
         crate::geo::reset(id);
     }
@@ -53,6 +54,7 @@ pub extern "C" fn snapshot(world: u32) -> usize {
         crate::shapes::snapshot(world as usize, &mut out);
         crate::fataabb::snapshot(world as usize, &mut out);
         crate::manifolds::snapshot(world as usize, &mut out);
+        crate::joints::snapshot(world as usize, &mut out);
         crate::broad::snapshot(world as usize, &mut out);
         crate::geo::snapshot(world as usize, &mut out);
         let buffer = &mut *(&raw mut SNAPSHOT);
@@ -77,6 +79,7 @@ pub extern "C" fn restore(world: u32) {
         crate::shapes::restore(world as usize, &mut input);
         crate::fataabb::restore(world as usize, &mut input);
         crate::manifolds::restore(world as usize, &mut input);
+        crate::joints::restore(world as usize, &mut input);
         crate::broad::restore(world as usize, &mut input);
         crate::geo::restore(world as usize, &mut input);
         assert!(input.is_empty());

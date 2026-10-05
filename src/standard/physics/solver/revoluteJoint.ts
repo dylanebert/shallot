@@ -1,43 +1,47 @@
+import { clampf, f32, maxf, minf, PI, type Quat, quat, type Vec3, vec3 } from "../common/math";
 import {
-    clampf,
-    f32,
-    maxf,
-    minf,
-    PI,
-    type Quat,
-    quat,
-    type Vec2,
-    type Vec3,
-    vec3,
-} from "../common/math";
+    J_LOCAL_FRAME_A,
+    J_LOCAL_FRAME_B,
+    RJ_DAMPING_RATIO,
+    RJ_ENABLE,
+    RJ_ENABLE_LIMIT,
+    RJ_ENABLE_MOTOR,
+    RJ_ENABLE_SPRING,
+    RJ_FRAME_A,
+    RJ_FRAME_B,
+    RJ_HERTZ,
+    RJ_LINEAR_IMPULSE,
+    RJ_LOWER_ANGLE,
+    RJ_LOWER_IMPULSE,
+    RJ_MAX_MOTOR_TORQUE,
+    RJ_MOTOR_IMPULSE,
+    RJ_MOTOR_SPEED,
+    RJ_PERP_AXIS_X,
+    RJ_PERP_AXIS_Y,
+    RJ_PERP_IMPULSE,
+    RJ_ROTATION_AXIS_Z,
+    RJ_SPRING_IMPULSE,
+    RJ_TARGET_ANGLE,
+    RJ_UPPER_ANGLE,
+    RJ_UPPER_IMPULSE,
+} from "../kernel/columns";
+import {
+    readJointFloat,
+    readJointQuat,
+    readJointTransform,
+    readJointVec2,
+    readJointVec3,
+    writeJointFlag,
+    writeJointFloat,
+    writeJointQuat,
+    writeJointVec2,
+    writeJointVec3,
+} from "../kernel/jointcolumns";
 import { getBodyTransformQuick } from "../world/body";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
 /** Revolute joint payload (b3RevoluteJoint). Impulses persist across steps for warm starting. */
-export type RevoluteJoint = {
-    linearImpulse: Vec3;
-    perpImpulse: Vec2;
-    springImpulse: number;
-    motorImpulse: number;
-    lowerImpulse: number;
-    upperImpulse: number;
-    hertz: number;
-    dampingRatio: number;
-    maxMotorTorque: number;
-    motorSpeed: number;
-    targetAngle: number;
-    lowerAngle: number;
-    upperAngle: number;
-    frameA: { q: Quat };
-    frameB: { q: Quat };
-    rotationAxisZ: Vec3;
-    perpAxisX: Vec3;
-    perpAxisY: Vec3;
-    enableSpring: boolean;
-    enableMotor: boolean;
-    enableLimit: boolean;
-};
 
 /** Revolute joint definition (b3RevoluteJointDef), body handles resolved to a base JointDef. */
 export type RevoluteJointDef = {
@@ -70,99 +74,151 @@ export function defaultRevoluteJointDef(base: JointDef): RevoluteJointDef {
         motorSpeed: 0,
     };
 }
-
-const identityFrame = (): { q: Quat } => ({
-    q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+const identityFrame = (): {
+    q: Quat;
+} => ({
+    q: {
+        v: {
+            x: 0,
+            y: 0,
+            z: 0,
+        },
+        s: 1,
+    },
 });
 
-/** Create a revolute joint (b3CreateRevoluteJoint). @returns the joint handle + sim. */
+/** Create a revolute joint (b3CreateRevoluteJoint). @returns the joint handle. */
 export function createRevoluteJoint(
     world: WorldState,
     def: RevoluteJointDef,
-): { joint: Joint; sim: JointSim } {
+): {
+    joint: Joint;
+} {
     const pair = createJoint(world, def.base, JointType.Revolute);
-    const sim = pair.sim;
-
     const lowerLimit = f32(f32(-0.99) * PI);
     const upperLimit = f32(f32(0.99) * PI);
     const lowerAngle = minf(def.lowerAngle, def.upperAngle);
     const upperAngle = maxf(def.lowerAngle, def.upperAngle);
-
-    const data: RevoluteJoint = {
-        linearImpulse: { x: 0, y: 0, z: 0 },
-        perpImpulse: { x: 0, y: 0 },
-        springImpulse: 0,
-        motorImpulse: 0,
-        lowerImpulse: 0,
-        upperImpulse: 0,
-        hertz: def.hertz,
-        dampingRatio: def.dampingRatio,
-        maxMotorTorque: def.maxMotorTorque,
-        motorSpeed: def.motorSpeed,
-        targetAngle: clampf(def.targetAngle, -PI, PI),
-        lowerAngle: clampf(lowerAngle, lowerLimit, upperLimit),
-        upperAngle: clampf(upperAngle, lowerLimit, upperLimit),
-        frameA: identityFrame(),
-        frameB: identityFrame(),
-        rotationAxisZ: { x: 0, y: 0, z: 0 },
-        perpAxisX: { x: 0, y: 0, z: 0 },
-        perpAxisY: { x: 0, y: 0, z: 0 },
-        enableSpring: def.enableSpring,
-        enableLimit: def.enableLimit,
-        enableMotor: def.enableMotor,
-    };
-    sim.data = data;
+    writeJointVec3(world, pair.joint, RJ_LINEAR_IMPULSE, {
+        x: 0,
+        y: 0,
+        z: 0,
+    });
+    writeJointVec2(world, pair.joint, RJ_PERP_IMPULSE, {
+        x: 0,
+        y: 0,
+    });
+    writeJointFloat(world, pair.joint, RJ_SPRING_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, RJ_MOTOR_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, RJ_LOWER_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, RJ_UPPER_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, RJ_HERTZ, def.hertz);
+    writeJointFloat(world, pair.joint, RJ_DAMPING_RATIO, def.dampingRatio);
+    writeJointFloat(world, pair.joint, RJ_MAX_MOTOR_TORQUE, def.maxMotorTorque);
+    writeJointFloat(world, pair.joint, RJ_MOTOR_SPEED, def.motorSpeed);
+    writeJointFloat(world, pair.joint, RJ_TARGET_ANGLE, clampf(def.targetAngle, -PI, PI));
+    writeJointFloat(world, pair.joint, RJ_LOWER_ANGLE, clampf(lowerAngle, lowerLimit, upperLimit));
+    writeJointFloat(world, pair.joint, RJ_UPPER_ANGLE, clampf(upperAngle, lowerLimit, upperLimit));
+    writeJointQuat(world, pair.joint, RJ_FRAME_A + 3, identityFrame().q);
+    writeJointQuat(world, pair.joint, RJ_FRAME_B + 3, identityFrame().q);
+    writeJointVec3(world, pair.joint, RJ_ROTATION_AXIS_Z, {
+        x: 0,
+        y: 0,
+        z: 0,
+    });
+    writeJointVec3(world, pair.joint, RJ_PERP_AXIS_X, {
+        x: 0,
+        y: 0,
+        z: 0,
+    });
+    writeJointVec3(world, pair.joint, RJ_PERP_AXIS_Y, {
+        x: 0,
+        y: 0,
+        z: 0,
+    });
+    writeJointFlag(world, pair.joint, RJ_ENABLE, RJ_ENABLE_SPRING, def.enableSpring);
+    writeJointFlag(world, pair.joint, RJ_ENABLE, RJ_ENABLE_LIMIT, def.enableLimit);
+    writeJointFlag(world, pair.joint, RJ_ENABLE, RJ_ENABLE_MOTOR, def.enableMotor);
     return pair;
 }
-
-export function getRevoluteJointForce(world: WorldState, sim: JointSim): Vec3 {
-    return vec3.scale(world.invH, (sim.data as RevoluteJoint).linearImpulse);
+export function getRevoluteJointForce(world: WorldState, sim: Joint): Vec3 {
+    return vec3.scale(world.invH, readJointVec3(world, sim, RJ_LINEAR_IMPULSE));
 }
 
 /** The reaction torque this joint applies (b3GetRevoluteJointTorque). */
-export function getRevoluteJointTorque(world: WorldState, sim: JointSim): Vec3 {
-    const joint = sim.data as RevoluteJoint;
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.bodyIdA]);
-    let axis = quat.rotate(sim.localFrameA.q, vec3.axisZ());
+export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
+    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    let axis = quat.rotate(readJointTransform(world, sim, J_LOCAL_FRAME_A).q, vec3.axisZ());
     axis = quat.rotate(transformA.q, axis);
-
-    const relQ = quat.invMul(joint.frameA.q, joint.frameB.q);
-
-    joint.perpAxisX = vec3.scale(
-        f32(0.5),
-        quat.rotate(
-            joint.frameA.q,
-            vec3.add(vec3.scale(relQ.s, vec3.axisX()), vec3.cross(relQ.v, vec3.axisX())),
+    const relQ = quat.invMul(
+        {
+            q: readJointQuat(world, sim, RJ_FRAME_A + 3),
+        }.q,
+        {
+            q: readJointQuat(world, sim, RJ_FRAME_B + 3),
+        }.q,
+    );
+    writeJointVec3(
+        world,
+        sim,
+        RJ_PERP_AXIS_X,
+        vec3.scale(
+            f32(0.5),
+            quat.rotate(
+                {
+                    q: readJointQuat(world, sim, RJ_FRAME_A + 3),
+                }.q,
+                vec3.add(vec3.scale(relQ.s, vec3.axisX()), vec3.cross(relQ.v, vec3.axisX())),
+            ),
         ),
     );
-    joint.perpAxisY = vec3.scale(
-        f32(0.5),
-        quat.rotate(
-            joint.frameA.q,
-            vec3.add(vec3.scale(relQ.s, vec3.axisY()), vec3.cross(relQ.v, vec3.axisY())),
+    writeJointVec3(
+        world,
+        sim,
+        RJ_PERP_AXIS_Y,
+        vec3.scale(
+            f32(0.5),
+            quat.rotate(
+                {
+                    q: readJointQuat(world, sim, RJ_FRAME_A + 3),
+                }.q,
+                vec3.add(vec3.scale(relQ.s, vec3.axisY()), vec3.cross(relQ.v, vec3.axisY())),
+            ),
         ),
     );
-
     const axialImpulse = f32(
-        f32(f32(joint.springImpulse + joint.motorImpulse) + joint.lowerImpulse) -
-            joint.upperImpulse,
+        f32(
+            f32(
+                readJointFloat(world, sim, RJ_SPRING_IMPULSE) +
+                    readJointFloat(world, sim, RJ_MOTOR_IMPULSE),
+            ) + readJointFloat(world, sim, RJ_LOWER_IMPULSE),
+        ) - readJointFloat(world, sim, RJ_UPPER_IMPULSE),
     );
     let angularImpulse = vec3.add(
-        vec3.scale(joint.perpImpulse.x, joint.perpAxisX),
-        vec3.scale(joint.perpImpulse.y, joint.perpAxisY),
+        vec3.scale(
+            readJointVec2(world, sim, RJ_PERP_IMPULSE).x,
+            readJointVec3(world, sim, RJ_PERP_AXIS_X),
+        ),
+        vec3.scale(
+            readJointVec2(world, sim, RJ_PERP_IMPULSE).y,
+            readJointVec3(world, sim, RJ_PERP_AXIS_Y),
+        ),
     );
-    angularImpulse = vec3.mulAdd(angularImpulse, axialImpulse, joint.rotationAxisZ);
-
+    angularImpulse = vec3.mulAdd(
+        angularImpulse,
+        axialImpulse,
+        readJointVec3(world, sim, RJ_ROTATION_AXIS_Z),
+    );
     const impulse = vec3.mulAdd(angularImpulse, axialImpulse, axis);
     return vec3.scale(world.invH, impulse);
 }
 
 /** The current hinge angle (b3RevoluteJoint_GetAngle): relative twist of the two joint frames. */
-export function revoluteJointAngle(world: WorldState, sim: JointSim): number {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.bodyIdA]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.bodyIdB]);
-    const quatA = quat.mul(transformA.q, sim.localFrameA.q);
-    let quatB = quat.mul(transformB.q, sim.localFrameB.q);
+export function revoluteJointAngle(world: WorldState, sim: Joint): number {
+    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const quatA = quat.mul(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).q);
+    let quatB = quat.mul(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).q);
     if (quat.dot(quatA, quatB) < 0) {
         // keeps the twist angle in [-pi, pi]
         quatB = quat.negate(quatB);

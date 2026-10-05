@@ -35,6 +35,8 @@ pub mod hull;
 pub mod integrate;
 pub mod joint;
 pub mod joint_abi;
+#[cfg(target_arch = "wasm32")]
+mod joints;
 pub mod manifold;
 pub mod manifold_abi;
 pub mod math;

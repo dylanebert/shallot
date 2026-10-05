@@ -1,24 +1,25 @@
 import { type Vec3, vec3 } from "../common/math";
+import {
+    MJ_ANGULAR_DAMPING_RATIO,
+    MJ_ANGULAR_HERTZ,
+    MJ_ANGULAR_SPRING_IMPULSE,
+    MJ_ANGULAR_VELOCITY,
+    MJ_ANGULAR_VELOCITY_IMPULSE,
+    MJ_LINEAR_DAMPING_RATIO,
+    MJ_LINEAR_HERTZ,
+    MJ_LINEAR_SPRING_IMPULSE,
+    MJ_LINEAR_VELOCITY,
+    MJ_LINEAR_VELOCITY_IMPULSE,
+    MJ_MAX_SPRING_FORCE,
+    MJ_MAX_SPRING_TORQUE,
+    MJ_MAX_VELOCITY_FORCE,
+    MJ_MAX_VELOCITY_TORQUE,
+} from "../kernel/columns";
+import { readJointVec3, writeJointFloat, writeJointVec3 } from "../kernel/jointcolumns";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
 /** Motor joint payload (b3MotorJoint). Impulses persist across steps for warm starting. */
-export type MotorJoint = {
-    linearVelocity: Vec3;
-    angularVelocity: Vec3;
-    maxVelocityForce: number;
-    maxVelocityTorque: number;
-    linearHertz: number;
-    linearDampingRatio: number;
-    angularHertz: number;
-    angularDampingRatio: number;
-    maxSpringForce: number;
-    maxSpringTorque: number;
-    linearVelocityImpulse: Vec3;
-    angularVelocityImpulse: Vec3;
-    linearSpringImpulse: Vec3;
-    angularSpringImpulse: Vec3;
-};
 
 /** Motor joint definition (b3MotorJointDef), body handles resolved to a base JointDef. */
 export type MotorJointDef = {
@@ -39,9 +40,17 @@ export type MotorJointDef = {
 export function defaultMotorJointDef(base: JointDef): MotorJointDef {
     return {
         base,
-        linearVelocity: { x: 0, y: 0, z: 0 },
+        linearVelocity: {
+            x: 0,
+            y: 0,
+            z: 0,
+        },
         maxVelocityForce: 0,
-        angularVelocity: { x: 0, y: 0, z: 0 },
+        angularVelocity: {
+            x: 0,
+            y: 0,
+            z: 0,
+        },
         maxVelocityTorque: 0,
         linearHertz: 0,
         linearDampingRatio: 0,
@@ -51,45 +60,57 @@ export function defaultMotorJointDef(base: JointDef): MotorJointDef {
         maxSpringTorque: 0,
     };
 }
+const zeroVec3 = (): Vec3 => ({
+    x: 0,
+    y: 0,
+    z: 0,
+});
 
-const zeroVec3 = (): Vec3 => ({ x: 0, y: 0, z: 0 });
-
-/** Create a motor joint (b3CreateMotorJoint). @returns the joint handle + sim. */
+/** Create a motor joint (b3CreateMotorJoint). @returns the joint handle. */
 export function createMotorJoint(
     world: WorldState,
     def: MotorJointDef,
-): { joint: Joint; sim: JointSim } {
+): {
+    joint: Joint;
+} {
     const pair = createJoint(world, def.base, JointType.Motor);
-    const data: MotorJoint = {
-        linearVelocity: { ...def.linearVelocity },
-        angularVelocity: { ...def.angularVelocity },
-        maxVelocityForce: def.maxVelocityForce,
-        maxVelocityTorque: def.maxVelocityTorque,
-        linearHertz: def.linearHertz,
-        linearDampingRatio: def.linearDampingRatio,
-        angularHertz: def.angularHertz,
-        angularDampingRatio: def.angularDampingRatio,
-        maxSpringForce: def.maxSpringForce,
-        maxSpringTorque: def.maxSpringTorque,
-        linearVelocityImpulse: zeroVec3(),
-        angularVelocityImpulse: zeroVec3(),
-        linearSpringImpulse: zeroVec3(),
-        angularSpringImpulse: zeroVec3(),
-    };
-    pair.sim.data = data;
+    writeJointVec3(world, pair.joint, MJ_LINEAR_VELOCITY, {
+        ...def.linearVelocity,
+    });
+    writeJointVec3(world, pair.joint, MJ_ANGULAR_VELOCITY, {
+        ...def.angularVelocity,
+    });
+    writeJointFloat(world, pair.joint, MJ_MAX_VELOCITY_FORCE, def.maxVelocityForce);
+    writeJointFloat(world, pair.joint, MJ_MAX_VELOCITY_TORQUE, def.maxVelocityTorque);
+    writeJointFloat(world, pair.joint, MJ_LINEAR_HERTZ, def.linearHertz);
+    writeJointFloat(world, pair.joint, MJ_LINEAR_DAMPING_RATIO, def.linearDampingRatio);
+    writeJointFloat(world, pair.joint, MJ_ANGULAR_HERTZ, def.angularHertz);
+    writeJointFloat(world, pair.joint, MJ_ANGULAR_DAMPING_RATIO, def.angularDampingRatio);
+    writeJointFloat(world, pair.joint, MJ_MAX_SPRING_FORCE, def.maxSpringForce);
+    writeJointFloat(world, pair.joint, MJ_MAX_SPRING_TORQUE, def.maxSpringTorque);
+    writeJointVec3(world, pair.joint, MJ_LINEAR_VELOCITY_IMPULSE, zeroVec3());
+    writeJointVec3(world, pair.joint, MJ_ANGULAR_VELOCITY_IMPULSE, zeroVec3());
+    writeJointVec3(world, pair.joint, MJ_LINEAR_SPRING_IMPULSE, zeroVec3());
+    writeJointVec3(world, pair.joint, MJ_ANGULAR_SPRING_IMPULSE, zeroVec3());
     return pair;
 }
-
-export function getMotorJointForce(world: WorldState, sim: JointSim): Vec3 {
-    const joint = sim.data as MotorJoint;
-    return vec3.scale(world.invH, vec3.add(joint.linearVelocityImpulse, joint.linearSpringImpulse));
+export function getMotorJointForce(world: WorldState, sim: Joint): Vec3 {
+    return vec3.scale(
+        world.invH,
+        vec3.add(
+            readJointVec3(world, sim, MJ_LINEAR_VELOCITY_IMPULSE),
+            readJointVec3(world, sim, MJ_LINEAR_SPRING_IMPULSE),
+        ),
+    );
 }
 
 /** The reaction torque this joint applies (b3GetMotorJointTorque). */
-export function getMotorJointTorque(world: WorldState, sim: JointSim): Vec3 {
-    const joint = sim.data as MotorJoint;
+export function getMotorJointTorque(world: WorldState, sim: Joint): Vec3 {
     return vec3.scale(
         world.invH,
-        vec3.add(joint.angularVelocityImpulse, joint.angularSpringImpulse),
+        vec3.add(
+            readJointVec3(world, sim, MJ_ANGULAR_VELOCITY_IMPULSE),
+            readJointVec3(world, sim, MJ_ANGULAR_SPRING_IMPULSE),
+        ),
     );
 }

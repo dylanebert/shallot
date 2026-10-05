@@ -22,9 +22,8 @@
 //! Deviations from the C, all mechanical:
 //!   - a stage names its blocks by `[start, start+count)` into one shared block array instead of
 //!     holding a pointer (a raw pointer isn't `Sync`; an index is);
-//!   - box3d's per-color constraint arrays are physics's flat columns plus a per-color base, so a
-//!     graph block's `start` is already a flat column index (box3d adds the color base inside the
-//!     task);
+//!   - contacts use flat columns plus a per-color base; joints use their graph-color arrays and
+//!     joint-prepare spans, as Box3D does;
 //!   - box3d's `mainClaimed` race is gone. It exists so *some* thread orchestrates when the user's
 //!     task system schedules worker 0 late; our pool has no external task system, so the thread that
 //!     drives the step is always worker 0;
@@ -35,10 +34,6 @@
 //!     completion count reached its block count) is what keeps finalize from overlapping the solve,
 //!     and finalize's per-body work is write-disjoint like every body stage, so the fusion cannot
 //!     change a bit.
-//!
-//! Joints are present as stage/block *slots* only (`PrepareJoints`, `GraphJoint` blocks, the
-//! `*_joints` trait methods) with no work behind them — a jointed scene keeps the TS per-color
-//! interleave until the joints-in-kernel unit fills them in.
 //!
 //! `core::sync::atomic` (not `std`) so this module compiles into the wasm artifact unchanged. On the
 //! single-thread artifact (no `+atomics`) these lower to plain loads and stores, which is correct:
@@ -154,8 +149,7 @@ impl Stage {
     };
 }
 
-/// One active graph color's constraints, as flat column ranges (the `colorSpan` column the batched
-/// serial path already writes, plus the joint range the joints unit will fill).
+/// One active graph color's contact-column ranges and local joint-array range.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ColorSpan {
     pub color: u8,
@@ -191,7 +185,7 @@ pub struct Plan<'a> {
     /// Flat colored scalar (mesh) record range: prepare + store sweep `[mesh_start, +mesh_total)`.
     pub mesh_start: usize,
     pub mesh_total: usize,
-    /// Flat joint range for `PrepareJoints`. Zero until the joints unit lands.
+    /// Total joint count swept through the joint-prepare spans.
     pub joint_total: usize,
     pub colors: &'a [ColorSpan],
     pub sub_step_count: usize,

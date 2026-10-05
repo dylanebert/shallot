@@ -21,7 +21,7 @@ import {
     SIM2_STRIDE,
 } from "../kernel/columns";
 import { consumeContinuous, prepareContinuous, solveBullets } from "../kernel/continuouscolumns";
-import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
+import { collectJointEvents, jointArrayCount, stageJointBodies } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
 import { getShapeUserMaterialId } from "../shapes/shape";
 import { BODY_TRANSIENT_FLAGS, BodyFlags, getBodySim } from "../world/body";
@@ -246,10 +246,9 @@ export function solve(world: WorldState, context: StepContext): void {
         layout.points,
         layout.wide,
         layout.colors.length,
-        countJoints(world, layout),
     );
     // reserveColumns may have grown wasm memory, detaching every view; re-derive the manifold store's
-    // (writeSlots writes contact rows through them) and the body store's (joint marshaling and the
+    // (writeSlots writes contact rows through them) and the body store's (body staging and the
     // finalize tail read resident sim/state columns through them) before either is touched. The body
     // columns are resident (bodycolumns.ts) — the awake `BodySim`/`BodyState` are views over them, so no
     // per-step marshal runs; the kernel reads them where they already live.
@@ -277,7 +276,7 @@ export function solve(world: WorldState, context: StepContext): void {
     const hitThreshold = world.hitEventThreshold;
     const subStepCount = context.subStepCount;
 
-    const jointTotal = marshalJoints(world, layout, cols);
+    const jointTotal = stageJointBodies(world, layout, cols.colorSpan);
     prepareContinuous(world, context.sims);
     k.solveBuild(
         (pool?.size ?? 0) + 1,
@@ -288,8 +287,7 @@ export function solve(world: WorldState, context: StepContext): void {
         layout.overflowStart,
         layout.overflowCount,
         jointTotal,
-        jointTotal,
-        world.constraintGraph.colors[OVERFLOW_INDEX].jointSims.length,
+        jointArrayCount(world, OVERFLOW_INDEX),
         gravity.x,
         gravity.y,
         gravity.z,
@@ -312,7 +310,7 @@ export function solve(world: WorldState, context: StepContext): void {
     );
     if (pool) runPool(world.ecsState, pool, k.runMt);
     else k.runMt();
-    readbackJointImpulses(world, layout, cols, context.jointEventFlags);
+    collectJointEvents(world, layout, context.jointEventFlags);
     readbackHitEvents(world, layout, context);
 
     // Split a deferred island (candidate collected in the previous step's sleep stage) before

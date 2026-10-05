@@ -1,18 +1,27 @@
-import { FLT_MAX, f32, type Quat, quat, type Vec2, type Vec3, vec3 } from "../common/math";
+import { FLT_MAX, f32, type Quat, quat, type Vec3, vec3 } from "../common/math";
+import {
+    PLJ_DAMPING_RATIO,
+    PLJ_HERTZ,
+    PLJ_MAX_TORQUE,
+    PLJ_PERP_AXIS_X,
+    PLJ_PERP_AXIS_Y,
+    PLJ_PERP_IMPULSE,
+    PLJ_QUAT_A,
+    PLJ_QUAT_B,
+} from "../kernel/columns";
+import {
+    readJointQuat,
+    readJointVec2,
+    readJointVec3,
+    writeJointFloat,
+    writeJointQuat,
+    writeJointVec2,
+    writeJointVec3,
+} from "../kernel/jointcolumns";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
 /** Parallel joint payload (b3ParallelJoint). Impulse persists across steps for warm starting. */
-export type ParallelJoint = {
-    perpImpulse: Vec2;
-    hertz: number;
-    dampingRatio: number;
-    maxTorque: number;
-    quatA: Quat;
-    quatB: Quat;
-    perpAxisX: Vec3;
-    perpAxisY: Vec3;
-};
 
 /** Parallel joint definition (b3ParallelJointDef), body handles resolved to a base JointDef. */
 export type ParallelJointDef = {
@@ -24,34 +33,61 @@ export type ParallelJointDef = {
 
 /** @returns the ported parallel joint definition defaults (b3DefaultParallelJointDef). */
 export function defaultParallelJointDef(base: JointDef): ParallelJointDef {
-    return { base, hertz: 1, dampingRatio: 1, maxTorque: FLT_MAX };
+    return {
+        base,
+        hertz: 1,
+        dampingRatio: 1,
+        maxTorque: FLT_MAX,
+    };
 }
+const identityQuat = (): Quat => ({
+    v: {
+        x: 0,
+        y: 0,
+        z: 0,
+    },
+    s: 1,
+});
 
-const identityQuat = (): Quat => ({ v: { x: 0, y: 0, z: 0 }, s: 1 });
-
-/** Create a parallel joint (b3CreateParallelJoint). @returns the joint handle + sim. */
+/** Create a parallel joint (b3CreateParallelJoint). @returns the joint handle. */
 export function createParallelJoint(
     world: WorldState,
     def: ParallelJointDef,
-): { joint: Joint; sim: JointSim } {
+): {
+    joint: Joint;
+} {
     const pair = createJoint(world, def.base, JointType.Parallel);
-    const data: ParallelJoint = {
-        perpImpulse: { x: 0, y: 0 },
-        hertz: def.hertz,
-        dampingRatio: def.dampingRatio,
-        maxTorque: def.maxTorque,
-        quatA: identityQuat(),
-        quatB: identityQuat(),
-        perpAxisX: { x: 0, y: 0, z: 0 },
-        perpAxisY: { x: 0, y: 0, z: 0 },
-    };
-    pair.sim.data = data;
+    writeJointVec2(world, pair.joint, PLJ_PERP_IMPULSE, {
+        x: 0,
+        y: 0,
+    });
+    writeJointFloat(world, pair.joint, PLJ_HERTZ, def.hertz);
+    writeJointFloat(world, pair.joint, PLJ_DAMPING_RATIO, def.dampingRatio);
+    writeJointFloat(world, pair.joint, PLJ_MAX_TORQUE, def.maxTorque);
+    writeJointQuat(world, pair.joint, PLJ_QUAT_A, identityQuat());
+    writeJointQuat(world, pair.joint, PLJ_QUAT_B, identityQuat());
+    writeJointVec3(world, pair.joint, PLJ_PERP_AXIS_X, {
+        x: 0,
+        y: 0,
+        z: 0,
+    });
+    writeJointVec3(world, pair.joint, PLJ_PERP_AXIS_Y, {
+        x: 0,
+        y: 0,
+        z: 0,
+    });
     return pair;
 }
 
 // The two perpendicular collinearity axes in world space, from the relative rotation (relQ) of the
 // two joint frames. relQ = inv(quatA) * quatB; the axes are half the rotated imaginary parts.
-function perpAxes(qA: Quat, relQ: Quat): { x: Vec3; y: Vec3 } {
+function perpAxes(
+    qA: Quat,
+    relQ: Quat,
+): {
+    x: Vec3;
+    y: Vec3;
+} {
     return {
         x: vec3.scale(
             f32(0.5),
@@ -69,19 +105,19 @@ function perpAxes(qA: Quat, relQ: Quat): { x: Vec3; y: Vec3 } {
         ),
     };
 }
-
-export function getParallelJointTorque(world: WorldState, sim: JointSim): Vec3 {
-    const joint = sim.data as ParallelJoint;
-    const relQ = quat.invMul(joint.quatA, joint.quatB);
-    const axes = perpAxes(joint.quatA, relQ);
-    joint.perpAxisX = axes.x;
-    joint.perpAxisY = axes.y;
-
+export function getParallelJointTorque(world: WorldState, sim: Joint): Vec3 {
+    const relQ = quat.invMul(
+        readJointQuat(world, sim, PLJ_QUAT_A),
+        readJointQuat(world, sim, PLJ_QUAT_B),
+    );
+    const axes = perpAxes(readJointQuat(world, sim, PLJ_QUAT_A), relQ);
+    writeJointVec3(world, sim, PLJ_PERP_AXIS_X, axes.x);
+    writeJointVec3(world, sim, PLJ_PERP_AXIS_Y, axes.y);
     const angularImpulse = vec3.blend2(
-        joint.perpImpulse.x,
-        joint.perpAxisX,
-        joint.perpImpulse.y,
-        joint.perpAxisY,
+        readJointVec2(world, sim, PLJ_PERP_IMPULSE).x,
+        readJointVec3(world, sim, PLJ_PERP_AXIS_X),
+        readJointVec2(world, sim, PLJ_PERP_IMPULSE).y,
+        readJointVec3(world, sim, PLJ_PERP_AXIS_Y),
     );
     return vec3.scale(world.invH, angularImpulse);
 }

@@ -1,34 +1,16 @@
-//! The joint column ABI — the constraint-graph joint → kernel solver handoff, one flat record per
-//! joint slot. This is the single source of truth for the joint column layout + the per-record slot
-//! index; the wasm arena (`arena.rs`), the staged solve (`solve.rs`), the native gold harness
-//! (`tests/joint_gold.rs`), and the TS marshal (`src/jointcolumns.ts`) all mirror it. Always compiled
-//! (native + wasm), so it carries no wasm intrinsics.
+//! Joint-sim record layout shared by the solver, TypeScript bindings and native gold harness.
+//! Each graph color and non-awake solver set owns a contiguous array of these records (`joints.rs`).
+//! Definitions, impulses and prepared frames have no other home.
 //!
-//! **The record is one f32 column, slot-scalar (indexed one joint at a time), keyed by a flat
-//! per-color-concatenated joint slot** — box3d's `jointPrepareSpans` order. Unlike contacts there is
-//! no separate persistent store: config and warm-start impulses marshal in each step; prepare writes
-//! the scratch and only persistent impulses read back out (`src/jointcolumns.ts`),
-//! and the impulses live authoritatively TS-side (`JointSim.data`). The column is a per-step transient
-//! arena column, reserved pre-solve like the wide/mesh columns.
-//!
-//! Integer fields (type, state indices and body-column indices) ride the f32 column through
-//! `f32::to_bits`/`from_bits`, matching the manifold pool's `pointCount`/`featureId` pattern.
-//!
-//! ## The template (joints-in-kernel 3c copies)
-//!
-//! The record is a **common header** followed by a **type payload**. The header is identical for every
-//! joint type; the payload is the per-type union (box3d's `b3JointSim` union), reinterpreted by
-//! `J_TYPE`. Adding a joint type in 3c: give it a `prepare`/`warm_start`/`solve` over the header + its
-//! own payload reading; grow `JOINT_STRIDE` if its payload is wider than the current max. The header
-//! carries state and body-column indices, the mass/inertia cached by prepare, the local joint frames,
-//! the base constraint frequency and the base-computed `constraintSoftness`. The payload carries the type config, the persistent impulses, and the prepared
-//! scratch (`prepare` writes, `warm_start`/`solve` read).
+//! Integer fields ride the f32 column through `f32::to_bits`/`from_bits`. The common identity word
+//! follows the union and event fields so every solver-used offset stays unchanged. The type-specific
+//! union is selected by `J_TYPE`; prepare writes its scratch and warm-start/solve read it.
 
 use crate::col::Col;
 use crate::math::{Mat3, Quat, Transform, Vec3};
 
 /// Joint type codes — the TS `JointType` values verbatim (`src/joint.ts`), the dispatch key in
-/// `J_TYPE`. Only `Distance` has a kernel path today; the rest are the 3c partition.
+/// `J_TYPE`.
 pub const TY_PARALLEL: u32 = 0;
 pub const TY_DISTANCE: u32 = 1;
 pub const TY_FILTER: u32 = 2;
@@ -78,7 +60,7 @@ pub const J_CONSTRAINT_SOFTNESS: usize = 59;
 pub const J_PAYLOAD: usize = 62;
 
 // --- distance-joint payload -------------------------------------------------------------------
-// Config (TS writes at marshal), then the persistent impulses (marshaled in/out), then the prepared
+// Config and persistent impulses, then the prepared
 // scratch (`prepare` writes, `warm_start`/`solve` read).
 
 /// Rest length.
@@ -101,7 +83,7 @@ pub const DJ_MAX_MOTOR_FORCE: usize = J_PAYLOAD + 7;
 pub const DJ_MOTOR_SPEED: usize = J_PAYLOAD + 8;
 /// Enable bitfield (u32 bits): bit0 spring, bit1 limit, bit2 motor.
 pub const DJ_ENABLE: usize = J_PAYLOAD + 9;
-/// Persistent axial impulse (marshaled).
+/// Persistent axial impulse.
 pub const DJ_IMPULSE: usize = J_PAYLOAD + 10;
 /// Persistent lower-limit impulse.
 pub const DJ_LOWER_IMPULSE: usize = J_PAYLOAD + 11;
@@ -135,9 +117,9 @@ pub const WJ_LINEAR_HERTZ: usize = J_PAYLOAD; // 62
 pub const WJ_LINEAR_DAMPING_RATIO: usize = J_PAYLOAD + 1;
 pub const WJ_ANGULAR_HERTZ: usize = J_PAYLOAD + 2;
 pub const WJ_ANGULAR_DAMPING_RATIO: usize = J_PAYLOAD + 3;
-/// Persistent linear impulse (vec3, marshaled).
+/// Persistent linear impulse (vec3).
 pub const WJ_LINEAR_IMPULSE: usize = J_PAYLOAD + 4;
-/// Persistent angular impulse (vec3, marshaled).
+/// Persistent angular impulse (vec3).
 pub const WJ_ANGULAR_IMPULSE: usize = J_PAYLOAD + 7;
 /// Prepared world frame A (Transform p 10..12, q 13..16).
 pub const WJ_FRAME_A: usize = J_PAYLOAD + 10;
@@ -169,9 +151,9 @@ pub const RJ_LOWER_ANGLE: usize = J_PAYLOAD + 5;
 pub const RJ_UPPER_ANGLE: usize = J_PAYLOAD + 6;
 /// Enable bitfield (u32 bits): bit0 spring, bit1 motor, bit2 limit.
 pub const RJ_ENABLE: usize = J_PAYLOAD + 7;
-/// Persistent linear impulse (vec3, marshaled).
+/// Persistent linear impulse (vec3).
 pub const RJ_LINEAR_IMPULSE: usize = J_PAYLOAD + 8;
-/// Persistent perpendicular (collinearity) impulse (vec2, marshaled).
+/// Persistent perpendicular (collinearity) impulse (vec2).
 pub const RJ_PERP_IMPULSE: usize = J_PAYLOAD + 11;
 pub const RJ_SPRING_IMPULSE: usize = J_PAYLOAD + 13;
 pub const RJ_MOTOR_IMPULSE: usize = J_PAYLOAD + 14;
@@ -217,7 +199,7 @@ pub const SJ_CONE_ANGLE: usize = J_PAYLOAD + 8;
 pub const SJ_TARGET_ROTATION: usize = J_PAYLOAD + 9; // quat 9..12
 /// Enable bitfield (u32 bits): bit0 spring, bit1 motor, bit2 cone limit, bit3 twist limit.
 pub const SJ_ENABLE: usize = J_PAYLOAD + 13;
-/// Persistent linear impulse (vec3, marshaled).
+/// Persistent linear impulse (vec3).
 pub const SJ_LINEAR_IMPULSE: usize = J_PAYLOAD + 14;
 /// Persistent angular spring impulse (vec3).
 pub const SJ_SPRING_IMPULSE: usize = J_PAYLOAD + 17;
@@ -270,7 +252,7 @@ pub const PJ_LOWER_TRANSLATION: usize = J_PAYLOAD + 5;
 pub const PJ_UPPER_TRANSLATION: usize = J_PAYLOAD + 6;
 /// Enable bitfield (u32 bits): bit0 spring, bit1 motor, bit2 limit.
 pub const PJ_ENABLE: usize = J_PAYLOAD + 7;
-/// Persistent perpendicular impulse (vec2, marshaled): 8..9.
+/// Persistent perpendicular impulse (vec2): 8..9.
 pub const PJ_PERP_IMPULSE: usize = J_PAYLOAD + 8;
 /// Persistent angular impulse (vec3): 10..12.
 pub const PJ_ANGULAR_IMPULSE: usize = J_PAYLOAD + 10;
@@ -324,7 +306,7 @@ pub const WHJ_STEERING_DAMPING_RATIO: usize = J_PAYLOAD + 11;
 /// Enable bitfield (u32 bits): bit0 spin motor, bit1 suspension spring, bit2 suspension limit,
 /// bit3 steering, bit4 steering limit.
 pub const WHJ_ENABLE: usize = J_PAYLOAD + 12;
-/// Persistent point-to-line linear impulse (vec2, marshaled): 13..14.
+/// Persistent point-to-line linear impulse (vec2): 13..14.
 pub const WHJ_LINEAR_IMPULSE: usize = J_PAYLOAD + 13;
 /// Persistent collinearity angular impulse (vec2): 15..16.
 pub const WHJ_ANGULAR_IMPULSE: usize = J_PAYLOAD + 15;
@@ -379,7 +361,7 @@ pub const MJ_ANGULAR_HERTZ: usize = J_PAYLOAD + 10;
 pub const MJ_ANGULAR_DAMPING_RATIO: usize = J_PAYLOAD + 11;
 pub const MJ_MAX_SPRING_FORCE: usize = J_PAYLOAD + 12;
 pub const MJ_MAX_SPRING_TORQUE: usize = J_PAYLOAD + 13;
-/// Persistent linear velocity-motor impulse (vec3, marshaled): 14..16.
+/// Persistent linear velocity-motor impulse (vec3): 14..16.
 pub const MJ_LINEAR_VELOCITY_IMPULSE: usize = J_PAYLOAD + 14;
 /// Persistent angular velocity-motor impulse (vec3): 17..19.
 pub const MJ_ANGULAR_VELOCITY_IMPULSE: usize = J_PAYLOAD + 17;
@@ -410,7 +392,7 @@ pub const MJ_ANGULAR_MASS: usize = J_PAYLOAD + 49;
 pub const PLJ_HERTZ: usize = J_PAYLOAD; // 62
 pub const PLJ_DAMPING_RATIO: usize = J_PAYLOAD + 1;
 pub const PLJ_MAX_TORQUE: usize = J_PAYLOAD + 2;
-/// Persistent perpendicular (collinearity) impulse (vec2, marshaled): 3..4.
+/// Persistent perpendicular (collinearity) impulse (vec2): 3..4.
 pub const PLJ_PERP_IMPULSE: usize = J_PAYLOAD + 3;
 /// Prepared world joint quaternion A (quat 5..8).
 pub const PLJ_QUAT_A: usize = J_PAYLOAD + 5;
@@ -431,7 +413,9 @@ pub const PLJ_FIXED_ROTATION: usize = J_PAYLOAD + 22;
 pub const J_FORCE_THRESHOLD: usize = J_PAYLOAD + 64;
 pub const J_TORQUE_THRESHOLD: usize = J_PAYLOAD + 65;
 pub const J_EVENT: usize = J_PAYLOAD + 66;
-pub const JOINT_STRIDE: usize = J_PAYLOAD + 67; // 129
+/// Joint identity for array swap-remove fix-ups (u32 bits).
+pub const J_JOINT_ID: usize = 129;
+pub const JOINT_STRIDE: usize = 130;
 
 // --- accessors --------------------------------------------------------------------------------
 

@@ -75,12 +75,12 @@ struct Work {
     overflow_start: usize,
     overflow_count: usize,
 
-    /// The flat joint column (`joint_abi::JOINT_STRIDE` per slot). Colored joints occupy the front
-    /// (per-color concatenated, swept by `PrepareJoints` + the color blocks); the overflow joints
-    /// follow (`overflow_joint_start..+overflow_joint_count`, run serially).
-    joints: Col<'static, f32>,
+    /// Active graph-color arrays and their joint-prepare spans (b3JointPrepareSpan).
+    joints: [Col<'static, f32>; MAX_COLORS],
+    joint_bases: [usize; MAX_COLORS],
+    color_count: usize,
+    overflow_joints: Col<'static, f32>,
     fin: Col<'static, f32>,
-    overflow_joint_start: usize,
     overflow_joint_count: usize,
     /// box3d's `context->enableWarmStarting` — `prepare` zeroes the impulses when false.
     enable_warm_starting: bool,
@@ -278,29 +278,40 @@ impl StageWork for Work {
     // --- joints -------------------------------------------------------------------------------
 
     fn prepare_joints(&self, b: Block) {
-        for slot in b.start..b.start + b.count {
-            crate::joint::prepare(
-                self.joints,
-                slot,
-                self.cols.sim,
-                self.fin,
-                self.h,
-                self.inv_h,
-                self.enable_warm_starting,
-            );
+        for color in 0..self.color_count {
+            let base = self.joint_bases[color];
+            let count = self.joints[color].len() / crate::joint_abi::JOINT_STRIDE;
+            let start = b.start.max(base);
+            let end = (b.start + b.count).min(base + count);
+            for slot in start..end {
+                crate::joint::prepare(
+                    self.joints[color],
+                    slot - base,
+                    self.cols.sim,
+                    self.fin,
+                    self.h,
+                    self.inv_h,
+                    self.enable_warm_starting,
+                );
+            }
         }
     }
 
     fn warm_start_joints(&self, b: Block) {
         for slot in b.start..b.start + b.count {
-            crate::joint::warm_start(self.joints, slot, self.cols.state, self.cols.flags);
+            crate::joint::warm_start(
+                self.joints[b.color as usize],
+                slot,
+                self.cols.state,
+                self.cols.flags,
+            );
         }
     }
 
     fn solve_joints(&self, b: Block, use_bias: bool, _worker: usize) {
         for slot in b.start..b.start + b.count {
             crate::joint::solve(
-                self.joints,
+                self.joints[b.color as usize],
                 slot,
                 self.cols.state,
                 self.cols.flags,
@@ -312,10 +323,9 @@ impl StageWork for Work {
     }
 
     fn prepare_overflow_joints(&self) {
-        for slot in self.overflow_joint_start..self.overflow_joint_start + self.overflow_joint_count
-        {
+        for slot in 0..self.overflow_joint_count {
             crate::joint::prepare(
-                self.joints,
+                self.overflow_joints,
                 slot,
                 self.cols.sim,
                 self.fin,
@@ -327,17 +337,15 @@ impl StageWork for Work {
     }
 
     fn warm_start_overflow_joints(&self) {
-        for slot in self.overflow_joint_start..self.overflow_joint_start + self.overflow_joint_count
-        {
-            crate::joint::warm_start(self.joints, slot, self.cols.state, self.cols.flags);
+        for slot in 0..self.overflow_joint_count {
+            crate::joint::warm_start(self.overflow_joints, slot, self.cols.state, self.cols.flags);
         }
     }
 
     fn solve_overflow_joints(&self, use_bias: bool) {
-        for slot in self.overflow_joint_start..self.overflow_joint_start + self.overflow_joint_count
-        {
+        for slot in 0..self.overflow_joint_count {
             crate::joint::solve(
-                self.joints,
+                self.overflow_joints,
                 slot,
                 self.cols.state,
                 self.cols.flags,
@@ -365,7 +373,6 @@ pub extern "C" fn solve_build(
     overflow_start: usize,
     overflow_count: usize,
     joint_total: usize,
-    overflow_joint_start: usize,
     overflow_joint_count: usize,
     gx: f32,
     gy: f32,
@@ -403,11 +410,22 @@ pub extern "C" fn solve_build(
                 wide_count: spans.get(o + 1) as usize,
                 mesh_start: spans.get(o + 2) as usize,
                 mesh_count: spans.get(o + 3) as usize,
-                joint_start: spans.get(o + 4) as usize,
+                joint_start: 0,
                 joint_count: spans.get(o + 5) as usize,
             };
         }
 
+        let mut joint_bases = [0; MAX_COLORS];
+        let mut base = 0;
+        let joints = core::array::from_fn(|c| {
+            if c < color_count {
+                joint_bases[c] = base;
+                base += out[c].joint_count;
+                crate::joints::column(spans.get(c * arena::COLOR_SPAN_STRIDE + 4) as usize)
+            } else {
+                Col::new(16 as *mut f32, 0)
+            }
+        });
         let (wide, wide_idx, wide_meta) = arena::wide_columns();
         WORK = Some(Work {
             cols: arena::scalar_columns(),
@@ -416,12 +434,14 @@ pub extern "C" fn solve_build(
             wide_meta,
             overflow_start,
             overflow_count,
-            joints: arena::joint_column(),
+            joints,
+            joint_bases,
+            color_count,
+            overflow_joints: crate::joints::column(MAX_COLORS - 1),
             fin: Col::new(
                 crate::bodies::fin_base() as *mut f32,
                 crate::bodies::body_cap() * crate::body::FIN_STRIDE,
             ),
-            overflow_joint_start,
             overflow_joint_count,
             enable_warm_starting: warm_start_scale != 0.0,
             contact_softness: Softness {

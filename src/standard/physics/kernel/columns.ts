@@ -46,8 +46,7 @@ export const SLOT_STRIDE = 3;
 export const WIDE_META_STRIDE = 5;
 
 // Per-active-color span (contact_wide.rs / arena.rs): wideStart, wideCount, meshStart, meshCount,
-// jointStart, jointCount. The batched (jointless) color loop reads only the first four; the staged
-// solve reads the joint pair too (joints-in-kernel).
+// jointArrayKey, jointCount. The staged solve selects the resident graph-color joint array by key.
 export const COLOR_SPAN_STRIDE = 6;
 
 // Joint record (kernel/src/joint_abi.rs). One flat f32 record per joint slot: a common header (the
@@ -57,7 +56,8 @@ export const COLOR_SPAN_STRIDE = 6;
 export const J_FORCE_THRESHOLD = 126;
 export const J_TORQUE_THRESHOLD = 127;
 export const J_EVENT = 128;
-export const JOINT_STRIDE = 129;
+export const JOINT_STRIDE = 130;
+export const J_JOINT_ID = 129;
 export const J_TYPE = 0;
 export const J_SIM_INDEX_A = 1;
 export const J_SIM_INDEX_B = 2;
@@ -113,6 +113,8 @@ export const RJ_LINEAR_IMPULSE = J_PAYLOAD + 8; // vec3
 export const RJ_FRAME_A = J_PAYLOAD + 17;
 export const RJ_FRAME_B = J_PAYLOAD + 24;
 export const RJ_ROTATION_AXIS_Z = J_PAYLOAD + 31;
+export const RJ_PERP_AXIS_X = J_PAYLOAD + 34;
+export const RJ_PERP_AXIS_Y = J_PAYLOAD + 37;
 export const RJ_PERP_IMPULSE = J_PAYLOAD + 11; // vec2
 export const RJ_SPRING_IMPULSE = J_PAYLOAD + 13;
 export const RJ_MOTOR_IMPULSE = J_PAYLOAD + 14;
@@ -219,6 +221,8 @@ export const PLJ_MAX_TORQUE = J_PAYLOAD + 2;
 export const PLJ_PERP_IMPULSE = J_PAYLOAD + 3; // vec2
 export const PLJ_QUAT_A = J_PAYLOAD + 5;
 export const PLJ_QUAT_B = J_PAYLOAD + 9;
+export const PLJ_PERP_AXIS_X = J_PAYLOAD + 13;
+export const PLJ_PERP_AXIS_Y = J_PAYLOAD + 16;
 
 // Contact dispatch ABI (arena.rs). Geometry is sphere center/radius, capsule endpoints/radius,
 // hull record index, mesh extra-pool offset/scale, or height/compound extra-pool offset. A compound
@@ -266,8 +270,7 @@ const FIN_OUT = 4;
 const SLOT_SCALAR = 5;
 const WIDE_META = 12;
 const COLOR_SPAN = 14;
-const JOINT = 15;
-const N_COLS = 16;
+const N_COLS = 15;
 
 /** The column views the TS side reads or writes. The body columns (`state`/`flags`/`sim`/`fin`) are
  * resident — held across steps in the body region and viewed through the `BodySim`/`BodyState`
@@ -283,13 +286,8 @@ export type Columns = {
     /** Per-wide-record lane map: laneContact[4] (contactId per lane) + laneCount. TS writes convex
      * contacts here in color order; the kernel wide `prepare`/`store` gather through it. */
     wideMeta: Uint32Array;
-    /** Per-active-color spans (wide/mesh/joint start+count) the batched color shims + staged solve
-     * loop over. TS writes them from the layout. */
+    /** Per-active-color contact ranges and joint-array key/count, consumed by the staged solve. */
     colorSpan: Uint32Array;
-    /** Flat joint records (`JOINT_STRIDE` f32 per slot, jointcolumns.ts). Colored joints first
-     * (per-color concatenated), then the overflow joints. Empty on the jointless path. */
-    joint: Float32Array;
-    jointU: Uint32Array;
 };
 
 // The last reservation's views, re-derived only when the buffer, a column offset, or a column length
@@ -312,13 +310,11 @@ function viewsCurrent(
         views.wideMeta.byteOffset === layout[WIDE_META] &&
         views.wideMeta.length === lengths[2] &&
         views.colorSpan.byteOffset === layout[COLOR_SPAN] &&
-        views.colorSpan.length === lengths[3] &&
-        views.joint.byteOffset === layout[JOINT] &&
-        views.joint.length === lengths[4]
+        views.colorSpan.length === lengths[3]
     );
 }
 
-const reservedLengths = [0, 0, 0, 0, 0];
+const reservedLengths = [0, 0, 0, 0];
 
 /**
  * Reserve the solver columns for one step's counts and return typed-array views over them. Call once
@@ -333,10 +329,9 @@ export function reserveColumns(
     point: number,
     wide: number,
     color: number,
-    joint = 0,
 ): Columns {
     const k = kernel(world);
-    k.reserve(body, contact, manifold, point, wide, color, joint);
+    k.reserve(body, contact, manifold, point, wide, color);
     const buf = k.memory.buffer;
     const layoutPtr = k.layoutPtr();
     if (layoutView.buffer !== buf || layoutView.byteOffset !== layoutPtr) {
@@ -348,15 +343,12 @@ export function reserveColumns(
     lengths[1] = contact * SLOT_STRIDE;
     lengths[2] = wide * WIDE_META_STRIDE;
     lengths[3] = color * COLOR_SPAN_STRIDE;
-    lengths[4] = joint * JOINT_STRIDE;
     if (reserved !== null && viewsCurrent(reserved, buf, layout, lengths)) return reserved;
     reserved = {
         finOut: new Float32Array(buf, layout[FIN_OUT], lengths[0]),
         slotScalar: new Uint32Array(buf, layout[SLOT_SCALAR], lengths[1]),
         wideMeta: new Uint32Array(buf, layout[WIDE_META], lengths[2]),
         colorSpan: new Uint32Array(buf, layout[COLOR_SPAN], lengths[3]),
-        joint: new Float32Array(buf, layout[JOINT], lengths[4]),
-        jointU: new Uint32Array(buf, layout[JOINT], lengths[4]),
     };
     return reserved;
 }

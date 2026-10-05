@@ -10,17 +10,13 @@
 import { ContactFlags, reclassifyBodyContacts, writeBodySimIndex } from "../collision/contact";
 import { NULL_INDEX, swapRemove } from "../common/array";
 import { clearBit } from "../common/bitset";
-import { OVERFLOW_INDEX, SetType } from "../common/constants";
+import { GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import { residentPush, residentRemove } from "../kernel/bodycolumns";
+import { moveJointRecord, releaseJointArray } from "../kernel/jointcolumns";
 import { syncBodyQuery } from "../kernel/shapecolumns";
-import {
-    addJointToGraph,
-    removeContactFromGraph,
-    removeJointFromGraph,
-    wakeSetConstraints,
-} from "../solver/graph";
-import type { Joint, JointSim } from "../solver/joint";
+import { addJointToGraph, removeContactFromGraph, wakeSetConstraints } from "../solver/graph";
+import type { Joint } from "../solver/joint";
 import {
     BODY_TRANSIENT_FLAGS,
     type Body,
@@ -37,7 +33,6 @@ export type SolverSet = {
     bodySims: BodySim[];
     // Only the awake set has body states.
     bodyStates: BodyState[];
-    jointSims: JointSim[];
     // Sleeping sets: all contacts. Awake set: non-touching only. Static/disabled: empty.
     contactIndices: number[];
     islandSims: IslandSim[];
@@ -49,7 +44,6 @@ export function emptySolverSet(): SolverSet {
     return {
         bodySims: [],
         bodyStates: [],
-        jointSims: [],
         contactIndices: [],
         islandSims: [],
         setIndex: NULL_INDEX,
@@ -57,11 +51,11 @@ export function emptySolverSet(): SolverSet {
 }
 
 export function destroySolverSet(world: WorldState, setIndex: number): void {
+    releaseJointArray(world, GRAPH_COLOR_COUNT + setIndex);
     const set = world.solverSets[setIndex];
     set.bodySims = [];
     set.bodyStates = [];
     set.contactIndices = [];
-    set.jointSims = [];
     set.islandSims = [];
     freeId(world.solverSetIdPool, setIndex);
     set.setIndex = NULL_INDEX;
@@ -228,8 +222,7 @@ export function transferBody(
 /**
  * Move a joint's sim from one solver set to another (b3TransferJoint). The awake set holds joint sims
  * in the constraint graph (including its real overflow fallback), so awake↔sleeping transfers route
- * through graph.ts; sleeping↔sleeping moves the sim between plain jointSims columns. The sim
- * object itself is moved (preserving warmstart impulses), never copied.
+ * through graph.ts. The kernel copies the record into the target array and swap-removes the source.
  */
 export function transferJoint(
     world: WorldState,
@@ -241,43 +234,19 @@ export function transferJoint(
         return;
     }
 
-    const localIndex = joint.localIndex;
-    const colorIndex = joint.colorIndex;
-
-    // Retrieve the source sim from the graph (awake) or the set's own column (sleeping).
-    let sourceSim: JointSim;
-    if (sourceSet.setIndex === SetType.Awake) {
-        sourceSim = world.constraintGraph.colors[colorIndex].jointSims[localIndex];
-    } else {
-        sourceSim = sourceSet.jointSims[localIndex];
+    if (sourceSet.setIndex === SetType.Awake && joint.colorIndex !== OVERFLOW_INDEX) {
+        const color = world.constraintGraph.colors[joint.colorIndex];
+        clearBit(color.bodySet, joint.edges[0].bodyId);
+        clearBit(color.bodySet, joint.edges[1].bodyId);
     }
-
-    // Create the target and re-home the sim.
     if (targetSet.setIndex === SetType.Awake) {
-        addJointToGraph(world, sourceSim, joint);
+        addJointToGraph(world, joint);
         joint.setIndex = SetType.Awake;
     } else {
+        const destination = moveJointRecord(world, joint, GRAPH_COLOR_COUNT + targetSet.setIndex);
         joint.setIndex = targetSet.setIndex;
-        joint.localIndex = targetSet.jointSims.length;
+        joint.localIndex = destination;
         joint.colorIndex = NULL_INDEX;
-        targetSet.jointSims.push(sourceSim);
-    }
-
-    // Destroy the source slot.
-    if (sourceSet.setIndex === SetType.Awake) {
-        removeJointFromGraph(
-            world,
-            joint.edges[0].bodyId,
-            joint.edges[1].bodyId,
-            colorIndex,
-            localIndex,
-        );
-    } else {
-        const movedIndex = swapRemove(sourceSet.jointSims, localIndex);
-        if (movedIndex !== NULL_INDEX) {
-            const movedJoint = world.joints[sourceSet.jointSims[localIndex].jointId];
-            movedJoint.localIndex = localIndex;
-        }
     }
 }
 
@@ -300,7 +269,6 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
     sleepSet.bodySims = [];
     sleepSet.bodyStates = [];
     sleepSet.contactIndices = [];
-    sleepSet.jointSims = [];
     sleepSet.islandSims = [];
     sleepSet.setIndex = sleepSetId;
 
@@ -415,27 +383,7 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
     for (let i = 0; i < island.joints.length; ++i) {
         const jointId = island.joints[i].jointId;
         const joint = world.joints[jointId];
-        const colorIndex = joint.colorIndex;
-        const localIndex = joint.localIndex;
-        const jointColor = world.constraintGraph.colors[colorIndex];
-        const awakeJointSim = jointColor.jointSims[localIndex];
-        if (colorIndex !== OVERFLOW_INDEX) {
-            clearBit(jointColor.bodySet, joint.edges[0].bodyId);
-            clearBit(jointColor.bodySet, joint.edges[1].bodyId);
-        }
-
-        const sleepJointIndex = sleepSet.jointSims.length;
-        sleepSet.jointSims.push(awakeJointSim);
-
-        const movedLocalIndex = swapRemove(jointColor.jointSims, localIndex);
-        if (movedLocalIndex !== NULL_INDEX) {
-            const movedJoint = world.joints[jointColor.jointSims[localIndex].jointId];
-            movedJoint.localIndex = localIndex;
-        }
-
-        joint.setIndex = sleepSetId;
-        joint.colorIndex = NULL_INDEX;
-        joint.localIndex = sleepJointIndex;
+        transferJoint(world, sleepSet, awakeSet, joint);
     }
 
     // Move the island struct itself to the sleeping set.

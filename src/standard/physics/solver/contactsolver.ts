@@ -19,6 +19,7 @@
 import { contactHit, contactPointCount, writeContactRow } from "../collision/manifoldstore";
 import { OVERFLOW_INDEX } from "../common/constants";
 import { COLOR_SPAN_STRIDE, type Columns, SLOT_STRIDE, WIDE_META_STRIDE } from "../kernel/columns";
+import { jointArrayCount } from "../kernel/jointcolumns";
 import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import type { GraphColor } from "./graph";
@@ -58,9 +59,10 @@ export type StepContext = {
 
 /** One active graph color's constraint ranges for the per-color solve interleave. `wide*` index the
  * wide-record range (each record groups up to 4 convex contacts); `mesh*` index the scalar
- * contact-record range in the input pool. `color` carries the color's joints (solved TS-side). */
+ * contact-record range in the input pool. `colorIndex` selects the kernel's joint array. */
 export type ColorSpan = {
     color: GraphColor;
+    colorIndex: number;
     wideStart: number;
     wideCount: number;
     meshStart: number;
@@ -140,7 +142,7 @@ export function computeLayout(world: WorldState): SolveLayout {
     let activeCount = 0;
     for (let i = 0; i < OVERFLOW_INDEX; ++i) {
         const c = colors[i];
-        if (c.convexContacts.length + c.contacts.length + c.jointSims.length > 0) {
+        if (c.convexContacts.length + c.contacts.length + jointArrayCount(world, i) > 0) {
             active[activeCount++] = i;
         }
     }
@@ -166,10 +168,18 @@ export function computeLayout(world: WorldState): SolveLayout {
         // Reuse the pooled span, or grow the pool once; every field is written unconditionally.
         let span = spans[a];
         if (span === undefined) {
-            span = { color, wideStart, wideCount, meshStart: 0, meshCount: 0 };
+            span = {
+                color,
+                colorIndex: active[a],
+                wideStart,
+                wideCount,
+                meshStart: 0,
+                meshCount: 0,
+            };
             spans[a] = span;
         } else {
             span.color = color;
+            span.colorIndex = active[a];
             span.wideStart = wideStart;
             span.wideCount = wideCount;
             span.meshStart = 0;

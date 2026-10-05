@@ -1,29 +1,41 @@
 import { clampf, f32, maxf, minf, PI, type Quat, quat, type Vec3, vec3 } from "../common/math";
+import {
+    J_LOCAL_FRAME_A,
+    J_LOCAL_FRAME_B,
+    SJ_CONE_ANGLE,
+    SJ_DAMPING_RATIO,
+    SJ_ENABLE,
+    SJ_ENABLE_CONE_LIMIT,
+    SJ_ENABLE_MOTOR,
+    SJ_ENABLE_SPRING,
+    SJ_ENABLE_TWIST_LIMIT,
+    SJ_HERTZ,
+    SJ_LINEAR_IMPULSE,
+    SJ_LOWER_TWIST_ANGLE,
+    SJ_LOWER_TWIST_IMPULSE,
+    SJ_MAX_MOTOR_TORQUE,
+    SJ_MOTOR_IMPULSE,
+    SJ_MOTOR_VELOCITY,
+    SJ_SPRING_IMPULSE,
+    SJ_SWING_IMPULSE,
+    SJ_TARGET_ROTATION,
+    SJ_UPPER_TWIST_ANGLE,
+    SJ_UPPER_TWIST_IMPULSE,
+} from "../kernel/columns";
+import {
+    readJointFloat,
+    readJointTransform,
+    readJointVec3,
+    writeJointFlag,
+    writeJointFloat,
+    writeJointQuat,
+    writeJointVec3,
+} from "../kernel/jointcolumns";
 import { getBodyTransformQuick } from "../world/body";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
 /** Spherical joint payload (b3SphericalJoint). Impulses persist across steps for warm starting. */
-export type SphericalJoint = {
-    linearImpulse: Vec3;
-    springImpulse: Vec3;
-    motorImpulse: Vec3;
-    lowerTwistImpulse: number;
-    upperTwistImpulse: number;
-    swingImpulse: number;
-    hertz: number;
-    dampingRatio: number;
-    maxMotorTorque: number;
-    motorVelocity: Vec3;
-    lowerTwistAngle: number;
-    upperTwistAngle: number;
-    coneAngle: number;
-    targetRotation: Quat;
-    enableSpring: boolean;
-    enableMotor: boolean;
-    enableConeLimit: boolean;
-    enableTwistLimit: boolean;
-};
 
 /** Spherical joint definition (b3SphericalJointDef), body handles resolved to a base JointDef. */
 export type SphericalJointDef = {
@@ -49,7 +61,14 @@ export function defaultSphericalJointDef(base: JointDef): SphericalJointDef {
         enableSpring: false,
         hertz: 0,
         dampingRatio: 0,
-        targetRotation: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+        targetRotation: {
+            v: {
+                x: 0,
+                y: 0,
+                z: 0,
+            },
+            s: 1,
+        },
         enableConeLimit: false,
         coneAngle: 0,
         enableTwistLimit: false,
@@ -57,80 +76,103 @@ export function defaultSphericalJointDef(base: JointDef): SphericalJointDef {
         upperTwistAngle: 0,
         enableMotor: false,
         maxMotorTorque: 0,
-        motorVelocity: { x: 0, y: 0, z: 0 },
+        motorVelocity: {
+            x: 0,
+            y: 0,
+            z: 0,
+        },
     };
 }
+const zeroVec3 = (): Vec3 => ({
+    x: 0,
+    y: 0,
+    z: 0,
+});
 
-const zeroVec3 = (): Vec3 => ({ x: 0, y: 0, z: 0 });
-
-/** Create a spherical joint (b3CreateSphericalJoint). @returns the joint handle + sim. */
+/** Create a spherical joint (b3CreateSphericalJoint). @returns the joint handle. */
 export function createSphericalJoint(
     world: WorldState,
     def: SphericalJointDef,
-): { joint: Joint; sim: JointSim } {
+): {
+    joint: Joint;
+} {
     const pair = createJoint(world, def.base, JointType.Spherical);
-
     const lowerLimit = f32(f32(-0.99) * PI);
     const upperLimit = f32(f32(0.99) * PI);
     const lowerAngle = minf(def.lowerTwistAngle, def.upperTwistAngle);
     const upperAngle = maxf(def.lowerTwistAngle, def.upperTwistAngle);
-
-    const data: SphericalJoint = {
-        linearImpulse: zeroVec3(),
-        springImpulse: zeroVec3(),
-        motorImpulse: zeroVec3(),
-        lowerTwistImpulse: 0,
-        upperTwistImpulse: 0,
-        swingImpulse: 0,
-        hertz: def.hertz,
-        dampingRatio: def.dampingRatio,
-        maxMotorTorque: def.maxMotorTorque,
-        motorVelocity: { ...def.motorVelocity },
-        lowerTwistAngle: clampf(lowerAngle, lowerLimit, upperLimit),
-        upperTwistAngle: clampf(upperAngle, lowerLimit, upperLimit),
-        coneAngle: clampf(def.coneAngle, 0, f32(f32(0.5) * PI)),
-        targetRotation: { v: { ...def.targetRotation.v }, s: def.targetRotation.s },
-        enableSpring: def.enableSpring,
-        enableMotor: def.enableMotor,
-        enableConeLimit: def.enableConeLimit,
-        enableTwistLimit: def.enableTwistLimit,
-    };
-    pair.sim.data = data;
+    writeJointVec3(world, pair.joint, SJ_LINEAR_IMPULSE, zeroVec3());
+    writeJointVec3(world, pair.joint, SJ_SPRING_IMPULSE, zeroVec3());
+    writeJointVec3(world, pair.joint, SJ_MOTOR_IMPULSE, zeroVec3());
+    writeJointFloat(world, pair.joint, SJ_LOWER_TWIST_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, SJ_UPPER_TWIST_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, SJ_SWING_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, SJ_HERTZ, def.hertz);
+    writeJointFloat(world, pair.joint, SJ_DAMPING_RATIO, def.dampingRatio);
+    writeJointFloat(world, pair.joint, SJ_MAX_MOTOR_TORQUE, def.maxMotorTorque);
+    writeJointVec3(world, pair.joint, SJ_MOTOR_VELOCITY, {
+        ...def.motorVelocity,
+    });
+    writeJointFloat(
+        world,
+        pair.joint,
+        SJ_LOWER_TWIST_ANGLE,
+        clampf(lowerAngle, lowerLimit, upperLimit),
+    );
+    writeJointFloat(
+        world,
+        pair.joint,
+        SJ_UPPER_TWIST_ANGLE,
+        clampf(upperAngle, lowerLimit, upperLimit),
+    );
+    writeJointFloat(world, pair.joint, SJ_CONE_ANGLE, clampf(def.coneAngle, 0, f32(f32(0.5) * PI)));
+    writeJointQuat(world, pair.joint, SJ_TARGET_ROTATION, {
+        v: {
+            ...def.targetRotation.v,
+        },
+        s: def.targetRotation.s,
+    });
+    writeJointFlag(world, pair.joint, SJ_ENABLE, SJ_ENABLE_SPRING, def.enableSpring);
+    writeJointFlag(world, pair.joint, SJ_ENABLE, SJ_ENABLE_MOTOR, def.enableMotor);
+    writeJointFlag(world, pair.joint, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT, def.enableConeLimit);
+    writeJointFlag(world, pair.joint, SJ_ENABLE, SJ_ENABLE_TWIST_LIMIT, def.enableTwistLimit);
     return pair;
 }
-
-export function getSphericalJointForce(world: WorldState, sim: JointSim): Vec3 {
-    return vec3.scale(world.invH, (sim.data as SphericalJoint).linearImpulse);
+export function getSphericalJointForce(world: WorldState, sim: Joint): Vec3 {
+    return vec3.scale(world.invH, readJointVec3(world, sim, SJ_LINEAR_IMPULSE));
 }
 
 /** The reaction torque this joint applies (b3GetSphericalJointTorque). */
-export function getSphericalJointTorque(world: WorldState, sim: JointSim): Vec3 {
-    const joint = sim.data as SphericalJoint;
-    const xfA = getBodyTransformQuick(world, world.bodies[sim.bodyIdA]);
-    const xfB = getBodyTransformQuick(world, world.bodies[sim.bodyIdB]);
-    const qA = quat.mul(xfA.q, sim.localFrameA.q);
-    const qB = quat.mul(xfB.q, sim.localFrameB.q);
-
+export function getSphericalJointTorque(world: WorldState, sim: Joint): Vec3 {
+    const xfA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    const xfB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const qA = quat.mul(xfA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).q);
+    const qB = quat.mul(xfB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).q);
     const coneAxis = quat.rotate(qA, vec3.axisZ());
     const twistAxis = quat.rotate(qB, vec3.axisZ());
     const swingAxis = vec3.normalize(vec3.cross(coneAxis, twistAxis));
-
-    let impulse = vec3.add(joint.springImpulse, joint.motorImpulse);
+    let impulse = vec3.add(
+        readJointVec3(world, sim, SJ_SPRING_IMPULSE),
+        readJointVec3(world, sim, SJ_MOTOR_IMPULSE),
+    );
     impulse = vec3.mulAdd(
         impulse,
-        f32(joint.lowerTwistImpulse - joint.upperTwistImpulse),
+        f32(
+            readJointFloat(world, sim, SJ_LOWER_TWIST_IMPULSE) -
+                readJointFloat(world, sim, SJ_UPPER_TWIST_IMPULSE),
+        ),
         twistAxis,
     );
-    impulse = vec3.mulAdd(impulse, joint.swingImpulse, swingAxis);
+    impulse = vec3.mulAdd(impulse, readJointFloat(world, sim, SJ_SWING_IMPULSE), swingAxis);
     return vec3.scale(world.invH, impulse);
 }
 
 /** @returns the relative rotation of the two joint frames, twist-adjusted (shared by cone/twist getters). */
-function relativeFrameRotation(world: WorldState, sim: JointSim): Quat {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.bodyIdA]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.bodyIdB]);
-    const quatA = quat.mul(transformA.q, sim.localFrameA.q);
-    let quatB = quat.mul(transformB.q, sim.localFrameB.q);
+function relativeFrameRotation(world: WorldState, sim: Joint): Quat {
+    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const quatA = quat.mul(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).q);
+    let quatB = quat.mul(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).q);
     if (quat.dot(quatA, quatB) < 0) {
         quatB = quat.negate(quatB);
     }
@@ -138,11 +180,11 @@ function relativeFrameRotation(world: WorldState, sim: JointSim): Quat {
 }
 
 /** The current swing (cone) angle (b3SphericalJoint_GetConeAngle). */
-export function sphericalJointConeAngle(world: WorldState, sim: JointSim): number {
+export function sphericalJointConeAngle(world: WorldState, sim: Joint): number {
     return quat.getSwingAngle(relativeFrameRotation(world, sim));
 }
 
 /** The current twist angle (b3SphericalJoint_GetTwistAngle). */
-export function sphericalJointTwistAngle(world: WorldState, sim: JointSim): number {
+export function sphericalJointTwistAngle(world: WorldState, sim: Joint): number {
     return quat.getTwistAngle(relativeFrameRotation(world, sim));
 }

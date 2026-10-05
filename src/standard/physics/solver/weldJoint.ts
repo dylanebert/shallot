@@ -1,16 +1,17 @@
 import { type Vec3, vec3 } from "../common/math";
+import {
+    WJ_ANGULAR_DAMPING_RATIO,
+    WJ_ANGULAR_HERTZ,
+    WJ_ANGULAR_IMPULSE,
+    WJ_LINEAR_DAMPING_RATIO,
+    WJ_LINEAR_HERTZ,
+    WJ_LINEAR_IMPULSE,
+} from "../kernel/columns";
+import { readJointVec3, writeJointFloat, writeJointVec3 } from "../kernel/jointcolumns";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
 /** Weld joint payload (b3WeldJoint). Impulses persist across steps for warm starting. */
-export type WeldJoint = {
-    linearImpulse: Vec3;
-    angularImpulse: Vec3;
-    linearHertz: number;
-    linearDampingRatio: number;
-    angularHertz: number;
-    angularDampingRatio: number;
-};
 
 /** Weld joint definition (b3WeldJointDef), body handles resolved to a base JointDef. */
 export type WeldJointDef = {
@@ -32,29 +33,35 @@ export function defaultWeldJointDef(base: JointDef): WeldJointDef {
     };
 }
 
-/** Create a weld joint (b3CreateWeldJoint). @returns the joint handle + sim. */
+/** Create a weld joint (b3CreateWeldJoint). @returns the joint handle. */
 export function createWeldJoint(
     world: WorldState,
     def: WeldJointDef,
-): { joint: Joint; sim: JointSim } {
+): {
+    joint: Joint;
+} {
     const pair = createJoint(world, def.base, JointType.Weld);
-    const data: WeldJoint = {
-        linearImpulse: { x: 0, y: 0, z: 0 },
-        angularImpulse: { x: 0, y: 0, z: 0 },
-        linearHertz: def.linearHertz,
-        linearDampingRatio: def.linearDampingRatio,
-        angularHertz: def.angularHertz,
-        angularDampingRatio: def.angularDampingRatio,
-    };
-    pair.sim.data = data;
+    writeJointVec3(world, pair.joint, WJ_LINEAR_IMPULSE, {
+        x: 0,
+        y: 0,
+        z: 0,
+    });
+    writeJointVec3(world, pair.joint, WJ_ANGULAR_IMPULSE, {
+        x: 0,
+        y: 0,
+        z: 0,
+    });
+    writeJointFloat(world, pair.joint, WJ_LINEAR_HERTZ, def.linearHertz);
+    writeJointFloat(world, pair.joint, WJ_LINEAR_DAMPING_RATIO, def.linearDampingRatio);
+    writeJointFloat(world, pair.joint, WJ_ANGULAR_HERTZ, def.angularHertz);
+    writeJointFloat(world, pair.joint, WJ_ANGULAR_DAMPING_RATIO, def.angularDampingRatio);
     return pair;
 }
-
-export function getWeldJointForce(world: WorldState, sim: JointSim): Vec3 {
-    return vec3.scale(world.invH, (sim.data as WeldJoint).linearImpulse);
+export function getWeldJointForce(world: WorldState, sim: Joint): Vec3 {
+    return vec3.scale(world.invH, readJointVec3(world, sim, WJ_LINEAR_IMPULSE));
 }
 
 /** The reaction torque this joint applies (b3GetWeldJointTorque). */
-export function getWeldJointTorque(world: WorldState, sim: JointSim): Vec3 {
-    return vec3.scale(world.invH, (sim.data as WeldJoint).angularImpulse);
+export function getWeldJointTorque(world: WorldState, sim: Joint): Vec3 {
+    return vec3.scale(world.invH, readJointVec3(world, sim, WJ_ANGULAR_IMPULSE));
 }

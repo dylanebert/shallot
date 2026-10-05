@@ -1,28 +1,37 @@
 import { HUGE, LINEAR_SLOP } from "../common/constants";
 import { FLT_MAX, f32, maxf, quat, type Vec3, vec3 } from "../common/math";
+import {
+    DJ_DAMPING_RATIO,
+    DJ_ENABLE,
+    DJ_ENABLE_LIMIT,
+    DJ_ENABLE_MOTOR,
+    DJ_ENABLE_SPRING,
+    DJ_HERTZ,
+    DJ_IMPULSE,
+    DJ_LENGTH,
+    DJ_LOWER_IMPULSE,
+    DJ_LOWER_SPRING_FORCE,
+    DJ_MAX_LENGTH,
+    DJ_MAX_MOTOR_FORCE,
+    DJ_MIN_LENGTH,
+    DJ_MOTOR_IMPULSE,
+    DJ_MOTOR_SPEED,
+    DJ_UPPER_IMPULSE,
+    DJ_UPPER_SPRING_FORCE,
+    J_LOCAL_FRAME_A,
+    J_LOCAL_FRAME_B,
+} from "../kernel/columns";
+import {
+    readJointFloat,
+    readJointTransform,
+    writeJointFlag,
+    writeJointFloat,
+} from "../kernel/jointcolumns";
 import { getBodyTransformQuick } from "../world/body";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
 /** Distance joint payload (b3DistanceJoint). Impulses persist across steps for warm starting. */
-export type DistanceJoint = {
-    length: number;
-    hertz: number;
-    dampingRatio: number;
-    lowerSpringForce: number;
-    upperSpringForce: number;
-    minLength: number;
-    maxLength: number;
-    maxMotorForce: number;
-    motorSpeed: number;
-    impulse: number;
-    lowerImpulse: number;
-    upperImpulse: number;
-    motorImpulse: number;
-    enableSpring: boolean;
-    enableLimit: boolean;
-    enableMotor: boolean;
-};
 
 /** Distance joint definition (b3DistanceJointDef), body handles resolved to a base JointDef. */
 export type DistanceJointDef = {
@@ -60,57 +69,70 @@ export function defaultDistanceJointDef(base: JointDef): DistanceJointDef {
     };
 }
 
-/** Create a distance joint (b3CreateDistanceJoint). @returns the joint handle + sim. */
+/** Create a distance joint (b3CreateDistanceJoint). @returns the joint handle. */
 export function createDistanceJoint(
     world: WorldState,
     def: DistanceJointDef,
-): { joint: Joint; sim: JointSim } {
+): {
+    joint: Joint;
+} {
     const pair = createJoint(world, def.base, JointType.Distance);
-    const data: DistanceJoint = {
-        length: maxf(def.length, LINEAR_SLOP),
-        hertz: def.hertz,
-        dampingRatio: def.dampingRatio,
-        lowerSpringForce: def.lowerSpringForce,
-        upperSpringForce: def.upperSpringForce,
-        minLength: maxf(def.minLength, LINEAR_SLOP),
-        maxLength: maxf(def.minLength, def.maxLength),
-        maxMotorForce: def.maxMotorForce,
-        motorSpeed: def.motorSpeed,
-        impulse: 0,
-        lowerImpulse: 0,
-        upperImpulse: 0,
-        motorImpulse: 0,
-        enableSpring: def.enableSpring,
-        enableLimit: def.enableLimit,
-        enableMotor: def.enableMotor,
-    };
-    pair.sim.data = data;
+    writeJointFloat(world, pair.joint, DJ_LENGTH, maxf(def.length, LINEAR_SLOP));
+    writeJointFloat(world, pair.joint, DJ_HERTZ, def.hertz);
+    writeJointFloat(world, pair.joint, DJ_DAMPING_RATIO, def.dampingRatio);
+    writeJointFloat(world, pair.joint, DJ_LOWER_SPRING_FORCE, def.lowerSpringForce);
+    writeJointFloat(world, pair.joint, DJ_UPPER_SPRING_FORCE, def.upperSpringForce);
+    writeJointFloat(world, pair.joint, DJ_MIN_LENGTH, maxf(def.minLength, LINEAR_SLOP));
+    writeJointFloat(world, pair.joint, DJ_MAX_LENGTH, maxf(def.minLength, def.maxLength));
+    writeJointFloat(world, pair.joint, DJ_MAX_MOTOR_FORCE, def.maxMotorForce);
+    writeJointFloat(world, pair.joint, DJ_MOTOR_SPEED, def.motorSpeed);
+    writeJointFloat(world, pair.joint, DJ_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, DJ_LOWER_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, DJ_UPPER_IMPULSE, 0);
+    writeJointFloat(world, pair.joint, DJ_MOTOR_IMPULSE, 0);
+    writeJointFlag(world, pair.joint, DJ_ENABLE, DJ_ENABLE_SPRING, def.enableSpring);
+    writeJointFlag(world, pair.joint, DJ_ENABLE, DJ_ENABLE_LIMIT, def.enableLimit);
+    writeJointFlag(world, pair.joint, DJ_ENABLE, DJ_ENABLE_MOTOR, def.enableMotor);
     return pair;
 }
-
-export function getDistanceJointForce(world: WorldState, sim: JointSim): Vec3 {
-    const joint = sim.data as DistanceJoint;
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.bodyIdA]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.bodyIdB]);
-
-    const pA = vec3.add(quat.rotate(transformA.q, sim.localFrameA.p), transformA.p);
-    const pB = vec3.add(quat.rotate(transformB.q, sim.localFrameB.p), transformB.p);
+export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
+    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const pA = vec3.add(
+        quat.rotate(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).p),
+        transformA.p,
+    );
+    const pB = vec3.add(
+        quat.rotate(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).p),
+        transformB.p,
+    );
     const d = vec3.sub(pB, pA);
     const axis = vec3.normalize(d);
     const force = f32(
         f32(
-            f32(f32(joint.impulse + joint.lowerImpulse) - joint.upperImpulse) + joint.motorImpulse,
+            f32(
+                f32(
+                    readJointFloat(world, sim, DJ_IMPULSE) +
+                        readJointFloat(world, sim, DJ_LOWER_IMPULSE),
+                ) - readJointFloat(world, sim, DJ_UPPER_IMPULSE),
+            ) + readJointFloat(world, sim, DJ_MOTOR_IMPULSE),
         ) * world.invH,
     );
     return vec3.scale(force, axis);
 }
 
 /** The current distance between the two anchor points (b3DistanceJoint_GetCurrentLength). */
-export function distanceJointCurrentLength(world: WorldState, sim: JointSim): number {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.bodyIdA]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.bodyIdB]);
-    const pA = vec3.add(quat.rotate(transformA.q, sim.localFrameA.p), transformA.p);
-    const pB = vec3.add(quat.rotate(transformB.q, sim.localFrameB.p), transformB.p);
+export function distanceJointCurrentLength(world: WorldState, sim: Joint): number {
+    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const pA = vec3.add(
+        quat.rotate(transformA.q, readJointTransform(world, sim, J_LOCAL_FRAME_A).p),
+        transformA.p,
+    );
+    const pB = vec3.add(
+        quat.rotate(transformB.q, readJointTransform(world, sim, J_LOCAL_FRAME_B).p),
+        transformB.p,
+    );
     const d = vec3.sub(pB, pA);
     return vec3.length(d);
 }

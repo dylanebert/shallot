@@ -3,31 +3,82 @@ import { HUGE, LINEAR_SLOP } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import { clampf, f32, froundConfig, PI, type Transform, type Vec3 } from "../common/math";
 import {
-    type DistanceJoint as DistanceJointData,
-    distanceJointCurrentLength,
-} from "../solver/distanceJoint";
+    DJ_DAMPING_RATIO,
+    DJ_ENABLE,
+    DJ_ENABLE_LIMIT,
+    DJ_ENABLE_MOTOR,
+    DJ_ENABLE_SPRING,
+    DJ_HERTZ,
+    DJ_IMPULSE,
+    DJ_LENGTH,
+    DJ_LOWER_IMPULSE,
+    DJ_LOWER_SPRING_FORCE,
+    DJ_MAX_LENGTH,
+    DJ_MAX_MOTOR_FORCE,
+    DJ_MIN_LENGTH,
+    DJ_MOTOR_IMPULSE,
+    DJ_MOTOR_SPEED,
+    DJ_UPPER_IMPULSE,
+    DJ_UPPER_SPRING_FORCE,
+    J_CONSTRAINT_DAMPING,
+    J_CONSTRAINT_HERTZ,
+    J_FORCE_THRESHOLD,
+    J_LOCAL_FRAME_A,
+    J_LOCAL_FRAME_B,
+    J_TORQUE_THRESHOLD,
+    PJ_DAMPING_RATIO,
+    PJ_ENABLE,
+    PJ_ENABLE_LIMIT,
+    PJ_ENABLE_MOTOR,
+    PJ_ENABLE_SPRING,
+    PJ_HERTZ,
+    PJ_LOWER_IMPULSE,
+    PJ_LOWER_TRANSLATION,
+    PJ_MAX_MOTOR_FORCE,
+    PJ_MOTOR_IMPULSE,
+    PJ_MOTOR_SPEED,
+    PJ_SPRING_IMPULSE,
+    PJ_TARGET_TRANSLATION,
+    PJ_UPPER_IMPULSE,
+    PJ_UPPER_TRANSLATION,
+    RJ_DAMPING_RATIO,
+    RJ_ENABLE,
+    RJ_ENABLE_LIMIT,
+    RJ_ENABLE_MOTOR,
+    RJ_ENABLE_SPRING,
+    RJ_HERTZ,
+    RJ_LOWER_ANGLE,
+    RJ_LOWER_IMPULSE,
+    RJ_MAX_MOTOR_TORQUE,
+    RJ_MOTOR_IMPULSE,
+    RJ_MOTOR_SPEED,
+    RJ_SPRING_IMPULSE,
+    RJ_TARGET_ANGLE,
+    RJ_UPPER_ANGLE,
+    RJ_UPPER_IMPULSE,
+} from "../kernel/columns";
+import {
+    readJointFlag,
+    readJointFloat,
+    readJointTransform,
+    writeJointFlag,
+    writeJointFloat,
+    writeJointTransform,
+} from "../kernel/jointcolumns";
+import { distanceJointCurrentLength } from "../solver/distanceJoint";
 import {
     destroyJointInternal,
     getJointAngularSeparation,
     getJointConstraintForce,
     getJointConstraintTorque,
     getJointLinearSeparation,
-    getJointSim,
     type Joint as JointRecord,
-    type JointSim,
     type JointType,
     setJointCollideConnected,
     wakeJointBodies,
 } from "../solver/joint";
-import {
-    type PrismaticJoint as PrismaticJointData,
-    prismaticJointSpeed,
-    prismaticJointTranslation,
-} from "../solver/prismaticJoint";
-import {
-    type RevoluteJoint as RevoluteJointData,
-    revoluteJointAngle,
-} from "../solver/revoluteJoint";
+import { prismaticJointSpeed, prismaticJointTranslation } from "../solver/prismaticJoint";
+import { revoluteJointAngle } from "../solver/revoluteJoint";
 import { makeBodyId } from "../world/body";
 import type { WorldState } from "../world/world";
 import { Body } from "./body";
@@ -53,9 +104,6 @@ export class Joint {
     }
 
     /** @internal the live simulation payload (graph color when awake, else the solver set). */
-    protected sim(): JointSim {
-        return getJointSim(this.world, this.record());
-    }
 
     /** @returns whether this joint has not been destroyed and its world is alive. */
     isValid(): boolean {
@@ -94,13 +142,13 @@ export class Joint {
 
     /** @returns the constraint force this joint currently applies (world units). */
     getConstraintForce(): Vec3 {
-        const sim = getJointSim(this.world, this.record());
+        const sim = this.record();
         return getJointConstraintForce(this.world, sim);
     }
 
     /** @returns the constraint torque this joint currently applies (world units). */
     getConstraintTorque(): Vec3 {
-        const sim = getJointSim(this.world, this.record());
+        const sim = this.record();
         return getJointConstraintTorque(this.world, sim);
     }
 
@@ -121,23 +169,23 @@ export class Joint {
 
     /** @returns body A's local joint frame. */
     getLocalFrameA(): Transform {
-        return cloneTransform(this.sim().localFrameA);
+        return cloneTransform(readJointTransform(this.world, this.record(), J_LOCAL_FRAME_A));
     }
 
     /** Set body A's local joint frame. */
     setLocalFrameA(frame: Transform): void {
         // froundConfig returns a fresh deep copy, so the caller's object is never aliased.
-        this.sim().localFrameA = froundConfig(frame);
+        writeJointTransform(this.world, this.record(), J_LOCAL_FRAME_A, froundConfig(frame));
     }
 
     /** @returns body B's local joint frame. */
     getLocalFrameB(): Transform {
-        return cloneTransform(this.sim().localFrameB);
+        return cloneTransform(readJointTransform(this.world, this.record(), J_LOCAL_FRAME_B));
     }
 
     /** Set body B's local joint frame. */
     setLocalFrameB(frame: Transform): void {
-        this.sim().localFrameB = froundConfig(frame);
+        writeJointTransform(this.world, this.record(), J_LOCAL_FRAME_B, froundConfig(frame));
     }
 
     /** @returns whether the two connected bodies collide. */
@@ -151,36 +199,42 @@ export class Joint {
     }
 
     /** @returns the joint's constraint softness tuning (hertz + damping ratio). */
-    getConstraintTuning(): { hertz: number; dampingRatio: number } {
-        const sim = this.sim();
-        return { hertz: sim.constraintHertz, dampingRatio: sim.constraintDampingRatio };
+    getConstraintTuning(): {
+        hertz: number;
+        dampingRatio: number;
+    } {
+        const _sim = this.record();
+        return {
+            hertz: readJointFloat(this.world, this.record(), J_CONSTRAINT_HERTZ),
+            dampingRatio: readJointFloat(this.world, this.record(), J_CONSTRAINT_DAMPING),
+        };
     }
 
     /** Set the joint's constraint softness (hertz + damping ratio). */
     setConstraintTuning(hertz: number, dampingRatio: number): void {
-        const sim = this.sim();
-        sim.constraintHertz = f32(hertz);
-        sim.constraintDampingRatio = f32(dampingRatio);
+        const _sim = this.record();
+        writeJointFloat(this.world, this.record(), J_CONSTRAINT_HERTZ, f32(hertz));
+        writeJointFloat(this.world, this.record(), J_CONSTRAINT_DAMPING, f32(dampingRatio));
     }
 
     /** @returns the force at which this joint reports as over-stressed. */
     getForceThreshold(): number {
-        return this.sim().forceThreshold;
+        return readJointFloat(this.world, this.record(), J_FORCE_THRESHOLD);
     }
 
     /** Set the force at which this joint reports as over-stressed. */
     setForceThreshold(threshold: number): void {
-        this.sim().forceThreshold = f32(threshold);
+        writeJointFloat(this.world, this.record(), J_FORCE_THRESHOLD, f32(threshold));
     }
 
     /** @returns the torque at which this joint reports as over-stressed. */
     getTorqueThreshold(): number {
-        return this.sim().torqueThreshold;
+        return readJointFloat(this.world, this.record(), J_TORQUE_THRESHOLD);
     }
 
     /** Set the torque at which this joint reports as over-stressed. */
     setTorqueThreshold(threshold: number): void {
-        this.sim().torqueThreshold = f32(threshold);
+        writeJointFloat(this.world, this.record(), J_TORQUE_THRESHOLD, f32(threshold));
     }
 
     /** Wake both bodies this joint connects. */
@@ -201,33 +255,28 @@ export class Joint {
 
 /** A revolute (hinge) joint handle. */
 export class RevoluteJoint extends Joint {
-    private data(): RevoluteJointData {
-        return this.sim().data as RevoluteJointData;
-    }
-
     /** Enable/disable the angular limit. */
     enableLimit(enable: boolean): void {
-        const j = this.data();
-        if (enable !== j.enableLimit) {
-            j.lowerImpulse = 0;
-            j.upperImpulse = 0;
+        if (enable !== readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_LIMIT)) {
+            writeJointFloat(this.world, this.record(), RJ_LOWER_IMPULSE, 0);
+            writeJointFloat(this.world, this.record(), RJ_UPPER_IMPULSE, 0);
         }
-        j.enableLimit = enable;
+        writeJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_LIMIT, enable);
     }
 
     /** @returns whether the angular limit is enabled. */
     isLimitEnabled(): boolean {
-        return this.data().enableLimit;
+        return readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_LIMIT);
     }
 
     /** @returns the lower angle limit (radians). */
     getLowerLimit(): number {
-        return this.data().lowerAngle;
+        return readJointFloat(this.world, this.record(), RJ_LOWER_ANGLE);
     }
 
     /** @returns the upper angle limit (radians). */
     getUpperLimit(): number {
-        return this.data().upperAngle;
+        return readJointFloat(this.world, this.record(), RJ_UPPER_ANGLE);
     }
 
     /** Set the angle limits (radians), clamped to ±0.99π. */
@@ -237,58 +286,66 @@ export class RevoluteJoint extends Joint {
         const lowerAngle = lo < hi ? lo : hi;
         const upperAngle = lo > hi ? lo : hi;
         const bound = f32(f32(0.99) * PI);
-        const j = this.data();
-        j.lowerAngle = clampf(lowerAngle, -bound, bound);
-        j.upperAngle = clampf(upperAngle, -bound, bound);
+        writeJointFloat(
+            this.world,
+            this.record(),
+            RJ_LOWER_ANGLE,
+            clampf(lowerAngle, -bound, bound),
+        );
+        writeJointFloat(
+            this.world,
+            this.record(),
+            RJ_UPPER_ANGLE,
+            clampf(upperAngle, -bound, bound),
+        );
     }
 
     /** @returns the current hinge angle (radians). */
     getAngle(): number {
-        return revoluteJointAngle(this.world, this.sim());
+        return revoluteJointAngle(this.world, this.record());
     }
 
     /** Enable/disable the drive spring. */
     enableSpring(enable: boolean): void {
-        const j = this.data();
-        if (enable !== j.enableSpring) {
-            j.springImpulse = 0;
+        if (enable !== readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_SPRING)) {
+            writeJointFloat(this.world, this.record(), RJ_SPRING_IMPULSE, 0);
         }
-        j.enableSpring = enable;
+        writeJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_SPRING, enable);
     }
 
     /** @returns whether the drive spring is enabled. */
     isSpringEnabled(): boolean {
-        return this.data().enableSpring;
+        return readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_SPRING);
     }
 
     /** Set the spring target angle (radians). */
     setTargetAngle(target: number): void {
-        this.data().targetAngle = f32(target);
+        writeJointFloat(this.world, this.record(), RJ_TARGET_ANGLE, f32(target));
     }
 
     /** @returns the spring target angle (radians). */
     getTargetAngle(): number {
-        return this.data().targetAngle;
+        return readJointFloat(this.world, this.record(), RJ_TARGET_ANGLE);
     }
 
     /** Set the spring frequency (Hz). */
     setSpringHertz(hertz: number): void {
-        this.data().hertz = f32(hertz);
+        writeJointFloat(this.world, this.record(), RJ_HERTZ, f32(hertz));
     }
 
     /** @returns the spring frequency (Hz). */
     getSpringHertz(): number {
-        return this.data().hertz;
+        return readJointFloat(this.world, this.record(), RJ_HERTZ);
     }
 
     /** Set the spring damping ratio. */
     setSpringDampingRatio(dampingRatio: number): void {
-        this.data().dampingRatio = f32(dampingRatio);
+        writeJointFloat(this.world, this.record(), RJ_DAMPING_RATIO, f32(dampingRatio));
     }
 
     /** @returns the spring damping ratio. */
     getSpringDampingRatio(): number {
-        return this.data().dampingRatio;
+        return readJointFloat(this.world, this.record(), RJ_DAMPING_RATIO);
     }
 
     /**
@@ -296,27 +353,26 @@ export class RevoluteJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableMotor(enable: boolean): void {
-        const j = this.data();
-        if (enable !== j.enableMotor) {
-            j.motorImpulse = 0;
+        if (enable !== readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_MOTOR)) {
+            writeJointFloat(this.world, this.record(), RJ_MOTOR_IMPULSE, 0);
         }
-        j.enableMotor = enable;
+        writeJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_MOTOR, enable);
     }
 
     /** @returns whether the motor is enabled. */
     isMotorEnabled(): boolean {
-        return this.data().enableMotor;
+        return readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_MOTOR);
     }
 
     /** Set the motor target speed (radians/second), waking the connected bodies. */
     setMotorSpeed(speed: number): void {
-        this.data().motorSpeed = f32(speed);
+        writeJointFloat(this.world, this.record(), RJ_MOTOR_SPEED, f32(speed));
         wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the motor target speed (radians/second). */
     getMotorSpeed(): number {
-        return this.data().motorSpeed;
+        return readJointFloat(this.world, this.record(), RJ_MOTOR_SPEED);
     }
 
     /**
@@ -324,118 +380,121 @@ export class RevoluteJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     setMaxMotorTorque(torque: number): void {
-        this.data().maxMotorTorque = f32(torque);
+        writeJointFloat(this.world, this.record(), RJ_MAX_MOTOR_TORQUE, f32(torque));
     }
 
     /** @returns the maximum motor torque. */
     getMaxMotorTorque(): number {
-        return this.data().maxMotorTorque;
+        return readJointFloat(this.world, this.record(), RJ_MAX_MOTOR_TORQUE);
     }
 
     /** @returns the torque the motor applied last step. */
     getMotorTorque(): number {
-        return f32(this.world.invH * this.data().motorImpulse);
+        return f32(this.world.invH * readJointFloat(this.world, this.record(), RJ_MOTOR_IMPULSE));
     }
 }
 
 /** A distance joint handle. */
 export class DistanceJoint extends Joint {
-    private data(): DistanceJointData {
-        return this.sim().data as DistanceJointData;
-    }
-
     /** Set the rest length, clamped to [linear slop, huge]; resets accumulated impulses. */
     setLength(length: number): void {
-        const j = this.data();
-        j.length = clampf(f32(length), LINEAR_SLOP, HUGE);
-        j.impulse = 0;
-        j.lowerImpulse = 0;
-        j.upperImpulse = 0;
+        writeJointFloat(
+            this.world,
+            this.record(),
+            DJ_LENGTH,
+            clampf(f32(length), LINEAR_SLOP, HUGE),
+        );
+        writeJointFloat(this.world, this.record(), DJ_IMPULSE, 0);
+        writeJointFloat(this.world, this.record(), DJ_LOWER_IMPULSE, 0);
+        writeJointFloat(this.world, this.record(), DJ_UPPER_IMPULSE, 0);
     }
 
     /** @returns the rest length. */
     getLength(): number {
-        return this.data().length;
+        return readJointFloat(this.world, this.record(), DJ_LENGTH);
     }
 
     /** Enable/disable the length limit. */
     enableLimit(enable: boolean): void {
-        this.data().enableLimit = enable;
+        writeJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_LIMIT, enable);
     }
 
     /** @returns whether the length limit is enabled. */
     isLimitEnabled(): boolean {
-        return this.data().enableLimit;
+        return readJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_LIMIT);
     }
 
     /** Set the min/max length range, each clamped to [linear slop, huge]; resets impulses. */
     setLengthRange(minLength: number, maxLength: number): void {
         const lo = clampf(f32(minLength), LINEAR_SLOP, HUGE);
         const hi = clampf(f32(maxLength), LINEAR_SLOP, HUGE);
-        const j = this.data();
-        j.minLength = lo < hi ? lo : hi;
-        j.maxLength = lo > hi ? lo : hi;
-        j.impulse = 0;
-        j.lowerImpulse = 0;
-        j.upperImpulse = 0;
+        writeJointFloat(this.world, this.record(), DJ_MIN_LENGTH, lo < hi ? lo : hi);
+        writeJointFloat(this.world, this.record(), DJ_MAX_LENGTH, lo > hi ? lo : hi);
+        writeJointFloat(this.world, this.record(), DJ_IMPULSE, 0);
+        writeJointFloat(this.world, this.record(), DJ_LOWER_IMPULSE, 0);
+        writeJointFloat(this.world, this.record(), DJ_UPPER_IMPULSE, 0);
     }
 
     /** @returns the minimum length. */
     getMinLength(): number {
-        return this.data().minLength;
+        return readJointFloat(this.world, this.record(), DJ_MIN_LENGTH);
     }
 
     /** @returns the maximum length. */
     getMaxLength(): number {
-        return this.data().maxLength;
+        return readJointFloat(this.world, this.record(), DJ_MAX_LENGTH);
     }
 
     /** @returns the current distance between the anchor points. */
     getCurrentLength(): number {
-        return distanceJointCurrentLength(this.world, this.sim());
+        return distanceJointCurrentLength(this.world, this.record());
     }
 
     /** Enable/disable the spring. */
     enableSpring(enable: boolean): void {
-        this.data().enableSpring = enable;
+        writeJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_SPRING, enable);
     }
 
     /** @returns whether the spring is enabled. */
     isSpringEnabled(): boolean {
-        return this.data().enableSpring;
+        return readJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_SPRING);
     }
 
     /** Set the spring reaction-force range. */
     setSpringForceRange(lowerForce: number, upperForce: number): void {
-        const j = this.data();
-        j.lowerSpringForce = f32(lowerForce);
-        j.upperSpringForce = f32(upperForce);
+        writeJointFloat(this.world, this.record(), DJ_LOWER_SPRING_FORCE, f32(lowerForce));
+        writeJointFloat(this.world, this.record(), DJ_UPPER_SPRING_FORCE, f32(upperForce));
     }
 
     /** @returns the spring reaction-force range. */
-    getSpringForceRange(): { lowerForce: number; upperForce: number } {
-        const j = this.data();
-        return { lowerForce: j.lowerSpringForce, upperForce: j.upperSpringForce };
+    getSpringForceRange(): {
+        lowerForce: number;
+        upperForce: number;
+    } {
+        return {
+            lowerForce: readJointFloat(this.world, this.record(), DJ_LOWER_SPRING_FORCE),
+            upperForce: readJointFloat(this.world, this.record(), DJ_UPPER_SPRING_FORCE),
+        };
     }
 
     /** Set the spring frequency (Hz). */
     setSpringHertz(hertz: number): void {
-        this.data().hertz = f32(hertz);
+        writeJointFloat(this.world, this.record(), DJ_HERTZ, f32(hertz));
     }
 
     /** @returns the spring frequency (Hz). */
     getSpringHertz(): number {
-        return this.data().hertz;
+        return readJointFloat(this.world, this.record(), DJ_HERTZ);
     }
 
     /** Set the spring damping ratio. */
     setSpringDampingRatio(dampingRatio: number): void {
-        this.data().dampingRatio = f32(dampingRatio);
+        writeJointFloat(this.world, this.record(), DJ_DAMPING_RATIO, f32(dampingRatio));
     }
 
     /** @returns the spring damping ratio. */
     getSpringDampingRatio(): number {
-        return this.data().dampingRatio;
+        return readJointFloat(this.world, this.record(), DJ_DAMPING_RATIO);
     }
 
     /**
@@ -443,32 +502,31 @@ export class DistanceJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableMotor(enable: boolean): void {
-        const j = this.data();
-        if (enable !== j.enableMotor) {
-            j.enableMotor = enable;
-            j.motorImpulse = 0;
+        if (enable !== readJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_MOTOR)) {
+            writeJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_MOTOR, enable);
+            writeJointFloat(this.world, this.record(), DJ_MOTOR_IMPULSE, 0);
         }
     }
 
     /** @returns whether the motor is enabled. */
     isMotorEnabled(): boolean {
-        return this.data().enableMotor;
+        return readJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_MOTOR);
     }
 
     /** Set the motor target speed, waking the connected bodies. */
     setMotorSpeed(speed: number): void {
-        this.data().motorSpeed = f32(speed);
+        writeJointFloat(this.world, this.record(), DJ_MOTOR_SPEED, f32(speed));
         wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the motor target speed. */
     getMotorSpeed(): number {
-        return this.data().motorSpeed;
+        return readJointFloat(this.world, this.record(), DJ_MOTOR_SPEED);
     }
 
     /** @returns the force the motor applied last step. */
     getMotorForce(): number {
-        return f32(this.world.invH * this.data().motorImpulse);
+        return f32(this.world.invH * readJointFloat(this.world, this.record(), DJ_MOTOR_IMPULSE));
     }
 
     /**
@@ -476,102 +534,95 @@ export class DistanceJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     setMaxMotorForce(force: number): void {
-        this.data().maxMotorForce = f32(force);
+        writeJointFloat(this.world, this.record(), DJ_MAX_MOTOR_FORCE, f32(force));
     }
 
     /** @returns the maximum motor force. */
     getMaxMotorForce(): number {
-        return this.data().maxMotorForce;
+        return readJointFloat(this.world, this.record(), DJ_MAX_MOTOR_FORCE);
     }
 }
 
 /** A prismatic (slider) joint handle. */
 export class PrismaticJoint extends Joint {
-    private data(): PrismaticJointData {
-        return this.sim().data as PrismaticJointData;
-    }
-
     /** Enable/disable the translation limit; resets limit impulses on change. */
     enableLimit(enable: boolean): void {
-        const j = this.data();
-        if (enable !== j.enableLimit) {
-            j.lowerImpulse = 0;
-            j.upperImpulse = 0;
+        if (enable !== readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_LIMIT)) {
+            writeJointFloat(this.world, this.record(), PJ_LOWER_IMPULSE, 0);
+            writeJointFloat(this.world, this.record(), PJ_UPPER_IMPULSE, 0);
         }
-        j.enableLimit = enable;
+        writeJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_LIMIT, enable);
     }
 
     /** @returns whether the translation limit is enabled. */
     isLimitEnabled(): boolean {
-        return this.data().enableLimit;
+        return readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_LIMIT);
     }
 
     /** @returns the lower translation limit. */
     getLowerLimit(): number {
-        return this.data().lowerTranslation;
+        return readJointFloat(this.world, this.record(), PJ_LOWER_TRANSLATION);
     }
 
     /** @returns the upper translation limit. */
     getUpperLimit(): number {
-        return this.data().upperTranslation;
+        return readJointFloat(this.world, this.record(), PJ_UPPER_TRANSLATION);
     }
 
     /** Set the translation limits (ordered low..high). */
     setLimits(lower: number, upper: number): void {
         const lo = f32(lower);
         const hi = f32(upper);
-        const j = this.data();
-        j.lowerTranslation = lo < hi ? lo : hi;
-        j.upperTranslation = lo > hi ? lo : hi;
+        writeJointFloat(this.world, this.record(), PJ_LOWER_TRANSLATION, lo < hi ? lo : hi);
+        writeJointFloat(this.world, this.record(), PJ_UPPER_TRANSLATION, lo > hi ? lo : hi);
     }
 
     /** @returns the current translation along the joint axis. */
     getTranslation(): number {
-        return prismaticJointTranslation(this.world, this.sim());
+        return prismaticJointTranslation(this.world, this.record());
     }
 
     /** Enable/disable the spring; resets the spring impulse on change. */
     enableSpring(enable: boolean): void {
-        const j = this.data();
-        if (enable !== j.enableSpring) {
-            j.springImpulse = 0;
+        if (enable !== readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_SPRING)) {
+            writeJointFloat(this.world, this.record(), PJ_SPRING_IMPULSE, 0);
         }
-        j.enableSpring = enable;
+        writeJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_SPRING, enable);
     }
 
     /** @returns whether the spring is enabled. */
     isSpringEnabled(): boolean {
-        return this.data().enableSpring;
+        return readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_SPRING);
     }
 
     /** Set the spring target translation. */
     setTargetTranslation(target: number): void {
-        this.data().targetTranslation = f32(target);
+        writeJointFloat(this.world, this.record(), PJ_TARGET_TRANSLATION, f32(target));
     }
 
     /** @returns the spring target translation. */
     getTargetTranslation(): number {
-        return this.data().targetTranslation;
+        return readJointFloat(this.world, this.record(), PJ_TARGET_TRANSLATION);
     }
 
     /** Set the spring frequency (Hz). */
     setSpringHertz(hertz: number): void {
-        this.data().hertz = f32(hertz);
+        writeJointFloat(this.world, this.record(), PJ_HERTZ, f32(hertz));
     }
 
     /** @returns the spring frequency (Hz). */
     getSpringHertz(): number {
-        return this.data().hertz;
+        return readJointFloat(this.world, this.record(), PJ_HERTZ);
     }
 
     /** Set the spring damping ratio. */
     setSpringDampingRatio(dampingRatio: number): void {
-        this.data().dampingRatio = f32(dampingRatio);
+        writeJointFloat(this.world, this.record(), PJ_DAMPING_RATIO, f32(dampingRatio));
     }
 
     /** @returns the spring damping ratio. */
     getSpringDampingRatio(): number {
-        return this.data().dampingRatio;
+        return readJointFloat(this.world, this.record(), PJ_DAMPING_RATIO);
     }
 
     /**
@@ -579,27 +630,26 @@ export class PrismaticJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableMotor(enable: boolean): void {
-        const j = this.data();
-        if (enable !== j.enableMotor) {
-            j.motorImpulse = 0;
+        if (enable !== readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_MOTOR)) {
+            writeJointFloat(this.world, this.record(), PJ_MOTOR_IMPULSE, 0);
         }
-        j.enableMotor = enable;
+        writeJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_MOTOR, enable);
     }
 
     /** @returns whether the motor is enabled. */
     isMotorEnabled(): boolean {
-        return this.data().enableMotor;
+        return readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_MOTOR);
     }
 
     /** Set the motor target speed, waking the connected bodies. */
     setMotorSpeed(speed: number): void {
-        this.data().motorSpeed = f32(speed);
+        writeJointFloat(this.world, this.record(), PJ_MOTOR_SPEED, f32(speed));
         wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the motor target speed. */
     getMotorSpeed(): number {
-        return this.data().motorSpeed;
+        return readJointFloat(this.world, this.record(), PJ_MOTOR_SPEED);
     }
 
     /**
@@ -607,21 +657,21 @@ export class PrismaticJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     setMaxMotorForce(force: number): void {
-        this.data().maxMotorForce = f32(force);
+        writeJointFloat(this.world, this.record(), PJ_MAX_MOTOR_FORCE, f32(force));
     }
 
     /** @returns the maximum motor force. */
     getMaxMotorForce(): number {
-        return this.data().maxMotorForce;
+        return readJointFloat(this.world, this.record(), PJ_MAX_MOTOR_FORCE);
     }
 
     /** @returns the force the motor applied last step. */
     getMotorForce(): number {
-        return f32(this.world.invH * this.data().motorImpulse);
+        return f32(this.world.invH * readJointFloat(this.world, this.record(), PJ_MOTOR_IMPULSE));
     }
 
     /** @returns the current translation speed along the joint axis. */
     getSpeed(): number {
-        return prismaticJointSpeed(this.world, this.sim());
+        return prismaticJointSpeed(this.world, this.record());
     }
 }

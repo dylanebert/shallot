@@ -29,9 +29,16 @@ import {
     SetType,
 } from "../common/constants";
 import { BodyType } from "../common/types";
+import {
+    appendJointRecord,
+    jointArrayCount,
+    jointAt,
+    moveJointRecord,
+    removeJointRecord,
+} from "../kernel/jointcolumns";
 import type { SolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
-import { emptyJointSim, type Joint, type JointSim } from "./joint";
+import type { Joint } from "./joint";
 
 /** One touching contact's entry in a graph color (b3ContactSpec). */
 export type ContactSpec = { contactId: number; manifoldStart: number; manifoldCount: number };
@@ -42,7 +49,6 @@ export type GraphColor = {
     bodySet: BitSet;
     contacts: ContactSpec[];
     convexContacts: number[];
-    jointSims: JointSim[];
 };
 
 /** The solver constraint graph (b3ConstraintGraph). */
@@ -58,7 +64,7 @@ export function createGraph(bodyCapacity: number): ConstraintGraph {
         if (i < OVERFLOW_INDEX) {
             setBitCountAndClear(bodySet, cap);
         }
-        colors.push({ bodySet, contacts: [], convexContacts: [], jointSims: [] });
+        colors.push({ bodySet, contacts: [], convexContacts: [] });
     }
     return { colors };
 }
@@ -187,9 +193,8 @@ export function removeContactFromGraph(
     }
 }
 
-/** Clone a joint sim into its assigned color while awake (b3CreateJointInGraph).
- * @returns the fresh (zeroed) sim to fill. */
-export function createJointInGraph(world: WorldState, joint: Joint): JointSim {
+/** Allocate a zeroed sim in the joint's assigned graph color (b3CreateJointInGraph). */
+export function createJointInGraph(world: WorldState, joint: Joint): void {
     const graph = world.constraintGraph;
     const bodyA = world.bodies[joint.edges[0].bodyId];
     const bodyB = world.bodies[joint.edges[1].bodyId];
@@ -201,17 +206,12 @@ export function createJointInGraph(world: WorldState, joint: Joint): JointSim {
         bodyB.type,
     );
 
-    const color = graph.colors[colorIndex];
-    const sim = emptyJointSim();
-    color.jointSims.push(sim);
     joint.colorIndex = colorIndex;
-    joint.localIndex = color.jointSims.length - 1;
-    return sim;
+    joint.localIndex = appendJointRecord(world, colorIndex);
 }
 
-// Re-home an existing joint sim into its assigned color (b3AddJointToGraph, used by wake/transfer).
-// The port moves the sim object itself (the source array element is dropped), preserving its impulses.
-export function addJointToGraph(world: WorldState, jointSim: JointSim, joint: Joint): void {
+// Copy into the target color and swap-remove the source, as b3AddJointToGraph does.
+export function addJointToGraph(world: WorldState, joint: Joint): void {
     const graph = world.constraintGraph;
     const bodyA = world.bodies[joint.edges[0].bodyId];
     const bodyB = world.bodies[joint.edges[1].bodyId];
@@ -223,10 +223,9 @@ export function addJointToGraph(world: WorldState, jointSim: JointSim, joint: Jo
         bodyB.type,
     );
 
-    const color = graph.colors[colorIndex];
-    color.jointSims.push(jointSim);
+    const destination = moveJointRecord(world, joint, colorIndex);
     joint.colorIndex = colorIndex;
-    joint.localIndex = color.jointSims.length - 1;
+    joint.localIndex = destination;
 }
 
 // Remove a joint from its graph color (b3RemoveJointFromGraph).
@@ -245,11 +244,7 @@ export function removeJointFromGraph(
         clearBit(color.bodySet, bodyIdB);
     }
 
-    const movedIndex = swapRemove(color.jointSims, localIndex);
-    if (movedIndex !== NULL_INDEX) {
-        const movedJoint = world.joints[color.jointSims[localIndex].jointId];
-        movedJoint.localIndex = localIndex;
-    }
+    removeJointRecord(world, colorIndex, localIndex);
 }
 
 /** Move a sleeping set's touching contacts and joints into the constraint graph (part of
@@ -261,10 +256,12 @@ export function wakeSetConstraints(world: WorldState, set: SolverSet): void {
         contact.setIndex = SetType.Awake;
     }
 
-    for (let i = 0; i < set.jointSims.length; ++i) {
-        const jointSim = set.jointSims[i];
-        const joint = world.joints[jointSim.jointId];
-        addJointToGraph(world, jointSim, joint);
+    const key = GRAPH_COLOR_COUNT + set.setIndex;
+    const count = jointArrayCount(world, key);
+    for (let i = 0; i < count; ++i) {
+        // Swap-removal parks the original tail in the consumed prefix; visit original order.
+        const joint = jointAt(world, key, Math.min(i, count - 1 - i));
+        addJointToGraph(world, joint);
         joint.setIndex = SetType.Awake;
     }
 }

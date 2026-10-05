@@ -57,7 +57,6 @@ export type Kernel = {
         point: number,
         wide: number,
         color: number,
-        joint: number,
     ): void;
     layoutPtr(): number;
 
@@ -292,6 +291,16 @@ export type Kernel = {
     // writes the input through `dispatchPtr`; `dispatchContacts` computes each record
     // over the geometry + manifold columns, and the finish pass reads the touching flags at `dispatchOutPtr`.
     reserveDispatch(count: number, meshCount: number, threads: number): void;
+    jointArrayRelease(key: number): void;
+    jointArrayCount(key: number): number;
+    jointArrayPtr(key: number): number;
+    jointArrayAppend(key: number): number;
+    jointArrayRemove(key: number, index: number): number;
+    jointArrayMove(source: number, index: number, target: number): number;
+    jointReadFloat(key: number, index: number, field: number): number;
+    jointWriteFloat(key: number, index: number, field: number, value: number): void;
+    jointReadWord(key: number, index: number, field: number): number;
+    jointWriteWord(key: number, index: number, field: number, value: number): void;
     meshCacheCapacity(worldId: number): number;
     ensureMeshCache(contactId: number): void;
     freeMeshCache(contactId: number): void;
@@ -325,7 +334,6 @@ export type Kernel = {
         overflowStart: number,
         overflowCount: number,
         jointTotal: number,
-        overflowJointStart: number,
         overflowJointCount: number,
         gx: number,
         gy: number,

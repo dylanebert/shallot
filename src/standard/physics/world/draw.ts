@@ -22,6 +22,8 @@ import {
     xf,
 } from "../common/math";
 import { BodyType, ShapeType, type SurfaceMaterial } from "../common/types";
+import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
+import { readJointTransform } from "../kernel/jointcolumns";
 import { readFatAabb } from "../kernel/shapecolumns";
 import * as tree from "../kernel/treecolumns";
 
@@ -33,12 +35,7 @@ import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
 import type { Mesh } from "../shapes/mesh";
 import type { Shape } from "../shapes/shape";
-import {
-    getJointConstraintForce,
-    getJointConstraintTorque,
-    getJointSim,
-    JointType,
-} from "../solver/joint";
+import { getJointConstraintForce, getJointConstraintTorque, JointType } from "../solver/joint";
 import { type Body, BodyFlags, getBodySim, getBodyTransformQuick } from "./body";
 import type { WorldState } from "./world";
 
@@ -235,11 +232,12 @@ function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
     const bodyB = world.bodies[joint.edges[1].bodyId];
     if (bodyA.setIndex === SetType.Disabled || bodyB.setIndex === SetType.Disabled) return;
 
-    const sim = getJointSim(world, joint);
+    const frameA = readJointTransform(world, joint, J_LOCAL_FRAME_A);
+    const frameB = readJointTransform(world, joint, J_LOCAL_FRAME_B);
     const transformA = getBodyTransformQuick(world, bodyA);
     const transformB = getBodyTransformQuick(world, bodyB);
-    const pA = transformWorldPoint(transformA, sim.localFrameA.p);
-    const pB = transformWorldPoint(transformB, sim.localFrameB.p);
+    const pA = transformWorldPoint(transformA, frameA.p);
+    const pB = transformWorldPoint(transformB, frameB.p);
 
     if (joint.type === JointType.Filter) {
         draw.drawSegment(pA, pB, DebugColor.gold);
@@ -261,8 +259,8 @@ function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
     draw.drawTransform({ p: pB, q: transformB.q });
 
     if (draw.drawJointExtras) {
-        const force = getJointConstraintForce(world, sim);
-        const torque = getJointConstraintTorque(world, sim);
+        const force = getJointConstraintForce(world, joint);
+        const torque = getJointConstraintTorque(world, joint);
         const p = vec3.lerp(pA, pB, 0.5);
         draw.drawSegment(p, vec3.mulAdd(p, 0.001, force), DebugColor.azure);
         const fLen = vec3.length(force);

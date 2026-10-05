@@ -43,10 +43,9 @@ pub unsafe fn reserve_scratch(bytes: usize) -> usize {
     scratch.reserve(bytes);
     scratch.ptr
 }
-const N_COLS: usize = 16;
-/// u32 stride of one active-color span: wideStart, wideCount, meshStart, meshCount, jointStart,
-/// jointCount. The joint pair is written by `writeColorSpans`; the jointless batched path reads only
-/// the first four (`warm_start_colors` etc), the staged solve reads all six (`solve_build`).
+const N_COLS: usize = 15;
+/// Active-color span: wideStart, wideCount, meshStart, meshCount, jointArrayKey, jointCount.
+/// The staged solve selects the resident joint array by key.
 pub(crate) const COLOR_SPAN_STRIDE: usize = 6;
 
 /// The worker index the serial (single-crossing) shims run as — the thread driving the step is always
@@ -73,9 +72,6 @@ const WIDE_META: usize = 12;
 const WIDE_IDX: usize = 13;
 // Per-active-color spans (wide/mesh/joint start+count) for the batched color loop + staged solve.
 const COLOR_SPAN: usize = 14;
-// Flat joint records — one `joint_abi::JOINT_STRIDE` record per joint slot, per-color concatenated
-// then the overflow joints (the staged solve's `PrepareJoints` sweep + colored joint blocks).
-const JOINT: usize = 15;
 
 /// Per-column byte offsets into linear memory, rewritten by every `reserve`. TS reads this header
 /// (`layoutPtr`) to build its column views.
@@ -90,8 +86,6 @@ static mut POINT_COUNT: usize = 0;
 static mut WIDE_COUNT: usize = 0;
 // Active color count — the number of spans in the COLOR_SPAN column the batched shims loop over.
 static mut COLOR_COUNT: usize = 0;
-// Flat joint slot count (colored joints, per-color concatenated, then the overflow joints).
-static mut JOINT_COUNT: usize = 0;
 
 /// Column of `len` f32 at `LAYOUT[idx]`. `len` must match the reserved column size.
 ///
@@ -127,7 +121,6 @@ pub extern "C" fn reserve(
     point: usize,
     wide: usize,
     color: usize,
-    joint: usize,
 ) {
     unsafe {
         BODY_COUNT = body;
@@ -136,7 +129,6 @@ pub extern "C" fn reserve(
         POINT_COUNT = point;
         WIDE_COUNT = wide;
         COLOR_COUNT = color;
-        JOINT_COUNT = joint;
 
         // The body columns are resident (4a.2/4a.3): `state` + `flags` (velocity/delta/flags),
         // and `sim` + `fin` + `finOut` (the integrate/finalize sim fields) live in the persistent body
@@ -171,8 +163,6 @@ pub extern "C" fn reserve(
         off += wide * WIDE_IDX_STRIDE * 4;
         LAYOUT[COLOR_SPAN] = off as u32;
         off += color * COLOR_SPAN_STRIDE * 4;
-        LAYOUT[JOINT] = off as u32;
-        off += joint * crate::joint_abi::JOINT_STRIDE * 4;
 
         let continuous_offset = off;
         off += body * crate::continuous::STRIDE * 4;
@@ -247,12 +237,6 @@ pub(crate) unsafe fn body_count() -> usize {
 pub(crate) unsafe fn color_span_column() -> (Col<'static, u32>, usize) {
     let c = COLOR_COUNT;
     (u32s(COLOR_SPAN, c * COLOR_SPAN_STRIDE), c)
-}
-
-/// The flat joint column (`joint_abi::JOINT_STRIDE` f32 per slot), as the staged solve's joint phases
-/// read/write it. TS marshals the records in (`src/jointcolumns.ts`) and reads the solved impulses back.
-pub(crate) unsafe fn joint_column() -> Col<'static, f32> {
-    f32s(JOINT, JOINT_COUNT * crate::joint_abi::JOINT_STRIDE)
 }
 
 // --- convex narrowphase batched dispatch (3c.3) ---------------------------------------------
