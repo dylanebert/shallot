@@ -223,21 +223,20 @@ export const PLJ_QUAT_B = J_PAYLOAD + 9;
 // Contact dispatch ABI (arena.rs). Geometry is sphere center/radius, capsule endpoints/radius,
 // hull record index, mesh extra-pool offset/scale, or height/compound extra-pool offset. A compound
 // also supplies its child index. Mesh slots address opaque cache, manifold and point-material spans.
-export const DISPATCH_STRIDE = 42;
-export const D_OLD_COUNT = 41;
-export const D_CHILD = 31;
-export const D_MESH_SLOT = 32;
-export const D_FAST = 33;
-export const D_LOWER = 34;
-export const D_UPPER = 37;
-export const D_CACHE_VALID = 40;
+export const DISPATCH_STRIDE = 29;
+export const D_OLD_COUNT = 28;
+export const D_CHILD = 19;
+export const D_MESH_SLOT = 20;
+export const D_LOWER = 21;
+export const D_UPPER = 24;
+export const D_CACHE_VALID = 27;
 export const D_CONTACT = 0;
 export const D_TYPE_A = 1;
 export const D_TYPE_B = 2;
-export const D_XF_A = 3; // p3 + q4
-export const D_XF_B = 10; // p3 + q4
-export const D_GEOM_A = 17; // ≤7 slots
-export const D_GEOM_B = 24; // ≤7 slots
+export const D_BODY_A = 3;
+export const D_BODY_B = 4;
+export const D_GEOM_A = 5; // ≤7 slots
+export const D_GEOM_B = 12; // ≤7 slots
 
 // Recycle ABI (arena.rs). An awake localIndex addresses resident body columns; NULL_INDEX selects
 // that body's fallback tail (transform7, center3, extent3). Cached poses remain kernel-owned.

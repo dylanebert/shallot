@@ -13,12 +13,13 @@ import {
     xf,
 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "../common/types";
-import { readSimLocalCenter, readSimTransform } from "../kernel/bodycolumns";
+import { readSimTransform } from "../kernel/bodycolumns";
 import {
+    D_BODY_A,
+    D_BODY_B,
     D_CACHE_VALID,
     D_CHILD,
     D_CONTACT,
-    D_FAST,
     D_GEOM_A,
     D_GEOM_B,
     D_LOWER,
@@ -27,8 +28,6 @@ import {
     D_TYPE_A,
     D_TYPE_B,
     D_UPPER,
-    D_XF_A,
-    D_XF_B,
     DISPATCH_STRIDE,
     R_BITS,
     R_CONTACT,
@@ -44,6 +43,7 @@ import {
     RECYCLE_STRIDE,
 } from "../kernel/columns";
 import { type Kernel, kernel, ParKind, runPool, threads, workers } from "../kernel/kernel";
+import { bodyColumnIndex } from "../kernel/stagedbodies";
 import { getCompoundChild } from "../shapes/compound";
 import {
     getShapeMaterial,
@@ -63,8 +63,8 @@ const stateChanges: number[] = [];
 const results: number[] = [];
 const zero: Vec3 = { x: 0, y: 0, z: 0 };
 const NO_MANIFOLDS: Manifold[] = [];
-const centerA = vec3.zero();
-const centerB = vec3.zero();
+const poseA = xf.identity();
+const poseB = xf.identity();
 const tangentA = vec3.zero();
 const tangentB = vec3.zero();
 const materialA = defaultSurfaceMaterial();
@@ -83,12 +83,9 @@ type ContactJob = {
     contact: Contact;
     shapeA: Shape;
     shapeB: Shape;
-    xfA: WorldTransform;
-    xfB: WorldTransform;
-    localCenterA: Vec3;
-    localCenterB: Vec3;
+    bodyA: number;
+    bodyB: number;
     wasTouching: boolean;
-    isFast: boolean;
     meshSlot: number;
     result: Uint32Array | null;
     materials: Uint32Array | null;
@@ -158,8 +155,6 @@ function collect(world: WorldState, contact: Contact): void {
     if (world.bodyStore.stale) world.bodyStore.refreshViews();
     const shapeA = world.shapes[contact.shapeIdA];
     const shapeB = world.shapes[contact.shapeIdB];
-    const simA = getBodySim(world, world.bodies[shapeA.bodyId]);
-    const simB = getBodySim(world, world.bodies[shapeB.bodyId]);
     const mesh = (contact.flags & ContactFlags.simMeshContact) !== 0;
     let job = jobs[jobCount];
     if (job === undefined) {
@@ -167,12 +162,9 @@ function collect(world: WorldState, contact: Contact): void {
             contact,
             shapeA,
             shapeB,
-            xfA: xf.identity(),
-            xfB: xf.identity(),
-            localCenterA: vec3.zero(),
-            localCenterB: vec3.zero(),
+            bodyA: 0,
+            bodyB: 0,
             wasTouching: false,
-            isFast: false,
             meshSlot: -1,
             result: null,
             materials: null,
@@ -189,12 +181,9 @@ function collect(world: WorldState, contact: Contact): void {
     job.contact = contact;
     job.shapeA = shapeA;
     job.shapeB = shapeB;
-    readSimTransform(simA, job.xfA);
-    readSimTransform(simB, job.xfB);
-    readSimLocalCenter(simA, job.localCenterA);
-    readSimLocalCenter(simB, job.localCenterB);
+    job.bodyA = bodyColumnIndex(world, world.bodies[shapeA.bodyId]);
+    job.bodyB = bodyColumnIndex(world, world.bodies[shapeB.bodyId]);
     job.wasTouching = (contact.flags & ContactFlags.simTouchingFlag) !== 0;
-    job.isFast = ((simA.flags | simB.flags) & BodyFlags.isFast) !== 0;
     job.meshSlot = mesh ? 0 : -1;
     ++jobCount;
 }
@@ -271,7 +260,7 @@ function finishMeshMaterial(
             : rollingRadius(job.shapeB);
     contact.rollingResistance = f32(materialB.rollingResistance * radius);
     quat.rotateOut(xfA.q, tangentA, tangentA);
-    quat.rotateOut(job.xfB.q, materialB.tangentVelocity, tangentB);
+    quat.rotateOut(poseB.q, materialB.tangentVelocity, tangentB);
     vec3.subOut(tangentA, tangentB, contact.tangentVelocity);
 }
 function finish(world: WorldState, job: ContactJob, count: number): void {
@@ -299,8 +288,12 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
     if (world.bodyStore.stale) world.bodyStore.refreshViews();
     let shapeA = job.shapeA,
         shapeB = job.shapeB;
-    let xfA = job.xfA,
-        xfB = job.xfB;
+    const simA = getBodySim(world, world.bodies[job.shapeA.bodyId]);
+    const simB = getBodySim(world, world.bodies[job.shapeB.bodyId]);
+    readSimTransform(simA, poseA);
+    readSimTransform(simB, poseB);
+    let xfA = poseA,
+        xfB = poseB;
     let materialMap: number[] | null = null;
     if (shapeA.type === ShapeType.Compound) {
         const child = getCompoundChild(shapeA.compound!, contact.childIndex);
@@ -314,7 +307,7 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
         };
         materialMap = child.materialIndices;
         if (child.type === ShapeType.Hull || child.type === ShapeType.Mesh)
-            xfA = mulWorldTransforms(job.xfA, child.transform);
+            xfA = mulWorldTransforms(poseA, child.transform);
         if (
             (child.type === ShapeType.Sphere && shapeB.type !== ShapeType.Sphere) ||
             (child.type === ShapeType.Capsule && shapeB.type === ShapeType.Hull)
@@ -363,9 +356,6 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
     if (job.shapeA.enableHitEvents || job.shapeB.enableHitEvents)
         contact.flags |= ContactFlags.simEnableHitEvent;
     else contact.flags &= ~ContactFlags.simEnableHitEvent;
-    quat.rotateOut(job.xfA.q, job.localCenterA, centerA);
-    quat.rotateOut(job.xfB.q, job.localCenterB, centerB);
-    world.manifoldStore.shiftAnchors(contact.contactId, contact.manifoldCount, centerA, centerB);
     contact.flags |= ContactFlags.simTouchingFlag;
     if (!job.wasTouching) {
         contact.flags |= ContactFlags.simStartedTouching;
@@ -392,13 +382,12 @@ function dispatch(world: WorldState): void {
         u[r + D_CONTACT] = job.contact.contactId;
         u[r + D_TYPE_A] = job.shapeA.type;
         u[r + D_TYPE_B] = job.shapeB.type;
-        writeXf(f, r + D_XF_A, job.xfA);
-        writeXf(f, r + D_XF_B, job.xfB);
+        u[r + D_BODY_A] = job.bodyA;
+        u[r + D_BODY_B] = job.bodyB;
         writeGeom(world, f, u, r + D_GEOM_A, job.shapeA);
         writeGeom(world, f, u, r + D_GEOM_B, job.shapeB);
         u[r + D_CHILD] = job.contact.childIndex;
         u[r + D_MESH_SLOT] = job.meshSlot;
-        u[r + D_FAST] = Number(job.isFast);
         u[r + D_OLD_COUNT] = job.contact.manifoldCount;
         u[r + D_CACHE_VALID] = Number(job.contact.kernelMeshCache !== null);
         if (job.meshSlot !== -1) {

@@ -264,14 +264,13 @@ pub(crate) unsafe fn joint_column() -> Col<'static, f32> {
 
 /// Dispatch ABI, mirrored by kernel/columns.ts. Geometry references are allocation-independent
 /// indices; mesh caches are opaque spans copied across calls, never pointers into the geometry pool.
-const DISPATCH_STRIDE: usize = 42;
-const D_OLD_COUNT: usize = 41;
-const D_CHILD: usize = 31;
-const D_MESH_SLOT: usize = 32;
-const D_FAST: usize = 33;
-const D_LOWER: usize = 34;
-const D_UPPER: usize = 37;
-const D_CACHE_VALID: usize = 40;
+const DISPATCH_STRIDE: usize = 29;
+const D_OLD_COUNT: usize = 28;
+const D_CHILD: usize = 19;
+const D_MESH_SLOT: usize = 20;
+const D_LOWER: usize = 21;
+const D_UPPER: usize = 24;
+const D_CACHE_VALID: usize = 27;
 
 static mut MESH_CACHE_PTR: usize = 0;
 static mut MESH_OUTPUT_PTR: usize = 0;
@@ -285,10 +284,10 @@ struct DispatchScratch {
 const D_CONTACT: usize = 0;
 const D_TYPE_A: usize = 1;
 const D_TYPE_B: usize = 2;
-const D_XF_A: usize = 3; // p3 + q4
-const D_XF_B: usize = 10; // p3 + q4
-const D_GEOM_A: usize = 17; // ≤7 slots (sphere c3+r / capsule c1_3+c2_3+r / hull geoIndex)
-const D_GEOM_B: usize = 24; // ≤7 slots
+const D_BODY_A: usize = 3;
+const D_BODY_B: usize = 4;
+const D_GEOM_A: usize = 5; // ≤7 slots (sphere c3+r / capsule c1_3+c2_3+r / hull geoIndex)
+const D_GEOM_B: usize = 12; // ≤7 slots
 
 static mut DISPATCH_PTR: u32 = 0;
 static mut DISPATCH_OUT_PTR: u32 = 0;
@@ -466,6 +465,9 @@ unsafe fn dispatch_mesh(
     child_offset: Vec3,
     contact_id: usize,
     thread: usize,
+    fast: bool,
+    center_a: Vec3,
+    center_b: Vec3,
 ) -> usize {
     use crate::mesh_contact::{compute_mesh_manifolds, MeshCache, TriangleSource, MAX_TRIANGLES};
     let slot = disp[r + D_MESH_SLOT] as usize;
@@ -553,7 +555,7 @@ unsafe fn dispatch_mesh(
         &shape,
         xf_a,
         xf_b,
-        disp[r + D_FAST] != 0,
+        fast,
         &mut scratch.old[..old_count],
     );
     let output_ptr = (MESH_OUTPUT_PTR as *mut f32).add(slot * MAX_TRIANGLES * MANIFOLD_STRIDE);
@@ -564,6 +566,10 @@ unsafe fn dispatch_mesh(
         let m = &mut scratch.mesh.output[i];
         for p in &mut m.points[..m.point_count] {
             p.anchor_a = p.anchor_a.add(child_offset);
+        }
+        for p in &mut m.points[..m.point_count] {
+            p.anchor_a = p.anchor_a.sub(center_a);
+            p.anchor_b = p.anchor_b.sub(center_b);
         }
         write_manifold(m, output, i);
         let o = i * MANIFOLD_STRIDE;
@@ -657,14 +663,35 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
         let out = Col::new(DISPATCH_OUT_PTR as *mut u32, total);
         let dir = manifolds::dir_col();
         let pool = manifolds::pool_col();
+        let cap = crate::bodies::body_cap();
+        let sim =
+            core::slice::from_raw_parts(crate::bodies::sim_base() as *const f32, cap * SIM_STRIDE);
+        let fin =
+            core::slice::from_raw_parts(crate::bodies::fin_base() as *const f32, cap * FIN_STRIDE);
+        let sim2 = core::slice::from_raw_parts(
+            crate::bodies::sim2_base() as *const u32,
+            cap * SIM2_STRIDE,
+        );
         for i in start..end {
             let r = i * DISPATCH_STRIDE;
             let contact_id = disp[r + D_CONTACT] as usize;
             let mut type_a = disp[r + D_TYPE_A];
             let type_b = disp[r + D_TYPE_B];
-            let parent_xf = read_xf(disp, r + D_XF_A);
+            let body_a = disp[r + D_BODY_A] as usize;
+            let body_b = disp[r + D_BODY_B] as usize;
+            let parent_xf = read_body_xf(sim, fin, body_a);
             let mut xf_a = parent_xf;
-            let xf_b = read_xf(disp, r + D_XF_B);
+            let xf_b = read_body_xf(sim, fin, body_b);
+            let local_center = |i: usize| {
+                let o = i * FIN_STRIDE + 3;
+                Vec3::new(fin[o], fin[o + 1], fin[o + 2])
+            };
+            let center_a = parent_xf.q.rotate(local_center(body_a));
+            let center_b = xf_b.q.rotate(local_center(body_b));
+            let fast = (sim2[body_a * SIM2_STRIDE + crate::body::S2_FLAGS]
+                | sim2[body_b * SIM2_STRIDE + crate::body::S2_FLAGS])
+                & 0x40
+                != 0;
             let mut geom_a = &disp[r + D_GEOM_A..r + D_GEOM_A + 7];
             let mut child_offset = Vec3::ZERO;
             if type_a == 1 {
@@ -691,6 +718,9 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                     child_offset,
                     contact_id,
                     thread,
+                    fast,
+                    center_a,
+                    center_b,
                 );
                 out.set(i, count as u32);
                 continue;
@@ -738,6 +768,10 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             }
             for p in &mut m.points[..m.point_count] {
                 p.anchor_a = p.anchor_a.add(child_offset);
+            }
+            for p in &mut m.points[..m.point_count] {
+                p.anchor_a = p.anchor_a.sub(center_a);
+                p.anchor_b = p.anchor_b.sub(center_b);
             }
             if resident {
                 write_manifold(&m, pool, base);

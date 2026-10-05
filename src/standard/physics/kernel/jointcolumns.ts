@@ -217,11 +217,11 @@ function writeRecord(
     u32[base + J_SIM_INDEX_B] =
         bodyB.setIndex === SetType.Awake ? bodyB.localIndex : NULL_INDEX >>> 0;
 
-    const awakeCount = world.solverSets[SetType.Awake].bodySims.length;
+    const staticBase = world.stagedBodyOffsets[SetType.Static];
     u32[base + J_BODY_INDEX_A] =
-        bodyA.setIndex === SetType.Awake ? bodyA.localIndex : awakeCount + bodyA.localIndex;
+        bodyA.setIndex === SetType.Awake ? bodyA.localIndex : staticBase + bodyA.localIndex;
     u32[base + J_BODY_INDEX_B] =
-        bodyB.setIndex === SetType.Awake ? bodyB.localIndex : awakeCount + bodyB.localIndex;
+        bodyB.setIndex === SetType.Awake ? bodyB.localIndex : staticBase + bodyB.localIndex;
     writeTransform(f32, base + J_LOCAL_FRAME_A, sim.localFrameA);
     writeTransform(f32, base + J_LOCAL_FRAME_B, sim.localFrameB);
     f32[base + J_CONSTRAINT_HERTZ] = sim.constraintHertz;
@@ -389,16 +389,6 @@ export function marshalJoints(world: WorldState, layout: SolveLayout, cols: Colu
     const f32 = cols.joint;
     const u32 = cols.jointU;
     const span = cols.colorSpan;
-
-    // Awake joints only connect awake or static bodies. Static sims are not resident; stage them
-    // once per body in the unused tail, outside the active prefix integrated by the solver.
-    // The body region is sized for the total-body high-water, so both sets fit without a reserve.
-    if (countJoints(world, layout) > 0) {
-        const awakeCount = world.solverSets[SetType.Awake].bodySims.length;
-        const staticSims = world.solverSets[SetType.Static].bodySims;
-        for (let i = 0; i < staticSims.length; i++)
-            world.bodyStore.writeSim(awakeCount + i, staticSims[i]);
-    }
 
     let slot = 0;
     for (let i = 0; i < layout.colors.length; ++i) {

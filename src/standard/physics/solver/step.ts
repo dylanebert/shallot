@@ -11,6 +11,7 @@ import { f32, maxInt, minf } from "../common/math";
 import { reserveBodies } from "../kernel/bodycolumns";
 import { rebuildGeometry } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
+import { stageBodies } from "../kernel/stagedbodies";
 import { resetStepProfile } from "../world/profile";
 import { overlapSensors } from "../world/sensor";
 import type { WorldState } from "../world/world";
@@ -134,6 +135,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
 
     // Narrow phase: update contacts.
     phaseStart = performance.now();
+    stageBodies(world);
     if (world.awakeContacts.length !== 0) collide(context);
     profile.collide = performance.now() - phaseStart;
 

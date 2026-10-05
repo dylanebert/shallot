@@ -123,6 +123,7 @@ export type WorldState = {
     // Resident body-state columns (velocity/delta/flags of awake bodies), held across steps in the
     // body region. The awake set's `bodyStates` are offset-backed views over this store (bodycolumns.ts).
     bodyStore: BodyStore;
+    stagedBodyOffsets: number[];
     // Resident shape column (type code + local geometry + nextShapeId, one record per shapeId), held
     // across steps so the in-kernel finalize refit walks a body's shape list without a marshal. Written
     // at shape create/destroy — no dirty set (shapecolumns.ts).
@@ -314,6 +315,7 @@ function makeWorldState(
         geometryUploadCount: 0,
         manifoldStore: createManifoldStore(world, worldId),
         bodyStore: createBodyStore(world, worldId),
+        stagedBodyOffsets: [],
         shapeStore: createShapeStore(world, worldId),
         sensors: [],
         queryColumns: null,
