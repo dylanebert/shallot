@@ -39,7 +39,13 @@ import {
 import { consumeContinuous, prepareContinuous, solveBullets } from "../kernel/continuouscolumns";
 import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
-import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
+import {
+    isConvexRefit,
+    S_CAND,
+    S_ESCAPED,
+    SHAPE_STRIDE,
+    writeTightAabb,
+} from "../kernel/shapecolumns";
 import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
 import { BODY_TRANSIENT_FLAGS, BodyFlags, getBodySim } from "../world/body";
 
@@ -326,7 +332,7 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
                     commitRefit(world, shape, box);
                 }
             }
-            world.shapeStore.writeTightAabb(shape.id, shape.aabb);
+            writeTightAabb(shapeF, shape.id, shape.aabb);
             shapeId = shape.nextShapeId;
         }
     }

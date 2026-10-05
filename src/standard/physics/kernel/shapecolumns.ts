@@ -226,7 +226,7 @@ export class ShapeStore extends KernelViews {
         }
         this.writeGeometryReference(world, shape);
         this.writeQueryProperties(shape);
-        this.writeTightAabb(shape.id, shape.aabb);
+        writeTightAabb(this.shapeF, shape.id, shape.aabb);
         const body = world.bodies[shape.bodyId];
         this.writeQueryPose(shape.id, body, getBodySim(world, body));
     }
@@ -358,18 +358,6 @@ export class ShapeStore extends KernelViews {
         }
     }
 
-    /** Keep the last shape bounds resident for the next continuous sweep. */
-    writeTightAabb(shapeId: number, box: AABB): void {
-        const o = shapeId * SHAPE_STRIDE + 34;
-        const f = this.shapeF;
-        f[o] = box.lowerBound.x;
-        f[o + 1] = box.lowerBound.y;
-        f[o + 2] = box.lowerBound.z;
-        f[o + 3] = box.upperBound.x;
-        f[o + 4] = box.upperBound.y;
-        f[o + 5] = box.upperBound.z;
-    }
-
     /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
     writeFatAabb(shapeId: number, fat: AABB): void {
         const o = shapeId * 6;
@@ -389,7 +377,7 @@ export function syncBodyQuery(world: WorldState, body: Body): void {
     const sim = body.setIndex === SetType.Awake ? undefined : getBodySim(world, body);
     for (let id = body.headShapeId; id !== NULL_INDEX; id = world.shapes[id].nextShapeId) {
         store.writeQueryPose(id, body, sim);
-        store.writeTightAabb(id, world.shapes[id].aabb);
+        writeTightAabb(store.shapeF, id, world.shapes[id].aabb);
     }
 }
 
@@ -470,6 +458,18 @@ export function unlinkShape(world: WorldState, shape: Shape): void {
     world.shapeStore.writeNext(shape.prevShapeId, shape.nextShapeId);
 }
 
+/** Keep the last shape bounds resident in `shapeF`, the shape store's current view, for the next
+ * continuous sweep. */
+export function writeTightAabb(shapeF: Float32Array, shapeId: number, box: AABB): void {
+    const o = shapeId * SHAPE_STRIDE + 34;
+    shapeF[o] = box.lowerBound.x;
+    shapeF[o + 1] = box.lowerBound.y;
+    shapeF[o + 2] = box.lowerBound.z;
+    shapeF[o + 3] = box.upperBound.x;
+    shapeF[o + 4] = box.upperBound.y;
+    shapeF[o + 5] = box.upperBound.z;
+}
+
 /** Size and write the resident fat-AABB lane owned by the shape store. */
 export function writeFatAabb(world: WorldState, shape: Shape): void {
     kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
@@ -479,5 +479,5 @@ export function writeFatAabb(world: WorldState, shape: Shape): void {
     }
     world.shapeStore.refreshViews();
     world.shapeStore.writeFatAabb(shape.id, shape.fatAABB);
-    world.shapeStore.writeTightAabb(shape.id, shape.aabb);
+    writeTightAabb(world.shapeStore.shapeF, shape.id, shape.aabb);
 }

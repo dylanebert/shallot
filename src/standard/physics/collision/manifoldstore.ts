@@ -300,42 +300,6 @@ export class ManifoldStore extends KernelViews {
         }
     }
 
-    /**
-     * Write a contact's per-step directory row — the material + body sim indices the solver gathers,
-     * zeroing the hit flag — before the solve. The block descriptor (manifoldCount/manifoldBase) is
-     * written separately by `alloc` during the narrowphase. `indexA`/`indexB` may be `NULL_INDEX`
-     * (-1), which lands as `0xFFFFFFFF` on the u32 write (= the kernel's `NULL_INDEX`).
-     */
-    writeContactRow(
-        contactId: number,
-        friction: number,
-        restitution: number,
-        rollingResistance: number,
-        tangentVelocity: Vec3,
-        flags: number,
-        indexA: number,
-        indexB: number,
-    ): void {
-        const o = contactId * DIR_STRIDE;
-        const f = this.dirF;
-        const u = this.dirU;
-        f[o + DIR_FRICTION] = friction;
-        f[o + DIR_RESTITUTION] = restitution;
-        f[o + DIR_ROLLING_RESISTANCE] = rollingResistance;
-        f[o + DIR_TANGENT_VELOCITY] = tangentVelocity.x;
-        f[o + DIR_TANGENT_VELOCITY + 1] = tangentVelocity.y;
-        f[o + DIR_TANGENT_VELOCITY + 2] = tangentVelocity.z;
-        u[o + DIR_FLAGS] = flags;
-        u[o + DIR_INDEX_A] = indexA;
-        u[o + DIR_INDEX_B] = indexB;
-        u[o + DIR_HIT] = 0;
-    }
-
-    /** @returns true if the kernel `store` flagged a hit event for this contact this step. */
-    hit(contactId: number): boolean {
-        return this.dirU[contactId * DIR_STRIDE + DIR_HIT] !== 0;
-    }
-
     // Raw per-point walks over a contact's resident manifolds — the narrowphase's hot loops, run on
     // the pool columns directly so no view getters (which return fresh Vec3s) are touched. The f32
     // expression trees are op-identical to the view-based loops they replaced. `count` is the
@@ -378,6 +342,58 @@ export class ManifoldStore extends KernelViews {
             }
         }
     }
+}
+
+/**
+ * Write a contact's per-step directory row into `dirF`/`dirU`, the store's current directory views — the
+ * material + body sim indices the solver gathers, zeroing the hit flag — before the solve. The block
+ * descriptor (manifoldCount/manifoldBase) is written separately by `alloc` during the narrowphase.
+ * `indexA`/`indexB` may be `NULL_INDEX` (-1), which lands as `0xFFFFFFFF` on the u32 write (= the
+ * kernel's `NULL_INDEX`).
+ */
+export function writeContactRow(
+    dirF: Float32Array,
+    dirU: Uint32Array,
+    contactId: number,
+    friction: number,
+    restitution: number,
+    rollingResistance: number,
+    tangentVelocity: Vec3,
+    flags: number,
+    indexA: number,
+    indexB: number,
+): void {
+    const o = contactId * DIR_STRIDE;
+    dirF[o + DIR_FRICTION] = friction;
+    dirF[o + DIR_RESTITUTION] = restitution;
+    dirF[o + DIR_ROLLING_RESISTANCE] = rollingResistance;
+    dirF[o + DIR_TANGENT_VELOCITY] = tangentVelocity.x;
+    dirF[o + DIR_TANGENT_VELOCITY + 1] = tangentVelocity.y;
+    dirF[o + DIR_TANGENT_VELOCITY + 2] = tangentVelocity.z;
+    dirU[o + DIR_FLAGS] = flags;
+    dirU[o + DIR_INDEX_A] = indexA;
+    dirU[o + DIR_INDEX_B] = indexB;
+    dirU[o + DIR_HIT] = 0;
+}
+
+/** @returns true if the kernel `store` flagged a hit event for this contact this step, read from
+ * `dirU`, the store's current directory view. */
+export function contactHit(dirU: Uint32Array, contactId: number): boolean {
+    return dirU[contactId * DIR_STRIDE + DIR_HIT] !== 0;
+}
+
+/** @returns the total point count of a contact's first `count` resident manifolds, read from `dirU`
+ * and `poolU`, the store's current views, through the directory's block base as `shiftAnchors` does. */
+export function contactPointCount(
+    dirU: Uint32Array,
+    poolU: Uint32Array,
+    contactId: number,
+    count: number,
+): number {
+    const base = dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
+    let points = 0;
+    for (let m = 0; m < count; ++m) points += poolU[(base + m) * MANIFOLD_STRIDE + M_POINT_COUNT];
+    return points;
 }
 
 /**

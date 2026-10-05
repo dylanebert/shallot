@@ -16,6 +16,7 @@
 // `store` writes the solved impulses straight back into the pool, and `readbackHitEvents` collects the
 // contacts it flagged.
 
+import { contactHit, contactPointCount, writeContactRow } from "../collision/manifoldstore";
 import { OVERFLOW_INDEX } from "../common/constants";
 import { COLOR_SPAN_STRIDE, type Columns, SLOT_STRIDE, WIDE_META_STRIDE } from "../kernel/columns";
 import type { BodySim } from "../world/body";
@@ -86,16 +87,17 @@ export type SolveLayout = {
  * before the next `contactExtent`. Kills the per-contact object churn (~2 per contact per step). */
 const extent = { manifolds: 0, points: 0 };
 
-/** Fills `extent` with the total manifold + point count of a contact's current narrowphase output. */
-function contactExtent(world: WorldState, contactId: number): void {
-    const contact = world.contacts[contactId];
-    const manifolds = contact.manifoldCount;
-    let points = 0;
-    for (let m = 0; m < manifolds; ++m) {
-        points += contact.manifolds[m].pointCount;
-    }
+/** Fills `extent` with the total manifold + point count of a contact's current narrowphase output, read
+ * through the manifold store's current `dirU` and `poolU` views. */
+function contactExtent(
+    world: WorldState,
+    contactId: number,
+    dirU: Uint32Array,
+    poolU: Uint32Array,
+): void {
+    const manifolds = world.contacts[contactId].manifoldCount;
     extent.manifolds = manifolds;
-    extent.points = points;
+    extent.points = contactPointCount(dirU, poolU, contactId, manifolds);
 }
 
 // Reused per-step layout scratch. Single-live-world + synchronous stepping (one computeLayout call per
@@ -130,6 +132,8 @@ const layoutScratch: SolveLayout = {
  */
 export function computeLayout(world: WorldState): SolveLayout {
     const colors = world.constraintGraph.colors;
+    const dirU = world.manifoldStore.dirU;
+    const poolU = world.manifoldStore.poolU;
 
     // Active colors (occupancy > 0), ascending. The overflow color is handled separately.
     const active = activeScratch;
@@ -152,7 +156,7 @@ export function computeLayout(world: WorldState): SolveLayout {
         const nConvex = color.convexContacts.length;
         const wideStart = wideCursor;
         for (let j = 0; j < nConvex; ++j) {
-            contactExtent(world, color.convexContacts[j]);
+            contactExtent(world, color.convexContacts[j], dirU, poolU);
             manifoldCursor += extent.manifolds;
             pointCursor += extent.points;
             contactCursor += 1;
@@ -183,7 +187,7 @@ export function computeLayout(world: WorldState): SolveLayout {
         spans[a].meshStart = contactCursor;
         spans[a].meshCount = nMesh;
         for (let k = 0; k < nMesh; ++k) {
-            contactExtent(world, color.contacts[k].contactId);
+            contactExtent(world, color.contacts[k].contactId, dirU, poolU);
             manifoldCursor += extent.manifolds;
             pointCursor += extent.points;
             contactCursor += 1;
@@ -196,7 +200,7 @@ export function computeLayout(world: WorldState): SolveLayout {
     const overflowStart = contactCursor;
     const overflowCount = overflow.contacts.length;
     for (let k = 0; k < overflowCount; ++k) {
-        contactExtent(world, overflow.contacts[k].contactId);
+        contactExtent(world, overflow.contacts[k].contactId, dirU, poolU);
         manifoldCursor += extent.manifolds;
         pointCursor += extent.points;
         contactCursor += 1;
@@ -235,9 +239,16 @@ export function writeColorSpans(cols: Columns, layout: SolveLayout): void {
 
 /** Write one contact's per-step directory row (the material + body sim indices the kernel gathers).
  * `NULL_INDEX` (-1) body indices land as `0xFFFFFFFF` on the u32 write (= the kernel's `NULL_INDEX`). */
-function writeRow(world: WorldState, contactId: number): void {
+function writeRow(
+    world: WorldState,
+    contactId: number,
+    dirF: Float32Array,
+    dirU: Uint32Array,
+): void {
     const contact = world.contacts[contactId];
-    world.manifoldStore.writeContactRow(
+    writeContactRow(
+        dirF,
+        dirU,
         contactId,
         contact.friction,
         contact.restitution,
@@ -260,6 +271,9 @@ function writeRow(world: WorldState, contactId: number): void {
 export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout): void {
     const slot = cols.slotScalar;
     const wideMeta = cols.wideMeta;
+    const dirF = world.manifoldStore.dirF;
+    const dirU = world.manifoldStore.dirU;
+    const poolU = world.manifoldStore.poolU;
     // Transient constraint-column cursors: the mesh/overflow records' `mc`/`mcp` bases start past the
     // convex manifolds, so the convex region advances them too (matching computeLayout's cursor).
     let gm = 0;
@@ -275,10 +289,10 @@ export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout
         const nConvex = convex.length;
         for (let j = 0; j < nConvex; ++j) {
             const contactId = convex[j];
-            writeRow(world, contactId);
+            writeRow(world, contactId, dirF, dirU);
             const rec = span.wideStart + (j >> 2);
             wideMeta[rec * WIDE_META_STRIDE + (j & 3)] = contactId;
-            contactExtent(world, contactId);
+            contactExtent(world, contactId, dirU, poolU);
             gm += extent.manifolds;
             gp += extent.points;
             ++c;
@@ -295,12 +309,12 @@ export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout
         const contacts = spans[s].color.contacts;
         for (let k = 0; k < contacts.length; ++k) {
             const contactId = contacts[k].contactId;
-            writeRow(world, contactId);
+            writeRow(world, contactId, dirF, dirU);
             const so = c * SLOT_STRIDE;
             slot[so] = contactId;
             slot[so + 1] = gm;
             slot[so + 2] = gp;
-            contactExtent(world, contactId);
+            contactExtent(world, contactId, dirU, poolU);
             gm += extent.manifolds;
             gp += extent.points;
             ++c;
@@ -311,12 +325,12 @@ export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout
     const overflow = world.constraintGraph.colors[OVERFLOW_INDEX].contacts;
     for (let k = 0; k < overflow.length; ++k) {
         const contactId = overflow[k].contactId;
-        writeRow(world, contactId);
+        writeRow(world, contactId, dirF, dirU);
         const so = c * SLOT_STRIDE;
         slot[so] = contactId;
         slot[so + 1] = gm;
         slot[so + 2] = gp;
-        contactExtent(world, contactId);
+        contactExtent(world, contactId, dirU, poolU);
         gm += extent.manifolds;
         gp += extent.points;
         ++c;
@@ -334,21 +348,21 @@ export function readbackHitEvents(
     layout: SolveLayout,
     context: StepContext,
 ): void {
-    const store = world.manifoldStore;
+    const dirU = world.manifoldStore.dirU;
     const set = context.hitEventContacts;
     const spans = layout.colors;
     for (let s = 0; s < spans.length; ++s) {
         const convex = spans[s].color.convexContacts;
         for (let j = 0; j < convex.length; ++j) {
-            if (store.hit(convex[j])) set.add(convex[j]);
+            if (contactHit(dirU, convex[j])) set.add(convex[j]);
         }
         const contacts = spans[s].color.contacts;
         for (let j = 0; j < contacts.length; ++j) {
-            if (store.hit(contacts[j].contactId)) set.add(contacts[j].contactId);
+            if (contactHit(dirU, contacts[j].contactId)) set.add(contacts[j].contactId);
         }
     }
     const overflow = world.constraintGraph.colors[OVERFLOW_INDEX].contacts;
     for (let j = 0; j < overflow.length; ++j) {
-        if (store.hit(overflow[j].contactId)) set.add(overflow[j].contactId);
+        if (contactHit(dirU, overflow[j].contactId)) set.add(overflow[j].contactId);
     }
 }

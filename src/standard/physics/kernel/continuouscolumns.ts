@@ -3,6 +3,7 @@ import { BodyFlags, type BodySim } from "../world/body";
 import { recordSensorHit } from "../world/sensor";
 import type { WorldState } from "../world/world";
 import { CONTINUOUS_STRIDE as STRIDE } from "./bodycolumns";
+import { S2_BODY_ID, SIM2_STRIDE } from "./columns";
 import { kernel, ParKind, runPool, workers } from "./kernel";
 import { SHAPE_STRIDE } from "./shapecolumns";
 
@@ -14,8 +15,10 @@ export function prepareContinuous(world: WorldState, sims: BodySim[]): void {
     k.continuousRoots(trees[0].root, trees[1].root, trees[2].root);
     world.bodyStore.refreshContinuous(sims.length);
     const out = world.bodyStore.continuousF;
+    // `sims` is the awake set, whose sim `i` sits at column index `i`, as `finalizeBodies` reads it.
+    const sim2U = world.bodyStore.sim2U;
     for (let i = 0; i < sims.length; i++) {
-        const body = world.bodies[sims[i].bodyId];
+        const body = world.bodies[sim2U[i * SIM2_STRIDE + S2_BODY_ID]];
         out[i * STRIDE] =
             world.enableSleep && body.flags & BodyFlags.enableSleep ? body.sleepThreshold : -1;
     }
