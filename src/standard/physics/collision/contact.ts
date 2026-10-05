@@ -90,7 +90,6 @@ export type Contact = {
     // Manifold(s) computed by narrowphase during the step; the GJK/SAT cache persists across steps.
     manifolds: Manifold[];
     manifoldCount: number;
-    kernelMeshCache: Uint32Array | null;
     generation: number;
 };
 
@@ -115,7 +114,6 @@ function makeContact(generation: number): Contact {
         collideIndex: NULL_INDEX,
         manifolds: [],
         manifoldCount: 0,
-        kernelMeshCache: null,
         generation,
     };
 }
@@ -418,11 +416,6 @@ export function destroyContact(world: WorldState, contact: Contact, wakeBodies: 
         bodyB.headContactKey = edgeB.nextKey;
     }
     bodyB.contactCount -= 1;
-
-    // Release the opaque triangle cache with its contact.
-    if ((flags & ContactFlags.simMeshContact) !== 0) {
-        contact.kernelMeshCache = null;
-    }
 
     // Remove contact from the array that owns it
     if (contact.islandId !== NULL_INDEX) {

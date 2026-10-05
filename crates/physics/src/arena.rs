@@ -263,7 +263,7 @@ pub(crate) unsafe fn joint_column() -> Col<'static, f32> {
 // batches only the FFI crossing, not the arithmetic — each record is the gold-verified scalar call.
 
 /// Dispatch ABI, mirrored by kernel/columns.ts. Geometry references are allocation-independent
-/// indices; mesh caches are opaque spans copied across calls, never pointers into the geometry pool.
+/// indices; mesh caches are resident allocations addressed by contact id.
 const DISPATCH_STRIDE: usize = 33;
 const D_DEFAULT_MIX: usize = 31;
 const D_RADIUS_A: usize = 32;
@@ -274,9 +274,6 @@ const D_CHILD: usize = 19;
 const D_MESH_SLOT: usize = 20;
 const D_LOWER: usize = 21;
 const D_UPPER: usize = 24;
-const D_CACHE_VALID: usize = 27;
-
-static mut MESH_CACHE_PTR: usize = 0;
 static mut MESH_OUTPUT_PTR: usize = 0;
 static mut MESH_MATERIAL_PTR: usize = 0;
 static mut MESH_SCRATCH_PTR: usize = 0;
@@ -296,7 +293,7 @@ const D_GEOM_B: usize = 12; // ≤7 slots
 static mut DISPATCH_PTR: u32 = 0;
 static mut DISPATCH_OUT_PTR: u32 = 0;
 
-/// Lay out contact records, mesh cache/output spans and per-thread scratch, growing memory to fit. Placed
+/// Lay out contact records, mesh output spans and per-thread scratch, growing memory to fit. Placed
 /// in the shared per-step arena; the collect pass fills the input column and
 /// the finish pass reads the output, both within collide — before the solver columns reserve over the
 /// same base.
@@ -309,8 +306,6 @@ pub extern "C" fn reserve_dispatch(count: usize, mesh_count: usize, threads: usi
         DISPATCH_OUT_PTR = off as u32;
         off += count * (1 + MANIFOLD_STRIDE) * 4;
         off = (off + 15) & !15;
-        MESH_CACHE_PTR = off;
-        off += mesh_count * core::mem::size_of::<crate::mesh_contact::MeshCache>();
         MESH_OUTPUT_PTR = off;
         off += mesh_count * 256 * MANIFOLD_STRIDE * 4;
         MESH_MATERIAL_PTR = off;
@@ -323,7 +318,6 @@ pub extern "C" fn reserve_dispatch(count: usize, mesh_count: usize, threads: usi
         reserve_scratch(off);
         DISPATCH_PTR += SCRATCH.ptr as u32;
         DISPATCH_OUT_PTR += SCRATCH.ptr as u32;
-        MESH_CACHE_PTR += SCRATCH.ptr;
         MESH_OUTPUT_PTR += SCRATCH.ptr;
         MESH_MATERIAL_PTR += SCRATCH.ptr;
         MESH_SCRATCH_PTR += SCRATCH.ptr;
@@ -334,14 +328,6 @@ pub extern "C" fn reserve_dispatch(count: usize, mesh_count: usize, threads: usi
     }
 }
 
-#[export_name = "meshCacheBytes"]
-pub extern "C" fn mesh_cache_bytes() -> usize {
-    core::mem::size_of::<crate::mesh_contact::MeshCache>()
-}
-#[export_name = "meshCachePtr"]
-pub extern "C" fn mesh_cache_ptr() -> usize {
-    unsafe { MESH_CACHE_PTR }
-}
 #[export_name = "meshOutputPtr"]
 pub extern "C" fn mesh_output_ptr() -> usize {
     unsafe { MESH_OUTPUT_PTR }
@@ -474,15 +460,9 @@ unsafe fn dispatch_mesh(
     center_a: Vec3,
     center_b: Vec3,
 ) -> usize {
-    use crate::mesh_contact::{compute_mesh_manifolds, MeshCache, TriangleSource, MAX_TRIANGLES};
+    use crate::mesh_contact::{compute_mesh_manifolds, TriangleSource, MAX_TRIANGLES};
     let slot = disp[r + D_MESH_SLOT] as usize;
-    let cache_ptr = (MESH_CACHE_PTR as *mut MeshCache).add(slot);
-    if disp[r + D_CACHE_VALID] == 0 {
-        cache_ptr.write_bytes(0, 1);
-        (*cache_ptr).lower = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-        (*cache_ptr).upper = Vec3::new(-f32::MAX, -f32::MAX, -f32::MAX);
-    }
-    let cache = &mut *cache_ptr;
+    let cache = &mut *manifolds::mesh_cache_ptr(contact_id);
     let record = crate::geo::extra_ptr(geom[0] as usize);
     let source = if ty == 4 {
         let mesh = crate::geo::mesh_view(

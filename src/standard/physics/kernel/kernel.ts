@@ -292,8 +292,9 @@ export type Kernel = {
     // writes the input through `dispatchPtr`; `dispatchContacts` computes each record
     // over the geometry + manifold columns, and the finish pass reads the touching flags at `dispatchOutPtr`.
     reserveDispatch(count: number, meshCount: number, threads: number): void;
-    meshCacheBytes(): number;
-    meshCachePtr(): number;
+    ensureMeshCache(contactId: number): void;
+    freeMeshCache(contactId: number): void;
+    copyManifolds(source: number, base: number, count: number): void;
     meshOutputPtr(): number;
     meshMaterialPtr(): number;
     dispatchPtr(): number;

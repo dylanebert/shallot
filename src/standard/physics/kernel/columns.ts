@@ -233,7 +233,6 @@ export const D_CHILD = 19;
 export const D_MESH_SLOT = 20;
 export const D_LOWER = 21;
 export const D_UPPER = 24;
-export const D_CACHE_VALID = 27;
 export const D_CONTACT = 0;
 export const D_TYPE_A = 1;
 export const D_TYPE_B = 2;

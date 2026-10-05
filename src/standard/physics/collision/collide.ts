@@ -21,7 +21,6 @@ const dispatchBounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
 import {
     D_BODY_A,
     D_BODY_B,
-    D_CACHE_VALID,
     D_CHILD,
     D_CONTACT,
     D_DEFAULT_MIX,
@@ -96,7 +95,7 @@ type ContactJob = {
     bodyB: number;
     wasTouching: boolean;
     meshSlot: number;
-    result: Uint32Array | null;
+    result: number;
     materials: Uint32Array | null;
 };
 const jobs: ContactJob[] = [];
@@ -133,18 +132,17 @@ function collect(world: WorldState, contact: Contact): void {
             bodyB: 0,
             wasTouching: false,
             meshSlot: -1,
-            result: null,
+            result: 0,
             materials: null,
         };
         jobs.push(job);
     }
-    if (mesh) {
-        if (job.result === null || job.result.length < 256 * MANIFOLD_STRIDE)
-            job.result = new Uint32Array(256 * MANIFOLD_STRIDE);
+    if (
+        mesh &&
+        (world.frictionCallback !== defaultFrictionCallback ||
+            world.restitutionCallback !== defaultRestitutionCallback)
+    )
         job.materials ??= new Uint32Array(256 * 4);
-    } else if (contact.manifoldCount === 0) {
-        job.result ??= new Uint32Array(MANIFOLD_STRIDE);
-    }
     job.contact = contact;
     job.shapeA = shapeA;
     job.shapeB = shapeB;
@@ -257,10 +255,10 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
         return;
     }
     if (job.meshSlot !== -1 || contact.manifoldCount === 0) {
-        contact.manifolds = world.manifoldStore.importManifolds(
+        contact.manifolds = world.manifoldStore.importKernelManifolds(
             contact.contactId,
             count,
-            job.result!,
+            job.result,
         );
         contact.manifoldCount = count;
     }
@@ -359,7 +357,11 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
 function dispatch(world: WorldState): void {
     const k = kernel(world.ecsState);
     let meshCount = 0;
-    for (let i = 0; i < jobCount; ++i) if (jobs[i].meshSlot !== -1) jobs[i].meshSlot = meshCount++;
+    for (let i = 0; i < jobCount; ++i) {
+        if (jobs[i].meshSlot === -1) continue;
+        jobs[i].meshSlot = meshCount++;
+        k.ensureMeshCache(jobs[i].contact.contactId);
+    }
     k.reserveDispatch(jobCount, meshCount, threads(world.ecsState));
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
@@ -368,7 +370,6 @@ function dispatch(world: WorldState): void {
     const f = memoryF,
         u = memoryU,
         base = k.dispatchPtr() >>> 2;
-    const cacheWords = k.meshCacheBytes() / 4;
     for (let i = 0; i < jobCount; ++i) {
         const job = jobs[i],
             r = base + i * DISPATCH_STRIDE;
@@ -395,17 +396,10 @@ function dispatch(world: WorldState): void {
         u[r + D_CHILD] = job.contact.childIndex;
         u[r + D_MESH_SLOT] = job.meshSlot;
         u[r + D_OLD_COUNT] = job.contact.manifoldCount;
-        u[r + D_CACHE_VALID] = Number(job.contact.kernelMeshCache !== null);
         if (job.meshSlot !== -1) {
             const bounds = readShapeAabb(world, job.shapeB.id, dispatchBounds);
             writeVec(f, r + D_LOWER, bounds.lowerBound);
             writeVec(f, r + D_UPPER, bounds.upperBound);
-            if (job.contact.kernelMeshCache !== null)
-                new Uint32Array(
-                    buf,
-                    k.meshCachePtr() + job.meshSlot * cacheWords * 4,
-                    cacheWords,
-                ).set(job.contact.kernelMeshCache);
         }
     }
     const pool = workers(world.ecsState);
@@ -413,35 +407,27 @@ function dispatch(world: WorldState): void {
         runPool(world.ecsState, pool, k.runMt);
     else k.dispatchContacts(jobCount);
     const out = k.dispatchOutPtr() >>> 2;
-    // Read every result before allocating manifold blocks: growth can detach or overwrite transient columns.
+    // Save byte offsets before allocation can detach views; collide scratch survives pool growth.
     for (let i = 0; i < jobCount; ++i) {
         const job = jobs[i];
         results[i] = u[out + i];
-        if (job.meshSlot === -1) {
-            if (job.contact.manifoldCount === 0 && results[i] > 0) {
-                job.result!.set(
-                    u.subarray(
-                        out + jobCount + i * MANIFOLD_STRIDE,
-                        out + jobCount + (i + 1) * MANIFOLD_STRIDE,
-                    ),
-                );
-            }
-            continue;
+        job.result =
+            job.meshSlot === -1
+                ? (out + jobCount + i * MANIFOLD_STRIDE) * 4
+                : k.meshOutputPtr() + job.meshSlot * 256 * MANIFOLD_STRIDE * 4;
+        if (
+            job.meshSlot !== -1 &&
+            (world.frictionCallback !== defaultFrictionCallback ||
+                world.restitutionCallback !== defaultRestitutionCallback)
+        ) {
+            job.materials!.set(
+                new Uint32Array(
+                    buf,
+                    k.meshMaterialPtr() + job.meshSlot * 256 * 4 * 4,
+                    results[i] * 4,
+                ),
+            );
         }
-        job.contact.kernelMeshCache ??= new Uint32Array(cacheWords);
-        job.contact.kernelMeshCache.set(
-            new Uint32Array(buf, k.meshCachePtr() + job.meshSlot * cacheWords * 4, cacheWords),
-        );
-        job.result!.set(
-            new Uint32Array(
-                buf,
-                k.meshOutputPtr() + job.meshSlot * 256 * MANIFOLD_STRIDE * 4,
-                results[i] * MANIFOLD_STRIDE,
-            ),
-        );
-        job.materials!.set(
-            new Uint32Array(buf, k.meshMaterialPtr() + job.meshSlot * 256 * 4 * 4, results[i] * 4),
-        );
     }
     for (let i = 0; i < jobCount; ++i) finish(world, jobs[i], results[i]);
 }

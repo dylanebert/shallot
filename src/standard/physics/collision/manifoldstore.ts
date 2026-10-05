@@ -152,6 +152,9 @@ export class ManifoldStore extends KernelViews {
      * range doesn't grow the region, so `flush` never re-zeros its slot — this is the only cold path for it. */
     freeSlot(contactId: number): void {
         this.clear(contactId);
+        const kernelWorld = kernel(this.ecsState);
+        kernelWorld.bodySetActiveWorld(this.worldId);
+        kernelWorld.freeMeshCache(contactId);
         const o = contactId * DIR_STRIDE + DIR_CACHE;
         if (o + CACHE_WORDS <= this.dirU.length) {
             for (let k = 0; k < CACHE_WORDS; ++k) this.dirU[o + k] = 0;
@@ -267,6 +270,14 @@ export class ManifoldStore extends KernelViews {
         const views = this.alloc(contactId, count);
         const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
         this.poolU.set(source.subarray(0, count * MANIFOLD_STRIDE), base * MANIFOLD_STRIDE);
+        return views;
+    }
+
+    /** Import collide scratch by byte offset: allocation may grow memory, but does not reserve scratch. */
+    importKernelManifolds(contactId: number, count: number, source: number): Manifold[] {
+        const views = this.alloc(contactId, count);
+        const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
+        kernel(this.ecsState).copyManifolds(source, base, count);
         return views;
     }
 
