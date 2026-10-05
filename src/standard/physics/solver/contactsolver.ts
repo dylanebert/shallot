@@ -237,27 +237,11 @@ export function writeColorSpans(cols: Columns, layout: SolveLayout): void {
     }
 }
 
-/** Write one contact's per-step directory row (the material + body sim indices the kernel gathers).
+/** Write one contact's per-step solver flags and body sim indices.
  * `NULL_INDEX` (-1) body indices land as `0xFFFFFFFF` on the u32 write (= the kernel's `NULL_INDEX`). */
-function writeRow(
-    world: WorldState,
-    contactId: number,
-    dirF: Float32Array,
-    dirU: Uint32Array,
-): void {
+function writeRow(world: WorldState, contactId: number, dirU: Uint32Array): void {
     const contact = world.contacts[contactId];
-    writeContactRow(
-        dirF,
-        dirU,
-        contactId,
-        contact.friction,
-        contact.restitution,
-        contact.rollingResistance,
-        contact.tangentVelocity,
-        contact.flags,
-        contact.bodySimIndexA,
-        contact.bodySimIndexB,
-    );
+    writeContactRow(dirU, contactId, contact.flags, contact.bodySimIndexA, contact.bodySimIndexB);
 }
 
 /**
@@ -271,7 +255,6 @@ function writeRow(
 export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout): void {
     const slot = cols.slotScalar;
     const wideMeta = cols.wideMeta;
-    const dirF = world.manifoldStore.dirF;
     const dirU = world.manifoldStore.dirU;
     const poolU = world.manifoldStore.poolU;
     // Transient constraint-column cursors: the mesh/overflow records' `mc`/`mcp` bases start past the
@@ -289,7 +272,7 @@ export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout
         const nConvex = convex.length;
         for (let j = 0; j < nConvex; ++j) {
             const contactId = convex[j];
-            writeRow(world, contactId, dirF, dirU);
+            writeRow(world, contactId, dirU);
             const rec = span.wideStart + (j >> 2);
             wideMeta[rec * WIDE_META_STRIDE + (j & 3)] = contactId;
             contactExtent(world, contactId, dirU, poolU);
@@ -309,7 +292,7 @@ export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout
         const contacts = spans[s].color.contacts;
         for (let k = 0; k < contacts.length; ++k) {
             const contactId = contacts[k].contactId;
-            writeRow(world, contactId, dirF, dirU);
+            writeRow(world, contactId, dirU);
             const so = c * SLOT_STRIDE;
             slot[so] = contactId;
             slot[so + 1] = gm;
@@ -325,7 +308,7 @@ export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout
     const overflow = world.constraintGraph.colors[OVERFLOW_INDEX].contacts;
     for (let k = 0; k < overflow.length; ++k) {
         const contactId = overflow[k].contactId;
-        writeRow(world, contactId, dirF, dirU);
+        writeRow(world, contactId, dirU);
         const so = c * SLOT_STRIDE;
         slot[so] = contactId;
         slot[so + 1] = gm;

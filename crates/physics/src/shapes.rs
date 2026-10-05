@@ -127,6 +127,16 @@ pub extern "C" fn material_layout_ptr() -> *const u32 {
 pub extern "C" fn material_cap() -> usize {
     unsafe { world(regions::active()).material.cap }
 }
+pub(crate) fn materials() -> Col<'static, u32> {
+    unsafe {
+        let w = world(regions::active());
+        Col::new(
+            w.columns.layout[MATERIAL] as *mut u32,
+            w.material.cap * MATERIAL_STRIDE,
+        )
+    }
+}
+
 unsafe fn material_ptr(id: usize, material: usize) -> *mut u32 {
     (world(id).columns.layout[MATERIAL] as *mut u32).add(material * MATERIAL_STRIDE)
 }

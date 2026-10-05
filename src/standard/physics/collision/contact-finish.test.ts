@@ -8,6 +8,7 @@ import {
     PhysicsWorld,
 } from "../api";
 import { ContactFlags } from "./contact";
+import { readContactMaterial } from "./manifoldstore";
 
 const identity = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 const transform = { p: { x: 0, y: 0, z: 0 }, q: identity };
@@ -107,12 +108,16 @@ test("compound convex children mix their mapped material for callbacks, rolling 
                 expect(friction.at(-1)![side]).toBe(Math.fround(0.9));
                 expect(restitution.at(-1)![idSide]).toBe(9n);
                 expect(restitution.at(-1)![side]).toBe(Math.fround(0.8));
-                expect(contact.friction).toBe(Math.fround(0.9));
-                expect(contact.restitution).toBe(Math.fround(0.8));
+                const mixed = readContactMaterial(
+                    world.state.manifoldStore.dirF,
+                    contact.contactId,
+                );
+                expect(mixed.friction).toBe(Math.fround(0.9));
+                expect(mixed.restitution).toBe(Math.fround(0.8));
                 const radius = kind === "hull" && partner === "hull" ? 0.125 : 0.5;
-                expect(contact.rollingResistance).toBe(Math.fround(Math.fround(0.7) * radius));
+                expect(mixed.rollingResistance).toBe(Math.fround(Math.fround(0.7) * radius));
                 const sign = flipped ? -1 : 1;
-                expect(contact.tangentVelocity).toEqual({
+                expect(mixed.tangentVelocity).toEqual({
                     x: sign * Math.fround(0.4),
                     y: sign * Math.fround(0.2),
                     z: sign * Math.fround(0.3),

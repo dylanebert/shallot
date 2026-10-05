@@ -187,10 +187,11 @@ export type WorldState = {
 };
 
 /** Default friction mixing: geometric mean (b3DefaultFrictionCallback). */
-const defaultFrictionCallback: MixCallback = (a, _idA, b, _idB) => f32(Math.sqrt(f32(a * b)));
+export const defaultFrictionCallback: MixCallback = (a, _idA, b, _idB) =>
+    f32(Math.sqrt(f32(a * b)));
 
 /** Default restitution mixing: the larger of the two (b3DefaultRestitutionCallback). */
-const defaultRestitutionCallback: MixCallback = (a, _idA, b, _idB) => maxf(a, b);
+export const defaultRestitutionCallback: MixCallback = (a, _idA, b, _idB) => maxf(a, b);
 
 export type GeometryRecord = { refCount: number; geoIndex: number };
 

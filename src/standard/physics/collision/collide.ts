@@ -20,9 +20,11 @@ import {
     D_CACHE_VALID,
     D_CHILD,
     D_CONTACT,
+    D_DEFAULT_MIX,
     D_LOWER,
     D_MESH_SLOT,
     D_OLD_COUNT,
+    D_RADIUS_A,
     D_SHAPE_A,
     D_SHAPE_B,
     D_UPPER,
@@ -54,9 +56,13 @@ import type { StepContext } from "../solver/contactsolver";
 import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
 import { getBodySim } from "../world/body";
 import { linkContact, unlinkContact } from "../world/island";
-import type { WorldState } from "../world/world";
+import {
+    defaultFrictionCallback,
+    defaultRestitutionCallback,
+    type WorldState,
+} from "../world/world";
 import { type Contact, ContactFlags, destroyContact, type Manifold } from "./contact";
-import { MANIFOLD_STRIDE } from "./manifoldstore";
+import { MANIFOLD_STRIDE, writeContactMaterial } from "./manifoldstore";
 
 const stateChanges: number[] = [];
 const results: number[] = [];
@@ -156,6 +162,8 @@ function finishMeshMaterial(
     getShapeMaterial(world, job.shapeB, materialB);
     vec3.copy(zero, tangentA);
     const materialCount = getShapeMaterialCount(world.ecsState, shapeA);
+    let mixedFriction = 0,
+        mixedRestitution = 0;
     if (materialCount > 0) {
         let friction = 0,
             restitution = 0,
@@ -191,19 +199,19 @@ function finishMeshMaterial(
         }
         if (samples > 0) {
             const inv = f32(1 / samples);
-            contact.friction = f32(inv * friction);
-            contact.restitution = f32(inv * restitution);
+            mixedFriction = f32(inv * friction);
+            mixedRestitution = f32(inv * restitution);
             vec3.scaleOut(inv, tangentA, tangentA);
         }
     } else {
         const material = materialsA[0];
-        contact.friction = world.frictionCallback(
+        mixedFriction = world.frictionCallback(
             material.friction,
             material.userMaterialId,
             materialB.friction,
             materialB.userMaterialId,
         );
-        contact.restitution = world.restitutionCallback(
+        mixedRestitution = world.restitutionCallback(
             material.restitution,
             material.userMaterialId,
             materialB.restitution,
@@ -215,10 +223,20 @@ function finishMeshMaterial(
         job.shapeB.type === ShapeType.Hull
             ? job.shapeB.hull!.innerRadius
             : rollingRadius(job.shapeB);
-    contact.rollingResistance = f32(materialB.rollingResistance * radius);
+    const rolling = f32(materialB.rollingResistance * radius);
     quat.rotateOut(xfA.q, tangentA, tangentA);
     quat.rotateOut(poseB.q, materialB.tangentVelocity, tangentB);
-    vec3.subOut(tangentA, tangentB, contact.tangentVelocity);
+    vec3.subOut(tangentA, tangentB, tangentA);
+    writeContactMaterial(
+        world.manifoldStore.dirF,
+        contact.contactId,
+        mixedFriction,
+        mixedRestitution,
+        rolling,
+        tangentA.x,
+        tangentA.y,
+        tangentA.z,
+    );
 }
 function finish(world: WorldState, job: ContactJob, count: number): void {
     const contact = job.contact;
@@ -242,73 +260,88 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
         );
         contact.manifoldCount = count;
     }
-    if (world.bodyStore.stale) world.bodyStore.refreshViews();
-    let shapeA = job.shapeA,
-        shapeB = job.shapeB;
-    const simA = getBodySim(world, world.bodies[job.shapeA.bodyId]);
-    const simB = getBodySim(world, world.bodies[job.shapeB.bodyId]);
-    readSimTransform(simA, poseA);
-    readSimTransform(simB, poseB);
-    let xfA = poseA,
-        xfB = poseB;
-    let materialMap: number[] | null = null;
-    if (shapeA.type === ShapeType.Compound) {
-        const child = getCompoundChild(shapeA.compound!, contact.childIndex);
-        shapeA = {
-            ...shapeA,
-            type: child.type,
-            sphere: child.sphere,
-            capsule: child.capsule,
-            hull: child.hull,
-            mesh: child.mesh,
-        };
-        materialMap = child.materialIndices;
-        if (child.type === ShapeType.Hull || child.type === ShapeType.Mesh)
-            xfA = mulWorldTransforms(poseA, child.transform);
-        if (
-            (child.type === ShapeType.Sphere && shapeB.type !== ShapeType.Sphere) ||
-            (child.type === ShapeType.Capsule && shapeB.type === ShapeType.Hull)
-        ) {
-            const shape = shapeA;
-            shapeA = shapeB;
-            shapeB = shape;
-            const xf = xfA;
-            xfA = xfB;
-            xfB = xf;
+    if (
+        world.frictionCallback !== defaultFrictionCallback ||
+        world.restitutionCallback !== defaultRestitutionCallback
+    ) {
+        if (world.bodyStore.stale) world.bodyStore.refreshViews();
+        let shapeA = job.shapeA,
+            shapeB = job.shapeB;
+        const simA = getBodySim(world, world.bodies[job.shapeA.bodyId]);
+        const simB = getBodySim(world, world.bodies[job.shapeB.bodyId]);
+        readSimTransform(simA, poseA);
+        readSimTransform(simB, poseB);
+        let xfA = poseA,
+            xfB = poseB;
+        let materialMap: number[] | null = null;
+        if (shapeA.type === ShapeType.Compound) {
+            const child = getCompoundChild(shapeA.compound!, contact.childIndex);
+            shapeA = {
+                ...shapeA,
+                type: child.type,
+                sphere: child.sphere,
+                capsule: child.capsule,
+                hull: child.hull,
+                mesh: child.mesh,
+            };
+            materialMap = child.materialIndices;
+            if (child.type === ShapeType.Hull || child.type === ShapeType.Mesh)
+                xfA = mulWorldTransforms(poseA, child.transform);
+            if (
+                (child.type === ShapeType.Sphere && shapeB.type !== ShapeType.Sphere) ||
+                (child.type === ShapeType.Capsule && shapeB.type === ShapeType.Hull)
+            ) {
+                const shape = shapeA;
+                shapeA = shapeB;
+                shapeB = shape;
+                const xf = xfA;
+                xfA = xfB;
+                xfB = xf;
+            }
         }
-    }
-    if (job.meshSlot !== -1) {
-        finishMeshMaterial(world, job, shapeA, xfA, materialMap);
-    } else {
-        const ownA =
-            materialMap === null
-                ? getShapeMaterial(world, job.shapeA, materialA)
-                : getShapeMaterials(world.ecsState, job.shapeA)[materialMap[0]];
-        getShapeMaterial(world, job.shapeB, materialB);
-        const a = shapeA === job.shapeB ? materialB : ownA;
-        const b = shapeA === job.shapeB ? ownA : materialB;
-        contact.friction = world.frictionCallback(
-            a.friction,
-            a.userMaterialId,
-            b.friction,
-            b.userMaterialId,
-        );
-        contact.restitution = world.restitutionCallback(
-            a.restitution,
-            a.userMaterialId,
-            b.restitution,
-            b.userMaterialId,
-        );
-        contact.rollingResistance =
-            a.rollingResistance > 0 || b.rollingResistance > 0
-                ? f32(
-                      Math.max(a.rollingResistance, b.rollingResistance) *
-                          Math.max(rollingRadius(shapeA), rollingRadius(shapeB)),
-                  )
-                : 0;
-        quat.rotateOut(xfA.q, a.tangentVelocity, tangentA);
-        quat.rotateOut(xfB.q, b.tangentVelocity, tangentB);
-        vec3.subOut(tangentA, tangentB, contact.tangentVelocity);
+        if (job.meshSlot !== -1) {
+            finishMeshMaterial(world, job, shapeA, xfA, materialMap);
+        } else {
+            const ownA =
+                materialMap === null
+                    ? getShapeMaterial(world, job.shapeA, materialA)
+                    : getShapeMaterials(world.ecsState, job.shapeA)[materialMap[0]];
+            getShapeMaterial(world, job.shapeB, materialB);
+            const a = shapeA === job.shapeB ? materialB : ownA;
+            const b = shapeA === job.shapeB ? ownA : materialB;
+            const friction = world.frictionCallback(
+                a.friction,
+                a.userMaterialId,
+                b.friction,
+                b.userMaterialId,
+            );
+            const restitution = world.restitutionCallback(
+                a.restitution,
+                a.userMaterialId,
+                b.restitution,
+                b.userMaterialId,
+            );
+            const rolling =
+                a.rollingResistance > 0 || b.rollingResistance > 0
+                    ? f32(
+                          Math.max(a.rollingResistance, b.rollingResistance) *
+                              Math.max(rollingRadius(shapeA), rollingRadius(shapeB)),
+                      )
+                    : 0;
+            quat.rotateOut(xfA.q, a.tangentVelocity, tangentA);
+            quat.rotateOut(xfB.q, b.tangentVelocity, tangentB);
+            vec3.subOut(tangentA, tangentB, tangentA);
+            writeContactMaterial(
+                world.manifoldStore.dirF,
+                contact.contactId,
+                friction,
+                restitution,
+                rolling,
+                tangentA.x,
+                tangentA.y,
+                tangentA.z,
+            );
+        }
     }
     if (job.shapeA.enableHitEvents || job.shapeB.enableHitEvents)
         contact.flags |= ContactFlags.simEnableHitEvent;
@@ -318,7 +351,6 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
         contact.flags |= ContactFlags.simStartedTouching;
         stateChanges.push(contact.contactId);
     }
-    world.manifoldStore.rebaseSeparations(contact.contactId, contact.manifoldCount);
 }
 function dispatch(world: WorldState): void {
     const k = kernel(world.ecsState);
@@ -337,6 +369,21 @@ function dispatch(world: WorldState): void {
         const job = jobs[i],
             r = base + i * DISPATCH_STRIDE;
         u[r + D_CONTACT] = job.contact.contactId;
+        u[r + D_DEFAULT_MIX] = Number(
+            world.frictionCallback === defaultFrictionCallback &&
+                world.restitutionCallback === defaultRestitutionCallback,
+        );
+        if (job.shapeA.type === ShapeType.Compound) {
+            const child = getCompoundChild(job.shapeA.compound!, job.contact.childIndex);
+            f[r + D_RADIUS_A] =
+                child.type === ShapeType.Hull
+                    ? f32(0.25 * child.hull!.innerRadius)
+                    : child.type === ShapeType.Sphere
+                      ? child.sphere!.radius
+                      : child.type === ShapeType.Capsule
+                        ? child.capsule!.radius
+                        : 0;
+        }
         u[r + D_SHAPE_A] = job.shapeA.id;
         u[r + D_SHAPE_B] = job.shapeB.id;
         u[r + D_BODY_A] = job.bodyA;

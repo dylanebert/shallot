@@ -264,7 +264,9 @@ pub(crate) unsafe fn joint_column() -> Col<'static, f32> {
 
 /// Dispatch ABI, mirrored by kernel/columns.ts. Geometry references are allocation-independent
 /// indices; mesh caches are opaque spans copied across calls, never pointers into the geometry pool.
-const DISPATCH_STRIDE: usize = 31;
+const DISPATCH_STRIDE: usize = 33;
+const D_DEFAULT_MIX: usize = 31;
+const D_RADIUS_A: usize = 32;
 const D_SHAPE_A: usize = 29;
 const D_SHAPE_B: usize = 30;
 const D_OLD_COUNT: usize = 28;
@@ -426,8 +428,8 @@ fn read_manifold_warm(pool: Col<f32>, base: usize) -> Manifold {
 
 /// Write the computed manifold into the pool block. Only the narrowphase-owned fields — normal, point
 /// count, and per-point anchors/separation/impulses/feature id/triangle index/persisted — the header
-/// friction/twist/rolling (solver-owned, persistent) and per-point baseSeparation (TS finish pass) are
-/// left untouched.
+/// friction/twist/rolling (solver-owned, persistent) are left untouched. Separation and its recycle
+/// baseline are written together after shifting anchors to the centers of mass.
 #[inline]
 fn write_manifold(m: &Manifold, pool: Col<f32>, base: usize) {
     let o = base * MANIFOLD_STRIDE;
@@ -445,6 +447,7 @@ fn write_manifold(m: &Manifold, pool: Col<f32>, base: usize) {
         pool.set(p + P_ANCHOR_B + 1, pt.anchor_b.y);
         pool.set(p + P_ANCHOR_B + 2, pt.anchor_b.z);
         pool.set(p + P_SEPARATION, pt.separation);
+        pool.set(p + crate::manifold_abi::P_BASE_SEPARATION, pt.separation);
         pool.set(p + P_NORMAL_IMPULSE, pt.normal_impulse);
         pool.set(p + P_TOTAL_NORMAL_IMPULSE, pt.total_normal_impulse);
         pool.set(p + P_NORMAL_VELOCITY, pt.normal_velocity);
@@ -647,6 +650,144 @@ fn write_sat(dir: Col<u32>, id: usize, c: &SatCache) {
     dir.set(o + 4, c.hit);
 }
 
+#[derive(Clone, Copy)]
+struct Surface {
+    friction: f32,
+    restitution: f32,
+    rolling: f32,
+    tangent: Vec3,
+}
+
+fn surface(shape: usize, index: usize) -> Surface {
+    let shapes = crate::shapes::col_slice();
+    let s = shape * crate::shapes::SHAPE_STRIDE;
+    let count = shapes[s + crate::shapes::S_MATERIAL_COUNT] as usize;
+    let materials = crate::shapes::materials();
+    let mut id = shapes[s + crate::shapes::S_MATERIAL_HEAD] as usize;
+    for _ in 0..index.min(count - 1) {
+        id = materials.get(id * crate::shapes::MATERIAL_STRIDE + 9) as usize;
+    }
+    let o = id * crate::shapes::MATERIAL_STRIDE;
+    let f = |i| f32::from_bits(materials.get(o + i));
+    Surface {
+        friction: f(0),
+        restitution: f(1),
+        rolling: f(2),
+        tangent: Vec3::new(f(3), f(4), f(5)),
+    }
+}
+
+fn shape_radius(shape: usize, full_hull: bool) -> f32 {
+    let shapes = crate::shapes::col_slice();
+    let s = shape * crate::shapes::SHAPE_STRIDE;
+    match shapes[s] {
+        TY_SPHERE => f32::from_bits(shapes[s + 5]),
+        TY_CAPSULE => f32::from_bits(shapes[s + 8]),
+        TY_HULL => (if full_hull { 1.0 } else { 0.25 }) * f32::from_bits(shapes[s + 43]),
+        _ => 0.0,
+    }
+}
+
+fn store_surface(id: usize, friction: f32, restitution: f32, rolling: f32, tangent: Vec3) {
+    let dir = manifolds::dir_col();
+    let o = id * DIR_STRIDE;
+    for (i, v) in [
+        friction,
+        restitution,
+        rolling,
+        tangent.x,
+        tangent.y,
+        tangent.z,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        dir.set(o + i, v.to_bits());
+    }
+}
+
+unsafe fn mix_surface(
+    disp: &[u32],
+    xf_a: Transform,
+    xf_b: Transform,
+    map: Option<[u32; 4]>,
+    flip: bool,
+    count: usize,
+    mesh: bool,
+) {
+    if count == 0 || disp[D_DEFAULT_MIX] == 0 {
+        return;
+    }
+    let sa = disp[D_SHAPE_A] as usize;
+    let sb = disp[D_SHAPE_B] as usize;
+    let a_index = |i: usize| map.map_or(i, |m| m[i.min(3)] as usize);
+    let mut a = surface(sa, a_index(0));
+    let mut b = surface(sb, 0);
+    let mut radius_a = if map.is_some() {
+        f32::from_bits(disp[D_RADIUS_A])
+    } else {
+        shape_radius(sa, false)
+    };
+    let mut radius_b = shape_radius(sb, mesh);
+    let (friction, restitution, rolling, tangent) = if mesh {
+        let slot = disp[D_MESH_SLOT] as usize;
+        let output = Col::new(
+            (MESH_OUTPUT_PTR as *mut f32).add(slot * 256 * MANIFOLD_STRIDE),
+            256 * MANIFOLD_STRIDE,
+        );
+        let materials = (MESH_MATERIAL_PTR as *const u32).add(slot * 256 * 4);
+        let mut friction = 0.0;
+        let mut restitution = 0.0;
+        let mut tangent = Vec3::ZERO;
+        let mut samples = 0.0;
+        for i in 0..count {
+            let pc = output.get(i * MANIFOLD_STRIDE + M_POINT_COUNT).to_bits() as usize;
+            for j in 0..pc {
+                let m = surface(sa, a_index(*materials.add(i * 4 + j) as usize));
+                friction += (m.friction * b.friction).sqrt();
+                restitution += m.restitution.max(b.restitution);
+                tangent = tangent.add(m.tangent);
+                samples += 1.0;
+            }
+        }
+        let inv = 1.0 / samples;
+        (
+            inv * friction,
+            inv * restitution,
+            b.rolling * radius_b,
+            xf_a.q
+                .rotate(tangent.scale(inv))
+                .sub(xf_b.q.rotate(b.tangent)),
+        )
+    } else {
+        let (qa, qb) = if flip {
+            core::mem::swap(&mut a, &mut b);
+            core::mem::swap(&mut radius_a, &mut radius_b);
+            (xf_b.q, xf_a.q)
+        } else {
+            (xf_a.q, xf_b.q)
+        };
+        let rolling = if a.rolling > 0.0 || b.rolling > 0.0 {
+            a.rolling.max(b.rolling) * radius_a.max(radius_b)
+        } else {
+            0.0
+        };
+        (
+            (a.friction * b.friction).sqrt(),
+            a.restitution.max(b.restitution),
+            rolling,
+            qa.rotate(a.tangent).sub(qb.rotate(b.tangent)),
+        )
+    };
+    store_surface(
+        disp[D_CONTACT] as usize,
+        friction,
+        restitution,
+        rolling,
+        tangent,
+    );
+}
+
 /// Compute convex, mesh, height-field and compound-child contacts in `[start, end)`.
 /// Convex manifolds with an existing block write into the resident pool; new convex and mesh
 /// manifolds return in a transient span for serial allocation. Each result is its manifold count. Per-thread scratch is disjoint across worker indices.
@@ -716,12 +857,14 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 != 0;
             let mut geom_a = &disp[r + D_GEOM_A..r + D_GEOM_A + 7];
             let mut child_offset = Vec3::ZERO;
+            let mut material_map = None;
             if type_a == 1 {
                 let record = crate::geo::extra_ptr(geom_a[0] as usize);
                 let child = crate::geo::extra_ptr(*record.add(4) as usize)
                     .add(disp[r + D_CHILD] as usize * 19);
                 let data = core::slice::from_raw_parts(child, 19);
                 type_a = data[0];
+                material_map = Some([data[8], data[9], data[10], data[11]]);
                 let local = read_xf(data, 1);
                 child_offset = parent_xf.q.rotate(local.p);
                 if type_a == TY_HULL || type_a == 4 {
@@ -744,6 +887,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                     center_a,
                     center_b,
                 );
+                mix_surface(disp, xf_a, xf_b, material_map, false, count, true);
                 out.set(i, count as u32);
                 continue;
             }
@@ -807,6 +951,15 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             } else if uses_simplex {
                 write_simplex(dir, contact_id, &cache.simplex_cache);
             }
+            mix_surface(
+                disp,
+                xf_a,
+                xf_b,
+                material_map,
+                flip,
+                touching as usize,
+                false,
+            );
             out.set(i, touching as u32);
         }
     }

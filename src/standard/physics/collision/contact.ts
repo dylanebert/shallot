@@ -9,11 +9,10 @@
 import { NULL_INDEX, swapRemove } from "../common/array";
 import { SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
-import { maxf, type Vec3 } from "../common/math";
+import type { Vec3 } from "../common/math";
 import { BodyType, ShapeType } from "../common/types";
 import { type CompoundData, getCompoundChild } from "../shapes/compound";
-import type { Capsule, Sphere } from "../shapes/geometry";
-import { getShapeMaterials, type Shape } from "../shapes/shape";
+import type { Shape } from "../shapes/shape";
 import { removeContactFromGraph } from "../solver/graph";
 import { type Body, BodyFlags, wakeBody } from "../world/body";
 import { unlinkContact } from "../world/island";
@@ -92,10 +91,6 @@ export type Contact = {
     manifolds: Manifold[];
     manifoldCount: number;
     kernelMeshCache: Uint32Array | null;
-    friction: number;
-    restitution: number;
-    rollingResistance: number;
-    tangentVelocity: Vec3;
     generation: number;
 };
 
@@ -121,10 +116,6 @@ function makeContact(generation: number): Contact {
         manifolds: [],
         manifoldCount: 0,
         kernelMeshCache: null,
-        friction: 0,
-        restitution: 0,
-        rollingResistance: 0,
-        tangentVelocity: { x: 0, y: 0, z: 0 },
         generation,
     };
 }
@@ -259,14 +250,10 @@ export function createContact(
     const set = world.solverSets[setIndex];
 
     const contactId = allocId(world.contactIdPool);
-    if (contactId === world.contacts.length) {
-        world.contacts.push(makeContact(0));
-    }
-
     const shapeIdA = shapeA.id;
     const shapeIdB = shapeB.id;
 
-    const generation = world.contacts[contactId].generation;
+    const generation = world.contacts[contactId]?.generation ?? 0;
     const contact = makeContact(generation + 1);
     world.contacts[contactId] = contact;
     contact.contactId = contactId;
@@ -342,28 +329,6 @@ export function createContact(
 
     // Contacts are created non-touching.
     set.contactIndices.push(contactId);
-
-    let radiusA = 0;
-    if (typeA === ShapeType.Sphere) {
-        radiusA = (shapeA.sphere as Sphere).radius;
-    } else if (typeA === ShapeType.Capsule) {
-        radiusA = (shapeA.capsule as Capsule).radius;
-    }
-
-    let radiusB = 0;
-    if (typeB === ShapeType.Sphere) {
-        radiusB = (shapeB.sphere as Sphere).radius;
-    } else if (typeB === ShapeType.Capsule) {
-        radiusB = (shapeB.capsule as Capsule).radius;
-    }
-
-    const maxRadius = maxf(radiusA, radiusB);
-
-    contact.rollingResistance =
-        maxf(
-            getShapeMaterials(world.ecsState, shapeA)[0].rollingResistance,
-            getShapeMaterials(world.ecsState, shapeB)[0].rollingResistance,
-        ) * maxRadius;
 
     if (shapeA.enablePreSolveEvents || shapeB.enablePreSolveEvents) {
         contact.flags |= ContactFlags.simEnablePreSolveEvents;

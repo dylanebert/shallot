@@ -223,7 +223,9 @@ export const PLJ_QUAT_B = J_PAYLOAD + 9;
 // Contact dispatch ABI (arena.rs). Geometry is sphere center/radius, capsule endpoints/radius,
 // hull record index, mesh extra-pool offset/scale, or height/compound extra-pool offset. A compound
 // also supplies its child index. Mesh slots address opaque cache, manifold and point-material spans.
-export const DISPATCH_STRIDE = 31;
+export const DISPATCH_STRIDE = 33;
+export const D_DEFAULT_MIX = 31;
+export const D_RADIUS_A = 32;
 export const D_SHAPE_A = 29;
 export const D_SHAPE_B = 30;
 export const D_OLD_COUNT = 28;

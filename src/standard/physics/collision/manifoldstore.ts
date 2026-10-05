@@ -13,7 +13,7 @@ import type { World } from "../../../engine";
 //
 // The strides MIRROR kernel/src/manifolds.rs; the wasm layout is the contract.
 
-import { f32, type Vec3 } from "../common/math";
+import type { Vec3 } from "../common/math";
 import { kernel } from "../kernel/kernel";
 import { KernelViews } from "../kernel/views";
 import type { Manifold, ManifoldPoint } from "./contact";
@@ -34,13 +34,9 @@ const CACHE_WORDS = 10;
  * (67 f32): header(11) + 4 inline points(14 each). */
 export const MANIFOLD_STRIDE = 67;
 
-// Directory record slots (DIR_STRIDE). The material row (0..6) + body sim indices (9,10) are written
-// per step by `writeContactRow` (the narrowphase → solver handoff the kernel gathers through); the
-// block descriptor (7,8) by `alloc`; the hit flag (11) by the kernel `store`, read back by TS.
-const DIR_FRICTION = 0;
-const DIR_RESTITUTION = 1;
-const DIR_ROLLING_RESISTANCE = 2;
-const DIR_TANGENT_VELOCITY = 3; // 3..5
+// Directory record slots (DIR_STRIDE). Materials (0..5) are updated by collide (or the custom
+// callback path); flags (6) + body indices (9,10) by writeContactRow; the block descriptor (7,8)
+// by alloc; the hit flag (11) by the kernel store, read back by TS.
 const DIR_FLAGS = 6;
 const DIR_MANIFOLD_COUNT = 7;
 const DIR_MANIFOLD_BASE = 8;
@@ -299,77 +295,49 @@ export class ManifoldStore extends KernelViews {
             this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_COUNT] = 0;
         }
     }
-
-    // Raw per-point walks over a contact's resident manifolds — the narrowphase's hot loops, run on
-    // the pool columns directly so no view getters (which return fresh Vec3s) are touched. The f32
-    // expression trees are op-identical to the view-based loops they replaced. `count` is the
-    // caller's `contact.manifoldCount` — the JS-side truth; the directory count can be stale for a
-    // contact that stopped touching without a `clear` (the mesh not-touching path), so only the
-    // block base is read from the directory (valid whenever count > 0, written by `alloc`).
-
-    /** Shift every point's anchors from body origin to center of mass (b3UpdateContact tail):
-     * anchorA -= centerA, anchorB -= centerB. */
-    shiftAnchors(contactId: number, count: number, centerA: Vec3, centerB: Vec3): void {
-        const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
-        const f = this.poolF;
-        const u = this.poolU;
-        for (let m = 0; m < count; ++m) {
-            const mo = (base + m) * MANIFOLD_STRIDE;
-            const pc = u[mo + M_POINT_COUNT];
-            for (let p = 0; p < pc; ++p) {
-                const po = mo + M_POINTS + p * POINT_STRIDE;
-                f[po + P_ANCHOR_A] = f32(f[po + P_ANCHOR_A] - centerA.x);
-                f[po + P_ANCHOR_A + 1] = f32(f[po + P_ANCHOR_A + 1] - centerA.y);
-                f[po + P_ANCHOR_A + 2] = f32(f[po + P_ANCHOR_A + 2] - centerA.z);
-                f[po + P_ANCHOR_B] = f32(f[po + P_ANCHOR_B] - centerB.x);
-                f[po + P_ANCHOR_B + 1] = f32(f[po + P_ANCHOR_B + 1] - centerB.y);
-                f[po + P_ANCHOR_B + 2] = f32(f[po + P_ANCHOR_B + 2] - centerB.z);
-            }
-        }
-    }
-
-    /** Cache every point's separation for the next recycle test: baseSeparation = separation. */
-    rebaseSeparations(contactId: number, count: number): void {
-        const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
-        const f = this.poolF;
-        const u = this.poolU;
-        for (let m = 0; m < count; ++m) {
-            const mo = (base + m) * MANIFOLD_STRIDE;
-            const pc = u[mo + M_POINT_COUNT];
-            for (let p = 0; p < pc; ++p) {
-                const po = mo + M_POINTS + p * POINT_STRIDE;
-                f[po + P_BASE_SEPARATION] = f[po + P_SEPARATION];
-            }
-        }
-    }
 }
 
-/**
- * Write a contact's per-step directory row into `dirF`/`dirU`, the store's current directory views — the
- * material + body sim indices the solver gathers, zeroing the hit flag — before the solve. The block
- * descriptor (manifoldCount/manifoldBase) is written separately by `alloc` during the narrowphase.
- * `indexA`/`indexB` may be `NULL_INDEX` (-1), which lands as `0xFFFFFFFF` on the u32 write (= the
- * kernel's `NULL_INDEX`).
- */
-export function writeContactRow(
+/** Write custom-callback mixing into the same directory row the kernel owns for default mixing. */
+export function writeContactMaterial(
     dirF: Float32Array,
-    dirU: Uint32Array,
     contactId: number,
     friction: number,
     restitution: number,
     rollingResistance: number,
-    tangentVelocity: Vec3,
+    tangentX: number,
+    tangentY: number,
+    tangentZ: number,
+): void {
+    const o = contactId * DIR_STRIDE;
+    dirF[o] = friction;
+    dirF[o + 1] = restitution;
+    dirF[o + 2] = rollingResistance;
+    dirF[o + 3] = tangentX;
+    dirF[o + 4] = tangentY;
+    dirF[o + 5] = tangentZ;
+}
+
+/** Snapshot of a contact's mixed material; not a live view. */
+export function readContactMaterial(dirF: Float32Array, contactId: number) {
+    const o = contactId * DIR_STRIDE;
+    return {
+        friction: dirF[o],
+        restitution: dirF[o + 1],
+        rollingResistance: dirF[o + 2],
+        tangentVelocity: { x: dirF[o + 3], y: dirF[o + 4], z: dirF[o + 5] },
+    };
+}
+
+/** Write solver flags and body indices before solve, clearing the previous hit result.
+ * `NULL_INDEX` (-1) body indices land as `0xFFFFFFFF` in the u32 column. */
+export function writeContactRow(
+    dirU: Uint32Array,
+    contactId: number,
     flags: number,
     indexA: number,
     indexB: number,
 ): void {
     const o = contactId * DIR_STRIDE;
-    dirF[o + DIR_FRICTION] = friction;
-    dirF[o + DIR_RESTITUTION] = restitution;
-    dirF[o + DIR_ROLLING_RESISTANCE] = rollingResistance;
-    dirF[o + DIR_TANGENT_VELOCITY] = tangentVelocity.x;
-    dirF[o + DIR_TANGENT_VELOCITY + 1] = tangentVelocity.y;
-    dirF[o + DIR_TANGENT_VELOCITY + 2] = tangentVelocity.z;
     dirU[o + DIR_FLAGS] = flags;
     dirU[o + DIR_INDEX_A] = indexA;
     dirU[o + DIR_INDEX_B] = indexB;
@@ -383,7 +351,7 @@ export function contactHit(dirU: Uint32Array, contactId: number): boolean {
 }
 
 /** @returns the total point count of a contact's first `count` resident manifolds, read from `dirU`
- * and `poolU`, the store's current views, through the directory's block base as `shiftAnchors` does. */
+ * and `poolU`, the store's current views, through the directory's block base. */
 export function contactPointCount(
     dirU: Uint32Array,
     poolU: Uint32Array,
