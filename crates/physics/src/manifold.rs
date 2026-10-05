@@ -1694,9 +1694,9 @@ struct AxisQuery {
 }
 
 #[inline]
-// b3Dot3W evaluates z + (y + x); this association is part of the active SIMD producer.
+// b3Dot3W's association, x + (y + z), on every target (simd.h NEON, SSE2 and scalar).
 fn dot3_w(a: Vec3, b: Vec3) -> f32 {
-    a.z * b.z + (a.y * b.y + a.x * b.x)
+    a.x * b.x + (a.y * b.y + a.z * b.z)
 }
 
 #[inline]
