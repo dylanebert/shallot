@@ -34,18 +34,19 @@ pub const COLLIDE_MIN_RANGE: usize = 20;
 // must carry enough work to beat its own wake, and the floor has to scale the same way: **items per
 // woken worker**, not items.
 //
-// Derived, not tuned. `large_pyramid` on 8 threads (7 workers, Ryzen 5900X, bun): forking the outer
-// phases *loses* at 210 bodies (0.72 → 1.05 ms/step) and at 1035 (2.41 → 2.80), breaks even at 1830
-// (4.21 → 4.23), and wins above it (2850: 7.80 → 7.28; 4095: 15.3 → 12.7). At that break-even scene the
-// phases sweep 5310 recycle records per step, so the break-even floor is ≈ 5310/7 ≈ 758 items per
-// worker. (The pose finalize once carried its own floor here; it now rides the staged solve as its
+// Derived, not tuned, with the join's backoff in place (Apple M4 Max; Node, Bun and Chromium). Boxes
+// resting on a sliding platform, one contact each, 4 threads (3 workers): forking loses at 64 contacts
+// (Node 54 → 65 µs/step) and at 200 (94 → 103), breaks even near 170-200 contacts per worker on Node,
+// and wins from 800 (Node 278 → 262; at 1,000, Chromium 325-375 → 300-305). `large_pyramid` on 8
+// threads (7 workers) wins at 1,035 bodies, 3,015 contacts (Node 702-749 → 615-677). The floor sits
+// above that break-even, so a scene near it stays inline. (The pose finalize once carried its own floor here; it now rides the staged solve as its
 // terminal stage — `stages.rs` — where the workers are already awake and no floor applies.)
 
 /// Collide-sweep items per woken worker (recycle, and the convex dispatch with it — a dispatch record is
 /// strictly more work than a recycle record, so the recycle floor is a conservative bound for it, and it
 /// is not perf-load-bearing anyway: post-settle almost every contact recycles, so the convex sweep fires
 /// on the settle-in steps and then essentially never).
-pub const COLLIDE_FORK_MIN: usize = 768;
+pub const COLLIDE_FORK_MIN: usize = 256;
 
 /// Is `item_count` enough work to be worth waking `worker_count` workers for? A sweep under the floor
 /// loses to its own wake, and runs inline instead.
