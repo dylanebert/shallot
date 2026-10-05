@@ -1,5 +1,5 @@
 import type { World } from "../../../engine";
-import { kernel, kernelViewKey } from "./kernel";
+import { type KernelState, kernel, kernelState, kernelViewKey, kernelViewsCurrent } from "./kernel";
 
 type ViewOwner = { ensureViews(): void };
 type ViewFields = { viewOwner: ViewOwner; viewData: Record<string, unknown> };
@@ -41,9 +41,11 @@ export abstract class KernelViews {
     readonly ecsState: World | undefined;
     private _viewKey = -1;
     private _refreshing = false;
+    private readonly _kernel: KernelState;
 
     constructor(ecsState: World | undefined) {
         this.ecsState = ecsState;
+        this._kernel = kernelState(ecsState);
         // Resolve guarded calls once per owner, rather than inherited lookups across store kinds.
         this.ensureViews = this.ensureViews.bind(this);
         this.refreshViews = this.refreshViews.bind(this);
@@ -65,7 +67,12 @@ export abstract class KernelViews {
     }
 
     ensureViews(): void {
-        if (!this._refreshing && this._viewKey !== kernelViewKey(this.ecsState))
+        if (
+            this._viewKey === this._kernel.viewRevision &&
+            kernelViewsCurrent(this.ecsState, this._kernel)
+        )
+            return;
+        if (!this._refreshing && this._viewKey !== kernelViewKey(this.ecsState, this._kernel))
             this.refreshViews();
     }
 

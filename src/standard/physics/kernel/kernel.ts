@@ -386,7 +386,7 @@ export type InitOptions = {
 
 export type QueryCallback = (kind: number, shape: number, data: number, count: number) => number;
 
-interface KernelState {
+export interface KernelState {
     queryCallback: QueryCallback | null;
     queryWorld: number;
     callbackDepth: number;
@@ -426,13 +426,27 @@ const kernelStateKey = { create: createKernelState };
 const standaloneKernelState = createKernelState();
 const queryImportStates = new WeakMap<Kernel, KernelState>();
 
-function kernelState(world: World | undefined): KernelState {
+export function kernelState(world: World | undefined): KernelState {
     return world ? world.resource(kernelStateKey) : standaloneKernelState;
 }
 
+/** Whether no view over `world`'s kernel memory changed since `state.viewRevision` was taken. */
+export function kernelViewsCurrent(world: World | undefined, state: KernelState): boolean {
+    const epoch = state.viewEpoch;
+    // Shared memory compares the cached buffer, as Emscripten's growMemViews does before each heap
+    // access. Unshared growth detaches the cached buffer, whose epoch view then reads undefined.
+    return (
+        epoch !== null &&
+        !state.dead &&
+        world?.disposed !== true &&
+        (state.sharedMemory === null || epoch.buffer === state.sharedMemory.buffer) &&
+        epoch[0] === state.viewValue
+    );
+}
+
 /** One staleness key for every store on this kernel, including reallocations within existing pages. */
-export function kernelViewKey(world: World | undefined): number {
-    const state = kernelState(world);
+export function kernelViewKey(world: World | undefined, state = kernelState(world)): number {
+    if (kernelViewsCurrent(world, state)) return state.viewRevision;
     const k = kernel(world);
     const buffer = k.memory.buffer;
     if (state.viewEpoch === null || state.viewEpoch.buffer !== buffer) {
