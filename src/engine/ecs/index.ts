@@ -24,6 +24,7 @@ export {
     vec2,
     vec4,
 } from "./component";
+export type { EntityRef } from "./entity";
 export {
     composeGlobalTransform,
     GlobalTransform,

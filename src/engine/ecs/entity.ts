@@ -1,6 +1,14 @@
 export type Entity = number;
 
 /**
+ * A safe-integer reference that survives frames and storage growth, not destruction or
+ * eid reuse. 0 means missing. Valid only in the World and run that made it, not saves.
+ * The low 32 bits hold the eid; the upper 21 hold its generation. After 2^21 reuses
+ * of one eid the generation wraps, warns once per World, and can alias an old reference.
+ */
+export type EntityRef = number & { readonly __entityRef: unique symbol };
+
+/**
  * world entity allocator. sparse-set membership + freelist for ID reuse.
  * iterate alive entities via `dense` up to `count`.
  */
@@ -9,6 +17,7 @@ export class Entities {
     private _sparse: number[] = [];
     private _generation: number[] = [];
     private _count = 0;
+    private _warnedWrap = false;
     private _nextId = 1;
     // freed ids in the first `_freeCount` slots; a pop or `length` write would release the backing store
     // and the next free would allocate it again, so the list keeps its high-water capacity.
@@ -20,7 +29,14 @@ export class Entities {
         this._sparse[eid] = this._count;
         this._dense[this._count++] = eid;
         // bump on every allocation (fresh or recycled) so a held (eid, generation) pair detects a realias
-        this._generation[eid] = (this._generation[eid] ?? 0) + 1;
+        const generation = ((this._generation[eid] ?? 0) + 1) % 2 ** 21;
+        this._generation[eid] = generation;
+        if (generation === 0 && !this._warnedWrap) {
+            this._warnedWrap = true;
+            console.warn(
+                "Entity reference generation wrapped; old references may alias live entities",
+            );
+        }
         return eid;
     }
 

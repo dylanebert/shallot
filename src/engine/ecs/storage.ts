@@ -1,4 +1,13 @@
-import type { FieldType, ScalarField, TypedArray, Vector2Field, Vector4Field } from "./component";
+import {
+    entity,
+    type FieldType,
+    type ScalarField,
+    type TypedArray,
+    type Vector2Field,
+    type Vector4Field,
+} from "./component";
+import type { EntityRef } from "./entity";
+import type { World } from "./world";
 
 export type FieldStorage<T extends FieldType> = T["lanes"] extends 1
     ? ScalarField
@@ -17,7 +26,11 @@ export class WorldField<T extends FieldType = FieldType> {
     readonly #column: Column;
     readonly #writeRows = new WeakMap<TypedArray, Map<number, TypedArray[]>>();
 
-    constructor(schema: T, initialCapacity: number) {
+    private readonly _world?: World;
+
+    constructor(schema: T, initialCapacity: number, world?: World) {
+        if (schema === entity && !world) throw new Error("Entity fields require a World");
+        this._world = world;
         this.type = schema;
         this.#column = {
             array: new schema.ctor(initialCapacity * schema.lanes),
@@ -51,6 +64,7 @@ export class WorldField<T extends FieldType = FieldType> {
         const base = eid * lanes;
         if (base >= column.array.length) this.ensure(eid + 1);
         const array = column.array;
+        if (this.type === entity) x = this._world!.ref(x);
         const encode = this.type.encode;
         if (encode) {
             array[base] = encode(x);
@@ -111,6 +125,7 @@ export class WorldField<T extends FieldType = FieldType> {
     get(eid: number, lane = 0): number {
         const value = this.#column.array[eid * this.type.lanes + lane] ?? 0;
         const type = this.type;
+        if (type === entity) return this._world!.resolve(value as EntityRef);
         return type.decode ? type.decode(value) : value;
     }
 

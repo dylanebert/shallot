@@ -13,7 +13,7 @@ import {
     type Vector2Field,
     type Vector4Field,
 } from "./component";
-import { Entities } from "./entity";
+import { Entities, type EntityRef } from "./entity";
 import {
     type GlobalTransformRuntime,
     markGlobalTransformDiscontinuity,
@@ -342,7 +342,7 @@ export class World {
         const columns = new Map<string, WorldField>();
         const storage: Record<string, unknown> = {};
         for (const { name, field } of fields(component)) {
-            const column = new WorldField(field, INITIAL_CAPACITY);
+            const column = new WorldField(field, INITIAL_CAPACITY, this);
             column.ensure(this._highWater);
             columns.set(name, column);
             storage[name] = column.bind();
@@ -427,6 +427,30 @@ export class World {
 
     exists(eid: number): boolean {
         return this._entities.exists(eid);
+    }
+
+    /**
+     * Keep an entity across frames and storage growth, not destruction or eid reuse.
+     * Returns 0 for a dead eid. Valid only in this World and run, never across saves.
+     * The 21-bit generation wraps after 2^21 reuses of one eid and warns once.
+     */
+    ref(eid: number): EntityRef {
+        return (
+            this._entities.exists(eid) ? this._entities.generation(eid) * 2 ** 32 + eid : 0
+        ) as EntityRef;
+    }
+
+    /**
+     * Resolve a reference kept across frames or storage growth to its live eid, or 0
+     * after destruction or reuse. 0 means missing. Use only references from this World
+     * and run; after the 21-bit generation wraps, an old reference can alias a live eid.
+     */
+    resolve(ref: EntityRef): number {
+        const eid = ref % 2 ** 32;
+        return this._entities.exists(eid) &&
+            this._entities.generation(eid) === Math.floor(ref / 2 ** 32)
+            ? eid
+            : 0;
     }
 
     /** snapshot of every alive entity id */

@@ -37,7 +37,13 @@ export function isType(value: unknown): value is FieldType {
 }
 
 /** typed-array element backing for component columns. */
-export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array | Uint8Array;
+export type TypedArray =
+    | Float32Array
+    | Float64Array
+    | Int32Array
+    | Uint32Array
+    | Uint16Array
+    | Uint8Array;
 
 /**
  * typed-array storage descriptor. Shared between {@link ScalarField}/{@link Vector2Field}/{@link Vector4Field}
@@ -53,7 +59,7 @@ export interface FieldType<TArray extends TypedArray = TypedArray> {
     /** scalar = 1, vec2 = 2, vec4 = 4. stride into the backing array per eid */
     readonly lanes: 1 | 2 | 4;
     readonly name: string;
-    /** WGSL element type, or null for u8 and u16, which WGSL cannot store. Tables bind TypeGPU
+    /** WGSL element type, or null for CPU-only columns. Tables bind TypeGPU
      * records, not this; it is part of the layout that hot reload compares. */
     readonly wgsl: string | null;
     /** JS number → array-slot value. omit for identity-mapped types */
@@ -87,13 +93,17 @@ export const u32: FieldType<Uint32Array> & { readonly lanes: 1 } = {
 };
 
 /**
- * a u32 that holds an entity id (`Joint.a`, `Spring.b`). Storage is identical to {@link u32}.
+ * CPU-only entity reference column. Setters and component starting values take live
+ * eids; getters resolve them to eids, or 0 after destruction or reuse. Raw columns
+ * and bulk writes hold EntityRef numbers, not eids. References survive frames and
+ * storage growth, belong to one World and run, and cannot be saved; 0 means missing.
+ * Generations wrap after 2^21 reuses of one eid, with a once-per-World warning.
  */
-export const entity: FieldType<Uint32Array> & { readonly lanes: 1 } = {
-    ctor: Uint32Array,
+export const entity: FieldType<Float64Array> & { readonly lanes: 1 } = {
+    ctor: Float64Array,
     lanes: 1,
     name: "entity",
-    wgsl: "u32",
+    wgsl: null,
 };
 
 /** @internal compare storage and conversion semantics, never a FieldType's debug label. */
