@@ -304,7 +304,7 @@ pub extern "C" fn reserve_dispatch(count: usize, mesh_count: usize, threads: usi
         DISPATCH_PTR = off as u32;
         off += count * DISPATCH_STRIDE * 4;
         DISPATCH_OUT_PTR = off as u32;
-        off += count * 4;
+        off += count * (1 + MANIFOLD_STRIDE) * 4;
         off = (off + 15) & !15;
         MESH_CACHE_PTR = off;
         off += mesh_count * core::mem::size_of::<crate::mesh_contact::MeshCache>();
@@ -640,8 +640,8 @@ fn write_sat(dir: Col<u32>, id: usize, c: &SatCache) {
 }
 
 /// Compute convex, mesh, height-field and compound-child contacts in `[start, end)`.
-/// Convex manifolds write into the resident pool; mesh manifolds return in a transient span for serial
-/// allocation. Each result is its manifold count. Per-thread scratch is disjoint across worker indices.
+/// Convex manifolds with an existing block write into the resident pool; new convex and mesh
+/// manifolds return in a transient span for serial allocation. Each result is its manifold count. Per-thread scratch is disjoint across worker indices.
 ///
 /// One block of the parallel sweep (`parfor.rs`), or the whole column on the serial path. Records are
 /// independent — each reads its own dispatch record and writes only its own contact's manifold + cache
@@ -716,7 +716,12 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 cache.simplex_cache = read_simplex(dir, contact_id);
             }
 
-            let mut m = read_manifold_warm(pool, base);
+            let resident = disp[r + D_OLD_COUNT] != 0;
+            let mut m = if resident {
+                read_manifold_warm(pool, base)
+            } else {
+                Manifold::new()
+            };
             let touching = compute_convex_manifold(
                 &mut m,
                 &shape_a,
@@ -734,7 +739,13 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             for p in &mut m.points[..m.point_count] {
                 p.anchor_a = p.anchor_a.add(child_offset);
             }
-            write_manifold(&m, pool, base);
+            if resident {
+                write_manifold(&m, pool, base);
+            } else if touching {
+                let ptr = (DISPATCH_OUT_PTR as *mut f32).add(total + i * MANIFOLD_STRIDE);
+                ptr.write_bytes(0, MANIFOLD_STRIDE);
+                write_manifold(&m, Col::new(ptr, MANIFOLD_STRIDE), 0);
+            }
             if uses_sat {
                 write_sat(dir, contact_id, &cache.sat_cache);
             } else if uses_simplex {

@@ -161,16 +161,6 @@ function collect(world: WorldState, contact: Contact): void {
     const simA = getBodySim(world, world.bodies[shapeA.bodyId]);
     const simB = getBodySim(world, world.bodies[shapeB.bodyId]);
     const mesh = (contact.flags & ContactFlags.simMeshContact) !== 0;
-    if (!mesh && contact.manifoldCount === 0) {
-        contact.manifolds = world.manifoldStore.alloc(contact.contactId, 1);
-        contact.manifoldCount = 1;
-        const m = contact.manifolds[0];
-        m.frictionImpulse = zero;
-        m.rollingImpulse = zero;
-        m.twistImpulse = 0;
-        m.pointCount = 0;
-    }
-    if (world.bodyStore.stale) world.bodyStore.refreshViews();
     let job = jobs[jobCount];
     if (job === undefined) {
         job = {
@@ -188,6 +178,13 @@ function collect(world: WorldState, contact: Contact): void {
             materials: null,
         };
         jobs.push(job);
+    }
+    if (mesh) {
+        if (job.result === null || job.result.length < 256 * MANIFOLD_STRIDE)
+            job.result = new Uint32Array(256 * MANIFOLD_STRIDE);
+        job.materials ??= new Uint32Array(256 * 4);
+    } else if (contact.manifoldCount === 0) {
+        job.result ??= new Uint32Array(MANIFOLD_STRIDE);
     }
     job.contact = contact;
     job.shapeA = shapeA;
@@ -280,9 +277,9 @@ function finishMeshMaterial(
 function finish(world: WorldState, job: ContactJob, count: number): void {
     const contact = job.contact;
     if (count === 0) {
+        if (contact.manifoldCount > 0) world.manifoldStore.clear(contact.contactId);
         contact.manifolds = NO_MANIFOLDS;
         contact.manifoldCount = 0;
-        world.manifoldStore.clear(contact.contactId);
         contact.flags &= ~ContactFlags.simTouchingFlag;
         if (job.meshSlot !== -1) contact.flags &= ~ContactFlags.simEnableHitEvent;
         if (job.wasTouching) {
@@ -291,7 +288,7 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
         }
         return;
     }
-    if (job.meshSlot !== -1) {
+    if (job.meshSlot !== -1 || contact.manifoldCount === 0) {
         contact.manifolds = world.manifoldStore.importManifolds(
             contact.contactId,
             count,
@@ -424,21 +421,29 @@ function dispatch(world: WorldState): void {
     for (let i = 0; i < jobCount; ++i) {
         const job = jobs[i];
         results[i] = u[out + i];
-        if (job.meshSlot === -1) continue;
+        if (job.meshSlot === -1) {
+            if (job.contact.manifoldCount === 0 && results[i] > 0) {
+                job.result!.set(
+                    u.subarray(
+                        out + jobCount + i * MANIFOLD_STRIDE,
+                        out + jobCount + (i + 1) * MANIFOLD_STRIDE,
+                    ),
+                );
+            }
+            continue;
+        }
         job.contact.kernelMeshCache ??= new Uint32Array(cacheWords);
         job.contact.kernelMeshCache.set(
             new Uint32Array(buf, k.meshCachePtr() + job.meshSlot * cacheWords * 4, cacheWords),
         );
-        job.result ??= new Uint32Array(256 * MANIFOLD_STRIDE);
-        job.materials ??= new Uint32Array(256 * 4);
-        job.result.set(
+        job.result!.set(
             new Uint32Array(
                 buf,
                 k.meshOutputPtr() + job.meshSlot * 256 * MANIFOLD_STRIDE * 4,
                 results[i] * MANIFOLD_STRIDE,
             ),
         );
-        job.materials.set(
+        job.materials!.set(
             new Uint32Array(buf, k.meshMaterialPtr() + job.meshSlot * 256 * 4 * 4, results[i] * 4),
         );
     }
