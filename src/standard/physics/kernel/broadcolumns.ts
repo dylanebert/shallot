@@ -2,15 +2,14 @@ import type { World } from "../../../engine";
 // The persistent broad-phase region (kernel/src/broad.rs) — three dynamic-tree node pools, shape-pair
 // membership arrays and joint-filtered body pairs. The kernel queries them without a per-step marshal.
 // This store owns views of the resident tree headers, pools, pairs, body filters and moves.
-// Tree operations run in the kernel; the pair table uses the resident TS views.
+// Tree, pair-table and move operations run in the kernel.
 //
 // A region grow (or any `memory.grow` elsewhere) detaches every typed-array view, so the store follows
 // the shared-memory view-refresh discipline: it re-derives the views from the kernel layout header
-// and writes them straight back into the DynamicTree / HashSet structs, so every tree/table op reads a
+// and writes them straight back into the DynamicTree structs, so every tree op reads a
 // current view. `refreshViews` is called at the top of the pair-finding pass and after every grow —
 // never per-iteration (that would reintroduce churn).
 
-import type { HashSet } from "../collision/table";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 import type { DynamicTree } from "./treecolumns";
@@ -27,7 +26,7 @@ const EMPTY_U = new Uint32Array(0);
 
 /**
  * The resident broad-phase region's TS-side view manager. One per world. Holds references to the three
- * dynamic trees, pair set and World so a refresh can rebind their column views and body-filter pairs.
+ * dynamic trees and World so a refresh can rebind their column views and body-filter pairs.
  */
 export class BroadStore extends KernelViews {
     readonly worldId: number;
@@ -39,8 +38,6 @@ export class BroadStore extends KernelViews {
 
     /** The three dynamic trees (static / kinematic / dynamic), set at broad-phase creation. */
     trees: DynamicTree[] = [];
-    /** The pair set, set at broad-phase creation. */
-    set: HashSet | null = null;
     /** The owning world, set once the world is fully constructed (sibling-store refresh on a grow). */
     world: WorldState | null = null;
     moveData = EMPTY_I;
@@ -71,7 +68,7 @@ export class BroadStore extends KernelViews {
         this.ensureViews();
     }
 
-    /** Re-derive the column views over the current region and write them into the tree/set/filter structs.
+    /** Re-derive the column views over the current region and write them into the tree/filter structs.
      * Cheap — a handful of typed-array constructions, no copy. */
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
@@ -122,20 +119,6 @@ export class BroadStore extends KernelViews {
         if (this.initialization.claimed && filter !== undefined && filter.capacity !== 0) {
             filter.data = new Uint32Array(buf, layout[6], 1 + 3 * filter.capacity);
         }
-
-        const s = this.set;
-        if (s !== null) {
-            const setCap = k.broadSetCap();
-            if (setCap === 0) {
-                s.keyHi = EMPTY_U;
-                s.keyLo = EMPTY_U;
-                s.hashes = EMPTY_U;
-            } else {
-                s.keyHi = new Uint32Array(buf, layout[3], setCap);
-                s.keyLo = new Uint32Array(buf, layout[4], setCap);
-                s.hashes = new Uint32Array(buf, layout[5], setCap);
-            }
-        }
     }
 
     reserveTreeWork(depth: number, words: number): number {
@@ -161,11 +144,6 @@ export class BroadStore extends KernelViews {
         );
     }
 
-    /** Grow the pair-set arrays to `setCap` slots (grow-only), refreshing all views afterward. */
-    growSet(setCap: number): void {
-        this.reserve(0, 0, 0, setCap);
-    }
-
     growBodyFilters(capacity: number): void {
         this.reserve(0, 0, 0, 0, capacity);
     }
@@ -189,7 +167,7 @@ export class BroadStore extends KernelViews {
     }
 }
 
-/** Create an empty broad store for a new world. Its trees + set are registered by `createBroadPhase`. */
+/** Create an empty broad store for a new world. Its trees are registered by `createBroadPhase`. */
 export function createBroadStore(world: World | undefined, worldId: number): BroadStore {
     return new BroadStore(world, worldId);
 }

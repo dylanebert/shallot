@@ -1,244 +1,58 @@
-// Broad-phase pair finding — Box3D's b3UpdateBroadPhasePairs + b3PairQueryCallback (broad_phase.c,
-// Erin Catto, MIT). Each moved proxy queries the trees for overlapping proxies; new, un-filtered,
-// distinct-body pairs become contacts. Contact creation order is deterministic: proxies in
-// move-buffer order, candidates within a proxy in LIFO discovery order (matching the C move-result
-// list), so the assigned contact ids — and therefore the solver order — match the reference.
-//
-// The query DFS, moved-proxy dedup, pair-set-membership rejection, and the two tree rebuilds run
-// in-kernel over the resident broad-phase region (kernel/src/pairwork.rs), which returns a candidate
-// slab (steady-state ≈ empty). TS copies the move buffer + dynamic moved-bitset in, then applies the
-// surviving filters (self-body / sensor / shouldShapesCollide / resident body pairs) over the returned
-// candidates and creates the contacts. A found compound leaf stays on the TS path: the kernel emits a
-// placeholder, and TS maps the query bounds into the compound's local frame and recurses its inner
-// tree, each overlapping child a candidate with its child index. fround (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
-
-import { intVec, NULL_INDEX } from "../common/array";
-import { type AABB, aabb, vec3, xf } from "../common/math";
-import { BodyType, type FilterBits } from "../common/types";
+import { BodyType } from "../common/types";
+import { bodyType } from "../kernel/filtercolumns";
 import { kernel, ParKind, runPool, workers } from "../kernel/kernel";
-import * as tree from "../kernel/treecolumns";
-import { type CompoundData, queryCompound } from "../shapes/compound";
-import { type Body, getBodyTransformQuick } from "../world/body";
+import type { Body } from "../world/body";
 import type { WorldState } from "../world/world";
 import { bodiesFiltered } from "./bodyfilter";
-import * as bp from "./broadphase";
+import { clearMoves, moveCount } from "./broadphase";
 import { createContact } from "./contact";
-import { containsKey, ensureResident } from "./table";
+import { ensureResident } from "./table";
 
-/** @returns whether two shapes' filters allow a collision (b3ShouldShapesCollide). */
-export function shouldShapesCollide(a: FilterBits, b: FilterBits): boolean {
-    if (a.groupIndex === b.groupIndex && a.groupIndex !== 0) {
-        return a.groupIndex > 0;
-    }
+export function shouldBodiesCollide(world: WorldState, a: Body, b: Body): boolean {
     return (
-        ((a.maskHi & b.categoryHi) | (a.maskLo & b.categoryLo)) !== 0 &&
-        ((a.categoryHi & b.maskHi) | (a.categoryLo & b.maskLo)) !== 0
+        (bodyType(world, a.id) === BodyType.Dynamic ||
+            bodyType(world, b.id) === BodyType.Dynamic) &&
+        !bodiesFiltered(world, a.id, b.id)
     );
 }
 
-// b3ShouldBodiesCollide tests direct joint edges, not connectivity through intermediate bodies.
-export function shouldBodiesCollide(world: WorldState, bodyA: Body, bodyB: Body): boolean {
-    return (
-        (bodyA.type === BodyType.Dynamic || bodyB.type === BodyType.Dynamic) &&
-        !bodiesFiltered(world, bodyA.id, bodyB.id)
-    );
+let memory: Uint32Array<ArrayBufferLike> = new Uint32Array(0);
+function heap(buffer: ArrayBufferLike): Uint32Array {
+    if (memory.buffer !== buffer) memory = new Uint32Array(buffer);
+    return memory;
 }
 
-// The survivor slab: one flat entry per pair that passed every filter, appended in discovery order,
-// with the moved proxy that found it delimiting a range. `survEnd[i]` is proxy i's exclusive end; its
-// start is `survEnd[i - 1]` (0 for the first). Persistent scratch — pair finding runs once per step and
-// is not re-entrant, so the buffers are reused rather than rebuilt.
-const candShapeA = intVec();
-const candShapeB = intVec();
-const candChild = intVec();
-const survEnd = intVec();
-
-// Scratch the moved proxy's fat AABB is read into during compound expansion (getAABBInto — zero-alloc;
-// the tree holds no live AABB object to alias).
-const fatScratch: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
-
-// u32 slots per kernel candidate entry (flag, shapeA, shapeB, next) — mirrors pairwork.rs.
-const CAND_STRIDE = 4;
-// The candidate-slab capacity handed to the kernel; grows monotonically on overflow (a cold-step event
-// only — steady state emits ≈0 entries). Persisted across steps to avoid re-growing.
-let candCap = 256;
-
-// One u32 view over the kernel's linear memory, re-derived when a grow replaces the buffer, so the pair
-// pass reads and writes its slabs by index instead of minting per-step views. Kernel slab pointers are
-// u32-aligned.
-let heapU32: Uint32Array<ArrayBufferLike> = new Uint32Array(0);
-function heap(buf: ArrayBufferLike): Uint32Array {
-    if (heapU32.buffer !== buf) heapU32 = new Uint32Array(buf);
-    return heapU32;
-}
-function slot(ptr: number): number {
-    if ((ptr & 3) !== 0) throw new Error(`pairs: kernel slab pointer ${ptr} is not u32-aligned`);
-    return ptr >>> 2;
-}
-
-// Grow-only candidate copies survive memory growth during pair membership and contact creation.
-let candEndCopy = new Uint32Array(64);
-let candCopy = new Uint32Array(256 * CAND_STRIDE);
-
-/** @returns whether shapes `a`/`b` pass every non-membership filter (self-body, sensor, category, joint). */
-function filtersPass(world: WorldState, shapeA: number, shapeB: number): boolean {
-    const sa = world.shapes[shapeA];
-    const sb = world.shapes[shapeB];
-    if (sa.bodyId === sb.bodyId) return false;
-    if (sa.sensorIndex !== NULL_INDEX || sb.sensorIndex !== NULL_INDEX) return false;
-    if (shouldShapesCollide(sa.filter, sb.filter) === false) return false;
-    return shouldBodiesCollide(world, world.bodies[sa.bodyId], world.bodies[sb.bodyId]);
-}
-
-/**
- * Compound placeholder: `shapeA` is the compound shape, `shapeB` the query shape. Map the moved proxy's
- * fat AABB into the compound's frame, walk its inner tree, and emit each overlapping child that passes
- * membership + filters. Dedup already ran in the kernel. Its own function: the child callback's closure
- * context is then allocated only on this path, not on every `updateBroadPhasePairs` call.
- */
-function expandCompound(world: WorldState, shapeA: number, shapeB: number, queryKey: number): void {
-    const broadPhase = world.broadPhase;
-    const compoundShape = world.shapes[shapeA];
-    const fatAABB = tree.getAABBInto(
-        broadPhase.trees[bp.proxyType(queryKey)],
-        bp.proxyId(queryKey),
-        fatScratch,
-    );
-    const compoundTransform = getBodyTransformQuick(world, world.bodies[compoundShape.bodyId]);
-    const localAABB = aabb.transform(xf.invert(compoundTransform), fatAABB);
-    queryCompound(
-        compoundShape.compound as CompoundData,
-        localAABB,
-        (childIndex: number): boolean => {
-            if (containsKey(broadPhase.pairSet, shapeA, shapeB, childIndex)) return true;
-            if (filtersPass(world, shapeA, shapeB)) {
-                candShapeA.push(shapeA);
-                candShapeB.push(shapeB);
-                candChild.push(childIndex);
-            }
-            return true;
-        },
-    );
-}
-
-/**
- * Find new collision pairs, create contacts, rebuild the trees, and reset the move buffer. The query DFS,
- * moved-proxy dedup, pair-set-membership rejection, and the two tree rebuilds run in the kernel over the
- * resident broad-phase region (pairwork.rs); TS applies the surviving filters
- * (self-body / sensor / shouldShapesCollide / joint walk)
- * over the returned candidates — expanding any compound leaf against its inner tree here — and creates
- * the contacts in the exact enumeration order.
- */
+/** Join the kernel pair task, then create contacts from its per-proxy LIFO lists in place. */
 export function updateBroadPhasePairs(world: WorldState): void {
-    const broadPhase = world.broadPhase;
-    const moveArray = broadPhase.moveArray;
-    const moveCount = moveArray.count;
-    if (moveCount === 0) {
-        return;
-    }
-
-    // Re-derive the resident tree + pairSet views if a `memory.grow` since the last broad-phase op
-    // detached them (a prior step's solve reserve, or a between-step create).
-    broadPhase.store.refreshIfStale();
-    // Kernel pair queries need the membership table reserved before they read it.
-    ensureResident(broadPhase.pairSet);
-
+    const broad = world.broadPhase;
+    broad.store.refreshIfStale();
+    const count = moveCount(broad);
+    if (count === 0) return;
+    ensureResident(broad.pairSet);
     const k = kernel(world.ecsState);
-    const trees = broadPhase.trees;
-    const movedDyn = broadPhase.movedProxies[BodyType.Dynamic];
-    const movedWords = movedDyn.blockCount;
-    // Rebuild-leaf scratch is sized to the larger of the two rebuilt trees (dynamic + kinematic).
-    const maxProxy = Math.max(
-        trees[BodyType.Dynamic].proxyCount,
-        trees[BodyType.Kinematic].proxyCount,
-        1,
-    );
-
-    // A candidate overflow is a cold-step retry: the query changes neither trees nor pair membership.
-    let entryCount = 0;
     for (;;) {
-        k.reservePairs(moveCount, movedWords, candCap, maxProxy);
-
-        // Logical capacity defines the membership table's probe mask.
+        k.reservePairs();
         const pool = workers(world.ecsState);
-        const fork = k.parBuild(
-            ParKind.Pairs,
-            moveCount,
-            (pool?.size ?? 0) + 1,
-            broadPhase.pairSet.capacity,
-            0,
-        );
+        const fork = k.parBuild(ParKind.Pairs, count, (pool?.size ?? 0) + 1, k.broadSetCap(), 0);
         if (fork && pool) runPool(world.ecsState, pool, k.runMt);
         else k.runMt();
-        entryCount = k.queryPairs();
-        if (entryCount <= candCap) break;
-        candCap = entryCount + (entryCount >> 1);
+        if (k.pairsOverflow() === 0) break;
     }
-
-    // Candidate copies remain readable if pair membership or contact creation grows memory.
-    const mem = heap(k.memory.buffer);
-    if (candEndCopy.length < moveCount) candEndCopy = new Uint32Array(moveCount * 2);
-    if (candCopy.length < entryCount * CAND_STRIDE) {
-        candCopy = new Uint32Array(entryCount * CAND_STRIDE * 2);
-    }
-    const candEnd = candEndCopy;
-    const cand = candCopy;
-    const candEndAt = slot(k.pairsCandEndPtr());
-    for (let i = 0; i < moveCount; ++i) candEnd[i] = mem[candEndAt + i];
-    const candAt = slot(k.pairsCandPtr());
-    for (let i = 0; i < entryCount * CAND_STRIDE; ++i) cand[i] = mem[candAt + i];
-
-    // A `reservePairs` grow above detaches the tree views the compound expansion below reads.
-    broadPhase.store.refreshIfStale();
-
-    candShapeA.clear();
-    candShapeB.clear();
-    candChild.clear();
-    survEnd.clear();
-
-    // Phase 1 (TS half) — apply the surviving filters over the kernel's candidates, expanding compound
-    // placeholders against their inner trees, in discovery order. All membership tests run against the
-    // step-start pair-set (no contact is created until phase 3), matching the C's ordering.
-    for (let i = 0; i < moveCount; ++i) {
-        const queryKey = moveArray.get(i);
-        for (let e = candEnd[i]; e !== 0xffffffff; e = cand[e * CAND_STRIDE + 3]) {
-            const o = e * CAND_STRIDE;
-            const flag = cand[o];
-            const shapeA = cand[o + 1];
-            const shapeB = cand[o + 2];
-            if (flag === 0) {
-                if (filtersPass(world, shapeA, shapeB)) {
-                    candShapeA.push(shapeA);
-                    candShapeB.push(shapeB);
-                    candChild.push(0);
-                }
-            } else {
-                expandCompound(world, shapeA, shapeB, queryKey);
-            }
-        }
-        survEnd.push(candShapeA.count);
-    }
-
-    // Phase 2 — rebuild dynamic then kinematic, including their resident metadata.
     k.rebuildTrees();
-    broadPhase.store.refreshIfStale();
-
-    // Phase 3 — create contacts in deterministic order (proxies in order; candidates LIFO, so each
-    // proxy's range walks backward).
-    let start = 0;
-    for (let i = 0; i < moveCount; ++i) {
-        const end = survEnd.get(i);
-        for (let kk = end - 1; kk >= start; --kk) {
-            createContact(
-                world,
-                world.shapes[candShapeA.get(kk)],
-                world.shapes[candShapeB.get(kk)],
-                candChild.get(kk),
-            );
+    broad.store.refreshIfStale();
+    const heads = k.pairsCandEndPtr() >>> 2;
+    const pairs = k.pairsCandPtr() >>> 2;
+    for (let i = 0; i < count; ++i) {
+        let entry = heap(k.memory.buffer)[heads + i];
+        while (entry !== 0xffffffff) {
+            const u = heap(k.memory.buffer);
+            const o = pairs + entry * 4;
+            const child = u[o];
+            const a = u[o + 1];
+            const b = u[o + 2];
+            entry = u[o + 3];
+            createContact(world, world.shapes[a], world.shapes[b], child);
         }
-        start = end;
     }
-
-    // Phase 4 — reset the move buffer: clear only the bits that were set this step.
-    moveArray.clear();
+    clearMoves(broad);
 }

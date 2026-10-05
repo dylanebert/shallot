@@ -116,7 +116,6 @@ pub unsafe extern "C" fn mutate_resident(
     cl: u32,
     ud: u32,
     udh: u32,
-    buffer: u32,
 ) -> i32 {
     let state = crate::broad::tree_state(index);
     let ptr = crate::broad::tree_ptr(index);
@@ -144,9 +143,6 @@ pub unsafe extern "C" fn mutate_resident(
         core::ptr::copy_nonoverlapping(scratch, state, 4);
         return result;
     }
-    if op == 3 {
-        crate::broad::unbuffer_move(((id as u32) << 2) | index as u32);
-    }
     let result = mutate(
         ptr,
         crate::broad::tree_cap(index),
@@ -164,9 +160,6 @@ pub unsafe extern "C" fn mutate_resident(
         ud,
         udh,
     );
-    if buffer != 0 && op != 3 {
-        crate::broad::buffer_move(((result as u32) << 2) | index as u32);
-    }
     result
 }
 
@@ -182,13 +175,12 @@ pub unsafe extern "C" fn create_proxy(
     ch: u32,
     cl: u32,
     user: u32,
-    buffer: u32,
 ) -> i32 {
-    mutate_resident(index, 0, 0, lx, ly, lz, hx, hy, hz, ch, cl, user, 0, buffer)
+    mutate_resident(index, 0, 0, lx, ly, lz, hx, hy, hz, ch, cl, user, 0)
 }
 #[export_name = "treeDestroyProxy"]
 pub unsafe extern "C" fn destroy_proxy(index: usize, id: i32) {
-    mutate_resident(index, 3, id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0);
+    mutate_resident(index, 3, id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0);
 }
 #[export_name = "treeEnlargeProxy"]
 pub unsafe extern "C" fn enlarge_proxy(
@@ -201,7 +193,7 @@ pub unsafe extern "C" fn enlarge_proxy(
     hy: f32,
     hz: f32,
 ) {
-    mutate_resident(index, 2, id, lx, ly, lz, hx, hy, hz, 0, 0, 0, 0, 1);
+    mutate_resident(index, 2, id, lx, ly, lz, hx, hy, hz, 0, 0, 0, 0);
 }
 #[export_name = "treeMoveProxy"]
 pub unsafe extern "C" fn move_proxy(
@@ -214,7 +206,7 @@ pub unsafe extern "C" fn move_proxy(
     hy: f32,
     hz: f32,
 ) {
-    mutate_resident(index, 1, id, lx, ly, lz, hx, hy, hz, 0, 0, 0, 0, 1);
+    mutate_resident(index, 1, id, lx, ly, lz, hx, hy, hz, 0, 0, 0, 0);
 }
 
 /// Box3D solver.c: awake sim order, then each body's head-to-next shape order.

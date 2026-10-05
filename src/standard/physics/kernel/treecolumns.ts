@@ -161,13 +161,12 @@ function mutation(
     hi = 0,
     lo = 0,
     user: number | bigint = 0,
-    buffer = true,
 ): number {
     if (op === 0) {
         t.store?.refreshIfStale();
         reserve(t);
     }
-    if (t.store) return residentMutation(t, op, id, box, hi, lo, user, buffer);
+    if (t.store) return residentMutation(t, op, id, box, hi, lo, user);
     return uploadedMutation(t, op, id, box, hi, lo, user);
 }
 function residentMutation(
@@ -178,7 +177,6 @@ function residentMutation(
     hi: number,
     lo: number,
     user: number | bigint,
-    buffer: boolean,
 ): number {
     t.store!.refreshIfStale();
     return kernel(t.store!.ecsState).treeMutateResident(
@@ -195,7 +193,6 @@ function residentMutation(
         lo,
         typeof user === "number" ? user : Number(user & 0xffffffffn),
         typeof user === "number" ? 0 : Number(user >> 32n),
-        Number(buffer),
     );
 }
 function uploadedMutation(
@@ -227,15 +224,18 @@ function uploadedMutation(
         ),
     );
 }
+export function reserveProxy(t: DynamicTree): void {
+    t.store?.refreshIfStale();
+    reserve(t);
+}
 export function createProxy(
     t: DynamicTree,
     box: AABB,
     hi: number,
     lo: number,
     user: number | bigint,
-    buffer = t.treeIndex !== 0,
 ): number {
-    if (!t.store || typeof user !== "number") return mutation(t, 0, 0, box, hi, lo, user, buffer);
+    if (!t.store || typeof user !== "number") return mutation(t, 0, 0, box, hi, lo, user);
     t.store.refreshIfStale();
     reserve(t);
     return kernel(t.store.ecsState).treeCreateProxy(
@@ -249,7 +249,6 @@ export function createProxy(
         hi,
         lo,
         user,
-        Number(buffer),
     );
 }
 export function moveProxy(t: DynamicTree, id: number, box: AABB): void {

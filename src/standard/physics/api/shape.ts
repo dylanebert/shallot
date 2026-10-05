@@ -3,6 +3,7 @@ import { NULL_INDEX } from "../common/array";
 import type { EntityId } from "../common/ids";
 import type { AABB } from "../common/math";
 import type { Filter, ShapeType } from "../common/types";
+import { shapeBodyId } from "../kernel/filtercolumns";
 import { kernel } from "../kernel/kernel";
 import { readShapeAabb } from "../kernel/shapecolumns";
 import type { MassData } from "../shapes/geometry";
@@ -149,7 +150,7 @@ export class Shape {
 
     /** @returns the body this shape is attached to. */
     getBody(): Body {
-        const bodyId = this.record().bodyId;
+        const bodyId = shapeBodyId(this.world, this.record().id);
         return new Body(this.world, makeBodyId(this.world, bodyId));
     }
 
@@ -183,7 +184,7 @@ export class Shape {
 
     /** @returns whether this shape is a sensor (b3Shape_IsSensor). */
     isSensor(): boolean {
-        return isSensorShape(this.record());
+        return isSensorShape(this.world, this.record());
     }
 
     /**

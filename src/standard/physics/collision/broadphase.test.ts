@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { getBit } from "../common/bitset";
 import type { AABB } from "../common/math";
 import {
     BodyType,
@@ -7,10 +6,14 @@ import {
     type BroadPhase,
     bufferMove,
     clearMoved,
+    clearMoves,
     createBroadPhase,
     createProxy,
     destroyProxy,
     enlargeProxy,
+    isMoved,
+    moveCount,
+    moveKey,
     moveProxy,
     proxyId,
     proxyKey,
@@ -33,7 +36,7 @@ const fresh = () => createBroadPhase(undefined, { staticShapeCount: 8, dynamicSh
 
 function moveKeys(bp: BroadPhase): number[] {
     const out: number[] = [];
-    for (let i = 0; i < bp.moveArray.count; ++i) out.push(bp.moveArray.get(i));
+    for (let i = 0; i < moveCount(bp); ++i) out.push(moveKey(bp, i));
     return out;
 }
 
@@ -42,7 +45,7 @@ function assertMoveInvariant(bp: BroadPhase, where: string) {
     const keys = moveKeys(bp);
     for (const key of keys) {
         expect(
-            getBit(bp.movedProxies[proxyType(key)], proxyId(key)),
+            isMoved(bp, proxyType(key), proxyId(key)),
             `${where}: key ${key} is in moveArray with no moved bit`,
         ).toBe(true);
     }
@@ -72,7 +75,7 @@ test("the broad-phase move buffer records a plain static proxy on create, so eve
         forced,
     ]);
     expect(
-        getBit(bp.movedProxies[BodyType.Static], proxyId(stat)),
+        isMoved(bp, BodyType.Static, proxyId(stat)),
         "unforced static create left a moved bit",
     ).toBe(false);
     assertMoveInvariant(bp, "static/dynamic create");
@@ -111,10 +114,7 @@ test("the broad-phase move buffer keeps a destroyed proxy's key or its moved bit
     expect(keys, "destroyed key b still buffered").not.toContain(b);
     expect(keys, "surviving key a was dropped").toContain(a);
     expect(keys, "surviving key c was dropped").toContain(c);
-    expect(
-        getBit(bp.movedProxies[proxyType(b)], proxyId(b)),
-        "destroyed key b kept its moved bit",
-    ).toBe(false);
+    expect(isMoved(bp, proxyType(b), proxyId(b)), "destroyed key b kept its moved bit").toBe(false);
     assertMoveInvariant(bp, "destroy middle");
 });
 
@@ -122,7 +122,7 @@ test("the broad-phase move buffer misses a proxy moved after the per-step clear,
     const bp = fresh();
     const key = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
     // mirror the reset done at the end of each step, then move it.
-    bp.moveArray.clear();
+    clearMoves(bp);
     clearMoved(bp, proxyType(key), proxyId(key));
     expect(moveKeys(bp), "the step reset should empty the buffer").toEqual([]);
 

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { World } from "../../../engine";
 import { physicsWorld, StandardPhysicsPlugin } from "../index";
+import { shapeBodyId } from "./filtercolumns";
 import { queryColumns } from "./querycolumns";
 
 test("callback-free mover planes publish the first eight callback records and prepare clears body exclusion", async () => {
@@ -40,12 +41,14 @@ test("callback-free mover planes publish the first eight callback records and pr
         const q = queryColumns(physics.state);
         const k = q.prepare(origin);
         q.mover(capsule.center1, capsule.center2, capsule.radius);
-        const excluded = physics.state.shapes[expected[0].shape].bodyId;
+        const excluded = shapeBodyId(physics.state, physics.state.shapes[expected[0].shape].id);
         q.headerU[19] = excluded + 1;
         k.worldQuery(physics.state.worldId, 5, 0);
         expect(q.resultU[0]).toBe(8);
         for (let i = 0; i < 8; ++i)
-            expect(physics.state.shapes[q.resultU[16 + 8 * i]].bodyId).not.toBe(excluded);
+            expect(
+                shapeBodyId(physics.state, physics.state.shapes[q.resultU[16 + 8 * i]].id),
+            ).not.toBe(excluded);
         q.prepare(origin);
         expect(q.headerU[19]).toBe(0);
         k.worldQuery(physics.state.worldId, 5, 0);

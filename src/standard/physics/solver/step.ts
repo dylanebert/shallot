@@ -77,6 +77,13 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.contactHitEvents.length = 0;
     world.jointEvents.length = 0;
 
+    // Compound pair queries and the narrowphase both read the resident geometry.
+    if (world.geometryDirty) {
+        rebuildGeometry(world);
+        world.geometryDirty = false;
+        world.bodyStore.refreshViews();
+    }
+
     // Update collision pairs and create contacts.
     phaseStart = performance.now();
     updateBroadPhasePairs(world);
@@ -122,14 +129,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
 
     // A manifold reserve can grow memory, detaching the body store's views.
     if (world.manifoldStore.flush()) {
-        world.bodyStore.refreshViews();
-    }
-
-    // Flush any pending hull uploads into the kernel's static geometry columns before the narrowphase
-    // reads them (deferred from shape creation so `init()` is guaranteed to have run by now).
-    if (world.geometryDirty) {
-        rebuildGeometry(world);
-        world.geometryDirty = false;
         world.bodyStore.refreshViews();
     }
 

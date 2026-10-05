@@ -21,7 +21,8 @@ const B_SYNC_POS: usize = 12;
 const B_SYNC_QUAT: usize = 13;
 const B_SYNC_VEL: usize = 14;
 const B_SYNC_INDEX: usize = 15;
-const N_BODY: usize = 16;
+const B_RECORD_TYPE: usize = 16;
+const N_BODY: usize = 17;
 
 #[derive(Clone, Copy)]
 struct Bodies {
@@ -67,6 +68,24 @@ pub fn fin_out_base() -> usize {
 }
 pub fn sim2_base() -> usize {
     base(B_SIM2)
+}
+#[export_name = "bodyGetType"]
+pub unsafe extern "C" fn get_type(world_id: usize, id: usize) -> u32 {
+    *(world(world_id).columns.layout[B_RECORD_TYPE] as *const u32).add(id)
+}
+/// body.c's velocity-setter eligibility: -1 for static, 0 for no wake, 1 for wake.
+/// Return the decision, not a squared-length scalar across the bridge. Wake and state lookup still
+/// use the TypeScript body record until body.c moves.
+#[export_name = "bodyVelocityWake"]
+pub unsafe extern "C" fn velocity_wake(world_id: usize, id: usize, x: f32, y: f32, z: f32) -> i32 {
+    if get_type(world_id, id) == 0 {
+        return -1;
+    }
+    (crate::math::Vec3::new(x, y, z).length_sq() > 0.0) as i32
+}
+#[export_name = "bodySetType"]
+pub unsafe extern "C" fn set_type(world_id: usize, id: usize, value: u32) {
+    *(world(world_id).columns.layout[B_RECORD_TYPE] as *mut u32).add(id) = value;
 }
 pub fn record_generation_base() -> usize {
     base(B_RECORD_GENERATION)
@@ -115,6 +134,7 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
             B_RECORD_EID,
             B_SYNC_EID,
             B_SYNC_INDEX,
+            B_RECORD_TYPE,
         ] {
             w.columns.reserve(column, cap * 4);
         }

@@ -19,6 +19,7 @@ import {
     type ShapeDef,
 } from "../common/types";
 import { readSimTransform, readStateLinearVelocity } from "../kernel/bodycolumns";
+import { bodyType } from "../kernel/filtercolumns";
 import { kernel, setQueryCallback } from "../kernel/kernel";
 import { type QueryColumns, queryColumns } from "../kernel/querycolumns";
 import type { CompoundData } from "../shapes/compound";
@@ -209,7 +210,7 @@ export class Body {
 
     /** @returns the body type (static / kinematic / dynamic). */
     getType(): BodyType {
-        return this.record().type;
+        return bodyType(this.world, this.record().id);
     }
 
     /**

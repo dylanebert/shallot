@@ -1,3 +1,4 @@
+import { bodyType, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
 // Debug visualization walk: resolve every shape and joint in the world to a flat set of typed draw
 // callbacks the caller renders. Ported from Box3D's b3World_Draw (physics_world.c) + b3DrawJoint
 // (joint.c). This is a read-only view of the simulation — it never feeds the world-state hash, so it
@@ -155,16 +156,16 @@ function bodyColor(world: WorldState, body: Body, shape: Shape): number {
         return material.customColor;
     }
     const sim = getBodySim(world, body);
-    if (body.type === BodyType.Dynamic && body.mass === 0) return DebugColor.red;
+    if (bodyType(world, body.id) === BodyType.Dynamic && body.mass === 0) return DebugColor.red;
     if (body.setIndex === SetType.Disabled) return DebugColor.slateGray;
-    if (shape.sensorIndex !== NULL_INDEX) return DebugColor.wheat;
+    if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) return DebugColor.wheat;
     if (body.flags & BodyFlags.hadTimeOfImpact) return DebugColor.lime;
     if (sim.flags & BodyFlags.isBullet && body.setIndex === SetType.Awake)
         return DebugColor.turquoise;
     if (body.flags & BodyFlags.isSpeedCapped) return DebugColor.yellow;
     if (sim.flags & BodyFlags.isFast) return DebugColor.orange;
-    if (body.type === BodyType.Static) return DebugColor.darkGray;
-    if (body.type === BodyType.Kinematic) {
+    if (bodyType(world, body.id) === BodyType.Static) return DebugColor.darkGray;
+    if (bodyType(world, body.id) === BodyType.Kinematic) {
         return body.setIndex === SetType.Awake ? DebugColor.steelBlue : DebugColor.lightSteelBlue;
     }
     if (body.setIndex === SetType.Awake) return DebugColor.tan;
@@ -287,10 +288,10 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
     for (let i = 0; i < BODY_TYPE_COUNT; ++i) {
         tree.query(trees[i], draw.drawingBounds, maskHi, maskLo, false, (_proxyId, shapeId) => {
             const shape = world.shapes[shapeId];
-            visitedBodies.add(shape.bodyId);
+            visitedBodies.add(shapeBodyId(world, shape.id));
 
             if (draw.drawShapes) {
-                const body = world.bodies[shape.bodyId];
+                const body = world.bodies[shapeBodyId(world, shape.id)];
                 const sim = getBodySim(world, body);
                 const color = bodyColor(world, body, shape);
                 drawSolidShape(draw, shape, sim.transform, color);
@@ -305,7 +306,7 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
     if (draw.drawMass) {
         for (const bodyId of visitedBodies) {
             const body = world.bodies[bodyId];
-            if (body.type !== BodyType.Dynamic) continue;
+            if (bodyType(world, body.id) !== BodyType.Dynamic) continue;
             const sim = getBodySim(world, body);
             const transform: WorldTransform = { p: sim.center, q: sim.transform.q };
             draw.drawTransform(transform);

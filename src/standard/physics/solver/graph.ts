@@ -1,3 +1,4 @@
+import { bodyType } from "../kernel/filtercolumns";
 // Constraint graph — Box3D's constraint_graph.c (Erin Catto, MIT). Awake *touching* contacts (and
 // joints) are distributed across solver colors by greedy graph coloring, so a color's constraints
 // share no dynamic body and can be solved in parallel lanes (the wide solver). Dynamic-dynamic
@@ -135,7 +136,13 @@ export function addContactToGraph(world: WorldState, contact: Contact): void {
     const bodyIdB = contact.edges[1].bodyId;
     const bodyA = world.bodies[bodyIdA];
     const bodyB = world.bodies[bodyIdB];
-    const colorIndex = assignColor(graph, bodyIdA, bodyIdB, bodyA.type, bodyB.type);
+    const colorIndex = assignColor(
+        graph,
+        bodyIdA,
+        bodyIdB,
+        bodyType(world, bodyA.id),
+        bodyType(world, bodyB.id),
+    );
 
     const isScalar =
         (contact.flags & ContactFlags.simMeshContact) !== 0 || colorIndex === OVERFLOW_INDEX;
@@ -145,8 +152,10 @@ export function addContactToGraph(world: WorldState, contact: Contact): void {
     contact.localIndex = isScalar ? color.contacts.length : color.convexContacts.length;
     // Refresh the awake-column indices as the contact enters the graph (both bodies are awake here, their
     // localIndex current); thereafter maintained on each awake-body localIndex change.
-    contact.bodySimIndexA = bodyA.type === BodyType.Static ? NULL_INDEX : bodyA.localIndex;
-    contact.bodySimIndexB = bodyB.type === BodyType.Static ? NULL_INDEX : bodyB.localIndex;
+    contact.bodySimIndexA =
+        bodyType(world, bodyA.id) === BodyType.Static ? NULL_INDEX : bodyA.localIndex;
+    contact.bodySimIndexB =
+        bodyType(world, bodyB.id) === BodyType.Static ? NULL_INDEX : bodyB.localIndex;
 
     if (isScalar) {
         color.contacts.push({
@@ -202,8 +211,8 @@ export function createJointInGraph(world: WorldState, joint: Joint): void {
         graph,
         joint.edges[0].bodyId,
         joint.edges[1].bodyId,
-        bodyA.type,
-        bodyB.type,
+        bodyType(world, bodyA.id),
+        bodyType(world, bodyB.id),
     );
 
     joint.colorIndex = colorIndex;
@@ -219,8 +228,8 @@ export function addJointToGraph(world: WorldState, joint: Joint): void {
         graph,
         joint.edges[0].bodyId,
         joint.edges[1].bodyId,
-        bodyA.type,
-        bodyB.type,
+        bodyType(world, bodyA.id),
+        bodyType(world, bodyB.id),
     );
 
     const destination = moveJointRecord(world, joint, colorIndex);

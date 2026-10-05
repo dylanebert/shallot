@@ -18,6 +18,7 @@ import {
     readStateAngularVelocity,
     readStateLinearVelocity,
 } from "./kernel/bodycolumns";
+import { bodyType, shapeBodyId } from "./kernel/filtercolumns";
 import { queryColumns } from "./kernel/querycolumns";
 import {
     physicsWorld,
@@ -262,7 +263,7 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
 
 function groundVelocity(physics: PhysicsWorld, shape: number, s: Scratch): void {
     const state = physics.state;
-    const body = state.bodies[state.shapes[shape].bodyId];
+    const body = state.bodies[shapeBodyId(state, state.shapes[shape].id)];
     const sim = getBodySim(state, body);
     const ground = getBodyState(state, body);
     const gv = s.groundVelocity;
@@ -329,8 +330,8 @@ function push(physics: PhysicsWorld, s: Scratch): void {
     const velocity = s.velocity;
     s.impulseCount = 0;
     for (let i = 0; i < s.count; ++i) {
-        const pushed = state.bodies[state.shapes[s.shapes[i]].bodyId];
-        if (pushed.type !== BodyType.Dynamic) continue;
+        const pushed = state.bodies[shapeBodyId(state, state.shapes[s.shapes[i]].id)];
+        if (bodyType(state, pushed.id) !== BodyType.Dynamic) continue;
         const sim = getBodySim(state, pushed);
         const b = getBodyState(state, pushed);
         vec3.scaleOut(-1, s.planes[i].plane.normal, s.normal);

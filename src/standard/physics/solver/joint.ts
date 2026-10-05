@@ -32,6 +32,7 @@ import {
     WJ_ANGULAR_HERTZ,
     WJ_LINEAR_HERTZ,
 } from "../kernel/columns";
+import { bodyType } from "../kernel/filtercolumns";
 import {
     readJointFlag,
     readJointFloat,
@@ -263,7 +264,10 @@ export function createJoint(
         // if either body is disabled, create in disabled set
         joint.setIndex = SetType.Disabled;
         joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + joint.setIndex);
-    } else if (bodyA.type !== BodyType.Dynamic && bodyB.type !== BodyType.Dynamic) {
+    } else if (
+        bodyType(world, bodyA.id) !== BodyType.Dynamic &&
+        bodyType(world, bodyB.id) !== BodyType.Dynamic
+    ) {
         // joint is not attached to a dynamic body
         joint.setIndex = SetType.Static;
         joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + joint.setIndex);

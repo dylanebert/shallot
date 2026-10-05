@@ -3,6 +3,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { World } from "../../engine";
 import { hash } from "./api";
 import { PhysicsWorld } from "./api/world";
+import { moveCount } from "./collision/broadphase";
 import { BodyType } from "./common/types";
 
 setDefaultTimeout(CEILING.node);
@@ -107,7 +108,7 @@ for (const claimed of [false, true]) {
             // Capture before a query or step can claim an empty source.
             const saved = source.snapshot();
             const proxies = source.state.broadPhase.trees.map((tree) => tree.proxyCount);
-            const moves = source.state.broadPhase.moveArray.count;
+            const moves = moveCount(source.state.broadPhase);
             expect(proxies).toEqual([0, 0, claimed ? 4 : 0]);
             expect(moves).toBe(claimed ? 4 : 0);
             const expectedRay = ray(source);
@@ -129,7 +130,7 @@ for (const claimed of [false, true]) {
                 expect(target.state.broadPhase.trees.map((tree) => tree.proxyCount)).toEqual(
                     proxies,
                 );
-                expect(target.state.broadPhase.moveArray.count).toBe(moves);
+                expect(moveCount(target.state.broadPhase)).toBe(moves);
                 expect(ray(target)).toEqual(expectedRay);
                 for (let tick = 0; tick < expected.length; tick++) {
                     target.step(1 / 60);

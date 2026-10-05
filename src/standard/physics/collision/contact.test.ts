@@ -10,7 +10,7 @@ import { createSphereShape } from "../shapes/shape";
 import { createBody } from "../world/body";
 import { createWorld, getWorld, type WorldState } from "../world/world";
 import { createContact, destroyContact } from "./contact";
-import { containsKey } from "./table";
+import { addKey, removeKey } from "./table";
 
 function dynamicSphere(world: WorldState, radius: number) {
     const bodyId = createBody(world, { ...defaultBodyDef(), type: BodyType.Dynamic });
@@ -44,7 +44,7 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
     expect(contact.edges[0].bodyId).toBe(a.bodyId);
     expect(contact.edges[1].bodyId).toBe(b.bodyId);
     // Pair recorded so it isn't turned into a second contact.
-    expect(containsKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(true);
+    expect(addKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(true);
 
     destroyContact(world, contact, false);
 
@@ -53,7 +53,7 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
     expect(a.body.headContactKey).toBe(NULL_INDEX);
     expect(b.body.headContactKey).toBe(NULL_INDEX);
     expect(world.solverSets[SetType.Awake].contactIndices.length).toBe(0);
-    expect(containsKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(false);
+    expect(removeKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(false);
 });
 
 test("createContact files a non-touching contact between two asleep bodies into the awake set, so sleeping islands pay for contacts nothing is simulating", () => {

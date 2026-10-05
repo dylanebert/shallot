@@ -20,6 +20,7 @@ import type { HullData } from "../shapes/hull";
 import type { Shape } from "../shapes/shape";
 import { type Body, type BodySim, getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
+import { shapeBodyId } from "./filtercolumns";
 import { kernel } from "./kernel";
 import { KernelViews } from "./views";
 
@@ -183,7 +184,14 @@ export class ShapeStore extends KernelViews {
         u[o + S_TYPE] = shape.type;
         u[o + S_NEXT] = shape.nextShapeId;
         for (let i = S_GEOM; i < SHAPE_STRIDE; ++i) {
-            if ((i < 9 || i > 14) && (i < 34 || i > 39)) f[o + i] = 0;
+            if (
+                (i < 9 || i > 14) &&
+                (i < 25 || i > 29) &&
+                i !== 31 &&
+                i !== 41 &&
+                (i < 34 || i > 39)
+            )
+                f[o + i] = 0;
         }
         u[o + S_MATERIAL_HEAD] = materialHead;
         u[o + S_MATERIAL_COUNT] = materialCount;
@@ -221,22 +229,15 @@ export class ShapeStore extends KernelViews {
         }
         this.writeGeometryReference(world, shape);
         this.writeQueryProperties(shape);
-        const body = world.bodies[shape.bodyId];
+        const body = world.bodies[shapeBodyId(world, shape.id)];
         this.writeQueryPose(shape.id, body, getBodySim(world, body));
     }
 
     writeQueryProperties(shape: Shape): void {
         const n = shape.id * SHAPE_STRIDE;
         const u = this.shapeU;
-        u[n + 25] = shape.filter.categoryHi;
-        u[n + 26] = shape.filter.categoryLo;
-        u[n + 27] = shape.filter.maskHi;
-        u[n + 28] = shape.filter.maskLo;
-        u[n + 29] = shape.bodyId;
         u[n + 30] = Number(shape.enableSensorEvents);
-        u[n + 31] = shape.filter.groupIndex;
         u[n + S_PROXY_KEY] = shape.proxyKey;
-        u[n + 41] = shape.sensorIndex;
         this.shapeF[n + 40] = shape.aabbMargin;
         this.shapeF[n + 43] = shape.hull?.innerRadius ?? 0;
     }

@@ -1,4 +1,13 @@
 import type { World } from "../../../engine";
+import {
+    bodyType,
+    setShapeBodyId,
+    setShapeSensorIndex,
+    shapeBodyId,
+    shapeFilterWord,
+    shapeSensorIndex,
+    writeShapeFilter,
+} from "../kernel/filtercolumns";
 // Shapes: geometry attached to a body, with a broad-phase proxy. Ported from Box3D's shape.c (Erin
 // Catto, MIT). A shape is its own record in world.shapes (id-pooled, no separate sim); it links to a
 // body through a doubly-linked shape list and to the broad-phase through a proxy key.
@@ -35,7 +44,6 @@ import {
     BodyType,
     cloneMaterial,
     type Filter,
-    type FilterBits,
     type ShapeDef,
     ShapeType,
     type SurfaceMaterial,
@@ -101,10 +109,8 @@ export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };
 /** A shape record (b3Shape). The geometry union is modeled as one populated optional field by type. */
 export type Shape = {
     id: number;
-    bodyId: number;
     prevShapeId: number;
     nextShapeId: number;
-    sensorIndex: number;
     proxyKey: number;
     type: ShapeType;
     density: number;
@@ -114,7 +120,6 @@ export type Shape = {
     material: SurfaceMaterial;
     /** Authored material bridge values; live attachment/count lives in the kernel shape record. */
     materials: SurfaceMaterial[] | null;
-    filter: FilterBits;
     userData: unknown;
     generation: number;
     /** Kernel world key for the world-local shape/material columns. */
@@ -220,10 +225,8 @@ export function getShapeUserMaterialId(
 function createShapeRecord(): Shape {
     return {
         id: NULL_INDEX,
-        bodyId: NULL_INDEX,
         prevShapeId: NULL_INDEX,
         nextShapeId: NULL_INDEX,
-        sensorIndex: NULL_INDEX,
         proxyKey: NULL_INDEX,
         type: ShapeType.Sphere,
         density: 0,
@@ -239,7 +242,6 @@ function createShapeRecord(): Shape {
             customColor: 0,
         },
         materials: null,
-        filter: { categoryHi: 0, categoryLo: 0, maskHi: 0, maskLo: 0, groupIndex: 0 },
         userData: undefined,
         generation: 0,
         worldId: 0,
@@ -494,8 +496,8 @@ export function createShapeProxy(
         broadPhase,
         type as bp.BodyTypeValue,
         fat,
-        shape.filter.categoryHi,
-        shape.filter.categoryLo,
+        shapeFilterWord(world, shape.id, 25),
+        shapeFilterWord(world, shape.id, 26),
         shape.id,
         forcePairCreation,
     );
@@ -514,8 +516,8 @@ export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void
 }
 
 export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter): void {
-    shape.filter = toFilterBits(filter);
-    const body = world.bodies[shape.bodyId];
+    writeShapeFilter(world, shape.id, toFilterBits(filter));
+    const body = world.bodies[shapeBodyId(world, shape.id)];
     let key = body.headContactKey;
     while (key !== NULL_INDEX) {
         const contact = world.contacts[key >> 1];
@@ -529,7 +531,7 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
         createShapeProxy(
             shape,
             world.broadPhase,
-            body.type,
+            bodyType(world, body.id),
             getBodyTransformQuick(world, body),
             true,
         );
@@ -609,11 +611,11 @@ function createShapeInternal(
     }
 
     shape.id = shapeId;
-    shape.bodyId = body.id;
+    setShapeBodyId(world, shape.id, body.id);
     shape.type = shapeType;
     shape.density = def.density;
     shape.explosionScale = def.explosionScale;
-    shape.filter = toFilterBits(def.filter);
+    writeShapeFilter(world, shape.id, toFilterBits(def.filter));
     shape.userData = def.userData;
     shape.enableSensorEvents = def.enableSensorEvents;
     shape.enableContactEvents = def.enableContactEvents;
@@ -648,7 +650,13 @@ function createShapeInternal(
         // A compound never force-creates pairs: its outer proxy holds no geometry, only children do
         // (b3CreateShapeInternal). The inner tree's proxies are found through the outer query instead.
         const forcePairCreation = def.invokeContactCreation && shapeType !== ShapeType.Compound;
-        createShapeProxy(shape, world.broadPhase, body.type, bodyTransform, forcePairCreation);
+        createShapeProxy(
+            shape,
+            world.broadPhase,
+            bodyType(world, body.id),
+            bodyTransform,
+            forcePairCreation,
+        );
     }
 
     // Add to the body's shape doubly-linked list at the head
@@ -667,10 +675,10 @@ function createShapeInternal(
     syncHeadShape(world, body);
 
     if (def.isSensor) {
-        shape.sensorIndex = world.sensors.length;
+        setShapeSensorIndex(world, shape.id, world.sensors.length);
         world.sensors.push(createSensor(shapeId));
     } else {
-        shape.sensorIndex = NULL_INDEX;
+        setShapeSensorIndex(world, shape.id, NULL_INDEX);
     }
     world.shapeStore.writeQueryProperties(shape);
 
@@ -688,7 +696,7 @@ function createShape(
     // Compound and height-field shapes must be on static bodies (b3CreateShape). They carry no mass,
     // so a dynamic body with one would have zero mass and blow up; the C returns null here.
     if (
-        body.type !== BodyType.Static &&
+        bodyType(world, body.id) !== BodyType.Static &&
         (shapeType === ShapeType.Compound || shapeType === ShapeType.HeightField)
     ) {
         return null;
@@ -814,7 +822,7 @@ export function destroyShapeInternal(
         }
     }
 
-    if (shape.sensorIndex !== NULL_INDEX) {
+    if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) {
         destroySensor(world, shape);
     }
 
@@ -826,7 +834,7 @@ export function destroyShapeInternal(
 
 export function destroyShape(world: WorldState, shape: Shape, updateBodyMass: boolean): void {
     world.locked = true;
-    const body = world.bodies[shape.bodyId];
+    const body = world.bodies[shapeBodyId(world, shape.id)];
     destroyShapeInternal(world, shape, body, true);
     if (updateBodyMass) {
         updateBodyMassData(world, body);
@@ -835,8 +843,8 @@ export function destroyShape(world: WorldState, shape: Shape, updateBodyMass: bo
 }
 
 /** Whether a shape is a sensor (b3Shape_IsSensor). */
-export function isSensorShape(shape: Shape): boolean {
-    return shape.sensorIndex !== NULL_INDEX;
+export function isSensorShape(world: WorldState, shape: Shape): boolean {
+    return shapeSensorIndex(world, shape.id) !== NULL_INDEX;
 }
 
 /**
@@ -844,9 +852,9 @@ export function isSensorShape(shape: Shape): boolean {
  * sensor's current-frame overlaps; empty if the shape is not a sensor.
  */
 export function getSensorData(world: WorldState, shape: Shape): Visitor[] {
-    if (shape.sensorIndex === NULL_INDEX) {
+    if (shapeSensorIndex(world, shape.id) === NULL_INDEX) {
         return [];
     }
-    const overlaps = world.sensors[shape.sensorIndex].overlaps2;
+    const overlaps = world.sensors[shapeSensorIndex(world, shape.id)].overlaps2;
     return overlaps.data.slice(0, overlaps.count).map((r) => ({ ...r }));
 }

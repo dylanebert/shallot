@@ -33,7 +33,7 @@ test("World.restore refuses a destroyed target even when a sibling is the only l
     }
 });
 
-test("restoring a snapshot rebinds tree and pair views before another proxy mutation", () => {
+test("restoring a snapshot rebinds tree views before another proxy mutation", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } }, new World());
     try {
         const body = world.createBody({ type: BodyType.Dynamic });
@@ -42,7 +42,6 @@ test("restoring a snapshot rebinds tree and pair views before another proxy muta
         world.restore(saved);
         const broad = world.state.broadPhase;
         expect(broad.store.trees).toBe(broad.trees);
-        expect(broad.store.set).toBe(broad.pairSet);
         expect(broad.trees[BodyType.Dynamic].ni.buffer).toBe(
             kernel(world.state.ecsState).memory.buffer,
         );

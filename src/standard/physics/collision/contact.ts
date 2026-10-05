@@ -1,3 +1,4 @@
+import { bodyType, shapeBodyId } from "../kernel/filtercolumns";
 // Contacts: the persistent interaction between two shapes. Ported from Box3D's contact.c (Erin
 // Catto, MIT). A contact threads a doubly-linked edge list through each of its two bodies and is
 // keyed (contactId << 1 | edgeIndex). Contacts are born non-touching; touching is discovered during
@@ -183,7 +184,7 @@ function removeAwakeContact(world: WorldState, contact: Contact): void {
  * solver + recycle pass gather through). Called when an *awake* body's localIndex changes without its
  * set membership changing — the swap-remove that migrates a surviving awake body into a freed slot. */
 export function writeBodySimIndex(world: WorldState, body: Body): void {
-    const simIndex = body.type === BodyType.Static ? NULL_INDEX : body.localIndex;
+    const simIndex = bodyType(world, body.id) === BodyType.Static ? NULL_INDEX : body.localIndex;
     let contactKey = body.headContactKey;
     while (contactKey !== NULL_INDEX) {
         const edgeIndex = contactKey & 1;
@@ -199,7 +200,7 @@ export function writeBodySimIndex(world: WorldState, body: Body): void {
 
 /** Refresh awake-contact membership and this body's simulation indices after a solver-set move. */
 export function reclassifyBodyContacts(world: WorldState, body: Body): void {
-    const simIndex = body.type === BodyType.Static ? NULL_INDEX : body.localIndex;
+    const simIndex = bodyType(world, body.id) === BodyType.Static ? NULL_INDEX : body.localIndex;
     let contactKey = body.headContactKey;
     while (contactKey !== NULL_INDEX) {
         const edgeIndex = contactKey & 1;
@@ -234,8 +235,8 @@ export function createContact(
         return;
     }
 
-    const bodyA = world.bodies[shapeA.bodyId];
-    const bodyB = world.bodies[shapeB.bodyId];
+    const bodyA = world.bodies[shapeBodyId(world, shapeA.id)];
+    const bodyB = world.bodies[shapeBodyId(world, shapeB.id)];
 
     let setIndex: number;
     if (bodyA.setIndex === SetType.Awake || bodyB.setIndex === SetType.Awake) {
@@ -279,7 +280,10 @@ export function createContact(
         }
     }
 
-    if (bodyA.type === BodyType.Static || bodyB.type === BodyType.Static) {
+    if (
+        bodyType(world, bodyA.id) === BodyType.Static ||
+        bodyType(world, bodyB.id) === BodyType.Static
+    ) {
         contact.flags |= ContactFlags.contactStaticFlag;
     }
 
@@ -289,7 +293,7 @@ export function createContact(
 
     // Connect to body A
     {
-        contact.edges[0].bodyId = shapeA.bodyId;
+        contact.edges[0].bodyId = shapeBodyId(world, shapeA.id);
         contact.edges[0].prevKey = NULL_INDEX;
         contact.edges[0].nextKey = bodyA.headContactKey;
 
@@ -305,7 +309,7 @@ export function createContact(
 
     // Connect to body B
     {
-        contact.edges[1].bodyId = shapeB.bodyId;
+        contact.edges[1].bodyId = shapeBodyId(world, shapeB.id);
         contact.edges[1].prevKey = NULL_INDEX;
         contact.edges[1].nextKey = bodyB.headContactKey;
 
@@ -338,8 +342,10 @@ export function createContact(
     // + every awake-body localIndex change). A sleeping-body side seeds its sleeping-set index — unread
     // until that body wakes (reclassifyBodyContacts refreshes it) and the contact enters a solved/recycle
     // path. Static side is NULL.
-    contact.bodySimIndexA = bodyA.type === BodyType.Static ? NULL_INDEX : bodyA.localIndex;
-    contact.bodySimIndexB = bodyB.type === BodyType.Static ? NULL_INDEX : bodyB.localIndex;
+    contact.bodySimIndexA =
+        bodyType(world, bodyA.id) === BodyType.Static ? NULL_INDEX : bodyA.localIndex;
+    contact.bodySimIndexB =
+        bodyType(world, bodyB.id) === BodyType.Static ? NULL_INDEX : bodyB.localIndex;
 }
 
 // A contact is destroyed when proxies stop overlapping, a body/shape is destroyed or disabled, a

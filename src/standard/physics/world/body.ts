@@ -1,3 +1,4 @@
+import { bodyType, setBodyType, shapeSensorIndex } from "../kernel/filtercolumns";
 // Rigid body lifecycle and the 3-way body split, ported from Box3D's body.c (Erin Catto, MIT).
 // A body is stored as three records: the cold organizational handle (b3Body, in world.bodies,
 // id-indexed), the hot simulation payload (b3BodySim, in a solver set's bodySims column), and the
@@ -173,7 +174,6 @@ export type Body = {
     bodyMoveIndex: number;
     id: number;
     flags: number;
-    type: BodyType;
     name: string;
 };
 
@@ -255,8 +255,15 @@ export function syncBodyFlags(world: WorldState, body: Body): void {
 
 /** Set a body's linear velocity, waking it when the velocity is nonzero (b3Body_SetLinearVelocity). */
 export function bodySetLinearVelocity(world: WorldState, body: Body, linearVelocity: Vec3): void {
-    if (body.type === BodyType.Static) return;
-    if (vec3.lengthSq(linearVelocity) > 0) wakeBody(world, body);
+    const wake = kernel(world.ecsState).bodyVelocityWake(
+        world.worldId,
+        body.id,
+        linearVelocity.x,
+        linearVelocity.y,
+        linearVelocity.z,
+    );
+    if (wake < 0) return;
+    if (wake > 0) wakeBody(world, body);
     const state = getBodyState(world, body);
     if (state === null) return;
     // Copy, don't store the caller's object: finalize mutates state.linearVelocity in place. A column
@@ -271,7 +278,7 @@ export function bodySetLinearVelocity(world: WorldState, body: Body, linearVeloc
  * nonzero (b3Body_SetAngularVelocity).
  */
 export function bodySetAngularVelocity(world: WorldState, body: Body, angularVelocity: Vec3): void {
-    if (body.type === BodyType.Static) return;
+    if (bodyType(world, body.id) === BodyType.Static) return;
     const w: Vec3 = {
         x: body.flags & BodyFlags.lockAngularX ? 0 : angularVelocity.x,
         y: body.flags & BodyFlags.lockAngularY ? 0 : angularVelocity.y,
@@ -296,7 +303,7 @@ export function bodySetTargetTransform(
     wake: boolean,
 ): void {
     if (body.setIndex === SetType.Disabled) return;
-    if (body.type === BodyType.Static || timeStep <= 0) return;
+    if (bodyType(world, body.id) === BodyType.Static || timeStep <= 0) return;
     if (body.setIndex !== SetType.Awake && wake === false) return;
 
     const sim = getBodySim(world, body);
@@ -593,7 +600,7 @@ export function bodySetTransform(
 export function bodySetType(world: WorldState, body: Body, type: BodyType): void {
     world.locked = true;
 
-    const originalType = body.type;
+    const originalType = bodyType(world, body.id);
     if (originalType === type) {
         world.locked = false;
         return;
@@ -615,7 +622,7 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
 
     // Disabled bodies don't change solver sets or islands when they change type.
     if (body.setIndex === SetType.Disabled) {
-        body.type = type;
+        setBodyType(world, body.id, type);
         if (type === BodyType.Dynamic) body.flags |= BodyFlags.dynamicFlag;
         else body.flags &= ~BodyFlags.dynamicFlag;
         syncBodyFlags(world, body);
@@ -650,7 +657,7 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
     }
 
     // Stage 5: change the type and transfer the body between solver sets.
-    body.type = type;
+    setBodyType(world, body.id, type);
     if (type === BodyType.Dynamic) body.flags |= BodyFlags.dynamicFlag;
     else body.flags &= ~BodyFlags.dynamicFlag;
 
@@ -678,7 +685,10 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
 
         const bodyA = world.bodies[joint.edges[0].bodyId];
         const bodyB = world.bodies[joint.edges[1].bodyId];
-        if (bodyA.type === BodyType.Dynamic || bodyB.type === BodyType.Dynamic) {
+        if (
+            bodyType(world, bodyA.id) === BodyType.Dynamic ||
+            bodyType(world, bodyB.id) === BodyType.Dynamic
+        ) {
             transferJoint(world, awakeSet, staticSet, joint);
         }
     }
@@ -704,7 +714,11 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
         const otherBodyId = joint.edges[edgeIndex ^ 1].bodyId;
         const otherBody = world.bodies[otherBodyId];
         if (otherBody.setIndex === SetType.Disabled) continue;
-        if (body.type !== BodyType.Dynamic && otherBody.type !== BodyType.Dynamic) continue;
+        if (
+            bodyType(world, body.id) !== BodyType.Dynamic &&
+            bodyType(world, otherBody.id) !== BodyType.Dynamic
+        )
+            continue;
 
         linkJoint(world, joint);
     }
@@ -782,7 +796,6 @@ function emptyBody(): Body {
         bodyMoveIndex: NULL_INDEX,
         id: NULL_INDEX,
         flags: 0,
-        type: BodyType.Static,
         name: "",
     };
 }
@@ -929,7 +942,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     body.sleepTime = 0;
     body.mass = 0;
     body.inertia = mat3.zero();
-    body.type = def.type;
+    setBodyType(world, body.id, def.type);
     body.flags = bodySim.flags;
 
     // enabled dynamic and kinematic bodies need an island
@@ -991,7 +1004,7 @@ export function destroyBody(world: WorldState, body: Body): void {
     let shapeId = body.headShapeId;
     while (shapeId !== NULL_INDEX) {
         const shape = world.shapes[shapeId];
-        if (shape.sensorIndex !== NULL_INDEX) {
+        if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) {
             destroySensor(world, shape);
         }
         destroyShapeProxy(shape, world.broadPhase);
@@ -1061,11 +1074,11 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
     }
 
     // Static and kinematic sims have zero mass.
-    if (body.type !== BodyType.Dynamic) {
+    if (bodyType(world, body.id) !== BodyType.Dynamic) {
         bodySim.center = { ...bodySim.transform.p };
         bodySim.center0 = { ...bodySim.center };
 
-        if (body.type === BodyType.Kinematic) {
+        if (bodyType(world, body.id) === BodyType.Kinematic) {
             let shapeId = body.headShapeId;
             while (shapeId !== NULL_INDEX) {
                 const s = world.shapes[shapeId];

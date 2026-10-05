@@ -14,6 +14,7 @@ struct Broad {
     columns: Columns<N_BROAD>,
     tree: [usize; 3],
     set: usize,
+    set_count: usize,
     filter: usize,
 }
 impl Broad {
@@ -21,6 +22,7 @@ impl Broad {
         columns: Columns::EMPTY,
         tree: [0; 3],
         set: 0,
+        set_count: 0,
         filter: 0,
     };
 }
@@ -57,6 +59,14 @@ pub fn tree_ptr(i: usize) -> *mut u32 {
 pub fn tree_cap(i: usize) -> usize {
     unsafe { world().tree[i] }
 }
+pub fn set_count() -> usize {
+    unsafe { world().set_count }
+}
+pub fn change_set_count(delta: isize) {
+    unsafe {
+        WORLDS[regions::active()].set_count = (world().set_count as isize + delta) as usize;
+    }
+}
 pub fn set_cap() -> usize {
     unsafe { world().set }
 }
@@ -78,6 +88,94 @@ pub fn bits_ptr(i: usize) -> *mut u32 {
 }
 pub fn bits_words(i: usize) -> usize {
     tree_cap(i).div_ceil(32)
+}
+#[export_name = "broadTestOverlap"]
+pub unsafe extern "C" fn test_overlap(a: u32, b: u32) -> u32 {
+    let pool = |key: u32| {
+        core::slice::from_raw_parts(
+            tree_ptr((key & 3) as usize),
+            tree_cap((key & 3) as usize) * TREE_STRIDE,
+        )
+    };
+    let (al, ah) = crate::tree::node_aabb(pool(a), (a >> 2) as i32);
+    let (bl, bh) = crate::tree::node_aabb(pool(b), (b >> 2) as i32);
+    (al[0] <= bh[0]
+        && bl[0] <= ah[0]
+        && al[1] <= bh[1]
+        && bl[1] <= ah[1]
+        && al[2] <= bh[2]
+        && bl[2] <= ah[2]) as u32
+}
+#[export_name = "broadCreateProxy"]
+pub unsafe extern "C" fn create_proxy(
+    index: usize,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+    ch: u32,
+    cl: u32,
+    shape: u32,
+    force: u32,
+) -> u32 {
+    let id = crate::treework::create_proxy(index, lx, ly, lz, hx, hy, hz, ch, cl, shape);
+    let key = ((id as u32) << 2) | index as u32;
+    if index != 0 || force != 0 {
+        buffer_move(key);
+    }
+    key
+}
+#[export_name = "broadDestroyProxy"]
+pub unsafe extern "C" fn destroy_proxy(key: u32) {
+    unbuffer_move(key);
+    crate::treework::destroy_proxy((key & 3) as usize, (key >> 2) as i32);
+}
+#[export_name = "broadMoveProxy"]
+pub unsafe extern "C" fn move_proxy(
+    key: u32,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+) {
+    crate::treework::move_proxy(
+        (key & 3) as usize,
+        (key >> 2) as i32,
+        lx,
+        ly,
+        lz,
+        hx,
+        hy,
+        hz,
+    );
+    buffer_move(key);
+}
+#[export_name = "broadEnlargeProxy"]
+pub unsafe extern "C" fn enlarge_proxy(
+    key: u32,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+) {
+    assert_ne!(key & 3, 0);
+    crate::treework::enlarge_proxy(
+        (key & 3) as usize,
+        (key >> 2) as i32,
+        lx,
+        ly,
+        lz,
+        hx,
+        hy,
+        hz,
+    );
+    buffer_move(key);
 }
 #[export_name = "broadBufferMove"]
 pub unsafe extern "C" fn buffer_move(key: u32) {
@@ -104,6 +202,10 @@ pub unsafe fn unbuffer_move(key: u32) {
             break;
         }
     }
+}
+#[export_name = "broadClearMoved"]
+pub unsafe extern "C" fn clear_moved(index: usize, id: usize) {
+    *bits_ptr(index).add(id / 32) &= !(1 << (id & 31));
 }
 #[export_name = "broadClearMoves"]
 pub unsafe extern "C" fn clear_moves() {
@@ -194,6 +296,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
         regions::write_word(out, value);
     }
     regions::write_word(out, w.set);
+    regions::write_word(out, w.set_count);
     regions::write_word(out, w.filter);
     w.columns.snapshot(out);
 }
@@ -203,6 +306,7 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
         *value = regions::read_word(input);
     }
     w.set = regions::read_word(input);
+    w.set_count = regions::read_word(input);
     w.filter = regions::read_word(input);
     w.columns.restore(input);
 }

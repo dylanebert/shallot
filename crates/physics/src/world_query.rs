@@ -44,7 +44,7 @@ fn v(r: &[u32], i: usize) -> Vec3 {
         f32::from_bits(r[i + 2]),
     )
 }
-unsafe fn pose(id: usize, origin: Vec3) -> Transform {
+pub(crate) unsafe fn pose(id: usize, origin: Vec3) -> Transform {
     let r = crate::shapes::col_slice();
     let n = id * SHAPE_STRIDE + S_QUERY_POSE;
     let awake = r[id * SHAPE_STRIDE + 32];

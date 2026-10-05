@@ -47,7 +47,7 @@ const B_SYNC_POS = 12;
 const B_SYNC_QUAT = 13;
 const B_SYNC_VEL = 14;
 const B_SYNC_INDEX = 15;
-export const N_BODY = 16;
+export const N_BODY = 17;
 export const CONTINUOUS_STRIDE = 18;
 
 type MovedRows = { eids: Uint32Array; pos: Float32Array; quat: Float32Array; vel: Float32Array };

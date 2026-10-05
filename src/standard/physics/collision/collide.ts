@@ -14,6 +14,7 @@ import {
 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
+import { bodyType, shapeBodyId } from "../kernel/filtercolumns";
 import { readShapeAabb } from "../kernel/shapecolumns";
 
 const dispatchBounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
@@ -146,8 +147,8 @@ function collect(world: WorldState, contact: Contact): void {
     job.contact = contact;
     job.shapeA = shapeA;
     job.shapeB = shapeB;
-    job.bodyA = bodyColumnIndex(world, world.bodies[shapeA.bodyId]);
-    job.bodyB = bodyColumnIndex(world, world.bodies[shapeB.bodyId]);
+    job.bodyA = bodyColumnIndex(world, world.bodies[shapeBodyId(world, shapeA.id)]);
+    job.bodyB = bodyColumnIndex(world, world.bodies[shapeBodyId(world, shapeB.id)]);
     job.wasTouching = (contact.flags & ContactFlags.simTouchingFlag) !== 0;
     job.meshSlot = mesh ? 0 : -1;
     ++jobCount;
@@ -269,8 +270,8 @@ function finish(world: WorldState, job: ContactJob, count: number): void {
         if (world.bodyStore.stale) world.bodyStore.refreshViews();
         let shapeA = job.shapeA,
             shapeB = job.shapeB;
-        const simA = getBodySim(world, world.bodies[job.shapeA.bodyId]);
-        const simB = getBodySim(world, world.bodies[job.shapeB.bodyId]);
+        const simA = getBodySim(world, world.bodies[shapeBodyId(world, job.shapeA.id)]);
+        const simB = getBodySim(world, world.bodies[shapeBodyId(world, job.shapeB.id)]);
         readSimTransform(simA, poseA);
         readSimTransform(simB, poseB);
         let xfA = poseA,
@@ -454,8 +455,8 @@ function recycle(world: WorldState): void {
         u[r + R_SHAPE_A] = contact.shapeIdA;
         u[r + R_SHAPE_B] = contact.shapeIdB;
         let bits = 0;
-        if (bodyA.type === BodyType.Static) bits |= R_STATIC_A;
-        if (bodyB.type === BodyType.Static) bits |= R_STATIC_B;
+        if (bodyType(world, bodyA.id) === BodyType.Static) bits |= R_STATIC_A;
+        if (bodyType(world, bodyB.id) === BodyType.Static) bits |= R_STATIC_B;
         if ((contact.flags & ContactFlags.simMeshContact) !== 0) bits |= R_MESH;
         if (
             distance > 0 &&

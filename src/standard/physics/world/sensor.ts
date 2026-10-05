@@ -1,3 +1,4 @@
+import { setShapeSensorIndex, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
 // Sensor overlap tracking (Box3D's sensor.c, Erin Catto, MIT). A sensor shape detects other shapes
 // overlapping it and reports begin/end touch events, in deterministic order, without producing any
 // contact response. Sensors never create contacts (the pair phase skips them, pairs.ts) and never
@@ -78,7 +79,7 @@ const shapeEntityId = (world: WorldState, index: number, generation: number): En
 export function recordSensorHit(world: WorldState, sensorId: number, visitorId: number): void {
     const sensorShape = world.shapes[sensorId];
     const visitor = world.shapes[visitorId];
-    const sensor = world.sensors[sensorShape.sensorIndex];
+    const sensor = world.sensors[shapeSensorIndex(world, sensorShape.id)];
     emplace(sensor.hits, visitorId, visitor.generation);
 }
 
@@ -127,7 +128,7 @@ function refreshSensor(world: WorldState, sensor: Sensor, q: QueryColumns, k: Ke
     sensor.hits = retired;
     const overlaps2 = sensor.overlaps2;
 
-    const body = world.bodies[sensorShape.bodyId];
+    const body = world.bodies[shapeBodyId(world, sensorShape.id)];
     const disabled = body.setIndex === SetType.Disabled || sensorShape.enableSensorEvents === false;
 
     if (disabled === false) {
@@ -224,7 +225,7 @@ function emitSensorEvents(
  * back-reference so `shape.sensorIndex` stays valid.
  */
 export function destroySensor(world: WorldState, sensorShape: Shape): void {
-    const sensorIndex = sensorShape.sensorIndex;
+    const sensorIndex = shapeSensorIndex(world, sensorShape.id);
     const sensor = world.sensors[sensorIndex];
     const sensorId = shapeEntityId(world, sensorShape.id, sensorShape.generation);
     const endEvents = world.sensorEndEvents[world.endEventArrayIndex];
@@ -241,8 +242,8 @@ export function destroySensor(world: WorldState, sensorShape: Shape): void {
     if (sensorIndex !== last) {
         const moved = world.sensors[last];
         world.sensors[sensorIndex] = moved;
-        world.shapes[moved.shapeId].sensorIndex = sensorIndex;
+        setShapeSensorIndex(world, world.shapes[moved.shapeId].id, sensorIndex);
     }
     world.sensors.pop();
-    sensorShape.sensorIndex = NULL_INDEX;
+    setShapeSensorIndex(world, sensorShape.id, NULL_INDEX);
 }

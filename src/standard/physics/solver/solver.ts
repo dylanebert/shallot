@@ -1,3 +1,4 @@
+import { shapeBodyId } from "../kernel/filtercolumns";
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
 // MIT). The port runs the canonical colored constraint schedule, with a real overflow fallback:
 // prepare each selected color, then for each substep integrate velocities, warm-start, solve (bias),
@@ -169,8 +170,8 @@ function buildHitEvents(context: StepContext): void {
         const contact = world.contacts[contactId];
         const shapeA = world.shapes[contact.shapeIdA];
         const shapeB = world.shapes[contact.shapeIdB];
-        const simA = getBodySim(world, world.bodies[shapeA.bodyId]);
-        const simB = getBodySim(world, world.bodies[shapeB.bodyId]);
+        const simA = getBodySim(world, world.bodies[shapeBodyId(world, shapeA.id)]);
+        const simB = getBodySim(world, world.bodies[shapeBodyId(world, shapeB.id)]);
         const midCenter = vec3.lerp(simA.center, simB.center, f32(0.5));
 
         let approachSpeed = threshold;

@@ -1,16 +1,7 @@
-//! The in-kernel broad-phase pair-finding + tree-rebuild pass (3d) — box3d's
-//! `b3UpdateBroadPhasePairs` phase 1 (query) + phase 2 (rebuild), over the resident tree pools +
-//! pair-set (`broad.rs`). Pair queries run on the pool; tree rebuilds run after the join.
-//!
-//! Phase 1 (`queryPairs`) replays the TS enumeration order byte-for-byte — move-buffer order × per-proxy
-//! kinematic→static→dynamic × LIFO DFS × per-proxy reverse walk (the reverse is TS's, phase 3) + the
-//! lower-key moved-dedup — and rejects any pair already in the pair-set (`table::contains`), so the
-//! candidate slab is ≈empty in steady state. A found compound leaf stays on the TS fallback path: the
-//! kernel emits a *placeholder* (dedup applied, its inner-tree recursion + per-child membership left to
-//! TS). Phase 2 (`rebuildTrees`) median-splits the dynamic then kinematic trees.
-//!
-//! Wasm-only: it aliases the World's resident pools and the shared per-step arena.
-//! Native `cargo test` drives `tree::query`/`tree::rebuild` + `table::contains` against gold vectors.
+//! Box3D broad_phase.c: parallel pair queries and the serial tree rebuild.
+//! Each moved proxy owns a prepended survivor list. TypeScript creates contacts after the join,
+//! walking proxies in move-buffer order and each list in place. Allocation order across tasks
+//! does not affect contact creation order.
 
 use crate::broad;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -20,16 +11,15 @@ use crate::shapes::{col_slice as shape_col, SHAPE_STRIDE, S_TYPE};
 use crate::table;
 use crate::tree;
 
-/// `ShapeType.Compound` (the TS enum value the shape column stores) — the only found shape the query
-/// hands to the TS fallback path rather than emitting as a direct candidate.
+/// `ShapeType.Compound`, as stored in the shape column.
 const SHAPE_COMPOUND: u32 = 1;
 
 /// Body types (broadphase.ts `BodyType`), packed into a proxy key's low 2 bits.
 const KINEMATIC: u32 = 1;
 const DYNAMIC: u32 = 2;
 
-/// u32 slots per candidate: flag (0 direct / 1 compound placeholder), shapeA, shapeB, next.
-/// Each proxy owns a discovery-order list; allocation order across proxies is immaterial.
+/// u32 slots per survivor: childIndex, shapeA, shapeB, next.
+/// Each proxy owns a LIFO list; allocation order across proxies is immaterial.
 const CAND_STRIDE: usize = 4;
 /// u32 per input tree-state record: root, nodeCount, freeList, proxyCount.
 const STATE_STRIDE: usize = 4;
@@ -50,23 +40,31 @@ static mut BUILD_PTR: u32 = 0;
 
 static mut MOVE_COUNT: usize = 0;
 static mut MOVED_WORDS: usize = 0;
-static mut CAND_CAP: usize = 0;
+static mut CAND_CAP: usize = 256;
 static mut MAX_PROXY: usize = 0;
 
 /// Reserve shared pair-finding scratch, consumed before dispatch, recycle or solve reserves it.
-/// `cand_cap` sizes the candidate entries; `max_proxy` covers the largest rebuilt tree's proxy count.
+/// Rebuild scratch covers the largest rebuilt tree; survivor capacity grows on overflow.
 #[export_name = "reservePairs"]
-pub extern "C" fn reserve_pairs(
-    move_count: usize,
-    _moved_words: usize,
-    cand_cap: usize,
-    max_proxy: usize,
-) {
+pub extern "C" fn reserve_pairs() {
     unsafe {
+        let cand_cap = CAND_CAP;
+        let move_count = broad::move_count();
+        let max_proxy = [1usize, 2]
+            .into_iter()
+            .map(|i| {
+                if broad::tree_cap(i) == 0 {
+                    0
+                } else {
+                    *broad::tree_state(i).add(3) as usize
+                }
+            })
+            .max()
+            .unwrap()
+            .max(1);
         CAND_COUNT.store(0, Ordering::Relaxed);
         MOVE_COUNT = broad::move_count();
         MOVED_WORDS = broad::bits_words(DYNAMIC as usize);
-        CAND_CAP = cand_cap;
         MAX_PROXY = max_proxy;
 
         let mut off = 0;
@@ -111,21 +109,6 @@ pub extern "C" fn reserve_pairs(
     }
 }
 
-#[export_name = "pairsStatePtr"]
-pub extern "C" fn pairs_state_ptr() -> *mut u32 {
-    unsafe { STATE_PTR as *mut u32 }
-}
-
-#[export_name = "pairsMovePtr"]
-pub extern "C" fn pairs_move_ptr() -> *mut u32 {
-    unsafe { MOVE_PTR as *mut u32 }
-}
-
-#[export_name = "pairsMovedPtr"]
-pub extern "C" fn pairs_moved_ptr() -> *mut u32 {
-    unsafe { MOVED_PTR as *mut u32 }
-}
-
 #[export_name = "pairsCandEndPtr"]
 pub extern "C" fn pairs_cand_end_ptr() -> *const u32 {
     unsafe { CANDEND_PTR as *const u32 }
@@ -134,11 +117,6 @@ pub extern "C" fn pairs_cand_end_ptr() -> *const u32 {
 #[export_name = "pairsCandPtr"]
 pub extern "C" fn pairs_cand_ptr() -> *const u32 {
     unsafe { CAND_PTR as *const u32 }
-}
-
-#[export_name = "pairsRebuildOutPtr"]
-pub extern "C" fn pairs_rebuild_out_ptr() -> *const u32 {
-    unsafe { REBUILD_OUT_PTR as *const u32 }
 }
 
 /// One tree pool as a `[u32]` of `cap * STRIDE` slots.
@@ -158,10 +136,7 @@ unsafe fn pool_slice_mut(tree_index: usize) -> &'static mut [u32] {
     )
 }
 
-/// The per-proxy emit context: the read-only membership inputs + the mutable candidate cursor. Its
-/// `record` is the query callback — the port of `pairs.ts`'s `record` + `emit` (dedup + membership +
-/// compound partition); the surviving TS filters (self-body / sensor / shouldShapesCollide / joint walk)
-/// run over the emitted slab in `src/pairs.ts`.
+/// b3QueryPairContext over the resident columns and this proxy's move-result list.
 struct Emitter<'a> {
     shape: &'a [u32],
     moved: &'a [u32],
@@ -172,7 +147,8 @@ struct Emitter<'a> {
     cand: *mut u32,
     cand_cap: usize,
     head: u32,
-    tail: u32,
+    lower: crate::math::Vec3,
+    upper: crate::math::Vec3,
     query_shape: u32,
     query_key: u32,
     query_dynamic: bool,
@@ -200,23 +176,18 @@ impl<'a> Emitter<'a> {
     }
 
     #[inline]
-    fn emit(&mut self, flag: u32, a: u32, b: u32) {
+    fn emit(&mut self, child: u32, a: u32, b: u32) {
         let index = CAND_COUNT.fetch_add(1, Ordering::Relaxed);
         if index < self.cand_cap {
             // Allocation order may race; only this proxy owns its links.
             unsafe {
                 let entry = self.cand.add(index * CAND_STRIDE);
-                *entry = flag;
+                *entry = child;
                 *entry.add(1) = a;
                 *entry.add(2) = b;
-                *entry.add(3) = u32::MAX;
-                if self.tail != u32::MAX {
-                    *self.cand.add(self.tail as usize * CAND_STRIDE + 3) = index as u32;
-                } else {
-                    self.head = index as u32;
-                }
+                *entry.add(3) = self.head;
+                self.head = index as u32;
             }
-            self.tail = index as u32;
         }
     }
 
@@ -226,15 +197,31 @@ impl<'a> Emitter<'a> {
         }
         let sty = self.shape[found_shape as usize * SHAPE_STRIDE + S_TYPE];
         if sty == SHAPE_COMPOUND {
-            // Compound: the dedup depends only on the found *outer* proxy (identical for every inner
-            // child), so run it once here and emit a placeholder; TS maps the query bounds into the
-            // compound's frame, recurses its inner tree, and applies per-child membership + filters.
-            if self.dedup_reject(other) {
-                return true;
+            unsafe {
+                let (geometry, _) = crate::query_abi::active_shape(found_shape as usize);
+                let crate::query::Shape::Compound(compound) = geometry else {
+                    unreachable!()
+                };
+                let transform =
+                    crate::world_query::pose(found_shape as usize, crate::math::Vec3::ZERO)
+                        .invert();
+                let center = transform.point(self.lower.add(self.upper).scale(0.5));
+                let extent = crate::math::Mat3::from_quat(transform.q)
+                    .abs()
+                    .mul_v(self.upper.sub(self.lower).scale(0.5));
+                crate::compound_query::query(
+                    compound,
+                    center.sub(extent),
+                    center.add(extent),
+                    |_, child| self.record_child(other, found_shape, child),
+                );
             }
-            self.emit(1, found_shape, self.query_shape);
             return true;
         }
+        self.record_child(other, found_shape, 0)
+    }
+
+    fn record_child(&mut self, other: i32, found_shape: u32, child: u32) -> bool {
         if self.dedup_reject(other) {
             return true;
         }
@@ -245,24 +232,58 @@ impl<'a> Emitter<'a> {
             self.set_cap,
             found_shape,
             self.query_shape,
-            0,
+            child,
         ) {
             return true;
         }
-        self.emit(0, found_shape, self.query_shape);
+        let a = &self.shape[found_shape as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
+        let b = &self.shape[self.query_shape as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
+        if a[29] == b[29] {
+            return true;
+        }
+        if a[41] != u32::MAX || b[41] != u32::MAX {
+            return true;
+        }
+        if !shapes_collide(a, b) {
+            return true;
+        }
+        if unsafe { crate::bodies::get_type(crate::regions::active(), a[29] as usize) } != DYNAMIC
+            && unsafe { crate::bodies::get_type(crate::regions::active(), b[29] as usize) }
+                != DYNAMIC
+        {
+            return true;
+        }
+        if broad::bodies_filtered(a[29], b[29]) != 0 {
+            return true;
+        }
+        self.emit(child, found_shape, self.query_shape);
         true
     }
 }
 
-/// Entry count after the pair-query join. On overflow TS grows and reruns the read-only queries.
-#[export_name = "queryPairs"]
-pub extern "C" fn query_pairs() -> u32 {
-    CAND_COUNT.load(Ordering::Relaxed) as u32
+fn shapes_collide(a: &[u32], b: &[u32]) -> bool {
+    if a[31] == b[31] && a[31] != 0 {
+        return a[31] as i32 > 0;
+    }
+    ((a[27] & b[25]) | (a[28] & b[26])) != 0 && ((a[25] & b[27]) | (a[26] & b[28])) != 0
+}
+
+/// After the join, grow capacity for a read-only retry if the survivor lists overflowed.
+#[export_name = "pairsOverflow"]
+pub extern "C" fn pairs_overflow() -> u32 {
+    let count = CAND_COUNT.load(Ordering::Relaxed);
+    unsafe {
+        if count <= CAND_CAP {
+            return 0;
+        }
+        CAND_CAP = count + count / 2;
+    }
+    1
 }
 
 /// Each task owns its moved-proxy heads and traversal stack. The shared candidate allocator only
-/// assigns storage; TS merges heads in move-buffer order, then reverses each proxy's survivors, as
-/// Box3D's b3UpdateBroadPhasePairs walks its prepended pair lists (broad_phase.c).
+/// assigns storage; TS walks heads in move-buffer order, as Box3D's b3UpdateBroadPhasePairs walks
+/// its prepended pair lists.
 ///
 /// # Safety
 /// reservePairs must precede the round; trees, shapes and membership stay fixed until its join.
@@ -303,7 +324,8 @@ pub unsafe fn query_block(start: usize, end: usize, set_cap: usize) {
             cand,
             cand_cap: CAND_CAP,
             head: u32::MAX,
-            tail: u32::MAX,
+            lower: crate::math::Vec3::ZERO,
+            upper: crate::math::Vec3::ZERO,
             query_shape: 0,
             query_key: 0,
             query_dynamic: false,
@@ -312,7 +334,6 @@ pub unsafe fn query_block(start: usize, end: usize, set_cap: usize) {
 
         for i in start..end {
             em.head = u32::MAX;
-            em.tail = u32::MAX;
             let query_key = move_buf[i];
             let proxy_type = (query_key & 3) as usize;
             let proxy_id = (query_key >> 2) as i32;
@@ -322,6 +343,8 @@ pub unsafe fn query_block(start: usize, end: usize, set_cap: usize) {
             let (lo, hi) = tree::node_aabb(base, proxy_id);
             let query_shape = tree::user_data(base, proxy_id);
 
+            em.lower = crate::math::Vec3::new(lo[0], lo[1], lo[2]);
+            em.upper = crate::math::Vec3::new(hi[0], hi[1], hi[2]);
             em.query_shape = query_shape;
             em.query_key = query_key;
             em.query_dynamic = query_dynamic;
@@ -375,7 +398,7 @@ fn run_query(
 /// first, then kinematic), and updates their resident headers. Static is never rebuilt.
 ///
 /// # Safety
-/// As `queryPairs`; runs after it (the query reads the pre-rebuild trees). Never grows the pool — the
+/// Runs after the query join (the query reads the pre-rebuild trees). Never grows the pool — the
 /// resident capacity (`2*proxyCap-1`) always holds the rebuilt tree.
 #[export_name = "rebuildTrees"]
 pub extern "C" fn rebuild_trees() {

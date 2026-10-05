@@ -139,7 +139,6 @@ export type Kernel = {
         hi: number,
         lo: number,
         user: number,
-        buffer: number,
     ): number;
     treeDestroyProxy(index: number, id: number): void;
     treeEnlargeProxy(
@@ -178,7 +177,6 @@ export type Kernel = {
         cl: number,
         ud: number,
         udh: number,
-        buffer: number,
     ): number;
     treeMutate(
         ptr: number,
@@ -213,25 +211,57 @@ export type Kernel = {
         all: number,
         state: number,
     ): void;
+    broadCreateProxy(
+        type: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+        categoryHi: number,
+        categoryLo: number,
+        shape: number,
+        force: number,
+    ): number;
+    broadTestOverlap(a: number, b: number): number;
+    broadDestroyProxy(key: number): void;
+    broadMoveProxy(
+        key: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+    ): void;
+    broadEnlargeProxy(
+        key: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+    ): void;
+    broadClearMoved(type: number, id: number): void;
+    bodyVelocityWake(world: number, id: number, x: number, y: number, z: number): number;
+    bodyGetType(world: number, id: number): number;
+    bodySetType(world: number, id: number, type: number): void;
+    broadCreateSet(capacity: number): void;
     broadSetCap(): number;
+    broadAddPair(a: number, b: number, child: number): number;
+    broadRemovePair(a: number, b: number, child: number): number;
 
-    // Broad-phase pair query + tree rebuild (kernel/src/pairwork.rs, 3d). `reservePairs` lays out the
-    // shared per-step slab (tree-state header + move buffer + dynamic moved-bitset + the
-    // candidate output + rebuild scratch); TS writes the inputs through the `pairs*Ptr` headers,
-    // ParKind.Pairs finds surviving pairs (dedup + pair-set membership); `queryPairs` reads the joined
-    // entry count (grow + re-run if it exceeds `candCap`). `pairsCandEndPtr` holds per-proxy list heads
-    // (u32::MAX for empty), with discovery-order next links in candidate slot 3. `rebuildTrees` median-rebuilds
-    // the dynamic then kinematic trees, writing each new `[root, nodeCount, freeList]` to the rebuild-out
-    // header. Both run over the resident broad-phase region (kernel/src/broad.rs); TS applies the
-    // remaining filters + creates contacts over the returned slab (src/pairs.ts).
-    reservePairs(moveCount: number, movedWords: number, candCap: number, maxProxy: number): void;
-    pairsStatePtr(): number;
-    pairsMovePtr(): number;
-    pairsMovedPtr(): number;
+    // `reservePairs` reserves move-result lists and rebuild scratch. ParKind.Pairs queries the
+    // resident proxies, shapes, body types and pair table, including compound recursion and default
+    // filtering. `pairsOverflow` grows survivor capacity for a read-only retry after overflow.
+    // Each result is (child, shapeA, shapeB, next), prepended at its proxy's `pairsCandEndPtr` head
+    // (u32::MAX for empty). TypeScript creates contacts from those lists in place after the join.
+    reservePairs(): void;
     pairsCandEndPtr(): number;
     pairsCandPtr(): number;
-    pairsRebuildOutPtr(): number;
-    queryPairs(): number;
+    pairsOverflow(): number;
     rebuildTrees(): void;
 
     // Static geometry columns (kernel/src/geo.rs) — convex-hull pools uploaded once per interned hull,

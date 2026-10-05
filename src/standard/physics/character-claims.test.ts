@@ -10,6 +10,7 @@ import {
     physicsWorld,
     StandardPhysicsPlugin,
 } from "./index";
+import { shapeBodyId } from "./kernel/filtercolumns";
 import lane from "./oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v7/cases.json";
 
 async function scene() {
@@ -104,10 +105,14 @@ test("a stepped character excludes every shape on its own body from planes and i
         world.step(Time.FIXED_DT);
         const s = world.resource(characterScratch);
         expect(s.groundShape).toBeGreaterThanOrEqual(0);
-        expect(physics.state.shapes[s.groundShape].bodyId).not.toBe(own.id.index1 - 1);
+        expect(shapeBodyId(physics.state, physics.state.shapes[s.groundShape].id)).not.toBe(
+            own.id.index1 - 1,
+        );
         expect(s.count).toBeGreaterThan(0);
         for (let i = 0; i < s.count; ++i)
-            expect(physics.state.shapes[s.shapes[i]].bodyId).not.toBe(own.id.index1 - 1);
+            expect(shapeBodyId(physics.state, physics.state.shapes[s.shapes[i]].id)).not.toBe(
+                own.id.index1 - 1,
+            );
         expect(world.storage(Character).groundNormal.y.get(eid)).toBe(1);
         expect(world.storage(Body).position.x.get(eid)).toBeCloseTo(0.6, 6);
     } finally {
