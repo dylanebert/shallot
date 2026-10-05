@@ -142,7 +142,11 @@ pub fn prepare(
         let index_a = d.index_a;
         let index_b = d.index_b;
         let manifold_count = d.manifold_count;
-        let manifold_base = d.manifold_base;
+        let cols = Columns {
+            pool: crate::manifold_abi::block_col(cols.pool, d.manifold_base, manifold_count),
+            ..*cols
+        };
+        let manifold_base = 0;
         let friction = d.friction;
         let restitution = d.restitution;
         let rolling_resistance = d.rolling_resistance;
@@ -619,7 +623,11 @@ pub fn store(cols: &Columns, start: usize, count: usize, hit_event_threshold: f3
         let so = c * SLOT_STRIDE;
         let contact_id = cols.slot.get(so + SLOT_CONTACT) as usize;
         let d = read_dir(cols.dir, contact_id);
-        let manifold_base = d.manifold_base;
+        let cols = Columns {
+            pool: crate::manifold_abi::block_col(cols.pool, d.manifold_base, d.manifold_count),
+            ..*cols
+        };
+        let manifold_base = 0;
         let ccm = c * CC_META_STRIDE;
         let manifold_count = cols.cc_meta.get(ccm + 2) as usize;
         let manifold_start = cols.cc_meta.get(ccm + 3) as usize;

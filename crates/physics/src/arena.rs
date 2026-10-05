@@ -493,8 +493,9 @@ unsafe fn dispatch_mesh(
     let pool = manifolds::pool_col();
     let entry = read_dir(dir, contact_id);
     let old_count = disp[r + D_OLD_COUNT] as usize;
+    let pool = crate::manifold_abi::block_col(pool, entry.manifold_base, old_count);
     for i in 0..old_count {
-        let o = (entry.manifold_base + i) * MANIFOLD_STRIDE;
+        let o = i * MANIFOLD_STRIDE;
         scratch.old[i] = Manifold::new();
         let m = &mut scratch.old[i];
         m.normal = Vec3::new(pool.get(o), pool.get(o + 1), pool.get(o + 2));
@@ -878,7 +879,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
 
             let resident = disp[r + D_OLD_COUNT] != 0;
             let mut m = if resident {
-                read_manifold_warm(pool, base)
+                read_manifold_warm(crate::manifold_abi::block_col(pool, base, 1), 0)
             } else {
                 Manifold::new()
             };
@@ -904,7 +905,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 p.anchor_b = p.anchor_b.sub(center_b);
             }
             if resident {
-                write_manifold(&m, pool, base);
+                write_manifold(&m, crate::manifold_abi::block_col(pool, base, 1), 0);
             } else if touching {
                 let ptr = (DISPATCH_OUT_PTR as *mut f32).add(total + i * MANIFOLD_STRIDE);
                 ptr.write_bytes(0, MANIFOLD_STRIDE);

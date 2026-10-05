@@ -745,7 +745,8 @@ pub fn prepare(
             let d = read_dir(dir, contact_id);
             let index_a = d.index_a;
             let index_b = d.index_b;
-            let mpo = d.manifold_base * mabi::MANIFOLD_STRIDE; // convex: exactly one manifold
+            let pool = mabi::block_col(pool, d.manifold_base, 1);
+            let mpo = 0; // convex: exactly one manifold
 
             idx.set(io + lane, index_a.wrapping_add(1));
             idx.set(io + LANES + lane, index_b.wrapping_add(1));
@@ -1252,7 +1253,8 @@ pub fn store(
         for lane in 0..lane_count {
             let contact_id = meta.get(mo + lane) as usize;
             let d = read_dir(dir, contact_id);
-            let mpo = d.manifold_base * mabi::MANIFOLD_STRIDE; // convex: exactly one manifold
+            let pool = mabi::block_col(pool, d.manifold_base, 1);
+            let mpo = 0; // convex: exactly one manifold
             let contact_flags = d.flags;
 
             pool.set(

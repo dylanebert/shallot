@@ -282,6 +282,8 @@ export type Kernel = {
     // grow; `manifoldLayoutPtr` returns the byte-offset header TS derives its views from
     // (manifoldstore.ts).
     reserveManifolds(contactCap: number, manifoldCap: number): void;
+    allocateManifolds(contactId: number, count: number): number;
+    freeManifolds(contactId: number): void;
     manifoldLayoutPtr(): number;
     collideHullsGeo(
         a: number,

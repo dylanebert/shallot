@@ -102,8 +102,9 @@ fn recycle_separations(
     dc: Vec3,
 ) {
     let base = read_dir(dir, contact_id).manifold_base;
+    let pool = crate::manifold_abi::block_col(pool, base, count);
     for m in 0..count {
-        let mo = (base + m) * MANIFOLD_STRIDE;
+        let mo = m * MANIFOLD_STRIDE;
         let normal = Vec3::new(
             pool.get(mo + M_NORMAL),
             pool.get(mo + M_NORMAL + 1),

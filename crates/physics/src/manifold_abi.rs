@@ -5,15 +5,10 @@
 //! layout + the per-record slot index; it is always compiled (the wasm `manifolds` region and the
 //! native gold harnesses both mirror it), so it carries no wasm intrinsics.
 //!
-//! Two columns:
-//!   - **directory** — one record per contactId: the contact material row, the per-step body sim
-//!     indices, the block descriptor (manifoldCount + manifoldBase into the pool), and a per-step
-//!     hit-event flag. TS writes the material/indices each step; the block descriptor is written on
-//!     `alloc` (narrowphase); the solver reads it and writes the hit flag.
-//!   - **pool** — the variable manifold records (b3Manifold, points inline). Each contact owns a run
-//!     of `manifoldCount` records at `manifoldBase`. The narrowphase writes the manifolds; the solver
-//!     reads them in `prepare` and writes the solved impulses back in `store` (the next step's warm
-//!     start reads them there — they *are* the persistent state).
+//! The contact-id directory holds the material row, body sim indices, manifold count and block
+//! address, and a per-step hit-event flag. Stable manifold-count block allocators own the manifold
+//! records (b3Manifold, points inline). Narrowphase and solve read and write the same blocks; snapshot
+//! serializes their contents, not their addresses.
 //!
 //! A per-color **slot** index maps each scalar solver record to its contactId and its slice of the
 //! transient constraint columns (which stay per-step-sequential); the wide path carries the contactId
@@ -35,6 +30,7 @@ const DIR_ROLLING_RESISTANCE: usize = 2;
 const DIR_TANGENT_VELOCITY: usize = 3; // 3..5
 const DIR_FLAGS: usize = 6;
 const DIR_MANIFOLD_COUNT: usize = 7;
+/// Byte address of a stable manifold block in WASM; native fixtures use a record offset into their owned backing column.
 pub const DIR_MANIFOLD_BASE: usize = 8;
 const DIR_INDEX_A: usize = 9;
 const DIR_INDEX_B: usize = 10;
@@ -121,6 +117,18 @@ pub fn read_dir(dir: Col<u32>, contact_id: usize) -> DirEntry {
         index_a: dir.get(o + DIR_INDEX_A),
         index_b: dir.get(o + DIR_INDEX_B),
     }
+}
+
+/// Resolve a contact's stable block. The native harness supplies owned storage rather than linear-memory addresses.
+#[inline]
+pub fn block_col(pool: Col<f32>, base: usize, count: usize) -> Col<f32> {
+    #[cfg(target_arch = "wasm32")]
+    let ptr = base as *mut f32;
+    #[cfg(not(target_arch = "wasm32"))]
+    let ptr = unsafe { pool.ptr().add(base * MANIFOLD_STRIDE) };
+    #[cfg(target_arch = "wasm32")]
+    let _ = pool;
+    unsafe { Col::new(ptr, count * MANIFOLD_STRIDE) }
 }
 
 /// Set contact `contact_id`'s per-step hit-event flag (the solver `store` phase; TS reads it back to

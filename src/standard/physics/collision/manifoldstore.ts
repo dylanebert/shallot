@@ -1,17 +1,6 @@
 import type { World } from "../../../engine";
-// The persistent contact-manifold store — the warm-start state that survives across steps, held
-// column-resident in the kernel's linear memory (kernel/src/manifolds.rs) instead of as JS objects on
-// each contact. TS owns variable manifold-block allocation between kernel tasks; the kernel reads
-// the old blocks and returns completed mesh spans before the serial finish allocates their blocks.
-//
-// Two columns, mirroring box3d's `b3Contact.manifolds` heap array:
-//   - directory: one record per contactId (material row + block descriptor), indexed directly.
-//   - pool: the variable manifold records. Each contact owns a contiguous run of `manifoldCount`
-//     records; size-class free lists (keyed by count) recycle the runs, exactly like box3d's
-//     `b3AllocateManifolds`. Points inline in a manifold record (points-per-manifold ≤ 4), so only the
-//     manifold count per contact is variable — no separate point pool.
-//
-// The strides MIRROR kernel/src/manifolds.rs; the wasm layout is the contract.
+// The contact-id directory points to stable kernel manifold blocks. Each manifold count has its
+// own block allocator, as in Box3D's physics_world.h; chunks never move after allocation.
 
 import type { Vec3 } from "../common/math";
 import { kernel } from "../kernel/kernel";
@@ -66,8 +55,7 @@ const P_PERSISTED = 13; // u32 (0/1)
 
 // MANIFOLD_LAYOUT header indices (manifolds.rs), in memory order.
 const DIR = 0;
-const POOL = 1;
-const N_MANIFOLD = 2;
+const N_MANIFOLD = 1;
 
 /** @returns the smallest power-of-two capacity ≥ `need`, at least 16 (amortizes region grows). */
 function growCap(need: number): number {
@@ -77,9 +65,8 @@ function growCap(need: number): number {
 }
 
 /**
- * The persistent manifold store for one world. Holds the allocator bookkeeping (block free lists +
- * bump high-water) and the current wasm-region capacities, and re-derives its column views whenever the
- * region grows (or `memory.grow` elsewhere detaches them).
+ * Views of one world's contact directory and stable manifold blocks. Kernel allocations remain at
+ * their addresses; memory growth replaces only these JavaScript views.
  */
 export class ManifoldStore extends KernelViews {
     readonly worldId: number;
@@ -89,21 +76,13 @@ export class ManifoldStore extends KernelViews {
         this.guardViews();
     }
 
-    // Current wasm-region capacities (directory records / pool manifold records).
+    // Directory capacity; manifold chunks are kernel-owned.
     private _dirCap = 0;
-    private _poolCap = 0;
-    // Required capacities, updated as contacts + blocks come and go; the region reserves up to these.
+
+    // Required directory capacity, updated when contacts are created.
     private _needDir = 0;
-    private _poolTop = 0;
-    // Size-class free lists: _freeLists[count] = stack of free block bases (element index into the pool).
-    private _freeLists = new Map<number, number[]>();
-    // Each live contact's manifold block (the allocator's source of truth; the wasm directory is the
-    // materialized copy the kernel reads).
-    private _blocks = new Map<number, { base: number; count: number }>();
-    // Manifold views cached per block base. Views are pure (store, offset) pairs and a base's size
-    // class never changes (fresh blocks bump the top; freed blocks recycle within their count's free
-    // list), so a block's view array is built once and reused for every contact that lands on it —
-    // the speculative touching/not-touching flap allocates nothing after first touch.
+
+    // A block address keeps its size class until reset; reuse also reuses its views.
     private _viewCache = new Map<number, Manifold[]>();
 
     /** Directory column, aliased through both views (material row is f32, the meta tail is u32). */
@@ -120,22 +99,14 @@ export class ManifoldStore extends KernelViews {
     override captureCheckpoint() {
         return {
             dirCap: this._dirCap,
-            poolCap: this._poolCap,
             needDir: this._needDir,
-            poolTop: this._poolTop,
-            freeLists: this._freeLists,
-            blocks: this._blocks,
         };
     }
 
     override restoreCheckpoint(state: unknown): void {
         const saved = state as ReturnType<ManifoldStore["captureCheckpoint"]>;
         this._dirCap = saved.dirCap;
-        this._poolCap = saved.poolCap;
         this._needDir = saved.needDir;
-        this._poolTop = saved.poolTop;
-        this._freeLists = saved.freeLists;
-        this._blocks = saved.blocks;
         this._viewCache.clear();
     }
 
@@ -162,51 +133,38 @@ export class ManifoldStore extends KernelViews {
     }
 
     /**
-     * Allocate a contiguous run of `count` manifold records for `contactId`, recycling a freed block of
-     * the same size class or bumping the pool high-water. Frees any existing block first (a contact
-     * whose cluster count changed reallocates, mirroring box3d). @returns the block base (element index).
+     * Allocate a stable kernel block, freeing any previous block. @returns its byte address.
      */
     allocBlock(contactId: number, count: number): number {
-        this.freeBlock(contactId);
-        const free = this._freeLists.get(count);
-        let base: number;
-        if (free !== undefined && free.length > 0) {
-            base = free.pop() as number;
-        } else {
-            base = this._poolTop;
-            this._poolTop += count;
-        }
-        this._blocks.set(contactId, { base, count });
-        return base;
+        const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
+        const address = k.allocateManifolds(contactId, count);
+        this.refreshViews();
+        return address;
     }
 
     /** Return a contact's block to its size-class free list (no-op if it holds none). */
     freeBlock(contactId: number): void {
-        const b = this._blocks.get(contactId);
-        if (b === undefined) return;
-        let free = this._freeLists.get(b.count);
-        if (free === undefined) {
-            free = [];
-            this._freeLists.set(b.count, free);
-        }
-        free.push(b.base);
-        this._blocks.delete(contactId);
+        if (contactId * DIR_STRIDE >= this.dirU.length) return;
+        const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
+        k.freeManifolds(contactId);
     }
 
     /**
-     * Reserve this World's directory and pool, preserving live block indices, and refresh views.
+     * Reserve this world's contact directory and refresh views.
      * @returns true if either capacity grew.
      */
     flush(): boolean {
-        if (this._dirCap > 0 && this._needDir <= this._dirCap && this._poolTop <= this._poolCap) {
+        if (this._dirCap > 0 && this._needDir <= this._dirCap) {
             return false;
         }
         const oldDirCap = this._dirCap;
         this._dirCap = growCap(Math.max(this._needDir, this._dirCap));
-        this._poolCap = growCap(Math.max(this._poolTop, this._poolCap));
+
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
-        k.reserveManifolds(this._dirCap, this._poolCap);
+        k.reserveManifolds(this._dirCap, 0);
         this.refreshViews();
         // New contacts start with a cold cache; existing contacts keep their warm caches.
         for (let cid = oldDirCap; cid < this._dirCap; ++cid) {
@@ -231,37 +189,22 @@ export class ManifoldStore extends KernelViews {
         if (
             this.dirU.buffer === buf &&
             this.dirU.byteOffset === layout[DIR] &&
-            this.dirU.length === this._dirCap * DIR_STRIDE &&
-            this.poolU.byteOffset === layout[POOL] &&
-            this.poolU.length === this._poolCap * MANIFOLD_STRIDE
+            this.dirU.length === this._dirCap * DIR_STRIDE
         )
             return;
         this.dirF = new Float32Array(buf, layout[DIR], this._dirCap * DIR_STRIDE);
         this.dirU = new Uint32Array(buf, layout[DIR], this._dirCap * DIR_STRIDE);
-        this.poolF = new Float32Array(buf, layout[POOL], this._poolCap * MANIFOLD_STRIDE);
-        this.poolU = new Uint32Array(buf, layout[POOL], this._poolCap * MANIFOLD_STRIDE);
-        this.poolI = new Int32Array(buf, layout[POOL], this._poolCap * MANIFOLD_STRIDE);
+        this.poolF = new Float32Array(buf);
+        this.poolU = new Uint32Array(buf);
+        this.poolI = new Int32Array(buf);
     }
 
     /**
-     * Allocate `contactId`'s manifold block for `count` records (recycling a freed same-size block or
-     * bumping the pool), write the block descriptor into the directory, growing + re-deriving views in
-     * place if the pool overflowed, and return column-backed `Manifold` views over the fresh block. The
-     * narrowphase writes its manifolds through these; the data is the persistent warm-start state.
+     * Allocate a stable block and return views of its persistent warm-start state.
      */
     alloc(contactId: number, count: number): Manifold[] {
-        const base = this.allocBlock(contactId, count);
-        if (this._poolTop > this._poolCap) {
-            this._poolCap = growCap(this._poolTop);
-            const k = kernel(this.ecsState);
-            k.bodySetActiveWorld(this.worldId);
-            k.reserveManifolds(this._dirCap, this._poolCap);
-            this.refreshViews();
-        }
-        const dir = contactId * DIR_STRIDE;
-        this.dirU[dir + DIR_MANIFOLD_COUNT] = count;
-        this.dirU[dir + DIR_MANIFOLD_BASE] = base;
-        return this.views(contactId, count, base);
+        const address = this.allocBlock(contactId, count);
+        return this.views(contactId, count, address);
     }
 
     /** Copy a completed kernel manifold span into this contact's allocated block. Source must be
@@ -269,7 +212,7 @@ export class ManifoldStore extends KernelViews {
     importManifolds(contactId: number, count: number, source: Uint32Array): Manifold[] {
         const views = this.alloc(contactId, count);
         const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
-        this.poolU.set(source.subarray(0, count * MANIFOLD_STRIDE), base * MANIFOLD_STRIDE);
+        this.poolU.set(source.subarray(0, count * MANIFOLD_STRIDE), base >>> 2);
         return views;
     }
 
@@ -286,13 +229,13 @@ export class ManifoldStore extends KernelViews {
     views(
         contactId: number,
         count: number,
-        base = this._blocks.get(contactId)?.base ?? 0,
+        base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE],
     ): Manifold[] {
         let out = this._viewCache.get(base);
         if (out === undefined) {
             out = new Array(count);
             for (let i = 0; i < count; ++i) {
-                out[i] = new ManifoldView(this, (base + i) * MANIFOLD_STRIDE);
+                out[i] = new ManifoldView(this, (base >>> 2) + i * MANIFOLD_STRIDE);
             }
             this._viewCache.set(base, out);
         }
@@ -371,7 +314,8 @@ export function contactPointCount(
 ): number {
     const base = dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
     let points = 0;
-    for (let m = 0; m < count; ++m) points += poolU[(base + m) * MANIFOLD_STRIDE + M_POINT_COUNT];
+    for (let m = 0; m < count; ++m)
+        points += poolU[(base >>> 2) + m * MANIFOLD_STRIDE + M_POINT_COUNT];
     return points;
 }
 
