@@ -148,6 +148,7 @@ mod joint_lifecycle;
 mod joint_record;
 #[cfg(target_arch = "wasm32")]
 mod manifolds;
+mod mover;
 #[cfg(target_arch = "wasm32")]
 mod pairwork;
 #[cfg(target_arch = "wasm32")]
