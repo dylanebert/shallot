@@ -1,8 +1,8 @@
-/**
- * One step's phase timings in milliseconds (Box3D b3Profile), diagnostic only.
- * Resolution is the host's `performance.now()`, coarsened in pages without cross-origin isolation.
- * Fields inside the kernel's whole-solve crossing remain zero when not timed separately.
- */
+import { kernel } from "../kernel/kernel";
+import type { WorldState } from "./world";
+
+/** One step's kernel-measured timings in milliseconds (Box3D b3Profile), diagnostic only.
+ * Resolution follows the platform clock, coarsened in pages without cross-origin isolation. */
 export type StepProfile = {
     step: number;
     pairs: number;
@@ -31,8 +31,37 @@ export type StepProfile = {
 
 export const PROFILE_FIELDS = Object.keys(createStepProfile()) as (keyof StepProfile)[];
 
-export function resetStepProfile(profile: StepProfile): void {
-    for (let i = 0; i < PROFILE_FIELDS.length; i++) profile[PROFILE_FIELDS[i]] = 0;
+let timings = new Float32Array(0);
+/** Read the kernel's profile into the reusable API observation. */
+export function readStepProfile(world: WorldState): void {
+    const k = kernel(world.ecsState);
+    const ptr = k.stepProfilePtr(world.worldId);
+    if (timings.buffer !== k.memory.buffer) timings = new Float32Array(k.memory.buffer);
+    const start = ptr >>> 2;
+    const p = world.profile;
+    p.step = timings[start];
+    p.pairs = timings[start + 1];
+    p.collide = timings[start + 2];
+    p.solve = timings[start + 3];
+    p.solverSetup = timings[start + 4];
+    p.constraints = timings[start + 5];
+    p.prepareConstraints = timings[start + 6];
+    p.integrateVelocities = timings[start + 7];
+    p.warmStart = timings[start + 8];
+    p.solveImpulses = timings[start + 9];
+    p.integratePositions = timings[start + 10];
+    p.relaxImpulses = timings[start + 11];
+    p.applyRestitution = timings[start + 12];
+    p.storeImpulses = timings[start + 13];
+    p.splitIslands = timings[start + 14];
+    p.transforms = timings[start + 15];
+    p.sensorHits = timings[start + 16];
+    p.jointEvents = timings[start + 17];
+    p.hitEvents = timings[start + 18];
+    p.refit = timings[start + 19];
+    p.bullets = timings[start + 20];
+    p.sleepIslands = timings[start + 21];
+    p.sensors = timings[start + 22];
 }
 
 export function createStepProfile(): StepProfile {

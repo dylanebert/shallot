@@ -89,15 +89,18 @@ pub unsafe fn record_hit(world: usize, sensor: usize, other: usize) {
     let index = shapes::col().get(sensor * shapes::SHAPE_STRIDE + 41) as usize;
     state(world).sensors[index].hits.push(visitor(world, other));
 }
-#[export_name = "sensorOverlap"]
-pub unsafe extern "C" fn overlap(world: usize) {
-    shapes::shape_set_active_world(world as u32);
-    let w = state(world);
+pub unsafe fn prepare() -> usize {
+    let w = state(regions::active());
     w.event_bits.resize(w.sensors.len().div_ceil(64), 0);
     w.event_bits.fill(0);
-    // The current query ABI owns shared header and linked-result scratch. Until that scratch is
-    // task-local, stage 9 must schedule this task serially rather than race it on ParKind workers.
-    for (index, s) in w.sensors.iter_mut().enumerate() {
+    w.sensors.len()
+}
+pub unsafe fn task(start: usize, end: usize) {
+    let world = regions::active();
+    let sensors = (*(&raw const WORLDS))[world].sensors.as_ptr().cast_mut();
+    let bits = (*(&raw const WORLDS))[world].event_bits.as_ptr().cast_mut();
+    for index in start..end {
+        let s = &mut *sensors.add(index);
         core::mem::swap(&mut s.overlaps1, &mut s.overlaps2);
         s.overlaps2.clear();
         s.overlaps2.extend_from_slice(&s.hits);
@@ -109,25 +112,32 @@ pub unsafe extern "C" fn overlap(world: usize) {
             || r.get(n + shapes::S_FLAGS) & shapes::SENSOR_FLAG == 0
         {
             if !s.overlaps1.is_empty() {
-                w.event_bits[index / 64] |= 1 << (index % 64);
+                core::sync::atomic::AtomicU64::from_ptr(bits.add(index / 64))
+                    .fetch_or(1 << (index % 64), core::sync::atomic::Ordering::Relaxed);
             }
             continue;
         }
-        // Shape aabb is resident; only the tree roots are supplied by the coordinator.
+        let mut header = [0; 20];
+        for i in 0..3 {
+            header[2 * i] = *crate::broad::tree_state(i);
+            header[2 * i + 1] = crate::broad::tree_cap(i) as u32;
+        }
         for j in 0..6 {
-            world_query::HEADER[13 + j] = r.get(n + 34 + j);
+            header[13 + j] = r.get(n + 34 + j);
         }
-        let mut id = world_query::sensor(world, s.shape_id);
-        while id != u32::MAX {
-            s.overlaps2.push(visitor(world, id as usize));
-            id = r.get(id as usize * shapes::SHAPE_STRIDE + 33);
-        }
+        world_query::sensor_task(s.shape_id, &header, |id| {
+            s.overlaps2.push(visitor(world, id))
+        });
         s.overlaps2.sort_unstable_by_key(|v| v.shape_id);
         s.overlaps2.dedup_by_key(|v| v.shape_id);
         if s.overlaps1 != s.overlaps2 {
-            w.event_bits[index / 64] |= 1 << (index % 64);
+            core::sync::atomic::AtomicU64::from_ptr(bits.add(index / 64))
+                .fetch_or(1 << (index % 64), core::sync::atomic::Ordering::Relaxed);
         }
     }
+}
+pub unsafe fn publish(world: usize) {
+    let w = state(world);
     for (block, bits) in w.event_bits.iter().copied().enumerate() {
         let mut bits = bits;
         while bits != 0 {

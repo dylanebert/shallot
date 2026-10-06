@@ -87,7 +87,6 @@ unsafe fn apply_touch(id: usize) {
 
 #[export_name = "stepFinalize"]
 pub unsafe extern "C" fn finalize(count: usize, dt: f32, enable_sleep: bool) -> bool {
-    crate::continuous::consume(regions::active(), count, false);
     let sim2 = bodies::sim2_base() as *const u32;
     let mut bullets = false;
     for i in 0..count {
@@ -99,7 +98,6 @@ pub unsafe extern "C" fn finalize(count: usize, dt: f32, enable_sleep: bool) -> 
     if enable_sleep && split != -1 {
         island::set_split_candidate(split);
     }
-    crate::treework::enlarge_pass(count, 0);
     bullets
 }
 
@@ -180,6 +178,495 @@ pub unsafe extern "C" fn solve_build(
     );
 }
 
+#[link(wasm_import_module = "env")]
+extern "C" {
+    fn now(output: *mut f64);
+}
+pub(crate) fn ticks() -> f64 {
+    let mut value = 0.0;
+    unsafe { now(&mut value) };
+    value
+}
+// types.h b3Profile, in its public ABI field order.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Profile {
+    step: f32,
+    pairs: f32,
+    collide: f32,
+    solve: f32,
+    solver_setup: f32,
+    constraints: f32,
+    prepare_constraints: f32,
+    integrate_velocities: f32,
+    warm_start: f32,
+    solve_impulses: f32,
+    integrate_positions: f32,
+    relax_impulses: f32,
+    apply_restitution: f32,
+    store_impulses: f32,
+    split_islands: f32,
+    transforms: f32,
+    sensor_hits: f32,
+    joint_events: f32,
+    hit_events: f32,
+    refit: f32,
+    bullets: f32,
+    sleep_islands: f32,
+    sensors: f32,
+}
+impl Profile {
+    const ZERO: Self = Self {
+        step: 0.0,
+        pairs: 0.0,
+        collide: 0.0,
+        solve: 0.0,
+        solver_setup: 0.0,
+        constraints: 0.0,
+        prepare_constraints: 0.0,
+        integrate_velocities: 0.0,
+        warm_start: 0.0,
+        solve_impulses: 0.0,
+        integrate_positions: 0.0,
+        relax_impulses: 0.0,
+        apply_restitution: 0.0,
+        store_impulses: 0.0,
+        split_islands: 0.0,
+        transforms: 0.0,
+        sensor_hits: 0.0,
+        joint_events: 0.0,
+        hit_events: 0.0,
+        refit: 0.0,
+        bullets: 0.0,
+        sleep_islands: 0.0,
+        sensors: 0.0,
+    };
+}
+const _: () = assert!(core::mem::size_of::<Profile>() == 23 * 4);
+static mut PROFILE: [Profile; regions::MAX_WORLDS] = [Profile::ZERO; regions::MAX_WORLDS];
+pub(crate) unsafe fn accumulate(field: usize, start: f64) {
+    let p = (&raw mut PROFILE)
+        .cast::<Profile>()
+        .add(regions::active())
+        .cast::<f32>()
+        .add(field);
+    *p += (ticks() - start) as f32;
+}
+#[export_name = "stepProfilePtr"]
+pub unsafe extern "C" fn profile_ptr(world: usize) -> *const f32 {
+    (&raw const PROFILE).cast::<Profile>().add(world).cast()
+}
+struct Driver {
+    phase: u32,
+    threads: usize,
+    substeps: usize,
+    gravity: [f32; 3],
+    max_speed: f32,
+    contact_speed: f32,
+    restitution: f32,
+    hit: f32,
+    recycle: f32,
+    warm: bool,
+    continuous: bool,
+    sleep: bool,
+    default_mix: bool,
+    count: usize,
+    step_start: f64,
+    phase_start: f64,
+    solve_start: f64,
+}
+static mut PAIRS_ONLY: bool = false;
+#[export_name = "pairsBegin"]
+pub unsafe extern "C" fn pairs_begin(world: usize, threads: usize) {
+    bodies::body_set_active_world(world as u32);
+    crate::shapes::shape_set_active_world(world as u32);
+    DRIVER.threads = threads;
+    DRIVER.phase = 1;
+    PAIRS_ONLY = true;
+}
+static mut DRIVER: Driver = Driver {
+    phase: 0,
+    threads: 1,
+    substeps: 1,
+    gravity: [0.0; 3],
+    max_speed: 0.0,
+    contact_speed: 0.0,
+    restitution: 0.0,
+    hit: 0.0,
+    recycle: 0.0,
+    warm: false,
+    continuous: false,
+    sleep: false,
+    default_mix: true,
+    count: 0,
+    step_start: 0.0,
+    phase_start: 0.0,
+    solve_start: 0.0,
+};
+#[export_name = "stepBegin"]
+pub unsafe extern "C" fn begin(
+    world: usize,
+    dt: f32,
+    substeps: i32,
+    threads: usize,
+    gx: f32,
+    gy: f32,
+    gz: f32,
+    hertz: f32,
+    damping: f32,
+    max_speed: f32,
+    contact_speed: f32,
+    restitution: f32,
+    hit: f32,
+    recycle: f32,
+    warm: bool,
+    continuous: bool,
+    sleep: bool,
+    default_mix: bool,
+) {
+    regions::select(world as u32);
+    bodies::body_set_active_world(world as u32);
+    crate::shapes::shape_set_active_world(world as u32);
+    PROFILE[world] = Profile::ZERO;
+    SYNC_COUNT = 0;
+    PAIRS_ONLY = false;
+    let start = ticks();
+    let substeps = substeps.max(1) as usize;
+    context(dt, substeps, hertz, damping);
+    bodies::reserve_bodies(
+        bodies::body_length(world as u32)
+            .max(16)
+            .next_power_of_two(),
+    );
+    events::begin_step(world);
+    DRIVER = Driver {
+        phase: 1,
+        threads,
+        substeps: substeps.max(1),
+        gravity: [gx, gy, gz],
+        max_speed,
+        contact_speed,
+        restitution,
+        hit,
+        recycle,
+        warm,
+        continuous,
+        sleep,
+        default_mix,
+        count: 0,
+        step_start: start,
+        phase_start: ticks(),
+        solve_start: 0.0,
+    };
+}
+unsafe fn parallel(kind: u32, count: usize, a: f32) -> bool {
+    let fork = crate::solve::par_build(kind, count, DRIVER.threads, a) != 0;
+    if !fork {
+        crate::solve::run_mt();
+    }
+    fork
+}
+unsafe fn create_pairs() {
+    let world = regions::active();
+    let heads = crate::pairwork::pairs_cand_end_ptr();
+    let pairs = crate::pairwork::pairs_cand_ptr();
+    for i in 0..crate::broad::move_count() {
+        let mut entry = *heads.add(i);
+        while entry != u32::MAX {
+            let p = pairs.add(entry as usize * 4);
+            let child = *p;
+            let a = *p.add(1) as usize;
+            let b = *p.add(2) as usize;
+            entry = *p.add(3);
+            let r = crate::shapes::col();
+            let compound = if r.get(a * crate::shapes::SHAPE_STRIDE) == 1 {
+                Some(a)
+            } else if r.get(b * crate::shapes::SHAPE_STRIDE) == 1 {
+                Some(b)
+            } else {
+                None
+            };
+            let mesh = compound.is_some_and(|id| {
+                crate::geo::shape_compound_child_type(world, id, child as usize) == 4
+            });
+            let id = crate::body_record::runtime::create_contact(
+                world,
+                a,
+                b,
+                child as i32,
+                if mesh { 0x0040_0000 } else { 0 },
+            );
+            if id != usize::MAX {
+                crate::table::add_pair(a as u32, b as u32, child);
+                contact_list::update(id);
+            }
+        }
+    }
+    crate::broad::clear_moves();
+}
+unsafe fn sleep_islands() {
+    for index in (0..solver_set::array_count(2, 1)).rev() {
+        let id = solver_set::array_get(2, 1, index) as usize;
+        if island::can_sleep(id) {
+            try_sleep_island(id);
+        }
+    }
+}
+#[export_name = "solverSetTrySleepIsland"]
+pub unsafe extern "C" fn try_sleep_island(id: usize) {
+    let world = regions::active();
+    if island::field(id, 3) > 0 && island::array_count(id, 0) > 1 {
+        return;
+    }
+    let index = island::field(id, 1) as usize;
+    let target = solver_set::create();
+    for i in 0..island::array_count(id, 0) {
+        let body = island::array_get(id, 0, i, 0) as usize;
+        let moved = crate::body_record::runtime::transfer(world, body, target, false);
+        if moved != u32::MAX {
+            crate::shape_lifecycle::sync_body(world, moved as usize);
+        }
+        crate::shape_lifecycle::sync_body(world, body);
+        let mut key = bodies::record(world, body).head_contact_key;
+        let d = manifolds::dir_col();
+        while key != -1 {
+            let o = (key >> 1) as usize * DIR_STRIDE;
+            let side = (key & 1) as usize;
+            key = d.get(o + DIR_EDGE_A + 2 + 3 * side) as i32;
+            if d.get(o + DIR_SET_INDEX) == 1 || d.get(o + DIR_COLOR_INDEX) != u32::MAX {
+                continue;
+            }
+            let other = d.get(o + DIR_EDGE_A + 3 * (side ^ 1)) as usize;
+            if bodies::record(world, other).set_index != 2 {
+                solver_set::move_contact(2, d.get(o + DIR_LOCAL_INDEX) as usize, 1);
+            }
+        }
+    }
+    for i in 0..island::array_count(id, 1) {
+        solver_set::sleep_contact(island::array_get(id, 1, i, 0) as usize, target);
+    }
+    for i in 0..island::array_count(id, 2) {
+        crate::joint_lifecycle::transfer(island::array_get(id, 2, i, 0) as usize, target);
+    }
+    let result = solver_set::move_island(2, index, target) as *const u32;
+    if *result.add(1) != u32::MAX {
+        island::set_field(*result.add(1) as usize, 1, index as i32);
+    }
+    island::set_field(id, 0, target as i32);
+    island::set_field(id, 1, *result as i32);
+    for i in 0..island::array_count(id, 0) {
+        let body = island::array_get(id, 0, i, 0) as usize;
+        bodies::sync_contacts(body);
+        let d = manifolds::dir_col();
+        let mut key = bodies::record(world, body).head_contact_key;
+        while key != -1 {
+            let contact = (key >> 1) as usize;
+            let side = (key & 1) as usize;
+            key = d.get(contact * DIR_STRIDE + DIR_EDGE_A + 2 + 3 * side) as i32;
+            contact_list::update(contact);
+        }
+    }
+    if island::split_candidate() == id as i32 {
+        island::set_split_candidate(-1);
+    }
+}
+// DONE=0, parallel task=1, custom material callbacks=2. All serial work continues in this call.
+#[export_name = "stepAdvance"]
+pub unsafe extern "C" fn advance() -> u32 {
+    loop {
+        let world = regions::active();
+        match DRIVER.phase {
+            0 => return 0,
+            1 => {
+                if crate::broad::move_count() == 0 {
+                    DRIVER.phase = 3;
+                    continue;
+                }
+                if crate::broad::set_cap() == 0 {
+                    crate::table::create_set(16);
+                }
+                crate::pairwork::reserve_pairs();
+                DRIVER.phase = 2;
+                if parallel(
+                    4,
+                    crate::broad::move_count(),
+                    crate::broad::set_cap() as f32,
+                ) {
+                    return 1;
+                }
+            }
+            2 => {
+                if crate::pairwork::pairs_overflow() != 0 {
+                    DRIVER.phase = 1;
+                    continue;
+                }
+                crate::pairwork::rebuild_trees();
+                create_pairs();
+                DRIVER.phase = 3;
+            }
+            3 => {
+                if PAIRS_ONLY {
+                    DRIVER.phase = 0;
+                    PAIRS_ONLY = false;
+                    return 0;
+                }
+                accumulate(1, DRIVER.phase_start);
+                DRIVER.phase_start = ticks();
+                let count = contact_list::count();
+                DRIVER.phase = 4;
+                if count != 0 {
+                    crate::arena::reserve_collide(
+                        count,
+                        DRIVER.threads,
+                        DRIVER.default_mix as u32,
+                        DRIVER.recycle,
+                    );
+                    contact_list::copy(crate::arena::collide_list_ptr() as *mut u32);
+                    if parallel(2, count, 0.0) {
+                        return 1;
+                    }
+                }
+            }
+            4 => {
+                DRIVER.phase = 5;
+                if !DRIVER.default_mix && contact_list::count() != 0 {
+                    return 2;
+                }
+            }
+            5 => {
+                if contact_list::count() != 0 {
+                    apply_contact_transitions();
+                }
+                accumulate(2, DRIVER.phase_start);
+                DRIVER.solve_start = ticks();
+                DRIVER.count = solver_set::body_count(2);
+                DRIVER.phase = 6;
+                if CONTEXT[0] <= 0.0 {
+                    DRIVER.phase = 10;
+                    continue;
+                }
+                if DRIVER.count == 0 {
+                    events::update_begin_impulses(world);
+                    DRIVER.phase = 10;
+                    continue;
+                }
+                let start = ticks();
+                solve_build(
+                    DRIVER.threads,
+                    DRIVER.substeps,
+                    DRIVER.gravity[0],
+                    DRIVER.gravity[1],
+                    DRIVER.gravity[2],
+                    DRIVER.max_speed,
+                    DRIVER.contact_speed,
+                    DRIVER.warm,
+                    DRIVER.restitution,
+                    DRIVER.hit,
+                    DRIVER.continuous,
+                    DRIVER.sleep,
+                );
+                accumulate(4, start);
+                DRIVER.phase_start = ticks();
+                if DRIVER.threads > 1 {
+                    return 1;
+                }
+                crate::solve::run_mt();
+            }
+            6 => {
+                let candidate = island::split_candidate();
+                island::set_split_candidate(-1);
+                DRIVER.phase_start = ticks();
+                DRIVER.phase = 7;
+                if candidate != -1 && parallel(5, candidate as usize, DRIVER.threads as f32) {
+                    return 1;
+                }
+            }
+            7 => {
+                accumulate(14, DRIVER.phase_start);
+                PROFILE[world].constraints =
+                    (ticks() - DRIVER.solve_start) as f32 - PROFILE[world].solver_setup;
+                DRIVER.phase_start = ticks();
+                DRIVER.phase = 12;
+                if parallel(7, DRIVER.count, 0.0) {
+                    return 1;
+                }
+            }
+            12 => {
+                let bullets = finalize(DRIVER.count, CONTEXT[0], DRIVER.sleep);
+                accumulate(15, DRIVER.phase_start);
+                events::update_begin_impulses(world);
+                let start = ticks();
+                crate::joint_lifecycle::collect_events();
+                accumulate(17, start);
+                let start = ticks();
+                events::build_hits(world, DRIVER.hit);
+                accumulate(18, start);
+                let start = ticks();
+                crate::treework::enlarge_pass(DRIVER.count, 0);
+                accumulate(19, start);
+                DRIVER.phase = 8;
+                DRIVER.phase_start = ticks();
+                if bullets && parallel(3, DRIVER.count, 0.0) {
+                    return 1;
+                }
+                if !bullets {
+                    DRIVER.phase = 9;
+                }
+            }
+            8 => {
+                crate::treework::enlarge_pass(DRIVER.count, 1);
+                accumulate(20, DRIVER.phase_start);
+                DRIVER.phase = 9;
+            }
+            9 => {
+                let start = ticks();
+                crate::continuous::consume(world, DRIVER.count, false);
+                crate::continuous::consume(world, DRIVER.count, true);
+                accumulate(16, start);
+                SYNC_COUNT = bodies::body_sync_moved(events::count(world, 6));
+                let start = ticks();
+                if DRIVER.sleep {
+                    sleep_islands();
+                }
+                accumulate(21, start);
+                DRIVER.phase = 10;
+            }
+            10 => {
+                if CONTEXT[0] > 0.0 {
+                    accumulate(3, DRIVER.solve_start);
+                }
+                DRIVER.phase_start = ticks();
+                let count = crate::sensor::prepare();
+                DRIVER.phase = 11;
+                if count != 0 && parallel(6, count, 0.0) {
+                    return 1;
+                }
+            }
+            11 => {
+                crate::sensor::publish(world);
+                accumulate(22, DRIVER.phase_start);
+                events::end_step(world);
+                accumulate(0, DRIVER.step_start);
+                DRIVER.phase = 0;
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+static mut SYNC_COUNT: usize = 0;
+#[export_name = "bodySyncCount"]
+pub unsafe extern "C" fn sync_count() -> usize {
+    SYNC_COUNT
+}
+#[export_name = "stepInvDt"]
+pub unsafe extern "C" fn inv_dt() -> f32 {
+    CONTEXT[1]
+}
+#[export_name = "stepInvH"]
+pub unsafe extern "C" fn inv_h() -> f32 {
+    CONTEXT[3]
+}
 static mut CONTEXT: [f32; 10] = [0.0; 10];
 #[export_name = "stepContext"]
 pub unsafe extern "C" fn context(dt: f32, substeps: usize, hertz: f32, damping: f32) -> *const f32 {

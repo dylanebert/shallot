@@ -1,6 +1,5 @@
-import { GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/constants";
+import { GRAPH_COLOR_COUNT, SetType } from "../common/constants";
 import type { Quat, Transform, Vec3 } from "../common/math";
-import type { SolveLayout } from "../solver/contactsolver";
 import type { Joint } from "../solver/joint";
 import type { WorldState } from "../world/world";
 import { J_JOINT_ID } from "./columns";
@@ -133,24 +132,15 @@ export function writeJointTransform(
     writeJointQuat(world, joint, field + 3, t.q);
 }
 
-export function jointSpans(world: WorldState, layout: SolveLayout, spans: Uint32Array): number {
-    const k = jointKernel(world);
-    let total = 0;
-    for (let c = 0; c <= layout.colors.length; ++c) {
-        const key = c === layout.colors.length ? OVERFLOW_INDEX : layout.colors[c].colorIndex;
-        const count = k.jointArrayCount(key);
-        if (c < layout.colors.length) {
-            spans[c * 6 + 4] = key;
-            spans[c * 6 + 5] = count;
-            total += count;
-        }
-    }
-    return total;
-}
 const eventViews = new WeakMap<WorldState, Uint32Array>();
 export function collectJointEvents(world: WorldState): void {
     const k = jointKernel(world);
-    const count = k.jointCollectEvents();
+    k.jointCollectEvents();
+    readJointEventUserData(world);
+}
+export function readJointEventUserData(world: WorldState): void {
+    const k = jointKernel(world);
+    const count = k.eventCount(world.worldId, 5);
     if (count === 0) return;
     let words = eventViews.get(world);
     if (words?.buffer !== k.memory.buffer) {

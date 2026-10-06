@@ -315,13 +315,16 @@ const colors = env("COLORS", -1),
     cache = env("CACHE", -1),
     profileFrom = env("PROFILE", -1),
     cpuFrom = env("CPU", -1),
+    wallFrom = env("WALL", -1),
     steps = Number(stepArg);
 const cpu = cpuFrom >= 0 ? await import("./cpu") : null;
 const lines: string[] = [];
 for (let i = 0; i < steps; ++i) {
     scene.step(w, i);
     if (i === cpuFrom) cpu?.startCpu();
+    const wallStart = i >= wallFrom && wallFrom >= 0 ? performance.now() : 0;
     w.step(f(1 / 60), 4);
+    if (i >= wallFrom && wallFrom >= 0) lines.push(`T ${i} ${(performance.now() - wallStart).toFixed(4)}`);
     lines.push(`${i} 0x${hash(w).toString(16).padStart(16, "0")}`);
     if (profileFrom >= 0 && i >= profileFrom) {
         const p = w.getProfile();

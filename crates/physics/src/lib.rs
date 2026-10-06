@@ -1,7 +1,6 @@
-//! upstream physics kernel: the contact-solve + body-integration hot path, ported from box3d's
-//! `contact_solver.c` and compiled to wasm-simd128. The TS side owns the API, broadphase,
-//! narrowphase, joints, and orchestration; it hands the kernel SoA f32 columns in this module's
-//! linear memory and drives it phase by phase (see `arena`).
+//! Box3D world and compute kernel, compiled to wasm-simd128. TypeScript binds the public API,
+//! bridges ECS authoring and placement, drives the worker pool, and runs user callbacks at the
+//! kernel's serial points.
 //!
 //! Native `cargo test` exercises the same logic through the scalar `FloatW` fallback (see `simd`),
 //! which is bit-identical to the wasm-simd128 path.

@@ -55,10 +55,8 @@ export type Kernel = {
     worldQueryResultPtr(): number;
     worldQuery(world: number, operation: number, callback: number): void;
     bodyQuery(world: number, operation: number, head: number, capacity: number): void;
-    sensorQuery(world: number, sensor: number): number;
     sensorCreate(world: number, shape: number): void;
     sensorConsumeContinuous(world: number, count: number, bullets: boolean): void;
-    sensorOverlap(world: number): void;
     sensorDestroy(world: number, shape: number): void;
     eventCount(world: number, kind: number): number;
     eventWord(world: number, kind: number, index: number, lane: number): number;
@@ -578,6 +576,33 @@ export type Kernel = {
     collideListPtr(): number;
     contactStatePtr(): number;
     applyContactTransitions(): void;
+    stepBegin(
+        world: number,
+        dt: number,
+        substeps: number,
+        threads: number,
+        gx: number,
+        gy: number,
+        gz: number,
+        hertz: number,
+        damping: number,
+        maxSpeed: number,
+        contactSpeed: number,
+        restitution: number,
+        hit: number,
+        recycle: number,
+        warm: boolean,
+        continuous: boolean,
+        sleep: boolean,
+        defaultMix: boolean,
+    ): void;
+    stepAdvance(): number;
+    pairsBegin(world: number, threads: number): void;
+    solverSetTrySleepIsland(island: number): void;
+    stepProfilePtr(world: number): number;
+    stepInvDt(): number;
+    stepInvH(): number;
+    bodySyncCount(): number;
     stepContext(dt: number, substeps: number, hertz: number, damping: number): number;
     stepFinalize(count: number, dt: number, enableSleep: boolean): boolean;
     stepSolveBuild(
@@ -843,6 +868,16 @@ export function rethrowQueryError(world: World | undefined): void {
 }
 
 /** A checked kernel's panic message, printed before its abort traps; release kernels never import it. */
+// The clock writes a scalar through the ABI, avoiding a boxed f64 result at the host boundary.
+function clockImport(memory: () => WebAssembly.Memory): (pointer: number) => void {
+    let view = new Float64Array(0);
+    return (pointer) => {
+        const buffer = memory().buffer;
+        if (view.buffer !== buffer) view = new Float64Array(buffer);
+        view[pointer >>> 3] = performance.now();
+    };
+}
+
 function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length: number) => void {
     return (pointer, length) => {
         const bytes = new Uint8Array(memory().buffer, pointer, length).slice();
@@ -932,6 +967,7 @@ async function single(runtime: KernelState): Promise<void> {
     const result = await WebAssembly.instantiate(decode(KERNEL_WASM_BASE64), {
         env: {
             queryCallback: queryImport(runtime),
+            now: clockImport(() => instance.memory),
             kernelPanic: panicImport(() => instance.memory),
         },
     });
@@ -958,6 +994,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
             env: {
                 memory,
                 queryCallback: queryImport(runtime),
+                now: clockImport(() => memory),
                 kernelPanic: panicImport(() => memory),
             },
         })
@@ -1085,6 +1122,7 @@ export function kernel(world: World | undefined): Kernel {
         const instance = new WebAssembly.Instance(mod, {
             env: {
                 queryCallback: queryImport(runtime),
+                now: clockImport(() => instance.memory),
                 kernelPanic: panicImport(() => instance.memory),
             },
         }).exports as unknown as Kernel;

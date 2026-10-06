@@ -26,14 +26,7 @@
 //!     joint-prepare spans, as Box3D does;
 //!   - box3d's `mainClaimed` race is gone. It exists so *some* thread orchestrates when the user's
 //!     task system schedules worker 0 late; our pool has no external task system, so the thread that
-//!     drives the step is always worker 0;
-//!   - the pose finalize is fused in as the terminal stage, over the body blocks the integrate stages
-//!     already use. box3d runs `b3FinalizeBodiesTask` as a separate task after the solver task — a
-//!     free hand-off on its live task system, but a whole extra park/wake round on our pool. The
-//!     ordinary stage barrier (the orchestrator publishes a stage only after the previous stage's
-//!     completion count reached its block count) is what keeps finalize from overlapping the solve,
-//!     and finalize's per-body work is write-disjoint like every body stage, so the fusion cannot
-//!     change a bit.
+//!     drives the step is always worker 0.
 //!
 //! `core::sync::atomic` (not `std`) so this module compiles into the wasm artifact unchanged. On the
 //! single-thread artifact (no `+atomics`) these lower to plain loads and stores, which is correct:
@@ -67,7 +60,6 @@ pub enum StageType {
     Restitution,
     StoreWideImpulses,
     StoreImpulses,
-    Finalize,
 }
 
 /// What a block's index range indexes (b3SolverBlockType). The tag rides the block, not the stage,
@@ -204,6 +196,10 @@ pub struct Plan<'a> {
 /// column and indexes it by body / record id, so a `&mut` would be live aliasing `&mut` on each worker
 /// even though the writes never overlap. `col.rs` carries the argument.
 pub trait StageWork: Sync {
+    fn ticks(&self) -> f64 {
+        0.0
+    }
+    fn profile(&self, _field: usize, _start: f64) {}
     fn prepare_wide(&self, block: Block);
     fn prepare_mesh(&self, block: Block);
     fn integrate_velocities(&self, block: Block);
@@ -360,7 +356,7 @@ pub struct Sizes {
 pub const fn max_sizes(max_workers: usize) -> Sizes {
     let colors = MAX_COLORS - 1; // the last color is the serial overflow, which never becomes blocks
     Sizes {
-        stages: 8 + colors * (2 + ITERATIONS + RELAX_ITERATIONS),
+        stages: 7 + colors * (2 + ITERATIONS + RELAX_ITERATIONS),
         blocks: (4 + 3 * colors) * BLOCKS_PER_WORKER * max_workers,
     }
 }
@@ -370,9 +366,8 @@ pub fn sizes(plan: &Plan) -> Sizes {
     let colors = plan.colors.len();
     Sizes {
         // prepare joints/wide/mesh + integrate velocities + integrate positions + store wide/mesh +
-        // finalize, plus one stage per color for warm start, each solve iteration, each relax
-        // iteration, and restitution. Finalize re-uses the body blocks, so it costs no block storage.
-        stages: 8 + colors * (2 + ITERATIONS + RELAX_ITERATIONS),
+        // one stage per color for warm start, each solve iteration, each relax iteration, and restitution.
+        stages: 7 + colors * (2 + ITERATIONS + RELAX_ITERATIONS),
         blocks: d.body.count + d.wide.count + d.mesh.count + d.joint.count + d.graph_block_count,
     }
 }
@@ -655,14 +650,6 @@ pub fn build<'a>(
         d.mesh.count,
         NULL_COLOR,
     );
-    init_stage(
-        stages,
-        &mut s,
-        StageType::Finalize,
-        body_at,
-        d.body.count,
-        NULL_COLOR,
-    );
 
     debug_assert_eq!(s, need.stages);
 
@@ -711,7 +698,6 @@ fn execute_block<W: StageWork>(work: &W, ty: StageType, block: Block, worker_ind
         },
         StageType::StoreWideImpulses => work.store_wide(block, worker_index),
         StageType::StoreImpulses => work.store_mesh(block, worker_index),
-        StageType::Finalize => work.finalize(block),
     }
 }
 
@@ -889,6 +875,7 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     let mut mesh_sync = 1;
     let mut graph_sync = 1;
 
+    let start = work.ticks();
     execute_main_stage(ctx, work, stage_index, sync_bits(joint_sync, stage_index))?;
     stage_index += 1;
 
@@ -905,16 +892,20 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     // contacts, matching box3d's `b3PrepareJoints_Overflow` / `b3PrepareContacts_Overflow` order.
     work.prepare_overflow_joints();
     work.prepare_overflow();
+    work.profile(6, start);
 
     for _ in 0..ctx.sub_step_count {
         // The stage index restarts each sub-step (the stages are re-used); the sync bits still grow
         // monotonically because the sync indices in the upper half do.
         let mut i = stage_index;
 
+        let start = work.ticks();
         execute_main_stage(ctx, work, i, sync_bits(body_sync, i))?;
         i += 1;
         body_sync += 1;
+        work.profile(7, start);
 
+        let start = work.ticks();
         work.warm_start_overflow_joints();
         work.warm_start_overflow();
         for _ in 0..colors {
@@ -922,7 +913,9 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
             i += 1;
         }
         graph_sync += 1;
+        work.profile(8, start);
 
+        let start = work.ticks();
         for _ in 0..ITERATIONS {
             // Overflow constraints have lower priority than the colored ones: solved first.
             work.solve_overflow_joints(true);
@@ -934,10 +927,14 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
             graph_sync += 1;
         }
 
+        work.profile(9, start);
+        let start = work.ticks();
         execute_main_stage(ctx, work, i, sync_bits(body_sync, i))?;
         i += 1;
         body_sync += 1;
+        work.profile(10, start);
 
+        let start = work.ticks();
         for _ in 0..RELAX_ITERATIONS {
             work.solve_overflow_joints(false);
             work.solve_overflow(false);
@@ -947,17 +944,21 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
             }
             graph_sync += 1;
         }
+        work.profile(11, start);
     }
 
     // integrate velocities + warm start + solve + integrate positions + relax
     stage_index += 2 + colors * (1 + ITERATIONS + RELAX_ITERATIONS);
 
+    let start = work.ticks();
     work.restitution_overflow();
     for _ in 0..colors {
         execute_main_stage(ctx, work, stage_index, sync_bits(graph_sync, stage_index))?;
         stage_index += 1;
     }
 
+    work.profile(12, start);
+    let start = work.ticks();
     work.store_overflow();
 
     execute_main_stage(ctx, work, stage_index, sync_bits(convex_sync, stage_index))?;
@@ -966,12 +967,7 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     execute_main_stage(ctx, work, stage_index, sync_bits(mesh_sync, stage_index))?;
     stage_index += 1;
 
-    // The fused pose finalize (header deviations). The mesh-store barrier above completed before this
-    // publishes, so no worker can still be inside a solve stage; the body blocks were last claimed at
-    // `body_sync - 1` by the final integrate-positions stage, so the CAS sequence stays monotone.
-    execute_main_stage(ctx, work, stage_index, sync_bits(body_sync, stage_index))?;
-    stage_index += 1;
-
+    work.profile(13, start);
     debug_assert_eq!(stage_index, ctx.stages.len());
     Some(())
 }

@@ -25,6 +25,37 @@ import { loadScenarioCorpus, runScenario } from "../oracle/scenario";
 import { compareCase } from "../oracle/strict";
 import { makeBoxHull } from "../shapes/hull";
 
+test("sensor tasks keep query scratch independent for sensors sharing every visitor", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
+    try {
+        const sensorBody = world.createBody({ type: BodyType.Static });
+        const sensors = Array.from({ length: 64 }, () =>
+            sensorBody.createSphere(
+                { isSensor: true, enableSensorEvents: true },
+                { center: { x: 0, y: 0, z: 0 }, radius: 1 },
+            ),
+        );
+        const visitorBody = world.createBody({ type: BodyType.Kinematic });
+        const visitors = Array.from({ length: 16 }, () =>
+            visitorBody.createSphere(
+                { enableSensorEvents: true },
+                { center: { x: 0, y: 0, z: 0 }, radius: 0.1 },
+            ),
+        );
+        world.step(1 / 60, 1);
+        const ids = visitors.map((shape) => shape.id.index1);
+        for (const sensor of sensors)
+            expect(sensor.getSensorOverlaps().map((shape) => shape.id.index1)).toEqual(ids);
+        expect(world.getSensorEvents().beginEvents.length).toBe(64 * 16);
+        world.step(1 / 60, 1);
+        expect(world.getSensorEvents().beginEvents.length).toBe(0);
+        for (const sensor of sensors)
+            expect(sensor.getSensorOverlaps().map((shape) => shape.id.index1)).toEqual(ids);
+    } finally {
+        world.destroy();
+    }
+});
+
 test("the active collision route changes the symmetric face-B feature order, the pinned CCD and sensor intermediate bits, or the public body move record identity", () => {
     const physicsWorld = new PhysicsWorld({
         gravity: { x: 0, y: -10, z: 0 },

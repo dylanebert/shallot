@@ -27,7 +27,6 @@ import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, SHAPE_STRIDE, type ShapeStore } from "../kernel/shapecolumns";
 import type { HullData } from "../shapes/hull";
 import { destroyShapeAllocations } from "../shapes/shape";
-import type { StepContext } from "../solver/contactsolver";
 import { createStepProfile, type StepProfile } from "./profile";
 import { destroySolverSet } from "./solverset";
 
@@ -82,11 +81,6 @@ export type WorldState = {
     jointEventUserData: unknown[];
 
     stepIndex: number;
-
-    // The per-step solver context, created lazily on the first step and reused across steps (its scalar
-    // fields rewritten + its collections cleared each step). One per world — dies with the world, never
-    // aliased across worlds. See `step()`.
-    stepContext: StepContext | null;
 
     profile: StepProfile;
 
@@ -181,7 +175,6 @@ function makeWorldState(
         queryColumns: null,
         jointEventUserData: [],
         stepIndex: 0,
-        stepContext: null,
         profile: createStepProfile(),
         gravity: { ...def.gravity },
         hitEventThreshold: def.hitEventThreshold,

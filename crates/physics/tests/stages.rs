@@ -725,6 +725,13 @@ fn solve_staged(work: &Work, p: &Plan, worker_count: usize) {
         }
         stages::run(ctx, work, 0);
     });
+    // b3FinalizeBodiesTask follows the solver join; it is not a solver stage.
+    work.finalize(Block {
+        start: 0,
+        count: p.body_count,
+        block_type: BlockType::Body,
+        color: 0,
+    });
 }
 
 /// FNV-1a over the persistent outputs of a solve: body state, the manifold pool (the impulses the

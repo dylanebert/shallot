@@ -1,17 +1,12 @@
 import { f32, quat, vec3, type WorldTransform, xf } from "../common/math";
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
-import { type Kernel, kernel, ParKind, runPool, threads, workers } from "../kernel/kernel";
+import { kernel } from "../kernel/kernel";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { shapeHullInnerRadius } from "../shapes/hull";
 import { getShapeMaterial, getShapeMaterialCount, type Shape, shapeRadius } from "../shapes/shape";
-import type { StepContext } from "../solver/contactsolver";
 import { getBodySim } from "../world/body";
-import {
-    defaultFrictionCallback,
-    defaultRestitutionCallback,
-    type WorldState,
-} from "../world/world";
+import type { WorldState } from "../world/world";
 import { ContactField, ContactFlags, contactBodyId, contactField } from "./contact";
 import {
     DIR_BLOCK,
@@ -35,10 +30,6 @@ const materialA = defaultSurfaceMaterial(),
     materialB = defaultSurfaceMaterial(),
     mixedMaterial = defaultSurfaceMaterial();
 const radiusReport = { radius: 0 };
-let memoryU = new Uint32Array(0);
-function memory(k: Kernel): void {
-    if (memoryU.buffer !== k.memory.buffer) memoryU = new Uint32Array(k.memory.buffer);
-}
 function readRollingRadius(world: WorldState, shape: Shape, out: { radius: number }): void {
     switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Sphere:
@@ -230,37 +221,16 @@ function mixContact(world: WorldState, id: number): void {
     vec3.copy(tangentA, mixedMaterial.tangentVelocity);
     writeContactMaterial(world.manifoldStore.dirF, id, mixedMaterial);
 }
-/** Update contacts in place, then apply the kernel's state bitset in ascending contact-id order. */
-export function collide(context: StepContext): void {
-    const world = context.world;
+/** Run user material callbacks at the kernel's post-collide serial point. */
+export function mixContacts(world: WorldState): void {
     const k = kernel(world.ecsState);
-    k.bodySetActiveWorld(world.worldId);
-    const count = k.awakeContactCount();
-    const defaultMix =
-        world.frictionCallback === defaultFrictionCallback &&
-        world.restitutionCallback === defaultRestitutionCallback;
-    k.reserveCollide(
-        count,
-        threads(world.ecsState),
-        Number(defaultMix),
-        world.contactRecycleDistance,
-    );
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
-    memory(k);
-    k.awakeContactCopy(k.collideListPtr());
-    const pool = workers(world.ecsState);
-    if (pool !== null && k.parBuild(ParKind.Contacts, count, pool.size + 1, 0))
-        runPool(world.ecsState, pool, k.runMt, true);
-    else k.dispatchContacts(count);
-    world.manifoldStore.refreshViews();
-    if (!defaultMix) {
-        for (let i = 0; i < count; ++i) {
-            const id = k.awakeContactGet(i);
-            const flags = contactField(world, id, ContactField.flags);
-            if (flags & SIM_UPDATED && contactField(world, id, ContactField.manifoldCount) > 0)
-                mixContact(world, id);
-        }
+    world.shapeStore.refreshViews();
+    for (let i = 0, count = k.awakeContactCount(); i < count; ++i) {
+        const id = k.awakeContactGet(i);
+        const flags = contactField(world, id, ContactField.flags);
+        if (flags & SIM_UPDATED && contactField(world, id, ContactField.manifoldCount) > 0)
+            mixContact(world, id);
     }
-    k.applyContactTransitions();
 }

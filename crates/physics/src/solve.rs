@@ -114,6 +114,14 @@ impl Work {
 }
 
 impl StageWork for Work {
+    fn ticks(&self) -> f64 {
+        crate::physics_world::ticks()
+    }
+    fn profile(&self, field: usize, start: f64) {
+        unsafe {
+            crate::physics_world::accumulate(field, start);
+        }
+    }
     fn prepare_wide(&self, b: Block) {
         contact_wide::prepare(
             self.wide,
@@ -500,6 +508,9 @@ enum Job {
     Contacts,
     Bullets,
     Pairs,
+    Split,
+    Sensors,
+    Finalize,
 }
 
 /// `parBuild`'s `kind` argument, mirrored in `src/kernel.ts`.
@@ -529,10 +540,25 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
         KIND_CONTACTS => Job::Contacts,
         3 => Job::Bullets,
         4 => Job::Pairs,
+        5 => Job::Split,
+        6 => Job::Sensors,
+        7 => Job::Finalize,
         _ => panic!("unknown parallel-for kind"),
     };
-    let par = ParFor::new(count, COLLIDE_MIN_RANGE, thread_count);
-    let fork = par.block_count() >= 2 && worth_forking(count, thread_count - 1, COLLIDE_FORK_MIN);
+    let par = ParFor::new(
+        count,
+        if job == Job::Sensors || job == Job::Finalize {
+            16
+        } else {
+            COLLIDE_MIN_RANGE
+        },
+        thread_count,
+    );
+    let fork = if job == Job::Split || job == Job::Sensors || job == Job::Finalize {
+        thread_count > 1 && (job == Job::Split || count > 0)
+    } else {
+        par.block_count() >= 2 && worth_forking(count, thread_count - 1, COLLIDE_FORK_MIN)
+    };
     unsafe {
         PAR = Some(Par { par, count, a });
         JOB = job;
@@ -569,6 +595,21 @@ fn run_job(index: usize) {
                     Job::Pairs => p
                         .par
                         .run(|s, e| crate::pairwork::query_block(s, e, p.a as usize)),
+                    Job::Split => {
+                        if index == if p.a > 1.0 { 1 } else { 0 } {
+                            crate::island::split(p.count);
+                        }
+                    }
+                    Job::Sensors => p.par.run(|s, e| crate::sensor::task(s, e)),
+                    Job::Finalize => p.par.run(|s, e| {
+                        let work = (&*(&raw const WORK)).as_ref().unwrap();
+                        work.finalize(Block {
+                            start: s,
+                            count: e - s,
+                            block_type: crate::stages::BlockType::Body,
+                            color: 0,
+                        });
+                    }),
                     Job::Solve | Job::None => unreachable!(),
                 }
             }

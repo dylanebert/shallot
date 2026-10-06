@@ -97,18 +97,19 @@ pub(crate) fn cast_record(out: &CastOutput) -> [f32; 12] {
         out.material_index as f32,
     ]
 }
-#[export_name = "sensorQuery"]
-pub extern "C" fn sensor(world: usize, sensor_id: usize) -> u32 {
-    unsafe {
-        crate::shapes::shape_set_active_world(world as u32);
-        let header = HEADER;
-        let lo = v(&header, 13);
-        let hi = v(&header, 16);
+// Header, traversal stack and narrow-phase points belong to the calling task, not the query ABI.
+pub(crate) unsafe fn sensor_task(
+    sensor_id: usize,
+    header: &[u32; 20],
+    mut emit: impl FnMut(usize),
+) {
+    {
+        let lo = v(header, 13);
+        let hi = v(header, 16);
         let r = crate::shapes::col();
         let n = sensor_id * SHAPE_STRIDE;
-        let (sensor, _) = query_abi::shape(world, sensor_id);
+        let (sensor, _) = query_abi::active_shape(sensor_id);
         let sensor_transform = pose(sensor_id, Vec3::ZERO);
-        let mut head = u32::MAX;
         let mut stack = [0; tree::STACK_SIZE];
         for i in 0..3 {
             let pool =
@@ -155,7 +156,7 @@ pub extern "C" fn sensor(world: usize, sensor_id: usize) -> u32 {
                     ) {
                         return true;
                     }
-                    let (visitor, _) = query_abi::shape(world, id);
+                    let (visitor, _) = query_abi::active_shape(id);
                     let relative = sensor_transform.inv_mul(pose(id, Vec3::ZERO));
                     let mut points = [Vec3::ZERO; 128];
                     let (count, radius) = match visitor {
@@ -194,14 +195,12 @@ pub extern "C" fn sensor(world: usize, sensor_id: usize) -> u32 {
                             radius,
                         },
                     ) {
-                        r.set(o + 33, head);
-                        head = id as u32;
+                        emit(id);
                     }
                     true
                 },
             );
         }
-        head
     }
 }
 
