@@ -2,6 +2,8 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { World } from "../../engine";
 import { BodyType, hash, makeBoxHull, PhysicsWorld } from "./api";
+import { contactIds } from "./collision/contact";
+import { readContactManifolds } from "./collision/manifoldstore";
 
 import { bodySetAwake } from "./world/body";
 
@@ -63,11 +65,13 @@ test("manifold allocation and sleeping-contact normals replay through a fresh Wo
         for (let tick = 0; tick < 120; tick++) source.step(1 / 60);
         sphere.setAwake(false);
         const saved = source.snapshot();
-        const contact = source.state.contacts.find((contact) => contact.manifolds.length > 0)!;
-        const normal = { ...contact.manifolds[0].normal };
+        const contact = contactIds(source.state).find(
+            (contact) => readContactManifolds(source.state, contact).length > 0,
+        )!;
+        const normal = { ...readContactManifolds(source.state, contact)[0].normal };
         const expected = Array.from({ length: 120 }, (_, tick) => continueTick(source, tick));
         target.restore(saved);
-        const restoredNormal = { ...target.state.contacts[contact.contactId].manifolds[0].normal };
+        const restoredNormal = { ...readContactManifolds(target.state, contact)[0].normal };
         for (let tick = 0; tick < 120; tick++)
             expect({ tick, hash: continueTick(target, tick) }).toEqual({
                 tick,

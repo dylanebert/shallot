@@ -16,7 +16,7 @@
 // `store` writes the solved impulses straight back into the pool, and `readbackHitEvents` collects the
 // contacts it flagged.
 
-import { contactHit, contactPointCount, writeContactRow } from "../collision/manifoldstore";
+import { contactHit, contactPointCount, DIR_STRIDE } from "../collision/manifoldstore";
 import { OVERFLOW_INDEX } from "../common/constants";
 import { COLOR_SPAN_STRIDE, type Columns, SLOT_STRIDE, WIDE_META_STRIDE } from "../kernel/columns";
 import { jointArrayCount } from "../kernel/jointcolumns";
@@ -92,12 +92,12 @@ const extent = { manifolds: 0, points: 0 };
 /** Fills `extent` with the total manifold + point count of a contact's current narrowphase output, read
  * through the manifold store's current `dirU` and `poolU` views. */
 function contactExtent(
-    world: WorldState,
+    _world: WorldState,
     contactId: number,
     dirU: Uint32Array,
     poolU: Uint32Array,
 ): void {
-    const manifolds = world.contacts[contactId].manifoldCount;
+    const manifolds = dirU[contactId * DIR_STRIDE + 7];
     extent.manifolds = manifolds;
     extent.points = contactPointCount(dirU, poolU, contactId, manifolds);
 }
@@ -247,11 +247,9 @@ export function writeColorSpans(cols: Columns, layout: SolveLayout): void {
     }
 }
 
-/** Write one contact's per-step solver flags and body sim indices.
- * `NULL_INDEX` (-1) body indices land as `0xFFFFFFFF` on the u32 write (= the kernel's `NULL_INDEX`). */
-function writeRow(world: WorldState, contactId: number, dirU: Uint32Array): void {
-    const contact = world.contacts[contactId];
-    writeContactRow(dirU, contactId, contact.flags, contact.bodySimIndexA, contact.bodySimIndexB);
+/** Clear the previous solve's hit result; flags and body indices already live in this record. */
+function writeRow(_world: WorldState, contactId: number, dirU: Uint32Array): void {
+    dirU[contactId * DIR_STRIDE + 11] = 0;
 }
 
 /**

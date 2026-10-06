@@ -1,7 +1,8 @@
 //! World-local shape and material columns. A reachable shape is authored before it is queried.
 use crate::col::Col;
 use crate::regions::{self, Columns, MAX_WORLDS};
-pub const SHAPE_STRIDE: usize = 51;
+pub const SHAPE_STRIDE: usize = 52;
+pub const S_HIT_EVENTS: usize = 51;
 pub const S_PROXY_KEY: usize = 50;
 pub const S_QUERY_POSE: usize = 18;
 pub const S_QUERY_CATEGORY: usize = 25;

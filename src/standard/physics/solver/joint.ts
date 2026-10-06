@@ -1,3 +1,4 @@
+import { ContactField, contactField } from "../collision/contact";
 import {
     DJ_ENABLE,
     DJ_ENABLE_LIMIT,
@@ -493,10 +494,12 @@ function destroyContactsBetweenBodies(world: WorldState, bodyA: Body, bodyB: Bod
     while (contactKey !== NULL_INDEX) {
         const contactId = contactKey >> 1;
         const edgeIndex = contactKey & 1;
-        const contact = world.contacts[contactId];
-        contactKey = contact.edges[edgeIndex].nextKey;
+        const contact = contactId;
+        contactKey = contactField(world, contact, ContactField.nextKeyA + 3 * edgeIndex);
         const otherEdgeIndex = edgeIndex ^ 1;
-        if (contact.edges[otherEdgeIndex].bodyId === otherBodyId) {
+        if (
+            contactField(world, contact, ContactField.bodyIdA + 3 * otherEdgeIndex) === otherBodyId
+        ) {
             // Careful: this removes the contact from the list we are walking.
             destroyContact(world, contact, false);
         }

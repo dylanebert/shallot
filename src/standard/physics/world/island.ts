@@ -1,3 +1,4 @@
+import { ContactField, contactField, setContactField } from "../collision/contact";
 // Persistent islands of connected awake bodies, joints, and touching contacts. Ported from
 // Box3D's island.c (Erin Catto, MIT). An island lives inside a solver set; static bodies are never
 // in an island. Contacts/joints are stored as links carrying both body ids inline so the split
@@ -5,7 +6,6 @@
 //
 // Contacts and joints are linked/unlinked as they form and break. Validation is compiled out in the fixture build, so b3ValidateIsland is a no-op.
 
-import type { Contact } from "../collision/contact";
 import { NULL_INDEX, swapRemove } from "../common/array";
 import { SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
@@ -95,19 +95,19 @@ export function destroyIsland(world: WorldState, islandId: number): void {
 }
 
 /** Unlink a contact from its island when it stops touching or is destroyed (b3UnlinkContact). */
-export function unlinkContact(world: WorldState, contact: Contact): void {
-    const islandId = contact.islandId;
+export function unlinkContact(world: WorldState, contact: number): void {
+    const islandId = contactField(world, contact, ContactField.islandId);
     const island = world.islands[islandId];
 
-    const removeIndex = contact.islandIndex;
+    const removeIndex = contactField(world, contact, ContactField.islandIndex);
     const movedIndex = swapRemove(island.contacts, removeIndex);
     if (movedIndex !== NULL_INDEX) {
         const movedLink = island.contacts[removeIndex];
-        world.contacts[movedLink.contactId].islandIndex = removeIndex;
+        setContactField(world, movedLink.contactId, ContactField.islandIndex, removeIndex);
     }
 
-    contact.islandId = NULL_INDEX;
-    contact.islandIndex = NULL_INDEX;
+    setContactField(world, contact, ContactField.islandId, NULL_INDEX);
+    setContactField(world, contact, ContactField.islandIndex, NULL_INDEX);
     island.constraintRemoveCount += 1;
 }
 
@@ -153,9 +153,9 @@ function mergeIslands(world: WorldState, islandIdA: number, islandIdB: number): 
     // Migrate contacts from smaller island to larger island
     for (let i = 0; i < smallIsland.contacts.length; ++i) {
         const link = smallIsland.contacts[i];
-        const contact = world.contacts[link.contactId];
-        contact.islandId = bigIslandId;
-        contact.islandIndex = bigIsland.contacts.length;
+        const contact = link.contactId;
+        setContactField(world, contact, ContactField.islandId, bigIslandId);
+        setContactField(world, contact, ContactField.islandIndex, bigIsland.contacts.length);
         bigIsland.contacts.push(link);
     }
 
@@ -176,22 +176,22 @@ function mergeIslands(world: WorldState, islandIdA: number, islandIdB: number): 
 }
 
 // Add a touching contact to an island's contact link list (b3AddContactToIsland).
-function addContactToIsland(world: WorldState, islandId: number, contact: Contact): void {
+function addContactToIsland(world: WorldState, islandId: number, contact: number): void {
     const island = world.islands[islandId];
-    contact.islandId = islandId;
-    contact.islandIndex = island.contacts.length;
+    setContactField(world, contact, ContactField.islandId, islandId);
+    setContactField(world, contact, ContactField.islandIndex, island.contacts.length);
     island.contacts.push({
-        contactId: contact.contactId,
-        bodyIdA: contact.edges[0].bodyId,
-        bodyIdB: contact.edges[1].bodyId,
+        contactId: contact,
+        bodyIdA: contactField(world, contact, ContactField.bodyIdA + 3 * 0),
+        bodyIdB: contactField(world, contact, ContactField.bodyIdA + 3 * 1),
     });
 }
 
 // Link a touching contact into an island, merging the two bodies' islands (b3LinkContact). Wakes a
 // sleeping body whose partner is awake so the merged island lives in the awake set.
-export function linkContact(world: WorldState, contact: Contact): void {
-    const bodyIdA = contact.edges[0].bodyId;
-    const bodyIdB = contact.edges[1].bodyId;
+export function linkContact(world: WorldState, contact: number): void {
+    const bodyIdA = contactField(world, contact, ContactField.bodyIdA + 3 * 0);
+    const bodyIdB = contactField(world, contact, ContactField.bodyIdA + 3 * 1);
     const bodyA = world.bodies[bodyIdA];
     const bodyB = world.bodies[bodyIdB];
 
@@ -420,13 +420,13 @@ export function splitIsland(world: WorldState, baseId: number): void {
     // Assign contacts to the island of their bodies (a static body carries no island id).
     for (let i = 0; i < baseContactCount; ++i) {
         const link = baseContacts[i];
-        const contact = world.contacts[link.contactId];
+        const contact = link.contactId;
         const bodyA = world.bodies[link.bodyIdA];
         const bodyB = world.bodies[link.bodyIdB];
         const targetIslandId = bodyA.islandId !== NULL_INDEX ? bodyA.islandId : bodyB.islandId;
         const targetIsland = world.islands[targetIslandId];
-        contact.islandId = targetIslandId;
-        contact.islandIndex = targetIsland.contacts.length;
+        setContactField(world, contact, ContactField.islandId, targetIslandId);
+        setContactField(world, contact, ContactField.islandIndex, targetIsland.contacts.length);
         targetIsland.contacts.push(link);
     }
 

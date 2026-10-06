@@ -7,7 +7,7 @@ import {
     makeBoxHull,
     PhysicsWorld,
 } from "../api";
-import { ContactFlags } from "./contact";
+import { ContactField, ContactFlags, contactField } from "./contact";
 import { readContactMaterial } from "./manifoldstore";
 
 const identity = { v: { x: 0, y: 0, z: 0 }, s: 1 };
@@ -99,8 +99,8 @@ test("compound convex children mix their mapped material for callbacks, rolling 
                 const begin = world.getContactEvents().beginEvents;
                 expect(begin.length).toBe(1);
                 expect(begin[0].contact.getData().manifolds.length).toBe(1);
-                const contact = world.state.contacts[begin[0].contact.id.index1 - 1];
-                expect(contact.childIndex).toBe(1);
+                const contact = begin[0].contact.id.index1 - 1;
+                expect(contactField(world.state, contact, ContactField.childIndex)).toBe(1);
                 const flipped = partner === "hull" && kind !== "hull";
                 const side = flipped ? 2 : 0;
                 const idSide = flipped ? 3 : 1;
@@ -108,10 +108,7 @@ test("compound convex children mix their mapped material for callbacks, rolling 
                 expect(friction.at(-1)![side]).toBe(Math.fround(0.9));
                 expect(restitution.at(-1)![idSide]).toBe(9n);
                 expect(restitution.at(-1)![side]).toBe(Math.fround(0.8));
-                const mixed = readContactMaterial(
-                    world.state.manifoldStore.dirF,
-                    contact.contactId,
-                );
+                const mixed = readContactMaterial(world.state.manifoldStore.dirF, contact);
                 expect(mixed.friction).toBe(Math.fround(0.9));
                 expect(mixed.restitution).toBe(Math.fround(0.8));
                 const radius = kind === "hull" && partner === "hull" ? 0.125 : 0.5;
@@ -176,14 +173,20 @@ test("mesh and compound-mesh contacts clear hit-event eligibility when their pub
             expect(begin.length).toBe(1);
             const handle = begin[0].contact;
             expect(handle.getData().manifolds.length).toBe(1);
-            const contact = world.state.contacts[handle.id.index1 - 1];
-            expect(contact.flags & ContactFlags.simEnableHitEvent).not.toBe(0);
+            const contact = handle.id.index1 - 1;
+            expect(
+                contactField(world.state, contact, ContactField.flags) &
+                    ContactFlags.simEnableHitEvent,
+            ).not.toBe(0);
             sphere.setTransform({ x: 0, y: 0.6, z: 0 }, identity);
             world.step(1 / 60, 1);
             expect(world.getContactEvents().endEvents.length).toBe(1);
             expect(handle.isValid()).toBe(true);
             expect(handle.getData().manifolds.length).toBe(0);
-            expect(contact.flags & ContactFlags.simEnableHitEvent).toBe(0);
+            expect(
+                contactField(world.state, contact, ContactField.flags) &
+                    ContactFlags.simEnableHitEvent,
+            ).toBe(0);
         } finally {
             world.destroy();
         }

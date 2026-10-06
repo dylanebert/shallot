@@ -1,4 +1,5 @@
 import type { World } from "../../../engine";
+import { ContactField, contactField } from "../collision/contact";
 import {
     bodyType,
     setShapeBodyId,
@@ -520,10 +521,13 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
     const body = world.bodies[shapeBodyId(world, shape.id)];
     let key = body.headContactKey;
     while (key !== NULL_INDEX) {
-        const contact = world.contacts[key >> 1];
+        const contact = key >> 1;
         const edge = key & 1;
-        key = contact.edges[edge].nextKey;
-        if (contact.shapeIdA === shape.id || contact.shapeIdB === shape.id)
+        key = contactField(world, contact, ContactField.nextKeyA + 3 * edge);
+        if (
+            contactField(world, contact, ContactField.shapeIdA) === shape.id ||
+            contactField(world, contact, ContactField.shapeIdB) === shape.id
+        )
             destroyContact(world, contact, true);
     }
     destroyShapeProxy(shape, world.broadPhase);
@@ -815,9 +819,12 @@ export function destroyShapeInternal(
     while (contactKey !== NULL_INDEX) {
         const contactId = contactKey >> 1;
         const edgeIndex = contactKey & 1;
-        const contact = world.contacts[contactId];
-        contactKey = contact.edges[edgeIndex].nextKey;
-        if (contact.shapeIdA === shapeId || contact.shapeIdB === shapeId) {
+        const contact = contactId;
+        contactKey = contactField(world, contact, ContactField.nextKeyA + 3 * edgeIndex);
+        if (
+            contactField(world, contact, ContactField.shapeIdA) === shapeId ||
+            contactField(world, contact, ContactField.shapeIdB) === shapeId
+        ) {
             destroyContact(world, contact, wakeBodies);
         }
     }

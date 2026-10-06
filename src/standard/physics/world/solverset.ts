@@ -1,3 +1,4 @@
+import { ContactField, contactField, setContactField } from "../collision/contact";
 // Solver sets: the SoA storage that gives bodies/contacts/islands high memory locality. Ported
 // from Box3D's solver_set.c (Erin Catto, MIT). Four fixed roles (constants.ts SetType): static,
 // disabled, awake, and one set per sleeping island group. A body's sim lives in its set's bodySims
@@ -104,23 +105,28 @@ export function wakeSolverSet(world: WorldState, setIndex: number): void {
             const edgeIndex = contactKey & 1;
             const contactId = contactKey >> 1;
 
-            const contact = world.contacts[contactId];
-            contactKey = contact.edges[edgeIndex].nextKey;
+            const contact = contactId;
+            contactKey = contactField(world, contact, ContactField.nextKeyA + 3 * edgeIndex);
 
-            if (contact.setIndex !== SetType.Disabled) {
+            if (contactField(world, contact, ContactField.setIndex) !== SetType.Disabled) {
                 continue;
             }
 
-            const localIndex = contact.localIndex;
+            const localIndex = contactField(world, contact, ContactField.localIndex);
 
-            contact.setIndex = SetType.Awake;
-            contact.localIndex = awakeSet.contactIndices.length;
+            setContactField(world, contact, ContactField.setIndex, SetType.Awake);
+            setContactField(
+                world,
+                contact,
+                ContactField.localIndex,
+                awakeSet.contactIndices.length,
+            );
             awakeSet.contactIndices.push(contactId);
 
             const movedLocalIndex = swapRemove(disabledSet.contactIndices, localIndex);
             if (movedLocalIndex !== NULL_INDEX) {
                 const movedContactIndex = disabledSet.contactIndices[localIndex];
-                world.contacts[movedContactIndex].localIndex = localIndex;
+                setContactField(world, movedContactIndex, ContactField.localIndex, localIndex);
             }
         }
     }
@@ -322,33 +328,42 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
         while (contactKey !== NULL_INDEX) {
             const contactId = contactKey >> 1;
             const edgeIndex = contactKey & 1;
-            const contact = world.contacts[contactId];
-            contactKey = contact.edges[edgeIndex].nextKey;
+            const contact = contactId;
+            contactKey = contactField(world, contact, ContactField.nextKeyA + 3 * edgeIndex);
 
-            if (contact.setIndex === SetType.Disabled) {
+            if (contactField(world, contact, ContactField.setIndex) === SetType.Disabled) {
                 // already moved to the disabled set by another body in the island
                 continue;
             }
-            if (contact.colorIndex !== NULL_INDEX) {
+            if (contactField(world, contact, ContactField.colorIndex) !== NULL_INDEX) {
                 // touching contact — moved separately below
                 continue;
             }
 
             // If the other body is still awake it will own moving this contact when it sleeps.
-            const otherBodyId = contact.edges[edgeIndex ^ 1].bodyId;
+            const otherBodyId = contactField(
+                world,
+                contact,
+                ContactField.bodyIdA + 3 * (edgeIndex ^ 1),
+            );
             if (world.bodies[otherBodyId].setIndex === SetType.Awake) {
                 continue;
             }
 
-            const localIndex = contact.localIndex;
-            contact.setIndex = SetType.Disabled;
-            contact.localIndex = disabledSet.contactIndices.length;
-            disabledSet.contactIndices.push(contact.contactId);
+            const localIndex = contactField(world, contact, ContactField.localIndex);
+            setContactField(world, contact, ContactField.setIndex, SetType.Disabled);
+            setContactField(
+                world,
+                contact,
+                ContactField.localIndex,
+                disabledSet.contactIndices.length,
+            );
+            disabledSet.contactIndices.push(contact);
 
             const movedLocalIndex = swapRemove(awakeSet.contactIndices, localIndex);
             if (movedLocalIndex !== NULL_INDEX) {
                 const movedContactIndex = awakeSet.contactIndices[localIndex];
-                world.contacts[movedContactIndex].localIndex = localIndex;
+                setContactField(world, movedContactIndex, ContactField.localIndex, localIndex);
             }
         }
     }
@@ -356,7 +371,7 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
     // Move touching contacts from the graph into the sleeping set (shuffles their graph colors).
     for (let i = 0; i < island.contacts.length; ++i) {
         const contactId = island.contacts[i].contactId;
-        const contact = world.contacts[contactId];
+        const contact = contactId;
 
         const sleepContactIndex = sleepSet.contactIndices.length;
         sleepSet.contactIndices.push(contactId);
@@ -364,19 +379,20 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
         // A touching contact lives in its assigned color's scalar `contacts` (mesh/overflow) or
         // `convexContacts` (a convex contact in a real color); removeContactFromGraph handles both,
         // plus clearing the color's bodySet. Under coloring this is no longer always the overflow color.
-        const meshContact = (contact.flags & ContactFlags.simMeshContact) !== 0;
+        const meshContact =
+            (contactField(world, contact, ContactField.flags) & ContactFlags.simMeshContact) !== 0;
         removeContactFromGraph(
             world,
-            contact.edges[0].bodyId,
-            contact.edges[1].bodyId,
-            contact.colorIndex,
-            contact.localIndex,
+            contactField(world, contact, ContactField.bodyIdA + 3 * 0),
+            contactField(world, contact, ContactField.bodyIdA + 3 * 1),
+            contactField(world, contact, ContactField.colorIndex),
+            contactField(world, contact, ContactField.localIndex),
             meshContact,
         );
 
-        contact.setIndex = sleepSetId;
-        contact.colorIndex = NULL_INDEX;
-        contact.localIndex = sleepContactIndex;
+        setContactField(world, contact, ContactField.setIndex, sleepSetId);
+        setContactField(world, contact, ContactField.colorIndex, NULL_INDEX);
+        setContactField(world, contact, ContactField.localIndex, sleepContactIndex);
     }
 
     // Move the island's joints from the graph into the sleeping set (shuffles the overflow color).

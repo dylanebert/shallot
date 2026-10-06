@@ -33,7 +33,7 @@ export function updateBroadPhasePairs(world: WorldState): void {
     for (;;) {
         k.reservePairs();
         const pool = workers(world.ecsState);
-        const fork = k.parBuild(ParKind.Pairs, count, (pool?.size ?? 0) + 1, k.broadSetCap(), 0);
+        const fork = k.parBuild(ParKind.Pairs, count, (pool?.size ?? 0) + 1, k.broadSetCap());
         if (fork && pool) runPool(world.ecsState, pool, k.runMt);
         else k.runMt();
         if (k.pairsOverflow() === 0) break;

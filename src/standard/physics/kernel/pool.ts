@@ -142,7 +142,7 @@ export type Pool = {
      * happens *between* the wake and the join by construction: the workers spin on the sync bits it
      * publishes, so a pool that woke them and then blocked on the join would deadlock.
      */
-    run(orchestrate: () => void): void;
+    run(orchestrate: () => void, stableBlocks?: boolean): void;
     /** Stop the workers and await their exit. The workers are `unref`'d at boot so the process can exit
      * without this; call it to tear the pool down deterministically. */
     terminate(): Promise<void>;
@@ -258,7 +258,7 @@ export async function createPool(
         get alive(): boolean {
             return alive;
         },
-        run(orchestrate: () => void): void {
+        run(orchestrate: () => void, stableBlocks = false): void {
             // A dead pool is missing a worker for good — a round built for `count` acks would spin
             // forever waiting for one that can never come (pool.test.ts's poison-path test pins this).
             // Every current call site already gates on `alive` (kernel.ts `workers()`), so this guard is
@@ -266,11 +266,8 @@ export async function createPool(
             if (!alive) {
                 throw new Error("pool.run called on a dead pool — a worker already faulted");
             }
-            // No allocation, memory growth or free while workers are active:
-            // every `reserve*` runs pre-fork on the main thread, so parallel phases touch
-            // pre-reserved columns only. Held by construction — snapshot the byte length at wake and
-            // compare after the join to catch a future violator (a reserve that slipped inside a round)
-            // as a loud throw instead of a silent bit-exactness/safety break.
+            // Only collide may allocate: its locked block allocators never move chunks. Other
+            // phases retain reallocating columns, whose reserves must finish before the fork.
             const bytesAtWake = memory.buffer.byteLength;
             Atomics.store(ctlView, CTL_DONE, 0);
             Atomics.store(ctlView, CTL_OP, OP_SOLVE);
@@ -296,7 +293,7 @@ export async function createPool(
                 // which the JIT drops when its result is discarded, leaving the loads back to back.
                 while (Atomics.load(ctlView, CTL_DONE) < count && performance.now() >= 0) {}
             }
-            if (memory.buffer.byteLength !== bytesAtWake) {
+            if (!stableBlocks && memory.buffer.byteLength !== bytesAtWake) {
                 throw new Error(
                     "shared memory grew while workers were active — violates the no-grow-while-workers-active invariant (every reserve must run pre-fork)",
                 );

@@ -1,3 +1,4 @@
+import { ContactField, contactField } from "../collision/contact";
 import { bodyType, setBodyType, shapeSensorIndex } from "../kernel/filtercolumns";
 // Rigid body lifecycle and the 3-way body split, ported from Box3D's body.c (Erin Catto, MIT).
 // A body is stored as three records: the cold organizational handle (b3Body, in world.bodies,
@@ -835,8 +836,8 @@ function destroyBodyContacts(world: WorldState, body: Body, wakeBodies: boolean)
     while (edgeKey !== NULL_INDEX) {
         const contactId = edgeKey >> 1;
         const edgeIndex = edgeKey & 1;
-        const contact = world.contacts[contactId];
-        edgeKey = contact.edges[edgeIndex].nextKey;
+        const contact = contactId;
+        edgeKey = contactField(world, contact, ContactField.nextKeyA + 3 * edgeIndex);
         destroyContact(world, contact, wakeBodies);
     }
 }

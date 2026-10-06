@@ -224,44 +224,6 @@ export const PLJ_QUAT_B = J_PAYLOAD + 9;
 export const PLJ_PERP_AXIS_X = J_PAYLOAD + 13;
 export const PLJ_PERP_AXIS_Y = J_PAYLOAD + 16;
 
-// Contact dispatch ABI (arena.rs). Geometry is sphere center/radius, capsule endpoints/radius,
-// hull record index, mesh extra-pool offset/scale, or height/compound extra-pool offset. A compound
-// also supplies its child index. Mesh slots address opaque cache, manifold and point-material spans.
-export const DISPATCH_STRIDE = 33;
-export const D_DEFAULT_MIX = 31;
-export const D_RADIUS_A = 32;
-export const D_SHAPE_A = 29;
-export const D_SHAPE_B = 30;
-export const D_OLD_COUNT = 28;
-export const D_CHILD = 19;
-export const D_MESH_SLOT = 20;
-export const D_LOWER = 21;
-export const D_UPPER = 24;
-export const D_CONTACT = 0;
-export const D_TYPE_A = 1;
-export const D_TYPE_B = 2;
-export const D_BODY_A = 3;
-export const D_BODY_B = 4;
-export const D_GEOM_A = 5; // ≤7 slots
-export const D_GEOM_B = 12; // ≤7 slots
-
-// Recycle ABI (arena.rs). Body indices address awake or staged body columns.
-export const RECYCLE_STRIDE = 7;
-export const R_COUNT = 6;
-export const R_STATIC_A = 4;
-export const R_STATIC_B = 8;
-export const R_MESH = 16;
-export const R_CONTACT = 0;
-export const R_LOCAL_A = 1;
-export const R_LOCAL_B = 2;
-export const R_SHAPE_A = 3;
-export const R_SHAPE_B = 4;
-export const R_BITS = 5;
-/** bit0: the contact may recycle this step (recycleDistance>0 && relativeTransformValid && recycleFlag). */
-export const R_ELIGIBLE = 1;
-/** bit1: the contact was touching at step entry (selects the recycle tolerance). */
-export const R_WAS_TOUCHING = 2;
-
 // LAYOUT header indices (arena.rs), in memory order. STATE/FLAGS/SIM/FIN are resident (their LAYOUT
 // entries point into the body region — bodycolumns.ts), consumed through the `BodySim`/`BodyState`
 // views, so the per-step reservation never derives a scratch view for them. FIN_OUT is resident too

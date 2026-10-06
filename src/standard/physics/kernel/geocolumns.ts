@@ -230,7 +230,10 @@ export function rebuildGeometry(world: WorldState): void {
                 vec(child.sphere.center);
                 words.push(bits(child.sphere.radius));
             } else if (child.hull)
-                words.push(world.hullDatabase.get(child.hull.hash)!.hull.geoIndex);
+                words.push(
+                    world.hullDatabase.get(child.hull.hash)!.hull.geoIndex,
+                    bits(child.hull.innerRadius),
+                );
             else if (child.mesh) {
                 words.push(world.meshDatabase.get(child.mesh.data)!.geoIndex);
                 vec(child.mesh.scale);

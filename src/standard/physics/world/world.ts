@@ -7,7 +7,7 @@
 
 import { BodyFilters } from "../collision/bodyfilter";
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
-import { type Contact, initializeContactRegisters } from "../collision/contact";
+import { contactCount } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
 import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
 import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
@@ -95,8 +95,6 @@ export type WorldState = {
     jointIdPool: IdPool;
     joints: Joint[];
 
-    contactIdPool: IdPool;
-    contacts: Contact[];
     // Awake contacts collide processes each step, maintained on the
     // contact create/destroy + body wake/sleep/transfer events (contact.ts, solverset.ts) instead of
     // re-gathered per step. Order-free; state transitions are processed in contact-id order.
@@ -305,8 +303,6 @@ function makeWorldState(
         solverSets: [],
         jointIdPool: createIdPool(),
         joints: [],
-        contactIdPool: createIdPool(),
-        contacts: [],
         awakeContacts: [],
         islandIdPool: createIdPool(),
         islands: [],
@@ -395,7 +391,6 @@ export function createWorld(
         throw new Error(`physics: B3_MAX_WORLDS of ${MAX_WORLDS} exceeded`);
     }
 
-    initializeContactRegisters();
     owner.bodySetActiveWorld(worldId);
     owner.residentResetWorld(worldId);
 
@@ -463,7 +458,7 @@ export function worldCounters(world: WorldState): Counters {
     return {
         bodyCount: kernel(world.ecsState).bodyCount(world.worldId),
         shapeCount: kernel(world.ecsState).shapeCount(world.worldId),
-        contactCount: idCount(world.contactIdPool),
+        contactCount: contactCount(world),
         jointCount: idCount(world.jointIdPool),
         islandCount: idCount(world.islandIdPool),
     };

@@ -1,3 +1,4 @@
+import { ContactField, contactField, setContactField } from "../collision/contact";
 import { bodyType } from "../kernel/filtercolumns";
 // Constraint graph — Box3D's constraint_graph.c (Erin Catto, MIT). Awake *touching* contacts (and
 // joints) are distributed across solver colors by greedy graph coloring, so a color's constraints
@@ -13,7 +14,7 @@ import { bodyType } from "../kernel/filtercolumns";
 //
 // Coloring is integer-only, so no fround discipline applies here.
 
-import { type Contact, ContactFlags } from "../collision/contact";
+import { ContactFlags } from "../collision/contact";
 import { NULL_INDEX, swapRemove } from "../common/array";
 import {
     type BitSet,
@@ -129,11 +130,11 @@ export function greedyColor(
 /** Clone a touching contact into the constraint graph (b3AddContactToGraph). A convex contact in a
  * real color joins `convexContacts` (wide-solved); a mesh contact or any overflow contact joins
  * `contacts` (scalar). */
-export function addContactToGraph(world: WorldState, contact: Contact): void {
+export function addContactToGraph(world: WorldState, contact: number): void {
     const graph = world.constraintGraph;
 
-    const bodyIdA = contact.edges[0].bodyId;
-    const bodyIdB = contact.edges[1].bodyId;
+    const bodyIdA = contactField(world, contact, ContactField.bodyIdA + 3 * 0);
+    const bodyIdB = contactField(world, contact, ContactField.bodyIdA + 3 * 1);
     const bodyA = world.bodies[bodyIdA];
     const bodyB = world.bodies[bodyIdB];
     const colorIndex = assignColor(
@@ -145,26 +146,40 @@ export function addContactToGraph(world: WorldState, contact: Contact): void {
     );
 
     const isScalar =
-        (contact.flags & ContactFlags.simMeshContact) !== 0 || colorIndex === OVERFLOW_INDEX;
+        (contactField(world, contact, ContactField.flags) & ContactFlags.simMeshContact) !== 0 ||
+        colorIndex === OVERFLOW_INDEX;
 
     const color = graph.colors[colorIndex];
-    contact.colorIndex = colorIndex;
-    contact.localIndex = isScalar ? color.contacts.length : color.convexContacts.length;
+    setContactField(world, contact, ContactField.colorIndex, colorIndex);
+    setContactField(
+        world,
+        contact,
+        ContactField.localIndex,
+        isScalar ? color.contacts.length : color.convexContacts.length,
+    );
     // Refresh the awake-column indices as the contact enters the graph (both bodies are awake here, their
     // localIndex current); thereafter maintained on each awake-body localIndex change.
-    contact.bodySimIndexA =
-        bodyType(world, bodyA.id) === BodyType.Static ? NULL_INDEX : bodyA.localIndex;
-    contact.bodySimIndexB =
-        bodyType(world, bodyB.id) === BodyType.Static ? NULL_INDEX : bodyB.localIndex;
+    setContactField(
+        world,
+        contact,
+        ContactField.bodySimIndexA,
+        bodyType(world, bodyA.id) === BodyType.Static ? NULL_INDEX : bodyA.localIndex,
+    );
+    setContactField(
+        world,
+        contact,
+        ContactField.bodySimIndexB,
+        bodyType(world, bodyB.id) === BodyType.Static ? NULL_INDEX : bodyB.localIndex,
+    );
 
     if (isScalar) {
         color.contacts.push({
-            contactId: contact.contactId,
+            contactId: contact,
             manifoldStart: 0,
-            manifoldCount: contact.manifoldCount,
+            manifoldCount: contactField(world, contact, ContactField.manifoldCount),
         });
     } else {
-        color.convexContacts.push(contact.contactId);
+        color.convexContacts.push(contact);
     }
 }
 
@@ -191,13 +206,13 @@ export function removeContactFromGraph(
         const movedIndex = swapRemove(color.contacts, localIndex);
         if (movedIndex !== NULL_INDEX) {
             const movedContactId = color.contacts[localIndex].contactId;
-            world.contacts[movedContactId].localIndex = localIndex;
+            setContactField(world, movedContactId, ContactField.localIndex, localIndex);
         }
     } else {
         const movedIndex = swapRemove(color.convexContacts, localIndex);
         if (movedIndex !== NULL_INDEX) {
             const movedContactId = color.convexContacts[localIndex];
-            world.contacts[movedContactId].localIndex = localIndex;
+            setContactField(world, movedContactId, ContactField.localIndex, localIndex);
         }
     }
 }
@@ -260,9 +275,9 @@ export function removeJointFromGraph(
  * b3WakeSolverSet). A sleeping set holds only touching contacts, so every one re-enters the graph. */
 export function wakeSetConstraints(world: WorldState, set: SolverSet): void {
     for (let i = 0; i < set.contactIndices.length; ++i) {
-        const contact = world.contacts[set.contactIndices[i]];
+        const contact = set.contactIndices[i];
         addContactToGraph(world, contact);
-        contact.setIndex = SetType.Awake;
+        setContactField(world, contact, ContactField.setIndex, SetType.Awake);
     }
 
     const key = GRAPH_COLOR_COUNT + set.setIndex;

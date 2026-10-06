@@ -127,11 +127,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
         world.shapeStore.refreshViews();
     }
 
-    // A manifold reserve can grow memory, detaching the body store's views.
-    if (world.manifoldStore.flush()) {
-        world.bodyStore.refreshViews();
-    }
-
     // Narrow phase: update contacts.
     phaseStart = performance.now();
     beginBodyStaging(world);

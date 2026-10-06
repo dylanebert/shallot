@@ -25,7 +25,7 @@ import { kernel } from "./kernel";
 import { KernelViews } from "./views";
 
 /** Word stride of one kernel shape record, mirroring `shapes.rs`. */
-export const SHAPE_STRIDE = 51;
+export const SHAPE_STRIDE = 52;
 export const S_PROXY_KEY = 50;
 /** Shape type code — the `ShapeType` value verbatim. */
 export const S_TYPE = 0;
@@ -240,6 +240,7 @@ export class ShapeStore extends KernelViews {
         u[n + S_PROXY_KEY] = shape.proxyKey;
         this.shapeF[n + 40] = shape.aabbMargin;
         this.shapeF[n + 43] = shape.hull?.innerRadius ?? 0;
+        u[n + 51] = Number(shape.enableHitEvents);
     }
 
     writeQueryPose(shapeId: number, body: Body, sim?: BodySim): void {

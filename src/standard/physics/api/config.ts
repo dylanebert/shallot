@@ -305,5 +305,5 @@ export type BodyEvents = { moveEvents: BodyMoveEvent[]; count: number };
 /** A joint event (b3JointEvent): an awake joint over its force/torque threshold. */
 export type JointEvent = { joint: Joint; userData: unknown };
 
-/** Contact data from {@link Contact.getData} (b3ContactData). Manifolds point to internal data. */
+/** Contact data from {@link Contact.getData} (b3ContactData), with independent manifold snapshots. */
 export type ContactData = { contact: Contact; shapeA: Shape; shapeB: Shape; manifolds: Manifold[] };

@@ -1,3 +1,5 @@
+import { ContactField, contactField } from "../collision/contact";
+import { contactTotalImpulse, readContactManifolds } from "../collision/manifoldstore";
 import { shapeBodyId } from "../kernel/filtercolumns";
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
 // MIT). The port runs the canonical colored constraint schedule, with a real overflow fallback:
@@ -123,16 +125,13 @@ function updateBeginContactImpulses(world: WorldState): void {
     const events = world.contactBeginEvents;
     for (let i = 0; i < events.length; ++i) {
         const event = events[i];
-        const contact = world.contacts[event.contactId.index1 - 1];
-        if (!contact || contact.generation !== event.contactId.generation) continue;
-        let impulse = 0;
-        for (let m = 0; m < contact.manifoldCount; ++m) {
-            const manifold = contact.manifolds[m];
-            for (let p = 0; p < manifold.pointCount; ++p) {
-                impulse = f32(impulse + manifold.points[p].totalNormalImpulse);
-            }
-        }
-        event.normalImpulse = impulse;
+        const contact = event.contactId.index1 - 1;
+        if (
+            contactField(world, contact, ContactField.contactId) === NULL_INDEX ||
+            contactField(world, contact, ContactField.generation) !== event.contactId.generation
+        )
+            continue;
+        event.normalImpulse = contactTotalImpulse(world, contact);
     }
 }
 
@@ -158,18 +157,15 @@ function buildJointEvents(context: StepContext): void {
  * is the mid-anchor offset from the two bodies' mid-center.
  */
 function buildHitEvents(context: StepContext): void {
-    if (context.hitEventContacts.size === 0) {
-        return;
-    }
     const world = context.world;
     const worldId = world.worldId;
     const threshold = world.hitEventThreshold;
     const ids = [...context.hitEventContacts].sort((a, b) => a - b);
 
     for (const contactId of ids) {
-        const contact = world.contacts[contactId];
-        const shapeA = world.shapes[contact.shapeIdA];
-        const shapeB = world.shapes[contact.shapeIdB];
+        const contact = contactId;
+        const shapeA = world.shapes[contactField(world, contact, ContactField.shapeIdA)];
+        const shapeB = world.shapes[contactField(world, contact, ContactField.shapeIdB)];
         const simA = getBodySim(world, world.bodies[shapeBodyId(world, shapeA.id)]);
         const simB = getBodySim(world, world.bodies[shapeBodyId(world, shapeB.id)]);
         const midCenter = vec3.lerp(simA.center, simB.center, f32(0.5));
@@ -180,8 +176,8 @@ function buildHitEvents(context: StepContext): void {
         let normal: Vec3 = { x: 0, y: 0, z: 0 };
         let triangleIndex = 0;
 
-        for (let m = 0; m < contact.manifoldCount; ++m) {
-            const manifold = contact.manifolds[m];
+        const manifolds = readContactManifolds(world, contact);
+        for (const manifold of manifolds) {
             for (let p = 0; p < manifold.pointCount; ++p) {
                 const mp = manifold.points[p];
                 const speed = f32(-mp.normalVelocity);
@@ -201,9 +197,9 @@ function buildHitEvents(context: StepContext): void {
                 shapeIdA: { index1: shapeA.id + 1, world0: worldId, generation: shapeA.generation },
                 shapeIdB: { index1: shapeB.id + 1, world0: worldId, generation: shapeB.generation },
                 contactId: {
-                    index1: contact.contactId + 1,
+                    index1: contact + 1,
                     world0: worldId,
-                    generation: contact.generation,
+                    generation: contactField(world, contact, ContactField.generation),
                 },
                 point,
                 normal: { x: normal.x, y: normal.y, z: normal.z },
@@ -212,7 +208,7 @@ function buildHitEvents(context: StepContext): void {
                 userMaterialIdA: getShapeUserMaterialId(
                     world.ecsState,
                     shapeA,
-                    contact.childIndex,
+                    contactField(world, contact, ContactField.childIndex),
                     triangleIndex,
                 ),
                 userMaterialIdB: getShapeUserMaterialId(world.ecsState, shapeB, 0, triangleIndex),
@@ -349,7 +345,7 @@ export function solve(world: WorldState, context: StepContext): void {
     buildJointEvents(context);
     profile.jointEvents = performance.now() - phaseStart;
     phaseStart = performance.now();
-    buildHitEvents(context);
+    if (context.hitEventContacts.size > 0) buildHitEvents(context);
     profile.hitEvents = performance.now() - phaseStart;
 
     // Deferred bullet CCD: fast bullet bodies sweep the dynamic + kinematic trees, which are only

@@ -488,12 +488,8 @@ pub extern "C" fn solve_build(
 
 // --- the outer phases -------------------------------------------------------------------------
 //
-// Convex narrowphase dispatch and contact recycle: flat sweeps of independent records, so they run on
-// `parfor.rs`'s block-claim sweep rather than the stage list. They fork *inside* collide (recycle, then
-// dispatch) — each with its own build + `pool.run` pair, each after its own `reserve*`, which is what
-// keeps "no grow between the fork and the join" true. The pose finalize used to be the third; it now
-// rides the staged solve as its terminal stage (`stages.rs` header deviations), so the step's
-// steady-state rounds are recycle + one fused solve.
+// Collide is one flat contact-id sweep: overlap, recycle and full contact update run in the same
+// task. Its manifold allocators may grow linear memory, but never move existing chunks.
 
 /// Which job the pool's current round runs. Written by a build on the main thread with every worker
 /// parked; the wake that follows is the release edge that publishes it (module header).
@@ -501,26 +497,22 @@ pub extern "C" fn solve_build(
 enum Job {
     None,
     Solve,
-    Recycle,
     Contacts,
     Bullets,
     Pairs,
 }
 
 /// `parBuild`'s `kind` argument, mirrored in `src/kernel.ts`.
-const KIND_RECYCLE: u32 = 1;
 const KIND_CONTACTS: u32 = 2;
 
 static mut JOB: Job = Job::None;
 static mut PAR: Option<Par> = None;
 
-/// One built parallel-for: the partition plus the phase's scalars (`a`/`b` are the two recycle
-/// tolerances; the convex dispatch has none).
+/// One built parallel-for: its partition and phase parameters.
 struct Par {
     par: ParFor,
     count: usize,
     a: f32,
-    b: f32,
 }
 
 /// Partition one outer phase's `count` records over `thread_count` threads, and name it as the job the
@@ -531,10 +523,9 @@ struct Par {
 /// block has nothing to steal, and one under the fork floor loses to its own wake (`parfor.rs`). The
 /// policy lives here, not in the caller, so the cost model sits next to the machinery it prices.
 #[export_name = "parBuild"]
-pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32, b: f32) -> usize {
+pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32) -> usize {
     assert!((1..=MAX_THREADS).contains(&thread_count));
     let job = match kind {
-        KIND_RECYCLE => Job::Recycle,
         KIND_CONTACTS => Job::Contacts,
         3 => Job::Bullets,
         4 => Job::Pairs,
@@ -543,7 +534,7 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
     let par = ParFor::new(count, COLLIDE_MIN_RANGE, thread_count);
     let fork = par.block_count() >= 2 && worth_forking(count, thread_count - 1, COLLIDE_FORK_MIN);
     unsafe {
-        PAR = Some(Par { par, count, a, b });
+        PAR = Some(Par { par, count, a });
         JOB = job;
     }
     fork as usize
@@ -573,9 +564,6 @@ fn run_job(index: usize) {
                     return;
                 };
                 match job {
-                    Job::Recycle => p
-                        .par
-                        .run(|s, e| arena::recycle_block(s, e, p.count, p.a, p.b)),
                     Job::Contacts => p.par.run(|s, e| arena::contact_block(s, e, p.count, index)),
                     Job::Bullets => p.par.run(|s, e| crate::continuous::bullets(s, e)),
                     Job::Pairs => p

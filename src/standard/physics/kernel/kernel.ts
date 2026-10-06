@@ -276,12 +276,9 @@ export type Kernel = {
     ): void;
     geoLayoutPtr(): number;
 
-    // Persistent contact-manifold columns (kernel/src/manifolds.rs) — the warm-start state that
-    // survives across steps, keyed by contactId. `reserveManifolds` lays out the directory + pool for
-    // the given capacities in this World's allocations, preserving live pool data across a
-    // grow; `manifoldLayoutPtr` returns the byte-offset header TS derives its views from
-    // (manifoldstore.ts).
-    reserveManifolds(contactCap: number, manifoldCap: number): void;
+    // The contact-id directory grows on allocation. Its block addresses remain stable while the
+    // manifold-count allocators grow; this layout header exposes only the directory's address.
+    contactRecordCapacity(worldId: number): number;
     allocateManifolds(contactId: number, count: number): number;
     freeManifolds(contactId: number): void;
     manifoldLayoutPtr(): number;
@@ -316,11 +313,22 @@ export type Kernel = {
         qs: number,
     ): number;
 
-    // Contact narrowphase dispatch (arena.rs). `reserveDispatch` lays out the
-    // per-record input + output in the shared arena, consumed within collide; the collect pass
-    // writes the input through `dispatchPtr`; `dispatchContacts` computes each record
-    // over the geometry + manifold columns, and the finish pass reads the touching flags at `dispatchOutPtr`.
-    reserveDispatch(count: number, meshCount: number, threads: number): void;
+    // Tasks read contact records in place. Only the owning TypeScript sets/body records are staged.
+    reserveCollide(
+        count: number,
+        bodies: number,
+        threads: number,
+        defaultMix: number,
+        distance: number,
+    ): void;
+    collideListPtr(): number;
+    collideBodyPtr(): number;
+    contactStatePtr(): number;
+    contactPairOrder(typeA: number, typeB: number): number;
+    allocContact(): number;
+    freeContact(contactId: number): void;
+    contactCapacity(worldId: number): number;
+    contactCount(worldId: number): number;
     jointArrayRelease(key: number): void;
     jointArrayCount(key: number): number;
     jointArrayPtr(key: number): number;
@@ -334,26 +342,11 @@ export type Kernel = {
     meshCacheCapacity(worldId: number): number;
     ensureMeshCache(contactId: number): void;
     freeMeshCache(contactId: number): void;
-    copyManifolds(source: number, base: number, count: number): void;
-    meshOutputPtr(): number;
-    meshMaterialPtr(): number;
-    dispatchPtr(): number;
-    dispatchOutPtr(): number;
     dispatchContacts(count: number): void;
     continuousPtr(): number;
     continuousRoots(s: number, k: number, d: number): void;
 
-    // Contact-recycle batched pass (kernel/src/arena.rs). `reserveRecycle` lays out the per-record
-    // input + output in the shared arena, consumed within collide, before convex dispatch;
-    // the collide walk writes the input through `recyclePtr`, `dispatchRecycle` runs box3d's recycle branch
-    // per record over the resident body + fat-AABB + manifold columns, and the finish pass reads each
-    // contact's result (0 recycled / 1 needs-narrowphase / 2 disjoint) at `recycleOutPtr`.
-    reserveRecycle(count: number): void;
-    recyclePtr(): number;
-    recycleOutPtr(): number;
-    dispatchRecycle(count: number, recycleDist: number, recycleDistNonTouching: number): void;
-
-    // Build while workers are parked: no memory may grow between build and join. With no pool,
+    // Solve columns are reserved while workers are parked. With no pool,
     // threadCount is one and runMt executes every stage inline, including pose finalization.
     solveBuild(
         threadCount: number,
@@ -385,15 +378,9 @@ export type Kernel = {
         hitEventThreshold: number,
         enableContinuous: number,
     ): void;
-    // The outer collide phases on the same pool (kernel/src/parfor.rs): one flat block-claim sweep per
-    // phase, each with its own build + run pair, each forked after its own `reserve*` so nothing grows
-    // memory between the fork and the join. `parBuild` partitions `count` records over `threadCount`
-    // threads and names the job the next `runMt` round drives; `a`/`b` carry the phase's scalars
-    // (recycle's two tolerances; the convex dispatch has none). It **returns 1 to fork, 0 to run the
-    // serial shim** — the fork floor (a sweep too small to beat its own wake) is priced in the kernel,
-    // next to the machinery (kernel/src/parfor.rs). The build names the job, so it always immediately
-    // precedes its run. Callers fork inline: a phase's scalars passed through a helper are boxed every step.
-    parBuild(kind: ParKind, count: number, threadCount: number, a: number, b: number): number;
+    // Flat block-claim sweeps share the pool. The kernel prices the fork floor: 1 forks, 0 runs the
+    // same task on the caller. Build immediately precedes run; `a` carries a phase parameter.
+    parBuild(kind: ParKind, count: number, threadCount: number, a: number): number;
     /** Run the built job (staged solve or parallel-for) on the calling thread — the orchestrator. */
     runMt(): void;
     /** Run the built job as pooled worker `index` (1-based). Exactly once per round. */
@@ -405,7 +392,6 @@ export type Kernel = {
 
 /** Which outer phase a {@link KernelExports.parBuild} names (kernel/src/solve.rs `Job`). */
 export const ParKind = {
-    Recycle: 1,
     Contacts: 2,
     Bullets: 3,
     Pairs: 4,
@@ -807,9 +793,14 @@ export function workers(world: World | undefined): Pool | null {
  * A trap here is a kernel bug (an out-of-bounds column access), not a condition a caller can handle —
  * there is nothing to recover to.
  */
-export function runPool(world: World | undefined, pool: Pool, orchestrate: () => void): void {
+export function runPool(
+    world: World | undefined,
+    pool: Pool,
+    orchestrate: () => void,
+    stableBlocks = false,
+): void {
     try {
-        pool.run(orchestrate);
+        pool.run(orchestrate, stableBlocks);
     } catch (e) {
         kernelState(world).dead = true;
         // The dead worker is gone; terminate the survivors to reclaim the threads (they are `unref`'d, so

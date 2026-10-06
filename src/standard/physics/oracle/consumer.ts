@@ -8,8 +8,9 @@ import {
     type Vec3 as PhysicsVec3,
     PhysicsWorld,
 } from "../api/index";
-import { ContactFlags } from "../collision/contact";
+import { ContactField, ContactFlags, contactField, contactIds } from "../collision/contact";
 import { emptyCache, shapeDistance } from "../collision/distance";
+import { readContactManifolds } from "../collision/manifoldstore";
 import { type CollisionPlane, clipVector, solvePlanes } from "../collision/mover";
 import { kernelRay } from "../collision/shape_query_gold";
 import {
@@ -92,23 +93,29 @@ function contactRecords(physicsWorld: PhysicsWorld): Array<{
         }>;
     }>;
 }> {
-    return physicsWorld.state.contacts
+    const world = physicsWorld.state;
+    return contactIds(world)
         .filter(
             (contact) =>
-                contact.contactId >= 0 && (contact.flags & ContactFlags.simTouchingFlag) !== 0,
+                contact >= 0 &&
+                (contactField(world, contact, ContactField.flags) &
+                    ContactFlags.simTouchingFlag) !==
+                    0,
         )
         .map((contact) => ({
-            manifolds: contact.manifolds.slice(0, contact.manifoldCount).map((manifold) => ({
-                normal: { ...manifold.normal },
-                pointCount: manifold.pointCount,
-                points: manifold.points.slice(0, manifold.pointCount).map((point) => ({
-                    anchorA: { ...point.anchorA },
-                    anchorB: { ...point.anchorB },
-                    separation: point.separation,
-                    featureId: point.featureId,
-                    triangleIndex: point.triangleIndex,
+            manifolds: readContactManifolds(world, contact)
+                .slice(0, contactField(world, contact, ContactField.manifoldCount))
+                .map((manifold) => ({
+                    normal: { ...manifold.normal },
+                    pointCount: manifold.pointCount,
+                    points: manifold.points.slice(0, manifold.pointCount).map((point) => ({
+                        anchorA: { ...point.anchorA },
+                        anchorB: { ...point.anchorB },
+                        separation: point.separation,
+                        featureId: point.featureId,
+                        triangleIndex: point.triangleIndex,
+                    })),
                 })),
-            })),
         }));
 }
 

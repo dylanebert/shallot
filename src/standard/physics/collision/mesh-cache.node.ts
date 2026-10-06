@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../../scripts/test-tiers";
 import { BodyType, createMesh, hash, PhysicsWorld } from "../api";
 import { kernel } from "../kernel/kernel";
+import { ContactField, contactField, contactIds } from "./contact";
 
 setDefaultTimeout(CEILING.node);
 
@@ -33,7 +34,11 @@ test("mesh contact cache replays through sleep, wake, contact destruction and re
         };
         const body = spawn();
         for (let i = 0; i < 30; ++i) world.step(1 / 60);
-        expect(world.state.contacts.some((c) => c !== null && c.manifoldCount > 0)).toBe(true);
+        expect(
+            contactIds(world.state).some(
+                (c) => contactField(world.state, c, ContactField.manifoldCount) > 0,
+            ),
+        ).toBe(true);
         expect(k.meshCacheCapacity(id)).toBeGreaterThan(0);
         const saved = world.snapshot();
         const run = () => {

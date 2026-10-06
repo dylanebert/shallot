@@ -38,7 +38,7 @@ export function consumeContinuous(world: WorldState, count: number, bullets: boo
 export function solveBullets(world: WorldState, sims: BodySim[]): void {
     const k = kernel(world.ecsState);
     const pool = workers(world.ecsState);
-    const fork = k.parBuild(ParKind.Bullets, sims.length, (pool?.size ?? 0) + 1, 0, 0);
+    const fork = k.parBuild(ParKind.Bullets, sims.length, (pool?.size ?? 0) + 1, 0);
     if (fork && pool) runPool(world.ecsState, pool, k.runMt);
     else k.runMt();
     world.shapeStore.refreshViews();

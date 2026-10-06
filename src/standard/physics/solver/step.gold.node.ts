@@ -1,3 +1,4 @@
+import { readContactManifolds } from "../collision/manifoldstore";
 // Active scene parity runs the immutable official command/bundle corpus. The historical 53 scene
 // fixtures remain under fixtures/ as migration evidence, but their predecessor hashes are not the
 // current authority and are intentionally not asserted here.
@@ -56,7 +57,7 @@ test("the active collision route changes the symmetric face-B feature order, the
     let ccdChecked = false;
     const ccdResult = runScenario(ccd, digest, false, (physicsWorld, step) => {
         if (step !== 0) return;
-        const manifold = physicsWorld.state.contacts[0]?.manifolds[0];
+        const manifold = readContactManifolds(physicsWorld.state, 0)[0];
         if (!manifold) throw new Error("CCD step 0 has no contact manifold");
         expect(manifold.points.slice(0, 4).map((point) => point.featureId)).toEqual(features);
         expect(bits(manifold.points[0].anchorA.x)).toBe("3d4ccc00");
@@ -68,7 +69,7 @@ test("the active collision route changes the symmetric face-B feature order, the
     let sensorChecked = false;
     const sensorResult = runScenario(sensor, digest, false, (physicsWorld, step) => {
         if (step !== 14) return;
-        const manifold = physicsWorld.state.contacts[0]?.manifolds[0];
+        const manifold = readContactManifolds(physicsWorld.state, 0)[0];
         if (!manifold) throw new Error("sensor step 14 has no face-B contact manifold");
         expect(bits(manifold.normal.x)).toBe("00000000");
         expect(bits(manifold.normal.y)).toBe("3f800000");

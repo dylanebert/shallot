@@ -167,10 +167,6 @@ export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldS
     const seen = state.ecsState
         ? new Map<object, unknown>([[state.ecsState, null]])
         : new Map<object, unknown>();
-    // Manifold contents live in kernel snapshot bytes, not address-bearing views.
-    for (const contact of state.contacts) {
-        if (contact) seen.set(contact.manifolds, []);
-    }
     return {
         // The ECS owner is identity, not solver data; snapshots never clone or retain it.
         state: {
@@ -230,8 +226,4 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);
     k.worldRestore(state.worldId);
     state.manifoldStore.refreshViews();
-    for (const contact of state.contacts) {
-        if (contact && contact.manifoldCount > 0)
-            contact.manifolds = state.manifoldStore.views(contact.contactId, contact.manifoldCount);
-    }
 }

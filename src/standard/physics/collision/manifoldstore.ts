@@ -1,279 +1,86 @@
 import type { World } from "../../../engine";
-// The contact-id directory points to stable kernel manifold blocks. Each manifold count has its
-// own block allocator, as in Box3D's physics_world.h; chunks never move after allocation.
-
-import type { Vec3 } from "../common/math";
 import { kernel } from "../kernel/kernel";
 import { KernelViews } from "../kernel/views";
-import type { Manifold, ManifoldPoint } from "./contact";
+import type { WorldState } from "../world/world";
+import type { Manifold } from "./contact";
 
-/** f32/u32 slots per directory record (DIR_STRIDE in manifold_abi.rs): the solver's per-step row —
- * friction, restitution, rollingResistance, tangentVelocity(3), flags, manifoldCount, manifoldBase,
- * indexA, indexB, hit (0..11) — plus the convex narrowphase's persistent GJK/SAT cache union (12..21,
- * `DIR_CACHE`) and the in-kernel recycle loop's cached relative pose (22..36, `DIR_CACHED_*`), both
- * folded here to share the directory's contactId key + grow-in-place lifecycle. TS never reads/writes
- * the recycle tail — the kernel recycle pass owns it. */
-export const DIR_STRIDE = 37;
-/** First slot of the convex cache union within a directory record (kernel `DIR_CACHE`). */
-const DIR_CACHE = 12;
-/** Cache union words (10): the wider SimplexCache (metric, count, indexA[4], indexB[4]) overlaps the
- * narrower SatCache. Zeroed on `freeSlot` so a recycled contactId starts cold (box3d's create-zero). */
-const CACHE_WORDS = 10;
-/** f32/u32 slots per manifold record (MANIFOLD_STRIDE in manifold_abi.rs) — matches b3Manifold
- * (67 f32): header(11) + 4 inline points(14 each). */
+export const DIR_STRIDE = 55;
 export const MANIFOLD_STRIDE = 67;
-
-// Directory record slots (DIR_STRIDE). Materials (0..5) are updated by collide (or the custom
-// callback path); flags (6) + body indices (9,10) by writeContactRow; the block descriptor (7,8)
-// by alloc; the hit flag (11) by the kernel store, read back by TS.
-const DIR_FLAGS = 6;
-const DIR_MANIFOLD_COUNT = 7;
-const DIR_MANIFOLD_BASE = 8;
-const DIR_INDEX_A = 9;
-const DIR_INDEX_B = 10;
+const DIR_COUNT = 7;
+const DIR_BLOCK = 8;
 const DIR_HIT = 11;
-
-// Manifold record header slots (within a MANIFOLD_STRIDE record), then the four inline point records.
-const M_NORMAL = 0; // 0..2
-const M_FRICTION = 3; // 3..5
-const M_TWIST = 6;
-const M_ROLLING = 7; // 7..9
 const M_POINT_COUNT = 10;
-const M_POINTS = 11; // first point record
+const M_POINTS = 11;
 const POINT_STRIDE = 14;
-// Point record slots (relative to the point's start).
-const P_ANCHOR_A = 0; // 0..2
-const P_ANCHOR_B = 3; // 3..5
-const P_SEPARATION = 6;
-const P_BASE_SEPARATION = 7;
-const P_NORMAL_IMPULSE = 8;
-const P_TOTAL_NORMAL_IMPULSE = 9;
-const P_NORMAL_VELOCITY = 10;
-const P_FEATURE_ID = 11; // u32
-const P_TRIANGLE_INDEX = 12; // i32 (NULL_INDEX = -1)
-const P_PERSISTED = 13; // u32 (0/1)
 
-// MANIFOLD_LAYOUT header indices (manifolds.rs), in memory order.
-const DIR = 0;
-const N_MANIFOLD = 1;
-
-/** @returns the smallest power-of-two capacity ≥ `need`, at least 16 (amortizes region grows). */
-function growCap(need: number): number {
-    let cap = 16;
-    while (cap < need) cap *= 2;
-    return cap;
-}
-
-/**
- * Views of one world's contact directory and stable manifold blocks. Kernel allocations remain at
- * their addresses; memory growth replaces only these JavaScript views.
- */
+/** Current views of a world's contact directory and stable manifold blocks. */
 export class ManifoldStore extends KernelViews {
     readonly worldId: number;
+    private _layout = new Uint32Array(0);
+    dirF = new Float32Array(0);
+    dirU = new Uint32Array(0);
+    poolF = new Float32Array(0);
+    poolU = new Uint32Array(0);
+    poolI = new Int32Array(0);
     constructor(ecsState: World | undefined, worldId: number) {
         super(ecsState);
         this.worldId = worldId;
         this.guardViews();
     }
-
-    // Directory capacity; manifold chunks are kernel-owned.
-    private _dirCap = 0;
-
-    // Required directory capacity, updated when contacts are created.
-    private _needDir = 0;
-
-    // A block address keeps its size class until reset; reuse also reuses its views.
-    private _viewCache = new Map<number, Manifold[]>();
-
-    /** Directory column, aliased through both views (material row is f32, the meta tail is u32). */
-    dirF = new Float32Array(0);
-    dirU = new Uint32Array(0);
-    /** Manifold pool, aliased three ways: header/point floats are f32, featureId/persisted/pointCount
-     * are u32, and the signed triangleIndex (NULL_INDEX = -1) reads through the i32 view. */
-    poolF = new Float32Array(0);
-    poolU = new Uint32Array(0);
-    poolI = new Int32Array(0);
-    // The held layout header view the column views are derived from.
-    private _layout = new Uint32Array(0);
-
     override captureCheckpoint() {
-        return {
-            dirCap: this._dirCap,
-            needDir: this._needDir,
-        };
+        return null;
     }
-
-    override restoreCheckpoint(state: unknown): void {
-        const saved = state as ReturnType<ManifoldStore["captureCheckpoint"]>;
-        this._dirCap = saved.dirCap;
-        this._needDir = saved.needDir;
-        this._viewCache.clear();
-    }
-
-    /** Track a directory slot for a contact (b3CreateContact). Grows the directory capacity if the id
-     * is past the current high-water; the block itself is allocated later, on first touch. */
-    ensureSlot(contactId: number): void {
-        if (contactId + 1 > this._needDir) this._needDir = contactId + 1;
-    }
-
-    /** Release a contact's slot on destroy (b3DestroyContact): free its block, zero its manifold count,
-     * and cold its convex GJK/SAT cache so a recycled contactId starts fresh (box3d zeroes the cache union
-     * at create; the column equivalent is to clear it on release — a not-touching contact keeps its cache
-     * via `clear`, only a *destroyed* one drops it). A recycled contactId within the existing directory
-     * range doesn't grow the region, so `flush` never re-zeros its slot — this is the only cold path for it. */
-    freeSlot(contactId: number): void {
-        this.clear(contactId);
-        const kernelWorld = kernel(this.ecsState);
-        kernelWorld.bodySetActiveWorld(this.worldId);
-        kernelWorld.freeMeshCache(contactId);
-        const o = contactId * DIR_STRIDE + DIR_CACHE;
-        if (o + CACHE_WORDS <= this.dirU.length) {
-            for (let k = 0; k < CACHE_WORDS; ++k) this.dirU[o + k] = 0;
-        }
-    }
-
-    /**
-     * Allocate a stable kernel block, freeing any previous block. @returns its byte address.
-     */
-    allocBlock(contactId: number, count: number): number {
+    override restoreCheckpoint(_state: unknown): void {}
+    freeSlot(id: number): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
-        const address = k.allocateManifolds(contactId, count);
-        this.refreshViews();
-        return address;
+        k.freeManifolds(id);
+        k.freeMeshCache(id);
     }
-
-    /** Return a contact's block to its size-class free list (no-op if it holds none). */
-    freeBlock(contactId: number): void {
-        if (contactId * DIR_STRIDE >= this.dirU.length) return;
-        const k = kernel(this.ecsState);
-        k.bodySetActiveWorld(this.worldId);
-        k.freeManifolds(contactId);
-    }
-
-    /**
-     * Reserve this world's contact directory and refresh views.
-     * @returns true if either capacity grew.
-     */
-    flush(): boolean {
-        if (this._dirCap > 0 && this._needDir <= this._dirCap) {
-            return false;
-        }
-        const oldDirCap = this._dirCap;
-        this._dirCap = growCap(Math.max(this._needDir, this._dirCap));
-
-        const k = kernel(this.ecsState);
-        k.bodySetActiveWorld(this.worldId);
-        k.reserveManifolds(this._dirCap, 0);
-        this.refreshViews();
-        // New contacts start with a cold cache; existing contacts keep their warm caches.
-        for (let cid = oldDirCap; cid < this._dirCap; ++cid) {
-            const o = cid * DIR_STRIDE + DIR_CACHE;
-            for (let w = 0; w < CACHE_WORDS; ++w) this.dirU[o + w] = 0;
-        }
-        return true;
-    }
-
-    /** Re-derive the column views over the current region (after any `memory.grow`, which detaches every
-     * view). No-op before the first reserve, and when the buffer, layout offsets and capacities are those
-     * the views were derived at, so a steady step mints no typed-array views. */
     protected deriveViews(): void {
-        if (this._dirCap === 0) return;
         const k = kernel(this.ecsState);
+        const cap = k.contactRecordCapacity(this.worldId);
         k.bodySetActiveWorld(this.worldId);
         const buf = k.memory.buffer;
-        const ptr = k.manifoldLayoutPtr();
-        if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
-            this._layout = new Uint32Array(buf, ptr, N_MANIFOLD);
-        const layout = this._layout;
+        const pointer = k.manifoldLayoutPtr();
+        if (this._layout.buffer !== buf || this._layout.byteOffset !== pointer)
+            this._layout = new Uint32Array(buf, pointer, 1);
+        const address = this._layout[0];
         if (
             this.dirU.buffer === buf &&
-            this.dirU.byteOffset === layout[DIR] &&
-            this.dirU.length === this._dirCap * DIR_STRIDE
+            this.dirU.byteOffset === address &&
+            this.dirU.length === cap * DIR_STRIDE
         )
             return;
-        this.dirF = new Float32Array(buf, layout[DIR], this._dirCap * DIR_STRIDE);
-        this.dirU = new Uint32Array(buf, layout[DIR], this._dirCap * DIR_STRIDE);
+        this.dirF = new Float32Array(buf, address, cap * DIR_STRIDE);
+        this.dirU = new Uint32Array(buf, address, cap * DIR_STRIDE);
         this.poolF = new Float32Array(buf);
         this.poolU = new Uint32Array(buf);
         this.poolI = new Int32Array(buf);
     }
-
-    /**
-     * Allocate a stable block and return views of its persistent warm-start state.
-     */
-    alloc(contactId: number, count: number): Manifold[] {
-        const address = this.allocBlock(contactId, count);
-        return this.views(contactId, count, address);
-    }
-
-    /** Copy a completed kernel manifold span into this contact's allocated block. Source must be
-     * independent of WASM memory: reserve can reallocate the pool or grow memory. */
-    importManifolds(contactId: number, count: number, source: Uint32Array): Manifold[] {
-        const views = this.alloc(contactId, count);
-        const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
-        this.poolU.set(source.subarray(0, count * MANIFOLD_STRIDE), base >>> 2);
-        return views;
-    }
-
-    /** Import collide scratch by byte offset: allocation may grow memory, but does not reserve scratch. */
-    importKernelManifolds(contactId: number, count: number, source: number): Manifold[] {
-        const views = this.alloc(contactId, count);
-        const base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
-        kernel(this.ecsState).copyManifolds(source, base, count);
-        return views;
-    }
-
-    /** Column-backed `Manifold` views over a contact's already-allocated block, cached per block base
-     * (callers treat the returned array as immutable). */
-    views(
-        contactId: number,
-        count: number,
-        base = this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE],
-    ): Manifold[] {
-        let out = this._viewCache.get(base);
-        if (out === undefined) {
-            out = new Array(count);
-            for (let i = 0; i < count; ++i) {
-                out[i] = new ManifoldView(this, (base >>> 2) + i * MANIFOLD_STRIDE);
-            }
-            this._viewCache.set(base, out);
-        }
-        return out;
-    }
-
-    /** Free a contact's block and zero its directory manifold count (b3-empty manifold set). */
-    clear(contactId: number): void {
-        this.freeBlock(contactId);
-        if (contactId * DIR_STRIDE < this.dirU.length) {
-            this.dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_COUNT] = 0;
-        }
-    }
 }
 
-/** Write custom-callback mixing into the same directory row the kernel owns for default mixing. */
 export function writeContactMaterial(
     dirF: Float32Array,
-    contactId: number,
+    id: number,
     friction: number,
     restitution: number,
-    rollingResistance: number,
-    tangentX: number,
-    tangentY: number,
-    tangentZ: number,
+    rolling: number,
+    x: number,
+    y: number,
+    z: number,
 ): void {
-    const o = contactId * DIR_STRIDE;
+    const o = id * DIR_STRIDE;
     dirF[o] = friction;
     dirF[o + 1] = restitution;
-    dirF[o + 2] = rollingResistance;
-    dirF[o + 3] = tangentX;
-    dirF[o + 4] = tangentY;
-    dirF[o + 5] = tangentZ;
+    dirF[o + 2] = rolling;
+    dirF[o + 3] = x;
+    dirF[o + 4] = y;
+    dirF[o + 5] = z;
 }
-
-/** Snapshot of a contact's mixed material; not a live view. */
-export function readContactMaterial(dirF: Float32Array, contactId: number) {
-    const o = contactId * DIR_STRIDE;
+/** Independent snapshot of a contact's mixed material. */
+export function readContactMaterial(dirF: Float32Array, id: number) {
+    const o = id * DIR_STRIDE;
     return {
         friction: dirF[o],
         restitution: dirF[o + 1],
@@ -281,203 +88,76 @@ export function readContactMaterial(dirF: Float32Array, contactId: number) {
         tangentVelocity: { x: dirF[o + 3], y: dirF[o + 4], z: dirF[o + 5] },
     };
 }
-
-/** Write solver flags and body indices before solve, clearing the previous hit result.
- * `NULL_INDEX` (-1) body indices land as `0xFFFFFFFF` in the u32 column. */
-export function writeContactRow(
-    dirU: Uint32Array,
-    contactId: number,
-    flags: number,
-    indexA: number,
-    indexB: number,
-): void {
-    const o = contactId * DIR_STRIDE;
-    dirU[o + DIR_FLAGS] = flags;
-    dirU[o + DIR_INDEX_A] = indexA;
-    dirU[o + DIR_INDEX_B] = indexB;
-    dirU[o + DIR_HIT] = 0;
+export function contactHit(dirU: Uint32Array, id: number): boolean {
+    return dirU[id * DIR_STRIDE + DIR_HIT] !== 0;
 }
-
-/** @returns true if the kernel `store` flagged a hit event for this contact this step, read from
- * `dirU`, the store's current directory view. */
-export function contactHit(dirU: Uint32Array, contactId: number): boolean {
-    return dirU[contactId * DIR_STRIDE + DIR_HIT] !== 0;
-}
-
-/** @returns the total point count of a contact's first `count` resident manifolds, read from `dirU`
- * and `poolU`, the store's current views, through the directory's block base. */
 export function contactPointCount(
     dirU: Uint32Array,
     poolU: Uint32Array,
-    contactId: number,
+    id: number,
     count: number,
 ): number {
-    const base = dirU[contactId * DIR_STRIDE + DIR_MANIFOLD_BASE];
+    const base = dirU[id * DIR_STRIDE + DIR_BLOCK] >>> 2;
     let points = 0;
-    for (let m = 0; m < count; ++m)
-        points += poolU[(base >>> 2) + m * MANIFOLD_STRIDE + M_POINT_COUNT];
+    for (let i = 0; i < count; ++i) points += poolU[base + i * MANIFOLD_STRIDE + M_POINT_COUNT];
     return points;
 }
-
-/**
- * A `ManifoldPoint` (b3ManifoldPoint) backed by an inline point record in the store pool rather than a
- * plain object. Vec3 getters return fresh objects (matching the plain-object semantics the narrowphase
- * expects); setters write into the pool. Reads go through `store.pool*` each access so a `memory.grow`
- * re-derivation is transparent. Offsets mirror the point record in kernel/src/manifolds.rs.
- */
-class ManifoldPointView implements ManifoldPoint {
-    private readonly _s: ManifoldStore;
-    private readonly _o: number;
-
-    constructor(_s: ManifoldStore, _o: number) {
-        this._s = _s;
-        this._o = _o;
+export function contactTotalImpulse(world: WorldState, id: number): number {
+    const store = world.manifoldStore,
+        u = store.dirU,
+        p = store.poolU,
+        f = store.poolF;
+    const count = u[id * DIR_STRIDE + DIR_COUNT];
+    const base = u[id * DIR_STRIDE + DIR_BLOCK] >>> 2;
+    let impulse = 0;
+    for (let m = 0; m < count; ++m) {
+        const o = base + m * MANIFOLD_STRIDE;
+        for (let point = 0; point < p[o + M_POINT_COUNT]; ++point)
+            impulse = Math.fround(impulse + f[o + M_POINTS + point * POINT_STRIDE + 9]);
     }
-    get anchorA(): Vec3 {
-        const f = this._s.poolF;
-        const o = this._o + P_ANCHOR_A;
-        return { x: f[o], y: f[o + 1], z: f[o + 2] };
-    }
-    set anchorA(v: Vec3) {
-        const f = this._s.poolF;
-        const o = this._o + P_ANCHOR_A;
-        f[o] = v.x;
-        f[o + 1] = v.y;
-        f[o + 2] = v.z;
-    }
-    get anchorB(): Vec3 {
-        const f = this._s.poolF;
-        const o = this._o + P_ANCHOR_B;
-        return { x: f[o], y: f[o + 1], z: f[o + 2] };
-    }
-    set anchorB(v: Vec3) {
-        const f = this._s.poolF;
-        const o = this._o + P_ANCHOR_B;
-        f[o] = v.x;
-        f[o + 1] = v.y;
-        f[o + 2] = v.z;
-    }
-    get separation(): number {
-        return this._s.poolF[this._o + P_SEPARATION];
-    }
-    set separation(v: number) {
-        this._s.poolF[this._o + P_SEPARATION] = v;
-    }
-    get baseSeparation(): number {
-        return this._s.poolF[this._o + P_BASE_SEPARATION];
-    }
-    set baseSeparation(v: number) {
-        this._s.poolF[this._o + P_BASE_SEPARATION] = v;
-    }
-    get normalImpulse(): number {
-        return this._s.poolF[this._o + P_NORMAL_IMPULSE];
-    }
-    set normalImpulse(v: number) {
-        this._s.poolF[this._o + P_NORMAL_IMPULSE] = v;
-    }
-    get totalNormalImpulse(): number {
-        return this._s.poolF[this._o + P_TOTAL_NORMAL_IMPULSE];
-    }
-    set totalNormalImpulse(v: number) {
-        this._s.poolF[this._o + P_TOTAL_NORMAL_IMPULSE] = v;
-    }
-    get normalVelocity(): number {
-        return this._s.poolF[this._o + P_NORMAL_VELOCITY];
-    }
-    set normalVelocity(v: number) {
-        this._s.poolF[this._o + P_NORMAL_VELOCITY] = v;
-    }
-    get featureId(): number {
-        return this._s.poolU[this._o + P_FEATURE_ID];
-    }
-    set featureId(v: number) {
-        this._s.poolU[this._o + P_FEATURE_ID] = v;
-    }
-    get triangleIndex(): number {
-        return this._s.poolI[this._o + P_TRIANGLE_INDEX];
-    }
-    set triangleIndex(v: number) {
-        this._s.poolI[this._o + P_TRIANGLE_INDEX] = v;
-    }
-    get persisted(): boolean {
-        return this._s.poolU[this._o + P_PERSISTED] !== 0;
-    }
-    set persisted(v: boolean) {
-        this._s.poolU[this._o + P_PERSISTED] = v ? 1 : 0;
-    }
+    return impulse;
 }
-
-/**
- * A `Manifold` (b3Manifold) backed by a pool record. The four inline point views are built once (the
- * live prefix is `pointCount`); header getters/setters read/write the pool. Offsets mirror the manifold
- * record header in kernel/src/manifolds.rs.
- */
-class ManifoldView implements Manifold {
-    readonly points: ManifoldPoint[];
-    private readonly _s: ManifoldStore;
-    private readonly _o: number;
-
-    constructor(_s: ManifoldStore, _o: number) {
-        this._s = _s;
-        this._o = _o;
-        this.points = [
-            new ManifoldPointView(_s, _o + M_POINTS),
-            new ManifoldPointView(_s, _o + M_POINTS + POINT_STRIDE),
-            new ManifoldPointView(_s, _o + M_POINTS + 2 * POINT_STRIDE),
-            new ManifoldPointView(_s, _o + M_POINTS + 3 * POINT_STRIDE),
-        ];
+/** Independent manifold snapshots; no object holds an address into kernel storage. */
+export function readContactManifolds(world: WorldState, id: number): Manifold[] {
+    const store = world.manifoldStore;
+    const u = store.dirU;
+    const count = u[id * DIR_STRIDE + DIR_COUNT];
+    const base = u[id * DIR_STRIDE + DIR_BLOCK] >>> 2;
+    const f = store.poolF,
+        p = store.poolU,
+        s = store.poolI;
+    const vector = (o: number) => ({ x: f[o], y: f[o + 1], z: f[o + 2] });
+    const out: Manifold[] = [];
+    for (let i = 0; i < count; ++i) {
+        const o = base + i * MANIFOLD_STRIDE;
+        const pointCount = p[o + M_POINT_COUNT];
+        const manifold: Manifold = {
+            normal: vector(o),
+            frictionImpulse: vector(o + 3),
+            twistImpulse: f[o + 6],
+            rollingImpulse: vector(o + 7),
+            pointCount,
+            points: [],
+        };
+        for (let j = 0; j < pointCount; ++j) {
+            const q = o + M_POINTS + j * POINT_STRIDE;
+            manifold.points.push({
+                anchorA: vector(q),
+                anchorB: vector(q + 3),
+                separation: f[q + 6],
+                baseSeparation: f[q + 7],
+                normalImpulse: f[q + 8],
+                totalNormalImpulse: f[q + 9],
+                normalVelocity: f[q + 10],
+                featureId: p[q + 11],
+                triangleIndex: s[q + 12],
+                persisted: p[q + 13] !== 0,
+            });
+        }
+        out.push(manifold);
     }
-    get normal(): Vec3 {
-        const f = this._s.poolF;
-        const o = this._o + M_NORMAL;
-        return { x: f[o], y: f[o + 1], z: f[o + 2] };
-    }
-    set normal(v: Vec3) {
-        const f = this._s.poolF;
-        const o = this._o + M_NORMAL;
-        f[o] = v.x;
-        f[o + 1] = v.y;
-        f[o + 2] = v.z;
-    }
-    get frictionImpulse(): Vec3 {
-        const f = this._s.poolF;
-        const o = this._o + M_FRICTION;
-        return { x: f[o], y: f[o + 1], z: f[o + 2] };
-    }
-    set frictionImpulse(v: Vec3) {
-        const f = this._s.poolF;
-        const o = this._o + M_FRICTION;
-        f[o] = v.x;
-        f[o + 1] = v.y;
-        f[o + 2] = v.z;
-    }
-    get twistImpulse(): number {
-        return this._s.poolF[this._o + M_TWIST];
-    }
-    set twistImpulse(v: number) {
-        this._s.poolF[this._o + M_TWIST] = v;
-    }
-    get rollingImpulse(): Vec3 {
-        const f = this._s.poolF;
-        const o = this._o + M_ROLLING;
-        return { x: f[o], y: f[o + 1], z: f[o + 2] };
-    }
-    set rollingImpulse(v: Vec3) {
-        const f = this._s.poolF;
-        const o = this._o + M_ROLLING;
-        f[o] = v.x;
-        f[o + 1] = v.y;
-        f[o + 2] = v.z;
-    }
-    get pointCount(): number {
-        return this._s.poolU[this._o + M_POINT_COUNT];
-    }
-    set pointCount(v: number) {
-        this._s.poolU[this._o + M_POINT_COUNT] = v;
-    }
+    return out;
 }
-
-/** Create an empty manifold store for a new world. */
 export function createManifoldStore(world: World | undefined, worldId: number): ManifoldStore {
     return new ManifoldStore(world, worldId);
 }

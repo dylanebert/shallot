@@ -1,4 +1,5 @@
-import type { Manifold, ManifoldPoint } from "../collision/contact";
+import { ContactField, contactCapacity, contactField } from "../collision/contact";
+import { readContactManifolds } from "../collision/manifoldstore";
 import { NULL_INDEX } from "../common/array";
 import type { EntityId } from "../common/ids";
 import type { AABB } from "../common/math";
@@ -42,65 +43,29 @@ export class Contact {
             return false;
         }
         const contactId = this.id.index1 - 1;
-        if (contactId < 0 || contactId >= this.world.contacts.length) {
+        if (contactId < 0 || contactId >= contactCapacity(this.world)) {
             return false;
         }
-        const contact = this.world.contacts[contactId];
-        if (contact.contactId === NULL_INDEX) {
+        const contact = contactId;
+        if (contactField(this.world, contact, ContactField.contactId) === NULL_INDEX) {
             return false;
         }
-        return this.id.generation === contact.generation;
+        return this.id.generation === contactField(this.world, contact, ContactField.generation);
     }
 
     /** @returns the two shapes and current manifold(s) of this contact (b3Contact_GetData). */
     getData(): ContactData {
         const world = this.world;
-        const contact = world.contacts[this.id.index1 - 1];
-        const shapeA = world.shapes[contact.shapeIdA];
-        const shapeB = world.shapes[contact.shapeIdB];
+        const contact = this.id.index1 - 1;
+        const shapeA = world.shapes[contactField(world, contact, ContactField.shapeIdA)];
+        const shapeB = world.shapes[contactField(world, contact, ContactField.shapeIdB)];
         return {
             contact: this,
             shapeA: new Shape(world, makeShapeId(world, shapeA)),
             shapeB: new Shape(world, makeShapeId(world, shapeB)),
-            // The contact's manifolds are column-resident views over wasm memory the next step
-            // overwrites; snapshot them into plain objects the caller can hold (b3Contact_GetData).
-            manifolds: snapshotManifolds(contact.manifolds, contact.manifoldCount),
+            manifolds: readContactManifolds(world, contact),
         };
     }
-}
-
-/** Copy `count` column-backed manifold views into detached plain `Manifold` objects. */
-function snapshotManifolds(manifolds: Manifold[], count: number): Manifold[] {
-    const out: Manifold[] = new Array(count);
-    for (let m = 0; m < count; ++m) {
-        const src = manifolds[m];
-        const pc = src.pointCount;
-        const points: ManifoldPoint[] = new Array(pc);
-        for (let p = 0; p < pc; ++p) {
-            const sp = src.points[p];
-            points[p] = {
-                anchorA: sp.anchorA,
-                anchorB: sp.anchorB,
-                separation: sp.separation,
-                baseSeparation: sp.baseSeparation,
-                normalImpulse: sp.normalImpulse,
-                totalNormalImpulse: sp.totalNormalImpulse,
-                normalVelocity: sp.normalVelocity,
-                featureId: sp.featureId,
-                triangleIndex: sp.triangleIndex,
-                persisted: sp.persisted,
-            };
-        }
-        out[m] = {
-            points,
-            normal: src.normal,
-            twistImpulse: src.twistImpulse,
-            frictionImpulse: src.frictionImpulse,
-            rollingImpulse: src.rollingImpulse,
-            pointCount: pc,
-        };
-    }
-    return out;
 }
 
 /** A shape handle. */
@@ -242,7 +207,9 @@ export class Shape {
      * contact this shape is part of collides faster than {@link World.setHitEventThreshold}.
      */
     enableHitEvents(flag: boolean): void {
-        this.record().enableHitEvents = flag;
+        const shape = this.record();
+        shape.enableHitEvents = flag;
+        this.world.shapeStore.writeQueryProperties(shape);
     }
 
     /** @returns whether hit events are enabled for this shape (b3Shape_AreHitEventsEnabled). */

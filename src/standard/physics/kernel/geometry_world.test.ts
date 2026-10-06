@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ContactFlags } from "../collision/contact";
+import { ContactField, ContactFlags, contactField, contactIds } from "../collision/contact";
 import { BodyType, defaultBodyDef, defaultShapeDef, defaultWorldDef } from "../common/types";
 import { makeBoxHull } from "../shapes/hull";
 import { createHullShape, createSphereShape } from "../shapes/shape";
@@ -33,7 +33,10 @@ function scene(height: number): WorldState {
     return world;
 }
 const touching = (world: WorldState): number =>
-    world.contacts.filter((c) => (c.flags & ContactFlags.contactTouchingFlag) !== 0).length;
+    contactIds(world).filter(
+        (c) =>
+            (contactField(world, c, ContactField.flags) & ContactFlags.contactTouchingFlag) !== 0,
+    ).length;
 
 test("alternating standalone Worlds collide against their own hull geometry without re-uploading it", () => {
     const a = scene(1);

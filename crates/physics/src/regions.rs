@@ -1,5 +1,5 @@
 //! Allocator-owned columns. Reserves run on the calling thread before the worker fork.
-use std::alloc::{alloc_zeroed, dealloc, handle_alloc_error, realloc, Layout};
+use std::alloc::{alloc, alloc_zeroed, dealloc, handle_alloc_error, realloc, Layout};
 
 pub const MAX_WORLDS: usize = 128;
 static mut ACTIVE_WORLD: usize = 0;
@@ -96,6 +96,19 @@ pub struct Buffer {
 impl Buffer {
     // Empty slices still require a non-null, aligned pointer.
     pub const EMPTY: Self = Self { ptr: 16, bytes: 0 };
+    /// A stable, exact-sized allocation; callers never reserve this buffer again.
+    pub unsafe fn allocate(bytes: usize) -> Self {
+        let layout = Layout::from_size_align_unchecked(bytes, 16);
+        let ptr = alloc(layout);
+        if ptr.is_null() {
+            handle_alloc_error(layout);
+        }
+        invalidate_views();
+        Self {
+            ptr: ptr as usize,
+            bytes,
+        }
+    }
     pub unsafe fn reserve(&mut self, bytes: usize) -> bool {
         if bytes <= self.bytes {
             return false;

@@ -24,6 +24,7 @@ import {
     PhysicsWorld,
     shutdown,
 } from "../../src/standard/physics/api";
+import { contactBodyId, contactCapacity, contactField, ContactField } from "../../src/standard/physics/collision/contact";
 import { DIR_STRIDE } from "../../src/standard/physics/collision/manifoldstore";
 import {
     computeCosSin,
@@ -334,12 +335,11 @@ for (let i = 0; i < steps; ++i) {
             }
         }
     }
-    const contact = state.contacts[cache];
-    if (contact !== undefined && contact.contactId === cache) {
+    if (cache >= 0 && cache < contactCapacity(state) && contactField(state, cache, ContactField.contactId) === cache) {
         const d = state.manifoldStore.dirU,
             o = cache * DIR_STRIDE + 12;
         lines.push(
-            `S ${i} contact ${cache} bodies ${contact.edges[0].bodyId} ${contact.edges[1].bodyId} manifolds ${contact.manifoldCount} cache sep ${hex(d[o])} type ${d[o + 1]} indexA ${d[o + 2]} indexB ${d[o + 3]} hit ${d[o + 4]}`,
+            `S ${i} contact ${cache} bodies ${contactBodyId(state, cache, 0)} ${contactBodyId(state, cache, 1)} manifolds ${contactField(state, cache, ContactField.manifoldCount)} cache sep ${hex(d[o])} type ${d[o + 1]} indexA ${d[o + 2]} indexB ${d[o + 3]} hit ${d[o + 4]}`,
         );
     }
 }

@@ -239,18 +239,10 @@ pub(crate) unsafe fn color_span_column() -> (Col<'static, u32>, usize) {
     (u32s(COLOR_SPAN, c * COLOR_SPAN_STRIDE), c)
 }
 
-// --- convex narrowphase batched dispatch (3c.3) ---------------------------------------------
-// One kernel call runs `compute_convex_manifold` (narrowphase.rs) for every convex contact the TS
-// collect pass gathered, over the static geometry pools (hulls), the dispatch column (sphere/capsule
-// params + transforms inline), the persistent manifold pool (warm-start in, new manifold out), and the
-// per-contact GJK/SAT cache folded into the directory. box3d's collide is scalar per-contact; this
-// batches only the FFI crossing, not the arithmetic — each record is the gold-verified scalar call.
-
-/// Dispatch ABI, mirrored by kernel/columns.ts. Geometry references are allocation-independent
-/// indices; mesh caches are resident allocations addressed by contact id.
-const DISPATCH_STRIDE: usize = 33;
+// --- b3CollideTask / b3UpdateContact --------------------------------------------------------
+// Shape geometry is gathered locally for the convex/mesh routines; no task payload crosses the FFI.
+const DISPATCH_STRIDE: usize = 32;
 const D_DEFAULT_MIX: usize = 31;
-const D_RADIUS_A: usize = 32;
 const D_SHAPE_A: usize = 29;
 const D_SHAPE_B: usize = 30;
 const D_OLD_COUNT: usize = 28;
@@ -274,61 +266,97 @@ const D_BODY_B: usize = 4;
 const D_GEOM_A: usize = 5; // ≤7 slots (sphere c3+r / capsule c1_3+c2_3+r / hull geoIndex)
 const D_GEOM_B: usize = 12; // ≤7 slots
 
-static mut DISPATCH_PTR: u32 = 0;
-static mut DISPATCH_OUT_PTR: u32 = 0;
+static mut CONTACT_LIST_PTR: usize = 0;
+static mut CONTACT_BODY_PTR: usize = 0;
+static mut CONTACT_STATE_PTR: usize = 0;
+static mut DEFAULT_MIX: u32 = 1;
+static mut RECYCLE_DISTANCE: f32 = 0.0;
+const SIM_UPDATED: u32 = 0x0200_0000;
 
-/// Lay out contact records, mesh output spans and per-thread scratch, growing memory to fit. Placed
-/// in the shared per-step arena; the collect pass fills the input column and
-/// the finish pass reads the output, both within collide — before the solver columns reserve over the
-/// same base.
-#[export_name = "reserveDispatch"]
-pub extern "C" fn reserve_dispatch(count: usize, mesh_count: usize, threads: usize) {
+#[export_name = "reserveCollide"]
+pub extern "C" fn reserve_collide(
+    count: usize,
+    bodies: usize,
+    threads: usize,
+    default_mix: u32,
+    distance: f32,
+) {
     unsafe {
-        let mut off = 0;
-        DISPATCH_PTR = off as u32;
-        off += count * DISPATCH_STRIDE * 4;
-        DISPATCH_OUT_PTR = off as u32;
-        off += count * (1 + MANIFOLD_STRIDE) * 4;
+        DEFAULT_MIX = default_mix;
+        RECYCLE_DISTANCE = distance;
+        let words = (manifolds::contact_capacity(crate::regions::active()) + 31) / 32;
+        let mesh_threads = if manifolds::has_mesh_caches() {
+            threads.max(1)
+        } else {
+            0
+        };
+        let mut off = count * 4;
+        let body_off = off;
+        off += bodies * 4;
+        let state_off = off;
+        off += words * 4;
         off = (off + 15) & !15;
-        MESH_OUTPUT_PTR = off;
-        off += mesh_count * 256 * MANIFOLD_STRIDE * 4;
-        MESH_MATERIAL_PTR = off;
-        off += mesh_count * 256 * 4 * 4;
+        let mesh_off = off;
+        off += mesh_threads * 256 * MANIFOLD_STRIDE * 4;
+        let material_off = off;
+        off += mesh_threads * 256 * 4 * 4;
         off = (off + 15) & !15;
-        MESH_SCRATCH_PTR = off;
-        if mesh_count > 0 {
-            off += threads.max(1) * core::mem::size_of::<DispatchScratch>();
-        }
+        let scratch_off = off;
+        off += mesh_threads * core::mem::size_of::<DispatchScratch>();
         reserve_scratch(off);
-        DISPATCH_PTR += SCRATCH.ptr as u32;
-        DISPATCH_OUT_PTR += SCRATCH.ptr as u32;
-        MESH_OUTPUT_PTR += SCRATCH.ptr;
-        MESH_MATERIAL_PTR += SCRATCH.ptr;
-        MESH_SCRATCH_PTR += SCRATCH.ptr;
-        if mesh_count > 0 {
-            (MESH_SCRATCH_PTR as *mut u8)
-                .write_bytes(0, threads.max(1) * core::mem::size_of::<DispatchScratch>());
-        }
+        CONTACT_LIST_PTR = SCRATCH.ptr;
+        CONTACT_BODY_PTR = SCRATCH.ptr + body_off;
+        CONTACT_STATE_PTR = SCRATCH.ptr + state_off;
+        MESH_OUTPUT_PTR = SCRATCH.ptr + mesh_off;
+        MESH_MATERIAL_PTR = SCRATCH.ptr + material_off;
+        MESH_SCRATCH_PTR = SCRATCH.ptr + scratch_off;
+        (CONTACT_STATE_PTR as *mut u8).write_bytes(0, words * 4);
+        (MESH_SCRATCH_PTR as *mut u8)
+            .write_bytes(0, mesh_threads * core::mem::size_of::<DispatchScratch>());
     }
 }
-
-#[export_name = "meshOutputPtr"]
-pub extern "C" fn mesh_output_ptr() -> usize {
-    unsafe { MESH_OUTPUT_PTR }
+#[export_name = "collideListPtr"]
+pub extern "C" fn collide_list_ptr() -> usize {
+    unsafe { CONTACT_LIST_PTR }
 }
-#[export_name = "meshMaterialPtr"]
-pub extern "C" fn mesh_material_ptr() -> usize {
-    unsafe { MESH_MATERIAL_PTR }
+#[export_name = "collideBodyPtr"]
+pub extern "C" fn collide_body_ptr() -> usize {
+    unsafe { CONTACT_BODY_PTR }
 }
-
-#[export_name = "dispatchPtr"]
-pub extern "C" fn dispatch_ptr() -> *const u32 {
-    unsafe { DISPATCH_PTR as *const u32 }
+#[export_name = "contactStatePtr"]
+pub extern "C" fn contact_state_ptr() -> usize {
+    unsafe { CONTACT_STATE_PTR }
 }
-
-#[export_name = "dispatchOutPtr"]
-pub extern "C" fn dispatch_out_ptr() -> *const u32 {
-    unsafe { DISPATCH_OUT_PTR as *const u32 }
+unsafe fn mark_contact_state(contact: usize) {
+    core::sync::atomic::AtomicU32::from_ptr((CONTACT_STATE_PTR as *mut u32).add(contact / 32))
+        .fetch_or(1 << (contact % 32), core::sync::atomic::Ordering::Relaxed);
+}
+unsafe fn finish_contact(contact: usize, count: usize, hit: bool) {
+    let dir = manifolds::dir_col();
+    let o = contact * DIR_STRIDE + 6;
+    let old = dir.get(o);
+    let was_touching = old & 0x0001_0000 != 0;
+    let mut flags = old & !(0x0001_0000 | 0x0010_0000);
+    if count > 0 {
+        flags |= 0x0001_0000;
+        if hit {
+            flags |= 0x0010_0000;
+        }
+        if !was_touching {
+            flags |= 0x0004_0000;
+            mark_contact_state(contact);
+        }
+    } else {
+        manifolds::free_manifolds(contact);
+        if old & 0x0040_0000 == 0 {
+            flags |= old & 0x0010_0000;
+        }
+        if was_touching {
+            flags |= 0x0008_0000;
+            mark_contact_state(contact);
+        }
+    }
+    dir.set(o, flags);
 }
 
 #[inline]
@@ -679,6 +707,7 @@ unsafe fn mix_surface(
     flip: bool,
     count: usize,
     mesh: bool,
+    child_radius: f32,
 ) {
     if count == 0 || disp[D_DEFAULT_MIX] == 0 {
         return;
@@ -689,7 +718,7 @@ unsafe fn mix_surface(
     let mut a = surface(sa, a_index(0));
     let mut b = surface(sb, 0);
     let mut radius_a = if map.is_some() {
-        f32::from_bits(disp[D_RADIUS_A])
+        child_radius
     } else {
         shape_radius(sa, false)
     };
@@ -757,18 +786,15 @@ unsafe fn mix_surface(
 /// Convex manifolds with an existing block write into the resident pool; new convex and mesh
 /// manifolds return in a transient span for serial allocation. Each result is its manifold count. Per-thread scratch is disjoint across worker indices.
 ///
-/// One block of the parallel sweep (`parfor.rs`), or the whole column on the serial path. Records are
-/// independent — each reads its own dispatch record and writes only its own contact's manifold + cache
-/// slots and its own output slot — so blocks are write-disjoint and the partition is free.
+/// Box3D's collide task: update each contact in place and mark its touch state by id.
 ///
 /// # Safety
-/// `reserve_dispatch(total)` must have run this step, and no thread may grow memory while this runs.
+/// Body/shape columns and per-thread scratch are reserved before the fork. Only the locked manifold
+/// block allocators may allocate or free; their chunks never move. Each contact runs in one task.
 pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, thread: usize) {
     unsafe {
-        let disp = core::slice::from_raw_parts(DISPATCH_PTR as *const u32, total * DISPATCH_STRIDE);
-        // `out` is a `Col`, not a `&mut [u32]`: the sweep runs per block on several threads, each writing
-        // its own records of the one output column (col.rs).
-        let out = Col::new(DISPATCH_OUT_PTR as *mut u32, total);
+        use crate::manifold_abi::*;
+        let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
         let dir = manifolds::dir_col();
         let pool = manifolds::pool_col();
         let cap = crate::bodies::body_cap();
@@ -781,9 +807,37 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             cap * SIM2_STRIDE,
         );
         for i in start..end {
+            recycle_block(
+                i,
+                i + 1,
+                total,
+                RECYCLE_DISTANCE,
+                RECYCLE_DISTANCE.min(0.02),
+            );
+            let contact = contacts[i] as usize;
+            let o = contact * DIR_STRIDE;
+            if dir.get(o + 6) & SIM_UPDATED == 0 {
+                continue;
+            }
             let mut record = [0u32; DISPATCH_STRIDE];
-            record.copy_from_slice(&disp[i * DISPATCH_STRIDE..(i + 1) * DISPATCH_STRIDE]);
+            record[D_CONTACT] = contact as u32;
+            record[D_SHAPE_A] = dir.get(o + DIR_SHAPE_A);
+            record[D_SHAPE_B] = dir.get(o + DIR_SHAPE_B);
+            record[D_BODY_A] =
+                *(CONTACT_BODY_PTR as *const u32).add(dir.get(o + DIR_EDGE_A) as usize);
+            record[D_BODY_B] =
+                *(CONTACT_BODY_PTR as *const u32).add(dir.get(o + DIR_EDGE_B) as usize);
+            record[D_CHILD] = dir.get(o + DIR_CHILD_INDEX);
+            record[D_OLD_COUNT] = dir.get(o + 7);
+            record[D_MESH_SLOT] = thread as u32;
+            record[D_DEFAULT_MIX] = DEFAULT_MIX;
             let shapes = crate::shapes::col_slice();
+            let sb = record[D_SHAPE_B] as usize * crate::shapes::SHAPE_STRIDE;
+            record[D_LOWER..D_LOWER + 3].copy_from_slice(&shapes[sb + 34..sb + 37]);
+            record[D_UPPER..D_UPPER + 3].copy_from_slice(&shapes[sb + 37..sb + 40]);
+            let sa = record[D_SHAPE_A] as usize * crate::shapes::SHAPE_STRIDE;
+            let hit = shapes[sa + crate::shapes::S_HIT_EVENTS] != 0
+                || shapes[sb + crate::shapes::S_HIT_EVENTS] != 0;
             for (id_slot, type_slot, geom_slot) in [
                 (D_SHAPE_A, D_TYPE_A, D_GEOM_A),
                 (D_SHAPE_B, D_TYPE_B, D_GEOM_B),
@@ -823,6 +877,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             let mut geom_a = &disp[r + D_GEOM_A..r + D_GEOM_A + 7];
             let mut child_offset = Vec3::ZERO;
             let mut material_map = None;
+            let mut child_radius = 0.0;
             if type_a == 1 {
                 let record = crate::geo::extra_ptr(geom_a[0] as usize);
                 let child = crate::geo::extra_ptr(*record.add(4) as usize)
@@ -836,7 +891,14 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                     xf_a = parent_xf.mul(local);
                 }
                 geom_a = &data[12..19];
+                child_radius = match type_a {
+                    TY_HULL => 0.25 * f32::from_bits(geom_a[1]),
+                    TY_SPHERE => f32::from_bits(geom_a[3]),
+                    TY_CAPSULE => f32::from_bits(geom_a[6]),
+                    _ => 0.0,
+                };
             }
+            let disp = &record[..];
             if type_a == 2 || type_a == 4 {
                 let count = dispatch_mesh(
                     disp,
@@ -852,8 +914,22 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                     center_a,
                     center_b,
                 );
-                mix_surface(disp, xf_a, xf_b, material_map, false, count, true);
-                out.set(i, count as u32);
+                mix_surface(
+                    disp,
+                    xf_a,
+                    xf_b,
+                    material_map,
+                    false,
+                    count,
+                    true,
+                    child_radius,
+                );
+                if count > 0 {
+                    let address = manifolds::allocate_manifolds(contact_id, count);
+                    let source = MESH_OUTPUT_PTR + thread * 256 * MANIFOLD_STRIDE * 4;
+                    manifolds::copy_manifolds(source, address, count);
+                }
+                finish_contact(contact_id, count, hit);
                 continue;
             }
             let mut shape_a = read_shape(type_a, geom_a, 0);
@@ -904,12 +980,13 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 p.anchor_a = p.anchor_a.sub(center_a);
                 p.anchor_b = p.anchor_b.sub(center_b);
             }
-            if resident {
-                write_manifold(&m, crate::manifold_abi::block_col(pool, base, 1), 0);
-            } else if touching {
-                let ptr = (DISPATCH_OUT_PTR as *mut f32).add(total + i * MANIFOLD_STRIDE);
-                ptr.write_bytes(0, MANIFOLD_STRIDE);
-                write_manifold(&m, Col::new(ptr, MANIFOLD_STRIDE), 0);
+            if touching {
+                let address = if resident {
+                    base
+                } else {
+                    manifolds::allocate_manifolds(contact_id, 1)
+                };
+                write_manifold(&m, crate::manifold_abi::block_col(pool, address, 1), 0);
             }
             if uses_sat {
                 write_sat(dir, contact_id, &cache.sat_cache);
@@ -924,8 +1001,9 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 flip,
                 touching as usize,
                 false,
+                child_radius,
             );
-            out.set(i, touching as u32);
+            finish_contact(contact_id, touching as usize, hit);
         }
     }
 }
@@ -940,7 +1018,7 @@ pub extern "C" fn dispatch_contacts(count: usize) {
 // Every awake contact takes this overlap/recycle gate. Body indices address resident or staged
 // columns; pose caches remain directory-resident across sleep/wake transitions.
 
-/// u32 stride of a recycle input record, matching `src/columns.ts` `RECYCLE_STRIDE`.
+/// Local recycle inputs gathered from the contact record and staged body-index map.
 const RECYCLE_STRIDE: usize = 7;
 const R_COUNT: usize = 6;
 const R_STATIC_A: u32 = 4;
@@ -956,30 +1034,6 @@ const R_BITS: usize = 5;
 const R_ELIGIBLE: u32 = 1;
 /// bit1: the contact was touching at step entry (selects the recycle tolerance).
 const R_WAS_TOUCHING: u32 = 2;
-
-static mut RECYCLE_PTR: u32 = 0;
-static mut RECYCLE_OUT_PTR: u32 = 0;
-
-/// Lay out recycle input + output in the shared arena. Consumed within collide, before dispatch and
-/// the solver columns reserve over the same base — the recycle pass finishes before either runs.
-#[export_name = "reserveRecycle"]
-pub extern "C" fn reserve_recycle(count: usize) {
-    unsafe {
-        reserve_scratch(count * (RECYCLE_STRIDE + 1) * 4);
-        RECYCLE_PTR = SCRATCH.ptr as u32;
-        RECYCLE_OUT_PTR = (SCRATCH.ptr + count * RECYCLE_STRIDE * 4) as u32;
-    }
-}
-
-#[export_name = "recyclePtr"]
-pub extern "C" fn recycle_ptr() -> *const u32 {
-    unsafe { RECYCLE_PTR as *const u32 }
-}
-
-#[export_name = "recycleOutPtr"]
-pub extern "C" fn recycle_out_ptr() -> *const u32 {
-    unsafe { RECYCLE_OUT_PTR as *const u32 }
-}
 
 /// Body `i`'s world transform from the resident sim (rotation) + fin (position) columns.
 #[inline]
@@ -1095,7 +1149,7 @@ fn write_pose_cache(dir: Col<u32>, contact_id: usize, xf_a: Transform, xf_b: Tra
 /// write lands in the record's own contact's directory + manifold slots.
 ///
 /// # Safety
-/// `reserve_recycle(total)` must have run this step, and no thread may grow memory while this runs.
+/// The contact list, body-index map and body/shape columns remain at their addresses during collide.
 pub(crate) unsafe fn recycle_block(
     start: usize,
     end: usize,
@@ -1104,9 +1158,8 @@ pub(crate) unsafe fn recycle_block(
     recycle_dist_non_touching: f32,
 ) {
     unsafe {
-        let input = core::slice::from_raw_parts(RECYCLE_PTR as *const u32, total * RECYCLE_STRIDE);
-        // As `contact_block`: the output column is shared-mutable, one record per input record.
-        let out = Col::new(RECYCLE_OUT_PTR as *mut u32, total);
+        use crate::manifold_abi::*;
+        let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
         let dir = manifolds::dir_col();
         let pool = manifolds::pool_col();
         let fat = crate::fataabb::col_slice();
@@ -1121,8 +1174,38 @@ pub(crate) unsafe fn recycle_block(
         );
 
         for i in start..end {
-            let r = i * RECYCLE_STRIDE;
-            let contact_id = input[r + R_CONTACT] as usize;
+            let contact_id = contacts[i] as usize;
+            let o = contact_id * DIR_STRIDE;
+            let flags = dir.get(o + 6) & !SIM_UPDATED;
+            dir.set(o + 6, flags);
+            let mut record = [0u32; RECYCLE_STRIDE];
+            record[R_CONTACT] = contact_id as u32;
+            record[R_LOCAL_A] =
+                *(CONTACT_BODY_PTR as *const u32).add(dir.get(o + DIR_EDGE_A) as usize);
+            record[R_LOCAL_B] =
+                *(CONTACT_BODY_PTR as *const u32).add(dir.get(o + DIR_EDGE_B) as usize);
+            record[R_SHAPE_A] = dir.get(o + DIR_SHAPE_A);
+            record[R_SHAPE_B] = dir.get(o + DIR_SHAPE_B);
+            record[R_COUNT] = dir.get(o + 7);
+            let mut bits = 0;
+            if dir.get(o + 9) == u32::MAX {
+                bits |= R_STATIC_A;
+            }
+            if dir.get(o + 10) == u32::MAX {
+                bits |= R_STATIC_B;
+            }
+            if flags & 0x0040_0000 != 0 {
+                bits |= R_MESH;
+            }
+            if recycle_dist > 0.0 && flags & 0x0080_0000 != 0 && flags & 0x10 != 0 {
+                bits |= R_ELIGIBLE;
+            }
+            if flags & 0x0001_0000 != 0 {
+                bits |= R_WAS_TOUCHING;
+            }
+            record[R_BITS] = bits;
+            let input = &record[..];
+            let r = 0;
 
             // Fat-AABB overlap first — matching the TS collide's first per-contact check.
             if !fat_overlap(
@@ -1130,7 +1213,8 @@ pub(crate) unsafe fn recycle_block(
                 input[r + R_SHAPE_A] as usize,
                 input[r + R_SHAPE_B] as usize,
             ) {
-                out.set(i, 2);
+                dir.set(o + 6, (flags | 0x0002_0000) & !0x0001_0000);
+                mark_contact_state(contact_id);
                 continue;
             }
 
@@ -1168,7 +1252,6 @@ pub(crate) unsafe fn recycle_block(
                     dir, pool, contact_id, mc, xf_a, xf_b, rot_a, rot_b, rel, center_a, center_b,
                     extent_a, extent_b, tol,
                 ) {
-                    out.set(i, 0);
                     continue;
                 }
             }
@@ -1176,19 +1259,9 @@ pub(crate) unsafe fn recycle_block(
             // Recycle missed (or the contact isn't eligible yet): cache this step's pose for the next
             // step and defer to the full narrowphase.
             write_pose_cache(dir, contact_id, xf_a, xf_b);
-            out.set(i, 1);
+            dir.set(o + 6, flags | 0x0080_0000 | SIM_UPDATED);
         }
     }
-}
-
-/// The whole recycle column, on the calling thread (the serial path).
-#[export_name = "dispatchRecycle"]
-pub extern "C" fn dispatch_recycle(
-    count: usize,
-    recycle_dist: f32,
-    recycle_dist_non_touching: f32,
-) {
-    unsafe { recycle_block(0, count, count, recycle_dist, recycle_dist_non_touching) }
 }
 
 // --- finalize -------------------------------------------------------------------------------

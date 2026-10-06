@@ -23,9 +23,9 @@
 //!
 //! The lifetime is real — a `Col<'a, T>` borrows its storage for `'a`, so the native harnesses get
 //! use-after-free protection for free. The wasm arena's `'static` columns are the exception, and they
-//! rest on the no-allocation-or-free-while-workers-are-active invariant: reallocating a column can
-//! invalidate a `Col` over it. Every arena shim derives columns from the selected layout per call;
-//! reserves run on the calling thread before the worker fork.
+//! require stable addresses while workers are active: reallocating a column would invalidate its
+//! handles. Column reserves run before the fork. Collide can allocate disjoint manifold blocks under
+//! a lock because its block allocator never moves chunks; the contact directory is fixed during tasks.
 
 use core::marker::PhantomData;
 

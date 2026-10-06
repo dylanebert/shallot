@@ -9,6 +9,7 @@ import {
     PhysicsWorld,
 } from "../api";
 import { defaultFrictionCallback, defaultRestitutionCallback } from "../world/world";
+import { ContactField, contactField, contactIds } from "./contact";
 import { readContactMaterial } from "./manifoldstore";
 
 const identity = { v: { x: 0, y: 0, z: 0 }, s: 1 };
@@ -122,11 +123,9 @@ test("kernel default mixing equals callback mixing for convex, flipped compound 
                 for (const world of worlds) world.step(1 / 60, 1);
                 expect(hash(worlds[0])).toBe(hash(worlds[1]));
                 const rows = worlds.map((world) =>
-                    world.state.contacts
-                        .filter((c) => c.manifoldCount > 0)
-                        .map((c) =>
-                            readContactMaterial(world.state.manifoldStore.dirF, c.contactId),
-                        ),
+                    contactIds(world.state)
+                        .filter((c) => contactField(world.state, c, ContactField.manifoldCount) > 0)
+                        .map((c) => readContactMaterial(world.state.manifoldStore.dirF, c)),
                 );
                 expect(rows[0].length).toBeGreaterThan(0);
                 expect(rows[0]).toEqual(rows[1]);

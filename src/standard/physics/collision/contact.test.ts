@@ -1,3 +1,4 @@
+import { ContactField, contactCapacity, contactField } from "./contact";
 // contact machinery: create/destroy and the solver-set placement it picks. Contacts are normally
 // born from the broad-phase collide phase (solver stage); here they're driven directly so the
 // create/destroy path is exercised now.
@@ -32,17 +33,17 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
 
     createContact(world, a.shape, b.shape, 0);
 
-    expect(world.contacts.length).toBe(1);
-    const contact = world.contacts[0];
+    expect(contactCapacity(world)).toBe(1);
+    const contact = 0;
     // Both bodies awake → the contact lives in the awake set as non-touching.
-    expect(contact.setIndex).toBe(SetType.Awake);
+    expect(contactField(world, contact, ContactField.setIndex)).toBe(SetType.Awake);
     expect(world.solverSets[SetType.Awake].contactIndices).toContain(0);
     // Edge list threaded through both bodies.
     expect(a.body.contactCount, "body a contactCount").toBe(1);
     expect(b.body.contactCount, "body b contactCount").toBe(1);
     expect(a.body.headContactKey).not.toBe(NULL_INDEX);
-    expect(contact.edges[0].bodyId).toBe(a.bodyId);
-    expect(contact.edges[1].bodyId).toBe(b.bodyId);
+    expect(contactField(world, contact, ContactField.bodyIdA)).toBe(a.bodyId);
+    expect(contactField(world, contact, ContactField.bodyIdB)).toBe(b.bodyId);
     // Pair recorded so it isn't turned into a second contact.
     expect(addKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(true);
 
@@ -79,5 +80,5 @@ test("createContact files a non-touching contact between two asleep bodies into 
     expect(a.body.setIndex).toBeGreaterThanOrEqual(SetType.FirstSleeping);
 
     createContact(world, a.shape, b.shape, 0);
-    expect(world.contacts[0].setIndex).toBe(SetType.Disabled);
+    expect(contactField(world, 0, ContactField.setIndex)).toBe(SetType.Disabled);
 });
