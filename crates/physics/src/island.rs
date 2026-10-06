@@ -200,28 +200,6 @@ unsafe fn merge(a: i32, b: i32) -> usize {
     destroy(small);
     big
 }
-#[export_name = "islandAddContact"]
-pub unsafe extern "C" fn append_contact(id: usize, contact: i32, a: i32, b: i32) {
-    add_contact(
-        id,
-        Link {
-            id: contact,
-            body_a: a,
-            body_b: b,
-        },
-    );
-}
-#[export_name = "islandAddJoint"]
-pub unsafe extern "C" fn append_joint(id: usize, joint: i32, a: i32, b: i32) {
-    add_joint(
-        id,
-        Link {
-            id: joint,
-            body_a: a,
-            body_b: b,
-        },
-    );
-}
 unsafe fn add_contact(id: usize, l: Link) {
     let s = record(id);
     contact_fix(l.id, id as i32, s.contacts.len() as i32);
@@ -284,6 +262,136 @@ pub unsafe extern "C" fn unlink_joint(joint: i32, id: i32, index: usize) {
     }
     fix(1, joint, -1, -1);
     s.constraint_remove_count += 1;
+}
+fn find_parent(parents: &mut [usize], mut node: usize) -> usize {
+    while parents[node] != node {
+        let grand = parents[parents[node]];
+        parents[node] = grand;
+        node = grand;
+    }
+    node
+}
+fn union(
+    parents: &mut [usize],
+    ranks: &mut [usize],
+    a: usize,
+    b: usize,
+    contacts: &mut [usize],
+    joints: &mut [usize],
+) {
+    let a = find_parent(parents, a);
+    let b = find_parent(parents, b);
+    if a == b {
+        return;
+    }
+    if ranks[a] < ranks[b] {
+        parents[a] = b;
+        contacts[b] += contacts[a];
+        joints[b] += joints[a];
+    } else {
+        parents[b] = a;
+        contacts[a] += contacts[b];
+        joints[a] += joints[b];
+        if ranks[a] == ranks[b] {
+            ranks[a] += 1;
+        }
+    }
+}
+#[export_name = "islandSplitIndices"]
+pub unsafe extern "C" fn split_indices(count: usize) -> usize {
+    crate::arena::reserve_scratch(count * 4)
+}
+#[export_name = "islandSplit"]
+pub unsafe extern "C" fn split(base: usize, body_indices: *const i32, body_count: usize) {
+    // Body records remain in TypeScript until stage 6; only their island indices cross this seam.
+    let indices = std::slice::from_raw_parts(body_indices, body_count);
+    let n = record(base).bodies.len();
+    let mut parents: Vec<usize> = (0..n).collect();
+    let mut ranks = vec![0; n];
+    let mut contact_counts = vec![0; n];
+    let mut joint_counts = vec![0; n];
+    for kind in 0..2 {
+        let links = if kind == 0 {
+            &record(base).contacts
+        } else {
+            &record(base).joints
+        };
+        for l in links {
+            let a = indices[l.body_a as usize];
+            let b = indices[l.body_b as usize];
+            if a != -1 && b != -1 {
+                union(
+                    &mut parents,
+                    &mut ranks,
+                    a as usize,
+                    b as usize,
+                    &mut contact_counts,
+                    &mut joint_counts,
+                );
+            }
+            let root = find_parent(&mut parents, if a != -1 { a } else { b } as usize);
+            if kind == 0 {
+                contact_counts[root] += 1;
+            } else {
+                joint_counts[root] += 1;
+            }
+        }
+    }
+    drop(ranks);
+    let mut components = 0;
+    for i in 0..n {
+        parents[i] = find_parent(&mut parents, i);
+        if parents[i] == i {
+            components += 1;
+        }
+    }
+    if components == 1 {
+        record(base).constraint_remove_count = 0;
+        return;
+    }
+    let bodies = std::mem::take(&mut record(base).bodies);
+    let contacts = std::mem::take(&mut record(base).contacts);
+    let joints = std::mem::take(&mut record(base).joints);
+    let mut root_map = vec![usize::MAX; n];
+    let mut body_counts = vec![0; components];
+    let mut component_contacts = vec![0; components];
+    let mut component_joints = vec![0; components];
+    let mut island_count = 0;
+    for i in 0..n {
+        let root = parents[i];
+        if root_map[root] == usize::MAX {
+            root_map[root] = island_count;
+            component_contacts[island_count] = contact_counts[root];
+            component_joints[island_count] = joint_counts[root];
+            island_count += 1;
+        }
+        body_counts[root_map[root]] += 1;
+    }
+    let mut ids = Vec::with_capacity(island_count);
+    for i in 0..island_count {
+        let id = create(2);
+        ids.push(id);
+        let s = record(id);
+        s.bodies.reserve(body_counts[i]);
+        s.contacts.reserve(component_contacts[i]);
+        s.joints.reserve(component_joints[i]);
+    }
+    for (i, &body) in bodies.iter().enumerate() {
+        add_body(ids[root_map[parents[i]]], body);
+    }
+    for l in contacts {
+        let a = indices[l.body_a as usize];
+        let b = indices[l.body_b as usize];
+        let index = if a != -1 { a } else { b } as usize;
+        add_contact(ids[root_map[parents[index]]], l);
+    }
+    for l in joints {
+        let a = indices[l.body_a as usize];
+        let b = indices[l.body_b as usize];
+        let index = if a != -1 { a } else { b } as usize;
+        add_joint(ids[root_map[parents[index]]], l);
+    }
+    destroy(base);
 }
 pub unsafe fn reset(id: usize) {
     WORLDS[id] = Islands {

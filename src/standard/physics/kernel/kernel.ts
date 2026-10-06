@@ -85,8 +85,8 @@ export type Kernel = {
         a: number,
         b: number,
     ): number;
-    islandAddContact(id: number, contact: number, a: number, b: number): void;
-    islandAddJoint(id: number, joint: number, a: number, b: number): void;
+    islandSplitIndices(count: number): number;
+    islandSplit(id: number, ptr: number, count: number): void;
     islandCreate(set: number): number;
     islandDestroy(id: number): void;
     islandCount(): number;
