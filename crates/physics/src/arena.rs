@@ -638,16 +638,8 @@ struct Surface {
 }
 
 fn surface(shape: usize, index: usize) -> Surface {
-    let shapes = crate::shapes::col_slice();
-    let s = shape * crate::shapes::SHAPE_STRIDE;
-    let count = shapes[s + crate::shapes::S_MATERIAL_COUNT] as usize;
-    let materials = crate::shapes::materials();
-    let mut id = shapes[s + crate::shapes::S_MATERIAL_HEAD] as usize;
-    for _ in 0..index.min(count - 1) {
-        id = materials.get(id * crate::shapes::MATERIAL_STRIDE + 9) as usize;
-    }
-    let o = id * crate::shapes::MATERIAL_STRIDE;
-    let f = |i| f32::from_bits(materials.get(o + i));
+    let materials = crate::shapes::material(shape, index);
+    let f = |i| f32::from_bits(materials[i]);
     Surface {
         friction: f(0),
         restitution: f(1),

@@ -264,16 +264,9 @@ export type Kernel = {
     shapeAlive(world: number, id: number): number;
     shapeCount(world: number): number;
     /** Kernel-owned live material records attached to shape slots. */
-    reserveMaterials(cap: number): number;
-    materialLayoutPtr(): number;
-    materialCap(): number;
-    materialCreate(world: number): number;
-    materialDestroy(world: number, id: number): void;
-    materialResetWorld(world: number): void;
-    materialGeneration(world: number, id: number): number;
-    materialAlive(world: number, id: number): number;
-    materialListCount(world: number, head: number): number;
-    shapeMaterialHead(world: number, id: number): number;
+    shapeAllocateMaterials(world: number, id: number, count: number): number;
+    shapeFreeMaterials(world: number, id: number): void;
+    shapeMaterialPtr(world: number, id: number): number;
     shapeMaterialCount(world: number, id: number): number;
 
     // World-local tree pools, pair membership and moves. Pass zero to retain a capacity.

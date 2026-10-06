@@ -412,7 +412,6 @@ export function destroyWorld(world: WorldState): void {
     const generation = world.generation;
     kernel(world.ecsState).bodyResetWorld(world.worldId);
     kernel(world.ecsState).shapeResetWorld(world.worldId);
-    kernel(world.ecsState).materialResetWorld(world.worldId);
     kernel(world.ecsState).residentResetWorld(world.worldId);
     world.inUse = false;
     world.worldId = 0;

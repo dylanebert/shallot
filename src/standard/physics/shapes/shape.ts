@@ -56,7 +56,6 @@ import { kernel } from "../kernel/kernel";
 import {
     createShapeSlot,
     destroyShapeSlot,
-    MATERIAL_STRIDE,
     readShapeMaterials,
     S_PROXY_KEY,
     SHAPE_STRIDE,
@@ -168,20 +167,19 @@ export function getShapeMaterial(
 ): SurfaceMaterial {
     const k = kernel(world.ecsState);
     k.shapeSetActiveWorld(shape.worldId);
-    const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
+    const ptr = k.shapeMaterialPtr(shape.worldId, shape.id);
     const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
-    if (count === 0 || k.materialListCount(shape.worldId, head) >>> 0 !== count)
-        throw new Error(`physics: material attachment mismatch on shape ${shape.id}`);
+    if (count === 0) throw new Error(`physics: no material on shape ${shape.id}`);
     const u = world.shapeStore.materialU;
     const f = world.shapeStore.materialF;
-    const o = head * MATERIAL_STRIDE;
+    const o = ptr / 4;
     out.friction = f[o];
     out.restitution = f[o + 1];
     out.rollingResistance = f[o + 2];
     out.tangentVelocity.x = f[o + 3];
     out.tangentVelocity.y = f[o + 4];
     out.tangentVelocity.z = f[o + 5];
-    out.userMaterialId = world.shapeStore.userMaterialId(head);
+    out.userMaterialId = world.shapeStore.userMaterialId(o);
     out.customColor = u[o + 8];
     return out;
 }

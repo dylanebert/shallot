@@ -1,7 +1,8 @@
 //! World-local shape and material columns. A reachable shape is authored before it is queried.
 use crate::col::Col;
 use crate::regions::{self, Columns, MAX_WORLDS};
-pub const SHAPE_STRIDE: usize = 52;
+pub const SHAPE_STRIDE: usize = 61;
+pub const S_MATERIAL: usize = 52;
 pub const S_HIT_EVENTS: usize = 51;
 pub const S_PROXY_KEY: usize = 50;
 pub const S_QUERY_POSE: usize = 18;
@@ -21,12 +22,8 @@ pub const NULL_SHAPE: u32 = u32::MAX;
 const GENERATION: usize = 1;
 const ALIVE: usize = 2;
 const NEXT: usize = 3;
-const MATERIAL: usize = 4;
-const N_SHAPE: usize = 5;
-pub const MATERIAL_STRIDE: usize = 12;
-const M_NEXT: usize = 9;
-const M_GENERATION: usize = 10;
-const M_ALIVE: usize = 11;
+const N_SHAPE: usize = 4;
+pub const MATERIAL_STRIDE: usize = 9;
 
 #[derive(Clone, Copy)]
 struct Pool {
@@ -47,13 +44,11 @@ impl Pool {
 struct Shapes {
     columns: Columns<N_SHAPE>,
     shape: Pool,
-    material: Pool,
 }
 impl Shapes {
     const EMPTY: Self = Self {
         columns: Columns::EMPTY,
         shape: Pool::EMPTY,
-        material: Pool::EMPTY,
     };
 }
 static mut WORLDS: [Shapes; MAX_WORLDS] = [Shapes::EMPTY; MAX_WORLDS];
@@ -107,123 +102,65 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
         1
     }
 }
-#[export_name = "reserveMaterials"]
-pub extern "C" fn reserve_materials(cap: usize) -> u32 {
-    unsafe {
-        let w = world_mut(regions::active());
-        if cap <= w.material.cap {
-            return 0;
+unsafe fn record(id: usize, shape: usize) -> *mut u32 {
+    (world(id).columns.layout[0] as *mut u32).add(shape * SHAPE_STRIDE)
+}
+unsafe fn free_materials(id: usize, shape: usize) {
+    let p = record(id, shape);
+    let count = *p.add(S_MATERIAL_COUNT) as usize;
+    if count > 1 {
+        std::alloc::dealloc(
+            *p.add(S_MATERIAL_HEAD) as *mut u8,
+            std::alloc::Layout::from_size_align_unchecked(count * MATERIAL_STRIDE * 4, 4),
+        );
+    }
+    *p.add(S_MATERIAL_HEAD) = 0;
+    *p.add(S_MATERIAL_COUNT) = 0;
+}
+/// Box3D stores one material inline and owns an exact-sized array otherwise.
+#[export_name = "shapeAllocateMaterials"]
+pub unsafe extern "C" fn allocate_materials(id: u32, shape: u32, count: usize) -> usize {
+    free_materials(id as usize, shape as usize);
+    let ptr = if count > 1 {
+        let layout = std::alloc::Layout::from_size_align_unchecked(count * MATERIAL_STRIDE * 4, 4);
+        let p = std::alloc::alloc(layout);
+        if p.is_null() {
+            std::alloc::handle_alloc_error(layout);
         }
-        w.columns.reserve(MATERIAL, cap * MATERIAL_STRIDE * 4);
-        w.material.cap = cap;
-        1
+        p as usize
+    } else {
+        0
+    };
+    let p = record(id as usize, shape as usize);
+    *p.add(S_MATERIAL_HEAD) = ptr as u32;
+    *p.add(S_MATERIAL_COUNT) = count as u32;
+    material_ptr(id as usize, shape as usize) as usize
+}
+#[export_name = "shapeFreeMaterials"]
+pub unsafe extern "C" fn release_materials(id: u32, shape: u32) {
+    free_materials(id as usize, shape as usize);
+}
+unsafe fn material_ptr(id: usize, shape: usize) -> *mut u32 {
+    let p = record(id, shape);
+    if *p.add(S_MATERIAL_COUNT) > 1 {
+        *p.add(S_MATERIAL_HEAD) as *mut u32
+    } else {
+        p.add(S_MATERIAL)
     }
 }
-#[export_name = "materialLayoutPtr"]
-pub extern "C" fn material_layout_ptr() -> *const u32 {
-    unsafe { &raw const world(regions::active()).columns.layout[MATERIAL] }
+#[export_name = "shapeMaterialPtr"]
+pub unsafe extern "C" fn shape_material_ptr(id: u32, shape: u32) -> usize {
+    material_ptr(id as usize, shape as usize) as usize
 }
-#[export_name = "materialCap"]
-pub extern "C" fn material_cap() -> usize {
-    unsafe { world(regions::active()).material.cap }
-}
-pub(crate) fn materials() -> Col<'static, u32> {
+pub(crate) fn material(shape: usize, index: usize) -> &'static [u32] {
     unsafe {
-        let w = world(regions::active());
-        Col::new(
-            w.columns.layout[MATERIAL] as *mut u32,
-            w.material.cap * MATERIAL_STRIDE,
+        let id = regions::active();
+        let count = *record(id, shape).add(S_MATERIAL_COUNT) as usize;
+        assert!(count > 0);
+        core::slice::from_raw_parts(
+            material_ptr(id, shape).add(index.min(count - 1) * MATERIAL_STRIDE),
+            MATERIAL_STRIDE,
         )
-    }
-}
-
-unsafe fn material_ptr(id: usize, material: usize) -> *mut u32 {
-    (world(id).columns.layout[MATERIAL] as *mut u32).add(material * MATERIAL_STRIDE)
-}
-#[export_name = "materialCreate"]
-pub extern "C" fn material_create(id: u32) -> u32 {
-    regions::select(id);
-    unsafe {
-        let p = world(id as usize).material;
-        if p.free < 0 && p.next == p.cap {
-            reserve_materials((p.cap * 2).max(16));
-        }
-        let w = world_mut(id as usize);
-        let material = if w.material.free >= 0 {
-            let material = w.material.free as usize;
-            w.material.free = *((w.columns.layout[MATERIAL] as *const u32)
-                .add(material * MATERIAL_STRIDE + M_NEXT)) as i32;
-            material
-        } else {
-            let material = w.material.next;
-            w.material.next += 1;
-            material
-        };
-        let p = (w.columns.layout[MATERIAL] as *mut u32).add(material * MATERIAL_STRIDE);
-        *p.add(M_GENERATION) = (*p.add(M_GENERATION)).wrapping_add(1);
-        *p.add(M_ALIVE) = 1;
-        *p.add(M_NEXT) = u32::MAX;
-        w.material.count += 1;
-        material as u32
-    }
-}
-#[export_name = "materialDestroy"]
-pub extern "C" fn material_destroy(id: u32, material: u32) {
-    unsafe {
-        let w = world_mut(id as usize);
-        if material as usize >= w.material.next {
-            return;
-        }
-        let p = (w.columns.layout[MATERIAL] as *mut u32).add(material as usize * MATERIAL_STRIDE);
-        if *p.add(M_ALIVE) == 0 {
-            return;
-        }
-        *p.add(M_ALIVE) = 0;
-        *p.add(M_NEXT) = w.material.free as u32;
-        w.material.free = material as i32;
-        w.material.count -= 1;
-    }
-}
-#[export_name = "materialResetWorld"]
-pub extern "C" fn material_reset_world(id: u32) {
-    unsafe {
-        let w = world_mut(id as usize);
-        w.material = Pool::EMPTY;
-    }
-}
-#[export_name = "materialGeneration"]
-pub extern "C" fn material_generation(id: u32, material: u32) -> u32 {
-    unsafe {
-        if material as usize >= world(id as usize).material.cap {
-            return 0;
-        }
-        *material_ptr(id as usize, material as usize).add(M_GENERATION)
-    }
-}
-#[export_name = "materialAlive"]
-pub extern "C" fn material_alive(id: u32, material: u32) -> u32 {
-    unsafe {
-        if material as usize >= world(id as usize).material.cap {
-            return 0;
-        }
-        *material_ptr(id as usize, material as usize).add(M_ALIVE)
-    }
-}
-#[export_name = "materialListCount"]
-pub extern "C" fn material_list_count(id: u32, head: u32) -> u32 {
-    unsafe {
-        let cap = world(id as usize).material.cap;
-        let mut material = head;
-        let mut count = 0;
-        while material != u32::MAX && (material as usize) < cap && count <= cap as u32 {
-            let p = material_ptr(id as usize, material as usize);
-            if *p.add(M_ALIVE) == 0 {
-                break;
-            }
-            count += 1;
-            material = *p.add(M_NEXT);
-        }
-        count
     }
 }
 unsafe fn shape_lane(id: u32, shape: u32, lane: usize) -> u32 {
@@ -232,10 +169,6 @@ unsafe fn shape_lane(id: u32, shape: u32, lane: usize) -> u32 {
         return if lane == S_MATERIAL_HEAD { u32::MAX } else { 0 };
     }
     *((w.columns.layout[0] as *const u32).add(shape as usize * SHAPE_STRIDE + lane))
-}
-#[export_name = "shapeMaterialHead"]
-pub extern "C" fn shape_material_head(id: u32, shape: u32) -> u32 {
-    unsafe { shape_lane(id, shape, S_MATERIAL_HEAD) }
 }
 #[export_name = "shapeMaterialCount"]
 pub extern "C" fn shape_material_count(id: u32, shape: u32) -> u32 {
@@ -288,6 +221,9 @@ pub extern "C" fn shape_destroy(id: u32, shape: u32) {
 pub extern "C" fn shape_reset_world(id: u32) {
     unsafe {
         let w = world_mut(id as usize);
+        for shape in 0..w.shape.next {
+            free_materials(id as usize, shape);
+        }
         w.columns.release();
         *w = Shapes::EMPTY;
     }
@@ -318,20 +254,47 @@ pub extern "C" fn shape_count(id: u32) -> usize {
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     let w = &WORLDS[id];
-    for pool in [w.shape, w.material] {
+    for pool in [w.shape] {
         for value in [pool.cap, pool.next, pool.free as usize, pool.count] {
             regions::write_word(out, value);
         }
     }
     w.columns.snapshot(out);
+    for shape in 0..w.shape.next {
+        let count = *record(id, shape).add(S_MATERIAL_COUNT) as usize;
+        if count > 1 {
+            out.extend_from_slice(core::slice::from_raw_parts(
+                material_ptr(id, shape) as *const u8,
+                count * MATERIAL_STRIDE * 4,
+            ));
+        }
+    }
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     let w = &mut WORLDS[id];
-    for pool in [&mut w.shape, &mut w.material] {
+    for shape in 0..w.shape.next {
+        free_materials(id, shape);
+    }
+    for pool in [&mut w.shape] {
         pool.cap = regions::read_word(input);
         pool.next = regions::read_word(input);
         pool.free = regions::read_word(input) as i32;
         pool.count = regions::read_word(input);
     }
     w.columns.restore(input);
+    for shape in 0..w.shape.next {
+        let p = record(id, shape);
+        let count = *p.add(S_MATERIAL_COUNT) as usize;
+        if count > 1 {
+            // The saved pointer is not owned by the restored world.
+            *p.add(S_MATERIAL_COUNT) = 0;
+            let ptr = allocate_materials(id as u32, shape as u32, count);
+            let bytes = count * MATERIAL_STRIDE * 4;
+            let (data, rest) = input.split_at(bytes);
+            core::ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut u8, bytes);
+            *input = rest;
+        } else {
+            *p.add(S_MATERIAL_HEAD) = 0;
+        }
+    }
 }
