@@ -550,6 +550,9 @@ impl Quat {
 }
 
 /// Find a quaternion that rotates unit vector v1 to unit vector v2 (b3ComputeQuatBetweenUnitVectors).
+///
+/// # Safety
+/// The returned pointer addresses one shared output, overwritten by the next call; read it first.
 #[cfg(target_arch = "wasm32")]
 #[export_name = "computeQuatBetween"]
 pub unsafe extern "C" fn compute_quat_between_output(

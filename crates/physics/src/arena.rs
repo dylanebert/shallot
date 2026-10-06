@@ -277,7 +277,7 @@ pub extern "C" fn reserve_collide(count: usize, threads: usize, default_mix: u32
     unsafe {
         DEFAULT_MIX = default_mix;
         RECYCLE_DISTANCE = distance;
-        let words = (manifolds::contact_capacity(crate::regions::active()) + 31) / 32;
+        let words = manifolds::contact_capacity(crate::regions::active()).div_ceil(32);
         let mesh_threads = if manifolds::has_mesh_caches() {
             threads.max(1)
         } else {

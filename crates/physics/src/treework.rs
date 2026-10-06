@@ -143,7 +143,7 @@ pub unsafe extern "C" fn mutate_resident(
         core::ptr::copy_nonoverlapping(scratch, state, 4);
         return result;
     }
-    let result = mutate(
+    mutate(
         ptr,
         crate::broad::tree_cap(index),
         state,
@@ -159,8 +159,7 @@ pub unsafe extern "C" fn mutate_resident(
         cl,
         ud,
         udh,
-    );
-    result
+    )
 }
 
 #[export_name = "treeCreateProxy"]

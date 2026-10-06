@@ -21,6 +21,21 @@ const arms: [string, string[]][] = [
         "cargo clippy (physics)",
         ["cargo", "clippy", "-p", "shallot-physics", "--all-targets", "--", "-D", "warnings"],
     ],
+    [
+        "cargo clippy (physics wasm32)",
+        [
+            "cargo",
+            "clippy",
+            "-p",
+            "shallot-physics",
+            "--lib",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    ],
 ];
 
 const policyViolations = readProjectPolicy(root);

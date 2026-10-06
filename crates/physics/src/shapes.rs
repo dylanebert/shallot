@@ -327,11 +327,9 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     for shape in 0..w.shape.next {
         free_materials(id, shape);
     }
-    for pool in [&mut w.shape] {
-        pool.cap = regions::read_word(input);
-        pool.next = regions::read_word(input);
-        pool.free = regions::read_word(input);
-    }
+    w.shape.cap = regions::read_word(input);
+    w.shape.next = regions::read_word(input);
+    w.shape.free = regions::read_word(input);
     w.columns.restore(input);
     for shape in 0..w.shape.next {
         let p = record(id, shape);

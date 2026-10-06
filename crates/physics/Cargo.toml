@@ -24,6 +24,9 @@ needless_borrow = "allow"
 needless_range_loop = "allow"
 should_implement_trait = "allow"
 too_many_arguments = "allow"
+# `&*(&raw mut STATIC)` is how a `static mut` is borrowed without rustc's `static_mut_refs`; clippy's
+# suggested `&mut STATIC` is that lint's error.
+deref_addrof = "allow"
 
 # Test-only: parse the committed C-reference gold vectors (src/math.gold.json) in the native
 # `cargo test` build. Never compiled into the shipping wasm (release profile pulls no dev-deps).

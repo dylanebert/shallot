@@ -450,11 +450,13 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     w.split_island_id = regions::read_word(input) as i32;
     let n = regions::read_word(input);
     for _ in 0..n {
-        let mut s = Island::default();
-        s.set_index = regions::read_word(input) as i32;
-        s.local_index = regions::read_word(input) as i32;
-        s.island_id = regions::read_word(input) as i32;
-        s.constraint_remove_count = regions::read_word(input) as i32;
+        let mut s = Island {
+            set_index: regions::read_word(input) as i32,
+            local_index: regions::read_word(input) as i32,
+            island_id: regions::read_word(input) as i32,
+            constraint_remove_count: regions::read_word(input) as i32,
+            ..Island::default()
+        };
         let n = regions::read_word(input);
         for _ in 0..n {
             s.bodies.push(regions::read_word(input) as i32);

@@ -112,6 +112,8 @@ unsafe fn resident() -> (&'static mut [u32], &'static mut [u32], &'static mut [u
         core::slice::from_raw_parts_mut(hashes as *mut u32, cap),
     )
 }
+/// # Safety
+/// The active world's pair set must be reserved, and this must run at a serial point, since growth moves it.
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadAddPair"]
 pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
@@ -132,6 +134,8 @@ pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
     crate::broad::change_set_count(1);
     0
 }
+/// # Safety
+/// The active world's pair set must be reserved, and no other thread may touch it while this runs.
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadRemovePair"]
 pub unsafe extern "C" fn remove_pair(a: u32, b: u32, child: u32) -> u32 {

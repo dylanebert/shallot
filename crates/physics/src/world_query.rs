@@ -333,7 +333,7 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                 } else {
                     output.fraction
                 };
-                if value >= 0.0 && value <= 1.0 {
+                if (0.0..=1.0).contains(&value) {
                     fraction = value;
                 }
                 if operation == 3 {

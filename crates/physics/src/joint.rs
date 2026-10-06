@@ -158,6 +158,9 @@ pub fn prepare(
     );
 }
 
+/// # Safety
+/// `slot` must address a joint in `joints` whose bodies are live in the active world, and no other thread
+/// may write that joint or grow memory while this runs.
 #[cfg(target_arch = "wasm32")]
 pub unsafe fn prepare_world(
     joints: Col<f32>,

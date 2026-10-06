@@ -18,6 +18,8 @@ static mut BASE: usize = 0;
 static mut COUNT: usize = 0;
 static mut ROOTS: [i32; 3] = [-1; 3];
 static mut ENABLE_SLEEP: bool = true;
+/// # Safety
+/// `base` must address `count` bodies' rows of `STRIDE` words in reserved scratch, set before the worker fork.
 pub unsafe fn reserve_at(base: usize, count: usize) {
     BASE = base;
     COUNT = count;
@@ -212,6 +214,9 @@ fn filtered(a: usize, b: usize) -> bool {
     ((r.get(a + 27) & r.get(b + 25)) | (r.get(a + 28) & r.get(b + 26))) == 0
         || ((r.get(b + 27) & r.get(a + 25)) | (r.get(b + 28) & r.get(a + 26))) == 0
 }
+/// # Safety
+/// The body columns must be reserved for the active world, no other thread may write the bodies in
+/// `[start, end)`, and no thread may grow memory while this runs.
 pub unsafe fn finalize(start: usize, end: usize, enabled: bool) {
     let out = Col::new(
         bodies::fin_out_base() as *mut f32,
@@ -254,6 +259,8 @@ pub unsafe fn finalize(start: usize, end: usize, enabled: bool) {
         }
     }
 }
+/// # Safety
+/// As `finalize`, and `reserve_at` must have reserved continuous rows for every body in `[start, end)`.
 pub unsafe fn bullets(start: usize, end: usize) {
     for i in start..end {
         if sim2().atomic_get(i * 12 + 10) & (IS_FAST | IS_BULLET) == (IS_FAST | IS_BULLET) {
