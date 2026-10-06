@@ -25,7 +25,6 @@ import type { MeshData } from "../shapes/mesh";
 import type { Shape } from "../shapes/shape";
 import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
-import { type ConstraintGraph, createGraph } from "../solver/graph";
 import type { Joint } from "../solver/joint";
 import type { Body } from "./body";
 import type { Island } from "./island";
@@ -84,7 +83,6 @@ export type WorldState = {
     ecsState: import("../../../engine").World | undefined;
     broadPhase: BroadPhase;
     bodyFilters: BodyFilters;
-    constraintGraph: ConstraintGraph;
 
     /** Public body records are the authoring/handle bridge; lifecycle lives in wasm. */
     bodies: Body[];
@@ -292,12 +290,12 @@ function makeWorldState(
     // solver an extra bit and break bit-exact parity. Callbacks/capacity/bigints pass through.
     def = froundConfig(def);
     const capacity = makeCapacity(def.capacity);
+    kernel(world).graphCreate(capacity.staticBodyCount + capacity.dynamicBodyCount);
 
     const physicsWorld: WorldState = {
         ecsState: world,
         broadPhase: createBroadPhase(world, capacity, worldId),
         bodyFilters: new BodyFilters(),
-        constraintGraph: createGraph(capacity.staticBodyCount + capacity.dynamicBodyCount),
         bodies: [],
         solverSetIdPool: createIdPool(),
         solverSets: [],

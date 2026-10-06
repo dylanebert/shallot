@@ -251,7 +251,7 @@ export function solve(world: WorldState, context: StepContext): void {
     // per-step marshal runs; the kernel reads them where they already live.
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
-    writeSlots(cols, world, layout);
+    writeSlots(world);
     writeColorSpans(cols, layout);
 
     const gravity = world.gravity;

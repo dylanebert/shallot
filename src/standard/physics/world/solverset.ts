@@ -10,13 +10,17 @@ import { ContactField, contactField, setContactField } from "../collision/contac
 
 import { ContactFlags, reclassifyBodyContacts, writeBodySimIndex } from "../collision/contact";
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { clearBit } from "../common/bitset";
 import { GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import { residentPush, residentRemove } from "../kernel/bodycolumns";
 import { moveJointRecord, releaseJointArray } from "../kernel/jointcolumns";
 import { syncBodyQuery } from "../kernel/shapecolumns";
-import { addJointToGraph, removeContactFromGraph, wakeSetConstraints } from "../solver/graph";
+import {
+    addJointToGraph,
+    clearGraphBodies,
+    removeContactFromGraph,
+    wakeSetConstraints,
+} from "../solver/graph";
 import type { Joint } from "../solver/joint";
 import {
     BODY_TRANSIENT_FLAGS,
@@ -241,9 +245,7 @@ export function transferJoint(
     }
 
     if (sourceSet.setIndex === SetType.Awake && joint.colorIndex !== OVERFLOW_INDEX) {
-        const color = world.constraintGraph.colors[joint.colorIndex];
-        clearBit(color.bodySet, joint.edges[0].bodyId);
-        clearBit(color.bodySet, joint.edges[1].bodyId);
+        clearGraphBodies(world, joint.colorIndex, joint.edges[0].bodyId, joint.edges[1].bodyId);
     }
     if (targetSet.setIndex === SetType.Awake) {
         addJointToGraph(world, joint);

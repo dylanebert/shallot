@@ -26,6 +26,8 @@ import {
 } from "../../src/standard/physics/api";
 import { contactBodyId, contactCapacity, contactField, ContactField } from "../../src/standard/physics/collision/contact";
 import { DIR_STRIDE } from "../../src/standard/physics/collision/manifoldstore";
+import { OVERFLOW_INDEX } from "../../src/standard/physics/common/constants";
+import { kernel } from "../../src/standard/physics/kernel/kernel";
 import {
     computeCosSin,
     DEG_TO_RAD,
@@ -327,11 +329,11 @@ for (let i = 0; i < steps; ++i) {
         lines.push(`W ${i} contacts ${c.contactCount} awake ${state.awakeContacts.length} joints ${c.jointCount}`);
     }
     if (i === colors) {
-        const graph = state.constraintGraph.colors;
-        for (let c = 0; c < graph.length - 1; ++c) {
-            const set = graph[c].bodySet;
-            for (let k = 0; k < set.blockCount * 32; ++k) {
-                if (set.bits[k >>> 5] & (1 << (k & 31))) lines.push(`C ${i} color ${c} body ${k}`);
+        const graph = kernel(state.ecsState);
+        graph.bodySetActiveWorld(state.worldId);
+        for (let c = 0; c < OVERFLOW_INDEX; ++c) {
+            for (let k = 0; k < state.bodies.length; ++k) {
+                if (graph.graphBodyBit(c, k)) lines.push(`C ${i} color ${c} body ${k}`);
             }
         }
     }

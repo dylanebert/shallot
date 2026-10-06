@@ -23,6 +23,8 @@
 
 pub mod body;
 pub mod col;
+#[cfg(target_arch = "wasm32")]
+mod constraint_graph;
 pub mod contact;
 pub mod contact_wide;
 #[cfg(target_arch = "wasm32")]
