@@ -1,19 +1,6 @@
 //! Nongeometry shape lifecycle in Box3D's body/shape list and proxy order.
 use crate::{bodies, body, regions, shapes};
 
-#[export_name = "shapeCapsuleType"]
-pub extern "C" fn capsule_type(ax: f32, ay: f32, az: f32, bx: f32, by: f32, bz: f32) -> u32 {
-    // b3CreateCapsuleShape collapses a capsule shorter than linear slop to a sphere.
-    let x = bx - ax;
-    let y = by - ay;
-    let z = bz - az;
-    let slop = 0.005f32;
-    if (x * x + y * y) + z * z <= slop * slop {
-        5
-    } else {
-        0
-    }
-}
 #[export_name = "shapeLink"]
 pub unsafe extern "C" fn link(world: usize, id: usize, body_id: usize) {
     regions::select(world as u32);
@@ -197,8 +184,33 @@ pub unsafe extern "C" fn create_proxy(world: usize, id: usize, force: bool) {
         world, id, force, tight[0], tight[1], tight[2], tight[3], tight[4], tight[5],
     );
 }
-#[export_name = "shapeCreateProxyBounds"]
-pub unsafe extern "C" fn create_proxy_bounds(
+#[export_name = "shapeCreateProxyTransform"]
+pub unsafe extern "C" fn create_proxy_transform(
+    world: usize,
+    id: usize,
+    force: bool,
+    x: f32,
+    y: f32,
+    z: f32,
+    qx: f32,
+    qy: f32,
+    qz: f32,
+    qs: f32,
+) {
+    regions::select(world as u32);
+    let pose = crate::math::Transform {
+        p: crate::math::Vec3::new(x, y, z),
+        q: crate::math::Quat {
+            v: crate::math::Vec3::new(qx, qy, qz),
+            s: qs,
+        },
+    };
+    let tight = crate::shape_geometry::bounds(id, pose);
+    create_proxy_bounds(
+        world, id, force, tight[0], tight[1], tight[2], tight[3], tight[4], tight[5],
+    );
+}
+unsafe fn create_proxy_bounds(
     world: usize,
     id: usize,
     force: bool,
@@ -242,22 +254,6 @@ pub unsafe extern "C" fn create_proxy_bounds(
     );
     u.set(o + shapes::S_PROXY_KEY, key);
     query_pose(world, id, body_id);
-}
-// Borrowed geometry report for the synchronous authoring call, not world or shape storage.
-static mut GEOMETRY_INPUT: [f32; 4] = [0.0; 4];
-#[export_name = "shapeGeometryInputPtr"]
-pub extern "C" fn geometry_input_ptr() -> *mut f32 {
-    (&raw mut GEOMETRY_INPUT) as *mut f32
-}
-#[export_name = "shapeFinishGeometry"]
-pub unsafe extern "C" fn finish_geometry(world: usize, id: usize) {
-    regions::select(world as u32);
-    let f = shapes::col_f();
-    let o = id * shapes::SHAPE_STRIDE;
-    f.set(o + 65, GEOMETRY_INPUT[0]);
-    f.set(o + 66, GEOMETRY_INPUT[1]);
-    f.set(o + 67, GEOMETRY_INPUT[2]);
-    f.set(o + 40, GEOMETRY_INPUT[3]);
 }
 #[export_name = "shapeFilterWrite"]
 pub unsafe extern "C" fn filter_write(

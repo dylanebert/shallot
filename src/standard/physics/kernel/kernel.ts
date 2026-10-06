@@ -199,33 +199,7 @@ export type Kernel = {
     bodyDestroyContact(world: number, id: number): void;
     bodySyncFlags(world: number, id: number): void;
     bodyChangeType(world: number, id: number, type: number): void;
-    bodyMassBegin(world: number, id: number): void;
-    bodyMassShape(world: number, id: number, phase: number, previous: number): number;
-    bodyMassInput(
-        world: number,
-        mass: number,
-        x: number,
-        y: number,
-        z: number,
-        xx: number,
-        xy: number,
-        xz: number,
-        yx: number,
-        yy: number,
-        yz: number,
-        zx: number,
-        zy: number,
-        zz: number,
-    ): void;
-    bodyMassFinish(world: number, id: number): void;
-    bodyMassExtent(
-        world: number,
-        id: number,
-        minimum: number,
-        x: number,
-        y: number,
-        z: number,
-    ): void;
+    bodyUpdateMass(world: number, id: number): void;
     bodyCreateIsland(world: number, id: number): void;
     bodyRemoveIsland(world: number, id: number): void;
     bodyColumnPtr(world: number, id: number, column: number): number;
@@ -267,15 +241,34 @@ export type Kernel = {
         explosion: number,
         flags: number,
     ): number;
-    shapeCapsuleType(
-        ax: number,
-        ay: number,
-        az: number,
-        bx: number,
-        by: number,
-        bz: number,
+    shapeCanCreate(world: number, body: number, type: number): boolean;
+    shapeSetGeometry(
+        world: number,
+        id: number,
+        a: number,
+        b: number,
+        c: number,
+        d: number,
+        e: number,
+        f: number,
+        g: number,
     ): number;
-    shapeGeometryInputPtr(): number;
+    shapeGeometryOutputPtr(): number;
+    shapeComputeMass(world: number, id: number): void;
+    shapeComputeExtent(world: number, id: number, x: number, y: number, z: number): void;
+    shapeGetCentroid(world: number, id: number): void;
+    shapeComputeAABB(
+        world: number,
+        id: number,
+        x: number,
+        y: number,
+        z: number,
+        qx: number,
+        qy: number,
+        qz: number,
+        qs: number,
+        extra: number,
+    ): void;
     shapeFinishGeometry(world: number, id: number): void;
     shapeFilterWrite(
         world: number,
@@ -292,16 +285,17 @@ export type Kernel = {
     shapeUnlink(world: number, id: number): void;
     shapeSyncBody(world: number, body: number): void;
     shapeCreateProxy(world: number, id: number, force: number): void;
-    shapeCreateProxyBounds(
+    shapeCreateProxyTransform(
         world: number,
         id: number,
         force: number,
-        lx: number,
-        ly: number,
-        lz: number,
-        hx: number,
-        hy: number,
-        hz: number,
+        x: number,
+        y: number,
+        z: number,
+        qx: number,
+        qy: number,
+        qz: number,
+        qs: number,
     ): void;
     shapeDestroyProxy(world: number, id: number): void;
     shapeBodyProxies(world: number, body: number, create: number): void;

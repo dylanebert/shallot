@@ -115,6 +115,10 @@ fn box_transform(lower: Vec3, upper: Vec3, xf: Transform) -> [f32; 6] {
 pub(crate) fn bounds(id: usize, xf: Transform) -> [f32; 6] {
     let r = shapes::col_f();
     let o = id * shapes::SHAPE_STRIDE;
+    let kind = shapes::col().get(o);
+    if kind == 3 {
+        return unsafe { crate::shape_geometry::bounds(id, xf) };
+    }
     let geom = [
         r.get(o + 2),
         r.get(o + 3),
@@ -124,7 +128,6 @@ pub(crate) fn bounds(id: usize, xf: Transform) -> [f32; 6] {
         r.get(o + 7),
         r.get(o + 8),
     ];
-    let kind = shapes::col().get(o);
     if crate::finalize::is_convex_refit(kind) {
         return crate::finalize::convex_bounds(kind, &geom, xf);
     }

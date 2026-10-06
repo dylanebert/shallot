@@ -1,8 +1,6 @@
 import type { World } from "../../../engine";
 import type { AABB } from "../common/math";
 import { type ShapeDef, ShapeType, type SurfaceMaterial } from "../common/types";
-import type { Capsule, Sphere } from "../shapes/geometry";
-import type { HullData } from "../shapes/hull";
 import type { Shape } from "../shapes/shape";
 import type { WorldState } from "../world/world";
 import { shapeBodyId } from "./filtercolumns";
@@ -25,8 +23,8 @@ import { KernelViews } from "./views";
 /** Word stride of one kernel shape record, mirroring `shapes.rs`. */
 export const SHAPE_STRIDE = 69;
 export const S_PROXY_KEY = 50;
-/** Local geometry the AABB compute needs: sphere center(3)+radius(1), capsule center1(3)+center2(3)+
- * radius(1), hull local-AABB lower(3)+upper(3). Non-convex bounds use the geometry pools. */
+/** Inline sphere center(3)+radius(1), capsule endpoints(6)+radius(1), or mesh scale(3).
+ * Shared hull and nonconvex data use the geometry pools. */
 export const S_GEOM = 2;
 /** Hull record index or non-convex geometry word offset; capsule uses this lane for its radius. */
 export const S_GEO_REFERENCE = 8;
@@ -105,8 +103,8 @@ export class ShapeStore extends KernelViews {
     shapeU = new Uint32Array(0);
     /** The same bytes as f32 — the geometry payload's natural type. */
     shapeF = new Float32Array(0);
-    /** Borrowed geometry report, consumed synchronously by shapeFinishGeometry; never a record. */
-    geometryInput = new Float32Array(0);
+    /** Borrowed synchronous geometry result; copied before another kernel call. */
+    geometryOutput = new Float32Array(0);
     /** Resident fat-AABB column owned by this shape store, not a second helper store. */
     fatF = new Float32Array(0);
     /** Addressable memory for inline materials and owned contiguous material arrays. */
@@ -157,8 +155,8 @@ export class ShapeStore extends KernelViews {
         ) {
             this.fatF = new Float32Array(buf, fatLayout[0], fatCap * 6);
         }
-        if (this.geometryInput.buffer !== buf)
-            this.geometryInput = new Float32Array(buf, k.shapeGeometryInputPtr(), 4);
+        if (this.geometryOutput.buffer !== buf)
+            this.geometryOutput = new Float32Array(buf, k.shapeGeometryOutputPtr(), 13);
         if (this.materialU.buffer !== buf || this.materialU.byteLength !== buf.byteLength) {
             this.materialU = new Uint32Array(buf);
             this.materialF = new Float32Array(buf);
@@ -166,47 +164,9 @@ export class ShapeStore extends KernelViews {
         }
     }
 
-    /** Write authored type, list link and geometry while preserving the kernel attachment and finalize
-     * output lanes. A material list is published before this write on create/reuse. */
+    /** Attach uploaded shared geometry and the body's query pose. */
     write(world: WorldState, shape: Shape): void {
-        const f = this.shapeF;
-        const o = shape * SHAPE_STRIDE;
-
-        const g = o + S_GEOM;
-        if (shapeField(world, shape, ShapeField.type) === ShapeType.Sphere) {
-            const s = world.shapeGeometry[shape].sphere as Sphere;
-            f[g] = s.center.x;
-            f[g + 1] = s.center.y;
-            f[g + 2] = s.center.z;
-            f[g + 3] = s.radius;
-        } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Capsule) {
-            const c = world.shapeGeometry[shape].capsule as Capsule;
-            f[g] = c.center1.x;
-            f[g + 1] = c.center1.y;
-            f[g + 2] = c.center1.z;
-            f[g + 3] = c.center2.x;
-            f[g + 4] = c.center2.y;
-            f[g + 5] = c.center2.z;
-            f[g + 6] = c.radius;
-        } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Hull) {
-            // The hull's local AABB is the whole hull-AABB path (`computeShapeAABBOut` transforms it);
-            // the topology the narrowphase needs lives in the geometry pools, not here.
-            const box = (world.shapeGeometry[shape].hull as HullData).aabb;
-            f[g] = box.lowerBound.x;
-            f[g + 1] = box.lowerBound.y;
-            f[g + 2] = box.lowerBound.z;
-            f[g + 3] = box.upperBound.x;
-            f[g + 4] = box.upperBound.y;
-            f[g + 5] = box.upperBound.z;
-        } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Mesh) {
-            f[g] = world.shapeGeometry[shape].mesh!.scale.x;
-            f[g + 1] = world.shapeGeometry[shape].mesh!.scale.y;
-            f[g + 2] = world.shapeGeometry[shape].mesh!.scale.z;
-        }
         this.writeGeometryReference(world, shape);
-        if (shapeField(world, shape, ShapeField.type) === ShapeType.Hull)
-            this.shapeF[o + 43] = world.shapeGeometry[shape].hull!.innerRadius;
-        else this.shapeF[o + 43] = 0;
         const body = shapeBodyId(world, shape);
         this.writeQueryPose(world, shape, body);
     }

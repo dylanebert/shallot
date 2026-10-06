@@ -96,8 +96,6 @@ mod tests {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use runtime::*;
-
 #[cfg(target_arch = "wasm32")]
 mod runtime {
     use crate::math::Mat3;
@@ -682,43 +680,11 @@ mod runtime {
         sync_flags(world, id);
     }
 
-    struct MassInput {
-        mass: f32,
-        center: crate::math::Vec3,
-        inertia: Mat3,
-    }
-    static mut MASSES: [Vec<MassInput>; regions::MAX_WORLDS] =
-        [const { Vec::new() }; regions::MAX_WORLDS];
-    pub unsafe fn reset(world: usize) {
-        MASSES[world] = Vec::new();
+    fn next_shape(id: usize) -> i32 {
+        crate::shapes::col().get(id * crate::shapes::SHAPE_STRIDE + crate::shapes::S_NEXT) as i32
     }
 
-    #[export_name = "bodyMassShape"]
-    pub unsafe extern "C" fn mass_shape(world: usize, id: usize, phase: u32, previous: i32) -> i32 {
-        regions::select(world as u32);
-        let record = bodies::record(world, id);
-        if record.body_type == 0 || (phase < 2 && record.body_type != 2) {
-            return -1;
-        }
-        let u = crate::shapes::col();
-        let f = crate::shapes::col_f();
-        let mut shape = if previous == -1 {
-            record.head_shape_id
-        } else {
-            u.get(previous as usize * crate::shapes::SHAPE_STRIDE + crate::shapes::S_NEXT) as i32
-        };
-        while phase < 2
-            && shape != -1
-            && f.get(shape as usize * crate::shapes::SHAPE_STRIDE + crate::shapes::S_DENSITY) == 0.0
-        {
-            shape =
-                u.get(shape as usize * crate::shapes::SHAPE_STRIDE + crate::shapes::S_NEXT) as i32;
-        }
-        shape
-    }
-
-    #[export_name = "bodyMassBegin"]
-    pub unsafe extern "C" fn mass_begin(world: usize, id: usize) {
+    unsafe fn mass_begin(world: usize, id: usize) {
         regions::select(world as u32);
         let record = bodies::record_mut(world, id);
         record.mass = 0.0;
@@ -733,44 +699,9 @@ mod runtime {
             fin.set(lane, 0.0);
         }
         bodies::column(id, 5, body::SIM2_STRIDE).set(body::S2_MIN_EXTENT, 1.0e5);
-        if record.body_type != 2 {
-            return;
-        }
-        MASSES[world].clear();
-        MASSES[world].reserve(record.shape_count as usize);
     }
 
-    #[export_name = "bodyMassInput"]
-    pub unsafe extern "C" fn mass_input(
-        world: usize,
-        mass: f32,
-        x: f32,
-        y: f32,
-        z: f32,
-        xx: f32,
-        xy: f32,
-        xz: f32,
-        yx: f32,
-        yy: f32,
-        yz: f32,
-        zx: f32,
-        zy: f32,
-        zz: f32,
-    ) {
-        use crate::math::Vec3;
-        MASSES[world].push(MassInput {
-            mass,
-            center: Vec3::new(x, y, z),
-            inertia: Mat3 {
-                cx: Vec3::new(xx, xy, xz),
-                cy: Vec3::new(yx, yy, yz),
-                cz: Vec3::new(zx, zy, zz),
-            },
-        });
-    }
-
-    #[export_name = "bodyMassFinish"]
-    pub unsafe extern "C" fn mass_finish(world: usize, id: usize) {
+    unsafe fn mass_finish(world: usize, id: usize) {
         use crate::math::Vec3;
         regions::select(world as u32);
         let record = bodies::record_mut(world, id);
@@ -783,7 +714,17 @@ mod runtime {
         let pose = bodies::geometry(id).0;
         let mut center = Vec3::ZERO;
         if record.body_type == 2 {
-            for entry in &MASSES[world] {
+            let mut shape = record.head_shape_id;
+            while shape != -1 {
+                let id = shape as usize;
+                shape = next_shape(id);
+                if crate::shapes::col_f()
+                    .get(id * crate::shapes::SHAPE_STRIDE + crate::shapes::S_DENSITY)
+                    == 0.0
+                {
+                    continue;
+                }
+                let entry = crate::shape_geometry::mass(id);
                 record.mass += entry.mass;
                 center = center.mul_add(entry.mass, entry.center);
             }
@@ -791,7 +732,17 @@ mod runtime {
                 sim.set(0, 1.0 / record.mass);
                 center = center.scale(sim.get(0));
             }
-            for entry in &MASSES[world] {
+            let mut shape = record.head_shape_id;
+            while shape != -1 {
+                let id = shape as usize;
+                shape = next_shape(id);
+                if crate::shapes::col_f()
+                    .get(id * crate::shapes::SHAPE_STRIDE + crate::shapes::S_DENSITY)
+                    == 0.0
+                {
+                    continue;
+                }
+                let entry = crate::shape_geometry::mass(id);
                 if entry.mass == 0.0 {
                     continue;
                 }
@@ -860,15 +811,7 @@ mod runtime {
         }
     }
 
-    #[export_name = "bodyMassExtent"]
-    pub unsafe extern "C" fn mass_extent(
-        world: usize,
-        id: usize,
-        minimum: f32,
-        x: f32,
-        y: f32,
-        z: f32,
-    ) {
+    unsafe fn mass_extent(world: usize, id: usize, minimum: f32, x: f32, y: f32, z: f32) {
         regions::select(world as u32);
         let fin = bodies::column(id, 2, body::FIN_STRIDE);
         let sim2 = bodies::column(id, 5, body::SIM2_STRIDE);
@@ -879,6 +822,26 @@ mod runtime {
         for (lane, value) in [x, y, z].into_iter().enumerate() {
             fin.set(6 + lane, crate::math::maxf(fin.get(6 + lane), value));
         }
+    }
+
+    #[export_name = "bodyUpdateMass"]
+    pub unsafe extern "C" fn update_mass(world: usize, id: usize) {
+        mass_begin(world, id);
+        mass_finish(world, id);
+        let fin = bodies::column(id, 2, body::FIN_STRIDE);
+        let center = crate::math::Vec3::new(fin.get(3), fin.get(4), fin.get(5));
+        let record = bodies::record(world, id);
+        let mut shape = if record.body_type == 0 {
+            -1
+        } else {
+            record.head_shape_id
+        };
+        while shape != -1 {
+            let (minimum, maximum) = crate::shape_geometry::extent(shape as usize, center);
+            mass_extent(world, id, minimum, maximum.x, maximum.y, maximum.z);
+            shape = next_shape(shape as usize);
+        }
+        crate::shape_lifecycle::sync_body(world, id);
     }
 
     #[export_name = "bodyRemoveIsland"]

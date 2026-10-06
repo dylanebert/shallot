@@ -1,25 +1,16 @@
 import type { World } from "../../../engine";
-// Upload of the resident world's geometry into kernel/src/geo.rs. TS owns construction; the kernel
-// reads hull topology and non-convex query records from linear memory. A geometry-set change, region move
-// or residency transfer rewrites the pool. Unchanged single-world steps upload nothing.
-
-import { getCompoundChild } from "../shapes/compound";
+import type { Vec3 } from "../common/math";
+import { ShapeType } from "../common/types";
+import type { CompoundData } from "../shapes/compound";
+import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
-import type { WorldState } from "../world/world";
+import type { MeshData } from "../shapes/mesh";
+import type { GeometryRecord, WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
-/** b3HullData header, followed by its eight-byte-aligned trailing arrays. */
 const HULL_HEADER_WORDS = 36;
 const align8 = (words: number): number => (words + 1) & ~1;
-
-// GEO_LAYOUT header indices (geo.rs), in memory order.
-const REC = 0;
-
-const EXTRA = 6;
-const N_GEO = 8;
-
-/** The subset of a hull the geometry upload reads (and `geoIndex`, which it writes). `HullData`
- * satisfies it structurally. */
+const EMPTY: readonly number[] = [];
 export type UploadHull = Pick<
     HullData,
     | "center"
@@ -40,17 +31,46 @@ export type UploadHull = Pick<
     | "geoIndex"
 >;
 
-/**
- * Upload `hulls` into the kernel's static geometry columns, laying them out compactly and setting each
- * hull's `geoIndex` to its record index. A full rewrite — the pools are sized to the exact totals and
- * every hull's data is written fresh, so growth and renumbering need no in-place preservation.
- */
-export function uploadGeometry(
-    world: World | undefined,
-    hulls: UploadHull[],
-    extra: readonly number[] = [],
-): void {
-    const size = (h: UploadHull): number =>
+/** World-owned authoring upload registers, not geometry storage. Contents clear after upload;
+ * capacity and linear-memory views survive a database miss, as the kernel pools do. */
+export class GeometryUploadScratch {
+    hulls: (UploadHull | undefined)[] = [];
+    hullCount = 0;
+    words = new Uint32Array(16);
+    count = 0;
+    u: Uint32Array = new Uint32Array(0);
+    f: Float32Array = new Float32Array(0);
+    private readonly _float = new Float32Array(1);
+    private readonly _uint = new Uint32Array(this._float.buffer);
+    bits(x: number): number {
+        this._float[0] = x;
+        return this._uint[0];
+    }
+    put(x: number): void {
+        if (this.count === this.words.length) {
+            const next = new Uint32Array(this.words.length * 2);
+            next.set(this.words);
+            this.words = next;
+        }
+        this.words[this.count++] = x;
+    }
+    vec(p: Vec3): void {
+        this.put(this.bits(p.x));
+        this.put(this.bits(p.y));
+        this.put(this.bits(p.z));
+    }
+    append(values: ArrayLike<number>): void {
+        for (let i = 0; i < values.length; ++i) this.put(values[i]);
+    }
+    views(buffer: ArrayBufferLike): void {
+        if (this.u.buffer !== buffer) {
+            this.u = new Uint32Array(buffer);
+            this.f = new Float32Array(buffer);
+        }
+    }
+}
+function hullSize(h: UploadHull): number {
+    return (
         HULL_HEADER_WORDS +
         align8(h.vertexCount) +
         align8(h.vertexCount * 3) +
@@ -58,228 +78,268 @@ export function uploadGeometry(
         align8(h.faceCount * 4) +
         align8(h.faceCount) +
         3 * ((h.vertexCount + 3) & ~3) +
-        3 * ((h.faceCount + 3) & ~3);
-    let total = align8(hulls.length);
-    for (const h of hulls) total += size(h);
+        3 * ((h.faceCount + 3) & ~3)
+    );
+}
+function writeVector(f: Float32Array, o: number, p: Vec3): void {
+    f[o] = p.x;
+    f[o + 1] = p.y;
+    f[o + 2] = p.z;
+}
+
+/** Upload Box3D b3HullData headers and their eight-byte-aligned relative-offset trailing arrays.
+ * The directory addresses each shared hull by upload id. */
+export function uploadGeometry(
+    world: World | undefined,
+    hulls: readonly (UploadHull | undefined)[],
+    extra: ArrayLike<number> = EMPTY,
+    scratch = new GeometryUploadScratch(),
+    hullCount = hulls.length,
+    extraCount = extra.length,
+): void {
+    let total = align8(hullCount);
+    for (let i = 0; i < hullCount; ++i) total += hullSize(hulls[i]!);
     const k = kernel(world);
-    k.reserveGeometry(total, extra.length);
-    const buf = k.memory.buffer;
-    const layout = new Uint32Array(buf, k.geoLayoutPtr(), N_GEO);
-    new Uint32Array(buf, layout[EXTRA], extra.length).set(extra);
-    const recU = new Uint32Array(buf, layout[REC], total);
-    const recF = new Float32Array(buf, layout[REC], total);
-    recU.fill(0);
-    let base = align8(hulls.length);
-    for (let i = 0; i < hulls.length; ++i) {
-        const h = hulls[i];
+    k.reserveGeometry(total, extraCount);
+    scratch.views(k.memory.buffer);
+    const u = scratch.u,
+        f = scratch.f;
+    const layout = k.geoLayoutPtr() >>> 2;
+    const pool = u[layout] >>> 2,
+        extraBase = u[layout + 6] >>> 2;
+    for (let i = 0; i < extraCount; ++i) u[extraBase + i] = extra[i];
+    u.fill(0, pool, pool + total);
+    let base = align8(hullCount);
+    for (let i = 0; i < hullCount; ++i) {
+        const h = hulls[i]!;
         h.geoIndex = i;
-
-        const r = base;
-        recU[i] = r * 4;
-        recU[r] = 0xde57485c;
-        recU[r + 1] = 0x4a4c9587;
-        recU[r + 2] = h.hash >>> 0;
-        recF.set(
-            [
-                h.aabb.lowerBound.x,
-                h.aabb.lowerBound.y,
-                h.aabb.lowerBound.z,
-                h.aabb.upperBound.x,
-                h.aabb.upperBound.y,
-                h.aabb.upperBound.z,
-                h.surfaceArea,
-                h.volume,
-                h.innerRadius,
-                h.center.x,
-                h.center.y,
-                h.center.z,
-                h.centralInertia.cx.x,
-                h.centralInertia.cx.y,
-                h.centralInertia.cx.z,
-                h.centralInertia.cy.x,
-                h.centralInertia.cy.y,
-                h.centralInertia.cy.z,
-                h.centralInertia.cz.x,
-                h.centralInertia.cz.y,
-                h.centralInertia.cz.z,
-            ],
-            r + 4,
-        );
+        const r = pool + base;
+        u[pool + i] = base * 4;
+        u[r] = 0xde57485c;
+        u[r + 1] = 0x4a4c9587;
+        u[r + 2] = h.hash >>> 0;
+        writeHullProperties(f, r, h);
         let off = HULL_HEADER_WORDS;
-        const vertices = new Uint32Array(buf, layout[REC] + 4 * (r + off), h.vertexCount);
-        recU[r + 25] = h.vertexCount;
-        recU[r + 26] = off * 4;
+        const vertices = r + off;
+        u[r + 25] = h.vertexCount;
+        u[r + 26] = off * 4;
         off += align8(h.vertexCount);
-        const points = new Float32Array(buf, layout[REC] + 4 * (r + off), h.vertexCount * 3);
-        recU[r + 27] = off * 4;
+        const points = r + off;
+        u[r + 27] = off * 4;
         off += align8(h.vertexCount * 3);
-        const edgeCol = new Uint32Array(buf, layout[REC] + 4 * (r + off), h.edgeCount * 4);
-        recU[r + 28] = h.edgeCount;
-        recU[r + 29] = off * 4;
+        const edges = r + off;
+        u[r + 28] = h.edgeCount;
+        u[r + 29] = off * 4;
         off += align8(h.edgeCount * 4);
-        const planes = new Float32Array(buf, layout[REC] + 4 * (r + off), h.faceCount * 4);
-        recU[r + 30] = h.faceCount;
-        recU[r + 31] = off * 4;
+        const planes = r + off;
+        u[r + 30] = h.faceCount;
+        u[r + 31] = off * 4;
         off += align8(h.faceCount * 4);
-        const faceCol = new Uint32Array(buf, layout[REC] + 4 * (r + off), h.faceCount);
-        recU[r + 32] = off * 4;
+        const faces = r + off;
+        u[r + 32] = off * 4;
         off += align8(h.faceCount);
-        const soa = new Float32Array(buf, layout[REC] + 4 * (r + off), size(h) - off);
-        recU[r + 33] = off * 4;
-        recU[r + 34] = (off + 3 * ((h.vertexCount + 3) & ~3)) * 4;
-        recU[r + 35] = size(h) * 4;
-        let soaOff = 0;
-
-        // Authoring and snapshots keep points/planes as their one source; derive Box3D's padded
-        // streams only at upload. Tail vertices repeat element zero; tail normals are zero.
-        const nv = (h.vertexCount + 3) & ~3;
-        const nf = (h.faceCount + 3) & ~3;
+        const nv = (h.vertexCount + 3) & ~3,
+            nf = (h.faceCount + 3) & ~3;
+        const soa = r + off;
+        u[r + 33] = off * 4;
+        u[r + 34] = (off + 3 * nv) * 4;
+        u[r + 35] = hullSize(h) * 4;
         for (let p = 0; p < nv; ++p) {
             const pt = h.points[p < h.vertexCount ? p : 0];
-            soa[soaOff + p] = pt.x;
-            soa[soaOff + nv + p] = pt.y;
-            soa[soaOff + 2 * nv + p] = pt.z;
+            f[soa + p] = pt.x;
+            f[soa + nv + p] = pt.y;
+            f[soa + 2 * nv + p] = pt.z;
         }
-        soaOff += 3 * nv;
-        for (let f = 0; f < nf; ++f) {
-            const normal = f < h.faceCount ? h.planes[f].normal : undefined;
-            soa[soaOff + f] = normal?.x ?? 0;
-            soa[soaOff + nf + f] = normal?.y ?? 0;
-            soa[soaOff + 2 * nf + f] = normal?.z ?? 0;
+        for (let n = 0; n < nf; ++n) {
+            if (n < h.faceCount) {
+                const normal = h.planes[n].normal;
+                f[soa + 3 * nv + n] = normal.x;
+                f[soa + 3 * nv + nf + n] = normal.y;
+                f[soa + 3 * nv + 2 * nf + n] = normal.z;
+            } else {
+                f[soa + 3 * nv + n] = 0;
+                f[soa + 3 * nv + nf + n] = 0;
+                f[soa + 3 * nv + 2 * nf + n] = 0;
+            }
         }
-        soaOff += 3 * nf;
-
         for (let p = 0; p < h.vertexCount; ++p) {
-            const pt = h.points[p];
-            const o = p * 3;
-            points[o] = pt.x;
-            points[o + 1] = pt.y;
-            points[o + 2] = pt.z;
-            vertices[p] = h.vertices[p].edge;
+            writeVector(f, points + 3 * p, h.points[p]);
+            u[vertices + p] = h.vertices[p].edge;
         }
         for (let e = 0; e < h.edgeCount; ++e) {
-            const ed = h.edges[e];
-            const o = e * 4;
-            edgeCol[o] = ed.next;
-            edgeCol[o + 1] = ed.twin;
-            edgeCol[o + 2] = ed.origin;
-            edgeCol[o + 3] = ed.face;
+            const ed = h.edges[e],
+                o = edges + 4 * e;
+            u[o] = ed.next;
+            u[o + 1] = ed.twin;
+            u[o + 2] = ed.origin;
+            u[o + 3] = ed.face;
         }
-        for (let f = 0; f < h.faceCount; ++f) {
-            faceCol[f] = h.faces[f].edge;
-            const pl = h.planes[f];
-            const o = f * 4;
-            planes[o] = pl.normal.x;
-            planes[o + 1] = pl.normal.y;
-            planes[o + 2] = pl.normal.z;
-            planes[o + 3] = pl.offset;
+        for (let n = 0; n < h.faceCount; ++n) {
+            u[faces + n] = h.faces[n].edge;
+            writeVector(f, planes + 4 * n, h.planes[n].normal);
+            f[planes + 4 * n + 3] = h.planes[n].offset;
         }
-
-        base += size(h);
+        base += hullSize(h);
     }
 }
 
-/** Rebuild this World's geometry after its geometry set changes.
- * Hull references are record indices; non-convex references are word offsets within EXTRA. Mesh
- * records hold counts and offsets to 11-word nodes, xyz vertices, index triples, flags and materials.
- * Height records hold bounds, quantization, scale, dimensions, winding and array offsets. Compound
- * records hold the tree root, node/child counts and offsets to 12-word tree nodes and 19-word children
- * (kind, transform, four material indices, seven geometry words). Pool-relative offsets survive reallocation. */
-export function rebuildGeometry(world: WorldState): void {
-    const hullArray = Array.from(world.hullDatabase.values(), (entry) => entry.hull);
-    for (let i = 0; i < hullArray.length; ++i) hullArray[i].geoIndex = i;
+function writeHullProperties(f: Float32Array, r: number, h: UploadHull): void {
+    writeVector(f, r + 4, h.aabb.lowerBound);
+    writeVector(f, r + 7, h.aabb.upperBound);
+    f[r + 10] = h.surfaceArea;
+    f[r + 11] = h.volume;
+    f[r + 12] = h.innerRadius;
+    writeVector(f, r + 13, h.center);
+    writeVector(f, r + 16, h.centralInertia.cx);
+    writeVector(f, r + 19, h.centralInertia.cy);
+    writeVector(f, r + 22, h.centralInertia.cz);
+}
 
-    // Pool-relative references need no patching when the geometry allocation moves.
-    const words: number[] = [];
-    const append = (values: Iterable<number>): void => {
-        for (const value of values) words.push(value);
-    };
-    const float = new DataView(new ArrayBuffer(4));
-    const bits = (x: number): number => {
-        float.setFloat32(0, x, true);
-        return float.getUint32(0, true);
-    };
-    const vec = (p: { x: number; y: number; z: number }): void => {
-        words.push(bits(p.x), bits(p.y), bits(p.z));
-    };
-    for (const [m, entry] of world.meshDatabase) {
-        const record = words.length;
-        entry.geoIndex = record;
-        words.push(m.nodes.length, m.vertices.length, m.triangles.length, 0, 0, 0, 0, 0);
-        words[record + 3] = words.length;
-        for (const n of m.nodes) {
-            vec(n.lowerBound);
-            vec(n.upperBound);
-            words.push(Number(n.leaf), n.axis, n.childOffset, n.triangleCount, n.triangleOffset);
-        }
-        words[record + 4] = words.length;
-        for (const p of m.vertices) vec(p);
-        words[record + 5] = words.length;
-        for (const t of m.triangles) words.push(t.index1, t.index2, t.index3);
-        words[record + 6] = words.length;
-        append(m.flags);
-        words[record + 7] = words.length;
-        append(m.materialIndices);
-    }
-    for (const [h, entry] of world.heightFieldDatabase) {
-        const record = words.length;
-        entry.geoIndex = record;
-        vec(h.aabb.lowerBound);
-        vec(h.aabb.upperBound);
-        words.push(bits(h.minHeight), bits(h.maxHeight), bits(h.heightScale));
-        vec(h.scale);
-        words.push(h.columnCount, h.rowCount, Number(h.clockwise), 0, 0, 0);
-        words[record + 15] = words.length;
-        append(h.compressedHeights);
-        words[record + 16] = words.length;
-        append(h.materialIndices);
-        words[record + 17] = words.length;
-        append(h.flags);
-    }
-    for (const [c, entry] of world.compoundDatabase) {
-        const record = words.length;
-        entry.geoIndex = record;
-        const count = c.capsules.length + c.hulls.length + c.meshes.length + c.spheres.length;
-        words.push(c.tree.root, c.tree.nodeCapacity, count, 0, 0);
-        words[record + 3] = words.length;
-        // The compound tree retains the exact dynamic-tree node layout and leaf user data.
-        append(new Uint32Array(c.tree.ni.buffer, c.tree.ni.byteOffset, c.tree.ni.length));
-        words[record + 4] = words.length;
-        for (let i = 0; i < count; ++i) {
-            const child = getCompoundChild(c, i);
-            words.push(child.type);
-            vec(child.transform.p);
-            vec(child.transform.q.v);
-            words.push(bits(child.transform.q.s));
-            words.push(...child.materialIndices);
-            const start = words.length;
-            if (child.capsule) {
-                vec(child.capsule.center1);
-                vec(child.capsule.center2);
-                words.push(bits(child.capsule.radius));
-            } else if (child.sphere) {
-                vec(child.sphere.center);
-                words.push(bits(child.sphere.radius));
-            } else if (child.hull)
-                words.push(
-                    world.hullDatabase.get(child.hull.hash | 0)!.hull.geoIndex,
-                    bits(child.hull.innerRadius),
-                );
-            else if (child.mesh) {
-                words.push(world.meshDatabase.get(child.mesh.data)!.geoIndex);
-                vec(child.mesh.scale);
-            }
-            while (words.length < start + 7) words.push(0);
-        }
-    }
-    kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
-    uploadGeometry(world.ecsState, hullArray, words);
+/** Upload this world's changed authoring set. Nonconvex records retain their query layout until C2b;
+ * their pool-relative references survive linear-memory growth. */
+export function rebuildGeometry(world: WorldState): void {
+    const s = (world.geometryUploadScratch ??= new GeometryUploadScratch());
+    s.hullCount = 0;
+    s.count = 0;
+    world.hullDatabase.forEach(stageHull, world);
+    world.meshDatabase.forEach(stageMesh, world);
+    world.heightFieldDatabase.forEach(stageHeight, world);
+    world.compoundDatabase.forEach(stageCompound, world);
+    const k = kernel(world.ecsState);
+    k.shapeSetActiveWorld(world.worldId);
+    uploadGeometry(world.ecsState, s.hulls, s.words, s, s.hullCount, s.count);
+    for (let i = 0; i < s.hullCount; ++i) s.hulls[i] = undefined;
+    s.words.fill(0, 0, s.count);
+    s.count = 0;
+    s.hullCount = 0;
     world.geometryUploadCount += 1;
     world.shapeStore.refreshViews();
     world.bodyStore.refreshViews();
     world.manifoldStore.refreshViews();
-    for (let s = 0; s < world.shapeGeometry.length; ++s) {
-        if (!kernel(world.ecsState).shapeAlive(world.worldId, s)) continue;
-        world.shapeStore.writeGeometryReference(world, s);
+    for (let id = 0; id < world.shapeGeometry.length; ++id) {
+        if (k.shapeAlive(world.worldId, id)) world.shapeStore.writeGeometryReference(world, id);
     }
+}
+function stageHull(this: WorldState, entry: { hull: HullData; refCount: number }): void {
+    const s = this.geometryUploadScratch!;
+    entry.hull.geoIndex = s.hullCount;
+    s.hulls[s.hullCount++] = entry.hull;
+}
+function stageMesh(this: WorldState, entry: GeometryRecord, m: MeshData): void {
+    const s = this.geometryUploadScratch!;
+    const record = s.count;
+    entry.geoIndex = record;
+    s.put(m.nodes.length);
+    s.put(m.vertices.length);
+    s.put(m.triangles.length);
+    for (let i = 0; i < 5; ++i) s.put(0);
+    s.words[record + 3] = s.count;
+    for (const n of m.nodes) {
+        s.vec(n.lowerBound);
+        s.vec(n.upperBound);
+        s.put(Number(n.leaf));
+        s.put(n.axis);
+        s.put(n.childOffset);
+        s.put(n.triangleCount);
+        s.put(n.triangleOffset);
+    }
+    s.words[record + 4] = s.count;
+    for (const p of m.vertices) s.vec(p);
+    s.words[record + 5] = s.count;
+    for (const t of m.triangles) {
+        s.put(t.index1);
+        s.put(t.index2);
+        s.put(t.index3);
+    }
+    s.words[record + 6] = s.count;
+    s.append(m.flags);
+    s.words[record + 7] = s.count;
+    s.append(m.materialIndices);
+}
+function stageHeight(this: WorldState, entry: GeometryRecord, h: HeightFieldData): void {
+    const s = this.geometryUploadScratch!;
+    const record = s.count;
+    entry.geoIndex = record;
+    s.vec(h.aabb.lowerBound);
+    s.vec(h.aabb.upperBound);
+    s.put(s.bits(h.minHeight));
+    s.put(s.bits(h.maxHeight));
+    s.put(s.bits(h.heightScale));
+    s.vec(h.scale);
+    s.put(h.columnCount);
+    s.put(h.rowCount);
+    s.put(Number(h.clockwise));
+    s.put(0);
+    s.put(0);
+    s.put(0);
+    s.words[record + 15] = s.count;
+    s.append(h.compressedHeights);
+    s.words[record + 16] = s.count;
+    s.append(h.materialIndices);
+    s.words[record + 17] = s.count;
+    s.append(h.flags);
+}
+function stageCompound(this: WorldState, entry: GeometryRecord, c: CompoundData): void {
+    const s = this.geometryUploadScratch!;
+    const record = s.count;
+    entry.geoIndex = record;
+    const count = c.capsules.length + c.hulls.length + c.meshes.length + c.spheres.length;
+    s.put(c.tree.root);
+    s.put(c.tree.nodeCapacity);
+    s.put(count);
+    s.put(0);
+    s.put(0);
+    s.words[record + 3] = s.count;
+    s.append(c.tree.ni);
+    s.words[record + 4] = s.count;
+    for (const child of c.capsules) {
+        s.put(ShapeType.Capsule);
+        identity(s);
+        materials(s, child.materialIndex);
+        s.vec(child.capsule.center1);
+        s.vec(child.capsule.center2);
+        s.put(s.bits(child.capsule.radius));
+    }
+    for (const child of c.hulls) {
+        s.put(ShapeType.Hull);
+        s.vec(child.transform.p);
+        s.vec(child.transform.q.v);
+        s.put(s.bits(child.transform.q.s));
+        materials(s, child.materialIndex);
+        s.put(this.hullDatabase.get(child.hull.hash | 0)!.hull.geoIndex);
+        s.put(s.bits(child.hull.innerRadius));
+        for (let i = 0; i < 5; ++i) s.put(0);
+    }
+    for (const child of c.meshes) {
+        s.put(ShapeType.Mesh);
+        s.vec(child.transform.p);
+        s.vec(child.transform.q.v);
+        s.put(s.bits(child.transform.q.s));
+        s.append(child.materialIndices);
+        s.put(this.meshDatabase.get(child.meshData)!.geoIndex);
+        s.vec(child.scale);
+        s.put(0);
+        s.put(0);
+        s.put(0);
+    }
+    for (const child of c.spheres) {
+        s.put(ShapeType.Sphere);
+        identity(s);
+        materials(s, child.materialIndex);
+        s.vec(child.sphere.center);
+        s.put(s.bits(child.sphere.radius));
+        s.put(0);
+        s.put(0);
+        s.put(0);
+    }
+}
+function identity(s: GeometryUploadScratch): void {
+    for (let i = 0; i < 6; ++i) s.put(0);
+    s.put(s.bits(1));
+}
+function materials(s: GeometryUploadScratch, material: number): void {
+    s.put(material);
+    s.put(0);
+    s.put(0);
+    s.put(0);
 }

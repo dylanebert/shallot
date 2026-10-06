@@ -131,6 +131,7 @@ mod pairwork;
 mod query_abi;
 #[cfg(target_arch = "wasm32")]
 mod regions;
+mod shape_geometry;
 #[cfg(target_arch = "wasm32")]
 mod shape_lifecycle;
 #[cfg(target_arch = "wasm32")]

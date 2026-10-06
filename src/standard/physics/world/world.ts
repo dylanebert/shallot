@@ -103,6 +103,7 @@ export type WorldState = {
     compoundDatabase: Map<CompoundData, GeometryRecord>;
     // Set when geometry data enters or leaves the databases, or residency/region placement changes.
     geometryDirty: boolean;
+    geometryUploadScratch?: import("../kernel/geocolumns").GeometryUploadScratch;
     /** Number of complete geometry uploads since world creation. */
     geometryUploadCount: number;
     // Persistent contact-manifold columns (warm-start state, column-resident): the allocator + wasm
@@ -427,6 +428,7 @@ export function destroyWorld(world: WorldState): void {
     kernel(world.ecsState).bodyResetWorld(world.worldId);
     kernel(world.ecsState).shapeResetWorld(world.worldId);
     kernel(world.ecsState).residentResetWorld(world.worldId);
+    world.geometryUploadScratch = undefined;
     world.inUse = false;
     world.worldId = 0;
     world.generation = (generation + 1) & 0xffff;

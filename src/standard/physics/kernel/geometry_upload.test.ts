@@ -185,8 +185,8 @@ test("height-field and compound instances retain resident records, including a c
                 kind === "height"
                     ? createHeightFieldShape(world, b, defaultShapeDef(), field)
                     : createCompoundShape(world, b, defaultShapeDef(), compound);
-            const shape = create(first)!;
             const before = world.geometryUploadCount;
+            const shape = create(first)!;
             advance(world);
             expect(world.geometryUploadCount).toBe(before + 1);
             const second = body(world);

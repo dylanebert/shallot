@@ -334,7 +334,6 @@ pub extern "C" fn body_reset_world(id: u32) {
     unsafe {
         let w = world_mut(id as usize);
         w.columns.release();
-        crate::body_record::reset(id as usize);
         *w = Bodies::EMPTY;
     }
 }

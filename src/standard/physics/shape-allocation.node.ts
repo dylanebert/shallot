@@ -13,6 +13,7 @@ import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { type Kernel, kernelState } from "./kernel/kernel";
 import { shapeAllocationSubject } from "./shape-allocation.fixture";
 import { createCompound } from "./shapes/compound";
+import { makeBoxHull } from "./shapes/hull";
 
 setDefaultTimeout(CEILING.node);
 const entry = resolve(import.meta.dir, "fixtures/shape-allocation.entry.ts");
@@ -59,10 +60,10 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
         for (const type of [BodyType.Static, BodyType.Kinematic]) {
             const body = world.createBody({ type });
             const id = body.id.index1 - 1;
-            // Isolate the mass-buffer reserve guard from geometry and proxy allocation.
+            // A high shape count must not reserve temporary mass storage for non-dynamic bodies.
             setBodyField(world.state, id, BodyField.shapeCount, 1024);
             const massBefore = k.allocationCount();
-            k.bodyMassBegin(world.state.worldId, id);
+            k.bodyUpdateMass(world.state.worldId, id);
             expect(k.allocationCount() - massBefore).toBe(0);
             setBodyField(world.state, id, BodyField.shapeCount, 0);
             body.destroy();
@@ -112,8 +113,22 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
             expect(sleeper.isAwake()).toBe(true);
             expect(k.allocationCount() - wakeBefore).toBe(0);
         }
+        const missingHull = makeBoxHull(0.625, 0.375, 0.875);
+        for (let i = 0; i < 32; ++i) ground.createHull({}, missingHull).destroy();
+        for (let i = 0; i < 32; ++i) {
+            expect(world.state.hullDatabase.has(missingHull.hash | 0)).toBe(false);
+            const missBefore = k.allocationCount();
+            const shape = ground.createHull({}, missingHull);
+            expect(world.state.hullDatabase.has(missingHull.hash | 0)).toBe(true);
+            shape.destroy();
+            // Geometry uploads reuse warmed kernel pool capacity, even on database misses.
+            expect(k.allocationCount() - missBefore).toBe(0);
+        }
+        const controlBefore = k.allocationCount();
         k.allocationControl();
-        expect(k.allocationCount() - before).toBeGreaterThan(0);
+        const allocated = k.allocationCount() - controlBefore;
+        expect(allocated).toBeGreaterThan(0);
+        expect(() => expect(allocated).toBe(0)).toThrow();
     } finally {
         world?.destroy();
         runtime.instance = previous;
@@ -123,6 +138,13 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
 
 test("the same warm recycled shape lifecycle allocates no steady JavaScript heap", async () => {
     const sample = await sampleAllocation(entry, { warm: 1200, frames: 600 });
+    expect(sample.control.length).toBeGreaterThan(0);
+    const failure = allocationFailure(sample);
+    if (failure !== undefined) throw new Error(failure);
+});
+
+test("warmed geometry uploads on the hull database miss path allocate no transient JavaScript heap", async () => {
+    const sample = await sampleAllocation(entry, { warm: 1200, frames: 600, input: "upload" });
     expect(sample.control.length).toBeGreaterThan(0);
     const failure = allocationFailure(sample);
     if (failure !== undefined) throw new Error(failure);

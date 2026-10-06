@@ -15,7 +15,6 @@ import {
     type Pos,
     type Quat,
     type Vec3,
-    vec3,
     type WorldTransform,
 } from "../common/math";
 import { type BodyDef, BodyType } from "../common/types";
@@ -24,12 +23,7 @@ import { islandField } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
 import { destroyShapeSlot, syncBodyQuery } from "../kernel/shapecolumns";
 import type { MassData } from "../shapes/geometry";
-import {
-    computeShapeExtent,
-    computeShapeMass,
-    destroyShapeAllocations,
-    destroyShapeProxy,
-} from "../shapes/shape";
+import { destroyShapeAllocations, destroyShapeProxy } from "../shapes/shape";
 import { destroyJointInternal } from "../solver/joint";
 import { linkJoint, splitIsland, unlinkJoint } from "./island";
 import { destroySensor } from "./sensor";
@@ -745,50 +739,8 @@ export function bodyEnable(world: WorldState, body: number): void {
 }
 
 /** Recompute mass, center of mass, and inertia from the body's shapes (b3UpdateBodyMassData). */
-const massExtentCenter = vec3.zero();
-const massDataScratch = { mass: 0, center: vec3.zero(), inertia: mat3.zero() };
-const massExtentScratch = { minExtent: 0, maxExtent: vec3.zero() };
 export function updateBodyMassData(world: WorldState, body: number): void {
-    const k = kernel(world.ecsState);
-    k.bodyMassBegin(world.worldId, body);
-    let shape = k.bodyMassShape(world.worldId, body, 0, NULL_INDEX);
-    while (shape !== NULL_INDEX) {
-        const data = computeShapeMass(world, shape, massDataScratch);
-        const m = data.inertia;
-        k.bodyMassInput(
-            world.worldId,
-            data.mass,
-            data.center.x,
-            data.center.y,
-            data.center.z,
-            m.cx.x,
-            m.cx.y,
-            m.cx.z,
-            m.cy.x,
-            m.cy.y,
-            m.cy.z,
-            m.cz.x,
-            m.cz.y,
-            m.cz.z,
-        );
-        shape = k.bodyMassShape(world.worldId, body, 0, shape);
-    }
-    k.bodyMassFinish(world.worldId, body);
-    readSimLocalCenter(world, getBodySim(world, body), massExtentCenter);
-    shape = k.bodyMassShape(world.worldId, body, 2, NULL_INDEX);
-    while (shape !== NULL_INDEX) {
-        const extent = computeShapeExtent(world, shape, massExtentCenter, massExtentScratch);
-        k.bodyMassExtent(
-            world.worldId,
-            body,
-            extent.minExtent,
-            extent.maxExtent.x,
-            extent.maxExtent.y,
-            extent.maxExtent.z,
-        );
-        shape = k.bodyMassShape(world.worldId, body, 2, shape);
-    }
-    syncBodyQuery(world, body);
+    kernel(world.ecsState).bodyUpdateMass(world.worldId, body);
 }
 
 /** @returns the body's mass, local center of mass, and rotational inertia (b3Body_GetMassData). */

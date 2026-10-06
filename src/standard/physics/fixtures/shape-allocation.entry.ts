@@ -8,7 +8,7 @@ export const control = () => {
 };
 export default async function create(input: string) {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const step = shapeAllocationSubject(physicsWorld(app.world)!);
+    const step = shapeAllocationSubject(physicsWorld(app.world)!, true, input === "upload");
     const allocating = input === "allocating";
     return {
         step: () => {
