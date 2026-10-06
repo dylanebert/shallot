@@ -236,6 +236,17 @@ pub extern "C" fn body_sync_moved(count: usize) -> usize {
         written
     }
 }
+pub(crate) unsafe fn mark_move_asleep(index: usize) {
+    let layout = world(regions::active()).columns.layout;
+    *(layout[B_MOVE] as *mut u32).add(index * MOVE_STRIDE + 2) = 1;
+    let row = *(layout[B_SYNC_INDEX] as *const u32).add(index);
+    if row != u32::MAX {
+        (layout[B_SYNC_VEL] as *mut f32)
+            .add(row as usize * 4)
+            .write_bytes(0, 4);
+    }
+}
+
 #[export_name = "bodyCreate"]
 pub extern "C" fn body_create(id: u32) -> u32 {
     regions::select(id);

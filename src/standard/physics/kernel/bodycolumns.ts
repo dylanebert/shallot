@@ -44,7 +44,6 @@ const B_SYNC_EID = 8;
 const B_SYNC_POS = 9;
 const B_SYNC_QUAT = 10;
 const B_SYNC_VEL = 11;
-const B_SYNC_INDEX = 12;
 const B_RECORD = 13;
 export const N_BODY = 14;
 const BODY_RECORD_STRIDE = 29;
@@ -109,8 +108,6 @@ export class BodyStore extends KernelViews {
     continuousU = new Uint32Array(0);
     #continuousCount = 0;
     syncCount = 0;
-    #syncIndex = new Uint32Array(0);
-    #syncVel = new Float32Array(0);
     #syncRanges = new Map<number, MovedRows>();
     // The held layout header view the column views are derived from.
     private _layout = new Uint32Array(0);
@@ -154,8 +151,6 @@ export class BodyStore extends KernelViews {
         this.sim2F = new Float32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
         this.sim2U = new Uint32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
         this.moveU = new Uint32Array(buf, layout[B_MOVE], cap * MOVE_STRIDE);
-        this.#syncIndex = new Uint32Array(buf, layout[B_SYNC_INDEX], cap);
-        this.#syncVel = new Float32Array(buf, layout[B_SYNC_VEL], cap * 4);
         this.#syncRanges.clear();
     }
 
@@ -203,13 +198,6 @@ export class BodyStore extends KernelViews {
         };
         this.#syncRanges.set(count, rows);
         return rows;
-    }
-
-    /** Mark a published body move as asleep without allocating an event object. */
-    markMoveAsleep(index: number): void {
-        this.moveU[index * MOVE_STRIDE + 2] = 1;
-        const row = this.#syncIndex[index];
-        if (row !== 0xffffffff) this.#syncVel.fill(0, row * 4, row * 4 + 4);
     }
 
     /** Read a retained body move record into caller-owned storage. */

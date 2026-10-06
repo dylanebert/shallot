@@ -289,8 +289,7 @@ pub unsafe extern "C" fn transfer_body(
     if source == AWAKE && target >= 3 {
         let record = crate::bodies::record_mut(regions::active(), id as usize);
         if record.body_move_index != -1 {
-            *(crate::bodies::move_base() as *mut u32)
-                .add(record.body_move_index as usize * crate::bodies::MOVE_STRIDE + 2) = 1;
+            crate::bodies::mark_move_asleep(record.body_move_index as usize);
             record.body_move_index = -1;
         }
     }
