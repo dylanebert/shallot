@@ -281,6 +281,9 @@ export function createJoint(
         createJointInGraph(world, joint);
     } else {
         // joint connected between sleeping and/or static bodies
+        joint.setIndex = maxSetIndex;
+        joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + maxSetIndex);
+        writeJointWord(world, joint, J_JOINT_ID, jointId);
         if (
             bodyA.setIndex !== bodyB.setIndex &&
             bodyA.setIndex >= SetType.FirstSleeping &&
@@ -288,9 +291,6 @@ export function createJoint(
         ) {
             mergeSolverSets(world, bodyA.setIndex, bodyB.setIndex);
         }
-        const setIndex = Math.max(bodyA.setIndex, bodyB.setIndex);
-        joint.setIndex = setIndex;
-        joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + setIndex);
     }
     writeJointWord(world, joint, J_JOINT_ID, jointId);
     writeJointWord(world, joint, J_TYPE, type);

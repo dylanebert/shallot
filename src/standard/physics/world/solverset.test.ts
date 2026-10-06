@@ -140,8 +140,22 @@ test("joint creation merges sleeping sets in append order without waking bodies"
             const sets = groups.map((group) => world.state.bodies[group[0].id.index1 - 1].setIndex);
             expect(sets[0]).not.toBe(sets[1]);
             const before = sims(world.state);
+            const jointOrder = sets.map((set) =>
+                world.state.joints
+                    .filter((joint) => joint.setIndex === set)
+                    .sort((a, b) => a.localIndex - b.localIndex)
+                    .map((joint) => joint.jointId),
+            );
+            const newJointId = world.state.joints.length;
             const survivor = sizes[0] >= sizes[1] ? 0 : 1;
             world.createDistanceJoint(groups[0][0], groups[1][0], { length: 10 });
+            jointOrder[1].push(newJointId);
+            const expectedJoints = [...jointOrder[survivor], ...jointOrder[1 - survivor]];
+            const mergedJoints = world.state.joints
+                .filter((joint) => joint.setIndex === sets[survivor])
+                .sort((a, b) => a.localIndex - b.localIndex)
+                .map((joint) => joint.jointId);
+            expect(mergedJoints).toEqual(expectedJoints);
             expect(solverSetIndex(world.state, sets[1 - survivor])).toBe(-1);
             expect(setBodyCount(world.state, sets[survivor])).toBe(sizes[0] + sizes[1]);
             const order = [...groups[survivor], ...groups[1 - survivor]];
