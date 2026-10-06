@@ -464,7 +464,7 @@ unsafe fn dispatch_mesh(
     let record = crate::geo::extra_ptr(geom[0] as usize);
     let source = if ty == 4 {
         let mesh = crate::geo::mesh_view(
-            geom[0] as usize,
+            record,
             Vec3::new(
                 f32::from_bits(geom[1]),
                 f32::from_bits(geom[2]),
@@ -479,7 +479,7 @@ unsafe fn dispatch_mesh(
             mesh,
         }
     } else {
-        let field = crate::geo::height_view(geom[0] as usize);
+        let field = crate::geo::height_view(record);
         TriangleSource::Height {
             flags: core::slice::from_raw_parts(
                 (record as *const u8).add(*record.add(21) as usize),
@@ -847,19 +847,24 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             let mut child_offset = Vec3::ZERO;
             let mut material_map = None;
             let mut child_radius = 0.0;
+            let mut compound_geometry = [0u32; 19];
             if type_a == 1 {
-                let record = crate::geo::extra_ptr(geom_a[0] as usize);
-                let child = crate::geo::extra_ptr(*record.add(4) as usize)
-                    .add(disp[r + D_CHILD] as usize * 19);
-                let data = core::slice::from_raw_parts(child, 19);
-                type_a = data[0];
-                material_map = Some([data[8], data[9], data[10], data[11]]);
-                let local = read_xf(data, 1);
+                let compound = crate::geo::extra_ptr(geom_a[0] as usize);
+                compound_geometry =
+                    crate::compound_query::child_words(compound, disp[r + D_CHILD] as usize);
+                type_a = compound_geometry[0];
+                material_map = Some([
+                    compound_geometry[8],
+                    compound_geometry[9],
+                    compound_geometry[10],
+                    compound_geometry[11],
+                ]);
+                let local = read_xf(&compound_geometry, 1);
                 child_offset = parent_xf.q.rotate(local.p);
                 if type_a == TY_HULL || type_a == 4 {
                     xf_a = parent_xf.mul(local);
                 }
-                geom_a = &data[12..19];
+                geom_a = &compound_geometry[12..19];
                 child_radius = match type_a {
                     TY_HULL => 0.25 * f32::from_bits(geom_a[1]),
                     TY_SPHERE => f32::from_bits(geom_a[3]),

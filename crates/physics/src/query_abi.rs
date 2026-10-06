@@ -35,22 +35,14 @@ pub(crate) unsafe fn geometry(kind: u32, r: &[u32]) -> Shape<'static> {
             radius: f32::from_bits(r[3]),
         }),
         3 => Shape::Hull(crate::geo::hull_view(r[0] as usize)),
-        4 => Shape::Mesh(crate::geo::mesh_view(r[0] as usize, vec(r, 1))),
-        2 => Shape::Height(crate::geo::height_view(r[0] as usize)),
-        1 => {
-            let p = crate::geo::extra_ptr(r[0] as usize);
-            Shape::Compound(Compound {
-                root: *p as i32,
-                nodes: core::slice::from_raw_parts(
-                    crate::geo::extra_ptr(*p.add(3) as usize),
-                    *p.add(1) as usize * 12,
-                ),
-                children: core::slice::from_raw_parts(
-                    crate::geo::extra_ptr(*p.add(4) as usize),
-                    *p.add(2) as usize * 19,
-                ),
-            })
-        }
+        4 => Shape::Mesh(crate::geo::mesh_view(
+            crate::geo::extra_ptr(r[0] as usize),
+            vec(r, 1),
+        )),
+        2 => Shape::Height(crate::geo::height_view(crate::geo::extra_ptr(
+            r[0] as usize,
+        ))),
+        1 => Shape::Compound(Compound::from_pointer(crate::geo::extra_ptr(r[0] as usize))),
         _ => unreachable!(),
     }
 }
