@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { kernel } from "../kernel/kernel";
 import type { Mat2, Mat3, Quat, Transform, Vec3 } from "./math";
 import * as m from "./math";
 import gold from "./math.gold.json";
@@ -43,6 +44,12 @@ const xfFrom = (a: number[], o = 0): Transform => ({ p: vec3From(a, o), q: quatF
 const flatV = (v: Vec3): number[] => [v.x, v.y, v.z];
 const flatV2 = (v: { x: number; y: number }): number[] => [v.x, v.y];
 const flatQ = (q: Quat): number[] => [q.v.x, q.v.y, q.v.z, q.s];
+function kernelQuatBetween(a: Vec3, b: Vec3): Quat {
+    const k = kernel(undefined);
+    const ptr = k.computeQuatBetween(a.x, a.y, a.z, b.x, b.y, b.z);
+    const out = new Float32Array(k.memory.buffer, ptr, 4);
+    return { v: { x: out[0], y: out[1], z: out[2] }, s: out[3] };
+}
 const flatM = (x: Mat3): number[] => [
     x.cx.x,
     x.cx.y,
@@ -71,10 +78,8 @@ const dispatch: Record<string, (a: number[]) => number[]> = {
     invMulQuat: (a) => flatQ(m.quat.invMul(quatFrom(a, 0), quatFrom(a, 4))),
     rotateVector: (a) => flatV(m.quat.rotate(quatFrom(a), vec3From(a, 4))),
     invRotateVector: (a) => flatV(m.quat.invRotate(quatFrom(a), vec3From(a, 4))),
-    computeQuatBetween: (a) =>
-        flatQ(m.computeQuatBetweenUnitVectors(vec3From(a, 0), vec3From(a, 3))),
-    computeQuatBetweenAntiparallel: (a) =>
-        flatQ(m.computeQuatBetweenUnitVectors(vec3From(a, 0), vec3From(a, 3))),
+    computeQuatBetween: (a) => flatQ(kernelQuatBetween(vec3From(a, 0), vec3From(a, 3))),
+    computeQuatBetweenAntiparallel: (a) => flatQ(kernelQuatBetween(vec3From(a, 0), vec3From(a, 3))),
     makeQuatFromMatrix: (a) => flatQ(m.makeQuatFromMatrix(mat3From(a))),
     makeMatrixFromQuat: (a) => flatM(m.mat3.fromQuat(quatFrom(a))),
     invertMatrix: (a) => flatM(m.mat3.invert(mat3From(a))),
@@ -208,7 +213,7 @@ test("quat.invMul is not the left inverse of quat.mul, so a relative rotation co
 test("computeQuatBetweenUnitVectors builds a rotation that lands v1 somewhere other than v2, or returns a non-finite quaternion", () => {
     const v1 = m.vec3.normalize({ x: 0.2, y: -0.5, z: 3.0 });
     const u = m.vec3.normalize({ x: -0.3, y: 0.8, z: 0.1 });
-    const r = m.computeQuatBetweenUnitVectors(v1, u);
+    const r = kernelQuatBetween(v1, u);
     expect(m.quat.isValid(r)).toBe(true);
     const w = m.quat.rotate(r, v1);
     expect(Math.abs(w.x - u.x)).toBeLessThan(0.001);

@@ -7,7 +7,6 @@
 
 import { MAX_SHAPE_CAST_POINTS } from "../common/constants";
 import {
-    type AABB,
     FLT_EPSILON,
     FLT_MAX,
     FLT_MIN,
@@ -69,18 +68,6 @@ export function makeLocalProxy(proxy: ShapeProxy, transform: Transform): ShapePr
         points[i] = vec3.add(mat3.mulV(m, proxy.points[i]), invTransform.p);
     }
     return { points, count, radius: proxy.radius };
-}
-
-/** AABB enclosing a proxy's point cloud, grown by its radius (b3ComputeProxyAABB). */
-export function computeProxyAABB(proxy: ShapeProxy): AABB {
-    let lower = proxy.points[0];
-    let upper = proxy.points[0];
-    for (let i = 1; i < proxy.count; ++i) {
-        lower = vec3.min(lower, proxy.points[i]);
-        upper = vec3.max(upper, proxy.points[i]);
-    }
-    const r: Vec3 = { x: proxy.radius, y: proxy.radius, z: proxy.radius };
-    return { lowerBound: vec3.sub(lower, r), upperBound: vec3.add(upper, r) };
 }
 
 /** One simplex vertex: the Minkowski support point and its barycentric weight (b3SimplexVertex). */

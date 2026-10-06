@@ -1,15 +1,4 @@
-import {
-    type AABB,
-    f32,
-    type Mat3,
-    maxf,
-    minf,
-    quat,
-    type Transform,
-    type Vec3,
-    vec3,
-    xf,
-} from "../common/math";
+import { type AABB, f32, type Mat3, type Transform, type Vec3, vec3, xf } from "../common/math";
 
 /** Mass, local center of mass, and inertia about that center (b3MassData). */
 export type MassData = {
@@ -66,23 +55,6 @@ export function computeSphereAABB(shape: Sphere, transform: Transform): AABB {
     return { lowerBound: vec3.sub(center, extent), upperBound: vec3.add(center, extent) };
 }
 
-// Working registers for the AABB out-variants below; never live across calls.
-const aabbC1: Vec3 = { x: 0, y: 0, z: 0 };
-
-/** {@link computeSphereAABB}, written into `o` — identical expression tree, no allocation. */
-export function computeSphereAABBOut(shape: Sphere, transform: Transform, o: AABB): AABB {
-    quat.rotateOut(transform.q, shape.center, aabbC1);
-    vec3.addOut(aabbC1, transform.p, aabbC1);
-    const r = shape.radius;
-    o.lowerBound.x = f32(aabbC1.x - r);
-    o.lowerBound.y = f32(aabbC1.y - r);
-    o.lowerBound.z = f32(aabbC1.z - r);
-    o.upperBound.x = f32(aabbC1.x + r);
-    o.upperBound.y = f32(aabbC1.y + r);
-    o.upperBound.z = f32(aabbC1.z + r);
-    return o;
-}
-
 export function computeCapsuleAABB(shape: Capsule, transform: Transform): AABB {
     const r = shape.radius;
     const center1 = xf.point(transform, shape.center1);
@@ -92,23 +64,4 @@ export function computeCapsuleAABB(shape: Capsule, transform: Transform): AABB {
         lowerBound: vec3.sub(vec3.min(center1, center2), extent),
         upperBound: vec3.add(vec3.max(center1, center2), extent),
     };
-}
-
-const _capsuleCenter1: Vec3 = { x: 0, y: 0, z: 0 };
-const _capsuleCenter2: Vec3 = { x: 0, y: 0, z: 0 };
-
-/** The same capsule bounds written into `out`, reusing the transformed endpoints. */
-export function computeCapsuleAABBOut(shape: Capsule, transform: Transform, out: AABB): AABB {
-    quat.rotateOut(transform.q, shape.center1, _capsuleCenter1);
-    vec3.addOut(_capsuleCenter1, transform.p, _capsuleCenter1);
-    quat.rotateOut(transform.q, shape.center2, _capsuleCenter2);
-    vec3.addOut(_capsuleCenter2, transform.p, _capsuleCenter2);
-    const r = shape.radius;
-    out.lowerBound.x = f32(minf(_capsuleCenter1.x, _capsuleCenter2.x) - r);
-    out.lowerBound.y = f32(minf(_capsuleCenter1.y, _capsuleCenter2.y) - r);
-    out.lowerBound.z = f32(minf(_capsuleCenter1.z, _capsuleCenter2.z) - r);
-    out.upperBound.x = f32(maxf(_capsuleCenter1.x, _capsuleCenter2.x) + r);
-    out.upperBound.y = f32(maxf(_capsuleCenter1.y, _capsuleCenter2.y) + r);
-    out.upperBound.z = f32(maxf(_capsuleCenter1.z, _capsuleCenter2.z) + r);
-    return out;
 }

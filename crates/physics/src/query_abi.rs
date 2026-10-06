@@ -112,6 +112,27 @@ pub(crate) unsafe fn output(out: CastOutput) {
     ];
     core::ptr::copy_nonoverlapping(values.as_ptr(), p, 12);
 }
+#[export_name = "shapeQueryCompound"]
+pub unsafe extern "C" fn query_compound(
+    world: usize,
+    id: usize,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    ux: f32,
+    uy: f32,
+    uz: f32,
+) {
+    let (Shape::Compound(compound), _) = shape(world, id) else {
+        unreachable!()
+    };
+    crate::compound_query::query(
+        compound,
+        Vec3::new(lx, ly, lz),
+        Vec3::new(ux, uy, uz),
+        |_, child| crate::world_query::callback(0, child as usize, core::ptr::null(), 0) != 0.0,
+    );
+}
 #[export_name = "shapeQueryRay"]
 pub extern "C" fn ray(world: usize, id: usize, local: u32) {
     unsafe {

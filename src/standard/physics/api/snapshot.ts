@@ -72,13 +72,16 @@ function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, Stor
     for (const key of Reflect.ownKeys(value)) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor && "value" in descriptor && key !== "userData")
+            // Upload registers contain no logical state and may hold detached linear-memory views.
             descriptor.value =
-                key === "bodyUserData" ||
-                key === "shapeUserData" ||
-                key === "jointUserData" ||
-                key === "jointEventUserData"
-                    ? descriptor.value.slice()
-                    : clone(descriptor.value, seen, stores);
+                key === "geometryUploadScratch"
+                    ? undefined
+                    : key === "bodyUserData" ||
+                        key === "shapeUserData" ||
+                        key === "jointUserData" ||
+                        key === "jointEventUserData"
+                      ? descriptor.value.slice()
+                      : clone(descriptor.value, seen, stores);
         if (descriptor) Object.defineProperty(out, key, descriptor);
     }
     return out as T;

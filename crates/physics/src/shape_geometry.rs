@@ -257,6 +257,28 @@ mod wasm {
             OUTPUT[i + 3] = b[i + 3] + extra;
         }
     }
+    #[export_name = "shapeFindHullSupportVertex"]
+    pub unsafe extern "C" fn find_hull_support_vertex(
+        world: usize,
+        id: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> usize {
+        regions::select(world as u32);
+        geo::hull_view(reference(id)).support_vertex(Vec3::new(x, y, z))
+    }
+    #[export_name = "shapeFindHullSupportFace"]
+    pub unsafe extern "C" fn find_hull_support_face(
+        world: usize,
+        id: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> usize {
+        regions::select(world as u32);
+        geo::hull_view(reference(id)).support_face(Vec3::new(x, y, z))
+    }
     #[export_name = "shapeGetCentroid"]
     pub unsafe extern "C" fn get_centroid(world: usize, id: usize) {
         regions::select(world as u32);

@@ -341,13 +341,6 @@ export const vec3 = {
         return { x: 0, y: 0, z: 0 };
     },
 
-    lerpOut: (a: Vec3, b: Vec3, alpha: number, out: Vec3): Vec3 => {
-        const t = f32(1 - alpha);
-        out.x = f32(f32(t * a.x) + f32(alpha * b.x));
-        out.y = f32(f32(t * a.y) + f32(alpha * b.y));
-        out.z = f32(f32(t * a.z) + f32(alpha * b.z));
-        return out;
-    },
     lerp: (a: Vec3, b: Vec3, alpha: number): Vec3 => {
         const t = f32(1 - alpha);
         return {
@@ -649,14 +642,6 @@ export const quat = {
         return vec3.mulAddOut(v, 2, rotateScratch, o);
     },
 
-    /** {@link quat.invRotate}, written into `o` (may alias `v`, must not alias `q.v`). */
-    invRotateOut: (q: Quat, v: Vec3, o: Vec3): Vec3 => {
-        vec3.crossOut(q.v, v, rotateScratch);
-        vec3.mulSubOut(rotateScratch, q.s, v, rotateScratch);
-        vec3.crossOut(q.v, rotateScratch, rotateScratch);
-        return vec3.mulAddOut(v, 2, rotateScratch, o);
-    },
-
     /** Integrate a rotation by a small angular delta and normalize (b3IntegrateRotation). */
     integrateRotation: (q1: Quat, deltaRotation: Vec3): Quat => {
         const qd = quat.mul({ v: vec3.scale(f32(0.5), deltaRotation), s: 0 }, q1);
@@ -726,43 +711,6 @@ export const quat = {
         isValidFloat(q.s) &&
         quat.isNormalized(q),
 };
-
-/** Find a quaternion that rotates unit vector v1 to unit vector v2 (b3ComputeQuatBetweenUnitVectors). */
-const betweenMidpoint = { x: 0, y: 0, z: 0 };
-export function computeQuatBetweenUnitVectors(
-    v1: Vec3,
-    v2: Vec3,
-    out: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 },
-): Quat {
-    const m = vec3.lerpOut(v1, v2, 0.5, betweenMidpoint);
-    const tolerance = f32(100 * FLT_EPSILON);
-    if (vec3.lengthSq(m) > f32(tolerance * tolerance)) {
-        vec3.crossOut(v1, m, out.v);
-        out.s = vec3.dot(v1, m);
-    } else if (absf(v1.x) > 0.5) {
-        out.v.x = v1.y;
-        out.v.y = -v1.x;
-        out.v.z = 0;
-        out.s = 0;
-    } else {
-        out.v.x = 0;
-        out.v.y = v1.z;
-        out.v.z = -v1.y;
-        out.s = 0;
-    }
-    const lengthSq = quat.dot(out, out);
-    if (lengthSq > f32(1000 * FLT_MIN)) {
-        const scale = f32(1 / f32(Math.sqrt(lengthSq)));
-        vec3.scaleOut(scale, out.v, out.v);
-        out.s = f32(scale * out.s);
-    } else {
-        out.v.x = 0;
-        out.v.y = 0;
-        out.v.z = 0;
-        out.s = 1;
-    }
-    return out;
-}
 
 /** Extract a quaternion from a rotation matrix (b3MakeQuatFromMatrix). */
 export function makeQuatFromMatrix(m: Mat3): Quat {
@@ -866,33 +814,11 @@ export const mat3 = {
         cz: { x: m.cx.z, y: m.cy.z, z: m.cz.z },
     }),
 
-    /** {@link mat3.transpose}, written into `o`. `o` must not alias `m`. */
-    transposeOut: (m: Mat3, o: Mat3): Mat3 => {
-        o.cx.x = m.cx.x;
-        o.cx.y = m.cy.x;
-        o.cx.z = m.cz.x;
-        o.cy.x = m.cx.y;
-        o.cy.y = m.cy.y;
-        o.cy.z = m.cz.y;
-        o.cz.x = m.cx.z;
-        o.cz.y = m.cy.z;
-        o.cz.z = m.cz.z;
-        return o;
-    },
-
     /** Component-wise |m|, written into `o` (may alias `m`). */
     absOut: (m: Mat3, o: Mat3): Mat3 => {
         vec3.absOut(m.cx, o.cx);
         vec3.absOut(m.cy, o.cy);
         vec3.absOut(m.cz, o.cz);
-        return o;
-    },
-
-    /** a * b, written into `o`. `o` must not alias `a` or `b`. */
-    mulOut: (a: Mat3, b: Mat3, o: Mat3): Mat3 => {
-        mat3.mulVOut(a, b.cx, o.cx);
-        mat3.mulVOut(a, b.cy, o.cy);
-        mat3.mulVOut(a, b.cz, o.cz);
         return o;
     },
 

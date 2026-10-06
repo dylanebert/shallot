@@ -1469,31 +1469,3 @@ export function makeOffsetBoxHull(hx: number, hy: number, hz: number, offset: Ve
 export function computeHullAABB(shape: HullData, transform: Transform): AABB {
     return aabb.transform(transform, shape.aabb);
 }
-
-/** Index of the hull vertex farthest along `direction` (b3FindHullSupportVertex). */
-export function findHullSupportVertex(hull: HullData, direction: Vec3): number {
-    let bestIndex = NULL_INDEX;
-    let bestDot = -FLT_MAX;
-    for (let index = 0; index < hull.vertexCount; ++index) {
-        const dot = vec3.dot(direction, hull.points[index]);
-        if (dot > bestDot) {
-            bestIndex = index;
-            bestDot = dot;
-        }
-    }
-    return bestIndex;
-}
-
-/** Index of the hull face whose normal is most aligned with `direction` (b3FindHullSupportFace). */
-export function findHullSupportFace(hull: HullData, direction: Vec3): number {
-    let bestIndex = NULL_INDEX;
-    let bestDot = -FLT_MAX;
-    for (let index = 0; index < hull.faceCount; ++index) {
-        const dot = vec3.dot(hull.planes[index].normal, direction);
-        if (dot > bestDot) {
-            bestDot = dot;
-            bestIndex = index;
-        }
-    }
-    return bestIndex;
-}

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { PhysicsWorld } from "../api/world";
 import { f32, quat, type Vec3, vec3, xf } from "../common/math";
 import { BodyType } from "../common/types";
+import { kernel } from "../kernel/kernel";
 import gold from "./geometry.gold.json";
 import {
     cloneHull,
@@ -10,8 +11,6 @@ import {
     createCylinder,
     createHull,
     createRock,
-    findHullSupportFace,
-    findHullSupportVertex,
     type HullData,
     makeBoxHull,
     makeTransformedBoxHull,
@@ -285,13 +284,25 @@ test("the convex hull builder returns a hull instead of null for a degenerate po
 test("a convex hull's support vertex is not the extreme point along the query direction, its support face normal is not the one aligned with that direction, or computeHullAABB fails to reproduce the local aabb under identity and translate it", () => {
     const cube = createHull(cubeCorners, 8) as HullData;
 
-    expect(cube.points[findHullSupportVertex(cube, v(1, 0, 0))].x).toBe(1);
-    expect(cube.points[findHullSupportVertex(cube, v(0, -1, 0))].y).toBe(-1);
-
-    const n = cube.planes[findHullSupportFace(cube, v(1, 0, 0))].normal;
-    expect(n.x).toBeGreaterThan(0.99);
-    expect(n.x).toBeGreaterThan(n.y);
-    expect(n.x).toBeGreaterThan(n.z);
+    const world = new PhysicsWorld();
+    try {
+        const body = world.createBody({ type: BodyType.Dynamic });
+        const shape = body.createHull({}, cube);
+        const k = kernel(world.state.ecsState);
+        const id = shape.id.index1 - 1;
+        expect(cube.points[k.shapeFindHullSupportVertex(world.state.worldId, id, 1, 0, 0)].x).toBe(
+            1,
+        );
+        expect(cube.points[k.shapeFindHullSupportVertex(world.state.worldId, id, 0, -1, 0)].y).toBe(
+            -1,
+        );
+        const n = cube.planes[k.shapeFindHullSupportFace(world.state.worldId, id, 1, 0, 0)].normal;
+        expect(n.x).toBeGreaterThan(0.99);
+        expect(n.x).toBeGreaterThan(n.y);
+        expect(n.x).toBeGreaterThan(n.z);
+    } finally {
+        world.destroy();
+    }
 
     const local = computeHullAABB(cube, xf.identity());
     expect(local.lowerBound).toEqual(cube.aabb.lowerBound);

@@ -5,7 +5,6 @@ import { BodyType } from "../common/types";
 import {
     type Capsule,
     computeCapsuleAABB,
-    computeCapsuleAABBOut,
     computeSphereAABB,
     type MassData,
     roundCapsule,
@@ -13,6 +12,7 @@ import {
     type Sphere,
 } from "./geometry";
 import gold from "./geometry.gold.json";
+import { computeShapeAABBOut } from "./shape";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -168,16 +168,21 @@ test("computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule
         p: v(1, 2, 3),
         q: { v: v(0, 0, Math.SQRT1_2), s: Math.SQRT1_2 },
     };
-    expect(
-        computeCapsuleAABBOut(
+    const world = new PhysicsWorld();
+    try {
+        const body = world.createBody({ type: BodyType.Dynamic });
+        const shape = body.createCapsule(
+            {},
             { center1: v(0, -1, 0), center2: v(0, 1, 0), radius: 0.5 },
-            rotated,
-            output,
-        ),
-    ).toBe(output);
-    expect(output).toEqual(
-        computeCapsuleAABB({ center1: v(0, -1, 0), center2: v(0, 1, 0), radius: 0.5 }, rotated),
-    );
+        );
+        expect(computeShapeAABBOut(world.state, shape.id.index1 - 1, rotated, output)).toBe(output);
+        expect(output).toEqual({
+            lowerBound: v(fromBits("0xbefffffe"), 1.5, 2.5),
+            upperBound: v(2.5, 2.5, 3.5),
+        });
+    } finally {
+        world.destroy();
+    }
 });
 
 test("roundSphere or roundCapsule leaves an f64 sphere or capsule field unrounded at the storage boundary, so solver arithmetic on it diverges from the C's f32 struct fields", () => {

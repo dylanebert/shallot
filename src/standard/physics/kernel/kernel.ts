@@ -257,6 +257,26 @@ export type Kernel = {
     shapeComputeMass(world: number, id: number): void;
     shapeComputeExtent(world: number, id: number, x: number, y: number, z: number): void;
     shapeGetCentroid(world: number, id: number): void;
+    computeQuatBetween(
+        ax: number,
+        ay: number,
+        az: number,
+        bx: number,
+        by: number,
+        bz: number,
+    ): number;
+    shapeFindHullSupportVertex(world: number, id: number, x: number, y: number, z: number): number;
+    shapeFindHullSupportFace(world: number, id: number, x: number, y: number, z: number): number;
+    shapeQueryCompound(
+        world: number,
+        id: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        ux: number,
+        uy: number,
+        uz: number,
+    ): void;
     shapeComputeAABB(
         world: number,
         id: number,

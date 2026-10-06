@@ -550,6 +550,22 @@ impl Quat {
 }
 
 /// Find a quaternion that rotates unit vector v1 to unit vector v2 (b3ComputeQuatBetweenUnitVectors).
+#[cfg(target_arch = "wasm32")]
+#[export_name = "computeQuatBetween"]
+pub unsafe extern "C" fn compute_quat_between_output(
+    ax: f32,
+    ay: f32,
+    az: f32,
+    bx: f32,
+    by: f32,
+    bz: f32,
+) -> *const f32 {
+    static mut OUTPUT: [f32; 4] = [0.0; 4];
+    let q = compute_quat_between_unit_vectors(Vec3::new(ax, ay, az), Vec3::new(bx, by, bz));
+    OUTPUT = [q.v.x, q.v.y, q.v.z, q.s];
+    &raw const OUTPUT as *const f32
+}
+
 pub fn compute_quat_between_unit_vectors(v1: Vec3, v2: Vec3) -> Quat {
     let m = v1.lerp(v2, 0.5);
     let tolerance = 100.0 * FLT_EPSILON;

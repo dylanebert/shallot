@@ -16,7 +16,7 @@
 // assert; the child instances keep their own geometry references either way.
 
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
-import { type AABB, type Transform, type Vec3, xf } from "../common/math";
+import { type Transform, type Vec3, xf } from "../common/math";
 import { cloneMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import * as tree from "../kernel/treecolumns";
 import {
@@ -332,18 +332,4 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         sharedHullCount: sharedHullHashes.size,
         sharedMeshCount: sharedMeshes.length,
     };
-}
-
-/** Callback for a compound tree query; return false to stop (b3CompoundQueryFcn). */
-export type CompoundQueryCallback = (childIndex: number) => boolean;
-
-/** Query the compound's inner tree with a compound-local AABB (b3QueryCompound). */
-export function queryCompound(
-    compound: CompoundData,
-    box: AABB,
-    callback: CompoundQueryCallback,
-): void {
-    tree.query(compound.tree, box, ALL_BITS_HI, ALL_BITS_LO, false, (_proxyId, childIndex) =>
-        callback(childIndex),
-    );
 }

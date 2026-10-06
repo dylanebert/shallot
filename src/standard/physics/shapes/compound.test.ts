@@ -14,6 +14,7 @@ import {
     xf,
 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
+import { assertQueryWorld, kernel, rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { readNode } from "../kernel/treecolumns";
 import {
     type CompoundData,
@@ -21,7 +22,6 @@ import {
     createCompound,
     getCompoundChild,
     getCompoundMaterials,
-    queryCompound,
 } from "./compound";
 import { type Capsule, computeCapsuleAABB, computeSphereAABB, type Sphere } from "./geometry";
 import gold from "./geometry.gold.json";
@@ -481,25 +481,51 @@ test("a compound's child index stops resolving to the right child shape, its inn
 
     vector("CompoundQuery — inner-tree AABB query visits the overlapping children", () => {
         const c = buildMixed();
-        // Child order: capsule (0), hull (1), mesh (2), sphere @+5 (3), sphere @-5 (4).
-        const visit = (box: { lowerBound: Vec3; upperBound: Vec3 }): number[] => {
-            const hits: number[] = [];
-            queryCompound(c, box, (childIndex) => {
-                hits.push(childIndex);
-                return true;
-            });
-            return hits.sort((a, b) => a - b);
-        };
+        const world = new PhysicsWorld();
+        try {
+            const body = world.createBody({ type: BodyType.Static });
+            const shape = body.createCompound({}, c);
+            // Child order: capsule (0), hull (1), mesh (2), sphere @+5 (3), sphere @-5 (4).
+            const visit = (box: { lowerBound: Vec3; upperBound: Vec3 }): number[] => {
+                const hits: number[] = [];
+                const state = world.state;
+                assertQueryWorld(state.ecsState, state.worldId);
+                const previous = setQueryCallback(state.ecsState, (_kind, childIndex) => {
+                    hits.push(childIndex);
+                    return 1;
+                });
+                try {
+                    const lo = box.lowerBound,
+                        hi = box.upperBound;
+                    kernel(state.ecsState).shapeQueryCompound(
+                        state.worldId,
+                        shape.id.index1 - 1,
+                        lo.x,
+                        lo.y,
+                        lo.z,
+                        hi.x,
+                        hi.y,
+                        hi.z,
+                    );
+                    rethrowQueryError(state.ecsState);
+                } finally {
+                    setQueryCallback(state.ecsState, previous);
+                }
+                return hits.sort((a, b) => a - b);
+            };
 
-        // A box far out on +x overlaps only the sphere centered at (5, 0, 0).
-        expect(visit({ lowerBound: v(4.5, -0.5, -0.5), upperBound: v(5.5, 0.5, 0.5) })).toEqual([
-            3,
-        ]);
+            // A box far out on +x overlaps only the sphere centered at (5, 0, 0).
+            expect(visit({ lowerBound: v(4.5, -0.5, -0.5), upperBound: v(5.5, 0.5, 0.5) })).toEqual(
+                [3],
+            );
 
-        // A box enclosing everything visits all five children.
-        expect(visit({ lowerBound: v(-10, -10, -10), upperBound: v(10, 10, 10) })).toEqual([
-            0, 1, 2, 3, 4,
-        ]);
+            // A box enclosing everything visits all five children.
+            expect(visit({ lowerBound: v(-10, -10, -10), upperBound: v(10, 10, 10) })).toEqual([
+                0, 1, 2, 3, 4,
+            ]);
+        } finally {
+            world.destroy();
+        }
     });
 
     vector("CompoundAABBContainsChildren — root AABB contains every child's AABB", () => {
