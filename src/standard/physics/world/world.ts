@@ -28,7 +28,6 @@ import type { Shape } from "../shapes/shape";
 import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import type { Joint } from "../solver/joint";
-import type { Body } from "./body";
 import { createStepProfile, type StepProfile } from "./profile";
 import type { Sensor, SensorBeginTouchEvent } from "./sensor";
 import { destroySolverSet } from "./solverset";
@@ -86,7 +85,8 @@ export type WorldState = {
     bodyFilters: BodyFilters;
 
     /** Public body records are the authoring/handle bridge; lifecycle lives in wasm. */
-    bodies: Body[];
+    bodyUserData: unknown[];
+    bodyNames: string[];
 
     jointIdPool: IdPool;
     joints: Joint[];
@@ -114,10 +114,6 @@ export type WorldState = {
     // Resident body-state columns (velocity/delta/flags of awake bodies), held across steps in the
     // body region. BodyStore binds typed views over the solver sets' columns.
     bodyStore: BodyStore;
-    bodyStagingEpoch: number;
-    bodyStagingCursor: number;
-    bodyStagingStamps: number[];
-    bodyStagingIndices: number[];
     // Resident shape column (type code + local geometry + nextShapeId, one record per shapeId), held
     // across steps so the in-kernel finalize refit walks a body's shape list without a marshal. Written
     // at shape create/destroy — no dirty set (shapecolumns.ts).
@@ -291,7 +287,8 @@ function makeWorldState(
         ecsState: world,
         broadPhase: createBroadPhase(world, capacity, worldId),
         bodyFilters: new BodyFilters(),
-        bodies: [],
+        bodyUserData: [],
+        bodyNames: [],
         jointIdPool: createIdPool(),
         joints: [],
         awakeContacts: [],
@@ -304,10 +301,6 @@ function makeWorldState(
         geometryUploadCount: 0,
         manifoldStore: createManifoldStore(world, worldId),
         bodyStore: createBodyStore(world, worldId),
-        bodyStagingEpoch: 0,
-        bodyStagingCursor: 0,
-        bodyStagingStamps: [],
-        bodyStagingIndices: [],
         shapeStore: createShapeStore(world, worldId),
         sensors: [],
         queryColumns: null,

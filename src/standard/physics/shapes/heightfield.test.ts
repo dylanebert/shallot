@@ -191,7 +191,7 @@ function createWaveOracle() {
     const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
     const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
     try {
-        const body = world.bodies[createBody(world, defaultBodyDef())];
+        const body = createBody(world, defaultBodyDef());
         const def = defaultShapeDef();
         const field = createHeightFieldShape(world, body, def, hf);
         if (!field) throw new Error("wave shape creation failed");

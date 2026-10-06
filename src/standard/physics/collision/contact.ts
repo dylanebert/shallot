@@ -3,20 +3,12 @@
 import { NULL_INDEX, swapRemove } from "../common/array";
 import { SetType } from "../common/constants";
 import type { Vec3 } from "../common/math";
-import { BodyType, ShapeType } from "../common/types";
-import { bodyType, shapeBodyId } from "../kernel/filtercolumns";
+import { ShapeType } from "../common/types";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { kernel } from "../kernel/kernel";
-import {
-    setArrayCount,
-    setArrayGet,
-    setArrayPush,
-    setArrayRemove,
-} from "../kernel/solversetcolumns";
 import { getCompoundChild } from "../shapes/compound";
 import type { Shape } from "../shapes/shape";
-import { removeContactFromGraph } from "../solver/graph";
-import { type Body, BodyFlags, wakeBody } from "../world/body";
-import { unlinkContact } from "../world/island";
+import { wakeBody } from "../world/body";
 import type { WorldState } from "../world/world";
 import { DIR_STRIDE } from "./manifoldstore";
 import { addKey, removeKey } from "./table";
@@ -126,14 +118,16 @@ function removeAwakeContact(world: WorldState, id: number): void {
         setContactField(world, world.awakeContacts[index], ContactField.collideIndex, index);
     setContactField(world, id, ContactField.collideIndex, NULL_INDEX);
 }
-export function writeBodySimIndex(world: WorldState, body: Body): void {
-    const index = bodyType(world, body.id) === BodyType.Static ? NULL_INDEX : body.localIndex;
-    for (let key = body.headContactKey; key !== NULL_INDEX; key = contactNextKey(world, key))
-        setContactField(world, key >> 1, ContactField.bodySimIndexA + (key & 1), index);
+export function writeBodySimIndex(world: WorldState, body: number): void {
+    kernel(world.ecsState).bodySyncContacts(world.worldId, body);
 }
-export function reclassifyBodyContacts(world: WorldState, body: Body): void {
+export function reclassifyBodyContacts(world: WorldState, body: number): void {
     writeBodySimIndex(world, body);
-    for (let key = body.headContactKey; key !== NULL_INDEX; key = contactNextKey(world, key))
+    for (
+        let key = bodyField(world, body, BodyField.headContactKey);
+        key !== NULL_INDEX;
+        key = contactNextKey(world, key)
+    )
         updateAwakeContact(world, key >> 1);
 }
 export function createContact(
@@ -149,26 +143,7 @@ export function createContact(
         createContact(world, shapeB, shapeA, childIndex);
         return;
     }
-    const bodyA = world.bodies[shapeBodyId(world, shapeA.id)];
-    const bodyB = world.bodies[shapeBodyId(world, shapeB.id)];
-    const setIndex =
-        bodyA.setIndex === SetType.Awake || bodyB.setIndex === SetType.Awake
-            ? SetType.Awake
-            : SetType.Disabled;
-    const set = setIndex;
-    k.bodySetActiveWorld(world.worldId);
-    const id = k.allocContact();
-    setContactField(world, id, ContactField.setIndex, setIndex);
-    setContactField(world, id, ContactField.localIndex, setArrayCount(world, set, 0));
-    setContactField(world, id, ContactField.shapeIdA, shapeA.id);
-    setContactField(world, id, ContactField.shapeIdB, shapeB.id);
-    setContactField(world, id, ContactField.childIndex, childIndex);
     let flags = 0;
-    if (
-        bodyA.flags & BodyFlags.enableContactRecycling &&
-        bodyB.flags & BodyFlags.enableContactRecycling
-    )
-        flags |= ContactFlags.contactRecycleFlag;
     if (
         shapeA.type === ShapeType.Mesh ||
         shapeA.type === ShapeType.HeightField ||
@@ -176,48 +151,15 @@ export function createContact(
             getCompoundChild(shapeA.compound!, childIndex).type === ShapeType.Mesh)
     )
         flags |= ContactFlags.simMeshContact;
-    if (
-        bodyType(world, bodyA.id) === BodyType.Static ||
-        bodyType(world, bodyB.id) === BodyType.Static
-    )
-        flags |= ContactFlags.contactStaticFlag;
     if (shapeA.enableContactEvents || shapeB.enableContactEvents)
         flags |= ContactFlags.contactEnableContactEvents;
     if (shapeA.enablePreSolveEvents || shapeB.enablePreSolveEvents)
         flags |= ContactFlags.simEnablePreSolveEvents;
-    setContactField(world, id, ContactField.flags, flags);
-    if (flags & ContactFlags.simMeshContact) k.ensureMeshCache(id);
-    for (let side = 0; side < 2; ++side) {
-        const body = side === 0 ? bodyA : bodyB;
-        setContactField(world, id, ContactField.bodyIdA + 3 * side, body.id);
-        setContactField(world, id, ContactField.nextKeyA + 3 * side, body.headContactKey);
-        const key = (id << 1) | side;
-        if (body.headContactKey !== NULL_INDEX)
-            setContactField(
-                world,
-                body.headContactKey >> 1,
-                ContactField.prevKeyA + 3 * (body.headContactKey & 1),
-                key,
-            );
-        body.headContactKey = key;
-        body.contactCount += 1;
-    }
+    const id = k.bodyCreateContact(world.worldId, shapeA.id, shapeB.id, childIndex, flags);
     addKey(world.broadPhase.pairSet, shapeA.id, shapeB.id, childIndex);
-    setArrayPush(world, set, 0, id);
     updateAwakeContact(world, id);
-    setContactField(
-        world,
-        id,
-        ContactField.bodySimIndexA,
-        bodyType(world, bodyA.id) === BodyType.Static ? NULL_INDEX : bodyA.localIndex,
-    );
-    setContactField(
-        world,
-        id,
-        ContactField.bodySimIndexB,
-        bodyType(world, bodyB.id) === BodyType.Static ? NULL_INDEX : bodyB.localIndex,
-    );
 }
+
 export function destroyContact(world: WorldState, id: number, wakeBodies: boolean): void {
     removeAwakeContact(world, id);
     const shapeIdA = contactField(world, id, ContactField.shapeIdA);
@@ -229,8 +171,8 @@ export function destroyContact(world: WorldState, id: number, wakeBodies: boolea
         contactField(world, id, ContactField.childIndex),
     );
     world.manifoldStore.freeSlot(id);
-    const bodyA = world.bodies[contactBodyId(world, id, 0)];
-    const bodyB = world.bodies[contactBodyId(world, id, 1)];
+    const bodyA = contactBodyId(world, id, 0);
+    const bodyB = contactBodyId(world, id, 1);
     const flags = contactField(world, id, ContactField.flags);
     const touching = (flags & ContactFlags.contactTouchingFlag) !== 0;
     if (touching && flags & ContactFlags.contactEnableContactEvents) {
@@ -247,42 +189,7 @@ export function destroyContact(world: WorldState, id: number, wakeBodies: boolea
             normalImpulse: 0,
         });
     }
-    for (let side = 0; side < 2; ++side) {
-        const body = side === 0 ? bodyA : bodyB;
-        const prev = contactField(world, id, ContactField.prevKeyA + 3 * side);
-        const next = contactField(world, id, ContactField.nextKeyA + 3 * side);
-        if (prev !== NULL_INDEX)
-            setContactField(world, prev >> 1, ContactField.nextKeyA + 3 * (prev & 1), next);
-        if (next !== NULL_INDEX)
-            setContactField(world, next >> 1, ContactField.prevKeyA + 3 * (next & 1), prev);
-        if (body.headContactKey === ((id << 1) | side)) body.headContactKey = next;
-        body.contactCount -= 1;
-    }
-    if (contactField(world, id, ContactField.islandId) !== NULL_INDEX) unlinkContact(world, id);
-    const colorIndex = contactField(world, id, ContactField.colorIndex);
-    const localIndex = contactField(world, id, ContactField.localIndex);
-    if (colorIndex !== NULL_INDEX) {
-        removeContactFromGraph(
-            world,
-            bodyA.id,
-            bodyB.id,
-            colorIndex,
-            localIndex,
-            (flags & ContactFlags.simMeshContact) !== 0,
-        );
-    } else {
-        const set = contactField(world, id, ContactField.setIndex);
-        if (setArrayRemove(world, set, 0, localIndex) !== NULL_INDEX)
-            setContactField(
-                world,
-                setArrayGet(world, set, 0, localIndex),
-                ContactField.localIndex,
-                localIndex,
-            );
-    }
-    const k = kernel(world.ecsState);
-    k.bodySetActiveWorld(world.worldId);
-    k.freeContact(id);
+    kernel(world.ecsState).bodyDestroyContact(world.worldId, id);
     if (wakeBodies && touching) {
         wakeBody(world, bodyA);
         wakeBody(world, bodyB);

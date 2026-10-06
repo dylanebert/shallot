@@ -1,0 +1,989 @@
+use crate::math::Mat3;
+
+/// Body identity and topology, separate from its solver-set simulation.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct BodyRecord {
+    pub set_index: i32,
+    pub local_index: i32,
+    pub head_contact_key: i32,
+    pub contact_count: i32,
+    pub head_shape_id: i32,
+    pub shape_count: i32,
+    pub head_chain_id: i32,
+    pub head_joint_key: i32,
+    pub joint_count: i32,
+    pub island_id: i32,
+    pub island_index: i32,
+    pub sleep_threshold: f32,
+    pub sleep_time: f32,
+    pub sleep_velocity: f32,
+    pub mass: f32,
+    pub inertia: Mat3,
+    pub body_move_index: i32,
+    pub id: i32,
+    pub flags: u32,
+    pub body_type: i32,
+    pub generation: u16,
+    pub(crate) padding: u16,
+}
+
+impl BodyRecord {
+    pub const EMPTY: Self = Self {
+        set_index: -1,
+        local_index: -1,
+        head_contact_key: -1,
+        contact_count: 0,
+        head_shape_id: -1,
+        shape_count: 0,
+        head_chain_id: -1,
+        head_joint_key: -1,
+        joint_count: 0,
+        island_id: -1,
+        island_index: -1,
+        sleep_threshold: 0.0,
+        sleep_time: 0.0,
+        sleep_velocity: 0.0,
+        mass: 0.0,
+        inertia: Mat3 {
+            cx: crate::math::Vec3::ZERO,
+            cy: crate::math::Vec3::ZERO,
+            cz: crate::math::Vec3::ZERO,
+        },
+        body_move_index: -1,
+        id: -1,
+        flags: 0,
+        body_type: 0,
+        generation: 0,
+        padding: 0,
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BodyRecord;
+    use std::mem::{offset_of, size_of};
+    #[test]
+    fn body_record_layout_matches_the_plain_word_bindings() {
+        assert_eq!(size_of::<BodyRecord>(), 29 * 4);
+        let offsets = [
+            offset_of!(BodyRecord, set_index),
+            offset_of!(BodyRecord, local_index),
+            offset_of!(BodyRecord, head_contact_key),
+            offset_of!(BodyRecord, contact_count),
+            offset_of!(BodyRecord, head_shape_id),
+            offset_of!(BodyRecord, shape_count),
+            offset_of!(BodyRecord, head_chain_id),
+            offset_of!(BodyRecord, head_joint_key),
+            offset_of!(BodyRecord, joint_count),
+            offset_of!(BodyRecord, island_id),
+            offset_of!(BodyRecord, island_index),
+            offset_of!(BodyRecord, sleep_threshold),
+            offset_of!(BodyRecord, sleep_time),
+            offset_of!(BodyRecord, sleep_velocity),
+            offset_of!(BodyRecord, mass),
+            offset_of!(BodyRecord, inertia),
+        ];
+        for (word, offset) in offsets.into_iter().enumerate() {
+            assert_eq!(offset, word * 4);
+        }
+        assert_eq!(offset_of!(BodyRecord, body_move_index), 24 * 4);
+        assert_eq!(offset_of!(BodyRecord, id), 25 * 4);
+        assert_eq!(offset_of!(BodyRecord, flags), 26 * 4);
+        assert_eq!(offset_of!(BodyRecord, body_type), 27 * 4);
+        assert_eq!(offset_of!(BodyRecord, generation), 28 * 4);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub use runtime::*;
+
+#[cfg(target_arch = "wasm32")]
+mod runtime {
+    use super::BodyRecord;
+    use crate::math::Mat3;
+    use crate::{bodies, body, island, regions};
+    #[export_name = "bodyFinish"]
+    pub unsafe extern "C" fn finish(count: usize, time_step: f32, enable_sleep: bool) -> i32 {
+        let sim2 = bodies::sim2_base() as *mut u32;
+        let state_flags = bodies::flags_base() as *mut u32;
+        let out = bodies::fin_out_base() as *const f32;
+        let transient =
+            body::flags::IS_FAST | body::flags::IS_SPEED_CAPPED | body::flags::HAD_TIME_OF_IMPACT;
+        let mut split_id = -1;
+        let mut split_sleep = 0.0;
+        for index in 0..count {
+            let row = sim2.add(index * body::SIM2_STRIDE);
+            let id = *row.add(body::S2_BODY_ID) as usize;
+            let sim_flags = *row.add(body::S2_FLAGS);
+            let flags = *state_flags.add(index);
+            let record = bodies::record_mut(regions::active(), id);
+            record.body_move_index = index as i32;
+            record.flags = (record.flags & !transient)
+                | ((sim_flags | flags)
+                    & (body::flags::IS_SPEED_CAPPED | body::flags::HAD_TIME_OF_IMPACT));
+            *row.add(body::S2_FLAGS) =
+                (sim_flags & !transient) | (sim_flags & body::flags::IS_FAST);
+            *state_flags.add(index) = flags & !transient;
+            record.sleep_velocity = *out.add(index * body::FIN_OUT_STRIDE);
+            if !enable_sleep
+                || record.flags & body::flags::ENABLE_SLEEP == 0
+                || record.sleep_velocity > record.sleep_threshold
+            {
+                record.sleep_time = 0.0;
+            } else {
+                record.sleep_time += time_step;
+            }
+            if record.sleep_time >= 0.5
+                && island::field(record.island_id as usize, 3) > 0
+                && (record.sleep_time > split_sleep
+                    || (record.sleep_time == split_sleep && record.island_id > split_id))
+            {
+                split_id = record.island_id;
+                split_sleep = record.sleep_time;
+            }
+        }
+        split_id
+    }
+
+    #[export_name = "bodyVelocitySet"]
+    pub unsafe extern "C" fn velocity_set(
+        world: usize,
+        id: usize,
+        angular: bool,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> bool {
+        regions::select(world as u32);
+        let record = bodies::record(world, id);
+        if record.body_type == 0 {
+            return false;
+        }
+        let v = if angular {
+            crate::math::Vec3::new(
+                if record.flags & body::flags::LOCK_ANGULAR_X != 0 {
+                    0.0
+                } else {
+                    x
+                },
+                if record.flags & body::flags::LOCK_ANGULAR_Y != 0 {
+                    0.0
+                } else {
+                    y
+                },
+                if record.flags & body::flags::LOCK_ANGULAR_Z != 0 {
+                    0.0
+                } else {
+                    z
+                },
+            )
+        } else {
+            crate::math::Vec3::new(x, y, z)
+        };
+        if record.set_index >= 3 && v.length_sq() != 0.0 {
+            return true;
+        }
+        if record.set_index == 2 {
+            let state = crate::col::Col::new(
+                bodies::state_base() as *mut f32,
+                (record.local_index as usize + 1) * body::STATE_STRIDE,
+            );
+            let offset =
+                record.local_index as usize * body::STATE_STRIDE + if angular { 3 } else { 0 };
+            state.set(offset, v.x);
+            state.set(offset + 1, v.y);
+            state.set(offset + 2, v.z);
+        }
+        false
+    }
+
+    #[export_name = "bodyApply"]
+    pub unsafe extern "C" fn apply(
+        world: usize,
+        id: usize,
+        kind: u32,
+        x: f32,
+        y: f32,
+        z: f32,
+        px: f32,
+        py: f32,
+        pz: f32,
+        max_speed: f32,
+    ) {
+        use crate::math::Vec3;
+        regions::select(world as u32);
+        let record = bodies::record(world, id);
+        if record.set_index != 2 {
+            return;
+        }
+        let sim = bodies::column(id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(id, 2, body::FIN_STRIDE);
+        let v = Vec3::new(x, y, z);
+        if kind <= 2 {
+            let offset = if kind == 2 { 7 } else { 4 };
+            for (lane, value) in [v.x, v.y, v.z].into_iter().enumerate() {
+                sim.set(offset + lane, sim.get(offset + lane) + value);
+            }
+            if kind == 0 {
+                let center = body::read_fin(fin, 0).center;
+                let torque = Vec3::new(px, py, pz).sub(center).cross(v);
+                sim.set(7, sim.get(7) + torque.x);
+                sim.set(8, sim.get(8) + torque.y);
+                sim.set(9, sim.get(9) + torque.z);
+            }
+            return;
+        }
+        let state_col = bodies::column(id, 0, body::STATE_STRIDE);
+        let mut state = body::read_state(state_col, 0);
+        let data = body::read_sim(sim, 0);
+        if kind == 3 || kind == 4 {
+            let mut linear = state.linear_velocity.mul_add(data.inv_mass, v);
+            let length_sq = linear.length_sq();
+            if length_sq > max_speed * max_speed {
+                linear = if length_sq > 1000.0 * f32::MIN_POSITIVE {
+                    linear.scale(1.0 / length_sq.sqrt()).scale(max_speed)
+                } else {
+                    Vec3::ZERO
+                };
+            }
+            state.linear_velocity = linear;
+            if kind == 3 {
+                let offset = Vec3::new(px, py, pz).sub(body::read_fin(fin, 0).center);
+                state.angular_velocity = state
+                    .angular_velocity
+                    .add(data.inv_inertia_world.mul_v(offset.cross(v)));
+            }
+        } else {
+            let local = data.rotation.inv_rotate(v);
+            let delta = data.rotation.rotate(data.inv_inertia_local.mul_v(local));
+            state.angular_velocity = state.angular_velocity.add(delta);
+        }
+        body::write_state(state_col, 0, &state);
+    }
+
+    #[export_name = "bodySetPose"]
+    pub unsafe extern "C" fn set_pose(
+        world: usize,
+        id: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+        qx: f32,
+        qy: f32,
+        qz: f32,
+        qs: f32,
+    ) {
+        use crate::math::{Quat, Vec3};
+        regions::select(world as u32);
+        let sim = bodies::column(id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(id, 2, body::FIN_STRIDE);
+        let sim2 = bodies::column(id, 5, body::SIM2_STRIDE);
+        let q = Quat {
+            v: Vec3::new(qx, qy, qz),
+            s: qs,
+        };
+        let p = Vec3::new(x, y, z);
+        body::write_fin_transform_p(fin, 0, p);
+        body::write_sim_rotation(sim, 0, q);
+        let center = q.rotate(body::read_fin(fin, 0).local_center).add(p);
+        body::write_fin_center(fin, 0, center);
+        let rotation = Mat3::from_quat(q);
+        let inertia = rotation
+            .mul(body::read_sim(sim, 0).inv_inertia_local)
+            .mul(rotation.transpose());
+        body::write_sim_inv_inertia_world(sim, 0, inertia);
+        for (lane, value) in [qx, qy, qz, qs].into_iter().enumerate() {
+            sim2.set(body::S2_ROTATION0 + lane, value);
+        }
+        for (lane, value) in [center.x, center.y, center.z].into_iter().enumerate() {
+            sim2.set(body::S2_CENTER0 + lane, value);
+        }
+    }
+
+    #[export_name = "bodyShapePose"]
+    pub unsafe extern "C" fn shape_pose(world: usize, id: usize, shape: usize) {
+        regions::select(world as u32);
+        let record = bodies::record(world, id);
+        let o = shape * crate::shapes::SHAPE_STRIDE;
+        let columns = crate::shapes::col();
+        columns.set(
+            o + 32,
+            if record.set_index == 2 {
+                record.local_index as u32 + 1
+            } else {
+                0
+            },
+        );
+        if record.set_index == 2 {
+            return;
+        }
+        let sim = bodies::column(id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(id, 2, body::FIN_STRIDE);
+        let sim2 = bodies::column(id, 5, body::SIM2_STRIDE);
+        columns.set(o + 42, sim2.get(body::S2_FLAGS).to_bits());
+        for lane in 0..6 {
+            columns.set(o + 44 + lane, fin.get(lane).to_bits());
+        }
+        for lane in 0..3 {
+            columns.set(o + 18 + lane, fin.get(9 + lane).to_bits());
+        }
+        for lane in 0..4 {
+            columns.set(o + 21 + lane, sim.get(28 + lane).to_bits());
+        }
+    }
+
+    #[export_name = "bodyTransfer"]
+    pub unsafe extern "C" fn transfer(
+        world: usize,
+        id: usize,
+        target: usize,
+        clear_transient: bool,
+    ) -> u32 {
+        regions::select(world as u32);
+        let body = *bodies::record(world, id);
+        let result = crate::solver_set::transfer_body(
+            body.set_index as usize,
+            body.local_index as usize,
+            target,
+            body.flags,
+            body.head_shape_id,
+            clear_transient,
+        ) as *const u32;
+        *result.add(1)
+    }
+
+    #[export_name = "bodyWakeRecord"]
+    pub unsafe extern "C" fn wake_record(world: usize, id: usize) {
+        regions::select(world as u32);
+        let body = *bodies::record(world, id);
+        crate::solver_set::wake_body(
+            body.set_index as usize,
+            body.local_index as usize,
+            body.flags,
+            body.head_shape_id,
+        );
+    }
+
+    #[export_name = "bodyShapeBounds"]
+    pub unsafe extern "C" fn shape_bounds(world: usize, id: usize, shape: usize) {
+        regions::select(world as u32);
+        let pose = bodies::geometry(id).0;
+        let tight = crate::continuous::bounds(shape, pose);
+        let fat = crate::fataabb::col();
+        let mut previous = [0.0; 6];
+        for lane in 0..6 {
+            previous[lane] = fat.get(shape * 6 + lane);
+        }
+        let (bounds, escaped) = crate::finalize::refit_bounds(tight, &previous);
+        let f = crate::shapes::col_f();
+        let o = shape * crate::shapes::SHAPE_STRIDE;
+        for lane in 0..6 {
+            f.set(o + 34 + lane, bounds[lane]);
+        }
+        if escaped {
+            let margin = f.get(o + 40);
+            let mut enlarged = bounds;
+            for lane in 0..3 {
+                enlarged[lane] -= margin;
+                enlarged[lane + 3] += margin;
+            }
+            for lane in 0..6 {
+                fat.set(shape * 6 + lane, enlarged[lane]);
+            }
+            let key = crate::shapes::col().get(o + crate::shapes::S_PROXY_KEY);
+            if key != u32::MAX {
+                crate::broad::move_proxy(
+                    key,
+                    enlarged[0],
+                    enlarged[1],
+                    enlarged[2],
+                    enlarged[3],
+                    enlarged[4],
+                    enlarged[5],
+                );
+            }
+        }
+    }
+
+    #[export_name = "bodyCreateContact"]
+    pub unsafe extern "C" fn create_contact(
+        world: usize,
+        shape_a: usize,
+        shape_b: usize,
+        child: i32,
+        mut flags: u32,
+    ) -> usize {
+        use crate::manifold_abi::*;
+        regions::select(world as u32);
+        let shapes = crate::shapes::col();
+        let a = shapes.get(shape_a * crate::shapes::SHAPE_STRIDE + 29) as usize;
+        let b = shapes.get(shape_b * crate::shapes::SHAPE_STRIDE + 29) as usize;
+        let body_a = *bodies::record(world, a);
+        let body_b = *bodies::record(world, b);
+        let set = if body_a.set_index == 2 || body_b.set_index == 2 {
+            2
+        } else {
+            1
+        };
+        if body_a.flags & 0x4000 != 0 && body_b.flags & 0x4000 != 0 {
+            flags |= 0x10;
+        }
+        if body_a.body_type == 0 || body_b.body_type == 0 {
+            flags |= 8;
+        }
+        let id = crate::manifolds::alloc_contact();
+        let d = crate::manifolds::dir_col();
+        let o = id * DIR_STRIDE;
+        d.set(o + DIR_SET_INDEX, set as u32);
+        d.set(
+            o + DIR_LOCAL_INDEX,
+            crate::solver_set::array_push(set, 0, id as i32) as u32,
+        );
+        d.set(o + DIR_SHAPE_A, shape_a as u32);
+        d.set(o + DIR_SHAPE_B, shape_b as u32);
+        d.set(o + DIR_CHILD_INDEX, child as u32);
+        d.set(o + 6, flags);
+        if flags & 0x0040_0000 != 0 {
+            crate::manifolds::ensure_mesh_cache(id);
+        }
+        for (side, body_id) in [a, b].into_iter().enumerate() {
+            let body = bodies::record_mut(world, body_id);
+            let edge = o + DIR_EDGE_A + 3 * side;
+            d.set(edge, body_id as u32);
+            d.set(edge + 2, body.head_contact_key as u32);
+            let key = ((id as i32) << 1) | side as i32;
+            if body.head_contact_key != -1 {
+                let prev = body.head_contact_key;
+                d.set(
+                    (prev >> 1) as usize * DIR_STRIDE + DIR_EDGE_A + 1 + 3 * (prev & 1) as usize,
+                    key as u32,
+                );
+            }
+            body.head_contact_key = key;
+            body.contact_count += 1;
+            d.set(
+                o + 9 + side,
+                if body.body_type == 0 {
+                    u32::MAX
+                } else {
+                    body.local_index as u32
+                },
+            );
+        }
+        id
+    }
+
+    #[export_name = "bodyDestroyContact"]
+    pub unsafe extern "C" fn destroy_contact(world: usize, id: usize) {
+        use crate::manifold_abi::*;
+        regions::select(world as u32);
+        let d = crate::manifolds::dir_col();
+        let o = id * DIR_STRIDE;
+        for side in 0..2 {
+            let edge = o + DIR_EDGE_A + 3 * side;
+            let body = bodies::record_mut(world, d.get(edge) as usize);
+            let prev = d.get(edge + 1) as i32;
+            let next = d.get(edge + 2) as i32;
+            if prev != -1 {
+                d.set(
+                    (prev >> 1) as usize * DIR_STRIDE + DIR_EDGE_A + 2 + 3 * (prev & 1) as usize,
+                    next as u32,
+                );
+            }
+            if next != -1 {
+                d.set(
+                    (next >> 1) as usize * DIR_STRIDE + DIR_EDGE_A + 1 + 3 * (next & 1) as usize,
+                    prev as u32,
+                );
+            }
+            if body.head_contact_key == (((id as i32) << 1) | side as i32) {
+                body.head_contact_key = next;
+            }
+            body.contact_count -= 1;
+        }
+        if d.get(o + DIR_ISLAND_ID) != u32::MAX {
+            island::unlink_contact(id as i32);
+        }
+        let color = d.get(o + DIR_COLOR_INDEX);
+        let index = d.get(o + DIR_LOCAL_INDEX) as usize;
+        if color != u32::MAX {
+            crate::constraint_graph::remove_contact(
+                d.get(o + DIR_EDGE_A) as usize,
+                d.get(o + DIR_EDGE_B) as usize,
+                color as usize,
+                index,
+                d.get(o + 6) & 0x0040_0000 != 0,
+            );
+        } else {
+            let set = d.get(o + DIR_SET_INDEX) as usize;
+            if crate::solver_set::array_remove(set, 0, index) != -1 {
+                let moved = crate::solver_set::array_get(set, 0, index) as usize;
+                d.set(moved * DIR_STRIDE + DIR_LOCAL_INDEX, index as u32);
+            }
+        }
+        crate::manifolds::free_contact(id);
+    }
+
+    #[export_name = "bodyCreateSim"]
+    pub unsafe extern "C" fn create_sim(
+        world: u32,
+        body_type: i32,
+        flags: u32,
+        awake: bool,
+        enabled: bool,
+        threshold: f32,
+        px: f32,
+        py: f32,
+        pz: f32,
+        qx: f32,
+        qy: f32,
+        qz: f32,
+        qs: f32,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+        wx: f32,
+        wy: f32,
+        wz: f32,
+        linear_damping: f32,
+        angular_damping: f32,
+        gravity_scale: f32,
+    ) -> u32 {
+        use crate::math::{Quat, Vec3};
+        regions::select(world);
+        let flags = (flags & !body::flags::DYNAMIC)
+            | if body_type == 2 {
+                body::flags::DYNAMIC
+            } else {
+                0
+            };
+        let set = if !enabled {
+            1
+        } else if body_type == 0 {
+            0
+        } else if awake || flags & body::flags::ENABLE_SLEEP == 0 {
+            2
+        } else {
+            crate::solver_set::create()
+        };
+        let id = bodies::body_create(world);
+        let index = crate::solver_set::body_append(set);
+        let record = bodies::record_mut(world as usize, id as usize);
+        record.set_index = set as i32;
+        record.local_index = index as i32;
+        record.sleep_threshold = threshold;
+        record.flags = flags;
+        record.body_type = body_type;
+        for (column, stride) in [
+            (1, body::SIM_STRIDE),
+            (2, body::FIN_STRIDE),
+            (5, body::SIM2_STRIDE),
+        ] {
+            crate::solver_set::body_ptr(set, index, column).write_bytes(0, stride);
+        }
+        let sim = bodies::column(id as usize, 1, body::SIM_STRIDE);
+        let fin = bodies::column(id as usize, 2, body::FIN_STRIDE);
+        let sim2 = bodies::column(id as usize, 5, body::SIM2_STRIDE);
+        let p = Vec3::new(px, py, pz);
+        let q = Quat {
+            v: Vec3::new(qx, qy, qz),
+            s: qs,
+        };
+        body::write_fin_center(fin, 0, p);
+        body::write_fin_transform_p(fin, 0, p);
+        body::write_sim_rotation(sim, 0, q);
+        sim.set(1, gravity_scale);
+        sim.set(2, linear_damping);
+        sim.set(3, angular_damping);
+        for (lane, value) in [qx, qy, qz, qs].into_iter().enumerate() {
+            sim2.set(body::S2_ROTATION0 + lane, value);
+        }
+        for (lane, value) in [px, py, pz].into_iter().enumerate() {
+            sim2.set(body::S2_CENTER0 + lane, value);
+        }
+        sim2.set(body::S2_MIN_EXTENT, 1.0e5);
+        sim2.set(body::S2_BODY_ID, f32::from_bits(id));
+        sim2.set(body::S2_FLAGS, f32::from_bits(flags));
+        sim2.set(body::S2_HEAD_SHAPE, f32::from_bits(u32::MAX));
+        if set == 2 {
+            let state = body::State {
+                linear_velocity: Vec3::new(vx, vy, vz),
+                angular_velocity: Vec3::new(wx, wy, wz),
+                delta_position: Vec3::ZERO,
+                delta_rotation: Quat::IDENTITY,
+            };
+            body::write_state(
+                bodies::column(id as usize, 0, body::STATE_STRIDE),
+                0,
+                &state,
+            );
+            *(crate::solver_set::body_ptr(set, index, 4)) = flags;
+            sim2.set(
+                body::S2_MAX_ANGULAR_VELOCITY,
+                state.angular_velocity.length() + 5.0,
+            );
+        }
+        if set >= 2 {
+            let island = island::create(set);
+            island::add_body(island, id as i32);
+        }
+        id
+    }
+
+    // Preserve the JS API's rounding point for host translation and dt: subtraction and reciprocal
+    // precede f32 conversion. The resident pose and velocities remain f32.
+    #[export_name = "bodyTargetVelocity"]
+    pub unsafe extern "C" fn target_velocity(
+        world: usize,
+        id: usize,
+        tx: f64,
+        ty: f64,
+        tz: f64,
+        qx: f32,
+        qy: f32,
+        qz: f32,
+        qs: f32,
+        time_step: f64,
+        wake: bool,
+    ) -> bool {
+        use crate::math::{Quat, Vec3};
+        regions::select(world as u32);
+        let record = bodies::record(world, id);
+        if record.set_index == 1
+            || record.body_type == 0
+            || time_step <= 0.0
+            || (record.set_index != 2 && !wake)
+        {
+            return false;
+        }
+        let (pose, fin, _) = bodies::geometry(id);
+        let q = Quat {
+            v: Vec3::new(qx, qy, qz),
+            s: qs,
+        };
+        let rotated = q.rotate(fin.local_center);
+        let center = Vec3::new(
+            (rotated.x as f64 + tx) as f32,
+            (rotated.y as f64 + ty) as f32,
+            (rotated.z as f64 + tz) as f32,
+        );
+        let inv_dt = (1.0 / time_step) as f32;
+        let linear = center.sub(fin.center).scale(inv_dt);
+        let sign = if pose.q.dot(q) < 0.0 { -1.0 } else { 1.0 };
+        let difference = q.v.scale(sign).sub(pose.q.v);
+        let ds = sign * qs - pose.q.s;
+        let conjugate = pose.q.v.neg();
+        let angular = difference
+            .cross(conjugate)
+            .add(conjugate.scale(ds))
+            .add(difference.scale(pose.q.s))
+            .scale(2.0 * inv_dt);
+        if record.set_index != 2 {
+            let speed = linear.length()
+                + Vec3::new(
+                    angular.x * fin.max_extent.x,
+                    angular.y * fin.max_extent.y,
+                    angular.z * fin.max_extent.z,
+                )
+                .length();
+            return speed >= record.sleep_threshold;
+        }
+        let state = bodies::column(id, 0, body::STATE_STRIDE);
+        for (lane, value) in [
+            linear.x, linear.y, linear.z, angular.x, angular.y, angular.z,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            state.set(lane, value);
+        }
+        false
+    }
+
+    #[export_name = "bodySyncFlags"]
+    pub unsafe extern "C" fn sync_flags(world: usize, id: usize) {
+        regions::select(world as u32);
+        let record = bodies::record(world, id);
+        let flags = record.flags
+            & !(body::flags::IS_FAST
+                | body::flags::IS_SPEED_CAPPED
+                | body::flags::HAD_TIME_OF_IMPACT);
+        bodies::column(id, 5, body::SIM2_STRIDE).set(body::S2_FLAGS, f32::from_bits(flags));
+        if record.set_index == 2 {
+            *crate::solver_set::body_ptr(2, record.local_index as usize, 4) = flags;
+        }
+    }
+
+    #[export_name = "bodySyncContacts"]
+    pub unsafe extern "C" fn sync_contacts(world: usize, id: usize) {
+        regions::select(world as u32);
+        bodies::sync_contacts(id);
+    }
+
+    #[export_name = "bodyChangeType"]
+    pub unsafe extern "C" fn change_type(world: usize, id: usize, body_type: i32) {
+        regions::select(world as u32);
+        let record = bodies::record_mut(world, id);
+        record.body_type = body_type;
+        if body_type == 2 {
+            record.flags |= body::flags::DYNAMIC;
+        } else {
+            record.flags &= !body::flags::DYNAMIC;
+        }
+        sync_flags(world, id);
+    }
+
+    #[derive(Clone, Copy)]
+    struct MassInput {
+        mass: f32,
+        center: crate::math::Vec3,
+        inertia: Mat3,
+    }
+    static mut MASSES: [Vec<MassInput>; regions::MAX_WORLDS] =
+        [const { Vec::new() }; regions::MAX_WORLDS];
+    pub unsafe fn reset(world: usize) {
+        MASSES[world] = Vec::new();
+    }
+
+    #[export_name = "bodyMassBegin"]
+    pub unsafe extern "C" fn mass_begin(world: usize, id: usize) {
+        regions::select(world as u32);
+        let record = bodies::record_mut(world, id);
+        record.mass = 0.0;
+        record.inertia = Mat3::ZERO;
+        MASSES[world].clear();
+        MASSES[world].reserve(record.shape_count as usize);
+        let sim = bodies::column(id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(id, 2, body::FIN_STRIDE);
+        sim.set(0, 0.0);
+        for lane in 10..28 {
+            sim.set(lane, 0.0);
+        }
+        for lane in 3..9 {
+            fin.set(lane, 0.0);
+        }
+        bodies::column(id, 5, body::SIM2_STRIDE).set(body::S2_MIN_EXTENT, 1.0e5);
+    }
+
+    #[export_name = "bodyMassInput"]
+    pub unsafe extern "C" fn mass_input(
+        world: usize,
+        mass: f32,
+        x: f32,
+        y: f32,
+        z: f32,
+        xx: f32,
+        xy: f32,
+        xz: f32,
+        yx: f32,
+        yy: f32,
+        yz: f32,
+        zx: f32,
+        zy: f32,
+        zz: f32,
+    ) {
+        use crate::math::Vec3;
+        MASSES[world].push(MassInput {
+            mass,
+            center: Vec3::new(x, y, z),
+            inertia: Mat3 {
+                cx: Vec3::new(xx, xy, xz),
+                cy: Vec3::new(yx, yy, yz),
+                cz: Vec3::new(zx, zy, zz),
+            },
+        });
+    }
+
+    #[export_name = "bodyMassFinish"]
+    pub unsafe extern "C" fn mass_finish(world: usize, id: usize) {
+        use crate::math::Vec3;
+        regions::select(world as u32);
+        let record = bodies::record_mut(world, id);
+        if record.shape_count == 0 {
+            return;
+        }
+        let sim = bodies::column(id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(id, 2, body::FIN_STRIDE);
+        let sim2 = bodies::column(id, 5, body::SIM2_STRIDE);
+        let pose = bodies::geometry(id).0;
+        let mut center = Vec3::ZERO;
+        if record.body_type == 2 {
+            for entry in &MASSES[world] {
+                record.mass += entry.mass;
+                center = center.mul_add(entry.mass, entry.center);
+            }
+            if record.mass > 0.0 {
+                sim.set(0, 1.0 / record.mass);
+                center = center.scale(sim.get(0));
+            }
+            for entry in &MASSES[world] {
+                if entry.mass == 0.0 {
+                    continue;
+                }
+                let r = center.sub(entry.center);
+                let nm = -entry.mass;
+                let xy = nm * r.x * r.y;
+                let xz = nm * r.x * r.z;
+                let yz = nm * r.y * r.z;
+                let offset = Mat3 {
+                    cx: Vec3::new(entry.mass * (r.y * r.y + r.z * r.z), xy, xz),
+                    cy: Vec3::new(xy, entry.mass * (r.x * r.x + r.z * r.z), yz),
+                    cz: Vec3::new(xz, yz, entry.mass * (r.x * r.x + r.y * r.y)),
+                };
+                record.inertia = record.inertia.add(entry.inertia.add(offset));
+            }
+            if record.inertia.det() > 0.0 {
+                let inverse = record.inertia.invert().transpose();
+                let values = [
+                    inverse.cx.x,
+                    inverse.cx.y,
+                    inverse.cx.z,
+                    inverse.cy.x,
+                    inverse.cy.y,
+                    inverse.cy.z,
+                    inverse.cz.x,
+                    inverse.cz.y,
+                    inverse.cz.z,
+                ];
+                for lane in 0..9 {
+                    sim.set(10 + lane, values[lane]);
+                }
+                let rotation = Mat3::from_quat(pose.q);
+                body::write_sim_inv_inertia_world(
+                    sim,
+                    0,
+                    rotation.mul(inverse).mul(rotation.transpose()),
+                );
+            }
+            let old_center = body::read_fin(fin, 0).center;
+            fin.set(3, center.x);
+            fin.set(4, center.y);
+            fin.set(5, center.z);
+            let next_center = pose.point(center);
+            body::write_fin_center(fin, 0, next_center);
+            if record.set_index == 2 {
+                let state = bodies::column(id, 0, body::STATE_STRIDE);
+                let velocity = Vec3::new(state.get(0), state.get(1), state.get(2));
+                let angular = Vec3::new(state.get(3), state.get(4), state.get(5));
+                let next = velocity.add(angular.cross(next_center.sub(old_center)));
+                state.set(0, next.x);
+                state.set(1, next.y);
+                state.set(2, next.z);
+            }
+        } else {
+            body::write_fin_center(fin, 0, pose.p);
+        }
+        let center = body::read_fin(fin, 0).center;
+        sim2.set(body::S2_CENTER0, center.x);
+        sim2.set(body::S2_CENTER0 + 1, center.y);
+        sim2.set(body::S2_CENTER0 + 2, center.z);
+        if record.flags & 0x38 == 0x38 {
+            record.inertia = Mat3::ZERO;
+            for lane in 10..28 {
+                sim.set(lane, 0.0);
+            }
+        }
+    }
+
+    #[export_name = "bodyMassExtent"]
+    pub unsafe extern "C" fn mass_extent(
+        world: usize,
+        id: usize,
+        minimum: f32,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) {
+        regions::select(world as u32);
+        let fin = bodies::column(id, 2, body::FIN_STRIDE);
+        let sim2 = bodies::column(id, 5, body::SIM2_STRIDE);
+        sim2.set(
+            body::S2_MIN_EXTENT,
+            crate::math::minf(sim2.get(body::S2_MIN_EXTENT), minimum),
+        );
+        for (lane, value) in [x, y, z].into_iter().enumerate() {
+            fin.set(6 + lane, crate::math::maxf(fin.get(6 + lane), value));
+        }
+    }
+
+    #[export_name = "bodyRemoveIsland"]
+    pub unsafe extern "C" fn remove_island(world: usize, id: usize) {
+        regions::select(world as u32);
+        let body = *bodies::record(world, id);
+        if body.island_id == -1 {
+            return;
+        }
+        let island = body.island_id as usize;
+        island::remove_body(island, body.island_index as usize);
+        if island::array_count(island, 0) == 0 {
+            island::destroy(island);
+        }
+    }
+
+    #[export_name = "bodyCreateIsland"]
+    pub unsafe extern "C" fn create_island(world: usize, id: usize) {
+        regions::select(world as u32);
+        let set = bodies::record(world, id).set_index as usize;
+        island::add_body(island::create(set), id as i32);
+    }
+
+    #[export_name = "bodyCreateProxy"]
+    pub unsafe extern "C" fn create_proxy(world: usize, id: usize, shape: usize) -> u32 {
+        regions::select(world as u32);
+        let body_type = bodies::record(world, id).body_type as usize;
+        let tight = crate::continuous::bounds(shape, bodies::geometry(id).0);
+        let (bounds, _) = crate::finalize::refit_bounds(tight, &[0.0; 6]);
+        let o = shape * crate::shapes::SHAPE_STRIDE;
+        let f = crate::shapes::col_f();
+        let u = crate::shapes::col();
+        let fat = crate::fataabb::col();
+        let margin = if body_type == 0 { 0.02 } else { f.get(o + 40) };
+        let mut enlarged = bounds;
+        for lane in 0..3 {
+            enlarged[lane] -= margin;
+            enlarged[lane + 3] += margin;
+        }
+        for lane in 0..6 {
+            f.set(o + 34 + lane, bounds[lane]);
+            fat.set(shape * 6 + lane, enlarged[lane]);
+        }
+        let key = crate::broad::create_proxy(
+            body_type,
+            enlarged[0],
+            enlarged[1],
+            enlarged[2],
+            enlarged[3],
+            enlarged[4],
+            enlarged[5],
+            u.get(o + 25),
+            u.get(o + 26),
+            shape as u32,
+            1,
+        );
+        u.set(o + crate::shapes::S_PROXY_KEY, key);
+        shape_pose(world, id, shape);
+        key
+    }
+
+    #[export_name = "bodyColumnPtr"]
+    pub unsafe extern "C" fn column_ptr(world: usize, id: usize, column: usize) -> usize {
+        let record = bodies::record(world, id);
+        crate::solver_set::body_ptr_world(
+            world,
+            record.set_index as usize,
+            record.local_index as usize,
+            column,
+        ) as usize
+    }
+
+    #[export_name = "bodyStateIndex"]
+    pub unsafe extern "C" fn state_index(world: usize, id: usize) -> i32 {
+        let record = bodies::record(world, id);
+        if record.set_index == 2 {
+            record.local_index
+        } else {
+            -1
+        }
+    }
+}

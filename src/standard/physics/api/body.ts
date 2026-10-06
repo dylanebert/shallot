@@ -3,7 +3,6 @@ import { SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import {
     f32,
-    froundConfig,
     invTransformWorldPoint,
     type Pos,
     type Quat,
@@ -24,6 +23,7 @@ import {
     readStateAngularVelocity,
     readStateLinearVelocity,
 } from "../kernel/bodycolumns";
+import { BodyField, bodyField, setBodyField } from "../kernel/bodyrecords";
 import { bodyType } from "../kernel/filtercolumns";
 import { kernel, setQueryCallback } from "../kernel/kernel";
 import { type QueryColumns, queryColumns } from "../kernel/querycolumns";
@@ -43,7 +43,6 @@ import {
     type Shape as ShapeRecord,
 } from "../shapes/shape";
 import {
-    type Body as BodyRecord,
     bodyApplyAngularImpulse,
     bodyApplyForce,
     bodyApplyForceToCenter,
@@ -127,8 +126,8 @@ export class Body {
         return out;
     }
 
-    private record(): BodyRecord {
-        return this.world.bodies[this.id.index1 - 1];
+    private record(): number {
+        return this.id.index1 - 1;
     }
 
     /** @returns whether this body has not been destroyed and its world is alive. */
@@ -137,7 +136,7 @@ export class Body {
             return false;
         }
         const i = this.id.index1 - 1;
-        if (i < 0 || i >= this.world.bodies.length) {
+        if (i < 0 || i >= kernel(this.world.ecsState).bodyLength(this.world.worldId)) {
             return false;
         }
         if (kernel(this.world.ecsState).bodyAlive(this.world.worldId, i) === 0) {
@@ -225,7 +224,7 @@ export class Body {
 
     /** @returns the body type (static / kinematic / dynamic). */
     getType(): BodyType {
-        return bodyType(this.world, this.record().id);
+        return bodyType(this.world, bodyField(this.world, this.record(), BodyField.id));
     }
 
     /**
@@ -306,12 +305,9 @@ export class Body {
 
     /** @returns the body's angular velocity (zero when the body is not awake). */
     getAngularVelocity(): Vec3 {
-        const angularVelocityScratch1 = { x: 0, y: 0, z: 0 };
-
+        const out = { x: 0, y: 0, z: 0 };
         const state = getBodyState(this.world, this.record());
-        return state === null
-            ? { x: 0, y: 0, z: 0 }
-            : readStateAngularVelocity(this.world, state, angularVelocityScratch1);
+        return state === null ? out : readStateAngularVelocity(this.world, state, out);
     }
 
     /** Set the body's linear velocity, waking it when nonzero. */
@@ -325,7 +321,11 @@ export class Body {
 
     /** Set the body's angular velocity (locked axes masked out), waking it when nonzero. */
     setAngularVelocity(velocity: Vec3): void {
-        bodySetAngularVelocity(this.world, this.record(), froundConfig(velocity));
+        const v = velocityWrite;
+        v.x = f32(velocity.x);
+        v.y = f32(velocity.y);
+        v.z = f32(velocity.z);
+        bodySetAngularVelocity(this.world, this.record(), v);
     }
 
     /**
@@ -438,12 +438,12 @@ export class Body {
 
     /** @returns whether the body is in the awake solver set. */
     isAwake(): boolean {
-        return this.record().setIndex === SetType.Awake;
+        return bodyField(this.world, this.record(), BodyField.setIndex) === SetType.Awake;
     }
 
     /** @returns the body mass. */
     getMass(): number {
-        return this.record().mass;
+        return bodyField(this.world, this.record(), BodyField.mass);
     }
 
     /** @returns the mass, local center of mass, and rotational inertia. */
@@ -458,17 +458,17 @@ export class Body {
 
     /** @returns the number of attached shapes. */
     getShapeCount(): number {
-        return this.record().shapeCount;
+        return bodyField(this.world, this.record(), BodyField.shapeCount);
     }
 
     /** @returns the user data attached to this body. */
     getUserData(): unknown {
-        return this.record().userData;
+        return bodyField(this.world, this.record(), BodyField.userData);
     }
 
     /** Attach arbitrary user data to this body. */
     setUserData(userData: unknown): void {
-        this.record().userData = userData;
+        setBodyField(this.world, this.record(), BodyField.userData, userData);
     }
 
     /**
@@ -488,7 +488,12 @@ export class Body {
         q.placement(bodyTransform, origin);
         q.translation(translation);
         q.input[12] = maxFraction;
-        k.bodyQuery(this.world.worldId, 0, this.record().headShapeId, 0);
+        k.bodyQuery(
+            this.world.worldId,
+            0,
+            bodyField(this.world, this.record(), BodyField.headShapeId),
+            0,
+        );
         return bodyHit(this.world, q, origin);
     }
 
@@ -512,7 +517,12 @@ export class Body {
         q.translation(translation);
         q.input[12] = maxFraction;
         q.input[13] = Number(canEncroach);
-        k.bodyQuery(this.world.worldId, 1, this.record().headShapeId, 0);
+        k.bodyQuery(
+            this.world.worldId,
+            1,
+            bodyField(this.world, this.record(), BodyField.headShapeId),
+            0,
+        );
         return bodyHit(this.world, q, origin);
     }
 
@@ -527,7 +537,12 @@ export class Body {
         const k = q.prepare(origin, filter);
         q.placement(bodyTransform, origin);
         q.proxy(proxy);
-        k.bodyQuery(this.world.worldId, 2, this.record().headShapeId, 0);
+        k.bodyQuery(
+            this.world.worldId,
+            2,
+            bodyField(this.world, this.record(), BodyField.headShapeId),
+            0,
+        );
         return q.resultU[0] !== 0xffffffff;
     }
 
@@ -543,7 +558,12 @@ export class Body {
         const k = q.prepare(origin);
         q.placement(readBodyTransform(this.world, this.record(), bodyPoseScratch1), origin);
         q.proxy({ points: [target], count: 1, radius: 0 });
-        k.bodyQuery(this.world.worldId, 3, this.record().headShapeId, 0);
+        k.bodyQuery(
+            this.world.worldId,
+            3,
+            bodyField(this.world, this.record(), BodyField.headShapeId),
+            0,
+        );
         return {
             point: { x: q.resultF[6], y: q.resultF[7], z: q.resultF[8] },
             distance: q.resultF[3],
@@ -583,7 +603,12 @@ export class Body {
             return 1;
         });
         try {
-            k.bodyQuery(this.world.worldId, 4, this.record().headShapeId, Math.max(0, capacity));
+            k.bodyQuery(
+                this.world.worldId,
+                4,
+                bodyField(this.world, this.record(), BodyField.headShapeId),
+                Math.max(0, capacity),
+            );
         } finally {
             setQueryCallback(this.world.ecsState, previous);
         }

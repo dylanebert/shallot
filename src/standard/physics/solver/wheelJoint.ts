@@ -1,5 +1,6 @@
 import { atan2, f32, mat3, quat, type Vec3, vec3 } from "../common/math";
 import { bodySimSlot, readSimTransform, readStateAngularVelocity } from "../kernel/bodycolumns";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import {
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
@@ -154,11 +155,7 @@ export function createWheelJoint(
 export function getWheelJointForce(world: WorldState, sim: Joint): Vec3 {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(
-        world,
-        world.bodies[sim.edges[0].bodyId],
-        bodyPoseScratch1,
-    );
+    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
 
     // impulse in joint space. The z term reads lowerSuspensionLimit (a config value, not an impulse) —
     // an upstream quirk in b3GetWheelJointForce, kept verbatim so this accessor matches C. Not "fixed"
@@ -186,9 +183,9 @@ export function getWheelJointTorque(world: WorldState, sim: Joint): Vec3 {
         q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
     };
 
-    const bodyA = world.bodies[sim.edges[0].bodyId];
-    const setA = bodyA.setIndex;
-    const bodySimA = bodySimSlot(setA, bodyA.localIndex);
+    const bodyA = sim.edges[0].bodyId;
+    const setA = bodyField(world, bodyA, BodyField.setIndex);
+    const bodySimA = bodySimSlot(setA, bodyField(world, bodyA, BodyField.localIndex));
     const qA = quat.mul(
         readSimTransform(world, bodySimA, transformScratch1).q,
         readJointQuat(world, sim, J_LOCAL_FRAME_A + 3),
@@ -206,10 +203,10 @@ export function wheelJointSpinSpeed(world: WorldState, sim: Joint): number {
     const angularVelocityScratch2 = { x: 0, y: 0, z: 0 };
     const angularVelocityScratch3 = { x: 0, y: 0, z: 0 };
 
-    const bodyA = world.bodies[sim.edges[0].bodyId];
-    const bodyB = world.bodies[sim.edges[1].bodyId];
-    const setB = bodyB.setIndex;
-    const bodySimB = bodySimSlot(setB, bodyB.localIndex);
+    const bodyA = sim.edges[0].bodyId;
+    const bodyB = sim.edges[1].bodyId;
+    const setB = bodyField(world, bodyB, BodyField.setIndex);
+    const bodySimB = bodySimSlot(setB, bodyField(world, bodyB, BodyField.localIndex));
     const quatB = quat.mul(
         readSimTransform(world, bodySimB, transformScratch1).q,
         readJointQuat(world, sim, J_LOCAL_FRAME_B + 3),
@@ -240,12 +237,12 @@ export function wheelJointSteeringAngle(world: WorldState, sim: Joint): number {
         q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
     };
 
-    const bodyA = world.bodies[sim.edges[0].bodyId];
-    const bodyB = world.bodies[sim.edges[1].bodyId];
-    const setA = bodyA.setIndex;
-    const setB = bodyB.setIndex;
-    const bodySimA = bodySimSlot(setA, bodyA.localIndex);
-    const bodySimB = bodySimSlot(setB, bodyB.localIndex);
+    const bodyA = sim.edges[0].bodyId;
+    const bodyB = sim.edges[1].bodyId;
+    const setA = bodyField(world, bodyA, BodyField.setIndex);
+    const setB = bodyField(world, bodyB, BodyField.setIndex);
+    const bodySimA = bodySimSlot(setA, bodyField(world, bodyA, BodyField.localIndex));
+    const bodySimB = bodySimSlot(setB, bodyField(world, bodyB, BodyField.localIndex));
     const quatA = quat.mul(
         readSimTransform(world, bodySimA, transformScratch1).q,
         readJointQuat(world, sim, J_LOCAL_FRAME_A + 3),

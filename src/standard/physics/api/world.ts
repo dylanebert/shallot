@@ -1,3 +1,4 @@
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 // The public surface: thin handle classes over the internal id/record model. A World/Body/Shape
 // instance holds only an id and delegates to the internal free functions; all state lives in the
 // solver-set columns. Stale handles self-invalidate through the generation stored in the id (the
@@ -378,12 +379,12 @@ export class PhysicsWorld {
         }
         for (let i = 0; i < count; ++i) {
             const rec = state.bodyStore.readMove(i, this._moveRecord);
-            const body = state.bodies[rec.bodyId];
+            const body = rec.bodyId;
             const ev = pool[i];
             ev.body.id.index1 = rec.bodyId + 1;
             ev.body.id.generation = rec.generation;
             readSimTransform(state, getBodySim(state, body), ev.transform);
-            ev.userData = body.userData;
+            ev.userData = bodyField(state, body, BodyField.userData);
             ev.fellAsleep = rec.fellAsleep;
         }
         const events = this._bodyEvents;

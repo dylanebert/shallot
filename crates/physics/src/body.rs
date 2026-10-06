@@ -225,6 +225,7 @@ pub const S2_CENTER0: usize = 4;
 /// Slot of `BodySim.minExtent` in the sim2 column — the smallest shape half-extent, against which the
 /// finalize fast-body test compares this step's motion (`columns.ts` `S2_MIN_EXTENT`).
 pub const S2_MIN_EXTENT: usize = 7;
+pub const S2_MAX_ANGULAR_VELOCITY: usize = 8;
 /// Public body index carried by the resident sim2 record for lifecycle/move publication.
 pub const S2_BODY_ID: usize = 9;
 pub const S2_FLAGS: usize = 10;
@@ -252,4 +253,5 @@ pub mod flags {
     pub const ALLOW_FAST_ROTATION: u32 = 0x0000_0400;
     /// Set on dynamic bodies; the contact solver only writes velocity back to bodies that carry it.
     pub const DYNAMIC: u32 = 0x0000_1000;
+    pub const ENABLE_SLEEP: u32 = 0x0000_2000;
 }

@@ -15,22 +15,14 @@ import { setArrayCount, setArrayGet, setBodyCount } from "../kernel/solversetcol
 // fround-wrapped; see the README.
 
 import { NULL_INDEX } from "../common/array";
-import { OVERFLOW_INDEX, SetType, TIME_TO_SLEEP } from "../common/constants";
+import { OVERFLOW_INDEX, SetType } from "../common/constants";
 import { f32, type Vec3, vec3 } from "../common/math";
-import {
-    type Columns,
-    FIN_OUT_STRIDE,
-    reserveColumns,
-    S2_BODY_ID,
-    S2_FLAGS,
-    SIM2_STRIDE,
-} from "../kernel/columns";
+import { reserveColumns, S2_FLAGS, SIM2_STRIDE } from "../kernel/columns";
 import { consumeContinuous, prepareContinuous, solveBullets } from "../kernel/continuouscolumns";
-import { islandField } from "../kernel/islandcolumns";
-import { collectJointEvents, jointArrayCount, stageJointBodies } from "../kernel/jointcolumns";
+import { collectJointEvents, jointArrayCount, jointSpans } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
 import { getShapeUserMaterialId } from "../shapes/shape";
-import { BODY_TRANSIENT_FLAGS, BodyFlags, getBodySim } from "../world/body";
+import { BodyFlags, getBodySim } from "../world/body";
 import { splitIsland } from "../world/island";
 import { trySleepIsland } from "../world/solverset";
 import type { WorldState } from "../world/world";
@@ -42,80 +34,19 @@ import {
     writeSlots,
 } from "./contactsolver";
 
-const SPEED_CAPPED = BodyFlags.isSpeedCapped;
-const TOI = BodyFlags.hadTimeOfImpact;
-
-// Per-island awake marks, reused across steps (grow-only; valid prefix reset in `solve` before
-// finalize). Module scratch is safe across sequential worlds: the buffer is write-before-read within
-// one synchronous `solve` and never read across steps.
-const awakeIslandsScratch: boolean[] = [];
-
-// --- Finalize --------------------------------------------------------------------------------
-
-/** Publish continuous hits and apply the retained body/island metadata policy after kernel finalization. */
-function finalizeBodies(context: StepContext, cols: Columns): void {
+function finalizeBodies(context: StepContext): void {
     const world = context.world;
     const count = context.bodyCount;
-    const enableSleep = world.enableSleep;
-    const timeStep = context.dt;
-
-    // Kernel finalization publishes one retained move record per awake body. Keep only its valid
-    // prefix count here; the public World bridge reads the wasm records after the step.
     world.bodyMoveCount = count;
-
-    const store = world.bodyStore;
-    const sim2U = store.sim2U;
-    const flagsU = store.flagsU;
-    const outCol = cols.finOut;
     consumeContinuous(world, count, false);
-
-    for (let simIndex = 0; simIndex < count; ++simIndex) {
-        const s2o = simIndex * SIM2_STRIDE;
-        const simFlags = sim2U[s2o + S2_FLAGS];
-        const fast = simFlags & BodyFlags.isFast;
-        if (fast && simFlags & BodyFlags.isBullet) context.bulletBodies.push(simIndex);
-
-        const body = world.bodies[sim2U[s2o + S2_BODY_ID]];
-        body.bodyMoveIndex = simIndex;
-
-        // Kernel finalization already published this body's move identity. Keep the local index only
-        // so the TS sleep policy can mark the retained kernel record if the body falls asleep.
-
-        body.flags &= ~BODY_TRANSIENT_FLAGS;
-        body.flags |= simFlags & (SPEED_CAPPED | TOI);
-        const stateFlags = flagsU[simIndex];
-        body.flags |= stateFlags & (SPEED_CAPPED | TOI);
-        sim2U[s2o + S2_FLAGS] = (simFlags & ~BODY_TRANSIENT_FLAGS) | fast;
-        flagsU[simIndex] = stateFlags & ~BODY_TRANSIENT_FLAGS;
-
-        const sleepVelocity = outCol[simIndex * FIN_OUT_STRIDE];
-
-        if (
-            enableSleep === false ||
-            (body.flags & BodyFlags.enableSleep) === 0 ||
-            sleepVelocity > body.sleepThreshold
-        ) {
-            body.sleepTime = 0;
-        } else {
-            body.sleepTime = f32(body.sleepTime + timeStep);
-        }
-
-        // Any single body in an island can keep it awake; a sleepy body in a split-pending island is
-        // tracked as a split candidate (ties broken by island id for determinism).
-        const islandId = body.islandId;
-        if (body.sleepTime < TIME_TO_SLEEP) {
-            context.awakeIslands[islandField(world, islandId, 1)] = true;
-        } else if (islandField(world, islandId, 3) > 0) {
-            if (
-                body.sleepTime > context.splitSleepTime ||
-                (body.sleepTime === context.splitSleepTime && body.islandId > context.splitIslandId)
-            ) {
-                context.splitIslandId = body.islandId;
-                context.splitSleepTime = body.sleepTime;
-            }
-        }
+    const sim2U = world.bodyStore.sim2U;
+    for (let i = 0; i < count; ++i) {
+        const flags = sim2U[i * SIM2_STRIDE + S2_FLAGS];
+        if (flags & BodyFlags.isFast && flags & BodyFlags.isBullet) context.bulletBodies.push(i);
     }
-    kernel(world.ecsState).treeEnlargePass(count, 0);
+    const k = kernel(world.ecsState);
+    context.splitIslandId = k.bodyFinish(count, context.dt, world.enableSleep);
+    k.treeEnlargePass(count, 0);
 }
 
 // --- Event build passes ----------------------------------------------------------------------
@@ -170,8 +101,8 @@ function buildHitEvents(context: StepContext): void {
         const contact = contactId;
         const shapeA = world.shapes[contactField(world, contact, ContactField.shapeIdA)];
         const shapeB = world.shapes[contactField(world, contact, ContactField.shapeIdB)];
-        const simA = getBodySim(world, world.bodies[shapeBodyId(world, shapeA.id)]);
-        const simB = getBodySim(world, world.bodies[shapeBodyId(world, shapeB.id)]);
+        const simA = getBodySim(world, shapeBodyId(world, shapeA.id));
+        const simB = getBodySim(world, shapeBodyId(world, shapeB.id));
         const midCenter = vec3.lerp(
             readSimCenter(world, simA, centerScratch1),
             readSimCenter(world, simB, centerScratch2),
@@ -252,11 +183,8 @@ export function solve(world: WorldState, context: StepContext): void {
         layout.wide,
         layout.colors.length,
     );
-    // reserveColumns may have grown wasm memory, detaching every view; re-derive the manifold store's
-    // (writeSlots writes contact rows through them) and the body store's (body staging and the
-    // finalize tail read resident sim/state columns through them) before either is touched. The body
-    // columns are resident (bodycolumns.ts), so no
-    // per-step marshal runs; the kernel reads them where they already live.
+    // reserveColumns may replace wasm memory; refresh the owners before writeSlots or finalization
+    // reads their views.
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
     writeSlots(world);
@@ -281,7 +209,7 @@ export function solve(world: WorldState, context: StepContext): void {
     const hitThreshold = world.hitEventThreshold;
     const subStepCount = context.subStepCount;
 
-    const jointTotal = stageJointBodies(world, layout, cols.colorSpan);
+    const jointTotal = jointSpans(world, layout, cols.colorSpan);
     prepareContinuous(world, context.bodyCount);
     k.solveBuild(
         (pool?.size ?? 0) + 1,
@@ -331,17 +259,7 @@ export function solve(world: WorldState, context: StepContext): void {
     // `profile.constraints` absorbs that task; `transforms` times the retained serial tail.
     phaseStart = performance.now();
 
-    // Reset the per-step sleep bookkeeping (the C per-worker b3TaskContext reset before finalize).
-    // The island marks reuse a grow-only module buffer — valid prefix = this step's awake island
-    // count, cleared here; never read across steps (finalize writes it, the sleep pass below reads it).
-    const islandCount = setArrayCount(world, awakeSet, 1);
-    while (awakeIslandsScratch.length < islandCount) awakeIslandsScratch.push(false);
-    for (let i = 0; i < islandCount; ++i) awakeIslandsScratch[i] = false;
-    context.awakeIslands = awakeIslandsScratch;
-    context.splitIslandId = NULL_INDEX;
-    context.splitSleepTime = 0;
-
-    finalizeBodies(context, cols);
+    finalizeBodies(context);
     profile.transforms = performance.now() - phaseStart;
 
     // The contact-begin records are created during collision detection, but their normal impulses are
@@ -379,10 +297,8 @@ export function solve(world: WorldState, context: StepContext): void {
         // Reverse order because sleeping an island swap-removes it from the awake islandSims.
         const count = setArrayCount(world, awakeSet, 1);
         for (let islandIndex = count - 1; islandIndex >= 0; --islandIndex) {
-            if (context.awakeIslands[islandIndex]) {
-                continue;
-            }
-            trySleepIsland(world, setArrayGet(world, awakeSet, 1, islandIndex));
+            const island = setArrayGet(world, awakeSet, 1, islandIndex);
+            if (kernel(world.ecsState).islandCanSleep(island)) trySleepIsland(world, island);
         }
         profile.sleepIslands = performance.now() - phaseStart;
     }

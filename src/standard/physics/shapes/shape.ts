@@ -1,5 +1,6 @@
 import type { World } from "../../../engine";
 import { ContactField, contactField } from "../collision/contact";
+import { BodyField, bodyField, setBodyField } from "../kernel/bodyrecords";
 import {
     bodyType,
     setShapeBodyId,
@@ -65,7 +66,7 @@ import {
     writeShape,
     writeTightAabb,
 } from "../kernel/shapecolumns";
-import { type Body, readBodyTransform, updateBodyMassData } from "../world/body";
+import { readBodyTransform, updateBodyMassData } from "../world/body";
 import { createSensor, destroySensor, type Visitor } from "../world/sensor";
 import {
     addCompoundToDatabase,
@@ -513,6 +514,8 @@ export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void
     if (shape.proxyKey !== NULL_INDEX) {
         bp.destroyProxy(broadPhase, shape.proxyKey);
         shape.proxyKey = NULL_INDEX;
+        const world = broadPhase.store.world;
+        if (world) world.shapeStore.shapeU[shape.id * SHAPE_STRIDE + S_PROXY_KEY] = NULL_INDEX;
     }
 }
 
@@ -520,8 +523,8 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
     writeShapeFilter(world, shape.id, toFilterBits(filter));
-    const body = world.bodies[shapeBodyId(world, shape.id)];
-    let key = body.headContactKey;
+    const body = shapeBodyId(world, shape.id);
+    let key = bodyField(world, body, BodyField.headContactKey);
     while (key !== NULL_INDEX) {
         const contact = key >> 1;
         const edge = key & 1;
@@ -533,11 +536,11 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
             destroyContact(world, contact, true);
     }
     destroyShapeProxy(shape, world.broadPhase);
-    if (body.setIndex !== SetType.Disabled) {
+    if (bodyField(world, body, BodyField.setIndex) !== SetType.Disabled) {
         createShapeProxy(
             shape,
             world.broadPhase,
-            bodyType(world, body.id),
+            bodyType(world, bodyField(world, body, BodyField.id)),
             readBodyTransform(world, body, bodyPoseScratch1),
             true,
         );
@@ -568,7 +571,7 @@ export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
 
 function createShapeInternal(
     world: WorldState,
-    body: Body,
+    body: number,
     bodyTransform: WorldTransform,
     def: ShapeDef,
     geometry: Sphere | Capsule | HullData | MeshData | HeightFieldData | CompoundData,
@@ -617,7 +620,7 @@ function createShapeInternal(
     }
 
     shape.id = shapeId;
-    setShapeBodyId(world, shape.id, body.id);
+    setShapeBodyId(world, shape.id, bodyField(world, body, BodyField.id));
     shape.type = shapeType;
     shape.density = def.density;
     shape.explosionScale = def.explosionScale;
@@ -652,27 +655,32 @@ function createShapeInternal(
     const authoredMaterials = shape.materials !== null ? shape.materials : [shape.material];
     world.shapeStore.writeMaterials(world, shape, authoredMaterials);
 
-    if (body.setIndex !== SetType.Disabled) {
+    if (bodyField(world, body, BodyField.setIndex) !== SetType.Disabled) {
         // A compound never force-creates pairs: its outer proxy holds no geometry, only children do
         // (b3CreateShapeInternal). The inner tree's proxies are found through the outer query instead.
         const forcePairCreation = def.invokeContactCreation && shapeType !== ShapeType.Compound;
         createShapeProxy(
             shape,
             world.broadPhase,
-            bodyType(world, body.id),
+            bodyType(world, bodyField(world, body, BodyField.id)),
             bodyTransform,
             forcePairCreation,
         );
     }
 
     // Add to the body's shape doubly-linked list at the head
-    if (body.headShapeId !== NULL_INDEX) {
-        world.shapes[body.headShapeId].prevShapeId = shapeId;
+    if (bodyField(world, body, BodyField.headShapeId) !== NULL_INDEX) {
+        world.shapes[bodyField(world, body, BodyField.headShapeId)].prevShapeId = shapeId;
     }
     shape.prevShapeId = NULL_INDEX;
-    shape.nextShapeId = body.headShapeId;
-    body.headShapeId = shapeId;
-    body.shapeCount += 1;
+    shape.nextShapeId = bodyField(world, body, BodyField.headShapeId);
+    setBodyField(world, body, BodyField.headShapeId, shapeId);
+    setBodyField(
+        world,
+        body,
+        BodyField.shapeCount,
+        bodyField(world, body, BodyField.shapeCount) + 1,
+    );
 
     // Mirror the shape into the resident column (type + geometry + its new `next`) and re-point the
     // body's resident head lane at it. Only the new shape's `next` changes — a head insert leaves every
@@ -693,7 +701,7 @@ function createShapeInternal(
 
 function createShape(
     world: WorldState,
-    body: Body,
+    body: number,
     def: ShapeDef,
     geometry: Sphere | Capsule | HullData | MeshData | HeightFieldData | CompoundData,
     shapeType: ShapeType,
@@ -704,7 +712,7 @@ function createShape(
     // Compound and height-field shapes must be on static bodies (b3CreateShape). They carry no mass,
     // so a dynamic body with one would have zero mass and blow up; the C returns null here.
     if (
-        bodyType(world, body.id) !== BodyType.Static &&
+        bodyType(world, bodyField(world, body, BodyField.id)) !== BodyType.Static &&
         (shapeType === ShapeType.Compound || shapeType === ShapeType.HeightField)
     ) {
         return null;
@@ -726,7 +734,7 @@ function createShape(
 
 export function createSphereShape(
     world: WorldState,
-    body: Body,
+    body: number,
     def: ShapeDef,
     sphere: Sphere,
 ): Shape | null {
@@ -735,7 +743,7 @@ export function createSphereShape(
 
 export function createCapsuleShape(
     world: WorldState,
-    body: Body,
+    body: number,
     def: ShapeDef,
     capsuleInput: Capsule,
 ): Shape | null {
@@ -755,7 +763,7 @@ export function createCapsuleShape(
 
 export function createHullShape(
     world: WorldState,
-    body: Body,
+    body: number,
     def: ShapeDef,
     hull: HullData,
 ): Shape | null {
@@ -764,7 +772,7 @@ export function createHullShape(
 
 export function createMeshShape(
     world: WorldState,
-    body: Body,
+    body: number,
     def: ShapeDef,
     mesh: MeshData,
     scale: Vec3,
@@ -774,7 +782,7 @@ export function createMeshShape(
 
 export function createHeightFieldShape(
     world: WorldState,
-    body: Body,
+    body: number,
     def: ShapeDef,
     heightField: HeightFieldData,
 ): Shape | null {
@@ -783,7 +791,7 @@ export function createHeightFieldShape(
 
 export function createCompoundShape(
     world: WorldState,
-    body: Body,
+    body: number,
     def: ShapeDef,
     compound: CompoundData,
 ): Shape | null {
@@ -793,7 +801,7 @@ export function createCompoundShape(
 export function destroyShapeInternal(
     world: WorldState,
     shape: Shape,
-    body: Body,
+    body: number,
     wakeBodies: boolean,
 ): void {
     const shapeId = shape.id;
@@ -805,10 +813,15 @@ export function destroyShapeInternal(
     if (shape.nextShapeId !== NULL_INDEX) {
         world.shapes[shape.nextShapeId].prevShapeId = shape.prevShapeId;
     }
-    if (shapeId === body.headShapeId) {
-        body.headShapeId = shape.nextShapeId;
+    if (shapeId === bodyField(world, body, BodyField.headShapeId)) {
+        setBodyField(world, body, BodyField.headShapeId, shape.nextShapeId);
     }
-    body.shapeCount -= 1;
+    setBodyField(
+        world,
+        body,
+        BodyField.shapeCount,
+        bodyField(world, body, BodyField.shapeCount) - 1,
+    );
 
     // Mirror the unlink into the resident column: the predecessor's `next` slot and the body's head
     // lane. The destroyed shape's own record is stale from here — its id is freed, so no chain reaches
@@ -819,7 +832,7 @@ export function destroyShapeInternal(
     destroyShapeProxy(shape, world.broadPhase);
 
     // Destroy contacts referencing this shape
-    let contactKey = body.headContactKey;
+    let contactKey = bodyField(world, body, BodyField.headContactKey);
     while (contactKey !== NULL_INDEX) {
         const contactId = contactKey >> 1;
         const edgeIndex = contactKey & 1;
@@ -845,7 +858,7 @@ export function destroyShapeInternal(
 
 export function destroyShape(world: WorldState, shape: Shape, updateBodyMass: boolean): void {
     world.locked = true;
-    const body = world.bodies[shapeBodyId(world, shape.id)];
+    const body = shapeBodyId(world, shape.id);
     destroyShapeInternal(world, shape, body, true);
     if (updateBodyMass) {
         updateBodyMassData(world, body);

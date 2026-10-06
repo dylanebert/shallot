@@ -332,7 +332,7 @@ for (let i = 0; i < steps; ++i) {
         const graph = kernel(state.ecsState);
         graph.bodySetActiveWorld(state.worldId);
         for (let c = 0; c < OVERFLOW_INDEX; ++c) {
-            for (let k = 0; k < state.bodies.length; ++k) {
+            for (let k = 0; k < graph.bodyLength(state.worldId); ++k) {
                 if (graph.graphBodyBit(c, k)) lines.push(`C ${i} color ${c} body ${k}`);
             }
         }

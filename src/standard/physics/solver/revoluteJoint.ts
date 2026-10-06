@@ -148,11 +148,7 @@ export function getRevoluteJointForce(world: WorldState, sim: Joint): Vec3 {
 export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(
-        world,
-        world.bodies[sim.edges[0].bodyId],
-        bodyPoseScratch1,
-    );
+    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
     let axis = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisZ());
     axis = quat.rotate(transformA.q, axis);
     const relQ = quat.invMul(
@@ -215,16 +211,8 @@ export function revoluteJointAngle(world: WorldState, sim: Joint): number {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(
-        world,
-        world.bodies[sim.edges[0].bodyId],
-        bodyPoseScratch1,
-    );
-    const transformB = readBodyTransform(
-        world,
-        world.bodies[sim.edges[1].bodyId],
-        bodyPoseScratch2,
-    );
+    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
+    const transformB = readBodyTransform(world, sim.edges[1].bodyId, bodyPoseScratch2);
     const quatA = quat.mul(transformA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
     let quatB = quat.mul(transformB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     if (quat.dot(quatA, quatB) < 0) {

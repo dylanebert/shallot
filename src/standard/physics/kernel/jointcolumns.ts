@@ -3,16 +3,8 @@ import type { Quat, Transform, Vec3 } from "../common/math";
 import type { SolveLayout } from "../solver/contactsolver";
 import type { Joint } from "../solver/joint";
 import type { WorldState } from "../world/world";
-import {
-    J_BODY_INDEX_A,
-    J_BODY_INDEX_B,
-    J_EVENT,
-    J_JOINT_ID,
-    J_SIM_INDEX_A,
-    J_SIM_INDEX_B,
-} from "./columns";
+import { J_EVENT, J_JOINT_ID } from "./columns";
 import { kernel } from "./kernel";
-import { bodyColumnIndex } from "./stagedbodies";
 
 function jointKernel(world: WorldState) {
     const k = kernel(world.ecsState);
@@ -145,12 +137,7 @@ export function writeJointTransform(
     writeJointQuat(world, joint, field + 3, t.q);
 }
 
-/** Only body-column addresses remain staged until body records move into the kernel. */
-export function stageJointBodies(
-    world: WorldState,
-    layout: SolveLayout,
-    spans: Uint32Array,
-): number {
+export function jointSpans(world: WorldState, layout: SolveLayout, spans: Uint32Array): number {
     const k = jointKernel(world);
     let total = 0;
     for (let c = 0; c <= layout.colors.length; ++c) {
@@ -160,25 +147,6 @@ export function stageJointBodies(
             spans[c * 6 + 4] = key;
             spans[c * 6 + 5] = count;
             total += count;
-        }
-        for (let i = 0; i < count; ++i) {
-            const joint = world.joints[k.jointReadWord(key, i, J_JOINT_ID)];
-            const a = world.bodies[joint.edges[0].bodyId];
-            const b = world.bodies[joint.edges[1].bodyId];
-            k.jointWriteWord(
-                key,
-                i,
-                J_SIM_INDEX_A,
-                a.setIndex === SetType.Awake ? a.localIndex : 0xffffffff,
-            );
-            k.jointWriteWord(
-                key,
-                i,
-                J_SIM_INDEX_B,
-                b.setIndex === SetType.Awake ? b.localIndex : 0xffffffff,
-            );
-            k.jointWriteWord(key, i, J_BODY_INDEX_A, bodyColumnIndex(world, a));
-            k.jointWriteWord(key, i, J_BODY_INDEX_B, bodyColumnIndex(world, b));
         }
     }
     return total;

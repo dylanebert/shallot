@@ -17,7 +17,7 @@ use crate::joint_abi::{
     DJ_AXIAL_MASS, DJ_DAMPING_RATIO, DJ_DELTA_CENTER, DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT,
     DJ_ENABLE_MOTOR, DJ_ENABLE_SPRING, DJ_HERTZ, DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE,
     DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH, DJ_MAX_MOTOR_FORCE, DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE,
-    DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE, DJ_UPPER_SPRING_FORCE, J_BODY_INDEX_A, J_BODY_INDEX_B,
+    DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE, DJ_UPPER_SPRING_FORCE, J_BODY_ID_A, J_BODY_ID_B,
     J_CONSTRAINT_DAMPING, J_CONSTRAINT_HERTZ, J_CONSTRAINT_SOFTNESS, J_INV_IA, J_INV_IB,
     J_INV_MASS_A, J_INV_MASS_B, MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ, MJ_ANGULAR_MASS,
     MJ_ANGULAR_SPRING, MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE,
@@ -139,12 +139,71 @@ pub fn prepare(
 ) {
     // Box3D's per-type prepare reads both body sims, caches mass/inertia for subsequent solves,
     // and derives anchors from their poses. The prepare stage precedes any body-column writes.
-    let a = get(joints, slot, J_BODY_INDEX_A).to_bits() as usize;
-    let b = get(joints, slot, J_BODY_INDEX_B).to_bits() as usize;
+    let a = get(joints, slot, J_BODY_ID_A).to_bits() as usize;
+    let b = get(joints, slot, J_BODY_ID_B).to_bits() as usize;
     let sim_a = crate::body::read_sim(sim, a);
     let sim_b = crate::body::read_sim(sim, b);
     let fin_a = crate::body::read_fin(fin, a);
     let fin_b = crate::body::read_fin(fin, b);
+    prepare_sims(
+        joints,
+        slot,
+        sim_a,
+        sim_b,
+        fin_a,
+        fin_b,
+        h,
+        inv_h,
+        enable_warm_starting,
+    );
+}
+
+#[cfg(target_arch = "wasm32")]
+pub unsafe fn prepare_world(
+    joints: Col<f32>,
+    slot: usize,
+    h: f32,
+    inv_h: f32,
+    enable_warm_starting: bool,
+) {
+    let a = get(joints, slot, J_BODY_ID_A).to_bits() as usize;
+    let b = get(joints, slot, J_BODY_ID_B).to_bits() as usize;
+    for (id, field) in [
+        (a, crate::joint_abi::J_SIM_INDEX_A),
+        (b, crate::joint_abi::J_SIM_INDEX_B),
+    ] {
+        let body = crate::bodies::record(crate::regions::active(), id);
+        let index = if body.set_index == 2 {
+            body.local_index as u32
+        } else {
+            u32::MAX
+        };
+        set(joints, slot, field, f32::from_bits(index));
+    }
+    prepare_sims(
+        joints,
+        slot,
+        crate::body::read_sim(crate::bodies::column(a, 1, crate::body::SIM_STRIDE), 0),
+        crate::body::read_sim(crate::bodies::column(b, 1, crate::body::SIM_STRIDE), 0),
+        crate::body::read_fin(crate::bodies::column(a, 2, crate::body::FIN_STRIDE), 0),
+        crate::body::read_fin(crate::bodies::column(b, 2, crate::body::FIN_STRIDE), 0),
+        h,
+        inv_h,
+        enable_warm_starting,
+    );
+}
+
+fn prepare_sims(
+    joints: Col<f32>,
+    slot: usize,
+    sim_a: crate::body::SimIntegrate,
+    sim_b: crate::body::SimIntegrate,
+    fin_a: crate::body::SimFinalize,
+    fin_b: crate::body::SimFinalize,
+    h: f32,
+    inv_h: f32,
+    enable_warm_starting: bool,
+) {
     set(joints, slot, J_INV_MASS_A, sim_a.inv_mass);
     set(joints, slot, J_INV_MASS_B, sim_b.inv_mass);
     set_mat3(joints, slot, J_INV_IA, sim_a.inv_inertia_world);

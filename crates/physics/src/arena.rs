@@ -267,20 +267,13 @@ const D_GEOM_A: usize = 5; // ≤7 slots (sphere c3+r / capsule c1_3+c2_3+r / hu
 const D_GEOM_B: usize = 12; // ≤7 slots
 
 static mut CONTACT_LIST_PTR: usize = 0;
-static mut CONTACT_BODY_PTR: usize = 0;
 static mut CONTACT_STATE_PTR: usize = 0;
 static mut DEFAULT_MIX: u32 = 1;
 static mut RECYCLE_DISTANCE: f32 = 0.0;
 const SIM_UPDATED: u32 = 0x0200_0000;
 
 #[export_name = "reserveCollide"]
-pub extern "C" fn reserve_collide(
-    count: usize,
-    bodies: usize,
-    threads: usize,
-    default_mix: u32,
-    distance: f32,
-) {
+pub extern "C" fn reserve_collide(count: usize, threads: usize, default_mix: u32, distance: f32) {
     unsafe {
         DEFAULT_MIX = default_mix;
         RECYCLE_DISTANCE = distance;
@@ -291,8 +284,6 @@ pub extern "C" fn reserve_collide(
             0
         };
         let mut off = count * 4;
-        let body_off = off;
-        off += bodies * 4;
         let state_off = off;
         off += words * 4;
         off = (off + 15) & !15;
@@ -305,7 +296,6 @@ pub extern "C" fn reserve_collide(
         off += mesh_threads * core::mem::size_of::<DispatchScratch>();
         reserve_scratch(off);
         CONTACT_LIST_PTR = SCRATCH.ptr;
-        CONTACT_BODY_PTR = SCRATCH.ptr + body_off;
         CONTACT_STATE_PTR = SCRATCH.ptr + state_off;
         MESH_OUTPUT_PTR = SCRATCH.ptr + mesh_off;
         MESH_MATERIAL_PTR = SCRATCH.ptr + material_off;
@@ -318,10 +308,6 @@ pub extern "C" fn reserve_collide(
 #[export_name = "collideListPtr"]
 pub extern "C" fn collide_list_ptr() -> usize {
     unsafe { CONTACT_LIST_PTR }
-}
-#[export_name = "collideBodyPtr"]
-pub extern "C" fn collide_body_ptr() -> usize {
-    unsafe { CONTACT_BODY_PTR }
 }
 #[export_name = "contactStatePtr"]
 pub extern "C" fn contact_state_ptr() -> usize {
@@ -798,15 +784,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
         let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
         let dir = manifolds::dir_col();
         let pool = manifolds::pool_col();
-        let cap = crate::bodies::body_cap();
-        let sim =
-            core::slice::from_raw_parts(crate::bodies::sim_base() as *const f32, cap * SIM_STRIDE);
-        let fin =
-            core::slice::from_raw_parts(crate::bodies::fin_base() as *const f32, cap * FIN_STRIDE);
-        let sim2 = core::slice::from_raw_parts(
-            crate::bodies::sim2_base() as *const u32,
-            cap * SIM2_STRIDE,
-        );
+
         for i in start..end {
             recycle_block(
                 i,
@@ -824,10 +802,8 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             record[D_CONTACT] = contact as u32;
             record[D_SHAPE_A] = dir.get(o + DIR_SHAPE_A);
             record[D_SHAPE_B] = dir.get(o + DIR_SHAPE_B);
-            record[D_BODY_A] =
-                *(CONTACT_BODY_PTR as *const u32).add(dir.get(o + DIR_EDGE_A) as usize);
-            record[D_BODY_B] =
-                *(CONTACT_BODY_PTR as *const u32).add(dir.get(o + DIR_EDGE_B) as usize);
+            record[D_BODY_A] = dir.get(o + DIR_EDGE_A);
+            record[D_BODY_B] = dir.get(o + DIR_EDGE_B);
             record[D_CHILD] = dir.get(o + DIR_CHILD_INDEX);
             record[D_OLD_COUNT] = dir.get(o + 7);
             record[D_MESH_SLOT] = thread as u32;
@@ -862,19 +838,12 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             let type_b = disp[r + D_TYPE_B];
             let body_a = disp[r + D_BODY_A] as usize;
             let body_b = disp[r + D_BODY_B] as usize;
-            let parent_xf = read_body_xf(sim, fin, body_a);
+            let (parent_xf, fin_a, flags_a) = crate::bodies::geometry(body_a);
+            let (xf_b, fin_b, flags_b) = crate::bodies::geometry(body_b);
             let mut xf_a = parent_xf;
-            let xf_b = read_body_xf(sim, fin, body_b);
-            let local_center = |i: usize| {
-                let o = i * FIN_STRIDE + 3;
-                Vec3::new(fin[o], fin[o + 1], fin[o + 2])
-            };
-            let center_a = parent_xf.q.rotate(local_center(body_a));
-            let center_b = xf_b.q.rotate(local_center(body_b));
-            let fast = (sim2[body_a * SIM2_STRIDE + crate::body::S2_FLAGS]
-                | sim2[body_b * SIM2_STRIDE + crate::body::S2_FLAGS])
-                & 0x40
-                != 0;
+            let center_a = parent_xf.q.rotate(fin_a.local_center);
+            let center_b = xf_b.q.rotate(fin_b.local_center);
+            let fast = (flags_a | flags_b) & 0x40 != 0;
             let mut geom_a = &disp[r + D_GEOM_A..r + D_GEOM_A + 7];
             let mut child_offset = Vec3::ZERO;
             let mut material_map = None;
@@ -1022,18 +991,17 @@ pub extern "C" fn dispatch_contacts(count: usize) {
 }
 
 // --- contact recycle -----------------------------------------------------------------------
-// Every awake contact takes this overlap/recycle gate. Body indices address resident or staged
-// columns; pose caches remain directory-resident across sleep/wake transitions.
+// Recycle poses resolve body ids through the resident records across sleep/wake transitions.
 
-/// Local recycle inputs gathered from the contact record and staged body-index map.
+/// Per-contact recycle inputs.
 const RECYCLE_STRIDE: usize = 7;
 const R_COUNT: usize = 6;
 const R_STATIC_A: u32 = 4;
 const R_STATIC_B: u32 = 8;
 const R_MESH: u32 = 16;
 const R_CONTACT: usize = 0;
-const R_LOCAL_A: usize = 1;
-const R_LOCAL_B: usize = 2;
+const R_BODY_A: usize = 1;
+const R_BODY_B: usize = 2;
 const R_SHAPE_A: usize = 3; // shapeId → fat-AABB column record
 const R_SHAPE_B: usize = 4;
 const R_BITS: usize = 5;
@@ -1170,15 +1138,6 @@ pub(crate) unsafe fn recycle_block(
         let dir = manifolds::dir_col();
         let pool = manifolds::pool_col();
         let fat = crate::fataabb::col_slice();
-        let cap = crate::bodies::body_cap();
-        let sim_ptr = crate::bodies::sim_base() as *const f32;
-        let fin_ptr = crate::bodies::fin_base() as *const f32;
-        let sim = core::slice::from_raw_parts(sim_ptr, cap * SIM_STRIDE);
-        let fin = core::slice::from_raw_parts(fin_ptr, cap * FIN_STRIDE);
-        let sim2 = core::slice::from_raw_parts(
-            crate::bodies::sim2_base() as *const u32,
-            cap * SIM2_STRIDE,
-        );
 
         for i in start..end {
             let contact_id = contacts[i] as usize;
@@ -1187,10 +1146,8 @@ pub(crate) unsafe fn recycle_block(
             dir.set(o + 6, flags);
             let mut record = [0u32; RECYCLE_STRIDE];
             record[R_CONTACT] = contact_id as u32;
-            record[R_LOCAL_A] =
-                *(CONTACT_BODY_PTR as *const u32).add(dir.get(o + DIR_EDGE_A) as usize);
-            record[R_LOCAL_B] =
-                *(CONTACT_BODY_PTR as *const u32).add(dir.get(o + DIR_EDGE_B) as usize);
+            record[R_BODY_A] = dir.get(o + DIR_EDGE_A);
+            record[R_BODY_B] = dir.get(o + DIR_EDGE_B);
             record[R_SHAPE_A] = dir.get(o + DIR_SHAPE_A);
             record[R_SHAPE_B] = dir.get(o + DIR_SHAPE_B);
             record[R_COUNT] = dir.get(o + 7);
@@ -1225,27 +1182,24 @@ pub(crate) unsafe fn recycle_block(
                 continue;
             }
 
-            let la = input[r + R_LOCAL_A] as usize;
-            let lb = input[r + R_LOCAL_B] as usize;
+            let la = input[r + R_BODY_A] as usize;
+            let lb = input[r + R_BODY_B] as usize;
             let bits = input[r + R_BITS];
-            let body = |index: usize, static_bit: u32| {
-                (
-                    read_body_xf(sim, fin, index),
-                    read_center(fin, index),
-                    if bits & static_bit != 0 {
-                        Vec3::ZERO
-                    } else {
-                        read_max_extent(fin, index)
-                    },
-                )
+            let (xf_a, fin_a, flags_a) = crate::bodies::geometry(la);
+            let (xf_b, fin_b, flags_b) = crate::bodies::geometry(lb);
+            let center_a = fin_a.center;
+            let center_b = fin_b.center;
+            let extent_a = if bits & R_STATIC_A != 0 {
+                Vec3::ZERO
+            } else {
+                fin_a.max_extent
             };
-            let (xf_a, center_a, extent_a) = body(la, R_STATIC_A);
-            let (xf_b, center_b, extent_b) = body(lb, R_STATIC_B);
-            let fast_mesh = bits & R_MESH != 0
-                && (sim2[la * SIM2_STRIDE + crate::body::S2_FLAGS]
-                    | sim2[lb * SIM2_STRIDE + crate::body::S2_FLAGS])
-                    & 0x40
-                    != 0;
+            let extent_b = if bits & R_STATIC_B != 0 {
+                Vec3::ZERO
+            } else {
+                fin_b.max_extent
+            };
+            let fast_mesh = bits & R_MESH != 0 && (flags_a | flags_b) & 0x40 != 0;
             let tol = if bits & R_WAS_TOUCHING != 0 {
                 recycle_dist
             } else {

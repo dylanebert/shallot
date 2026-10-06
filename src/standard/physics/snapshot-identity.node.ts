@@ -51,7 +51,7 @@ test("manifold allocation and sleeping-contact normals replay through a fresh Wo
             world
                 .createBody({ type: BodyType.Dynamic, position: { x: 5, y: 2, z: 0 } })
                 .createHull({}, makeBoxHull(1, 1, 1));
-        if (tick === 30) bodySetAwake(world.state, world.state.bodies[1], true);
+        if (tick === 30) bodySetAwake(world.state, 1, true);
         world.step(1 / 60);
         return hash(world);
     }

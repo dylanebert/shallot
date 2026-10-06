@@ -1,18 +1,14 @@
-import {
-    ContactField,
-    contactField,
-    reclassifyBodyContacts,
-    writeBodySimIndex,
-} from "../collision/contact";
+import { ContactField, contactField, reclassifyBodyContacts } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
-import { bodySimSlot, simBodyId } from "../kernel/bodycolumns";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import {
     islandArrayCount,
     islandArrayGet,
     islandField,
     setIslandField,
 } from "../kernel/islandcolumns";
+import { kernel } from "../kernel/kernel";
 import { syncBodyQuery } from "../kernel/shapecolumns";
 import {
     createSolverSet,
@@ -25,13 +21,11 @@ import {
     setArrayPush,
     setBodyCount,
     sleepSetContact,
-    transferBodyColumns,
     transferJointColumns,
-    wakeBodyColumns,
 } from "../kernel/solversetcolumns";
 import { wakeSetConstraints } from "../solver/graph";
 import type { Joint } from "../solver/joint";
-import type { Body } from "./body";
+
 import type { WorldState } from "./world";
 
 export type SolverSet = number;
@@ -39,28 +33,22 @@ export function destroySolverSet(world: WorldState, set: number): void {
     releaseSolverSet(world, set);
 }
 
-function fixMovedBody(world: WorldState, source: number, index: number, moved: number): void {
+function syncMovedShapes(world: WorldState, source: number, moved: number): void {
     if (moved === NULL_INDEX) return;
-    const body = world.bodies[moved];
-    body.localIndex = index;
+    const body = moved;
     if (source === SetType.Awake) {
-        writeBodySimIndex(world, body);
         syncBodyQuery(world, body);
     }
 }
 
-// body.c and island.c records stay in TypeScript until their stages. The walk follows solver_set.c;
-// the kernel owns the row moves and reports the records whose local indices need fixing.
 export function wakeSolverSet(world: WorldState, set: number): void {
     world.bodyStore.refreshViews();
     const count = setBodyCount(world, set);
     for (let i = 0; i < count; ++i) {
-        const body = world.bodies[simBodyId(world, bodySimSlot(set, i))];
-        body.localIndex = wakeBodyColumns(world, set, i, body.flags, body.headShapeId);
-        body.setIndex = SetType.Awake;
-        body.sleepTime = 0;
+        const body = kernel(world.ecsState).solverSetBodyId(set, i);
+        kernel(world.ecsState).bodyWakeRecord(world.worldId, body);
         syncBodyQuery(world, body);
-        let key = body.headContactKey;
+        let key = bodyField(world, body, BodyField.headContactKey);
         while (key !== NULL_INDEX) {
             const id = key >> 1,
                 edge = key & 1;
@@ -83,7 +71,7 @@ export function wakeSolverSet(world: WorldState, set: number): void {
     }
     // Contact classification sees the final graph placement of both endpoints.
     for (let i = 0; i < count; ++i)
-        reclassifyBodyContacts(world, world.bodies[simBodyId(world, bodySimSlot(set, i))]);
+        reclassifyBodyContacts(world, kernel(world.ecsState).solverSetBodyId(set, i));
     destroySolverSet(world, set);
 }
 
@@ -97,12 +85,12 @@ export function mergeSolverSets(world: WorldState, first: number, second: number
         if (kind === 2) {
             setIslandField(world, id, 0, target);
             setIslandField(world, id, 1, index);
-        } else {
-            const record = kind === 0 ? world.bodies[id] : world.joints[id];
+        } else if (kind === 1) {
+            const record = world.joints[id];
             record.setIndex = target;
             record.localIndex = index;
         }
-        if (kind === 0) syncBodyQuery(world, world.bodies[id]);
+        if (kind === 0) syncBodyQuery(world, id);
     }
 }
 
@@ -110,25 +98,12 @@ export function transferBody(
     world: WorldState,
     target: SolverSet,
     source: SolverSet,
-    body: Body,
+    body: number,
 ): void {
     if (target === source) return;
     world.bodyStore.refreshViews();
-    const index = body.localIndex;
-    const result = transferBodyColumns(
-        world,
-        source,
-        index,
-        target,
-        body.flags,
-        body.headShapeId,
-        true,
-    );
-    const destination = result[0],
-        moved = result[1] | 0;
-    fixMovedBody(world, source, index, moved);
-    body.setIndex = target;
-    body.localIndex = destination;
+    const moved = kernel(world.ecsState).bodyTransfer(world.worldId, body, target, true) | 0;
+    syncMovedShapes(world, source, moved);
     syncBodyQuery(world, body);
     reclassifyBodyContacts(world, body);
 }
@@ -165,28 +140,11 @@ export function trySleepIsland(world: WorldState, id: number): void {
     world.bodyStore.refreshViews();
     for (let i = 0; i < islandArrayCount(world, id, 0); ++i) {
         const bodyId = islandArrayGet(world, id, 0, i);
-        const body = world.bodies[bodyId];
-        if (body.bodyMoveIndex !== NULL_INDEX) {
-            world.bodyStore.markMoveAsleep(body.bodyMoveIndex);
-            body.bodyMoveIndex = NULL_INDEX;
-        }
-        const index = body.localIndex;
-        const result = transferBodyColumns(
-            world,
-            SetType.Awake,
-            index,
-            sleep,
-            body.flags,
-            body.headShapeId,
-            false,
-        );
-        const destination = result[0],
-            moved = result[1] | 0;
-        fixMovedBody(world, SetType.Awake, index, moved);
-        body.setIndex = sleep;
-        body.localIndex = destination;
+        const body = bodyId;
+        const moved = kernel(world.ecsState).bodyTransfer(world.worldId, body, sleep, false) | 0;
+        syncMovedShapes(world, SetType.Awake, moved);
         syncBodyQuery(world, body);
-        let key = body.headContactKey;
+        let key = bodyField(world, body, BodyField.headContactKey);
         while (key !== NULL_INDEX) {
             const contact = key >> 1,
                 edge = key & 1;
@@ -194,7 +152,7 @@ export function trySleepIsland(world: WorldState, id: number): void {
             if (contactField(world, contact, ContactField.setIndex) === SetType.Disabled) continue;
             if (contactField(world, contact, ContactField.colorIndex) !== NULL_INDEX) continue;
             const other = contactField(world, contact, ContactField.bodyIdA + 3 * (edge ^ 1));
-            if (world.bodies[other].setIndex === SetType.Awake) continue;
+            if (bodyField(world, other, BodyField.setIndex) === SetType.Awake) continue;
             moveSetContact(
                 world,
                 SetType.Awake,
@@ -215,6 +173,6 @@ export function trySleepIsland(world: WorldState, id: number): void {
     setIslandField(world, id, 0, sleep);
     setIslandField(world, id, 1, destination);
     for (let i = 0; i < islandArrayCount(world, id, 0); ++i)
-        reclassifyBodyContacts(world, world.bodies[islandArrayGet(world, id, 0, i)]);
+        reclassifyBodyContacts(world, islandArrayGet(world, id, 0, i));
     if (world.splitIslandId === id) world.splitIslandId = NULL_INDEX;
 }

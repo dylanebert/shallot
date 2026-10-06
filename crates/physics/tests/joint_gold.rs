@@ -21,7 +21,7 @@ const J_CENTER_B: usize = 40;
 // Adapt the frozen vector layout into body columns; the solver never consumes its copied pose.
 fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
     use shallot_physics::body::{FIN_STRIDE, SIM_STRIDE};
-    use shallot_physics::joint_abi::{set, J_BODY_INDEX_A, J_BODY_INDEX_B};
+    use shallot_physics::joint_abi::{set, J_BODY_ID_A, J_BODY_ID_B};
     let mut sim = [0.0; 2 * SIM_STRIDE];
     let mut fin = [0.0; 2 * FIN_STRIDE];
     for (i, mass, inertia, rotation, center, local_center) in [
@@ -58,8 +58,8 @@ fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
     for field in J_INV_MASS_A..J_INV_IB + 9 {
         set(jc, slot, field, f32::NAN);
     }
-    set(jc, slot, J_BODY_INDEX_A, f32::from_bits(0));
-    set(jc, slot, J_BODY_INDEX_B, f32::from_bits(1));
+    set(jc, slot, J_BODY_ID_A, f32::from_bits(0));
+    set(jc, slot, J_BODY_ID_B, f32::from_bits(1));
     unsafe {
         kernel_prepare(
             jc,

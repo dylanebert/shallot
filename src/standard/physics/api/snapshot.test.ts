@@ -4,6 +4,40 @@ import { BodyType } from "../common/types";
 import { kernel } from "../kernel/kernel";
 import { PhysicsWorld } from "./world";
 
+test("restore preserves opaque body, shape and joint userData identity and captured associations", () => {
+    class Wiring {
+        #value = 7;
+        value() {
+            return this.#value;
+        }
+    }
+    const world = new PhysicsWorld();
+    try {
+        const value = new Wiring();
+        const a = world.createBody({ userData: value });
+        const b = world.createBody({ type: BodyType.Dynamic });
+        const shape = a.createSphere(
+            { userData: value },
+            { center: { x: 0, y: 0, z: 0 }, radius: 1 },
+        );
+        const joint = world.createFilterJoint(a, b, { userData: value });
+        const saved = world.snapshot();
+        a.setUserData({});
+        shape.setUserData({});
+        joint.setUserData({});
+        world.restore(saved);
+        for (const owner of [a, shape, joint]) {
+            expect(owner.getUserData()).toBe(value);
+            expect((owner.getUserData() as Wiring).value()).toBe(7);
+        }
+        a.setUserData(null);
+        world.restore(saved);
+        expect(a.getUserData()).toBe(value);
+    } finally {
+        world.destroy();
+    }
+});
+
 test("World.restore refuses a destroyed target even when a sibling is the only live World", () => {
     const target = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });

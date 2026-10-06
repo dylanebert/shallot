@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
 import { SetType } from "../common/constants";
 import { bodySimSlot, setSimField, simBodyId } from "../kernel/bodycolumns";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE } from "../kernel/columns";
 import { islandField } from "../kernel/islandcolumns";
 import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
@@ -23,8 +24,8 @@ function sims(world: WorldState) {
         for (let i = 0; i < setBodyCount(world, set); ++i) {
             const slot = bodySimSlot(set, i),
                 id = simBodyId(world, slot);
-            expect(world.bodies[id].setIndex).toBe(set);
-            expect(world.bodies[id].localIndex).toBe(i);
+            expect(bodyField(world, id, BodyField.setIndex)).toBe(set);
+            expect(bodyField(world, id, BodyField.localIndex)).toBe(i);
             const columns = world.bodyStore.simColumns(set);
             result.set(id, [
                 Array.from(columns.simF.subarray(i * SIM_STRIDE, (i + 1) * SIM_STRIDE)),
@@ -59,8 +60,11 @@ test("solver-set moves preserve all sim fields and fix body/island/joint slots t
                 position: { x: i * 10 + 1, y: i, z: 0 },
             });
             world.createDistanceJoint(a, b, { length: 1 });
-            const record = world.state.bodies[a.id.index1 - 1];
-            const slot = bodySimSlot(record.setIndex, record.localIndex);
+            const record = a.id.index1 - 1;
+            const slot = bodySimSlot(
+                bodyField(world.state, record, BodyField.setIndex),
+                bodyField(world.state, record, BodyField.localIndex),
+            );
             setSimField(world.state, slot, "force", { x: i + 0.25, y: -i, z: 2 });
             setSimField(world.state, slot, "torque", { x: 3, y: i + 0.5, z: -1 });
             setSimField(world.state, slot, "center0", { x: 7, y: 8, z: i + 0.75 });
@@ -72,14 +76,14 @@ test("solver-set moves preserve all sim fields and fix body/island/joint slots t
             snapshot = world.snapshot();
         pairs[1].a.setAwake(false);
         expect(sims(world.state)).toEqual(before);
-        const first = world.state.bodies[pairs[1].a.id.index1 - 1].setIndex;
+        const first = bodyField(world.state, pairs[1].a.id.index1 - 1, BodyField.setIndex);
         pairs[4].a.setAwake(false);
         expect(sims(world.state)).toEqual(before);
         const asleep = world.snapshot();
         pairs[1].b.setAwake(true);
         expect(sims(world.state)).toEqual(before);
         pairs[2].a.setAwake(false);
-        expect(world.state.bodies[pairs[2].a.id.index1 - 1].setIndex).toBe(first);
+        expect(bodyField(world.state, pairs[2].a.id.index1 - 1, BodyField.setIndex)).toBe(first);
         expect(sims(world.state)).toEqual(before);
         world.restore(asleep);
         expect(sims(world.state)).toEqual(before);
@@ -104,7 +108,7 @@ test("body transfers swap-remove awake, static and disabled sim rows and discard
         const bodies = Array.from({ length: 4 }, () =>
             world.createBody({ type: BodyType.Dynamic, linearVelocity: { x: 1, y: 2, z: 3 } }),
         );
-        const body = world.state.bodies[bodies[1].id.index1 - 1];
+        const body = bodies[1].id.index1 - 1;
         const before = sims(world.state);
         transferBody(world.state, SetType.Disabled, SetType.Awake, body);
         expect(sims(world.state)).toEqual(before);
@@ -138,7 +142,9 @@ test("joint creation merges sleeping sets in append order without waking bodies"
                 bodies[0].setAwake(false);
                 return bodies;
             });
-            const sets = groups.map((group) => world.state.bodies[group[0].id.index1 - 1].setIndex);
+            const sets = groups.map((group) =>
+                bodyField(world.state, group[0].id.index1 - 1, BodyField.setIndex),
+            );
             expect(sets[0]).not.toBe(sets[1]);
             const before = sims(world.state);
             const jointOrder = sets.map((set) =>

@@ -49,8 +49,22 @@ unsafe fn world() -> &'static mut Islands {
 unsafe fn record(id: usize) -> &'static mut Island {
     &mut world().records[id]
 }
+#[export_name = "islandCanSleep"]
+pub unsafe extern "C" fn can_sleep(id: usize) -> bool {
+    record(id)
+        .bodies
+        .iter()
+        .all(|&body| crate::bodies::record(regions::active(), body as usize).sleep_time >= 0.5)
+}
+
 unsafe fn fix(kind: i32, id: i32, island: i32, index: i32) {
-    world().fixes.extend_from_slice(&[kind, id, island, index]);
+    if kind == 0 {
+        let body = crate::bodies::record_mut(regions::active(), id as usize);
+        body.island_id = island;
+        body.island_index = index;
+    } else {
+        world().fixes.extend_from_slice(&[kind, id, island, index]);
+    }
 }
 unsafe fn contact_fix(id: i32, island: i32, index: i32) {
     let d = manifolds::dir_col();
@@ -297,14 +311,12 @@ fn union(
         }
     }
 }
-#[export_name = "islandSplitIndices"]
-pub unsafe extern "C" fn split_indices(count: usize) -> usize {
-    crate::arena::reserve_scratch(count * 4)
-}
 #[export_name = "islandSplit"]
-pub unsafe extern "C" fn split(base: usize, body_indices: *const i32, body_count: usize) {
-    // Body records remain in TypeScript until stage 6; only their island indices cross this seam.
-    let indices = std::slice::from_raw_parts(body_indices, body_count);
+pub unsafe extern "C" fn split(base: usize) {
+    let count = crate::bodies::body_length(regions::active() as u32);
+    let indices: Vec<i32> = (0..count)
+        .map(|id| crate::bodies::record(regions::active(), id).island_index)
+        .collect();
     let n = record(base).bodies.len();
     let mut parents: Vec<usize> = (0..n).collect();
     let mut ranks = vec![0; n];

@@ -1,3 +1,4 @@
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { setArrayCount, setArraySnapshot } from "../kernel/solversetcolumns";
 import { ContactField, contactCapacity, contactField } from "./contact";
 // contact machinery: create/destroy and the solver-set placement it picks. Contacts are normally
@@ -16,7 +17,7 @@ import { addKey, removeKey } from "./table";
 
 function dynamicSphere(world: WorldState, radius: number) {
     const bodyId = createBody(world, { ...defaultBodyDef(), type: BodyType.Dynamic });
-    const body = world.bodies[bodyId];
+    const body = bodyId;
     const shape = createSphereShape(world, body, defaultShapeDef(), {
         center: { x: 0, y: 0, z: 0 },
         radius,
@@ -40,9 +41,9 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
     expect(contactField(world, contact, ContactField.setIndex)).toBe(SetType.Awake);
     expect(setArraySnapshot(world, SetType.Awake, 0)).toContain(0);
     // Edge list threaded through both bodies.
-    expect(a.body.contactCount, "body a contactCount").toBe(1);
-    expect(b.body.contactCount, "body b contactCount").toBe(1);
-    expect(a.body.headContactKey).not.toBe(NULL_INDEX);
+    expect(bodyField(world, a.body, BodyField.contactCount), "body a contactCount").toBe(1);
+    expect(bodyField(world, b.body, BodyField.contactCount), "body b contactCount").toBe(1);
+    expect(bodyField(world, a.body, BodyField.headContactKey)).not.toBe(NULL_INDEX);
     expect(contactField(world, contact, ContactField.bodyIdA)).toBe(a.bodyId);
     expect(contactField(world, contact, ContactField.bodyIdB)).toBe(b.bodyId);
     // Pair recorded so it isn't turned into a second contact.
@@ -50,10 +51,16 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
 
     destroyContact(world, contact, false);
 
-    expect(a.body.contactCount, "body a contactCount after destroy").toBe(0);
-    expect(b.body.contactCount, "body b contactCount after destroy").toBe(0);
-    expect(a.body.headContactKey).toBe(NULL_INDEX);
-    expect(b.body.headContactKey).toBe(NULL_INDEX);
+    expect(
+        bodyField(world, a.body, BodyField.contactCount),
+        "body a contactCount after destroy",
+    ).toBe(0);
+    expect(
+        bodyField(world, b.body, BodyField.contactCount),
+        "body b contactCount after destroy",
+    ).toBe(0);
+    expect(bodyField(world, a.body, BodyField.headContactKey)).toBe(NULL_INDEX);
+    expect(bodyField(world, b.body, BodyField.headContactKey)).toBe(NULL_INDEX);
     expect(setArrayCount(world, SetType.Awake, 0)).toBe(0);
     expect(removeKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(false);
 });
@@ -69,7 +76,7 @@ test("createContact files a non-touching contact between two asleep bodies into 
             type: BodyType.Dynamic,
             isAwake: false,
         });
-        const body = world.bodies[bodyId];
+        const body = bodyId;
         const shape = createSphereShape(world, body, defaultShapeDef(), {
             center: { x: 0, y: 0, z: 0 },
             radius,
@@ -78,7 +85,9 @@ test("createContact files a non-touching contact between two asleep bodies into 
     };
     const a = mk(1);
     const b = mk(1);
-    expect(a.body.setIndex).toBeGreaterThanOrEqual(SetType.FirstSleeping);
+    expect(bodyField(world, a.body, BodyField.setIndex)).toBeGreaterThanOrEqual(
+        SetType.FirstSleeping,
+    );
 
     createContact(world, a.shape, b.shape, 0);
     expect(contactField(world, 0, ContactField.setIndex)).toBe(SetType.Disabled);

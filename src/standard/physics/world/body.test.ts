@@ -46,7 +46,7 @@ test("impulse scratch preserves local-inertia rotation and linear-speed clamping
         });
         body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
         const impulse = froundConfig({ x: 1234.5, y: 2345.6, z: 3456.7 });
-        const record = world.state.bodies[body.id.index1 - 1];
+        const record = body.id.index1 - 1;
         const inertia = readSimInvInertiaLocal(
             world.state,
             getBodySim(world.state, record),

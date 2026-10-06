@@ -202,9 +202,33 @@ pub unsafe fn reserve_awake(cap: usize) {
 pub unsafe fn joint_array(id: usize) -> &'static mut crate::joints::JointArray {
     &mut set(id).joint_sims
 }
-unsafe fn body_ptr(id: usize, index: usize, column: usize) -> *mut u32 {
+pub(crate) unsafe fn body_ptr_world(
+    world: usize,
+    id: usize,
+    index: usize,
+    column: usize,
+) -> *mut u32 {
+    (WORLDS[world].sets[id].columns.layout[column] as *mut u32).add(index * STRIDES[column])
+}
+
+#[export_name = "simColumnPtr"]
+pub unsafe extern "C" fn sim_column_ptr(
+    world: usize,
+    set: usize,
+    index: usize,
+    column: usize,
+) -> usize {
+    body_ptr_world(world, set, index, column) as usize
+}
+
+pub(crate) unsafe fn body_ptr(id: usize, index: usize, column: usize) -> *mut u32 {
     (set(id).columns.layout[column] as *mut u32).add(index * STRIDES[column])
 }
+#[export_name = "solverSetBodyId"]
+pub unsafe extern "C" fn body_id(set: usize, index: usize) -> u32 {
+    *body_ptr(set, index, 5).add(crate::body::S2_BODY_ID)
+}
+
 unsafe fn copy_body(source: usize, index: usize, target: usize, destination: usize) {
     for c in [1, 2, 5] {
         core::ptr::copy(
@@ -220,6 +244,7 @@ unsafe fn remove_body(source: usize, index: usize) -> u32 {
     if index != last {
         copy_body(source, last, source, index);
         moved = *body_ptr(source, index, 5).add(crate::body::S2_BODY_ID);
+        crate::bodies::set_location(moved as usize, source, index);
         if source == AWAKE {
             for c in [0, 4] {
                 core::ptr::copy(
@@ -260,6 +285,16 @@ pub unsafe extern "C" fn transfer_body(
     if target == AWAKE {
         wake_state(destination, flags, head);
     }
+    let id = *body_ptr(target, destination, 5).add(crate::body::S2_BODY_ID);
+    if source == AWAKE && target >= 3 {
+        let record = crate::bodies::record_mut(regions::active(), id as usize);
+        if record.body_move_index != -1 {
+            *(crate::bodies::move_base() as *mut u32)
+                .add(record.body_move_index as usize * crate::bodies::MOVE_STRIDE + 2) = 1;
+            record.body_move_index = -1;
+        }
+    }
+    crate::bodies::set_location(id as usize, target, destination);
     let moved = remove_body(source, index);
     BODY_RESULT = [destination as u32, moved];
     core::ptr::addr_of!(BODY_RESULT) as usize
@@ -269,6 +304,9 @@ pub unsafe extern "C" fn wake_body(source: usize, index: usize, flags: u32, head
     let destination = body_append(AWAKE);
     copy_body(source, index, AWAKE, destination);
     wake_state(destination, flags, head);
+    let id = *body_ptr(AWAKE, destination, 5).add(crate::body::S2_BODY_ID);
+    crate::bodies::set_location(id as usize, AWAKE, destination);
+    crate::bodies::record_mut(regions::active(), id as usize).sleep_time = 0.0;
     destination
 }
 #[export_name = "solverSetRemoveBody"]
@@ -350,6 +388,7 @@ pub unsafe extern "C" fn merge(mut target: usize, mut source: usize) -> usize {
         let id = *body_ptr(source, i, 5).add(crate::body::S2_BODY_ID);
         let destination = body_append(target);
         copy_body(source, i, target, destination);
+        crate::bodies::set_location(id as usize, target, destination);
         result.extend_from_slice(&[0, id, destination as u32]);
     }
     let d = crate::manifolds::dir_col();

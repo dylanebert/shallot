@@ -147,8 +147,8 @@ export function getSphericalJointTorque(world: WorldState, sim: Joint): Vec3 {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const xfA = readBodyTransform(world, world.bodies[sim.edges[0].bodyId], bodyPoseScratch1);
-    const xfB = readBodyTransform(world, world.bodies[sim.edges[1].bodyId], bodyPoseScratch2);
+    const xfA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
+    const xfB = readBodyTransform(world, sim.edges[1].bodyId, bodyPoseScratch2);
     const qA = quat.mul(xfA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
     const qB = quat.mul(xfB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     const coneAxis = quat.rotate(qA, vec3.axisZ());
@@ -175,16 +175,8 @@ function relativeFrameRotation(world: WorldState, sim: Joint): Quat {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(
-        world,
-        world.bodies[sim.edges[0].bodyId],
-        bodyPoseScratch1,
-    );
-    const transformB = readBodyTransform(
-        world,
-        world.bodies[sim.edges[1].bodyId],
-        bodyPoseScratch2,
-    );
+    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
+    const transformB = readBodyTransform(world, sim.edges[1].bodyId, bodyPoseScratch2);
     const quatA = quat.mul(transformA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
     let quatB = quat.mul(transformB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     if (quat.dot(quatA, quatB) < 0) {

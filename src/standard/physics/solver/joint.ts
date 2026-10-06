@@ -1,4 +1,5 @@
 import { ContactField, contactField } from "../collision/contact";
+import { BodyField, bodyField, setBodyField } from "../kernel/bodyrecords";
 import {
     DJ_ENABLE,
     DJ_ENABLE_LIMIT,
@@ -68,14 +69,14 @@ import {
     vec3,
 } from "../common/math";
 import { BodyType } from "../common/types";
-import { J_JOINT_ID, J_TYPE } from "../kernel/columns";
+import { J_BODY_ID_A, J_BODY_ID_B, J_JOINT_ID, J_TYPE } from "../kernel/columns";
 import {
     appendJointRecord,
     readJointVec3,
     removeJointRecord,
     writeJointWord,
 } from "../kernel/jointcolumns";
-import { type Body, readBodyTransform, wakeBody } from "../world/body";
+import { readBodyTransform, wakeBody } from "../world/body";
 import { linkJoint, unlinkJoint } from "../world/island";
 import { mergeSolverSets, wakeSolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
@@ -210,11 +211,14 @@ export function createJoint(
 ): {
     joint: Joint;
 } {
-    const bodyA = world.bodies[def.bodyIdA];
-    const bodyB = world.bodies[def.bodyIdB];
-    const bodyIdA = bodyA.id;
-    const bodyIdB = bodyB.id;
-    const maxSetIndex = maxInt(bodyA.setIndex, bodyB.setIndex);
+    const bodyA = def.bodyIdA;
+    const bodyB = def.bodyIdB;
+    const bodyIdA = bodyField(world, bodyA, BodyField.id);
+    const bodyIdB = bodyField(world, bodyB, BodyField.id);
+    const maxSetIndex = maxInt(
+        bodyField(world, bodyA, BodyField.setIndex),
+        bodyField(world, bodyB, BodyField.setIndex),
+    );
     const jointId = allocId(world.jointIdPool);
     if (jointId === world.joints.length) {
         world.joints.push(emptyJoint());
@@ -222,7 +226,7 @@ export function createJoint(
     const joint = world.joints[jointId];
     joint.jointId = jointId;
     joint.userData = def.userData;
-    joint.generation += 1;
+    joint.generation = (joint.generation + 1) & 0xffff;
     joint.setIndex = NULL_INDEX;
     joint.colorIndex = NULL_INDEX;
     joint.localIndex = NULL_INDEX;
@@ -237,42 +241,58 @@ export function createJoint(
     joint.edges[0] = {
         bodyId: bodyIdA,
         prevKey: NULL_INDEX,
-        nextKey: bodyA.headJointKey,
+        nextKey: bodyField(world, bodyA, BodyField.headJointKey),
     };
     const keyA = (jointId << 1) | 0;
-    if (bodyA.headJointKey !== NULL_INDEX) {
-        const jointA = world.joints[bodyA.headJointKey >> 1];
-        jointA.edges[bodyA.headJointKey & 1].prevKey = keyA;
+    if (bodyField(world, bodyA, BodyField.headJointKey) !== NULL_INDEX) {
+        const jointA = world.joints[bodyField(world, bodyA, BodyField.headJointKey) >> 1];
+        jointA.edges[bodyField(world, bodyA, BodyField.headJointKey) & 1].prevKey = keyA;
     }
-    bodyA.headJointKey = keyA;
-    bodyA.jointCount += 1;
+    setBodyField(world, bodyA, BodyField.headJointKey, keyA);
+    setBodyField(
+        world,
+        bodyA,
+        BodyField.jointCount,
+        bodyField(world, bodyA, BodyField.jointCount) + 1,
+    );
 
     // Doubly linked list on bodyB
     joint.edges[1] = {
         bodyId: bodyIdB,
         prevKey: NULL_INDEX,
-        nextKey: bodyB.headJointKey,
+        nextKey: bodyField(world, bodyB, BodyField.headJointKey),
     };
     const keyB = (jointId << 1) | 1;
-    if (bodyB.headJointKey !== NULL_INDEX) {
-        const jointB = world.joints[bodyB.headJointKey >> 1];
-        jointB.edges[bodyB.headJointKey & 1].prevKey = keyB;
+    if (bodyField(world, bodyB, BodyField.headJointKey) !== NULL_INDEX) {
+        const jointB = world.joints[bodyField(world, bodyB, BodyField.headJointKey) >> 1];
+        jointB.edges[bodyField(world, bodyB, BodyField.headJointKey) & 1].prevKey = keyB;
     }
-    bodyB.headJointKey = keyB;
-    bodyB.jointCount += 1;
+    setBodyField(world, bodyB, BodyField.headJointKey, keyB);
+    setBodyField(
+        world,
+        bodyB,
+        BodyField.jointCount,
+        bodyField(world, bodyB, BodyField.jointCount) + 1,
+    );
     const sim = joint;
-    if (bodyA.setIndex === SetType.Disabled || bodyB.setIndex === SetType.Disabled) {
+    if (
+        bodyField(world, bodyA, BodyField.setIndex) === SetType.Disabled ||
+        bodyField(world, bodyB, BodyField.setIndex) === SetType.Disabled
+    ) {
         // if either body is disabled, create in disabled set
         joint.setIndex = SetType.Disabled;
         joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + joint.setIndex);
     } else if (
-        bodyType(world, bodyA.id) !== BodyType.Dynamic &&
-        bodyType(world, bodyB.id) !== BodyType.Dynamic
+        bodyType(world, bodyField(world, bodyA, BodyField.id)) !== BodyType.Dynamic &&
+        bodyType(world, bodyField(world, bodyB, BodyField.id)) !== BodyType.Dynamic
     ) {
         // joint is not attached to a dynamic body
         joint.setIndex = SetType.Static;
         joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + joint.setIndex);
-    } else if (bodyA.setIndex === SetType.Awake || bodyB.setIndex === SetType.Awake) {
+    } else if (
+        bodyField(world, bodyA, BodyField.setIndex) === SetType.Awake ||
+        bodyField(world, bodyB, BodyField.setIndex) === SetType.Awake
+    ) {
         // if either body is sleeping, wake it
         if (maxSetIndex >= SetType.FirstSleeping) {
             wakeSolverSet(world, maxSetIndex);
@@ -285,15 +305,22 @@ export function createJoint(
         joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + maxSetIndex);
         writeJointWord(world, joint, J_JOINT_ID, jointId);
         if (
-            bodyA.setIndex !== bodyB.setIndex &&
-            bodyA.setIndex >= SetType.FirstSleeping &&
-            bodyB.setIndex >= SetType.FirstSleeping
+            bodyField(world, bodyA, BodyField.setIndex) !==
+                bodyField(world, bodyB, BodyField.setIndex) &&
+            bodyField(world, bodyA, BodyField.setIndex) >= SetType.FirstSleeping &&
+            bodyField(world, bodyB, BodyField.setIndex) >= SetType.FirstSleeping
         ) {
-            mergeSolverSets(world, bodyA.setIndex, bodyB.setIndex);
+            mergeSolverSets(
+                world,
+                bodyField(world, bodyA, BodyField.setIndex),
+                bodyField(world, bodyB, BodyField.setIndex),
+            );
         }
     }
     writeJointWord(world, joint, J_JOINT_ID, jointId);
     writeJointWord(world, joint, J_TYPE, type);
+    writeJointWord(world, joint, J_BODY_ID_A, def.bodyIdA);
+    writeJointWord(world, joint, J_BODY_ID_B, def.bodyIdB);
     writeJointTransform(world, sim, J_LOCAL_FRAME_A, def.localFrameA);
     writeJointTransform(world, sim, J_LOCAL_FRAME_B, def.localFrameB);
     writeJointFloat(world, sim, J_CONSTRAINT_HERTZ, def.constraintHertz);
@@ -327,8 +354,8 @@ export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies
     const edgeB = joint.edges[1];
     const idA = edgeA.bodyId;
     const idB = edgeB.bodyId;
-    const bodyA = world.bodies[idA];
-    const bodyB = world.bodies[idB];
+    const bodyA = idA;
+    const bodyB = idB;
     if (!joint.collideConnected) changeBodyFilter(world, idA, idB, -1);
 
     // Remove from body A
@@ -341,10 +368,15 @@ export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies
         nextJoint.edges[edgeA.nextKey & 1].prevKey = edgeA.prevKey;
     }
     const edgeKeyA = (jointId << 1) | 0;
-    if (bodyA.headJointKey === edgeKeyA) {
-        bodyA.headJointKey = edgeA.nextKey;
+    if (bodyField(world, bodyA, BodyField.headJointKey) === edgeKeyA) {
+        setBodyField(world, bodyA, BodyField.headJointKey, edgeA.nextKey);
     }
-    bodyA.jointCount -= 1;
+    setBodyField(
+        world,
+        bodyA,
+        BodyField.jointCount,
+        bodyField(world, bodyA, BodyField.jointCount) - 1,
+    );
 
     // Remove from body B
     if (edgeB.prevKey !== NULL_INDEX) {
@@ -356,10 +388,15 @@ export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies
         nextJoint.edges[edgeB.nextKey & 1].prevKey = edgeB.prevKey;
     }
     const edgeKeyB = (jointId << 1) | 1;
-    if (bodyB.headJointKey === edgeKeyB) {
-        bodyB.headJointKey = edgeB.nextKey;
+    if (bodyField(world, bodyB, BodyField.headJointKey) === edgeKeyB) {
+        setBodyField(world, bodyB, BodyField.headJointKey, edgeB.nextKey);
     }
-    bodyB.jointCount -= 1;
+    setBodyField(
+        world,
+        bodyB,
+        BodyField.jointCount,
+        bodyField(world, bodyB, BodyField.jointCount) - 1,
+    );
     if (joint.islandId !== NULL_INDEX) {
         unlinkJoint(world, joint);
     }
@@ -458,11 +495,15 @@ export function setJointCollideConnected(
     }
     changeBodyFilter(world, joint.edges[0].bodyId, joint.edges[1].bodyId, shouldCollide ? -1 : 1);
     joint.collideConnected = shouldCollide;
-    const bodyA = world.bodies[joint.edges[0].bodyId];
-    const bodyB = world.bodies[joint.edges[1].bodyId];
+    const bodyA = joint.edges[0].bodyId;
+    const bodyB = joint.edges[1].bodyId;
     if (shouldCollide) {
         // Tell the broad-phase to look for new pairs on the body with fewest shapes.
-        let shapeId = bodyA.shapeCount < bodyB.shapeCount ? bodyA.headShapeId : bodyB.headShapeId;
+        let shapeId =
+            bodyField(world, bodyA, BodyField.shapeCount) <
+            bodyField(world, bodyB, BodyField.shapeCount)
+                ? bodyField(world, bodyA, BodyField.headShapeId)
+                : bodyField(world, bodyB, BodyField.headShapeId);
         while (shapeId !== NULL_INDEX) {
             const shape = world.shapes[shapeId];
             if (shape.proxyKey !== NULL_INDEX) {
@@ -476,15 +517,18 @@ export function setJointCollideConnected(
 }
 
 /** Destroy any contacts between two bodies (b3DestroyContactsBetweenBodies) — walk the shorter list. */
-function destroyContactsBetweenBodies(world: WorldState, bodyA: Body, bodyB: Body): void {
+function destroyContactsBetweenBodies(world: WorldState, bodyA: number, bodyB: number): void {
     let contactKey: number;
     let otherBodyId: number;
-    if (bodyA.contactCount < bodyB.contactCount) {
-        contactKey = bodyA.headContactKey;
-        otherBodyId = bodyB.id;
+    if (
+        bodyField(world, bodyA, BodyField.contactCount) <
+        bodyField(world, bodyB, BodyField.contactCount)
+    ) {
+        contactKey = bodyField(world, bodyA, BodyField.headContactKey);
+        otherBodyId = bodyField(world, bodyB, BodyField.id);
     } else {
-        contactKey = bodyB.headContactKey;
-        otherBodyId = bodyA.id;
+        contactKey = bodyField(world, bodyB, BodyField.headContactKey);
+        otherBodyId = bodyField(world, bodyA, BodyField.id);
     }
 
     // No need to wake bodies when a joint removes collision between them.
@@ -506,8 +550,8 @@ function destroyContactsBetweenBodies(world: WorldState, bodyA: Body, bodyB: Bod
 /** Wake both bodies attached to a joint (b3Joint_WakeBodies). */
 export function wakeJointBodies(world: WorldState, joint: Joint): void {
     world.locked = true;
-    wakeBody(world, world.bodies[joint.edges[0].bodyId]);
-    wakeBody(world, world.bodies[joint.edges[1].bodyId]);
+    wakeBody(world, joint.edges[0].bodyId);
+    wakeBody(world, joint.edges[1].bodyId);
     world.locked = false;
 }
 
@@ -517,8 +561,8 @@ export function getJointLinearSeparation(world: WorldState, joint: Joint): numbe
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
     const sim = joint;
-    const xfA = readBodyTransform(world, world.bodies[joint.edges[0].bodyId], bodyPoseScratch1);
-    const xfB = readBodyTransform(world, world.bodies[joint.edges[1].bodyId], bodyPoseScratch2);
+    const xfA = readBodyTransform(world, joint.edges[0].bodyId, bodyPoseScratch1);
+    const xfB = readBodyTransform(world, joint.edges[1].bodyId, bodyPoseScratch2);
     const pA = transformWorldPoint(xfA, readJointVec3(world, sim, J_LOCAL_FRAME_A));
     const pB = transformWorldPoint(xfB, readJointVec3(world, sim, J_LOCAL_FRAME_B));
     const dp = vec3.sub(pB, pA);
@@ -594,8 +638,8 @@ export function getJointAngularSeparation(world: WorldState, joint: Joint): numb
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
     const sim = joint;
-    const xfA = readBodyTransform(world, world.bodies[joint.edges[0].bodyId], bodyPoseScratch1);
-    const xfB = readBodyTransform(world, world.bodies[joint.edges[1].bodyId], bodyPoseScratch2);
+    const xfA = readBodyTransform(world, joint.edges[0].bodyId, bodyPoseScratch1);
+    const xfB = readBodyTransform(world, joint.edges[1].bodyId, bodyPoseScratch2);
     const relQ = quat.invMul(xfA.q, xfB.q);
     switch (joint.type) {
         case JointType.Distance:

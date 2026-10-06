@@ -29,7 +29,7 @@ await init(undefined, { threads: 0 });
 const unit = { x: 1, y: 1, z: 1 };
 const advance = (world: WorldState): void => step(world, 1 / 60, 4);
 const body = (world: WorldState) =>
-    world.bodies[createBody(world, { ...defaultBodyDef(), position: { x: 100, y: 100, z: 100 } })];
+    createBody(world, { ...defaultBodyDef(), position: { x: 100, y: 100, z: 100 } });
 
 test("hull upload derives padded SoA vertices and normals from authoring, without overlapping adjacent hulls", () => {
     const box = makeBoxHull(1, 2, 3);
@@ -83,14 +83,11 @@ test("sphere and capsule body churn uploads no geometry, and only a mesh datum e
         expect(world.geometryUploadCount - before).toBe(1);
         const resident = world.geometryUploadCount;
         for (const kind of ["sphere", "capsule"]) {
-            const ball =
-                world.bodies[
-                    createBody(world, {
-                        ...defaultBodyDef(),
-                        type: BodyType.Dynamic,
-                        position: { x: 200, y: 200, z: 200 },
-                    })
-                ];
+            const ball = createBody(world, {
+                ...defaultBodyDef(),
+                type: BodyType.Dynamic,
+                position: { x: 200, y: 200, z: 200 },
+            });
             if (kind === "sphere")
                 createSphereShape(world, ball, defaultShapeDef(), {
                     center: { x: 0, y: 0, z: 0 },

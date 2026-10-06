@@ -50,11 +50,7 @@ test("direct joint filters survive parallel joints, toggles, destroy, growth and
         const b = world.createBody();
         const c = world.createBody();
         const allows = (x: typeof a, y: typeof a) =>
-            shouldBodiesCollide(
-                world.state,
-                world.state.bodies[x.id.index1 - 1],
-                world.state.bodies[y.id.index1 - 1],
-            );
+            shouldBodiesCollide(world.state, x.id.index1 - 1, y.id.index1 - 1);
         expect(allows(a, b)).toBe(true);
         const first = world.createFilterJoint(a, b);
         const second = world.createFilterJoint(b, a);

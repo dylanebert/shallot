@@ -1,3 +1,4 @@
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { setShapeSensorIndex, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
 // Sensor overlap tracking (Box3D's sensor.c, Erin Catto, MIT). A sensor shape detects other shapes
 // overlapping it and reports begin/end touch events, in deterministic order, without producing any
@@ -128,8 +129,10 @@ function refreshSensor(world: WorldState, sensor: Sensor, q: QueryColumns, k: Ke
     sensor.hits = retired;
     const overlaps2 = sensor.overlaps2;
 
-    const body = world.bodies[shapeBodyId(world, sensorShape.id)];
-    const disabled = body.setIndex === SetType.Disabled || sensorShape.enableSensorEvents === false;
+    const body = shapeBodyId(world, sensorShape.id);
+    const disabled =
+        bodyField(world, body, BodyField.setIndex) === SetType.Disabled ||
+        sensorShape.enableSensorEvents === false;
 
     if (disabled === false) {
         q.bounds(readShapeAabb(world, sensorShape.id, sensorBounds));

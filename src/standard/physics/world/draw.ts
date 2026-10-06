@@ -1,4 +1,5 @@
 import { readSimCenter, readSimTransform, simFlags } from "../kernel/bodycolumns";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { bodyType, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
 // Debug visualization walk: resolve every shape and joint in the world to a flat set of typed draw
 // callbacks the caller renders. Ported from Box3D's b3World_Draw (physics_world.c) + b3DrawJoint
@@ -38,7 +39,7 @@ import type { HullData } from "../shapes/hull";
 import type { Mesh } from "../shapes/mesh";
 import type { Shape } from "../shapes/shape";
 import { getJointConstraintForce, getJointConstraintTorque, JointType } from "../solver/joint";
-import { type Body, BodyFlags, getBodySim, readBodyTransform } from "./body";
+import { BodyFlags, getBodySim, readBodyTransform } from "./body";
 import type { WorldState } from "./world";
 
 const BODY_TYPE_COUNT = 3;
@@ -150,26 +151,37 @@ export function defaultDebugDraw(): DebugDraw {
 }
 
 /** The debug hue for a body, by simulation state (the b3World_Draw shape-color ladder). */
-function bodyColor(world: WorldState, body: Body, shape: Shape): number {
+function bodyColor(world: WorldState, body: number, shape: Shape): number {
     const material: SurfaceMaterial =
         shape.materials !== null ? shape.materials[0] : shape.material;
     if (material.customColor !== 0) {
         return material.customColor;
     }
     const sim = getBodySim(world, body);
-    if (bodyType(world, body.id) === BodyType.Dynamic && body.mass === 0) return DebugColor.red;
-    if (body.setIndex === SetType.Disabled) return DebugColor.slateGray;
+    if (
+        bodyType(world, bodyField(world, body, BodyField.id)) === BodyType.Dynamic &&
+        bodyField(world, body, BodyField.mass) === 0
+    )
+        return DebugColor.red;
+    if (bodyField(world, body, BodyField.setIndex) === SetType.Disabled)
+        return DebugColor.slateGray;
     if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) return DebugColor.wheat;
-    if (body.flags & BodyFlags.hadTimeOfImpact) return DebugColor.lime;
-    if (simFlags(world, sim) & BodyFlags.isBullet && body.setIndex === SetType.Awake)
+    if (bodyField(world, body, BodyField.flags) & BodyFlags.hadTimeOfImpact) return DebugColor.lime;
+    if (
+        simFlags(world, sim) & BodyFlags.isBullet &&
+        bodyField(world, body, BodyField.setIndex) === SetType.Awake
+    )
         return DebugColor.turquoise;
-    if (body.flags & BodyFlags.isSpeedCapped) return DebugColor.yellow;
+    if (bodyField(world, body, BodyField.flags) & BodyFlags.isSpeedCapped) return DebugColor.yellow;
     if (simFlags(world, sim) & BodyFlags.isFast) return DebugColor.orange;
-    if (bodyType(world, body.id) === BodyType.Static) return DebugColor.darkGray;
-    if (bodyType(world, body.id) === BodyType.Kinematic) {
-        return body.setIndex === SetType.Awake ? DebugColor.steelBlue : DebugColor.lightSteelBlue;
+    if (bodyType(world, bodyField(world, body, BodyField.id)) === BodyType.Static)
+        return DebugColor.darkGray;
+    if (bodyType(world, bodyField(world, body, BodyField.id)) === BodyType.Kinematic) {
+        return bodyField(world, body, BodyField.setIndex) === SetType.Awake
+            ? DebugColor.steelBlue
+            : DebugColor.lightSteelBlue;
     }
-    if (body.setIndex === SetType.Awake) return DebugColor.tan;
+    if (bodyField(world, body, BodyField.setIndex) === SetType.Awake) return DebugColor.tan;
     return DebugColor.lightSlateGray;
 }
 
@@ -233,9 +245,13 @@ function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
     const joint = world.joints[jointId];
-    const bodyA = world.bodies[joint.edges[0].bodyId];
-    const bodyB = world.bodies[joint.edges[1].bodyId];
-    if (bodyA.setIndex === SetType.Disabled || bodyB.setIndex === SetType.Disabled) return;
+    const bodyA = joint.edges[0].bodyId;
+    const bodyB = joint.edges[1].bodyId;
+    if (
+        bodyField(world, bodyA, BodyField.setIndex) === SetType.Disabled ||
+        bodyField(world, bodyB, BodyField.setIndex) === SetType.Disabled
+    )
+        return;
 
     const anchorA = readJointVec3(world, joint, J_LOCAL_FRAME_A);
     const anchorB = readJointVec3(world, joint, J_LOCAL_FRAME_B);
@@ -306,7 +322,7 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
             visitedBodies.add(shapeBodyId(world, shape.id));
 
             if (draw.drawShapes) {
-                const body = world.bodies[shapeBodyId(world, shape.id)];
+                const body = shapeBodyId(world, shape.id);
                 const sim = getBodySim(world, body);
                 const color = bodyColor(world, body, shape);
                 drawSolidShape(draw, shape, readSimTransform(world, sim, centerScratch1), color);
@@ -320,8 +336,9 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
 
     if (draw.drawMass) {
         for (const bodyId of visitedBodies) {
-            const body = world.bodies[bodyId];
-            if (bodyType(world, body.id) !== BodyType.Dynamic) continue;
+            const body = bodyId;
+            if (bodyType(world, bodyField(world, body, BodyField.id)) !== BodyType.Dynamic)
+                continue;
             const sim = getBodySim(world, body);
             const transform: WorldTransform = {
                 p: readSimCenter(world, sim, centerScratch1),
@@ -329,7 +346,11 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
             };
             draw.drawTransform(transform);
             const p = transformWorldPoint(transform, { x: 0.1, y: 0.1, z: 0.1 });
-            draw.drawString(p, `  ${body.mass.toFixed(2)}`, DebugColor.white);
+            draw.drawString(
+                p,
+                `  ${bodyField(world, body, BodyField.mass).toFixed(2)}`,
+                DebugColor.white,
+            );
         }
     }
 

@@ -31,7 +31,7 @@ function subject(
 ): void {
     const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
     try {
-        const body = world.bodies[createBody(world, defaultBodyDef())];
+        const body = createBody(world, defaultBodyDef());
         const def = defaultShapeDef();
         const shape =
             kind === ShapeType.Sphere

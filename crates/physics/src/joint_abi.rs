@@ -41,10 +41,10 @@ pub const J_INV_MASS_B: usize = 4;
 pub const J_INV_IA: usize = 5;
 /// Body B world inverse inertia (mat3: 14..22).
 pub const J_INV_IB: usize = 14;
-/// Body A sim/fin column index, including static bodies staged after the awake prefix (u32 bits).
-pub const J_BODY_INDEX_A: usize = 23;
-/// Body B sim/fin column index (u32 bits).
-pub const J_BODY_INDEX_B: usize = 33;
+/// Body A id (u32 bits); prepare resolves its solver-set sim from the body record.
+pub const J_BODY_ID_A: usize = 23;
+/// Body B id (u32 bits).
+pub const J_BODY_ID_B: usize = 33;
 /// Body-A local joint frame (Transform: p 43..45, q 46..49) — the anchor point + frame in A's body space.
 pub const J_LOCAL_FRAME_A: usize = 43;
 /// Body-B local joint frame (Transform: p 50..52, q 53..56).

@@ -3,6 +3,8 @@ import {
     readStateAngularVelocity,
     readStateLinearVelocity,
 } from "../kernel/bodycolumns";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
+import { kernel } from "../kernel/kernel";
 // The deterministic world-state hash — Box3D's b3HashWorldState (recording.c/recording.h, Erin
 // Catto, MIT). This is the bit-exact regression contract: the fixture generator emits this FNV-1a
 // hash after every step, and the port asserts equality. It walks live bodies in id order, mixing
@@ -48,10 +50,10 @@ const angularVelocityScratch11 = { x: 0, y: 0, z: 0 };
 function hashWorldStateWithSeed(world: WorldState, initial: bigint): bigint {
     let hash = initial;
 
-    const bodyCount = world.bodies.length;
+    const bodyCount = kernel(world.ecsState).bodyLength(world.worldId);
     for (let i = 0; i < bodyCount; ++i) {
-        const body = world.bodies[i];
-        if (body.id !== i) {
+        const body = i;
+        if (bodyField(world, body, BodyField.id) !== i) {
             // Free or never-used slot
             continue;
         }

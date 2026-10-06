@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
 import { ContactField, contactField } from "../collision/contact";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { setArraySnapshot, solverSetIndex } from "../kernel/solversetcolumns";
 
 test("sleeping-set merge appends contacts and fixes their set and local indices without waking", () => {
@@ -18,7 +19,9 @@ test("sleeping-set merge appends contacts and fixes their set and local indices 
         );
         world.step(1 / 60);
         for (const group of groups) group[0].setAwake(false);
-        const sets = groups.map((group) => world.state.bodies[group[0].id.index1 - 1].setIndex);
+        const sets = groups.map((group) =>
+            bodyField(world.state, group[0].id.index1 - 1, BodyField.setIndex),
+        );
         const contacts = sets.map((set) => setArraySnapshot(world.state, set, 0));
         expect(contacts.map((ids) => ids.length)).toEqual([1, 1]);
         world.createDistanceJoint(groups[0][0], groups[1][0], { length: 10 });

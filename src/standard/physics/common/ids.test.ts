@@ -3,6 +3,21 @@ import { PhysicsWorld } from "../api/world";
 import { kernel } from "../kernel/kernel";
 import { BodyType } from "./types";
 
+test("body generations wrap at sixteen bits as Box3D handles do", () => {
+    const world = new PhysicsWorld();
+    try {
+        const k = kernel(undefined);
+        for (let generation = 1; generation <= 0x10001; ++generation) {
+            const id = k.bodyCreate(world.state.worldId);
+            expect(id).toBe(0);
+            expect(k.bodyGeneration(world.state.worldId, id)).toBe(generation & 0xffff);
+            k.bodyDestroy(world.state.worldId, id);
+        }
+    } finally {
+        world.destroy();
+    }
+});
+
 test("body lifecycle records lose a sibling world's validity, generation, LIFO reuse, or count when another world grows the kernel capacity", () => {
     const growing = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });

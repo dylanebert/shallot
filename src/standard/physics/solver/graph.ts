@@ -1,5 +1,6 @@
 import { ContactField, contactField } from "../collision/contact";
 import { GRAPH_COLOR_COUNT, SetType } from "../common/constants";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import { setArrayCount, setArrayGet } from "../kernel/solversetcolumns";
@@ -13,6 +14,7 @@ function graphKernel(world: WorldState) {
     return k;
 }
 const contactViews = new WeakMap<WorldState, Uint32Array[]>();
+const wakeViews = new WeakMap<WorldState, Uint32Array>();
 /** Borrow the kernel's contact ids or packed b3ContactSpec words until the graph or memory grows. */
 export function graphContacts(world: WorldState, color: number, scalar = false): Uint32Array {
     const k = graphKernel(world);
@@ -41,8 +43,8 @@ export function addContactToGraph(world: WorldState, contact: number): void {
     const b = contactField(world, contact, ContactField.bodyIdA + 3);
     graphKernel(world).graphAddContact(
         contact,
-        world.bodies[a].localIndex,
-        world.bodies[b].localIndex,
+        bodyField(world, a, BodyField.localIndex),
+        bodyField(world, b, BodyField.localIndex),
     );
 }
 export function removeContactFromGraph(
@@ -93,25 +95,40 @@ export function wakeSetConstraints(world: WorldState, set: SolverSet): void {
     const count = jointArrayCount(world, key);
     const contacts = setArrayCount(world, set, 0);
     const ptr = k.graphWakeBuffer(contacts, count);
-    let input = new Uint32Array(k.memory.buffer, ptr, 3 * (contacts + count));
+    let input = wakeViews.get(world);
+    if (input?.buffer !== k.memory.buffer) {
+        input = new Uint32Array(k.memory.buffer);
+        wakeViews.set(world, input);
+    }
+    const base = ptr >>> 2;
     for (let i = 0; i < contacts; ++i) {
         const id = setArrayGet(world, set, 0, i);
-        input[3 * i] = id;
-        input[3 * i + 1] = world.bodies[contactField(world, id, ContactField.bodyIdA)].localIndex;
-        input[3 * i + 2] =
-            world.bodies[contactField(world, id, ContactField.bodyIdA + 3)].localIndex;
+        input[base + 3 * i] = id;
+        input[base + 3 * i + 1] = bodyField(
+            world,
+            contactField(world, id, ContactField.bodyIdA),
+            BodyField.localIndex,
+        );
+        input[base + 3 * i + 2] = bodyField(
+            world,
+            contactField(world, id, ContactField.bodyIdA + 3),
+            BodyField.localIndex,
+        );
     }
     for (let i = 0; i < count; ++i) {
         const joint = jointAt(world, key, i);
-        const o = 3 * (contacts + i);
+        const o = base + 3 * (contacts + i);
         input[o] = joint.jointId;
         input[o + 1] = joint.edges[0].bodyId;
         input[o + 2] = joint.edges[1].bodyId;
     }
     k.graphWake(key, contacts, count);
-    input = new Uint32Array(k.memory.buffer, ptr, 3 * (contacts + count));
+    if (input.buffer !== k.memory.buffer) {
+        input = new Uint32Array(k.memory.buffer);
+        wakeViews.set(world, input);
+    }
     for (let i = 0; i < count; ++i) {
-        const o = 3 * (contacts + i);
+        const o = base + 3 * (contacts + i);
         const joint = world.joints[input[o]];
         joint.setIndex = SetType.Awake;
         joint.colorIndex = input[o + 1];

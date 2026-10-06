@@ -20,6 +20,7 @@ import {
     readStateLinearVelocity,
     simInvMass,
 } from "./kernel/bodycolumns";
+import { BodyField, bodyField, setBodyField } from "./kernel/bodyrecords";
 import { bodyType, shapeBodyId } from "./kernel/filtercolumns";
 import { queryColumns } from "./kernel/querycolumns";
 import {
@@ -131,7 +132,7 @@ function moveCharacter(world: World, eid: number): void {
     s.dt = Time.FIXED_DT;
     // Pose-driven kinematics must stay in the solver's live publish set, without periodic wake/clone churn.
     handle.setAwake(true);
-    physics.state.bodies[handle.id.index1 - 1].sleepTime = 0;
+    setBodyField(physics.state, handle.id.index1 - 1, BodyField.sleepTime, 0);
     handle.getTransform(s.pose);
     const position = s.pose.p;
     s.start.x = position.x;
@@ -266,7 +267,7 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
 
 function groundVelocity(physics: PhysicsWorld, shape: number, s: Scratch): void {
     const state = physics.state;
-    const body = state.bodies[shapeBodyId(state, state.shapes[shape].id)];
+    const body = shapeBodyId(state, state.shapes[shape].id);
     const sim = getBodySim(state, body);
     const ground = getBodyState(state, body);
     const gv = s.groundVelocity;
@@ -333,8 +334,8 @@ function push(physics: PhysicsWorld, s: Scratch): void {
     const velocity = s.velocity;
     s.impulseCount = 0;
     for (let i = 0; i < s.count; ++i) {
-        const pushed = state.bodies[shapeBodyId(state, state.shapes[s.shapes[i]].id)];
-        if (bodyType(state, pushed.id) !== BodyType.Dynamic) continue;
+        const pushed = shapeBodyId(state, state.shapes[s.shapes[i]].id);
+        if (bodyType(state, bodyField(state, pushed, BodyField.id)) !== BodyType.Dynamic) continue;
         const sim = getBodySim(state, pushed);
         const b = getBodyState(state, pushed);
         vec3.scaleOut(-1, s.planes[i].plane.normal, s.normal);
@@ -362,16 +363,20 @@ function push(physics: PhysicsWorld, s: Scratch): void {
         vec3.scaleOut(Math.max(f32(-normalMass * vn), 0), s.normal, s.impulse);
         vec3.mulSubOut(velocity, 0, s.impulse, velocity);
         let index = 0;
-        while (index < s.impulseCount && s.impulseBodies[index] !== pushed.id) index++;
+        while (
+            index < s.impulseCount &&
+            s.impulseBodies[index] !== bodyField(state, pushed, BodyField.id)
+        )
+            index++;
         if (index === s.impulseCount) {
             s.impulseCount++;
-            s.impulseBodies[index] = pushed.id;
+            s.impulseBodies[index] = bodyField(state, pushed, BodyField.id);
             s.impulses[index].x = 0;
             s.impulses[index].y = 0;
             s.impulses[index].z = 0;
         }
         vec3.addOut(s.impulses[index], s.impulse, s.impulses[index]);
-        bodyApplyLinearImpulse(state, pushed, s.impulse, s.points[i], true, s);
+        bodyApplyLinearImpulse(state, pushed, s.impulse, s.points[i], true);
     }
 }
 

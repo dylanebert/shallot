@@ -22,6 +22,29 @@ function frame(x: number, y: number, z: number) {
 
 const len = (v: Vec3): number => Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 
+test("joint generations wrap at sixteen bits as Box3D handles do", () => {
+    const world = new PhysicsWorld();
+    try {
+        const a = world.createBody();
+        const b = world.createBody({ type: BodyType.Dynamic });
+        const first = world.createFilterJoint(a, b);
+        const index = first.id.index1 - 1;
+        first.destroy();
+        world.state.joints[index].generation = 0xfffe;
+        const last = world.createFilterJoint(a, b);
+        expect(last.id.generation).toBe(0xffff);
+        last.destroy();
+        const wrapped = world.createFilterJoint(a, b);
+        expect(wrapped.id.index1 - 1).toBe(index);
+        expect(wrapped.id.generation).toBe(0);
+        expect(last.isValid()).toBe(false);
+        wrapped.destroy();
+        expect(world.createFilterJoint(a, b).id.generation).toBe(1);
+    } finally {
+        world.destroy();
+    }
+});
+
 function pendulum(): { physicsWorld: PhysicsWorld; joint: Joint } {
     const physicsWorld = new PhysicsWorld({
         gravity: { x: 0, y: -10, z: 0 },

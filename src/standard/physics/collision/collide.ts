@@ -11,7 +11,6 @@ import {
     setArrayPush,
     setArrayRemove,
 } from "../kernel/solversetcolumns";
-import { bodyColumnIndex } from "../kernel/stagedbodies";
 import { getCompoundChild } from "../shapes/compound";
 import {
     getShapeMaterial,
@@ -156,8 +155,8 @@ function mixContact(world: WorldState, id: number): void {
     const ownShapeB = world.shapes[contactField(world, id, ContactField.shapeIdB)];
     let shapeA = ownShapeA,
         shapeB = ownShapeB;
-    readSimTransform(world, getBodySim(world, world.bodies[contactBodyId(world, id, 0)]), poseA);
-    readSimTransform(world, getBodySim(world, world.bodies[contactBodyId(world, id, 1)]), poseB);
+    readSimTransform(world, getBodySim(world, contactBodyId(world, id, 0)), poseA);
+    readSimTransform(world, getBodySim(world, contactBodyId(world, id, 1)), poseB);
     let xfA = poseA,
         xfB = poseB;
     let materialMap: number[] | null = null;
@@ -310,7 +309,6 @@ export function collide(context: StepContext): void {
     const capacity = contactCapacity(world);
     k.reserveCollide(
         count,
-        world.bodies.length,
         threads(world.ecsState),
         Number(defaultMix),
         world.contactRecycleDistance,
@@ -319,12 +317,6 @@ export function collide(context: StepContext): void {
     world.bodyStore.refreshViews();
     memory(k);
     memoryU.set(world.awakeContacts, k.collideListPtr() >>> 2);
-    const bodyBase = k.collideBodyPtr() >>> 2;
-    // Body records still belong to TypeScript. Stage their read-only poses once per body, not per contact.
-    for (const body of world.bodies) {
-        if (body.id !== NULL_INDEX && body.contactCount > 0 && body.setIndex !== SetType.Disabled)
-            memoryU[bodyBase + body.id] = bodyColumnIndex(world, body);
-    }
     const pool = workers(world.ecsState);
     if (pool !== null && k.parBuild(ParKind.Contacts, count, pool.size + 1, 0))
         runPool(world.ecsState, pool, k.runMt, true);

@@ -14,18 +14,15 @@ function scene(height: number): WorldState {
     const world = getWorld(
         createWorld(undefined, { ...defaultWorldDef(), gravity: { x: 0, y: 0, z: 0 } }),
     ) as WorldState;
-    const ground = world.bodies[createBody(world, defaultBodyDef())];
+    const ground = createBody(world, defaultBodyDef());
     createHullShape(world, ground, defaultShapeDef(), makeBoxHull(2, height, 2));
     // Disable recycling so each tick must read the hull pool rather than retain its manifold.
-    const ball =
-        world.bodies[
-            createBody(world, {
-                ...defaultBodyDef(),
-                type: BodyType.Dynamic,
-                enableContactRecycling: false,
-                position: { x: 0, y: 1.5, z: 0 },
-            })
-        ];
+    const ball = createBody(world, {
+        ...defaultBodyDef(),
+        type: BodyType.Dynamic,
+        enableContactRecycling: false,
+        position: { x: 0, y: 1.5, z: 0 },
+    });
     createSphereShape(world, ball, defaultShapeDef(), {
         center: { x: 0, y: 0, z: 0 },
         radius: 0.5,

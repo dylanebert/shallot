@@ -38,7 +38,7 @@ export function applyIslandFixes(world: WorldState): void {
     // Borrow the memory-wide view: the fix vector can relocate without memory growing.
     const start = k.islandFixData() >>> 2;
     for (let i = start; i < start + count; i += 4) {
-        const record = fixes[i] === 0 ? world.bodies[fixes[i + 1]] : world.joints[fixes[i + 1]];
+        const record = world.joints[fixes[i + 1]];
         record.islandId = fixes[i + 2];
         record.islandIndex = fixes[i + 3];
         if (world.splitIslandId !== -1 && islandField(world, world.splitIslandId, 2) === -1)

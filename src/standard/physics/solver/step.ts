@@ -11,7 +11,6 @@ import { f32, maxInt, minf } from "../common/math";
 import { reserveBodies } from "../kernel/bodycolumns";
 import { rebuildGeometry } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
-import { beginBodyStaging } from "../kernel/stagedbodies";
 import { resetStepProfile } from "../world/profile";
 import { overlapSensors } from "../world/sensor";
 import type { WorldState } from "../world/world";
@@ -121,7 +120,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     writeStepSoftness(world, context);
 
     // Reserve for the body high-water, not the awake set: a mid-step wake must not allocate.
-    if (reserveBodies(world.ecsState, world.bodies.length)) {
+    if (reserveBodies(world.ecsState, kernel(world.ecsState).bodyLength(world.worldId))) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
         world.shapeStore.refreshViews();
@@ -129,7 +128,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
 
     // Narrow phase: update contacts.
     phaseStart = performance.now();
-    beginBodyStaging(world);
     if (world.awakeContacts.length !== 0) collide(context);
     profile.collide = performance.now() - phaseStart;
 

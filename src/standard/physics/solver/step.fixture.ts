@@ -3,6 +3,7 @@ import {
     readStateAngularVelocity,
     readStateLinearVelocity,
 } from "../kernel/bodycolumns";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 // The bit-exact fixture harness: scene builders and the replay driver. The declared checks that call
 // it live beside it in step.gold.test.ts. Each scene is rebuilt through the
 // public API, stepped, and its FNV-1a world-state hash asserted equal to the frozen historical value, per
@@ -119,9 +120,9 @@ function dumpBodies(physicsWorld: PhysicsWorld): BodyDump[] {
 
     const out: BodyDump[] = [];
     const state = physicsWorld.state;
-    for (let i = 0; i < state.bodies.length; ++i) {
-        const body = state.bodies[i];
-        if (body.id !== i) {
+    for (let i = 0; i < kernel(state.ecsState).bodyLength(state.worldId); ++i) {
+        const body = i;
+        if (bodyField(state, body, BodyField.id) !== i) {
             continue;
         }
         const sim = getBodySim(state, body);

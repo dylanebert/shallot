@@ -604,6 +604,7 @@ pub fn make_quat_from_matrix(m: Mat3) -> Quat {
 
 // --- mat3 -----------------------------------------------------------------------------------
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mat3 {
     pub cx: Vec3,

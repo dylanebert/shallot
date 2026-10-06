@@ -4,9 +4,9 @@ import type { CheckpointStore } from "../kernel/views";
 import type { WorldState } from "../world/world";
 import type { PhysicsWorld } from "./world";
 
-/** Plain, reusable snapshot data from a wasm-backed physics world. */
+/** Reusable snapshot of a wasm-backed physics world. */
 export interface WorldSnapshot {
-    /** a detached copy of the logical world state */
+    /** Copied logical state. userData values retain identity; their id associations and names are copied. */
     readonly state: unknown;
     /** the detached bytes of this World's persistent kernel regions */
     readonly bytes: Uint8Array;
@@ -80,8 +80,11 @@ function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, Stor
     seen.set(value as object, out);
     for (const key of Reflect.ownKeys(value)) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        if (descriptor && "value" in descriptor)
-            descriptor.value = clone(descriptor.value, seen, stores);
+        if (descriptor && "value" in descriptor && key !== "userData")
+            descriptor.value =
+                key === "bodyUserData"
+                    ? descriptor.value.slice()
+                    : clone(descriptor.value, seen, stores);
         if (descriptor) Object.defineProperty(out, key, descriptor);
     }
     return out as T;
@@ -135,8 +138,11 @@ function restoreClone<T>(
     }
     for (const key of Reflect.ownKeys(value)) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        if (descriptor && "value" in descriptor)
-            descriptor.value = restoreClone(descriptor.value, seen, stores);
+        if (descriptor && "value" in descriptor && key !== "userData")
+            descriptor.value =
+                key === "bodyUserData"
+                    ? descriptor.value.slice()
+                    : restoreClone(descriptor.value, seen, stores);
         if (descriptor) Object.defineProperty(out, key, descriptor);
     }
     return out as T;
@@ -149,7 +155,7 @@ type SnapshotState = {
     bindings?: unknown;
 };
 
-/** Capture detached logical state and this World's persistent kernel regions, with an owner's plain `bindings`. */
+/** Capture logical state and kernel regions, retaining opaque userData values, with an owner's plain `bindings`. */
 export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldSnapshot {
     const state = physicsWorld.state;
     const k = kernel(state.ecsState);

@@ -2,6 +2,7 @@ import { Body, createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { SetType } from "../common/constants";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { makeBoxHull } from "../shapes/hull";
 
 export let controlSink: { frame: number } | undefined;
@@ -56,8 +57,11 @@ export default async function create(input: string) {
             if (state.awakeContacts.length !== count)
                 throw new Error("allocation subject lost its awake box contacts");
             for (let i = 0; i < count; i++) {
-                const body = state.bodies[boxes[i]];
-                if (body.setIndex !== SetType.Awake || body.contactCount !== 1)
+                const body = boxes[i];
+                if (
+                    bodyField(state, body, BodyField.setIndex) !== SetType.Awake ||
+                    bodyField(state, body, BodyField.contactCount) !== 1
+                )
                     throw new Error("allocation subject lost a box's one awake platform contact");
             }
         },

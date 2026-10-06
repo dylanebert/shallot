@@ -3,6 +3,7 @@ import { physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { ContactField, contactField } from "../collision/contact";
 import { SetType } from "../common/constants";
 import { BodyType } from "../common/types";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { addIslandBody, islandArrayCount, removeIslandBody } from "../kernel/islandcolumns";
 import { makeBoxHull } from "../shapes/hull";
 import { createIsland, linkContact, unlinkContact } from "./island";
@@ -37,7 +38,7 @@ export default async function create() {
     const bridge = find(ids[1], ids[2]);
     if (inside === undefined || bridge === undefined)
         throw new Error("island churn needs both touching contacts");
-    const body = state.bodies[ids[2]];
+    const body = ids[2];
     return {
         // Replay touch-end/begin topology changes without adding collision or solver allocation sites.
         // The permanent joint keeps the first contact inside one island; the bridge merges a singleton.
@@ -46,13 +47,23 @@ export default async function create() {
                 unlinkContact(state, inside);
                 linkContact(state, inside);
                 unlinkContact(state, bridge);
-                removeIslandBody(state, body.islandId, body.islandIndex);
-                addIslandBody(state, createIsland(state, SetType.Awake), body.id);
+                removeIslandBody(
+                    state,
+                    bodyField(state, body, BodyField.islandId),
+                    bodyField(state, body, BodyField.islandIndex),
+                );
+                addIslandBody(
+                    state,
+                    createIsland(state, SetType.Awake),
+                    bodyField(state, body, BodyField.id),
+                );
                 linkContact(state, bridge);
                 if (
-                    islandArrayCount(state, body.islandId, 0) !== 3 ||
-                    contactField(state, inside, ContactField.islandId) !== body.islandId ||
-                    contactField(state, bridge, ContactField.islandId) !== body.islandId
+                    islandArrayCount(state, bodyField(state, body, BodyField.islandId), 0) !== 3 ||
+                    contactField(state, inside, ContactField.islandId) !==
+                        bodyField(state, body, BodyField.islandId) ||
+                    contactField(state, bridge, ContactField.islandId) !==
+                        bodyField(state, body, BodyField.islandId)
                 )
                     throw new Error("contact churn lost its merged island");
             }

@@ -284,15 +284,15 @@ impl StageWork for Work {
             let start = b.start.max(base);
             let end = (b.start + b.count).min(base + count);
             for slot in start..end {
-                crate::joint::prepare(
-                    self.joints[color],
-                    slot - base,
-                    self.cols.sim,
-                    self.fin,
-                    self.h,
-                    self.inv_h,
-                    self.enable_warm_starting,
-                );
+                unsafe {
+                    crate::joint::prepare_world(
+                        self.joints[color],
+                        slot - base,
+                        self.h,
+                        self.inv_h,
+                        self.enable_warm_starting,
+                    );
+                }
             }
         }
     }
@@ -324,15 +324,15 @@ impl StageWork for Work {
 
     fn prepare_overflow_joints(&self) {
         for slot in 0..self.overflow_joint_count {
-            crate::joint::prepare(
-                self.overflow_joints,
-                slot,
-                self.cols.sim,
-                self.fin,
-                self.h,
-                self.inv_h,
-                self.enable_warm_starting,
-            );
+            unsafe {
+                crate::joint::prepare_world(
+                    self.overflow_joints,
+                    slot,
+                    self.h,
+                    self.inv_h,
+                    self.enable_warm_starting,
+                );
+            }
         }
     }
 

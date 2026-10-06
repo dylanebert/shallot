@@ -85,8 +85,7 @@ export type Kernel = {
         a: number,
         b: number,
     ): number;
-    islandSplitIndices(count: number): number;
-    islandSplit(id: number, ptr: number, count: number): void;
+    islandSplit(id: number): void;
     islandCreate(set: number): number;
     islandDestroy(id: number): void;
     islandCount(): number;
@@ -108,6 +107,7 @@ export type Kernel = {
     solverSetIndex(id: number): number;
     solverSetDestroy(id: number): void;
     solverSetBodyCount(id: number): number;
+    solverSetBodyId(set: number, index: number): number;
     solverSetBodyAppend(id: number): number;
     solverSetBodyPop(id: number): void;
     solverSetLayout(id: number): number;
@@ -129,8 +129,32 @@ export type Kernel = {
     shapeSetActiveWorld(world: number): void;
     /** Allocate a body index/generation from the kernel-owned world-local pool. */
     bodyCreate(world: number): number;
+    bodyCreateSim(
+        world: number,
+        type: number,
+        flags: number,
+        awake: boolean,
+        enabled: boolean,
+        threshold: number,
+        px: number,
+        py: number,
+        pz: number,
+        qx: number,
+        qy: number,
+        qz: number,
+        qs: number,
+        vx: number,
+        vy: number,
+        vz: number,
+        wx: number,
+        wy: number,
+        wz: number,
+        linearDamping: number,
+        angularDamping: number,
+        gravityScale: number,
+    ): number;
     /** Release a body index into the kernel-owned world-local free list. */
-    bodyDestroy(world: number, id: number): void;
+    bodyDestroy(world: number, id: number): number;
     /** Clear a world-local body pool after the public world is destroyed. */
     bodyResetWorld(world: number): void;
     residentResetWorld(world: number): void;
@@ -140,6 +164,100 @@ export type Kernel = {
     bodyGeneration(world: number, id: number): number;
     bodyAlive(world: number, id: number): number;
     bodyCount(world: number): number;
+    bodyLength(world: number): number;
+    bodyFinish(count: number, timeStep: number, enableSleep: boolean): number;
+    bodyVelocitySet(
+        world: number,
+        id: number,
+        angular: boolean,
+        x: number,
+        y: number,
+        z: number,
+    ): boolean;
+    bodyApply(
+        world: number,
+        id: number,
+        kind: number,
+        x: number,
+        y: number,
+        z: number,
+        px: number,
+        py: number,
+        pz: number,
+        maxSpeed: number,
+    ): void;
+    bodySetPose(
+        world: number,
+        id: number,
+        x: number,
+        y: number,
+        z: number,
+        qx: number,
+        qy: number,
+        qz: number,
+        qs: number,
+    ): void;
+    bodyShapePose(world: number, id: number, shape: number): void;
+    bodyShapeBounds(world: number, id: number, shape: number): void;
+    bodyTransfer(world: number, id: number, target: number, clearTransient: boolean): number;
+    bodyWakeRecord(world: number, id: number): void;
+    bodyCreateContact(
+        world: number,
+        shapeA: number,
+        shapeB: number,
+        child: number,
+        flags: number,
+    ): number;
+    bodyDestroyContact(world: number, id: number): void;
+    bodySyncFlags(world: number, id: number): void;
+    bodyChangeType(world: number, id: number, type: number): void;
+    bodyMassBegin(world: number, id: number): void;
+    bodyMassInput(
+        world: number,
+        mass: number,
+        x: number,
+        y: number,
+        z: number,
+        xx: number,
+        xy: number,
+        xz: number,
+        yx: number,
+        yy: number,
+        yz: number,
+        zx: number,
+        zy: number,
+        zz: number,
+    ): void;
+    bodyMassFinish(world: number, id: number): void;
+    bodyMassExtent(
+        world: number,
+        id: number,
+        minimum: number,
+        x: number,
+        y: number,
+        z: number,
+    ): void;
+    bodyCreateIsland(world: number, id: number): void;
+    bodyRemoveIsland(world: number, id: number): void;
+    bodyCreateProxy(world: number, id: number, shape: number): number;
+    bodyColumnPtr(world: number, id: number, column: number): number;
+    simColumnPtr(world: number, set: number, index: number, column: number): number;
+    bodyStateIndex(world: number, id: number): number;
+    bodySyncContacts(world: number, id: number): void;
+    bodyTargetVelocity(
+        world: number,
+        id: number,
+        tx: number,
+        ty: number,
+        tz: number,
+        qx: number,
+        qy: number,
+        qz: number,
+        qs: number,
+        timeStep: number,
+        wake: boolean,
+    ): boolean;
+    islandCanSleep(id: number): boolean;
 
     // One allocator-owned fat AABB per shape in the selected World.
     reserveFatAabb(cap: number): number;
@@ -300,7 +418,6 @@ export type Kernel = {
         hz: number,
     ): void;
     broadClearMoved(type: number, id: number): void;
-    bodyVelocityWake(world: number, id: number, x: number, y: number, z: number): number;
     broadCreateSet(capacity: number): void;
     broadSetCap(): number;
     broadAddPair(a: number, b: number, child: number): number;
@@ -369,16 +486,8 @@ export type Kernel = {
         qs: number,
     ): number;
 
-    // Tasks read contact records in place. Only the owning TypeScript sets/body records are staged.
-    reserveCollide(
-        count: number,
-        bodies: number,
-        threads: number,
-        defaultMix: number,
-        distance: number,
-    ): void;
+    reserveCollide(count: number, threads: number, defaultMix: number, distance: number): void;
     collideListPtr(): number;
-    collideBodyPtr(): number;
     contactStatePtr(): number;
     contactPairOrder(typeA: number, typeB: number): number;
     allocContact(): number;
@@ -415,7 +524,7 @@ export type Kernel = {
     freeMeshCache(contactId: number): void;
     dispatchContacts(count: number): void;
     continuousPtr(): number;
-    continuousRoots(s: number, k: number, d: number): void;
+    continuousRoots(s: number, k: number, d: number, enableSleep: boolean): void;
 
     // Solve columns are reserved while workers are parked. With no pool,
     // threadCount is one and runMt executes every stage inline, including pose finalization.

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import {
     islandArrayCount,
     islandArrayGet,
@@ -14,16 +15,23 @@ test("island fix borrowing follows vector relocation and memory growth", () => {
         const bodies = Array.from({ length: 32 }, () =>
             world.createBody({ type: BodyType.Dynamic }),
         );
-        const records = bodies.map((b) => world.state.bodies[b.id.index1 - 1]);
+        const records = bodies.map((b) => b.id.index1 - 1);
         for (let i = 1; i < bodies.length; ++i) {
             if (i === 16) islandKernel(world.state).memory.grow(1);
             world.createDistanceJoint(bodies[0], bodies[i], { length: 1 });
             for (let j = 0; j <= i; ++j) {
                 const body = records[j];
-                expect(body.islandId).toBe(records[0].islandId);
-                expect(islandArrayGet(world.state, body.islandId, 0, body.islandIndex)).toBe(
-                    body.id,
+                expect(bodyField(world.state, body, BodyField.islandId)).toBe(
+                    bodyField(world.state, records[0], BodyField.islandId),
                 );
+                expect(
+                    islandArrayGet(
+                        world.state,
+                        bodyField(world.state, body, BodyField.islandId),
+                        0,
+                        bodyField(world.state, body, BodyField.islandIndex),
+                    ),
+                ).toBe(bodyField(world.state, body, BodyField.id));
             }
             const joint = world.state.joints[i - 1];
             expect(islandArrayGet(world.state, joint.islandId, 2, joint.islandIndex)).toBe(
@@ -44,21 +52,34 @@ test("island split preserves link membership, fixes body and joint slots, and re
         const joints = bodies
             .slice(1)
             .map((b, i) => world.createDistanceJoint(bodies[i], b, { length: 1 }));
-        const records = bodies.map((b) => world.state.bodies[b.id.index1 - 1]);
-        const base = records[0].islandId;
+        const records = bodies.map((b) => b.id.index1 - 1);
+        const base = bodyField(world.state, records[0], BodyField.islandId);
         expect(islandArrayCount(world.state, base, 0)).toBe(4);
         joints[1].destroy();
         const saved = world.snapshot();
         const verify = () => {
             splitIsland(world.state, base);
-            expect(records[0].islandId).toBe(records[1].islandId);
-            expect(records[2].islandId).toBe(records[3].islandId);
-            expect(records[0].islandId).not.toBe(records[2].islandId);
+            expect(bodyField(world.state, records[0], BodyField.islandId)).toBe(
+                bodyField(world.state, records[1], BodyField.islandId),
+            );
+            expect(bodyField(world.state, records[2], BodyField.islandId)).toBe(
+                bodyField(world.state, records[3], BodyField.islandId),
+            );
+            expect(bodyField(world.state, records[0], BodyField.islandId)).not.toBe(
+                bodyField(world.state, records[2], BodyField.islandId),
+            );
             for (const body of records) {
-                expect(islandArrayGet(world.state, body.islandId, 0, body.islandIndex)).toBe(
-                    body.id,
-                );
-                expect(islandField(world.state, body.islandId, 3)).toBe(0);
+                expect(
+                    islandArrayGet(
+                        world.state,
+                        bodyField(world.state, body, BodyField.islandId),
+                        0,
+                        bodyField(world.state, body, BodyField.islandIndex),
+                    ),
+                ).toBe(bodyField(world.state, body, BodyField.id));
+                expect(
+                    islandField(world.state, bodyField(world.state, body, BodyField.islandId), 3),
+                ).toBe(0);
             }
             for (const joint of world.state.joints) {
                 if (joint.islandId === -1) continue;
@@ -67,12 +88,11 @@ test("island split preserves link membership, fixes body and joint slots, and re
                 );
                 expect(islandArrayCount(world.state, joint.islandId, 2)).toBe(1);
             }
-            return records.map((b) => b.islandId);
+            return records.map((b) => bodyField(world.state, b, BodyField.islandId));
         };
         const ids = verify();
         world.restore(saved);
-        for (let i = 0; i < records.length; ++i)
-            records[i] = world.state.bodies[bodies[i].id.index1 - 1];
+        for (let i = 0; i < records.length; ++i) records[i] = bodies[i].id.index1 - 1;
         expect(verify()).toEqual(ids);
     } finally {
         world.destroy();

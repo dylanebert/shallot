@@ -44,6 +44,7 @@ export class BroadStore extends KernelViews {
     moveState = EMPTY_U;
     movedBits: Uint32Array[] = [EMPTY_U, EMPTY_U, EMPTY_U];
     initialization = { claimed: false, movesInitialized: false };
+    #layout = EMPTY_U;
 
     override captureCheckpoint() {
         return { ...this.initialization };
@@ -74,7 +75,10 @@ export class BroadStore extends KernelViews {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
         const buf = k.memory.buffer;
-        const layout = new Uint32Array(buf, k.broadLayoutPtr(), N_BROAD);
+        const ptr = k.broadLayoutPtr();
+        if (this.#layout.buffer !== buf || this.#layout.byteOffset !== ptr)
+            this.#layout = new Uint32Array(buf, ptr, N_BROAD);
+        const layout = this.#layout;
 
         for (let i = 0; i < 3; ++i) {
             const t = this.trees[i];
@@ -88,28 +92,41 @@ export class BroadStore extends KernelViews {
             if (this.initialization.claimed) {
                 const initial = !t.residentState;
                 const previous = t.state;
-                t.state = new Int32Array(buf, layout[i], 6);
+                if (t.state.buffer !== buf || t.state.byteOffset !== layout[i])
+                    t.state = new Int32Array(buf, layout[i], 6);
                 if (initial) t.state.set(previous);
                 t.residentState = true;
             }
-            t.nf = new Float32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
-            t.ni = new Int32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
+            if (
+                t.nf.buffer !== buf ||
+                t.nf.byteOffset !== layout[i] + 24 ||
+                t.nf.length !== cap * TREE_STRIDE
+            ) {
+                t.nf = new Float32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
+                t.ni = new Int32Array(buf, layout[i] + 24, cap * TREE_STRIDE);
+            }
         }
 
         const moveCapacity = k.broadTreeCap(0) + k.broadTreeCap(1) + k.broadTreeCap(2);
         if (this.initialization.claimed && moveCapacity !== 0) {
-            this.moveState = new Uint32Array(buf, layout[7], 1);
+            if (this.moveState.buffer !== buf || this.moveState.byteOffset !== layout[7])
+                this.moveState = new Uint32Array(buf, layout[7], 1);
             if (!this.initialization.movesInitialized) {
                 k.broadClearMoves();
                 this.initialization.movesInitialized = true;
             }
-            this.moveData = new Int32Array(buf, layout[7] + 4, moveCapacity);
-            for (let i = 0; i < 3; i++)
-                this.movedBits[i] = new Uint32Array(
-                    buf,
-                    layout[8 + i],
-                    Math.ceil(k.broadTreeCap(i) / 32),
-                );
+            if (
+                this.moveData.buffer !== buf ||
+                this.moveData.byteOffset !== layout[7] + 4 ||
+                this.moveData.length !== moveCapacity
+            )
+                this.moveData = new Int32Array(buf, layout[7] + 4, moveCapacity);
+            for (let i = 0; i < 3; i++) {
+                const old = this.movedBits[i];
+                const length = Math.ceil(k.broadTreeCap(i) / 32);
+                if (old.buffer !== buf || old.byteOffset !== layout[8 + i] || old.length !== length)
+                    this.movedBits[i] = new Uint32Array(buf, layout[8 + i], length);
+            }
         } else {
             this.moveState = EMPTY_U;
             this.moveData = EMPTY_I;
@@ -117,7 +134,12 @@ export class BroadStore extends KernelViews {
         }
         const filter = this.world?.bodyFilters;
         if (this.initialization.claimed && filter !== undefined && filter.capacity !== 0) {
-            filter.data = new Uint32Array(buf, layout[6], 1 + 3 * filter.capacity);
+            if (
+                filter.data.buffer !== buf ||
+                filter.data.byteOffset !== layout[6] ||
+                filter.data.length !== 1 + 3 * filter.capacity
+            )
+                filter.data = new Uint32Array(buf, layout[6], 1 + 3 * filter.capacity);
         }
     }
 

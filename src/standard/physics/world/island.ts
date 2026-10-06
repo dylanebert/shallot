@@ -1,6 +1,7 @@
 import { ContactField, contactField } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { applyIslandFixes, islandKernel } from "../kernel/islandcolumns";
 import type { Joint } from "../solver/joint";
 import { wakeSolverSet } from "./solverset";
@@ -17,18 +18,28 @@ export function unlinkContact(world: WorldState, id: number): void {
     islandKernel(world).islandUnlinkContact(id);
 }
 function wakeEndpoints(world: WorldState, a: number, b: number): void {
-    const bodyA = world.bodies[a],
-        bodyB = world.bodies[b];
-    if (bodyA.setIndex === SetType.Awake && bodyB.setIndex >= SetType.FirstSleeping)
-        wakeSolverSet(world, bodyB.setIndex);
-    else if (bodyB.setIndex === SetType.Awake && bodyA.setIndex >= SetType.FirstSleeping)
-        wakeSolverSet(world, bodyA.setIndex);
+    const bodyA = a,
+        bodyB = b;
+    if (
+        bodyField(world, bodyA, BodyField.setIndex) === SetType.Awake &&
+        bodyField(world, bodyB, BodyField.setIndex) >= SetType.FirstSleeping
+    )
+        wakeSolverSet(world, bodyField(world, bodyB, BodyField.setIndex));
+    else if (
+        bodyField(world, bodyB, BodyField.setIndex) === SetType.Awake &&
+        bodyField(world, bodyA, BodyField.setIndex) >= SetType.FirstSleeping
+    )
+        wakeSolverSet(world, bodyField(world, bodyA, BodyField.setIndex));
 }
 export function linkContact(world: WorldState, id: number): void {
     const a = contactField(world, id, ContactField.bodyIdA),
         b = contactField(world, id, ContactField.bodyIdA + 3);
     wakeEndpoints(world, a, b);
-    islandKernel(world).islandLinkContact(id, world.bodies[a].islandId, world.bodies[b].islandId);
+    islandKernel(world).islandLinkContact(
+        id,
+        bodyField(world, a, BodyField.islandId),
+        bodyField(world, b, BodyField.islandId),
+    );
     applyIslandFixes(world);
 }
 export function linkJoint(world: WorldState, joint: Joint): void {
@@ -39,8 +50,8 @@ export function linkJoint(world: WorldState, joint: Joint): void {
         joint.jointId,
         a,
         b,
-        world.bodies[a].islandId,
-        world.bodies[b].islandId,
+        bodyField(world, a, BodyField.islandId),
+        bodyField(world, b, BodyField.islandId),
     );
     applyIslandFixes(world);
 }
@@ -50,10 +61,6 @@ export function unlinkJoint(world: WorldState, joint: Joint): void {
 }
 export function splitIsland(world: WorldState, baseId: number): void {
     const k = islandKernel(world);
-    const count = world.bodies.length;
-    const ptr = k.islandSplitIndices(count);
-    const indices = new Int32Array(k.memory.buffer, ptr, count);
-    for (let i = 0; i < count; ++i) indices[i] = world.bodies[i].islandIndex;
-    k.islandSplit(baseId, ptr, count);
+    k.islandSplit(baseId);
     applyIslandFixes(world);
 }

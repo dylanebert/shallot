@@ -2,7 +2,7 @@ import { BodyFlags } from "../world/body";
 import { recordSensorHit } from "../world/sensor";
 import type { WorldState } from "../world/world";
 import { CONTINUOUS_STRIDE as STRIDE } from "./bodycolumns";
-import { S2_BODY_ID, S2_FLAGS, SIM2_STRIDE } from "./columns";
+import { S2_FLAGS, SIM2_STRIDE } from "./columns";
 import { kernel, ParKind, runPool, workers } from "./kernel";
 
 export function prepareContinuous(world: WorldState, count: number): void {
@@ -10,16 +10,8 @@ export function prepareContinuous(world: WorldState, count: number): void {
     world.shapeStore.refreshViews();
     world.broadPhase.store.refreshIfStale();
     const trees = world.broadPhase.trees;
-    k.continuousRoots(trees[0].root, trees[1].root, trees[2].root);
+    k.continuousRoots(trees[0].root, trees[1].root, trees[2].root, world.enableSleep);
     world.bodyStore.refreshContinuous(count);
-    const out = world.bodyStore.continuousF;
-    // `sims` is the awake set, whose sim `i` sits at column index `i`, as `finalizeBodies` reads it.
-    const sim2U = world.bodyStore.sim2U;
-    for (let i = 0; i < count; i++) {
-        const body = world.bodies[sim2U[i * SIM2_STRIDE + S2_BODY_ID]];
-        out[i * STRIDE] =
-            world.enableSleep && body.flags & BodyFlags.enableSleep ? body.sleepThreshold : -1;
-    }
 }
 /** Publish task sensor hits serially after the matching finalize or bullet sweep. */
 export function consumeContinuous(world: WorldState, count: number, bullets: boolean): void {

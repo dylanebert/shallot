@@ -8,7 +8,7 @@ use crate::{
     query::Shape,
     shapes, tree,
 };
-/// One sleep threshold input, one hit count and up to eight (sensor, visitor) output pairs per body.
+/// Reserved lane, hit count and up to eight (sensor, visitor) output pairs per body.
 pub const STRIDE: usize = 18;
 pub(crate) const IS_FAST: u32 = 0x40;
 pub(crate) const IS_BULLET: u32 = 0x80;
@@ -17,6 +17,7 @@ pub(crate) const ENLARGE_BOUNDS: u32 = 0x800;
 static mut BASE: usize = 0;
 static mut COUNT: usize = 0;
 static mut ROOTS: [i32; 3] = [-1; 3];
+static mut ENABLE_SLEEP: bool = true;
 pub unsafe fn reserve_at(base: usize, count: usize) {
     BASE = base;
     COUNT = count;
@@ -26,9 +27,10 @@ pub extern "C" fn ptr() -> usize {
     unsafe { BASE }
 }
 #[export_name = "continuousRoots"]
-pub extern "C" fn roots(s: i32, k: i32, d: i32) {
+pub extern "C" fn roots(s: i32, k: i32, d: i32, enable_sleep: bool) {
     unsafe {
         ROOTS = [s, k, d];
+        ENABLE_SLEEP = enable_sleep;
     }
 }
 unsafe fn scratch() -> Col<'static, u32> {
@@ -220,7 +222,16 @@ pub unsafe fn finalize(start: usize, end: usize, enabled: bool) {
     for i in start..end {
         let c = scratch();
         c.set(i * STRIDE + 1, 0);
-        let awake = out.get(i * 2) > f32::from_bits(c.get(i * STRIDE));
+        let body = bodies::record(
+            crate::regions::active(),
+            s2.get(i * 12 + body::S2_BODY_ID) as usize,
+        );
+        let threshold = if ENABLE_SLEEP && body.flags & body::flags::ENABLE_SLEEP != 0 {
+            body.sleep_threshold
+        } else {
+            -1.0
+        };
+        let awake = out.get(i * 2) > threshold;
         let flags = s2.atomic_get(i * 12 + 10) & !IS_FAST;
         s2.atomic_set(i * 12 + 10, flags);
         if enabled
