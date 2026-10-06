@@ -228,7 +228,7 @@ bun run format                   # biome
 
 - `MIGRATION.md` tells users of the last stable release what breaks and what to write instead; for 0.10 that is `v0.9.5:packages/shallot`.
 - Migration entries are rewritten as the tree changes and exclude anything the stable release never shipped.
-- Measurements, design reasons, progress and test internals belong in commits and this guide, not migration entries.
+- Measurements, design reasons, progress and test internals belong in commit history and this guide, not migration entries.
 
 ### Using the package
 
