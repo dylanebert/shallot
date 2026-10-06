@@ -21,6 +21,10 @@ test("kernel geometry uploads are caller-identity keyed, refcounted, world-local
         ],
     })!;
     try {
+        const k = kernel(source.state.ecsState);
+        const sourceWorldId = source.state.worldId;
+        const startingBytes = k.geometryDatabaseAllocationBytes(sourceWorldId);
+        expect(startingBytes).toBe(0);
         const body = source.createBody({ type: BodyType.Static });
         const meshA = body.createMesh({}, mesh)!;
         const meshB = body.createMesh({}, mesh)!;
@@ -28,7 +32,6 @@ test("kernel geometry uploads are caller-identity keyed, refcounted, world-local
         const heightB = body.createHeightField({}, field)!;
         const compoundA = body.createCompound({}, compound)!;
         const compoundB = body.createCompound({}, compound)!;
-        const k = kernel(source.state.ecsState);
         const ptr = (shape: number) => source.state.shapeStore.shapeU[shape * SHAPE_STRIDE + 2];
         const meshPtr = ptr(meshA.id.index1 - 1);
         const heightPtr = ptr(heightA.id.index1 - 1);
@@ -43,6 +46,7 @@ test("kernel geometry uploads are caller-identity keyed, refcounted, world-local
         expect(k.geometryDatabaseRefs(source.state.worldId, ShapeType.Compound, compoundPtr)).toBe(
             2,
         );
+        expect(k.geometryDatabaseAllocationBytes(sourceWorldId)).toBeGreaterThan(startingBytes);
 
         target.restore(source.snapshot());
         const targetKernel = kernel(target.state.ecsState);
@@ -80,6 +84,7 @@ test("kernel geometry uploads are caller-identity keyed, refcounted, world-local
         reused.destroy();
 
         source.destroy();
+        expect(k.geometryDatabaseAllocationBytes(sourceWorldId)).toBe(startingBytes);
         expect(target.castRayClosest({ x: 0, y: 2, z: 0 }, { x: 0, y: -4, z: 0 }).hit).toBe(true);
     } finally {
         if (source.state.inUse) source.destroy();

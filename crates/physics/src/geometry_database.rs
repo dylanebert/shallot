@@ -66,8 +66,8 @@ impl Database {
     }
     fn clear(&mut self) {
         self.upload.fill(0);
-        self.upload.clear();
-        for entry in self.entries.drain(..) {
+        drop(core::mem::take(&mut self.upload));
+        for entry in core::mem::take(&mut self.entries) {
             unsafe {
                 drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
                     entry.pointer as *mut u64,
@@ -75,6 +75,15 @@ impl Database {
                 )));
             }
         }
+    }
+    fn allocation_bytes(&self) -> usize {
+        self.entries.capacity() * core::mem::size_of::<Entry>()
+            + self.upload.capacity() * core::mem::size_of::<u64>()
+            + self
+                .entries
+                .iter()
+                .map(|entry| entry.bytes.div_ceil(8) * core::mem::size_of::<u64>())
+                .sum::<usize>()
     }
 }
 static mut DATABASES: [Database; MAX_WORLDS] = [const { Database::new() }; MAX_WORLDS];
@@ -120,6 +129,10 @@ pub extern "C" fn identity(world: usize, kind: u32, pointer: usize) -> u32 {
 #[export_name = "geometryDatabaseCount"]
 pub extern "C" fn count(world: usize) -> usize {
     unsafe { DATABASES[world].entries.len() }
+}
+#[export_name = "geometryDatabaseAllocationBytes"]
+pub extern "C" fn allocation_bytes(world: usize) -> usize {
+    unsafe { DATABASES[world].allocation_bytes() }
 }
 #[export_name = "geometryDatabaseRefs"]
 pub extern "C" fn refs(world: usize, kind: u32, pointer: usize) -> u32 {

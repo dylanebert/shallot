@@ -507,6 +507,7 @@ export type Kernel = {
     geometryDatabaseRemove(world: number, kind: number, pointer: number): void;
     geometryDatabaseIdentity(world: number, kind: number, pointer: number): number;
     geometryDatabaseCount(world: number): number;
+    geometryDatabaseAllocationBytes(world: number): number;
     geometryDatabaseRefs(world: number, kind: number, pointer: number): number;
 
     // The contact-id directory grows on allocation. Its block addresses remain stable while the
