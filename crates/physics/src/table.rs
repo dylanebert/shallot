@@ -100,7 +100,7 @@ fn rehash(old: (&[u32], &[u32], &[u32]), new: (&mut [u32], &mut [u32], &mut [u32
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadCreateSet"]
 pub extern "C" fn create_set(need: usize) {
-    crate::broad::reserve_broad(0, 0, 0, capacity(need), 0);
+    crate::broad::reserve_broad(0, 0, 0, capacity(need));
 }
 #[cfg(target_arch = "wasm32")]
 unsafe fn resident() -> (&'static mut [u32], &'static mut [u32], &'static mut [u32]) {
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
     }
     if 2 * crate::broad::set_count() >= hashes.len() {
         let old = (hi.to_vec(), lo.to_vec(), hashes.to_vec());
-        crate::broad::reserve_broad(0, 0, 0, hashes.len() * 2, 0);
+        crate::broad::reserve_broad(0, 0, 0, hashes.len() * 2);
         let (hi, lo, hashes) = resident();
         rehash((&old.0, &old.1, &old.2), (hi, lo, hashes));
     }

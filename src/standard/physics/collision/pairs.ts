@@ -1,21 +1,9 @@
-import { BodyType } from "../common/types";
-import { BodyField, bodyField } from "../kernel/bodyrecords";
-import { bodyType } from "../kernel/filtercolumns";
 import { kernel, ParKind, runPool, workers } from "../kernel/kernel";
 
 import type { WorldState } from "../world/world";
-import { bodiesFiltered } from "./bodyfilter";
 import { clearMoves, moveCount } from "./broadphase";
 import { createContact } from "./contact";
 import { ensureResident } from "./table";
-
-export function shouldBodiesCollide(world: WorldState, a: number, b: number): boolean {
-    return (
-        (bodyType(world, bodyField(world, a, BodyField.id)) === BodyType.Dynamic ||
-            bodyType(world, bodyField(world, b, BodyField.id)) === BodyType.Dynamic) &&
-        !bodiesFiltered(world, bodyField(world, a, BodyField.id), bodyField(world, b, BodyField.id))
-    );
-}
 
 let memory: Uint32Array<ArrayBufferLike> = new Uint32Array(0);
 function heap(buffer: ArrayBufferLike): Uint32Array {

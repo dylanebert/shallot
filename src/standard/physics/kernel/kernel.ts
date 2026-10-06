@@ -276,15 +276,9 @@ export type Kernel = {
     shapeMaterialHead(world: number, id: number): number;
     shapeMaterialCount(world: number, id: number): number;
 
-    // World-local tree pools, pair membership, filters and moves. Pass zero to retain a capacity.
-    reserveBroad(
-        capS: number,
-        capK: number,
-        capD: number,
-        setCap: number,
-        filterCap: number,
-    ): number;
-    broadBodiesFiltered(bodyA: number, bodyB: number): number;
+    // World-local tree pools, pair membership and moves. Pass zero to retain a capacity.
+    reserveBroad(capS: number, capK: number, capD: number, setCap: number): number;
+    bodyShouldBodiesCollide(bodyA: number, bodyB: number): number;
     broadLayoutPtr(): number;
     broadTreeCap(i: number): number;
     reserveTreeWork(depth: number, words: number): number;
@@ -538,8 +532,6 @@ export type Kernel = {
     jointSimPtr(id: number): number;
     jointArrayCount(key: number): number;
     jointArrayPtr(key: number): number;
-    jointReadFloat(key: number, index: number, field: number): number;
-    jointWriteFloat(key: number, index: number, field: number, value: number): void;
     jointReadWord(key: number, index: number, field: number): number;
     jointWriteWord(key: number, index: number, field: number, value: number): void;
     meshCacheCapacity(worldId: number): number;

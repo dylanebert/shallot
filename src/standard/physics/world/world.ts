@@ -7,7 +7,6 @@ import { createSolverSet, solverSetCount, solverSetIndex } from "../kernel/solve
 //
 // fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
-import { BodyFilters } from "../collision/bodyfilter";
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { contactCount } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
@@ -20,7 +19,6 @@ import { islandKernel } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
-import { guardViews } from "../kernel/views";
 import type { CompoundData } from "../shapes/compound";
 import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
@@ -79,17 +77,12 @@ export type WorldState = {
     /** ECS owner; undefined only for the standalone solver API. */
     ecsState: import("../../../engine").World | undefined;
     broadPhase: BroadPhase;
-    bodyFilters: BodyFilters;
 
     /** Public body records are the authoring/handle bridge; lifecycle lives in wasm. */
     bodyUserData: unknown[];
     bodyNames: string[];
 
     jointUserData: unknown[];
-
-    // Awake contacts collide processes each step, maintained on the
-    // contact create/destroy + body wake/sleep/transfer events (contact.ts, solverset.ts) instead of
-    // re-gathered per step. Order-free; state transitions are processed in contact-id order.
 
     /** Public shape authoring records and handle bridge; slot lifecycle is kernel-owned. */
     shapes: Shape[];
@@ -282,7 +275,6 @@ function makeWorldState(
     const physicsWorld: WorldState = {
         ecsState: world,
         broadPhase: createBroadPhase(world, capacity, worldId),
-        bodyFilters: new BodyFilters(),
         bodyUserData: [],
         bodyNames: [],
         jointUserData: [],
@@ -338,7 +330,6 @@ function makeWorldState(
     // Wire the broad store's back-reference so a resident-region grow can refresh the sibling stores a
     // `memory.grow` detaches (the store is created before the world literal, so it can't be passed in).
     physicsWorld.broadPhase.store.world = physicsWorld;
-    guardViews(physicsWorld.bodyFilters, physicsWorld.broadPhase.store);
 
     // Create the three permanent sets in order so their ids land 0 (static), 1 (disabled), 2 (awake).
     for (let i = 0; i < 3; ++i) {

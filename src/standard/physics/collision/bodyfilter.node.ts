@@ -2,8 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../../scripts/test-tiers";
 import { World } from "../../../engine";
 import { BodyType, PhysicsWorld } from "../api/index";
-import { init, shutdown } from "../kernel/kernel";
-import { shouldBodiesCollide } from "./pairs";
+import { init, kernel, shutdown } from "../kernel/kernel";
 
 setDefaultTimeout(CEILING.node);
 
@@ -49,8 +48,11 @@ test("direct joint filters survive parallel joints, toggles, destroy, growth and
         const a = world.createBody({ type: BodyType.Dynamic });
         const b = world.createBody();
         const c = world.createBody();
-        const allows = (x: typeof a, y: typeof a) =>
-            shouldBodiesCollide(world.state, x.id.index1 - 1, y.id.index1 - 1);
+        const allows = (x: typeof a, y: typeof a) => {
+            const k = kernel(owner);
+            k.bodySetActiveWorld(world.state.worldId);
+            return k.bodyShouldBodiesCollide(x.id.index1 - 1, y.id.index1 - 1) !== 0;
+        };
         expect(allows(a, b)).toBe(true);
         const first = world.createFilterJoint(a, b);
         const second = world.createFilterJoint(b, a);
@@ -69,7 +71,7 @@ test("direct joint filters survive parallel joints, toggles, destroy, growth and
         const saved = world.snapshot();
         first.destroy();
         expect(allows(a, b)).toBe(true);
-        // Grow the filter column while preserving the existing trees and pair set.
+        // Grow the joint records while preserving the existing trees and pair set.
         const others = Array.from({ length: 40 }, () => world.createBody());
         for (const body of others.reverse()) world.createFilterJoint(a, body);
         for (const body of others) expect(allows(a, body)).toBe(false);

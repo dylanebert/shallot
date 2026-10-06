@@ -374,7 +374,7 @@ unsafe fn solve(i: usize) {
                     if target_flags & IS_BULLET != 0 {
                         return true;
                     }
-                    if broad::bodies_filtered(body_id, u.get(a + 29)) != 0 {
+                    if !crate::bodies::should_collide(body_id, u.get(a + 29)) {
                         return true;
                     }
                     let b = union(

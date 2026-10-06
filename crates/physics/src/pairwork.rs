@@ -253,7 +253,7 @@ impl<'a> Emitter<'a> {
         {
             return true;
         }
-        if broad::bodies_filtered(a[29], b[29]) != 0 {
+        if !unsafe { crate::bodies::should_collide(a[29], b[29]) } {
             return true;
         }
         self.emit(child, found_shape, self.query_shape);

@@ -12,14 +12,7 @@ export interface WorldSnapshot {
     readonly bytes: Uint8Array;
 }
 
-type StoreName =
-    | "body"
-    | "shape"
-    | "manifold"
-    | "broadPhase"
-    | "broadStore"
-    | "bodyFilters"
-    | "query";
+type StoreName = "body" | "shape" | "manifold" | "broadPhase" | "broadStore" | "query";
 type StoreMarker = { readonly snapshotStore: StoreName };
 
 const STORE_MARKERS: Record<StoreName, StoreMarker> = {
@@ -28,7 +21,6 @@ const STORE_MARKERS: Record<StoreName, StoreMarker> = {
     manifold: Object.freeze({ snapshotStore: "manifold" }),
     broadPhase: Object.freeze({ snapshotStore: "broadPhase" }),
     broadStore: Object.freeze({ snapshotStore: "broadStore" }),
-    bodyFilters: Object.freeze({ snapshotStore: "bodyFilters" }),
     query: Object.freeze({ snapshotStore: "query" }),
 };
 
@@ -39,7 +31,6 @@ function snapshotStores(state: WorldState): Map<object, StoreName> {
         [state.manifoldStore, "manifold"],
         [state.broadPhase, "broadPhase"],
         [state.broadPhase.store, "broadStore"],
-        [state.bodyFilters, "bodyFilters"],
     ]);
     if (state.queryColumns) stores.set(state.queryColumns, "query");
     return stores;
@@ -217,7 +208,6 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         manifold: state.manifoldStore,
         broadPhase: state.broadPhase,
         broadStore: state.broadPhase.store,
-        bodyFilters: state.bodyFilters,
         query: queryColumns(state),
     };
     restoreClone(saved.world, new Map(), stores, state);

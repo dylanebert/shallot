@@ -1,5 +1,4 @@
 // Joint definitions and public queries use the kernel's identity and simulation records by id.
-import { changeBodyFilter } from "../collision/bodyfilter";
 import { bufferMove } from "../collision/broadphase";
 import { ContactField, contactField, destroyContact } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
@@ -155,7 +154,6 @@ export function createJointRecord(world: WorldState, def: JointDef, type: JointT
     );
     world.jointUserData[joint] = def.userData;
     syncWokenShapes(world);
-    if (!def.collideConnected) changeBodyFilter(world, def.bodyIdA, def.bodyIdB, 1);
     return joint;
 }
 
@@ -170,13 +168,6 @@ export function createFilterJoint(world: WorldState, def: JointDef): { joint: Jo
 
 /** Unlink and free a joint, optionally waking both attached solver sets. */
 export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies: boolean): void {
-    if (!jointField(world, joint, JointField.collideConnected))
-        changeBodyFilter(
-            world,
-            jointField(world, joint, JointField.bodyIdA),
-            jointField(world, joint, JointField.bodyIdB),
-            -1,
-        );
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
     k.jointDestroy(joint, +wakeBodies);
@@ -249,12 +240,6 @@ export function setJointCollideConnected(
     if (!!jointField(world, joint, JointField.collideConnected) === shouldCollide) {
         return;
     }
-    changeBodyFilter(
-        world,
-        jointField(world, joint, JointField.bodyIdA + 3 * 0),
-        jointField(world, joint, JointField.bodyIdA + 3 * 1),
-        shouldCollide ? -1 : 1,
-    );
     setJointField(world, joint, JointField.collideConnected, +shouldCollide);
     const bodyA = jointField(world, joint, JointField.bodyIdA + 3 * 0);
     const bodyB = jointField(world, joint, JointField.bodyIdA + 3 * 1);

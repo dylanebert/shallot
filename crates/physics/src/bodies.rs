@@ -1,4 +1,28 @@
 //! Each World's awake columns and public body lifecycle records own their allocations.
+
+#[export_name = "bodyShouldBodiesCollide"]
+pub unsafe extern "C" fn should_collide(a: u32, b: u32) -> bool {
+    let world_id = crate::regions::active();
+    let a = record(world_id, a as usize);
+    let b = record(world_id, b as usize);
+    if a.body_type != 2 && b.body_type != 2 {
+        return false;
+    }
+    let (mut key, other) = if a.joint_count < b.joint_count {
+        (a.head_joint_key, b.id)
+    } else {
+        (b.head_joint_key, a.id)
+    };
+    while key != -1 {
+        let joint = crate::joint_record::record((key >> 1) as usize);
+        let edge = (key & 1) as usize;
+        if !joint.collide_connected && joint.edges[edge ^ 1].body_id == other {
+            return false;
+        }
+        key = joint.edges[edge].next_key;
+    }
+    true
+}
 use crate::body::flags::DYNAMIC;
 use crate::body::{FIN_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::regions::{self, Columns, MAX_WORLDS};

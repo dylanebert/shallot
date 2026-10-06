@@ -1,7 +1,7 @@
 import type { World } from "../../../engine";
 // The persistent broad-phase region (kernel/src/broad.rs) — three dynamic-tree node pools, shape-pair
-// membership arrays and joint-filtered body pairs. The kernel queries them without a per-step marshal.
-// This store owns views of the resident tree headers, pools, pairs, body filters and moves.
+// membership arrays. The kernel queries them without a per-step marshal.
+// This store owns views of the resident tree headers, pools, pairs and moves.
 // Tree, pair-table and move operations run in the kernel.
 //
 // A region grow (or any `memory.grow` elsewhere) detaches every typed-array view, so the store follows
@@ -17,8 +17,8 @@ import { KernelViews } from "./views";
 
 /** u32/f32 slots per dynamic-tree node — mirrors tree.rs and broad.rs. */
 const TREE_STRIDE = 12;
-/** Three trees, three pair columns, body filters, moves and three moved bitsets. */
-const N_BROAD = 11;
+/** Three trees, three pair columns, moves and three moved bitsets. */
+const N_BROAD = 10;
 
 const EMPTY_F = new Float32Array(0);
 const EMPTY_I = new Int32Array(0);
@@ -26,7 +26,7 @@ const EMPTY_U = new Uint32Array(0);
 
 /**
  * The resident broad-phase region's TS-side view manager. One per world. Holds references to the three
- * dynamic trees and World so a refresh can rebind their column views and body-filter pairs.
+ * dynamic trees and World so a refresh can rebind their column views.
  */
 export class BroadStore extends KernelViews {
     readonly worldId: number;
@@ -58,8 +58,6 @@ export class BroadStore extends KernelViews {
         const world = this.world;
         if (this.initialization.claimed || world === null) return;
         this.initialization.claimed = true;
-        this.growBodyFilters(world.bodyFilters.capacity);
-        world.bodyFilters.data.fill(0);
     }
 
     /** Select this World for native operations; rebind views only when the shared key changed. */
@@ -69,7 +67,7 @@ export class BroadStore extends KernelViews {
         this.ensureViews();
     }
 
-    /** Re-derive the column views over the current region and write them into the tree/filter structs.
+    /** Re-derive the column views over the current region and write them into the tree structs.
      * Cheap — a handful of typed-array constructions, no copy. */
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
@@ -109,37 +107,28 @@ export class BroadStore extends KernelViews {
 
         const moveCapacity = k.broadTreeCap(0) + k.broadTreeCap(1) + k.broadTreeCap(2);
         if (this.initialization.claimed && moveCapacity !== 0) {
-            if (this.moveState.buffer !== buf || this.moveState.byteOffset !== layout[7])
-                this.moveState = new Uint32Array(buf, layout[7], 1);
+            if (this.moveState.buffer !== buf || this.moveState.byteOffset !== layout[6])
+                this.moveState = new Uint32Array(buf, layout[6], 1);
             if (!this.initialization.movesInitialized) {
                 k.broadClearMoves();
                 this.initialization.movesInitialized = true;
             }
             if (
                 this.moveData.buffer !== buf ||
-                this.moveData.byteOffset !== layout[7] + 4 ||
+                this.moveData.byteOffset !== layout[6] + 4 ||
                 this.moveData.length !== moveCapacity
             )
-                this.moveData = new Int32Array(buf, layout[7] + 4, moveCapacity);
+                this.moveData = new Int32Array(buf, layout[6] + 4, moveCapacity);
             for (let i = 0; i < 3; i++) {
                 const old = this.movedBits[i];
                 const length = Math.ceil(k.broadTreeCap(i) / 32);
-                if (old.buffer !== buf || old.byteOffset !== layout[8 + i] || old.length !== length)
-                    this.movedBits[i] = new Uint32Array(buf, layout[8 + i], length);
+                if (old.buffer !== buf || old.byteOffset !== layout[7 + i] || old.length !== length)
+                    this.movedBits[i] = new Uint32Array(buf, layout[7 + i], length);
             }
         } else {
             this.moveState = EMPTY_U;
             this.moveData = EMPTY_I;
             for (let i = 0; i < 3; i++) this.movedBits[i] = EMPTY_U;
-        }
-        const filter = this.world?.bodyFilters;
-        if (this.initialization.claimed && filter !== undefined && filter.capacity !== 0) {
-            if (
-                filter.data.buffer !== buf ||
-                filter.data.byteOffset !== layout[6] ||
-                filter.data.length !== 1 + 3 * filter.capacity
-            )
-                filter.data = new Uint32Array(buf, layout[6], 1 + 3 * filter.capacity);
         }
     }
 
@@ -166,17 +155,13 @@ export class BroadStore extends KernelViews {
         );
     }
 
-    growBodyFilters(capacity: number): void {
-        this.reserve(0, 0, 0, 0, capacity);
-    }
-
     // Reallocation can move columns without growing memory; derive views after every reserve.
-    private reserve(capS: number, capK: number, capD: number, setCap: number, filterCap = 0): void {
+    private reserve(capS: number, capK: number, capD: number, setCap: number): void {
         if (this.world !== null) this.initialize();
         else this.initialization.claimed = true;
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);
-        const grew = k.reserveBroad(capS, capK, capD, setCap, filterCap) !== 0;
+        const grew = k.reserveBroad(capS, capK, capD, setCap) !== 0;
         this.refreshViews();
         if (grew) {
             const w = this.world;
