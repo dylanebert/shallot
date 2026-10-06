@@ -40,6 +40,7 @@ export class GeometryUploadScratch {
     count = 0;
     u: Uint32Array = new Uint32Array(0);
     f: Float32Array = new Float32Array(0);
+    bytes: Uint8Array = new Uint8Array(0);
     private readonly _float = new Float32Array(1);
     private readonly _uint = new Uint32Array(this._float.buffer);
     bits(x: number): number {
@@ -66,17 +67,18 @@ export class GeometryUploadScratch {
         if (this.u.buffer !== buffer) {
             this.u = new Uint32Array(buffer);
             this.f = new Float32Array(buffer);
+            this.bytes = new Uint8Array(buffer);
         }
     }
 }
 function hullSize(h: UploadHull): number {
     return (
         HULL_HEADER_WORDS +
-        align8(h.vertexCount) +
+        align8(Math.ceil(h.vertexCount / 4)) +
         align8(h.vertexCount * 3) +
-        align8(h.edgeCount * 4) +
+        align8(h.edgeCount) +
         align8(h.faceCount * 4) +
-        align8(h.faceCount) +
+        align8(Math.ceil(h.faceCount / 4)) +
         3 * ((h.vertexCount + 3) & ~3) +
         3 * ((h.faceCount + 3) & ~3)
     );
@@ -123,21 +125,21 @@ export function uploadGeometry(
         const vertices = r + off;
         u[r + 25] = h.vertexCount;
         u[r + 26] = off * 4;
-        off += align8(h.vertexCount);
+        off += align8(Math.ceil(h.vertexCount / 4));
         const points = r + off;
         u[r + 27] = off * 4;
         off += align8(h.vertexCount * 3);
         const edges = r + off;
         u[r + 28] = h.edgeCount;
         u[r + 29] = off * 4;
-        off += align8(h.edgeCount * 4);
+        off += align8(h.edgeCount);
         const planes = r + off;
         u[r + 30] = h.faceCount;
         u[r + 31] = off * 4;
         off += align8(h.faceCount * 4);
         const faces = r + off;
         u[r + 32] = off * 4;
-        off += align8(h.faceCount);
+        off += align8(Math.ceil(h.faceCount / 4));
         const nv = (h.vertexCount + 3) & ~3,
             nf = (h.faceCount + 3) & ~3;
         const soa = r + off;
@@ -164,18 +166,18 @@ export function uploadGeometry(
         }
         for (let p = 0; p < h.vertexCount; ++p) {
             writeVector(f, points + 3 * p, h.points[p]);
-            u[vertices + p] = h.vertices[p].edge;
+            scratch.bytes[vertices * 4 + p] = h.vertices[p].edge;
         }
         for (let e = 0; e < h.edgeCount; ++e) {
             const ed = h.edges[e],
-                o = edges + 4 * e;
-            u[o] = ed.next;
-            u[o + 1] = ed.twin;
-            u[o + 2] = ed.origin;
-            u[o + 3] = ed.face;
+                o = edges * 4 + 4 * e;
+            scratch.bytes[o] = ed.next;
+            scratch.bytes[o + 1] = ed.twin;
+            scratch.bytes[o + 2] = ed.origin;
+            scratch.bytes[o + 3] = ed.face;
         }
         for (let n = 0; n < h.faceCount; ++n) {
-            u[faces + n] = h.faces[n].edge;
+            scratch.bytes[faces * 4 + n] = h.faces[n].edge;
             writeVector(f, planes + 4 * n, h.planes[n].normal);
             f[planes + 4 * n + 3] = h.planes[n].offset;
         }

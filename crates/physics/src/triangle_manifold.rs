@@ -91,10 +91,10 @@ fn edge_axis(
 ) -> Option<Axis> {
     let e = hull.edges[b];
     let twin = hull.edges[b + 1];
-    let p = hull.points[e.origin];
-    let edge = hull.points[twin.origin].sub(p);
-    let n1 = hull.planes[e.face].normal;
-    let n2 = hull.planes[twin.face].normal;
+    let p = hull.points[e.origin as usize];
+    let edge = hull.points[twin.origin as usize].sub(p);
+    let n1 = hull.planes[e.face as usize].normal;
+    let n2 = hull.planes[twin.face as usize].normal;
     let cab = n1.dot(edges[a]);
     let dab = n2.dot(edges[a]);
     let bcd = plane.normal.dot(edge);
@@ -158,13 +158,13 @@ fn hull_face_contact(
         };
     }
     let mut count = 3;
-    let first = hull.faces[query.b].edge;
+    let first = hull.faces[query.b].edge as usize;
     let mut edge = first;
     loop {
         let e = hull.edges[edge];
-        let next = hull.edges[e.next];
-        let v1 = hull.points[e.origin];
-        let v2 = hull.points[next.origin];
+        let next = hull.edges[e.next as usize];
+        let v1 = hull.points[e.origin as usize];
+        let v2 = hull.points[next.origin as usize];
         let side = v2.sub(v1).normalize().cross(plane.normal);
         count = clip_polygon(
             &input,
@@ -179,7 +179,7 @@ fn hull_face_contact(
             return query.separation;
         }
         core::mem::swap(&mut input, &mut output);
-        edge = e.next;
+        edge = e.next as usize;
         if edge == first {
             break;
         }
@@ -224,12 +224,12 @@ fn triangle_face_contact(
     let face = find_incident_face(hull, plane.normal, query.b);
     let mut input = [ClipVertex::ZERO; 128];
     let mut output = [ClipVertex::ZERO; 128];
-    let first = hull.faces[face].edge;
+    let first = hull.faces[face].edge as usize;
     let mut edge = first;
     let mut count = 0;
     loop {
         let e = hull.edges[edge];
-        let p = hull.points[hull.edges[e.next].origin];
+        let p = hull.points[hull.edges[e.next as usize].origin as usize];
         input[count] = ClipVertex {
             position: p,
             separation: plane.separation(p),
@@ -241,7 +241,7 @@ fn triangle_face_contact(
             },
         };
         count += 1;
-        edge = e.next;
+        edge = e.next as usize;
         if edge == first || count == 128 {
             break;
         }
@@ -301,8 +301,8 @@ fn hull_edge_contact(
     cache: &mut SatCache,
 ) {
     let e = hull.edges[query.b];
-    let p = hull.points[e.origin];
-    let edge = hull.points[hull.edges[e.twin].origin].sub(p);
+    let p = hull.points[e.origin as usize];
+    let edge = hull.points[hull.edges[e.twin as usize].origin as usize].sub(p);
     let result = line_distance(tri[query.a], edges[query.a], p, edge);
     if capacity == 0
         || result.fraction1 < 0.0

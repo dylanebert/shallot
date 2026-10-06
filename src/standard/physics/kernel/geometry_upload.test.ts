@@ -76,6 +76,16 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
             h.centralInertia.cz.y,
             h.centralInertia.cz.z,
         ]);
+        const bytes = new Uint8Array(k.memory.buffer, base, record[35]);
+        expect(Array.from(bytes.slice(record[26], record[26] + h.vertexCount))).toEqual(
+            h.vertices.slice(0, h.vertexCount).map((v) => v.edge),
+        );
+        expect(Array.from(bytes.slice(record[29], record[29] + 4 * h.edgeCount))).toEqual(
+            h.edges.flatMap((e) => [e.next, e.twin, e.origin, e.face]),
+        );
+        expect(Array.from(bytes.slice(record[32], record[32] + h.faceCount))).toEqual(
+            h.faces.slice(0, h.faceCount).map((v) => v.edge),
+        );
         for (const lane of [26, 27, 29, 31, 32, 33, 34, 35]) {
             expect(record[lane] % 8).toBe(0);
         }

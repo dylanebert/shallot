@@ -29,33 +29,28 @@ pub fn soa_vectors(points: impl ExactSizeIterator<Item = Vec3>, repeat_first: bo
     out
 }
 
-// The index fields stay `usize`: on the wasm32 target `usize` is a 4-byte word, so a hull's topology
-// pools (one u32 per field) reinterpret directly as `&[HullVertex]` / `&[HullHalfEdge]` / `&[HullFace]`
-// via `#[repr(C)]`. Native `cargo test` never reinterprets — it builds owned `Vec`s and borrows them
-// into the view — so the 8-byte native `usize` is harmless there.
-
 /// A hull vertex: index of one half-edge with this vertex as origin (b3HullVertex).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct HullVertex {
-    pub edge: usize,
+    pub edge: u8,
 }
 
 /// Half-edge: next (CCW), twin, origin vertex, and left face (b3HullHalfEdge).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct HullHalfEdge {
-    pub next: usize,
-    pub twin: usize,
-    pub origin: usize,
-    pub face: usize,
+    pub next: u8,
+    pub twin: u8,
+    pub origin: u8,
+    pub face: u8,
 }
 
 /// A hull face, identified by one of its half-edges (b3HullFace).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct HullFace {
-    pub edge: usize,
+    pub edge: u8,
 }
 
 /// The read-side of a convex hull the narrowphase consumes (b3HullData), as a borrowed view over the

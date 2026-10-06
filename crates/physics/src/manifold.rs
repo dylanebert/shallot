@@ -247,31 +247,31 @@ pub(crate) fn find_incident_face(hull: &HullData, ref_normal: Vec3, vertex_index
     let mut min_edge_projection = FLT_MAX;
 
     let vertex = hull.vertices[vertex_index];
-    let mut edge_index = vertex.edge;
+    let mut edge_index = vertex.edge as usize;
     let mut edge = edges[edge_index];
-    let edge_origin = points[edge.origin];
+    let edge_origin = points[edge.origin as usize];
 
     loop {
-        let twin = edges[edge.twin];
-        let twin_origin = points[twin.origin];
+        let twin = edges[edge.twin as usize];
+        let twin_origin = points[twin.origin as usize];
         let axis = twin_origin.sub(edge_origin).normalize();
         let edge_projection = absf(axis.dot(ref_normal));
         if edge_projection < min_edge_projection {
             min_edge_index = edge_index;
             min_edge_projection = edge_projection;
         }
-        edge_index = twin.next;
+        edge_index = twin.next as usize;
         edge = edges[edge_index];
-        if edge_index == vertex.edge {
+        if edge_index == vertex.edge as usize {
             break;
         }
     }
 
     let min_edge = edges[min_edge_index];
-    let min_face_index1 = min_edge.face;
+    let min_face_index1 = min_edge.face as usize;
     let min_plane1 = planes[min_face_index1];
-    let min_twin = edges[min_edge.twin];
-    let min_face_index2 = min_twin.face;
+    let min_twin = edges[min_edge.twin as usize];
+    let min_face_index2 = min_twin.face as usize;
     let min_plane2 = planes[min_face_index2];
 
     if min_plane1.normal.dot(ref_normal) < min_plane2.normal.dot(ref_normal) {
@@ -411,15 +411,15 @@ fn clip_segment_to_hull_face(
 
     let ref_plane = planes[ref_face];
     let face = faces[ref_face];
-    let mut edge_index = face.edge;
+    let mut edge_index = face.edge as usize;
 
     loop {
         let edge = edges[edge_index];
-        let next_edge_index = edge.next;
+        let next_edge_index = edge.next as usize;
         let next = edges[next_edge_index];
 
-        let vertex1 = points[edge.origin];
-        let vertex2 = points[next.origin];
+        let vertex1 = points[edge.origin as usize];
+        let vertex2 = points[next.origin as usize];
         let tangent = vertex2.sub(vertex1).normalize();
         let binormal = tangent.cross(ref_plane.normal);
 
@@ -428,7 +428,7 @@ fn clip_segment_to_hull_face(
             return 0;
         }
         edge_index = next_edge_index;
-        if edge_index == face.edge {
+        if edge_index == face.edge as usize {
             break;
         }
     }
@@ -529,9 +529,9 @@ fn query_edge_direction_hull_and_capsule(
         let edge = edges[index];
         let twin = edges[index + 1];
 
-        let q_b = points[twin.origin];
-        let u_b = planes[edge.face].normal;
-        let v_b = planes[twin.face].normal;
+        let q_b = points[twin.origin as usize];
+        let u_b = planes[edge.face as usize].normal;
+        let v_b = planes[twin.face as usize].normal;
         let cba = u_b.dot(e1);
         let dba = v_b.dot(e1);
         if cba * dba < 0.0 {
@@ -587,26 +587,26 @@ fn query_edge_directions(
         let twin_b = edges_b[index_b + 1];
 
         let p_b = matrix
-            .mul_v(points_b[edge_b.origin])
+            .mul_v(points_b[edge_b.origin as usize])
             .add(transform_b_to_a.p);
         let q_b = matrix
-            .mul_v(points_b[twin_b.origin])
+            .mul_v(points_b[twin_b.origin as usize])
             .add(transform_b_to_a.p);
         let e_b = q_b.sub(p_b);
 
-        let u_b = matrix.mul_v(planes_b[edge_b.face].normal);
-        let v_b = matrix.mul_v(planes_b[twin_b.face].normal);
+        let u_b = matrix.mul_v(planes_b[edge_b.face as usize].normal);
+        let v_b = matrix.mul_v(planes_b[twin_b.face as usize].normal);
 
         let mut index_a = 0;
         while index_a < hull_a.edge_count {
             let edge_a = edges_a[index_a];
             let twin_a = edges_a[index_a + 1];
 
-            let p_a = points_a[edge_a.origin];
-            let q_a = points_a[twin_a.origin];
+            let p_a = points_a[edge_a.origin as usize];
+            let q_a = points_a[twin_a.origin as usize];
             let e_a = q_a.sub(p_a);
-            let u_a = planes_a[edge_a.face].normal;
-            let v_a = planes_a[twin_a.face].normal;
+            let u_a = planes_a[edge_a.face as usize].normal;
+            let v_a = planes_a[twin_a.face as usize].normal;
 
             let cba = u_b.dot(e_a);
             let dba = v_b.dot(e_a);
@@ -1243,10 +1243,10 @@ fn build_hull_and_capsule_edge_contact(
     let points = &hull_a.points;
 
     let edge2 = edges[query.index_b as usize];
-    let twin2 = edges[edge2.twin];
+    let twin2 = edges[edge2.twin as usize];
     let ch = hull_a.center;
-    let ph = points[edge2.origin];
-    let qh = points[twin2.origin];
+    let ph = points[edge2.origin as usize];
+    let qh = points[twin2.origin as usize];
     let eh = qh.sub(ph);
 
     let mut normal = ec.cross(eh);
@@ -1455,17 +1455,17 @@ fn build_polygon(
     let points = &hull.points;
 
     let face = faces[inc_face];
-    let mut edge_index = face.edge;
+    let mut edge_index = face.edge as usize;
 
     let matrix = Mat3::from_quat(transform.q);
     let mut n = 0;
 
     loop {
         let edge = edges[edge_index];
-        let next_edge_index = edge.next;
+        let next_edge_index = edge.next as usize;
         let next = edges[next_edge_index];
 
-        let position = matrix.mul_v(points[next.origin]).add(transform.p);
+        let position = matrix.mul_v(points[next.origin as usize]).add(transform.p);
         out[n] = ClipVertex {
             position,
             separation: ref_plane.separation(position),
@@ -1479,7 +1479,7 @@ fn build_polygon(
         n += 1;
 
         edge_index = next_edge_index;
-        if edge_index == face.edge || n >= MAX_CLIP_POINTS {
+        if edge_index == face.edge as usize || n >= MAX_CLIP_POINTS {
             break;
         }
     }
@@ -1518,14 +1518,14 @@ fn build_face_a_contact(
 
     // Clip incident face against side planes of the reference face.
     let face = faces_a[ref_face];
-    let mut edge_index = face.edge;
+    let mut edge_index = face.edge as usize;
 
     loop {
         let edge = edges_a[edge_index];
-        let next_edge_index = edge.next;
+        let next_edge_index = edge.next as usize;
         let next = edges_a[next_edge_index];
-        let vertex1 = points_a[edge.origin];
-        let vertex2 = points_a[next.origin];
+        let vertex1 = points_a[edge.origin as usize];
+        let vertex2 = points_a[next.origin as usize];
         let tangent = vertex2.sub(vertex1).normalize();
         let binormal = tangent.cross(ref_plane.normal);
 
@@ -1547,7 +1547,7 @@ fn build_face_a_contact(
         }
 
         edge_index = next_edge_index;
-        if edge_index == face.edge {
+        if edge_index == face.edge as usize {
             break;
         }
     }
@@ -1644,15 +1644,15 @@ fn build_edge_contact(
     let points_b = &hull_b.points;
 
     let edge_a = edges_a[query.index_a as usize];
-    let twin_a = edges_a[edge_a.twin];
-    let p_a = points_a[edge_a.origin];
-    let q_a = points_a[twin_a.origin];
+    let twin_a = edges_a[edge_a.twin as usize];
+    let p_a = points_a[edge_a.origin as usize];
+    let q_a = points_a[twin_a.origin as usize];
     let e_a = q_a.sub(p_a);
 
     let edge_b = edges_b[query.index_b as usize];
-    let twin_b = edges_b[edge_b.twin];
-    let p_b = transform_b_to_a.point(points_b[edge_b.origin]);
-    let q_b = transform_b_to_a.point(points_b[twin_b.origin]);
+    let twin_b = edges_b[edge_b.twin as usize];
+    let p_b = transform_b_to_a.point(points_b[edge_b.origin as usize]);
+    let q_b = transform_b_to_a.point(points_b[twin_b.origin as usize]);
     let e_b = q_b.sub(p_b);
 
     let normal = query.normal;
@@ -1874,10 +1874,10 @@ fn compute_separating_axis(
     for i in 0..na {
         let edge = hull_a.edges[2 * i];
         let twin = hull_a.edges[2 * i + 1];
-        let v0 = hull_a.points[edge.origin];
-        let dir = hull_a.points[twin.origin].sub(v0);
-        a_n0.set(i, hull_a.planes[edge.face].normal);
-        a_n1.set(i, hull_a.planes[twin.face].normal);
+        let v0 = hull_a.points[edge.origin as usize];
+        let dir = hull_a.points[twin.origin as usize].sub(v0);
+        a_n0.set(i, hull_a.planes[edge.face as usize].normal);
+        a_n1.set(i, hull_a.planes[twin.face as usize].normal);
         a_dir.set(i, dir);
         a_v0.set(i, v0);
         // b3ComputeSeparatingAxis computes this scalar sum left-to-right, not b3Dot3W.
@@ -1889,10 +1889,10 @@ fn compute_separating_axis(
     for j in 0..hull_b.edge_count / 2 {
         let edge = hull_b.edges[2 * j];
         let twin = hull_b.edges[2 * j + 1];
-        let c = splat3(b_normals.get(edge.face));
-        let d = splat3(b_normals.get(twin.face));
-        let v0 = b_points.get(edge.origin);
-        let dc = splat3(b_points.get(twin.origin).sub(v0));
+        let c = splat3(b_normals.get(edge.face as usize));
+        let d = splat3(b_normals.get(twin.face as usize));
+        let v0 = b_points.get(edge.origin as usize);
+        let dc = splat3(b_points.get(twin.origin as usize).sub(v0));
         let bv0 = splat3(v0);
         for i in (0..na).step_by(4) {
             let dir = a_dir.load(i);
@@ -2048,23 +2048,23 @@ pub fn collide_hulls(
             let edge1 = edges_a[index1];
             let twin1 = edges_a[index1 + 1];
 
-            let p1 = points_a[edge1.origin];
-            let q1 = points_a[twin1.origin];
+            let p1 = points_a[edge1.origin as usize];
+            let q1 = points_a[twin1.origin as usize];
             let e1 = q1.sub(p1);
 
-            let u1 = planes_a[edge1.face].normal;
-            let v1 = planes_a[twin1.face].normal;
+            let u1 = planes_a[edge1.face as usize].normal;
+            let v1 = planes_a[twin1.face as usize].normal;
 
             let index2 = cache.index_b;
             let edge2 = edges_b[index2];
             let twin2 = edges_b[index2 + 1];
 
-            let p2 = transform_b_to_a.point(points_b[edge2.origin]);
-            let q2 = transform_b_to_a.point(points_b[twin2.origin]);
+            let p2 = transform_b_to_a.point(points_b[edge2.origin as usize]);
+            let q2 = transform_b_to_a.point(points_b[twin2.origin as usize]);
             let e2 = q2.sub(p2);
 
-            let u2 = transform_b_to_a.q.rotate(planes_b[edge2.face].normal);
-            let v2 = transform_b_to_a.q.rotate(planes_b[twin2.face].normal);
+            let u2 = transform_b_to_a.q.rotate(planes_b[edge2.face as usize].normal);
+            let v2 = transform_b_to_a.q.rotate(planes_b[twin2.face as usize].normal);
 
             let is_mink = is_minkowski_face(u1, v1, e1, u2.neg(), v2.neg(), e2);
             if is_mink {

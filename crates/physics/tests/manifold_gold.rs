@@ -133,7 +133,7 @@ fn hull(o: &Value) -> HullStore {
         .unwrap()
         .iter()
         .map(|e| HullVertex {
-            edge: e.as_u64().unwrap() as usize,
+            edge: e.as_u64().unwrap() as u8,
         })
         .collect();
     let edges = o["edges"]
@@ -143,10 +143,10 @@ fn hull(o: &Value) -> HullStore {
         .map(|e| {
             let e = e.as_array().unwrap();
             HullHalfEdge {
-                next: e[0].as_u64().unwrap() as usize,
-                twin: e[1].as_u64().unwrap() as usize,
-                origin: e[2].as_u64().unwrap() as usize,
-                face: e[3].as_u64().unwrap() as usize,
+                next: e[0].as_u64().unwrap() as u8,
+                twin: e[1].as_u64().unwrap() as u8,
+                origin: e[2].as_u64().unwrap() as u8,
+                face: e[3].as_u64().unwrap() as u8,
             }
         })
         .collect();
@@ -155,7 +155,7 @@ fn hull(o: &Value) -> HullStore {
         .unwrap()
         .iter()
         .map(|e| HullFace {
-            edge: e.as_u64().unwrap() as usize,
+            edge: e.as_u64().unwrap() as u8,
         })
         .collect();
     let planes = o["planes"]
