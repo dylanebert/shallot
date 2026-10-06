@@ -23,7 +23,7 @@ import {
     vec3,
 } from "../common/math";
 import { ShapeType } from "../common/types";
-import { uploadGeometry } from "../kernel/geocolumns";
+import { hullDatabaseIndex } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
 import { createProxy, createTree, query } from "../kernel/treecolumns";
 import { type Capsule, computeSphereAABB, type Sphere } from "../shapes/geometry";
@@ -517,24 +517,33 @@ function runBaseCase(item: OracleCase): unknown {
         case "o4.convex-manifold.scalar-or-simd.simd": {
             const a = makeBoxHull(1, 1, 1),
                 b = makeBoxHull(1, 1, 1);
-            uploadGeometry(undefined, [a, b]);
-            const k = kernel(undefined);
-            const count = k.collideHullsGeo(0, 1, 1.25, 0.1, 0, 0, 0, 0, 1);
-            const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4 + count * 5);
-            const words = new Uint32Array(out.buffer, out.byteOffset, out.length);
-            const triangles = new Int32Array(k.memory.buffer, k.geoTriangleOutPtr(), count);
-            return {
-                normal: vbits({ x: out[1], y: out[2], z: out[3] }),
-                pointCount: i32hex(count),
-                points: Array.from({ length: count }, (_, i) => ({
-                    point: vbits({ x: out[4 + i * 5], y: out[5 + i * 5], z: out[6 + i * 5] }),
-                    separation: bits(out[7 + i * 5]),
-                    triangleIndex: i32hex(triangles[i]),
-                    feature: [u32hex(words[8 + i * 5])],
-                })),
-                cacheHit: u32hex(0),
-                hookVisits: u32hex(1),
-            };
+            const world = makeOracleWorld();
+            try {
+                const body = world.createBody({ type: BodyType.Static });
+                body.createHull({}, a);
+                body.createHull({}, b);
+                const k = kernel(world.state.ecsState);
+                const pointerA = hullDatabaseIndex(world.state, a);
+                const pointerB = hullDatabaseIndex(world.state, b);
+                const count = k.collideHullsGeo(pointerA, pointerB, 1.25, 0.1, 0, 0, 0, 0, 1);
+                const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4 + count * 5);
+                const words = new Uint32Array(out.buffer, out.byteOffset, out.length);
+                const triangles = new Int32Array(k.memory.buffer, k.geoTriangleOutPtr(), count);
+                return {
+                    normal: vbits({ x: out[1], y: out[2], z: out[3] }),
+                    pointCount: i32hex(count),
+                    points: Array.from({ length: count }, (_, i) => ({
+                        point: vbits({ x: out[4 + i * 5], y: out[5 + i * 5], z: out[6 + i * 5] }),
+                        separation: bits(out[7 + i * 5]),
+                        triangleIndex: i32hex(triangles[i]),
+                        feature: [u32hex(words[8 + i * 5])],
+                    })),
+                    cacheHit: u32hex(0),
+                    hookVisits: u32hex(1),
+                };
+            } finally {
+                world.destroy();
+            }
         }
         case "o4.mesh-contact.scalar-or-simd.scalar":
         case "o4.mesh-contact.scalar-or-simd.simd": {

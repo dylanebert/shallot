@@ -73,7 +73,7 @@ mod wasm {
         shapes::col().get(id * shapes::SHAPE_STRIDE)
     }
     fn reference(id: usize) -> usize {
-        shapes::col().get(id * shapes::SHAPE_STRIDE + 8) as usize
+        shapes::col().get(id * shapes::SHAPE_STRIDE + shapes::S_GEO_REFERENCE) as usize
     }
     pub(crate) unsafe fn mass(id: usize) -> MassData {
         let f = shapes::col_f();
@@ -334,7 +334,7 @@ mod wasm {
         } else if t == 4 {
             for (lane, value) in [a, b, c].into_iter().enumerate() {
                 let sign = if value >= 0.0 { 1.0 } else { -1.0 };
-                floats.set(o + 2 + lane, sign * maxf(value.abs(), 0.01));
+                floats.set(o + 3 + lane, sign * maxf(value.abs(), 0.01));
             }
         } else {
             for (lane, value) in [a, b, c, d, e, f, g].into_iter().enumerate() {

@@ -489,7 +489,7 @@ export type Kernel = {
     // for the given totals; `geoLayoutPtr` returns the byte-offset header TS writes the hulls through
     // (geocolumns.ts). `collideHullsGeo` runs the hull-hull narrowphase over two column-backed hulls,
     // writing the manifold to the buffer at `geoOutPtr` — the geometry-read verification.
-    reserveGeometry(hullWords: number, extraWords: number): void;
+    reserveGeometry(extraWords: number): void;
     geoLayoutPtr(): number;
     hullUploadBuffer(world: number, bytes: number): number;
     hullDatabaseAdd(world: number, bytes: number): number;
@@ -497,7 +497,6 @@ export type Kernel = {
     hullDatabaseRemove(world: number, handle: number): void;
     hullDatabaseCount(world: number): number;
     hullDatabaseRefs(world: number, handle: number): number;
-    hullDataPtr(world: number, handle: number): number;
 
     // The contact-id directory grows on allocation. Its block addresses remain stable while the
     // manifold-count allocators grow; this layout header exposes only the directory's address.

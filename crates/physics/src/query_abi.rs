@@ -4,7 +4,7 @@ use crate::distance::{CastOutput, ShapeProxy};
 use crate::manifold::{Capsule, Sphere};
 use crate::math::{Quat, Transform, Vec3};
 use crate::query::*;
-use crate::shapes::{SHAPE_STRIDE, S_GEOM, S_GEO_REFERENCE, S_MATERIAL_COUNT, S_TYPE};
+use crate::shapes::{SHAPE_STRIDE, S_GEOM, S_MATERIAL_COUNT, S_TYPE};
 // transform(7), count/radius(2), translation(3), fraction/encroach(2), points(128*3).
 static mut INPUT: [f32; 398] = [0.0; 398];
 static mut OUTPUT: [f32; 12] = [0.0; 12];
@@ -62,17 +62,8 @@ pub(crate) unsafe fn active_shape(id: usize) -> (Shape<'static>, i32) {
     let col = crate::shapes::col();
     let o = id * SHAPE_STRIDE;
     let kind = col.get(o + S_TYPE);
-    let mut r = [0; 7];
-    for (i, x) in r.iter_mut().enumerate() {
-        *x = col.get(o + S_GEOM + i);
-    }
-    if kind == 3 || kind == 2 || kind == 1 {
-        r[0] = col.get(o + S_GEO_REFERENCE);
-    }
-    if kind == 4 {
-        r = [col.get(o + S_GEO_REFERENCE), r[0], r[1], r[2], 0, 0, 0];
-    }
-    (geometry(kind, &r), col.get(o + S_MATERIAL_COUNT) as i32)
+    let r = &crate::shapes::col_slice()[o + S_GEOM..o + S_GEOM + 7];
+    (geometry(kind, r), col.get(o + S_MATERIAL_COUNT) as i32)
 }
 pub(crate) unsafe fn input() -> (&'static [f32], Transform, ShapeProxy<'static>) {
     let r = core::slice::from_raw_parts(&raw const INPUT as *const f32, 398);

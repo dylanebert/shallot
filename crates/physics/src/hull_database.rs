@@ -1,6 +1,16 @@
-//! b3HullMap: hull byte identity, shared clones, and reference counts. The C2a directory remains
-//! the snapshot-stable address of a hull; map bucket moves never change a shape's reference.
-const MANAGED: usize = 0x80000000;
+//! b3HullMap: hull byte identity, shared clones, and reference counts. Shape records hold the
+//! retained b3HullData pointer; snapshot restore relocates these pointers in kernel records.
+
+unsafe fn image(key: usize) -> &'static [u64] {
+    let words = *((key as *const u32).add(35)) as usize / 8;
+    core::slice::from_raw_parts(key as *const u64, words)
+}
+unsafe fn release(key: usize) {
+    drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+        key as *mut u64,
+        image(key).len(),
+    )));
+}
 const HOME: u16 = 0x0800;
 const LINK: u16 = 0x07ff;
 const FRAGMENT: u16 = 0xf000;
@@ -11,7 +21,6 @@ struct Bucket {
     refs: u32,
 }
 struct Database {
-    hulls: Vec<Vec<u64>>,
     table: Vec<u64>,
     buckets: &'static mut [Bucket],
     metadata: &'static mut [u16],
@@ -22,7 +31,6 @@ struct Database {
 impl Database {
     const fn new() -> Self {
         Self {
-            hulls: Vec::new(),
             table: Vec::new(),
             buckets: &mut [],
             metadata: &mut [],
@@ -32,7 +40,7 @@ impl Database {
         }
     }
     fn hash(&self, key: usize) -> u64 {
-        self.hulls[key][1]
+        unsafe { *((key as *const u64).add(1)) }
     }
     fn mask(&self) -> usize {
         self.buckets.len() - 1
@@ -54,7 +62,7 @@ impl Database {
         let mut bucket = home;
         loop {
             if self.metadata[bucket] & FRAGMENT == fragment
-                && self.hulls[self.buckets[bucket].key] == bytes
+                && unsafe { image(self.buckets[bucket].key) } == bytes
             {
                 return Some(bucket);
             }
@@ -159,28 +167,18 @@ impl Database {
     fn add(&mut self, bytes: &[u64]) -> usize {
         if let Some(bucket) = self.find(bytes) {
             self.buckets[bucket].refs += 1;
-            return MANAGED | self.buckets[bucket].key;
+            return self.buckets[bucket].key;
         }
-        let key = self
-            .hulls
-            .iter()
-            .position(Vec::is_empty)
-            .unwrap_or(self.hulls.len());
-        let clone = bytes.to_vec();
-        if key == self.hulls.len() {
-            self.hulls.push(clone);
-        } else {
-            self.hulls[key] = clone;
-        }
+        let key = Box::into_raw(bytes.to_vec().into_boxed_slice()) as *mut u64 as usize;
         let bucket = Bucket { key, refs: 1 };
         while !self.insert_raw(bucket) {
             self.grow();
         }
-        MANAGED | key
+        key
     }
     fn remove(&mut self, key: usize) {
         let bucket = self
-            .find(&self.hulls[key])
+            .find(unsafe { image(key) })
             .expect("hull database reference");
         self.buckets[bucket].refs -= 1;
         if self.buckets[bucket].refs != 0 {
@@ -212,9 +210,23 @@ impl Database {
                 }
             }
         }
-        self.hulls[key] = Vec::new();
+        unsafe {
+            release(key);
+        }
     }
 }
+impl Drop for Database {
+    fn drop(&mut self) {
+        for i in 0..self.buckets.len() {
+            if self.metadata[i] != 0 {
+                unsafe {
+                    release(self.buckets[i].key);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,7 +238,7 @@ mod tests {
         for i in 0..300u64 {
             let mut image = vec![0u64; 18];
             image[1] = (i % 17) << 48;
-            image[17] = i;
+            image[17] = (144 << 32) | i;
             let handle = db.add(&image);
             assert_eq!(db.add(&image), handle);
             images.push(image);
@@ -234,19 +246,18 @@ mod tests {
         }
         assert_eq!(db.count, 300);
         for i in (0..300).step_by(2) {
-            db.remove(handles[i] & !MANAGED);
+            db.remove(handles[i]);
             assert_eq!(db.buckets[db.find(&images[i]).unwrap()].refs, 1);
-            db.remove(handles[i] & !MANAGED);
+            db.remove(handles[i]);
             assert!(db.find(&images[i]).is_none());
         }
         for i in (1..300).step_by(2) {
             assert_eq!(db.add(&images[i]), handles[i]);
             for _ in 0..3 {
-                db.remove(handles[i] & !MANAGED);
+                db.remove(handles[i]);
             }
         }
         assert_eq!(db.count, 0);
-        assert!(db.hulls.iter().all(Vec::is_empty));
         assert!(db.metadata[..db.buckets.len()].iter().all(|m| *m == 0));
     }
 }
@@ -256,18 +267,8 @@ pub use runtime::*;
 #[cfg(target_arch = "wasm32")]
 mod runtime {
     use super::*;
-    use crate::{
-        geo::HullRecord,
-        regions::{self, MAX_WORLDS},
-    };
+    use crate::regions::{self, MAX_WORLDS};
     static mut DATABASES: [Database; MAX_WORLDS] = [const { Database::new() }; MAX_WORLDS];
-    #[inline(always)]
-    pub(crate) unsafe fn record(world: usize, handle: usize) -> Option<&'static HullRecord> {
-        if handle & MANAGED == 0 {
-            return None;
-        }
-        Some(&*(DATABASES[world].hulls[handle & !MANAGED].as_ptr() as *const HullRecord))
-    }
     #[export_name = "hullUploadBuffer"]
     pub extern "C" fn upload_buffer(world: usize, bytes: usize) -> *mut u64 {
         unsafe {
@@ -289,14 +290,13 @@ mod runtime {
         unsafe {
             let db = &DATABASES[world];
             let input = core::slice::from_raw_parts(db.upload.as_ptr(), bytes / 8);
-            db.find(input)
-                .map_or(-1, |i| (MANAGED | db.buckets[i].key) as i32)
+            db.find(input).map_or(-1, |i| db.buckets[i].key as i32)
         }
     }
     #[export_name = "hullDatabaseRemove"]
     pub extern "C" fn remove(world: usize, handle: usize) {
         unsafe {
-            DATABASES[world].remove(handle & !MANAGED);
+            DATABASES[world].remove(handle);
         }
     }
     #[export_name = "hullDatabaseCount"]
@@ -307,13 +307,8 @@ mod runtime {
     pub extern "C" fn refs(world: usize, handle: usize) -> u32 {
         unsafe {
             let db = &DATABASES[world];
-            db.find(&db.hulls[handle & !MANAGED])
-                .map_or(0, |i| db.buckets[i].refs)
+            db.find(image(handle)).map_or(0, |i| db.buckets[i].refs)
         }
-    }
-    #[export_name = "hullDataPtr"]
-    pub extern "C" fn data_ptr(world: usize, handle: usize) -> *const HullRecord {
-        unsafe { record(world, handle).expect("managed hull") }
     }
     pub unsafe fn reset(world: usize) {
         DATABASES[world] = Database::new();
@@ -321,19 +316,20 @@ mod runtime {
 
     pub unsafe fn snapshot(world: usize, out: &mut Vec<u8>) {
         let db = &DATABASES[world];
-        regions::write_word(out, db.hulls.len());
-        for hull in &db.hulls {
+        regions::write_word(out, db.buckets.len());
+        for i in 0..db.buckets.len() {
+            regions::write_word(out, db.metadata[i] as usize);
+            if db.metadata[i] == 0 {
+                continue;
+            }
+            regions::write_word(out, db.buckets[i].key);
+            regions::write_word(out, db.buckets[i].refs as usize);
+            let hull = image(db.buckets[i].key);
             regions::write_word(out, hull.len());
             out.extend_from_slice(core::slice::from_raw_parts(
                 hull.as_ptr() as *const u8,
                 hull.len() * 8,
             ));
-        }
-        regions::write_word(out, db.buckets.len());
-        for i in 0..db.buckets.len() {
-            regions::write_word(out, db.buckets[i].key);
-            regions::write_word(out, db.buckets[i].refs as usize);
-            regions::write_word(out, db.metadata[i] as usize);
         }
         regions::write_word(out, db.count);
     }
@@ -341,20 +337,25 @@ mod runtime {
         reset(world);
         let db = &mut DATABASES[world];
         let n = regions::read_word(input);
-        for _ in 0..n {
+        db.allocate_table(n);
+        let mut relocations = Vec::new();
+        for i in 0..n {
+            db.metadata[i] = regions::read_word(input) as u16;
+            if db.metadata[i] == 0 {
+                continue;
+            }
+            let old = regions::read_word(input) as u32;
+            db.buckets[i].refs = regions::read_word(input) as u32;
             let words = regions::read_word(input);
             let mut hull = vec![0u64; words];
             core::ptr::copy_nonoverlapping(input.as_ptr(), hull.as_mut_ptr() as *mut u8, words * 8);
             *input = &input[words * 8..];
-            db.hulls.push(hull);
-        }
-        let n = regions::read_word(input);
-        db.allocate_table(n);
-        for i in 0..n {
-            db.buckets[i].key = regions::read_word(input);
-            db.buckets[i].refs = regions::read_word(input) as u32;
-            db.metadata[i] = regions::read_word(input) as u16;
+            let pointer = Box::into_raw(hull.into_boxed_slice()) as *mut u64 as usize;
+            db.buckets[i].key = pointer;
+            relocations.push((old, pointer as u32));
         }
         db.count = regions::read_word(input);
+        relocations.sort_unstable_by_key(|r| r.0);
+        crate::shapes::relocate_hulls(world, &relocations);
     }
 }

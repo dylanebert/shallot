@@ -23,11 +23,10 @@ import { KernelViews } from "./views";
 /** Word stride of one kernel shape record, mirroring `shapes.rs`. */
 export const SHAPE_STRIDE = 69;
 export const S_PROXY_KEY = 50;
-/** Inline sphere center(3)+radius(1), capsule endpoints(6)+radius(1), or mesh scale(3).
- * Shared hull and nonconvex data use the geometry pools. */
+/** b3Shape union: inline sphere or capsule, data reference plus mesh scale, or data reference. */
 export const S_GEOM = 2;
-/** Hull record index or non-convex geometry word offset; capsule uses this lane for its radius. */
-export const S_GEO_REFERENCE = 8;
+/** First union word: retained hull pointer or non-convex pool word offset. */
+export const S_GEO_REFERENCE = S_GEOM;
 /** Kernel shape-record attachment lanes, outside finalize output. */
 export const S_MATERIAL_HEAD = 16;
 export const S_MATERIAL_COUNT = 17;

@@ -20,8 +20,15 @@ import {
 } from "../shapes/shape";
 import { step } from "../solver/step";
 import { createBody, destroyBody } from "../world/body";
-import { createWorld, destroyWorld, getWorld, type WorldState } from "../world/world";
-import { hullDatabaseIndex, uploadGeometry } from "./geocolumns";
+import {
+    addHullToDatabase,
+    createWorld,
+    destroyWorld,
+    getWorld,
+    removeHullFromDatabase,
+    type WorldState,
+} from "../world/world";
+import { hullDatabaseIndex } from "./geocolumns";
 import { init, kernel } from "./kernel";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 
@@ -40,14 +47,13 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
         points: box.points.slice(0, count),
         planes: box.planes.slice(0, 5),
     }));
-    uploadGeometry(undefined, hulls);
-    const k = kernel(undefined);
-    const layout = new Uint32Array(k.memory.buffer, k.geoLayoutPtr(), 8);
-    const directory = new Uint32Array(k.memory.buffer, layout[0], hulls.length);
+    const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
+    const pointers = hulls.map((h) => addHullToDatabase(world, h));
+    const k = kernel(world.ecsState);
     for (const [i, h] of hulls.entries()) {
         const nv = (h.vertexCount + 3) & ~3;
         const nf = (h.faceCount + 3) & ~3;
-        const base = layout[0] + directory[i];
+        const base = pointers[i];
         const record = new Uint32Array(k.memory.buffer, base, 36);
         const soa = new Float32Array(k.memory.buffer, base + record[33], 3 * (nv + nf));
         expect(record[34]).toBe(record[33] + 12 * nv);
@@ -107,6 +113,8 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
             ]).toEqual([n.x, n.y, n.z]);
         }
     }
+    for (const pointer of pointers) removeHullFromDatabase(world, pointer);
+    destroyWorld(world);
 });
 
 test("sphere and capsule body churn uploads no geometry, and only a mesh datum entering or leaving the set uploads", () => {

@@ -828,14 +828,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 let s = record[id_slot] as usize * crate::shapes::SHAPE_STRIDE;
                 let ty = shapes[s + crate::shapes::S_TYPE];
                 record[type_slot] = ty;
-                if ty == TY_SPHERE || ty == TY_CAPSULE {
-                    record[geom_slot..geom_slot + 7].copy_from_slice(&shapes[s + 2..s + 9]);
-                } else {
-                    record[geom_slot] = shapes[s + crate::shapes::S_GEO_REFERENCE];
-                    if ty == 4 {
-                        record[geom_slot + 1..geom_slot + 4].copy_from_slice(&shapes[s + 2..s + 5]);
-                    }
-                }
+                record[geom_slot..geom_slot + 7].copy_from_slice(&shapes[s + 2..s + 9]);
             }
             let disp = &record[..];
             let r = 0;

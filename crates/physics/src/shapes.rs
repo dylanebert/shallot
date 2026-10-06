@@ -23,7 +23,7 @@ pub const S_QUERY_GROUP: usize = 31;
 pub const S_TYPE: usize = 0;
 pub const S_NEXT: usize = 1;
 pub const S_GEOM: usize = 2;
-pub const S_GEO_REFERENCE: usize = 8;
+pub const S_GEO_REFERENCE: usize = S_GEOM;
 pub const S_MATERIAL_HEAD: usize = 16;
 pub const S_MATERIAL_COUNT: usize = 17;
 pub const NULL_SHAPE: u32 = u32::MAX;
@@ -56,6 +56,29 @@ impl Shapes {
     };
 }
 static mut WORLDS: [Shapes; MAX_WORLDS] = [Shapes::EMPTY; MAX_WORLDS];
+pub unsafe fn relocate_hulls(id: usize, relocations: &[(u32, u32)]) {
+    let w = &WORLDS[id];
+    let base = w.columns.layout[0] as *mut u32;
+    let mut compounds = Vec::new();
+    for i in 0..w.shape.next {
+        let r = base.add(i * SHAPE_STRIDE);
+        if *r.add(S_ID) != i as u32 {
+            continue;
+        }
+        if *r.add(S_TYPE) == 3 {
+            let pointer = r.add(S_GEO_REFERENCE);
+            if let Ok(index) = relocations.binary_search_by_key(&*pointer, |r| r.0) {
+                *pointer = relocations[index].1;
+            }
+        } else if *r.add(S_TYPE) == 1 {
+            let record = *r.add(S_GEO_REFERENCE) as usize;
+            if !compounds.contains(&record) {
+                compounds.push(record);
+                crate::geo::relocate_compound_hulls(id, record, relocations);
+            }
+        }
+    }
+}
 unsafe fn world(id: usize) -> &'static Shapes {
     &WORLDS[id]
 }

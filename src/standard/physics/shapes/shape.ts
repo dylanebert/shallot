@@ -440,7 +440,7 @@ function createShapeInternal(
                 scale: vec3.zero(),
             });
             mesh.data = geometry as MeshData;
-            copyGeometryVector(world.shapeStore.shapeF, g, mesh.scale);
+            copyGeometryVector(world.shapeStore.shapeF, g + 1, mesh.scale);
             break;
         }
         case ShapeType.HeightField:

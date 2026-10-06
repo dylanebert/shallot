@@ -1,9 +1,5 @@
-//! Geometry uploaded on geometry-set changes, not per step. Hulls use Box3D's b3HullData header
-//! and relative-byte-offset trailing arrays; a directory locates each shared hull by upload id.
-//! `hull_view` borrows those arrays for narrowphase. Native tests use Vec-backed borrowed views.
-//!
-//! Each World's pools are allocator-owned. Geometry-set changes rewrite that World's pools;
-//! growing another region never requires a geometry upload.
+//! Narrowphase borrows each retained b3HullData directly, including its relative-offset arrays.
+//! The non-convex upload pool is world-owned and changes only when its authoring set changes.
 
 use crate::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
 use crate::manifold::{collide_hulls, make_feature_id, LocalManifold, SatCache};
@@ -34,16 +30,25 @@ pub(crate) struct HullRecord {
 }
 #[inline(always)]
 pub(crate) unsafe fn hull_record(index: usize) -> &'static HullRecord {
-    if let Some(record) = crate::hull_database::record(regions::active(), index) {
-        return record;
+    &*(index as *const HullRecord)
+}
+
+pub unsafe fn relocate_compound_hulls(id: usize, record: usize, relocations: &[(u32, u32)]) {
+    let base = COLUMNS[id].layout[EXTRA] as *mut u32;
+    let r = base.add(record);
+    let children = base.add(*r.add(4) as usize);
+    for i in 0..*r.add(2) as usize {
+        let child = children.add(i * 19);
+        if *child == 3 {
+            let pointer = child.add(12);
+            if let Ok(index) = relocations.binary_search_by_key(&*pointer, |r| r.0) {
+                *pointer = relocations[index].1;
+            }
+        }
     }
-    let base = COLUMNS[regions::active()].layout[REC] as *const u8;
-    let offset = *(base as *const u32).add(index);
-    &*(base.add(offset as usize) as *const HullRecord)
 }
 
 // GEO_LAYOUT indices (byte offsets into linear memory), in memory order.
-const REC: usize = 0;
 const EXTRA: usize = 6;
 const N_GEO: usize = 8;
 
@@ -56,12 +61,9 @@ pub extern "C" fn geo_layout_ptr() -> *const u32 {
 }
 
 #[export_name = "reserveGeometry"]
-pub extern "C" fn reserve_geometry(hull_words: usize, extra_words: usize) {
+pub extern "C" fn reserve_geometry(extra_words: usize) {
     unsafe {
-        let columns = &mut COLUMNS[regions::active()];
-        for (column, words) in [(REC, hull_words), (EXTRA, extra_words)] {
-            columns.reserve(column, words * 4);
-        }
+        COLUMNS[regions::active()].reserve(EXTRA, extra_words * 4);
     }
 }
 pub unsafe fn reset(id: usize) {

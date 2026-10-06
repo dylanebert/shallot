@@ -38,7 +38,6 @@ import {
     vec3,
     xf,
 } from "../common/math";
-import { kernel } from "../kernel/kernel";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "../kernel/shapecolumns";
 import type { WorldState } from "../world/world";
 import { hash64NonZero, hullImage } from "./hullbytes";
@@ -88,8 +87,7 @@ export type HullData = {
 export function shapeHullInnerRadius(world: WorldState, shape: number): number {
     const store = world.shapeStore;
     store.refreshViews();
-    const handle = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
-    const ptr = kernel(world.ecsState).hullDataPtr(world.worldId, handle);
+    const ptr = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
     return store.materialF[(ptr >>> 2) + 12];
 }
 
@@ -97,8 +95,7 @@ export function shapeHullInnerRadius(world: WorldState, shape: number): number {
 export function readShapeHull(world: WorldState, shape: number): HullData {
     const store = world.shapeStore;
     store.refreshViews();
-    const handle = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
-    const ptr = kernel(world.ecsState).hullDataPtr(world.worldId, handle);
+    const ptr = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
     const r = ptr >>> 2,
         u = store.materialU,
         f = store.materialF;

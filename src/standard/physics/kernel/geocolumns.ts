@@ -9,28 +9,6 @@ import type { MeshData } from "../shapes/mesh";
 import type { GeometryRecord, WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
-const align8 = (words: number): number => (words + 1) & ~1;
-const EMPTY: readonly number[] = [];
-const EMPTY_HULLS: readonly UploadHull[] = [];
-export type UploadHull = Pick<
-    HullData,
-    | "center"
-    | "aabb"
-    | "surfaceArea"
-    | "volume"
-    | "innerRadius"
-    | "centralInertia"
-    | "hash"
-    | "vertexCount"
-    | "edgeCount"
-    | "faceCount"
-    | "points"
-    | "vertices"
-    | "edges"
-    | "faces"
-    | "planes"
->;
-
 /** World-owned authoring upload registers, not geometry storage. Contents clear after upload;
  * capacity and linear-memory views survive a database miss, as the kernel pools do. */
 export class GeometryUploadScratch {
@@ -71,39 +49,13 @@ export class GeometryUploadScratch {
         }
     }
 }
-function hullSize(h: UploadHull): number {
-    return hullByteCount(h) / 4;
-}
-
-/** Upload Box3D b3HullData headers and their eight-byte-aligned relative-offset trailing arrays.
- * The directory addresses each shared hull by upload id. */
-export function uploadGeometry(
-    world: World | undefined,
-    hulls: readonly (UploadHull | undefined)[],
-    extra: ArrayLike<number> = EMPTY,
-    scratch = new GeometryUploadScratch(),
-    hullCount = hulls.length,
-    extraCount = extra.length,
-): void {
-    let total = align8(hullCount);
-    for (let i = 0; i < hullCount; ++i) total += hullSize(hulls[i]!);
+function uploadGeometry(world: World | undefined, scratch: GeometryUploadScratch): void {
     const k = kernel(world);
-    k.reserveGeometry(total, extraCount);
+    k.reserveGeometry(scratch.count);
     scratch.views(k.memory.buffer);
-    const u = scratch.u,
-        f = scratch.f;
-    const layout = k.geoLayoutPtr() >>> 2;
-    const pool = u[layout] >>> 2,
-        extraBase = u[layout + 6] >>> 2;
-    for (let i = 0; i < extraCount; ++i) u[extraBase + i] = extra[i];
-    u.fill(0, pool, pool + total);
-    let base = align8(hullCount);
-    for (let i = 0; i < hullCount; ++i) {
-        const h = hulls[i]!;
-        u[pool + i] = base * 4;
-        writeHullImage(h, scratch.bytes, u, f, scratch.hashes, (pool + base) * 4);
-        base += hullSize(h);
-    }
+    const u = scratch.u;
+    const extraBase = u[(k.geoLayoutPtr() >>> 2) + 6] >>> 2;
+    for (let i = 0; i < scratch.count; ++i) u[extraBase + i] = scratch.words[i];
 }
 
 /** Upload this world's changed authoring set. Nonconvex records retain their query layout until C2b;
@@ -116,7 +68,7 @@ export function rebuildGeometry(world: WorldState): void {
     world.compoundDatabase.forEach(stageCompound, world);
     const k = kernel(world.ecsState);
     k.shapeSetActiveWorld(world.worldId);
-    uploadGeometry(world.ecsState, EMPTY_HULLS, s.words, s, 0, s.count);
+    uploadGeometry(world.ecsState, s);
     s.words.fill(0, 0, s.count);
     s.count = 0;
     world.geometryUploadCount += 1;
