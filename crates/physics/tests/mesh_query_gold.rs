@@ -33,10 +33,12 @@ fn mesh_queries_bit_exact() {
         .map(|n| MeshNode {
             lower: v(&n["lowerBound"]),
             upper: v(&n["upperBound"]),
-            leaf: u32::from(n["leaf"].as_bool().unwrap()),
-            axis: n["axis"].as_u64().unwrap() as u32,
-            child_offset: n["childOffset"].as_u64().unwrap() as u32,
-            triangle_count: n["triangleCount"].as_u64().unwrap() as u32,
+            data: if n["leaf"].as_bool().unwrap() {
+                ((n["triangleCount"].as_u64().unwrap() as u32) << 2) | 3
+            } else {
+                ((n["childOffset"].as_u64().unwrap() as u32) << 2)
+                    | n["axis"].as_u64().unwrap() as u32
+            },
             triangle_offset: n["triangleOffset"].as_u64().unwrap() as u32,
         })
         .collect();

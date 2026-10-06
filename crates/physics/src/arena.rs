@@ -473,7 +473,7 @@ unsafe fn dispatch_mesh(
         );
         TriangleSource::Mesh {
             flags: core::slice::from_raw_parts(
-                crate::geo::extra_ptr(*record.add(6) as usize),
+                (record as *const u8).add(*record.add(22) as usize),
                 mesh.triangles.len(),
             ),
             mesh,
@@ -482,7 +482,7 @@ unsafe fn dispatch_mesh(
         let field = crate::geo::height_view(geom[0] as usize);
         TriangleSource::Height {
             flags: core::slice::from_raw_parts(
-                crate::geo::extra_ptr(*record.add(17) as usize),
+                (record as *const u8).add(*record.add(21) as usize),
                 2 * (field.columns - 1) * (field.rows - 1),
             ),
             field,

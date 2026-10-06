@@ -28,11 +28,11 @@ pub struct TriangleInput {
 pub enum TriangleSource<'a> {
     Mesh {
         mesh: crate::mesh_query::Mesh<'a>,
-        flags: &'a [u32],
+        flags: &'a [u8],
     },
     Height {
         field: crate::height_query::HeightField<'a>,
-        flags: &'a [u32],
+        flags: &'a [u8],
     },
 }
 impl TriangleSource<'_> {
@@ -92,9 +92,9 @@ impl TriangleSource<'_> {
         TriangleInput {
             vertices,
             indices,
-            flags,
+            flags: flags as u32,
             triangle_index: index as i32,
-            material_index,
+            material_index: material_index as u32,
             simplex: SimplexCache::empty(),
             sat: SatCache::empty(),
         }
@@ -118,9 +118,9 @@ impl TriangleSource<'_> {
                 loop {
                     let node = mesh.nodes[index];
                     if bounds_overlap(node.lower, node.upper, lower, upper) {
-                        if node.leaf != 0 {
+                        if node.is_leaf() {
                             for i in
-                                node.triangle_offset..node.triangle_offset + node.triangle_count
+                                node.triangle_offset..node.triangle_offset + node.triangle_count()
                             {
                                 let vertices = mesh.triangles[i as usize]
                                     .indices
@@ -134,7 +134,7 @@ impl TriangleSource<'_> {
                                 }
                             }
                         } else {
-                            stack[top] = index + node.child_offset as usize;
+                            stack[top] = index + node.child_offset();
                             top += 1;
                             index += 1;
                             continue;
@@ -795,16 +795,12 @@ mod tests {
         let leaf = MeshNode {
             lower,
             upper,
-            leaf: 1,
-            axis: 0,
-            child_offset: 0,
-            triangle_count: 1,
+            data: (1 << 2) | 3,
             triangle_offset: 0,
         };
         let nodes = [
             MeshNode {
-                leaf: 0,
-                child_offset: 2,
+                data: 2 << 2,
                 ..leaf
             },
             MeshNode {
@@ -864,15 +860,15 @@ mod tests {
                 cache.triangles[0].material_index,
                 cache.triangles[1].material_index
             ],
-            materials
+            materials.map(u32::from)
         );
     }
 
     #[test]
     fn height_cache_refresh_keeps_sorted_warm_triangles_and_skips_holes() {
-        let heights = [0u32; 9];
+        let heights = [0u16; 9];
         let materials = [0, 255, 1, 2];
-        let flags = [0u32; 8];
+        let flags = [0u8; 8];
         let source = TriangleSource::Height {
             field: crate::height_query::HeightField {
                 lower: Vec3::ZERO,

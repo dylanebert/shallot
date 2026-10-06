@@ -11,12 +11,23 @@ use crate::query::{PlaneResult, RayCastInput, ShapeCastInput};
 #[derive(Clone, Copy)]
 pub struct MeshNode {
     pub lower: Vec3,
+    pub data: u32,
     pub upper: Vec3,
-    pub leaf: u32,
-    pub axis: u32,
-    pub child_offset: u32,
-    pub triangle_count: u32,
     pub triangle_offset: u32,
+}
+impl MeshNode {
+    pub fn is_leaf(&self) -> bool {
+        self.data & 3 == 3
+    }
+    pub fn axis(&self) -> usize {
+        (self.data & 3) as usize
+    }
+    pub fn child_offset(&self) -> usize {
+        (self.data >> 2) as usize
+    }
+    pub fn triangle_count(&self) -> u32 {
+        self.data >> 2
+    }
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -28,7 +39,7 @@ pub struct Mesh<'a> {
     pub nodes: &'a [MeshNode],
     pub vertices: &'a [Vec3],
     pub triangles: &'a [MeshTriangle],
-    pub materials: &'a [u32],
+    pub materials: &'a [u8],
     pub scale: Vec3,
 }
 
@@ -160,8 +171,8 @@ pub fn ray_cast_mesh(mesh: Mesh, input: &RayCastInput) -> CastOutput {
         if bounds_overlap(node.lower, node.upper, min(start, end), max(start, end))
             && bounds_ray_overlap(node.lower, node.upper, start, delta)
         {
-            if node.leaf != 0 {
-                for t in node.triangle_offset..node.triangle_offset + node.triangle_count {
+            if node.is_leaf() {
+                for t in node.triangle_offset..node.triangle_offset + node.triangle_count() {
                     let vertices = mesh
                         .triangle(t as usize, mesh.reflected())
                         .map(|v| mul(mesh.scale, v));
@@ -181,8 +192,8 @@ pub fn ray_cast_mesh(mesh: Mesh, input: &RayCastInput) -> CastOutput {
                 }
             } else {
                 let left = index + 1;
-                let right = index + node.child_offset as usize;
-                let (near, far) = if component(delta, node.axis as usize) > 0.0 {
+                let right = index + node.child_offset();
+                let (near, far) = if component(delta, node.axis()) > 0.0 {
                     (left, right)
                 } else {
                     (right, left)
@@ -226,8 +237,8 @@ pub fn shape_cast_mesh(mesh: Mesh, input: &ShapeCastInput) -> CastOutput {
         if bounds_overlap(node_min, node_max, min(start, end), max(start, end))
             && bounds_ray_overlap(node_min, node_max, start, delta)
         {
-            if node.leaf != 0 {
-                for t in node.triangle_offset..node.triangle_offset + node.triangle_count {
+            if node.is_leaf() {
+                for t in node.triangle_offset..node.triangle_offset + node.triangle_count() {
                     let vertices = mesh
                         .triangle(t as usize, mesh.reflected())
                         .map(|v| mul(mesh.scale, v));
@@ -270,8 +281,8 @@ pub fn shape_cast_mesh(mesh: Mesh, input: &ShapeCastInput) -> CastOutput {
                 }
             } else {
                 let left = index + 1;
-                let right = index + node.child_offset as usize;
-                let (near, far) = if component(delta, node.axis as usize) > 0.0 {
+                let right = index + node.child_offset();
+                let (near, far) = if component(delta, node.axis()) > 0.0 {
                     (left, right)
                 } else {
                     (right, left)
@@ -307,8 +318,8 @@ pub(crate) fn visit_triangles(
     loop {
         let node = mesh.nodes[index];
         if bounds_overlap(node.lower, node.upper, lower, upper) {
-            if node.leaf != 0 {
-                for t in node.triangle_offset..node.triangle_offset + node.triangle_count {
+            if node.is_leaf() {
+                for t in node.triangle_offset..node.triangle_offset + node.triangle_count() {
                     let vertices = mesh.triangle(t as usize, flip);
                     if bounds_triangle_overlap(center, extent, vertices)
                         && !visit(t as usize, vertices.map(|v| mul(mesh.scale, v)))
@@ -317,7 +328,7 @@ pub(crate) fn visit_triangles(
                     }
                 }
             } else {
-                stack[count] = index + node.child_offset as usize;
+                stack[count] = index + node.child_offset();
                 count += 1;
                 index += 1;
                 continue;

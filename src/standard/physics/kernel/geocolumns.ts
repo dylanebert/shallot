@@ -4,7 +4,7 @@ import { ShapeType } from "../common/types";
 import type { CompoundData } from "../shapes/compound";
 import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
-import { hullByteCount, writeHullImage } from "../shapes/hullbytes";
+import { hash64NonZero, hullByteCount, writeHullImage } from "../shapes/hullbytes";
 import type { MeshData } from "../shapes/mesh";
 import type { GeometryRecord, WorldState } from "../world/world";
 import { kernel } from "./kernel";
@@ -39,6 +39,27 @@ export class GeometryUploadScratch {
     }
     append(values: ArrayLike<number>): void {
         for (let i = 0; i < values.length; ++i) this.put(values[i]);
+    }
+    align(): void {
+        if (this.count & 1) this.put(0);
+    }
+    packed(values: ArrayLike<number>, bits: 8 | 16): void {
+        const lanes = 32 / bits;
+        for (let i = 0; i < values.length; i += lanes) {
+            let word = 0;
+            for (let lane = 0; lane < lanes && i + lane < values.length; ++lane)
+                word |= values[i + lane] << (lane * bits);
+            this.put(word);
+        }
+        this.align();
+    }
+    finishData(record: number): void {
+        this.align();
+        const bytes = (this.count - record) * 4;
+        this.words[record + 4] = bytes;
+        const hash = hash64NonZero(new Uint8Array(this.words.buffer, record * 4, bytes));
+        this.words[record + 2] = Number(hash & 0xffffffffn);
+        this.words[record + 3] = Number(hash >> 32n);
     }
     views(buffer: ArrayBufferLike): void {
         if (this.u.buffer !== buffer) {
@@ -99,37 +120,58 @@ function stageMesh(this: WorldState, entry: GeometryRecord, m: MeshData): void {
     const s = this.geometryUploadScratch!;
     const record = s.count;
     entry.geoIndex = record;
+    s.put(0xf1a8aaf7);
+    s.put(0xaaab9a00);
+    s.put(0);
+    s.put(0);
+    s.put(0);
+    s.vec(m.bounds.lowerBound);
+    s.vec(m.bounds.upperBound);
+    s.put(s.bits(m.surfaceArea));
+    s.put(m.treeHeight);
+    s.put(m.degenerateCount);
+    s.put(0);
     s.put(m.nodes.length);
+    s.put(0);
     s.put(m.vertices.length);
+    s.put(0);
     s.put(m.triangles.length);
-    for (let i = 0; i < 5; ++i) s.put(0);
-    s.words[record + 3] = s.count;
+    s.put(0);
+    s.put(m.materialCount);
+    s.put(0);
+    s.put(0);
+    s.words[record + 14] = (s.count - record) * 4;
     for (const n of m.nodes) {
         s.vec(n.lowerBound);
+        s.put(n.leaf ? (n.triangleCount << 2) | 3 : (n.childOffset << 2) | n.axis);
         s.vec(n.upperBound);
-        s.put(Number(n.leaf));
-        s.put(n.axis);
-        s.put(n.childOffset);
-        s.put(n.triangleCount);
         s.put(n.triangleOffset);
     }
-    s.words[record + 4] = s.count;
+    s.words[record + 16] = (s.count - record) * 4;
     for (const p of m.vertices) s.vec(p);
-    s.words[record + 5] = s.count;
+    s.align();
+    s.words[record + 18] = (s.count - record) * 4;
     for (const t of m.triangles) {
         s.put(t.index1);
         s.put(t.index2);
         s.put(t.index3);
     }
-    s.words[record + 6] = s.count;
-    s.append(m.flags);
-    s.words[record + 7] = s.count;
-    s.append(m.materialIndices);
+    s.align();
+    s.words[record + 20] = (s.count - record) * 4;
+    s.packed(m.materialIndices, 8);
+    s.words[record + 22] = (s.count - record) * 4;
+    s.packed(m.flags, 8);
+    s.finishData(record);
 }
 function stageHeight(this: WorldState, entry: GeometryRecord, h: HeightFieldData): void {
     const s = this.geometryUploadScratch!;
     const record = s.count;
     entry.geoIndex = record;
+    s.put(0x084848f8);
+    s.put(0x8e41e5fb);
+    s.put(0);
+    s.put(0);
+    s.put(0);
     s.vec(h.aabb.lowerBound);
     s.vec(h.aabb.upperBound);
     s.put(s.bits(h.minHeight));
@@ -138,16 +180,18 @@ function stageHeight(this: WorldState, entry: GeometryRecord, h: HeightFieldData
     s.vec(h.scale);
     s.put(h.columnCount);
     s.put(h.rowCount);
+    s.put(0);
+    s.put(0);
+    s.put(0);
     s.put(Number(h.clockwise));
     s.put(0);
-    s.put(0);
-    s.put(0);
-    s.words[record + 15] = s.count;
-    s.append(h.compressedHeights);
-    s.words[record + 16] = s.count;
-    s.append(h.materialIndices);
-    s.words[record + 17] = s.count;
-    s.append(h.flags);
+    s.words[record + 19] = (s.count - record) * 4;
+    s.packed(h.compressedHeights, 16);
+    s.words[record + 20] = (s.count - record) * 4;
+    s.packed(h.materialIndices, 8);
+    s.words[record + 21] = (s.count - record) * 4;
+    s.packed(h.flags, 8);
+    s.finishData(record);
 }
 function stageCompound(this: WorldState, entry: GeometryRecord, c: CompoundData): void {
     const s = this.geometryUploadScratch!;

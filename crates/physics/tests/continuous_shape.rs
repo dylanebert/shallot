@@ -51,10 +51,7 @@ fn mesh_and_height_traversals_return_the_triangle_impact() {
     let nodes = [MeshNode {
         lower: Vec3::ZERO,
         upper: Vec3::new(1.0, 0.0, 1.0),
-        leaf: 1,
-        axis: 0,
-        child_offset: 0,
-        triangle_count: 1,
+        data: (1 << 2) | 3,
         triangle_offset: 0,
     }];
     let triangles = [MeshTriangle { indices: [0, 1, 2] }];

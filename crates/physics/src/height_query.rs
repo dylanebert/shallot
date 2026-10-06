@@ -20,8 +20,8 @@ pub struct HeightField<'a> {
     pub columns: usize,
     pub rows: usize,
     pub clockwise: bool,
-    pub heights: &'a [u32],
-    pub materials: &'a [u32],
+    pub heights: &'a [u16],
+    pub materials: &'a [u8],
 }
 impl HeightField<'_> {
     fn corners(self, row: usize, col: usize) -> [Vec3; 4] {

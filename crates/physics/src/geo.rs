@@ -140,18 +140,21 @@ pub(crate) unsafe fn mesh_view(index: usize, scale: Vec3) -> crate::mesh_query::
     let r = extra_ptr(index);
     Mesh {
         nodes: core::slice::from_raw_parts(
-            extra_ptr(*r.add(3) as usize) as *const MeshNode,
-            *r as usize,
+            (r as *const u8).add(*r.add(14) as usize) as *const MeshNode,
+            *r.add(15) as usize,
         ),
         vertices: core::slice::from_raw_parts(
-            extra_ptr(*r.add(4) as usize) as *const Vec3,
-            *r.add(1) as usize,
+            (r as *const u8).add(*r.add(16) as usize) as *const Vec3,
+            *r.add(17) as usize,
         ),
         triangles: core::slice::from_raw_parts(
-            extra_ptr(*r.add(5) as usize) as *const MeshTriangle,
-            *r.add(2) as usize,
+            (r as *const u8).add(*r.add(18) as usize) as *const MeshTriangle,
+            *r.add(19) as usize,
         ),
-        materials: core::slice::from_raw_parts(extra_ptr(*r.add(7) as usize), *r.add(2) as usize),
+        materials: core::slice::from_raw_parts(
+            (r as *const u8).add(*r.add(20) as usize),
+            *r.add(19) as usize,
+        ),
         scale,
     }
 }
@@ -160,20 +163,23 @@ pub(crate) unsafe fn height_view(index: usize) -> crate::height_query::HeightFie
     use crate::height_query::HeightField;
     let r = extra_ptr(index);
     let f = r as *const f32;
-    let columns = *r.add(12) as usize;
-    let rows = *r.add(13) as usize;
+    let columns = *r.add(17) as usize;
+    let rows = *r.add(18) as usize;
     HeightField {
-        lower: *(f as *const Vec3),
-        upper: *(f.add(3) as *const Vec3),
-        min_height: *f.add(6),
-        height_scale: *f.add(8),
-        scale: *(f.add(9) as *const Vec3),
+        lower: *(f.add(5) as *const Vec3),
+        upper: *(f.add(8) as *const Vec3),
+        min_height: *f.add(11),
+        height_scale: *f.add(13),
+        scale: *(f.add(14) as *const Vec3),
         columns,
         rows,
-        clockwise: *r.add(14) != 0,
-        heights: core::slice::from_raw_parts(extra_ptr(*r.add(15) as usize), columns * rows),
+        clockwise: *r.add(22) & 255 != 0,
+        heights: core::slice::from_raw_parts(
+            (r as *const u8).add(*r.add(19) as usize) as *const u16,
+            columns * rows,
+        ),
         materials: core::slice::from_raw_parts(
-            extra_ptr(*r.add(16) as usize),
+            (r as *const u8).add(*r.add(20) as usize),
             (columns - 1) * (rows - 1),
         ),
     }
