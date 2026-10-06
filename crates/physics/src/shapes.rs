@@ -21,7 +21,7 @@ pub const S_MATERIAL_COUNT: usize = 17;
 pub const NULL_SHAPE: u32 = u32::MAX;
 const GENERATION: usize = 1;
 const ALIVE: usize = 2;
-const NEXT: usize = 3;
+const FREE_ARRAY: usize = 3;
 const N_SHAPE: usize = 4;
 pub const MATERIAL_STRIDE: usize = 9;
 
@@ -29,14 +29,14 @@ pub const MATERIAL_STRIDE: usize = 9;
 struct Pool {
     cap: usize,
     next: usize,
-    free: i32,
+    free: usize,
     count: usize,
 }
 impl Pool {
     const EMPTY: Self = Self {
         cap: 0,
         next: 0,
-        free: -1,
+        free: 0,
         count: 0,
     };
 }
@@ -90,13 +90,13 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
             return 0;
         }
         w.columns.reserve(0, cap * SHAPE_STRIDE * 4);
-        for c in [GENERATION, ALIVE, NEXT] {
+        for c in [GENERATION, ALIVE] {
             w.columns.reserve(c, cap * 4);
         }
+        w.columns.reserve(FREE_ARRAY, cap.max(32) * 4);
         for id in w.shape.cap..cap {
             *(w.columns.layout[GENERATION] as *mut u32).add(id) = 0;
             *(w.columns.layout[ALIVE] as *mut u32).add(id) = 0;
-            *(w.columns.layout[NEXT] as *mut u32).add(id) = u32::MAX;
         }
         w.shape.cap = cap;
         1
@@ -179,14 +179,13 @@ pub extern "C" fn shape_create(id: u32) -> u32 {
     regions::select(id);
     unsafe {
         let p = world(id as usize).shape;
-        if p.free < 0 && p.next == p.cap {
+        if p.free == 0 && p.next == p.cap {
             reserve_shapes((p.cap * 2).max(16));
         }
         let w = world_mut(id as usize);
-        let shape = if w.shape.free >= 0 {
-            let shape = w.shape.free as usize;
-            w.shape.free = *(w.columns.layout[NEXT] as *const u32).add(shape) as i32;
-            shape
+        let shape = if w.shape.free > 0 {
+            w.shape.free -= 1;
+            *(w.columns.layout[FREE_ARRAY] as *const u32).add(w.shape.free) as usize
         } else {
             let shape = w.shape.next;
             w.shape.next += 1;
@@ -195,7 +194,6 @@ pub extern "C" fn shape_create(id: u32) -> u32 {
         let generation = (w.columns.layout[GENERATION] as *mut u32).add(shape);
         *generation = (*generation).wrapping_add(1);
         *(w.columns.layout[ALIVE] as *mut u32).add(shape) = 1;
-        *(w.columns.layout[NEXT] as *mut u32).add(shape) = u32::MAX;
         w.shape.count += 1;
         shape as u32
     }
@@ -212,8 +210,8 @@ pub extern "C" fn shape_destroy(id: u32, shape: u32) {
             return;
         }
         *alive = 0;
-        *(w.columns.layout[NEXT] as *mut u32).add(shape as usize) = w.shape.free as u32;
-        w.shape.free = shape as i32;
+        *(w.columns.layout[FREE_ARRAY] as *mut u32).add(w.shape.free) = shape;
+        w.shape.free += 1;
         w.shape.count -= 1;
     }
 }
@@ -278,7 +276,7 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     for pool in [&mut w.shape] {
         pool.cap = regions::read_word(input);
         pool.next = regions::read_word(input);
-        pool.free = regions::read_word(input) as i32;
+        pool.free = regions::read_word(input);
         pool.count = regions::read_word(input);
     }
     w.columns.restore(input);
