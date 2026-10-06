@@ -44,7 +44,7 @@ import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
 import { type HullData, readShapeHull } from "../shapes/hull";
 import type { Mesh } from "../shapes/mesh";
-import type { Shape } from "../shapes/shape";
+import { readShapeCapsule, readShapeSphere, type Shape } from "../shapes/shape";
 import { getJointConstraintForce, getJointConstraintTorque, JointType } from "../solver/joint";
 import { BodyFlags, getBodySim, readBodyTransform } from "./body";
 import type { WorldState } from "./world";
@@ -201,10 +201,10 @@ function drawSolidShape(
 ): void {
     switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Sphere:
-            draw.drawSolidSphere(transform, world.shapeGeometry[shape].sphere as Sphere, color);
+            draw.drawSolidSphere(transform, readShapeSphere(world, shape), color);
             break;
         case ShapeType.Capsule:
-            draw.drawSolidCapsule(transform, world.shapeGeometry[shape].capsule as Capsule, color);
+            draw.drawSolidCapsule(transform, readShapeCapsule(world, shape), color);
             break;
         case ShapeType.Hull:
             draw.drawSolidHull(transform, readShapeHull(world, shape), color);

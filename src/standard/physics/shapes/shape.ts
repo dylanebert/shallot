@@ -70,12 +70,34 @@ export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };
 export type Shape = number;
 /** Geometry retained in TypeScript until C2b. */
 export type ShapeGeometry = {
-    sphere?: Sphere;
-    capsule?: Capsule;
     mesh?: Mesh;
     heightField?: HeightFieldData;
     compound?: CompoundData;
 };
+
+export function readShapeSphere(world: WorldState, shape: Shape): Sphere {
+    world.shapeStore.refreshViews();
+    const f = world.shapeStore.shapeF,
+        o = shape * SHAPE_STRIDE + 2;
+    return { center: { x: f[o], y: f[o + 1], z: f[o + 2] }, radius: f[o + 3] };
+}
+
+export function readShapeCapsule(world: WorldState, shape: Shape): Capsule {
+    world.shapeStore.refreshViews();
+    const f = world.shapeStore.shapeF,
+        o = shape * SHAPE_STRIDE + 2;
+    return {
+        center1: { x: f[o], y: f[o + 1], z: f[o + 2] },
+        center2: { x: f[o + 3], y: f[o + 4], z: f[o + 5] },
+        radius: f[o + 6],
+    };
+}
+
+export function shapeRadius(world: WorldState, shape: Shape): number {
+    world.shapeStore.refreshViews();
+    const offset = shapeField(world, shape, ShapeField.type) === ShapeType.Sphere ? 5 : 8;
+    return world.shapeStore.shapeF[shape * SHAPE_STRIDE + offset];
+}
 
 /**
  * Compounds own their material array, including a single material; other one-material shapes use
@@ -368,8 +390,6 @@ function createShapeInternal(
     const shapeId = createShapeSlot(world, body, shapeType, def);
     const shape = shapeId;
     world.shapeGeometry[shape] ??= {
-        sphere: undefined,
-        capsule: undefined,
         mesh: undefined,
         heightField: undefined,
         compound: undefined,
@@ -405,26 +425,11 @@ function createShapeInternal(
     } else if (shapeType === ShapeType.Mesh) {
         k.shapeSetGeometry(world.worldId, shape, scale.x, scale.y, scale.z, 0, 0, 0, 0);
     }
-    const fields = world.shapeStore.shapeF;
     const g = shape * SHAPE_STRIDE + 2;
     switch (shapeType) {
-        case ShapeType.Capsule: {
-            const c = (world.shapeGeometry[shape].capsule ??= {
-                center1: vec3.zero(),
-                center2: vec3.zero(),
-                radius: 0,
-            });
-            copyGeometryVector(fields, g, c.center1);
-            copyGeometryVector(fields, g + 3, c.center2);
-            c.radius = fields[g + 6];
+        case ShapeType.Capsule:
+        case ShapeType.Sphere:
             break;
-        }
-        case ShapeType.Sphere: {
-            const s = (world.shapeGeometry[shape].sphere ??= { center: vec3.zero(), radius: 0 });
-            copyGeometryVector(fields, g, s.center);
-            s.radius = fields[g + 3];
-            break;
-        }
         case ShapeType.Hull: {
             const handle = addHullToDatabase(world, geometry as HullData);
             world.shapeStore.refreshViews();

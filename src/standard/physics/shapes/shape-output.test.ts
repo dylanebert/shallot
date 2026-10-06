@@ -78,7 +78,8 @@ test("kernel AABB, fat AABB, centroid, hull mass and extent results are independ
     const world = new PhysicsWorld();
     try {
         const body = world.createBody({ type: BodyType.Dynamic, position: v(3, 4, 5) });
-        const sphere = body.createSphere({ density: 2 }, { center: v(-2, 1, 0), radius: 0.25 });
+        const authoredSphere = { center: v(-2, 1, 0), radius: 0.25 };
+        const sphere = body.createSphere({ density: 2 }, authoredSphere);
         const capsule = body.createCapsule(
             {},
             { center1: v(-3, -1, 0), center2: v(-1, 2, 0), radius: 0.5 },
@@ -97,7 +98,7 @@ test("kernel AABB, fat AABB, centroid, hull mass and extent results are independ
         });
         published.lowerBound.x = 99;
         expect(sphere.getAABB().lowerBound.x).toBe(f32(0.75 - 0.02));
-        world.state.shapeGeometry[id].sphere!.center.x = 99;
+        authoredSphere.center.x = 99;
         expect(computeShapeAABBOut(world.state, id, pose, box)).toBe(box);
         expect(box).toEqual(expected);
         const centroid = getShapeCentroid(world.state, id);

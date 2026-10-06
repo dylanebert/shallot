@@ -13,7 +13,7 @@ import {
     setArrayRemove,
 } from "../kernel/solversetcolumns";
 import { shapeHullInnerRadius } from "../shapes/hull";
-import { getShapeMaterial, getShapeMaterialCount, type Shape } from "../shapes/shape";
+import { getShapeMaterial, getShapeMaterialCount, type Shape, shapeRadius } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
 import { getBodySim } from "../world/body";
@@ -60,10 +60,10 @@ function memory(k: Kernel): void {
 function readRollingRadius(world: WorldState, shape: Shape, out: { radius: number }): void {
     switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Sphere:
-            out.radius = world.shapeGeometry[shape].sphere!.radius;
+            out.radius = shapeRadius(world, shape);
             break;
         case ShapeType.Capsule:
-            out.radius = world.shapeGeometry[shape].capsule!.radius;
+            out.radius = shapeRadius(world, shape);
             break;
         case ShapeType.Hull:
             out.radius = f32(0.25 * shapeHullInnerRadius(world, shape));
