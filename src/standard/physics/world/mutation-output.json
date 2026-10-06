@@ -1,0 +1,2428 @@
+[
+  {
+    "name": "contact",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5499999523162842,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 2.384185791015625e-07,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 50265.484375
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5499999523162842,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "static-to-dynamic",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5499999523162842,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 2.384185791015625e-07,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 50265.484375
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5499999523162842,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "dynamic-step",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5749999284744263,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 2.384185791015625e-07,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 25132.740234375
+        }
+      ],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5749999284744263,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "dynamic-to-static",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5749999284744263,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 2.384185791015625e-07,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 25132.740234375
+        }
+      ],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5749999284744263,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "sleep",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5749999284744263,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 25132.740234375
+        }
+      ],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5749999284744263,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": true
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "wake",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5749999284744263,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 25132.740234375
+        }
+      ],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5749999284744263,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": true
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "disable",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5749999284744263,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 25132.740234375
+        }
+      ],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5749999284744263,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": true
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "enable",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5749999284744263,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 25132.740234375
+        }
+      ],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5749999284744263,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": true
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "enabled-step",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.6249998807907104,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 2.384185791015625e-07,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 3
+            }
+          },
+          "normalImpulse": 50265.484375
+        }
+      ],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.6249998807907104,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "joint-attached",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": true,
+        "type": 2,
+        "awake": true,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": 1.5979427099227905,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": -7.152557373046875e-07,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "b"
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5979427099227905,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "destroy",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": false
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5979427099227905,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "destroyed-joint",
+    "valid": false
+  },
+  {
+    "name": "destroyed-step",
+    "bodies": [
+      {
+        "valid": true,
+        "type": 0,
+        "awake": false,
+        "pose": {
+          "p": {
+            "x": 0,
+            "y": -0.02499999664723873,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "velocity": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "mass": {
+          "mass": 0,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "shapes": 1,
+        "userData": "a"
+      },
+      {
+        "valid": false
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 3
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5979427099227905,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": -0.02499999664723873,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        }
+      ],
+      "count": 0
+    },
+    "joints": []
+  }
+]

@@ -17,6 +17,30 @@ pub unsafe extern "C" fn apply_contact_transitions() {
         }
     }
 }
+pub unsafe fn destroy_contact(id: usize, wake: bool) {
+    let world = regions::active();
+    let d = manifolds::dir_col();
+    let o = id * DIR_STRIDE;
+    let flags = d.get(o + 6);
+    let a = d.get(o + DIR_EDGE_A) as usize;
+    let b = d.get(o + DIR_EDGE_B) as usize;
+    contact_list::remove(id);
+    crate::table::remove_pair(
+        d.get(o + DIR_SHAPE_A),
+        d.get(o + DIR_SHAPE_B),
+        d.get(o + DIR_CHILD_INDEX),
+    );
+    manifolds::free_manifolds(id);
+    manifolds::free_mesh_cache(id);
+    if flags & 5 == 5 {
+        events::contact_touch(world, id, false);
+    }
+    crate::body_record::runtime::destroy_contact(world, id);
+    if wake && flags & 1 != 0 {
+        solver_set::wake(bodies::record(world, a).set_index as usize);
+        solver_set::wake(bodies::record(world, b).set_index as usize);
+    }
+}
 unsafe fn apply_touch(id: usize) {
     let d = manifolds::dir_col();
     let o = id * DIR_STRIDE;

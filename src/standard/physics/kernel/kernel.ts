@@ -165,6 +165,8 @@ export type Kernel = {
     ): number;
     /** Release a body index into the kernel-owned world-local free list. */
     bodyDestroy(world: number, id: number): number;
+    bodyDestroyWorld(world: number, id: number): void;
+    bodyWakeWorld(world: number, id: number): boolean;
     /** Clear a world-local body pool after the public world is destroyed. */
     bodyResetWorld(world: number): void;
     residentResetWorld(world: number): void;
@@ -195,6 +197,7 @@ export type Kernel = {
         py: number,
         pz: number,
         maxSpeed: number,
+        wake: boolean,
     ): void;
     bodySetPose(
         world: number,
@@ -223,6 +226,10 @@ export type Kernel = {
     bodyDestroyContact(world: number, id: number): void;
     bodySyncFlags(world: number, id: number): void;
     bodyChangeType(world: number, id: number, type: number): void;
+    bodySetType(world: number, id: number, type: number): void;
+    bodySetAwake(world: number, id: number, awake: boolean): void;
+    bodyDisable(world: number, id: number): void;
+    bodyEnable(world: number, id: number): void;
     bodyUpdateMass(world: number, id: number): void;
     bodyCreateIsland(world: number, id: number): void;
     bodyRemoveIsland(world: number, id: number): void;

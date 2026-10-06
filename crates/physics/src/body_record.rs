@@ -161,7 +161,7 @@ pub(crate) mod runtime {
         z: f32,
     ) -> bool {
         regions::select(world as u32);
-        let record = bodies::record(world, id);
+        let record = *bodies::record(world, id);
         if record.body_type == 0 {
             return false;
         }
@@ -187,8 +187,9 @@ pub(crate) mod runtime {
             crate::math::Vec3::new(x, y, z)
         };
         if record.set_index >= 3 && v.length_sq() != 0.0 {
-            return true;
+            crate::body_mutation::wake_body(world, id);
         }
+        let record = bodies::record(world, id);
         if record.set_index == 2 {
             let state = crate::col::Col::new(
                 bodies::state_base() as *mut f32,
@@ -215,9 +216,13 @@ pub(crate) mod runtime {
         py: f32,
         pz: f32,
         max_speed: f32,
+        wake: bool,
     ) {
         use crate::math::Vec3;
         regions::select(world as u32);
+        if wake {
+            crate::body_mutation::wake_body(world, id);
+        }
         let record = bodies::record(world, id);
         if record.set_index != 2 {
             return;
@@ -304,6 +309,7 @@ pub(crate) mod runtime {
         for (lane, value) in [center.x, center.y, center.z].into_iter().enumerate() {
             sim2.set(body::S2_CENTER0 + lane, value);
         }
+        crate::shape_lifecycle::sync_body_bounds(world, id);
     }
 
     #[export_name = "bodyTransfer"]
@@ -641,7 +647,10 @@ pub(crate) mod runtime {
                     angular.z * fin.max_extent.z,
                 )
                 .length();
-            return speed >= record.sleep_threshold;
+            if speed < record.sleep_threshold {
+                return false;
+            }
+            crate::body_mutation::wake_body(world, id);
         }
         let state = bodies::column(id, 0, body::STATE_STRIDE);
         for (lane, value) in [

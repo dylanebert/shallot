@@ -130,6 +130,8 @@ mod arena;
 #[cfg(target_arch = "wasm32")]
 mod bodies;
 #[cfg(target_arch = "wasm32")]
+mod body_mutation;
+#[cfg(target_arch = "wasm32")]
 mod body_query;
 mod body_record;
 #[cfg(target_arch = "wasm32")]
