@@ -97,7 +97,7 @@ mod tests {
 
 #[cfg(target_arch = "wasm32")]
 #[cfg(target_arch = "wasm32")]
-mod runtime {
+pub(crate) mod runtime {
     use crate::math::Mat3;
     use crate::{bodies, body, island, regions};
     #[export_name = "bodyFinish"]

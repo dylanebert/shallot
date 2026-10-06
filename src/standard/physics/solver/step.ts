@@ -3,19 +3,17 @@ import { awakeContactCount } from "../collision/contact";
 // the broad-phase pairs, runs narrow-phase collision, then solves and integrates. The world-state
 // hash (the regression contract) is taken by the caller after the step returns.
 //
-// No recording. Single-threaded and serial, so the parallel task orchestration collapses to
-// straight-line calls. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import { collide } from "../collision/collide";
 import { updateBroadPhasePairs } from "../collision/pairs";
-import { f32, maxInt, minf } from "../common/math";
+import { maxInt } from "../common/math";
 import { reserveBodies } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
 import { resetStepProfile } from "../world/profile";
 import { overlapSensors } from "../world/sensor";
 import type { WorldState } from "../world/world";
 import type { StepContext } from "./contactsolver";
-import { writeSoft } from "./softness";
+
 import { solve } from "./solver";
 
 /** Build the reusable per-step solver context shell. Its scalar fields are rewritten and its collections
@@ -41,15 +39,27 @@ function newStepContext(world: WorldState): StepContext {
     };
 }
 
-function writeStepSoftness(world: WorldState, context: StepContext): void {
-    const contactHertz = minf(world.contactHertz, f32(0.125 * context.invH));
-    writeSoft(context.contactSoftness, contactHertz, world.contactDampingRatio, context.h);
-    writeSoft(
-        context.staticSoftness,
-        f32(2.0 * contactHertz),
-        f32(0.5 * world.contactDampingRatio),
-        context.h,
+let contextView = new Float32Array(0);
+function readStepContext(world: WorldState, context: StepContext): void {
+    const k = kernel(world.ecsState);
+    const ptr = k.stepContext(
+        context.dt,
+        context.subStepCount,
+        world.contactHertz,
+        world.contactDampingRatio,
     );
+    if (contextView.buffer !== k.memory.buffer || contextView.byteOffset !== ptr)
+        contextView = new Float32Array(k.memory.buffer, ptr, 10);
+    context.dt = contextView[0];
+    context.invDt = contextView[1];
+    context.h = contextView[2];
+    context.invH = contextView[3];
+    context.contactSoftness.biasRate = contextView[4];
+    context.contactSoftness.massScale = contextView[5];
+    context.contactSoftness.impulseScale = contextView[6];
+    context.staticSoftness.biasRate = contextView[7];
+    context.staticSoftness.massScale = contextView[8];
+    context.staticSoftness.impulseScale = contextView[9];
 }
 
 /** Advance the world by one time step, sub-stepped `subStepCount` times (b3World_Step). */
@@ -88,17 +98,9 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     context.splitSleepTime = 0;
     context.bulletBodies.length = 0;
 
-    if (timeStep > 0) {
-        context.invDt = f32(1.0 / timeStep);
-        context.h = f32(timeStep / context.subStepCount);
-        context.invH = f32(context.subStepCount * context.invDt);
-    }
-
+    readStepContext(world, context);
     world.invH = context.invH;
     world.invDt = context.invDt;
-
-    // Contact softness. Hertz is reduced for large time steps. Written in place into the reused objects.
-    writeStepSoftness(world, context);
 
     // Reserve for the body high-water, not the awake set: a mid-step wake must not allocate.
     if (reserveBodies(world.ecsState, kernel(world.ecsState).bodyLength(world.worldId))) {

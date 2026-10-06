@@ -50,6 +50,8 @@ pub mod mesh_contact;
 pub mod mesh_query;
 pub mod narrowphase;
 pub mod parfor;
+#[cfg(target_arch = "wasm32")]
+mod physics_world;
 pub mod query;
 pub mod recycle;
 mod simd;

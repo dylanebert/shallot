@@ -577,6 +577,23 @@ export type Kernel = {
     reserveCollide(count: number, threads: number, defaultMix: number, distance: number): void;
     collideListPtr(): number;
     contactStatePtr(): number;
+    applyContactTransitions(): void;
+    stepContext(dt: number, substeps: number, hertz: number, damping: number): number;
+    stepFinalize(count: number, dt: number, enableSleep: boolean): boolean;
+    stepSolveBuild(
+        threads: number,
+        substeps: number,
+        gx: number,
+        gy: number,
+        gz: number,
+        maxSpeed: number,
+        contactSpeed: number,
+        warm: boolean,
+        restitution: number,
+        hit: number,
+        continuous: boolean,
+        sleep: boolean,
+    ): void;
     contactPairOrder(typeA: number, typeB: number): number;
     allocContact(): number;
     freeContact(contactId: number): void;

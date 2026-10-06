@@ -1,37 +1,18 @@
-// Box3D's collide tasks own contact updates; the ascending touch pass stays with graph/island owners.
-import { NULL_INDEX } from "../common/array";
-import { SetType } from "../common/constants";
 import { f32, quat, vec3, type WorldTransform, xf } from "../common/math";
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
 import { type Kernel, kernel, ParKind, runPool, threads, workers } from "../kernel/kernel";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
-import {
-    setArrayCount,
-    setArrayGet,
-    setArrayPush,
-    setArrayRemove,
-} from "../kernel/solversetcolumns";
 import { shapeHullInnerRadius } from "../shapes/hull";
 import { getShapeMaterial, getShapeMaterialCount, type Shape, shapeRadius } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
-import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
 import { getBodySim } from "../world/body";
-import { linkContact, unlinkContact } from "../world/island";
 import {
     defaultFrictionCallback,
     defaultRestitutionCallback,
     type WorldState,
 } from "../world/world";
-import {
-    ContactField,
-    ContactFlags,
-    contactBodyId,
-    contactCapacity,
-    contactField,
-    destroyContact,
-    setContactField,
-} from "./contact";
+import { ContactField, ContactFlags, contactBodyId, contactField } from "./contact";
 import {
     DIR_BLOCK,
     DIR_STRIDE,
@@ -249,58 +230,6 @@ function mixContact(world: WorldState, id: number): void {
     vec3.copy(tangentA, mixedMaterial.tangentVelocity);
     writeContactMaterial(world.manifoldStore.dirF, id, mixedMaterial);
 }
-function removeNonTouchingContact(world: WorldState, index: number): void {
-    const set = SetType.Awake;
-    if (setArrayRemove(world, set, 0, index) !== NULL_INDEX)
-        setContactField(world, setArrayGet(world, set, 0, index), ContactField.localIndex, index);
-}
-function applyTouch(world: WorldState, id: number): void {
-    const flags = contactField(world, id, ContactField.flags);
-    if (flags & ContactFlags.simDisjoint) {
-        destroyContact(world, id, false);
-        return;
-    }
-    const started = (flags & ContactFlags.simStartedTouching) !== 0;
-    const stopped = (flags & ContactFlags.simStoppedTouching) !== 0;
-    if (!started && !stopped) return;
-    if (flags & ContactFlags.contactEnableContactEvents) {
-        kernel(world.ecsState).eventContactTouch(world.worldId, id, started);
-    }
-    if (started) {
-        setContactField(
-            world,
-            id,
-            ContactField.flags,
-            (flags & ~ContactFlags.simStartedTouching) | ContactFlags.contactTouchingFlag,
-        );
-        linkContact(world, id);
-        const old = contactField(world, id, ContactField.localIndex);
-        addContactToGraph(world, id);
-        removeNonTouchingContact(world, old);
-    } else {
-        setContactField(
-            world,
-            id,
-            ContactField.flags,
-            flags & ~(ContactFlags.simStoppedTouching | ContactFlags.contactTouchingFlag),
-        );
-        const color = contactField(world, id, ContactField.colorIndex);
-        const local = contactField(world, id, ContactField.localIndex);
-        unlinkContact(world, id);
-        const set = SetType.Awake;
-        setContactField(world, id, ContactField.colorIndex, NULL_INDEX);
-        setContactField(world, id, ContactField.localIndex, setArrayCount(world, set, 0));
-        setArrayPush(world, set, 0, id);
-        removeContactFromGraph(
-            world,
-            contactBodyId(world, id, 0),
-            contactBodyId(world, id, 1),
-            color,
-            local,
-            (flags & ContactFlags.simMeshContact) !== 0,
-        );
-    }
-}
 /** Update contacts in place, then apply the kernel's state bitset in ascending contact-id order. */
 export function collide(context: StepContext): void {
     const world = context.world;
@@ -310,7 +239,6 @@ export function collide(context: StepContext): void {
     const defaultMix =
         world.frictionCallback === defaultFrictionCallback &&
         world.restitutionCallback === defaultRestitutionCallback;
-    const capacity = contactCapacity(world);
     k.reserveCollide(
         count,
         threads(world.ecsState),
@@ -334,14 +262,5 @@ export function collide(context: StepContext): void {
                 mixContact(world, id);
         }
     }
-    const stateBase = k.contactStatePtr() >>> 2;
-    for (let word = 0; word < Math.ceil(capacity / 32); ++word) {
-        memory(k);
-        let bits = memoryU[stateBase + word];
-        while (bits !== 0) {
-            const bit = 31 - Math.clz32(bits & -bits);
-            bits = (bits & (bits - 1)) >>> 0;
-            applyTouch(world, word * 32 + bit);
-        }
-    }
+    k.applyContactTransitions();
 }
