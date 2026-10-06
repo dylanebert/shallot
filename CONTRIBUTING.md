@@ -191,6 +191,7 @@ bun run format                   # biome
 
 - [CI](.github/workflows/test.yml) owns host and tier commands.
 - Rust suites run with `cargo test -p shallot-audio` and `cargo test -p shallot-physics`.
+- The cheap and Node tiers also run against kernels built with `build-kernel.ts --checked`.
 - Display-bound allocation stays manual, and CI does not qualify Windows or native packaging.
 
 ## Code
