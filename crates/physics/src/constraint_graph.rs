@@ -40,23 +40,14 @@ pub extern "C" fn create(capacity: usize) {
         }
     }
 }
-#[export_name = "graphCreateJoint"]
 pub extern "C" fn create_joint(a: usize, b: usize) -> usize {
     let color = joint_color(a, b);
     joints::append(color);
     color
 }
-// The joint's identity stays in the host until body/joint records move; the result carries its fix-up.
-static mut JOINT_RESULT: [u32; 3] = [0; 3];
-#[export_name = "graphAddJoint"]
-pub extern "C" fn add_joint(source: usize, index: usize, a: usize, b: usize) -> usize {
+pub fn add_joint(source: usize, index: usize, a: usize, b: usize) {
     let color = joint_color(a, b);
-    let destination = joints::count(color);
-    let moved = joints::move_record(source, index, color);
-    unsafe {
-        JOINT_RESULT = [color as u32, destination as u32, moved];
-        core::ptr::addr_of!(JOINT_RESULT) as usize
-    }
+    joints::move_record(source, index, color);
 }
 #[export_name = "graphBodyBit"]
 pub extern "C" fn body_bit(color: usize, id: usize) -> bool {
@@ -176,7 +167,6 @@ fn joint_color(a: usize, b: usize) -> usize {
         )
     }
 }
-#[export_name = "graphRemoveJoint"]
 pub extern "C" fn remove_joint(a: usize, b: usize, color: usize, index: usize) -> u32 {
     clear(color, a, b);
     joints::remove(color, index)
@@ -300,39 +290,8 @@ pub extern "C" fn write_slots() {
         }
     }
 }
-static mut WAKE: [Vec<u32>; MAX_WORLDS] = [const { Vec::new() }; MAX_WORLDS];
-#[export_name = "graphWakeBuffer"]
-pub extern "C" fn wake_buffer(contacts: usize, joints: usize) -> usize {
-    unsafe {
-        let buffer = &mut WAKE[regions::active()];
-        buffer.resize(3 * (contacts + joints), 0);
-        buffer.as_mut_ptr() as usize
-    }
-}
-#[export_name = "graphWake"]
-pub extern "C" fn wake(source: usize, contacts: usize, count: usize) {
-    unsafe {
-        let buffer = &mut WAKE[regions::active()];
-        for i in 0..contacts {
-            let o = 3 * i;
-            let id = buffer[o] as usize;
-            add_contact(id, buffer[o + 1], buffer[o + 2]);
-            manifolds::dir_col().set(id * DIR_STRIDE + DIR_SET_INDEX, 2);
-        }
-        for i in 0..count {
-            let o = 3 * (contacts + i);
-            let index = i.min(count - 1 - i);
-            let color = joint_color(buffer[o + 1] as usize, buffer[o + 2] as usize);
-            let destination = joints::count(color);
-            joints::move_record(source, index, color);
-            buffer[o + 1] = color as u32;
-            buffer[o + 2] = destination as u32;
-        }
-    }
-}
 pub unsafe fn reset(id: usize) {
     GRAPHS[id] = Vec::new();
-    WAKE[id] = Vec::new();
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     regions::write_word(out, GRAPHS[id].len());

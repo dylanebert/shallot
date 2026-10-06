@@ -1,6 +1,7 @@
 import { ContactField, contactField } from "../collision/contact";
 import { BodyField, bodyField, bodyInertia } from "../kernel/bodyrecords";
 import { bodyType, shapeSensorIndex } from "../kernel/filtercolumns";
+import { JointField, jointField } from "../kernel/jointrecords";
 import { reserveProxy } from "../kernel/treecolumns";
 // body.c bindings (Box3D, Erin Catto, MIT). Body records, solver-set sims and awake states
 // belong to the kernel. Walks over joint and shape records remain here until those records move.
@@ -483,17 +484,17 @@ export function bodySetType(world: WorldState, body: number, type: BodyType): vo
     while (jointKey !== NULL_INDEX) {
         const jointId = jointKey >> 1;
         const edgeIndex = jointKey & 1;
-        const joint = world.joints[jointId];
-        jointKey = joint.edges[edgeIndex].nextKey;
+        const joint = jointId;
+        jointKey = jointField(world, joint, JointField.nextKeyA + 3 * edgeIndex);
 
-        if (joint.setIndex === SetType.Disabled) continue;
+        if (jointField(world, joint, JointField.setIndex) === SetType.Disabled) continue;
 
         // Wake attached bodies: wakeBody above does not wake bodies attached to a static body.
-        wakeBody(world, joint.edges[0].bodyId);
-        wakeBody(world, joint.edges[1].bodyId);
+        wakeBody(world, jointField(world, joint, JointField.bodyIdA + 3 * 0));
+        wakeBody(world, jointField(world, joint, JointField.bodyIdA + 3 * 1));
 
         unlinkJoint(world, joint);
-        transferJoint(world, staticSet, joint.setIndex, joint);
+        transferJoint(world, staticSet, jointField(world, joint, JointField.setIndex), joint);
     }
 
     // Stage 5: change the type and transfer the body between solver sets.
@@ -516,13 +517,13 @@ export function bodySetType(world: WorldState, body: number, type: BodyType): vo
     while (jointKey !== NULL_INDEX) {
         const jointId = jointKey >> 1;
         const edgeIndex = jointKey & 1;
-        const joint = world.joints[jointId];
-        jointKey = joint.edges[edgeIndex].nextKey;
+        const joint = jointId;
+        jointKey = jointField(world, joint, JointField.nextKeyA + 3 * edgeIndex);
 
-        if (joint.setIndex === SetType.Disabled) continue;
+        if (jointField(world, joint, JointField.setIndex) === SetType.Disabled) continue;
 
-        const bodyA = joint.edges[0].bodyId;
-        const bodyB = joint.edges[1].bodyId;
+        const bodyA = jointField(world, joint, JointField.bodyIdA + 3 * 0);
+        const bodyB = jointField(world, joint, JointField.bodyIdA + 3 * 1);
         if (
             bodyType(world, bodyField(world, bodyA, BodyField.id)) === BodyType.Dynamic ||
             bodyType(world, bodyField(world, bodyB, BodyField.id)) === BodyType.Dynamic
@@ -545,10 +546,10 @@ export function bodySetType(world: WorldState, body: number, type: BodyType): vo
     while (jointKey !== NULL_INDEX) {
         const jointId = jointKey >> 1;
         const edgeIndex = jointKey & 1;
-        const joint = world.joints[jointId];
-        jointKey = joint.edges[edgeIndex].nextKey;
+        const joint = jointId;
+        jointKey = jointField(world, joint, JointField.nextKeyA + 3 * edgeIndex);
 
-        const otherBodyId = joint.edges[edgeIndex ^ 1].bodyId;
+        const otherBodyId = jointField(world, joint, JointField.bodyIdA + 3 * (edgeIndex ^ 1));
         const otherBody = otherBodyId;
         if (bodyField(world, otherBody, BodyField.setIndex) === SetType.Disabled) continue;
         if (
@@ -688,8 +689,8 @@ export function destroyBody(world: WorldState, body: number): void {
     while (jointKey !== NULL_INDEX) {
         const jointId = jointKey >> 1;
         const edgeIndex = jointKey & 1;
-        const joint = world.joints[jointId];
-        jointKey = joint.edges[edgeIndex].nextKey;
+        const joint = jointId;
+        jointKey = jointField(world, joint, JointField.nextKeyA + 3 * edgeIndex);
         destroyJointInternal(world, joint, wakeBodies);
     }
 
@@ -726,12 +727,17 @@ export function bodyDisable(world: WorldState, body: number): void {
     destroyBodyContacts(world, body, true);
     let key = bodyField(world, body, BodyField.headJointKey);
     while (key !== NULL_INDEX) {
-        const joint = world.joints[key >> 1];
+        const joint = key >> 1;
         const edge = key & 1;
-        key = joint.edges[edge].nextKey;
-        if (joint.setIndex === SetType.Disabled) continue;
+        key = jointField(world, joint, JointField.nextKeyA + 3 * edge);
+        if (jointField(world, joint, JointField.setIndex) === SetType.Disabled) continue;
         unlinkJoint(world, joint);
-        transferJoint(world, SetType.Disabled, joint.setIndex, joint);
+        transferJoint(
+            world,
+            SetType.Disabled,
+            jointField(world, joint, JointField.setIndex),
+            joint,
+        );
     }
     let shapeId = bodyField(world, body, BodyField.headShapeId);
     while (shapeId !== NULL_INDEX) {
@@ -757,11 +763,19 @@ export function bodyEnable(world: WorldState, body: number): void {
     if (target !== SetType.Static) createIslandForBody(world, body);
     let key = bodyField(world, body, BodyField.headJointKey);
     while (key !== NULL_INDEX) {
-        const joint = world.joints[key >> 1];
+        const joint = key >> 1;
         const edge = key & 1;
-        key = joint.edges[edge].nextKey;
-        const a = bodyField(world, joint.edges[0].bodyId, BodyField.setIndex);
-        const b = bodyField(world, joint.edges[1].bodyId, BodyField.setIndex);
+        key = jointField(world, joint, JointField.nextKeyA + 3 * edge);
+        const a = bodyField(
+            world,
+            jointField(world, joint, JointField.bodyIdA + 3 * 0),
+            BodyField.setIndex,
+        );
+        const b = bodyField(
+            world,
+            jointField(world, joint, JointField.bodyIdA + 3 * 1),
+            BodyField.setIndex,
+        );
         if (a === SetType.Disabled || b === SetType.Disabled) continue;
         const set = a === SetType.Static ? b : a;
         transferJoint(world, set, SetType.Disabled, joint);

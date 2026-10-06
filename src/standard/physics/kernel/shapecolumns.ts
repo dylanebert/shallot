@@ -480,3 +480,20 @@ export function writeFatAabb(world: WorldState, shapeId: number, box: AABB): voi
     world.shapeStore.refreshViews();
     world.shapeStore.writeFatAabb(shapeId, box);
 }
+
+const wakeViews = new WeakMap<WorldState, Uint32Array>();
+/** Synchronize query poses from wake ids borrowed until the next kernel lifecycle operation. */
+export function syncWokenShapes(world: WorldState): void {
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
+    const count = k.solverSetWokenCount();
+    if (count === 0) return;
+    const ptr = k.solverSetWokenPtr();
+    const capacity = k.solverSetWokenCapacity();
+    let ids = wakeViews.get(world);
+    if (ids?.buffer !== k.memory.buffer || ids.byteOffset !== ptr || ids.length !== capacity) {
+        ids = new Uint32Array(k.memory.buffer, ptr, capacity);
+        wakeViews.set(world, ids);
+    }
+    for (let i = 0; i < count; ++i) syncBodyQuery(world, ids[i]);
+}

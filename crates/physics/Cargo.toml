@@ -6,6 +6,9 @@ license.workspace = true
 publish = false
 description = "wasm-simd128 contact-solve + integration kernel for upstream"
 
+[features]
+count-allocations = []
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

@@ -1,7 +1,6 @@
 // Contact identity lives in the kernel directory. Body lists, sets, graph and island links remain
 // with their TypeScript owners until those owners move.
-import { NULL_INDEX, swapRemove } from "../common/array";
-import { SetType } from "../common/constants";
+import { NULL_INDEX } from "../common/array";
 import type { Vec3 } from "../common/math";
 import { ShapeType } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
@@ -104,19 +103,25 @@ export type Manifold = {
     pointCount: number;
 };
 
+export function awakeContactCount(world: WorldState): number {
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
+    return k.awakeContactCount();
+}
+export function awakeContactGet(world: WorldState, index: number): number {
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
+    return k.awakeContactGet(index);
+}
 export function updateAwakeContact(world: WorldState, id: number): void {
-    if (contactField(world, id, ContactField.setIndex) === SetType.Awake) {
-        if (contactField(world, id, ContactField.collideIndex) !== NULL_INDEX) return;
-        setContactField(world, id, ContactField.collideIndex, world.awakeContacts.length);
-        world.awakeContacts.push(id);
-    } else removeAwakeContact(world, id);
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
+    k.awakeContactUpdate(id);
 }
 function removeAwakeContact(world: WorldState, id: number): void {
-    const index = contactField(world, id, ContactField.collideIndex);
-    if (index === NULL_INDEX) return;
-    if (swapRemove(world.awakeContacts, index) !== NULL_INDEX)
-        setContactField(world, world.awakeContacts[index], ContactField.collideIndex, index);
-    setContactField(world, id, ContactField.collideIndex, NULL_INDEX);
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
+    k.awakeContactRemove(id);
 }
 export function writeBodySimIndex(world: WorldState, body: number): void {
     kernel(world.ecsState).bodySyncContacts(world.worldId, body);

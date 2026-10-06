@@ -1,7 +1,7 @@
 import { NULL_INDEX } from "../common/array";
 import { HUGE, LINEAR_SLOP } from "../common/constants";
 import type { EntityId } from "../common/ids";
-import { clampf, f32, froundConfig, PI, type Transform, type Vec3 } from "../common/math";
+import { clampf, f32, PI, type Transform, type Vec3 } from "../common/math";
 import {
     DJ_DAMPING_RATIO,
     DJ_ENABLE,
@@ -65,6 +65,7 @@ import {
     writeJointFloat,
     writeJointTransform,
 } from "../kernel/jointcolumns";
+import { JointField, jointCapacity, jointField } from "../kernel/jointrecords";
 import { distanceJointCurrentLength } from "../solver/distanceJoint";
 import {
     destroyJointInternal,
@@ -99,10 +100,8 @@ export class Joint {
 
     /** @internal */
     protected record(): JointRecord {
-        return this.world.joints[this.id.index1 - 1];
+        return this.id.index1 - 1;
     }
-
-    /** @internal the live simulation payload (graph color when awake, else the solver set). */
 
     /** @returns whether this joint has not been destroyed and its world is alive. */
     isValid(): boolean {
@@ -110,14 +109,14 @@ export class Joint {
             return false;
         }
         const i = this.id.index1 - 1;
-        if (i < 0 || i >= this.world.joints.length) {
+        if (i < 0 || i >= jointCapacity(this.world)) {
             return false;
         }
-        const joint = this.world.joints[i];
-        if (joint.setIndex === NULL_INDEX) {
+        const joint = i;
+        if (jointField(this.world, joint, JointField.setIndex) === NULL_INDEX) {
             return false;
         }
-        return joint.generation === this.id.generation;
+        return jointField(this.world, joint, JointField.generation) === this.id.generation;
     }
 
     /** Destroy this joint. Pass `false` to leave the attached bodies asleep. */
@@ -127,15 +126,21 @@ export class Joint {
 
     /** @returns the joint kind. */
     getType(): JointType {
-        return this.record().type;
+        return jointField(this.world, this.record(), JointField.type) as JointType;
     }
 
     /** @returns the two bodies this joint connects. */
     getBodies(): [Body, Body] {
         const joint = this.record();
         return [
-            new Body(this.world, makeBodyId(this.world, joint.edges[0].bodyId)),
-            new Body(this.world, makeBodyId(this.world, joint.edges[1].bodyId)),
+            new Body(
+                this.world,
+                makeBodyId(this.world, jointField(this.world, joint, JointField.bodyIdA)),
+            ),
+            new Body(
+                this.world,
+                makeBodyId(this.world, jointField(this.world, joint, JointField.bodyIdB)),
+            ),
         ];
     }
 
@@ -153,12 +158,12 @@ export class Joint {
 
     /** @returns the user data attached to this joint. */
     getUserData(): unknown {
-        return this.record().userData;
+        return this.world.jointUserData[this.record()];
     }
 
     /** Attach arbitrary user data to this joint. */
     setUserData(userData: unknown): void {
-        this.record().userData = userData;
+        this.world.jointUserData[this.record()] = userData;
     }
 
     /** @returns a handle to the world this joint belongs to. */
@@ -173,8 +178,7 @@ export class Joint {
 
     /** Set body A's local joint frame. */
     setLocalFrameA(frame: Transform): void {
-        // froundConfig returns a fresh deep copy, so the caller's object is never aliased.
-        writeJointTransform(this.world, this.record(), J_LOCAL_FRAME_A, froundConfig(frame));
+        writeJointTransform(this.world, this.record(), J_LOCAL_FRAME_A, frame);
     }
 
     /** @returns body B's local joint frame. */
@@ -184,12 +188,12 @@ export class Joint {
 
     /** Set body B's local joint frame. */
     setLocalFrameB(frame: Transform): void {
-        writeJointTransform(this.world, this.record(), J_LOCAL_FRAME_B, froundConfig(frame));
+        writeJointTransform(this.world, this.record(), J_LOCAL_FRAME_B, frame);
     }
 
     /** @returns whether the two connected bodies collide. */
     getCollideConnected(): boolean {
-        return this.record().collideConnected;
+        return !!jointField(this.world, this.record(), JointField.collideConnected);
     }
 
     /** Toggle whether the two connected bodies collide (updates the broad-phase). */

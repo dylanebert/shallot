@@ -1,6 +1,11 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { physicsWorld } from "@dylanebert/shallot/standard/physics";
-import { ContactField, contactField } from "../collision/contact";
+import {
+    awakeContactCount,
+    awakeContactGet,
+    ContactField,
+    contactField,
+} from "../collision/contact";
 import { SetType } from "../common/constants";
 import { BodyType } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
@@ -27,7 +32,9 @@ export default async function create() {
     app.world.step(1 / 60);
     const state = physics.state;
     const ids = bodies.map((body) => body.id.index1 - 1);
-    const contacts = state.awakeContacts;
+    const contacts = Array.from({ length: awakeContactCount(state) }, (_, i) =>
+        awakeContactGet(state, i),
+    );
     const find = (a: number, b: number) =>
         contacts.find((id) => {
             const first = contactField(state, id, ContactField.bodyIdA);

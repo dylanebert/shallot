@@ -1,5 +1,6 @@
 import { Body, createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { physicsWorld } from "@dylanebert/shallot/standard/physics";
+import { awakeContactCount } from "../collision/contact";
 import { BodyType } from "../common/types";
 import { makeBoxHull } from "../shapes/hull";
 
@@ -71,7 +72,7 @@ export default async function create(input: string) {
                 0
             )
                 throw new Error("allocation subject polled events in steady play");
-            if (state.awakeContacts.length !== count)
+            if (awakeContactCount(state) !== count)
                 throw new Error("allocation subject lost its awake box contacts");
         },
         wait: () => world.gpu.device.queue.onSubmittedWorkDone(),

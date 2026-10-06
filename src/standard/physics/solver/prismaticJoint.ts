@@ -37,6 +37,7 @@ import {
     writeJointVec2,
     writeJointVec3,
 } from "../kernel/jointcolumns";
+import { JointField, jointField } from "../kernel/jointrecords";
 import { getBodySim, getBodyState, readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
@@ -111,7 +112,11 @@ export function createPrismaticJoint(
 export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
+    const transformA = readBodyTransform(
+        world,
+        jointField(world, sim, JointField.bodyIdA + 3 * 0),
+        bodyPoseScratch1,
+    );
 
     // impulse in joint space
     const impulse: Vec3 = {
@@ -136,7 +141,11 @@ export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {
 export function getPrismaticJointTorque(world: WorldState, sim: Joint): Vec3 {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
+    const transformA = readBodyTransform(
+        world,
+        jointField(world, sim, JointField.bodyIdA + 3 * 0),
+        bodyPoseScratch1,
+    );
     let torque = vec3.scale(world.invH, readJointVec3(world, sim, PJ_ANGULAR_IMPULSE));
     torque = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), torque);
     torque = quat.rotate(transformA.q, torque);
@@ -148,8 +157,16 @@ export function prismaticJointTranslation(world: WorldState, sim: Joint): number
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
-    const transformB = readBodyTransform(world, sim.edges[1].bodyId, bodyPoseScratch2);
+    const transformA = readBodyTransform(
+        world,
+        jointField(world, sim, JointField.bodyIdA + 3 * 0),
+        bodyPoseScratch1,
+    );
+    const transformB = readBodyTransform(
+        world,
+        jointField(world, sim, JointField.bodyIdA + 3 * 1),
+        bodyPoseScratch2,
+    );
     let jointAxis = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisX());
     jointAxis = quat.rotate(transformA.q, jointAxis);
     const anchorA = quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A));
@@ -179,8 +196,8 @@ const speedZero = vec3.zero();
 
 /** The current translation speed along the joint axis (b3PrismaticJoint_GetSpeed). */
 export function prismaticJointSpeed(world: WorldState, sim: Joint): number {
-    const bodyA = sim.edges[0].bodyId;
-    const bodyB = sim.edges[1].bodyId;
+    const bodyA = jointField(world, sim, JointField.bodyIdA + 3 * 0);
+    const bodyB = jointField(world, sim, JointField.bodyIdA + 3 * 1);
     const bodySimA = getBodySim(world, bodyA);
     const bodySimB = getBodySim(world, bodyB);
     const stateA = getBodyState(world, bodyA);

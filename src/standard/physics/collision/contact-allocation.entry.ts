@@ -1,5 +1,6 @@
 import { Body, createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { physicsWorld } from "@dylanebert/shallot/standard/physics";
+import { awakeContactCount } from "../collision/contact";
 import { SetType } from "../common/constants";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
@@ -54,7 +55,7 @@ export default async function create(input: string) {
             physics.getBody(platform)!.setLinearVelocity(velocity);
             world.step(1 / 60);
             const state = physics.state;
-            if (state.awakeContacts.length !== count)
+            if (awakeContactCount(state) !== count)
                 throw new Error("allocation subject lost its awake box contacts");
             for (let i = 0; i < count; i++) {
                 const body = boxes[i];

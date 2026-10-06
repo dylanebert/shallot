@@ -66,7 +66,6 @@ import {
     createWorld,
     destroyWorld,
     getWorld,
-    type JointEvent as JointRecord,
     type SensorEndTouchEvent as SensorTouchRecord,
     type WorldId,
     type WorldState,
@@ -193,15 +192,17 @@ function fillContactHits(
     }
 }
 
-function fillJointEvents(
-    world: WorldState,
-    out: JointEvent[],
-    records: readonly JointRecord[],
-): void {
+function fillJointEvents(world: WorldState, out: JointEvent[], records: readonly number[]): void {
     out.length = 0;
-    for (let i = 0; i < records.length; ++i) {
-        const e = records[i];
-        out.push({ joint: new Joint(world, e.jointId), userData: e.userData });
+    for (let i = 0; i < world.jointEventCount * 3; i += 3) {
+        out.push({
+            joint: new Joint(world, {
+                index1: records[i] + 1,
+                world0: records[i + 1],
+                generation: records[i + 2],
+            }),
+            userData: world.jointEventUserData[i / 3],
+        });
     }
 }
 

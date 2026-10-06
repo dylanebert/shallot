@@ -3,6 +3,7 @@ import { type Component, createApp, Time } from "@dylanebert/shallot";
 import * as core from "@dylanebert/shallot/physics";
 import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
+import { jointIds } from "./solver/joint.fixture";
 
 setDefaultTimeout(CEILING.node);
 const peer = "bun-webgpu";
@@ -58,7 +59,7 @@ test("values asserted against by Box3D create warn once and skip, while positive
             expect(warning).toHaveBeenCalledTimes(1);
             expect(String(warning.mock.calls[0]![0])).toContain(`${kind}Joint ${eid}`);
             expect(String(warning.mock.calls[0]![0])).toContain(field);
-            expect(physicsWorld(world)!.state.joints.filter((j) => j.jointId >= 0)).toHaveLength(0);
+            expect(jointIds(physicsWorld(world)!.state)).toHaveLength(0);
             world.destroy(eid);
             world.step(Time.FIXED_DT);
         }
@@ -67,11 +68,11 @@ test("values asserted against by Box3D create warn once and skip, while positive
         warning.mockClear();
         world.step(Time.FIXED_DT);
         expect(warning).not.toHaveBeenCalled();
-        expect(physicsWorld(world)!.state.joints.filter((j) => j.jointId >= 0)).toHaveLength(1);
+        expect(jointIds(physicsWorld(world)!.state)).toHaveLength(1);
         world.storage(core.WeldJoint).angularHertz.set(eid, NaN);
         world.step(Time.FIXED_DT);
         expect(warning).toHaveBeenCalledTimes(1);
-        expect(physicsWorld(world)!.state.joints.filter((j) => j.jointId >= 0)).toHaveLength(0);
+        expect(jointIds(physicsWorld(world)!.state)).toHaveLength(0);
     } finally {
         warning.mockRestore();
         app.dispose();

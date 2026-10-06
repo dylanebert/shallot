@@ -31,13 +31,11 @@ impl SolverSet {
 struct Sets {
     sets: Vec<SolverSet>,
     free: Vec<usize>,
-    merge_result: Vec<u32>,
 }
 static mut WORLDS: [Sets; MAX_WORLDS] = [const {
     Sets {
         sets: Vec::new(),
         free: Vec::new(),
-        merge_result: Vec::new(),
     }
 }; MAX_WORLDS];
 unsafe fn world() -> &'static mut Sets {
@@ -133,6 +131,7 @@ pub unsafe extern "C" fn array_pop(id: usize, kind: usize) {
     set(id).indices[kind].pop();
 }
 pub unsafe fn reset(id: usize) {
+    WOKEN[id] = Vec::new();
     for s in &mut WORLDS[id].sets {
         s.columns.release();
         s.joint_sims.records.release();
@@ -140,7 +139,6 @@ pub unsafe fn reset(id: usize) {
     WORLDS[id] = Sets {
         sets: Vec::new(),
         free: Vec::new(),
-        merge_result: Vec::new(),
     };
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
@@ -372,23 +370,17 @@ pub unsafe extern "C" fn move_island(source: usize, index: usize, target: usize)
     ISLAND_RESULT = [destination as u32, moved];
     core::ptr::addr_of!(ISLAND_RESULT) as usize
 }
-// Header: survivor, retired set, move count; moves: record kind, id, local index.
-#[export_name = "solverSetMerge"]
-pub unsafe extern "C" fn merge(mut target: usize, mut source: usize) -> usize {
+pub unsafe fn merge(mut target: usize, mut source: usize) {
     use crate::manifold_abi::*;
     assert!(target >= 3 && source >= 3 && target != source);
     if body_count(target) < body_count(source) {
         core::mem::swap(&mut target, &mut source);
     }
-    let mut result = core::mem::take(&mut world().merge_result);
-    result.clear();
-    result.extend_from_slice(&[target as u32, source as u32, 0]);
     for i in 0..body_count(source) {
         let id = *body_ptr(source, i, 5).add(crate::body::S2_BODY_ID);
         let destination = body_append(target);
         copy_body(source, i, target, destination);
         crate::bodies::set_location(id as usize, target, destination);
-        result.extend_from_slice(&[0, id, destination as u32]);
     }
     let d = crate::manifolds::dir_col();
     for i in 0..array_count(source, 0) {
@@ -409,55 +401,135 @@ pub unsafe extern "C" fn merge(mut target: usize, mut source: usize) -> usize {
         let dst = (crate::joints::pointer(target_key) as *mut u32)
             .add(destination * crate::joint_abi::JOINT_STRIDE);
         core::ptr::copy_nonoverlapping(src, dst, crate::joint_abi::JOINT_STRIDE);
-        result.extend_from_slice(&[
-            1,
-            *src.add(crate::joint_abi::J_JOINT_ID),
-            destination as u32,
-        ]);
+        crate::joint_record::set_location(
+            *src.add(crate::joint_abi::J_JOINT_ID) as usize,
+            target_key,
+            destination,
+        );
     }
     for i in 0..array_count(source, 1) {
         let id = array_get(source, 1, i);
         let destination = array_push(target, 1, id);
-        result.extend_from_slice(&[2, id as u32, destination as u32]);
+        crate::island::set_field(id as usize, 0, target as i32);
+        crate::island::set_field(id as usize, 1, destination as i32);
     }
     destroy(source);
-    result[2] = ((result.len() - 3) / 3) as u32;
-    world().merge_result = result;
-    world().merge_result.as_ptr() as usize
 }
 
-static mut JOINT_RESULT: [u32; 3] = [0; 3];
-#[export_name = "solverSetTransferJoint"]
-pub unsafe extern "C" fn transfer_joint(
+pub unsafe fn transfer_joint(
     source: usize,
     color: usize,
     index: usize,
     target: usize,
     a: usize,
     b: usize,
-) -> usize {
+) {
     let source_key = if source == AWAKE {
         color
     } else {
         crate::constraint_graph::COLORS + source
     };
-    let target_color;
-    let destination;
-    let moved;
     if target == AWAKE {
-        let ptr = crate::constraint_graph::add_joint(source_key, index, a, b) as *const u32;
-        target_color = *ptr;
-        destination = *ptr.add(1);
-        moved = *ptr.add(2);
+        crate::constraint_graph::add_joint(source_key, index, a, b);
     } else {
-        let key = crate::constraint_graph::COLORS + target;
-        destination = crate::joints::count(key) as u32;
-        target_color = u32::MAX;
         if source == AWAKE {
             crate::constraint_graph::clear(color, a, b);
         }
-        moved = crate::joints::move_record(source_key, index, key);
+        crate::joints::move_record(source_key, index, crate::constraint_graph::COLORS + target);
     }
-    JOINT_RESULT = [target_color, destination, moved];
-    core::ptr::addr_of!(JOINT_RESULT) as usize
+}
+
+static mut WOKEN: [Vec<u32>; regions::MAX_WORLDS] = [const { Vec::new() }; regions::MAX_WORLDS];
+pub unsafe fn clear_woken() {
+    WOKEN[regions::active()].clear();
+}
+#[export_name = "solverSetWokenCount"]
+pub unsafe extern "C" fn woken_count() -> usize {
+    WOKEN[regions::active()].len()
+}
+#[export_name = "solverSetWokenCapacity"]
+pub unsafe extern "C" fn woken_capacity() -> usize {
+    WOKEN[regions::active()].capacity()
+}
+#[export_name = "solverSetWokenPtr"]
+pub unsafe extern "C" fn woken_ptr() -> usize {
+    WOKEN[regions::active()].as_ptr() as usize
+}
+pub unsafe fn wake(set: usize) {
+    use crate::{
+        bodies, constraint_graph as graph, island, joint_abi::J_JOINT_ID, joint_record as records,
+        joints, manifold_abi::*, manifolds,
+    };
+    if set < 3 {
+        return;
+    }
+    let world = regions::active();
+    let count = body_count(set);
+    WOKEN[world].reserve(count);
+    for i in 0..count {
+        let id = body_id(set, i) as usize;
+        let body = *bodies::record(world, id);
+        wake_body(set, i, body.flags, body.head_shape_id);
+        WOKEN[world].push(id as u32);
+        let mut key = body.head_contact_key;
+        while key != -1 {
+            let id = (key >> 1) as usize;
+            let o = id * DIR_STRIDE;
+            let d = manifolds::dir_col();
+            key = d.get(o + DIR_EDGE_A + 2 + 3 * (key & 1) as usize) as i32;
+            if d.get(o + DIR_SET_INDEX) == 1 {
+                move_contact(1, d.get(o + DIR_LOCAL_INDEX) as usize, 2);
+            }
+        }
+    }
+    for i in 0..array_count(set, 0) {
+        let id = array_get(set, 0, i) as usize;
+        let d = manifolds::dir_col();
+        let o = id * DIR_STRIDE;
+        let a = d.get(o + DIR_EDGE_A) as usize;
+        let b = d.get(o + DIR_EDGE_B) as usize;
+        graph::add_contact(
+            id,
+            bodies::record(world, a).local_index as u32,
+            bodies::record(world, b).local_index as u32,
+        );
+        d.set(o + DIR_SET_INDEX, 2);
+    }
+    let key = graph::COLORS + set;
+    let count_joints = joints::count(key);
+    for i in 0..count_joints {
+        let index = i.min(count_joints - 1 - i);
+        let id = joints::read_word(key, index, J_JOINT_ID) as usize;
+        let r = *records::record(id);
+        graph::add_joint(
+            key,
+            index,
+            r.edges[0].body_id as usize,
+            r.edges[1].body_id as usize,
+        );
+    }
+    for i in 0..array_count(set, 1) {
+        let id = array_get(set, 1, i);
+        let index = array_push(2, 1, id);
+        island::set_field(id as usize, 0, 2);
+        island::set_field(id as usize, 1, index as i32);
+    }
+    // Classification needs the final graph placement of both endpoints.
+    for i in 0..count {
+        let id = body_id(set, i) as usize;
+        bodies::sync_contacts(id);
+        let mut key = bodies::record(world, id).head_contact_key;
+        while key != -1 {
+            let id = (key >> 1) as usize;
+            let d = manifolds::dir_col();
+            key = d.get(id * DIR_STRIDE + DIR_EDGE_A + 2 + 3 * (key & 1) as usize) as i32;
+            crate::contact_list::update(id);
+        }
+    }
+    destroy(set);
+}
+#[export_name = "solverSetWake"]
+pub unsafe extern "C" fn wake_set(set: usize) {
+    clear_woken();
+    wake(set);
 }

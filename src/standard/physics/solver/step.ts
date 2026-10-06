@@ -1,3 +1,4 @@
+import { awakeContactCount } from "../collision/contact";
 // The per-step driver — Box3D's b3World_Step (physics_world.c, Erin Catto, MIT). One step updates
 // the broad-phase pairs, runs narrow-phase collision, then solves and integrates. The world-state
 // hash (the regression contract) is taken by the caller after the step returns.
@@ -39,7 +40,6 @@ function newStepContext(world: WorldState): StepContext {
         splitSleepTime: 0,
         bulletBodies: [],
         hitEventContacts: new Set(),
-        jointEventFlags: new Set(),
     };
 }
 
@@ -74,7 +74,8 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.sensorBeginEvents.length = 0;
     world.contactBeginEvents.length = 0;
     world.contactHitEvents.length = 0;
-    world.jointEvents.length = 0;
+    for (let i = 0; i < world.jointEventCount; ++i) world.jointEventUserData[i] = null;
+    world.jointEventCount = 0;
 
     // Compound pair queries and the narrowphase both read the resident geometry.
     if (world.geometryDirty) {
@@ -105,7 +106,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     context.bulletBodies.length = 0;
     // `Set.prototype.clear` mints a fresh table even on an empty set, so guard on size.
     if (context.hitEventContacts.size !== 0) context.hitEventContacts.clear();
-    if (context.jointEventFlags.size !== 0) context.jointEventFlags.clear();
 
     if (timeStep > 0) {
         context.invDt = f32(1.0 / timeStep);
@@ -128,7 +128,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
 
     // Narrow phase: update contacts.
     phaseStart = performance.now();
-    if (world.awakeContacts.length !== 0) collide(context);
+    if (awakeContactCount(world) !== 0) collide(context);
     profile.collide = performance.now() - phaseStart;
 
     // Integrate velocities, solve velocity constraints, integrate positions.

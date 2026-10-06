@@ -7,6 +7,8 @@ import {
     islandField,
     islandKernel,
 } from "../kernel/islandcolumns";
+import { JointField, jointField } from "../kernel/jointrecords";
+import { jointIds } from "../solver/joint.fixture";
 import { splitIsland } from "./island";
 
 test("island fix borrowing follows vector relocation and memory growth", () => {
@@ -33,10 +35,15 @@ test("island fix borrowing follows vector relocation and memory growth", () => {
                     ),
                 ).toBe(bodyField(world.state, body, BodyField.id));
             }
-            const joint = world.state.joints[i - 1];
-            expect(islandArrayGet(world.state, joint.islandId, 2, joint.islandIndex)).toBe(
-                joint.jointId,
-            );
+            const joint = i - 1;
+            expect(
+                islandArrayGet(
+                    world.state,
+                    jointField(world.state, joint, JointField.islandId),
+                    2,
+                    jointField(world.state, joint, JointField.islandIndex),
+                ),
+            ).toBe(jointField(world.state, joint, JointField.jointId));
         }
     } finally {
         world.destroy();
@@ -81,12 +88,23 @@ test("island split preserves link membership, fixes body and joint slots, and re
                     islandField(world.state, bodyField(world.state, body, BodyField.islandId), 3),
                 ).toBe(0);
             }
-            for (const joint of world.state.joints) {
-                if (joint.islandId === -1) continue;
-                expect(islandArrayGet(world.state, joint.islandId, 2, joint.islandIndex)).toBe(
-                    joint.jointId,
-                );
-                expect(islandArrayCount(world.state, joint.islandId, 2)).toBe(1);
+            for (const joint of jointIds(world.state)) {
+                if (jointField(world.state, joint, JointField.islandId) === -1) continue;
+                expect(
+                    islandArrayGet(
+                        world.state,
+                        jointField(world.state, joint, JointField.islandId),
+                        2,
+                        jointField(world.state, joint, JointField.islandIndex),
+                    ),
+                ).toBe(jointField(world.state, joint, JointField.jointId));
+                expect(
+                    islandArrayCount(
+                        world.state,
+                        jointField(world.state, joint, JointField.islandId),
+                        2,
+                    ),
+                ).toBe(1);
             }
             return records.map((b) => bodyField(world.state, b, BodyField.islandId));
         };

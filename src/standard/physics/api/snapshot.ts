@@ -82,7 +82,7 @@ function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, Stor
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor && "value" in descriptor && key !== "userData")
             descriptor.value =
-                key === "bodyUserData"
+                key === "bodyUserData" || key === "jointUserData" || key === "jointEventUserData"
                     ? descriptor.value.slice()
                     : clone(descriptor.value, seen, stores);
         if (descriptor) Object.defineProperty(out, key, descriptor);
@@ -140,7 +140,7 @@ function restoreClone<T>(
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor && "value" in descriptor && key !== "userData")
             descriptor.value =
-                key === "bodyUserData"
+                key === "bodyUserData" || key === "jointUserData" || key === "jointEventUserData"
                     ? descriptor.value.slice()
                     : restoreClone(descriptor.value, seen, stores);
         if (descriptor) Object.defineProperty(out, key, descriptor);

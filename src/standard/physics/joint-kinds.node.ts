@@ -3,8 +3,10 @@ import { type Component, createApp, type FieldType, Time, type World } from "@dy
 import * as physics from "@dylanebert/shallot/physics";
 import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
+import { JointField, jointField } from "./kernel/jointrecords";
 import { defaultDistanceJointDef } from "./solver/distanceJoint";
 import { defaultJointDef, JointType } from "./solver/joint";
+import { jointIds } from "./solver/joint.fixture";
 import { defaultMotorJointDef } from "./solver/motorJoint";
 import { defaultParallelJointDef } from "./solver/parallelJoint";
 import { defaultPrismaticJointDef } from "./solver/prismaticJoint";
@@ -153,9 +155,11 @@ for (const [kind, defaults] of kinds) {
                 spy.mockRestore();
             }
             expect(calls).toBe(1);
-            const joint = solver.state.joints.find((j) => j.userData === eid)!;
+            const joint = jointIds(solver.state).find(
+                (id) => solver.state.jointUserData[id] === eid,
+            )!;
             expect(joint, `${kind} between two static bodies is created`).toBeDefined();
-            expect(joint.type).toBe(JointType[kind]);
+            expect(jointField(solver.state, joint, JointField.type)).toBe(JointType[kind]);
         } finally {
             world.destroy(eid);
             world.destroy(a);

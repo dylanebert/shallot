@@ -1,8 +1,9 @@
 import { ContactField, contactField } from "../collision/contact";
-import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
-import { applyIslandFixes, islandKernel } from "../kernel/islandcolumns";
+import { islandKernel } from "../kernel/islandcolumns";
+import { syncWokenShapes } from "../kernel/shapecolumns";
+
 import type { Joint } from "../solver/joint";
 import { wakeSolverSet } from "./solverset";
 import type { WorldState } from "./world";
@@ -11,7 +12,6 @@ export function createIsland(world: WorldState, set: number): number {
     return islandKernel(world).islandCreate(set);
 }
 export function destroyIsland(world: WorldState, id: number): void {
-    if (world.splitIslandId === id) world.splitIslandId = NULL_INDEX;
     islandKernel(world).islandDestroy(id);
 }
 export function unlinkContact(world: WorldState, id: number): void {
@@ -40,27 +40,15 @@ export function linkContact(world: WorldState, id: number): void {
         bodyField(world, a, BodyField.islandId),
         bodyField(world, b, BodyField.islandId),
     );
-    applyIslandFixes(world);
 }
 export function linkJoint(world: WorldState, joint: Joint): void {
-    const a = joint.edges[0].bodyId,
-        b = joint.edges[1].bodyId;
-    wakeEndpoints(world, a, b);
-    islandKernel(world).islandLinkJoint(
-        joint.jointId,
-        a,
-        b,
-        bodyField(world, a, BodyField.islandId),
-        bodyField(world, b, BodyField.islandId),
-    );
-    applyIslandFixes(world);
+    islandKernel(world).jointLink(joint);
+    syncWokenShapes(world);
 }
 export function unlinkJoint(world: WorldState, joint: Joint): void {
-    islandKernel(world).islandUnlinkJoint(joint.jointId, joint.islandId, joint.islandIndex);
-    applyIslandFixes(world);
+    islandKernel(world).jointUnlink(joint);
 }
 export function splitIsland(world: WorldState, baseId: number): void {
     const k = islandKernel(world);
     k.islandSplit(baseId);
-    applyIslandFixes(world);
 }

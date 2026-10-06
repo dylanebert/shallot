@@ -302,7 +302,7 @@ export function collide(context: StepContext): void {
     const world = context.world;
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
-    const count = world.awakeContacts.length;
+    const count = k.awakeContactCount();
     const defaultMix =
         world.frictionCallback === defaultFrictionCallback &&
         world.restitutionCallback === defaultRestitutionCallback;
@@ -316,14 +316,15 @@ export function collide(context: StepContext): void {
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();
     memory(k);
-    memoryU.set(world.awakeContacts, k.collideListPtr() >>> 2);
+    k.awakeContactCopy(k.collideListPtr());
     const pool = workers(world.ecsState);
     if (pool !== null && k.parBuild(ParKind.Contacts, count, pool.size + 1, 0))
         runPool(world.ecsState, pool, k.runMt, true);
     else k.dispatchContacts(count);
     world.manifoldStore.refreshViews();
     if (!defaultMix) {
-        for (const id of world.awakeContacts) {
+        for (let i = 0; i < count; ++i) {
+            const id = k.awakeContactGet(i);
             const flags = contactField(world, id, ContactField.flags);
             if (flags & SIM_UPDATED && contactField(world, id, ContactField.manifoldCount) > 0)
                 mixContact(world, id);

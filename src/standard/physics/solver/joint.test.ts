@@ -1,3 +1,4 @@
+import { JointField, setJointField } from "../kernel/jointrecords";
 // Fast-tier joint behavior (Box3D's test_joint.c essence + the collideConnected filter). The
 // bit-exact solve math is covered by step.fixture.ts; here we exercise the public handle lifecycle,
 // the joint-connected contact filter, and that each joint type actually constrains its bodies.
@@ -30,7 +31,7 @@ test("joint generations wrap at sixteen bits as Box3D handles do", () => {
         const first = world.createFilterJoint(a, b);
         const index = first.id.index1 - 1;
         first.destroy();
-        world.state.joints[index].generation = 0xfffe;
+        setJointField(world.state, index, JointField.generation, 0xfffe);
         const last = world.createFilterJoint(a, b);
         expect(last.id.generation).toBe(0xffff);
         last.destroy();

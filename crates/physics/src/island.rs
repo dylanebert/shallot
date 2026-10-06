@@ -32,15 +32,15 @@ impl Default for Island {
     }
 }
 struct Islands {
+    split_island_id: i32,
     records: Vec<Island>,
     free: Vec<usize>,
-    fixes: Vec<i32>,
 }
 static mut WORLDS: [Islands; regions::MAX_WORLDS] = [const {
     Islands {
+        split_island_id: -1,
         records: Vec::new(),
         free: Vec::new(),
-        fixes: Vec::new(),
     }
 }; regions::MAX_WORLDS];
 unsafe fn world() -> &'static mut Islands {
@@ -48,6 +48,14 @@ unsafe fn world() -> &'static mut Islands {
 }
 unsafe fn record(id: usize) -> &'static mut Island {
     &mut world().records[id]
+}
+#[export_name = "islandSplitCandidate"]
+pub unsafe extern "C" fn split_candidate() -> i32 {
+    world().split_island_id
+}
+#[export_name = "islandSetSplitCandidate"]
+pub unsafe extern "C" fn set_split_candidate(id: i32) {
+    world().split_island_id = id;
 }
 #[export_name = "islandCanSleep"]
 pub unsafe extern "C" fn can_sleep(id: usize) -> bool {
@@ -63,7 +71,9 @@ unsafe fn fix(kind: i32, id: i32, island: i32, index: i32) {
         body.island_id = island;
         body.island_index = index;
     } else {
-        world().fixes.extend_from_slice(&[kind, id, island, index]);
+        let joint = crate::joint_record::record_mut(id as usize);
+        joint.island_id = island;
+        joint.island_index = index;
     }
 }
 unsafe fn contact_fix(id: i32, island: i32, index: i32) {
@@ -71,18 +81,6 @@ unsafe fn contact_fix(id: i32, island: i32, index: i32) {
     let base = id as usize * DIR_STRIDE;
     d.set(base + DIR_ISLAND_ID, island as u32);
     d.set(base + DIR_ISLAND_INDEX, index as u32);
-}
-#[export_name = "islandFixCount"]
-pub unsafe extern "C" fn fix_count() -> usize {
-    world().fixes.len()
-}
-#[export_name = "islandFixData"]
-pub unsafe extern "C" fn fix_data() -> *const i32 {
-    world().fixes.as_ptr()
-}
-#[export_name = "islandFixClear"]
-pub unsafe extern "C" fn fix_clear() {
-    world().fixes.clear();
 }
 #[export_name = "islandCount"]
 pub unsafe extern "C" fn count() -> usize {
@@ -108,6 +106,9 @@ pub unsafe extern "C" fn create(set: usize) -> usize {
 }
 #[export_name = "islandDestroy"]
 pub unsafe extern "C" fn destroy(id: usize) {
+    if world().split_island_id == id as i32 {
+        world().split_island_id = -1;
+    }
     let s = record(id);
     let set = s.set_index as usize;
     let index = s.local_index as usize;
@@ -407,13 +408,14 @@ pub unsafe extern "C" fn split(base: usize) {
 }
 pub unsafe fn reset(id: usize) {
     WORLDS[id] = Islands {
+        split_island_id: -1,
         records: Vec::new(),
         free: Vec::new(),
-        fixes: Vec::new(),
     };
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     let w = &WORLDS[id];
+    regions::write_word(out, w.split_island_id as usize);
     regions::write_word(out, w.records.len());
     for s in &w.records {
         for v in [
@@ -445,6 +447,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     reset(id);
     let w = &mut WORLDS[id];
+    w.split_island_id = regions::read_word(input) as i32;
     let n = regions::read_word(input);
     for _ in 0..n {
         let mut s = Island::default();

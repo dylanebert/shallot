@@ -6,6 +6,7 @@ import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE } from "../kernel/columns";
 import { islandField } from "../kernel/islandcolumns";
 import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
+import { JointField, jointCapacity, jointField } from "../kernel/jointrecords";
 import {
     setArrayCount,
     setArrayGet,
@@ -13,6 +14,7 @@ import {
     solverSetCount,
     solverSetIndex,
 } from "../kernel/solversetcolumns";
+import { jointIds } from "../solver/joint.fixture";
 import { transferBody } from "./solverset";
 import type { WorldState } from "./world";
 
@@ -39,10 +41,18 @@ function sims(world: WorldState) {
             expect(islandField(world, island, 1)).toBe(i);
         }
     }
-    for (const joint of world.joints) {
-        if (joint.setIndex === -1) continue;
-        expect(joint.localIndex).toBeLessThan(jointArrayCount(world, jointArrayKey(joint)));
-        expect(jointAt(world, jointArrayKey(joint), joint.localIndex)).toBe(joint);
+    for (const joint of jointIds(world)) {
+        if (jointField(world, joint, JointField.setIndex) === -1) continue;
+        expect(jointField(world, joint, JointField.localIndex)).toBeLessThan(
+            jointArrayCount(world, jointArrayKey(world, joint)),
+        );
+        expect(
+            jointAt(
+                world,
+                jointArrayKey(world, joint),
+                jointField(world, joint, JointField.localIndex),
+            ),
+        ).toBe(joint);
     }
     return result;
 }
@@ -148,20 +158,31 @@ test("joint creation merges sleeping sets in append order without waking bodies"
             expect(sets[0]).not.toBe(sets[1]);
             const before = sims(world.state);
             const jointOrder = sets.map((set) =>
-                world.state.joints
-                    .filter((joint) => joint.setIndex === set)
-                    .sort((a, b) => a.localIndex - b.localIndex)
-                    .map((joint) => joint.jointId),
+                jointIds(world.state)
+                    .filter((joint) => jointField(world.state, joint, JointField.setIndex) === set)
+                    .sort(
+                        (a, b) =>
+                            jointField(world.state, a, JointField.localIndex) -
+                            jointField(world.state, b, JointField.localIndex),
+                    )
+                    .map((joint) => jointField(world.state, joint, JointField.jointId)),
             );
-            const newJointId = world.state.joints.length;
+            const newJointId = jointCapacity(world.state);
             const survivor = sizes[0] >= sizes[1] ? 0 : 1;
             world.createDistanceJoint(groups[0][0], groups[1][0], { length: 10 });
             jointOrder[1].push(newJointId);
             const expectedJoints = [...jointOrder[survivor], ...jointOrder[1 - survivor]];
-            const mergedJoints = world.state.joints
-                .filter((joint) => joint.setIndex === sets[survivor])
-                .sort((a, b) => a.localIndex - b.localIndex)
-                .map((joint) => joint.jointId);
+            const mergedJoints = jointIds(world.state)
+                .filter(
+                    (joint) =>
+                        jointField(world.state, joint, JointField.setIndex) === sets[survivor],
+                )
+                .sort(
+                    (a, b) =>
+                        jointField(world.state, a, JointField.localIndex) -
+                        jointField(world.state, b, JointField.localIndex),
+                )
+                .map((joint) => jointField(world.state, joint, JointField.jointId));
             expect(mergedJoints).toEqual(expectedJoints);
             expect(solverSetIndex(world.state, sets[1 - survivor])).toBe(-1);
             expect(setBodyCount(world.state, sets[survivor])).toBe(sizes[0] + sizes[1]);

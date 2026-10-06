@@ -3,7 +3,8 @@ import type { Quat, Transform, Vec3 } from "../common/math";
 import type { SolveLayout } from "../solver/contactsolver";
 import type { Joint } from "../solver/joint";
 import type { WorldState } from "../world/world";
-import { J_EVENT, J_JOINT_ID } from "./columns";
+import { J_JOINT_ID } from "./columns";
+import { JointField, jointField, jointViews } from "./jointrecords";
 import { kernel } from "./kernel";
 
 function jointKernel(world: WorldState) {
@@ -11,35 +12,20 @@ function jointKernel(world: WorldState) {
     k.bodySetActiveWorld(world.worldId);
     return k;
 }
-export function jointArrayKey(joint: Joint): number {
-    return joint.setIndex === SetType.Awake ? joint.colorIndex : GRAPH_COLOR_COUNT + joint.setIndex;
-}
-export function releaseJointArray(world: WorldState, key: number): void {
-    jointKernel(world).jointArrayRelease(key);
+export function jointArrayKey(world: WorldState, joint: Joint): number {
+    return jointField(world, joint, JointField.setIndex) === SetType.Awake
+        ? jointField(world, joint, JointField.colorIndex)
+        : GRAPH_COLOR_COUNT + jointField(world, joint, JointField.setIndex);
 }
 export function jointArrayCount(world: WorldState, key: number): number {
     return jointKernel(world).jointArrayCount(key);
 }
-export function appendJointRecord(world: WorldState, key: number): number {
-    return jointKernel(world).jointArrayAppend(key);
-}
-export function removeJointRecord(world: WorldState, key: number, index: number): void {
-    const moved = jointKernel(world).jointArrayRemove(key, index) >>> 0;
-    if (moved !== 0xffffffff) world.joints[moved].localIndex = index;
-}
-export function moveJointRecord(world: WorldState, joint: Joint, target: number): number {
-    const k = jointKernel(world);
-    const destination = k.jointArrayCount(target);
-    const index = joint.localIndex;
-    const moved = k.jointArrayMove(jointArrayKey(joint), index, target) >>> 0;
-    if (moved !== 0xffffffff) world.joints[moved].localIndex = index;
-    return destination;
-}
 export function jointAt(world: WorldState, key: number, index: number): Joint {
-    return world.joints[jointKernel(world).jointReadWord(key, index, J_JOINT_ID)];
+    return jointKernel(world).jointReadWord(key, index, J_JOINT_ID);
 }
 export function readJointFloat(world: WorldState, joint: Joint, field: number): number {
-    return jointKernel(world).jointReadFloat(jointArrayKey(joint), joint.localIndex, field);
+    const k = jointKernel(world);
+    return jointViews(k).floats[(k.jointSimPtr(joint) >>> 2) + field];
 }
 export function writeJointFloat(
     world: WorldState,
@@ -47,10 +33,12 @@ export function writeJointFloat(
     field: number,
     value: number,
 ): void {
-    jointKernel(world).jointWriteFloat(jointArrayKey(joint), joint.localIndex, field, value);
+    const k = jointKernel(world);
+    jointViews(k).floats[(k.jointSimPtr(joint) >>> 2) + field] = value;
 }
 export function readJointWord(world: WorldState, joint: Joint, field: number): number {
-    return jointKernel(world).jointReadWord(jointArrayKey(joint), joint.localIndex, field);
+    const k = jointKernel(world);
+    return jointViews(k).words[(k.jointSimPtr(joint) >>> 2) + field];
 }
 export function writeJointWord(
     world: WorldState,
@@ -58,7 +46,8 @@ export function writeJointWord(
     field: number,
     value: number,
 ): void {
-    jointKernel(world).jointWriteWord(jointArrayKey(joint), joint.localIndex, field, value);
+    const k = jointKernel(world);
+    jointViews(k).words[(k.jointSimPtr(joint) >>> 2) + field] = value;
 }
 export function readJointFlag(
     world: WorldState,
@@ -151,18 +140,25 @@ export function jointSpans(world: WorldState, layout: SolveLayout, spans: Uint32
     }
     return total;
 }
-export function collectJointEvents(
-    world: WorldState,
-    layout: SolveLayout,
-    events: Set<number>,
-): void {
+const eventViews = new WeakMap<WorldState, Uint32Array>();
+export function collectJointEvents(world: WorldState): void {
     const k = jointKernel(world);
-    for (let c = 0; c <= layout.colors.length; ++c) {
-        const key = c === layout.colors.length ? OVERFLOW_INDEX : layout.colors[c].colorIndex;
-        const count = k.jointArrayCount(key);
-        for (let i = 0; i < count; ++i) {
-            if (k.jointReadFloat(key, i, J_EVENT) !== 0)
-                events.add(k.jointReadWord(key, i, J_JOINT_ID));
-        }
+    const count = k.jointCollectEvents();
+    for (let i = count; i < world.jointEventCount; ++i) world.jointEventUserData[i] = null;
+    world.jointEventCount = count;
+    if (count === 0) return;
+    let words = eventViews.get(world);
+    if (words?.buffer !== k.memory.buffer) {
+        words = new Uint32Array(k.memory.buffer);
+        eventViews.set(world, words);
+    }
+    const start = k.jointEventPtr() >>> 2;
+    // Event ids keep their capture-time world identity through a foreign snapshot restore.
+    for (let i = 0; i < count; ++i) {
+        const id = words[start + 2 * i];
+        world.jointEvents[3 * i] = id;
+        world.jointEvents[3 * i + 1] = world.worldId;
+        world.jointEvents[3 * i + 2] = words[start + 2 * i + 1];
+        world.jointEventUserData[i] = world.jointUserData[id];
     }
 }

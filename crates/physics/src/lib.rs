@@ -101,6 +101,8 @@ pub extern "C" fn smoke_scale(len: usize, k: f32) {
 // The shared-column arena + phase export shims are wasm-only: they hand the phase functions slices
 // carved straight out of linear memory, which is meaningful only in the JS host. Native `cargo test`
 // exercises the phase modules directly against their gold vectors, so the arena is cfg'd out there.
+#[cfg(all(target_arch = "wasm32", feature = "count-allocations"))]
+mod allocation;
 #[cfg(target_arch = "wasm32")]
 mod arena;
 #[cfg(target_arch = "wasm32")]
@@ -113,9 +115,14 @@ mod broad;
 #[cfg(target_arch = "wasm32")]
 mod compound_query;
 #[cfg(target_arch = "wasm32")]
+mod contact_list;
+#[cfg(target_arch = "wasm32")]
 mod fataabb;
 #[cfg(target_arch = "wasm32")]
 mod geo;
+#[cfg(target_arch = "wasm32")]
+mod joint_lifecycle;
+mod joint_record;
 #[cfg(target_arch = "wasm32")]
 mod manifolds;
 #[cfg(target_arch = "wasm32")]

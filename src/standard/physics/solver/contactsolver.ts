@@ -25,7 +25,6 @@ export type StepContext = {
     splitSleepTime: number;
     bulletBodies: number[];
     hitEventContacts: Set<number>;
-    jointEventFlags: Set<number>;
 };
 
 /** One active graph color's transient ranges; `colorIndex` selects its kernel joint array. */

@@ -1,3 +1,4 @@
+import { jointCount } from "../kernel/jointrecords";
 import { createSolverSet, solverSetCount, solverSetIndex } from "../kernel/solversetcolumns";
 // The simulation world: the root that owns every entity pool and the broad-phase. Ported from
 // Box3D's physics_world.c (Erin Catto, MIT). Each entity type has an id pool paired with a sparse
@@ -11,7 +12,7 @@ import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { contactCount } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
 import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
-import { createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
+import type { EntityId } from "../common/ids";
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
 import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
@@ -27,7 +28,6 @@ import type { MeshData } from "../shapes/mesh";
 import type { Shape } from "../shapes/shape";
 import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
-import type { Joint } from "../solver/joint";
 import { createStepProfile, type StepProfile } from "./profile";
 import type { Sensor, SensorBeginTouchEvent } from "./sensor";
 import { destroySolverSet } from "./solverset";
@@ -62,9 +62,6 @@ export type ContactHitEvent = {
     userMaterialIdB: bigint;
 };
 
-/** A joint event (b3JointEvent): an awake joint whose force/torque exceeded its threshold. */
-export type JointEvent = { jointId: EntityId; userData: unknown };
-
 /** A sensor end-touch event (b3SensorEndTouchEvent). */
 export type SensorEndTouchEvent = { sensorShapeId: EntityId; visitorShapeId: EntityId };
 
@@ -88,13 +85,11 @@ export type WorldState = {
     bodyUserData: unknown[];
     bodyNames: string[];
 
-    jointIdPool: IdPool;
-    joints: Joint[];
+    jointUserData: unknown[];
 
     // Awake contacts collide processes each step, maintained on the
     // contact create/destroy + body wake/sleep/transfer events (contact.ts, solverset.ts) instead of
     // re-gathered per step. Order-free; state transitions are processed in contact-id order.
-    awakeContacts: number[];
 
     /** Public shape authoring records and handle bridge; slot lifecycle is kernel-owned. */
     shapes: Shape[];
@@ -131,11 +126,12 @@ export type WorldState = {
     sensorEndEvents: [SensorEndTouchEvent[], SensorEndTouchEvent[]];
     contactEndEvents: [ContactTouchEvent[], ContactTouchEvent[]];
     contactHitEvents: ContactHitEvent[];
-    jointEvents: JointEvent[];
+    jointEvents: number[];
+    jointEventCount: number;
+    jointEventUserData: unknown[];
     endEventArrayIndex: number;
 
     stepIndex: number;
-    splitIslandId: number;
 
     // The per-step solver context, created lazily on the first step and reused across steps (its scalar
     // fields rewritten + its collections cleared each step). One per world — dies with the world, never
@@ -289,9 +285,7 @@ function makeWorldState(
         bodyFilters: new BodyFilters(),
         bodyUserData: [],
         bodyNames: [],
-        jointIdPool: createIdPool(),
-        joints: [],
-        awakeContacts: [],
+        jointUserData: [],
         shapes: [],
         hullDatabase: new Map(),
         meshDatabase: new Map(),
@@ -311,9 +305,10 @@ function makeWorldState(
         contactEndEvents: [[], []],
         contactHitEvents: [],
         jointEvents: [],
+        jointEventCount: 0,
+        jointEventUserData: [],
         endEventArrayIndex: 0,
         stepIndex: 0,
-        splitIslandId: -1,
         stepContext: null,
         profile: createStepProfile(),
         gravity: { ...def.gravity },
@@ -439,7 +434,7 @@ export function worldCounters(world: WorldState): Counters {
         bodyCount: kernel(world.ecsState).bodyCount(world.worldId),
         shapeCount: kernel(world.ecsState).shapeCount(world.worldId),
         contactCount: contactCount(world),
-        jointCount: idCount(world.jointIdPool),
+        jointCount: jointCount(world),
         islandCount: islandKernel(world).islandCount(),
     };
 }

@@ -64,7 +64,13 @@ pub extern "C" fn append(key: usize) -> usize {
 }
 #[export_name = "jointArrayRemove"]
 pub extern "C" fn remove(key: usize, index: usize) -> u32 {
-    unsafe { array(key).remove(index) }
+    unsafe {
+        let moved = array(key).remove(index);
+        if moved != NULL_INDEX {
+            crate::joint_record::set_location(moved as usize, key, index);
+        }
+        moved
+    }
 }
 #[export_name = "jointArrayMove"]
 pub extern "C" fn move_record(source: usize, index: usize, target: usize) -> u32 {
@@ -77,7 +83,9 @@ pub extern "C" fn move_record(source: usize, index: usize, target: usize) -> u32
             array(target).ptr(destination),
             JOINT_STRIDE,
         );
-        array(source).remove(index)
+        let id = *array(target).ptr(destination).add(J_JOINT_ID);
+        crate::joint_record::set_location(id as usize, target, destination);
+        remove(source, index)
     }
 }
 #[export_name = "jointReadFloat"]

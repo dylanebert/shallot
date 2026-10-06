@@ -2,6 +2,7 @@ import { ContactField, contactField } from "../collision/contact";
 import { contactTotalImpulse, readContactManifolds } from "../collision/manifoldstore";
 import { readSimCenter } from "../kernel/bodycolumns";
 import { shapeBodyId } from "../kernel/filtercolumns";
+import { setSplitIslandCandidate, splitIslandCandidate } from "../kernel/islandcolumns";
 import { setArrayCount, setArrayGet, setBodyCount } from "../kernel/solversetcolumns";
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
 // MIT). The port runs the canonical colored constraint schedule, with a real overflow fallback:
@@ -64,22 +65,6 @@ function updateBeginContactImpulses(world: WorldState): void {
         )
             continue;
         event.normalImpulse = contactTotalImpulse(world, contact);
-    }
-}
-
-function buildJointEvents(context: StepContext): void {
-    if (context.jointEventFlags.size === 0) {
-        return;
-    }
-    const world = context.world;
-    const worldId = world.worldId;
-    const ids = [...context.jointEventFlags].sort((a, b) => a - b);
-    for (const jointId of ids) {
-        const joint = world.joints[jointId];
-        world.jointEvents.push({
-            jointId: { index1: jointId + 1, world0: worldId, generation: joint.generation },
-            userData: joint.userData,
-        });
     }
 }
 
@@ -243,16 +228,14 @@ export function solve(world: WorldState, context: StepContext): void {
     );
     if (pool) runPool(world.ecsState, pool, k.runMt);
     else k.runMt();
-    collectJointEvents(world, layout, context.jointEventFlags);
     readbackHitEvents(world, layout, context);
 
     // Split a deferred island (candidate collected in the previous step's sleep stage) before
     // finalize reads island indices. In C this runs as a task alongside the solve; serially it must
     // complete before finalize.
-    if (world.splitIslandId !== NULL_INDEX) {
-        splitIsland(world, world.splitIslandId);
-    }
-    world.splitIslandId = NULL_INDEX;
+    const candidate = splitIslandCandidate(world);
+    if (candidate !== NULL_INDEX) splitIsland(world, candidate);
+    setSplitIslandCandidate(world, NULL_INDEX);
     profile.constraints = performance.now() - constraintsStart;
 
     // Kernel finalization (pose, continuous and refit) ran inside the solve crossing.
@@ -268,7 +251,7 @@ export function solve(world: WorldState, context: StepContext): void {
 
     // Report joint and hit events (b3Solve, after finalize, before the bullet stage).
     phaseStart = performance.now();
-    buildJointEvents(context);
+    collectJointEvents(world);
     profile.jointEvents = performance.now() - phaseStart;
     phaseStart = performance.now();
     if (context.hitEventContacts.size > 0) buildHitEvents(context);
@@ -291,7 +274,7 @@ export function solve(world: WorldState, context: StepContext): void {
         phaseStart = performance.now();
         // Collect the split-island candidate for the next step (single worker → no cross-worker reduction).
         if (context.splitIslandId !== NULL_INDEX) {
-            world.splitIslandId = context.splitIslandId;
+            setSplitIslandCandidate(world, context.splitIslandId);
         }
 
         // Reverse order because sleeping an island swap-removes it from the awake islandSims.

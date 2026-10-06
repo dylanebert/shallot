@@ -1,6 +1,7 @@
 import { readSimCenter, readSimTransform, simFlags } from "../kernel/bodycolumns";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { bodyType, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
+import { JointField, jointCapacity, jointField } from "../kernel/jointrecords";
 // Debug visualization walk: resolve every shape and joint in the world to a flat set of typed draw
 // callbacks the caller renders. Ported from Box3D's b3World_Draw (physics_world.c) + b3DrawJoint
 // (joint.c). This is a read-only view of the simulation — it never feeds the world-state hash, so it
@@ -244,9 +245,9 @@ function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const joint = world.joints[jointId];
-    const bodyA = joint.edges[0].bodyId;
-    const bodyB = joint.edges[1].bodyId;
+    const joint = jointId;
+    const bodyA = jointField(world, joint, JointField.bodyIdA + 3 * 0);
+    const bodyB = jointField(world, joint, JointField.bodyIdA + 3 * 1);
     if (
         bodyField(world, bodyA, BodyField.setIndex) === SetType.Disabled ||
         bodyField(world, bodyB, BodyField.setIndex) === SetType.Disabled
@@ -260,11 +261,11 @@ function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
     const pA = transformWorldPoint(transformA, anchorA);
     const pB = transformWorldPoint(transformB, anchorB);
 
-    if (joint.type === JointType.Filter) {
+    if (jointField(world, joint, JointField.type) === JointType.Filter) {
         draw.drawSegment(pA, pB, DebugColor.gold);
         return;
     }
-    if (joint.type === JointType.Motor) {
+    if (jointField(world, joint, JointField.type) === JointType.Motor) {
         draw.drawSegment(pA, pB, DebugColor.plum);
         draw.drawPoint(pA, 8, DebugColor.yellowGreen);
         draw.drawPoint(pB, 8, DebugColor.plum);
@@ -355,9 +356,9 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
     }
 
     if (draw.drawJoints) {
-        for (let jointId = 0; jointId < world.joints.length; ++jointId) {
-            const joint = world.joints[jointId];
-            if (joint.setIndex === NULL_INDEX) continue;
+        for (let jointId = 0; jointId < jointCapacity(world); ++jointId) {
+            const joint = jointId;
+            if (jointField(world, joint, JointField.setIndex) === NULL_INDEX) continue;
             drawJoint(draw, world, jointId);
         }
     }

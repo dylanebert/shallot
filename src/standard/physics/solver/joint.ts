@@ -1,5 +1,20 @@
-import { ContactField, contactField } from "../collision/contact";
-import { BodyField, bodyField, setBodyField } from "../kernel/bodyrecords";
+// Joint definitions and public queries use the kernel's identity and simulation records by id.
+import { changeBodyFilter } from "../collision/bodyfilter";
+import { bufferMove } from "../collision/broadphase";
+import { ContactField, contactField, destroyContact } from "../collision/contact";
+import { NULL_INDEX } from "../common/array";
+import {
+    absf,
+    FLT_MAX,
+    f32,
+    maxf,
+    quat,
+    type Transform,
+    transformWorldPoint,
+    type Vec3,
+    vec3,
+} from "../common/math";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import {
     DJ_ENABLE,
     DJ_ENABLE_LIMIT,
@@ -7,12 +22,8 @@ import {
     DJ_LENGTH,
     DJ_MAX_LENGTH,
     DJ_MIN_LENGTH,
-    J_CONSTRAINT_DAMPING,
-    J_CONSTRAINT_HERTZ,
-    J_FORCE_THRESHOLD,
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
-    J_TORQUE_THRESHOLD,
     PJ_ENABLE,
     PJ_ENABLE_LIMIT,
     PJ_LOWER_TRANSLATION,
@@ -34,54 +45,13 @@ import {
     WJ_ANGULAR_HERTZ,
     WJ_LINEAR_HERTZ,
 } from "../kernel/columns";
-import { bodyType } from "../kernel/filtercolumns";
-import {
-    readJointFlag,
-    readJointFloat,
-    writeJointFloat,
-    writeJointTransform,
-} from "../kernel/jointcolumns";
-// Joints — the common machinery from Box3D's joint.c (Erin Catto, MIT). A joint constrains two
-// bodies. The organizational handle (b3Joint) lives in world.joints and threads two doubly-linked
-// edges through the attached bodies; each simulation record (b3JointSim) lives in the kernel array
-// for its graph color or non-awake solver set. This hub holds create/destroy and the common queries;
-// per-type authoring and queries live beside their definitions.
-//
-// The port uses canonical graph coloring; joints that cannot fit a real color use the overflow color.
-// Every arithmetic op is fround-wrapped in the per-type files; see the README.
-
-import { changeBodyFilter } from "../collision/bodyfilter";
-import { bufferMove } from "../collision/broadphase";
-import { destroyContact } from "../collision/contact";
-import { NULL_INDEX } from "../common/array";
-import { GRAPH_COLOR_COUNT, SetType } from "../common/constants";
-import { allocId, freeId } from "../common/ids";
-import {
-    absf,
-    FLT_MAX,
-    f32,
-    maxf,
-    maxInt,
-    quat,
-    type Transform,
-    transformWorldPoint,
-    type Vec3,
-    vec3,
-} from "../common/math";
-import { BodyType } from "../common/types";
-import { J_BODY_ID_A, J_BODY_ID_B, J_JOINT_ID, J_TYPE } from "../kernel/columns";
-import {
-    appendJointRecord,
-    readJointVec3,
-    removeJointRecord,
-    writeJointWord,
-} from "../kernel/jointcolumns";
+import { readJointFlag, readJointFloat, readJointVec3 } from "../kernel/jointcolumns";
+import { JointField, jointField, setJointField } from "../kernel/jointrecords";
+import { kernel } from "../kernel/kernel";
+import { syncWokenShapes } from "../kernel/shapecolumns";
 import { readBodyTransform, wakeBody } from "../world/body";
-import { linkJoint, unlinkJoint } from "../world/island";
-import { mergeSolverSets, wakeSolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
 import { getDistanceJointForce } from "./distanceJoint";
-import { createJointInGraph, removeJointFromGraph } from "./graph";
 import { getMotorJointForce, getMotorJointTorque } from "./motorJoint";
 import { getParallelJointTorque } from "./parallelJoint";
 import { getPrismaticJointForce, getPrismaticJointTorque } from "./prismaticJoint";
@@ -104,28 +74,8 @@ export const JointType = {
 } as const;
 export type JointType = (typeof JointType)[keyof typeof JointType];
 
-/** One end of a joint in a body's doubly-linked joint list (b3JointEdge). */
-export type JointEdge = {
-    bodyId: number;
-    prevKey: number;
-    nextKey: number;
-};
-
-/** The organizational joint handle stored in world.joints (b3Joint). */
-export type Joint = {
-    userData: unknown;
-    setIndex: number;
-    colorIndex: number;
-    localIndex: number;
-    edges: [JointEdge, JointEdge];
-    jointId: number;
-    islandId: number;
-    islandIndex: number;
-    drawScale: number;
-    type: JointType;
-    generation: number;
-    collideConnected: boolean;
-};
+/** Kernel joint identity index. */
+export type Joint = number;
 
 /** The resolved base joint definition (b3JointDef, body handles already resolved to ids). */
 export type JointDef = {
@@ -174,265 +124,71 @@ export function defaultJointDef(): JointDef {
     };
 }
 
-/** @returns a fresh zeroed joint handle slot. */
-export function emptyJoint(): Joint {
-    return {
-        userData: null,
-        setIndex: NULL_INDEX,
-        colorIndex: NULL_INDEX,
-        localIndex: NULL_INDEX,
-        edges: [
-            {
-                bodyId: NULL_INDEX,
-                prevKey: NULL_INDEX,
-                nextKey: NULL_INDEX,
-            },
-            {
-                bodyId: NULL_INDEX,
-                prevKey: NULL_INDEX,
-                nextKey: NULL_INDEX,
-            },
-        ],
-        jointId: NULL_INDEX,
-        islandId: NULL_INDEX,
-        islandIndex: NULL_INDEX,
-        drawScale: 0,
-        type: JointType.Parallel,
-        generation: 0,
-        collideConnected: false,
-    };
+/** Create a joint identity and sim in Box3D's solver-set and island order. */
+export function createJointRecord(world: WorldState, def: JointDef, type: JointType): Joint {
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
+    const joint = k.jointCreate(
+        def.bodyIdA,
+        def.bodyIdB,
+        type,
+        def.drawScale,
+        +def.collideConnected,
+        def.localFrameA.p.x,
+        def.localFrameA.p.y,
+        def.localFrameA.p.z,
+        def.localFrameA.q.v.x,
+        def.localFrameA.q.v.y,
+        def.localFrameA.q.v.z,
+        def.localFrameA.q.s,
+        def.localFrameB.p.x,
+        def.localFrameB.p.y,
+        def.localFrameB.p.z,
+        def.localFrameB.q.v.x,
+        def.localFrameB.q.v.y,
+        def.localFrameB.q.v.z,
+        def.localFrameB.q.s,
+        def.forceThreshold,
+        def.torqueThreshold,
+        def.constraintHertz,
+        def.constraintDampingRatio,
+    );
+    world.jointUserData[joint] = def.userData;
+    syncWokenShapes(world);
+    if (!def.collideConnected) changeBodyFilter(world, def.bodyIdA, def.bodyIdB, 1);
+    return joint;
 }
 
-/** Create the common joint handle + sim and place it in the right solver set (b3CreateJoint). */
-export function createJoint(
-    world: WorldState,
-    def: JointDef,
-    type: JointType,
-): {
-    joint: Joint;
-} {
-    const bodyA = def.bodyIdA;
-    const bodyB = def.bodyIdB;
-    const bodyIdA = bodyField(world, bodyA, BodyField.id);
-    const bodyIdB = bodyField(world, bodyB, BodyField.id);
-    const maxSetIndex = maxInt(
-        bodyField(world, bodyA, BodyField.setIndex),
-        bodyField(world, bodyB, BodyField.setIndex),
-    );
-    const jointId = allocId(world.jointIdPool);
-    if (jointId === world.joints.length) {
-        world.joints.push(emptyJoint());
-    }
-    const joint = world.joints[jointId];
-    joint.jointId = jointId;
-    joint.userData = def.userData;
-    joint.generation = (joint.generation + 1) & 0xffff;
-    joint.setIndex = NULL_INDEX;
-    joint.colorIndex = NULL_INDEX;
-    joint.localIndex = NULL_INDEX;
-    joint.islandId = NULL_INDEX;
-    joint.islandIndex = NULL_INDEX;
-    joint.drawScale = def.drawScale;
-    joint.type = type;
-    joint.collideConnected = def.collideConnected;
-    if (!joint.collideConnected) changeBodyFilter(world, bodyIdA, bodyIdB, 1);
-
-    // Doubly linked list on bodyA
-    joint.edges[0] = {
-        bodyId: bodyIdA,
-        prevKey: NULL_INDEX,
-        nextKey: bodyField(world, bodyA, BodyField.headJointKey),
-    };
-    const keyA = (jointId << 1) | 0;
-    if (bodyField(world, bodyA, BodyField.headJointKey) !== NULL_INDEX) {
-        const jointA = world.joints[bodyField(world, bodyA, BodyField.headJointKey) >> 1];
-        jointA.edges[bodyField(world, bodyA, BodyField.headJointKey) & 1].prevKey = keyA;
-    }
-    setBodyField(world, bodyA, BodyField.headJointKey, keyA);
-    setBodyField(
-        world,
-        bodyA,
-        BodyField.jointCount,
-        bodyField(world, bodyA, BodyField.jointCount) + 1,
-    );
-
-    // Doubly linked list on bodyB
-    joint.edges[1] = {
-        bodyId: bodyIdB,
-        prevKey: NULL_INDEX,
-        nextKey: bodyField(world, bodyB, BodyField.headJointKey),
-    };
-    const keyB = (jointId << 1) | 1;
-    if (bodyField(world, bodyB, BodyField.headJointKey) !== NULL_INDEX) {
-        const jointB = world.joints[bodyField(world, bodyB, BodyField.headJointKey) >> 1];
-        jointB.edges[bodyField(world, bodyB, BodyField.headJointKey) & 1].prevKey = keyB;
-    }
-    setBodyField(world, bodyB, BodyField.headJointKey, keyB);
-    setBodyField(
-        world,
-        bodyB,
-        BodyField.jointCount,
-        bodyField(world, bodyB, BodyField.jointCount) + 1,
-    );
-    const sim = joint;
-    if (
-        bodyField(world, bodyA, BodyField.setIndex) === SetType.Disabled ||
-        bodyField(world, bodyB, BodyField.setIndex) === SetType.Disabled
-    ) {
-        // if either body is disabled, create in disabled set
-        joint.setIndex = SetType.Disabled;
-        joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + joint.setIndex);
-    } else if (
-        bodyType(world, bodyField(world, bodyA, BodyField.id)) !== BodyType.Dynamic &&
-        bodyType(world, bodyField(world, bodyB, BodyField.id)) !== BodyType.Dynamic
-    ) {
-        // joint is not attached to a dynamic body
-        joint.setIndex = SetType.Static;
-        joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + joint.setIndex);
-    } else if (
-        bodyField(world, bodyA, BodyField.setIndex) === SetType.Awake ||
-        bodyField(world, bodyB, BodyField.setIndex) === SetType.Awake
-    ) {
-        // if either body is sleeping, wake it
-        if (maxSetIndex >= SetType.FirstSleeping) {
-            wakeSolverSet(world, maxSetIndex);
-        }
-        joint.setIndex = SetType.Awake;
-        createJointInGraph(world, joint);
-    } else {
-        // joint connected between sleeping and/or static bodies
-        joint.setIndex = maxSetIndex;
-        joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + maxSetIndex);
-        writeJointWord(world, joint, J_JOINT_ID, jointId);
-        if (
-            bodyField(world, bodyA, BodyField.setIndex) !==
-                bodyField(world, bodyB, BodyField.setIndex) &&
-            bodyField(world, bodyA, BodyField.setIndex) >= SetType.FirstSleeping &&
-            bodyField(world, bodyB, BodyField.setIndex) >= SetType.FirstSleeping
-        ) {
-            mergeSolverSets(
-                world,
-                bodyField(world, bodyA, BodyField.setIndex),
-                bodyField(world, bodyB, BodyField.setIndex),
-            );
-        }
-    }
-    writeJointWord(world, joint, J_JOINT_ID, jointId);
-    writeJointWord(world, joint, J_TYPE, type);
-    writeJointWord(world, joint, J_BODY_ID_A, def.bodyIdA);
-    writeJointWord(world, joint, J_BODY_ID_B, def.bodyIdB);
-    writeJointTransform(world, sim, J_LOCAL_FRAME_A, def.localFrameA);
-    writeJointTransform(world, sim, J_LOCAL_FRAME_B, def.localFrameB);
-    writeJointFloat(world, sim, J_CONSTRAINT_HERTZ, def.constraintHertz);
-    writeJointFloat(world, sim, J_CONSTRAINT_DAMPING, def.constraintDampingRatio);
-    writeJointFloat(world, sim, J_FORCE_THRESHOLD, def.forceThreshold);
-    writeJointFloat(world, sim, J_TORQUE_THRESHOLD, def.torqueThreshold);
-    if (joint.setIndex > SetType.Disabled) {
-        linkJoint(world, joint);
-    }
-    return { joint };
+export function createJoint(world: WorldState, def: JointDef, type: JointType): { joint: Joint } {
+    return { joint: createJointRecord(world, def, type) };
 }
 
-/**
- * Create a filter joint (b3CreateFilterJoint): connects two bodies solely to suppress collision
- * between them (collideConnected defaults false). It carries no constraint — prepare/warm-start/solve
- * are no-ops.
- */
-export function createFilterJoint(
-    world: WorldState,
-    def: JointDef,
-): {
-    joint: Joint;
-} {
+/** A filter joint suppresses collision and carries no solver constraint. */
+export function createFilterJoint(world: WorldState, def: JointDef): { joint: Joint } {
     return createJoint(world, def, JointType.Filter);
 }
 
-/** Destroy a joint (b3DestroyJointInternal): unlink the body edges, the island, and the solver set. */
+/** Unlink and free a joint, optionally waking both attached solver sets. */
 export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies: boolean): void {
-    const jointId = joint.jointId;
-    const edgeA = joint.edges[0];
-    const edgeB = joint.edges[1];
-    const idA = edgeA.bodyId;
-    const idB = edgeB.bodyId;
-    const bodyA = idA;
-    const bodyB = idB;
-    if (!joint.collideConnected) changeBodyFilter(world, idA, idB, -1);
-
-    // Remove from body A
-    if (edgeA.prevKey !== NULL_INDEX) {
-        const prevJoint = world.joints[edgeA.prevKey >> 1];
-        prevJoint.edges[edgeA.prevKey & 1].nextKey = edgeA.nextKey;
-    }
-    if (edgeA.nextKey !== NULL_INDEX) {
-        const nextJoint = world.joints[edgeA.nextKey >> 1];
-        nextJoint.edges[edgeA.nextKey & 1].prevKey = edgeA.prevKey;
-    }
-    const edgeKeyA = (jointId << 1) | 0;
-    if (bodyField(world, bodyA, BodyField.headJointKey) === edgeKeyA) {
-        setBodyField(world, bodyA, BodyField.headJointKey, edgeA.nextKey);
-    }
-    setBodyField(
-        world,
-        bodyA,
-        BodyField.jointCount,
-        bodyField(world, bodyA, BodyField.jointCount) - 1,
-    );
-
-    // Remove from body B
-    if (edgeB.prevKey !== NULL_INDEX) {
-        const prevJoint = world.joints[edgeB.prevKey >> 1];
-        prevJoint.edges[edgeB.prevKey & 1].nextKey = edgeB.nextKey;
-    }
-    if (edgeB.nextKey !== NULL_INDEX) {
-        const nextJoint = world.joints[edgeB.nextKey >> 1];
-        nextJoint.edges[edgeB.nextKey & 1].prevKey = edgeB.prevKey;
-    }
-    const edgeKeyB = (jointId << 1) | 1;
-    if (bodyField(world, bodyB, BodyField.headJointKey) === edgeKeyB) {
-        setBodyField(world, bodyB, BodyField.headJointKey, edgeB.nextKey);
-    }
-    setBodyField(
-        world,
-        bodyB,
-        BodyField.jointCount,
-        bodyField(world, bodyB, BodyField.jointCount) - 1,
-    );
-    if (joint.islandId !== NULL_INDEX) {
-        unlinkJoint(world, joint);
-    }
-
-    // Remove joint from the solver set that owns it
-    const setIndex = joint.setIndex;
-    const localIndex = joint.localIndex;
-    if (setIndex === SetType.Awake) {
-        removeJointFromGraph(
+    if (!jointField(world, joint, JointField.collideConnected))
+        changeBodyFilter(
             world,
-            joint.edges[0].bodyId,
-            joint.edges[1].bodyId,
-            joint.colorIndex,
-            localIndex,
+            jointField(world, joint, JointField.bodyIdA),
+            jointField(world, joint, JointField.bodyIdB),
+            -1,
         );
-    } else {
-        removeJointRecord(world, GRAPH_COLOR_COUNT + setIndex, localIndex);
-    }
-
-    // Free joint and id (preserve joint generation)
-    joint.setIndex = NULL_INDEX;
-    joint.localIndex = NULL_INDEX;
-    joint.colorIndex = NULL_INDEX;
-    joint.jointId = NULL_INDEX;
-    freeId(world.jointIdPool, jointId);
-    if (wakeBodies) {
-        wakeBody(world, bodyA);
-        wakeBody(world, bodyB);
-    }
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
+    k.jointDestroy(joint, +wakeBodies);
+    world.jointUserData[joint] = null;
+    syncWokenShapes(world);
 }
 
 // --- Dispatch ---------------------------------------------------------------------------------
 
 /** The constraint force this joint applies (b3GetJointConstraintForce). */
 export function getJointConstraintForce(world: WorldState, sim: Joint): Vec3 {
-    switch (sim.type) {
+    switch (jointField(world, sim, JointField.type) as JointType) {
         case JointType.Distance:
             return getDistanceJointForce(world, sim);
         case JointType.Motor:
@@ -459,7 +215,7 @@ export function getJointConstraintForce(world: WorldState, sim: Joint): Vec3 {
 
 /** The constraint torque this joint applies (b3GetJointConstraintTorque). */
 export function getJointConstraintTorque(world: WorldState, sim: Joint): Vec3 {
-    switch (sim.type) {
+    switch (jointField(world, sim, JointField.type) as JointType) {
         case JointType.Parallel:
             return getParallelJointTorque(world, sim);
         case JointType.Motor:
@@ -490,13 +246,18 @@ export function setJointCollideConnected(
     joint: Joint,
     shouldCollide: boolean,
 ): void {
-    if (joint.collideConnected === shouldCollide) {
+    if (!!jointField(world, joint, JointField.collideConnected) === shouldCollide) {
         return;
     }
-    changeBodyFilter(world, joint.edges[0].bodyId, joint.edges[1].bodyId, shouldCollide ? -1 : 1);
-    joint.collideConnected = shouldCollide;
-    const bodyA = joint.edges[0].bodyId;
-    const bodyB = joint.edges[1].bodyId;
+    changeBodyFilter(
+        world,
+        jointField(world, joint, JointField.bodyIdA + 3 * 0),
+        jointField(world, joint, JointField.bodyIdA + 3 * 1),
+        shouldCollide ? -1 : 1,
+    );
+    setJointField(world, joint, JointField.collideConnected, +shouldCollide);
+    const bodyA = jointField(world, joint, JointField.bodyIdA + 3 * 0);
+    const bodyB = jointField(world, joint, JointField.bodyIdA + 3 * 1);
     if (shouldCollide) {
         // Tell the broad-phase to look for new pairs on the body with fewest shapes.
         let shapeId =
@@ -550,8 +311,8 @@ function destroyContactsBetweenBodies(world: WorldState, bodyA: number, bodyB: n
 /** Wake both bodies attached to a joint (b3Joint_WakeBodies). */
 export function wakeJointBodies(world: WorldState, joint: Joint): void {
     world.locked = true;
-    wakeBody(world, joint.edges[0].bodyId);
-    wakeBody(world, joint.edges[1].bodyId);
+    wakeBody(world, jointField(world, joint, JointField.bodyIdA + 3 * 0));
+    wakeBody(world, jointField(world, joint, JointField.bodyIdA + 3 * 1));
     world.locked = false;
 }
 
@@ -561,12 +322,20 @@ export function getJointLinearSeparation(world: WorldState, joint: Joint): numbe
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
     const sim = joint;
-    const xfA = readBodyTransform(world, joint.edges[0].bodyId, bodyPoseScratch1);
-    const xfB = readBodyTransform(world, joint.edges[1].bodyId, bodyPoseScratch2);
+    const xfA = readBodyTransform(
+        world,
+        jointField(world, joint, JointField.bodyIdA + 3 * 0),
+        bodyPoseScratch1,
+    );
+    const xfB = readBodyTransform(
+        world,
+        jointField(world, joint, JointField.bodyIdA + 3 * 1),
+        bodyPoseScratch2,
+    );
     const pA = transformWorldPoint(xfA, readJointVec3(world, sim, J_LOCAL_FRAME_A));
     const pB = transformWorldPoint(xfB, readJointVec3(world, sim, J_LOCAL_FRAME_B));
     const dp = vec3.sub(pB, pA);
-    switch (joint.type) {
+    switch (jointField(world, joint, JointField.type) as JointType) {
         case JointType.Parallel:
         case JointType.Motor:
         case JointType.Filter:
@@ -638,10 +407,18 @@ export function getJointAngularSeparation(world: WorldState, joint: Joint): numb
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
     const sim = joint;
-    const xfA = readBodyTransform(world, joint.edges[0].bodyId, bodyPoseScratch1);
-    const xfB = readBodyTransform(world, joint.edges[1].bodyId, bodyPoseScratch2);
+    const xfA = readBodyTransform(
+        world,
+        jointField(world, joint, JointField.bodyIdA + 3 * 0),
+        bodyPoseScratch1,
+    );
+    const xfB = readBodyTransform(
+        world,
+        jointField(world, joint, JointField.bodyIdA + 3 * 1),
+        bodyPoseScratch2,
+    );
     const relQ = quat.invMul(xfA.q, xfB.q);
-    switch (joint.type) {
+    switch (jointField(world, joint, JointField.type) as JointType) {
         case JointType.Distance:
         case JointType.Motor:
         case JointType.Filter:

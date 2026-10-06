@@ -4,32 +4,37 @@ import { NULL_INDEX } from "../common/array";
 import { GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/constants";
 import { DJ_IMPULSE, DJ_MOTOR_IMPULSE, J_JOINT_ID, JOINT_STRIDE } from "../kernel/columns";
 import { jointArrayCount, jointArrayKey, jointAt, writeJointFloat } from "../kernel/jointcolumns";
+import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { solverSetCount } from "../kernel/solversetcolumns";
 import type { WorldState } from "../world/world";
+import { jointIds } from "./joint.fixture";
 
 function records(world: WorldState): Map<number, number[]> {
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
     const result = new Map<number, number[]>();
-    for (const joint of world.joints) {
-        if (joint.setIndex === NULL_INDEX) continue;
-        const key = jointArrayKey(joint);
-        expect(joint.localIndex).toBeLessThan(jointArrayCount(world, key));
-        expect(jointAt(world, key, joint.localIndex)).toBe(joint);
+    for (const joint of jointIds(world)) {
+        if (jointField(world, joint, JointField.setIndex) === NULL_INDEX) continue;
+        const key = jointArrayKey(world, joint);
+        expect(jointField(world, joint, JointField.localIndex)).toBeLessThan(
+            jointArrayCount(world, key),
+        );
+        expect(jointAt(world, key, jointField(world, joint, JointField.localIndex))).toBe(joint);
         const words = new Uint32Array(
             k.memory.buffer,
-            k.jointArrayPtr(key) + joint.localIndex * JOINT_STRIDE * 4,
+            k.jointArrayPtr(key) +
+                jointField(world, joint, JointField.localIndex) * JOINT_STRIDE * 4,
             JOINT_STRIDE,
         );
-        expect(words[J_JOINT_ID]).toBe(joint.jointId);
-        result.set(joint.jointId, Array.from(words));
+        expect(words[J_JOINT_ID]).toBe(jointField(world, joint, JointField.jointId));
+        result.set(jointField(world, joint, JointField.jointId), Array.from(words));
     }
     for (let key = 0; key < GRAPH_COLOR_COUNT + solverSetCount(world); ++key) {
         for (let i = 0; i < jointArrayCount(world, key); ++i) {
             const joint = jointAt(world, key, i);
-            expect(jointArrayKey(joint)).toBe(key);
-            expect(joint.localIndex).toBe(i);
+            expect(jointArrayKey(world, joint)).toBe(key);
+            expect(jointField(world, joint, JointField.localIndex)).toBe(i);
         }
     }
     return result;
@@ -52,12 +57,7 @@ test("sleeping joint arrays wake in their original order, including overflow, an
                     length: i + 1,
                     hertz: i + 2,
                 });
-                writeJointFloat(
-                    subject.state,
-                    subject.state.joints[joint.id.index1 - 1],
-                    DJ_IMPULSE,
-                    i + 0.125,
-                );
+                writeJointFloat(subject.state, joint.id.index1 - 1, DJ_IMPULSE, i + 0.125);
             }
         }
         expect(jointArrayCount(world.state, OVERFLOW_INDEX)).toBeGreaterThan(0);
@@ -66,11 +66,10 @@ test("sleeping joint arrays wake in their original order, including overflow, an
         const hub = hubs[0];
         hub.setAwake(false);
         expect(records(world.state)).toEqual(before);
-        const setIndex = world.state.joints[0].setIndex;
+        const setIndex = jointField(world.state, 0, JointField.setIndex);
         const key = GRAPH_COLOR_COUNT + setIndex;
-        const order = Array.from(
-            { length: jointArrayCount(world.state, key) },
-            (_, i) => jointAt(world.state, key, i).jointId,
+        const order = Array.from({ length: jointArrayCount(world.state, key) }, (_, i) =>
+            jointAt(world.state, key, i),
         );
         const snapshot = world.snapshot();
         hub.setAwake(true);
@@ -78,7 +77,7 @@ test("sleeping joint arrays wake in their original order, including overflow, an
         const actual: number[] = [];
         for (let color = 0; color < GRAPH_COLOR_COUNT; ++color) {
             for (let i = 0; i < jointArrayCount(world.state, color); ++i)
-                actual.push(jointAt(world.state, color, i).jointId);
+                actual.push(jointAt(world.state, color, i));
         }
         expect(actual).toEqual(order);
         world.restore(snapshot);
@@ -110,7 +109,7 @@ test("joint-array moves preserve every record word and fix local indices through
                 enableMotor: true,
                 motorSpeed: i + 3,
             });
-            const record = world.state.joints[joint.id.index1 - 1];
+            const record = joint.id.index1 - 1;
             writeJointFloat(world.state, record, DJ_IMPULSE, i + 0.25);
             writeJointFloat(world.state, record, DJ_MOTOR_IMPULSE, -i - 0.5);
             return { a, b, joint };
@@ -121,9 +120,9 @@ test("joint-array moves preserve every record word and fix local indices through
             for (const [id, words] of records(world.state)) expect(words).toEqual(before.get(id)!);
         };
         pairs[1].a.setAwake(false);
-        expect(world.state.joints[pairs[1].joint.id.index1 - 1].setIndex).toBeGreaterThanOrEqual(
-            SetType.FirstSleeping,
-        );
+        expect(
+            jointField(world.state, pairs[1].joint.id.index1 - 1, JointField.setIndex),
+        ).toBeGreaterThanOrEqual(SetType.FirstSleeping);
         assertUnchanged();
         pairs[1].b.setAwake(true);
         assertUnchanged();

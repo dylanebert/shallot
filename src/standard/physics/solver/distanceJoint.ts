@@ -27,6 +27,7 @@ import {
     writeJointFlag,
     writeJointFloat,
 } from "../kernel/jointcolumns";
+import { JointField, jointField } from "../kernel/jointrecords";
 import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
@@ -99,8 +100,16 @@ export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
-    const transformB = readBodyTransform(world, sim.edges[1].bodyId, bodyPoseScratch2);
+    const transformA = readBodyTransform(
+        world,
+        jointField(world, sim, JointField.bodyIdA + 3 * 0),
+        bodyPoseScratch1,
+    );
+    const transformB = readBodyTransform(
+        world,
+        jointField(world, sim, JointField.bodyIdA + 3 * 1),
+        bodyPoseScratch2,
+    );
     const pA = vec3.add(
         quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A)),
         transformA.p,
@@ -129,8 +138,16 @@ export function distanceJointCurrentLength(world: WorldState, sim: Joint): numbe
     const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
-    const transformA = readBodyTransform(world, sim.edges[0].bodyId, bodyPoseScratch1);
-    const transformB = readBodyTransform(world, sim.edges[1].bodyId, bodyPoseScratch2);
+    const transformA = readBodyTransform(
+        world,
+        jointField(world, sim, JointField.bodyIdA + 3 * 0),
+        bodyPoseScratch1,
+    );
+    const transformB = readBodyTransform(
+        world,
+        jointField(world, sim, JointField.bodyIdA + 3 * 1),
+        bodyPoseScratch2,
+    );
     const pA = vec3.add(
         quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A)),
         transformA.p,

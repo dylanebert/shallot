@@ -76,15 +76,6 @@ export type Kernel = {
     solverSetMoveContact(source: number, index: number, target: number): number;
     solverSetSleepContact(id: number, target: number): void;
     solverSetMoveIsland(source: number, index: number, target: number): number;
-    solverSetMerge(first: number, second: number): number;
-    solverSetTransferJoint(
-        source: number,
-        color: number,
-        index: number,
-        target: number,
-        a: number,
-        b: number,
-    ): number;
     islandSplit(id: number): void;
     islandCreate(set: number): number;
     islandDestroy(id: number): void;
@@ -97,11 +88,6 @@ export type Kernel = {
     islandRemoveBody(id: number, index: number): void;
     islandLinkContact(id: number, a: number, b: number): void;
     islandUnlinkContact(id: number): void;
-    islandLinkJoint(id: number, bodyA: number, bodyB: number, a: number, b: number): void;
-    islandUnlinkJoint(id: number, island: number, index: number): void;
-    islandFixCount(): number;
-    islandFixData(): number;
-    islandFixClear(): void;
     solverSetCreate(): number;
     solverSetCount(): number;
     solverSetIndex(id: number): number;
@@ -258,6 +244,8 @@ export type Kernel = {
         wake: boolean,
     ): boolean;
     islandCanSleep(id: number): boolean;
+    islandSplitCandidate(): number;
+    islandSetSplitCandidate(id: number): void;
 
     // One allocator-owned fat AABB per shape in the selected World.
     reserveFatAabb(cap: number): number;
@@ -497,10 +485,6 @@ export type Kernel = {
     graphComputeLayout(): number;
     graphWriteSlots(): void;
     graphCreate(capacity: number): void;
-    graphCreateJoint(a: number, b: number): number;
-    graphAddJoint(source: number, index: number, a: number, b: number): number;
-    graphWakeBuffer(contacts: number, joints: number): number;
-    graphWake(source: number, contacts: number, joints: number): void;
     graphBodyBit(color: number, id: number): number;
     graphAssignColor(a: number, b: number, ta: number, tb: number): number;
     graphClearBodies(color: number, a: number, b: number): void;
@@ -508,13 +492,52 @@ export type Kernel = {
     graphContactPtr(color: number, scalar: number): number;
     graphAddContact(id: number, indexA: number, indexB: number): void;
     graphRemoveContact(a: number, b: number, color: number, index: number, mesh: number): void;
-    graphRemoveJoint(a: number, b: number, color: number, index: number): number;
-    jointArrayRelease(key: number): void;
+    jointCreate(
+        a: number,
+        b: number,
+        type: number,
+        drawScale: number,
+        collideConnected: number,
+        ax: number,
+        ay: number,
+        az: number,
+        aqx: number,
+        aqy: number,
+        aqz: number,
+        aqs: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bqx: number,
+        bqy: number,
+        bqz: number,
+        bqs: number,
+        force: number,
+        torque: number,
+        hertz: number,
+        damping: number,
+    ): number;
+    jointDestroy(id: number, wake: number): void;
+    jointTransfer(id: number, target: number): void;
+    jointLink(id: number): void;
+    jointUnlink(id: number): void;
+    solverSetWake(set: number): void;
+    jointCollectEvents(): number;
+    jointEventPtr(): number;
+    solverSetWokenCount(): number;
+    solverSetWokenCapacity(): number;
+    solverSetWokenPtr(): number;
+    awakeContactCount(): number;
+    awakeContactGet(index: number): number;
+    awakeContactCopy(ptr: number): void;
+    awakeContactUpdate(id: number): void;
+    awakeContactRemove(id: number): void;
+    jointRecordCount(): number;
+    jointRecordCapacity(): number;
+    jointRecordPtr(): number;
+    jointSimPtr(id: number): number;
     jointArrayCount(key: number): number;
     jointArrayPtr(key: number): number;
-    jointArrayAppend(key: number): number;
-    jointArrayRemove(key: number, index: number): number;
-    jointArrayMove(source: number, index: number, target: number): number;
     jointReadFloat(key: number, index: number, field: number): number;
     jointWriteFloat(key: number, index: number, field: number, value: number): void;
     jointReadWord(key: number, index: number, field: number): number;

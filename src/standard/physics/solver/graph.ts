@@ -1,12 +1,7 @@
 import { ContactField, contactField } from "../collision/contact";
-import { GRAPH_COLOR_COUNT, SetType } from "../common/constants";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
-import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
-import { setArrayCount, setArrayGet } from "../kernel/solversetcolumns";
-import type { SolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
-import type { Joint } from "./joint";
 
 function graphKernel(world: WorldState) {
     const k = kernel(world.ecsState);
@@ -14,7 +9,7 @@ function graphKernel(world: WorldState) {
     return k;
 }
 const contactViews = new WeakMap<WorldState, Uint32Array[]>();
-const wakeViews = new WeakMap<WorldState, Uint32Array>();
+const _wakeViews = new WeakMap<WorldState, Uint32Array>();
 /** Borrow the kernel's contact ids or packed b3ContactSpec words until the graph or memory grows. */
 export function graphContacts(world: WorldState, color: number, scalar = false): Uint32Array {
     const k = graphKernel(world);
@@ -57,81 +52,6 @@ export function removeContactFromGraph(
 ): void {
     graphKernel(world).graphRemoveContact(a, b, color, index, +mesh);
 }
-export function createJointInGraph(world: WorldState, joint: Joint): void {
-    const k = graphKernel(world);
-    joint.colorIndex = k.graphCreateJoint(joint.edges[0].bodyId, joint.edges[1].bodyId);
-    joint.localIndex = k.jointArrayCount(joint.colorIndex) - 1;
-}
-export function addJointToGraph(world: WorldState, joint: Joint): void {
-    const k = graphKernel(world);
-    const index = joint.localIndex;
-    const ptr = k.graphAddJoint(
-        jointArrayKey(joint),
-        index,
-        joint.edges[0].bodyId,
-        joint.edges[1].bodyId,
-    );
-    const result = new Uint32Array(k.memory.buffer, ptr, 3);
-    if (result[2] !== 0xffffffff) world.joints[result[2]].localIndex = index;
-    joint.colorIndex = result[0];
-    joint.localIndex = result[1];
-}
 export function clearGraphBodies(world: WorldState, color: number, a: number, b: number): void {
     graphKernel(world).graphClearBodies(color, a, b);
-}
-export function removeJointFromGraph(
-    world: WorldState,
-    a: number,
-    b: number,
-    color: number,
-    index: number,
-): void {
-    const moved = graphKernel(world).graphRemoveJoint(a, b, color, index) >>> 0;
-    if (moved !== 0xffffffff) world.joints[moved].localIndex = index;
-}
-export function wakeSetConstraints(world: WorldState, set: SolverSet): void {
-    const k = graphKernel(world);
-    const key = GRAPH_COLOR_COUNT + set;
-    const count = jointArrayCount(world, key);
-    const contacts = setArrayCount(world, set, 0);
-    const ptr = k.graphWakeBuffer(contacts, count);
-    let input = wakeViews.get(world);
-    if (input?.buffer !== k.memory.buffer) {
-        input = new Uint32Array(k.memory.buffer);
-        wakeViews.set(world, input);
-    }
-    const base = ptr >>> 2;
-    for (let i = 0; i < contacts; ++i) {
-        const id = setArrayGet(world, set, 0, i);
-        input[base + 3 * i] = id;
-        input[base + 3 * i + 1] = bodyField(
-            world,
-            contactField(world, id, ContactField.bodyIdA),
-            BodyField.localIndex,
-        );
-        input[base + 3 * i + 2] = bodyField(
-            world,
-            contactField(world, id, ContactField.bodyIdA + 3),
-            BodyField.localIndex,
-        );
-    }
-    for (let i = 0; i < count; ++i) {
-        const joint = jointAt(world, key, i);
-        const o = base + 3 * (contacts + i);
-        input[o] = joint.jointId;
-        input[o + 1] = joint.edges[0].bodyId;
-        input[o + 2] = joint.edges[1].bodyId;
-    }
-    k.graphWake(key, contacts, count);
-    if (input.buffer !== k.memory.buffer) {
-        input = new Uint32Array(k.memory.buffer);
-        wakeViews.set(world, input);
-    }
-    for (let i = 0; i < count; ++i) {
-        const o = base + 3 * (contacts + i);
-        const joint = world.joints[input[o]];
-        joint.setIndex = SetType.Awake;
-        joint.colorIndex = input[o + 1];
-        joint.localIndex = input[o + 2];
-    }
 }

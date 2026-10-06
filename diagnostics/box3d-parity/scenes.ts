@@ -7,6 +7,7 @@
 // arithmetic; human.c's bone table is read from the frozen ragdoll fixture. Environment as native.c:
 // RAIN_COUNT, RAIN_GROUP, ROCKS, COLORS, CACHE, PROFILE, and on Node CPU (cpu.ts).
 import { World } from "../../src/engine";
+import { awakeContactCount } from "../../src/standard/physics/collision/contact";
 import {
     type Body,
     BodyType,
@@ -326,7 +327,7 @@ for (let i = 0; i < steps; ++i) {
         const p = w.getProfile();
         lines.push(`F ${i} ${PROFILE_FIELDS.map((k) => p[k].toFixed(4)).join(" ")}`);
         const c = w.getCounters();
-        lines.push(`W ${i} contacts ${c.contactCount} awake ${state.awakeContacts.length} joints ${c.jointCount}`);
+        lines.push(`W ${i} contacts ${c.contactCount} awake ${awakeContactCount(state)} joints ${c.jointCount}`);
     }
     if (i === colors) {
         const graph = kernel(state.ecsState);

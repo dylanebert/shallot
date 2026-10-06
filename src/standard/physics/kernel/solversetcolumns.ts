@@ -1,4 +1,3 @@
-import { GRAPH_COLOR_COUNT } from "../common/constants";
 import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { bodySimSlot } from "./bodycolumns";
@@ -75,20 +74,6 @@ export function setArraySnapshot(world: WorldState, set: number, kind: number): 
     );
 }
 
-export function mergeSetColumns(world: WorldState, first: number, second: number): Uint32Array {
-    const k = active(world);
-    const source = k.solverSetBodyCount(first) < k.solverSetBodyCount(second) ? first : second;
-    const count =
-        k.solverSetBodyCount(source) +
-        k.jointArrayCount(GRAPH_COLOR_COUNT + source) +
-        k.solverSetArrayCount(source, 1);
-    const ptr = k.solverSetMerge(first, second);
-    world.bodyStore.refreshViews();
-    const result = world.bodyStore.moveResult(ptr, 3 + 3 * count);
-    world.bodyStore.forgetSet(result[1]);
-    return result;
-}
-
 export function transferBodyColumns(
     world: WorldState,
     source: number,
@@ -136,17 +121,4 @@ export function moveSetIsland(
     target: number,
 ): Uint32Array {
     return world.bodyStore.moveResult(active(world).solverSetMoveIsland(source, index, target), 2);
-}
-export function transferJointColumns(
-    world: WorldState,
-    source: number,
-    color: number,
-    index: number,
-    target: number,
-    a: number,
-    b: number,
-): Uint32Array {
-    const ptr = active(world).solverSetTransferJoint(source, color, index, target, a, b);
-    world.bodyStore.refreshViews();
-    return world.bodyStore.moveResult(ptr, 3);
 }
