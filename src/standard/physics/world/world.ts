@@ -30,7 +30,7 @@ import type { HullData } from "../shapes/hull";
 import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import { createStepProfile, type StepProfile } from "./profile";
-import type { Sensor, SensorBeginTouchEvent } from "./sensor";
+import type { SensorBeginTouchEvent } from "./sensor";
 import { destroySolverSet } from "./solverset";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
@@ -105,9 +105,6 @@ export type WorldState = {
     // at shape create/destroy — no dirty set (shapecolumns.ts).
     shapeStore: ShapeStore;
 
-    // Dense array of sensor overlap-tracking state, one per sensor shape (b3World.sensors).
-    sensors: Sensor[];
-    sensorCount: number;
     queryColumns: QueryColumns | null;
 
     // Event buffers. End events are double-buffered so the user needn't flush every step. Kernel
@@ -220,8 +217,6 @@ function makeWorldState(
         manifoldStore: createManifoldStore(world, worldId),
         bodyStore: createBodyStore(world, worldId),
         shapeStore: createShapeStore(world, worldId),
-        sensors: [],
-        sensorCount: 0,
         queryColumns: null,
         bodyMoveCount: 0,
         sensorBeginEvents: [],

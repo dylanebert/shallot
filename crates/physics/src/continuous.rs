@@ -35,6 +35,25 @@ pub extern "C" fn roots(s: i32, k: i32, d: i32, enable_sleep: bool) {
         ENABLE_SLEEP = enable_sleep;
     }
 }
+#[export_name = "sensorConsumeContinuous"]
+pub unsafe extern "C" fn consume(world: usize, count: usize, bullets: bool) {
+    let out = scratch();
+    let sims = sim2();
+    let mask = IS_FAST | IS_BULLET;
+    let wanted = IS_FAST | if bullets { IS_BULLET } else { 0 };
+    for i in 0..count {
+        if sims.get(i * body::SIM2_STRIDE + body::S2_FLAGS) & mask != wanted {
+            continue;
+        }
+        for n in 0..out.get(i * STRIDE + 1) as usize {
+            crate::sensor::record_hit(
+                world,
+                out.get(i * STRIDE + 2 + n * 2) as usize,
+                out.get(i * STRIDE + 3 + n * 2) as usize,
+            );
+        }
+    }
+}
 unsafe fn scratch() -> Col<'static, u32> {
     Col::new(BASE as *mut u32, COUNT * STRIDE)
 }

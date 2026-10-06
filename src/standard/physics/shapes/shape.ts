@@ -573,6 +573,14 @@ export function getSensorData(world: WorldState, shape: Shape): Visitor[] {
     if (shapeSensorIndex(world, shape) === NULL_INDEX) {
         return [];
     }
-    const overlaps = world.sensors[shapeSensorIndex(world, shape)].overlaps2;
-    return overlaps.data.slice(0, overlaps.count).map((r) => ({ ...r }));
+    const k = kernel(world.ecsState);
+    const index = shapeSensorIndex(world, shape);
+    const result: Visitor[] = [];
+    for (let i = 0, count = k.sensorVisitorCount(world.worldId, index); i < count; ++i) {
+        result.push({
+            shapeId: k.sensorVisitorWord(world.worldId, index, i, 0),
+            generation: k.sensorVisitorWord(world.worldId, index, i, 1),
+        });
+    }
+    return result;
 }

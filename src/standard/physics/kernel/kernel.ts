@@ -56,6 +56,15 @@ export type Kernel = {
     worldQuery(world: number, operation: number, callback: number): void;
     bodyQuery(world: number, operation: number, head: number, capacity: number): void;
     sensorQuery(world: number, sensor: number): number;
+    sensorCreate(world: number, shape: number): void;
+    sensorConsumeContinuous(world: number, count: number, bullets: boolean): void;
+    sensorRecordHit(world: number, sensor: number, visitor: number): void;
+    sensorOverlap(world: number): void;
+    sensorDestroy(world: number, shape: number): void;
+    sensorEventCount(world: number): number;
+    sensorEventWord(world: number, index: number, word: number): number;
+    sensorVisitorCount(world: number, index: number): number;
+    sensorVisitorWord(world: number, index: number, visitor: number, word: number): number;
     smokeScale(len: number, k: number): void;
 
     // Shared-column arena (kernel/src/arena.rs). `reserve` lays out the columns for one step's counts

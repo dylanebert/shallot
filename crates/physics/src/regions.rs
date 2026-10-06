@@ -39,6 +39,7 @@ pub extern "C" fn reset(world: u32) {
         crate::constraint_graph::reset(id);
         crate::broad::reset(id);
         crate::geo::reset(id);
+        crate::sensor::reset(id);
     }
 }
 
@@ -68,6 +69,7 @@ pub extern "C" fn snapshot(world: u32) -> usize {
         crate::constraint_graph::snapshot(world as usize, &mut out);
         crate::broad::snapshot(world as usize, &mut out);
         crate::geo::snapshot(world as usize, &mut out);
+        crate::sensor::snapshot(world as usize, &mut out);
         let buffer = &mut *(&raw mut SNAPSHOT);
         *buffer = out;
         buffer.len()
@@ -99,6 +101,7 @@ pub extern "C" fn restore(world: u32) {
         crate::constraint_graph::restore(world as usize, &mut input);
         crate::broad::restore(world as usize, &mut input);
         crate::geo::restore(world as usize, &mut input);
+        crate::sensor::restore(world as usize, &mut input);
         assert!(input.is_empty());
         invalidate_views();
     }

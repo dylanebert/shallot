@@ -147,6 +147,14 @@ pub extern "C" fn sensor(world: usize, sensor_id: usize) -> u32 {
                     {
                         return true;
                     }
+                    if !matches!(
+                        r.get(o + S_TYPE),
+                        crate::finalize::TY_SPHERE
+                            | crate::finalize::TY_CAPSULE
+                            | crate::finalize::TY_HULL
+                    ) {
+                        return true;
+                    }
                     let (visitor, _) = query_abi::shape(world, id);
                     let relative = sensor_transform.inv_mul(pose(id, Vec3::ZERO));
                     let mut points = [Vec3::ZERO; 128];

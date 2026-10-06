@@ -158,6 +158,8 @@ mod pairwork;
 mod query_abi;
 #[cfg(target_arch = "wasm32")]
 mod regions;
+#[cfg(target_arch = "wasm32")]
+mod sensor;
 mod shape_geometry;
 #[cfg(target_arch = "wasm32")]
 mod shape_lifecycle;
