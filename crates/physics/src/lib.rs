@@ -138,11 +138,14 @@ mod compound_query;
 #[cfg(target_arch = "wasm32")]
 mod contact_list;
 #[cfg(target_arch = "wasm32")]
+mod draw;
+#[cfg(target_arch = "wasm32")]
 mod fataabb;
 #[cfg(target_arch = "wasm32")]
 mod geo;
 #[cfg(any(target_arch = "wasm32", test))]
 mod hull_database;
+mod joint_draw;
 #[cfg(target_arch = "wasm32")]
 mod joint_lifecycle;
 mod joint_record;

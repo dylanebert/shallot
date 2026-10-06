@@ -41,6 +41,7 @@ import {
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "../kernel/shapecolumns";
 import type { WorldState } from "../world/world";
 import { hash64NonZero, hullImage } from "./hullbytes";
+import { drawHull } from "./readgeometry";
 
 // Final hull indices are uint8, so vertex/edge/face counts cap at 255.
 const HULL_LIMIT = 255;
@@ -97,56 +98,16 @@ export function readShapeHull(world: WorldState, shape: number): HullData {
     store.refreshViews();
     return readHullAt(world, store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE]);
 }
+const hullViews = new WeakMap<WorldState, DataView>();
 export function readHullAt(world: WorldState, ptr: number): HullData {
-    const store = world.shapeStore;
-    const r = ptr >>> 2,
-        u = store.materialU,
-        f = store.materialF;
-    const vector = (o: number): Vec3 => ({ x: f[o], y: f[o + 1], z: f[o + 2] });
-    const bytes = new Uint8Array(f.buffer);
-    const vertexCount = u[r + 25],
-        edgeCount = u[r + 28],
-        faceCount = u[r + 30];
-    const vertices = [],
-        points = [],
-        edges = [],
-        faces = [],
-        planes = [];
-    for (let i = 0; i < vertexCount; ++i) {
-        vertices.push({ edge: bytes[ptr + u[r + 26] + i] });
-        points.push(vector(r + u[r + 27] / 4 + 3 * i));
+    world.shapeStore.refreshViews();
+    const buffer = world.shapeStore.materialF.buffer;
+    let view = hullViews.get(world);
+    if (!view || view.buffer !== buffer) {
+        view = new DataView(buffer);
+        hullViews.set(world, view);
     }
-    for (let i = 0; i < edgeCount; ++i) {
-        const o = ptr + u[r + 29] + 4 * i;
-        edges.push({
-            next: bytes[o],
-            twin: bytes[o + 1],
-            origin: bytes[o + 2],
-            face: bytes[o + 3],
-        });
-    }
-    for (let i = 0; i < faceCount; ++i) {
-        faces.push({ edge: bytes[ptr + u[r + 32] + i] });
-        const o = r + u[r + 31] / 4 + 4 * i;
-        planes.push({ normal: vector(o), offset: f[o + 3] });
-    }
-    return {
-        aabb: { lowerBound: vector(r + 4), upperBound: vector(r + 7) },
-        surfaceArea: f[r + 10],
-        volume: f[r + 11],
-        innerRadius: f[r + 12],
-        center: vector(r + 13),
-        centralInertia: { cx: vector(r + 16), cy: vector(r + 19), cz: vector(r + 22) },
-        vertexCount,
-        edgeCount,
-        faceCount,
-        vertices,
-        points,
-        edges,
-        faces,
-        planes,
-        hash: BigInt(u[r + 2]) | (BigInt(u[r + 3]) << 32n),
-    };
+    return drawHull(view, ptr);
 }
 
 // --- quickhull builder ----------------------------------------------------------------------

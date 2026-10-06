@@ -1,5 +1,5 @@
 //! Box3D mover.c: caller-owned collision planes, solve and velocity clipping.
-use crate::math::{Plane, Vec3};
+use crate::math::{absf, clampf, minf, Plane, Vec3};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -21,10 +21,10 @@ pub fn solve(target: Vec3, planes: &mut [CollisionPlane]) -> (Vec3, u32) {
         for plane in planes.iter_mut() {
             let separation = plane.plane.normal.dot(delta) - plane.plane.offset + 0.005;
             let accumulated = plane.push;
-            plane.push = (plane.push - separation).max(0.0).min(plane.push_limit);
+            plane.push = clampf(plane.push - separation, 0.0, plane.push_limit);
             let push = plane.push - accumulated;
             delta = delta.mul_add(push, plane.plane.normal);
-            total_push += push.abs();
+            total_push += absf(push);
         }
         if total_push < 0.005 {
             break;
@@ -42,7 +42,7 @@ pub fn clip(mut vector: Vec3, planes: &[CollisionPlane]) -> Vec3 {
             plane
                 .plane
                 .normal
-                .scale(vector.dot(plane.plane.normal).min(0.0)),
+                .scale(minf(0.0, vector.dot(plane.plane.normal))),
         );
     }
     vector

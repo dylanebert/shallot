@@ -309,7 +309,8 @@ export class PhysicsWorld {
      * Walk every shape and joint whose fat AABB overlaps `draw.drawingBounds`, resolving each to the
      * typed callbacks on `draw` (b3World_Draw). A renderer supplies the callbacks; a headless caller
      * can count draws. Read-only — never advances the simulation.
-     * @example const d = { ...defaultDebugDraw(), drawShapes: true, drawSolidSphere }; world.draw(d)
+     * Callbacks see the world as it was when `draw` was called and must not mutate it.
+     * Flags and `drawingBounds` are read once at entry.
      */
     draw(draw: DebugDraw, maskBits: bigint = DEFAULT_MASK_BITS): void {
         worldDraw(this.state, draw, maskBits);
@@ -741,9 +742,12 @@ export class PhysicsWorld {
         const q = queryColumns(this.state);
         const k = q.prepare(origin, filter);
         q.translation(translation);
-        const previous = setQueryCallback(this.state.ecsState, (_kind, id, data) =>
-            fcn(castHit(this.state, id, new Float32Array(k.memory.buffer, data, 12), 0, origin)),
-        );
+        const previous = setQueryCallback(this.state.ecsState, (_kind, id, data) => {
+            this.state.shapeStore.refreshViews();
+            return fcn(
+                castHit(this.state, id, this.state.shapeStore.materialF, data >>> 2, origin),
+            );
+        });
         try {
             k.worldQuery(this.state.worldId, 2, 1);
             rethrowQueryError(this.state.ecsState);
@@ -815,9 +819,12 @@ export class PhysicsWorld {
         const k = q.prepare(origin, filter);
         q.proxy(proxy);
         q.translation(translation);
-        const previous = setQueryCallback(this.state.ecsState, (_kind, id, data) =>
-            fcn(castHit(this.state, id, new Float32Array(k.memory.buffer, data, 12), 0, origin)),
-        );
+        const previous = setQueryCallback(this.state.ecsState, (_kind, id, data) => {
+            this.state.shapeStore.refreshViews();
+            return fcn(
+                castHit(this.state, id, this.state.shapeStore.materialF, data >>> 2, origin),
+            );
+        });
         try {
             k.worldQuery(this.state.worldId, 4, 1);
             rethrowQueryError(this.state.ecsState);
@@ -842,10 +849,12 @@ export class PhysicsWorld {
         const k = q.prepare(origin, filter);
         q.mover(mover.center1, mover.center2, mover.radius);
         const previous = setQueryCallback(this.state.ecsState, (_kind, id, data, count) => {
-            const f = new Float32Array(k.memory.buffer, data, count * 10);
+            this.state.shapeStore.refreshViews();
+            const f = this.state.shapeStore.materialF;
+            const base = data >>> 2;
             const planes: PlaneResult[] = [];
             for (let i = 0; i < count; ++i) {
-                const n = i * 10;
+                const n = base + i * 10;
                 planes.push({
                     plane: { normal: { x: f[n], y: f[n + 1], z: f[n + 2] }, offset: f[n + 3] },
                     point: { x: f[n + 4], y: f[n + 5], z: f[n + 6] },

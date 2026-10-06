@@ -1,4 +1,4 @@
-import { type Vec3, vec3 } from "../common/math";
+import type { Vec3 } from "../common/math";
 import {
     WJ_ANGULAR_DAMPING_RATIO,
     WJ_ANGULAR_HERTZ,
@@ -7,7 +7,7 @@ import {
     WJ_LINEAR_HERTZ,
     WJ_LINEAR_IMPULSE,
 } from "../kernel/columns";
-import { readJointVec3, writeJointFloat, writeJointVec3 } from "../kernel/jointcolumns";
+import { readJointReaction, writeJointFloat, writeJointVec3 } from "../kernel/jointcolumns";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -58,10 +58,10 @@ export function createWeldJoint(
     return pair;
 }
 export function getWeldJointForce(world: WorldState, sim: Joint): Vec3 {
-    return vec3.scale(world.invH, readJointVec3(world, sim, WJ_LINEAR_IMPULSE));
+    return readJointReaction(world, sim, false);
 }
 
 /** The reaction torque this joint applies (b3GetWeldJointTorque). */
 export function getWeldJointTorque(world: WorldState, sim: Joint): Vec3 {
-    return vec3.scale(world.invH, readJointVec3(world, sim, WJ_ANGULAR_IMPULSE));
+    return readJointReaction(world, sim, true);
 }

@@ -1,4 +1,4 @@
-import { FLT_MAX, f32, type Quat, quat, type Vec3, vec3 } from "../common/math";
+import { FLT_MAX, type Quat, type Vec3 } from "../common/math";
 import {
     PLJ_DAMPING_RATIO,
     PLJ_HERTZ,
@@ -10,9 +10,7 @@ import {
     PLJ_QUAT_B,
 } from "../kernel/columns";
 import {
-    readJointQuat,
-    readJointVec2,
-    readJointVec3,
+    readJointReaction,
     writeJointFloat,
     writeJointQuat,
     writeJointVec2,
@@ -79,45 +77,6 @@ export function createParallelJoint(
     return pair;
 }
 
-// The two perpendicular collinearity axes in world space, from the relative rotation (relQ) of the
-// two joint frames. relQ = inv(quatA) * quatB; the axes are half the rotated imaginary parts.
-function perpAxes(
-    qA: Quat,
-    relQ: Quat,
-): {
-    x: Vec3;
-    y: Vec3;
-} {
-    return {
-        x: vec3.scale(
-            f32(0.5),
-            quat.rotate(
-                qA,
-                vec3.add(vec3.scale(relQ.s, vec3.axisX()), vec3.cross(relQ.v, vec3.axisX())),
-            ),
-        ),
-        y: vec3.scale(
-            f32(0.5),
-            quat.rotate(
-                qA,
-                vec3.add(vec3.scale(relQ.s, vec3.axisY()), vec3.cross(relQ.v, vec3.axisY())),
-            ),
-        ),
-    };
-}
 export function getParallelJointTorque(world: WorldState, sim: Joint): Vec3 {
-    const relQ = quat.invMul(
-        readJointQuat(world, sim, PLJ_QUAT_A),
-        readJointQuat(world, sim, PLJ_QUAT_B),
-    );
-    const axes = perpAxes(readJointQuat(world, sim, PLJ_QUAT_A), relQ);
-    writeJointVec3(world, sim, PLJ_PERP_AXIS_X, axes.x);
-    writeJointVec3(world, sim, PLJ_PERP_AXIS_Y, axes.y);
-    const angularImpulse = vec3.blend2(
-        readJointVec2(world, sim, PLJ_PERP_IMPULSE).x,
-        readJointVec3(world, sim, PLJ_PERP_AXIS_X),
-        readJointVec2(world, sim, PLJ_PERP_IMPULSE).y,
-        readJointVec3(world, sim, PLJ_PERP_AXIS_Y),
-    );
-    return vec3.scale(world.invH, angularImpulse);
+    return readJointReaction(world, sim, true);
 }

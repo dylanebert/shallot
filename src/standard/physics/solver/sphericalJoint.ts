@@ -1,4 +1,4 @@
-import { clampf, f32, maxf, minf, PI, type Quat, quat, type Vec3, vec3 } from "../common/math";
+import { clampf, f32, maxf, minf, PI, type Quat, quat, type Vec3 } from "../common/math";
 import {
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
@@ -23,9 +23,8 @@ import {
     SJ_UPPER_TWIST_IMPULSE,
 } from "../kernel/columns";
 import {
-    readJointFloat,
     readJointQuat,
-    readJointVec3,
+    readJointReaction,
     writeJointFlag,
     writeJointFloat,
     writeJointQuat,
@@ -140,43 +139,12 @@ export function createSphericalJoint(
     return pair;
 }
 export function getSphericalJointForce(world: WorldState, sim: Joint): Vec3 {
-    return vec3.scale(world.invH, readJointVec3(world, sim, SJ_LINEAR_IMPULSE));
+    return readJointReaction(world, sim, false);
 }
 
 /** The reaction torque this joint applies (b3GetSphericalJointTorque). */
 export function getSphericalJointTorque(world: WorldState, sim: Joint): Vec3 {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    const xfA = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 0),
-        bodyPoseScratch1,
-    );
-    const xfB = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 1),
-        bodyPoseScratch2,
-    );
-    const qA = quat.mul(xfA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
-    const qB = quat.mul(xfB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
-    const coneAxis = quat.rotate(qA, vec3.axisZ());
-    const twistAxis = quat.rotate(qB, vec3.axisZ());
-    const swingAxis = vec3.normalize(vec3.cross(coneAxis, twistAxis));
-    let impulse = vec3.add(
-        readJointVec3(world, sim, SJ_SPRING_IMPULSE),
-        readJointVec3(world, sim, SJ_MOTOR_IMPULSE),
-    );
-    impulse = vec3.mulAdd(
-        impulse,
-        f32(
-            readJointFloat(world, sim, SJ_LOWER_TWIST_IMPULSE) -
-                readJointFloat(world, sim, SJ_UPPER_TWIST_IMPULSE),
-        ),
-        twistAxis,
-    );
-    impulse = vec3.mulAdd(impulse, readJointFloat(world, sim, SJ_SWING_IMPULSE), swingAxis);
-    return vec3.scale(world.invH, impulse);
+    return readJointReaction(world, sim, true);
 }
 
 /** @returns the relative rotation of the two joint frames, twist-adjusted (shared by cone/twist getters). */

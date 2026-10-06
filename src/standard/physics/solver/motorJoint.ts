@@ -1,4 +1,4 @@
-import { type Vec3, vec3 } from "../common/math";
+import type { Vec3 } from "../common/math";
 import {
     MJ_ANGULAR_DAMPING_RATIO,
     MJ_ANGULAR_HERTZ,
@@ -15,7 +15,7 @@ import {
     MJ_MAX_VELOCITY_FORCE,
     MJ_MAX_VELOCITY_TORQUE,
 } from "../kernel/columns";
-import { readJointVec3, writeJointFloat, writeJointVec3 } from "../kernel/jointcolumns";
+import { readJointReaction, writeJointFloat, writeJointVec3 } from "../kernel/jointcolumns";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -95,22 +95,10 @@ export function createMotorJoint(
     return pair;
 }
 export function getMotorJointForce(world: WorldState, sim: Joint): Vec3 {
-    return vec3.scale(
-        world.invH,
-        vec3.add(
-            readJointVec3(world, sim, MJ_LINEAR_VELOCITY_IMPULSE),
-            readJointVec3(world, sim, MJ_LINEAR_SPRING_IMPULSE),
-        ),
-    );
+    return readJointReaction(world, sim, false);
 }
 
 /** The reaction torque this joint applies (b3GetMotorJointTorque). */
 export function getMotorJointTorque(world: WorldState, sim: Joint): Vec3 {
-    return vec3.scale(
-        world.invH,
-        vec3.add(
-            readJointVec3(world, sim, MJ_ANGULAR_VELOCITY_IMPULSE),
-            readJointVec3(world, sim, MJ_ANGULAR_SPRING_IMPULSE),
-        ),
-    );
+    return readJointReaction(world, sim, true);
 }

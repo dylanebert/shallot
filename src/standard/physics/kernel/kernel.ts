@@ -30,6 +30,11 @@ export type Kernel = {
      * triangle, child, material. Mover output is caller-owned: normal(3), offset, point(3),
      * then three i32 indices, 40 bytes per plane. `local` selects per-kind dispatch without a
      * shape transform, preserving the local oracle's signed zeros. */
+    jointReaction(world: number, joint: number, invH: number, torque: number): void;
+    worldDraw(world: number, flags: number, maskHi: number, maskLo: number, invH: number): void;
+    worldDrawPtr(): number;
+    worldDrawLen(): number;
+    worldDrawShape(world: number, shape: number): void;
     moverPlanesPtr(count: number): number;
     moverOutputPtr(): number;
     moverSolve(operation: number, x: number, y: number, z: number, count: number): void;

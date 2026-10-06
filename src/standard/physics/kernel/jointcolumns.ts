@@ -12,6 +12,13 @@ function jointKernel(world: WorldState) {
     k.bodySetActiveWorld(world.worldId);
     return k;
 }
+export function readJointReaction(world: WorldState, joint: Joint, torque: boolean): Vec3 {
+    const k = jointKernel(world);
+    k.jointReaction(world.worldId, joint, world.invH, Number(torque));
+    const f = jointViews(k).floats,
+        n = k.shapeQueryOutputPtr() >>> 2;
+    return { x: f[n], y: f[n + 1], z: f[n + 2] };
+}
 export function jointArrayKey(world: WorldState, joint: Joint): number {
     return jointField(world, joint, JointField.setIndex) === SetType.Awake
         ? jointField(world, joint, JointField.colorIndex)

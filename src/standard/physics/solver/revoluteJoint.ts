@@ -1,4 +1,4 @@
-import { clampf, f32, maxf, minf, PI, type Quat, quat, type Vec3, vec3 } from "../common/math";
+import { clampf, f32, maxf, minf, PI, type Quat, quat, type Vec3 } from "../common/math";
 import {
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
@@ -26,10 +26,8 @@ import {
     RJ_UPPER_IMPULSE,
 } from "../kernel/columns";
 import {
-    readJointFloat,
     readJointQuat,
-    readJointVec2,
-    readJointVec3,
+    readJointReaction,
     writeJointFlag,
     writeJointFloat,
     writeJointQuat,
@@ -142,73 +140,12 @@ export function createRevoluteJoint(
     return pair;
 }
 export function getRevoluteJointForce(world: WorldState, sim: Joint): Vec3 {
-    return vec3.scale(world.invH, readJointVec3(world, sim, RJ_LINEAR_IMPULSE));
+    return readJointReaction(world, sim, false);
 }
 
 /** The reaction torque this joint applies (b3GetRevoluteJointTorque). */
 export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    const transformA = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 0),
-        bodyPoseScratch1,
-    );
-    let axis = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisZ());
-    axis = quat.rotate(transformA.q, axis);
-    const relQ = quat.invMul(
-        readJointQuat(world, sim, RJ_FRAME_A + 3),
-        readJointQuat(world, sim, RJ_FRAME_B + 3),
-    );
-    writeJointVec3(
-        world,
-        sim,
-        RJ_PERP_AXIS_X,
-        vec3.scale(
-            f32(0.5),
-            quat.rotate(
-                readJointQuat(world, sim, RJ_FRAME_A + 3),
-                vec3.add(vec3.scale(relQ.s, vec3.axisX()), vec3.cross(relQ.v, vec3.axisX())),
-            ),
-        ),
-    );
-    writeJointVec3(
-        world,
-        sim,
-        RJ_PERP_AXIS_Y,
-        vec3.scale(
-            f32(0.5),
-            quat.rotate(
-                readJointQuat(world, sim, RJ_FRAME_A + 3),
-                vec3.add(vec3.scale(relQ.s, vec3.axisY()), vec3.cross(relQ.v, vec3.axisY())),
-            ),
-        ),
-    );
-    const axialImpulse = f32(
-        f32(
-            f32(
-                readJointFloat(world, sim, RJ_SPRING_IMPULSE) +
-                    readJointFloat(world, sim, RJ_MOTOR_IMPULSE),
-            ) + readJointFloat(world, sim, RJ_LOWER_IMPULSE),
-        ) - readJointFloat(world, sim, RJ_UPPER_IMPULSE),
-    );
-    let angularImpulse = vec3.add(
-        vec3.scale(
-            readJointVec2(world, sim, RJ_PERP_IMPULSE).x,
-            readJointVec3(world, sim, RJ_PERP_AXIS_X),
-        ),
-        vec3.scale(
-            readJointVec2(world, sim, RJ_PERP_IMPULSE).y,
-            readJointVec3(world, sim, RJ_PERP_AXIS_Y),
-        ),
-    );
-    angularImpulse = vec3.mulAdd(
-        angularImpulse,
-        axialImpulse,
-        readJointVec3(world, sim, RJ_ROTATION_AXIS_Z),
-    );
-    const impulse = vec3.mulAdd(angularImpulse, axialImpulse, axis);
-    return vec3.scale(world.invH, impulse);
+    return readJointReaction(world, sim, true);
 }
 
 /** The current hinge angle (b3RevoluteJoint_GetAngle): relative twist of the two joint frames. */

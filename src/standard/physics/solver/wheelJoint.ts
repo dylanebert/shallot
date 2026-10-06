@@ -33,15 +33,14 @@ import {
     WHJ_UPPER_SUSPENSION_LIMIT,
 } from "../kernel/columns";
 import {
-    readJointFloat,
     readJointQuat,
-    readJointVec2,
+    readJointReaction,
     writeJointFlag,
     writeJointFloat,
     writeJointVec2,
 } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
-import { getBodyState, readBodyTransform } from "../world/body";
+import { getBodyState } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -154,49 +153,12 @@ export function createWheelJoint(
     return pair;
 }
 export function getWheelJointForce(world: WorldState, sim: Joint): Vec3 {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    const transformA = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 0),
-        bodyPoseScratch1,
-    );
-
-    // impulse in joint space. The z term reads lowerSuspensionLimit (a config value, not an impulse) —
-    // an upstream quirk in b3GetWheelJointForce, kept verbatim so this accessor matches C. Not "fixed"
-    // to lowerSuspensionImpulse: force accessors aren't hashed, but the port stays faithful to the C API.
-    const impulse: Vec3 = {
-        x: readJointVec2(world, sim, WHJ_LINEAR_IMPULSE).x,
-        y: readJointVec2(world, sim, WHJ_LINEAR_IMPULSE).y,
-        z: f32(
-            f32(
-                readJointFloat(world, sim, WHJ_LOWER_SUSPENSION_LIMIT) +
-                    readJointFloat(world, sim, WHJ_UPPER_SUSPENSION_IMPULSE),
-            ) + readJointFloat(world, sim, WHJ_SUSPENSION_SPRING_IMPULSE),
-        ),
-    };
-    let force = vec3.scale(world.invH, impulse);
-    force = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), force);
-    force = quat.rotate(transformA.q, force);
-    return force;
+    return readJointReaction(world, sim, false);
 }
 
 /** The reaction torque this joint applies (b3GetWheelJointTorque). */
 export function getWheelJointTorque(world: WorldState, sim: Joint): Vec3 {
-    const transformScratch1 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-
-    const bodyA = jointField(world, sim, JointField.bodyIdA + 3 * 0);
-    const setA = bodyField(world, bodyA, BodyField.setIndex);
-    const bodySimA = bodySimSlot(setA, bodyField(world, bodyA, BodyField.localIndex));
-    const qA = quat.mul(
-        readSimTransform(world, bodySimA, transformScratch1).q,
-        readJointQuat(world, sim, J_LOCAL_FRAME_A + 3),
-    );
-    const matrixA = mat3.fromQuat(qA);
-    return vec3.scale(f32(world.invH * readJointFloat(world, sim, WHJ_SPIN_IMPULSE)), matrixA.cz);
+    return readJointReaction(world, sim, true);
 }
 
 /** The spin speed of the wheel about its spin axis (b3WheelJoint_GetSpinSpeed). */

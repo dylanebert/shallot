@@ -28,9 +28,8 @@ import {
     PJ_UPPER_TRANSLATION,
 } from "../kernel/columns";
 import {
-    readJointFloat,
     readJointQuat,
-    readJointVec2,
+    readJointReaction,
     readJointVec3,
     writeJointFlag,
     writeJointFloat,
@@ -110,46 +109,12 @@ export function createPrismaticJoint(
     return pair;
 }
 export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    const transformA = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 0),
-        bodyPoseScratch1,
-    );
-
-    // impulse in joint space
-    const impulse: Vec3 = {
-        x: readJointVec2(world, sim, PJ_PERP_IMPULSE).x,
-        y: readJointVec2(world, sim, PJ_PERP_IMPULSE).y,
-        z: f32(
-            f32(
-                f32(
-                    readJointFloat(world, sim, PJ_MOTOR_IMPULSE) +
-                        readJointFloat(world, sim, PJ_LOWER_IMPULSE),
-                ) + readJointFloat(world, sim, PJ_UPPER_IMPULSE),
-            ) + readJointFloat(world, sim, PJ_SPRING_IMPULSE),
-        ),
-    };
-    let force = vec3.scale(world.invH, impulse);
-    force = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), force);
-    force = quat.rotate(transformA.q, force);
-    return force;
+    return readJointReaction(world, sim, false);
 }
 
 /** The reaction torque this joint applies (b3GetPrismaticJointTorque). */
 export function getPrismaticJointTorque(world: WorldState, sim: Joint): Vec3 {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    const transformA = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 0),
-        bodyPoseScratch1,
-    );
-    let torque = vec3.scale(world.invH, readJointVec3(world, sim, PJ_ANGULAR_IMPULSE));
-    torque = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), torque);
-    torque = quat.rotate(transformA.q, torque);
-    return torque;
+    return readJointReaction(world, sim, true);
 }
 
 /** The current translation along the joint axis (b3PrismaticJoint_GetTranslation). */

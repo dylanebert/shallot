@@ -1,5 +1,5 @@
 import { HUGE, LINEAR_SLOP } from "../common/constants";
-import { FLT_MAX, f32, maxf, quat, type Vec3, vec3 } from "../common/math";
+import { FLT_MAX, maxf, quat, type Vec3, vec3 } from "../common/math";
 import {
     DJ_DAMPING_RATIO,
     DJ_ENABLE,
@@ -22,7 +22,7 @@ import {
     J_LOCAL_FRAME_B,
 } from "../kernel/columns";
 import {
-    readJointFloat,
+    readJointReaction,
     readJointVec3,
     writeJointFlag,
     writeJointFloat,
@@ -97,40 +97,7 @@ export function createDistanceJoint(
     return pair;
 }
 export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    const transformA = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 0),
-        bodyPoseScratch1,
-    );
-    const transformB = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 1),
-        bodyPoseScratch2,
-    );
-    const pA = vec3.add(
-        quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A)),
-        transformA.p,
-    );
-    const pB = vec3.add(
-        quat.rotate(transformB.q, readJointVec3(world, sim, J_LOCAL_FRAME_B)),
-        transformB.p,
-    );
-    const d = vec3.sub(pB, pA);
-    const axis = vec3.normalize(d);
-    const force = f32(
-        f32(
-            f32(
-                f32(
-                    readJointFloat(world, sim, DJ_IMPULSE) +
-                        readJointFloat(world, sim, DJ_LOWER_IMPULSE),
-                ) - readJointFloat(world, sim, DJ_UPPER_IMPULSE),
-            ) + readJointFloat(world, sim, DJ_MOTOR_IMPULSE),
-        ) * world.invH,
-    );
-    return vec3.scale(force, axis);
+    return readJointReaction(world, sim, false);
 }
 
 /** The current distance between the two anchor points (b3DistanceJoint_GetCurrentLength). */
