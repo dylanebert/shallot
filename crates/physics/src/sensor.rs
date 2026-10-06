@@ -84,8 +84,7 @@ pub unsafe extern "C" fn create(world: usize, id: usize) {
     });
     crate::shape_lifecycle::attach_sensor(world, id, index as i32);
 }
-#[export_name = "sensorRecordHit"]
-pub unsafe extern "C" fn record_hit(world: usize, sensor: usize, other: usize) {
+pub unsafe fn record_hit(world: usize, sensor: usize, other: usize) {
     shapes::shape_set_active_world(world as u32);
     let index = shapes::col().get(sensor * shapes::SHAPE_STRIDE + 41) as usize;
     state(world).sensors[index].hits.push(visitor(world, other));

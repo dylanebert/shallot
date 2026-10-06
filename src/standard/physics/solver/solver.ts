@@ -47,7 +47,7 @@ export function solve(world: WorldState, context: StepContext): void {
     const awakeSet = SetType.Awake;
     const awakeBodyCount = setBodyCount(world, awakeSet);
     if (awakeBodyCount === 0) {
-        kernel(world.ecsState).eventFinishContacts(world.worldId, world.hitEventThreshold);
+        kernel(world.ecsState).eventUpdateBeginImpulses(world.worldId);
         return;
     }
 
@@ -142,13 +142,14 @@ export function solve(world: WorldState, context: StepContext): void {
 
     // The contact-begin records are created during collision detection, but their normal impulses are
     // only authoritative after the velocity solve has stored the warm-start columns.
-    kernel(world.ecsState).eventFinishContacts(world.worldId, world.hitEventThreshold);
+    k.eventUpdateBeginImpulses(world.worldId);
 
     // Report joint and hit events (b3Solve, after finalize, before the bullet stage).
     phaseStart = performance.now();
     collectJointEvents(world);
     profile.jointEvents = performance.now() - phaseStart;
     phaseStart = performance.now();
+    k.eventBuildHits(world.worldId, world.hitEventThreshold);
     profile.hitEvents = performance.now() - phaseStart;
 
     // Deferred bullet CCD: fast bullet bodies sweep the dynamic + kinematic trees, which are only

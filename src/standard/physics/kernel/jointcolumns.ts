@@ -147,11 +147,19 @@ export function jointSpans(world: WorldState, layout: SolveLayout, spans: Uint32
     }
     return total;
 }
+const eventViews = new WeakMap<WorldState, Uint32Array>();
 export function collectJointEvents(world: WorldState): void {
     const k = jointKernel(world);
     const count = k.jointCollectEvents();
+    if (count === 0) return;
+    let words = eventViews.get(world);
+    if (words?.buffer !== k.memory.buffer) {
+        words = new Uint32Array(k.memory.buffer);
+        eventViews.set(world, words);
+    }
+    const start = k.eventBufferPtr(world.worldId, 5) >>> 2;
     for (let i = 0; i < count; ++i) {
-        const id = k.eventWord(world.worldId, 5, i, 2);
+        const id = words[start + i * 3 + 2];
         world.jointEventUserData[i] = world.jointUserData[id];
     }
 }

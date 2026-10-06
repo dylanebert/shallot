@@ -24,6 +24,9 @@ export function eventId(world: WorldState, kind: number, index: number, lane: nu
     return {
         index1: k.eventWord(world.worldId, kind, index, lane),
         world0: packed & 0xffff,
-        generation: packed >>> 16,
+        generation:
+            lane === 4 && kind >= EventKind.ContactBegin && kind <= EventKind.ContactHit
+                ? k.eventWord(world.worldId, kind, index, lane + 2) >>> 0
+                : packed >>> 16,
     };
 }

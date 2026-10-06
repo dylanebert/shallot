@@ -8,6 +8,14 @@ pub struct Id {
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct ContactId {
+    pub index1: u32,
+    pub world0: u16,
+    pub padding: u16,
+    pub generation: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct SensorTouch {
     pub sensor: Id,
     pub visitor: Id,
@@ -17,14 +25,14 @@ pub struct SensorTouch {
 pub struct ContactEnd {
     pub a: Id,
     pub b: Id,
-    pub contact: Id,
+    pub contact: ContactId,
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ContactBegin {
     pub a: Id,
     pub b: Id,
-    pub contact: Id,
+    pub contact: ContactId,
     pub normal_impulse: f32,
 }
 #[repr(C)]
@@ -32,11 +40,10 @@ pub struct ContactBegin {
 pub struct ContactHit {
     pub a: Id,
     pub b: Id,
-    pub contact: Id,
+    pub contact: ContactId,
     pub point: [f32; 3],
     pub normal: [f32; 3],
     pub speed: f32,
-    pub padding: u32,
     pub material_a: u64,
     pub material_b: u64,
 }
@@ -148,6 +155,14 @@ mod runtime {
             generation: generation as u16,
         }
     }
+    fn contact_id(world: usize, index: usize, generation: u32) -> ContactId {
+        ContactId {
+            index1: index as u32 + 1,
+            world0: world as u16,
+            padding: 0,
+            generation,
+        }
+    }
     pub unsafe fn shape_id(world: usize, index: usize) -> Id {
         id(
             world,
@@ -195,7 +210,7 @@ mod runtime {
         let o = contact * DIR_STRIDE;
         let a = shape_id(world, d.get(o + DIR_SHAPE_A) as usize);
         let b = shape_id(world, d.get(o + DIR_SHAPE_B) as usize);
-        let contact = id(world, contact, d.get(o + DIR_GENERATION));
+        let contact = contact_id(world, contact, d.get(o + DIR_GENERATION));
         let w = state(world);
         if begin {
             w.contact_begin.push(ContactBegin {
@@ -232,8 +247,8 @@ mod runtime {
         let r = shapes::material(shape, index);
         ((r[7] as u64) << 32) | r[6] as u64
     }
-    #[export_name = "eventFinishContacts"]
-    pub unsafe extern "C" fn finish_contacts(world: usize, threshold: f32) {
+    #[export_name = "eventUpdateBeginImpulses"]
+    pub unsafe extern "C" fn update_begin_impulses(world: usize) {
         regions::select(world as u32);
         let w = state(world);
         let d = manifolds::dir_col();
@@ -241,11 +256,17 @@ mod runtime {
             let contact = e.contact.index1 as usize - 1;
             let o = contact * DIR_STRIDE;
             if d.get(o + DIR_CONTACT_ID) != u32::MAX
-                && d.get(o + DIR_GENERATION) == e.contact.generation as u32
+                && d.get(o + DIR_GENERATION) == e.contact.generation
             {
                 e.normal_impulse = total_impulse(contact);
             }
         }
+    }
+    #[export_name = "eventBuildHits"]
+    pub unsafe extern "C" fn build_hits(world: usize, threshold: f32) {
+        regions::select(world as u32);
+        let w = state(world);
+        let d = manifolds::dir_col();
         for contact in 0..manifolds::contact_record_capacity(world) {
             let o = contact * DIR_STRIDE;
             if d.get(o + 11) == 0 {
@@ -313,11 +334,10 @@ mod runtime {
                 w.contact_hit.push(ContactHit {
                     a: shape_id(world, a),
                     b: shape_id(world, b),
-                    contact: id(world, contact, d.get(o + DIR_GENERATION)),
+                    contact: contact_id(world, contact, d.get(o + DIR_GENERATION)),
                     point: [point.x, point.y, point.z],
                     normal: [normal.x, normal.y, normal.z],
                     speed,
-                    padding: 0,
                     material_a: material(a, d.get(o + DIR_CHILD_INDEX) as usize, triangle),
                     material_b: material(b, 0, triangle),
                 });
@@ -390,6 +410,10 @@ mod runtime {
             _ => panic!("event kind"),
         }
     }
+    #[export_name = "eventBufferPtr"]
+    pub unsafe extern "C" fn buffer_ptr(world: usize, kind: usize) -> *const u32 {
+        pointer(world, kind, 0)
+    }
     #[export_name = "eventWord"]
     pub unsafe extern "C" fn word(world: usize, kind: usize, index: usize, lane: usize) -> u32 {
         *pointer(world, kind, index).add(lane)
@@ -408,10 +432,15 @@ mod tests {
     fn records_match_types_h_with_the_authorized_begin_impulse_extension() {
         assert_eq!(size_of::<Id>(), 8);
         assert_eq!(size_of::<SensorTouch>(), 16);
-        assert_eq!(size_of::<ContactEnd>(), 24);
-        assert_eq!(size_of::<ContactBegin>(), 28);
-        assert_eq!(offset_of!(ContactBegin, normal_impulse), 24);
+        assert_eq!(size_of::<ContactId>(), 12);
+        assert_eq!(offset_of!(ContactId, generation), 8);
+        assert_eq!(size_of::<ContactEnd>(), 28);
+        assert_eq!(size_of::<ContactBegin>(), 32);
+        assert_eq!(offset_of!(ContactBegin, normal_impulse), 28);
         assert_eq!(size_of::<ContactHit>(), 72);
+        assert_eq!(offset_of!(ContactHit, point), 28);
+        assert_eq!(offset_of!(ContactHit, normal), 40);
+        assert_eq!(offset_of!(ContactHit, speed), 52);
         assert_eq!(offset_of!(ContactHit, material_a), 56);
         assert_eq!(size_of::<JointEvent>(), 12);
         assert_eq!(size_of::<BodyMove>(), 44);

@@ -200,18 +200,6 @@ export class BodyStore extends KernelViews {
         return rows;
     }
 
-    /** Read a retained body move record into caller-owned storage. */
-    readMove(
-        index: number,
-        out: { bodyId: number; generation: number; fellAsleep: boolean },
-    ): { bodyId: number; generation: number; fellAsleep: boolean } {
-        const o = index * MOVE_STRIDE;
-        out.bodyId = this.moveU[o + 8] - 1;
-        out.generation = this.moveU[o + 9] >>> 16;
-        out.fellAsleep = this.moveU[o + 10] !== 0;
-        return out;
-    }
-
     readonly #setResults = new Map<number, Uint32Array>();
     moveResult(ptr: number, length: number): Uint32Array {
         const buffer = kernel(this.ecsState).memory.buffer;

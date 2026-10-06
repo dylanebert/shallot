@@ -151,7 +151,7 @@ function fillContactTouches(world: WorldState, out: ContactTouchEvent[], kind: n
             contact: new Contact(world, eventId(world, kind, i, 4)),
             normalImpulse:
                 kind === EventKind.ContactBegin
-                    ? kernel(world.ecsState).eventFloat(world.worldId, kind, i, 6)
+                    ? kernel(world.ecsState).eventFloat(world.worldId, kind, i, 7)
                     : 0,
         });
     }
@@ -168,16 +168,16 @@ function fillContactHits(world: WorldState, out: ContactHitEvent[]): void {
             shapeB: new Shape(world, eventId(world, kind, i, 2)),
             contact: new Contact(world, eventId(world, kind, i, 4)),
             point: {
-                x: k.eventFloat(id, kind, i, 6),
-                y: k.eventFloat(id, kind, i, 7),
-                z: k.eventFloat(id, kind, i, 8),
+                x: k.eventFloat(id, kind, i, 7),
+                y: k.eventFloat(id, kind, i, 8),
+                z: k.eventFloat(id, kind, i, 9),
             },
             normal: {
-                x: k.eventFloat(id, kind, i, 9),
-                y: k.eventFloat(id, kind, i, 10),
-                z: k.eventFloat(id, kind, i, 11),
+                x: k.eventFloat(id, kind, i, 10),
+                y: k.eventFloat(id, kind, i, 11),
+                z: k.eventFloat(id, kind, i, 12),
             },
-            approachSpeed: k.eventFloat(id, kind, i, 12),
+            approachSpeed: k.eventFloat(id, kind, i, 13),
             userMaterialIdA:
                 BigInt(k.eventWord(id, kind, i, 14) >>> 0) |
                 (BigInt(k.eventWord(id, kind, i, 15) >>> 0) << 32n),
