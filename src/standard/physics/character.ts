@@ -267,7 +267,7 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
 
 function groundVelocity(physics: PhysicsWorld, shape: number, s: Scratch): void {
     const state = physics.state;
-    const body = shapeBodyId(state, state.shapes[shape].id);
+    const body = shapeBodyId(state, shape);
     const sim = getBodySim(state, body);
     const ground = getBodyState(state, body);
     const gv = s.groundVelocity;
@@ -334,7 +334,7 @@ function push(physics: PhysicsWorld, s: Scratch): void {
     const velocity = s.velocity;
     s.impulseCount = 0;
     for (let i = 0; i < s.count; ++i) {
-        const pushed = shapeBodyId(state, state.shapes[s.shapes[i]].id);
+        const pushed = shapeBodyId(state, s.shapes[i]);
         if (bodyType(state, bodyField(state, pushed, BodyField.id)) !== BodyType.Dynamic) continue;
         const sim = getBodySim(state, pushed);
         const b = getBodyState(state, pushed);

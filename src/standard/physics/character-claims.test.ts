@@ -105,14 +105,10 @@ test("a stepped character excludes every shape on its own body from planes and i
         world.step(Time.FIXED_DT);
         const s = world.resource(characterScratch);
         expect(s.groundShape).toBeGreaterThanOrEqual(0);
-        expect(shapeBodyId(physics.state, physics.state.shapes[s.groundShape].id)).not.toBe(
-            own.id.index1 - 1,
-        );
+        expect(shapeBodyId(physics.state, s.groundShape)).not.toBe(own.id.index1 - 1);
         expect(s.count).toBeGreaterThan(0);
         for (let i = 0; i < s.count; ++i)
-            expect(shapeBodyId(physics.state, physics.state.shapes[s.shapes[i]].id)).not.toBe(
-                own.id.index1 - 1,
-            );
+            expect(shapeBodyId(physics.state, s.shapes[i])).not.toBe(own.id.index1 - 1);
         expect(world.storage(Character).groundNormal.y.get(eid)).toBe(1);
         expect(world.storage(Body).position.x.get(eid)).toBeCloseTo(0.6, 6);
     } finally {

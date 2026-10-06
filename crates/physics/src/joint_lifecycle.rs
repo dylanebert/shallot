@@ -26,9 +26,7 @@ pub unsafe extern "C" fn collect_events() -> usize {
 pub unsafe extern "C" fn event_ptr() -> usize {
     EVENTS[regions::active()].as_ptr() as usize
 }
-unsafe fn begin() {
-    sets::clear_woken();
-}
+unsafe fn begin() {}
 unsafe fn wake_body(id: usize) {
     sets::wake(bodies::record(regions::active(), id).set_index as usize);
 }

@@ -107,11 +107,9 @@ test("sphere and capsule body churn uploads no geometry, and only a mesh datum e
         }
         const second = body(world);
         const duplicate = createMeshShape(world, second, defaultShapeDef(), mesh, unit)!;
-        const reference = world.shapeStore.shapeU[shape.id * SHAPE_STRIDE + S_GEO_REFERENCE];
+        const reference = world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
         expect(reference).toBeGreaterThan(0);
-        expect(world.shapeStore.shapeU[duplicate.id * SHAPE_STRIDE + S_GEO_REFERENCE]).toBe(
-            reference,
-        );
+        expect(world.shapeStore.shapeU[duplicate * SHAPE_STRIDE + S_GEO_REFERENCE]).toBe(reference);
         advance(world);
         expect(world.geometryUploadCount).toBe(resident);
         destroyBody(world, second);
@@ -166,8 +164,8 @@ test("height-field and compound instances retain resident records, including a c
             expect(world.geometryUploadCount).toBe(before + 1);
             const second = body(world);
             const duplicate = create(second)!;
-            expect(world.shapeStore.shapeU[duplicate.id * SHAPE_STRIDE + S_GEO_REFERENCE]).toBe(
-                world.shapeStore.shapeU[shape.id * SHAPE_STRIDE + S_GEO_REFERENCE],
+            expect(world.shapeStore.shapeU[duplicate * SHAPE_STRIDE + S_GEO_REFERENCE]).toBe(
+                world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE],
             );
             advance(world);
             expect(world.geometryUploadCount).toBe(before + 1);
@@ -179,7 +177,7 @@ test("height-field and compound instances retain resident records, including a c
             expect(world.geometryUploadCount).toBe(before + 2);
         }
         expect(world.meshDatabase.get(mesh)?.refCount).toBe(1);
-        expect(world.hullDatabase.get(hull.hash)?.refCount).toBe(1);
+        expect(world.hullDatabase.get(hull.hash | 0)?.refCount).toBe(1);
         expect(world.heightFieldDatabase.size).toBe(0);
         expect(world.compoundDatabase.size).toBe(0);
     } finally {

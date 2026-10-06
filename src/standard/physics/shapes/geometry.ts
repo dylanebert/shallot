@@ -1,7 +1,6 @@
 import {
     type AABB,
     computeQuatBetweenUnitVectors,
-    cylinderInertia,
     FLT_MIN,
     f32,
     type Mat3,
@@ -10,7 +9,6 @@ import {
     minf,
     PI,
     quat,
-    sphereInertia,
     type Transform,
     type Vec3,
     vec3,
@@ -42,27 +40,65 @@ export type Capsule = {
 // Applied at each shape/compound-child storage boundary, mirroring the C float assignment.
 
 /** Round a sphere's fields to f32 for storage. */
-export const roundSphere = (s: Sphere): Sphere => ({
-    center: vec3.round(s.center),
-    radius: f32(s.radius),
-});
+export function roundSphere(s: Sphere, out: Sphere = { center: vec3.zero(), radius: 0 }): Sphere {
+    out.center.x = f32(s.center.x);
+    out.center.y = f32(s.center.y);
+    out.center.z = f32(s.center.z);
+    out.radius = f32(s.radius);
+    return out;
+}
 
 /** Round a capsule's fields to f32 for storage. */
-export const roundCapsule = (c: Capsule): Capsule => ({
-    center1: vec3.round(c.center1),
-    center2: vec3.round(c.center2),
-    radius: f32(c.radius),
-});
+export function roundCapsule(
+    c: Capsule,
+    out: Capsule = { center1: vec3.zero(), center2: vec3.zero(), radius: 0 },
+): Capsule {
+    out.center1.x = f32(c.center1.x);
+    out.center1.y = f32(c.center1.y);
+    out.center1.z = f32(c.center1.z);
+    out.center2.x = f32(c.center2.x);
+    out.center2.y = f32(c.center2.y);
+    out.center2.z = f32(c.center2.z);
+    out.radius = f32(c.radius);
+    return out;
+}
 
 const FOUR_THIRDS = f32(4 / 3);
 
-export function computeSphereMass(shape: Sphere, density: number): MassData {
+const massDensity = { density: 0 };
+export function computeSphereMass(
+    shape: Sphere,
+    density: number,
+    out: MassData = { mass: 0, center: vec3.zero(), inertia: mat3.zero() },
+): MassData {
+    massDensity.density = density;
+    return computeSphereMassOut(shape, massDensity, out);
+}
+
+/** Compute from a reused density report into caller-owned mass storage. */
+export function computeSphereMassOut(
+    shape: Sphere,
+    input: { density: number },
+    out: MassData,
+): MassData {
     const radius = shape.radius;
     const volume = f32(f32(f32(f32(FOUR_THIRDS * PI) * radius) * radius) * radius);
-    const mass = f32(volume * density);
+    const mass = f32(volume * input.density);
     // 0.4f is not exactly representable; fround the literal so the product matches C's f32 0.4f.
     const ixx = f32(f32(f32(f32(0.4) * mass) * radius) * radius);
-    return { mass, center: shape.center, inertia: mat3.diagonal(ixx, ixx, ixx) };
+    out.mass = mass;
+    vec3.copy(shape.center, out.center);
+    out.inertia.cx.x = ixx;
+    out.inertia.cy.y = ixx;
+    out.inertia.cz.z = ixx;
+    out.inertia.cx.y =
+        out.inertia.cx.z =
+        out.inertia.cy.x =
+        out.inertia.cy.z =
+        out.inertia.cz.x =
+        out.inertia.cz.y =
+            0;
+    return out;
 }
 
 export function computeSphereAABB(shape: Sphere, transform: Transform): AABB {
@@ -89,7 +125,27 @@ export function computeSphereAABBOut(shape: Sphere, transform: Transform, o: AAB
     return o;
 }
 
-export function computeCapsuleMass(shape: Capsule, density: number): MassData {
+const massRotation = mat3.zero();
+const massTranspose = mat3.zero();
+const massProduct = mat3.zero();
+const massDirection = vec3.zero();
+const massQuat = { v: vec3.zero(), s: 1 };
+const massAxis = { x: 0, y: 1, z: 0 };
+export function computeCapsuleMass(
+    shape: Capsule,
+    density: number,
+    out: MassData = { mass: 0, center: vec3.zero(), inertia: mat3.zero() },
+): MassData {
+    massDensity.density = density;
+    return computeCapsuleMassOut(shape, massDensity, out);
+}
+
+/** Compute from a reused density report into caller-owned mass storage. */
+export function computeCapsuleMassOut(
+    shape: Capsule,
+    input: { density: number },
+    out: MassData,
+): MassData {
     const c1 = shape.center1;
     const c2 = shape.center2;
     const r = shape.radius;
@@ -97,17 +153,22 @@ export function computeCapsuleMass(shape: Capsule, density: number): MassData {
     // Cylinder
     const cylinderHeight = vec3.distance(c1, c2);
     const cylinderVolume = f32(f32(f32(PI * r) * r) * cylinderHeight);
-    const cylinderMass = f32(cylinderVolume * density);
+    const cylinderMass = f32(cylinderVolume * input.density);
 
     // Sphere
     const sphereVolume = f32(f32(f32(f32(FOUR_THIRDS * PI) * r) * r) * r);
-    const sphereMass = f32(sphereVolume * density);
+    const sphereMass = f32(sphereVolume * input.density);
 
     // Local accumulated inertia
-    const inertia = mat3.add(
-        cylinderInertia(cylinderMass, r, cylinderHeight),
-        sphereInertia(sphereMass, r),
-    );
+    const inertia = out.inertia;
+    const rr = f32(f32(3 * r) * r);
+    const hh = f32(cylinderHeight * cylinderHeight);
+    const cylinderX = f32(f32(cylinderMass * f32(rr + hh)) / 12);
+    const cylinderY = f32(f32(f32(0.5 * cylinderMass) * r) * r);
+    const sphereI = f32(f32(f32(f32(0.4) * sphereMass) * r) * r);
+    inertia.cx.x = inertia.cz.z = f32(cylinderX + sphereI);
+    inertia.cy.y = f32(cylinderY + sphereI);
+    inertia.cx.y = inertia.cx.z = inertia.cy.x = inertia.cy.z = inertia.cz.x = inertia.cz.y = 0;
 
     // Steiner shift for the hemispheres offset from the cylinder center.
     const steinerShift = f32(
@@ -117,21 +178,28 @@ export function computeCapsuleMass(shape: Capsule, density: number): MassData {
     inertia.cz.z = f32(inertia.cz.z + steinerShift);
 
     // Align capsule axis (y) with the segment direction.
-    let rotation = mat3.identity();
+    const rotation = massRotation;
+    rotation.cx.x = rotation.cy.y = rotation.cz.z = 1;
+    rotation.cx.y =
+        rotation.cx.z =
+        rotation.cy.x =
+        rotation.cy.z =
+        rotation.cz.x =
+        rotation.cz.y =
+            0;
     if (f32(cylinderHeight * cylinderHeight) > f32(1000 * FLT_MIN)) {
-        const direction = vec3.normalize(vec3.sub(c2, c1));
-        const q = computeQuatBetweenUnitVectors(vec3.axisY(), direction);
-        rotation = mat3.fromQuat(q);
+        vec3.subOut(c2, c1, massDirection);
+        vec3.scaleOut(f32(1 / vec3.length(massDirection)), massDirection, massDirection);
+        computeQuatBetweenUnitVectors(massAxis, massDirection, massQuat);
+        mat3.fromQuatOut(massQuat, rotation);
     }
-
-    const mass = f32(sphereMass + cylinderMass);
-    const center = vec3.scale(0.5, vec3.add(c1, c2));
-
-    return {
-        mass,
-        center,
-        inertia: mat3.mul(rotation, mat3.mul(inertia, mat3.transpose(rotation))),
-    };
+    out.mass = f32(sphereMass + cylinderMass);
+    vec3.addOut(c1, c2, out.center);
+    vec3.scaleOut(0.5, out.center, out.center);
+    mat3.transposeOut(rotation, massTranspose);
+    mat3.mulOut(inertia, massTranspose, massProduct);
+    mat3.mulOut(rotation, massProduct, inertia);
+    return out;
 }
 
 export function computeCapsuleAABB(shape: Capsule, transform: Transform): AABB {

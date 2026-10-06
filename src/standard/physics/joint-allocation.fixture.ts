@@ -6,6 +6,7 @@ import { BodyType } from "./common/types";
 import { DJ_LENGTH, J_EVENT } from "./kernel/columns";
 import { collectJointEvents, readJointFloat, writeJointFloat } from "./kernel/jointcolumns";
 import { JointField, jointDrawScale, jointField, setJointDrawScale } from "./kernel/jointrecords";
+import { ShapeField, shapeField } from "./kernel/shaperecords";
 import {
     createJointRecord,
     defaultJointDef,
@@ -38,7 +39,7 @@ export function jointAllocationSubject(physics: PhysicsWorld, control?: () => vo
         });
         for (const body of [a, b]) {
             const shape = body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
-            proxies.push(state.shapes[shape.id.index1 - 1].proxyKey);
+            proxies.push(shapeField(state, shape.id.index1 - 1, ShapeField.proxyKey));
         }
         physics.createFilterJoint(a, b);
         const def = defaultJointDef();

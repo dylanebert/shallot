@@ -9,6 +9,7 @@ import {
     f32,
     MIN_SCALE,
     maxf,
+    minf,
     PI,
     type Transform,
     type Vec3,
@@ -106,16 +107,12 @@ const majorAxis = (v: Vec3): number => (v.x < v.y ? (v.y < v.z ? 2 : 1) : v.x < 
 const component = (v: Vec3, axis: number): number => (axis === 0 ? v.x : axis === 1 ? v.y : v.z);
 
 /** Clamp scale magnitude away from zero, preserving sign (b3SafeScale). */
-export const safeScale = (a: Vec3): Vec3 => {
-    const sign = vec3.sign(a);
-    const abs = vec3.abs(a);
-    const clamped: Vec3 = {
-        x: maxf(abs.x, MIN_SCALE),
-        y: maxf(abs.y, MIN_SCALE),
-        z: maxf(abs.z, MIN_SCALE),
-    };
-    return vec3.mul(sign, clamped);
-};
+export function safeScale(a: Vec3, out: Vec3 = vec3.zero()): Vec3 {
+    out.x = Math.fround((a.x >= 0 ? 1 : -1) * Math.max(Math.fround(Math.abs(a.x)), MIN_SCALE));
+    out.y = Math.fround((a.y >= 0 ? 1 : -1) * Math.max(Math.fround(Math.abs(a.y)), MIN_SCALE));
+    out.z = Math.fround((a.z >= 0 ? 1 : -1) * Math.max(Math.fround(Math.abs(a.z)), MIN_SCALE));
+    return out;
+}
 
 // --- vertex welding (spatial hash) --------------------------------------------------------------
 
@@ -910,14 +907,27 @@ export function createTorusMesh(
 // --- queries ------------------------------------------------------------------------------------
 
 /** World-space AABB enclosing a scaled, transformed mesh (b3ComputeMeshAABB). */
-export function computeMeshAABB(data: MeshData, transform: Transform, scale: Vec3): AABB {
-    const scaledLower = vec3.mul(scale, data.bounds.lowerBound);
-    const scaledUpper = vec3.mul(scale, data.bounds.upperBound);
-    const bounds: AABB = {
-        lowerBound: vec3.min(scaledLower, scaledUpper),
-        upperBound: vec3.max(scaledLower, scaledUpper),
-    };
-    return aabb.transform(transform, bounds);
+const meshBounds = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } };
+export function computeMeshAABB(
+    data: MeshData,
+    transform: Transform,
+    scale: Vec3,
+    out: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() },
+): AABB {
+    const bounds = meshBounds;
+    const lx = f32(scale.x * data.bounds.lowerBound.x),
+        ux = f32(scale.x * data.bounds.upperBound.x);
+    const ly = f32(scale.y * data.bounds.lowerBound.y),
+        uy = f32(scale.y * data.bounds.upperBound.y);
+    const lz = f32(scale.z * data.bounds.lowerBound.z),
+        uz = f32(scale.z * data.bounds.upperBound.z);
+    bounds.lowerBound.x = minf(lx, ux);
+    bounds.upperBound.x = maxf(lx, ux);
+    bounds.lowerBound.y = minf(ly, uy);
+    bounds.upperBound.y = maxf(ly, uy);
+    bounds.lowerBound.z = minf(lz, uz);
+    bounds.upperBound.z = maxf(lz, uz);
+    return aabb.transformOut(transform, bounds, out);
 }
 
 /** A single scaled mesh triangle in mesh space (b3Triangle): world-scaled vertices, vertex indices,

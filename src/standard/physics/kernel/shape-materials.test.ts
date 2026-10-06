@@ -19,7 +19,7 @@ test("one material is inline and multiple materials are contiguous, owned and re
         const k = kernel(state.ecsState);
         const oneId = one.id.index1 - 1;
         const manyId = many.id.index1 - 1;
-        const read = (id: number) => getShapeMaterials(state.ecsState, state.shapes[id]);
+        const read = (id: number) => getShapeMaterials(state, id);
         expect(k.shapeMaterialPtr(state.worldId, oneId)).toBe(
             state.shapeStore.shapeU.byteOffset + (oneId * SHAPE_STRIDE + 52) * 4,
         );

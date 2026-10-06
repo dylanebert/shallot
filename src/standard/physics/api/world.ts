@@ -1,4 +1,5 @@
 import { BodyField, bodyField } from "../kernel/bodyrecords";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 // The public surface: thin handle classes over the internal id/record model. A World/Body/Shape
 // instance holds only an id and delegates to the internal free functions; all state lives in the
 // solver-set columns. Stale handles self-invalidate through the generation stored in the id (the
@@ -119,12 +120,12 @@ function queryShape(world: WorldState, id: number): Shape {
     return new Shape(world, {
         index1: id + 1,
         world0: world.worldId,
-        generation: world.shapes[id].generation,
+        generation: shapeField(world, id, ShapeField.generation),
     });
 }
 
 function castHit(world: WorldState, id: number, f: Float32Array, n: number, origin: Pos): CastHit {
-    const materials = getShapeMaterials(world.ecsState, world.shapes[id]);
+    const materials = getShapeMaterials(world, id);
     const material = Math.max(0, Math.min(materials.length - 1, f[n + 11]));
     return {
         shape: queryShape(world, id),

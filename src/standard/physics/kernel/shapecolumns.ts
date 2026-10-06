@@ -1,5 +1,13 @@
 import type { World } from "../../../engine";
-import { BodyField, bodyField } from "./bodyrecords";
+import type { AABB } from "../common/math";
+import { type ShapeDef, ShapeType, type SurfaceMaterial } from "../common/types";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import type { HullData } from "../shapes/hull";
+import type { Shape } from "../shapes/shape";
+import type { WorldState } from "../world/world";
+import { shapeBodyId } from "./filtercolumns";
+import { kernel } from "./kernel";
+import { ShapeField, shapeField } from "./shaperecords";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
 // can walk a body's shape list and compute its AABBs without a per-step marshal. Each World owns
@@ -12,31 +20,16 @@ import { BodyField, bodyField } from "./bodyrecords";
 //
 // Reserves can reallocate columns or grow memory; callers refresh views afterward.
 
-import { NULL_INDEX } from "../common/array";
-import type { AABB } from "../common/math";
-import { ShapeType, type SurfaceMaterial } from "../common/types";
-import type { Capsule, Sphere } from "../shapes/geometry";
-import type { HullData } from "../shapes/hull";
-import type { Shape } from "../shapes/shape";
-import type { WorldState } from "../world/world";
-import { shapeBodyId } from "./filtercolumns";
-import { kernel } from "./kernel";
 import { KernelViews } from "./views";
 
 /** Word stride of one kernel shape record, mirroring `shapes.rs`. */
-export const SHAPE_STRIDE = 61;
+export const SHAPE_STRIDE = 69;
 export const S_PROXY_KEY = 50;
-/** Shape type code — the `ShapeType` value verbatim. */
-export const S_TYPE = 0;
-/** Next shape in the body's list, or `NULL_INDEX` (0xFFFFFFFF through the u32 view). */
-export const S_NEXT = 1;
 /** Local geometry the AABB compute needs: sphere center(3)+radius(1), capsule center1(3)+center2(3)+
  * radius(1), hull local-AABB lower(3)+upper(3). Non-convex bounds use the geometry pools. */
 export const S_GEOM = 2;
 /** Hull record index or non-convex geometry word offset; capsule uses this lane for its radius. */
 export const S_GEO_REFERENCE = 8;
-/** Refit escaped its fat margin; consumed and cleared by the serial tree enlarge pass. */
-export const S_ESCAPED = 15;
 /** Kernel shape-record attachment lanes, outside finalize output. */
 export const S_MATERIAL_HEAD = 16;
 export const S_MATERIAL_COUNT = 17;
@@ -65,16 +58,28 @@ export function reserveShapes(world: World | undefined, shapeCount: number): boo
 
 /** Allocate a world-local shape slot in the kernel pool. The shape record itself is authored below,
  * but index reuse, generation and validity are never decided by TypeScript. */
-export function createShapeSlot(world: WorldState): number {
-    kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
-    if (reserveShapes(world.ecsState, world.shapes.length + 1)) {
-        world.manifoldStore.refreshViews();
-        world.bodyStore.refreshViews();
-    }
-    const id = kernel(world.ecsState).shapeCreate(world.worldId);
+export function createShapeSlot(
+    world: WorldState,
+    body: number,
+    type: ShapeType,
+    def: ShapeDef,
+): number {
+    const flags =
+        Number(def.enableSensorEvents) |
+        (Number(def.enableContactEvents) << 1) |
+        (Number(def.enableCustomFiltering) << 2) |
+        (Number(def.enableHitEvents) << 3) |
+        (Number(def.enablePreSolveEvents) << 4) |
+        (Number(def.enableSpeculativeContact) << 6);
+    const id = kernel(world.ecsState).shapeCreate(
+        world.worldId,
+        body,
+        type,
+        def.density,
+        def.explosionScale,
+        flags,
+    );
     world.shapeStore.refreshViews();
-    world.shapeStore.shapeF.fill(0, id * SHAPE_STRIDE + 34, id * SHAPE_STRIDE + 40);
-    world.shapeStore.fatF.fill(0, id * 6, id * 6 + 6);
     return id;
 }
 
@@ -100,11 +105,14 @@ export class ShapeStore extends KernelViews {
     shapeU = new Uint32Array(0);
     /** The same bytes as f32 — the geometry payload's natural type. */
     shapeF = new Float32Array(0);
+    /** Borrowed geometry report, consumed synchronously by shapeFinishGeometry; never a record. */
+    geometryInput = new Float32Array(0);
     /** Resident fat-AABB column owned by this shape store, not a second helper store. */
     fatF = new Float32Array(0);
     /** Addressable memory for inline materials and owned contiguous material arrays. */
     materialU = new Uint32Array(0);
     materialF = new Float32Array(0);
+    private _materialData = new DataView(new ArrayBuffer(0));
     // BigInts are reused while a material address holds the same user-id words.
     private readonly _ids = new Map<number, { low: number; high: number; value: bigint }>();
     // The held layout header views are derived from.
@@ -149,44 +157,30 @@ export class ShapeStore extends KernelViews {
         ) {
             this.fatF = new Float32Array(buf, fatLayout[0], fatCap * 6);
         }
+        if (this.geometryInput.buffer !== buf)
+            this.geometryInput = new Float32Array(buf, k.shapeGeometryInputPtr(), 4);
         if (this.materialU.buffer !== buf || this.materialU.byteLength !== buf.byteLength) {
             this.materialU = new Uint32Array(buf);
             this.materialF = new Float32Array(buf);
+            this._materialData = new DataView(buf);
         }
     }
 
     /** Write authored type, list link and geometry while preserving the kernel attachment and finalize
      * output lanes. A material list is published before this write on create/reuse. */
     write(world: WorldState, shape: Shape): void {
-        const u = this.shapeU;
         const f = this.shapeF;
-        const o = shape.id * SHAPE_STRIDE;
-        const materialHead = u[o + S_MATERIAL_HEAD];
-        const materialCount = u[o + S_MATERIAL_COUNT];
-        u[o + S_TYPE] = shape.type;
-        u[o + S_NEXT] = shape.nextShapeId;
-        for (let i = S_GEOM; i < 52; ++i) {
-            if (
-                (i < 9 || i > 14) &&
-                (i < 25 || i > 29) &&
-                i !== 31 &&
-                i !== 41 &&
-                (i < 34 || i > 39)
-            )
-                f[o + i] = 0;
-        }
-        u[o + S_MATERIAL_HEAD] = materialHead;
-        u[o + S_MATERIAL_COUNT] = materialCount;
+        const o = shape * SHAPE_STRIDE;
 
         const g = o + S_GEOM;
-        if (shape.type === ShapeType.Sphere) {
-            const s = shape.sphere as Sphere;
+        if (shapeField(world, shape, ShapeField.type) === ShapeType.Sphere) {
+            const s = world.shapeGeometry[shape].sphere as Sphere;
             f[g] = s.center.x;
             f[g + 1] = s.center.y;
             f[g + 2] = s.center.z;
             f[g + 3] = s.radius;
-        } else if (shape.type === ShapeType.Capsule) {
-            const c = shape.capsule as Capsule;
+        } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Capsule) {
+            const c = world.shapeGeometry[shape].capsule as Capsule;
             f[g] = c.center1.x;
             f[g + 1] = c.center1.y;
             f[g + 2] = c.center1.z;
@@ -194,81 +188,85 @@ export class ShapeStore extends KernelViews {
             f[g + 4] = c.center2.y;
             f[g + 5] = c.center2.z;
             f[g + 6] = c.radius;
-        } else if (shape.type === ShapeType.Hull) {
+        } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Hull) {
             // The hull's local AABB is the whole hull-AABB path (`computeShapeAABBOut` transforms it);
             // the topology the narrowphase needs lives in the geometry pools, not here.
-            const box = (shape.hull as HullData).aabb;
+            const box = (world.shapeGeometry[shape].hull as HullData).aabb;
             f[g] = box.lowerBound.x;
             f[g + 1] = box.lowerBound.y;
             f[g + 2] = box.lowerBound.z;
             f[g + 3] = box.upperBound.x;
             f[g + 4] = box.upperBound.y;
             f[g + 5] = box.upperBound.z;
-        } else if (shape.mesh) {
-            f[g] = shape.mesh.scale.x;
-            f[g + 1] = shape.mesh.scale.y;
-            f[g + 2] = shape.mesh.scale.z;
+        } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Mesh) {
+            f[g] = world.shapeGeometry[shape].mesh!.scale.x;
+            f[g + 1] = world.shapeGeometry[shape].mesh!.scale.y;
+            f[g + 2] = world.shapeGeometry[shape].mesh!.scale.z;
         }
         this.writeGeometryReference(world, shape);
-        this.writeQueryProperties(shape);
-        const body = shapeBodyId(world, shape.id);
-        this.writeQueryPose(world, shape.id, body);
-    }
-
-    writeQueryProperties(shape: Shape): void {
-        const n = shape.id * SHAPE_STRIDE;
-        const u = this.shapeU;
-        u[n + 30] = Number(shape.enableSensorEvents);
-        u[n + S_PROXY_KEY] = shape.proxyKey;
-        this.shapeF[n + 40] = shape.aabbMargin;
-        this.shapeF[n + 43] = shape.hull?.innerRadius ?? 0;
-        u[n + 51] = Number(shape.enableHitEvents);
+        if (shapeField(world, shape, ShapeField.type) === ShapeType.Hull)
+            this.shapeF[o + 43] = world.shapeGeometry[shape].hull!.innerRadius;
+        else this.shapeF[o + 43] = 0;
+        const body = shapeBodyId(world, shape);
+        this.writeQueryPose(world, shape, body);
     }
 
     writeQueryPose(world: WorldState, shapeId: number, body: number): void {
-        kernel(world.ecsState).bodyShapePose(world.worldId, body, shapeId);
+        kernel(world.ecsState).shapeQueryPose(world.worldId, shapeId, body);
     }
 
     /** Refresh a shape's pool reference without touching its material or finalize lanes. */
     writeGeometryReference(world: WorldState, shape: Shape): void {
-        const o = shape.id * SHAPE_STRIDE + S_GEO_REFERENCE;
-        if (shape.hull) this.shapeU[o] = shape.hull.geoIndex;
-        else if (shape.mesh) this.shapeU[o] = world.meshDatabase.get(shape.mesh.data)!.geoIndex;
-        else if (shape.heightField)
-            this.shapeU[o] = world.heightFieldDatabase.get(shape.heightField)!.geoIndex;
-        else if (shape.compound)
-            this.shapeU[o] = world.compoundDatabase.get(shape.compound)!.geoIndex;
-    }
-
-    /** Patch shape `shapeId`'s `next` slot after a shape-list unlink. */
-    writeNext(shapeId: number, nextShapeId: number): void {
-        this.shapeU[shapeId * SHAPE_STRIDE + S_NEXT] = nextShapeId;
+        const o = shape * SHAPE_STRIDE + S_GEO_REFERENCE;
+        const type = shapeField(world, shape, ShapeField.type);
+        const geometry = world.shapeGeometry[shape];
+        if (type === ShapeType.Hull) this.shapeU[o] = geometry.hull!.geoIndex;
+        else if (type === ShapeType.Mesh)
+            this.shapeU[o] = world.meshDatabase.get(geometry.mesh!.data)!.geoIndex;
+        else if (type === ShapeType.HeightField)
+            this.shapeU[o] = world.heightFieldDatabase.get(geometry.heightField!)!.geoIndex;
+        else if (type === ShapeType.Compound)
+            this.shapeU[o] = world.compoundDatabase.get(geometry.compound!)!.geoIndex;
     }
 
     /** Copy authored materials into the shape's inline material or owned contiguous array. */
-    writeMaterials(world: WorldState, shape: Shape, materials: SurfaceMaterial[]): void {
+    writeMaterials(
+        world: WorldState,
+        shape: Shape,
+        materials: SurfaceMaterial[] | SurfaceMaterial,
+    ): void {
+        const count = Array.isArray(materials) ? materials.length : 1;
         this.refreshViews();
-        const ptr = kernel(world.ecsState).shapeAllocateMaterials(
-            world.worldId,
-            shape.id,
-            materials.length,
-        );
+        const ptr = kernel(world.ecsState).shapeAllocateMaterials(world.worldId, shape, count);
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();
         this.refreshViews();
-        for (let i = 0; i < materials.length; ++i) {
+        for (let i = 0; i < count; ++i) {
             const o = ptr / 4 + i * MATERIAL_STRIDE;
-            const m = materials[i];
-            this.materialF[o] = m.friction;
-            this.materialF[o + 1] = m.restitution;
-            this.materialF[o + 2] = m.rollingResistance;
-            this.materialF[o + 3] = m.tangentVelocity.x;
-            this.materialF[o + 4] = m.tangentVelocity.y;
-            this.materialF[o + 5] = m.tangentVelocity.z;
-            const bits = BigInt.asUintN(64, m.userMaterialId);
-            this.materialU[o + 6] = Number(bits & 0xffffffffn);
-            this.materialU[o + 7] = Number((bits >> 32n) & 0xffffffffn);
-            this.materialU[o + 8] = m.customColor;
+            const m = Array.isArray(materials) ? materials[i] : materials;
+            this._materialData.setBigUint64((o + 6) * 4, m.userMaterialId, true);
+            kernel(world.ecsState).shapeMaterialSet(
+                world.worldId,
+                shape,
+                i,
+                m.friction,
+                m.restitution,
+                m.rollingResistance,
+                m.tangentVelocity.x,
+                m.tangentVelocity.y,
+                m.tangentVelocity.z,
+                this.materialU[o + 6],
+                this.materialU[o + 7],
+                m.customColor,
+            );
+            let cached = this._ids.get(o);
+            if (!cached) {
+                cached = { low: 0, high: 0, value: 0n };
+                this._ids.set(o, cached);
+            }
+            cached.low = this.materialU[o + 6];
+            cached.high = this.materialU[o + 7];
+            cached.value = m.userMaterialId;
         }
     }
 
@@ -282,13 +280,15 @@ export class ShapeStore extends KernelViews {
             cached = { low, high, value: BigInt(low) | (BigInt(high) << 32n) };
             this._ids.set(id, cached);
         }
+        if (cached.value < 0n || cached.value > 0xffffffffffffffffn)
+            cached.value = this._materialData.getBigUint64((o + 6) * 4, true);
         return cached.value;
     }
 
     /** Detach and release the kernel material records owned by a shape. */
     destroyMaterials(world: WorldState, shape: Shape): void {
         this.refreshViews();
-        kernel(world.ecsState).shapeFreeMaterials(world.worldId, shape.id);
+        kernel(world.ecsState).shapeFreeMaterials(world.worldId, shape);
     }
 
     /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
@@ -305,15 +305,7 @@ export class ShapeStore extends KernelViews {
 }
 
 export function syncBodyQuery(world: WorldState, body: number): void {
-    const store = world.shapeStore;
-    store.refreshViews();
-    for (
-        let id = bodyField(world, body, BodyField.headShapeId);
-        id !== NULL_INDEX;
-        id = world.shapes[id].nextShapeId
-    ) {
-        store.writeQueryPose(world, id, body);
-    }
+    kernel(world.ecsState).shapeSyncBody(world.worldId, body);
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
@@ -323,12 +315,12 @@ export function createShapeStore(world: World | undefined, worldId: number): Sha
 
 /** Read live materials from the kernel. The returned objects are bridge values;
  * simulation decisions always re-read this column rather than a Shape.materials authoring array. */
-export function readShapeMaterials(world: World | undefined, shape: Shape): SurfaceMaterial[] {
-    const k = kernel(world);
-    k.shapeSetActiveWorld(shape.worldId);
-    const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
+export function readShapeMaterials(world: WorldState, shape: Shape): SurfaceMaterial[] {
+    const k = kernel(world.ecsState);
+    k.shapeSetActiveWorld(world.worldId);
+    const count = k.shapeMaterialCount(world.worldId, shape) >>> 0;
     if (count === 0) return [];
-    const ptr = k.shapeMaterialPtr(shape.worldId, shape.id);
+    const ptr = k.shapeMaterialPtr(world.worldId, shape);
     const buf = k.memory.buffer;
     const u = new Uint32Array(buf, ptr, count * MATERIAL_STRIDE);
     const f = new Float32Array(buf, ptr, count * MATERIAL_STRIDE);
@@ -349,9 +341,9 @@ export function readShapeMaterials(world: World | undefined, shape: Shape): Surf
 }
 
 /** The authoritative live material count for a shape. */
-export function shapeMaterialCount(world: World | undefined, shape: Shape): number {
-    const k = kernel(world);
-    return k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
+export function shapeMaterialCount(world: WorldState, shape: Shape): number {
+    const k = kernel(world.ecsState);
+    return k.shapeMaterialCount(world.worldId, shape) >>> 0;
 }
 
 /**
@@ -360,23 +352,10 @@ export function shapeMaterialCount(world: World | undefined, shape: Shape): numb
  */
 export function writeShape(world: WorldState, shape: Shape): void {
     kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
-    if (reserveShapes(world.ecsState, world.shapes.length)) {
-        world.manifoldStore.refreshViews();
-        world.bodyStore.refreshViews();
-    }
+    world.manifoldStore.refreshViews();
+    world.bodyStore.refreshViews();
     world.shapeStore.refreshViews();
     world.shapeStore.write(world, shape);
-}
-
-/**
- * Patch the shape column after `shape` is unlinked from its body's list: its predecessor now points at
- * `shape.nextShapeId`. The destroyed shape's own record is left as-is — its id is freed, so nothing
- * reaches it, and a create that recycles the id rewrites every slot.
- */
-export function unlinkShape(world: WorldState, shape: Shape): void {
-    if (shape.prevShapeId === NULL_INDEX) return;
-    world.shapeStore.refreshViews();
-    world.shapeStore.writeNext(shape.prevShapeId, shape.nextShapeId);
 }
 
 /** Keep the last shape bounds resident in `shapeF`, the shape store's current view, for the next
@@ -416,27 +395,6 @@ function readBounds(f: Float32Array, o: number, out: AABB): AABB {
 /** Size and write the resident fat-AABB lane owned by the shape store. */
 export function writeFatAabb(world: WorldState, shapeId: number, box: AABB): void {
     kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
-    if (reserveShapes(world.ecsState, world.shapes.length)) {
-        world.manifoldStore.refreshViews();
-        world.bodyStore.refreshViews();
-    }
     world.shapeStore.refreshViews();
     world.shapeStore.writeFatAabb(shapeId, box);
-}
-
-const wakeViews = new WeakMap<WorldState, Uint32Array>();
-/** Synchronize query poses from wake ids borrowed until the next kernel lifecycle operation. */
-export function syncWokenShapes(world: WorldState): void {
-    const k = kernel(world.ecsState);
-    k.bodySetActiveWorld(world.worldId);
-    const count = k.solverSetWokenCount();
-    if (count === 0) return;
-    const ptr = k.solverSetWokenPtr();
-    const capacity = k.solverSetWokenCapacity();
-    let ids = wakeViews.get(world);
-    if (ids?.buffer !== k.memory.buffer || ids.byteOffset !== ptr || ids.length !== capacity) {
-        ids = new Uint32Array(k.memory.buffer, ptr, capacity);
-        wakeViews.set(world, ids);
-    }
-    for (let i = 0; i < count; ++i) syncBodyQuery(world, ids[i]);
 }

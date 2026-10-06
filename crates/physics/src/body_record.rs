@@ -100,7 +100,6 @@ pub use runtime::*;
 
 #[cfg(target_arch = "wasm32")]
 mod runtime {
-    use super::BodyRecord;
     use crate::math::Mat3;
     use crate::{bodies, body, island, regions};
     #[export_name = "bodyFinish"]
@@ -301,38 +300,6 @@ mod runtime {
         }
     }
 
-    #[export_name = "bodyShapePose"]
-    pub unsafe extern "C" fn shape_pose(world: usize, id: usize, shape: usize) {
-        regions::select(world as u32);
-        let record = bodies::record(world, id);
-        let o = shape * crate::shapes::SHAPE_STRIDE;
-        let columns = crate::shapes::col();
-        columns.set(
-            o + 32,
-            if record.set_index == 2 {
-                record.local_index as u32 + 1
-            } else {
-                0
-            },
-        );
-        if record.set_index == 2 {
-            return;
-        }
-        let sim = bodies::column(id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(id, 2, body::FIN_STRIDE);
-        let sim2 = bodies::column(id, 5, body::SIM2_STRIDE);
-        columns.set(o + 42, sim2.get(body::S2_FLAGS).to_bits());
-        for lane in 0..6 {
-            columns.set(o + 44 + lane, fin.get(lane).to_bits());
-        }
-        for lane in 0..3 {
-            columns.set(o + 18 + lane, fin.get(9 + lane).to_bits());
-        }
-        for lane in 0..4 {
-            columns.set(o + 21 + lane, sim.get(28 + lane).to_bits());
-        }
-    }
-
     #[export_name = "bodyTransfer"]
     pub unsafe extern "C" fn transfer(
         world: usize,
@@ -365,60 +332,41 @@ mod runtime {
         );
     }
 
-    #[export_name = "bodyShapeBounds"]
-    pub unsafe extern "C" fn shape_bounds(world: usize, id: usize, shape: usize) {
-        regions::select(world as u32);
-        let pose = bodies::geometry(id).0;
-        let tight = crate::continuous::bounds(shape, pose);
-        let fat = crate::fataabb::col();
-        let mut previous = [0.0; 6];
-        for lane in 0..6 {
-            previous[lane] = fat.get(shape * 6 + lane);
-        }
-        let (bounds, escaped) = crate::finalize::refit_bounds(tight, &previous);
-        let f = crate::shapes::col_f();
-        let o = shape * crate::shapes::SHAPE_STRIDE;
-        for lane in 0..6 {
-            f.set(o + 34 + lane, bounds[lane]);
-        }
-        if escaped {
-            let margin = f.get(o + 40);
-            let mut enlarged = bounds;
-            for lane in 0..3 {
-                enlarged[lane] -= margin;
-                enlarged[lane + 3] += margin;
-            }
-            for lane in 0..6 {
-                fat.set(shape * 6 + lane, enlarged[lane]);
-            }
-            let key = crate::shapes::col().get(o + crate::shapes::S_PROXY_KEY);
-            if key != u32::MAX {
-                crate::broad::move_proxy(
-                    key,
-                    enlarged[0],
-                    enlarged[1],
-                    enlarged[2],
-                    enlarged[3],
-                    enlarged[4],
-                    enlarged[5],
-                );
-            }
-        }
-    }
-
     #[export_name = "bodyCreateContact"]
     pub unsafe extern "C" fn create_contact(
         world: usize,
-        shape_a: usize,
-        shape_b: usize,
+        mut shape_a: usize,
+        mut shape_b: usize,
         child: i32,
         mut flags: u32,
     ) -> usize {
         use crate::manifold_abi::*;
         regions::select(world as u32);
         let shapes = crate::shapes::col();
-        let a = shapes.get(shape_a * crate::shapes::SHAPE_STRIDE + 29) as usize;
-        let b = shapes.get(shape_b * crate::shapes::SHAPE_STRIDE + 29) as usize;
+        let stride = crate::shapes::SHAPE_STRIDE;
+        match crate::manifolds::contact_pair_order(
+            shapes.get(shape_a * stride) as usize,
+            shapes.get(shape_b * stride) as usize,
+        ) {
+            0 => return usize::MAX,
+            2 => core::mem::swap(&mut shape_a, &mut shape_b),
+            _ => {}
+        }
+        let kind = shapes.get(shape_a * stride);
+        if kind == 2 || kind == 4 {
+            flags |= 0x0040_0000;
+        }
+        let shape_flags = (shapes.get(shape_a * stride + crate::shapes::S_FLAGS)
+            | shapes.get(shape_b * stride + crate::shapes::S_FLAGS))
+            >> 16;
+        if shape_flags & 2 != 0 {
+            flags |= 4;
+        }
+        if shape_flags & 16 != 0 {
+            flags |= 0x0020_0000;
+        }
+        let a = shapes.get(shape_a * stride + 29) as usize;
+        let b = shapes.get(shape_b * stride + 29) as usize;
         let body_a = *bodies::record(world, a);
         let body_b = *bodies::record(world, b);
         let set = if body_a.set_index == 2 || body_b.set_index == 2 {
@@ -734,7 +682,6 @@ mod runtime {
         sync_flags(world, id);
     }
 
-    #[derive(Clone, Copy)]
     struct MassInput {
         mass: f32,
         center: crate::math::Vec3,
@@ -744,6 +691,30 @@ mod runtime {
         [const { Vec::new() }; regions::MAX_WORLDS];
     pub unsafe fn reset(world: usize) {
         MASSES[world] = Vec::new();
+    }
+
+    #[export_name = "bodyMassShape"]
+    pub unsafe extern "C" fn mass_shape(world: usize, id: usize, phase: u32, previous: i32) -> i32 {
+        regions::select(world as u32);
+        let record = bodies::record(world, id);
+        if record.body_type == 0 || (phase < 2 && record.body_type != 2) {
+            return -1;
+        }
+        let u = crate::shapes::col();
+        let f = crate::shapes::col_f();
+        let mut shape = if previous == -1 {
+            record.head_shape_id
+        } else {
+            u.get(previous as usize * crate::shapes::SHAPE_STRIDE + crate::shapes::S_NEXT) as i32
+        };
+        while phase < 2
+            && shape != -1
+            && f.get(shape as usize * crate::shapes::SHAPE_STRIDE + crate::shapes::S_DENSITY) == 0.0
+        {
+            shape =
+                u.get(shape as usize * crate::shapes::SHAPE_STRIDE + crate::shapes::S_NEXT) as i32;
+        }
+        shape
     }
 
     #[export_name = "bodyMassBegin"]
@@ -926,44 +897,6 @@ mod runtime {
         regions::select(world as u32);
         let set = bodies::record(world, id).set_index as usize;
         island::add_body(island::create(set), id as i32);
-    }
-
-    #[export_name = "bodyCreateProxy"]
-    pub unsafe extern "C" fn create_proxy(world: usize, id: usize, shape: usize) -> u32 {
-        regions::select(world as u32);
-        let body_type = bodies::record(world, id).body_type as usize;
-        let tight = crate::continuous::bounds(shape, bodies::geometry(id).0);
-        let (bounds, _) = crate::finalize::refit_bounds(tight, &[0.0; 6]);
-        let o = shape * crate::shapes::SHAPE_STRIDE;
-        let f = crate::shapes::col_f();
-        let u = crate::shapes::col();
-        let fat = crate::fataabb::col();
-        let margin = if body_type == 0 { 0.02 } else { f.get(o + 40) };
-        let mut enlarged = bounds;
-        for lane in 0..3 {
-            enlarged[lane] -= margin;
-            enlarged[lane + 3] += margin;
-        }
-        for lane in 0..6 {
-            f.set(o + 34 + lane, bounds[lane]);
-            fat.set(shape * 6 + lane, enlarged[lane]);
-        }
-        let key = crate::broad::create_proxy(
-            body_type,
-            enlarged[0],
-            enlarged[1],
-            enlarged[2],
-            enlarged[3],
-            enlarged[4],
-            enlarged[5],
-            u.get(o + 25),
-            u.get(o + 26),
-            shape as u32,
-            1,
-        );
-        u.set(o + crate::shapes::S_PROXY_KEY, key);
-        shape_pose(world, id, shape);
-        key
     }
 
     #[export_name = "bodyColumnPtr"]

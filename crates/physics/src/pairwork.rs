@@ -247,12 +247,6 @@ impl<'a> Emitter<'a> {
         if !shapes_collide(a, b) {
             return true;
         }
-        if unsafe { crate::bodies::get_type(crate::regions::active(), a[29] as usize) } != DYNAMIC
-            && unsafe { crate::bodies::get_type(crate::regions::active(), b[29] as usize) }
-                != DYNAMIC
-        {
-            return true;
-        }
         if !unsafe { crate::bodies::should_collide(a[29], b[29]) } {
             return true;
         }

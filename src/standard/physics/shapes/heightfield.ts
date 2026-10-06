@@ -450,8 +450,12 @@ export function getHeightFieldMaterial(hf: HeightFieldData, triangleIndex: numbe
 }
 
 /** AABB of a height field under a transform (b3ComputeHeightFieldAABB = b3AABB_Transform of the box). */
-export function computeHeightFieldAABB(hf: HeightFieldData, transform: Transform): AABB {
-    return aabb.transform(transform, hf.aabb);
+export function computeHeightFieldAABB(
+    hf: HeightFieldData,
+    transform: Transform,
+    out: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() },
+): AABB {
+    return aabb.transformOut(transform, hf.aabb, out);
 }
 
 /**

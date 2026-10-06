@@ -7,6 +7,14 @@ import type { Filter, ShapeType } from "../common/types";
 import { shapeBodyId } from "../kernel/filtercolumns";
 import { kernel } from "../kernel/kernel";
 import { readShapeAabb } from "../kernel/shapecolumns";
+import {
+    ShapeField,
+    ShapeFlags,
+    setShapeFlag,
+    shapeField,
+    shapeFlag,
+    shapeScalar,
+} from "../kernel/shaperecords";
 import type { MassData } from "../shapes/geometry";
 import {
     computeShapeMass,
@@ -57,8 +65,8 @@ export class Contact {
     getData(): ContactData {
         const world = this.world;
         const contact = this.id.index1 - 1;
-        const shapeA = world.shapes[contactField(world, contact, ContactField.shapeIdA)];
-        const shapeB = world.shapes[contactField(world, contact, ContactField.shapeIdB)];
+        const shapeA = contactField(world, contact, ContactField.shapeIdA);
+        const shapeB = contactField(world, contact, ContactField.shapeIdB);
         return {
             contact: this,
             shapeA: new Shape(world, makeShapeId(world, shapeA)),
@@ -82,7 +90,7 @@ export class Shape {
     }
 
     private record(): ShapeRecord {
-        return this.world.shapes[this.id.index1 - 1];
+        return this.id.index1 - 1;
     }
 
     /** @returns whether this shape has not been destroyed and its world is alive. */
@@ -91,7 +99,7 @@ export class Shape {
             return false;
         }
         const i = this.id.index1 - 1;
-        if (i < 0 || i >= this.world.shapes.length) {
+        if (i < 0 || i >= this.world.shapeGeometry.length) {
             return false;
         }
         if (kernel(this.world.ecsState).shapeAlive(this.world.worldId, i) === 0) {
@@ -110,23 +118,23 @@ export class Shape {
 
     /** @returns the shape type. */
     getType(): ShapeType {
-        return this.record().type;
+        return shapeField(this.world, this.record(), ShapeField.type) as ShapeType;
     }
 
     /** @returns the body this shape is attached to. */
     getBody(): Body {
-        const bodyId = shapeBodyId(this.world, this.record().id);
+        const bodyId = shapeBodyId(this.world, this.record());
         return new Body(this.world, makeBodyId(this.world, bodyId));
     }
 
     /** @returns the mass, center, and inertia this shape contributes at its density. */
     computeMassData(): MassData {
-        return computeShapeMass(this.record());
+        return computeShapeMass(this.world, this.record());
     }
 
     /** @returns the shape's world AABB (as of the last proxy update). */
     getAABB(): AABB {
-        return readShapeAabb(this.world, this.record().id, {
+        return readShapeAabb(this.world, this.record(), {
             lowerBound: { x: 0, y: 0, z: 0 },
             upperBound: { x: 0, y: 0, z: 0 },
         });
@@ -134,17 +142,27 @@ export class Shape {
 
     /** @returns the shape density. */
     getDensity(): number {
-        return this.record().density;
+        return shapeScalar(this.world, this.record(), ShapeField.density);
+    }
+
+    /** @returns the debug name attached to this shape. */
+    getName(): string {
+        return this.world.shapeNames[this.record()] ?? "";
+    }
+
+    /** Replace this shape's debug name. */
+    setName(name: string): void {
+        this.world.shapeNames[this.record()] = name;
     }
 
     /** @returns the user data attached to this shape. */
     getUserData(): unknown {
-        return this.record().userData;
+        return this.world.shapeUserData[this.record()];
     }
 
     /** Attach arbitrary user data to this shape. */
     setUserData(userData: unknown): void {
-        this.record().userData = userData;
+        this.world.shapeUserData[this.record()] = userData;
     }
 
     /** @returns whether this shape is a sensor (b3Shape_IsSensor). */
@@ -174,9 +192,7 @@ export class Shape {
      */
     enableSensorEvents(flag: boolean): void {
         const shape = this.record();
-        shape.enableSensorEvents = flag;
-        this.world.shapeStore.refreshViews();
-        this.world.shapeStore.writeQueryProperties(shape);
+        setShapeFlag(this.world, shape, ShapeFlags.enableSensorEvents, flag);
     }
 
     /** Replace collision filtering, invalidating existing contacts; spatial queries see it immediately. */
@@ -186,7 +202,7 @@ export class Shape {
 
     /** @returns whether sensor events are enabled for this shape (b3Shape_AreSensorEventsEnabled). */
     areSensorEventsEnabled(): boolean {
-        return this.record().enableSensorEvents;
+        return shapeFlag(this.world, this.record(), ShapeFlags.enableSensorEvents);
     }
 
     /**
@@ -194,12 +210,12 @@ export class Shape {
      * Either shape in a pair enabling this reports the pair. Takes effect on the next contact update.
      */
     enableContactEvents(flag: boolean): void {
-        this.record().enableContactEvents = flag;
+        setShapeFlag(this.world, this.record(), ShapeFlags.enableContactEvents, flag);
     }
 
     /** @returns whether contact events are enabled for this shape (b3Shape_AreContactEventsEnabled). */
     areContactEventsEnabled(): boolean {
-        return this.record().enableContactEvents;
+        return shapeFlag(this.world, this.record(), ShapeFlags.enableContactEvents);
     }
 
     /**
@@ -208,12 +224,11 @@ export class Shape {
      */
     enableHitEvents(flag: boolean): void {
         const shape = this.record();
-        shape.enableHitEvents = flag;
-        this.world.shapeStore.writeQueryProperties(shape);
+        setShapeFlag(this.world, shape, ShapeFlags.enableHitEvents, flag);
     }
 
     /** @returns whether hit events are enabled for this shape (b3Shape_AreHitEventsEnabled). */
     areHitEventsEnabled(): boolean {
-        return this.record().enableHitEvents;
+        return shapeFlag(this.world, this.record(), ShapeFlags.enableHitEvents);
     }
 }

@@ -36,7 +36,8 @@ test("kernel finalization commits a moving non-convex mesh's tight and fat bound
         for (let i = 0; i < 4; ++i) {
             world.step(1 / 60, 4);
             const expected = computeFatShapeAABB(
-                world.state.shapes[id],
+                world.state,
+                id,
                 body.getTransform(),
                 SPECULATIVE_DISTANCE,
             );

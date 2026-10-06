@@ -233,6 +233,11 @@ pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_ca
         }
         for i in 0..3 {
             w.columns.reserve(i, tree_bytes(tree[i]));
+            if w.tree[i] == 0 && tree[i] != 0 {
+                let state = w.columns.layout[i] as *mut u32;
+                *state = u32::MAX;
+                *state.add(2) = u32::MAX;
+            }
             w.columns.reserve(BITS + i, bit_bytes(tree[i]));
         }
         for c in [KEY_HI, KEY_LO, HASHES] {

@@ -3,6 +3,7 @@ import { contactTotalImpulse, readContactManifolds } from "../collision/manifold
 import { readSimCenter } from "../kernel/bodycolumns";
 import { shapeBodyId } from "../kernel/filtercolumns";
 import { setSplitIslandCandidate, splitIslandCandidate } from "../kernel/islandcolumns";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { setArrayCount, setArrayGet, setBodyCount } from "../kernel/solversetcolumns";
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
 // MIT). The port runs the canonical colored constraint schedule, with a real overflow fallback:
@@ -84,10 +85,10 @@ function buildHitEvents(context: StepContext): void {
 
     for (const contactId of ids) {
         const contact = contactId;
-        const shapeA = world.shapes[contactField(world, contact, ContactField.shapeIdA)];
-        const shapeB = world.shapes[contactField(world, contact, ContactField.shapeIdB)];
-        const simA = getBodySim(world, shapeBodyId(world, shapeA.id));
-        const simB = getBodySim(world, shapeBodyId(world, shapeB.id));
+        const shapeA = contactField(world, contact, ContactField.shapeIdA);
+        const shapeB = contactField(world, contact, ContactField.shapeIdB);
+        const simA = getBodySim(world, shapeBodyId(world, shapeA));
+        const simB = getBodySim(world, shapeBodyId(world, shapeB));
         const midCenter = vec3.lerp(
             readSimCenter(world, simA, centerScratch1),
             readSimCenter(world, simB, centerScratch2),
@@ -118,8 +119,16 @@ function buildHitEvents(context: StepContext): void {
 
         if (found) {
             world.contactHitEvents.push({
-                shapeIdA: { index1: shapeA.id + 1, world0: worldId, generation: shapeA.generation },
-                shapeIdB: { index1: shapeB.id + 1, world0: worldId, generation: shapeB.generation },
+                shapeIdA: {
+                    index1: shapeA + 1,
+                    world0: worldId,
+                    generation: shapeField(world, shapeA, ShapeField.generation),
+                },
+                shapeIdB: {
+                    index1: shapeB + 1,
+                    world0: worldId,
+                    generation: shapeField(world, shapeB, ShapeField.generation),
+                },
                 contactId: {
                     index1: contact + 1,
                     world0: worldId,
@@ -130,12 +139,12 @@ function buildHitEvents(context: StepContext): void {
                 approachSpeed,
                 // shapeB is never a compound (b3CreateContact), so its childIndex is irrelevant.
                 userMaterialIdA: getShapeUserMaterialId(
-                    world.ecsState,
+                    world,
                     shapeA,
                     contactField(world, contact, ContactField.childIndex),
                     triangleIndex,
                 ),
-                userMaterialIdB: getShapeUserMaterialId(world.ecsState, shapeB, 0, triangleIndex),
+                userMaterialIdB: getShapeUserMaterialId(world, shapeB, 0, triangleIndex),
             });
         }
     }

@@ -1,38 +1,28 @@
-import type { World } from "../../../engine";
 import { ContactField, contactField } from "../collision/contact";
-import { BodyField, bodyField, setBodyField } from "../kernel/bodyrecords";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import {
     bodyType,
-    setShapeBodyId,
-    setShapeSensorIndex,
     shapeBodyId,
-    shapeFilterWord,
     shapeSensorIndex,
-    writeShapeFilter,
+    writeShapeFilterValue,
 } from "../kernel/filtercolumns";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 // Shapes: geometry attached to a body, with a broad-phase proxy. Ported from Box3D's shape.c (Erin
-// Catto, MIT). A shape is its own record in world.shapes (id-pooled, no separate sim); it links to a
+// Catto, MIT). A shape's nongeometry record lives in the kernel's id-pooled column; it links to a
 // body through a doubly-linked shape list and to the broad-phase through a proxy key.
 //
 // Sphere/capsule/hull/mesh/height-field/compound shapes are ported: create/destroy, mass/AABB/extent/
 // centroid, the proxy, and materials. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
-import * as bp from "../collision/broadphase";
+import type * as bp from "../collision/broadphase";
 import { destroyContact } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
-import {
-    AABB_MARGIN_FRACTION,
-    LINEAR_SLOP,
-    MAX_AABB_MARGIN,
-    SetType,
-    SPECULATIVE_DISTANCE,
-} from "../common/constants";
+import { AABB_MARGIN_FRACTION, MAX_AABB_MARGIN, SetType } from "../common/constants";
 import {
     type AABB,
     aabb,
     clampInt,
     f32,
-    froundConfig,
     mat3,
     maxf,
     minf,
@@ -44,26 +34,19 @@ import {
 } from "../common/math";
 import {
     BodyType,
-    cloneMaterial,
     type Filter,
     type ShapeDef,
     ShapeType,
     type SurfaceMaterial,
-    toFilterBits,
 } from "../common/types";
-import { syncHeadShape } from "../kernel/bodycolumns";
 import { kernel } from "../kernel/kernel";
 import {
     createShapeSlot,
     destroyShapeSlot,
     readShapeMaterials,
-    S_PROXY_KEY,
     SHAPE_STRIDE,
     shapeMaterialCount,
-    unlinkShape,
-    writeFatAabb,
     writeShape,
-    writeTightAabb,
 } from "../kernel/shapecolumns";
 import { readBodyTransform, updateBodyMassData } from "../world/body";
 import { createSensor, destroySensor, type Visitor } from "../world/sensor";
@@ -87,10 +70,10 @@ import {
     type Capsule,
     computeCapsuleAABB,
     computeCapsuleAABBOut,
-    computeCapsuleMass,
+    computeCapsuleMassOut,
     computeSphereAABB,
     computeSphereAABBOut,
-    computeSphereMass,
+    computeSphereMassOut,
     type MassData,
     roundCapsule,
     roundSphere,
@@ -107,29 +90,10 @@ import { computeMeshAABB, type Mesh, type MeshData, safeScale } from "./mesh";
 /** Min extent (smallest sphere fitting inside) and max extent per axis, for sleeping (b3ShapeExtent). */
 export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };
 
-/** A shape record (b3Shape). The geometry union is modeled as one populated optional field by type. */
-export type Shape = {
-    id: number;
-    prevShapeId: number;
-    nextShapeId: number;
-    proxyKey: number;
-    type: ShapeType;
-    density: number;
-    explosionScale: number;
-    aabbMargin: number;
-    localCentroid: Vec3;
-    material: SurfaceMaterial;
-    /** Authored material bridge values; live attachment/count lives in the kernel shape record. */
-    materials: SurfaceMaterial[] | null;
-    userData: unknown;
-    generation: number;
-    /** Kernel world key for the world-local shape/material columns. */
-    worldId: number;
-    enableSensorEvents: boolean;
-    enableContactEvents: boolean;
-    enableCustomFiltering: boolean;
-    enableHitEvents: boolean;
-    enablePreSolveEvents: boolean;
+/** Shape identity; the kernel column is its only nongeometry record. */
+export type Shape = number;
+/** Geometry retained in TypeScript until C2. */
+export type ShapeGeometry = {
     sphere?: Sphere;
     capsule?: Capsule;
     hull?: HullData;
@@ -138,23 +102,16 @@ export type Shape = {
     compound?: CompoundData;
 };
 
-/** Farthest AABB corner from a point, per axis (b3FarthestPointOnAABB). */
-const farthestPointOnAABB = (b: AABB, p: Vec3): Vec3 => ({
-    x: f32(p.x - b.lowerBound.x) > f32(b.upperBound.x - p.x) ? b.lowerBound.x : b.upperBound.x,
-    y: f32(p.y - b.lowerBound.y) > f32(b.upperBound.y - p.y) ? b.lowerBound.y : b.upperBound.y,
-    z: f32(p.z - b.lowerBound.z) > f32(b.upperBound.z - p.z) ? b.lowerBound.z : b.upperBound.z,
-});
-
 /**
  * A one-material shape presents its inline material as a length-1 array; multi-material meshes own
- * a heap array. Reach both the same way (b3GetShapeMaterials). Do not cache — the shapes array moves.
+ * a heap array. This requested observation returns an independent material array (b3GetShapeMaterials).
  */
-export function getShapeMaterials(world: World | undefined, shape: Shape): SurfaceMaterial[] {
+export function getShapeMaterials(world: WorldState, shape: Shape): SurfaceMaterial[] {
     return readShapeMaterials(world, shape);
 }
 
 /** Authoritative live material count, read from the kernel shape record. */
-export function getShapeMaterialCount(world: World | undefined, shape: Shape): number {
+export function getShapeMaterialCount(world: WorldState, shape: Shape): number {
     return shapeMaterialCount(world, shape);
 }
 
@@ -166,10 +123,10 @@ export function getShapeMaterial(
     out: SurfaceMaterial,
 ): SurfaceMaterial {
     const k = kernel(world.ecsState);
-    k.shapeSetActiveWorld(shape.worldId);
-    const ptr = k.shapeMaterialPtr(shape.worldId, shape.id);
-    const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
-    if (count === 0) throw new Error(`physics: no material on shape ${shape.id}`);
+    k.shapeSetActiveWorld(world.worldId);
+    const ptr = k.shapeMaterialPtr(world.worldId, shape);
+    const count = k.shapeMaterialCount(world.worldId, shape) >>> 0;
+    if (count === 0) throw new Error(`physics: no material on shape ${shape}`);
     const u = world.shapeStore.materialU;
     const f = world.shapeStore.materialF;
     const o = ptr / 4;
@@ -189,7 +146,7 @@ export function getShapeMaterial(
  * material for a mesh/height-field, the child's remapped slot for a compound, else material 0.
  */
 export function getShapeUserMaterialId(
-    world: World | undefined,
+    world: WorldState,
     shape: Shape,
     childIndex: number,
     triangleIndex: number,
@@ -200,12 +157,20 @@ export function getShapeUserMaterialId(
     }
 
     let materialIndex = 0;
-    if (shape.type === ShapeType.Mesh) {
-        materialIndex = (shape.mesh as Mesh).data.materialIndices[triangleIndex];
-    } else if (shape.type === ShapeType.HeightField) {
-        materialIndex = getHeightFieldMaterial(shape.heightField as HeightFieldData, triangleIndex);
-    } else if (shape.type === ShapeType.Compound) {
-        const child = getCompoundChild(shape.compound as CompoundData, childIndex);
+    if (shapeField(world, shape, ShapeField.type) === ShapeType.Mesh) {
+        materialIndex = (world.shapeGeometry[shape].mesh as Mesh).data.materialIndices[
+            triangleIndex
+        ];
+    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.HeightField) {
+        materialIndex = getHeightFieldMaterial(
+            world.shapeGeometry[shape].heightField as HeightFieldData,
+            triangleIndex,
+        );
+    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Compound) {
+        const child = getCompoundChild(
+            world.shapeGeometry[shape].compound as CompoundData,
+            childIndex,
+        );
         if (child.type === ShapeType.Mesh) {
             const meshMaterialIndex = clampInt(
                 (child.mesh as Mesh).data.materialIndices[triangleIndex],
@@ -222,167 +187,227 @@ export function getShapeUserMaterialId(
     return getShapeMaterials(world, shape)[materialIndex].userMaterialId;
 }
 
-function createShapeRecord(): Shape {
-    return {
-        id: NULL_INDEX,
-        prevShapeId: NULL_INDEX,
-        nextShapeId: NULL_INDEX,
-        proxyKey: NULL_INDEX,
-        type: ShapeType.Sphere,
-        density: 0,
-        explosionScale: 0,
-        aabbMargin: 0,
-        localCentroid: { x: 0, y: 0, z: 0 },
-        material: {
-            friction: 0,
-            restitution: 0,
-            rollingResistance: 0,
-            tangentVelocity: { x: 0, y: 0, z: 0 },
-            userMaterialId: 0n,
-            customColor: 0,
-        },
-        materials: null,
-        userData: undefined,
-        generation: 0,
-        worldId: 0,
-        enableSensorEvents: false,
-        enableContactEvents: false,
-        enableCustomFiltering: false,
-        enableHitEvents: false,
-        enablePreSolveEvents: false,
-    };
-}
-
 // --- geometry dispatch -----------------------------------------------------------------------
 
+const massDensity = { density: 0 };
 /** Mass, center, and inertia of a shape at its density (b3ComputeShapeMass). */
-export function computeShapeMass(shape: Shape): MassData {
-    switch (shape.type) {
+export function computeShapeMass(
+    world: WorldState,
+    shape: Shape,
+    out: MassData = { mass: 0, center: vec3.zero(), inertia: mat3.zero() },
+): MassData {
+    const fields = world.shapeStore.shapeF;
+    massDensity.density = fields[shape * SHAPE_STRIDE + ShapeField.density];
+    switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Capsule:
-            return computeCapsuleMass(shape.capsule as Capsule, shape.density);
+            return computeCapsuleMassOut(
+                world.shapeGeometry[shape].capsule as Capsule,
+                massDensity,
+                out,
+            );
         case ShapeType.Hull:
-            return computeHullMass(shape.hull as HullData, shape.density);
+            return computeHullMass(
+                world.shapeGeometry[shape].hull as HullData,
+                fields[shape * SHAPE_STRIDE + ShapeField.density],
+                out,
+            );
         case ShapeType.Sphere:
-            return computeSphereMass(shape.sphere as Sphere, shape.density);
+            return computeSphereMassOut(
+                world.shapeGeometry[shape].sphere as Sphere,
+                massDensity,
+                out,
+            );
         case ShapeType.Mesh:
         case ShapeType.HeightField:
         case ShapeType.Compound:
             // Mesh/height/compound are static-only; they contribute no mass (b3ComputeShapeMass default).
-            return { mass: 0, center: vec3.zero(), inertia: mat3.zero() };
+            out.mass = 0;
+            out.center.x = out.center.y = out.center.z = 0;
+            out.inertia.cx.x =
+                out.inertia.cx.y =
+                out.inertia.cx.z =
+                out.inertia.cy.x =
+                out.inertia.cy.y =
+                out.inertia.cy.z =
+                out.inertia.cz.x =
+                out.inertia.cz.y =
+                out.inertia.cz.z =
+                    0;
+            return out;
         default:
-            throw new Error(`physics: unknown shape type ${shape.type}`);
+            throw new Error(
+                `physics: unknown shape type ${shapeField(world, shape, ShapeField.type)}`,
+            );
     }
 }
 
 /** Min/max extent of a shape relative to a local center, for sleeping bounds (b3ComputeShapeExtent). */
-export function computeShapeExtent(shape: Shape, localCenter: Vec3): ShapeExtent {
-    switch (shape.type) {
+export function computeShapeExtent(
+    world: WorldState,
+    shape: Shape,
+    localCenter: Vec3,
+    out: ShapeExtent = { minExtent: 0, maxExtent: vec3.zero() },
+): ShapeExtent {
+    switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Capsule: {
-            const c = shape.capsule as Capsule;
+            const c = world.shapeGeometry[shape].capsule as Capsule;
             const radius = c.radius;
-            const c1 = vec3.sub(c.center1, localCenter);
-            const c2 = vec3.sub(c.center2, localCenter);
-            const r = { x: radius, y: radius, z: radius };
-            return { minExtent: radius, maxExtent: vec3.add(vec3.max(c1, c2), r) };
+            out.minExtent = radius;
+            out.maxExtent.x = f32(
+                maxf(f32(c.center1.x - localCenter.x), f32(c.center2.x - localCenter.x)) + radius,
+            );
+            out.maxExtent.y = f32(
+                maxf(f32(c.center1.y - localCenter.y), f32(c.center2.y - localCenter.y)) + radius,
+            );
+            out.maxExtent.z = f32(
+                maxf(f32(c.center1.z - localCenter.z), f32(c.center2.z - localCenter.z)) + radius,
+            );
+            return out;
         }
         case ShapeType.Sphere: {
-            const s = shape.sphere as Sphere;
+            const s = world.shapeGeometry[shape].sphere as Sphere;
             const radius = s.radius;
-            const r = { x: radius, y: radius, z: radius };
-            const p = vec3.add(vec3.sub(s.center, localCenter), r);
-            return { minExtent: radius, maxExtent: vec3.abs(vec3.sub(p, localCenter)) };
+            out.minExtent = radius;
+            out.maxExtent.x = Math.abs(
+                f32(f32(f32(s.center.x - localCenter.x) + radius) - localCenter.x),
+            );
+            out.maxExtent.y = Math.abs(
+                f32(f32(f32(s.center.y - localCenter.y) + radius) - localCenter.y),
+            );
+            out.maxExtent.z = Math.abs(
+                f32(f32(f32(s.center.z - localCenter.z) + radius) - localCenter.z),
+            );
+            return out;
         }
         case ShapeType.Hull:
-            return computeHullExtent(shape.hull as HullData, localCenter);
-        case ShapeType.Mesh: {
-            // Needed for kinematic mesh sleeping. Note maxExtent = |farthest corner|, not relative
-            // to localCenter (b3ComputeShapeExtent mesh branch — differs from the compound branch).
-            const m = shape.mesh as Mesh;
-            const box = computeMeshAABB(m.data, xf.identity(), m.scale);
-            const r1 = vec3.length(vec3.sub(box.lowerBound, localCenter));
-            const r2 = vec3.length(vec3.sub(box.upperBound, localCenter));
-            const p = farthestPointOnAABB(box, localCenter);
-            return { minExtent: minf(r1, r2), maxExtent: vec3.abs(p) };
-        }
+            return computeHullExtent(world.shapeGeometry[shape].hull as HullData, localCenter, out);
+        case ShapeType.Mesh:
         case ShapeType.Compound: {
-            // "Shouldn't be needed but here for completeness" (b3ComputeShapeExtent compound branch).
-            // Unlike the mesh branch, maxExtent is |farthest corner − localCenter|.
-            const box = computeCompoundAABB(shape.compound as CompoundData, xf.identity());
-            const r1 = vec3.length(vec3.sub(box.lowerBound, localCenter));
-            const r2 = vec3.length(vec3.sub(box.upperBound, localCenter));
-            const p = farthestPointOnAABB(box, localCenter);
-            return { minExtent: minf(r1, r2), maxExtent: vec3.abs(vec3.sub(p, localCenter)) };
+            computeShapeAABBOut(world, shape, localIdentity, localBounds);
+            vec3.subOut(localBounds.lowerBound, localCenter, extentDifference);
+            const r1 = vec3.length(extentDifference);
+            vec3.subOut(localBounds.upperBound, localCenter, extentDifference);
+            const r2 = vec3.length(extentDifference);
+            out.minExtent = minf(r1, r2);
+            const lo = localBounds.lowerBound,
+                hi = localBounds.upperBound;
+            let x = f32(localCenter.x - lo.x) > f32(hi.x - localCenter.x) ? lo.x : hi.x;
+            let y = f32(localCenter.y - lo.y) > f32(hi.y - localCenter.y) ? lo.y : hi.y;
+            let z = f32(localCenter.z - lo.z) > f32(hi.z - localCenter.z) ? lo.z : hi.z;
+            // Box3D's mesh extent is absolute; its compound extent is relative to the local center.
+            if (shapeField(world, shape, ShapeField.type) === ShapeType.Compound) {
+                x = f32(x - localCenter.x);
+                y = f32(y - localCenter.y);
+                z = f32(z - localCenter.z);
+            }
+            out.maxExtent.x = Math.abs(x);
+            out.maxExtent.y = Math.abs(y);
+            out.maxExtent.z = Math.abs(z);
+            return out;
         }
         case ShapeType.HeightField:
             // Height fields are static-only; extent is unused (b3ComputeShapeExtent default → zeros).
-            return { minExtent: 0, maxExtent: vec3.zero() };
+            out.minExtent = 0;
+            out.maxExtent.x = out.maxExtent.y = out.maxExtent.z = 0;
+            return out;
         default:
-            throw new Error(`physics: unknown shape type ${shape.type}`);
+            throw new Error(
+                `physics: unknown shape type ${shapeField(world, shape, ShapeField.type)}`,
+            );
     }
 }
 
 /** Enclosing AABB of a shape under a transform (b3ComputeShapeAABB). */
-export function computeShapeAABB(shape: Shape, transform: Transform): AABB {
-    switch (shape.type) {
+export function computeShapeAABB(world: WorldState, shape: Shape, transform: Transform): AABB {
+    switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Capsule:
-            return computeCapsuleAABB(shape.capsule as Capsule, transform);
+            return computeCapsuleAABB(world.shapeGeometry[shape].capsule as Capsule, transform);
         case ShapeType.Hull:
-            return computeHullAABB(shape.hull as HullData, transform);
+            return computeHullAABB(world.shapeGeometry[shape].hull as HullData, transform);
         case ShapeType.Sphere:
-            return computeSphereAABB(shape.sphere as Sphere, transform);
+            return computeSphereAABB(world.shapeGeometry[shape].sphere as Sphere, transform);
         case ShapeType.Mesh: {
-            const m = shape.mesh as Mesh;
+            const m = world.shapeGeometry[shape].mesh as Mesh;
             return computeMeshAABB(m.data, transform, m.scale);
         }
         case ShapeType.HeightField:
-            return computeHeightFieldAABB(shape.heightField as HeightFieldData, transform);
+            return computeHeightFieldAABB(
+                world.shapeGeometry[shape].heightField as HeightFieldData,
+                transform,
+            );
         case ShapeType.Compound:
-            return computeCompoundAABB(shape.compound as CompoundData, transform);
+            return computeCompoundAABB(
+                world.shapeGeometry[shape].compound as CompoundData,
+                transform,
+            );
         default:
-            throw new Error(`physics: unknown shape type ${shape.type}`);
+            throw new Error(
+                `physics: unknown shape type ${shapeField(world, shape, ShapeField.type)}`,
+            );
     }
 }
 
 /** Conservative world AABB inflated by `extra` (b3ComputeFatShapeAABB, single-precision path). */
-export function computeFatShapeAABB(shape: Shape, transform: WorldTransform, extra: number): AABB {
+export function computeFatShapeAABB(
+    world: WorldState,
+    shape: Shape,
+    transform: WorldTransform,
+    extra: number,
+): AABB {
     const r = { x: extra, y: extra, z: extra };
-    const box = computeShapeAABB(shape, transform);
+    const box = computeShapeAABB(world, shape, transform);
     return { lowerBound: vec3.sub(box.lowerBound, r), upperBound: vec3.add(box.upperBound, r) };
 }
 
 /** {@link computeShapeAABB}, written into `o` — identical expression trees. The convex types (the
  * awake-set bulk) run allocation-free; the mesh/height-field/compound tiers fall back to the
  * allocating compute and copy (identity on already-f32 values). */
-export function computeShapeAABBOut(shape: Shape, transform: Transform, o: AABB): AABB {
-    switch (shape.type) {
+export function computeShapeAABBOut(
+    world: WorldState,
+    shape: Shape,
+    transform: Transform,
+    o: AABB,
+): AABB {
+    switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Capsule:
-            return computeCapsuleAABBOut(shape.capsule as Capsule, transform, o);
+            return computeCapsuleAABBOut(
+                world.shapeGeometry[shape].capsule as Capsule,
+                transform,
+                o,
+            );
         case ShapeType.Hull:
-            return aabb.transformOut(transform, (shape.hull as HullData).aabb, o);
+            return aabb.transformOut(
+                transform,
+                (world.shapeGeometry[shape].hull as HullData).aabb,
+                o,
+            );
         case ShapeType.Sphere:
-            return computeSphereAABBOut(shape.sphere as Sphere, transform, o);
-        default: {
-            const box = computeShapeAABB(shape, transform);
-            o.lowerBound.x = box.lowerBound.x;
-            o.lowerBound.y = box.lowerBound.y;
-            o.lowerBound.z = box.lowerBound.z;
-            o.upperBound.x = box.upperBound.x;
-            o.upperBound.y = box.upperBound.y;
-            o.upperBound.z = box.upperBound.z;
-            return o;
+            return computeSphereAABBOut(world.shapeGeometry[shape].sphere as Sphere, transform, o);
+        case ShapeType.Mesh: {
+            const mesh = world.shapeGeometry[shape].mesh!;
+            return computeMeshAABB(mesh.data, transform, mesh.scale, o);
         }
+        case ShapeType.HeightField:
+            return computeHeightFieldAABB(world.shapeGeometry[shape].heightField!, transform, o);
+        case ShapeType.Compound:
+            return computeCompoundAABB(world.shapeGeometry[shape].compound!, transform, o);
+        default:
+            throw new Error(
+                `physics: unknown shape type ${shapeField(world, shape, ShapeField.type)}`,
+            );
     }
 }
 
 /** {@link computeFatShapeAABB}, written into `o` — identical expression tree, no allocation for
  * the convex types. */
 export function computeFatShapeAABBOut(
+    world: WorldState,
     shape: Shape,
     transform: WorldTransform,
     extra: number,
     o: AABB,
 ): AABB {
-    computeShapeAABBOut(shape, transform, o);
+    computeShapeAABBOut(world, shape, transform, o);
     o.lowerBound.x = f32(o.lowerBound.x - extra);
     o.lowerBound.y = f32(o.lowerBound.y - extra);
     o.lowerBound.z = f32(o.lowerBound.z - extra);
@@ -392,45 +417,46 @@ export function computeFatShapeAABBOut(
     return o;
 }
 
+const extentDifference = vec3.zero();
+const localIdentity = xf.identity();
+const localBounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
 /** Local centroid of a shape (b3GetShapeCentroid). */
-export function getShapeCentroid(shape: Shape): Vec3 {
-    switch (shape.type) {
+export function getShapeCentroid(world: WorldState, shape: Shape, out: Vec3 = vec3.zero()): Vec3 {
+    switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Capsule: {
-            const c = shape.capsule as Capsule;
-            return vec3.lerp(c.center1, c.center2, f32(0.5));
+            const c = world.shapeGeometry[shape].capsule as Capsule;
+            return vec3.lerpOut(c.center1, c.center2, f32(0.5), out);
         }
         case ShapeType.Sphere:
-            return (shape.sphere as Sphere).center;
+            return (world.shapeGeometry[shape].sphere as Sphere).center;
         case ShapeType.Hull:
-            return (shape.hull as HullData).center;
-        case ShapeType.Mesh: {
-            const m = shape.mesh as Mesh;
-            return aabb.center(computeMeshAABB(m.data, xf.identity(), m.scale));
-        }
+            return (world.shapeGeometry[shape].hull as HullData).center;
+        case ShapeType.Mesh:
         case ShapeType.HeightField:
-            return aabb.center(
-                computeHeightFieldAABB(shape.heightField as HeightFieldData, xf.identity()),
-            );
         case ShapeType.Compound:
-            return aabb.center(computeCompoundAABB(shape.compound as CompoundData, xf.identity()));
+            computeShapeAABBOut(world, shape, localIdentity, localBounds);
+            vec3.addOut(localBounds.lowerBound, localBounds.upperBound, out);
+            return vec3.scaleOut(0.5, out, out);
         default:
-            throw new Error(`physics: unknown shape type ${shape.type}`);
+            throw new Error(
+                `physics: unknown shape type ${shapeField(world, shape, ShapeField.type)}`,
+            );
     }
 }
 
-function computeShapeMargin(shape: Shape): number {
+function computeShapeMargin(world: WorldState, shape: Shape): number {
     let margin = 0;
-    switch (shape.type) {
+    switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Sphere:
-            margin = (shape.sphere as Sphere).radius;
+            margin = (world.shapeGeometry[shape].sphere as Sphere).radius;
             break;
         case ShapeType.Capsule: {
-            const c = shape.capsule as Capsule;
+            const c = world.shapeGeometry[shape].capsule as Capsule;
             margin = f32(f32(0.5 * vec3.distance(c.center2, c.center1)) + c.radius);
             break;
         }
         case ShapeType.Hull: {
-            const hull = shape.hull as HullData;
+            const hull = world.shapeGeometry[shape].hull as HullData;
             let maxExtentSqr = 0;
             for (let i = 0; i < hull.vertexCount; ++i) {
                 maxExtentSqr = maxf(
@@ -451,88 +477,53 @@ function computeShapeMargin(shape: Shape): number {
 
 // --- proxy -----------------------------------------------------------------------------------
 
-function updateShapeAABBs(
-    world: WorldState,
-    shape: Shape,
-    transform: WorldTransform,
-    proxyType: BodyType,
-): AABB {
-    const speculativeDistance = SPECULATIVE_DISTANCE;
-    const aabbMargin = shape.aabbMargin;
-
-    const box = computeFatShapeAABB(shape, transform, speculativeDistance);
-    world.shapeStore.refreshViews();
-    writeTightAabb(world.shapeStore.shapeF, shape.id, box);
-
-    // Smaller margin for static bodies. Cannot be zero due to TOI tolerance.
-    const margin = proxyType === BodyType.Static ? speculativeDistance : aabbMargin;
-    const fat = {
-        lowerBound: {
-            x: f32(box.lowerBound.x - margin),
-            y: f32(box.lowerBound.y - margin),
-            z: f32(box.lowerBound.z - margin),
-        },
-        upperBound: {
-            x: f32(box.upperBound.x + margin),
-            y: f32(box.upperBound.y + margin),
-            z: f32(box.upperBound.z + margin),
-        },
-    };
-    writeFatAabb(world, shape.id, fat);
-    return fat;
-}
-
+const proxyBounds = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } };
 export function createShapeProxy(
     shape: Shape,
     broadPhase: bp.BroadPhase,
-    type: BodyType,
+    _type: BodyType,
     transform: WorldTransform,
     forcePairCreation: boolean,
 ): void {
     const world = broadPhase.store.world;
     if (!world) throw new Error("physics: shape proxies require a world-owned broad phase");
-    const fat = updateShapeAABBs(world, shape, transform, type);
-    shape.proxyKey = bp.createProxy(
-        broadPhase,
-        type as bp.BodyTypeValue,
-        fat,
-        shapeFilterWord(world, shape.id, 25),
-        shapeFilterWord(world, shape.id, 26),
-        shape.id,
-        forcePairCreation,
+    world.broadPhase.store.initialize();
+    computeShapeAABBOut(world, shape, transform, proxyBounds);
+    kernel(world.ecsState).shapeCreateProxyBounds(
+        world.worldId,
+        shape,
+        Number(forcePairCreation),
+        proxyBounds.lowerBound.x,
+        proxyBounds.lowerBound.y,
+        proxyBounds.lowerBound.z,
+        proxyBounds.upperBound.x,
+        proxyBounds.upperBound.y,
+        proxyBounds.upperBound.z,
     );
-    const store = broadPhase.store.world?.shapeStore;
-    if (store) {
-        store.refreshViews();
-        store.shapeU[shape.id * SHAPE_STRIDE + S_PROXY_KEY] = shape.proxyKey;
-    }
+    world.broadPhase.store.refreshViews();
 }
 
 export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void {
-    if (shape.proxyKey !== NULL_INDEX) {
-        bp.destroyProxy(broadPhase, shape.proxyKey);
-        shape.proxyKey = NULL_INDEX;
-        const world = broadPhase.store.world;
-        if (world) world.shapeStore.shapeU[shape.id * SHAPE_STRIDE + S_PROXY_KEY] = NULL_INDEX;
-    }
+    const world = broadPhase.store.world!;
+    kernel(world.ecsState).shapeDestroyProxy(world.worldId, shape);
 }
 
-export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter): void {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    writeShapeFilter(world, shape.id, toFilterBits(filter));
-    const body = shapeBodyId(world, shape.id);
-    let key = bodyField(world, body, BodyField.headContactKey);
+function destroyShapeContacts(world: WorldState, shape: Shape, wakeBodies: boolean): void {
+    const k = kernel(world.ecsState);
+    let key = k.shapeContactNext(world.worldId, shape, -2);
     while (key !== NULL_INDEX) {
         const contact = key >> 1;
-        const edge = key & 1;
-        key = contactField(world, contact, ContactField.nextKeyA + 3 * edge);
-        if (
-            contactField(world, contact, ContactField.shapeIdA) === shape.id ||
-            contactField(world, contact, ContactField.shapeIdB) === shape.id
-        )
-            destroyContact(world, contact, true);
+        const next = contactField(world, contact, ContactField.nextKeyA + 3 * (key & 1));
+        key = k.shapeContactNext(world.worldId, shape, next);
+        destroyContact(world, contact, wakeBodies);
     }
+}
+export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter): void {
+    const bodyPoseScratch1 = shapePoseScratch;
+
+    writeShapeFilterValue(world, shape, filter);
+    const body = shapeBodyId(world, shape);
+    destroyShapeContacts(world, shape, true);
     destroyShapeProxy(shape, world.broadPhase);
     if (bodyField(world, body, BodyField.setIndex) !== SetType.Disabled) {
         createShapeProxy(
@@ -543,29 +534,40 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
             true,
         );
     }
-    world.shapeStore.refreshViews();
-    world.shapeStore.writeQueryProperties(shape);
 }
 
 export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
-    if (shape.type === ShapeType.Hull) {
-        removeHullFromDatabase(world, shape.hull as HullData);
-        shape.hull = undefined;
-    } else if (shape.mesh) {
-        removeGeometryFromDatabase(world, world.meshDatabase, shape.mesh.data);
-        shape.mesh = undefined;
-    } else if (shape.heightField) {
-        removeGeometryFromDatabase(world, world.heightFieldDatabase, shape.heightField);
-        shape.heightField = undefined;
-    } else if (shape.compound) {
-        removeCompoundFromDatabase(world, shape.compound);
-        shape.compound = undefined;
+    if (shapeField(world, shape, ShapeField.type) === ShapeType.Hull) {
+        removeHullFromDatabase(world, world.shapeGeometry[shape].hull as HullData);
+        world.shapeGeometry[shape].hull = undefined;
+    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Mesh) {
+        removeGeometryFromDatabase(
+            world,
+            world.meshDatabase,
+            world.shapeGeometry[shape].mesh!.data,
+        );
+        // Keep the inline mesh payload's capacity, but release its caller-owned geometry reference.
+        world.shapeGeometry[shape].mesh!.data = undefined as unknown as MeshData;
+    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.HeightField) {
+        removeGeometryFromDatabase(
+            world,
+            world.heightFieldDatabase,
+            world.shapeGeometry[shape].heightField!,
+        );
+        world.shapeGeometry[shape].heightField = undefined;
+    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Compound) {
+        removeCompoundFromDatabase(world, world.shapeGeometry[shape].compound!);
+        world.shapeGeometry[shape].compound = undefined;
     }
     world.shapeStore.destroyMaterials(world, shape);
-    shape.materials = null;
+    world.shapeUserData[shape] = undefined;
+    world.shapeNames[shape] = "";
 }
 
 // --- create / destroy ------------------------------------------------------------------------
+const centroidScratch = vec3.zero();
+const shapePoseScratch = xf.identity();
+const shapeScale = { x: 1, y: 1, z: 1 };
 
 function createShapeInternal(
     world: WorldState,
@@ -579,79 +581,75 @@ function createShapeInternal(
     // Round every user float to f32 once at ingress (density/explosionScale/material floats); the C def
     // is f32, so an unrounded f64 scalar would reach mass/solve and break bit-exact parity. Filter
     // category/mask bigints and enum/bool fields pass through untouched.
-    def = froundConfig(def);
-    const shapeId = createShapeSlot(world);
-    if (shapeId === world.shapes.length) {
-        world.shapes.push(createShapeRecord());
-    }
-
-    const shape = world.shapes[shapeId];
-    const generation = kernel(world.ecsState).shapeGeneration(world.worldId, shapeId);
-    Object.assign(shape, createShapeRecord());
-    shape.generation = generation;
-    shape.worldId = world.worldId;
+    const shapeId = createShapeSlot(world, body, shapeType, def);
+    const shape = shapeId;
+    world.shapeGeometry[shape] ??= {
+        sphere: undefined,
+        capsule: undefined,
+        hull: undefined,
+        mesh: undefined,
+        heightField: undefined,
+        compound: undefined,
+    };
 
     switch (shapeType) {
         case ShapeType.Capsule:
-            shape.capsule = roundCapsule(geometry as Capsule);
+            world.shapeGeometry[shape].capsule = roundCapsule(
+                geometry as Capsule,
+                world.shapeGeometry[shape].capsule,
+            );
             break;
         case ShapeType.Sphere:
-            shape.sphere = roundSphere(geometry as Sphere);
+            world.shapeGeometry[shape].sphere = roundSphere(
+                geometry as Sphere,
+                world.shapeGeometry[shape].sphere,
+            );
             break;
         case ShapeType.Hull:
-            shape.hull = addHullToDatabase(world, geometry as HullData);
+            world.shapeGeometry[shape].hull = addHullToDatabase(world, geometry as HullData);
             break;
-        case ShapeType.Mesh:
+        case ShapeType.Mesh: {
             addGeometryToDatabase(world, world.meshDatabase, geometry as MeshData);
-            shape.mesh = { data: geometry as MeshData, scale: safeScale(scale) };
+            const mesh = (world.shapeGeometry[shape].mesh ??= {
+                data: geometry as MeshData,
+                scale: vec3.zero(),
+            });
+            mesh.data = geometry as MeshData;
+            safeScale(scale, mesh.scale);
             break;
+        }
         case ShapeType.HeightField:
             addGeometryToDatabase(world, world.heightFieldDatabase, geometry as HeightFieldData);
-            shape.heightField = geometry as HeightFieldData;
+            world.shapeGeometry[shape].heightField = geometry as HeightFieldData;
             break;
         case ShapeType.Compound:
             addCompoundToDatabase(world, geometry as CompoundData);
-            shape.compound = geometry as CompoundData;
+            world.shapeGeometry[shape].compound = geometry as CompoundData;
             break;
         default:
             throw new Error(`physics: unknown shape type ${shapeType}`);
     }
 
-    shape.id = shapeId;
-    setShapeBodyId(world, shape.id, bodyField(world, body, BodyField.id));
-    shape.type = shapeType;
-    shape.density = def.density;
-    shape.explosionScale = def.explosionScale;
-    writeShapeFilter(world, shape.id, toFilterBits(def.filter));
-    shape.userData = def.userData;
-    shape.enableSensorEvents = def.enableSensorEvents;
-    shape.enableContactEvents = def.enableContactEvents;
-    shape.enableCustomFiltering = def.enableCustomFiltering;
-    shape.enableHitEvents = def.enableHitEvents;
-    shape.enablePreSolveEvents = def.enablePreSolveEvents;
-    shape.proxyKey = NULL_INDEX;
-    shape.localCentroid = getShapeCentroid(shape);
-    shape.aabbMargin = computeShapeMargin(shape);
+    writeShapeFilterValue(world, shape, def.filter);
+    world.shapeUserData[shape] = def.userData;
+    world.shapeNames[shape] = def.name ?? "";
+    const centroid = getShapeCentroid(world, shape, centroidScratch);
+    const report = world.shapeStore.geometryInput;
+    report[0] = centroid.x;
+    report[1] = centroid.y;
+    report[2] = centroid.z;
+    report[3] = computeShapeMargin(world, shape);
+    kernel(world.ecsState).shapeFinishGeometry(world.worldId, shape);
     // The kernel pool advanced the generation at allocation; the public bridge only carries it.
 
-    const materialCount = def.materials ? def.materials.length : 0;
-    if (shapeType === ShapeType.Compound) {
-        // Own a copy of the compound's materials so every shape frees its array the same way; the
-        // per-child material indices resolve against this array (b3CreateShapeInternal compound branch).
-        const mats = getCompoundMaterials(shape.compound as CompoundData);
-        shape.materials = mats.map(cloneMaterial);
-    } else if (materialCount > 1 && def.materials) {
-        shape.materials = def.materials.map(cloneMaterial);
-    } else {
-        shape.material =
-            materialCount === 1 && def.materials
-                ? cloneMaterial(def.materials[0])
-                : cloneMaterial(def.baseMaterial);
-        shape.materials = null;
-    }
-
-    const authoredMaterials = shape.materials !== null ? shape.materials : [shape.material];
-    world.shapeStore.writeMaterials(world, shape, authoredMaterials);
+    const materials =
+        shapeType === ShapeType.Compound
+            ? getCompoundMaterials(world.shapeGeometry[shape].compound as CompoundData)
+            : def.materials?.length
+              ? def.materials
+              : def.baseMaterial;
+    world.shapeStore.writeMaterials(world, shape, materials);
+    writeShape(world, shape);
 
     if (bodyField(world, body, BodyField.setIndex) !== SetType.Disabled) {
         // A compound never force-creates pairs: its outer proxy holds no geometry, only children do
@@ -666,33 +664,9 @@ function createShapeInternal(
         );
     }
 
-    // Add to the body's shape doubly-linked list at the head
-    if (bodyField(world, body, BodyField.headShapeId) !== NULL_INDEX) {
-        world.shapes[bodyField(world, body, BodyField.headShapeId)].prevShapeId = shapeId;
-    }
-    shape.prevShapeId = NULL_INDEX;
-    shape.nextShapeId = bodyField(world, body, BodyField.headShapeId);
-    setBodyField(world, body, BodyField.headShapeId, shapeId);
-    setBodyField(
-        world,
-        body,
-        BodyField.shapeCount,
-        bodyField(world, body, BodyField.shapeCount) + 1,
-    );
+    kernel(world.ecsState).shapeLink(world.worldId, shape, body);
 
-    // Mirror the shape into the resident column (type + geometry + its new `next`) and re-point the
-    // body's resident head lane at it. Only the new shape's `next` changes — a head insert leaves every
-    // other record's link alone.
-    writeShape(world, shape);
-    syncHeadShape(world, body);
-
-    if (def.isSensor) {
-        setShapeSensorIndex(world, shape.id, world.sensors.length);
-        world.sensors.push(createSensor(shapeId));
-    } else {
-        setShapeSensorIndex(world, shape.id, NULL_INDEX);
-    }
-    world.shapeStore.writeQueryProperties(shape);
+    if (def.isSensor) createSensor(world, shapeId);
 
     return shape;
 }
@@ -703,9 +677,9 @@ function createShape(
     def: ShapeDef,
     geometry: Sphere | Capsule | HullData | MeshData | HeightFieldData | CompoundData,
     shapeType: ShapeType,
-    scale: Vec3 = { x: 1, y: 1, z: 1 },
+    scale: Vec3 = shapeScale,
 ): Shape | null {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch1 = shapePoseScratch;
 
     // Compound and height-field shapes must be on static bodies (b3CreateShape). They carry no mass,
     // so a dynamic body with one would have zero mass and blow up; the C returns null here.
@@ -739,6 +713,8 @@ export function createSphereShape(
     return createShape(world, body, def, sphere, ShapeType.Sphere);
 }
 
+const capsuleInputScratch = { center1: vec3.zero(), center2: vec3.zero(), radius: 0 };
+const sphereInputScratch = { center: vec3.zero(), radius: 0 };
 export function createCapsuleShape(
     world: WorldState,
     body: number,
@@ -746,14 +722,20 @@ export function createCapsuleShape(
     capsuleInput: Capsule,
 ): Shape | null {
     // Round to f32 up front so the degenerate test matches the C's float-input path (b3CreateCapsuleShape).
-    const capsule = roundCapsule(capsuleInput);
+    const capsule = roundCapsule(capsuleInput, capsuleInputScratch);
     // A degenerate capsule collapses to a sphere at its midpoint (matches b3CreateCapsuleShape).
-    const lengthSqr = vec3.distanceSquared(capsule.center1, capsule.center2);
-    if (lengthSqr <= f32(LINEAR_SLOP * LINEAR_SLOP)) {
-        const sphere: Sphere = {
-            center: vec3.lerp(capsule.center1, capsule.center2, f32(0.5)),
-            radius: capsule.radius,
-        };
+    const kind = kernel(world.ecsState).shapeCapsuleType(
+        capsule.center1.x,
+        capsule.center1.y,
+        capsule.center1.z,
+        capsule.center2.x,
+        capsule.center2.y,
+        capsule.center2.z,
+    );
+    if (kind === ShapeType.Sphere) {
+        const sphere = sphereInputScratch;
+        vec3.lerpOut(capsule.center1, capsule.center2, f32(0.5), sphere.center);
+        sphere.radius = capsule.radius;
         return createShape(world, body, def, sphere, ShapeType.Sphere);
     }
     return createShape(world, body, def, capsule, ShapeType.Capsule);
@@ -799,64 +781,29 @@ export function createCompoundShape(
 export function destroyShapeInternal(
     world: WorldState,
     shape: Shape,
-    body: number,
+    _body: number,
     wakeBodies: boolean,
 ): void {
-    const shapeId = shape.id;
+    const shapeId = shape;
 
-    // Unlink from the body's shape list
-    if (shape.prevShapeId !== NULL_INDEX) {
-        world.shapes[shape.prevShapeId].nextShapeId = shape.nextShapeId;
-    }
-    if (shape.nextShapeId !== NULL_INDEX) {
-        world.shapes[shape.nextShapeId].prevShapeId = shape.prevShapeId;
-    }
-    if (shapeId === bodyField(world, body, BodyField.headShapeId)) {
-        setBodyField(world, body, BodyField.headShapeId, shape.nextShapeId);
-    }
-    setBodyField(
-        world,
-        body,
-        BodyField.shapeCount,
-        bodyField(world, body, BodyField.shapeCount) - 1,
-    );
-
-    // Mirror the unlink into the resident column: the predecessor's `next` slot and the body's head
-    // lane. The destroyed shape's own record is stale from here — its id is freed, so no chain reaches
-    // it, and a create recycling the id rewrites every slot.
-    unlinkShape(world, shape);
-    syncHeadShape(world, body);
+    kernel(world.ecsState).shapeUnlink(world.worldId, shape);
 
     destroyShapeProxy(shape, world.broadPhase);
 
-    // Destroy contacts referencing this shape
-    let contactKey = bodyField(world, body, BodyField.headContactKey);
-    while (contactKey !== NULL_INDEX) {
-        const contactId = contactKey >> 1;
-        const edgeIndex = contactKey & 1;
-        const contact = contactId;
-        contactKey = contactField(world, contact, ContactField.nextKeyA + 3 * edgeIndex);
-        if (
-            contactField(world, contact, ContactField.shapeIdA) === shapeId ||
-            contactField(world, contact, ContactField.shapeIdB) === shapeId
-        ) {
-            destroyContact(world, contact, wakeBodies);
-        }
-    }
+    destroyShapeContacts(world, shape, wakeBodies);
 
-    if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) {
+    if (shapeSensorIndex(world, shape) !== NULL_INDEX) {
         destroySensor(world, shape);
     }
 
     destroyShapeAllocations(world, shape);
 
     destroyShapeSlot(world, shapeId);
-    shape.id = NULL_INDEX;
 }
 
 export function destroyShape(world: WorldState, shape: Shape, updateBodyMass: boolean): void {
     world.locked = true;
-    const body = shapeBodyId(world, shape.id);
+    const body = shapeBodyId(world, shape);
     destroyShapeInternal(world, shape, body, true);
     if (updateBodyMass) {
         updateBodyMassData(world, body);
@@ -866,7 +813,7 @@ export function destroyShape(world: WorldState, shape: Shape, updateBodyMass: bo
 
 /** Whether a shape is a sensor (b3Shape_IsSensor). */
 export function isSensorShape(world: WorldState, shape: Shape): boolean {
-    return shapeSensorIndex(world, shape.id) !== NULL_INDEX;
+    return shapeSensorIndex(world, shape) !== NULL_INDEX;
 }
 
 /**
@@ -874,9 +821,9 @@ export function isSensorShape(world: WorldState, shape: Shape): boolean {
  * sensor's current-frame overlaps; empty if the shape is not a sensor.
  */
 export function getSensorData(world: WorldState, shape: Shape): Visitor[] {
-    if (shapeSensorIndex(world, shape.id) === NULL_INDEX) {
+    if (shapeSensorIndex(world, shape) === NULL_INDEX) {
         return [];
     }
-    const overlaps = world.sensors[shapeSensorIndex(world, shape.id)].overlaps2;
+    const overlaps = world.sensors[shapeSensorIndex(world, shape)].overlaps2;
     return overlaps.data.slice(0, overlaps.count).map((r) => ({ ...r }));
 }

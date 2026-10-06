@@ -127,7 +127,7 @@ pub extern "C" fn sensor(world: usize, sensor_id: usize) -> u32 {
                     let id = id as usize;
                     let o = id * SHAPE_STRIDE;
                     if id == sensor_id
-                        || r.get(o + S_QUERY_SENSOR) == 0
+                        || r.get(o + S_QUERY_SENSOR) & SENSOR_FLAG == 0
                         || r.get(n + S_QUERY_BODY) == r.get(o + S_QUERY_BODY)
                     {
                         return true;

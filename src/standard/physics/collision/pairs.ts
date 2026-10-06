@@ -40,7 +40,7 @@ export function updateBroadPhasePairs(world: WorldState): void {
             const a = u[o + 1];
             const b = u[o + 2];
             entry = u[o + 3];
-            createContact(world, world.shapes[a], world.shapes[b], child);
+            createContact(world, a, b, child);
         }
     }
     clearMoves(broad);

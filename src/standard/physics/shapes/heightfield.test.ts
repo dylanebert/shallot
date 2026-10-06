@@ -194,7 +194,7 @@ function createWaveOracle() {
         const body = createBody(world, defaultBodyDef());
         const def = defaultShapeDef();
         const field = createHeightFieldShape(world, body, def, hf);
-        if (!field) throw new Error("wave shape creation failed");
+        if (field === null) throw new Error("wave shape creation failed");
         const triangles = immutableBruteTriangles(hf).map((triangle) => {
             const data = createMesh({
                 vertices: triangle.vertices,
@@ -203,11 +203,11 @@ function createWaveOracle() {
             });
             if (!data) throw new Error("brute triangle mesh creation failed");
             const shape = createMeshShape(world, body, def, data, { x: 1, y: 1, z: 1 });
-            if (!shape) throw new Error("brute triangle shape creation failed");
-            return { index: triangle.index, id: shape.id };
+            if (shape === null) throw new Error("brute triangle shape creation failed");
+            return { index: triangle.index, id: shape };
         });
         queryColumns(world).prepare({ x: 0, y: 0, z: 0 });
-        return { world, field: field.id, triangles };
+        return { world, field: field, triangles };
     } catch (error) {
         destroyWorld(world);
         throw error;

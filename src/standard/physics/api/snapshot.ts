@@ -73,7 +73,10 @@ function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, Stor
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor && "value" in descriptor && key !== "userData")
             descriptor.value =
-                key === "bodyUserData" || key === "jointUserData" || key === "jointEventUserData"
+                key === "bodyUserData" ||
+                key === "shapeUserData" ||
+                key === "jointUserData" ||
+                key === "jointEventUserData"
                     ? descriptor.value.slice()
                     : clone(descriptor.value, seen, stores);
         if (descriptor) Object.defineProperty(out, key, descriptor);
@@ -131,7 +134,10 @@ function restoreClone<T>(
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor && "value" in descriptor && key !== "userData")
             descriptor.value =
-                key === "bodyUserData" || key === "jointUserData" || key === "jointEventUserData"
+                key === "bodyUserData" ||
+                key === "shapeUserData" ||
+                key === "jointUserData" ||
+                key === "jointEventUserData"
                     ? descriptor.value.slice()
                     : restoreClone(descriptor.value, seen, stores);
         if (descriptor) Object.defineProperty(out, key, descriptor);
@@ -213,7 +219,6 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     restoreClone(saved.world, new Map(), stores, state);
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
     Object.assign(state, identity);
-    for (const shape of state.shapes) shape.worldId = state.worldId;
     for (const name of Object.keys(saved.checkpoints) as StoreName[]) {
         stores[name].restoreCheckpoint(restoreClone(saved.checkpoints[name], new Map(), stores));
     }

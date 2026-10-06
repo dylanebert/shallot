@@ -5,6 +5,7 @@ import type { Vec3 } from "../common/math";
 import { ShapeType } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { kernel } from "../kernel/kernel";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { getCompoundChild } from "../shapes/compound";
 import type { Shape } from "../shapes/shape";
 import { wakeBody } from "../world/body";
@@ -142,26 +143,14 @@ export function createContact(
     childIndex: number,
 ): void {
     const k = kernel(world.ecsState);
-    const order = k.contactPairOrder(shapeA.type, shapeB.type);
-    if (order === 0) return;
-    if (order === 2) {
-        createContact(world, shapeB, shapeA, childIndex);
-        return;
-    }
+    // Compound child geometry remains host-owned until C2; native records decide order and flags.
     let flags = 0;
-    if (
-        shapeA.type === ShapeType.Mesh ||
-        shapeA.type === ShapeType.HeightField ||
-        (shapeA.type === ShapeType.Compound &&
-            getCompoundChild(shapeA.compound!, childIndex).type === ShapeType.Mesh)
-    )
-        flags |= ContactFlags.simMeshContact;
-    if (shapeA.enableContactEvents || shapeB.enableContactEvents)
-        flags |= ContactFlags.contactEnableContactEvents;
-    if (shapeA.enablePreSolveEvents || shapeB.enablePreSolveEvents)
-        flags |= ContactFlags.simEnablePreSolveEvents;
-    const id = k.bodyCreateContact(world.worldId, shapeA.id, shapeB.id, childIndex, flags);
-    addKey(world.broadPhase.pairSet, shapeA.id, shapeB.id, childIndex);
+    const compound = world.shapeGeometry[shapeA].compound ?? world.shapeGeometry[shapeB].compound;
+    if (compound !== undefined && getCompoundChild(compound, childIndex).type === ShapeType.Mesh)
+        flags = ContactFlags.simMeshContact;
+    const id = k.bodyCreateContact(world.worldId, shapeA, shapeB, childIndex, flags);
+    if (id === -1 || id === 0xffffffff) return;
+    addKey(world.broadPhase.pairSet, shapeA, shapeB, childIndex);
     updateAwakeContact(world, id);
 }
 
@@ -181,11 +170,19 @@ export function destroyContact(world: WorldState, id: number, wakeBodies: boolea
     const flags = contactField(world, id, ContactField.flags);
     const touching = (flags & ContactFlags.contactTouchingFlag) !== 0;
     if (touching && flags & ContactFlags.contactEnableContactEvents) {
-        const a = world.shapes[shapeIdA],
-            b = world.shapes[shapeIdB];
+        const a = shapeIdA,
+            b = shapeIdB;
         world.contactEndEvents[world.endEventArrayIndex].push({
-            shapeIdA: { index1: a.id + 1, world0: world.worldId, generation: a.generation },
-            shapeIdB: { index1: b.id + 1, world0: world.worldId, generation: b.generation },
+            shapeIdA: {
+                index1: a + 1,
+                world0: world.worldId,
+                generation: shapeField(world, a, ShapeField.generation),
+            },
+            shapeIdB: {
+                index1: b + 1,
+                world0: world.worldId,
+                generation: shapeField(world, b, ShapeField.generation),
+            },
             contactId: {
                 index1: id + 1,
                 world0: world.worldId,

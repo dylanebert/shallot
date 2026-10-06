@@ -176,6 +176,36 @@ pub unsafe extern "C" fn create_proxy(
     cl: u32,
     user: u32,
 ) -> i32 {
+    let cap = crate::broad::tree_cap(index);
+    let state = crate::broad::tree_state(index);
+    if cap - (*state.add(1) as usize) < 2 {
+        let next = if cap == 0 { 31 } else { cap + (cap >> 1) };
+        let mut caps = [
+            crate::broad::tree_cap(0),
+            crate::broad::tree_cap(1),
+            crate::broad::tree_cap(2),
+        ];
+        caps[index] = next;
+        crate::broad::reserve_broad(caps[0], caps[1], caps[2], crate::broad::set_cap());
+        let state = crate::broad::tree_state(index);
+        let ptr = crate::broad::tree_ptr(index);
+        for i in cap..next {
+            *ptr.add(i * STRIDE + 10) = if i + 1 == next {
+                u32::MAX
+            } else {
+                (i + 1) as u32
+            };
+        }
+        if *state.add(2) == u32::MAX {
+            *state.add(2) = cap as u32;
+        } else {
+            let mut i = *state.add(2) as usize;
+            while *ptr.add(i * STRIDE + 10) != u32::MAX {
+                i = *ptr.add(i * STRIDE + 10) as usize;
+            }
+            *ptr.add(i * STRIDE + 10) = cap as u32;
+        }
+    }
     mutate_resident(index, 0, 0, lx, ly, lz, hx, hy, hz, ch, cl, user, 0)
 }
 #[export_name = "treeDestroyProxy"]
@@ -228,7 +258,7 @@ pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
             let key = shapes.get(o + crate::shapes::S_PROXY_KEY);
             if bullets == 0 && bullet {
                 crate::broad::buffer_move(key);
-            } else if shapes.get(o + crate::shapes::S_ESCAPED) != 0 {
+            } else if shapes.get(o + crate::shapes::S_FLAGS) & crate::shapes::ENLARGED_FLAG != 0 {
                 let index = (key & 3) as usize;
                 let b = id as usize * 6;
                 let pool = slice::from_raw_parts_mut(
@@ -241,7 +271,11 @@ pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
                     [fat.get(b), fat.get(b + 1), fat.get(b + 2)],
                     [fat.get(b + 3), fat.get(b + 4), fat.get(b + 5)],
                 );
-                shapes.set(o + crate::shapes::S_ESCAPED, 0);
+                let flags = shapes.get(o + crate::shapes::S_FLAGS);
+                shapes.set(
+                    o + crate::shapes::S_FLAGS,
+                    flags & !crate::shapes::ENLARGED_FLAG,
+                );
                 if bullets == 0 {
                     crate::broad::buffer_move(key);
                 }

@@ -131,7 +131,6 @@ pub unsafe extern "C" fn array_pop(id: usize, kind: usize) {
     set(id).indices[kind].pop();
 }
 pub unsafe fn reset(id: usize) {
-    WOKEN[id] = Vec::new();
     for s in &mut WORLDS[id].sets {
         s.columns.release();
         s.joint_sims.records.release();
@@ -439,22 +438,6 @@ pub unsafe fn transfer_joint(
     }
 }
 
-static mut WOKEN: [Vec<u32>; regions::MAX_WORLDS] = [const { Vec::new() }; regions::MAX_WORLDS];
-pub unsafe fn clear_woken() {
-    WOKEN[regions::active()].clear();
-}
-#[export_name = "solverSetWokenCount"]
-pub unsafe extern "C" fn woken_count() -> usize {
-    WOKEN[regions::active()].len()
-}
-#[export_name = "solverSetWokenCapacity"]
-pub unsafe extern "C" fn woken_capacity() -> usize {
-    WOKEN[regions::active()].capacity()
-}
-#[export_name = "solverSetWokenPtr"]
-pub unsafe extern "C" fn woken_ptr() -> usize {
-    WOKEN[regions::active()].as_ptr() as usize
-}
 pub unsafe fn wake(set: usize) {
     use crate::{
         bodies, constraint_graph as graph, island, joint_abi::J_JOINT_ID, joint_record as records,
@@ -465,12 +448,11 @@ pub unsafe fn wake(set: usize) {
     }
     let world = regions::active();
     let count = body_count(set);
-    WOKEN[world].reserve(count);
     for i in 0..count {
         let id = body_id(set, i) as usize;
         let body = *bodies::record(world, id);
         wake_body(set, i, body.flags, body.head_shape_id);
-        WOKEN[world].push(id as u32);
+        crate::shape_lifecycle::sync_body(world, id);
         let mut key = body.head_contact_key;
         while key != -1 {
             let id = (key >> 1) as usize;
@@ -530,6 +512,5 @@ pub unsafe fn wake(set: usize) {
 }
 #[export_name = "solverSetWake"]
 pub unsafe extern "C" fn wake_set(set: usize) {
-    clear_woken();
     wake(set);
 }

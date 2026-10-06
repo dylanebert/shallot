@@ -13,7 +13,13 @@ import { createManifoldStore, type ManifoldStore } from "../collision/manifoldst
 import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
-import type { Capacity, MixCallback, WorldDef } from "../common/types";
+import {
+    type Capacity,
+    defaultShapeDef,
+    type MixCallback,
+    type ShapeDef,
+    type WorldDef,
+} from "../common/types";
 import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
 import { islandKernel } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
@@ -23,7 +29,7 @@ import type { CompoundData } from "../shapes/compound";
 import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
 import type { MeshData } from "../shapes/mesh";
-import type { Shape } from "../shapes/shape";
+import type { ShapeGeometry } from "../shapes/shape";
 import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import { createStepProfile, type StepProfile } from "./profile";
@@ -84,8 +90,11 @@ export type WorldState = {
 
     jointUserData: unknown[];
 
-    /** Public shape authoring records and handle bridge; slot lifecycle is kernel-owned. */
-    shapes: Shape[];
+    /** Geometry remains host-owned until C2; all nongeometry fields live in the kernel. */
+    shapeGeometry: ShapeGeometry[];
+    shapeUserData: unknown[];
+    shapeNames: string[];
+    shapeDefInput: ShapeDef;
 
     // Reference-counted store of shared hull data keyed by content hash (b3HullMap).
     hullDatabase: Map<number, { hull: HullData; refCount: number }>;
@@ -109,6 +118,7 @@ export type WorldState = {
 
     // Dense array of sensor overlap-tracking state, one per sensor shape (b3World.sensors).
     sensors: Sensor[];
+    sensorCount: number;
     queryColumns: QueryColumns | null;
 
     // Event buffers. End events are double-buffered so the user needn't flush every step. Kernel
@@ -221,12 +231,12 @@ export function removeCompoundFromDatabase(world: WorldState, data: CompoundData
 
 /** Intern a hull by content, sharing a single copy across shapes (b3AddHullToDatabase). */
 export function addHullToDatabase(world: WorldState, src: HullData): HullData {
-    const entry = world.hullDatabase.get(src.hash);
+    const entry = world.hullDatabase.get(src.hash | 0);
     if (entry !== undefined) {
         entry.refCount += 1;
         return entry.hull;
     }
-    world.hullDatabase.set(src.hash, { hull: src, refCount: 1 });
+    world.hullDatabase.set(src.hash | 0, { hull: src, refCount: 1 });
     // The hull set changed: flag the kernel's static geometry columns for re-upload at the next step
     // (deferred so hull creation never triggers a main-thread wasm instantiate before `init()`).
     world.geometryDirty = true;
@@ -235,13 +245,13 @@ export function addHullToDatabase(world: WorldState, src: HullData): HullData {
 
 /** Release a hull reference, dropping the shared copy when the last shape lets go (b3RemoveHullFromDatabase). */
 export function removeHullFromDatabase(world: WorldState, data: HullData): void {
-    const entry = world.hullDatabase.get(data.hash);
+    const entry = world.hullDatabase.get(data.hash | 0);
     if (entry === undefined) {
         return;
     }
     entry.refCount -= 1;
     if (entry.refCount === 0) {
-        world.hullDatabase.delete(data.hash);
+        world.hullDatabase.delete(data.hash | 0);
         // The hull set changed: re-upload the remaining hulls (compacting geo indices) at the next step.
         world.geometryDirty = true;
     }
@@ -278,7 +288,10 @@ function makeWorldState(
         bodyUserData: [],
         bodyNames: [],
         jointUserData: [],
-        shapes: [],
+        shapeGeometry: [],
+        shapeUserData: [],
+        shapeNames: [],
+        shapeDefInput: defaultShapeDef(),
         hullDatabase: new Map(),
         meshDatabase: new Map(),
         heightFieldDatabase: new Map(),
@@ -289,6 +302,7 @@ function makeWorldState(
         bodyStore: createBodyStore(world, worldId),
         shapeStore: createShapeStore(world, worldId),
         sensors: [],
+        sensorCount: 0,
         queryColumns: null,
         bodyMoveCount: 0,
         sensorBeginEvents: [],
@@ -390,9 +404,9 @@ export function destroyWorld(world: WorldState): void {
     world.locked = true;
 
     // Release every live shape's allocations (drops all hull references).
-    for (let i = 0; i < world.shapes.length; ++i) {
-        if (world.shapes[i].id !== -1) {
-            destroyShapeAllocations(world, world.shapes[i]);
+    for (let i = 0; i < world.shapeGeometry.length; ++i) {
+        if (kernel(world.ecsState).shapeAlive(world.worldId, i)) {
+            destroyShapeAllocations(world, i);
         }
     }
 

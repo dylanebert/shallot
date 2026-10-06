@@ -27,6 +27,7 @@ import { BodyField, bodyField, setBodyField } from "../kernel/bodyrecords";
 import { bodyType } from "../kernel/filtercolumns";
 import { kernel, setQueryCallback } from "../kernel/kernel";
 import { type QueryColumns, queryColumns } from "../kernel/querycolumns";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 import type { CompoundData } from "../shapes/compound";
 import type { Capsule, MassData, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
@@ -66,11 +67,26 @@ import type { WorldState } from "../world/world";
 import { type BodyCastHit, type BodyPlane, makeShapeId } from "./config";
 import { Shape } from "./shape";
 
+const shapeDefaults = defaultShapeDef();
+function shapeDefinition(world: WorldState, def: Partial<ShapeDef>): ShapeDef {
+    const input = world.shapeDefInput;
+    input.userData = undefined;
+    input.materials = undefined;
+    return Object.assign(input, shapeDefaults, def);
+}
+
 // Registers the pose reads stage through and the rounded writes hand the solver, which copies out of
 // them; never live across calls.
 const poseRead: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 const poseWrite: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 const velocityWrite: Vec3 = { x: 0, y: 0, z: 0 };
+
+function createdShape(world: WorldState, id: ShapeRecord): Shape {
+    Object.assign(world.shapeDefInput, shapeDefaults);
+    world.shapeDefInput.userData = undefined;
+    world.shapeDefInput.materials = undefined;
+    return new Shape(world, makeShapeId(world, id));
+}
 
 function bodyHit(world: WorldState, q: QueryColumns, origin: Pos): BodyCastHit {
     const id = q.resultU[0];
@@ -84,14 +100,14 @@ function bodyHit(world: WorldState, q: QueryColumns, origin: Pos): BodyCastHit {
             userMaterialId: 0n,
             hit: false,
         };
-    const record = world.shapes[id];
+    const record = id;
     const f = q.resultF;
-    const materials = getShapeMaterials(world.ecsState, record);
+    const materials = getShapeMaterials(world, record);
     return {
         shape: new Shape(world, {
             index1: id + 1,
             world0: world.worldId,
-            generation: record.generation,
+            generation: shapeField(world, record, ShapeField.generation),
         }),
         point: { x: origin.x + f[6], y: origin.y + f[7], z: origin.z + f[8] },
         normal: { x: f[9], y: f[10], z: f[11] },
@@ -157,10 +173,10 @@ export class Body {
         const shape = createSphereShape(
             this.world,
             this.record(),
-            { ...defaultShapeDef(), ...def },
+            shapeDefinition(this.world, def),
             sphere,
         );
-        return new Shape(this.world, makeShapeId(this.world, shape as ShapeRecord));
+        return createdShape(this.world, shape as ShapeRecord);
     }
 
     /** Attach a capsule shape. */
@@ -168,10 +184,10 @@ export class Body {
         const shape = createCapsuleShape(
             this.world,
             this.record(),
-            { ...defaultShapeDef(), ...def },
+            shapeDefinition(this.world, def),
             capsule,
         );
-        return new Shape(this.world, makeShapeId(this.world, shape as ShapeRecord));
+        return createdShape(this.world, shape as ShapeRecord);
     }
 
     /** Attach a convex-hull shape. */
@@ -179,10 +195,10 @@ export class Body {
         const shape = createHullShape(
             this.world,
             this.record(),
-            { ...defaultShapeDef(), ...def },
+            shapeDefinition(this.world, def),
             hull,
         );
-        return new Shape(this.world, makeShapeId(this.world, shape as ShapeRecord));
+        return createdShape(this.world, shape as ShapeRecord);
     }
 
     /** Attach a static triangle-mesh shape. `mesh` is caller-owned and may be shared across shapes. */
@@ -190,11 +206,11 @@ export class Body {
         const shape = createMeshShape(
             this.world,
             this.record(),
-            { ...defaultShapeDef(), ...def },
+            shapeDefinition(this.world, def),
             mesh,
             scale,
         );
-        return new Shape(this.world, makeShapeId(this.world, shape as ShapeRecord));
+        return createdShape(this.world, shape as ShapeRecord);
     }
 
     /** Attach a static height-field shape. `heightField` is caller-owned and may be shared. */
@@ -202,10 +218,10 @@ export class Body {
         const shape = createHeightFieldShape(
             this.world,
             this.record(),
-            { ...defaultShapeDef(), ...def },
+            shapeDefinition(this.world, def),
             heightField,
         );
-        return new Shape(this.world, makeShapeId(this.world, shape as ShapeRecord));
+        return createdShape(this.world, shape as ShapeRecord);
     }
 
     /**
@@ -216,10 +232,10 @@ export class Body {
         const shape = createCompoundShape(
             this.world,
             this.record(),
-            { ...defaultShapeDef(), ...def },
+            shapeDefinition(this.world, def),
             compound,
         );
-        return new Shape(this.world, makeShapeId(this.world, shape as ShapeRecord));
+        return createdShape(this.world, shape as ShapeRecord);
     }
 
     /** @returns the body type (static / kinematic / dynamic). */
@@ -593,7 +609,7 @@ export class Body {
                 shape: new Shape(this.world, {
                     index1: id + 1,
                     world0: this.world.worldId,
-                    generation: this.world.shapes[id].generation,
+                    generation: shapeField(this.world, id, ShapeField.generation),
                 }),
                 plane: {
                     plane: { normal: { x: f[0], y: f[1], z: f[2] }, offset: f[3] },

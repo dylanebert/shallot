@@ -1,4 +1,10 @@
+import { defaultSurfaceMaterial } from "../common/types";
 import { readSimCenter, readSimTransform, simFlags } from "../kernel/bodycolumns";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
+import { getShapeMaterial } from "../shapes/shape";
+
+const drawMaterial = defaultSurfaceMaterial();
+
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { bodyType, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
 import { JointField, jointCapacity, jointField } from "../kernel/jointrecords";
@@ -25,7 +31,7 @@ import {
     type WorldTransform,
     xf,
 } from "../common/math";
-import { BodyType, ShapeType, type SurfaceMaterial } from "../common/types";
+import { BodyType, ShapeType } from "../common/types";
 import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
 import { readJointVec3 } from "../kernel/jointcolumns";
 import { readFatAabb } from "../kernel/shapecolumns";
@@ -153,8 +159,7 @@ export function defaultDebugDraw(): DebugDraw {
 
 /** The debug hue for a body, by simulation state (the b3World_Draw shape-color ladder). */
 function bodyColor(world: WorldState, body: number, shape: Shape): number {
-    const material: SurfaceMaterial =
-        shape.materials !== null ? shape.materials[0] : shape.material;
+    const material = getShapeMaterial(world, shape, drawMaterial);
     if (material.customColor !== 0) {
         return material.customColor;
     }
@@ -166,7 +171,7 @@ function bodyColor(world: WorldState, body: number, shape: Shape): number {
         return DebugColor.red;
     if (bodyField(world, body, BodyField.setIndex) === SetType.Disabled)
         return DebugColor.slateGray;
-    if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) return DebugColor.wheat;
+    if (shapeSensorIndex(world, shape) !== NULL_INDEX) return DebugColor.wheat;
     if (bodyField(world, body, BodyField.flags) & BodyFlags.hadTimeOfImpact) return DebugColor.lime;
     if (
         simFlags(world, sim) & BodyFlags.isBullet &&
@@ -188,29 +193,34 @@ function bodyColor(world: WorldState, body: number, shape: Shape): number {
 
 /** Dispatch one shape's resolved geometry to the matching solid callback, under `transform`. */
 function drawSolidShape(
+    world: WorldState,
     draw: DebugDraw,
     shape: Shape,
     transform: WorldTransform,
     color: number,
 ): void {
-    switch (shape.type) {
+    switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Sphere:
-            draw.drawSolidSphere(transform, shape.sphere as Sphere, color);
+            draw.drawSolidSphere(transform, world.shapeGeometry[shape].sphere as Sphere, color);
             break;
         case ShapeType.Capsule:
-            draw.drawSolidCapsule(transform, shape.capsule as Capsule, color);
+            draw.drawSolidCapsule(transform, world.shapeGeometry[shape].capsule as Capsule, color);
             break;
         case ShapeType.Hull:
-            draw.drawSolidHull(transform, shape.hull as HullData, color);
+            draw.drawSolidHull(transform, world.shapeGeometry[shape].hull as HullData, color);
             break;
         case ShapeType.Mesh:
-            draw.drawSolidMesh(transform, shape.mesh as Mesh, color);
+            draw.drawSolidMesh(transform, world.shapeGeometry[shape].mesh as Mesh, color);
             break;
         case ShapeType.HeightField:
-            draw.drawSolidHeightField(transform, shape.heightField as HeightFieldData, color);
+            draw.drawSolidHeightField(
+                transform,
+                world.shapeGeometry[shape].heightField as HeightFieldData,
+                color,
+            );
             break;
         case ShapeType.Compound: {
-            const compound = shape.compound;
+            const compound = world.shapeGeometry[shape].compound;
             if (compound === undefined) break;
             const childCount =
                 compound.capsules.length +
@@ -319,17 +329,23 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
                 q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
             };
 
-            const shape = world.shapes[shapeId];
-            visitedBodies.add(shapeBodyId(world, shape.id));
+            const shape = shapeId;
+            visitedBodies.add(shapeBodyId(world, shape));
 
             if (draw.drawShapes) {
-                const body = shapeBodyId(world, shape.id);
+                const body = shapeBodyId(world, shape);
                 const sim = getBodySim(world, body);
                 const color = bodyColor(world, body, shape);
-                drawSolidShape(draw, shape, readSimTransform(world, sim, centerScratch1), color);
+                drawSolidShape(
+                    world,
+                    draw,
+                    shape,
+                    readSimTransform(world, sim, centerScratch1),
+                    color,
+                );
             }
             if (draw.drawBounds) {
-                draw.drawAabb(readFatAabb(world, shape.id, drawBounds), DebugColor.gold);
+                draw.drawAabb(readFatAabb(world, shape, drawBounds), DebugColor.gold);
             }
             return true;
         });

@@ -1,28 +1,34 @@
 //! World-local shape and material columns. A reachable shape is authored before it is queried.
 use crate::col::Col;
 use crate::regions::{self, Columns, MAX_WORLDS};
-pub const SHAPE_STRIDE: usize = 61;
+pub const SHAPE_STRIDE: usize = 69;
+pub const S_ID: usize = 61;
+pub const S_PREV: usize = 62;
+pub const S_DENSITY: usize = 63;
+pub const S_GENERATION: usize = 68;
+pub const S_FLAGS: usize = S_GENERATION;
+pub const SENSOR_FLAG: u32 = 1 << 16;
+pub const HIT_FLAG: u32 = 8 << 16;
+pub const ENLARGED_FLAG: u32 = 32 << 16;
+pub const SPECULATIVE_FLAG: u32 = 64 << 16;
 pub const S_MATERIAL: usize = 52;
-pub const S_HIT_EVENTS: usize = 51;
+pub const S_HIT_EVENTS: usize = S_FLAGS;
 pub const S_PROXY_KEY: usize = 50;
 pub const S_QUERY_POSE: usize = 18;
 pub const S_QUERY_CATEGORY: usize = 25;
 pub const S_QUERY_MASK: usize = 27;
 pub const S_QUERY_BODY: usize = 29;
-pub const S_QUERY_SENSOR: usize = 30;
+pub const S_QUERY_SENSOR: usize = S_FLAGS;
 pub const S_QUERY_GROUP: usize = 31;
 pub const S_TYPE: usize = 0;
 pub const S_NEXT: usize = 1;
 pub const S_GEOM: usize = 2;
 pub const S_GEO_REFERENCE: usize = 8;
-pub const S_ESCAPED: usize = 15;
 pub const S_MATERIAL_HEAD: usize = 16;
 pub const S_MATERIAL_COUNT: usize = 17;
 pub const NULL_SHAPE: u32 = u32::MAX;
-const GENERATION: usize = 1;
-const ALIVE: usize = 2;
-const FREE_ARRAY: usize = 3;
-const N_SHAPE: usize = 4;
+const FREE_ARRAY: usize = 1;
+const N_SHAPE: usize = 2;
 pub const MATERIAL_STRIDE: usize = 9;
 
 #[derive(Clone, Copy)]
@@ -30,14 +36,12 @@ struct Pool {
     cap: usize,
     next: usize,
     free: usize,
-    count: usize,
 }
 impl Pool {
     const EMPTY: Self = Self {
         cap: 0,
         next: 0,
         free: 0,
-        count: 0,
     };
 }
 #[derive(Clone, Copy)]
@@ -90,14 +94,13 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
             return 0;
         }
         w.columns.reserve(0, cap * SHAPE_STRIDE * 4);
-        for c in [GENERATION, ALIVE] {
-            w.columns.reserve(c, cap * 4);
-        }
         w.columns.reserve(FREE_ARRAY, cap.max(32) * 4);
         for id in w.shape.cap..cap {
-            *(w.columns.layout[GENERATION] as *mut u32).add(id) = 0;
-            *(w.columns.layout[ALIVE] as *mut u32).add(id) = 0;
+            let p = record(regions::active(), id);
+            p.write_bytes(0, SHAPE_STRIDE);
+            *p.add(S_ID) = NULL_SHAPE;
         }
+        crate::fataabb::reserve_fat_aabb(cap);
         w.shape.cap = cap;
         1
     }
@@ -170,12 +173,46 @@ unsafe fn shape_lane(id: u32, shape: u32, lane: usize) -> u32 {
     }
     *((w.columns.layout[0] as *const u32).add(shape as usize * SHAPE_STRIDE + lane))
 }
+#[export_name = "shapeMaterialSet"]
+pub unsafe extern "C" fn material_set(
+    id: usize,
+    shape: usize,
+    index: usize,
+    friction: f32,
+    restitution: f32,
+    rolling: f32,
+    x: f32,
+    y: f32,
+    z: f32,
+    low: u32,
+    high: u32,
+    color: u32,
+) {
+    let p = material_ptr(id, shape).add(index * MATERIAL_STRIDE);
+    let f = p as *mut f32;
+    *f = friction;
+    *f.add(1) = restitution;
+    *f.add(2) = rolling;
+    *f.add(3) = x;
+    *f.add(4) = y;
+    *f.add(5) = z;
+    *p.add(6) = low;
+    *p.add(7) = high;
+    *p.add(8) = color;
+}
 #[export_name = "shapeMaterialCount"]
 pub extern "C" fn shape_material_count(id: u32, shape: u32) -> u32 {
     unsafe { shape_lane(id, shape, S_MATERIAL_COUNT) }
 }
 #[export_name = "shapeCreate"]
-pub extern "C" fn shape_create(id: u32) -> u32 {
+pub extern "C" fn shape_create(
+    id: u32,
+    body: u32,
+    kind: u32,
+    density: f32,
+    explosion: f32,
+    flags: u32,
+) -> u32 {
     regions::select(id);
     unsafe {
         let p = world(id as usize).shape;
@@ -191,10 +228,23 @@ pub extern "C" fn shape_create(id: u32) -> u32 {
             w.shape.next += 1;
             shape
         };
-        let generation = (w.columns.layout[GENERATION] as *mut u32).add(shape);
-        *generation = (*generation).wrapping_add(1);
-        *(w.columns.layout[ALIVE] as *mut u32).add(shape) = 1;
-        w.shape.count += 1;
+        let p = record(id as usize, shape);
+        let generation = (*p.add(S_GENERATION) as u16).wrapping_add(1);
+        p.write_bytes(0, SHAPE_STRIDE);
+        *p.add(S_GENERATION) = generation as u32;
+        *p.add(S_ID) = shape as u32;
+        *p.add(S_TYPE) = kind;
+        *p.add(S_QUERY_BODY) = body;
+        *((p.add(S_FLAGS) as *mut u8).add(2)) = flags as u8;
+        *(p.add(S_DENSITY) as *mut f32) = density;
+        *(p.add(64) as *mut f32) = explosion;
+        for lane in [S_NEXT, S_PREV, S_PROXY_KEY, 41] {
+            *p.add(lane) = NULL_SHAPE;
+        }
+        let fat = crate::fataabb::col();
+        for lane in 0..6 {
+            fat.set(shape * 6 + lane, 0.0);
+        }
         shape as u32
     }
 }
@@ -205,14 +255,14 @@ pub extern "C" fn shape_destroy(id: u32, shape: u32) {
         if shape as usize >= w.shape.next {
             return;
         }
-        let alive = (w.columns.layout[ALIVE] as *mut u32).add(shape as usize);
-        if *alive == 0 {
+        let p = record(id as usize, shape as usize);
+        if *p.add(S_ID) == NULL_SHAPE {
             return;
         }
-        *alive = 0;
+        free_materials(id as usize, shape as usize);
+        *p.add(S_ID) = NULL_SHAPE;
         *(w.columns.layout[FREE_ARRAY] as *mut u32).add(w.shape.free) = shape;
         w.shape.free += 1;
-        w.shape.count -= 1;
     }
 }
 #[export_name = "shapeResetWorld"]
@@ -233,7 +283,7 @@ pub extern "C" fn shape_generation(id: u32, shape: u32) -> u32 {
         if shape as usize >= w.shape.cap {
             return 0;
         }
-        *(w.columns.layout[GENERATION] as *const u32).add(shape as usize)
+        *(record(id as usize, shape as usize).add(S_GENERATION) as *const u16) as u32
     }
 }
 #[export_name = "shapeAlive"]
@@ -243,17 +293,20 @@ pub extern "C" fn shape_alive(id: u32, shape: u32) -> u32 {
         if shape as usize >= w.shape.cap {
             return 0;
         }
-        *(w.columns.layout[ALIVE] as *const u32).add(shape as usize)
+        (*record(id as usize, shape as usize).add(S_ID) != NULL_SHAPE) as u32
     }
 }
 #[export_name = "shapeCount"]
 pub extern "C" fn shape_count(id: u32) -> usize {
-    unsafe { world(id as usize).shape.count }
+    unsafe {
+        let pool = world(id as usize).shape;
+        pool.next - pool.free
+    }
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     let w = &WORLDS[id];
     for pool in [w.shape] {
-        for value in [pool.cap, pool.next, pool.free as usize, pool.count] {
+        for value in [pool.cap, pool.next, pool.free] {
             regions::write_word(out, value);
         }
     }
@@ -277,7 +330,6 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
         pool.cap = regions::read_word(input);
         pool.next = regions::read_word(input);
         pool.free = regions::read_word(input);
-        pool.count = regions::read_word(input);
     }
     w.columns.restore(input);
     for shape in 0..w.shape.next {

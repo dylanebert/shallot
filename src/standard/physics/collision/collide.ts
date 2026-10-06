@@ -5,6 +5,7 @@ import { f32, mulWorldTransforms, quat, vec3, type WorldTransform, xf } from "..
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
 import { type Kernel, kernel, ParKind, runPool, threads, workers } from "../kernel/kernel";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 import {
     setArrayCount,
     setArrayGet,
@@ -50,14 +51,14 @@ let memoryU = new Uint32Array(0);
 function memory(k: Kernel): void {
     if (memoryU.buffer !== k.memory.buffer) memoryU = new Uint32Array(k.memory.buffer);
 }
-function rollingRadius(shape: Shape): number {
-    switch (shape.type) {
+function rollingRadius(world: WorldState, shape: Shape): number {
+    switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Sphere:
-            return shape.sphere!.radius;
+            return world.shapeGeometry[shape].sphere!.radius;
         case ShapeType.Capsule:
-            return shape.capsule!.radius;
+            return world.shapeGeometry[shape].capsule!.radius;
         case ShapeType.Hull:
-            return f32(0.25 * shape.hull!.innerRadius);
+            return f32(0.25 * world.shapeGeometry[shape].hull!.innerRadius);
         default:
             return 0;
     }
@@ -70,10 +71,17 @@ function mixMesh(
     xfA: WorldTransform,
     materialMap: number[] | null,
 ): void {
-    const materialsA = getShapeMaterials(world.ecsState, shapeA);
+    const materialsA = getShapeMaterials(world, shapeA);
     getShapeMaterial(world, shapeB, materialB);
     vec3.copy(zero, tangentA);
-    const materialCount = getShapeMaterialCount(world.ecsState, shapeA);
+    const materialCount = getShapeMaterialCount(world, shapeA);
+    const mesh =
+        materialMap === null
+            ? world.shapeGeometry[shapeA].mesh
+            : getCompoundChild(
+                  world.shapeGeometry[shapeA].compound!,
+                  contactField(world, id, ContactField.childIndex),
+              ).mesh;
     let mixedFriction = 0,
         mixedRestitution = 0;
     if (materialCount > 0) {
@@ -83,9 +91,11 @@ function mixMesh(
         for (const m of readContactManifolds(world, id)) {
             for (const point of m.points) {
                 let index =
-                    shapeA.type === ShapeType.HeightField
-                        ? shapeA.heightField!.materialIndices[point.triangleIndex >> 1]
-                        : shapeA.mesh!.data.materialIndices[point.triangleIndex];
+                    shapeField(world, shapeA, ShapeField.type) === ShapeType.HeightField
+                        ? world.shapeGeometry[shapeA].heightField!.materialIndices[
+                              point.triangleIndex >> 1
+                          ]
+                        : mesh!.data.materialIndices[point.triangleIndex];
                 if (materialMap !== null) index = materialMap[index];
                 index = Math.max(0, Math.min(index, materialCount - 1));
                 const material = materialsA[index];
@@ -134,7 +144,9 @@ function mixMesh(
         vec3.copy(material.tangentVelocity, tangentA);
     }
     const radius =
-        shapeB.type === ShapeType.Hull ? shapeB.hull!.innerRadius : rollingRadius(shapeB);
+        shapeField(world, shapeB, ShapeField.type) === ShapeType.Hull
+            ? world.shapeGeometry[shapeB].hull!.innerRadius
+            : rollingRadius(world, shapeB);
     const rolling = f32(materialB.rollingResistance * radius);
     quat.rotateOut(xfA.q, tangentA, tangentA);
     quat.rotateOut(poseB.q, materialB.tangentVelocity, tangentB);
@@ -151,8 +163,8 @@ function mixMesh(
     );
 }
 function mixContact(world: WorldState, id: number): void {
-    const ownShapeA = world.shapes[contactField(world, id, ContactField.shapeIdA)];
-    const ownShapeB = world.shapes[contactField(world, id, ContactField.shapeIdB)];
+    const ownShapeA = contactField(world, id, ContactField.shapeIdA);
+    const ownShapeB = contactField(world, id, ContactField.shapeIdB);
     let shapeA = ownShapeA,
         shapeB = ownShapeB;
     readSimTransform(world, getBodySim(world, contactBodyId(world, id, 0)), poseA);
@@ -160,29 +172,28 @@ function mixContact(world: WorldState, id: number): void {
     let xfA = poseA,
         xfB = poseB;
     let materialMap: number[] | null = null;
-    if (shapeA.type === ShapeType.Compound) {
+    let radiusA = rollingRadius(world, shapeA);
+    const radiusB = rollingRadius(world, shapeB);
+    if (shapeField(world, shapeA, ShapeField.type) === ShapeType.Compound) {
         const child = getCompoundChild(
-            shapeA.compound!,
+            world.shapeGeometry[shapeA].compound!,
             contactField(world, id, ContactField.childIndex),
         );
-        shapeA = {
-            ...shapeA,
-            type: child.type,
-            sphere: child.sphere,
-            capsule: child.capsule,
-            hull: child.hull,
-            mesh: child.mesh,
-        };
+        radiusA =
+            child.sphere?.radius ??
+            child.capsule?.radius ??
+            f32(0.25 * (child.hull?.innerRadius ?? 0));
         materialMap = child.materialIndices;
         if (child.type === ShapeType.Hull || child.type === ShapeType.Mesh)
             xfA = mulWorldTransforms(poseA, child.transform);
         if (
-            (child.type === ShapeType.Sphere && shapeB.type !== ShapeType.Sphere) ||
-            (child.type === ShapeType.Capsule && shapeB.type === ShapeType.Hull)
+            (child.type === ShapeType.Sphere &&
+                shapeField(world, shapeB, ShapeField.type) !== ShapeType.Sphere) ||
+            (child.type === ShapeType.Capsule &&
+                shapeField(world, shapeB, ShapeField.type) === ShapeType.Hull)
         ) {
-            const shape = shapeA;
-            shapeA = shapeB;
-            shapeB = shape;
+            shapeA = ownShapeB;
+            shapeB = ownShapeA;
             const pose = xfA;
             xfA = xfB;
             xfB = pose;
@@ -195,7 +206,7 @@ function mixContact(world: WorldState, id: number): void {
     const ownA =
         materialMap === null
             ? getShapeMaterial(world, ownShapeA, materialA)
-            : getShapeMaterials(world.ecsState, ownShapeA)[materialMap[0]];
+            : getShapeMaterials(world, ownShapeA)[materialMap[0]];
     getShapeMaterial(world, ownShapeB, materialB);
     const a = shapeA === ownShapeB ? materialB : ownA;
     const b = shapeA === ownShapeB ? ownA : materialB;
@@ -213,10 +224,7 @@ function mixContact(world: WorldState, id: number): void {
     );
     const rolling =
         a.rollingResistance > 0 || b.rollingResistance > 0
-            ? f32(
-                  Math.max(a.rollingResistance, b.rollingResistance) *
-                      Math.max(rollingRadius(shapeA), rollingRadius(shapeB)),
-              )
+            ? f32(Math.max(a.rollingResistance, b.rollingResistance) * Math.max(radiusA, radiusB))
             : 0;
     quat.rotateOut(xfA.q, a.tangentVelocity, tangentA);
     quat.rotateOut(xfB.q, b.tangentVelocity, tangentB);
@@ -247,11 +255,19 @@ function applyTouch(world: WorldState, id: number): void {
     const stopped = (flags & ContactFlags.simStoppedTouching) !== 0;
     if (!started && !stopped) return;
     if (flags & ContactFlags.contactEnableContactEvents) {
-        const a = world.shapes[contactField(world, id, ContactField.shapeIdA)];
-        const b = world.shapes[contactField(world, id, ContactField.shapeIdB)];
+        const a = contactField(world, id, ContactField.shapeIdA);
+        const b = contactField(world, id, ContactField.shapeIdB);
         const event = {
-            shapeIdA: { index1: a.id + 1, world0: world.worldId, generation: a.generation },
-            shapeIdB: { index1: b.id + 1, world0: world.worldId, generation: b.generation },
+            shapeIdA: {
+                index1: a + 1,
+                world0: world.worldId,
+                generation: shapeField(world, a, ShapeField.generation),
+            },
+            shapeIdB: {
+                index1: b + 1,
+                world0: world.worldId,
+                generation: shapeField(world, b, ShapeField.generation),
+            },
             contactId: {
                 index1: id + 1,
                 world0: world.worldId,

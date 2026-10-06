@@ -29,8 +29,8 @@ export default async function create(input: string) {
     const ids = contactIds(state);
     if (ids.length !== 1) throw new Error("body allocation requires one contact");
     const contact = ids[0];
-    const first = state.shapes[shapeA.id.index1 - 1];
-    const second = state.shapes[shapeB.id.index1 - 1];
+    const first = shapeA.id.index1 - 1;
+    const second = shapeB.id.index1 - 1;
     const velocity = { x: 0.1, y: 0.2, z: 0.3 };
     const angular = { x: 0.2, y: 0.3, z: 0.4 };
     const force = { x: 0.1, y: 0.1, z: 0.1 };

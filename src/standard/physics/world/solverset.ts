@@ -11,7 +11,7 @@ import {
     splitIslandCandidate,
 } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
-import { syncBodyQuery, syncWokenShapes } from "../kernel/shapecolumns";
+import { syncBodyQuery } from "../kernel/shapecolumns";
 import {
     createSolverSet,
     moveSetContact,
@@ -40,7 +40,6 @@ export function wakeSolverSet(world: WorldState, set: number): void {
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
     k.solverSetWake(set);
-    syncWokenShapes(world);
 }
 
 export function transferBody(

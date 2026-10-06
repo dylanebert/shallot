@@ -51,9 +51,9 @@ function subject(
                       : kind === ShapeType.HeightField
                         ? createHeightFieldShape(world, body, def, geometry as HeightFieldData)
                         : createCompoundShape(world, body, def, geometry as CompoundData);
-        if (!shape) throw new Error("gold shape creation failed");
+        if (shape === null) throw new Error("gold shape creation failed");
         rebuildGeometry(world);
-        run(world, shape.id);
+        run(world, shape);
     } finally {
         destroyWorld(world);
     }

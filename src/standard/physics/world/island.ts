@@ -2,7 +2,6 @@ import { ContactField, contactField } from "../collision/contact";
 import { SetType } from "../common/constants";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { islandKernel } from "../kernel/islandcolumns";
-import { syncWokenShapes } from "../kernel/shapecolumns";
 
 import type { Joint } from "../solver/joint";
 import { wakeSolverSet } from "./solverset";
@@ -43,7 +42,6 @@ export function linkContact(world: WorldState, id: number): void {
 }
 export function linkJoint(world: WorldState, joint: Joint): void {
     islandKernel(world).jointLink(joint);
-    syncWokenShapes(world);
 }
 export function unlinkJoint(world: WorldState, joint: Joint): void {
     islandKernel(world).jointUnlink(joint);

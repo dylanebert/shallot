@@ -360,7 +360,9 @@ unsafe fn solve(i: usize) {
                         return true;
                     }
                     let sensor = u.get(a + 41) != u32::MAX;
-                    if sensor && (u.get(a + 30) == 0 || u.get(o + 30) == 0)
+                    if sensor
+                        && (u.get(a + shapes::S_FLAGS) & shapes::SENSOR_FLAG == 0
+                            || u.get(o + shapes::S_FLAGS) & shapes::SENSOR_FLAG == 0)
                         || filtered(fast, target)
                     {
                         return true;
@@ -458,7 +460,11 @@ unsafe fn solve(i: usize) {
             fat.get(fb + 5),
         ];
         let escaped = !crate::finalize::aabb_contains(&cached, &b);
-        u.set(o + 15, escaped as u32);
+        let flags = u.get(o + shapes::S_FLAGS);
+        u.set(
+            o + shapes::S_FLAGS,
+            (flags & !shapes::ENLARGED_FLAG) | if escaped { shapes::ENLARGED_FLAG } else { 0 },
+        );
         if escaped {
             let margin = f.get(o + 40);
             for n in 0..3 {

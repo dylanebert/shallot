@@ -262,6 +262,8 @@ export function defaultBodyDef(): BodyDef {
 /** Shape creation parameters (b3ShapeDef). */
 export type ShapeDef = {
     userData?: unknown;
+    /** Optional debug name; immutable strings stay keyed by shape id in the host. */
+    name?: string;
     /** Per-triangle materials for mesh shapes; ignored for convex and compound shapes. */
     materials?: SurfaceMaterial[];
     /** The base surface material (ignored for compound shapes). */
@@ -275,6 +277,7 @@ export type ShapeDef = {
     enableContactEvents: boolean;
     enableHitEvents: boolean;
     enablePreSolveEvents: boolean;
+    enableSpeculativeContact: boolean;
     invokeContactCreation: boolean;
     updateBodyMass: boolean;
 };
@@ -283,6 +286,7 @@ export type ShapeDef = {
 export function defaultShapeDef(): ShapeDef {
     const lu = LENGTH_UNITS_PER_METER;
     return {
+        name: "",
         baseMaterial: defaultSurfaceMaterial(),
         // density of water
         density: f32(1000.0 / f32(f32(lu * lu) * lu)),
@@ -294,6 +298,7 @@ export function defaultShapeDef(): ShapeDef {
         enableContactEvents: false,
         enableHitEvents: false,
         enablePreSolveEvents: false,
+        enableSpeculativeContact: true,
         invokeContactCreation: true,
         updateBodyMass: true,
     };

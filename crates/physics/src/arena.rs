@@ -533,6 +533,19 @@ unsafe fn dispatch_mesh(
         }
     }
     let shape = read_shape(disp[r + D_TYPE_B], disp, r + D_GEOM_B);
+    let directory = manifolds::dir_col();
+    let shape_a =
+        directory.get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_SHAPE_A) as usize;
+    let shape_b =
+        directory.get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_SHAPE_B) as usize;
+    let shape_records = crate::shapes::col();
+    let speculative = shape_records
+        .get(shape_a * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS)
+        & crate::shapes::SPECULATIVE_FLAG
+        != 0
+        && shape_records.get(shape_b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS)
+            & crate::shapes::SPECULATIVE_FLAG
+            != 0;
     let count = compute_mesh_manifolds(
         &mut scratch.mesh,
         &mut cache.triangles[..cache.count],
@@ -540,6 +553,7 @@ unsafe fn dispatch_mesh(
         xf_a,
         xf_b,
         fast,
+        speculative,
         &mut scratch.old[..old_count],
     );
     let output_ptr = (MESH_OUTPUT_PTR as *mut f32).add(slot * MAX_TRIANGLES * MANIFOLD_STRIDE);
@@ -805,8 +819,8 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             record[D_LOWER..D_LOWER + 3].copy_from_slice(&shapes[sb + 34..sb + 37]);
             record[D_UPPER..D_UPPER + 3].copy_from_slice(&shapes[sb + 37..sb + 40]);
             let sa = record[D_SHAPE_A] as usize * crate::shapes::SHAPE_STRIDE;
-            let hit = shapes[sa + crate::shapes::S_HIT_EVENTS] != 0
-                || shapes[sb + crate::shapes::S_HIT_EVENTS] != 0;
+            let hit = shapes[sa + crate::shapes::S_HIT_EVENTS] & crate::shapes::HIT_FLAG != 0
+                || shapes[sb + crate::shapes::S_HIT_EVENTS] & crate::shapes::HIT_FLAG != 0;
             for (id_slot, type_slot, geom_slot) in [
                 (D_SHAPE_A, D_TYPE_A, D_GEOM_A),
                 (D_SHAPE_B, D_TYPE_B, D_GEOM_B),
@@ -1332,7 +1346,16 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
                 for n in 0..6 {
                     shape_f.set(o + 34 + n, cand[n]);
                 }
-                shape_u.set(o + crate::shapes::S_ESCAPED, escaped as u32);
+                let flags = shape_u.get(o + crate::shapes::S_FLAGS);
+                shape_u.set(
+                    o + crate::shapes::S_FLAGS,
+                    (flags & !crate::shapes::ENLARGED_FLAG)
+                        | if escaped {
+                            crate::shapes::ENLARGED_FLAG
+                        } else {
+                            0
+                        },
+                );
                 if escaped {
                     let margin = shape_f.get(o + 40);
                     for n in 0..3 {

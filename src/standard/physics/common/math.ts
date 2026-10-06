@@ -323,10 +323,12 @@ export const vec3 = {
         return f32(f32(xx + yy) + zz);
     },
     length: (v: Vec3): number => f32(Math.sqrt(vec3.dot(v, v))),
-    distance: (a: Vec3, b: Vec3): number => vec3.length(vec3.sub(b, a)),
+    distance: (a: Vec3, b: Vec3): number => f32(Math.sqrt(vec3.distanceSquared(a, b))),
     distanceSquared: (a: Vec3, b: Vec3): number => {
-        const d = vec3.sub(b, a);
-        return vec3.dot(d, d);
+        const x = f32(b.x - a.x),
+            y = f32(b.y - a.y),
+            z = f32(b.z - a.z);
+        return f32(f32(f32(x * x) + f32(y * y)) + f32(z * z));
     },
     distanceSq: (a: Vec3, b: Vec3): number => vec3.lengthSq(vec3.sub(b, a)),
 
@@ -339,6 +341,13 @@ export const vec3 = {
         return { x: 0, y: 0, z: 0 };
     },
 
+    lerpOut: (a: Vec3, b: Vec3, alpha: number, out: Vec3): Vec3 => {
+        const t = f32(1 - alpha);
+        out.x = f32(f32(t * a.x) + f32(alpha * b.x));
+        out.y = f32(f32(t * a.y) + f32(alpha * b.y));
+        out.z = f32(f32(t * a.z) + f32(alpha * b.z));
+        return out;
+    },
     lerp: (a: Vec3, b: Vec3, alpha: number): Vec3 => {
         const t = f32(1 - alpha);
         return {
@@ -710,18 +719,40 @@ export const quat = {
 };
 
 /** Find a quaternion that rotates unit vector v1 to unit vector v2 (b3ComputeQuatBetweenUnitVectors). */
-export function computeQuatBetweenUnitVectors(v1: Vec3, v2: Vec3): Quat {
-    let out: Quat;
-    const m = vec3.lerp(v1, v2, 0.5);
+const betweenMidpoint = { x: 0, y: 0, z: 0 };
+export function computeQuatBetweenUnitVectors(
+    v1: Vec3,
+    v2: Vec3,
+    out: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 },
+): Quat {
+    const m = vec3.lerpOut(v1, v2, 0.5, betweenMidpoint);
     const tolerance = f32(100 * FLT_EPSILON);
     if (vec3.lengthSq(m) > f32(tolerance * tolerance)) {
-        out = { v: vec3.cross(v1, m), s: vec3.dot(v1, m) };
+        vec3.crossOut(v1, m, out.v);
+        out.s = vec3.dot(v1, m);
     } else if (absf(v1.x) > 0.5) {
-        out = { v: { x: v1.y, y: -v1.x, z: 0 }, s: 0 };
+        out.v.x = v1.y;
+        out.v.y = -v1.x;
+        out.v.z = 0;
+        out.s = 0;
     } else {
-        out = { v: { x: 0, y: v1.z, z: -v1.y }, s: 0 };
+        out.v.x = 0;
+        out.v.y = v1.z;
+        out.v.z = -v1.y;
+        out.s = 0;
     }
-    return quat.normalize(out);
+    const lengthSq = quat.dot(out, out);
+    if (lengthSq > f32(1000 * FLT_MIN)) {
+        const scale = f32(1 / f32(Math.sqrt(lengthSq)));
+        vec3.scaleOut(scale, out.v, out.v);
+        out.s = f32(scale * out.s);
+    } else {
+        out.v.x = 0;
+        out.v.y = 0;
+        out.v.z = 0;
+        out.s = 1;
+    }
+    return out;
 }
 
 /** Extract a quaternion from a rotation matrix (b3MakeQuatFromMatrix). */

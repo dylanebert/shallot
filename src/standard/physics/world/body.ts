@@ -2,7 +2,6 @@ import { ContactField, contactField } from "../collision/contact";
 import { BodyField, bodyField, bodyInertia } from "../kernel/bodyrecords";
 import { bodyType, shapeSensorIndex } from "../kernel/filtercolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
-import { reserveProxy } from "../kernel/treecolumns";
 // body.c bindings (Box3D, Erin Catto, MIT). Body records, solver-set sims and awake states
 // belong to the kernel. Walks over joint and shape records remain here until those records move.
 
@@ -19,7 +18,7 @@ import {
     vec3,
     type WorldTransform,
 } from "../common/math";
-import { type BodyDef, BodyType, ShapeType } from "../common/types";
+import { type BodyDef, BodyType } from "../common/types";
 import { readSimLocalCenter, readSimTransform } from "../kernel/bodycolumns";
 import { islandField } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
@@ -427,13 +426,7 @@ export function bodySetTransform(
         rotation.v.z,
         rotation.s,
     );
-    let shapeId = bodyField(world, body, BodyField.headShapeId);
-    while (shapeId !== NULL_INDEX) {
-        const shape = world.shapes[shapeId];
-        kernel(world.ecsState).bodyShapeBounds(world.worldId, body, shapeId);
-        shapeId = shape.nextShapeId;
-    }
-    syncBodyQuery(world, body);
+    kernel(world.ecsState).shapeSyncBodyBounds(world.worldId, body);
 }
 
 /**
@@ -450,18 +443,10 @@ export function bodySetType(world: WorldState, body: number, type: BodyType): vo
         return;
     }
 
-    if (type !== BodyType.Static) {
-        let shapeId = bodyField(world, body, BodyField.headShapeId);
-        while (shapeId !== NULL_INDEX) {
-            const shape = world.shapes[shapeId];
-            if (shape.type === ShapeType.Compound || shape.type === ShapeType.HeightField) {
-                // Setting the body type is not supported for bodies with compound/height-field shapes.
-                // (Deviation: the C returns here without unlocking — a lock leak; the port unlocks.)
-                world.locked = false;
-                return;
-            }
-            shapeId = shape.nextShapeId;
-        }
+    if (!kernel(world.ecsState).shapeBodyAllowsType(world.worldId, body, type)) {
+        // Unlike the C's early return, refusing a compound/height-field type change releases the lock.
+        world.locked = false;
+        return;
     }
 
     // Disabled bodies don't change solver sets or islands when they change type.
@@ -532,14 +517,10 @@ export function bodySetType(world: WorldState, body: number, type: BodyType): vo
         }
     }
 
-    // Recreate shape proxies in the broadphase against the new body type.
-    let shapeId = bodyField(world, body, BodyField.headShapeId);
-    while (shapeId !== NULL_INDEX) {
-        const shape = world.shapes[shapeId];
-        shapeId = shape.nextShapeId;
-        destroyShapeProxy(shape, world.broadPhase);
-        createBodyProxy(world, body, shape.id);
-    }
+    // Preserve Box3D's per-shape destroy/create order when changing trees.
+    world.broadPhase.store.initialize();
+    kernel(world.ecsState).shapeBodyProxies(world.worldId, body, 2);
+    world.broadPhase.store.refreshViews();
 
     // Relink joints where at least one attached body is dynamic and enabled.
     jointKey = bodyField(world, body, BodyField.headJointKey);
@@ -595,17 +576,6 @@ function createIslandForBody(world: WorldState, body: number): void {
 
 function removeBodyFromIsland(world: WorldState, body: number): void {
     kernel(world.ecsState).bodyRemoveIsland(world.worldId, body);
-}
-
-function createBodyProxy(world: WorldState, body: number, shapeId: number): void {
-    const type = bodyType(world, body);
-    world.broadPhase.store.refreshIfStale();
-    reserveProxy(world.broadPhase.trees[type]);
-    world.shapes[shapeId].proxyKey = kernel(world.ecsState).bodyCreateProxy(
-        world.worldId,
-        body,
-        shapeId,
-    );
 }
 
 function destroyBodyContacts(world: WorldState, body: number, wakeBodies: boolean): void {
@@ -696,18 +666,17 @@ export function destroyBody(world: WorldState, body: number): void {
 
     destroyBodyContacts(world, body, wakeBodies);
 
-    // Destroy attached shapes and their proxies
-    let shapeId = bodyField(world, body, BodyField.headShapeId);
+    // Native list unlinking yields ids only while geometry and sensor payloads remain host-owned.
+    let shapeId = kernel(world.ecsState).shapeBodyTake(world.worldId, body);
     while (shapeId !== NULL_INDEX) {
-        const shape = world.shapes[shapeId];
-        if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) {
+        const shape = shapeId;
+        if (shapeSensorIndex(world, shape) !== NULL_INDEX) {
             destroySensor(world, shape);
         }
         destroyShapeProxy(shape, world.broadPhase);
         destroyShapeAllocations(world, shape);
         destroyShapeSlot(world, shapeId);
-        shape.id = NULL_INDEX;
-        shapeId = shape.nextShapeId;
+        shapeId = kernel(world.ecsState).shapeBodyTake(world.worldId, body);
     }
 
     removeBodyFromIsland(world, body);
@@ -739,12 +708,7 @@ export function bodyDisable(world: WorldState, body: number): void {
             joint,
         );
     }
-    let shapeId = bodyField(world, body, BodyField.headShapeId);
-    while (shapeId !== NULL_INDEX) {
-        const shape = world.shapes[shapeId];
-        destroyShapeProxy(shape, world.broadPhase);
-        shapeId = shape.nextShapeId;
-    }
+    kernel(world.ecsState).shapeBodyProxies(world.worldId, body, 0);
     removeBodyFromIsland(world, body);
     transferBody(world, SetType.Disabled, bodyField(world, body, BodyField.setIndex), body);
     world.locked = false;
@@ -755,11 +719,8 @@ export function bodyEnable(world: WorldState, body: number): void {
     if (bodyField(world, body, BodyField.setIndex) !== SetType.Disabled) return;
     const target = bodyType(world, body) === BodyType.Static ? SetType.Static : SetType.Awake;
     transferBody(world, target, SetType.Disabled, body);
-    let shapeId = bodyField(world, body, BodyField.headShapeId);
-    while (shapeId !== NULL_INDEX) {
-        createBodyProxy(world, body, shapeId);
-        shapeId = world.shapes[shapeId].nextShapeId;
-    }
+    kernel(world.ecsState).shapeBodyProxies(world.worldId, body, 1);
+    world.broadPhase.store.refreshViews();
     if (target !== SetType.Static) createIslandForBody(world, body);
     let key = bodyField(world, body, BodyField.headJointKey);
     while (key !== NULL_INDEX) {
@@ -785,58 +746,49 @@ export function bodyEnable(world: WorldState, body: number): void {
 
 /** Recompute mass, center of mass, and inertia from the body's shapes (b3UpdateBodyMassData). */
 const massExtentCenter = vec3.zero();
+const massDataScratch = { mass: 0, center: vec3.zero(), inertia: mat3.zero() };
+const massExtentScratch = { minExtent: 0, maxExtent: vec3.zero() };
 export function updateBodyMassData(world: WorldState, body: number): void {
     const k = kernel(world.ecsState);
     k.bodyMassBegin(world.worldId, body);
-    const type = bodyType(world, body);
-    if (type === BodyType.Dynamic) {
-        let shapeId = bodyField(world, body, BodyField.headShapeId);
-        while (shapeId !== NULL_INDEX) {
-            const shape = world.shapes[shapeId];
-            if (shape.density === 0) {
-                k.bodyMassInput(world.worldId, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            } else {
-                const data = computeShapeMass(shape);
-                const m = data.inertia;
-                k.bodyMassInput(
-                    world.worldId,
-                    data.mass,
-                    data.center.x,
-                    data.center.y,
-                    data.center.z,
-                    m.cx.x,
-                    m.cx.y,
-                    m.cx.z,
-                    m.cy.x,
-                    m.cy.y,
-                    m.cy.z,
-                    m.cz.x,
-                    m.cz.y,
-                    m.cz.z,
-                );
-            }
-            shapeId = shape.nextShapeId;
-        }
+    let shape = k.bodyMassShape(world.worldId, body, 0, NULL_INDEX);
+    while (shape !== NULL_INDEX) {
+        const data = computeShapeMass(world, shape, massDataScratch);
+        const m = data.inertia;
+        k.bodyMassInput(
+            world.worldId,
+            data.mass,
+            data.center.x,
+            data.center.y,
+            data.center.z,
+            m.cx.x,
+            m.cx.y,
+            m.cx.z,
+            m.cy.x,
+            m.cy.y,
+            m.cy.z,
+            m.cz.x,
+            m.cz.y,
+            m.cz.z,
+        );
+        shape = k.bodyMassShape(world.worldId, body, 0, shape);
     }
     k.bodyMassFinish(world.worldId, body);
-    if (type !== BodyType.Static) {
-        readSimLocalCenter(world, getBodySim(world, body), massExtentCenter);
-        let shapeId = bodyField(world, body, BodyField.headShapeId);
-        while (shapeId !== NULL_INDEX) {
-            const shape = world.shapes[shapeId];
-            const extent = computeShapeExtent(shape, massExtentCenter);
-            k.bodyMassExtent(
-                world.worldId,
-                body,
-                extent.minExtent,
-                extent.maxExtent.x,
-                extent.maxExtent.y,
-                extent.maxExtent.z,
-            );
-            shapeId = shape.nextShapeId;
-        }
+    readSimLocalCenter(world, getBodySim(world, body), massExtentCenter);
+    shape = k.bodyMassShape(world.worldId, body, 2, NULL_INDEX);
+    while (shape !== NULL_INDEX) {
+        const extent = computeShapeExtent(world, shape, massExtentCenter, massExtentScratch);
+        k.bodyMassExtent(
+            world.worldId,
+            body,
+            extent.minExtent,
+            extent.maxExtent.x,
+            extent.maxExtent.y,
+            extent.maxExtent.z,
+        );
+        shape = k.bodyMassShape(world.worldId, body, 2, shape);
     }
-    if (bodyField(world, body, BodyField.shapeCount) > 0) syncBodyQuery(world, body);
+    syncBodyQuery(world, body);
 }
 
 /** @returns the body's mass, local center of mass, and rotational inertia (b3Body_GetMassData). */

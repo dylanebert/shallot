@@ -535,6 +535,7 @@ pub fn compute_mesh_manifolds(
     xf_a: Transform,
     xf_b: Transform,
     fast: bool,
+    speculative: bool,
     old: &mut [Manifold],
 ) -> usize {
     let transform = xf_b.inv_mul(xf_a);
@@ -575,7 +576,7 @@ pub fn compute_mesh_manifolds(
                     b,
                     c,
                     &mut triangle.sat,
-                    true,
+                    speculative,
                 );
             }
         }
@@ -957,6 +958,7 @@ mod tests {
             Transform::IDENTITY,
             Transform::IDENTITY,
             false,
+            true,
             &mut [],
         );
         assert_eq!(count, 1);
@@ -977,6 +979,7 @@ mod tests {
                 Transform::IDENTITY,
                 Transform::IDENTITY,
                 false,
+                true,
                 &mut old
             ),
             1

@@ -47,7 +47,7 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
     expect(contactField(world, contact, ContactField.bodyIdA)).toBe(a.bodyId);
     expect(contactField(world, contact, ContactField.bodyIdB)).toBe(b.bodyId);
     // Pair recorded so it isn't turned into a second contact.
-    expect(addKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(true);
+    expect(addKey(world.broadPhase.pairSet, a.shape, b.shape, 0)).toBe(true);
 
     destroyContact(world, contact, false);
 
@@ -62,7 +62,7 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
     expect(bodyField(world, a.body, BodyField.headContactKey)).toBe(NULL_INDEX);
     expect(bodyField(world, b.body, BodyField.headContactKey)).toBe(NULL_INDEX);
     expect(setArrayCount(world, SetType.Awake, 0)).toBe(0);
-    expect(removeKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(false);
+    expect(removeKey(world.broadPhase.pairSet, a.shape, b.shape, 0)).toBe(false);
 });
 
 test("createContact files a non-touching contact between two asleep bodies into the awake set, so sleeping islands pay for contacts nothing is simulating", () => {

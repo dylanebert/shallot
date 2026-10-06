@@ -231,7 +231,7 @@ export function rebuildGeometry(world: WorldState): void {
                 words.push(bits(child.sphere.radius));
             } else if (child.hull)
                 words.push(
-                    world.hullDatabase.get(child.hull.hash)!.hull.geoIndex,
+                    world.hullDatabase.get(child.hull.hash | 0)!.hull.geoIndex,
                     bits(child.hull.innerRadius),
                 );
             else if (child.mesh) {
@@ -247,8 +247,8 @@ export function rebuildGeometry(world: WorldState): void {
     world.shapeStore.refreshViews();
     world.bodyStore.refreshViews();
     world.manifoldStore.refreshViews();
-    for (const s of world.shapes) {
-        if (s.id < 0) continue;
+    for (let s = 0; s < world.shapeGeometry.length; ++s) {
+        if (!kernel(world.ecsState).shapeAlive(world.worldId, s)) continue;
         world.shapeStore.writeGeometryReference(world, s);
     }
 }

@@ -183,8 +183,10 @@ export type Kernel = {
         qz: number,
         qs: number,
     ): void;
-    bodyShapePose(world: number, id: number, shape: number): void;
-    bodyShapeBounds(world: number, id: number, shape: number): void;
+    shapeQueryPose(world: number, shape: number, body: number): void;
+    shapeSyncBodyBounds(world: number, body: number): void;
+    shapeBodyAllowsType(world: number, body: number, type: number): number;
+    shapeBodyTake(world: number, body: number): number;
     bodyTransfer(world: number, id: number, target: number, clearTransient: boolean): number;
     bodyWakeRecord(world: number, id: number): void;
     bodyCreateContact(
@@ -198,6 +200,7 @@ export type Kernel = {
     bodySyncFlags(world: number, id: number): void;
     bodyChangeType(world: number, id: number, type: number): void;
     bodyMassBegin(world: number, id: number): void;
+    bodyMassShape(world: number, id: number, phase: number, previous: number): number;
     bodyMassInput(
         world: number,
         mass: number,
@@ -225,7 +228,6 @@ export type Kernel = {
     ): void;
     bodyCreateIsland(world: number, id: number): void;
     bodyRemoveIsland(world: number, id: number): void;
-    bodyCreateProxy(world: number, id: number, shape: number): number;
     bodyColumnPtr(world: number, id: number, column: number): number;
     simColumnPtr(world: number, set: number, index: number, column: number): number;
     bodyStateIndex(world: number, id: number): number;
@@ -257,7 +259,52 @@ export type Kernel = {
     shapeLayoutPtr(): number;
     shapeCap(): number;
     /** Allocate/release a world-local shape slot; generation and validity stay in wasm. */
-    shapeCreate(world: number): number;
+    shapeCreate(
+        world: number,
+        body: number,
+        type: number,
+        density: number,
+        explosion: number,
+        flags: number,
+    ): number;
+    shapeCapsuleType(
+        ax: number,
+        ay: number,
+        az: number,
+        bx: number,
+        by: number,
+        bz: number,
+    ): number;
+    shapeGeometryInputPtr(): number;
+    shapeFinishGeometry(world: number, id: number): void;
+    shapeFilterWrite(
+        world: number,
+        id: number,
+        categoryHi: number,
+        categoryLo: number,
+        maskHi: number,
+        maskLo: number,
+        group: number,
+    ): void;
+    shapeContactNext(world: number, id: number, key: number): number;
+    shapeAttachSensor(world: number, id: number, sensor: number): void;
+    shapeLink(world: number, id: number, body: number): void;
+    shapeUnlink(world: number, id: number): void;
+    shapeSyncBody(world: number, body: number): void;
+    shapeCreateProxy(world: number, id: number, force: number): void;
+    shapeCreateProxyBounds(
+        world: number,
+        id: number,
+        force: number,
+        lx: number,
+        ly: number,
+        lz: number,
+        hx: number,
+        hy: number,
+        hz: number,
+    ): void;
+    shapeDestroyProxy(world: number, id: number): void;
+    shapeBodyProxies(world: number, body: number, create: number): void;
     shapeDestroy(world: number, id: number): void;
     shapeResetWorld(world: number): void;
     shapeGeneration(world: number, id: number): number;
@@ -267,6 +314,20 @@ export type Kernel = {
     shapeAllocateMaterials(world: number, id: number, count: number): number;
     shapeFreeMaterials(world: number, id: number): void;
     shapeMaterialPtr(world: number, id: number): number;
+    shapeMaterialSet(
+        world: number,
+        id: number,
+        index: number,
+        friction: number,
+        restitution: number,
+        rolling: number,
+        x: number,
+        y: number,
+        z: number,
+        low: number,
+        high: number,
+        color: number,
+    ): void;
     shapeMaterialCount(world: number, id: number): number;
 
     // World-local tree pools, pair membership and moves. Pass zero to retain a capacity.
@@ -511,9 +572,6 @@ export type Kernel = {
     solverSetWake(set: number): void;
     jointCollectEvents(): number;
     jointEventPtr(): number;
-    solverSetWokenCount(): number;
-    solverSetWokenCapacity(): number;
-    solverSetWokenPtr(): number;
     awakeContactCount(): number;
     awakeContactGet(index: number): number;
     awakeContactCopy(ptr: number): void;

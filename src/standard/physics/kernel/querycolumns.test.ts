@@ -41,14 +41,12 @@ test("callback-free mover planes publish the first eight callback records and pr
         const q = queryColumns(physics.state);
         const k = q.prepare(origin);
         q.mover(capsule.center1, capsule.center2, capsule.radius);
-        const excluded = shapeBodyId(physics.state, physics.state.shapes[expected[0].shape].id);
+        const excluded = shapeBodyId(physics.state, expected[0].shape);
         q.headerU[19] = excluded + 1;
         k.worldQuery(physics.state.worldId, 5, 0);
         expect(q.resultU[0]).toBe(8);
         for (let i = 0; i < 8; ++i)
-            expect(
-                shapeBodyId(physics.state, physics.state.shapes[q.resultU[16 + 8 * i]].id),
-            ).not.toBe(excluded);
+            expect(shapeBodyId(physics.state, q.resultU[16 + 8 * i])).not.toBe(excluded);
         q.prepare(origin);
         expect(q.headerU[19]).toBe(0);
         k.worldQuery(physics.state.worldId, 5, 0);

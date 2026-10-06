@@ -3,6 +3,7 @@ import type { PlaneResult } from "../collision/mover";
 import type { EntityId } from "../common/ids";
 import type { Pos, Quat, Transform, Vec3 } from "../common/math";
 import { JointField, jointField } from "../kernel/jointrecords";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 import type { Shape as ShapeRecord } from "../shapes/shape";
 import type { JointDef, Joint as JointRecord } from "../solver/joint";
 import type { WorldState } from "../world/world";
@@ -11,7 +12,11 @@ import type { Joint } from "./joint";
 import type { Contact, Shape } from "./shape";
 
 export function makeShapeId(world: WorldState, shape: ShapeRecord): EntityId {
-    return { index1: shape.id + 1, world0: world.worldId, generation: shape.generation };
+    return {
+        index1: shape + 1,
+        world0: world.worldId,
+        generation: shapeField(world, shape, ShapeField.generation),
+    };
 }
 
 export function makeJointId(world: WorldState, joint: JointRecord): EntityId {

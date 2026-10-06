@@ -87,14 +87,15 @@ export class BroadStore extends KernelViews {
                 t.ni = EMPTY_I;
                 continue;
             }
+            const initial = this.initialization.claimed && !t.residentState && this.world === null;
             if (this.initialization.claimed) {
-                const initial = !t.residentState;
                 const previous = t.state;
                 if (t.state.buffer !== buf || t.state.byteOffset !== layout[i])
                     t.state = new Int32Array(buf, layout[i], 6);
                 if (initial) t.state.set(previous);
                 t.residentState = true;
             }
+            t.nodeCapacity = !this.initialization.claimed || initial ? 0 : cap;
             if (
                 t.nf.buffer !== buf ||
                 t.nf.byteOffset !== layout[i] + 24 ||
@@ -109,10 +110,9 @@ export class BroadStore extends KernelViews {
         if (this.initialization.claimed && moveCapacity !== 0) {
             if (this.moveState.buffer !== buf || this.moveState.byteOffset !== layout[6])
                 this.moveState = new Uint32Array(buf, layout[6], 1);
-            if (!this.initialization.movesInitialized) {
-                k.broadClearMoves();
-                this.initialization.movesInitialized = true;
-            }
+            const initial = !this.initialization.movesInitialized && this.world === null;
+            if (initial) this.moveState[0] = 0;
+            this.initialization.movesInitialized = true;
             if (
                 this.moveData.buffer !== buf ||
                 this.moveData.byteOffset !== layout[6] + 4 ||
@@ -124,6 +124,7 @@ export class BroadStore extends KernelViews {
                 const length = Math.ceil(k.broadTreeCap(i) / 32);
                 if (old.buffer !== buf || old.byteOffset !== layout[7 + i] || old.length !== length)
                     this.movedBits[i] = new Uint32Array(buf, layout[7 + i], length);
+                if (initial) this.movedBits[i].fill(0);
             }
         } else {
             this.moveState = EMPTY_U;

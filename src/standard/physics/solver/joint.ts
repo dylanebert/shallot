@@ -47,7 +47,7 @@ import {
 import { readJointFlag, readJointFloat, readJointVec3 } from "../kernel/jointcolumns";
 import { JointField, jointField, setJointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
-import { syncWokenShapes } from "../kernel/shapecolumns";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { readBodyTransform, wakeBody } from "../world/body";
 import type { WorldState } from "../world/world";
 import { getDistanceJointForce } from "./distanceJoint";
@@ -153,7 +153,6 @@ export function createJointRecord(world: WorldState, def: JointDef, type: JointT
         def.constraintDampingRatio,
     );
     world.jointUserData[joint] = def.userData;
-    syncWokenShapes(world);
     return joint;
 }
 
@@ -172,7 +171,6 @@ export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies
     k.bodySetActiveWorld(world.worldId);
     k.jointDestroy(joint, +wakeBodies);
     world.jointUserData[joint] = null;
-    syncWokenShapes(world);
 }
 
 // --- Dispatch ---------------------------------------------------------------------------------
@@ -251,11 +249,11 @@ export function setJointCollideConnected(
                 ? bodyField(world, bodyA, BodyField.headShapeId)
                 : bodyField(world, bodyB, BodyField.headShapeId);
         while (shapeId !== NULL_INDEX) {
-            const shape = world.shapes[shapeId];
-            if (shape.proxyKey !== NULL_INDEX) {
-                bufferMove(world.broadPhase, shape.proxyKey);
+            const shape = shapeId;
+            if (shapeField(world, shape, ShapeField.proxyKey) !== NULL_INDEX) {
+                bufferMove(world.broadPhase, shapeField(world, shape, ShapeField.proxyKey));
             }
-            shapeId = shape.nextShapeId;
+            shapeId = shapeField(world, shape, ShapeField.nextShapeId);
         }
     } else {
         destroyContactsBetweenBodies(world, bodyA, bodyB);
