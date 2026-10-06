@@ -78,6 +78,29 @@ jobs:
       - name: compile time oracle
         run: bun test ./scripts/compile.oracle.ts
 
+  checked-kernel:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - name: install the shared kernel's nightly
+        run: rustup toolchain install "$(grep -m1 -oE 'nightly-[0-9-]+' crates/physics/scripts/build-kernel.ts)" --component rust-src --target wasm32-unknown-unknown
+      - name: build checked kernels
+        run: bun crates/physics/scripts/build-kernel.ts --checked
+      - name: cheap tier
+        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
+      - name: Node tier
+        run: /usr/bin/time -p bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print)
+
   browser:
     runs-on: macos-15
     steps:

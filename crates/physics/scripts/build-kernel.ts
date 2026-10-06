@@ -23,7 +23,11 @@
 // Toolchains are pinned so the committed bytes reproduce: stable comes from `rust-toolchain.toml`, the
 // shared build uses the dated NIGHTLY below, and both pass through the pinned wasm-opt.
 //
-// Usage: bun run crates/physics/scripts/build-kernel.ts
+// Usage: bun run crates/physics/scripts/build-kernel.ts [--checked]
+//
+// `--checked` keeps debug assertions and overflow checks in both release builds: `Col` bounds and std's
+// unsafe preconditions then panic, and the panic hook prints the message before the abort traps. CI tests
+// physics against it; a checked artifact is never committed.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -150,7 +154,12 @@ function emit(path: string, contents: string, wasm: number, base64: number): voi
     console.log(`[build-kernel] wrote ${path} (${wasm} B wasm -> ${base64} B base64)`);
 }
 
-const opt = await version();
+const checked = process.argv.includes("--checked");
+if (checked) {
+    process.env.CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS = "true";
+    process.env.CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS = "true";
+}
+const opt = `${await version()}${checked ? "; checked, never commit" : ""}`;
 const st = await build(
     ["build", "--release", "--target", "wasm32-unknown-unknown"],
     undefined,

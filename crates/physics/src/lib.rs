@@ -65,6 +65,25 @@ pub mod table;
 pub mod tree;
 pub mod wide;
 
+/// In a checked build (`build-kernel.ts --checked`), a panic hands its message to the host before the
+/// abort traps, so a failed bounds or precondition check names its file and line instead of only
+/// "unreachable".
+#[cfg(all(target_arch = "wasm32", debug_assertions))]
+mod checked {
+    #[link(wasm_import_module = "env")]
+    extern "C" {
+        fn kernelPanic(message: *const u8, len: usize);
+    }
+    #[export_name = "installPanicHook"]
+    pub extern "C" fn install_panic_hook() {
+        std::panic::set_hook(Box::new(|info| {
+            let message = info.to_string();
+            // SAFETY: the host reads `len` bytes at `message` before returning, while it is alive.
+            unsafe { kernelPanic(message.as_ptr(), message.len()) }
+        }));
+    }
+}
+
 use simd::FloatW;
 
 /// Scratch region the TS loader views as a `Float32Array` to exercise the shared-memory FFI shape and

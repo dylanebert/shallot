@@ -19,6 +19,8 @@ import { createPool, maxWorkers, type Pool } from "./pool";
 /** The kernel's exported surface — grows as each solver phase ports to wasm. */
 export type Kernel = {
     memory: WebAssembly.Memory;
+    /** Present only in a checked build (`build-kernel.ts --checked`); routes panics to `kernelPanic`. */
+    installPanicHook?(): void;
     viewEpochPtr(): number;
     activeWorld(): number;
     /** Toolchain smoke buffer offset + scale, the standing wasm-simd128 cliff gate (kernel.test.ts). */
@@ -800,6 +802,14 @@ export function rethrowQueryError(world: World | undefined): void {
     throw error;
 }
 
+/** A checked kernel's panic message, printed before its abort traps; release kernels never import it. */
+function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length: number) => void {
+    return (pointer, length) => {
+        const bytes = new Uint8Array(memory().buffer, pointer, length).slice();
+        console.error(`physics kernel ${new TextDecoder().decode(bytes)}`);
+    };
+}
+
 function queryImport(runtime: KernelState): QueryCallback {
     return (kind, shape, data, count) => {
         if (runtime.queryFailed) return 0;
@@ -880,9 +890,13 @@ function host(): Host {
 
 async function single(runtime: KernelState): Promise<void> {
     const result = await WebAssembly.instantiate(decode(KERNEL_WASM_BASE64), {
-        env: { queryCallback: queryImport(runtime) },
+        env: {
+            queryCallback: queryImport(runtime),
+            kernelPanic: panicImport(() => instance.memory),
+        },
     });
     const instance = result.instance.exports as unknown as Kernel;
+    instance.installPanicHook?.();
     queryImportStates.set(instance, runtime);
     runtime.instance ??= instance;
 }
@@ -901,7 +915,11 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
     const module = await WebAssembly.compile(decode(KERNEL_SHARED_WASM_BASE64));
     const exports = (
         await WebAssembly.instantiate(module, {
-            env: { memory, queryCallback: queryImport(runtime) },
+            env: {
+                memory,
+                queryCallback: queryImport(runtime),
+                kernelPanic: panicImport(() => memory),
+            },
         })
     ).exports as unknown as Kernel & {
         // biome-ignore lint/style/useNamingConvention: LLD's global, exported under its own name.
@@ -910,6 +928,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
     // A lazy `kernel(world)` can have run during those awaits; it wins rather than swapping memory out from
     // under views already held by this world's solver.
     if (runtime.instance) return;
+    exports.installPanicHook?.();
 
     const count = Math.min(want, 1 + maxWorkers(SHARED_STACK_SIZE)) - 1;
     // Instantiating ran the start function to completion on THIS thread, which is the ordering the pool
@@ -1023,9 +1042,14 @@ export function kernel(world: World | undefined): Kernel {
     if (!runtime.instance) {
         if (runtime.booting) throw new Error("await init() before stepping");
         const mod = new WebAssembly.Module(decode(KERNEL_WASM_BASE64));
-        runtime.instance = new WebAssembly.Instance(mod, {
-            env: { queryCallback: queryImport(runtime) },
+        const instance = new WebAssembly.Instance(mod, {
+            env: {
+                queryCallback: queryImport(runtime),
+                kernelPanic: panicImport(() => instance.memory),
+            },
         }).exports as unknown as Kernel;
+        instance.installPanicHook?.();
+        runtime.instance = instance;
         queryImportStates.set(runtime.instance, runtime);
     }
     return runtime.instance;

@@ -20,7 +20,7 @@ test("kernel graph contact swap-removal fixes both lists, clears body bits and r
             const id = k.allocContact();
             setContactField(state, id, ContactField.bodyIdA, bodies[body].id.index1 - 1);
             setContactField(state, id, ContactField.bodyIdA + 3, anchor.id.index1 - 1);
-            setContactField(state, id, ContactField.manifoldCount, 3);
+            k.allocateManifolds(id, 3);
             setContactField(state, id, ContactField.flags, mesh ? ContactFlags.simMeshContact : 0);
             addContactToGraph(state, id);
             return id;
