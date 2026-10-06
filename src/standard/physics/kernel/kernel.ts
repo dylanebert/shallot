@@ -279,6 +279,7 @@ export type Kernel = {
     // The contact-id directory grows on allocation. Its block addresses remain stable while the
     // manifold-count allocators grow; this layout header exposes only the directory's address.
     contactRecordCapacity(worldId: number): number;
+    manifoldAllocatorOperations(worldId: number): bigint;
     allocateManifolds(contactId: number, count: number): number;
     freeManifolds(contactId: number): void;
     manifoldLayoutPtr(): number;

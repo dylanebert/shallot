@@ -783,8 +783,9 @@ unsafe fn mix_surface(
 }
 
 /// Compute convex, mesh, height-field and compound-child contacts in `[start, end)`.
-/// Convex manifolds with an existing block write into the resident pool; new convex and mesh
-/// manifolds return in a transient span for serial allocation. Each result is its manifold count. Per-thread scratch is disjoint across worker indices.
+/// Tasks allocate new convex blocks and resize mesh blocks only when the cluster count changes.
+/// Mesh scratch preserves matched impulses before the resident block is cleared and populated.
+/// Per-thread scratch is disjoint across worker indices.
 ///
 /// Box3D's collide task: update each contact in place and mark its touch state by id.
 ///
@@ -925,7 +926,13 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                     child_radius,
                 );
                 if count > 0 {
-                    let address = manifolds::allocate_manifolds(contact_id, count);
+                    let address = if count == record[D_OLD_COUNT] as usize {
+                        let address = dir.get(o + DIR_MANIFOLD_BASE) as usize;
+                        (address as *mut u8).write_bytes(0, count * MANIFOLD_STRIDE * 4);
+                        address
+                    } else {
+                        manifolds::allocate_manifolds(contact_id, count)
+                    };
                     let source = MESH_OUTPUT_PTR + thread * 256 * MANIFOLD_STRIDE * 4;
                     manifolds::copy_manifolds(source, address, count);
                 }

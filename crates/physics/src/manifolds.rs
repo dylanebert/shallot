@@ -112,6 +112,7 @@ const BLOCK_SIZE: usize = 256;
 struct BlockAllocator {
     chunks: Vec<Buffer>,
     element_size: usize,
+    operations: u64,
     free: usize,
     next: usize,
 }
@@ -120,6 +121,7 @@ impl BlockAllocator {
         let mut allocator = Self {
             chunks: Vec::new(),
             element_size: (count * MANIFOLD_STRIDE * 4 + 15) & !15,
+            operations: 0,
             free: 0,
             next: 0,
         };
@@ -133,6 +135,7 @@ impl BlockAllocator {
             .push(Buffer::allocate(BLOCK_SIZE * self.element_size));
     }
     unsafe fn allocate(&mut self) -> usize {
+        self.operations += 1;
         if self.free != 0 {
             let address = self.free;
             self.free = *(address as *const u32) as usize;
@@ -146,6 +149,7 @@ impl BlockAllocator {
         self.chunks[index / BLOCK_SIZE].ptr + (index % BLOCK_SIZE) * self.element_size
     }
     unsafe fn free(&mut self, address: usize) {
+        self.operations += 1;
         *(address as *mut u32) = self.free as u32;
         self.free = address;
     }
@@ -153,6 +157,18 @@ impl BlockAllocator {
         for chunk in &mut self.chunks {
             chunk.release();
         }
+    }
+}
+
+// Read diagnostics only after the worker join; allocation/free counts live with their allocator.
+#[export_name = "manifoldAllocatorOperations"]
+pub extern "C" fn manifold_allocator_operations(world: usize) -> u64 {
+    assert!(world < MAX_WORLDS);
+    unsafe {
+        ALLOCATORS[world]
+            .iter()
+            .map(|allocator| allocator.operations)
+            .sum()
     }
 }
 

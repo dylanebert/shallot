@@ -1,8 +1,62 @@
 import { expect, test } from "bun:test";
-import { BodyType, hash, makeBoxHull, PhysicsWorld } from "../api";
+import { BodyType, createMesh, hash, makeBoxHull, PhysicsWorld } from "../api";
 import { kernel } from "../kernel/kernel";
 import { ContactField, ContactFlags, contactCapacity, contactField, contactIds } from "./contact";
 import { DIR_STRIDE, MANIFOLD_STRIDE } from "./manifoldstore";
+
+test("a steady mesh cluster count reuses and clears its resident block without allocating or freeing", () => {
+    const world = new PhysicsWorld({
+        gravity: { x: 0, y: 0, z: 0 },
+        enableSleep: false,
+        enableContinuous: false,
+    });
+    try {
+        const state = world.state,
+            k = kernel(state.ecsState);
+        state.contactRecycleDistance = 0;
+        world.createBody().createMesh(
+            {},
+            createMesh({
+                vertices: [
+                    { x: -4, y: 0, z: -4 },
+                    { x: 4, y: 0, z: -4 },
+                    { x: 4, y: 0, z: 4 },
+                    { x: -4, y: 0, z: 4 },
+                ],
+                indices: [0, 2, 1, 0, 3, 2],
+            })!,
+        );
+        const body = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 0.49, z: 0 },
+        });
+        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        world.step(1 / 60, 1);
+        const ids = contactIds(state);
+        expect(ids.length).toBe(1);
+        const id = ids[0],
+            count = contactField(state, id, ContactField.manifoldCount);
+        expect(count).toBe(1);
+        const address = state.manifoldStore.dirU[id * DIR_STRIDE + 8];
+        const operations = k.manifoldAllocatorOperations(state.worldId);
+        expect(operations).toBe(1n);
+        for (let i = 1; i <= 5; ++i) {
+            new Uint32Array(k.memory.buffer, address, MANIFOLD_STRIDE)[MANIFOLD_STRIDE - 1] =
+                0x12345678;
+            body.setTransform({ x: i * 0.1, y: 0.49, z: 0 }, { v: { x: 0, y: 0, z: 0 }, s: 1 });
+            world.step(1 / 60, 1);
+            expect(contactIds(state)).toEqual(ids);
+            expect(contactField(state, id, ContactField.manifoldCount)).toBe(count);
+            expect(state.manifoldStore.dirU[id * DIR_STRIDE + 8]).toBe(address);
+            expect(
+                new Uint32Array(k.memory.buffer, address, MANIFOLD_STRIDE)[MANIFOLD_STRIDE - 1],
+            ).toBe(0);
+            expect(k.manifoldAllocatorOperations(state.worldId)).toBe(operations);
+        }
+    } finally {
+        world.destroy();
+    }
+});
 
 test("manifold-count blocks stay at their addresses through chunk growth, recycle zeroed, and snapshot only contents with contact-id reuse order", () => {
     const world = new PhysicsWorld();
