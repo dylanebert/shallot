@@ -31,11 +31,13 @@ impl SolverSet {
 struct Sets {
     sets: Vec<SolverSet>,
     free: Vec<usize>,
+    merge_result: Vec<u32>,
 }
 static mut WORLDS: [Sets; MAX_WORLDS] = [const {
     Sets {
         sets: Vec::new(),
         free: Vec::new(),
+        merge_result: Vec::new(),
     }
 }; MAX_WORLDS];
 unsafe fn world() -> &'static mut Sets {
@@ -138,6 +140,7 @@ pub unsafe fn reset(id: usize) {
     WORLDS[id] = Sets {
         sets: Vec::new(),
         free: Vec::new(),
+        merge_result: Vec::new(),
     };
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
@@ -332,6 +335,59 @@ pub unsafe extern "C" fn move_island(source: usize, index: usize, target: usize)
     ISLAND_RESULT = [destination as u32, moved];
     core::ptr::addr_of!(ISLAND_RESULT) as usize
 }
+// Header: survivor, retired set, move count; moves: record kind, id, local index.
+#[export_name = "solverSetMerge"]
+pub unsafe extern "C" fn merge(mut target: usize, mut source: usize) -> usize {
+    use crate::manifold_abi::*;
+    assert!(target >= 3 && source >= 3 && target != source);
+    if body_count(target) < body_count(source) {
+        core::mem::swap(&mut target, &mut source);
+    }
+    let mut result = core::mem::take(&mut world().merge_result);
+    result.clear();
+    result.extend_from_slice(&[target as u32, source as u32, 0]);
+    for i in 0..body_count(source) {
+        let id = *body_ptr(source, i, 5).add(crate::body::S2_BODY_ID);
+        let destination = body_append(target);
+        copy_body(source, i, target, destination);
+        result.extend_from_slice(&[0, id, destination as u32]);
+    }
+    let d = crate::manifolds::dir_col();
+    for i in 0..array_count(source, 0) {
+        let id = array_get(source, 0, i);
+        let destination = array_push(target, 0, id);
+        d.set(id as usize * DIR_STRIDE + DIR_SET_INDEX, target as u32);
+        d.set(
+            id as usize * DIR_STRIDE + DIR_LOCAL_INDEX,
+            destination as u32,
+        );
+    }
+    let source_key = crate::constraint_graph::COLORS + source;
+    let target_key = crate::constraint_graph::COLORS + target;
+    for i in 0..crate::joints::count(source_key) {
+        let destination = crate::joints::append(target_key);
+        let src = (crate::joints::pointer(source_key) as *const u32)
+            .add(i * crate::joint_abi::JOINT_STRIDE);
+        let dst = (crate::joints::pointer(target_key) as *mut u32)
+            .add(destination * crate::joint_abi::JOINT_STRIDE);
+        core::ptr::copy_nonoverlapping(src, dst, crate::joint_abi::JOINT_STRIDE);
+        result.extend_from_slice(&[
+            1,
+            *src.add(crate::joint_abi::J_JOINT_ID),
+            destination as u32,
+        ]);
+    }
+    for i in 0..array_count(source, 1) {
+        let id = array_get(source, 1, i);
+        let destination = array_push(target, 1, id);
+        result.extend_from_slice(&[2, id as u32, destination as u32]);
+    }
+    destroy(source);
+    result[2] = ((result.len() - 3) / 3) as u32;
+    world().merge_result = result;
+    world().merge_result.as_ptr() as usize
+}
+
 static mut JOINT_RESULT: [u32; 3] = [0; 3];
 #[export_name = "solverSetTransferJoint"]
 pub unsafe extern "C" fn transfer_joint(

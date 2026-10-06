@@ -76,6 +76,7 @@ export type Kernel = {
     solverSetMoveContact(source: number, index: number, target: number): number;
     solverSetSleepContact(id: number, target: number): void;
     solverSetMoveIsland(source: number, index: number, target: number): number;
+    solverSetMerge(first: number, second: number): number;
     solverSetTransferJoint(
         source: number,
         color: number,

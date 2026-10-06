@@ -74,6 +74,14 @@ export function setArraySnapshot(world: WorldState, set: number, kind: number): 
     );
 }
 
+export function mergeSetColumns(world: WorldState, first: number, second: number): Uint32Array {
+    const ptr = active(world).solverSetMerge(first, second);
+    world.bodyStore.refreshViews();
+    const header = world.bodyStore.moveResult(ptr, 3);
+    world.bodyStore.forgetSet(header[1]);
+    return world.bodyStore.moveResult(ptr, 3 + 3 * header[2]);
+}
+
 export function transferBodyColumns(
     world: WorldState,
     source: number,

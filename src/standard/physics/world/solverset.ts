@@ -10,6 +10,7 @@ import { bodySimSlot, simBodyId } from "../kernel/bodycolumns";
 import { syncBodyQuery } from "../kernel/shapecolumns";
 import {
     createSolverSet,
+    mergeSetColumns,
     moveSetContact,
     moveSetIsland,
     releaseSolverSet,
@@ -79,6 +80,21 @@ export function wakeSolverSet(world: WorldState, set: number): void {
     for (let i = 0; i < count; ++i)
         reclassifyBodyContacts(world, world.bodies[simBodyId(world, bodySimSlot(set, i))]);
     destroySolverSet(world, set);
+}
+
+export function mergeSolverSets(world: WorldState, first: number, second: number): void {
+    const moves = mergeSetColumns(world, first, second);
+    const target = moves[0];
+    for (let i = 3; i < moves.length; i += 3) {
+        const kind = moves[i],
+            id = moves[i + 1],
+            index = moves[i + 2];
+        const record =
+            kind === 0 ? world.bodies[id] : kind === 1 ? world.joints[id] : world.islands[id];
+        record.setIndex = target;
+        record.localIndex = index;
+        if (kind === 0) syncBodyQuery(world, world.bodies[id]);
+    }
 }
 
 export function transferBody(

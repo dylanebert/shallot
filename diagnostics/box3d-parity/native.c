@@ -223,6 +223,42 @@ static void probe( b3World* world, int step, int focus )
 	}
 }
 
+static b3BodyId mergeBodies[2][3];
+static void CreateSleepingMerge( b3WorldId worldId )
+{
+    int sizes[2] = { 2, 3 };
+    if ( getenv( "MERGE_SIZES" ) ) sscanf( getenv( "MERGE_SIZES" ), "%d,%d", sizes, sizes + 1 );
+    for ( int group = 0; group < 2; ++group )
+    {
+        for ( int i = 0; i < sizes[group]; ++i )
+        {
+            b3BodyDef def = b3DefaultBodyDef();
+            def.type = b3_dynamicBody;
+            def.position.x = group * 10 + i;
+            mergeBodies[group][i] = b3CreateBody( worldId, &def );
+            if ( i > 0 )
+            {
+                b3DistanceJointDef joint = b3DefaultDistanceJointDef();
+                joint.base.bodyIdA = mergeBodies[group][i - 1];
+                joint.base.bodyIdB = mergeBodies[group][i];
+                joint.length = 1;
+                b3CreateDistanceJoint( worldId, &joint );
+            }
+        }
+        b3Body_SetAwake( mergeBodies[group][0], false );
+    }
+    b3DistanceJointDef joint = b3DefaultDistanceJointDef();
+    joint.base.bodyIdA = mergeBodies[0][0];
+    joint.base.bodyIdB = mergeBodies[1][0];
+    joint.length = 10;
+    b3CreateDistanceJoint( worldId, &joint );
+}
+static void StepSleepingMerge( b3WorldId worldId, int step )
+{
+    (void)worldId;
+    if ( step == 1 ) b3Body_SetAwake( mergeBodies[0][0], true );
+}
+
 typedef struct
 {
 	const char* name;
@@ -239,9 +275,10 @@ int main( int argc, char** argv )
 		{ "junkyard", GetJunkyardCapacity, CreateJunkyard, StepJunkyard },
 		{ "junk", NULL, CreateJunk, StepJunk },
 		{ "joint_grid", NULL, CreateJointGrid, NULL },
+        { "sleeping_merge", NULL, CreateSleepingMerge, StepSleepingMerge },
 	};
 	Scene* scene = NULL;
-	for ( int i = 0; argc == 4 && i < 5; ++i )
+	for ( int i = 0; argc == 4 && i < (int)( sizeof( scenes ) / sizeof( scenes[0] ) ); ++i )
 	{
 		if ( strcmp( scenes[i].name, argv[1] ) == 0 ) scene = scenes + i;
 	}

@@ -116,3 +116,51 @@ test("body transfers swap-remove awake, static and disabled sim rows and discard
         world.destroy();
     }
 });
+
+test("joint creation merges sleeping sets in append order without waking bodies", () => {
+    for (const sizes of [
+        [2, 3],
+        [3, 2],
+        [2, 2],
+    ]) {
+        const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+        try {
+            const groups = sizes.map((size, group) => {
+                const bodies = Array.from({ length: size }, (_, i) =>
+                    world.createBody({
+                        type: BodyType.Dynamic,
+                        position: { x: group * 10 + i, y: 0, z: 0 },
+                    }),
+                );
+                for (let i = 1; i < size; ++i)
+                    world.createDistanceJoint(bodies[i - 1], bodies[i], { length: 1 });
+                bodies[0].setAwake(false);
+                return bodies;
+            });
+            const sets = groups.map((group) => world.state.bodies[group[0].id.index1 - 1].setIndex);
+            expect(sets[0]).not.toBe(sets[1]);
+            const before = sims(world.state);
+            const survivor = sizes[0] >= sizes[1] ? 0 : 1;
+            world.createDistanceJoint(groups[0][0], groups[1][0], { length: 10 });
+            expect(solverSetIndex(world.state, sets[1 - survivor])).toBe(-1);
+            expect(setBodyCount(world.state, sets[survivor])).toBe(sizes[0] + sizes[1]);
+            const order = [...groups[survivor], ...groups[1 - survivor]];
+            for (let i = 0; i < order.length; ++i) {
+                const body = order[i];
+                expect(body.isAwake()).toBe(false);
+                expect(simBodyId(world.state, bodySimSlot(sets[survivor], i))).toBe(
+                    body.id.index1 - 1,
+                );
+            }
+            expect(sims(world.state)).toEqual(before);
+            expect(setArrayCount(world.state, sets[survivor], 1)).toBe(1);
+            world.step(1 / 60);
+            for (const body of order) expect(body.isAwake()).toBe(false);
+            groups[0][0].setAwake(true);
+            for (const body of order) expect(body.isAwake()).toBe(true);
+            sims(world.state);
+        } finally {
+            world.destroy();
+        }
+    }
+});

@@ -77,7 +77,7 @@ import {
 } from "../kernel/jointcolumns";
 import { type Body, readBodyTransform, wakeBody } from "../world/body";
 import { linkJoint, unlinkJoint } from "../world/island";
-import { wakeSolverSet } from "../world/solverset";
+import { mergeSolverSets, wakeSolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
 import { getDistanceJointForce } from "./distanceJoint";
 import { createJointInGraph, removeJointFromGraph } from "./graph";
@@ -286,12 +286,9 @@ export function createJoint(
             bodyA.setIndex >= SetType.FirstSleeping &&
             bodyB.setIndex >= SetType.FirstSleeping
         ) {
-            // Merging two sleeping sets needs b3MergeSolverSets — no ported path / fixture reaches it.
-            throw new Error(
-                "physics: joint between two separate sleeping sets (needs mergeSolverSets)",
-            );
+            mergeSolverSets(world, bodyA.setIndex, bodyB.setIndex);
         }
-        const setIndex = maxSetIndex;
+        const setIndex = Math.max(bodyA.setIndex, bodyB.setIndex);
         joint.setIndex = setIndex;
         joint.localIndex = appendJointRecord(world, GRAPH_COLOR_COUNT + setIndex);
     }
