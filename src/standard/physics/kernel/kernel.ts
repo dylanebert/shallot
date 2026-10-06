@@ -540,6 +540,7 @@ export type Kernel = {
     ): void;
     broadClearMoved(type: number, id: number): void;
     broadCreateSet(capacity: number): void;
+    broadEnsureSet(capacity: number): void;
     broadSetCap(): number;
     broadAddPair(a: number, b: number, child: number): number;
     broadRemovePair(a: number, b: number, child: number): number;

@@ -16,7 +16,7 @@ export function createSet(capacity: number, store: BroadStore): HashSet {
 export function ensureResident(set: HashSet): void {
     set.store.refreshIfStale();
     const k = kernel(set.store.ecsState);
-    if (k.broadSetCap() === 0) k.broadCreateSet(set.initCapacity);
+    k.broadEnsureSet(set.initCapacity);
 }
 
 export function addKey(set: HashSet, a: number, b: number, child: number): boolean {

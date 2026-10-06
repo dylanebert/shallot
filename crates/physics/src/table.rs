@@ -103,6 +103,13 @@ pub extern "C" fn create_set(need: usize) {
     crate::broad::reserve_broad(0, 0, 0, capacity(need));
 }
 #[cfg(target_arch = "wasm32")]
+#[export_name = "broadEnsureSet"]
+pub extern "C" fn ensure_set(need: usize) {
+    if crate::broad::set_cap() == 0 {
+        create_set(need);
+    }
+}
+#[cfg(target_arch = "wasm32")]
 unsafe fn resident() -> (&'static mut [u32], &'static mut [u32], &'static mut [u32]) {
     let cap = crate::broad::set_cap();
     let (hi, lo, hashes) = crate::broad::set_ptrs();
@@ -113,10 +120,11 @@ unsafe fn resident() -> (&'static mut [u32], &'static mut [u32], &'static mut [u
     )
 }
 /// # Safety
-/// The active world's pair set must be reserved, and this must run at a serial point, since growth moves it.
+/// The active world must be selected, and this must run at a serial point, since growth moves the set.
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadAddPair"]
 pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
+    ensure_set(16);
     let (a, b) = (pair_key_hi(a, b), pair_key_lo(a, b, child));
     let hash = key_hash(a, b);
     let (hi, lo, hashes) = resident();
@@ -135,10 +143,13 @@ pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
     0
 }
 /// # Safety
-/// The active world's pair set must be reserved, and no other thread may touch it while this runs.
+/// The active world must be selected, and no other thread may touch the set while this runs.
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadRemovePair"]
 pub unsafe extern "C" fn remove_pair(a: u32, b: u32, child: u32) -> u32 {
+    if crate::broad::set_cap() == 0 {
+        return 0;
+    }
     let (hi, lo, hashes) = resident();
     let found = remove(hi, lo, hashes, pair_key_hi(a, b), pair_key_lo(a, b, child));
     if found {
