@@ -327,7 +327,12 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                 if !output.hit || ((operation == 3 || operation == 6) && output.fraction == 0.0) {
                     return clip;
                 }
-                let record = cast_record(&output);
+                let mut record = cast_record(&output);
+                let material_count = shape_material_count(world as u32, id as u32);
+                record[11] = output
+                    .material_index
+                    .clamp(0, material_count.saturating_sub(1) as i32)
+                    as f32;
                 let value = if user_callback != 0 && operation != 6 {
                     callback(1, id, record.as_ptr() as *const u8, 12)
                 } else {

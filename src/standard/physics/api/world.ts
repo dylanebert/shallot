@@ -26,7 +26,6 @@ import { rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { TreeStats } from "../kernel/treecolumns";
 import type { Capsule } from "../shapes/geometry";
-import { getShapeMaterials } from "../shapes/shape";
 import {
     createDistanceJoint,
     type DistanceJointDef,
@@ -115,7 +114,6 @@ import {
 import { Contact, Shape } from "./shape";
 import { restore as restoreWorld, snapshot as snapshotWorld, type WorldSnapshot } from "./snapshot";
 
-/** A simulation world: bodies, shapes, and the broad-phase. */
 function queryShape(world: WorldState, id: number): Shape {
     return new Shape(world, {
         index1: id + 1,
@@ -125,14 +123,12 @@ function queryShape(world: WorldState, id: number): Shape {
 }
 
 function castHit(world: WorldState, id: number, f: Float32Array, n: number, origin: Pos): CastHit {
-    const materials = getShapeMaterials(world, id);
-    const material = Math.max(0, Math.min(materials.length - 1, f[n + 11]));
     return {
         shape: queryShape(world, id),
         point: { x: origin.x + f[n + 2], y: origin.y + f[n + 3], z: origin.z + f[n + 4] },
         normal: { x: f[n + 5], y: f[n + 6], z: f[n + 7] },
         fraction: f[n + 1],
-        userMaterialId: materials[material].userMaterialId,
+        userMaterialId: world.shapeStore.materialUserIdAt(id, f[n + 11]),
         triangleIndex: f[n + 9],
         childIndex: f[n + 10],
     };
