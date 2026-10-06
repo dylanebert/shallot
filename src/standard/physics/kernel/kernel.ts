@@ -61,8 +61,13 @@ export type Kernel = {
     sensorRecordHit(world: number, sensor: number, visitor: number): void;
     sensorOverlap(world: number): void;
     sensorDestroy(world: number, shape: number): void;
-    sensorEventCount(world: number): number;
-    sensorEventWord(world: number, index: number, word: number): number;
+    eventCount(world: number, kind: number): number;
+    eventWord(world: number, kind: number, index: number, lane: number): number;
+    eventFloat(world: number, kind: number, index: number, lane: number): number;
+    eventBeginStep(world: number): void;
+    eventEndStep(world: number): void;
+    eventContactTouch(world: number, contact: number, begin: boolean): void;
+    eventFinishContacts(world: number, threshold: number): void;
     sensorVisitorCount(world: number, index: number): number;
     sensorVisitorWord(world: number, index: number, visitor: number, word: number): number;
     smokeScale(len: number, k: number): void;
@@ -617,7 +622,6 @@ export type Kernel = {
     jointUnlink(id: number): void;
     solverSetWake(set: number): void;
     jointCollectEvents(): number;
-    jointEventPtr(): number;
     awakeContactCount(): number;
     awakeContactGet(index: number): number;
     awakeContactCopy(ptr: number): void;

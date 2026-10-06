@@ -28,7 +28,7 @@ use crate::body::{FIN_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::regions::{self, Columns, MAX_WORLDS};
 
 pub const IDENT_RECORDS: usize = 8;
-pub const MOVE_STRIDE: usize = 3;
+pub const MOVE_STRIDE: usize = core::mem::size_of::<crate::events::BodyMove>() / 4;
 const B_STATE: usize = 0;
 const B_SIM: usize = 1;
 const B_FIN: usize = 2;
@@ -232,7 +232,8 @@ pub extern "C" fn body_sync_moved(count: usize) -> usize {
         let layout = world(regions::active()).columns.layout;
         let mut written = 0;
         for row in 0..count {
-            let body = *(layout[B_MOVE] as *const u32).add(row * MOVE_STRIDE) as usize;
+            let event = &*(layout[B_MOVE] as *const crate::events::BodyMove).add(row);
+            let body = event.body.index1 as usize - 1;
             let eid = *(layout[B_RECORD_EID] as *const u32).add(body);
             let index = (layout[B_SYNC_INDEX] as *mut u32).add(row);
             *index = u32::MAX;
@@ -245,16 +246,12 @@ pub extern "C" fn body_sync_moved(count: usize) -> usize {
             let quat = (layout[B_SYNC_QUAT] as *mut f32).add(written * 4);
             let vel = (layout[B_SYNC_VEL] as *mut f32).add(written * 4);
             for lane in 0..3 {
-                *pos.add(lane) = *(layout[B_FIN] as *const f32).add(row * FIN_STRIDE + 9 + lane);
+                *pos.add(lane) = *(event.transform.p.as_ptr()).add(lane);
                 *vel.add(lane) = *(layout[B_STATE] as *const f32).add(row * STATE_STRIDE + lane);
             }
             *pos.add(3) = 0.0;
             *vel.add(3) = 0.0;
-            core::ptr::copy_nonoverlapping(
-                (layout[B_SIM] as *const f32).add(row * SIM_STRIDE + 28),
-                quat,
-                4,
-            );
+            core::ptr::copy_nonoverlapping(event.transform.q.as_ptr(), quat, 4);
             written += 1;
         }
         written
@@ -262,7 +259,7 @@ pub extern "C" fn body_sync_moved(count: usize) -> usize {
 }
 pub(crate) unsafe fn mark_move_asleep(index: usize) {
     let layout = world(regions::active()).columns.layout;
-    *(layout[B_MOVE] as *mut u32).add(index * MOVE_STRIDE + 2) = 1;
+    (*(layout[B_MOVE] as *mut crate::events::BodyMove).add(index)).fell_asleep = true;
     let row = *(layout[B_SYNC_INDEX] as *const u32).add(index);
     if row != u32::MAX {
         (layout[B_SYNC_VEL] as *mut f32)

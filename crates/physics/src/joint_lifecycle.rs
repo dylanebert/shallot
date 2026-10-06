@@ -3,28 +3,19 @@ use crate::{
     bodies, constraint_graph as graph, island, joint_abi::*, joint_record as records, joints,
     regions, solver_set as sets,
 };
-static mut EVENTS: [Vec<u32>; regions::MAX_WORLDS] = [const { Vec::new() }; regions::MAX_WORLDS];
-pub unsafe fn reset(world: usize) {
-    EVENTS[world] = Vec::new();
-}
+pub unsafe fn reset(_world: usize) {}
 #[export_name = "jointCollectEvents"]
 pub unsafe extern "C" fn collect_events() -> usize {
-    let events = &mut EVENTS[regions::active()];
-    events.clear();
+    crate::events::clear_joints(regions::active());
     for id in 0..records::capacity() {
         let r = records::record(id);
         if r.set_index == 2
             && joints::read_float(r.color_index as usize, r.local_index as usize, J_EVENT) != 0.0
         {
-            events.push(id as u32);
-            events.push(r.generation as u32);
+            crate::events::joint(regions::active(), id, r.generation as u32);
         }
     }
-    events.len() / 2
-}
-#[export_name = "jointEventPtr"]
-pub unsafe extern "C" fn event_ptr() -> usize {
-    EVENTS[regions::active()].as_ptr() as usize
+    crate::events::count(regions::active(), 5)
 }
 unsafe fn begin() {}
 unsafe fn wake_body(id: usize) {

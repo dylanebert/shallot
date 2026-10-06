@@ -107,6 +107,7 @@ mod runtime {
         let out = bodies::fin_out_base() as *const f32;
         let transient =
             body::flags::IS_FAST | body::flags::IS_SPEED_CAPPED | body::flags::HAD_TIME_OF_IMPACT;
+        crate::events::set_move_count(regions::active(), count);
         let mut split_id = -1;
         let mut split_sleep = 0.0;
         for index in 0..count {

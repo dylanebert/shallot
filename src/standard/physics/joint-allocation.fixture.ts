@@ -4,8 +4,10 @@ import { contactCount } from "./collision/contact";
 import { updateBroadPhasePairs } from "./collision/pairs";
 import { BodyType } from "./common/types";
 import { DJ_LENGTH, J_EVENT } from "./kernel/columns";
+import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { collectJointEvents, readJointFloat, writeJointFloat } from "./kernel/jointcolumns";
 import { JointField, jointDrawScale, jointField, setJointDrawScale } from "./kernel/jointrecords";
+import { kernel } from "./kernel/kernel";
 import { ShapeField, shapeField } from "./kernel/shaperecords";
 import {
     createJointRecord,
@@ -57,8 +59,8 @@ export function jointAllocationSubject(physics: PhysicsWorld, control?: () => vo
             writeJointFloat(state, id, J_EVENT, 1);
             collectJointEvents(state);
             if (
-                state.jointEventCount !== 1 ||
-                state.jointEvents[0] !== id ||
+                eventCount(state, EventKind.Joint) !== 1 ||
+                kernel(state.ecsState).eventWord(state.worldId, EventKind.Joint, 0, 0) !== id + 1 ||
                 state.jointEventUserData[0] !== i
             )
                 throw new Error("joint allocation subject lost its internal event");

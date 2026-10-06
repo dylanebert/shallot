@@ -2,6 +2,7 @@ import { Body, createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { awakeContactCount } from "../collision/contact";
 import { BodyType } from "../common/types";
+import { kernel } from "../kernel/kernel";
 import { makeBoxHull } from "../shapes/hull";
 
 export let controlSink: { frame: number } | undefined;
@@ -56,8 +57,8 @@ export default async function create(input: string) {
             world.step(1 / 60);
             const state = physics.state;
             if (
-                state.sensorBeginEvents.length !== 0 ||
-                state.sensorEndEvents[state.endEventArrayIndex].length !== 0
+                kernel(state.ecsState).eventCount(state.worldId, 0) !== 0 ||
+                kernel(state.ecsState).eventCount(state.worldId, 7) !== 0
             )
                 throw new Error("allocation subject's sensor overlaps changed in steady play");
             const sensorEvents = physics.getSensorEvents();

@@ -1,9 +1,4 @@
-import { ContactField, contactField } from "../collision/contact";
-import { contactTotalImpulse, readContactManifolds } from "../collision/manifoldstore";
-import { readSimCenter } from "../kernel/bodycolumns";
-import { shapeBodyId } from "../kernel/filtercolumns";
 import { setSplitIslandCandidate, splitIslandCandidate } from "../kernel/islandcolumns";
-import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { setArrayCount, setArrayGet, setBodyCount } from "../kernel/solversetcolumns";
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
 // MIT). The port runs the canonical colored constraint schedule, with a real overflow fallback:
@@ -18,28 +13,19 @@ import { setArrayCount, setArrayGet, setBodyCount } from "../kernel/solversetcol
 
 import { NULL_INDEX } from "../common/array";
 import { OVERFLOW_INDEX, SetType } from "../common/constants";
-import { f32, type Vec3, vec3 } from "../common/math";
 import { reserveColumns, S2_FLAGS, SIM2_STRIDE } from "../kernel/columns";
 import { consumeContinuous, prepareContinuous, solveBullets } from "../kernel/continuouscolumns";
 import { collectJointEvents, jointArrayCount, jointSpans } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
-import { getShapeUserMaterialId } from "../shapes/shape";
-import { BodyFlags, getBodySim } from "../world/body";
+import { BodyFlags } from "../world/body";
 import { splitIsland } from "../world/island";
 import { trySleepIsland } from "../world/solverset";
 import type { WorldState } from "../world/world";
-import {
-    computeLayout,
-    readbackHitEvents,
-    type StepContext,
-    writeColorSpans,
-    writeSlots,
-} from "./contactsolver";
+import { computeLayout, type StepContext, writeColorSpans, writeSlots } from "./contactsolver";
 
 function finalizeBodies(context: StepContext): void {
     const world = context.world;
     const count = context.bodyCount;
-    world.bodyMoveCount = count;
     consumeContinuous(world, count, false);
     const sim2U = world.bodyStore.sim2U;
     for (let i = 0; i < count; ++i) {
@@ -49,105 +35,6 @@ function finalizeBodies(context: StepContext): void {
     const k = kernel(world.ecsState);
     context.splitIslandId = k.bodyFinish(count, context.dt, world.enableSleep);
     k.treeEnlargePass(count, 0);
-}
-
-// --- Event build passes ----------------------------------------------------------------------
-
-/** Emit a joint event for each joint flagged over its threshold, in ascending id order (b3Solve). */
-/** Fill begin events after the solve has written the per-point normal impulses. */
-function updateBeginContactImpulses(world: WorldState): void {
-    const events = world.contactBeginEvents;
-    for (let i = 0; i < events.length; ++i) {
-        const event = events[i];
-        const contact = event.contactId.index1 - 1;
-        if (
-            contactField(world, contact, ContactField.contactId) === NULL_INDEX ||
-            contactField(world, contact, ContactField.generation) !== event.contactId.generation
-        )
-            continue;
-        event.normalImpulse = contactTotalImpulse(world, contact);
-    }
-}
-
-/**
- * Build the hit event for each flagged contact, in ascending id order (b3Solve's hit-event pass).
- * A contact's fastest-approaching point above the threshold with a confirmed impulse wins; the point
- * is the mid-anchor offset from the two bodies' mid-center.
- */
-function buildHitEvents(context: StepContext): void {
-    const centerScratch1 = { x: 0, y: 0, z: 0 };
-    const centerScratch2 = { x: 0, y: 0, z: 0 };
-
-    const world = context.world;
-    const worldId = world.worldId;
-    const threshold = world.hitEventThreshold;
-    const ids = [...context.hitEventContacts].sort((a, b) => a - b);
-
-    for (const contactId of ids) {
-        const contact = contactId;
-        const shapeA = contactField(world, contact, ContactField.shapeIdA);
-        const shapeB = contactField(world, contact, ContactField.shapeIdB);
-        const simA = getBodySim(world, shapeBodyId(world, shapeA));
-        const simB = getBodySim(world, shapeBodyId(world, shapeB));
-        const midCenter = vec3.lerp(
-            readSimCenter(world, simA, centerScratch1),
-            readSimCenter(world, simB, centerScratch2),
-            f32(0.5),
-        );
-
-        let approachSpeed = threshold;
-        let found = false;
-        let point: Vec3 = { x: 0, y: 0, z: 0 };
-        let normal: Vec3 = { x: 0, y: 0, z: 0 };
-        let triangleIndex = 0;
-
-        const manifolds = readContactManifolds(world, contact);
-        for (const manifold of manifolds) {
-            for (let p = 0; p < manifold.pointCount; ++p) {
-                const mp = manifold.points[p];
-                const speed = f32(-mp.normalVelocity);
-                // A speculative point may not be colliding, so require a confirmed impulse.
-                if (speed > approachSpeed && mp.totalNormalImpulse > 0) {
-                    approachSpeed = speed;
-                    point = vec3.add(midCenter, vec3.lerp(mp.anchorA, mp.anchorB, f32(0.5)));
-                    normal = manifold.normal;
-                    triangleIndex = mp.triangleIndex;
-                    found = true;
-                }
-            }
-        }
-
-        if (found) {
-            world.contactHitEvents.push({
-                shapeIdA: {
-                    index1: shapeA + 1,
-                    world0: worldId,
-                    generation: shapeField(world, shapeA, ShapeField.generation),
-                },
-                shapeIdB: {
-                    index1: shapeB + 1,
-                    world0: worldId,
-                    generation: shapeField(world, shapeB, ShapeField.generation),
-                },
-                contactId: {
-                    index1: contact + 1,
-                    world0: worldId,
-                    generation: contactField(world, contact, ContactField.generation),
-                },
-                point,
-                normal: { x: normal.x, y: normal.y, z: normal.z },
-                approachSpeed,
-                // shapeB is never a compound (b3CreateContact), so its childIndex is irrelevant.
-                userMaterialIdA: getShapeUserMaterialId(
-                    world,
-                    shapeA,
-                    contactField(world, contact, ContactField.childIndex),
-                    triangleIndex,
-                ),
-                userMaterialIdB: getShapeUserMaterialId(world, shapeB, 0, triangleIndex),
-            });
-        }
-    }
 }
 
 // --- Solve -----------------------------------------------------------------------------------
@@ -160,7 +47,7 @@ export function solve(world: WorldState, context: StepContext): void {
     const awakeSet = SetType.Awake;
     const awakeBodyCount = setBodyCount(world, awakeSet);
     if (awakeBodyCount === 0) {
-        updateBeginContactImpulses(world);
+        kernel(world.ecsState).eventFinishContacts(world.worldId, world.hitEventThreshold);
         return;
     }
 
@@ -237,7 +124,6 @@ export function solve(world: WorldState, context: StepContext): void {
     );
     if (pool) runPool(world.ecsState, pool, k.runMt);
     else k.runMt();
-    readbackHitEvents(world, layout, context);
 
     // Split a deferred island (candidate collected in the previous step's sleep stage) before
     // finalize reads island indices. In C this runs as a task alongside the solve; serially it must
@@ -256,14 +142,13 @@ export function solve(world: WorldState, context: StepContext): void {
 
     // The contact-begin records are created during collision detection, but their normal impulses are
     // only authoritative after the velocity solve has stored the warm-start columns.
-    updateBeginContactImpulses(world);
+    kernel(world.ecsState).eventFinishContacts(world.worldId, world.hitEventThreshold);
 
     // Report joint and hit events (b3Solve, after finalize, before the bullet stage).
     phaseStart = performance.now();
     collectJointEvents(world);
     profile.jointEvents = performance.now() - phaseStart;
     phaseStart = performance.now();
-    if (context.hitEventContacts.size > 0) buildHitEvents(context);
     profile.hitEvents = performance.now() - phaseStart;
 
     // Deferred bullet CCD: fast bullet bodies sweep the dynamic + kinematic trees, which are only
@@ -276,7 +161,9 @@ export function solve(world: WorldState, context: StepContext): void {
 
     // Publish the finalized, CCD-clipped pose before sleep compacts the resident body columns.
     world.bodyStore.refreshViews();
-    world.bodyStore.syncCount = kernel(world.ecsState).bodySyncMoved(world.bodyMoveCount);
+    world.bodyStore.syncCount = kernel(world.ecsState).bodySyncMoved(
+        kernel(world.ecsState).eventCount(world.worldId, 6),
+    );
 
     // Island sleeping — must be last, because sleeping invalidates the enlarged-body bookkeeping.
     if (world.enableSleep) {

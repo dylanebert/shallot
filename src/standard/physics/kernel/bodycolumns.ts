@@ -206,9 +206,9 @@ export class BodyStore extends KernelViews {
         out: { bodyId: number; generation: number; fellAsleep: boolean },
     ): { bodyId: number; generation: number; fellAsleep: boolean } {
         const o = index * MOVE_STRIDE;
-        out.bodyId = this.moveU[o];
-        out.generation = this.moveU[o + 1];
-        out.fellAsleep = this.moveU[o + 2] !== 0;
+        out.bodyId = this.moveU[o + 8] - 1;
+        out.generation = this.moveU[o + 9] >>> 16;
+        out.fellAsleep = this.moveU[o + 10] !== 0;
         return out;
     }
 

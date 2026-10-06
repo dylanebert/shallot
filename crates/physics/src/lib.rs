@@ -139,6 +139,8 @@ mod compound_query;
 mod contact_list;
 #[cfg(target_arch = "wasm32")]
 mod draw;
+#[cfg(any(target_arch = "wasm32", test))]
+mod events;
 #[cfg(target_arch = "wasm32")]
 mod fataabb;
 #[cfg(target_arch = "wasm32")]

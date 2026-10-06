@@ -40,6 +40,7 @@ pub extern "C" fn reset(world: u32) {
         crate::broad::reset(id);
         crate::geo::reset(id);
         crate::sensor::reset(id);
+        crate::events::reset(id);
     }
 }
 
@@ -70,6 +71,7 @@ pub extern "C" fn snapshot(world: u32) -> usize {
         crate::broad::snapshot(world as usize, &mut out);
         crate::geo::snapshot(world as usize, &mut out);
         crate::sensor::snapshot(world as usize, &mut out);
+        crate::events::snapshot(world as usize, &mut out);
         let buffer = &mut *(&raw mut SNAPSHOT);
         *buffer = out;
         buffer.len()
@@ -102,6 +104,7 @@ pub extern "C" fn restore(world: u32) {
         crate::broad::restore(world as usize, &mut input);
         crate::geo::restore(world as usize, &mut input);
         crate::sensor::restore(world as usize, &mut input);
+        crate::events::restore(world as usize, &mut input);
         assert!(input.is_empty());
         invalidate_views();
     }

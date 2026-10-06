@@ -15,24 +15,14 @@ struct Sensor {
     overlaps2: Vec<Visitor>,
     shape_id: usize,
 }
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Touch {
-    pub sensor: Visitor,
-    pub visitor: Visitor,
-}
 struct Sensors {
     sensors: Vec<Sensor>,
     event_bits: Vec<u64>,
-    events: Vec<Touch>,
-    kinds: Vec<u32>,
 }
 impl Sensors {
     const EMPTY: Self = Self {
         sensors: Vec::new(),
         event_bits: Vec::new(),
-        events: Vec::new(),
-        kinds: Vec::new(),
     };
 }
 static mut WORLDS: [Sensors; regions::MAX_WORLDS] = [const { Sensors::EMPTY }; regions::MAX_WORLDS];
@@ -104,8 +94,6 @@ pub unsafe extern "C" fn record_hit(world: usize, sensor: usize, other: usize) {
 pub unsafe extern "C" fn overlap(world: usize) {
     shapes::shape_set_active_world(world as u32);
     let w = state(world);
-    w.events.clear();
-    w.kinds.clear();
     w.event_bits.resize(w.sensors.len().div_ceil(64), 0);
     w.event_bits.fill(0);
     // The current query ABI owns shared header and linked-result scratch. Until that scratch is
@@ -146,7 +134,6 @@ pub unsafe extern "C" fn overlap(world: usize) {
         while bits != 0 {
             let index = block * 64 + bits.trailing_zeros() as usize;
             let s = &w.sensors[index];
-            let sensor = visitor(world, s.shape_id);
             let (mut a, mut b) = (0, 0);
             while a < s.overlaps1.len() || b < s.overlaps2.len() {
                 let old = s.overlaps1.get(a);
@@ -170,8 +157,7 @@ pub unsafe extern "C" fn overlap(world: usize) {
                     b += 1;
                     v
                 };
-                w.events.push(Touch { sensor, visitor: v });
-                w.kinds.push(u32::from(end));
+                crate::events::sensor_touch(world, s.shape_id, v, end);
             }
             bits &= bits - 1;
         }
@@ -182,38 +168,14 @@ pub unsafe extern "C" fn destroy(world: usize, id: usize) {
     shapes::shape_set_active_world(world as u32);
     let index = shapes::col().get(id * shapes::SHAPE_STRIDE + 41) as usize;
     let w = state(world);
-    w.events.clear();
-    w.kinds.clear();
-    let sensor = visitor(world, id);
     for v in &w.sensors[index].overlaps2 {
-        w.events.push(Touch {
-            sensor,
-            visitor: *v,
-        });
-        w.kinds.push(1);
+        crate::events::sensor_touch(world, id, *v, true);
     }
     w.sensors.swap_remove(index);
     if index < w.sensors.len() {
         crate::shape_lifecycle::attach_sensor(world, w.sensors[index].shape_id, index as i32);
     }
     crate::shape_lifecycle::attach_sensor(world, id, -1);
-}
-#[export_name = "sensorEventCount"]
-pub unsafe extern "C" fn event_count(world: usize) -> usize {
-    state(world).events.len()
-}
-#[export_name = "sensorEventWord"]
-pub unsafe extern "C" fn event_word(world: usize, index: usize, word: usize) -> u32 {
-    let w = state(world);
-    let e = w.events[index];
-    match word {
-        0 => w.kinds[index],
-        1 => e.sensor.shape_id,
-        2 => e.sensor.generation as u32,
-        3 => e.visitor.shape_id,
-        4 => e.visitor.generation as u32,
-        _ => panic!("sensor event word"),
-    }
 }
 #[export_name = "sensorVisitorCount"]
 pub unsafe extern "C" fn visitor_count(world: usize, index: usize) -> usize {

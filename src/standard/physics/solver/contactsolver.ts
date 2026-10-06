@@ -1,9 +1,7 @@
-import { contactHit } from "../collision/manifoldstore";
 import { OVERFLOW_INDEX } from "../common/constants";
 import { COLOR_SPAN_STRIDE, type Columns } from "../kernel/columns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
-import { graphContacts } from "./graph";
 import type { Softness } from "./softness";
 
 /** The per-step solver context threaded through the solve (b3StepContext, scalar subset). */
@@ -24,7 +22,6 @@ export type StepContext = {
     splitIslandId: number;
     splitSleepTime: number;
     bulletBodies: number[];
-    hitEventContacts: Set<number>;
 };
 
 /** One active graph color's transient ranges; `colorIndex` selects its kernel joint array. */
@@ -124,28 +121,4 @@ export function writeSlots(world: WorldState): void {
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
     k.graphWriteSlots();
-}
-
-/** Collect contact hits after the kernel stores impulses into their persistent manifolds. */
-export function readbackHitEvents(
-    world: WorldState,
-    layout: SolveLayout,
-    context: StepContext,
-): void {
-    const dirU = world.manifoldStore.dirU;
-    const set = context.hitEventContacts;
-    for (const span of layout.colors) {
-        const convex = graphContacts(world, span.colorIndex);
-        for (let j = 0; j < convex.length; ++j) {
-            if (contactHit(dirU, convex[j])) set.add(convex[j]);
-        }
-        const contacts = graphContacts(world, span.colorIndex, true);
-        for (let j = 0; j < contacts.length; j += 2) {
-            if (contactHit(dirU, contacts[j])) set.add(contacts[j]);
-        }
-    }
-    const overflow = graphContacts(world, OVERFLOW_INDEX, true);
-    for (let j = 0; j < overflow.length; j += 2) {
-        if (contactHit(dirU, overflow[j])) set.add(overflow[j]);
-    }
 }

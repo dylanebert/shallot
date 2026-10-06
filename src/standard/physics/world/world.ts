@@ -11,7 +11,6 @@ import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { contactCount } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
 import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
-import type { EntityId } from "../common/ids";
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import {
     type Capacity,
@@ -30,7 +29,6 @@ import type { HullData } from "../shapes/hull";
 import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import { createStepProfile, type StepProfile } from "./profile";
-import type { SensorBeginTouchEvent } from "./sensor";
 import { destroySolverSet } from "./solverset";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
@@ -38,33 +36,6 @@ export const MAX_WORLDS = 128;
 
 /** An opaque world handle (b3WorldId). */
 export type WorldId = { index1: number; generation: number };
-
-/**
- * A contact begin- or end-touch event (b3ContactBeginTouchEvent / b3ContactEndTouchEvent). The ids
- * are resolved to public {@link Shape}/{@link Contact} handles at getter time; end events read from
- * the previous double buffer, so they survive one step.
- */
-export type ContactTouchEvent = {
-    shapeIdA: EntityId;
-    shapeIdB: EntityId;
-    contactId: EntityId;
-    normalImpulse: number;
-};
-
-/** A contact hit event (b3ContactHitEvent): a collision faster than the world hit threshold. */
-export type ContactHitEvent = {
-    shapeIdA: EntityId;
-    shapeIdB: EntityId;
-    contactId: EntityId;
-    point: Vec3;
-    normal: Vec3;
-    approachSpeed: number;
-    userMaterialIdA: bigint;
-    userMaterialIdB: bigint;
-};
-
-/** A sensor end-touch event (b3SensorEndTouchEvent). */
-export type SensorEndTouchEvent = { sensorShapeId: EntityId; visitorShapeId: EntityId };
 
 /** Simple counters read back from the world (b3Counters). */
 export type Counters = {
@@ -107,18 +78,8 @@ export type WorldState = {
 
     queryColumns: QueryColumns | null;
 
-    // Event buffers. End events are double-buffered so the user needn't flush every step. Kernel
-    // finalization owns the retained body move records; bodyMoveCount is their valid prefix length.
-    bodyMoveCount: number;
-    sensorBeginEvents: SensorBeginTouchEvent[];
-    contactBeginEvents: ContactTouchEvent[];
-    sensorEndEvents: [SensorEndTouchEvent[], SensorEndTouchEvent[]];
-    contactEndEvents: [ContactTouchEvent[], ContactTouchEvent[]];
-    contactHitEvents: ContactHitEvent[];
-    jointEvents: number[];
-    jointEventCount: number;
+    // JavaScript user values cannot inhabit a wasm pointer; native joint events index these values.
     jointEventUserData: unknown[];
-    endEventArrayIndex: number;
 
     stepIndex: number;
 
@@ -218,16 +179,7 @@ function makeWorldState(
         bodyStore: createBodyStore(world, worldId),
         shapeStore: createShapeStore(world, worldId),
         queryColumns: null,
-        bodyMoveCount: 0,
-        sensorBeginEvents: [],
-        contactBeginEvents: [],
-        sensorEndEvents: [[], []],
-        contactEndEvents: [[], []],
-        contactHitEvents: [],
-        jointEvents: [],
-        jointEventCount: 0,
         jointEventUserData: [],
-        endEventArrayIndex: 0,
         stepIndex: 0,
         stepContext: null,
         profile: createStepProfile(),

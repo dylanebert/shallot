@@ -264,28 +264,7 @@ function applyTouch(world: WorldState, id: number): void {
     const stopped = (flags & ContactFlags.simStoppedTouching) !== 0;
     if (!started && !stopped) return;
     if (flags & ContactFlags.contactEnableContactEvents) {
-        const a = contactField(world, id, ContactField.shapeIdA);
-        const b = contactField(world, id, ContactField.shapeIdB);
-        const event = {
-            shapeIdA: {
-                index1: a + 1,
-                world0: world.worldId,
-                generation: shapeField(world, a, ShapeField.generation),
-            },
-            shapeIdB: {
-                index1: b + 1,
-                world0: world.worldId,
-                generation: shapeField(world, b, ShapeField.generation),
-            },
-            contactId: {
-                index1: id + 1,
-                world0: world.worldId,
-                generation: contactField(world, id, ContactField.generation),
-            },
-            normalImpulse: 0,
-        };
-        if (started) world.contactBeginEvents.push(event);
-        else world.contactEndEvents[world.endEventArrayIndex].push(event);
+        kernel(world.ecsState).eventContactTouch(world.worldId, id, started);
     }
     if (started) {
         setContactField(

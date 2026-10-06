@@ -176,26 +176,7 @@ export function destroyContact(world: WorldState, id: number, wakeBodies: boolea
     const flags = contactField(world, id, ContactField.flags);
     const touching = (flags & ContactFlags.contactTouchingFlag) !== 0;
     if (touching && flags & ContactFlags.contactEnableContactEvents) {
-        const a = shapeIdA,
-            b = shapeIdB;
-        world.contactEndEvents[world.endEventArrayIndex].push({
-            shapeIdA: {
-                index1: a + 1,
-                world0: world.worldId,
-                generation: shapeField(world, a, ShapeField.generation),
-            },
-            shapeIdB: {
-                index1: b + 1,
-                world0: world.worldId,
-                generation: shapeField(world, b, ShapeField.generation),
-            },
-            contactId: {
-                index1: id + 1,
-                world0: world.worldId,
-                generation: contactField(world, id, ContactField.generation),
-            },
-            normalImpulse: 0,
-        });
+        kernel(world.ecsState).eventContactTouch(world.worldId, id, false);
     }
     kernel(world.ecsState).bodyDestroyContact(world.worldId, id);
     if (wakeBodies && touching) {

@@ -12,7 +12,7 @@
 //! [`Col`]s rather than `&mut` slices — `col.rs` carries the argument.
 
 use crate::body::{
-    FIN_OUT_STRIDE, FIN_STRIDE, S2_BODY_ID, S2_HEAD_SHAPE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE,
+    FIN_OUT_STRIDE, FIN_STRIDE, S2_HEAD_SHAPE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE,
 };
 use crate::col::Col;
 use crate::contact::{Columns, CC_META_STRIDE, CC_STRIDE, MCP_STRIDE, MC_META_STRIDE, MC_STRIDE};
@@ -1258,10 +1258,6 @@ pub(crate) unsafe fn finalize_block(
         let flags = u32s(FLAGS, b);
         let sim2 = Col::new(crate::bodies::sim2_base() as *mut f32, b * SIM2_STRIDE);
         let sim2_u = Col::new(crate::bodies::sim2_base() as *mut u32, b * SIM2_STRIDE);
-        let moves = Col::new(
-            crate::bodies::move_base() as *mut u32,
-            b * crate::bodies::MOVE_STRIDE,
-        );
         finalize::finalize(
             state,
             sim,
@@ -1275,16 +1271,10 @@ pub(crate) unsafe fn finalize_block(
             inv_dt,
             enable_continuous,
         );
-        // Finalization is the sole producer of move records. The record identity is read from the
-        // resident kernel body columns and its generation from the active world lifecycle pool.
-        for i in start..end {
-            let body_id = sim2_u.get(i * SIM2_STRIDE + S2_BODY_ID);
-            let o = i * crate::bodies::MOVE_STRIDE;
-            moves.set(o, body_id);
-            moves.set(o + 1, crate::bodies::active_generation(body_id));
-            moves.set(o + 2, 0);
-        }
         crate::continuous::finalize(start, end, enable_continuous);
+        for i in start..end {
+            crate::events::write_move(i);
+        }
         // Continuous can clip the rotation. Box3D rebuilds inertia from the resulting pose,
         // not the discrete candidate; non-fast bodies already have that tensor.
         for i in start..end {

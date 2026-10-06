@@ -38,7 +38,6 @@ function newStepContext(world: WorldState): StepContext {
         splitIslandId: -1,
         splitSleepTime: 0,
         bulletBodies: [],
-        hitEventContacts: new Set(),
     };
 }
 
@@ -64,17 +63,9 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     const stepStart = performance.now();
     let phaseStart: number;
 
-    // Reset per-step event buffers so a user never reads stale data on an early return. Truncate in
-    // place (like the body move pool's valid-length reset) instead of re-minting: the API accessors map
-    // these into fresh wrapped objects per call (api.ts), never expose the raw arrays, so a caller can
-    // only ever hold copies and the reuse is unobservable.
-    world.bodyMoveCount = 0;
+    kernel(world.ecsState).eventBeginStep(world.worldId);
     world.bodyStore.syncCount = 0;
-    world.sensorBeginEvents.length = 0;
-    world.contactBeginEvents.length = 0;
-    world.contactHitEvents.length = 0;
-    for (let i = 0; i < world.jointEventCount; ++i) world.jointEventUserData[i] = null;
-    world.jointEventCount = 0;
+    world.jointEventUserData.fill(null);
 
     // Update collision pairs and create contacts.
     phaseStart = performance.now();
@@ -96,8 +87,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     context.splitIslandId = -1;
     context.splitSleepTime = 0;
     context.bulletBodies.length = 0;
-    // `Set.prototype.clear` mints a fresh table even on an empty set, so guard on size.
-    if (context.hitEventContacts.size !== 0) context.hitEventContacts.clear();
 
     if (timeStep > 0) {
         context.invDt = f32(1.0 / timeStep);
@@ -136,11 +125,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     overlapSensors(world);
     profile.sensors = performance.now() - phaseStart;
 
-    // Swap the double-buffered end-event arrays.
-    world.endEventArrayIndex = 1 - world.endEventArrayIndex;
-    // Truncate in place: the API getters map these into fresh event objects, so no caller holds the arrays.
-    world.contactEndEvents[world.endEventArrayIndex].length = 0;
-    world.sensorEndEvents[world.endEventArrayIndex].length = 0;
+    kernel(world.ecsState).eventEndStep(world.worldId);
 
     profile.step = performance.now() - stepStart;
     world.locked = false;

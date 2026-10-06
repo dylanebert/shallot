@@ -35,6 +35,9 @@ pub extern "C" fn roots(s: i32, k: i32, d: i32, enable_sleep: bool) {
         ENABLE_SLEEP = enable_sleep;
     }
 }
+/// # Safety
+/// The selected world must own the finalized body rows and continuous scratch for `count` bodies;
+/// the matching task sweep must have joined before this serial sensor-hit publication.
 #[export_name = "sensorConsumeContinuous"]
 pub unsafe extern "C" fn consume(world: usize, count: usize, bullets: bool) {
     let out = scratch();
@@ -44,6 +47,9 @@ pub unsafe extern "C" fn consume(world: usize, count: usize, bullets: bool) {
     for i in 0..count {
         if sims.get(i * body::SIM2_STRIDE + body::S2_FLAGS) & mask != wanted {
             continue;
+        }
+        if bullets {
+            crate::events::write_move(i);
         }
         for n in 0..out.get(i * STRIDE + 1) as usize {
             crate::sensor::record_hit(

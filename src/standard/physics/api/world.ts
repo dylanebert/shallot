@@ -1,4 +1,3 @@
-import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 // The public surface: thin handle classes over the internal id/record model. A World/Body/Shape
 // instance holds only an id and delegates to the internal free functions; all state lives in the
@@ -21,8 +20,8 @@ import {
     type QueryFilter,
     type WorldDef,
 } from "../common/types";
-import { readSimTransform } from "../kernel/bodycolumns";
-import { rethrowQueryError, setQueryCallback } from "../kernel/kernel";
+import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
+import { kernel, rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { TreeStats } from "../kernel/treecolumns";
 import type { Capsule } from "../shapes/geometry";
@@ -56,17 +55,14 @@ import {
 import { step as stepWorld } from "../solver/step";
 import { createWeldJoint, defaultWeldJointDef, type WeldJointDef } from "../solver/weldJoint";
 import { createWheelJoint, defaultWheelJointDef, type WheelJointDef } from "../solver/wheelJoint";
-import { createBody, getBodySim, makeBodyId } from "../world/body";
+import { createBody, makeBodyId } from "../world/body";
 import { type DebugDraw, worldDraw } from "../world/draw";
 import type { StepProfile } from "../world/profile";
 import {
-    type ContactHitEvent as ContactHitRecord,
-    type ContactTouchEvent as ContactTouchRecord,
     type Counters,
     createWorld,
     destroyWorld,
     getWorld,
-    type SensorEndTouchEvent as SensorTouchRecord,
     type WorldId,
     type WorldState,
     worldCounters,
@@ -136,69 +132,68 @@ function castHit(world: WorldState, id: number, f: Float32Array, n: number, orig
 
 // The event getters refill per-world lists in place; each event and handle is fresh, so only a
 // list, never an event, is shared across steps.
-function fillSensorTouches(
-    world: WorldState,
-    out: SensorTouchEvent[],
-    records: readonly SensorTouchRecord[],
-): void {
+function fillSensorTouches(world: WorldState, out: SensorTouchEvent[], kind: number): void {
     out.length = 0;
-    for (let i = 0; i < records.length; ++i) {
-        const e = records[i];
+    for (let i = 0, count = eventCount(world, kind); i < count; ++i) {
         out.push({
-            sensor: new Shape(world, e.sensorShapeId),
-            visitor: new Shape(world, e.visitorShapeId),
+            sensor: new Shape(world, eventId(world, kind, i, 0)),
+            visitor: new Shape(world, eventId(world, kind, i, 2)),
         });
     }
 }
 
-function fillContactTouches(
-    world: WorldState,
-    out: ContactTouchEvent[],
-    records: readonly ContactTouchRecord[],
-): void {
+function fillContactTouches(world: WorldState, out: ContactTouchEvent[], kind: number): void {
     out.length = 0;
-    for (let i = 0; i < records.length; ++i) {
-        const e = records[i];
+    for (let i = 0, count = eventCount(world, kind); i < count; ++i) {
         out.push({
-            shapeA: new Shape(world, e.shapeIdA),
-            shapeB: new Shape(world, e.shapeIdB),
-            contact: new Contact(world, e.contactId),
-            normalImpulse: e.normalImpulse,
+            shapeA: new Shape(world, eventId(world, kind, i, 0)),
+            shapeB: new Shape(world, eventId(world, kind, i, 2)),
+            contact: new Contact(world, eventId(world, kind, i, 4)),
+            normalImpulse:
+                kind === EventKind.ContactBegin
+                    ? kernel(world.ecsState).eventFloat(world.worldId, kind, i, 6)
+                    : 0,
         });
     }
 }
 
-function fillContactHits(
-    world: WorldState,
-    out: ContactHitEvent[],
-    records: readonly ContactHitRecord[],
-): void {
+function fillContactHits(world: WorldState, out: ContactHitEvent[]): void {
     out.length = 0;
-    for (let i = 0; i < records.length; ++i) {
-        const e = records[i];
+    const k = kernel(world.ecsState),
+        kind = EventKind.ContactHit,
+        id = world.worldId;
+    for (let i = 0, count = eventCount(world, kind); i < count; ++i) {
         out.push({
-            shapeA: new Shape(world, e.shapeIdA),
-            shapeB: new Shape(world, e.shapeIdB),
-            contact: new Contact(world, e.contactId),
-            point: { ...e.point },
-            normal: { ...e.normal },
-            approachSpeed: e.approachSpeed,
-            userMaterialIdA: e.userMaterialIdA,
-            userMaterialIdB: e.userMaterialIdB,
+            shapeA: new Shape(world, eventId(world, kind, i, 0)),
+            shapeB: new Shape(world, eventId(world, kind, i, 2)),
+            contact: new Contact(world, eventId(world, kind, i, 4)),
+            point: {
+                x: k.eventFloat(id, kind, i, 6),
+                y: k.eventFloat(id, kind, i, 7),
+                z: k.eventFloat(id, kind, i, 8),
+            },
+            normal: {
+                x: k.eventFloat(id, kind, i, 9),
+                y: k.eventFloat(id, kind, i, 10),
+                z: k.eventFloat(id, kind, i, 11),
+            },
+            approachSpeed: k.eventFloat(id, kind, i, 12),
+            userMaterialIdA:
+                BigInt(k.eventWord(id, kind, i, 14) >>> 0) |
+                (BigInt(k.eventWord(id, kind, i, 15) >>> 0) << 32n),
+            userMaterialIdB:
+                BigInt(k.eventWord(id, kind, i, 16) >>> 0) |
+                (BigInt(k.eventWord(id, kind, i, 17) >>> 0) << 32n),
         });
     }
 }
 
-function fillJointEvents(world: WorldState, out: JointEvent[], records: readonly number[]): void {
+function fillJointEvents(world: WorldState, out: JointEvent[]): void {
     out.length = 0;
-    for (let i = 0; i < world.jointEventCount * 3; i += 3) {
+    for (let i = 0, count = eventCount(world, EventKind.Joint); i < count; ++i) {
         out.push({
-            joint: new Joint(world, {
-                index1: records[i] + 1,
-                world0: records[i + 1],
-                generation: records[i + 2],
-            }),
-            userData: world.jointEventUserData[i / 3],
+            joint: new Joint(world, eventId(world, EventKind.Joint, i, 0)),
+            userData: world.jointEventUserData[i],
         });
     }
 }
@@ -216,7 +211,6 @@ export class PhysicsWorld {
     // state (matching the internal pool). Rebuilt lazily; valid until the next step or getBodyEvents.
     private readonly _moveEventPool: BodyMoveEvent[] = [];
     private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
-    private readonly _moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
     private readonly _sensorEvents: SensorEvents = { beginEvents: [], endEvents: [] };
     private readonly _contactEvents: ContactEvents = {
         beginEvents: [],
@@ -247,7 +241,6 @@ export class PhysicsWorld {
             _jointEvents: JointEvent[];
             _moveEventPool: BodyMoveEvent[];
             _bodyEvents: BodyEvents;
-            _moveRecord: { bodyId: number; generation: number; fellAsleep: boolean };
         };
         world.state = state;
         world._worldId = { index1: state.worldId + 1, generation: state.generation };
@@ -256,7 +249,6 @@ export class PhysicsWorld {
         world._jointEvents = [];
         world._moveEventPool = [];
         world._bodyEvents = { moveEvents: world._moveEventPool, count: 0 };
-        world._moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
         return world as unknown as PhysicsWorld;
     }
 
@@ -326,13 +318,9 @@ export class PhysicsWorld {
     getSensorEvents(): SensorEvents {
         const state = this.state;
         const events = this._sensorEvents;
-        fillSensorTouches(state, events.beginEvents, state.sensorBeginEvents);
+        fillSensorTouches(state, events.beginEvents, EventKind.SensorBegin);
         // Careful to read the previous end-event buffer (the swap already happened this step).
-        fillSensorTouches(
-            state,
-            events.endEvents,
-            state.sensorEndEvents[1 - state.endEventArrayIndex],
-        );
+        fillSensorTouches(state, events.endEvents, EventKind.SensorEnd);
         return events;
     }
 
@@ -347,14 +335,10 @@ export class PhysicsWorld {
     getContactEvents(): ContactEvents {
         const state = this.state;
         const events = this._contactEvents;
-        fillContactTouches(state, events.beginEvents, state.contactBeginEvents);
+        fillContactTouches(state, events.beginEvents, EventKind.ContactBegin);
         // Careful to read the previous end-event buffer (the swap already happened this step).
-        fillContactTouches(
-            state,
-            events.endEvents,
-            state.contactEndEvents[1 - state.endEventArrayIndex],
-        );
-        fillContactHits(state, events.hitEvents, state.contactHitEvents);
+        fillContactTouches(state, events.endEvents, EventKind.ContactEnd);
+        fillContactHits(state, events.hitEvents);
         return events;
     }
 
@@ -366,25 +350,33 @@ export class PhysicsWorld {
      */
     getBodyEvents(): BodyEvents {
         const state = this.state;
-        const count = state.bodyMoveCount;
+        const count = eventCount(state, EventKind.BodyMove);
         const pool = this._moveEventPool;
-        while (pool.length < count) {
-            pool.push({
-                body: new Body(state, { index1: 0, world0: state.worldId, generation: 0 }),
-                transform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
-                userData: null,
-                fellAsleep: false,
-            });
-        }
+        const k = kernel(state.ecsState),
+            world = state.worldId,
+            kind = EventKind.BodyMove;
+        if (pool.length < count) pool.length = count;
         for (let i = 0; i < count; ++i) {
-            const rec = state.bodyStore.readMove(i, this._moveRecord);
-            const body = rec.bodyId;
-            const ev = pool[i];
-            ev.body.id.index1 = rec.bodyId + 1;
-            ev.body.id.generation = rec.generation;
-            readSimTransform(state, getBodySim(state, body), ev.transform);
-            ev.userData = bodyField(state, body, BodyField.userData);
-            ev.fellAsleep = rec.fellAsleep;
+            pool[i] = {
+                body: new Body(state, eventId(state, kind, i, 8)),
+                transform: {
+                    p: {
+                        x: k.eventFloat(world, kind, i, 1),
+                        y: k.eventFloat(world, kind, i, 2),
+                        z: k.eventFloat(world, kind, i, 3),
+                    },
+                    q: {
+                        v: {
+                            x: k.eventFloat(world, kind, i, 4),
+                            y: k.eventFloat(world, kind, i, 5),
+                            z: k.eventFloat(world, kind, i, 6),
+                        },
+                        s: k.eventFloat(world, kind, i, 7),
+                    },
+                },
+                userData: state.bodyUserData[k.eventWord(world, kind, i, 0)],
+                fellAsleep: k.eventWord(world, kind, i, 10) !== 0,
+            };
         }
         const events = this._bodyEvents;
         events.count = count;
@@ -399,7 +391,7 @@ export class PhysicsWorld {
      */
     getJointEvents(): JointEvent[] {
         const events = this._jointEvents;
-        fillJointEvents(this.state, events, this.state.jointEvents);
+        fillJointEvents(this.state, events);
         return events;
     }
 
