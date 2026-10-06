@@ -11,7 +11,7 @@ import { PhysicsWorld } from "./api/world";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "./common/types";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { hullDatabaseIndex } from "./kernel/geocolumns";
-import { type Kernel, kernelState } from "./kernel/kernel";
+import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./kernel/shapecolumns";
 import { shapeAllocationSubject } from "./shape-allocation.fixture";
 import { createCompound } from "./shapes/compound";
@@ -50,6 +50,7 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
         ).arrayBuffer();
         const built = await WebAssembly.instantiate(bytes, {
             env: {
+                now: clockImport(() => k.memory),
                 queryCallback() {
                     throw new Error("unexpected shape allocation callback");
                 },

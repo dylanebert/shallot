@@ -869,7 +869,7 @@ export function rethrowQueryError(world: World | undefined): void {
 
 /** A checked kernel's panic message, printed before its abort traps; release kernels never import it. */
 // The clock writes a scalar through the ABI, avoiding a boxed f64 result at the host boundary.
-function clockImport(memory: () => WebAssembly.Memory): (pointer: number) => void {
+export function clockImport(memory: () => WebAssembly.Memory): (pointer: number) => void {
     let view = new Float64Array(0);
     return (pointer) => {
         const buffer = memory().buffer;

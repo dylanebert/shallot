@@ -9,7 +9,7 @@ import {
 import { CEILING } from "../../../scripts/test-tiers";
 import { PhysicsWorld } from "./api/world";
 import { jointAllocationSubject } from "./joint-allocation.fixture";
-import { type Kernel, kernelState } from "./kernel/kernel";
+import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 
 setDefaultTimeout(CEILING.node);
 const entry = resolve(import.meta.dir, "fixtures/joint-allocation.entry.ts");
@@ -42,6 +42,7 @@ test("the same warm joint subject allocates no WASM heap and its counting alloca
         ).arrayBuffer();
         const built = await WebAssembly.instantiate(bytes, {
             env: {
+                now: clockImport(() => k.memory),
                 queryCallback() {
                     throw new Error("unexpected allocation-subject callback");
                 },
