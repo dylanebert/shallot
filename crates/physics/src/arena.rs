@@ -847,11 +847,16 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             let mut child_offset = Vec3::ZERO;
             let mut material_map = None;
             let mut child_radius = 0.0;
-            let mut compound_geometry = [0u32; 19];
-            if type_a == 1 {
+            let compound_geometry = if type_a == 1 {
                 let compound = geom_a[0] as *const u32;
-                compound_geometry =
-                    crate::compound_query::child_words(compound, disp[r + D_CHILD] as usize);
+                Some(crate::compound_query::child_words(
+                    compound,
+                    disp[r + D_CHILD] as usize,
+                ))
+            } else {
+                None
+            };
+            if let Some(compound_geometry) = &compound_geometry {
                 type_a = compound_geometry[0];
                 material_map = Some([
                     compound_geometry[8],
@@ -859,7 +864,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                     compound_geometry[10],
                     compound_geometry[11],
                 ]);
-                let local = read_xf(&compound_geometry, 1);
+                let local = read_xf(compound_geometry, 1);
                 child_offset = parent_xf.q.rotate(local.p);
                 if type_a == TY_HULL || type_a == 4 {
                     xf_a = parent_xf.mul(local);
