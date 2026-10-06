@@ -127,11 +127,11 @@ test("sphere and capsule body churn uploads no geometry, and only a mesh datum e
         advance(world);
         const mesh = createGridMesh(4, 4, 1, 0, true);
         const first = body(world);
-        const before = world.geometryUploadCount;
+        const before = kernel(world.ecsState).geometryDatabaseCount(world.worldId);
         const shape = createMeshShape(world, first, defaultShapeDef(), mesh, unit)!;
         advance(world);
-        expect(world.geometryUploadCount - before).toBe(1);
-        const resident = world.geometryUploadCount;
+        expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId) - before).toBe(1);
+        const resident = kernel(world.ecsState).geometryDatabaseCount(world.worldId);
         for (const kind of ["sphere", "capsule"]) {
             const ball = createBody(world, {
                 ...defaultBodyDef(),
@@ -150,10 +150,10 @@ test("sphere and capsule body churn uploads no geometry, and only a mesh datum e
                     radius: 1,
                 });
             advance(world);
-            expect(world.geometryUploadCount).toBe(resident);
+            expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(resident);
             destroyBody(world, ball);
             advance(world);
-            expect(world.geometryUploadCount).toBe(resident);
+            expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(resident);
         }
         const second = body(world);
         const duplicate = createMeshShape(world, second, defaultShapeDef(), mesh, unit)!;
@@ -161,19 +161,19 @@ test("sphere and capsule body churn uploads no geometry, and only a mesh datum e
         expect(reference).toBeGreaterThan(0);
         expect(world.shapeStore.shapeU[duplicate * SHAPE_STRIDE + S_GEO_REFERENCE]).toBe(reference);
         advance(world);
-        expect(world.geometryUploadCount).toBe(resident);
+        expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(resident);
         destroyBody(world, second);
         advance(world);
-        expect(world.geometryUploadCount).toBe(resident);
+        expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(resident);
         destroyBody(world, first);
         advance(world);
-        expect(world.geometryUploadCount).toBe(resident + 1);
+        expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(resident - 1);
     } finally {
         destroyWorld(world);
     }
 });
 
-test("height-field and compound instances retain resident records, including a compound's shared hull and mesh dependencies", () => {
+test("height-field and compound instances share caller identities, while compounds own embedded child images", () => {
     const world = getWorld(createWorld(undefined, defaultWorldDef())) as WorldState;
     try {
         const mesh = createGridMesh(2, 2, 1, 0, true);
@@ -208,30 +208,29 @@ test("height-field and compound instances retain resident records, including a c
                 kind === "height"
                     ? createHeightFieldShape(world, b, defaultShapeDef(), field)
                     : createCompoundShape(world, b, defaultShapeDef(), compound);
-            const before = world.geometryUploadCount;
+            const before = kernel(world.ecsState).geometryDatabaseCount(world.worldId);
             const shape = create(first)!;
             advance(world);
-            expect(world.geometryUploadCount).toBe(before + 1);
+            expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(before + 1);
             const second = body(world);
             const duplicate = create(second)!;
             expect(world.shapeStore.shapeU[duplicate * SHAPE_STRIDE + S_GEO_REFERENCE]).toBe(
                 world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE],
             );
             advance(world);
-            expect(world.geometryUploadCount).toBe(before + 1);
+            expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(before + 1);
             destroyBody(world, first);
             advance(world);
-            expect(world.geometryUploadCount).toBe(before + 1);
+            expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(before + 1);
             destroyBody(world, second);
             advance(world);
-            expect(world.geometryUploadCount).toBe(before + 2);
+            expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(before);
         }
-        expect(world.meshDatabase.get(mesh)?.refCount).toBe(1);
+        expect(world.geometryIdentityValues.size).toBe(1);
         expect(
             kernel(world.ecsState).hullDatabaseRefs(world.worldId, hullDatabaseIndex(world, hull)),
         ).toBe(1);
-        expect(world.heightFieldDatabase.size).toBe(0);
-        expect(world.compoundDatabase.size).toBe(0);
+        expect(kernel(world.ecsState).geometryDatabaseCount(world.worldId)).toBe(1);
     } finally {
         destroyWorld(world);
     }

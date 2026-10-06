@@ -10,7 +10,6 @@ import { collide } from "../collision/collide";
 import { updateBroadPhasePairs } from "../collision/pairs";
 import { f32, maxInt, minf } from "../common/math";
 import { reserveBodies } from "../kernel/bodycolumns";
-import { rebuildGeometry } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
 import { resetStepProfile } from "../world/profile";
 import { overlapSensors } from "../world/sensor";
@@ -76,13 +75,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.contactHitEvents.length = 0;
     for (let i = 0; i < world.jointEventCount; ++i) world.jointEventUserData[i] = null;
     world.jointEventCount = 0;
-
-    // Compound pair queries and the narrowphase both read the resident geometry.
-    if (world.geometryDirty) {
-        rebuildGeometry(world);
-        world.geometryDirty = false;
-        world.bodyStore.refreshViews();
-    }
 
     // Update collision pairs and create contacts.
     phaseStart = performance.now();

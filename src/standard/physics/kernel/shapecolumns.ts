@@ -1,11 +1,10 @@
 import type { World } from "../../../engine";
 import type { AABB } from "../common/math";
-import { type ShapeDef, ShapeType, type SurfaceMaterial } from "../common/types";
+import type { ShapeDef, ShapeType, SurfaceMaterial } from "../common/types";
 import type { Shape } from "../shapes/shape";
 import type { WorldState } from "../world/world";
 import { shapeBodyId } from "./filtercolumns";
 import { kernel } from "./kernel";
-import { ShapeField, shapeField } from "./shaperecords";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
 // can walk a body's shape list and compute its AABBs without a per-step marshal. Each World owns
@@ -163,9 +162,8 @@ export class ShapeStore extends KernelViews {
         }
     }
 
-    /** Attach uploaded shared geometry and the body's query pose. */
+    /** Attach the body's query pose; geometry references were written at shape creation. */
     write(world: WorldState, shape: Shape): void {
-        this.writeGeometryReference(world, shape);
         const body = shapeBodyId(world, shape);
         this.writeQueryPose(world, shape, body);
     }
@@ -175,18 +173,6 @@ export class ShapeStore extends KernelViews {
     }
 
     /** Refresh a shape's pool reference without touching its material or finalize lanes. */
-    writeGeometryReference(world: WorldState, shape: Shape): void {
-        const o = shape * SHAPE_STRIDE + S_GEO_REFERENCE;
-        const type = shapeField(world, shape, ShapeField.type);
-        const geometry = world.shapeGeometry[shape];
-        if (type === ShapeType.Mesh)
-            this.shapeU[o] = world.meshDatabase.get(geometry.mesh!.data)!.geoIndex;
-        else if (type === ShapeType.HeightField)
-            this.shapeU[o] = world.heightFieldDatabase.get(geometry.heightField!)!.geoIndex;
-        else if (type === ShapeType.Compound)
-            this.shapeU[o] = world.compoundDatabase.get(geometry.compound!)!.geoIndex;
-    }
-
     /** Copy authored materials into the shape's inline material or owned contiguous array. */
     writeMaterials(
         world: WorldState,
@@ -262,6 +248,15 @@ export class ShapeStore extends KernelViews {
         out.userMaterialId = this.userMaterialId(o);
         out.customColor = this.materialU[o + 8];
         return out;
+    }
+
+    /** Read a material's user id without constructing a TypeScript material copy. */
+    materialUserIdAt(shape: Shape, index: number): bigint {
+        this.refreshViews();
+        const k = kernel(this.ecsState);
+        if (k.shapeMaterialCount(this._worldId, shape) >>> 0 === 0) return 0n;
+        const o = k.shapeMaterialPtr(this._worldId, shape) / 4 + index * MATERIAL_STRIDE;
+        return this.userMaterialId(o);
     }
 
     /** Detach and release the kernel material records owned by a shape. */

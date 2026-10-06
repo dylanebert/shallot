@@ -22,45 +22,6 @@ export class GeometryUploadScratch {
         }
     }
 }
-/** Upload newly retained identity values, then publish their kernel addresses in shape records. */
-export function rebuildGeometry(world: WorldState): void {
-    const k = kernel(world.ecsState);
-    for (const [data, entry] of world.meshDatabase)
-        if (entry.geoIndex < 0)
-            entry.geoIndex = uploadGeometryData(
-                world,
-                4,
-                entry.identity,
-                entry.refCount,
-                meshImage(data),
-            );
-    for (const [data, entry] of world.heightFieldDatabase)
-        if (entry.geoIndex < 0)
-            entry.geoIndex = uploadGeometryData(
-                world,
-                2,
-                entry.identity,
-                entry.refCount,
-                heightImage(data),
-            );
-    for (const [data, entry] of world.compoundDatabase)
-        if (entry.geoIndex < 0)
-            entry.geoIndex = uploadGeometryData(
-                world,
-                1,
-                entry.identity,
-                entry.refCount,
-                compoundImage(data),
-            );
-    k.shapeSetActiveWorld(world.worldId);
-    world.geometryUploadCount += 1;
-    world.shapeStore.refreshViews();
-    world.bodyStore.refreshViews();
-    world.manifoldStore.refreshViews();
-    for (let id = 0; id < world.shapeGeometry.length; ++id) {
-        if (k.shapeAlive(world.worldId, id)) world.shapeStore.writeGeometryReference(world, id);
-    }
-}
 export function stageHullUpload(world: WorldState, hull: HullData): number {
     const k = kernel(world.ecsState);
     const bytes = hullByteCount(hull);
@@ -81,33 +42,49 @@ export function geometryIdentity(value: object): number {
     }
     return id;
 }
-export function uploadGeometryData(
+export function acquireGeometryData<T extends object>(
     world: WorldState,
     kind: number,
-    identity: number,
-    refs: number,
-    image: Uint8Array,
+    data: T,
+    serialize: (data: T) => Uint8Array,
 ): number {
     const k = kernel(world.ecsState);
-    const input = k.geometryUploadBuffer(world.worldId, image.byteLength);
-    const scratch = (world.geometryUploadScratch ??= new GeometryUploadScratch());
-    scratch.views(k.memory.buffer);
-    scratch.bytes.set(image, input);
-    return k.geometryDatabaseAdd(world.worldId, kind, identity, image.byteLength, refs) >>> 0;
+    const identity = geometryIdentity(data);
+    let pointer = k.geometryDatabaseLookup(world.worldId, kind, identity) >>> 0;
+    if (pointer !== 0) {
+        pointer = k.geometryDatabaseAdd(world.worldId, kind, identity, 0, 1) >>> 0;
+    } else {
+        const image = serialize(data);
+        const input = k.geometryUploadBuffer(world.worldId, image.byteLength);
+        const scratch = (world.geometryUploadScratch ??= new GeometryUploadScratch());
+        scratch.views(k.memory.buffer);
+        scratch.bytes.set(image, input);
+        pointer = k.geometryDatabaseAdd(world.worldId, kind, identity, image.byteLength, 1) >>> 0;
+    }
+    world.geometryIdentityValues.set(identity, data);
+    return pointer;
 }
-export function retainGeometryData(world: WorldState, kind: number, identity: number): void {
-    kernel(world.ecsState).geometryDatabaseAdd(world.worldId, kind, identity, 0, 1);
+export function acquireMeshData(world: WorldState, data: MeshData): number {
+    return acquireGeometryData(world, 4, data, meshImage);
+}
+export function acquireHeightFieldData(world: WorldState, data: HeightFieldData): number {
+    return acquireGeometryData(world, 2, data, heightImage);
+}
+export function acquireCompoundData(world: WorldState, data: CompoundData): number {
+    return acquireGeometryData(world, 1, data, compoundImage);
 }
 export function releaseGeometryData(world: WorldState, kind: number, pointer: number): void {
-    kernel(world.ecsState).geometryDatabaseRemove(world.worldId, kind, pointer);
-}
-export function refreshGeometryRecords(world: WorldState): void {
     const k = kernel(world.ecsState);
-    for (const db of [world.meshDatabase, world.heightFieldDatabase, world.compoundDatabase]) {
-        for (const entry of db.values())
-            entry.geoIndex =
-                k.geometryDatabaseLookup(world.worldId, entry.kind, entry.identity) >>> 0;
-    }
+    const identity = k.geometryDatabaseIdentity(world.worldId, kind, pointer);
+    const refs = k.geometryDatabaseRefs(world.worldId, kind, pointer);
+    k.geometryDatabaseRemove(world.worldId, kind, pointer);
+    if (
+        refs === 1 &&
+        k.geometryDatabaseLookup(world.worldId, 4, identity) === 0 &&
+        k.geometryDatabaseLookup(world.worldId, 2, identity) === 0 &&
+        k.geometryDatabaseLookup(world.worldId, 1, identity) === 0
+    )
+        world.geometryIdentityValues.delete(identity);
 }
 export function hullDatabaseIndex(world: WorldState, hull: HullData): number {
     const bytes = stageHullUpload(world, hull);

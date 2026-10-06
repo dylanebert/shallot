@@ -6,7 +6,6 @@ import { ShapeType } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { kernel } from "../kernel/kernel";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
-import { getCompoundChild } from "../shapes/compound";
 import type { Shape } from "../shapes/shape";
 import { wakeBody } from "../world/body";
 import type { WorldState } from "../world/world";
@@ -143,10 +142,17 @@ export function createContact(
     childIndex: number,
 ): void {
     const k = kernel(world.ecsState);
-    // Compound child geometry remains host-owned until C2; native records decide order and flags.
     let flags = 0;
-    const compound = world.shapeGeometry[shapeA].compound ?? world.shapeGeometry[shapeB].compound;
-    if (compound !== undefined && getCompoundChild(compound, childIndex).type === ShapeType.Mesh)
+    const compoundShape =
+        shapeField(world, shapeA, ShapeField.type) === ShapeType.Compound
+            ? shapeA
+            : shapeField(world, shapeB, ShapeField.type) === ShapeType.Compound
+              ? shapeB
+              : -1;
+    if (
+        compoundShape >= 0 &&
+        k.shapeCompoundChildType(world.worldId, compoundShape, childIndex) === ShapeType.Mesh
+    )
         flags = ContactFlags.simMeshContact;
     const id = k.bodyCreateContact(world.worldId, shapeA, shapeB, childIndex, flags);
     if (id === -1 || id === 0xffffffff) return;

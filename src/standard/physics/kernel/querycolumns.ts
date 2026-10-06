@@ -3,7 +3,6 @@ import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS } from "../common/constants";
 import type { AABB, Pos, Vec3, WorldTransform } from "../common/math";
 import type { QueryFilter } from "../common/types";
 import type { WorldState } from "../world/world";
-import { rebuildGeometry } from "./geocolumns";
 import { assertQueryWorld, type Kernel, kernel } from "./kernel";
 import { KernelViews } from "./views";
 
@@ -52,10 +51,6 @@ export class QueryColumns extends KernelViews {
         world.broadPhase.store.initialize();
         const k = kernel(world.ecsState);
         k.shapeSetActiveWorld(world.worldId);
-        if (world.geometryDirty) {
-            rebuildGeometry(world);
-            world.geometryDirty = false;
-        }
         world.broadPhase.store.refreshIfStale();
         const h = this.headerU;
         h[19] = 0;

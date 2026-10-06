@@ -48,7 +48,8 @@ const zero = vec3.zero(),
     tangentB = vec3.zero();
 const poseA = xf.identity(),
     poseB = xf.identity(),
-    childPose = xf.identity();
+    childPose = xf.identity(),
+    compoundPose = xf.identity();
 const materialA = defaultSurfaceMaterial(),
     materialB = defaultSurfaceMaterial(),
     mixedMaterial = defaultSurfaceMaterial();
@@ -78,8 +79,6 @@ function mixMesh(
     shapeA: Shape,
     shapeB: Shape,
     xfA: WorldTransform,
-    materialMap: number[] | null,
-    triangleMaterials: number[] | undefined,
 ): void {
     getShapeMaterial(world, shapeB, materialB);
     vec3.copy(zero, tangentA);
@@ -97,12 +96,18 @@ function mixMesh(
             const o = base + m * MANIFOLD_STRIDE;
             for (let point = 0; point < store.poolU[o + M_POINT_COUNT]; ++point) {
                 const triangle = store.poolI[o + M_POINTS + point * POINT_STRIDE + 12];
-                let index =
-                    shapeField(world, shapeA, ShapeField.type) === ShapeType.HeightField
-                        ? world.shapeGeometry[shapeA].heightField!.materialIndices[triangle >> 1]
-                        : triangleMaterials![triangle];
-                if (materialMap !== null) index = materialMap[index];
-                index = Math.max(0, Math.min(index, materialCount - 1));
+                const index = Math.max(
+                    0,
+                    Math.min(
+                        kernel(world.ecsState).shapeMaterialIndex(
+                            world.worldId,
+                            shapeA,
+                            contactField(world, id, ContactField.childIndex),
+                            triangle,
+                        ),
+                        materialCount - 1,
+                    ),
+                );
                 const material = world.shapeStore.readMaterialAt(shapeA, index, materialA);
                 friction = f32(
                     friction +
@@ -171,44 +176,35 @@ function mixContact(world: WorldState, id: number): void {
     readSimTransform(world, getBodySim(world, contactBodyId(world, id, 1)), poseB);
     let xfA = poseA,
         xfB = poseB;
-    let materialMap: number[] | null = null;
     let materialIndex = 0;
-    let triangleMaterials =
-        shapeField(world, shapeA, ShapeField.type) === ShapeType.Mesh
-            ? world.shapeGeometry[shapeA].mesh!.data.materialIndices
-            : undefined;
     readRollingRadius(world, shapeA, radiusReport);
     let radiusA = radiusReport.radius;
     readRollingRadius(world, shapeB, radiusReport);
     const radiusB = radiusReport.radius;
     if (shapeField(world, shapeA, ShapeField.type) === ShapeType.Compound) {
-        const compound = world.shapeGeometry[shapeA].compound!;
-        let index = contactField(world, id, ContactField.childIndex);
-        let childType: ShapeType;
-        if (index < compound.capsules.length) {
-            const child = compound.capsules[index];
-            childType = ShapeType.Capsule;
-            radiusA = child.capsule.radius;
-            materialIndex = child.materialIndex;
-        } else if ((index -= compound.capsules.length) < compound.hulls.length) {
-            const child = compound.hulls[index];
-            childType = ShapeType.Hull;
-            radiusA = f32(0.25 * child.hull.innerRadius);
-            materialIndex = child.materialIndex;
-            xfA = xf.mulOut(poseA, child.transform, childPose);
-        } else if ((index -= compound.hulls.length) < compound.meshes.length) {
-            const child = compound.meshes[index];
-            childType = ShapeType.Mesh;
-            radiusA = 0;
-            materialMap = child.materialIndices;
-            materialIndex = materialMap[0];
-            triangleMaterials = child.meshData.materialIndices;
-            xfA = xf.mulOut(poseA, child.transform, childPose);
-        } else {
-            const child = compound.spheres[index - compound.meshes.length];
-            childType = ShapeType.Sphere;
-            radiusA = child.sphere.radius;
-            materialIndex = child.materialIndex;
+        const childIndex = contactField(world, id, ContactField.childIndex);
+        const output = kernel(world.ecsState).shapeCompoundChild(world.worldId, shapeA, childIndex);
+        world.shapeStore.refreshViews();
+        const o = output >>> 2,
+            childType = world.shapeStore.materialU[o] as ShapeType,
+            radius = world.shapeStore.materialF[o + 2];
+        materialIndex = world.shapeStore.materialU[o + 1];
+        radiusA =
+            childType === ShapeType.Hull
+                ? f32(0.25 * radius)
+                : childType === ShapeType.Mesh
+                  ? 0
+                  : radius;
+        if (childType === ShapeType.Hull || childType === ShapeType.Mesh) {
+            const f = world.shapeStore.materialF;
+            compoundPose.p.x = f[o + 3];
+            compoundPose.p.y = f[o + 4];
+            compoundPose.p.z = f[o + 5];
+            compoundPose.q.v.x = f[o + 6];
+            compoundPose.q.v.y = f[o + 7];
+            compoundPose.q.v.z = f[o + 8];
+            compoundPose.q.s = f[o + 9];
+            xfA = xf.mulOut(poseA, compoundPose, childPose);
         }
         if (
             (childType === ShapeType.Sphere &&
@@ -224,7 +220,7 @@ function mixContact(world: WorldState, id: number): void {
         }
     }
     if (contactField(world, id, ContactField.flags) & ContactFlags.simMeshContact) {
-        mixMesh(world, id, shapeA, ownShapeB, xfA, materialMap, triangleMaterials);
+        mixMesh(world, id, shapeA, ownShapeB, xfA);
         return;
     }
     const ownA = world.shapeStore.readMaterialAt(ownShapeA, materialIndex, materialA);

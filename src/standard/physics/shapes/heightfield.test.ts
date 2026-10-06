@@ -14,6 +14,7 @@ import {
 } from "../collision/shape_query_gold";
 import { aabb, intersectRayTriangle, type Vec3, xf } from "../common/math";
 import { defaultBodyDef, defaultShapeDef, defaultWorldDef, ShapeType } from "../common/types";
+import { kernel } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import { createBody } from "../world/body";
 import { createWorld, destroyWorld, getWorld, type WorldState } from "../world/world";
@@ -382,7 +383,7 @@ for (const delta of [
 ]) {
     test(`the kernel height-field shape cast agrees with every wave triangle for delta (${delta.x}, ${delta.y}, ${delta.z}), every origin and radius`, () => {
         queryColumns(wave.world).prepare({ x: 0, y: 0, z: 0 });
-        const uploads = wave.world.geometryUploadCount;
+        const uploads = kernel(wave.world.ecsState).geometryDatabaseCount(wave.world.worldId);
         const failures: string[] = [];
         for (const origin of waveOrigins()) {
             for (const radius of [0.15, 0.4, 0.9]) {
@@ -405,7 +406,7 @@ for (const delta of [
             }
         }
         expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
-        expect(wave.world.geometryUploadCount).toBe(uploads);
+        expect(kernel(wave.world.ecsState).geometryDatabaseCount(wave.world.worldId)).toBe(uploads);
     });
 }
 

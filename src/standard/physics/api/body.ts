@@ -201,7 +201,10 @@ export class Body {
         return createdShape(this.world, shape as ShapeRecord);
     }
 
-    /** Attach a static triangle-mesh shape. `mesh` is caller-owned and may be shared across shapes. */
+    /**
+     * Attach a static triangle-mesh shape. `mesh` is caller-owned and may be shared across shapes.
+     * Its native image is immutable while retained; pass a new data object to author changed geometry.
+     */
     createMesh(def: Partial<ShapeDef>, mesh: MeshData, scale: Vec3 = { x: 1, y: 1, z: 1 }): Shape {
         const shape = createMeshShape(
             this.world,
@@ -213,7 +216,10 @@ export class Body {
         return createdShape(this.world, shape as ShapeRecord);
     }
 
-    /** Attach a static height-field shape. `heightField` is caller-owned and may be shared. */
+    /**
+     * Attach a static height-field shape. `heightField` is caller-owned and may be shared.
+     * Its native image is immutable while retained; pass a new data object to author changed geometry.
+     */
     createHeightField(def: Partial<ShapeDef>, heightField: HeightFieldData): Shape {
         const shape = createHeightFieldShape(
             this.world,
@@ -226,7 +232,8 @@ export class Body {
 
     /**
      * Attach a static compound shape (a container of child shapes). `compound` is caller-owned and may
-     * be shared; the compound's own materials drive contacts, so the def's materials are ignored.
+     * be shared; its native image is immutable while retained, and its materials drive contacts, so the
+     * def's materials are ignored. Pass a new data object to author changed geometry.
      */
     createCompound(def: Partial<ShapeDef>, compound: CompoundData): Shape {
         const shape = createCompoundShape(

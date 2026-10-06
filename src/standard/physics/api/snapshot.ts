@@ -1,11 +1,13 @@
-import { refreshGeometryRecords } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { CheckpointStore } from "../kernel/views";
 import type { WorldState } from "../world/world";
 import type { PhysicsWorld } from "./world";
 
-/** Reusable snapshot of a wasm-backed physics world. */
+/**
+ * Reusable snapshot of a wasm-backed physics world. Caller-owned geometry identities remain opaque
+ * metadata; restore uses the captured kernel images and does not deep-clone or re-author their values.
+ */
 export interface WorldSnapshot {
     /** Copied logical state. userData values retain identity; their id associations and names are copied. */
     readonly state: unknown;
@@ -173,12 +175,7 @@ export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldS
     const pointer = k.worldSnapshotBuffer(length);
     const stores = snapshotStores(state);
     const opaque = new WeakSet<object>();
-    for (const data of [
-        ...state.meshDatabase.keys(),
-        ...state.heightFieldDatabase.keys(),
-        ...state.compoundDatabase.keys(),
-    ])
-        opaque.add(data as object);
+    for (const data of state.geometryIdentityValues.values()) opaque.add(data);
     const checkpoints: Partial<Record<StoreName, unknown>> = {};
     for (const [store, name] of stores) {
         checkpoints[name] = clone(
@@ -238,12 +235,7 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         query: queryColumns(state),
     };
     const opaque = new WeakSet<object>();
-    for (const data of [
-        ...saved.world.meshDatabase.keys(),
-        ...saved.world.heightFieldDatabase.keys(),
-        ...saved.world.compoundDatabase.keys(),
-    ])
-        opaque.add(data as object);
+    for (const data of saved.world.geometryIdentityValues.values()) opaque.add(data);
     restoreClone(saved.world, new Map(), stores, state, opaque);
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
     Object.assign(state, identity);
@@ -256,6 +248,5 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength);
     new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);
     k.worldRestore(state.worldId);
-    refreshGeometryRecords(state);
     state.manifoldStore.refreshViews();
 }

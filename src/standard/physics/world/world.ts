@@ -21,22 +21,12 @@ import {
     type WorldDef,
 } from "../common/types";
 import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
-import {
-    geometryIdentity,
-    hullDatabaseIndex,
-    releaseGeometryData,
-    retainGeometryData,
-    stageHullUpload,
-} from "../kernel/geocolumns";
+import { hullDatabaseIndex, stageHullUpload } from "../kernel/geocolumns";
 import { islandKernel } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
-import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
-import type { CompoundData } from "../shapes/compound";
-import type { HeightFieldData } from "../shapes/heightfield";
+import { createShapeStore, SHAPE_STRIDE, type ShapeStore } from "../kernel/shapecolumns";
 import type { HullData } from "../shapes/hull";
-import type { MeshData } from "../shapes/mesh";
-import type { ShapeGeometry } from "../shapes/shape";
 import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import { createStepProfile, type StepProfile } from "./profile";
@@ -97,20 +87,13 @@ export type WorldState = {
 
     jointUserData: unknown[];
 
-    /** Geometry remains host-owned until C2; all nongeometry fields live in the kernel. */
-    shapeGeometry: ShapeGeometry[];
+    /** Caller geometry identities are opaque snapshot metadata; geometry bytes live only in-kernel. */
+    geometryIdentityValues: Map<number, object>;
     shapeUserData: unknown[];
     shapeNames: string[];
     shapeDefInput: ShapeDef;
 
-    meshDatabase: Map<MeshData, GeometryRecord>;
-    heightFieldDatabase: Map<HeightFieldData, GeometryRecord>;
-    compoundDatabase: Map<CompoundData, GeometryRecord>;
-    // Set when geometry data enters or leaves the databases, or residency/region placement changes.
-    geometryDirty: boolean;
     geometryUploadScratch?: import("../kernel/geocolumns").GeometryUploadScratch;
-    /** Number of complete geometry uploads since world creation. */
-    geometryUploadCount: number;
     // Persistent contact-manifold columns (warm-start state, column-resident): the allocator + wasm
     // region for the manifolds keyed by contactId. Slots are tracked on contact create/destroy.
     manifoldStore: ManifoldStore;
@@ -185,53 +168,6 @@ export const defaultFrictionCallback: MixCallback = (a, _idA, b, _idB) =>
 /** Default restitution mixing: the larger of the two (b3DefaultRestitutionCallback). */
 export const defaultRestitutionCallback: MixCallback = (a, _idA, b, _idB) => maxf(a, b);
 
-export type GeometryRecord = { refCount: number; geoIndex: number; kind: number; identity: number };
-
-/** Retain immutable query geometry by identity; only set membership changes invalidate residency. */
-export function addGeometryToDatabase<T>(
-    world: WorldState,
-    database: Map<T, GeometryRecord>,
-    data: T,
-    kind: number,
-): void {
-    const entry = database.get(data);
-    if (entry) {
-        entry.refCount += 1;
-        if (entry.geoIndex >= 0) retainGeometryData(world, kind, entry.identity);
-    } else {
-        database.set(data, {
-            refCount: 1,
-            geoIndex: -1,
-            kind,
-            identity: geometryIdentity(data as object),
-        });
-        world.geometryDirty = true;
-    }
-}
-
-export function removeGeometryFromDatabase<T>(
-    world: WorldState,
-    database: Map<T, GeometryRecord>,
-    data: T,
-): void {
-    const entry = database.get(data);
-    if (!entry) return;
-    if (entry.geoIndex >= 0) releaseGeometryData(world, entry.kind, entry.geoIndex);
-    if (--entry.refCount === 0) {
-        database.delete(data);
-        world.geometryDirty = true;
-    }
-}
-
-/** Retain a compound image; Box3D's blob embeds its shared hull and mesh images. */
-export function addCompoundToDatabase(world: WorldState, data: CompoundData): void {
-    addGeometryToDatabase(world, world.compoundDatabase, data, 1);
-}
-
-export function removeCompoundFromDatabase(world: WorldState, data: CompoundData): void {
-    removeGeometryFromDatabase(world, world.compoundDatabase, data);
-}
-
 // --- hull database ---------------------------------------------------------------------------
 
 /** Intern a hull by content, sharing a single copy across shapes (b3AddHullToDatabase). */
@@ -277,15 +213,10 @@ function makeWorldState(
         bodyUserData: [],
         bodyNames: [],
         jointUserData: [],
-        shapeGeometry: [],
+        geometryIdentityValues: new Map(),
         shapeUserData: [],
         shapeNames: [],
         shapeDefInput: defaultShapeDef(),
-        meshDatabase: new Map(),
-        heightFieldDatabase: new Map(),
-        compoundDatabase: new Map(),
-        geometryDirty: false,
-        geometryUploadCount: 0,
         manifoldStore: createManifoldStore(world, worldId),
         bodyStore: createBodyStore(world, worldId),
         shapeStore: createShapeStore(world, worldId),
@@ -391,8 +322,10 @@ export function worldIsValid(id: WorldId): boolean {
 export function destroyWorld(world: WorldState): void {
     world.locked = true;
 
-    // Release every live shape's allocations (drops all hull references).
-    for (let i = 0; i < world.shapeGeometry.length; ++i) {
+    // Release every live shape's allocations (drops all kernel geometry references).
+    world.shapeStore.refreshViews();
+    const shapeCapacity = world.shapeStore.shapeU.length / SHAPE_STRIDE;
+    for (let i = 0; i < shapeCapacity; ++i) {
         if (kernel(world.ecsState).shapeAlive(world.worldId, i)) {
             destroyShapeAllocations(world, i);
         }

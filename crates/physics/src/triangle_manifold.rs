@@ -237,7 +237,7 @@ fn triangle_face_contact(
                 owner1: 1,
                 index1: edge as u8,
                 owner2: 1,
-                index2: e.next as u8,
+                index2: e.next,
             },
         };
         count += 1;

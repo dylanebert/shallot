@@ -56,6 +56,13 @@ impl Shapes {
     };
 }
 static mut WORLDS: [Shapes; MAX_WORLDS] = [Shapes::EMPTY; MAX_WORLDS];
+pub(crate) unsafe fn geometry_record(world: usize, shape: usize) -> (*const u32, *const u32) {
+    let w = &WORLDS[world];
+    let base = w.columns.layout[0] as *const u32;
+    let record = base.add(shape * SHAPE_STRIDE);
+    assert_eq!(*record.add(S_ID), shape as u32);
+    (record, *record.add(S_GEO_REFERENCE) as *const u32)
+}
 pub unsafe fn relocate_geometry(id: usize, relocations: &[(u32, u32)]) {
     let w = &WORLDS[id];
     let base = w.columns.layout[0] as *mut u32;

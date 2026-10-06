@@ -7,9 +7,10 @@
 // test asserts equality with native at the state where its cause showed.
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { join } from "node:path";
-import { createCylinder, createRock } from "../../src/standard/physics/api";
-import { uploadGeometry } from "../../src/standard/physics/kernel/geocolumns";
+import { createCylinder, createRock, PhysicsWorld } from "../../src/standard/physics/api";
+import { BodyType } from "../../src/standard/physics/common/types";
 import { kernel } from "../../src/standard/physics/kernel/kernel";
+import { S_GEO_REFERENCE, SHAPE_STRIDE } from "../../src/standard/physics/kernel/shapecolumns";
 import { nativeBinary, run } from "./native";
 
 setDefaultTimeout(180_000);
@@ -68,12 +69,20 @@ test("junkyard with one rock matches native through step 12, its edge-pair norma
         new Uint32Array(new Float32Array([v]).buffer)[0].toString(16).padStart(8, "0");
     const a = createCylinder(24, 4, 0, 16),
         b = createRock(1.5);
-    uploadGeometry(undefined, [a, b]);
-    const k = kernel(undefined);
-    const t = x.map(f);
-    const count = k.collideHullsGeo(
-        a.geoIndex,
-        b.geoIndex,
+    const world = new PhysicsWorld();
+    try {
+        const body = world.createBody({ type: BodyType.Static });
+        const shapeA = body.createHull({}, a)!;
+        const shapeB = body.createHull({}, b)!;
+        world.state.shapeStore.refreshViews();
+        const shapeU = world.state.shapeStore.shapeU;
+        const pointerA = shapeU[(shapeA.id.index1 - 1) * SHAPE_STRIDE + S_GEO_REFERENCE];
+        const pointerB = shapeU[(shapeB.id.index1 - 1) * SHAPE_STRIDE + S_GEO_REFERENCE];
+        const k = kernel(world.state.ecsState);
+        const t = x.map(f);
+        const count = k.collideHullsGeo(
+        pointerA,
+        pointerB,
         t[0],
         t[1],
         t[2],
@@ -82,10 +91,13 @@ test("junkyard with one rock matches native through step 12, its edge-pair norma
         t[5],
         t[6],
     );
-    const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4);
-    expect(count).toBe(1);
-    expect([out[1], out[2], out[3]].map(h)).toEqual(fresh);
-    expect(firstDifference(side)).toBe(-1);
+        const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4);
+        expect(count).toBe(1);
+        expect([out[1], out[2], out[3]].map(h)).toEqual(fresh);
+        expect(firstDifference(side)).toBe(-1);
+    } finally {
+        world.destroy();
+    }
 });
 
 test("junkyard with two stacked rocks matches native's contact caches through step 199, keeping a cached separated edge pair", () => {

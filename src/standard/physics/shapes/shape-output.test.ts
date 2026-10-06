@@ -4,7 +4,9 @@ import { f32, mat3, vec3, xf } from "../common/math";
 import { BodyType, defaultShapeDef, defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { createCompound } from "./compound";
 import gold from "./geometry.gold.json";
+import { createGrid } from "./heightfield";
 import { makeBoxHull } from "./hull";
+import { createGridMesh } from "./mesh";
 import {
     computeFatShapeAABBOut,
     computeShapeAABB,
@@ -128,6 +130,44 @@ test("kernel AABB, fat AABB, centroid, hull mass and extent results are independ
             lowerBound: v(2, 2, 2),
             upperBound: v(4, 6, 8),
         });
+    } finally {
+        world.destroy();
+    }
+});
+
+test("public geometry results for mesh, height field and compound shapes come from retained kernel images", () => {
+    const world = new PhysicsWorld();
+    try {
+        const body = world.createBody({ type: BodyType.Static });
+        const meshData = createGridMesh(3, 3, 1, 0, true);
+        const mesh = body.createMesh({}, meshData)!;
+        const meshBox = mesh.getAABB();
+        meshData.vertices[0].x += 100;
+        expect(mesh.getAABB()).toEqual(meshBox);
+
+        const fieldData = createGrid(3, 3, { x: 1, y: 1, z: 1 }, false);
+        const field = body.createHeightField({}, fieldData)!;
+        const fieldBox = field.getAABB();
+        fieldData.compressedHeights.fill(0xffff);
+        expect(field.getAABB()).toEqual(fieldBox);
+
+        const compoundData = createCompound({
+            spheres: [
+                {
+                    sphere: { center: v(1, 2, 3), radius: 0.75 },
+                    material: defaultSurfaceMaterial(),
+                },
+            ],
+        })!;
+        const compound = body.createCompound({}, compoundData)!;
+        const compoundBox = compound.getAABB();
+        const mass = compound.computeMassData();
+        compoundData.spheres[0].sphere.center.x = 100;
+        compoundData.spheres[0].sphere.radius = 10;
+        expect(compound.getAABB()).toEqual(compoundBox);
+        expect(compound.computeMassData()).toEqual(mass);
+        mass.center.x = 99;
+        expect(compound.computeMassData().center.x).not.toBe(99);
     } finally {
         world.destroy();
     }

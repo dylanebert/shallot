@@ -107,6 +107,20 @@ pub extern "C" fn remove(world: usize, kind: u32, pointer: usize) {
         DATABASES[world].remove(kind, pointer);
     }
 }
+#[export_name = "geometryDatabaseIdentity"]
+pub extern "C" fn identity(world: usize, kind: u32, pointer: usize) -> u32 {
+    unsafe {
+        DATABASES[world]
+            .entries
+            .iter()
+            .find(|e| e.kind == kind && e.pointer == pointer)
+            .map_or(0, |e| e.identity)
+    }
+}
+#[export_name = "geometryDatabaseCount"]
+pub extern "C" fn count(world: usize) -> usize {
+    unsafe { DATABASES[world].entries.len() }
+}
 #[export_name = "geometryDatabaseRefs"]
 pub extern "C" fn refs(world: usize, kind: u32, pointer: usize) -> u32 {
     unsafe {

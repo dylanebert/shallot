@@ -147,6 +147,64 @@ pub(crate) unsafe fn height_view(r: *const u32) -> crate::height_query::HeightFi
     }
 }
 
+static mut COMPOUND_CHILD_OUT: [u32; 10] = [0; 10];
+#[export_name = "shapeMaterialIndex"]
+pub extern "C" fn shape_material_index(
+    world: usize,
+    shape: usize,
+    child: usize,
+    triangle: usize,
+) -> usize {
+    unsafe {
+        let (record, pointer) = crate::shapes::geometry_record(world, shape);
+        match *record {
+            1 => crate::compound_query::child_material_index(pointer, child, triangle) as usize,
+            2 => height_view(pointer).materials[triangle >> 1] as usize,
+            4 => {
+                let scale = Vec3::new(
+                    f32::from_bits(*record.add(3)),
+                    f32::from_bits(*record.add(4)),
+                    f32::from_bits(*record.add(5)),
+                );
+                mesh_view(pointer, scale).materials[triangle] as usize
+            }
+            _ => 0,
+        }
+    }
+}
+#[export_name = "shapeCompoundChildType"]
+pub extern "C" fn shape_compound_child_type(world: usize, shape: usize, child: usize) -> u32 {
+    unsafe {
+        let (record, pointer) = crate::shapes::geometry_record(world, shape);
+        assert_eq!(*record, 1);
+        crate::compound_query::child_words(pointer, child)[0]
+    }
+}
+#[export_name = "shapeCompoundChild"]
+pub extern "C" fn shape_compound_child(world: usize, shape: usize, child: usize) -> *const u32 {
+    unsafe {
+        let (record, pointer) = crate::shapes::geometry_record(world, shape);
+        assert_eq!(*record, 1);
+        let words = crate::compound_query::child_words(pointer, child);
+        let out = &raw mut COMPOUND_CHILD_OUT as *mut u32;
+        *out = words[0];
+        *out.add(1) = crate::compound_query::child_material_index(pointer, child, 0);
+        *out.add(2) = match words[0] {
+            0 => words[18],
+            3 => {
+                let hull = words[12] as *const u32;
+                *hull.add(12)
+            }
+            5 => words[15],
+            _ => 0,
+        };
+        for i in 0..7 {
+            *out.add(3 + i) = words[1 + i];
+        }
+        out
+    }
+}
+
 // --- geometry-read verification -------------------------------------------------------------
 // Runs the hull-hull narrowphase over two column-backed hull views end-to-end, proving the wasm
 // reinterpret above matches the native Vec-backed gold (kernel.test.ts asserts the output bit-for-bit

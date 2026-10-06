@@ -38,6 +38,33 @@ fn section(c: Compound, offset_word: usize, count_word: usize, stride: usize) ->
     let count = c.data[count_word] as usize * stride;
     unsafe { core::slice::from_raw_parts(c.data.as_ptr().add(offset), count) }
 }
+pub(crate) unsafe fn child_material_index(
+    pointer: *const u32,
+    index: usize,
+    triangle: usize,
+) -> u32 {
+    let c = Compound::from_pointer(pointer);
+    let capsules = c.data[20] as usize;
+    let hulls = c.data[22] as usize;
+    let meshes = c.data[25] as usize;
+    if index < capsules {
+        section(c, 19, 20, 8)[index * 8 + 7]
+    } else if index < capsules + hulls {
+        section(c, 21, 22, 9)[(index - capsules) * 9 + 8]
+    } else if index < capsules + hulls + meshes {
+        let r = &section(c, 24, 25, 15)[(index - capsules - hulls) * 15..];
+        let mesh = c
+            .data
+            .as_ptr()
+            .cast::<u8>()
+            .add(r[10] as usize)
+            .cast::<u32>();
+        let triangle_material = crate::geo::mesh_view(mesh, vec(r, 7)).materials[triangle] as usize;
+        r[11 + triangle_material.min(3)]
+    } else {
+        section(c, 27, 28, 5)[(index - capsules - hulls - meshes) * 5 + 4]
+    }
+}
 pub(crate) unsafe fn child_words(pointer: *const u32, index: usize) -> [u32; 19] {
     let c = Compound::from_pointer(pointer);
     let capsules = c.data[20] as usize;

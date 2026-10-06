@@ -36,7 +36,7 @@ test("compound hull images relocate with caller-owned compound identity and surv
         expect(
             new DataView(target.state.shapeStore.materialU.buffer).getBigUint64(pointer, true),
         ).toBe(0x4a4c9587de57485cn);
-        expect([...target.state.compoundDatabase.keys()][0]).toBe(data);
+        expect([...target.state.geometryIdentityValues.values()][0]).toBe(data);
         source.destroy();
         const hit = target.castRayClosest({ x: -3, y: 0, z: 0 }, { x: 6, y: 0, z: 0 });
         expect(hit.hit).toBe(true);

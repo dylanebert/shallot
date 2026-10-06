@@ -39,11 +39,11 @@ import * as tree from "../kernel/treecolumns";
 
 const drawBounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
 
-import { getCompoundChild } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
 import { type HullData, readShapeHull } from "../shapes/hull";
 import type { Mesh } from "../shapes/mesh";
+import { readCompoundChildren, readShapeHeightField, readShapeMesh } from "../shapes/readgeometry";
 import { readShapeCapsule, readShapeSphere, type Shape } from "../shapes/shape";
 import { getJointConstraintForce, getJointConstraintTorque, JointType } from "../solver/joint";
 import { BodyFlags, getBodySim, readBodyTransform } from "./body";
@@ -210,43 +210,30 @@ function drawSolidShape(
             draw.drawSolidHull(transform, readShapeHull(world, shape), color);
             break;
         case ShapeType.Mesh:
-            draw.drawSolidMesh(transform, world.shapeGeometry[shape].mesh as Mesh, color);
+            draw.drawSolidMesh(transform, readShapeMesh(world, shape), color);
             break;
         case ShapeType.HeightField:
-            draw.drawSolidHeightField(
-                transform,
-                world.shapeGeometry[shape].heightField as HeightFieldData,
-                color,
-            );
+            draw.drawSolidHeightField(transform, readShapeHeightField(world, shape), color);
             break;
-        case ShapeType.Compound: {
-            const compound = world.shapeGeometry[shape].compound;
-            if (compound === undefined) break;
-            const childCount =
-                compound.capsules.length +
-                compound.hulls.length +
-                compound.meshes.length +
-                compound.spheres.length;
-            for (let i = 0; i < childCount; ++i) {
-                const child = getCompoundChild(compound, i);
+        case ShapeType.Compound:
+            for (const child of readCompoundChildren(world, shape)) {
                 const childXf = xf.mul(transform, child.transform);
                 switch (child.type) {
                     case ShapeType.Sphere:
-                        draw.drawSolidSphere(childXf, child.sphere as Sphere, color);
+                        draw.drawSolidSphere(childXf, child.geometry as Sphere, color);
                         break;
                     case ShapeType.Capsule:
-                        draw.drawSolidCapsule(childXf, child.capsule as Capsule, color);
+                        draw.drawSolidCapsule(childXf, child.geometry as Capsule, color);
                         break;
                     case ShapeType.Hull:
-                        draw.drawSolidHull(childXf, child.hull as HullData, color);
+                        draw.drawSolidHull(childXf, child.geometry as HullData, color);
                         break;
                     case ShapeType.Mesh:
-                        draw.drawSolidMesh(childXf, child.mesh as Mesh, color);
+                        draw.drawSolidMesh(childXf, child.geometry as Mesh, color);
                         break;
                 }
             }
             break;
-        }
     }
 }
 

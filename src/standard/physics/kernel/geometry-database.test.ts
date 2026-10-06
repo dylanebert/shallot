@@ -71,12 +71,13 @@ test("kernel geometry uploads are caller-identity keyed, refcounted, world-local
                 targetCompoundPtr,
             ),
         ).toBe(2);
-        expect([...target.state.meshDatabase.keys()][0]).toBe(mesh);
-        expect([...target.state.heightFieldDatabase.keys()][0]).toBe(field);
-        expect([...target.state.compoundDatabase.keys()][0]).toBe(compound);
-        expect(target.state.shapeGeometry[meshA.id.index1 - 1].mesh?.data).toBe(mesh);
-        expect(target.state.shapeGeometry[heightA.id.index1 - 1].heightField).toBe(field);
-        expect(target.state.shapeGeometry[compoundA.id.index1 - 1].compound).toBe(compound);
+        expect([...target.state.geometryIdentityValues.values()]).toEqual([mesh, field, compound]);
+        const reused = target.createBody({ type: BodyType.Static }).createMesh({}, mesh)!;
+        expect(targetPtr(reused.id.index1 - 1)).toBe(targetMeshPtr);
+        expect(
+            targetKernel.geometryDatabaseRefs(target.state.worldId, ShapeType.Mesh, targetMeshPtr),
+        ).toBe(3);
+        reused.destroy();
 
         source.destroy();
         expect(target.castRayClosest({ x: 0, y: 2, z: 0 }, { x: 0, y: -4, z: 0 }).hit).toBe(true);

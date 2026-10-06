@@ -6,7 +6,12 @@ import {
     shapeSensorIndex,
     writeShapeFilterValue,
 } from "../kernel/filtercolumns";
-import { rebuildGeometry } from "../kernel/geocolumns";
+import {
+    acquireCompoundData,
+    acquireHeightFieldData,
+    acquireMeshData,
+    releaseGeometryData,
+} from "../kernel/geocolumns";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 // Shape API and authoring bridge to Box3D's shape.c operations in the kernel (Erin Catto, MIT).
 
@@ -16,7 +21,6 @@ import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
 import {
     type AABB,
-    clampInt,
     mat3,
     type Transform,
     type Vec3,
@@ -43,38 +47,18 @@ import {
 } from "../kernel/shapecolumns";
 import { readBodyTransform, updateBodyMassData } from "../world/body";
 import { createSensor, destroySensor, type Visitor } from "../world/sensor";
-import {
-    addCompoundToDatabase,
-    addGeometryToDatabase,
-    addHullToDatabase,
-    removeCompoundFromDatabase,
-    removeGeometryFromDatabase,
-    removeHullFromDatabase,
-    type WorldState,
-} from "../world/world";
-import {
-    type CompoundData,
-    getCompoundChild,
-    getCompoundMaterials,
-    MAX_COMPOUND_MESH_MATERIALS,
-} from "./compound";
+import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "../world/world";
+import { type CompoundData, getCompoundMaterials } from "./compound";
 import type { Capsule, MassData, Sphere } from "./geometry";
-import { getHeightFieldMaterial, type HeightFieldData } from "./heightfield";
+import type { HeightFieldData } from "./heightfield";
 import type { HullData } from "./hull";
-import type { Mesh, MeshData } from "./mesh";
+import type { MeshData } from "./mesh";
 
 /** Min extent (smallest sphere fitting inside) and max extent per axis, for sleeping (b3ShapeExtent). */
 export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };
 
 /** Shape identity; the kernel column is its only nongeometry record. */
 export type Shape = number;
-/** Geometry retained in TypeScript until C2b. */
-export type ShapeGeometry = {
-    mesh?: Mesh;
-    heightField?: HeightFieldData;
-    compound?: CompoundData;
-};
-
 export function readShapeSphere(world: WorldState, shape: Shape): Sphere {
     world.shapeStore.refreshViews();
     const f = world.shapeStore.shapeF,
@@ -137,35 +121,16 @@ export function getShapeUserMaterialId(
         return 0n;
     }
 
-    let materialIndex = 0;
-    if (shapeField(world, shape, ShapeField.type) === ShapeType.Mesh) {
-        materialIndex = (world.shapeGeometry[shape].mesh as Mesh).data.materialIndices[
-            triangleIndex
-        ];
-    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.HeightField) {
-        materialIndex = getHeightFieldMaterial(
-            world.shapeGeometry[shape].heightField as HeightFieldData,
-            triangleIndex,
-        );
-    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Compound) {
-        const child = getCompoundChild(
-            world.shapeGeometry[shape].compound as CompoundData,
-            childIndex,
-        );
-        if (child.type === ShapeType.Mesh) {
-            const meshMaterialIndex = clampInt(
-                (child.mesh as Mesh).data.materialIndices[triangleIndex],
-                0,
-                MAX_COMPOUND_MESH_MATERIALS - 1,
-            );
-            materialIndex = child.materialIndices[meshMaterialIndex];
-        } else {
-            materialIndex = child.materialIndices[0];
-        }
-    }
-
-    materialIndex = clampInt(materialIndex, 0, materialCount - 1);
-    return getShapeMaterials(world, shape)[materialIndex].userMaterialId;
+    const materialIndex = kernel(world.ecsState).shapeMaterialIndex(
+        world.worldId,
+        shape,
+        childIndex,
+        triangleIndex,
+    );
+    return world.shapeStore.materialUserIdAt(
+        shape,
+        Math.max(0, Math.min(materialIndex, materialCount - 1)),
+    );
 }
 
 // --- geometry dispatch -----------------------------------------------------------------------
@@ -341,30 +306,17 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
 }
 
 export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
-    if (shapeField(world, shape, ShapeField.type) === ShapeType.Hull) {
-        world.shapeStore.refreshViews();
-        removeHullFromDatabase(
-            world,
-            world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE],
-        );
-    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Mesh) {
-        removeGeometryFromDatabase(
-            world,
-            world.meshDatabase,
-            world.shapeGeometry[shape].mesh!.data,
-        );
-        // Keep the inline mesh payload's capacity, but release its caller-owned geometry reference.
-        world.shapeGeometry[shape].mesh!.data = undefined as unknown as MeshData;
-    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.HeightField) {
-        removeGeometryFromDatabase(
-            world,
-            world.heightFieldDatabase,
-            world.shapeGeometry[shape].heightField!,
-        );
-        world.shapeGeometry[shape].heightField = undefined;
-    } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Compound) {
-        removeCompoundFromDatabase(world, world.shapeGeometry[shape].compound!);
-        world.shapeGeometry[shape].compound = undefined;
+    const type = shapeField(world, shape, ShapeField.type);
+    world.shapeStore.refreshViews();
+    const pointer = world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
+    if (type === ShapeType.Hull) {
+        removeHullFromDatabase(world, pointer);
+    } else if (type === ShapeType.Mesh) {
+        releaseGeometryData(world, ShapeType.Mesh, pointer);
+    } else if (type === ShapeType.HeightField) {
+        releaseGeometryData(world, ShapeType.HeightField, pointer);
+    } else if (type === ShapeType.Compound) {
+        releaseGeometryData(world, ShapeType.Compound, pointer);
     }
     world.shapeStore.destroyMaterials(world, shape);
     world.shapeUserData[shape] = undefined;
@@ -389,12 +341,6 @@ function createShapeInternal(
     // category/mask bigints and enum/bool fields pass through untouched.
     const shapeId = createShapeSlot(world, body, shapeType, def);
     const shape = shapeId;
-    world.shapeGeometry[shape] ??= {
-        mesh: undefined,
-        heightField: undefined,
-        compound: undefined,
-    };
-
     const k = kernel(world.ecsState);
     if (shapeType === ShapeType.Capsule) {
         const c = geometry as Capsule;
@@ -425,7 +371,6 @@ function createShapeInternal(
     } else if (shapeType === ShapeType.Mesh) {
         k.shapeSetGeometry(world.worldId, shape, scale.x, scale.y, scale.z, 0, 0, 0, 0);
     }
-    const g = shape * SHAPE_STRIDE + 2;
     switch (shapeType) {
         case ShapeType.Capsule:
         case ShapeType.Sphere:
@@ -439,36 +384,33 @@ function createShapeInternal(
             break;
         }
         case ShapeType.Mesh: {
-            addGeometryToDatabase(world, world.meshDatabase, geometry as MeshData, ShapeType.Mesh);
-            const mesh = (world.shapeGeometry[shape].mesh ??= {
-                data: geometry as MeshData,
-                scale: vec3.zero(),
-            });
-            mesh.data = geometry as MeshData;
-            copyGeometryVector(world.shapeStore.shapeF, g + 1, mesh.scale);
+            const pointer = acquireMeshData(world, geometry as MeshData);
+            world.shapeStore.refreshViews();
+            world.bodyStore.refreshViews();
+            world.manifoldStore.refreshViews();
+            world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE] = pointer;
             break;
         }
-        case ShapeType.HeightField:
-            addGeometryToDatabase(
-                world,
-                world.heightFieldDatabase,
-                geometry as HeightFieldData,
-                ShapeType.HeightField,
-            );
-            world.shapeGeometry[shape].heightField = geometry as HeightFieldData;
+        case ShapeType.HeightField: {
+            const pointer = acquireHeightFieldData(world, geometry as HeightFieldData);
+            world.shapeStore.refreshViews();
+            world.bodyStore.refreshViews();
+            world.manifoldStore.refreshViews();
+            world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE] = pointer;
             break;
-        case ShapeType.Compound:
-            addCompoundToDatabase(world, geometry as CompoundData);
-            world.shapeGeometry[shape].compound = geometry as CompoundData;
+        }
+        case ShapeType.Compound: {
+            const pointer = acquireCompoundData(world, geometry as CompoundData);
+            world.shapeStore.refreshViews();
+            world.bodyStore.refreshViews();
+            world.manifoldStore.refreshViews();
+            world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE] = pointer;
             break;
+        }
         default:
             throw new Error(`physics: unknown shape type ${shapeType}`);
     }
 
-    if (world.geometryDirty) {
-        rebuildGeometry(world);
-        world.geometryDirty = false;
-    }
     writeShapeFilterValue(world, shape, def.filter);
     world.shapeUserData[shape] = def.userData;
     world.shapeNames[shape] = def.name ?? "";
@@ -476,7 +418,7 @@ function createShapeInternal(
 
     const materials =
         shapeType === ShapeType.Compound
-            ? getCompoundMaterials(world.shapeGeometry[shape].compound as CompoundData)
+            ? getCompoundMaterials(geometry as CompoundData)
             : def.materials?.length
               ? def.materials
               : def.baseMaterial;

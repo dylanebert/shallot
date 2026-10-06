@@ -254,6 +254,9 @@ export type Kernel = {
         g: number,
     ): number;
     shapeGeometryOutputPtr(): number;
+    shapeMaterialIndex(world: number, shape: number, child: number, triangle: number): number;
+    shapeCompoundChild(world: number, shape: number, child: number): number;
+    shapeCompoundChildType(world: number, shape: number, child: number): number;
     shapeComputeMass(world: number, id: number): void;
     shapeComputeExtent(world: number, id: number, x: number, y: number, z: number): void;
     shapeGetCentroid(world: number, id: number): void;
@@ -502,6 +505,8 @@ export type Kernel = {
     ): number;
     geometryDatabaseLookup(world: number, kind: number, identity: number): number;
     geometryDatabaseRemove(world: number, kind: number, pointer: number): void;
+    geometryDatabaseIdentity(world: number, kind: number, pointer: number): number;
+    geometryDatabaseCount(world: number): number;
     geometryDatabaseRefs(world: number, kind: number, pointer: number): number;
 
     // The contact-id directory grows on allocation. Its block addresses remain stable while the

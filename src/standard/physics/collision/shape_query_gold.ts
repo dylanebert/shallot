@@ -1,6 +1,5 @@
 import { type Transform, type Vec3, xf } from "../common/math";
 import { defaultBodyDef, defaultShapeDef, defaultWorldDef, ShapeType } from "../common/types";
-import { rebuildGeometry } from "../kernel/geocolumns";
 import { init, kernel } from "../kernel/kernel";
 import type { CompoundData } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
@@ -52,7 +51,6 @@ function subject(
                         ? createHeightFieldShape(world, body, def, geometry as HeightFieldData)
                         : createCompoundShape(world, body, def, geometry as CompoundData);
         if (shape === null) throw new Error("gold shape creation failed");
-        rebuildGeometry(world);
         run(world, shape);
     } finally {
         destroyWorld(world);

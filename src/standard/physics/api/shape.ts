@@ -6,7 +6,7 @@ import type { AABB } from "../common/math";
 import type { Filter, ShapeType } from "../common/types";
 import { shapeBodyId } from "../kernel/filtercolumns";
 import { kernel } from "../kernel/kernel";
-import { readShapeAabb } from "../kernel/shapecolumns";
+import { readShapeAabb, SHAPE_STRIDE } from "../kernel/shapecolumns";
 import {
     ShapeField,
     ShapeFlags,
@@ -98,8 +98,9 @@ export class Shape {
         if (this.world.inUse === false) {
             return false;
         }
+        this.world.shapeStore.refreshViews();
         const i = this.id.index1 - 1;
-        if (i < 0 || i >= this.world.shapeGeometry.length) {
+        if (i < 0 || i >= this.world.shapeStore.shapeU.length / SHAPE_STRIDE) {
             return false;
         }
         if (kernel(this.world.ecsState).shapeAlive(this.world.worldId, i) === 0) {

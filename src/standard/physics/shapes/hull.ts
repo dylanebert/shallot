@@ -95,7 +95,10 @@ export function shapeHullInnerRadius(world: WorldState, shape: number): number {
 export function readShapeHull(world: WorldState, shape: number): HullData {
     const store = world.shapeStore;
     store.refreshViews();
-    const ptr = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
+    return readHullAt(world, store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE]);
+}
+export function readHullAt(world: WorldState, ptr: number): HullData {
+    const store = world.shapeStore;
     const r = ptr >>> 2,
         u = store.materialU,
         f = store.materialF;
