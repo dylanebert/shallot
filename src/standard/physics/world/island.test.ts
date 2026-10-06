@@ -1,7 +1,39 @@
 import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
-import { islandArrayCount, islandArrayGet, islandField } from "../kernel/islandcolumns";
+import {
+    islandArrayCount,
+    islandArrayGet,
+    islandField,
+    islandKernel,
+} from "../kernel/islandcolumns";
 import { splitIsland } from "./island";
+
+test("island fix borrowing follows vector relocation and memory growth", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    try {
+        const bodies = Array.from({ length: 32 }, () =>
+            world.createBody({ type: BodyType.Dynamic }),
+        );
+        const records = bodies.map((b) => world.state.bodies[b.id.index1 - 1]);
+        for (let i = 1; i < bodies.length; ++i) {
+            if (i === 16) islandKernel(world.state).memory.grow(1);
+            world.createDistanceJoint(bodies[0], bodies[i], { length: 1 });
+            for (let j = 0; j <= i; ++j) {
+                const body = records[j];
+                expect(body.islandId).toBe(records[0].islandId);
+                expect(islandArrayGet(world.state, body.islandId, 0, body.islandIndex)).toBe(
+                    body.id,
+                );
+            }
+            const joint = world.state.joints[i - 1];
+            expect(islandArrayGet(world.state, joint.islandId, 2, joint.islandIndex)).toBe(
+                joint.jointId,
+            );
+        }
+    } finally {
+        world.destroy();
+    }
+});
 
 test("island split preserves link membership, fixes body and joint slots, and restores the id pool", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });

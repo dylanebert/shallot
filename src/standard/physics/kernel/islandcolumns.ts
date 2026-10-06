@@ -1,5 +1,7 @@
 import type { WorldState } from "../world/world";
-import { kernel } from "./kernel";
+import { type Kernel, kernel } from "./kernel";
+
+const fixViews = new WeakMap<Kernel, Int32Array>();
 export function islandKernel(world: WorldState) {
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
@@ -25,8 +27,17 @@ export function islandArrayGet(
 }
 export function applyIslandFixes(world: WorldState): void {
     const k = islandKernel(world);
-    const fixes = new Int32Array(k.memory.buffer, k.islandFixData(), k.islandFixCount());
-    for (let i = 0; i < fixes.length; i += 4) {
+    const count = k.islandFixCount();
+    if (count === 0) return;
+    const buffer = k.memory.buffer;
+    let fixes = fixViews.get(k);
+    if (fixes?.buffer !== buffer) {
+        fixes = new Int32Array(buffer);
+        fixViews.set(k, fixes);
+    }
+    // Borrow the memory-wide view: the fix vector can relocate without memory growing.
+    const start = k.islandFixData() >>> 2;
+    for (let i = start; i < start + count; i += 4) {
         const record = fixes[i] === 0 ? world.bodies[fixes[i + 1]] : world.joints[fixes[i + 1]];
         record.islandId = fixes[i + 2];
         record.islandIndex = fixes[i + 3];
