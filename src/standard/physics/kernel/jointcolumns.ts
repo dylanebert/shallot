@@ -85,9 +85,7 @@ export function readJointVec3(
     return out;
 }
 export function writeJointVec3(world: WorldState, joint: Joint, field: number, v: Vec3): void {
-    writeJointFloat(world, joint, field, v.x);
-    writeJointFloat(world, joint, field + 1, v.y);
-    writeJointFloat(world, joint, field + 2, v.z);
+    jointKernel(world).jointWriteVec3(joint, field, v.x, v.y, v.z);
 }
 export function writeJointVec2(
     world: WorldState,
@@ -116,8 +114,7 @@ export function readJointQuat(
     return out;
 }
 export function writeJointQuat(world: WorldState, joint: Joint, field: number, q: Quat): void {
-    writeJointVec3(world, joint, field, q.v);
-    writeJointFloat(world, joint, field + 3, q.s);
+    jointKernel(world).jointWriteQuat(joint, field, q.v.x, q.v.y, q.v.z, q.s);
 }
 export function readJointTransform(world: WorldState, joint: Joint, field: number): Transform {
     return { p: readJointVec3(world, joint, field), q: readJointQuat(world, joint, field + 3) };

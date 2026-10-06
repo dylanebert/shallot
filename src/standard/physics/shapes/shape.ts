@@ -1,24 +1,10 @@
-import { ContactField, contactField } from "../collision/contact";
-import { BodyField, bodyField } from "../kernel/bodyrecords";
-import {
-    bodyType,
-    shapeBodyId,
-    shapeSensorIndex,
-    writeShapeFilterValue,
-} from "../kernel/filtercolumns";
-import {
-    acquireCompoundData,
-    acquireHeightFieldData,
-    acquireMeshData,
-    releaseGeometryData,
-} from "../kernel/geocolumns";
+import { shapeSensorIndex, writeShapeFilterValue } from "../kernel/filtercolumns";
+import { acquireCompoundData, acquireHeightFieldData, acquireMeshData } from "../kernel/geocolumns";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 // Shape API and authoring bridge to Box3D's shape.c operations in the kernel (Erin Catto, MIT).
 
 import type * as bp from "../collision/broadphase";
-import { destroyContact } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
-import { SetType } from "../common/constants";
 import {
     type AABB,
     mat3,
@@ -26,7 +12,6 @@ import {
     type Vec3,
     vec3,
     type WorldTransform,
-    xf,
 } from "../common/math";
 import {
     type BodyType,
@@ -38,16 +23,15 @@ import {
 import { kernel } from "../kernel/kernel";
 import {
     createShapeSlot,
-    destroyShapeSlot,
     readShapeMaterials,
     S_GEO_REFERENCE,
     SHAPE_STRIDE,
     shapeMaterialCount,
     writeShape,
 } from "../kernel/shapecolumns";
-import { readBodyTransform, updateBodyMassData } from "../world/body";
-import { createSensor, destroySensor, type Visitor } from "../world/sensor";
-import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "../world/world";
+import { releaseGeometryIdentities } from "../world/body";
+import type { Visitor } from "../world/sensor";
+import { addHullToDatabase, type WorldState } from "../world/world";
 import { type CompoundData, getCompoundMaterials } from "./compound";
 import type { Capsule, MassData, Sphere } from "./geometry";
 import type { HeightFieldData } from "./heightfield";
@@ -277,60 +261,18 @@ export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void
     kernel(world.ecsState).shapeDestroyProxy(world.worldId, shape);
 }
 
-function destroyShapeContacts(world: WorldState, shape: Shape, wakeBodies: boolean): void {
-    const k = kernel(world.ecsState);
-    let key = k.shapeContactNext(world.worldId, shape, -2);
-    while (key !== NULL_INDEX) {
-        const contact = key >> 1;
-        const next = contactField(world, contact, ContactField.nextKeyA + 3 * (key & 1));
-        key = k.shapeContactNext(world.worldId, shape, next);
-        destroyContact(world, contact, wakeBodies);
-    }
-}
 export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter): void {
-    const bodyPoseScratch1 = shapePoseScratch;
-
-    writeShapeFilterValue(world, shape, filter);
-    const body = shapeBodyId(world, shape);
-    destroyShapeContacts(world, shape, true);
-    destroyShapeProxy(shape, world.broadPhase);
-    if (bodyField(world, body, BodyField.setIndex) !== SetType.Disabled) {
-        createShapeProxy(
-            shape,
-            world.broadPhase,
-            bodyType(world, bodyField(world, body, BodyField.id)),
-            readBodyTransform(world, body, bodyPoseScratch1),
-            true,
-        );
-    }
-}
-
-export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
-    const type = shapeField(world, shape, ShapeField.type);
-    world.shapeStore.refreshViews();
-    const pointer = world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
-    if (type === ShapeType.Hull) {
-        removeHullFromDatabase(world, pointer);
-    } else if (type === ShapeType.Mesh) {
-        releaseGeometryData(world, ShapeType.Mesh, pointer);
-    } else if (type === ShapeType.HeightField) {
-        releaseGeometryData(world, ShapeType.HeightField, pointer);
-    } else if (type === ShapeType.Compound) {
-        releaseGeometryData(world, ShapeType.Compound, pointer);
-    }
-    world.shapeStore.destroyMaterials(world, shape);
-    world.shapeUserData[shape] = undefined;
-    world.shapeNames[shape] = "";
+    world.broadPhase.store.initialize();
+    writeShapeFilterValue(world, shape, filter, true);
+    world.broadPhase.store.refreshViews();
 }
 
 // --- create / destroy ------------------------------------------------------------------------
-const shapePoseScratch = xf.identity();
 const shapeScale = { x: 1, y: 1, z: 1 };
 
 function createShapeInternal(
     world: WorldState,
     body: number,
-    bodyTransform: WorldTransform,
     def: ShapeDef,
     geometry: Sphere | Capsule | HullData | MeshData | HeightFieldData | CompoundData,
     shapeType: ShapeType,
@@ -426,22 +368,15 @@ function createShapeInternal(
     writeShape(world, shape);
     k.shapeFinishGeometry(world.worldId, shape);
 
-    if (bodyField(world, body, BodyField.setIndex) !== SetType.Disabled) {
-        // A compound never force-creates pairs: its outer proxy holds no geometry, only children do
-        // (b3CreateShapeInternal). The inner tree's proxies are found through the outer query instead.
-        const forcePairCreation = def.invokeContactCreation && shapeType !== ShapeType.Compound;
-        createShapeProxy(
-            shape,
-            world.broadPhase,
-            bodyType(world, bodyField(world, body, BodyField.id)),
-            bodyTransform,
-            forcePairCreation,
-        );
-    }
-
-    kernel(world.ecsState).shapeLink(world.worldId, shape, body);
-
-    if (def.isSensor) createSensor(world, shapeId);
+    world.broadPhase.store.initialize();
+    k.shapeFinishCreate(
+        world.worldId,
+        shape,
+        def.invokeContactCreation,
+        def.isSensor,
+        def.updateBodyMass,
+    );
+    world.broadPhase.store.refreshViews();
 
     return shape;
 }
@@ -454,20 +389,9 @@ function createShape(
     shapeType: ShapeType,
     scale: Vec3 = shapeScale,
 ): Shape | null {
-    const bodyPoseScratch1 = shapePoseScratch;
-
     if (!kernel(world.ecsState).shapeCanCreate(world.worldId, body, shapeType)) return null;
-
     world.locked = true;
-    const bodyTransform = readBodyTransform(world, body, bodyPoseScratch1);
-    const shape = createShapeInternal(world, body, bodyTransform, def, geometry, shapeType, scale);
-    if (shape === null) {
-        world.locked = false;
-        return null;
-    }
-    if (def.updateBodyMass) {
-        updateBodyMassData(world, body);
-    }
+    const shape = createShapeInternal(world, body, def, geometry, shapeType, scale);
     world.locked = false;
     return shape;
 }
@@ -527,36 +451,12 @@ export function createCompoundShape(
     return createShape(world, body, def, compound, ShapeType.Compound);
 }
 
-export function destroyShapeInternal(
-    world: WorldState,
-    shape: Shape,
-    _body: number,
-    wakeBodies: boolean,
-): void {
-    const shapeId = shape;
-
-    kernel(world.ecsState).shapeUnlink(world.worldId, shape);
-
-    destroyShapeProxy(shape, world.broadPhase);
-
-    destroyShapeContacts(world, shape, wakeBodies);
-
-    if (shapeSensorIndex(world, shape) !== NULL_INDEX) {
-        destroySensor(world, shape);
-    }
-
-    destroyShapeAllocations(world, shape);
-
-    destroyShapeSlot(world, shapeId);
-}
-
 export function destroyShape(world: WorldState, shape: Shape, updateBodyMass: boolean): void {
     world.locked = true;
-    const body = shapeBodyId(world, shape);
-    destroyShapeInternal(world, shape, body, true);
-    if (updateBodyMass) {
-        updateBodyMassData(world, body);
-    }
+    kernel(world.ecsState).shapeDestroyWorld(world.worldId, shape, updateBodyMass);
+    releaseGeometryIdentities(world);
+    world.shapeUserData[shape] = undefined;
+    world.shapeNames[shape] = "";
     world.locked = false;
 }
 

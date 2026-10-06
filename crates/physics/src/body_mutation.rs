@@ -45,18 +45,7 @@ pub unsafe extern "C" fn destroy(world: usize, id: usize) {
         let u = crate::shapes::col();
         let o = s * crate::shapes::SHAPE_STRIDE;
         shape_id = u.get(o + crate::shapes::S_NEXT) as i32;
-        if u.get(o + 41) != u32::MAX {
-            crate::sensor::destroy(world, s);
-        }
-        shape::destroy_proxy(world, s);
-        let kind = u.get(o + crate::shapes::S_TYPE);
-        let pointer = u.get(o + crate::shapes::S_GEO_REFERENCE) as usize;
-        if kind == 3 {
-            crate::hull_database::remove(world, pointer);
-        } else if matches!(kind, 1 | 2 | 4) {
-            crate::geometry_database::remove(world, kind, pointer);
-        }
-        crate::shapes::shape_destroy(world as u32, s as u32);
+        shape::destroy_internal(world, s, true);
     }
     body::remove_island(world, id);
     let moved = bodies::body_destroy(world as u32, id as u32);

@@ -1,9 +1,19 @@
-import { test } from "bun:test";
+import { expect, test } from "bun:test";
+import { dirname, join } from "node:path";
+import { nativeBinary, run } from "./native";
 import { PhysicsWorld } from "../../src/standard/physics/api/world";
 import { BodyType } from "../../src/standard/physics/common/types";
 import { init } from "../../src/standard/physics/kernel/kernel";
 
 await init(undefined, { threads: 0 });
+test("native warmed mutation allocation denominator", () => {
+    const cache = dirname(nativeBinary());
+    const binary = join(cache, "mutations");
+    run(["cc", "-O2", "-std=c17", "-ffp-contract=off", `-I${process.env.BOX3D}/include`, join(import.meta.dir, "mutations.c"), join(cache, "cmake/src/libbox3d.a"), "-o", binary]);
+    const output = run([binary]);
+    console.log(output.trim());
+    expect(output).toBe("native warmed mutation allocations: 1200 for 600 iterations\n");
+});
 test("cold world mutation timings on warmed records", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const body = world.createBody({ type: BodyType.Dynamic });

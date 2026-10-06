@@ -1,16 +1,10 @@
-// Contact identity lives in the kernel directory. Body lists, sets, graph and island links remain
-// with their TypeScript owners until those owners move.
+// contact.c bindings (Box3D, Erin Catto, MIT).
 import { NULL_INDEX } from "../common/array";
 import type { Vec3 } from "../common/math";
-import { ShapeType } from "../common/types";
-import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { kernel } from "../kernel/kernel";
-import { ShapeField, shapeField } from "../kernel/shaperecords";
 import type { Shape } from "../shapes/shape";
-import { wakeBody } from "../world/body";
 import type { WorldState } from "../world/world";
 import { DIR_STRIDE } from "./manifoldstore";
-import { addKey, removeKey } from "./table";
 
 export const ContactFlags = {
     contactTouchingFlag: 0x00000001,
@@ -118,22 +112,11 @@ export function updateAwakeContact(world: WorldState, id: number): void {
     k.bodySetActiveWorld(world.worldId);
     k.awakeContactUpdate(id);
 }
-function removeAwakeContact(world: WorldState, id: number): void {
-    const k = kernel(world.ecsState);
-    k.bodySetActiveWorld(world.worldId);
-    k.awakeContactRemove(id);
-}
 export function writeBodySimIndex(world: WorldState, body: number): void {
     kernel(world.ecsState).bodySyncContacts(world.worldId, body);
 }
 export function reclassifyBodyContacts(world: WorldState, body: number): void {
-    writeBodySimIndex(world, body);
-    for (
-        let key = bodyField(world, body, BodyField.headContactKey);
-        key !== NULL_INDEX;
-        key = contactNextKey(world, key)
-    )
-        updateAwakeContact(world, key >> 1);
+    kernel(world.ecsState).bodyReclassifyContacts(world.worldId, body);
 }
 export function createContact(
     world: WorldState,
@@ -141,46 +124,9 @@ export function createContact(
     shapeB: Shape,
     childIndex: number,
 ): void {
-    const k = kernel(world.ecsState);
-    let flags = 0;
-    const compoundShape =
-        shapeField(world, shapeA, ShapeField.type) === ShapeType.Compound
-            ? shapeA
-            : shapeField(world, shapeB, ShapeField.type) === ShapeType.Compound
-              ? shapeB
-              : -1;
-    if (
-        compoundShape >= 0 &&
-        k.shapeCompoundChildType(world.worldId, compoundShape, childIndex) === ShapeType.Mesh
-    )
-        flags = ContactFlags.simMeshContact;
-    const id = k.bodyCreateContact(world.worldId, shapeA, shapeB, childIndex, flags);
-    if (id === -1 || id === 0xffffffff) return;
-    addKey(world.broadPhase.pairSet, shapeA, shapeB, childIndex);
-    updateAwakeContact(world, id);
+    kernel(world.ecsState).contactCreateWorld(world.worldId, shapeA, shapeB, childIndex);
 }
 
 export function destroyContact(world: WorldState, id: number, wakeBodies: boolean): void {
-    removeAwakeContact(world, id);
-    const shapeIdA = contactField(world, id, ContactField.shapeIdA);
-    const shapeIdB = contactField(world, id, ContactField.shapeIdB);
-    removeKey(
-        world.broadPhase.pairSet,
-        shapeIdA,
-        shapeIdB,
-        contactField(world, id, ContactField.childIndex),
-    );
-    world.manifoldStore.freeSlot(id);
-    const bodyA = contactBodyId(world, id, 0);
-    const bodyB = contactBodyId(world, id, 1);
-    const flags = contactField(world, id, ContactField.flags);
-    const touching = (flags & ContactFlags.contactTouchingFlag) !== 0;
-    if (touching && flags & ContactFlags.contactEnableContactEvents) {
-        kernel(world.ecsState).eventContactTouch(world.worldId, id, false);
-    }
-    kernel(world.ecsState).bodyDestroyContact(world.worldId, id);
-    if (wakeBodies && touching) {
-        wakeBody(world, bodyA);
-        wakeBody(world, bodyB);
-    }
+    kernel(world.ecsState).contactDestroyWorld(world.worldId, id, wakeBodies);
 }

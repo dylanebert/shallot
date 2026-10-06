@@ -1,5 +1,5 @@
 import { jointCount } from "../kernel/jointrecords";
-import { createSolverSet, solverSetCount, solverSetIndex } from "../kernel/solversetcolumns";
+import { createSolverSet } from "../kernel/solversetcolumns";
 // The simulation world: the root that owns every entity pool and the broad-phase. Ported from
 // Box3D's physics_world.c (Erin Catto, MIT). Each entity type has an id pool paired with a sparse
 // array of records; the hot payload lives in solver sets. Worlds live in a fixed registry so a
@@ -24,11 +24,9 @@ import { hullDatabaseIndex, stageHullUpload } from "../kernel/geocolumns";
 import { islandKernel } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
-import { createShapeStore, SHAPE_STRIDE, type ShapeStore } from "../kernel/shapecolumns";
+import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
 import type { HullData } from "../shapes/hull";
-import { destroyShapeAllocations } from "../shapes/shape";
 import { createStepProfile, type StepProfile } from "./profile";
-import { destroySolverSet } from "./solverset";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
 export const MAX_WORLDS = 128;
@@ -262,32 +260,13 @@ export function worldIsValid(id: WorldId): boolean {
 export function destroyWorld(world: WorldState): void {
     world.locked = true;
 
-    // Release every live shape's allocations (drops all kernel geometry references).
-    world.shapeStore.refreshViews();
-    const shapeCapacity = world.shapeStore.shapeU.length / SHAPE_STRIDE;
-    for (let i = 0; i < shapeCapacity; ++i) {
-        if (kernel(world.ecsState).shapeAlive(world.worldId, i)) {
-            destroyShapeAllocations(world, i);
-        }
-    }
-
-    // Every shape released its hull reference, so the database must be empty.
-    if (kernel(world.ecsState).hullDatabaseCount(world.worldId) !== 0) {
-        throw new Error("physics: hull database not empty at world destroy");
-    }
-
-    // Destroy live solver sets (GC reclaims the rest).
-    for (let i = 0; i < solverSetCount(world); ++i) {
-        if (solverSetIndex(world, i) !== -1) {
-            destroySolverSet(world, i);
-        }
-    }
+    kernel(world.ecsState).worldDestroyKernel(world.worldId);
+    world.shapeUserData.fill(undefined);
+    world.shapeNames.fill("");
+    world.geometryIdentityValues.clear();
 
     // Wipe but preserve+bump generation so stale ids to this (possibly recycled) slot are detected.
     const generation = world.generation;
-    kernel(world.ecsState).bodyResetWorld(world.worldId);
-    kernel(world.ecsState).shapeResetWorld(world.worldId);
-    kernel(world.ecsState).residentResetWorld(world.worldId);
     world.geometryUploadScratch = undefined;
     world.inUse = false;
     world.worldId = 0;

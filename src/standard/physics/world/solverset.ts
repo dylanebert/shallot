@@ -1,8 +1,4 @@
-import { reclassifyBodyContacts } from "../collision/contact";
-import { NULL_INDEX } from "../common/array";
-import { SetType } from "../common/constants";
 import { kernel } from "../kernel/kernel";
-import { syncBodyQuery } from "../kernel/shapecolumns";
 import { releaseSolverSet } from "../kernel/solversetcolumns";
 import type { Joint } from "../solver/joint";
 import type { WorldState } from "./world";
@@ -19,23 +15,17 @@ export function wakeSolverSet(world: WorldState, set: number): void {
 export function transferBody(
     world: WorldState,
     target: SolverSet,
-    source: SolverSet,
+    _source: SolverSet,
     body: number,
 ): void {
-    if (target === source) return;
-    world.bodyStore.refreshViews();
-    const moved = kernel(world.ecsState).bodyTransfer(world.worldId, body, target, true) | 0;
-    if (moved !== NULL_INDEX && source === SetType.Awake) syncBodyQuery(world, moved);
-    syncBodyQuery(world, body);
-    reclassifyBodyContacts(world, body);
+    kernel(world.ecsState).bodyTransfer(world.worldId, body, target, true);
 }
 export function transferJoint(
     world: WorldState,
     target: SolverSet,
-    source: SolverSet,
+    _source: SolverSet,
     joint: Joint,
 ): void {
-    if (target === source) return;
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
     k.jointTransfer(joint, target);

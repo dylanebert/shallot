@@ -24,6 +24,27 @@ function hex(x: number): string {
 }
 const v = (x: number, y: number, z: number) => ({ x, y, z });
 
+test("assigning an equal filter preserves native contacts", () => {
+    const world = new PhysicsWorld({ gravity: v(0, 0, 0) });
+    try {
+        const ground = world.createBody();
+        const visitor = world.createBody({ type: BodyType.Dynamic, position: v(0, 1.5, 0) });
+        const filter = defaultShapeDef().filter;
+        ground.createSphere({ enableContactEvents: true }, { center: v(0, 0, 0), radius: 1 });
+        const shape = visitor.createSphere(
+            { enableContactEvents: true, filter },
+            { center: v(0, 0, 0), radius: 1 },
+        );
+        world.step(1 / 60);
+        const contact = world.getContactEvents().beginEvents[0].contact;
+        expect(contact.isValid()).toBe(true);
+        shape.setFilter(filter);
+        expect(contact.isValid()).toBe(true);
+    } finally {
+        world.destroy();
+    }
+});
+
 test("kernel shape mass getters retain native sphere/capsule gold bits and return independent results", () => {
     const world = new PhysicsWorld();
     try {

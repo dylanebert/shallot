@@ -321,6 +321,9 @@ pub(crate) mod runtime {
     ) -> u32 {
         regions::select(world as u32);
         let body = *bodies::record(world, id);
+        if body.set_index as usize == target {
+            return u32::MAX;
+        }
         let result = crate::solver_set::transfer_body(
             body.set_index as usize,
             body.local_index as usize,
@@ -329,7 +332,32 @@ pub(crate) mod runtime {
             body.head_shape_id,
             clear_transient,
         ) as *const u32;
-        *result.add(1)
+        let moved = *result.add(1);
+        if moved != u32::MAX && body.set_index == 2 {
+            crate::shape_lifecycle::sync_body(world, moved as usize);
+        }
+        crate::shape_lifecycle::sync_body(world, id);
+        reclassify_contacts(world, id);
+        moved
+    }
+
+    #[export_name = "bodyReclassifyContacts"]
+    pub unsafe extern "C" fn reclassify_contacts(world: usize, id: usize) {
+        regions::select(world as u32);
+        bodies::sync_contacts(id);
+        let mut key = bodies::record(world, id).head_contact_key;
+        let d = crate::manifolds::dir_col();
+        while key != -1 {
+            let contact = (key >> 1) as usize;
+            let next = d.get(
+                contact * crate::manifold_abi::DIR_STRIDE
+                    + crate::manifold_abi::DIR_EDGE_A
+                    + 2
+                    + 3 * (key & 1) as usize,
+            ) as i32;
+            crate::contact_list::update(contact);
+            key = next;
+        }
     }
 
     #[export_name = "bodyWakeRecord"]

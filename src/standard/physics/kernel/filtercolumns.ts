@@ -25,22 +25,30 @@ export function setShapeSensorIndex(world: WorldState, id: number, sensor: numbe
 export function shapeFilterWord(world: WorldState, id: number, lane: number): number {
     return world.shapeStore.shapeU[id * SHAPE_STRIDE + lane];
 }
-const filterBytes = new ArrayBuffer(16);
-const filterData = new DataView(filterBytes);
-const filterWords = new Uint32Array(filterBytes);
-export function writeShapeFilterValue(world: WorldState, id: number, filter: Filter): void {
+export function writeShapeFilterValue(
+    world: WorldState,
+    id: number,
+    filter: Filter,
+    invokeContacts = false,
+): void {
     world.shapeStore.refreshViews();
-    filterData.setBigUint64(0, filter.categoryBits, true);
-    filterData.setBigUint64(8, filter.maskBits, true);
-    kernel(world.ecsState).shapeFilterWrite(
-        world.worldId,
-        id,
-        filterWords[1],
-        filterWords[0],
-        filterWords[3],
-        filterWords[2],
-        filter.groupIndex,
-    );
+    const k = kernel(world.ecsState);
+    if (invokeContacts)
+        k.shapeSetFilter64(
+            world.worldId,
+            id,
+            filter.categoryBits,
+            filter.maskBits,
+            filter.groupIndex,
+        );
+    else
+        k.shapeFilterWrite64(
+            world.worldId,
+            id,
+            filter.categoryBits,
+            filter.maskBits,
+            filter.groupIndex,
+        );
 }
 export function writeShapeFilter(world: WorldState, id: number, filter: FilterBits): void {
     kernel(world.ecsState).shapeFilterWrite(

@@ -201,6 +201,19 @@ unsafe fn location(id: usize) -> (usize, usize) {
         r.local_index as usize,
     )
 }
+#[export_name = "jointWriteVec3"]
+pub unsafe extern "C" fn write_vec3(id: usize, field: usize, x: f32, y: f32, z: f32) {
+    let (key, index) = location(id);
+    joints::write_float(key, index, field, x);
+    joints::write_float(key, index, field + 1, y);
+    joints::write_float(key, index, field + 2, z);
+}
+#[export_name = "jointWriteQuat"]
+pub unsafe extern "C" fn write_quat(id: usize, field: usize, x: f32, y: f32, z: f32, s: f32) {
+    write_vec3(id, field, x, y, z);
+    let (key, index) = location(id);
+    joints::write_float(key, index, field + 3, s);
+}
 #[export_name = "jointEnable"]
 pub unsafe extern "C" fn enable(world: usize, id: usize, bit: u32, enabled: bool) {
     regions::select(world as u32);
@@ -325,6 +338,9 @@ pub unsafe extern "C" fn set_max_spring(world: usize, id: usize, torque: bool, v
 #[export_name = "jointTransfer"]
 pub unsafe extern "C" fn transfer(id: usize, target: usize) {
     let r = *records::record(id);
+    if r.set_index as usize == target {
+        return;
+    }
     sets::transfer_joint(
         r.set_index as usize,
         r.color_index as usize,

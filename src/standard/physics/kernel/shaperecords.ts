@@ -1,4 +1,5 @@
 import type { WorldState } from "../world/world";
+import { kernel } from "./kernel";
 import { SHAPE_STRIDE } from "./shapecolumns";
 
 /** Nongeometry field codes in the existing kernel column; generation and flags share word 68. */
@@ -57,6 +58,5 @@ export function shapeFlag(world: WorldState, id: number, flag: number): boolean 
     return (shapeField(world, id, ShapeField.flags) & flag) !== 0;
 }
 export function setShapeFlag(world: WorldState, id: number, flag: number, value: boolean): void {
-    const flags = shapeField(world, id, ShapeField.flags);
-    setShapeField(world, id, ShapeField.flags, value ? flags | flag : flags & ~flag);
+    kernel(world.ecsState).shapeSetFlag(world.worldId, id, flag, value);
 }

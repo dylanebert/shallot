@@ -5,6 +5,7 @@ import { init } from "../kernel/kernel";
 import { bodyDisable, bodyEnable } from "./body";
 import jointExpected from "./joint-mutation-output.json";
 import expected from "./mutation-output.json";
+import shapeExpected from "./shape-mutation-output.json";
 
 await init(undefined, { threads: 0 });
 const zero = { x: 0, y: 0, z: 0 };
@@ -164,12 +165,143 @@ function jointMutationOutput() {
 
 test("cold joint mutations preserve public values and ordered events", () => {
     const actual = jointMutationOutput();
-    if (process.env.CAPTURE_JOINT_OUTPUT) console.log(`JOINT_OUTPUT=${JSON.stringify(actual)}`);
-    else expect(actual).toEqual(jointExpected);
+    expect(actual).toEqual(jointExpected);
+});
+
+function shapeMutationOutput() {
+    const world = new PhysicsWorld({ gravity: zero });
+    const a = world.createBody({ userData: "ground" });
+    const b = world.createBody({
+        type: BodyType.Dynamic,
+        position: { x: 0, y: 1.5, z: 0 },
+        userData: "visitor",
+    });
+    const ground = a.createSphere(
+        {
+            enableContactEvents: true,
+            enableSensorEvents: true,
+            name: "ground",
+            userData: "ground-shape",
+        },
+        { center: zero, radius: 1 },
+    );
+    const visitor = b.createSphere(
+        {
+            density: 2,
+            enableContactEvents: true,
+            enableSensorEvents: true,
+            name: "visitor",
+            userData: "visitor-shape",
+        },
+        { center: zero, radius: 1 },
+    );
+    const sensor = a.createSphere(
+        { isSensor: true, enableSensorEvents: true, name: "sensor", userData: "sensor-shape" },
+        { center: zero, radius: 3 },
+    );
+    const output: unknown[] = [];
+    function plain(value: unknown): unknown {
+        if (Array.isArray(value)) return value.map(plain);
+        if (value && typeof value === "object") {
+            if ("id" in value) return { id: plain(value.id) };
+            return Object.fromEntries(
+                Object.entries(value)
+                    .filter(([key]) => key !== "world0")
+                    .map(([key, child]) => [key, plain(child)]),
+            );
+        }
+        return value;
+    }
+    function observe(name: string) {
+        output.push(
+            plain({
+                name,
+                shapes: [ground, visitor, sensor].map((shape) =>
+                    shape.isValid()
+                        ? {
+                              valid: true,
+                              type: shape.getType(),
+                              aabb: shape.getAABB(),
+                              density: shape.getDensity(),
+                              mass: shape.computeMassData(),
+                              name: shape.getName(),
+                              userData: shape.getUserData(),
+                              sensor: shape.isSensor(),
+                              overlaps: shape.getSensorOverlaps(),
+                              sensorEvents: shape.areSensorEventsEnabled(),
+                              contactEvents: shape.areContactEventsEnabled(),
+                              hitEvents: shape.areHitEventsEnabled(),
+                          }
+                        : { valid: false },
+                ),
+                body: {
+                    mass: b.getMassData(),
+                    pose: b.getTransform(),
+                    velocity: b.getLinearVelocity(),
+                    awake: b.isAwake(),
+                    shapes: b.getShapeCount(),
+                },
+                sensors: world.getSensorEvents(),
+                contacts: world.getContactEvents(),
+                moves: world.getBodyEvents(),
+                joints: world.getJointEvents(),
+            }),
+        );
+    }
+    try {
+        world.step(1 / 60);
+        observe("touches");
+        visitor.setFilter({ categoryBits: 2n, maskBits: 0n, groupIndex: 0 });
+        observe("filter-off");
+        world.step(1 / 60);
+        observe("filter-off-step");
+        visitor.setFilter({ categoryBits: 2n, maskBits: 0xffffffffffffffffn, groupIndex: 0 });
+        observe("filter-on");
+        world.step(1 / 60);
+        observe("filter-on-step");
+        visitor.enableSensorEvents(false);
+        observe("visitor-events-off");
+        world.step(1 / 60);
+        observe("visitor-off-step");
+        visitor.enableSensorEvents(true);
+        sensor.enableSensorEvents(false);
+        observe("sensor-events-off");
+        world.step(1 / 60);
+        observe("sensor-off-step");
+        sensor.enableSensorEvents(true);
+        observe("sensor-events-on");
+        world.step(1 / 60);
+        observe("sensor-on-step");
+        ground.enableContactEvents(false);
+        visitor.enableContactEvents(false);
+        visitor.enableHitEvents(true);
+        observe("contact-off-hit-on");
+        visitor.setFilter({ categoryBits: 4n, maskBits: 0xffffffffffffffffn, groupIndex: 0 });
+        world.step(1 / 60);
+        observe("changed-event-flags-step");
+        visitor.enableContactEvents(true);
+        visitor.enableHitEvents(false);
+        observe("contact-on-hit-off");
+        sensor.destroy();
+        observe("destroy-sensor");
+        world.step(1 / 60);
+        observe("destroy-sensor-step");
+        visitor.destroy();
+        observe("destroy-visitor");
+        world.step(1 / 60);
+        observe("destroy-visitor-step");
+        return output;
+    } finally {
+        world.destroy();
+    }
+}
+
+test("cold shape mutations preserve public values and ordered events", () => {
+    const actual = shapeMutationOutput();
+    expect(actual).toEqual(shapeExpected);
 });
 
 test("cold body mutations preserve public values and ordered events", () => {
     const actual = mutationOutput();
-    if (process.env.CAPTURE_MUTATION_OUTPUT) console.log(JSON.stringify(actual, null, 2));
-    else expect(actual).toEqual(expected);
+    expect(actual).toEqual(expected);
 });

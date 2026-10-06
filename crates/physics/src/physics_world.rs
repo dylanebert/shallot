@@ -4,6 +4,24 @@ use crate::{
     regions, solver_set,
 };
 
+#[export_name = "worldDestroyKernel"]
+pub unsafe extern "C" fn destroy_world(world: usize) {
+    regions::select(world as u32);
+    for id in 0..crate::shapes::shape_cap() {
+        if crate::shapes::shape_alive(world as u32, id as u32) != 0 {
+            crate::shape_lifecycle::release_geometry(world, id);
+        }
+    }
+    assert_eq!(crate::hull_database::count(world), 0);
+    for id in 0..solver_set::count() {
+        if solver_set::index(id) != -1 {
+            solver_set::destroy(id);
+        }
+    }
+    bodies::body_reset_world(world as u32);
+    crate::shapes::shape_reset_world(world as u32);
+    regions::reset(world as u32);
+}
 #[export_name = "applyContactTransitions"]
 pub unsafe extern "C" fn apply_contact_transitions() {
     let words = manifolds::contact_capacity(regions::active()).div_ceil(32);
@@ -16,6 +34,30 @@ pub unsafe extern "C" fn apply_contact_transitions() {
             apply_touch(word * 32 + bit);
         }
     }
+}
+#[export_name = "contactDestroyWorld"]
+pub unsafe extern "C" fn destroy_contact_world(world: usize, id: usize, wake: bool) {
+    regions::select(world as u32);
+    destroy_contact(id, wake);
+}
+#[export_name = "contactLinkWorld"]
+pub unsafe extern "C" fn link_contact(world: usize, id: usize) {
+    regions::select(world as u32);
+    let d = manifolds::dir_col();
+    let a = d.get(id * DIR_STRIDE + DIR_EDGE_A) as usize;
+    let b = d.get(id * DIR_STRIDE + DIR_EDGE_B) as usize;
+    let sa = bodies::record(world, a).set_index;
+    let sb = bodies::record(world, b).set_index;
+    if sa == 2 && sb >= 3 {
+        solver_set::wake(sb as usize);
+    } else if sb == 2 && sa >= 3 {
+        solver_set::wake(sa as usize);
+    }
+    island::link_contact(
+        id as i32,
+        bodies::record(world, a).island_id,
+        bodies::record(world, b).island_id,
+    );
 }
 pub unsafe fn destroy_contact(id: usize, wake: bool) {
     let world = regions::active();
@@ -387,6 +429,31 @@ unsafe fn parallel(kind: u32, count: usize, a: f32) -> bool {
     }
     fork
 }
+#[export_name = "contactCreateWorld"]
+pub unsafe extern "C" fn create_contact(world: usize, a: usize, b: usize, child: i32) {
+    regions::select(world as u32);
+    let r = crate::shapes::col();
+    let compound = if r.get(a * crate::shapes::SHAPE_STRIDE) == 1 {
+        Some(a)
+    } else if r.get(b * crate::shapes::SHAPE_STRIDE) == 1 {
+        Some(b)
+    } else {
+        None
+    };
+    let mesh = compound
+        .is_some_and(|id| crate::geo::shape_compound_child_type(world, id, child as usize) == 4);
+    let id = crate::body_record::runtime::create_contact(
+        world,
+        a,
+        b,
+        child,
+        if mesh { 0x0040_0000 } else { 0 },
+    );
+    if id != usize::MAX {
+        crate::table::add_pair(a as u32, b as u32, child as u32);
+        contact_list::update(id);
+    }
+}
 unsafe fn create_pairs() {
     let world = regions::active();
     let heads = crate::pairwork::pairs_cand_end_ptr();
@@ -399,28 +466,7 @@ unsafe fn create_pairs() {
             let a = *p.add(1) as usize;
             let b = *p.add(2) as usize;
             entry = *p.add(3);
-            let r = crate::shapes::col();
-            let compound = if r.get(a * crate::shapes::SHAPE_STRIDE) == 1 {
-                Some(a)
-            } else if r.get(b * crate::shapes::SHAPE_STRIDE) == 1 {
-                Some(b)
-            } else {
-                None
-            };
-            let mesh = compound.is_some_and(|id| {
-                crate::geo::shape_compound_child_type(world, id, child as usize) == 4
-            });
-            let id = crate::body_record::runtime::create_contact(
-                world,
-                a,
-                b,
-                child as i32,
-                if mesh { 0x0040_0000 } else { 0 },
-            );
-            if id != usize::MAX {
-                crate::table::add_pair(a as u32, b as u32, child);
-                contact_list::update(id);
-            }
+            create_contact(world, a, b, child as i32);
         }
     }
     crate::broad::clear_moves();

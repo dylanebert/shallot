@@ -1,10 +1,11 @@
 // body.c bindings (Box3D, Erin Catto, MIT).
-import { BODY_NAME_LENGTH } from "../common/constants";
+
 import { NULL_INDEX } from "../common/array";
+import { BODY_NAME_LENGTH } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import {
-    mat3,
     type Mat3,
+    mat3,
     type Pos,
     type Quat,
     type Vec3,
@@ -348,10 +349,13 @@ export function destroyBody(world: WorldState, body: number): void {
         shape = shapeField(world, shape, ShapeField.nextShapeId);
     }
     kernel(world.ecsState).bodyDestroyWorld(world.worldId, body);
-    world.geometryIdentityValues.forEach(releaseGeometryIdentity, world);
+    releaseGeometryIdentities(world);
     world.bodyUserData[body] = undefined;
     world.bodyNames[body] = "";
     world.locked = false;
+}
+export function releaseGeometryIdentities(world: WorldState): void {
+    world.geometryIdentityValues.forEach(releaseGeometryIdentity, world);
 }
 function releaseGeometryIdentity(this: WorldState, _value: unknown, identity: number): void {
     const k = kernel(this.ecsState);

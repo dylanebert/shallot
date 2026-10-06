@@ -170,6 +170,39 @@ export type Kernel = {
     /** Clear a world-local body pool after the public world is destroyed. */
     bodyResetWorld(world: number): void;
     residentResetWorld(world: number): void;
+    worldDestroyKernel(world: number): void;
+    shapeSetFilter64(
+        world: number,
+        id: number,
+        category: bigint,
+        mask: bigint,
+        group: number,
+    ): void;
+    shapeFilterWrite64(
+        world: number,
+        id: number,
+        category: bigint,
+        mask: bigint,
+        group: number,
+    ): void;
+    shapeDestroyWorld(world: number, id: number, updateMass: boolean): void;
+    shapeFinishCreate(
+        world: number,
+        id: number,
+        force: boolean,
+        sensor: boolean,
+        updateMass: boolean,
+    ): void;
+    shapeSetFlag(world: number, id: number, flag: number, enabled: boolean): void;
+    shapeSetFilter(
+        world: number,
+        id: number,
+        categoryHi: number,
+        categoryLo: number,
+        maskHi: number,
+        maskLo: number,
+        group: number,
+    ): void;
     worldSnapshot(world: number): number;
     worldSnapshotBuffer(bytes: number): number;
     worldRestore(world: number): void;
@@ -224,6 +257,10 @@ export type Kernel = {
         flags: number,
     ): number;
     bodyDestroyContact(world: number, id: number): void;
+    bodyReclassifyContacts(world: number, id: number): void;
+    contactCreateWorld(world: number, shapeA: number, shapeB: number, child: number): void;
+    contactDestroyWorld(world: number, id: number, wake: boolean): void;
+    contactLinkWorld(world: number, id: number): void;
     bodySyncFlags(world: number, id: number): void;
     bodyChangeType(world: number, id: number, type: number): void;
     bodySetType(world: number, id: number, type: number): void;
@@ -667,6 +704,8 @@ export type Kernel = {
         damping: number,
     ): number;
     jointDestroy(id: number, wake: number): void;
+    jointWriteVec3(id: number, field: number, x: number, y: number, z: number): void;
+    jointWriteQuat(id: number, field: number, x: number, y: number, z: number, s: number): void;
     jointSetCollideConnected(world: number, id: number, collide: boolean): void;
     jointWakeBodies(world: number, id: number): void;
     jointEnable(world: number, id: number, bit: number, enabled: boolean): void;

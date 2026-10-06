@@ -1,0 +1,4498 @@
+[
+  {
+    "name": "touches",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.5299999713897705,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.569999933242798,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [
+          {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        ],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.5499999523162842,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 100.53096771240234
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5499999523162842,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "filter-off",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.5299999713897705,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.569999933242798,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [
+          {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        ],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.5499999523162842,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 100.53096771240234
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5499999523162842,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "filter-off-step",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.5299999713897705,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.569999933242798,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.5499999523162842,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ]
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5499999523162842,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "filter-on",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.5299999713897705,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.569999933242798,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.5499999523162842,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ]
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5499999523162842,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "filter-on-step",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.5799999237060547,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.619999885559082,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [
+          {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        ],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.5999999046325684,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 100.53096771240234
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5999999046325684,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "visitor-events-off",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.5799999237060547,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.619999885559082,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": false,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [
+          {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        ],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.5999999046325684,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 100.53096771240234
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.5999999046325684,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "visitor-off-step",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.6299998760223389,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.669999837875366,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": false,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.6499998569488525,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ]
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.6499998569488525,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "sensor-events-off",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.6299998760223389,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.669999837875366,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [],
+        "sensorEvents": false,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.6499998569488525,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ]
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.6499998569488525,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "sensor-off-step",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.679999828338623,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.7199997901916504,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [],
+        "sensorEvents": false,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.6999998092651367,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.6999998092651367,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "sensor-events-on",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.679999828338623,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.7199997901916504,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.6999998092651367,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.6999998092651367,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "sensor-on-step",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.7299997806549072,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.7699997425079346,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [
+          {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        ],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.749999761581421,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.749999761581421,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "contact-off-hit-on",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.7299997806549072,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.7699997425079346,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": true
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [
+          {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        ],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.749999761581421,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.749999761581421,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "changed-event-flags-step",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.7799997329711914,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.8199996948242188,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": true
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [
+          {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        ],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.799999713897705,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.799999713897705,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "contact-on-hit-off",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.7799997329711914,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.8199996948242188,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -3.0199999809265137,
+            "y": -3.0199999809265137,
+            "z": -3.0199999809265137
+          },
+          "upperBound": {
+            "x": 3.0199999809265137,
+            "y": 3.0199999809265137,
+            "z": 3.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 113097.3359375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 407150.375,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 407150.375,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 407150.375
+            }
+          }
+        },
+        "name": "sensor",
+        "userData": "sensor-shape",
+        "sensor": true,
+        "overlaps": [
+          {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        ],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.799999713897705,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.799999713897705,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "destroy-sensor",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.7799997329711914,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.8199996948242188,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.799999713897705,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.799999713897705,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "destroy-sensor-step",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      },
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": 0.8299996852874756,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 2.869999647140503,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 2,
+        "mass": {
+          "mass": 8.377580642700195,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 3.351032257080078,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 3.351032257080078,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 3.351032257080078
+            }
+          }
+        },
+        "name": "visitor",
+        "userData": "visitor-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": true,
+        "hitEvents": false
+      },
+      {
+        "valid": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 8.377580642700195,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 3.351032257080078,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 3.351032257080078,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 3.351032257080078
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.8499996662139893,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 1
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ]
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.8499996662139893,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "destroy-visitor",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      },
+      {
+        "valid": false
+      },
+      {
+        "valid": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 0,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.8499996662139893,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 0
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "sensor": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "visitor": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          }
+        }
+      ]
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.8499996662139893,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  },
+  {
+    "name": "destroy-visitor-step",
+    "shapes": [
+      {
+        "valid": true,
+        "type": 5,
+        "aabb": {
+          "lowerBound": {
+            "x": -1.0199999809265137,
+            "y": -1.0199999809265137,
+            "z": -1.0199999809265137
+          },
+          "upperBound": {
+            "x": 1.0199999809265137,
+            "y": 1.0199999809265137,
+            "z": 1.0199999809265137
+          }
+        },
+        "density": 1000,
+        "mass": {
+          "mass": 4188.79052734375,
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "inertia": {
+            "cx": {
+              "x": 1675.5162353515625,
+              "y": 0,
+              "z": 0
+            },
+            "cy": {
+              "x": 0,
+              "y": 1675.5162353515625,
+              "z": 0
+            },
+            "cz": {
+              "x": 0,
+              "y": 0,
+              "z": 1675.5162353515625
+            }
+          }
+        },
+        "name": "ground",
+        "userData": "ground-shape",
+        "sensor": false,
+        "overlaps": [],
+        "sensorEvents": true,
+        "contactEvents": false,
+        "hitEvents": false
+      },
+      {
+        "valid": false
+      },
+      {
+        "valid": false
+      }
+    ],
+    "body": {
+      "mass": {
+        "mass": 0,
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "inertia": {
+          "cx": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "cy": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "cz": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          }
+        }
+      },
+      "pose": {
+        "p": {
+          "x": 0,
+          "y": 1.8499996662139893,
+          "z": 0
+        },
+        "q": {
+          "v": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "s": 1
+        }
+      },
+      "velocity": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "awake": true,
+      "shapes": 0
+    },
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0,
+              "y": 1.8499996662139893,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "visitor",
+          "fellAsleep": false
+        }
+      ],
+      "count": 1
+    },
+    "joints": []
+  }
+]
