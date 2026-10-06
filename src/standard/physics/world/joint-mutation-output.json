@@ -1,0 +1,2075 @@
+[
+  {
+    "name": "contacts",
+    "collide": true,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": -0.047998666763305664,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -2.9884703159332275,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.447505235671997,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -0.18286395072937012,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 1488563.375
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 171355.125
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 13480.931640625
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 114603.359375
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": -0.047998666763305664,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.447505235671997,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "collision-off",
+    "collide": false,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": -0.047998666763305664,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -2.9884703159332275,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.447505235671997,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -0.18286395072937012,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 1488563.375
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 171355.125
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 13480.931640625
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 114603.359375
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": -0.047998666763305664,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.447505235671997,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "collision-off-again",
+    "collide": false,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": -0.047998666763305664,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -2.9884703159332275,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.447505235671997,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -0.18286395072937012,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 1488563.375
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 171355.125
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 13480.931640625
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 4,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 114603.359375
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": -0.047998666763305664,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.447505235671997,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "off-step",
+    "collide": false,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": 0.16054005920886993,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -1.118067741394043,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.315284252166748,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -1.1180672645568848,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0.16054005920886993,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.315284252166748,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "collision-on",
+    "collide": true,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": 0.16054005920886993,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -1.118067741394043,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.315284252166748,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -1.1180672645568848,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0.16054005920886993,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.315284252166748,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "collision-on-again",
+    "collide": true,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": 0.16054005920886993,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -1.118067741394043,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.315284252166748,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -1.1180672645568848,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "normalImpulse": 0
+        }
+      ],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0.16054005920886993,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.315284252166748,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "on-step",
+    "collide": true,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": 0.10847654193639755,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -3.1115803718566895,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.2626714706420898,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -0.12131094932556152,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 554268.5625
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 63878.84375
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0.10847654193639755,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.2626714706420898,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "sleep",
+    "collide": true,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": 0.10847654193639755,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.2626714706420898,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 554268.5625
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 63878.84375
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0.10847654193639755,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": true
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.2626714706420898,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": true
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "motor-input",
+    "collide": true,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": 0.10847654193639755,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.2626714706420898,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [
+        {
+          "shapeA": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 1,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 554268.5625
+        },
+        {
+          "shapeA": {
+            "id": {
+              "index1": 3,
+              "generation": 1
+            }
+          },
+          "shapeB": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "contact": {
+            "id": {
+              "index1": 2,
+              "generation": 2
+            }
+          },
+          "normalImpulse": 63878.84375
+        }
+      ],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0.10847654193639755,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": true
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.2626714706420898,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": true
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  },
+  {
+    "name": "motor-step",
+    "collide": true,
+    "valid": true,
+    "bodies": [
+      {
+        "pose": {
+          "p": {
+            "x": 0.12061607837677002,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": -2.423386573791504,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 1.2101116180419922,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": true,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "pose": {
+          "p": {
+            "x": 3,
+            "y": 0,
+            "z": 0
+          },
+          "q": {
+            "v": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "s": 1
+          }
+        },
+        "awake": false,
+        "linear": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "angular": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "sensors": {
+      "beginEvents": [],
+      "endEvents": []
+    },
+    "contacts": {
+      "beginEvents": [],
+      "endEvents": [],
+      "hitEvents": []
+    },
+    "moves": {
+      "moveEvents": [
+        {
+          "body": {
+            "id": {
+              "index1": 1,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 0.12061607837677002,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "a",
+          "fellAsleep": false
+        },
+        {
+          "body": {
+            "id": {
+              "index1": 2,
+              "generation": 1
+            }
+          },
+          "transform": {
+            "p": {
+              "x": 1.2101116180419922,
+              "y": 0,
+              "z": 0
+            },
+            "q": {
+              "v": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "s": 1
+            }
+          },
+          "userData": "b",
+          "fellAsleep": false
+        }
+      ],
+      "count": 2
+    },
+    "joints": []
+  }
+]

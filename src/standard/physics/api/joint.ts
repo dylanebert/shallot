@@ -1,7 +1,6 @@
 import { NULL_INDEX } from "../common/array";
-import { HUGE, LINEAR_SLOP } from "../common/constants";
 import type { EntityId } from "../common/ids";
-import { clampf, f32, PI, type Transform, type Vec3 } from "../common/math";
+import { f32, type Transform, type Vec3 } from "../common/math";
 import {
     DJ_DAMPING_RATIO,
     DJ_ENABLE,
@@ -9,16 +8,13 @@ import {
     DJ_ENABLE_MOTOR,
     DJ_ENABLE_SPRING,
     DJ_HERTZ,
-    DJ_IMPULSE,
     DJ_LENGTH,
-    DJ_LOWER_IMPULSE,
     DJ_LOWER_SPRING_FORCE,
     DJ_MAX_LENGTH,
     DJ_MAX_MOTOR_FORCE,
     DJ_MIN_LENGTH,
     DJ_MOTOR_IMPULSE,
     DJ_MOTOR_SPEED,
-    DJ_UPPER_IMPULSE,
     DJ_UPPER_SPRING_FORCE,
     J_CONSTRAINT_DAMPING,
     J_CONSTRAINT_HERTZ,
@@ -32,14 +28,11 @@ import {
     PJ_ENABLE_MOTOR,
     PJ_ENABLE_SPRING,
     PJ_HERTZ,
-    PJ_LOWER_IMPULSE,
     PJ_LOWER_TRANSLATION,
     PJ_MAX_MOTOR_FORCE,
     PJ_MOTOR_IMPULSE,
     PJ_MOTOR_SPEED,
-    PJ_SPRING_IMPULSE,
     PJ_TARGET_TRANSLATION,
-    PJ_UPPER_IMPULSE,
     PJ_UPPER_TRANSLATION,
     RJ_DAMPING_RATIO,
     RJ_ENABLE,
@@ -48,24 +41,21 @@ import {
     RJ_ENABLE_SPRING,
     RJ_HERTZ,
     RJ_LOWER_ANGLE,
-    RJ_LOWER_IMPULSE,
     RJ_MAX_MOTOR_TORQUE,
     RJ_MOTOR_IMPULSE,
     RJ_MOTOR_SPEED,
-    RJ_SPRING_IMPULSE,
     RJ_TARGET_ANGLE,
     RJ_UPPER_ANGLE,
-    RJ_UPPER_IMPULSE,
 } from "../kernel/columns";
 import {
     readJointFlag,
     readJointFloat,
     readJointTransform,
-    writeJointFlag,
     writeJointFloat,
     writeJointTransform,
 } from "../kernel/jointcolumns";
 import { JointField, jointCapacity, jointField } from "../kernel/jointrecords";
+import { kernel } from "../kernel/kernel";
 import { distanceJointCurrentLength } from "../solver/distanceJoint";
 import {
     destroyJointInternal,
@@ -258,11 +248,12 @@ export class Joint {
 export class RevoluteJoint extends Joint {
     /** Enable/disable the angular limit. */
     enableLimit(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_LIMIT)) {
-            writeJointFloat(this.world, this.record(), RJ_LOWER_IMPULSE, 0);
-            writeJointFloat(this.world, this.record(), RJ_UPPER_IMPULSE, 0);
-        }
-        writeJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_LIMIT, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            RJ_ENABLE_LIMIT,
+            enable,
+        );
     }
 
     /** @returns whether the angular limit is enabled. */
@@ -282,23 +273,7 @@ export class RevoluteJoint extends Joint {
 
     /** Set the angle limits (radians), clamped to ±0.99π. */
     setLimits(lower: number, upper: number): void {
-        const lo = f32(lower);
-        const hi = f32(upper);
-        const lowerAngle = lo < hi ? lo : hi;
-        const upperAngle = lo > hi ? lo : hi;
-        const bound = f32(f32(0.99) * PI);
-        writeJointFloat(
-            this.world,
-            this.record(),
-            RJ_LOWER_ANGLE,
-            clampf(lowerAngle, -bound, bound),
-        );
-        writeJointFloat(
-            this.world,
-            this.record(),
-            RJ_UPPER_ANGLE,
-            clampf(upperAngle, -bound, bound),
-        );
+        kernel(this.world.ecsState).jointSetLimits(this.world.worldId, this.record(), lower, upper);
     }
 
     /** @returns the current hinge angle (radians). */
@@ -308,10 +283,12 @@ export class RevoluteJoint extends Joint {
 
     /** Enable/disable the drive spring. */
     enableSpring(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_SPRING)) {
-            writeJointFloat(this.world, this.record(), RJ_SPRING_IMPULSE, 0);
-        }
-        writeJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_SPRING, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            RJ_ENABLE_SPRING,
+            enable,
+        );
     }
 
     /** @returns whether the drive spring is enabled. */
@@ -354,10 +331,12 @@ export class RevoluteJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableMotor(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_MOTOR)) {
-            writeJointFloat(this.world, this.record(), RJ_MOTOR_IMPULSE, 0);
-        }
-        writeJointFlag(this.world, this.record(), RJ_ENABLE, RJ_ENABLE_MOTOR, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            RJ_ENABLE_MOTOR,
+            enable,
+        );
     }
 
     /** @returns whether the motor is enabled. */
@@ -399,15 +378,11 @@ export class RevoluteJoint extends Joint {
 export class DistanceJoint extends Joint {
     /** Set the rest length, clamped to [linear slop, huge]; resets accumulated impulses. */
     setLength(length: number): void {
-        writeJointFloat(
-            this.world,
+        kernel(this.world.ecsState).distanceJointSetLength(
+            this.world.worldId,
             this.record(),
-            DJ_LENGTH,
-            clampf(f32(length), LINEAR_SLOP, HUGE),
+            length,
         );
-        writeJointFloat(this.world, this.record(), DJ_IMPULSE, 0);
-        writeJointFloat(this.world, this.record(), DJ_LOWER_IMPULSE, 0);
-        writeJointFloat(this.world, this.record(), DJ_UPPER_IMPULSE, 0);
     }
 
     /** @returns the rest length. */
@@ -417,7 +392,12 @@ export class DistanceJoint extends Joint {
 
     /** Enable/disable the length limit. */
     enableLimit(enable: boolean): void {
-        writeJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_LIMIT, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            DJ_ENABLE_LIMIT,
+            enable,
+        );
     }
 
     /** @returns whether the length limit is enabled. */
@@ -427,13 +407,12 @@ export class DistanceJoint extends Joint {
 
     /** Set the min/max length range, each clamped to [linear slop, huge]; resets impulses. */
     setLengthRange(minLength: number, maxLength: number): void {
-        const lo = clampf(f32(minLength), LINEAR_SLOP, HUGE);
-        const hi = clampf(f32(maxLength), LINEAR_SLOP, HUGE);
-        writeJointFloat(this.world, this.record(), DJ_MIN_LENGTH, lo < hi ? lo : hi);
-        writeJointFloat(this.world, this.record(), DJ_MAX_LENGTH, lo > hi ? lo : hi);
-        writeJointFloat(this.world, this.record(), DJ_IMPULSE, 0);
-        writeJointFloat(this.world, this.record(), DJ_LOWER_IMPULSE, 0);
-        writeJointFloat(this.world, this.record(), DJ_UPPER_IMPULSE, 0);
+        kernel(this.world.ecsState).jointSetLimits(
+            this.world.worldId,
+            this.record(),
+            minLength,
+            maxLength,
+        );
     }
 
     /** @returns the minimum length. */
@@ -453,7 +432,12 @@ export class DistanceJoint extends Joint {
 
     /** Enable/disable the spring. */
     enableSpring(enable: boolean): void {
-        writeJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_SPRING, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            DJ_ENABLE_SPRING,
+            enable,
+        );
     }
 
     /** @returns whether the spring is enabled. */
@@ -503,10 +487,12 @@ export class DistanceJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableMotor(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_MOTOR)) {
-            writeJointFlag(this.world, this.record(), DJ_ENABLE, DJ_ENABLE_MOTOR, enable);
-            writeJointFloat(this.world, this.record(), DJ_MOTOR_IMPULSE, 0);
-        }
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            DJ_ENABLE_MOTOR,
+            enable,
+        );
     }
 
     /** @returns whether the motor is enabled. */
@@ -548,11 +534,12 @@ export class DistanceJoint extends Joint {
 export class PrismaticJoint extends Joint {
     /** Enable/disable the translation limit; resets limit impulses on change. */
     enableLimit(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_LIMIT)) {
-            writeJointFloat(this.world, this.record(), PJ_LOWER_IMPULSE, 0);
-            writeJointFloat(this.world, this.record(), PJ_UPPER_IMPULSE, 0);
-        }
-        writeJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_LIMIT, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            PJ_ENABLE_LIMIT,
+            enable,
+        );
     }
 
     /** @returns whether the translation limit is enabled. */
@@ -572,10 +559,7 @@ export class PrismaticJoint extends Joint {
 
     /** Set the translation limits (ordered low..high). */
     setLimits(lower: number, upper: number): void {
-        const lo = f32(lower);
-        const hi = f32(upper);
-        writeJointFloat(this.world, this.record(), PJ_LOWER_TRANSLATION, lo < hi ? lo : hi);
-        writeJointFloat(this.world, this.record(), PJ_UPPER_TRANSLATION, lo > hi ? lo : hi);
+        kernel(this.world.ecsState).jointSetLimits(this.world.worldId, this.record(), lower, upper);
     }
 
     /** @returns the current translation along the joint axis. */
@@ -585,10 +569,12 @@ export class PrismaticJoint extends Joint {
 
     /** Enable/disable the spring; resets the spring impulse on change. */
     enableSpring(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_SPRING)) {
-            writeJointFloat(this.world, this.record(), PJ_SPRING_IMPULSE, 0);
-        }
-        writeJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_SPRING, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            PJ_ENABLE_SPRING,
+            enable,
+        );
     }
 
     /** @returns whether the spring is enabled. */
@@ -631,10 +617,12 @@ export class PrismaticJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableMotor(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_MOTOR)) {
-            writeJointFloat(this.world, this.record(), PJ_MOTOR_IMPULSE, 0);
-        }
-        writeJointFlag(this.world, this.record(), PJ_ENABLE, PJ_ENABLE_MOTOR, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            PJ_ENABLE_MOTOR,
+            enable,
+        );
     }
 
     /** @returns whether the motor is enabled. */

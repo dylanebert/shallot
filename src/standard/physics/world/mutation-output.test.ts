@@ -3,6 +3,7 @@ import { PhysicsWorld } from "../api/world";
 import { BodyType } from "../common/types";
 import { init } from "../kernel/kernel";
 import { bodyDisable, bodyEnable } from "./body";
+import jointExpected from "./joint-mutation-output.json";
 import expected from "./mutation-output.json";
 
 await init(undefined, { threads: 0 });
@@ -89,6 +90,83 @@ export function mutationOutput() {
         world.destroy();
     }
 }
+
+function jointMutationOutput() {
+    const world = new PhysicsWorld({ gravity: zero });
+    const a = world.createBody({ type: BodyType.Dynamic, userData: "a" });
+    const b = world.createBody({
+        type: BodyType.Dynamic,
+        position: { x: 1.5, y: 0, z: 0 },
+        userData: "b",
+    });
+    const c = world.createBody({ position: { x: 3, y: 0, z: 0 }, userData: "c" });
+    for (const body of [a, b, b, c])
+        body.createSphere({ enableContactEvents: true }, { center: zero, radius: 1 });
+    const joint = world.createDistanceJoint(a, b, { collideConnected: true });
+    const output: unknown[] = [];
+    function plain(value: unknown): unknown {
+        if (Array.isArray(value)) return value.map(plain);
+        if (value && typeof value === "object") {
+            if ("id" in value) return { id: plain(value.id) };
+            return Object.fromEntries(
+                Object.entries(value)
+                    .filter(([key]) => key !== "world0")
+                    .map(([key, child]) => [key, plain(child)]),
+            );
+        }
+        return value;
+    }
+    function observe(name: string) {
+        output.push(
+            plain({
+                name,
+                collide: joint.getCollideConnected(),
+                valid: joint.isValid(),
+                bodies: [a, b, c].map((body) => ({
+                    pose: body.getTransform(),
+                    awake: body.isAwake(),
+                    linear: body.getLinearVelocity(),
+                    angular: body.getAngularVelocity(),
+                })),
+                sensors: world.getSensorEvents(),
+                contacts: world.getContactEvents(),
+                moves: world.getBodyEvents(),
+                joints: world.getJointEvents(),
+            }),
+        );
+    }
+    try {
+        world.step(1 / 60);
+        observe("contacts");
+        joint.setCollideConnected(false);
+        observe("collision-off");
+        joint.setCollideConnected(false);
+        observe("collision-off-again");
+        world.step(1 / 60);
+        observe("off-step");
+        joint.setCollideConnected(true);
+        observe("collision-on");
+        joint.setCollideConnected(true);
+        observe("collision-on-again");
+        world.step(1 / 60);
+        observe("on-step");
+        a.setAwake(false);
+        observe("sleep");
+        joint.setMotorSpeed(2);
+        observe("motor-input");
+        world.step(1 / 60);
+        observe("motor-step");
+        return output;
+    } finally {
+        world.destroy();
+    }
+}
+
+test("cold joint mutations preserve public values and ordered events", () => {
+    const actual = jointMutationOutput();
+    if (process.env.CAPTURE_JOINT_OUTPUT) console.log(`JOINT_OUTPUT=${JSON.stringify(actual)}`);
+    else expect(actual).toEqual(jointExpected);
+});
 
 test("cold body mutations preserve public values and ordered events", () => {
     const actual = mutationOutput();

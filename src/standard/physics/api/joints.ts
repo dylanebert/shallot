@@ -1,13 +1,4 @@
-import {
-    clampf,
-    f32,
-    froundConfig,
-    PI,
-    type Pos,
-    type Quat,
-    type Vec3,
-    vec3,
-} from "../common/math";
+import { f32, type Pos, type Quat, type Vec3, vec3 } from "../common/math";
 import {
     MJ_ANGULAR_DAMPING_RATIO,
     MJ_ANGULAR_HERTZ,
@@ -31,25 +22,18 @@ import {
     SJ_ENABLE_TWIST_LIMIT,
     SJ_HERTZ,
     SJ_LOWER_TWIST_ANGLE,
-    SJ_LOWER_TWIST_IMPULSE,
     SJ_MAX_MOTOR_TORQUE,
     SJ_MOTOR_IMPULSE,
     SJ_MOTOR_VELOCITY,
-    SJ_SPRING_IMPULSE,
-    SJ_SWING_IMPULSE,
     SJ_TARGET_ROTATION,
     SJ_UPPER_TWIST_ANGLE,
-    SJ_UPPER_TWIST_IMPULSE,
-    WHJ_ANGULAR_IMPULSE,
     WHJ_ENABLE,
     WHJ_ENABLE_SPIN_MOTOR,
     WHJ_ENABLE_STEERING,
     WHJ_ENABLE_STEERING_LIMIT,
     WHJ_ENABLE_SUSPENSION_LIMIT,
     WHJ_ENABLE_SUSPENSION_SPRING,
-    WHJ_LOWER_STEERING_IMPULSE,
     WHJ_LOWER_STEERING_LIMIT,
-    WHJ_LOWER_SUSPENSION_IMPULSE,
     WHJ_LOWER_SUSPENSION_LIMIT,
     WHJ_MAX_SPIN_TORQUE,
     WHJ_MAX_STEERING_TORQUE,
@@ -60,11 +44,8 @@ import {
     WHJ_STEERING_SPRING_IMPULSE,
     WHJ_SUSPENSION_DAMPING_RATIO,
     WHJ_SUSPENSION_HERTZ,
-    WHJ_SUSPENSION_SPRING_IMPULSE,
     WHJ_TARGET_STEERING_ANGLE,
-    WHJ_UPPER_STEERING_IMPULSE,
     WHJ_UPPER_STEERING_LIMIT,
-    WHJ_UPPER_SUSPENSION_IMPULSE,
     WHJ_UPPER_SUSPENSION_LIMIT,
     WJ_ANGULAR_DAMPING_RATIO,
     WJ_ANGULAR_HERTZ,
@@ -76,12 +57,11 @@ import {
     readJointFloat,
     readJointQuat,
     readJointVec3,
-    writeJointFlag,
     writeJointFloat,
     writeJointQuat,
-    writeJointVec2,
     writeJointVec3,
 } from "../kernel/jointcolumns";
+import { kernel } from "../kernel/kernel";
 import { wakeJointBodies } from "../solver/joint";
 import { sphericalJointConeAngle, sphericalJointTwistAngle } from "../solver/sphericalJoint";
 import { wheelJointSpinSpeed, wheelJointSteeringAngle } from "../solver/wheelJoint";
@@ -130,10 +110,12 @@ export class SoftJoint extends DistanceJoint {
 export class SphericalJoint extends Joint {
     /** Enable/disable the cone (swing) limit; resets the swing impulse on change. */
     enableConeLimit(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), SJ_ENABLE, SJ_ENABLE_CONE_LIMIT)) {
-            writeJointFloat(this.world, this.record(), SJ_SWING_IMPULSE, 0);
-        }
-        writeJointFlag(this.world, this.record(), SJ_ENABLE, SJ_ENABLE_CONE_LIMIT, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            SJ_ENABLE_CONE_LIMIT,
+            enable,
+        );
     }
 
     /** @returns whether the cone limit is enabled. */
@@ -158,11 +140,12 @@ export class SphericalJoint extends Joint {
 
     /** Enable/disable the twist limit; resets twist impulses on change. */
     enableTwistLimit(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), SJ_ENABLE, SJ_ENABLE_TWIST_LIMIT)) {
-            writeJointFloat(this.world, this.record(), SJ_LOWER_TWIST_IMPULSE, 0);
-            writeJointFloat(this.world, this.record(), SJ_UPPER_TWIST_IMPULSE, 0);
-        }
-        writeJointFlag(this.world, this.record(), SJ_ENABLE, SJ_ENABLE_TWIST_LIMIT, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            SJ_ENABLE_TWIST_LIMIT,
+            enable,
+        );
     }
 
     /** @returns whether the twist limit is enabled. */
@@ -182,23 +165,7 @@ export class SphericalJoint extends Joint {
 
     /** Set the twist limits (radians), clamped to ±0.99π. */
     setTwistLimits(lower: number, upper: number): void {
-        const lo = f32(lower);
-        const hi = f32(upper);
-        const lowerAngle = lo < hi ? lo : hi;
-        const upperAngle = lo > hi ? lo : hi;
-        const bound = f32(f32(0.99) * PI);
-        writeJointFloat(
-            this.world,
-            this.record(),
-            SJ_LOWER_TWIST_ANGLE,
-            clampf(lowerAngle, -bound, bound),
-        );
-        writeJointFloat(
-            this.world,
-            this.record(),
-            SJ_UPPER_TWIST_ANGLE,
-            clampf(upperAngle, -bound, bound),
-        );
+        kernel(this.world.ecsState).jointSetLimits(this.world.worldId, this.record(), lower, upper);
     }
 
     /** @returns the current twist angle (radians). */
@@ -208,14 +175,12 @@ export class SphericalJoint extends Joint {
 
     /** Enable/disable the orientation spring; resets the spring impulse on change. */
     enableSpring(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), SJ_ENABLE, SJ_ENABLE_SPRING)) {
-            writeJointVec3(this.world, this.record(), SJ_SPRING_IMPULSE, {
-                x: 0,
-                y: 0,
-                z: 0,
-            });
-        }
-        writeJointFlag(this.world, this.record(), SJ_ENABLE, SJ_ENABLE_SPRING, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            SJ_ENABLE_SPRING,
+            enable,
+        );
     }
 
     /** @returns whether the orientation spring is enabled. */
@@ -225,7 +190,7 @@ export class SphericalJoint extends Joint {
 
     /** Set the spring target relative rotation. */
     setTargetRotation(target: Quat): void {
-        writeJointQuat(this.world, this.record(), SJ_TARGET_ROTATION, froundConfig(target));
+        writeJointQuat(this.world, this.record(), SJ_TARGET_ROTATION, target);
     }
 
     /** @returns the spring target relative rotation. */
@@ -258,14 +223,12 @@ export class SphericalJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableMotor(enable: boolean): void {
-        if (enable !== readJointFlag(this.world, this.record(), SJ_ENABLE, SJ_ENABLE_MOTOR)) {
-            writeJointVec3(this.world, this.record(), SJ_MOTOR_IMPULSE, {
-                x: 0,
-                y: 0,
-                z: 0,
-            });
-        }
-        writeJointFlag(this.world, this.record(), SJ_ENABLE, SJ_ENABLE_MOTOR, enable);
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            SJ_ENABLE_MOTOR,
+            enable,
+        );
     }
 
     /** @returns whether the motor is enabled. */
@@ -275,7 +238,7 @@ export class SphericalJoint extends Joint {
 
     /** Set the motor target angular velocity, waking the connected bodies. */
     setMotorVelocity(velocity: Vec3): void {
-        writeJointVec3(this.world, this.record(), SJ_MOTOR_VELOCITY, froundConfig(velocity));
+        writeJointVec3(this.world, this.record(), SJ_MOTOR_VELOCITY, velocity);
         wakeJointBodies(this.world, this.record());
     }
 
@@ -353,7 +316,7 @@ export class WeldJoint extends Joint {
 export class MotorJoint extends Joint {
     /** Set the target relative linear velocity, waking the connected bodies. */
     setLinearVelocity(velocity: Vec3): void {
-        writeJointVec3(this.world, this.record(), MJ_LINEAR_VELOCITY, froundConfig(velocity));
+        writeJointVec3(this.world, this.record(), MJ_LINEAR_VELOCITY, velocity);
         wakeJointBodies(this.world, this.record());
     }
 
@@ -364,7 +327,7 @@ export class MotorJoint extends Joint {
 
     /** Set the target relative angular velocity, waking the connected bodies. */
     setAngularVelocity(velocity: Vec3): void {
-        writeJointVec3(this.world, this.record(), MJ_ANGULAR_VELOCITY, froundConfig(velocity));
+        writeJointVec3(this.world, this.record(), MJ_ANGULAR_VELOCITY, velocity);
         wakeJointBodies(this.world, this.record());
     }
 
@@ -441,8 +404,12 @@ export class MotorJoint extends Joint {
 
     /** Set the maximum spring force (clamped ≥ 0). */
     setMaxSpringForce(maxForce: number): void {
-        const v = f32(maxForce);
-        writeJointFloat(this.world, this.record(), MJ_MAX_SPRING_FORCE, 0 > v ? 0 : v);
+        kernel(this.world.ecsState).motorJointSetMaxSpring(
+            this.world.worldId,
+            this.record(),
+            false,
+            maxForce,
+        );
     }
 
     /** @returns the maximum spring force. */
@@ -452,8 +419,12 @@ export class MotorJoint extends Joint {
 
     /** Set the maximum spring torque (clamped ≥ 0). */
     setMaxSpringTorque(maxTorque: number): void {
-        const v = f32(maxTorque);
-        writeJointFloat(this.world, this.record(), MJ_MAX_SPRING_TORQUE, 0 > v ? 0 : v);
+        kernel(this.world.ecsState).motorJointSetMaxSpring(
+            this.world.worldId,
+            this.record(),
+            true,
+            maxTorque,
+        );
     }
 
     /** @returns the maximum spring torque. */
@@ -499,19 +470,12 @@ export class ParallelJoint extends Joint {
 export class WheelJoint extends Joint {
     /** Enable/disable the suspension spring; resets the suspension impulse on change. */
     enableSuspension(enable: boolean): void {
-        if (
-            enable !==
-            readJointFlag(this.world, this.record(), WHJ_ENABLE, WHJ_ENABLE_SUSPENSION_SPRING)
-        ) {
-            writeJointFlag(
-                this.world,
-                this.record(),
-                WHJ_ENABLE,
-                WHJ_ENABLE_SUSPENSION_SPRING,
-                enable,
-            );
-            writeJointFloat(this.world, this.record(), WHJ_SUSPENSION_SPRING_IMPULSE, 0);
-        }
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            WHJ_ENABLE_SUSPENSION_SPRING,
+            enable,
+        );
     }
 
     /** @returns whether the suspension spring is enabled. */
@@ -541,20 +505,12 @@ export class WheelJoint extends Joint {
 
     /** Enable/disable the suspension limit; resets limit impulses on change. */
     enableSuspensionLimit(enable: boolean): void {
-        if (
-            readJointFlag(this.world, this.record(), WHJ_ENABLE, WHJ_ENABLE_SUSPENSION_LIMIT) !==
-            enable
-        ) {
-            writeJointFloat(this.world, this.record(), WHJ_LOWER_SUSPENSION_IMPULSE, 0);
-            writeJointFloat(this.world, this.record(), WHJ_UPPER_SUSPENSION_IMPULSE, 0);
-            writeJointFlag(
-                this.world,
-                this.record(),
-                WHJ_ENABLE,
-                WHJ_ENABLE_SUSPENSION_LIMIT,
-                enable,
-            );
-        }
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            WHJ_ENABLE_SUSPENSION_LIMIT,
+            enable,
+        );
     }
 
     /** @returns whether the suspension limit is enabled. */
@@ -574,17 +530,7 @@ export class WheelJoint extends Joint {
 
     /** Set the suspension limits; resets limit impulses when changed. */
     setSuspensionLimits(lower: number, upper: number): void {
-        const lo = f32(lower);
-        const hi = f32(upper);
-        if (
-            lo !== readJointFloat(this.world, this.record(), WHJ_LOWER_SUSPENSION_LIMIT) ||
-            hi !== readJointFloat(this.world, this.record(), WHJ_UPPER_SUSPENSION_LIMIT)
-        ) {
-            writeJointFloat(this.world, this.record(), WHJ_LOWER_SUSPENSION_LIMIT, lo);
-            writeJointFloat(this.world, this.record(), WHJ_UPPER_SUSPENSION_LIMIT, hi);
-            writeJointFloat(this.world, this.record(), WHJ_LOWER_SUSPENSION_IMPULSE, 0);
-            writeJointFloat(this.world, this.record(), WHJ_UPPER_SUSPENSION_IMPULSE, 0);
-        }
+        kernel(this.world.ecsState).jointSetLimits(this.world.worldId, this.record(), lower, upper);
     }
 
     /**
@@ -592,12 +538,12 @@ export class WheelJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableSpinMotor(enable: boolean): void {
-        if (
-            readJointFlag(this.world, this.record(), WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR) !== enable
-        ) {
-            writeJointFloat(this.world, this.record(), WHJ_SPIN_IMPULSE, 0);
-            writeJointFlag(this.world, this.record(), WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR, enable);
-        }
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            WHJ_ENABLE_SPIN_MOTOR,
+            enable,
+        );
     }
 
     /** @returns whether the spin motor is enabled. */
@@ -644,13 +590,12 @@ export class WheelJoint extends Joint {
      * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
      */
     enableSteering(enable: boolean): void {
-        if (readJointFlag(this.world, this.record(), WHJ_ENABLE, WHJ_ENABLE_STEERING) !== enable) {
-            writeJointVec2(this.world, this.record(), WHJ_ANGULAR_IMPULSE, {
-                x: 0,
-                y: 0,
-            });
-            writeJointFlag(this.world, this.record(), WHJ_ENABLE, WHJ_ENABLE_STEERING, enable);
-        }
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            WHJ_ENABLE_STEERING,
+            enable,
+        );
     }
 
     /** @returns whether steering is enabled. */
@@ -693,20 +638,12 @@ export class WheelJoint extends Joint {
 
     /** Enable/disable the steering limit; resets limit impulses on change. */
     enableSteeringLimit(enable: boolean): void {
-        if (
-            readJointFlag(this.world, this.record(), WHJ_ENABLE, WHJ_ENABLE_STEERING_LIMIT) !==
-            enable
-        ) {
-            writeJointFloat(this.world, this.record(), WHJ_LOWER_STEERING_IMPULSE, 0);
-            writeJointFloat(this.world, this.record(), WHJ_UPPER_STEERING_IMPULSE, 0);
-            writeJointFlag(
-                this.world,
-                this.record(),
-                WHJ_ENABLE,
-                WHJ_ENABLE_STEERING_LIMIT,
-                enable,
-            );
-        }
+        kernel(this.world.ecsState).jointEnable(
+            this.world.worldId,
+            this.record(),
+            WHJ_ENABLE_STEERING_LIMIT,
+            enable,
+        );
     }
 
     /** @returns whether the steering limit is enabled. */

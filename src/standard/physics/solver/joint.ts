@@ -1,6 +1,3 @@
-// Joint definitions and public queries use the kernel's identity and simulation records by id.
-import { bufferMove } from "../collision/broadphase";
-import { ContactField, contactField, destroyContact } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
 import {
     absf,
@@ -13,7 +10,6 @@ import {
     type Vec3,
     vec3,
 } from "../common/math";
-import { BodyField, bodyField } from "../kernel/bodyrecords";
 import {
     DJ_ENABLE,
     DJ_ENABLE_LIMIT,
@@ -45,10 +41,9 @@ import {
     WJ_LINEAR_HERTZ,
 } from "../kernel/columns";
 import { readJointFlag, readJointFloat, readJointVec3 } from "../kernel/jointcolumns";
-import { JointField, jointField, setJointField } from "../kernel/jointrecords";
+import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
-import { ShapeField, shapeField } from "../kernel/shaperecords";
-import { readBodyTransform, wakeBody } from "../world/body";
+import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { getDistanceJointForce } from "./distanceJoint";
 import { getMotorJointForce, getMotorJointTorque } from "./motorJoint";
@@ -235,67 +230,13 @@ export function setJointCollideConnected(
     joint: Joint,
     shouldCollide: boolean,
 ): void {
-    if (!!jointField(world, joint, JointField.collideConnected) === shouldCollide) {
-        return;
-    }
-    setJointField(world, joint, JointField.collideConnected, +shouldCollide);
-    const bodyA = jointField(world, joint, JointField.bodyIdA + 3 * 0);
-    const bodyB = jointField(world, joint, JointField.bodyIdA + 3 * 1);
-    if (shouldCollide) {
-        // Tell the broad-phase to look for new pairs on the body with fewest shapes.
-        let shapeId =
-            bodyField(world, bodyA, BodyField.shapeCount) <
-            bodyField(world, bodyB, BodyField.shapeCount)
-                ? bodyField(world, bodyA, BodyField.headShapeId)
-                : bodyField(world, bodyB, BodyField.headShapeId);
-        while (shapeId !== NULL_INDEX) {
-            const shape = shapeId;
-            if (shapeField(world, shape, ShapeField.proxyKey) !== NULL_INDEX) {
-                bufferMove(world.broadPhase, shapeField(world, shape, ShapeField.proxyKey));
-            }
-            shapeId = shapeField(world, shape, ShapeField.nextShapeId);
-        }
-    } else {
-        destroyContactsBetweenBodies(world, bodyA, bodyB);
-    }
-}
-
-/** Destroy any contacts between two bodies (b3DestroyContactsBetweenBodies) — walk the shorter list. */
-function destroyContactsBetweenBodies(world: WorldState, bodyA: number, bodyB: number): void {
-    let contactKey: number;
-    let otherBodyId: number;
-    if (
-        bodyField(world, bodyA, BodyField.contactCount) <
-        bodyField(world, bodyB, BodyField.contactCount)
-    ) {
-        contactKey = bodyField(world, bodyA, BodyField.headContactKey);
-        otherBodyId = bodyField(world, bodyB, BodyField.id);
-    } else {
-        contactKey = bodyField(world, bodyB, BodyField.headContactKey);
-        otherBodyId = bodyField(world, bodyA, BodyField.id);
-    }
-
-    // No need to wake bodies when a joint removes collision between them.
-    while (contactKey !== NULL_INDEX) {
-        const contactId = contactKey >> 1;
-        const edgeIndex = contactKey & 1;
-        const contact = contactId;
-        contactKey = contactField(world, contact, ContactField.nextKeyA + 3 * edgeIndex);
-        const otherEdgeIndex = edgeIndex ^ 1;
-        if (
-            contactField(world, contact, ContactField.bodyIdA + 3 * otherEdgeIndex) === otherBodyId
-        ) {
-            // Careful: this removes the contact from the list we are walking.
-            destroyContact(world, contact, false);
-        }
-    }
+    kernel(world.ecsState).jointSetCollideConnected(world.worldId, joint, shouldCollide);
 }
 
 /** Wake both bodies attached to a joint (b3Joint_WakeBodies). */
 export function wakeJointBodies(world: WorldState, joint: Joint): void {
     world.locked = true;
-    wakeBody(world, jointField(world, joint, JointField.bodyIdA + 3 * 0));
-    wakeBody(world, jointField(world, joint, JointField.bodyIdA + 3 * 1));
+    kernel(world.ecsState).jointWakeBodies(world.worldId, joint);
     world.locked = false;
 }
 

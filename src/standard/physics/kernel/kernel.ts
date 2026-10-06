@@ -667,6 +667,12 @@ export type Kernel = {
         damping: number,
     ): number;
     jointDestroy(id: number, wake: number): void;
+    jointSetCollideConnected(world: number, id: number, collide: boolean): void;
+    jointWakeBodies(world: number, id: number): void;
+    jointEnable(world: number, id: number, bit: number, enabled: boolean): void;
+    jointSetLimits(world: number, id: number, lower: number, upper: number): void;
+    distanceJointSetLength(world: number, id: number, length: number): void;
+    motorJointSetMaxSpring(world: number, id: number, torque: boolean, value: number): void;
     jointTransfer(id: number, target: number): void;
     jointLink(id: number): void;
     jointUnlink(id: number): void;
