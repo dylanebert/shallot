@@ -1,4 +1,5 @@
 import type { World } from "../../../engine";
+import { type BodySimRef, simField } from "./bodycolumns";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
 // can walk a body's shape list and compute its AABBs without a per-step marshal. Each World owns
@@ -18,7 +19,7 @@ import { ShapeType, type SurfaceMaterial } from "../common/types";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HullData } from "../shapes/hull";
 import type { Shape } from "../shapes/shape";
-import { type Body, type BodySim, getBodySim } from "../world/body";
+import { type Body, getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { shapeBodyId } from "./filtercolumns";
 import { kernel } from "./kernel";
@@ -230,7 +231,7 @@ export class ShapeStore extends KernelViews {
         this.writeGeometryReference(world, shape);
         this.writeQueryProperties(shape);
         const body = world.bodies[shapeBodyId(world, shape.id)];
-        this.writeQueryPose(shape.id, body, getBodySim(world, body));
+        this.writeQueryPose(world, shape.id, body, getBodySim(world, body));
     }
 
     writeQueryProperties(shape: Shape): void {
@@ -243,20 +244,20 @@ export class ShapeStore extends KernelViews {
         u[n + 51] = Number(shape.enableHitEvents);
     }
 
-    writeQueryPose(shapeId: number, body: Body, sim?: BodySim): void {
+    writeQueryPose(world: WorldState, shapeId: number, body: Body, sim?: BodySimRef): void {
         const n = shapeId * SHAPE_STRIDE;
         this.shapeU[n + 32] = body.setIndex === SetType.Awake ? body.localIndex + 1 : 0;
         if (body.setIndex === SetType.Awake) return;
         if (!sim) throw new Error("physics: a non-awake query shape requires its sleeping pose");
-        const pose = sim.transform;
-        this.shapeU[n + 42] = sim.flags;
+        const pose = simField(world, sim, "transform");
+        this.shapeU[n + 42] = simField(world, sim, "flags");
         const f = this.shapeF;
-        f[n + 44] = sim.center.x;
-        f[n + 45] = sim.center.y;
-        f[n + 46] = sim.center.z;
-        f[n + 47] = sim.localCenter.x;
-        f[n + 48] = sim.localCenter.y;
-        f[n + 49] = sim.localCenter.z;
+        f[n + 44] = simField(world, sim, "center").x;
+        f[n + 45] = simField(world, sim, "center").y;
+        f[n + 46] = simField(world, sim, "center").z;
+        f[n + 47] = simField(world, sim, "localCenter").x;
+        f[n + 48] = simField(world, sim, "localCenter").y;
+        f[n + 49] = simField(world, sim, "localCenter").z;
         f[n + 18] = pose.p.x;
         f[n + 19] = pose.p.y;
         f[n + 20] = pose.p.z;
@@ -372,7 +373,7 @@ export function syncBodyQuery(world: WorldState, body: Body): void {
     store.refreshViews();
     const sim = body.setIndex === SetType.Awake ? undefined : getBodySim(world, body);
     for (let id = body.headShapeId; id !== NULL_INDEX; id = world.shapes[id].nextShapeId) {
-        store.writeQueryPose(id, body, sim);
+        store.writeQueryPose(world, id, body, sim);
     }
 }
 

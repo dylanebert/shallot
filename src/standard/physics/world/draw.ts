@@ -1,3 +1,4 @@
+import { simField } from "../kernel/bodycolumns";
 import { bodyType, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
 // Debug visualization walk: resolve every shape and joint in the world to a flat set of typed draw
 // callbacks the caller renders. Ported from Box3D's b3World_Draw (physics_world.c) + b3DrawJoint
@@ -160,10 +161,10 @@ function bodyColor(world: WorldState, body: Body, shape: Shape): number {
     if (body.setIndex === SetType.Disabled) return DebugColor.slateGray;
     if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) return DebugColor.wheat;
     if (body.flags & BodyFlags.hadTimeOfImpact) return DebugColor.lime;
-    if (sim.flags & BodyFlags.isBullet && body.setIndex === SetType.Awake)
+    if (simField(world, sim, "flags") & BodyFlags.isBullet && body.setIndex === SetType.Awake)
         return DebugColor.turquoise;
     if (body.flags & BodyFlags.isSpeedCapped) return DebugColor.yellow;
-    if (sim.flags & BodyFlags.isFast) return DebugColor.orange;
+    if (simField(world, sim, "flags") & BodyFlags.isFast) return DebugColor.orange;
     if (bodyType(world, body.id) === BodyType.Static) return DebugColor.darkGray;
     if (bodyType(world, body.id) === BodyType.Kinematic) {
         return body.setIndex === SetType.Awake ? DebugColor.steelBlue : DebugColor.lightSteelBlue;
@@ -294,7 +295,7 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
                 const body = world.bodies[shapeBodyId(world, shape.id)];
                 const sim = getBodySim(world, body);
                 const color = bodyColor(world, body, shape);
-                drawSolidShape(draw, shape, sim.transform, color);
+                drawSolidShape(draw, shape, simField(world, sim, "transform"), color);
             }
             if (draw.drawBounds) {
                 draw.drawAabb(readFatAabb(world, shape.id, drawBounds), DebugColor.gold);
@@ -308,7 +309,10 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
             const body = world.bodies[bodyId];
             if (bodyType(world, body.id) !== BodyType.Dynamic) continue;
             const sim = getBodySim(world, body);
-            const transform: WorldTransform = { p: sim.center, q: sim.transform.q };
+            const transform: WorldTransform = {
+                p: simField(world, sim, "center"),
+                q: simField(world, sim, "transform").q,
+            };
             draw.drawTransform(transform);
             const p = transformWorldPoint(transform, { x: 0.1, y: 0.1, z: 0.1 });
             draw.drawString(p, `  ${body.mass.toFixed(2)}`, DebugColor.white);

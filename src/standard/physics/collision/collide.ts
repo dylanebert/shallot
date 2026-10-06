@@ -150,8 +150,8 @@ function mixContact(world: WorldState, id: number): void {
     const ownShapeB = world.shapes[contactField(world, id, ContactField.shapeIdB)];
     let shapeA = ownShapeA,
         shapeB = ownShapeB;
-    readSimTransform(getBodySim(world, world.bodies[contactBodyId(world, id, 0)]), poseA);
-    readSimTransform(getBodySim(world, world.bodies[contactBodyId(world, id, 1)]), poseB);
+    readSimTransform(world, getBodySim(world, world.bodies[contactBodyId(world, id, 0)]), poseA);
+    readSimTransform(world, getBodySim(world, world.bodies[contactBodyId(world, id, 1)]), poseB);
     let xfA = poseA,
         xfB = poseB;
     let materialMap: number[] | null = null;

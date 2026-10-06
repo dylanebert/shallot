@@ -1,4 +1,6 @@
 import { ContactField, contactField, setContactField } from "../collision/contact";
+import type { BodySimRef, BodyStateRef } from "../kernel/bodycolumns";
+import { copyBodySim, setSimField, setStateField, simField } from "../kernel/bodycolumns";
 // Solver sets: the SoA storage that gives bodies/contacts/islands high memory locality. Ported
 // from Box3D's solver_set.c (Erin Catto, MIT). Four fixed roles (constants.ts SetType): static,
 // disabled, awake, and one set per sleeping island group. A body's sim lives in its set's bodySims
@@ -22,22 +24,15 @@ import {
     wakeSetConstraints,
 } from "../solver/graph";
 import type { Joint } from "../solver/joint";
-import {
-    BODY_TRANSIENT_FLAGS,
-    type Body,
-    type BodySim,
-    type BodyState,
-    cloneBodySim,
-    identityBodyState,
-} from "./body";
+import { BODY_TRANSIENT_FLAGS, type Body, identityBodyState } from "./body";
 import type { IslandSim } from "./island";
 import type { WorldState } from "./world";
 
 /** Contiguous SoA storage for one solver set (b3SolverSet). */
 export type SolverSet = {
-    bodySims: BodySim[];
+    bodySims: BodySimRef[];
     // Only the awake set has body states.
-    bodyStates: BodyState[];
+    bodyStates: BodyStateRef[];
     // Sleeping sets: all contacts. Awake set: non-touching only. Static/disabled: empty.
     contactIndices: number[];
     islandSims: IslandSim[];
@@ -84,7 +79,7 @@ export function wakeSolverSet(world: WorldState, setIndex: number): void {
     for (let i = 0; i < bodyCount; ++i) {
         const simSrc = set.bodySims[i];
 
-        const body = bodies[simSrc.bodyId];
+        const body = bodies[simField(world, simSrc, "bodyId")];
         body.setIndex = SetType.Awake;
         body.localIndex = awakeSet.bodySims.length;
         body.sleepTime = 0;
@@ -92,7 +87,7 @@ export function wakeSolverSet(world: WorldState, setIndex: number): void {
         // The body enters the awake set as resident sim + state views: marshal the sleeping set's plain
         // `simSrc` into the resident columns and append both views (in lockstep by localIndex).
         const state = identityBodyState();
-        state.flags = body.flags;
+        setStateField(world, state, "flags", body.flags);
         residentPush(
             world.bodyStore,
             awakeSet.bodyStates,
@@ -152,7 +147,7 @@ export function wakeSolverSet(world: WorldState, setIndex: number): void {
     // wakeSetConstraints so every touching contact already carries setIndex Awake; a contact between two
     // woken bodies converges once both endpoints are visited (reclassify is idempotent).
     for (let i = 0; i < set.bodySims.length; ++i) {
-        reclassifyBodyContacts(world, bodies[set.bodySims[i].bodyId]);
+        reclassifyBodyContacts(world, bodies[simField(world, set.bodySims[i], "bodyId")]);
     }
 
     destroySolverSet(world, setIndex);
@@ -179,7 +174,7 @@ export function transferBody(
     if (targetSet.setIndex === SetType.Awake) {
         world.bodyStore.refreshViews();
         const state = identityBodyState();
-        state.flags = body.flags;
+        setStateField(world, state, "flags", body.flags);
         residentPush(
             world.bodyStore,
             targetSet.bodyStates,
@@ -188,10 +183,20 @@ export function transferBody(
             sourceSim,
             body.headShapeId,
         );
-        targetSet.bodySims[targetIndex].flags &= ~BODY_TRANSIENT_FLAGS;
+        setSimField(
+            world,
+            targetSet.bodySims[targetIndex],
+            "flags",
+            simField(world, targetSet.bodySims[targetIndex], "flags") & ~BODY_TRANSIENT_FLAGS,
+        );
     } else {
-        const targetSim = cloneBodySim(sourceSim);
-        targetSim.flags &= ~BODY_TRANSIENT_FLAGS;
+        const targetSim = copyBodySim(world, sourceSim);
+        setSimField(
+            world,
+            targetSim,
+            "flags",
+            simField(world, targetSim, "flags") & ~BODY_TRANSIENT_FLAGS,
+        );
         targetSet.bodySims.push(targetSim);
     }
 
@@ -216,7 +221,7 @@ export function transferBody(
         const movedIndex = swapRemove(sourceSet.bodySims, sourceIndex);
         if (movedIndex !== NULL_INDEX) {
             const movedSim = sourceSet.bodySims[sourceIndex];
-            world.bodies[movedSim.bodyId].localIndex = sourceIndex;
+            world.bodies[simField(world, movedSim, "bodyId")].localIndex = sourceIndex;
         }
     }
 
@@ -305,7 +310,7 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
         // The sleeping set holds a plain deep copy (view→object marshal via cloneBodySim); the awake
         // set's resident sim + state records then compact via one swap-remove migration.
         const sleepBodyIndex = sleepSet.bodySims.length;
-        sleepSet.bodySims.push(cloneBodySim(awakeSim));
+        sleepSet.bodySims.push(copyBodySim(world, awakeSim));
 
         const movedBodyId = residentRemove(
             world.bodyStore,

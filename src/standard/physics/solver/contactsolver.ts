@@ -1,8 +1,8 @@
 import { contactHit } from "../collision/manifoldstore";
 import { OVERFLOW_INDEX } from "../common/constants";
+import type { BodySimRef } from "../kernel/bodycolumns";
 import { COLOR_SPAN_STRIDE, type Columns } from "../kernel/columns";
 import { kernel } from "../kernel/kernel";
-import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { graphContacts } from "./graph";
 import type { Softness } from "./softness";
@@ -10,7 +10,7 @@ import type { Softness } from "./softness";
 /** The per-step solver context threaded through the solve (b3StepContext, scalar subset). */
 export type StepContext = {
     world: WorldState;
-    sims: BodySim[];
+    sims: BodySimRef[];
     dt: number;
     invDt: number;
     h: number;
@@ -24,7 +24,7 @@ export type StepContext = {
     awakeIslands: boolean[];
     splitIslandId: number;
     splitSleepTime: number;
-    bulletBodies: BodySim[];
+    bulletBodies: BodySimRef[];
     hitEventContacts: Set<number>;
     jointEventFlags: Set<number>;
 };

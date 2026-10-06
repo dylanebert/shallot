@@ -1,11 +1,12 @@
-import { BodyFlags, type BodySim } from "../world/body";
+import { BodyFlags } from "../world/body";
 import { recordSensorHit } from "../world/sensor";
 import type { WorldState } from "../world/world";
+import type { BodySimRef } from "./bodycolumns";
 import { CONTINUOUS_STRIDE as STRIDE } from "./bodycolumns";
 import { S2_BODY_ID, S2_FLAGS, SIM2_STRIDE } from "./columns";
 import { kernel, ParKind, runPool, workers } from "./kernel";
 
-export function prepareContinuous(world: WorldState, sims: BodySim[]): void {
+export function prepareContinuous(world: WorldState, sims: BodySimRef[]): void {
     const k = kernel(world.ecsState);
     world.shapeStore.refreshViews();
     world.broadPhase.store.refreshIfStale();
@@ -35,7 +36,7 @@ export function consumeContinuous(world: WorldState, count: number, bullets: boo
             recordSensorHit(world, out[row + 2 + n * 2], out[row + 3 + n * 2]);
     }
 }
-export function solveBullets(world: WorldState, sims: BodySim[]): void {
+export function solveBullets(world: WorldState, sims: BodySimRef[]): void {
     const k = kernel(world.ecsState);
     const pool = workers(world.ecsState);
     const fork = k.parBuild(ParKind.Bullets, sims.length, (pool?.size ?? 0) + 1, 0);

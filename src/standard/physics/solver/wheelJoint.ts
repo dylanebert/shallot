@@ -1,4 +1,5 @@
 import { atan2, f32, mat3, quat, type Vec3, vec3 } from "../common/math";
+import { simField, stateField } from "../kernel/bodycolumns";
 import {
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
@@ -177,7 +178,10 @@ export function getWheelJointTorque(world: WorldState, sim: Joint): Vec3 {
     const bodyA = world.bodies[sim.edges[0].bodyId];
     const setA = world.solverSets[bodyA.setIndex];
     const bodySimA = setA.bodySims[bodyA.localIndex];
-    const qA = quat.mul(bodySimA.transform.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
+    const qA = quat.mul(
+        simField(world, bodySimA, "transform").q,
+        readJointQuat(world, sim, J_LOCAL_FRAME_A + 3),
+    );
     const matrixA = mat3.fromQuat(qA);
     return vec3.scale(f32(world.invH * readJointFloat(world, sim, WHJ_SPIN_IMPULSE)), matrixA.cz);
 }
@@ -188,7 +192,10 @@ export function wheelJointSpinSpeed(world: WorldState, sim: Joint): number {
     const bodyB = world.bodies[sim.edges[1].bodyId];
     const setB = world.solverSets[bodyB.setIndex];
     const bodySimB = setB.bodySims[bodyB.localIndex];
-    const quatB = quat.mul(bodySimB.transform.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
+    const quatB = quat.mul(
+        simField(world, bodySimB, "transform").q,
+        readJointQuat(world, sim, J_LOCAL_FRAME_B + 3),
+    );
     const spinAxis = quat.rotate(quatB, vec3.axisZ());
     const zero: Vec3 = {
         x: 0,
@@ -197,8 +204,8 @@ export function wheelJointSpinSpeed(world: WorldState, sim: Joint): number {
     };
     const stateA = getBodyState(world, bodyA);
     const stateB = getBodyState(world, bodyB);
-    const wA = stateA ? stateA.angularVelocity : zero;
-    const wB = stateB ? stateB.angularVelocity : zero;
+    const wA = stateA !== null ? stateField(world, stateA, "angularVelocity") : zero;
+    const wB = stateB !== null ? stateField(world, stateB, "angularVelocity") : zero;
     return vec3.dot(vec3.sub(wB, wA), spinAxis);
 }
 
@@ -210,8 +217,14 @@ export function wheelJointSteeringAngle(world: WorldState, sim: Joint): number {
     const setB = world.solverSets[bodyB.setIndex];
     const bodySimA = setA.bodySims[bodyA.localIndex];
     const bodySimB = setB.bodySims[bodyB.localIndex];
-    const quatA = quat.mul(bodySimA.transform.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
-    const quatB = quat.mul(bodySimB.transform.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
+    const quatA = quat.mul(
+        simField(world, bodySimA, "transform").q,
+        readJointQuat(world, sim, J_LOCAL_FRAME_A + 3),
+    );
+    const quatB = quat.mul(
+        simField(world, bodySimB, "transform").q,
+        readJointQuat(world, sim, J_LOCAL_FRAME_B + 3),
+    );
     const matrixA = mat3.fromQuat(quatA);
     const matrixB = mat3.fromQuat(quatB);
 

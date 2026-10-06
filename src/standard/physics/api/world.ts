@@ -382,7 +382,7 @@ export class PhysicsWorld {
             const ev = pool[i];
             ev.body.id.index1 = rec.bodyId + 1;
             ev.body.id.generation = rec.generation;
-            readSimTransform(getBodySim(state, body), ev.transform);
+            readSimTransform(state, getBodySim(state, body), ev.transform);
             ev.userData = body.userData;
             ev.fellAsleep = rec.fellAsleep;
         }

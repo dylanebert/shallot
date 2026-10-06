@@ -1,5 +1,6 @@
 import { ContactField, contactField } from "../collision/contact";
 import { contactTotalImpulse, readContactManifolds } from "../collision/manifoldstore";
+import { simField } from "../kernel/bodycolumns";
 import { shapeBodyId } from "../kernel/filtercolumns";
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
 // MIT). The port runs the canonical colored constraint schedule, with a real overflow fallback:
@@ -168,7 +169,11 @@ function buildHitEvents(context: StepContext): void {
         const shapeB = world.shapes[contactField(world, contact, ContactField.shapeIdB)];
         const simA = getBodySim(world, world.bodies[shapeBodyId(world, shapeA.id)]);
         const simB = getBodySim(world, world.bodies[shapeBodyId(world, shapeB.id)]);
-        const midCenter = vec3.lerp(simA.center, simB.center, f32(0.5));
+        const midCenter = vec3.lerp(
+            simField(world, simA, "center"),
+            simField(world, simB, "center"),
+            f32(0.5),
+        );
 
         let approachSpeed = threshold;
         let found = false;

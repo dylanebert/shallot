@@ -1,4 +1,5 @@
 import { f32, quat, type Vec3, vec3 } from "../common/math";
+import { simField, stateField } from "../kernel/bodycolumns";
 import {
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
@@ -152,32 +153,41 @@ export function prismaticJointSpeed(world: WorldState, sim: Joint): number {
     const bodySimB = getBodySim(world, bodyB);
     const stateA = getBodyState(world, bodyA);
     const stateB = getBodyState(world, bodyB);
-    const qA = bodySimA.transform.q;
-    const qB = bodySimB.transform.q;
+    const qA = simField(world, bodySimA, "transform").q;
+    const qB = simField(world, bodySimB, "transform").q;
     const axisA = quat.rotate(
         qA,
         quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisX()),
     );
     const rA = quat.rotate(
         qA,
-        vec3.sub(readJointVec3(world, sim, J_LOCAL_FRAME_A), bodySimA.localCenter),
+        vec3.sub(
+            readJointVec3(world, sim, J_LOCAL_FRAME_A),
+            simField(world, bodySimA, "localCenter"),
+        ),
     );
     const rB = quat.rotate(
         qB,
-        vec3.sub(readJointVec3(world, sim, J_LOCAL_FRAME_B), bodySimB.localCenter),
+        vec3.sub(
+            readJointVec3(world, sim, J_LOCAL_FRAME_B),
+            simField(world, bodySimB, "localCenter"),
+        ),
     );
 
     // Difference the centers directly; positions are f32 in the single-precision build.
-    const d = vec3.add(vec3.sub(bodySimB.center, bodySimA.center), vec3.sub(rB, rA));
+    const d = vec3.add(
+        vec3.sub(simField(world, bodySimB, "center"), simField(world, bodySimA, "center")),
+        vec3.sub(rB, rA),
+    );
     const zero: Vec3 = {
         x: 0,
         y: 0,
         z: 0,
     };
-    const vA = stateA ? stateA.linearVelocity : zero;
-    const vB = stateB ? stateB.linearVelocity : zero;
-    const wA = stateA ? stateA.angularVelocity : zero;
-    const wB = stateB ? stateB.angularVelocity : zero;
+    const vA = stateA !== null ? stateField(world, stateA, "linearVelocity") : zero;
+    const vB = stateB !== null ? stateField(world, stateB, "linearVelocity") : zero;
+    const wA = stateA !== null ? stateField(world, stateA, "angularVelocity") : zero;
+    const wB = stateB !== null ? stateField(world, stateB, "angularVelocity") : zero;
     const vRel = vec3.sub(vec3.add(vB, vec3.cross(wB, rB)), vec3.add(vA, vec3.cross(wA, rA)));
 
     // The axis moves with body A, so account for its rotation.

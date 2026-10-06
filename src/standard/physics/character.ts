@@ -17,6 +17,7 @@ import {
     readSimCenter,
     readStateAngularVelocity,
     readStateLinearVelocity,
+    simField,
 } from "./kernel/bodycolumns";
 import { bodyType, shapeBodyId } from "./kernel/filtercolumns";
 import { queryColumns } from "./kernel/querycolumns";
@@ -270,10 +271,10 @@ function groundVelocity(physics: PhysicsWorld, shape: number, s: Scratch): void 
     gv.x = 0;
     gv.y = 0;
     gv.z = 0;
-    if (!ground) return;
-    readSimCenter(sim, s.center);
-    readStateAngularVelocity(ground, s.angular);
-    readStateLinearVelocity(ground, s.linear);
+    if (ground === null) return;
+    readSimCenter(state, sim, s.center);
+    readStateAngularVelocity(state, ground, s.angular);
+    readStateLinearVelocity(state, ground, s.linear);
     vec3.subOut(s.point, s.center, s.r);
     vec3.crossOut(s.angular, s.r, gv);
     vec3.addOut(s.linear, gv, gv);
@@ -335,22 +336,22 @@ function push(physics: PhysicsWorld, s: Scratch): void {
         const sim = getBodySim(state, pushed);
         const b = getBodyState(state, pushed);
         vec3.scaleOut(-1, s.planes[i].plane.normal, s.normal);
-        readSimCenter(sim, s.center);
+        readSimCenter(state, sim, s.center);
         vec3.subOut(s.points[i], s.center, s.r);
         vec3.crossOut(s.r, s.normal, s.rn);
-        const m = sim.invInertiaWorld;
+        const m = simField(state, sim, "invInertiaWorld");
         const rn = s.rn;
         s.mrn.x = f32(f32(f32(m.cx.x * rn.x) + f32(m.cy.x * rn.y)) + f32(m.cz.x * rn.z));
         s.mrn.y = f32(f32(f32(m.cx.y * rn.x) + f32(m.cy.y * rn.y)) + f32(m.cz.y * rn.z));
         s.mrn.z = f32(f32(f32(m.cx.z * rn.x) + f32(m.cy.z * rn.y)) + f32(m.cz.z * rn.z));
-        const mass = f32(sim.invMass + vec3.dot(rn, s.mrn));
+        const mass = f32(simField(state, sim, "invMass") + vec3.dot(rn, s.mrn));
         const normalMass = mass > 0 ? f32(1 / mass) : 0;
         s.vr.x = 0;
         s.vr.y = 0;
         s.vr.z = 0;
-        if (b) {
-            readStateAngularVelocity(b, s.angular);
-            readStateLinearVelocity(b, s.linear);
+        if (b !== null) {
+            readStateAngularVelocity(state, b, s.angular);
+            readStateLinearVelocity(state, b, s.linear);
             vec3.crossOut(s.angular, s.r, s.vr);
             vec3.addOut(s.linear, s.vr, s.vr);
         }

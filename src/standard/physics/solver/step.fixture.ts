@@ -1,3 +1,4 @@
+import { simField, stateField } from "../kernel/bodycolumns";
 // The bit-exact fixture harness: scene builders and the replay driver. The declared checks that call
 // it live beside it in step.gold.test.ts. Each scene is rebuilt through the
 // public API, stepped, and its FNV-1a world-state hash asserted equal to the frozen historical value, per
@@ -114,13 +115,30 @@ function dumpBodies(physicsWorld: PhysicsWorld): BodyDump[] {
         }
         const sim = getBodySim(state, body);
         const dump: BodyDump = {
-            p: [sim.transform.p.x, sim.transform.p.y, sim.transform.p.z],
-            q: [sim.transform.q.v.x, sim.transform.q.v.y, sim.transform.q.v.z, sim.transform.q.s],
+            p: [
+                simField(state, sim, "transform").p.x,
+                simField(state, sim, "transform").p.y,
+                simField(state, sim, "transform").p.z,
+            ],
+            q: [
+                simField(state, sim, "transform").q.v.x,
+                simField(state, sim, "transform").q.v.y,
+                simField(state, sim, "transform").q.v.z,
+                simField(state, sim, "transform").q.s,
+            ],
         };
         const bs = getBodyState(state, body);
         if (bs !== null) {
-            dump.v = [bs.linearVelocity.x, bs.linearVelocity.y, bs.linearVelocity.z];
-            dump.w = [bs.angularVelocity.x, bs.angularVelocity.y, bs.angularVelocity.z];
+            dump.v = [
+                stateField(state, bs, "linearVelocity").x,
+                stateField(state, bs, "linearVelocity").y,
+                stateField(state, bs, "linearVelocity").z,
+            ];
+            dump.w = [
+                stateField(state, bs, "angularVelocity").x,
+                stateField(state, bs, "angularVelocity").y,
+                stateField(state, bs, "angularVelocity").z,
+            ];
         }
         out.push(dump);
     }

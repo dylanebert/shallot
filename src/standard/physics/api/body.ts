@@ -18,7 +18,12 @@ import {
     type QueryFilter,
     type ShapeDef,
 } from "../common/types";
-import { readSimTransform, readStateLinearVelocity } from "../kernel/bodycolumns";
+import {
+    readSimTransform,
+    readStateLinearVelocity,
+    simField,
+    stateField,
+} from "../kernel/bodycolumns";
 import { bodyType } from "../kernel/filtercolumns";
 import { kernel, setQueryCallback } from "../kernel/kernel";
 import { type QueryColumns, queryColumns } from "../kernel/querycolumns";
@@ -218,7 +223,7 @@ export class Body {
      * (the three.js `getWorldPosition(target)` idiom) for zero-allocation reads in a hot loop.
      */
     getPosition(out?: Pos): Pos {
-        const p = readSimTransform(getBodySim(this.world, this.record()), poseRead).p;
+        const p = readSimTransform(this.world, getBodySim(this.world, this.record()), poseRead).p;
         if (out === undefined) {
             return { x: p.x, y: p.y, z: p.z };
         }
@@ -230,7 +235,7 @@ export class Body {
 
     /** @returns the body rotation. Pass `out` to fill it instead of allocating. */
     getRotation(out?: Quat): Quat {
-        const q = readSimTransform(getBodySim(this.world, this.record()), poseRead).q;
+        const q = readSimTransform(this.world, getBodySim(this.world, this.record()), poseRead).q;
         if (out === undefined) {
             return { v: { x: q.v.x, y: q.v.y, z: q.v.z }, s: q.s };
         }
@@ -243,7 +248,7 @@ export class Body {
 
     /** @returns the body world transform. Pass `out` to fill it instead of allocating. */
     getTransform(out?: WorldTransform): WorldTransform {
-        const t = readSimTransform(getBodySim(this.world, this.record()), poseRead);
+        const t = readSimTransform(this.world, getBodySim(this.world, this.record()), poseRead);
         if (out === undefined) {
             return { p: { x: t.p.x, y: t.p.y, z: t.p.z }, q: { v: { ...t.q.v }, s: t.q.s } };
         }
@@ -259,7 +264,7 @@ export class Body {
 
     /** @returns the world-space center of mass. */
     getWorldCenterOfMass(): Pos {
-        return { ...getBodySim(this.world, this.record()).center };
+        return { ...simField(this.world, getBodySim(this.world, this.record()), "center") };
     }
 
     /**
@@ -274,9 +279,11 @@ export class Body {
     getLinearVelocity(out?: Vec3): Vec3 {
         const state = getBodyState(this.world, this.record());
         if (out === undefined) {
-            return state === null ? { x: 0, y: 0, z: 0 } : { ...state.linearVelocity };
+            return state === null
+                ? { x: 0, y: 0, z: 0 }
+                : { ...stateField(this.world, state, "linearVelocity") };
         }
-        if (state !== null) return readStateLinearVelocity(state, out);
+        if (state !== null) return readStateLinearVelocity(this.world, state, out);
         out.x = 0;
         out.y = 0;
         out.z = 0;
@@ -286,7 +293,9 @@ export class Body {
     /** @returns the body's angular velocity (zero when the body is not awake). */
     getAngularVelocity(): Vec3 {
         const state = getBodyState(this.world, this.record());
-        return state === null ? { x: 0, y: 0, z: 0 } : { ...state.angularVelocity };
+        return state === null
+            ? { x: 0, y: 0, z: 0 }
+            : { ...stateField(this.world, state, "angularVelocity") };
     }
 
     /** Set the body's linear velocity, waking it when nonzero. */

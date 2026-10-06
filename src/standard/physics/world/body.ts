@@ -1,4 +1,6 @@
 import { ContactField, contactField } from "../collision/contact";
+import type { BodySimRef, BodyStateRef } from "../kernel/bodycolumns";
+import { setSimField, setStateField, simField, stateField } from "../kernel/bodycolumns";
 import { bodyType, setBodyType, shapeSensorIndex } from "../kernel/filtercolumns";
 // Rigid body lifecycle and the 3-way body split, ported from Box3D's body.c (Erin Catto, MIT).
 // A body is stored as three records: the cold organizational handle (b3Body, in world.bodies,
@@ -179,8 +181,8 @@ export type Body = {
 };
 
 const cloneVec = (v: Vec3): Vec3 => ({ x: v.x, y: v.y, z: v.z });
-const cloneQuat = (q: Quat): Quat => ({ v: cloneVec(q.v), s: q.s });
-const cloneMat3 = (m: Mat3): Mat3 => ({
+const _cloneQuat = (q: Quat): Quat => ({ v: cloneVec(q.v), s: q.s });
+const _cloneMat3 = (m: Mat3): Mat3 => ({
     cx: cloneVec(m.cx),
     cy: cloneVec(m.cy),
     cz: cloneVec(m.cz),
@@ -190,36 +192,13 @@ const cloneMat3 = (m: Mat3): Mat3 => ({
  * Deep-copy a body sim (the C `memcpy(simDst, simSrc)` in every solver-set transfer). The target
  * must not alias the source's Vec3/Quat/Mat3 sub-objects — the solver mutates them in place.
  */
-export function cloneBodySim(s: BodySim): BodySim {
-    return {
-        transform: { p: cloneVec(s.transform.p), q: cloneQuat(s.transform.q) },
-        center: cloneVec(s.center),
-        rotation0: cloneQuat(s.rotation0),
-        center0: cloneVec(s.center0),
-        localCenter: cloneVec(s.localCenter),
-        force: cloneVec(s.force),
-        torque: cloneVec(s.torque),
-        invMass: s.invMass,
-        invInertiaLocal: cloneMat3(s.invInertiaLocal),
-        invInertiaWorld: cloneMat3(s.invInertiaWorld),
-        minExtent: s.minExtent,
-        maxExtent: cloneVec(s.maxExtent),
-        maxAngularVelocity: s.maxAngularVelocity,
-        linearDamping: s.linearDamping,
-        angularDamping: s.angularDamping,
-        gravityScale: s.gravityScale,
-        bodyId: s.bodyId,
-        flags: s.flags,
-    };
-}
-
 /** @returns the body's simulation payload from whichever solver set owns it (b3GetBodySim). */
-export function getBodySim(world: WorldState, body: Body): BodySim {
+export function getBodySim(world: WorldState, body: Body): BodySimRef {
     return world.solverSets[body.setIndex].bodySims[body.localIndex];
 }
 
 /** @returns the body's solver state, or null when the body is not awake (b3GetBodyState). */
-export function getBodyState(world: WorldState, body: Body): BodyState | null {
+export function getBodyState(world: WorldState, body: Body): BodyStateRef | null {
     if (body.setIndex === SetType.Awake) {
         return world.solverSets[SetType.Awake].bodyStates[body.localIndex];
     }
@@ -240,7 +219,7 @@ export function makeBodyId(world: WorldState, bodyId: number): EntityId {
 
 /** @returns the body's world transform (b3GetBodyTransformQuick). */
 export function getBodyTransformQuick(world: WorldState, body: Body): WorldTransform {
-    return getBodySim(world, body).transform;
+    return simField(world, getBodySim(world, body), "transform");
 }
 
 /**
@@ -249,9 +228,9 @@ export function getBodyTransformQuick(world: WorldState, body: Body): WorldTrans
  */
 export function syncBodyFlags(world: WorldState, body: Body): void {
     const flags = body.flags & ~BODY_TRANSIENT_FLAGS;
-    getBodySim(world, body).flags = flags;
+    setSimField(world, getBodySim(world, body), "flags", flags);
     const state = getBodyState(world, body);
-    if (state !== null) state.flags = flags;
+    if (state !== null) setStateField(world, state, "flags", flags);
 }
 
 /** Set a body's linear velocity, waking it when the velocity is nonzero (b3Body_SetLinearVelocity). */
@@ -269,9 +248,14 @@ export function bodySetLinearVelocity(world: WorldState, body: Body, linearVeloc
     if (state === null) return;
     // Copy, don't store the caller's object: finalize mutates state.linearVelocity in place. A column
     // view's setter already copies the components.
-    state.linearVelocity = isResidentState(state)
-        ? linearVelocity
-        : { x: linearVelocity.x, y: linearVelocity.y, z: linearVelocity.z };
+    setStateField(
+        world,
+        state,
+        "linearVelocity",
+        isResidentState(state)
+            ? linearVelocity
+            : { x: linearVelocity.x, y: linearVelocity.y, z: linearVelocity.z },
+    );
 }
 
 /**
@@ -288,7 +272,7 @@ export function bodySetAngularVelocity(world: WorldState, body: Body, angularVel
     if (vec3.lengthSq(w) !== 0) wakeBody(world, body);
     const state = getBodyState(world, body);
     if (state === null) return;
-    state.angularVelocity = w;
+    setStateField(world, state, "angularVelocity", w);
 }
 
 /**
@@ -310,13 +294,13 @@ export function bodySetTargetTransform(
     const sim = getBodySim(world, body);
 
     // Linear velocity from the world-space center difference, demoted to f32.
-    const center1 = sim.center;
-    const center2 = transformWorldPoint(target, sim.localCenter);
+    const center1 = simField(world, sim, "center");
+    const center2 = transformWorldPoint(target, simField(world, sim, "localCenter"));
     const invTimeStep = f32(1 / timeStep);
     const linearVelocity = vec3.scale(invTimeStep, subPos(center2, center1));
 
     // Angular velocity: w = 2 * (q2 - q1) * conj(q1) / dt, using the shortest-arc quaternion.
-    const q1 = sim.transform.q;
+    const q1 = simField(world, sim, "transform").q;
     let q2 = target.q;
     if (quat.dot(q1, q2) < 0) q2 = quat.negate(q2);
     const dq: Quat = { v: vec3.sub(q2.v, q1.v), s: f32(q2.s - q1.s) };
@@ -326,7 +310,8 @@ export function bodySetTargetTransform(
     // If the body is asleep, wake only when the target motion exceeds the sleep threshold.
     if (body.setIndex !== SetType.Awake) {
         const maxVelocity = f32(
-            vec3.length(linearVelocity) + vec3.length(vec3.mul(angularVelocity, sim.maxExtent)),
+            vec3.length(linearVelocity) +
+                vec3.length(vec3.mul(angularVelocity, simField(world, sim, "maxExtent"))),
         );
         if (maxVelocity < body.sleepThreshold) return;
         wakeBody(world, body);
@@ -334,8 +319,8 @@ export function bodySetTargetTransform(
 
     const state = getBodyState(world, body);
     if (state === null) return;
-    state.linearVelocity = linearVelocity;
-    state.angularVelocity = angularVelocity;
+    setStateField(world, state, "linearVelocity", linearVelocity);
+    setStateField(world, state, "angularVelocity", angularVelocity);
 }
 
 // --- forces + impulses -----------------------------------------------------------------------
@@ -354,8 +339,16 @@ export function bodyApplyForce(
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
-    sim.force = vec3.add(sim.force, force);
-    sim.torque = vec3.add(sim.torque, vec3.cross(subPos(point, sim.center), force));
+    setSimField(world, sim, "force", vec3.add(simField(world, sim, "force"), force));
+    setSimField(
+        world,
+        sim,
+        "torque",
+        vec3.add(
+            simField(world, sim, "torque"),
+            vec3.cross(subPos(point, simField(world, sim, "center")), force),
+        ),
+    );
 }
 
 /** Accumulate a world-space force at the center of mass (b3Body_ApplyForceToCenter). No torque. */
@@ -368,7 +361,7 @@ export function bodyApplyForceToCenter(
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
-    sim.force = vec3.add(sim.force, force);
+    setSimField(world, sim, "force", vec3.add(simField(world, sim, "force"), force));
 }
 
 /** Accumulate a torque about the center of mass (b3Body_ApplyTorque). */
@@ -376,7 +369,7 @@ export function bodyApplyTorque(world: WorldState, body: Body, torque: Vec3, wak
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
-    sim.torque = vec3.add(sim.torque, torque);
+    setSimField(world, sim, "torque", vec3.add(simField(world, sim, "torque"), torque));
 }
 
 // Clamp a linear velocity to the world's max linear speed (the shared tail of the impulse setters).
@@ -413,8 +406,8 @@ export function bodyApplyLinearImpulse(
     const state = getBodyState(world, body);
     if (state === null) return;
 
-    const v = readStateLinearVelocity(state, scratch.linear);
-    vec3.mulAddOut(v, sim.invMass, impulse, v);
+    const v = readStateLinearVelocity(world, state, scratch.linear);
+    vec3.mulAddOut(v, simField(world, sim, "invMass"), impulse, v);
     const lengthSq = vec3.lengthSq(v);
     const max = world.maxLinearSpeed;
     if (lengthSq > f32(max * max)) {
@@ -429,15 +422,20 @@ export function bodyApplyLinearImpulse(
             v.z = 0;
         }
     }
-    state.linearVelocity = isResidentState(state) ? v : { ...v };
+    setStateField(world, state, "linearVelocity", isResidentState(state) ? v : { ...v });
 
-    readSimCenter(sim, scratch.center);
+    readSimCenter(world, sim, scratch.center);
     vec3.subOut(point, scratch.center, scratch.r);
     vec3.crossOut(scratch.r, impulse, scratch.r);
-    mat3.mulVOut(sim.invInertiaWorld, scratch.r, scratch.mrn);
-    const angular = readStateAngularVelocity(state, scratch.angular);
+    mat3.mulVOut(simField(world, sim, "invInertiaWorld"), scratch.r, scratch.mrn);
+    const angular = readStateAngularVelocity(world, state, scratch.angular);
     vec3.addOut(angular, scratch.mrn, angular);
-    state.angularVelocity = isResidentState(state) ? angular : { ...angular };
+    setStateField(
+        world,
+        state,
+        "angularVelocity",
+        isResidentState(state) ? angular : { ...angular },
+    );
 }
 
 /** Apply an instantaneous impulse at the center of mass (b3Body_ApplyLinearImpulseToCenter). */
@@ -453,9 +451,18 @@ export function bodyApplyLinearImpulseToCenter(
     const state = getBodyState(world, body);
     if (state === null) return;
 
-    state.linearVelocity = clampLinearSpeed(
+    setStateField(
         world,
-        vec3.mulAdd(state.linearVelocity, sim.invMass, impulse),
+        state,
+        "linearVelocity",
+        clampLinearSpeed(
+            world,
+            vec3.mulAdd(
+                stateField(world, state, "linearVelocity"),
+                simField(world, sim, "invMass"),
+                impulse,
+            ),
+        ),
     );
 }
 
@@ -473,11 +480,16 @@ export function bodyApplyAngularImpulse(
     if (state === null) return;
 
     // Rotate the impulse into the body frame, apply the local inverse inertia, rotate back.
-    const localImpulse = quat.invRotate(sim.transform.q, impulse);
-    const localDelta = mat3.mulV(sim.invInertiaLocal, localImpulse);
-    state.angularVelocity = vec3.add(
-        state.angularVelocity,
-        quat.rotate(sim.transform.q, localDelta),
+    const localImpulse = quat.invRotate(simField(world, sim, "transform").q, impulse);
+    const localDelta = mat3.mulV(simField(world, sim, "invInertiaLocal"), localImpulse);
+    setStateField(
+        world,
+        state,
+        "angularVelocity",
+        vec3.add(
+            stateField(world, state, "angularVelocity"),
+            quat.rotate(simField(world, sim, "transform").q, localDelta),
+        ),
     );
 }
 
@@ -535,33 +547,33 @@ export function bodySetTransform(
     transform.q.v.z = rotation.v.z;
     transform.q.s = rotation.s;
     if (resident) {
-        writeSimTransform(sim, transform);
-        readSimTransform(sim, transform);
+        writeSimTransform(world, sim, transform);
+        readSimTransform(world, sim, transform);
     } else {
-        vec3.copy(transform.p, sim.transform.p);
-        copyQuat(transform.q, sim.transform.q);
+        vec3.copy(transform.p, simField(world, sim, "transform").p);
+        copyQuat(transform.q, simField(world, sim, "transform").q);
     }
 
-    readSimLocalCenter(sim, setLocalCenter);
+    readSimLocalCenter(world, sim, setLocalCenter);
     quat.rotateOut(transform.q, setLocalCenter, setCenter);
     vec3.addOut(setCenter, transform.p, setCenter);
 
     mat3.fromQuatOut(transform.q, setRotation);
-    copyMat3(sim.invInertiaLocal, setInvILocal);
+    copyMat3(simField(world, sim, "invInertiaLocal"), setInvILocal);
     mat3.mulOut(setRotation, setInvILocal, setInertiaTmp);
     mat3.transposeOut(setRotation, setRotationT);
     mat3.mulOut(setInertiaTmp, setRotationT, setInvIWorld);
 
     if (resident) {
-        sim.center = setCenter;
-        sim.invInertiaWorld = setInvIWorld;
-        writeSimRotation0(sim, transform.q);
-        sim.center0 = setCenter;
+        setSimField(world, sim, "center", setCenter);
+        setSimField(world, sim, "invInertiaWorld", setInvIWorld);
+        writeSimRotation0(world, sim, transform.q);
+        setSimField(world, sim, "center0", setCenter);
     } else {
-        vec3.copy(setCenter, sim.center);
-        copyMat3(setInvIWorld, sim.invInertiaWorld);
-        writeSimRotation0(sim, transform.q);
-        vec3.copy(setCenter, sim.center0);
+        vec3.copy(setCenter, simField(world, sim, "center"));
+        copyMat3(setInvIWorld, simField(world, sim, "invInertiaWorld"));
+        writeSimRotation0(world, sim, transform.q);
+        vec3.copy(setCenter, simField(world, sim, "center0"));
     }
 
     const broadPhase = world.broadPhase;
@@ -883,23 +895,23 @@ export function createBody(world: WorldState, def: BodyDef): number {
 
     const set = world.solverSets[setId];
     const bodySim = emptyBodySim();
-    bodySim.transform.p = { ...def.position };
-    bodySim.transform.q = { v: { ...def.rotation.v }, s: def.rotation.s };
-    bodySim.center = { ...def.position };
-    writeSimRotation0(bodySim, bodySim.transform.q);
-    bodySim.center0 = { ...bodySim.center };
-    bodySim.minExtent = HUGE;
-    bodySim.linearDamping = def.linearDamping;
-    bodySim.angularDamping = def.angularDamping;
-    bodySim.gravityScale = def.gravityScale;
-    bodySim.bodyId = bodyId;
+    simField(world, bodySim, "transform").p = { ...def.position };
+    simField(world, bodySim, "transform").q = { v: { ...def.rotation.v }, s: def.rotation.s };
+    setSimField(world, bodySim, "center", { ...def.position });
+    writeSimRotation0(world, bodySim, simField(world, bodySim, "transform").q);
+    setSimField(world, bodySim, "center0", { ...simField(world, bodySim, "center") });
+    setSimField(world, bodySim, "minExtent", HUGE);
+    setSimField(world, bodySim, "linearDamping", def.linearDamping);
+    setSimField(world, bodySim, "angularDamping", def.angularDamping);
+    setSimField(world, bodySim, "gravityScale", def.gravityScale);
+    setSimField(world, bodySim, "bodyId", bodyId);
     let flags = lockFlags;
     flags |= def.isBullet ? BodyFlags.isBullet : 0;
     flags |= def.allowFastRotation ? BodyFlags.allowFastRotation : 0;
     flags |= def.type === BodyType.Dynamic ? BodyFlags.dynamicFlag : 0;
     flags |= def.enableSleep ? BodyFlags.enableSleep : 0;
     flags |= def.enableContactRecycling ? BodyFlags.enableContactRecycling : 0;
-    bodySim.flags = flags;
+    setSimField(world, bodySim, "flags", flags);
     // Awake bodies hold a column-backed `ResidentBodySim` view (pushed via `residentPush` below, once
     // the region is sized); every other set holds the plain sim. Defer the awake push so the view lands
     // over the resident record rather than a plain object being replaced.
@@ -910,10 +922,15 @@ export function createBody(world: WorldState, def: BodyDef): number {
     let awakeState: BodyState | null = null;
     if (setId === SetType.Awake) {
         awakeState = identityBodyState();
-        awakeState.linearVelocity = { ...def.linearVelocity };
-        awakeState.angularVelocity = { ...def.angularVelocity };
-        awakeState.flags = bodySim.flags;
-        bodySim.maxAngularVelocity = f32(vec3.length(def.angularVelocity) + f32(5.0));
+        setStateField(world, awakeState, "linearVelocity", { ...def.linearVelocity });
+        setStateField(world, awakeState, "angularVelocity", { ...def.angularVelocity });
+        setStateField(world, awakeState, "flags", simField(world, bodySim, "flags"));
+        setSimField(
+            world,
+            bodySim,
+            "maxAngularVelocity",
+            f32(vec3.length(def.angularVelocity) + f32(5.0)),
+        );
     }
 
     if (bodyId === world.bodies.length) {
@@ -944,7 +961,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     body.mass = 0;
     body.inertia = mat3.zero();
     setBodyType(world, body.id, def.type);
-    body.flags = bodySim.flags;
+    body.flags = simField(world, bodySim, "flags");
 
     // enabled dynamic and kinematic bodies need an island
     if (setId >= SetType.Awake) {
@@ -1041,7 +1058,7 @@ export function destroyBody(world: WorldState, body: Body): void {
         const movedIndex = swapRemove(set.bodySims, body.localIndex);
         if (movedIndex !== NULL_INDEX) {
             const movedSim = set.bodySims[body.localIndex];
-            world.bodies[movedSim.bodyId].localIndex = body.localIndex;
+            world.bodies[simField(world, movedSim, "bodyId")].localIndex = body.localIndex;
         }
         if (set.setIndex >= SetType.FirstSleeping && set.bodySims.length === 0) {
             // Remove the solver set if it is now an orphan
@@ -1063,12 +1080,12 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
 
     body.mass = 0;
     body.inertia = mat3.zero();
-    bodySim.invMass = 0;
-    bodySim.invInertiaLocal = mat3.zero();
-    bodySim.invInertiaWorld = mat3.zero();
-    bodySim.localCenter = { x: 0, y: 0, z: 0 };
-    bodySim.minExtent = HUGE;
-    bodySim.maxExtent = { x: 0, y: 0, z: 0 };
+    setSimField(world, bodySim, "invMass", 0);
+    setSimField(world, bodySim, "invInertiaLocal", mat3.zero());
+    setSimField(world, bodySim, "invInertiaWorld", mat3.zero());
+    setSimField(world, bodySim, "localCenter", { x: 0, y: 0, z: 0 });
+    setSimField(world, bodySim, "minExtent", HUGE);
+    setSimField(world, bodySim, "maxExtent", { x: 0, y: 0, z: 0 });
 
     if (body.headShapeId === NULL_INDEX) {
         return;
@@ -1076,16 +1093,26 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
 
     // Static and kinematic sims have zero mass.
     if (bodyType(world, body.id) !== BodyType.Dynamic) {
-        bodySim.center = { ...bodySim.transform.p };
-        bodySim.center0 = { ...bodySim.center };
+        setSimField(world, bodySim, "center", { ...simField(world, bodySim, "transform").p });
+        setSimField(world, bodySim, "center0", { ...simField(world, bodySim, "center") });
 
         if (bodyType(world, body.id) === BodyType.Kinematic) {
             let shapeId = body.headShapeId;
             while (shapeId !== NULL_INDEX) {
                 const s = world.shapes[shapeId];
                 const extent = computeShapeExtent(s, { x: 0, y: 0, z: 0 });
-                bodySim.minExtent = minf(bodySim.minExtent, extent.minExtent);
-                bodySim.maxExtent = vec3.max(bodySim.maxExtent, extent.maxExtent);
+                setSimField(
+                    world,
+                    bodySim,
+                    "minExtent",
+                    minf(simField(world, bodySim, "minExtent"), extent.minExtent),
+                );
+                setSimField(
+                    world,
+                    bodySim,
+                    "maxExtent",
+                    vec3.max(simField(world, bodySim, "maxExtent"), extent.maxExtent),
+                );
                 shapeId = s.nextShapeId;
             }
         }
@@ -1113,8 +1140,8 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
     }
 
     if (body.mass > 0) {
-        bodySim.invMass = f32(1 / body.mass);
-        localCenter = vec3.scale(bodySim.invMass, localCenter);
+        setSimField(world, bodySim, "invMass", f32(1 / body.mass));
+        localCenter = vec3.scale(simField(world, bodySim, "invMass"), localCenter);
     }
 
     for (let shapeIndex = 0; shapeIndex < masses.length; ++shapeIndex) {
@@ -1129,39 +1156,70 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
 
     const det = mat3.det(body.inertia);
     if (det > 0) {
-        bodySim.invInertiaLocal = mat3.invertT(body.inertia);
-        const rotationMatrix = mat3.fromQuat(bodySim.transform.q);
-        bodySim.invInertiaWorld = mat3.mul(
-            mat3.mul(rotationMatrix, bodySim.invInertiaLocal),
-            mat3.transpose(rotationMatrix),
+        setSimField(world, bodySim, "invInertiaLocal", mat3.invertT(body.inertia));
+        const rotationMatrix = mat3.fromQuat(simField(world, bodySim, "transform").q);
+        setSimField(
+            world,
+            bodySim,
+            "invInertiaWorld",
+            mat3.mul(
+                mat3.mul(rotationMatrix, simField(world, bodySim, "invInertiaLocal")),
+                mat3.transpose(rotationMatrix),
+            ),
         );
     }
 
-    const oldCenter = bodySim.center;
-    bodySim.localCenter = localCenter;
-    bodySim.center = transformWorldPoint(bodySim.transform, bodySim.localCenter);
-    bodySim.center0 = { ...bodySim.center };
+    const oldCenter = simField(world, bodySim, "center");
+    setSimField(world, bodySim, "localCenter", localCenter);
+    setSimField(
+        world,
+        bodySim,
+        "center",
+        transformWorldPoint(
+            simField(world, bodySim, "transform"),
+            simField(world, bodySim, "localCenter"),
+        ),
+    );
+    setSimField(world, bodySim, "center0", { ...simField(world, bodySim, "center") });
 
     const state = getBodyState(world, body);
     if (state !== null) {
-        const deltaLinear = vec3.cross(state.angularVelocity, vec3.sub(bodySim.center, oldCenter));
-        state.linearVelocity = vec3.add(state.linearVelocity, deltaLinear);
+        const deltaLinear = vec3.cross(
+            stateField(world, state, "angularVelocity"),
+            vec3.sub(simField(world, bodySim, "center"), oldCenter),
+        );
+        setStateField(
+            world,
+            state,
+            "linearVelocity",
+            vec3.add(stateField(world, state, "linearVelocity"), deltaLinear),
+        );
     }
 
     let extentShapeId = body.headShapeId;
     while (extentShapeId !== NULL_INDEX) {
         const s = world.shapes[extentShapeId];
         const extent = computeShapeExtent(s, localCenter);
-        bodySim.minExtent = minf(bodySim.minExtent, extent.minExtent);
-        bodySim.maxExtent = vec3.max(bodySim.maxExtent, extent.maxExtent);
+        setSimField(
+            world,
+            bodySim,
+            "minExtent",
+            minf(simField(world, bodySim, "minExtent"), extent.minExtent),
+        );
+        setSimField(
+            world,
+            bodySim,
+            "maxExtent",
+            vec3.max(simField(world, bodySim, "maxExtent"), extent.maxExtent),
+        );
         extentShapeId = s.nextShapeId;
     }
 
     // Apply fixed rotation
-    if ((bodySim.flags & FIXED_ROTATION) === FIXED_ROTATION) {
+    if ((simField(world, bodySim, "flags") & FIXED_ROTATION) === FIXED_ROTATION) {
         body.inertia = mat3.zero();
-        bodySim.invInertiaLocal = mat3.zero();
-        bodySim.invInertiaWorld = mat3.zero();
+        setSimField(world, bodySim, "invInertiaLocal", mat3.zero());
+        setSimField(world, bodySim, "invInertiaWorld", mat3.zero());
     }
     syncBodyQuery(world, body);
 }
@@ -1169,5 +1227,9 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
 /** @returns the body's mass, local center of mass, and rotational inertia (b3Body_GetMassData). */
 export function getMassData(world: WorldState, body: Body): MassData {
     const bodySim = getBodySim(world, body);
-    return { mass: body.mass, center: bodySim.localCenter, inertia: body.inertia };
+    return {
+        mass: body.mass,
+        center: simField(world, bodySim, "localCenter"),
+        inertia: body.inertia,
+    };
 }
