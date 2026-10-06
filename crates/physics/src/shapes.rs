@@ -111,7 +111,7 @@ unsafe fn record(id: usize, shape: usize) -> *mut u32 {
 unsafe fn free_materials(id: usize, shape: usize) {
     let p = record(id, shape);
     let count = *p.add(S_MATERIAL_COUNT) as usize;
-    if count > 1 {
+    if *p.add(S_MATERIAL_HEAD) != 0 {
         std::alloc::dealloc(
             *p.add(S_MATERIAL_HEAD) as *mut u8,
             std::alloc::Layout::from_size_align_unchecked(count * MATERIAL_STRIDE * 4, 4),
@@ -120,11 +120,12 @@ unsafe fn free_materials(id: usize, shape: usize) {
     *p.add(S_MATERIAL_HEAD) = 0;
     *p.add(S_MATERIAL_COUNT) = 0;
 }
-/// Box3D stores one material inline and owns an exact-sized array otherwise.
+/// Compounds own their material array; other shapes keep a single material inline.
 #[export_name = "shapeAllocateMaterials"]
 pub unsafe extern "C" fn allocate_materials(id: u32, shape: u32, count: usize) -> usize {
     free_materials(id as usize, shape as usize);
-    let ptr = if count > 1 {
+    let compound = *record(id as usize, shape as usize).add(S_TYPE) == crate::finalize::TY_COMPOUND;
+    let ptr = if count > 1 || (count > 0 && compound) {
         let layout = std::alloc::Layout::from_size_align_unchecked(count * MATERIAL_STRIDE * 4, 4);
         let p = std::alloc::alloc(layout);
         if p.is_null() {
@@ -145,7 +146,7 @@ pub unsafe extern "C" fn release_materials(id: u32, shape: u32) {
 }
 unsafe fn material_ptr(id: usize, shape: usize) -> *mut u32 {
     let p = record(id, shape);
-    if *p.add(S_MATERIAL_COUNT) > 1 {
+    if *p.add(S_MATERIAL_HEAD) != 0 {
         *p.add(S_MATERIAL_HEAD) as *mut u32
     } else {
         p.add(S_MATERIAL)
@@ -313,7 +314,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     w.columns.snapshot(out);
     for shape in 0..w.shape.next {
         let count = *record(id, shape).add(S_MATERIAL_COUNT) as usize;
-        if count > 1 {
+        if *record(id, shape).add(S_MATERIAL_HEAD) != 0 {
             out.extend_from_slice(core::slice::from_raw_parts(
                 material_ptr(id, shape) as *const u8,
                 count * MATERIAL_STRIDE * 4,
@@ -335,8 +336,9 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     for shape in 0..w.shape.next {
         let p = record(id, shape);
         let count = *p.add(S_MATERIAL_COUNT) as usize;
-        if count > 1 {
+        if *p.add(S_MATERIAL_HEAD) != 0 {
             // The saved pointer is not owned by the restored world.
+            *p.add(S_MATERIAL_HEAD) = 0;
             *p.add(S_MATERIAL_COUNT) = 0;
             let ptr = allocate_materials(id as u32, shape as u32, count);
             let bytes = count * MATERIAL_STRIDE * 4;

@@ -1,8 +1,52 @@
 import { expect, test } from "bun:test";
-import { defaultSurfaceMaterial, PhysicsWorld } from "../api";
-import { getShapeMaterials } from "../shapes/shape";
+import { BodyType, createCompound, defaultSurfaceMaterial, PhysicsWorld } from "../api";
+import { getShapeMaterial, getShapeMaterials } from "../shapes/shape";
 import { kernel } from "./kernel";
-import { SHAPE_STRIDE } from "./shapecolumns";
+import { S_MATERIAL_HEAD, SHAPE_STRIDE } from "./shapecolumns";
+
+test("a single-material compound owns its array through replacement, restore and reset", () => {
+    const world = new PhysicsWorld();
+    try {
+        const material = {
+            ...defaultSurfaceMaterial(),
+            friction: 0.75,
+            userMaterialId: 0x123456789abcdef0n,
+        };
+        const compound = createCompound({
+            spheres: [{ sphere: { center: { x: 0, y: 0, z: 0 }, radius: 1 }, material }],
+        })!;
+        const shape = world.createBody({ type: BodyType.Static }).createCompound({}, compound)!;
+        const id = shape.id.index1 - 1;
+        const state = world.state;
+        const k = kernel(state.ecsState);
+        const owned = () => state.shapeStore.shapeU[id * SHAPE_STRIDE + S_MATERIAL_HEAD];
+        const out = defaultSurfaceMaterial();
+        expect(owned()).toBeGreaterThan(0);
+        expect(k.shapeMaterialPtr(state.worldId, id)).toBe(owned());
+        expect(getShapeMaterial(state, id, out)).toEqual(material);
+        const saved = world.snapshot();
+        for (let i = 0; i < 3; ++i) {
+            state.shapeStore.writeMaterials(state, id, { ...material, friction: 0.25 });
+            expect(getShapeMaterial(state, id, out).friction).toBe(0.25);
+            world.restore(saved);
+            expect(owned()).toBeGreaterThan(0);
+            expect(k.shapeMaterialPtr(state.worldId, id)).toBe(owned());
+            expect(getShapeMaterial(state, id, out)).toEqual(material);
+            const fresh = getShapeMaterials(state, id);
+            fresh[0].tangentVelocity.x = 1;
+            expect(getShapeMaterials(state, id)[0]).toEqual(material);
+        }
+        state.shapeStore.destroyMaterials(state, id);
+        expect(owned()).toBe(0);
+        expect(k.shapeMaterialCount(state.worldId, id)).toBe(0);
+        world.restore(saved);
+        expect(getShapeMaterial(state, id, out)).toEqual(material);
+        shape.destroy();
+        expect(owned()).toBe(0);
+    } finally {
+        world.destroy();
+    }
+});
 
 test("one material is inline and multiple materials are contiguous, owned and restored", () => {
     const world = new PhysicsWorld();

@@ -1,4 +1,5 @@
 import type { World } from "../../../engine";
+import type { SurfaceMaterial } from "../common/types";
 import { kernel } from "../kernel/kernel";
 import { KernelViews } from "../kernel/views";
 import type { WorldState } from "../world/world";
@@ -7,11 +8,11 @@ import type { Manifold } from "./contact";
 export const DIR_STRIDE = 55;
 export const MANIFOLD_STRIDE = 67;
 const DIR_COUNT = 7;
-const DIR_BLOCK = 8;
+export const DIR_BLOCK = 8;
 const DIR_HIT = 11;
-const M_POINT_COUNT = 10;
-const M_POINTS = 11;
-const POINT_STRIDE = 14;
+export const M_POINT_COUNT = 10;
+export const M_POINTS = 11;
+export const POINT_STRIDE = 14;
 
 /** Current views of a world's contact directory and stable manifold blocks. */
 export class ManifoldStore extends KernelViews {
@@ -63,20 +64,18 @@ export class ManifoldStore extends KernelViews {
 export function writeContactMaterial(
     dirF: Float32Array,
     id: number,
-    friction: number,
-    restitution: number,
-    rolling: number,
-    x: number,
-    y: number,
-    z: number,
+    material: Pick<
+        SurfaceMaterial,
+        "friction" | "restitution" | "rollingResistance" | "tangentVelocity"
+    >,
 ): void {
     const o = id * DIR_STRIDE;
-    dirF[o] = friction;
-    dirF[o + 1] = restitution;
-    dirF[o + 2] = rolling;
-    dirF[o + 3] = x;
-    dirF[o + 4] = y;
-    dirF[o + 5] = z;
+    dirF[o] = material.friction;
+    dirF[o + 1] = material.restitution;
+    dirF[o + 2] = material.rollingResistance;
+    dirF[o + 3] = material.tangentVelocity.x;
+    dirF[o + 4] = material.tangentVelocity.y;
+    dirF[o + 5] = material.tangentVelocity.z;
 }
 /** Independent snapshot of a contact's mixed material. */
 export function readContactMaterial(dirF: Float32Array, id: number) {

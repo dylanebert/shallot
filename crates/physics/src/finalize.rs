@@ -28,8 +28,9 @@ const SAFETY_FACTOR: f32 = 0.5;
 // Pure bounds arithmetic stays independent of the wasm regions for bit-pinned native tests.
 // The arena commits the resulting bounds and enlarge flags to the owning shape columns.
 
-/// Shape type codes (`ShapeType`) whose bounds use inline convex geometry.
+/// Shape type codes (`ShapeType`).
 pub const TY_CAPSULE: u32 = 0;
+pub const TY_COMPOUND: u32 = 1;
 pub const TY_HULL: u32 = 3;
 pub const TY_SPHERE: u32 = 5;
 

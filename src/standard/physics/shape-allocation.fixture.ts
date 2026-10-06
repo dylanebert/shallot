@@ -7,7 +7,6 @@ import { makeBoxHull } from "./shapes/hull";
 import { createGridMesh } from "./shapes/mesh";
 import {
     createCapsuleShape,
-    createCompoundShape,
     createHeightFieldShape,
     createHullShape,
     createMeshShape,
@@ -70,9 +69,7 @@ export function shapeAllocationSubject(world: PhysicsWorld, rebuildTopology = tr
             const other =
                 kind === 0
                     ? createMeshShape(state, staticId, staticDef, mesh, scale)!
-                    : kind === 1
-                      ? createHeightFieldShape(state, staticId, staticDef, heightField)!
-                      : createCompoundShape(state, staticId, staticDef, compound)!;
+                    : createHeightFieldShape(state, staticId, staticDef, heightField)!;
             setShapeFilter(state, shape, filterA);
             setShapeFilter(state, shape, filterB);
             def.baseMaterial.userMaterialId = (i & 1) === 0 ? negativeMaterialId : wideMaterialId;

@@ -131,6 +131,20 @@ test("one of the vec3, quat, mat2, mat3 or transform ports returns different f32
     }
 });
 
+test("borrowed quaternion and transform products preserve the recorded C bits", () => {
+    const rotation = m.quat.identity();
+    const transform = m.xf.identity();
+    for (const c of g.cases) {
+        if (c.fn !== "mulQuat" && c.fn !== "mulTransforms") continue;
+        const a = c.in.map(fromBits);
+        const got =
+            c.fn === "mulQuat"
+                ? flatQ(m.quat.mulOut(quatFrom(a, 0), quatFrom(a, 4), rotation))
+                : flatT(m.xf.mulOut(xfFrom(a, 0), xfFrom(a, 7), transform));
+        for (let i = 0; i < got.length; ++i) bitEqual(got[i], c.out[i], `${c.fn}Out[${i}]`);
+    }
+});
+
 // --- oracle-independent invariants (ported from test_math.c) ---------------------------------
 // These hold by algebra regardless of the C build, so they catch conceptual port errors the
 // gold can't. Tolerances are Box3D's own (FLT_EPSILON multiples; ATAN_TOL = 0.0023°).

@@ -723,8 +723,6 @@ mod runtime {
         let record = bodies::record_mut(world, id);
         record.mass = 0.0;
         record.inertia = Mat3::ZERO;
-        MASSES[world].clear();
-        MASSES[world].reserve(record.shape_count as usize);
         let sim = bodies::column(id, 1, body::SIM_STRIDE);
         let fin = bodies::column(id, 2, body::FIN_STRIDE);
         sim.set(0, 0.0);
@@ -735,6 +733,11 @@ mod runtime {
             fin.set(lane, 0.0);
         }
         bodies::column(id, 5, body::SIM2_STRIDE).set(body::S2_MIN_EXTENT, 1.0e5);
+        if record.body_type != 2 {
+            return;
+        }
+        MASSES[world].clear();
+        MASSES[world].reserve(record.shape_count as usize);
     }
 
     #[export_name = "bodyMassInput"]

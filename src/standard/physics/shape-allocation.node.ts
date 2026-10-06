@@ -8,9 +8,11 @@ import {
 } from "../../../diagnostics/first-person-allocation/allocation";
 import { CEILING } from "../../../scripts/test-tiers";
 import { PhysicsWorld } from "./api/world";
-import { BodyType } from "./common/types";
+import { BodyType, defaultSurfaceMaterial } from "./common/types";
+import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { type Kernel, kernelState } from "./kernel/kernel";
 import { shapeAllocationSubject } from "./shape-allocation.fixture";
+import { createCompound } from "./shapes/compound";
 
 setDefaultTimeout(CEILING.node);
 const entry = resolve(import.meta.dir, "fixtures/shape-allocation.entry.ts");
@@ -54,11 +56,48 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
         };
         runtime.instance = k;
         world = new PhysicsWorld();
+        for (const type of [BodyType.Static, BodyType.Kinematic]) {
+            const body = world.createBody({ type });
+            const id = body.id.index1 - 1;
+            // Isolate the mass-buffer reserve guard from geometry and proxy allocation.
+            setBodyField(world.state, id, BodyField.shapeCount, 1024);
+            const massBefore = k.allocationCount();
+            k.bodyMassBegin(world.state.worldId, id);
+            expect(k.allocationCount() - massBefore).toBe(0);
+            setBodyField(world.state, id, BodyField.shapeCount, 0);
+            body.destroy();
+        }
         const step = shapeAllocationSubject(world, false);
         for (let i = 0; i < 1200; ++i) step();
         const before = k.allocationCount();
         for (let i = 0; i < 600; ++i) step();
         expect(k.allocationCount() - before).toBe(0);
+        const ground = world.createBody({
+            type: BodyType.Static,
+            position: { x: 100, y: 0, z: 0 },
+        });
+        const compound = createCompound({
+            spheres: [
+                {
+                    sphere: { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+                    material: defaultSurfaceMaterial(),
+                },
+            ],
+        })!;
+        ground.createCompound({}, compound);
+        for (let i = 0; i < 32; ++i) {
+            const warm = ground.createCompound({}, compound)!;
+            warm.destroy();
+        }
+        for (let i = 0; i < 32; ++i) {
+            const createBefore = k.allocationCount();
+            const shape = ground.createCompound({}, compound)!;
+            // Native compounds own even their single material; this path is not a zero span.
+            expect(k.allocationCount() - createBefore).toBe(1);
+            const destroyBefore = k.allocationCount();
+            shape.destroy();
+            expect(k.allocationCount() - destroyBefore).toBe(0);
+        }
         const sleeper = world.createBody({ type: BodyType.Dynamic });
         sleeper.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
         // Warm the awake set's capacity for the newly added body before measuring recycled wake.

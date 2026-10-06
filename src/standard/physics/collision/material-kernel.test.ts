@@ -14,6 +14,51 @@ import { readContactMaterial } from "./manifoldstore";
 
 const identity = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 
+test("custom mixing reads only the active geometry after a mesh slot is recycled as a compound", () => {
+    let mixes = 0;
+    const world = new PhysicsWorld({
+        enableSleep: false,
+        frictionCallback: (a, ia, b, ib) => {
+            mixes++;
+            return defaultFrictionCallback(a, ia, b, ib);
+        },
+    });
+    try {
+        const ground = world.createBody({ type: BodyType.Static });
+        const mesh = createMesh({
+            vertices: [
+                { x: -2, y: 0, z: -2 },
+                { x: 2, y: 0, z: -2 },
+                { x: 2, y: 0, z: 2 },
+                { x: -2, y: 0, z: 2 },
+            ],
+            indices: [0, 2, 1, 0, 3, 2],
+            identifyEdges: true,
+        })!;
+        const old = ground.createMesh({}, mesh, { x: 1, y: 1, z: 1 });
+        const slot = old.id.index1;
+        old.destroy();
+        const hull = makeBoxHull(0.5, 0.5, 0.5);
+        const compound = createCompound({
+            hulls: [
+                {
+                    hull,
+                    material: defaultSurfaceMaterial(),
+                    transform: { p: { x: 0, y: 0, z: 0 }, q: identity },
+                },
+            ],
+        })!;
+        expect(ground.createCompound({}, compound)!.id.index1).toBe(slot);
+        world
+            .createBody({ type: BodyType.Dynamic, position: { x: 0, y: 0.9, z: 0 } })
+            .createHull({}, hull);
+        world.step(1 / 60, 1);
+        expect(mixes).toBeGreaterThan(0);
+    } finally {
+        world.destroy();
+    }
+});
+
 test("kernel default mixing equals callback mixing for convex, flipped compound and mesh materials", () => {
     for (const kind of ["hull", "sphere", "capsule", "mesh"] as const) {
         const worlds = [false, true].map(

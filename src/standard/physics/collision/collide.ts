@@ -1,7 +1,7 @@
 // Box3D's collide tasks own contact updates; the ascending touch pass stays with graph/island owners.
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
-import { f32, mulWorldTransforms, quat, vec3, type WorldTransform, xf } from "../common/math";
+import { f32, quat, vec3, type WorldTransform, xf } from "../common/math";
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
 import { type Kernel, kernel, ParKind, runPool, threads, workers } from "../kernel/kernel";
@@ -12,13 +12,7 @@ import {
     setArrayPush,
     setArrayRemove,
 } from "../kernel/solversetcolumns";
-import { getCompoundChild } from "../shapes/compound";
-import {
-    getShapeMaterial,
-    getShapeMaterialCount,
-    getShapeMaterials,
-    type Shape,
-} from "../shapes/shape";
+import { getShapeMaterial, getShapeMaterialCount, type Shape } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
 import { getBodySim } from "../world/body";
@@ -37,30 +31,44 @@ import {
     destroyContact,
     setContactField,
 } from "./contact";
-import { readContactManifolds, writeContactMaterial } from "./manifoldstore";
+import {
+    DIR_BLOCK,
+    DIR_STRIDE,
+    M_POINT_COUNT,
+    M_POINTS,
+    MANIFOLD_STRIDE,
+    POINT_STRIDE,
+    writeContactMaterial,
+} from "./manifoldstore";
 
 const SIM_UPDATED = 0x02000000;
 const zero = vec3.zero(),
     tangentA = vec3.zero(),
     tangentB = vec3.zero();
 const poseA = xf.identity(),
-    poseB = xf.identity();
+    poseB = xf.identity(),
+    childPose = xf.identity();
 const materialA = defaultSurfaceMaterial(),
-    materialB = defaultSurfaceMaterial();
+    materialB = defaultSurfaceMaterial(),
+    mixedMaterial = defaultSurfaceMaterial();
+const radiusReport = { radius: 0 };
 let memoryU = new Uint32Array(0);
 function memory(k: Kernel): void {
     if (memoryU.buffer !== k.memory.buffer) memoryU = new Uint32Array(k.memory.buffer);
 }
-function rollingRadius(world: WorldState, shape: Shape): number {
+function readRollingRadius(world: WorldState, shape: Shape, out: { radius: number }): void {
     switch (shapeField(world, shape, ShapeField.type)) {
         case ShapeType.Sphere:
-            return world.shapeGeometry[shape].sphere!.radius;
+            out.radius = world.shapeGeometry[shape].sphere!.radius;
+            break;
         case ShapeType.Capsule:
-            return world.shapeGeometry[shape].capsule!.radius;
+            out.radius = world.shapeGeometry[shape].capsule!.radius;
+            break;
         case ShapeType.Hull:
-            return f32(0.25 * world.shapeGeometry[shape].hull!.innerRadius);
+            out.radius = f32(0.25 * world.shapeGeometry[shape].hull!.innerRadius);
+            break;
         default:
-            return 0;
+            out.radius = 0;
     }
 }
 function mixMesh(
@@ -70,35 +78,31 @@ function mixMesh(
     shapeB: Shape,
     xfA: WorldTransform,
     materialMap: number[] | null,
+    triangleMaterials: number[] | undefined,
 ): void {
-    const materialsA = getShapeMaterials(world, shapeA);
     getShapeMaterial(world, shapeB, materialB);
     vec3.copy(zero, tangentA);
     const materialCount = getShapeMaterialCount(world, shapeA);
-    const mesh =
-        materialMap === null
-            ? world.shapeGeometry[shapeA].mesh
-            : getCompoundChild(
-                  world.shapeGeometry[shapeA].compound!,
-                  contactField(world, id, ContactField.childIndex),
-              ).mesh;
     let mixedFriction = 0,
         mixedRestitution = 0;
     if (materialCount > 0) {
         let friction = 0,
             restitution = 0,
             samples = 0;
-        for (const m of readContactManifolds(world, id)) {
-            for (const point of m.points) {
+        const store = world.manifoldStore;
+        const base = store.dirU[id * DIR_STRIDE + DIR_BLOCK] >>> 2;
+        const count = contactField(world, id, ContactField.manifoldCount);
+        for (let m = 0; m < count; ++m) {
+            const o = base + m * MANIFOLD_STRIDE;
+            for (let point = 0; point < store.poolU[o + M_POINT_COUNT]; ++point) {
+                const triangle = store.poolI[o + M_POINTS + point * POINT_STRIDE + 12];
                 let index =
                     shapeField(world, shapeA, ShapeField.type) === ShapeType.HeightField
-                        ? world.shapeGeometry[shapeA].heightField!.materialIndices[
-                              point.triangleIndex >> 1
-                          ]
-                        : mesh!.data.materialIndices[point.triangleIndex];
+                        ? world.shapeGeometry[shapeA].heightField!.materialIndices[triangle >> 1]
+                        : triangleMaterials![triangle];
                 if (materialMap !== null) index = materialMap[index];
                 index = Math.max(0, Math.min(index, materialCount - 1));
-                const material = materialsA[index];
+                const material = world.shapeStore.readMaterialAt(shapeA, index, materialA);
                 friction = f32(
                     friction +
                         world.frictionCallback(
@@ -128,7 +132,7 @@ function mixMesh(
             vec3.scaleOut(inv, tangentA, tangentA);
         }
     } else {
-        const material = materialsA[0];
+        const material = getShapeMaterial(world, shapeA, materialA);
         mixedFriction = world.frictionCallback(
             material.friction,
             material.userMaterialId,
@@ -143,24 +147,19 @@ function mixMesh(
         );
         vec3.copy(material.tangentVelocity, tangentA);
     }
+    readRollingRadius(world, shapeB, radiusReport);
     const radius =
         shapeField(world, shapeB, ShapeField.type) === ShapeType.Hull
             ? world.shapeGeometry[shapeB].hull!.innerRadius
-            : rollingRadius(world, shapeB);
-    const rolling = f32(materialB.rollingResistance * radius);
+            : radiusReport.radius;
+    mixedMaterial.friction = mixedFriction;
+    mixedMaterial.restitution = mixedRestitution;
+    mixedMaterial.rollingResistance = f32(materialB.rollingResistance * radius);
     quat.rotateOut(xfA.q, tangentA, tangentA);
     quat.rotateOut(poseB.q, materialB.tangentVelocity, tangentB);
     vec3.subOut(tangentA, tangentB, tangentA);
-    writeContactMaterial(
-        world.manifoldStore.dirF,
-        id,
-        mixedFriction,
-        mixedRestitution,
-        rolling,
-        tangentA.x,
-        tangentA.y,
-        tangentA.z,
-    );
+    vec3.copy(tangentA, mixedMaterial.tangentVelocity);
+    writeContactMaterial(world.manifoldStore.dirF, id, mixedMaterial);
 }
 function mixContact(world: WorldState, id: number): void {
     const ownShapeA = contactField(world, id, ContactField.shapeIdA);
@@ -172,24 +171,48 @@ function mixContact(world: WorldState, id: number): void {
     let xfA = poseA,
         xfB = poseB;
     let materialMap: number[] | null = null;
-    let radiusA = rollingRadius(world, shapeA);
-    const radiusB = rollingRadius(world, shapeB);
+    let materialIndex = 0;
+    let triangleMaterials =
+        shapeField(world, shapeA, ShapeField.type) === ShapeType.Mesh
+            ? world.shapeGeometry[shapeA].mesh!.data.materialIndices
+            : undefined;
+    readRollingRadius(world, shapeA, radiusReport);
+    let radiusA = radiusReport.radius;
+    readRollingRadius(world, shapeB, radiusReport);
+    const radiusB = radiusReport.radius;
     if (shapeField(world, shapeA, ShapeField.type) === ShapeType.Compound) {
-        const child = getCompoundChild(
-            world.shapeGeometry[shapeA].compound!,
-            contactField(world, id, ContactField.childIndex),
-        );
-        radiusA =
-            child.sphere?.radius ??
-            child.capsule?.radius ??
-            f32(0.25 * (child.hull?.innerRadius ?? 0));
-        materialMap = child.materialIndices;
-        if (child.type === ShapeType.Hull || child.type === ShapeType.Mesh)
-            xfA = mulWorldTransforms(poseA, child.transform);
+        const compound = world.shapeGeometry[shapeA].compound!;
+        let index = contactField(world, id, ContactField.childIndex);
+        let childType: ShapeType;
+        if (index < compound.capsules.length) {
+            const child = compound.capsules[index];
+            childType = ShapeType.Capsule;
+            radiusA = child.capsule.radius;
+            materialIndex = child.materialIndex;
+        } else if ((index -= compound.capsules.length) < compound.hulls.length) {
+            const child = compound.hulls[index];
+            childType = ShapeType.Hull;
+            radiusA = f32(0.25 * child.hull.innerRadius);
+            materialIndex = child.materialIndex;
+            xfA = xf.mulOut(poseA, child.transform, childPose);
+        } else if ((index -= compound.hulls.length) < compound.meshes.length) {
+            const child = compound.meshes[index];
+            childType = ShapeType.Mesh;
+            radiusA = 0;
+            materialMap = child.materialIndices;
+            materialIndex = materialMap[0];
+            triangleMaterials = child.meshData.materialIndices;
+            xfA = xf.mulOut(poseA, child.transform, childPose);
+        } else {
+            const child = compound.spheres[index - compound.meshes.length];
+            childType = ShapeType.Sphere;
+            radiusA = child.sphere.radius;
+            materialIndex = child.materialIndex;
+        }
         if (
-            (child.type === ShapeType.Sphere &&
+            (childType === ShapeType.Sphere &&
                 shapeField(world, shapeB, ShapeField.type) !== ShapeType.Sphere) ||
-            (child.type === ShapeType.Capsule &&
+            (childType === ShapeType.Capsule &&
                 shapeField(world, shapeB, ShapeField.type) === ShapeType.Hull)
         ) {
             shapeA = ownShapeB;
@@ -200,45 +223,34 @@ function mixContact(world: WorldState, id: number): void {
         }
     }
     if (contactField(world, id, ContactField.flags) & ContactFlags.simMeshContact) {
-        mixMesh(world, id, shapeA, ownShapeB, xfA, materialMap);
+        mixMesh(world, id, shapeA, ownShapeB, xfA, materialMap, triangleMaterials);
         return;
     }
-    const ownA =
-        materialMap === null
-            ? getShapeMaterial(world, ownShapeA, materialA)
-            : getShapeMaterials(world, ownShapeA)[materialMap[0]];
+    const ownA = world.shapeStore.readMaterialAt(ownShapeA, materialIndex, materialA);
     getShapeMaterial(world, ownShapeB, materialB);
     const a = shapeA === ownShapeB ? materialB : ownA;
     const b = shapeA === ownShapeB ? ownA : materialB;
-    const friction = world.frictionCallback(
+    mixedMaterial.friction = world.frictionCallback(
         a.friction,
         a.userMaterialId,
         b.friction,
         b.userMaterialId,
     );
-    const restitution = world.restitutionCallback(
+    mixedMaterial.restitution = world.restitutionCallback(
         a.restitution,
         a.userMaterialId,
         b.restitution,
         b.userMaterialId,
     );
-    const rolling =
+    mixedMaterial.rollingResistance =
         a.rollingResistance > 0 || b.rollingResistance > 0
             ? f32(Math.max(a.rollingResistance, b.rollingResistance) * Math.max(radiusA, radiusB))
             : 0;
     quat.rotateOut(xfA.q, a.tangentVelocity, tangentA);
     quat.rotateOut(xfB.q, b.tangentVelocity, tangentB);
     vec3.subOut(tangentA, tangentB, tangentA);
-    writeContactMaterial(
-        world.manifoldStore.dirF,
-        id,
-        friction,
-        restitution,
-        rolling,
-        tangentA.x,
-        tangentA.y,
-        tangentA.z,
-    );
+    vec3.copy(tangentA, mixedMaterial.tangentVelocity);
+    writeContactMaterial(world.manifoldStore.dirF, id, mixedMaterial);
 }
 function removeNonTouchingContact(world: WorldState, index: number): void {
     const set = SetType.Awake;

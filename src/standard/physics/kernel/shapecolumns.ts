@@ -285,6 +285,27 @@ export class ShapeStore extends KernelViews {
         return cached.value;
     }
 
+    /** Copy one live inline or owned material into caller-owned scratch. */
+    readMaterialAt(shape: Shape, index: number, out: SurfaceMaterial): SurfaceMaterial {
+        this.refreshViews();
+        const k = kernel(this.ecsState);
+        const count = k.shapeMaterialCount(this._worldId, shape) >>> 0;
+        if (count === 0) throw new Error(`physics: no material on shape ${shape}`);
+        if (index < 0 || index >= count)
+            throw new Error(`physics: no material ${index} on shape ${shape}`);
+        const o = k.shapeMaterialPtr(this._worldId, shape) / 4 + index * MATERIAL_STRIDE;
+        const f = this.materialF;
+        out.friction = f[o];
+        out.restitution = f[o + 1];
+        out.rollingResistance = f[o + 2];
+        out.tangentVelocity.x = f[o + 3];
+        out.tangentVelocity.y = f[o + 4];
+        out.tangentVelocity.z = f[o + 5];
+        out.userMaterialId = this.userMaterialId(o);
+        out.customColor = this.materialU[o + 8];
+        return out;
+    }
+
     /** Detach and release the kernel material records owned by a shape. */
     destroyMaterials(world: WorldState, shape: Shape): void {
         this.refreshViews();

@@ -103,8 +103,8 @@ export type ShapeGeometry = {
 };
 
 /**
- * A one-material shape presents its inline material as a length-1 array; multi-material meshes own
- * a heap array. This requested observation returns an independent material array (b3GetShapeMaterials).
+ * Compounds own their material array, including a single material; other one-material shapes use
+ * inline storage. This requested observation returns an independent array (b3GetShapeMaterials).
  */
 export function getShapeMaterials(world: WorldState, shape: Shape): SurfaceMaterial[] {
     return readShapeMaterials(world, shape);
@@ -122,23 +122,7 @@ export function getShapeMaterial(
     shape: Shape,
     out: SurfaceMaterial,
 ): SurfaceMaterial {
-    const k = kernel(world.ecsState);
-    k.shapeSetActiveWorld(world.worldId);
-    const ptr = k.shapeMaterialPtr(world.worldId, shape);
-    const count = k.shapeMaterialCount(world.worldId, shape) >>> 0;
-    if (count === 0) throw new Error(`physics: no material on shape ${shape}`);
-    const u = world.shapeStore.materialU;
-    const f = world.shapeStore.materialF;
-    const o = ptr / 4;
-    out.friction = f[o];
-    out.restitution = f[o + 1];
-    out.rollingResistance = f[o + 2];
-    out.tangentVelocity.x = f[o + 3];
-    out.tangentVelocity.y = f[o + 4];
-    out.tangentVelocity.z = f[o + 5];
-    out.userMaterialId = world.shapeStore.userMaterialId(o);
-    out.customColor = u[o + 8];
-    return out;
+    return world.shapeStore.readMaterialAt(shape, 0, out);
 }
 
 /**

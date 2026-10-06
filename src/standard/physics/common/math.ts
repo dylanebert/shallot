@@ -581,6 +581,15 @@ export const quat = {
         return { v: t3, s: f32(f32(q1.s * q2.s) - vec3.dot(q1.v, q2.v)) };
     },
 
+    /** q1 * q2 into `o`, which must not alias either input. */
+    mulOut: (q1: Quat, q2: Quat, o: Quat): Quat => {
+        vec3.crossOut(q1.v, q2.v, o.v);
+        vec3.mulAddOut(o.v, q1.s, q2.v, o.v);
+        vec3.mulAddOut(o.v, q2.s, q1.v, o.v);
+        o.s = f32(f32(q1.s * q2.s) - vec3.dot(q1.v, q2.v));
+        return o;
+    },
+
     /** inv(q1) * q2 */
     invMul: (q1: Quat, q2: Quat): Quat => {
         const t1 = vec3.cross(q2.v, q1.v);
@@ -1136,6 +1145,14 @@ export const xf = {
         p: vec3.add(quat.rotate(a.q, b.p), a.p),
         q: quat.mul(a.q, b.q),
     }),
+
+    /** a * b into `o`, which must not alias either input. */
+    mulOut: (a: Transform, b: Transform, o: Transform): Transform => {
+        quat.rotateOut(a.q, b.p, o.p);
+        vec3.addOut(o.p, a.p, o.p);
+        quat.mulOut(a.q, b.q, o.q);
+        return o;
+    },
 
     /** inv(a) * b — b expressed in a's local frame. */
     invMul: (a: Transform, b: Transform): Transform => ({
