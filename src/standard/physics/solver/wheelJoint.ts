@@ -1,45 +1,10 @@
 import { atan2, f32, mat3, quat, type Vec3, vec3 } from "../common/math";
 import { bodySimSlot, readSimTransform, readStateAngularVelocity } from "../kernel/bodycolumns";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
-import {
-    J_LOCAL_FRAME_A,
-    J_LOCAL_FRAME_B,
-    WHJ_ANGULAR_IMPULSE,
-    WHJ_ENABLE,
-    WHJ_ENABLE_SPIN_MOTOR,
-    WHJ_ENABLE_STEERING,
-    WHJ_ENABLE_STEERING_LIMIT,
-    WHJ_ENABLE_SUSPENSION_LIMIT,
-    WHJ_ENABLE_SUSPENSION_SPRING,
-    WHJ_LINEAR_IMPULSE,
-    WHJ_LOWER_STEERING_IMPULSE,
-    WHJ_LOWER_STEERING_LIMIT,
-    WHJ_LOWER_SUSPENSION_IMPULSE,
-    WHJ_LOWER_SUSPENSION_LIMIT,
-    WHJ_MAX_SPIN_TORQUE,
-    WHJ_MAX_STEERING_TORQUE,
-    WHJ_SPIN_IMPULSE,
-    WHJ_SPIN_SPEED,
-    WHJ_STEERING_DAMPING_RATIO,
-    WHJ_STEERING_HERTZ,
-    WHJ_STEERING_SPRING_IMPULSE,
-    WHJ_SUSPENSION_DAMPING_RATIO,
-    WHJ_SUSPENSION_HERTZ,
-    WHJ_SUSPENSION_SPRING_IMPULSE,
-    WHJ_TARGET_STEERING_ANGLE,
-    WHJ_UPPER_STEERING_IMPULSE,
-    WHJ_UPPER_STEERING_LIMIT,
-    WHJ_UPPER_SUSPENSION_IMPULSE,
-    WHJ_UPPER_SUSPENSION_LIMIT,
-} from "../kernel/columns";
-import {
-    readJointQuat,
-    readJointReaction,
-    writeJointFlag,
-    writeJointFloat,
-    writeJointVec2,
-} from "../kernel/jointcolumns";
+import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
+import { readJointQuat, readJointReaction } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
+import { kernel } from "../kernel/kernel";
 import { getBodyState } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
@@ -100,55 +65,26 @@ export function createWheelJoint(
     joint: Joint;
 } {
     const pair = createJoint(world, def.base, JointType.Wheel);
-    writeJointVec2(world, pair.joint, WHJ_LINEAR_IMPULSE, {
-        x: 0,
-        y: 0,
-    });
-    writeJointVec2(world, pair.joint, WHJ_ANGULAR_IMPULSE, {
-        x: 0,
-        y: 0,
-    });
-    writeJointFloat(world, pair.joint, WHJ_SPIN_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, WHJ_MAX_SPIN_TORQUE, def.maxSpinTorque);
-    writeJointFloat(world, pair.joint, WHJ_SPIN_SPEED, def.spinSpeed);
-    writeJointFloat(world, pair.joint, WHJ_SUSPENSION_SPRING_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, WHJ_LOWER_SUSPENSION_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, WHJ_UPPER_SUSPENSION_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, WHJ_LOWER_SUSPENSION_LIMIT, def.lowerSuspensionLimit);
-    writeJointFloat(world, pair.joint, WHJ_UPPER_SUSPENSION_LIMIT, def.upperSuspensionLimit);
-    writeJointFloat(world, pair.joint, WHJ_SUSPENSION_HERTZ, def.suspensionHertz);
-    writeJointFloat(world, pair.joint, WHJ_SUSPENSION_DAMPING_RATIO, def.suspensionDampingRatio);
-    writeJointFloat(world, pair.joint, WHJ_STEERING_SPRING_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, WHJ_LOWER_STEERING_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, WHJ_UPPER_STEERING_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, WHJ_LOWER_STEERING_LIMIT, def.lowerSteeringLimit);
-    writeJointFloat(world, pair.joint, WHJ_UPPER_STEERING_LIMIT, def.upperSteeringLimit);
-    writeJointFloat(world, pair.joint, WHJ_TARGET_STEERING_ANGLE, def.targetSteeringAngle);
-    writeJointFloat(world, pair.joint, WHJ_MAX_STEERING_TORQUE, def.maxSteeringTorque);
-    writeJointFloat(world, pair.joint, WHJ_STEERING_HERTZ, def.steeringHertz);
-    writeJointFloat(world, pair.joint, WHJ_STEERING_DAMPING_RATIO, def.steeringDampingRatio);
-    writeJointFlag(world, pair.joint, WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR, def.enableSpinMotor);
-    writeJointFlag(
-        world,
+    kernel(world.ecsState).jointInitWheel(
+        world.worldId,
         pair.joint,
-        WHJ_ENABLE,
-        WHJ_ENABLE_SUSPENSION_SPRING,
         def.enableSuspensionSpring,
-    );
-    writeJointFlag(
-        world,
-        pair.joint,
-        WHJ_ENABLE,
-        WHJ_ENABLE_SUSPENSION_LIMIT,
+        def.suspensionHertz,
+        def.suspensionDampingRatio,
         def.enableSuspensionLimit,
-    );
-    writeJointFlag(world, pair.joint, WHJ_ENABLE, WHJ_ENABLE_STEERING, def.enableSteering);
-    writeJointFlag(
-        world,
-        pair.joint,
-        WHJ_ENABLE,
-        WHJ_ENABLE_STEERING_LIMIT,
+        def.lowerSuspensionLimit,
+        def.upperSuspensionLimit,
+        def.enableSpinMotor,
+        def.maxSpinTorque,
+        def.spinSpeed,
+        def.enableSteering,
+        def.steeringHertz,
+        def.steeringDampingRatio,
+        def.targetSteeringAngle,
+        def.maxSteeringTorque,
         def.enableSteeringLimit,
+        def.lowerSteeringLimit,
+        def.upperSteeringLimit,
     );
     return pair;
 }

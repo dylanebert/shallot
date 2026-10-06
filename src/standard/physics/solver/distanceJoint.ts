@@ -1,33 +1,9 @@
-import { HUGE, LINEAR_SLOP } from "../common/constants";
-import { FLT_MAX, maxf, quat, type Vec3, vec3 } from "../common/math";
-import {
-    DJ_DAMPING_RATIO,
-    DJ_ENABLE,
-    DJ_ENABLE_LIMIT,
-    DJ_ENABLE_MOTOR,
-    DJ_ENABLE_SPRING,
-    DJ_HERTZ,
-    DJ_IMPULSE,
-    DJ_LENGTH,
-    DJ_LOWER_IMPULSE,
-    DJ_LOWER_SPRING_FORCE,
-    DJ_MAX_LENGTH,
-    DJ_MAX_MOTOR_FORCE,
-    DJ_MIN_LENGTH,
-    DJ_MOTOR_IMPULSE,
-    DJ_MOTOR_SPEED,
-    DJ_UPPER_IMPULSE,
-    DJ_UPPER_SPRING_FORCE,
-    J_LOCAL_FRAME_A,
-    J_LOCAL_FRAME_B,
-} from "../kernel/columns";
-import {
-    readJointReaction,
-    readJointVec3,
-    writeJointFlag,
-    writeJointFloat,
-} from "../kernel/jointcolumns";
+import { HUGE } from "../common/constants";
+import { FLT_MAX, quat, type Vec3, vec3 } from "../common/math";
+import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
+import { readJointReaction, readJointVec3 } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
+import { kernel } from "../kernel/kernel";
 import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
@@ -78,22 +54,22 @@ export function createDistanceJoint(
     joint: Joint;
 } {
     const pair = createJoint(world, def.base, JointType.Distance);
-    writeJointFloat(world, pair.joint, DJ_LENGTH, maxf(def.length, LINEAR_SLOP));
-    writeJointFloat(world, pair.joint, DJ_HERTZ, def.hertz);
-    writeJointFloat(world, pair.joint, DJ_DAMPING_RATIO, def.dampingRatio);
-    writeJointFloat(world, pair.joint, DJ_LOWER_SPRING_FORCE, def.lowerSpringForce);
-    writeJointFloat(world, pair.joint, DJ_UPPER_SPRING_FORCE, def.upperSpringForce);
-    writeJointFloat(world, pair.joint, DJ_MIN_LENGTH, maxf(def.minLength, LINEAR_SLOP));
-    writeJointFloat(world, pair.joint, DJ_MAX_LENGTH, maxf(def.minLength, def.maxLength));
-    writeJointFloat(world, pair.joint, DJ_MAX_MOTOR_FORCE, def.maxMotorForce);
-    writeJointFloat(world, pair.joint, DJ_MOTOR_SPEED, def.motorSpeed);
-    writeJointFloat(world, pair.joint, DJ_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, DJ_LOWER_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, DJ_UPPER_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, DJ_MOTOR_IMPULSE, 0);
-    writeJointFlag(world, pair.joint, DJ_ENABLE, DJ_ENABLE_SPRING, def.enableSpring);
-    writeJointFlag(world, pair.joint, DJ_ENABLE, DJ_ENABLE_LIMIT, def.enableLimit);
-    writeJointFlag(world, pair.joint, DJ_ENABLE, DJ_ENABLE_MOTOR, def.enableMotor);
+    kernel(world.ecsState).jointInitDistance(
+        world.worldId,
+        pair.joint,
+        def.length,
+        def.hertz,
+        def.dampingRatio,
+        def.lowerSpringForce,
+        def.upperSpringForce,
+        def.minLength,
+        def.maxLength,
+        def.maxMotorForce,
+        def.motorSpeed,
+        def.enableSpring,
+        def.enableLimit,
+        def.enableMotor,
+    );
     return pair;
 }
 export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {

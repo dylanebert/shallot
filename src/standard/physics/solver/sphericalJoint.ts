@@ -1,36 +1,8 @@
-import { clampf, f32, maxf, minf, PI, type Quat, quat, type Vec3 } from "../common/math";
-import {
-    J_LOCAL_FRAME_A,
-    J_LOCAL_FRAME_B,
-    SJ_CONE_ANGLE,
-    SJ_DAMPING_RATIO,
-    SJ_ENABLE,
-    SJ_ENABLE_CONE_LIMIT,
-    SJ_ENABLE_MOTOR,
-    SJ_ENABLE_SPRING,
-    SJ_ENABLE_TWIST_LIMIT,
-    SJ_HERTZ,
-    SJ_LINEAR_IMPULSE,
-    SJ_LOWER_TWIST_ANGLE,
-    SJ_LOWER_TWIST_IMPULSE,
-    SJ_MAX_MOTOR_TORQUE,
-    SJ_MOTOR_IMPULSE,
-    SJ_MOTOR_VELOCITY,
-    SJ_SPRING_IMPULSE,
-    SJ_SWING_IMPULSE,
-    SJ_TARGET_ROTATION,
-    SJ_UPPER_TWIST_ANGLE,
-    SJ_UPPER_TWIST_IMPULSE,
-} from "../kernel/columns";
-import {
-    readJointQuat,
-    readJointReaction,
-    writeJointFlag,
-    writeJointFloat,
-    writeJointQuat,
-    writeJointVec3,
-} from "../kernel/jointcolumns";
+import { type Quat, quat, type Vec3 } from "../common/math";
+import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
+import { readJointQuat, readJointReaction } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
+import { kernel } from "../kernel/kernel";
 import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
@@ -83,12 +55,6 @@ export function defaultSphericalJointDef(base: JointDef): SphericalJointDef {
         },
     };
 }
-const zeroVec3 = (): Vec3 => ({
-    x: 0,
-    y: 0,
-    z: 0,
-});
-
 /** Create a spherical joint (b3CreateSphericalJoint). @returns the joint handle. */
 export function createSphericalJoint(
     world: WorldState,
@@ -97,45 +63,27 @@ export function createSphericalJoint(
     joint: Joint;
 } {
     const pair = createJoint(world, def.base, JointType.Spherical);
-    const lowerLimit = f32(f32(-0.99) * PI);
-    const upperLimit = f32(f32(0.99) * PI);
-    const lowerAngle = minf(def.lowerTwistAngle, def.upperTwistAngle);
-    const upperAngle = maxf(def.lowerTwistAngle, def.upperTwistAngle);
-    writeJointVec3(world, pair.joint, SJ_LINEAR_IMPULSE, zeroVec3());
-    writeJointVec3(world, pair.joint, SJ_SPRING_IMPULSE, zeroVec3());
-    writeJointVec3(world, pair.joint, SJ_MOTOR_IMPULSE, zeroVec3());
-    writeJointFloat(world, pair.joint, SJ_LOWER_TWIST_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, SJ_UPPER_TWIST_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, SJ_SWING_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, SJ_HERTZ, def.hertz);
-    writeJointFloat(world, pair.joint, SJ_DAMPING_RATIO, def.dampingRatio);
-    writeJointFloat(world, pair.joint, SJ_MAX_MOTOR_TORQUE, def.maxMotorTorque);
-    writeJointVec3(world, pair.joint, SJ_MOTOR_VELOCITY, {
-        ...def.motorVelocity,
-    });
-    writeJointFloat(
-        world,
+    kernel(world.ecsState).jointInitSpherical(
+        world.worldId,
         pair.joint,
-        SJ_LOWER_TWIST_ANGLE,
-        clampf(lowerAngle, lowerLimit, upperLimit),
+        def.hertz,
+        def.dampingRatio,
+        def.targetRotation.v.x,
+        def.targetRotation.v.y,
+        def.targetRotation.v.z,
+        def.targetRotation.s,
+        def.coneAngle,
+        def.lowerTwistAngle,
+        def.upperTwistAngle,
+        def.maxMotorTorque,
+        def.motorVelocity.x,
+        def.motorVelocity.y,
+        def.motorVelocity.z,
+        def.enableSpring,
+        def.enableConeLimit,
+        def.enableTwistLimit,
+        def.enableMotor,
     );
-    writeJointFloat(
-        world,
-        pair.joint,
-        SJ_UPPER_TWIST_ANGLE,
-        clampf(upperAngle, lowerLimit, upperLimit),
-    );
-    writeJointFloat(world, pair.joint, SJ_CONE_ANGLE, clampf(def.coneAngle, 0, f32(f32(0.5) * PI)));
-    writeJointQuat(world, pair.joint, SJ_TARGET_ROTATION, {
-        v: {
-            ...def.targetRotation.v,
-        },
-        s: def.targetRotation.s,
-    });
-    writeJointFlag(world, pair.joint, SJ_ENABLE, SJ_ENABLE_SPRING, def.enableSpring);
-    writeJointFlag(world, pair.joint, SJ_ENABLE, SJ_ENABLE_MOTOR, def.enableMotor);
-    writeJointFlag(world, pair.joint, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT, def.enableConeLimit);
-    writeJointFlag(world, pair.joint, SJ_ENABLE, SJ_ENABLE_TWIST_LIMIT, def.enableTwistLimit);
     return pair;
 }
 export function getSphericalJointForce(world: WorldState, sim: Joint): Vec3 {

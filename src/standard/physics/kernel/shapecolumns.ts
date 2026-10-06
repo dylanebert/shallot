@@ -79,10 +79,6 @@ export function createShapeSlot(
     return id;
 }
 
-export function destroyShapeSlot(world: WorldState, shapeId: number): void {
-    kernel(world.ecsState).shapeDestroy(world.worldId, shapeId);
-}
-
 /**
  * Typed-array views over the resident shape column plus the shapeId-keyed writes. One per world. The
  * column is what the in-kernel finalize refit reads; TS writes it at shape create/destroy. Re-derives

@@ -6,37 +6,10 @@ import {
     readStateAngularVelocity,
     readStateLinearVelocity,
 } from "../kernel/bodycolumns";
-import {
-    J_LOCAL_FRAME_A,
-    J_LOCAL_FRAME_B,
-    PJ_ANGULAR_IMPULSE,
-    PJ_DAMPING_RATIO,
-    PJ_ENABLE,
-    PJ_ENABLE_LIMIT,
-    PJ_ENABLE_MOTOR,
-    PJ_ENABLE_SPRING,
-    PJ_HERTZ,
-    PJ_LOWER_IMPULSE,
-    PJ_LOWER_TRANSLATION,
-    PJ_MAX_MOTOR_FORCE,
-    PJ_MOTOR_IMPULSE,
-    PJ_MOTOR_SPEED,
-    PJ_PERP_IMPULSE,
-    PJ_SPRING_IMPULSE,
-    PJ_TARGET_TRANSLATION,
-    PJ_UPPER_IMPULSE,
-    PJ_UPPER_TRANSLATION,
-} from "../kernel/columns";
-import {
-    readJointQuat,
-    readJointReaction,
-    readJointVec3,
-    writeJointFlag,
-    writeJointFloat,
-    writeJointVec2,
-    writeJointVec3,
-} from "../kernel/jointcolumns";
+import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
+import { readJointQuat, readJointReaction, readJointVec3 } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
+import { kernel } from "../kernel/kernel";
 import { getBodySim, getBodyState, readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
@@ -83,29 +56,20 @@ export function createPrismaticJoint(
     joint: Joint;
 } {
     const pair = createJoint(world, def.base, JointType.Prismatic);
-    writeJointVec2(world, pair.joint, PJ_PERP_IMPULSE, {
-        x: 0,
-        y: 0,
-    });
-    writeJointVec3(world, pair.joint, PJ_ANGULAR_IMPULSE, {
-        x: 0,
-        y: 0,
-        z: 0,
-    });
-    writeJointFloat(world, pair.joint, PJ_SPRING_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, PJ_MOTOR_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, PJ_LOWER_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, PJ_UPPER_IMPULSE, 0);
-    writeJointFloat(world, pair.joint, PJ_HERTZ, def.hertz);
-    writeJointFloat(world, pair.joint, PJ_DAMPING_RATIO, def.dampingRatio);
-    writeJointFloat(world, pair.joint, PJ_MAX_MOTOR_FORCE, def.maxMotorForce);
-    writeJointFloat(world, pair.joint, PJ_MOTOR_SPEED, def.motorSpeed);
-    writeJointFloat(world, pair.joint, PJ_TARGET_TRANSLATION, def.targetTranslation);
-    writeJointFloat(world, pair.joint, PJ_LOWER_TRANSLATION, def.lowerTranslation);
-    writeJointFloat(world, pair.joint, PJ_UPPER_TRANSLATION, def.upperTranslation);
-    writeJointFlag(world, pair.joint, PJ_ENABLE, PJ_ENABLE_SPRING, def.enableSpring);
-    writeJointFlag(world, pair.joint, PJ_ENABLE, PJ_ENABLE_LIMIT, def.enableLimit);
-    writeJointFlag(world, pair.joint, PJ_ENABLE, PJ_ENABLE_MOTOR, def.enableMotor);
+    kernel(world.ecsState).jointInitPrismatic(
+        world.worldId,
+        pair.joint,
+        def.hertz,
+        def.dampingRatio,
+        def.targetTranslation,
+        def.lowerTranslation,
+        def.upperTranslation,
+        def.maxMotorForce,
+        def.motorSpeed,
+        def.enableSpring,
+        def.enableLimit,
+        def.enableMotor,
+    );
     return pair;
 }
 export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {

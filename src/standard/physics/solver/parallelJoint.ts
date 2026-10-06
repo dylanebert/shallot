@@ -1,21 +1,6 @@
-import { FLT_MAX, type Quat, type Vec3 } from "../common/math";
-import {
-    PLJ_DAMPING_RATIO,
-    PLJ_HERTZ,
-    PLJ_MAX_TORQUE,
-    PLJ_PERP_AXIS_X,
-    PLJ_PERP_AXIS_Y,
-    PLJ_PERP_IMPULSE,
-    PLJ_QUAT_A,
-    PLJ_QUAT_B,
-} from "../kernel/columns";
-import {
-    readJointReaction,
-    writeJointFloat,
-    writeJointQuat,
-    writeJointVec2,
-    writeJointVec3,
-} from "../kernel/jointcolumns";
+import { FLT_MAX, type Vec3 } from "../common/math";
+import { readJointReaction } from "../kernel/jointcolumns";
+import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -38,15 +23,6 @@ export function defaultParallelJointDef(base: JointDef): ParallelJointDef {
         maxTorque: FLT_MAX,
     };
 }
-const identityQuat = (): Quat => ({
-    v: {
-        x: 0,
-        y: 0,
-        z: 0,
-    },
-    s: 1,
-});
-
 /** Create a parallel joint (b3CreateParallelJoint). @returns the joint handle. */
 export function createParallelJoint(
     world: WorldState,
@@ -55,25 +31,13 @@ export function createParallelJoint(
     joint: Joint;
 } {
     const pair = createJoint(world, def.base, JointType.Parallel);
-    writeJointVec2(world, pair.joint, PLJ_PERP_IMPULSE, {
-        x: 0,
-        y: 0,
-    });
-    writeJointFloat(world, pair.joint, PLJ_HERTZ, def.hertz);
-    writeJointFloat(world, pair.joint, PLJ_DAMPING_RATIO, def.dampingRatio);
-    writeJointFloat(world, pair.joint, PLJ_MAX_TORQUE, def.maxTorque);
-    writeJointQuat(world, pair.joint, PLJ_QUAT_A, identityQuat());
-    writeJointQuat(world, pair.joint, PLJ_QUAT_B, identityQuat());
-    writeJointVec3(world, pair.joint, PLJ_PERP_AXIS_X, {
-        x: 0,
-        y: 0,
-        z: 0,
-    });
-    writeJointVec3(world, pair.joint, PLJ_PERP_AXIS_Y, {
-        x: 0,
-        y: 0,
-        z: 0,
-    });
+    kernel(world.ecsState).jointInitParallel(
+        world.worldId,
+        pair.joint,
+        def.hertz,
+        def.dampingRatio,
+        def.maxTorque,
+    );
     return pair;
 }
 

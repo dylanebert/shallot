@@ -1,13 +1,6 @@
 import type { Vec3 } from "../common/math";
-import {
-    WJ_ANGULAR_DAMPING_RATIO,
-    WJ_ANGULAR_HERTZ,
-    WJ_ANGULAR_IMPULSE,
-    WJ_LINEAR_DAMPING_RATIO,
-    WJ_LINEAR_HERTZ,
-    WJ_LINEAR_IMPULSE,
-} from "../kernel/columns";
-import { readJointReaction, writeJointFloat, writeJointVec3 } from "../kernel/jointcolumns";
+import { readJointReaction } from "../kernel/jointcolumns";
+import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -41,20 +34,14 @@ export function createWeldJoint(
     joint: Joint;
 } {
     const pair = createJoint(world, def.base, JointType.Weld);
-    writeJointVec3(world, pair.joint, WJ_LINEAR_IMPULSE, {
-        x: 0,
-        y: 0,
-        z: 0,
-    });
-    writeJointVec3(world, pair.joint, WJ_ANGULAR_IMPULSE, {
-        x: 0,
-        y: 0,
-        z: 0,
-    });
-    writeJointFloat(world, pair.joint, WJ_LINEAR_HERTZ, def.linearHertz);
-    writeJointFloat(world, pair.joint, WJ_LINEAR_DAMPING_RATIO, def.linearDampingRatio);
-    writeJointFloat(world, pair.joint, WJ_ANGULAR_HERTZ, def.angularHertz);
-    writeJointFloat(world, pair.joint, WJ_ANGULAR_DAMPING_RATIO, def.angularDampingRatio);
+    kernel(world.ecsState).jointInitWeld(
+        world.worldId,
+        pair.joint,
+        def.linearHertz,
+        def.linearDampingRatio,
+        def.angularHertz,
+        def.angularDampingRatio,
+    );
     return pair;
 }
 export function getWeldJointForce(world: WorldState, sim: Joint): Vec3 {

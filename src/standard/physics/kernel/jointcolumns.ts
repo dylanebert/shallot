@@ -46,15 +46,6 @@ export function readJointWord(world: WorldState, joint: Joint, field: number): n
     const k = jointKernel(world);
     return jointViews(k).words[(k.jointSimPtr(joint) >>> 2) + field];
 }
-export function writeJointWord(
-    world: WorldState,
-    joint: Joint,
-    field: number,
-    value: number,
-): void {
-    const k = jointKernel(world);
-    jointViews(k).words[(k.jointSimPtr(joint) >>> 2) + field] = value;
-}
 export function readJointFlag(
     world: WorldState,
     joint: Joint,
@@ -62,16 +53,6 @@ export function readJointFlag(
     mask: number,
 ): boolean {
     return (readJointWord(world, joint, field) & mask) !== 0;
-}
-export function writeJointFlag(
-    world: WorldState,
-    joint: Joint,
-    field: number,
-    mask: number,
-    value: boolean,
-): void {
-    const bits = readJointWord(world, joint, field);
-    writeJointWord(world, joint, field, value ? bits | mask : bits & ~mask);
 }
 export function readJointVec3(
     world: WorldState,
@@ -86,15 +67,6 @@ export function readJointVec3(
 }
 export function writeJointVec3(world: WorldState, joint: Joint, field: number, v: Vec3): void {
     jointKernel(world).jointWriteVec3(joint, field, v.x, v.y, v.z);
-}
-export function writeJointVec2(
-    world: WorldState,
-    joint: Joint,
-    field: number,
-    v: { x: number; y: number },
-): void {
-    writeJointFloat(world, joint, field, v.x);
-    writeJointFloat(world, joint, field + 1, v.y);
 }
 export function readJointVec2(
     world: WorldState,
