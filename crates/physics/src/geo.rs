@@ -1,7 +1,6 @@
-//! Static geometry columns: hull topology for narrowphase and mesh, height-field and compound
-//! records for queries, uploaded on geometry-set changes rather than per step. Wasm-only — the pools alias linear memory, and
-//! `hull_view` reinterprets them into the borrowed `HullData` view (kernel/src/hull.rs) the narrowphase
-//! consumes. Native `cargo test` drives `HullData` over owned `Vec`s instead.
+//! Geometry uploaded on geometry-set changes, not per step. Hulls use Box3D's b3HullData header
+//! and relative-byte-offset trailing arrays; a directory locates each shared hull by upload id.
+//! `hull_view` borrows those arrays for narrowphase. Native tests use Vec-backed borrowed views.
 //!
 //! Each World's pools are allocator-owned. Geometry-set changes rewrite that World's pools;
 //! growing another region never requires a geometry upload.
@@ -10,19 +9,38 @@ use crate::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
 use crate::manifold::{collide_hulls, make_feature_id, LocalManifold, SatCache};
 use crate::math::{Plane, Quat, Transform, Vec3};
 
-/// u32 words per hull record: center.xyz (f32 bits), vertex/edge/face counts, and the element offset
-/// of this hull's slice into each pool; slot 11 locates the derived SoA vertices and normals.
-const RECORD_STRIDE: usize = 12;
+/// Box3D b3HullData, with byte offsets relative to this header into its trailing arrays.
+#[repr(C)]
+pub(crate) struct HullRecord {
+    pub version: u64,
+    pub hash: u64,
+    pub bounds: [Vec3; 2],
+    pub surface_area: f32,
+    pub volume: f32,
+    pub inner_radius: f32,
+    pub center: Vec3,
+    pub central_inertia: crate::math::Mat3,
+    pub vertex_count: i32,
+    pub vertex_offset: i32,
+    pub point_offset: i32,
+    pub edge_count: i32,
+    pub edge_offset: i32,
+    pub face_count: i32,
+    pub plane_offset: i32,
+    pub face_offset: i32,
+    pub soa_vertex_offset: i32,
+    pub soa_normal_offset: i32,
+    pub byte_count: i32,
+}
+pub(crate) unsafe fn hull_record(index: usize) -> &'static HullRecord {
+    let base = COLUMNS[regions::active()].layout[REC] as *const u8;
+    let offset = *(base as *const u32).add(index);
+    &*(base.add(offset as usize) as *const HullRecord)
+}
 
 // GEO_LAYOUT indices (byte offsets into linear memory), in memory order.
 const REC: usize = 0;
-const POINTS: usize = 1;
-const VERTICES: usize = 2;
-const EDGES: usize = 3;
-const FACES: usize = 4;
-const PLANES: usize = 5;
 const EXTRA: usize = 6;
-const SOA: usize = 7;
 const N_GEO: usize = 8;
 
 use crate::regions::{self, Columns, MAX_WORLDS};
@@ -34,25 +52,10 @@ pub extern "C" fn geo_layout_ptr() -> *const u32 {
 }
 
 #[export_name = "reserveGeometry"]
-pub extern "C" fn reserve_geometry(
-    hulls: usize,
-    verts: usize,
-    edges: usize,
-    faces: usize,
-    extra_words: usize,
-) {
+pub extern "C" fn reserve_geometry(hull_words: usize, extra_words: usize) {
     unsafe {
         let columns = &mut COLUMNS[regions::active()];
-        for (column, words) in [
-            (REC, hulls * RECORD_STRIDE),
-            (POINTS, verts * 3),
-            (VERTICES, verts),
-            (EDGES, edges * 4),
-            (FACES, faces),
-            (PLANES, faces * 4),
-            (EXTRA, extra_words),
-            (SOA, (verts + faces) * 3),
-        ] {
+        for (column, words) in [(REC, hull_words), (EXTRA, extra_words)] {
             columns.reserve(column, words * 4);
         }
     }
@@ -67,48 +70,35 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     COLUMNS[id].restore(input);
 }
 
-/// A borrowed `HullData` view over interned hull `index`'s slices in the geometry pools. The point and
-/// plane pools reinterpret directly as `&[Vec3]` / `&[Plane]` (repr(C)); the topology pools as
-/// `&[HullVertex]` / `&[HullHalfEdge]` / `&[HullFace]` (repr(C), `usize` == u32 on wasm32).
+/// Borrow the arrays hanging off a b3HullData header (`usize` is u32 on wasm32).
 pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
-    let layout = COLUMNS[regions::active()].layout;
-    let rec = (layout[REC] as *const u32).add(index * RECORD_STRIDE);
-    let center = Vec3::new(
-        f32::from_bits(*rec),
-        f32::from_bits(*rec.add(1)),
-        f32::from_bits(*rec.add(2)),
-    );
-    let vertex_count = *rec.add(3) as usize;
-    let edge_count = *rec.add(4) as usize;
-    let face_count = *rec.add(5) as usize;
-    let point_off = *rec.add(6) as usize;
-    let vertex_off = *rec.add(7) as usize;
-    let edge_off = *rec.add(8) as usize;
-    let face_off = *rec.add(9) as usize;
-    let plane_off = *rec.add(10) as usize;
-    let soa_off = *rec.add(11) as usize;
+    let rec = hull_record(index);
+    let base = rec as *const HullRecord as *const u8;
+    let center = rec.center;
+    let vertex_count = rec.vertex_count as usize;
+    let edge_count = rec.edge_count as usize;
+    let face_count = rec.face_count as usize;
     let nv = (vertex_count + 3) & !3;
     let nf = (face_count + 3) & !3;
-    let soa = (layout[SOA] as *const f32).add(soa_off);
-
+    let soa = base.offset(rec.soa_vertex_offset as isize) as *const f32;
     let points = core::slice::from_raw_parts(
-        (layout[POINTS] as *const f32).add(point_off * 3) as *const Vec3,
+        base.offset(rec.point_offset as isize) as *const Vec3,
         vertex_count,
     );
     let vertices = core::slice::from_raw_parts(
-        (layout[VERTICES] as *const u32).add(vertex_off) as *const HullVertex,
+        base.offset(rec.vertex_offset as isize) as *const HullVertex,
         vertex_count,
     );
     let edges = core::slice::from_raw_parts(
-        (layout[EDGES] as *const u32).add(edge_off * 4) as *const HullHalfEdge,
+        base.offset(rec.edge_offset as isize) as *const HullHalfEdge,
         edge_count,
     );
     let faces = core::slice::from_raw_parts(
-        (layout[FACES] as *const u32).add(face_off) as *const HullFace,
+        base.offset(rec.face_offset as isize) as *const HullFace,
         face_count,
     );
     let planes = core::slice::from_raw_parts(
-        (layout[PLANES] as *const f32).add(plane_off * 4) as *const Plane,
+        base.offset(rec.plane_offset as isize) as *const Plane,
         face_count,
     );
 
@@ -119,7 +109,11 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
         face_count,
         points,
         soa_points: core::slice::from_raw_parts(soa, 3 * nv).into(),
-        soa_normals: core::slice::from_raw_parts(soa.add(3 * nv), 3 * nf).into(),
+        soa_normals: core::slice::from_raw_parts(
+            base.offset(rec.soa_normal_offset as isize) as *const f32,
+            3 * nf,
+        )
+        .into(),
         vertices,
         edges,
         faces,

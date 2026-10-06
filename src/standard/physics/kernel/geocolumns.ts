@@ -8,18 +8,14 @@ import type { HullData } from "../shapes/hull";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
-/** u32 words per hull record (RECORD_STRIDE in geo.rs): center.xyz + v/e/f counts + 6 pool offsets. */
-const RECORD_STRIDE = 12;
+/** b3HullData header, followed by its eight-byte-aligned trailing arrays. */
+const HULL_HEADER_WORDS = 36;
+const align8 = (words: number): number => (words + 1) & ~1;
 
 // GEO_LAYOUT header indices (geo.rs), in memory order.
 const REC = 0;
-const POINTS = 1;
-const VERTICES = 2;
-const EDGES = 3;
-const FACES = 4;
-const PLANES = 5;
+
 const EXTRA = 6;
-const SOA = 7;
 const N_GEO = 8;
 
 /** The subset of a hull the geometry upload reads (and `geoIndex`, which it writes). `HullData`
@@ -27,6 +23,12 @@ const N_GEO = 8;
 export type UploadHull = Pick<
     HullData,
     | "center"
+    | "aabb"
+    | "surfaceArea"
+    | "volume"
+    | "innerRadius"
+    | "centralInertia"
+    | "hash"
     | "vertexCount"
     | "edgeCount"
     | "faceCount"
@@ -48,54 +50,85 @@ export function uploadGeometry(
     hulls: UploadHull[],
     extra: readonly number[] = [],
 ): void {
-    let verts = 0;
-    let edges = 0;
-    let faces = 0;
-    for (const h of hulls) {
-        verts += (h.vertexCount + 3) & ~3;
-        edges += h.edgeCount;
-        faces += (h.faceCount + 3) & ~3;
-    }
-
+    const size = (h: UploadHull): number =>
+        HULL_HEADER_WORDS +
+        align8(h.vertexCount) +
+        align8(h.vertexCount * 3) +
+        align8(h.edgeCount * 4) +
+        align8(h.faceCount * 4) +
+        align8(h.faceCount) +
+        3 * ((h.vertexCount + 3) & ~3) +
+        3 * ((h.faceCount + 3) & ~3);
+    let total = align8(hulls.length);
+    for (const h of hulls) total += size(h);
     const k = kernel(world);
-    k.reserveGeometry(hulls.length, verts, edges, faces, extra.length);
+    k.reserveGeometry(total, extra.length);
     const buf = k.memory.buffer;
     const layout = new Uint32Array(buf, k.geoLayoutPtr(), N_GEO);
     new Uint32Array(buf, layout[EXTRA], extra.length).set(extra);
-
-    // Two views over the record pool: center is f32 bits, counts + offsets are u32, at disjoint slots.
-    const recU = new Uint32Array(buf, layout[REC], hulls.length * RECORD_STRIDE);
-    const recF = new Float32Array(buf, layout[REC], hulls.length * RECORD_STRIDE);
-    const points = new Float32Array(buf, layout[POINTS], verts * 3);
-    const vertices = new Uint32Array(buf, layout[VERTICES], verts);
-    const edgeCol = new Uint32Array(buf, layout[EDGES], edges * 4);
-    const faceCol = new Uint32Array(buf, layout[FACES], faces);
-    const planes = new Float32Array(buf, layout[PLANES], faces * 4);
-    const soa = new Float32Array(buf, layout[SOA], (verts + faces) * 3);
-
-    // Point and vertex pools share an element offset (one point per vertex); edge/face/plane advance
-    // independently.
-    let vOff = 0;
-    let eOff = 0;
-    let fOff = 0;
-    let soaOff = 0;
+    const recU = new Uint32Array(buf, layout[REC], total);
+    const recF = new Float32Array(buf, layout[REC], total);
+    recU.fill(0);
+    let base = align8(hulls.length);
     for (let i = 0; i < hulls.length; ++i) {
         const h = hulls[i];
         h.geoIndex = i;
 
-        const r = i * RECORD_STRIDE;
-        recF[r] = h.center.x;
-        recF[r + 1] = h.center.y;
-        recF[r + 2] = h.center.z;
-        recU[r + 3] = h.vertexCount;
-        recU[r + 4] = h.edgeCount;
-        recU[r + 5] = h.faceCount;
-        recU[r + 6] = vOff; // pointOff
-        recU[r + 7] = vOff; // vertexOff
-        recU[r + 8] = eOff;
-        recU[r + 9] = fOff;
-        recU[r + 10] = fOff; // planeOff (one plane per face)
-        recU[r + 11] = soaOff;
+        const r = base;
+        recU[i] = r * 4;
+        recU[r] = 0xde57485c;
+        recU[r + 1] = 0x4a4c9587;
+        recU[r + 2] = h.hash >>> 0;
+        recF.set(
+            [
+                h.aabb.lowerBound.x,
+                h.aabb.lowerBound.y,
+                h.aabb.lowerBound.z,
+                h.aabb.upperBound.x,
+                h.aabb.upperBound.y,
+                h.aabb.upperBound.z,
+                h.surfaceArea,
+                h.volume,
+                h.innerRadius,
+                h.center.x,
+                h.center.y,
+                h.center.z,
+                h.centralInertia.cx.x,
+                h.centralInertia.cx.y,
+                h.centralInertia.cx.z,
+                h.centralInertia.cy.x,
+                h.centralInertia.cy.y,
+                h.centralInertia.cy.z,
+                h.centralInertia.cz.x,
+                h.centralInertia.cz.y,
+                h.centralInertia.cz.z,
+            ],
+            r + 4,
+        );
+        let off = HULL_HEADER_WORDS;
+        const vertices = new Uint32Array(buf, layout[REC] + 4 * (r + off), h.vertexCount);
+        recU[r + 25] = h.vertexCount;
+        recU[r + 26] = off * 4;
+        off += align8(h.vertexCount);
+        const points = new Float32Array(buf, layout[REC] + 4 * (r + off), h.vertexCount * 3);
+        recU[r + 27] = off * 4;
+        off += align8(h.vertexCount * 3);
+        const edgeCol = new Uint32Array(buf, layout[REC] + 4 * (r + off), h.edgeCount * 4);
+        recU[r + 28] = h.edgeCount;
+        recU[r + 29] = off * 4;
+        off += align8(h.edgeCount * 4);
+        const planes = new Float32Array(buf, layout[REC] + 4 * (r + off), h.faceCount * 4);
+        recU[r + 30] = h.faceCount;
+        recU[r + 31] = off * 4;
+        off += align8(h.faceCount * 4);
+        const faceCol = new Uint32Array(buf, layout[REC] + 4 * (r + off), h.faceCount);
+        recU[r + 32] = off * 4;
+        off += align8(h.faceCount);
+        const soa = new Float32Array(buf, layout[REC] + 4 * (r + off), size(h) - off);
+        recU[r + 33] = off * 4;
+        recU[r + 34] = (off + 3 * ((h.vertexCount + 3) & ~3)) * 4;
+        recU[r + 35] = size(h) * 4;
+        let soaOff = 0;
 
         // Authoring and snapshots keep points/planes as their one source; derive Box3D's padded
         // streams only at upload. Tail vertices repeat element zero; tail normals are zero.
@@ -118,33 +151,31 @@ export function uploadGeometry(
 
         for (let p = 0; p < h.vertexCount; ++p) {
             const pt = h.points[p];
-            const o = (vOff + p) * 3;
+            const o = p * 3;
             points[o] = pt.x;
             points[o + 1] = pt.y;
             points[o + 2] = pt.z;
-            vertices[vOff + p] = h.vertices[p].edge;
+            vertices[p] = h.vertices[p].edge;
         }
         for (let e = 0; e < h.edgeCount; ++e) {
             const ed = h.edges[e];
-            const o = (eOff + e) * 4;
+            const o = e * 4;
             edgeCol[o] = ed.next;
             edgeCol[o + 1] = ed.twin;
             edgeCol[o + 2] = ed.origin;
             edgeCol[o + 3] = ed.face;
         }
         for (let f = 0; f < h.faceCount; ++f) {
-            faceCol[fOff + f] = h.faces[f].edge;
+            faceCol[f] = h.faces[f].edge;
             const pl = h.planes[f];
-            const o = (fOff + f) * 4;
+            const o = f * 4;
             planes[o] = pl.normal.x;
             planes[o + 1] = pl.normal.y;
             planes[o + 2] = pl.normal.z;
             planes[o + 3] = pl.offset;
         }
 
-        vOff += h.vertexCount;
-        eOff += h.edgeCount;
-        fOff += h.faceCount;
+        base += size(h);
     }
 }
 

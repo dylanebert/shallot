@@ -43,15 +43,42 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
     uploadGeometry(undefined, hulls);
     const k = kernel(undefined);
     const layout = new Uint32Array(k.memory.buffer, k.geoLayoutPtr(), 8);
-    const records = new Uint32Array(k.memory.buffer, layout[0], hulls.length * 12);
+    const directory = new Uint32Array(k.memory.buffer, layout[0], hulls.length);
     for (const [i, h] of hulls.entries()) {
         const nv = (h.vertexCount + 3) & ~3;
         const nf = (h.faceCount + 3) & ~3;
-        const soa = new Float32Array(
-            k.memory.buffer,
-            layout[7] + 4 * records[i * 12 + 11],
-            3 * (nv + nf),
-        );
+        const base = layout[0] + directory[i];
+        const record = new Uint32Array(k.memory.buffer, base, 36);
+        const soa = new Float32Array(k.memory.buffer, base + record[33], 3 * (nv + nf));
+        expect(record[34]).toBe(record[33] + 12 * nv);
+        const floats = new Float32Array(k.memory.buffer, base, 36);
+        expect(Array.from(record.slice(0, 4))).toEqual([0xde57485c, 0x4a4c9587, h.hash >>> 0, 0]);
+        expect(Array.from(floats.slice(4, 25))).toEqual([
+            h.aabb.lowerBound.x,
+            h.aabb.lowerBound.y,
+            h.aabb.lowerBound.z,
+            h.aabb.upperBound.x,
+            h.aabb.upperBound.y,
+            h.aabb.upperBound.z,
+            h.surfaceArea,
+            h.volume,
+            h.innerRadius,
+            h.center.x,
+            h.center.y,
+            h.center.z,
+            h.centralInertia.cx.x,
+            h.centralInertia.cx.y,
+            h.centralInertia.cx.z,
+            h.centralInertia.cy.x,
+            h.centralInertia.cy.y,
+            h.centralInertia.cy.z,
+            h.centralInertia.cz.x,
+            h.centralInertia.cz.y,
+            h.centralInertia.cz.z,
+        ]);
+        for (const lane of [26, 27, 29, 31, 32, 33, 34, 35]) {
+            expect(record[lane] % 8).toBe(0);
+        }
         for (let lane = 0; lane < nv; ++lane) {
             const p = h.points[lane < h.vertexCount ? lane : 0];
             expect([soa[lane], soa[nv + lane], soa[2 * nv + lane]]).toEqual([p.x, p.y, p.z]);
