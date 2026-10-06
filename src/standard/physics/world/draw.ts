@@ -123,59 +123,70 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
         state.hi = hi32(maskBits);
         state.lo = lo32(maskBits);
     }
-    k.worldDraw(world.worldId, flags, state.hi, state.lo, world.invH);
-    if (state.view.buffer !== k.memory.buffer) state.view = new DataView(k.memory.buffer);
-    const v = state.view;
-    const end = k.worldDrawPtr() + k.worldDrawLen() * 4;
-    for (let o = k.worldDrawPtr(); o < end; o += v.getUint32(o + 4, true) * 4) {
-        const kind = v.getUint32(o, true),
-            color = v.getUint32(o + 8, true),
-            p = o + 12;
-        switch (kind) {
-            case 0:
-                draw.drawSolidCapsule(drawTransform(v, p), drawCapsule(v, p + 28), color);
-                break;
-            case 2:
-                draw.drawSolidHeightField(drawTransform(v, p), drawHeightField(v, p + 40), color);
-                break;
-            case 3:
-                draw.drawSolidHull(drawTransform(v, p), drawHull(v, p + 40), color);
-                break;
-            case 4:
-                draw.drawSolidMesh(drawTransform(v, p), drawMesh(v, p + 28), color);
-                break;
-            case 5:
-                draw.drawSolidSphere(drawTransform(v, p), drawSphere(v, p + 28), color);
-                break;
-            case 6:
-                draw.drawSegment(drawVector(v, p), drawVector(v, p + 12), color);
-                break;
-            case 7:
-                draw.drawPoint(drawVector(v, p), v.getFloat32(p + 12, true), color);
-                break;
-            case 8:
-                draw.drawTransform(drawTransform(v, p));
-                break;
-            case 9:
-                draw.drawAabb(
-                    { lowerBound: drawVector(v, p), upperBound: drawVector(v, p + 12) },
-                    color,
-                );
-                break;
-            case 10:
-                draw.drawString(
-                    drawVector(v, p),
-                    `  ${v.getFloat32(p + 12, true).toFixed(2)}`,
-                    color,
-                );
-                break;
-            case 11:
-                draw.drawString(
-                    drawVector(v, p),
-                    `f = ${v.getFloat32(p + 12, true).toPrecision(4)}, t = ${v.getFloat32(p + 16, true).toPrecision(4)}`,
-                    color,
-                );
-                break;
+    const start = k.worldDraw(world.worldId, flags, state.hi, state.lo, world.invH);
+    const end = k.worldDrawLen();
+    try {
+        for (let position = start; position < end; ) {
+            // A nested draw may relocate the buffer or grow linear memory.
+            if (state.view.buffer !== k.memory.buffer) state.view = new DataView(k.memory.buffer);
+            const v = state.view;
+            const o = k.worldDrawPtr() + position * 4;
+            position += v.getUint32(o + 4, true);
+            const kind = v.getUint32(o, true),
+                color = v.getUint32(o + 8, true),
+                p = o + 12;
+            switch (kind) {
+                case 0:
+                    draw.drawSolidCapsule(drawTransform(v, p), drawCapsule(v, p + 28), color);
+                    break;
+                case 2:
+                    draw.drawSolidHeightField(
+                        drawTransform(v, p),
+                        drawHeightField(v, p + 40),
+                        color,
+                    );
+                    break;
+                case 3:
+                    draw.drawSolidHull(drawTransform(v, p), drawHull(v, p + 40), color);
+                    break;
+                case 4:
+                    draw.drawSolidMesh(drawTransform(v, p), drawMesh(v, p + 28), color);
+                    break;
+                case 5:
+                    draw.drawSolidSphere(drawTransform(v, p), drawSphere(v, p + 28), color);
+                    break;
+                case 6:
+                    draw.drawSegment(drawVector(v, p), drawVector(v, p + 12), color);
+                    break;
+                case 7:
+                    draw.drawPoint(drawVector(v, p), v.getFloat32(p + 12, true), color);
+                    break;
+                case 8:
+                    draw.drawTransform(drawTransform(v, p));
+                    break;
+                case 9:
+                    draw.drawAabb(
+                        { lowerBound: drawVector(v, p), upperBound: drawVector(v, p + 12) },
+                        color,
+                    );
+                    break;
+                case 10:
+                    draw.drawString(
+                        drawVector(v, p),
+                        `  ${v.getFloat32(p + 12, true).toFixed(2)}`,
+                        color,
+                    );
+                    break;
+                case 11:
+                    draw.drawString(
+                        drawVector(v, p),
+                        `f = ${v.getFloat32(p + 12, true).toPrecision(4)}, t = ${v.getFloat32(p + 16, true).toPrecision(4)}`,
+                        color,
+                    );
+                    break;
+            }
         }
+    } finally {
+        k.worldDrawRelease(start);
     }
 }

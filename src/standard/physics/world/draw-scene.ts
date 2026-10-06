@@ -1,5 +1,6 @@
+import type { Body } from "../api/body";
 import { PhysicsWorld } from "../api/world";
-import { xf } from "../common/math";
+import { quat, xf } from "../common/math";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
@@ -40,6 +41,39 @@ export function drawScene() {
     world.createSphericalJoint(a, b);
     world.createWeldJoint(a, b);
     world.createWheelJoint(a, b);
+    const draw = defaultDebugDraw();
+    draw.drawShapes =
+        draw.drawBounds =
+        draw.drawMass =
+        draw.drawJoints =
+        draw.drawJointExtras =
+            true;
+    return { world, draw };
+}
+
+export function reactionScene() {
+    const world = new PhysicsWorld();
+    const creators: ((this: PhysicsWorld, a: Body, b: Body) => unknown)[] = [
+        world.createDistanceJoint,
+        world.createParallelJoint,
+        world.createPrismaticJoint,
+        world.createRevoluteJoint,
+        world.createSphericalJoint,
+        world.createWeldJoint,
+        world.createWheelJoint,
+    ];
+    for (let i = 0; i < creators.length; ++i) {
+        const a = world.createBody({ position: { x: i * 5 - 15, y: 0, z: 0 } });
+        const b = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: i * 5 - 14, y: 2, z: 0 },
+            rotation: quat.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4),
+            angularVelocity: { x: 1, y: 2, z: 3 },
+        });
+        b.createSphere({ density: 2 }, { center: { x: 0.2, y: 0, z: 0 }, radius: 0.5 });
+        creators[i].call(world, a, b);
+    }
+    for (let step = 0; step < 4; ++step) world.step(1 / 60, 4);
     const draw = defaultDebugDraw();
     draw.drawShapes =
         draw.drawBounds =

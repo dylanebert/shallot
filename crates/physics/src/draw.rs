@@ -175,11 +175,16 @@ unsafe fn color(world: usize, id: usize) -> u32 {
     }
 }
 #[export_name = "worldDrawShape"]
-pub unsafe extern "C" fn observe_shape(world: usize, id: usize) {
+pub unsafe extern "C" fn observe_shape(world: usize, id: usize) -> usize {
     regions::select(world as u32);
     let out = &mut *(&raw mut BUFFER);
-    out.clear();
+    let start = out.len();
     shape(out, id, Transform::IDENTITY, 0);
+    start
+}
+#[export_name = "worldDrawRelease"]
+pub unsafe extern "C" fn release(start: usize) {
+    (&mut *(&raw mut BUFFER)).truncate(start);
 }
 #[export_name = "worldDrawPtr"]
 pub extern "C" fn pointer() -> *const u32 {
@@ -190,11 +195,17 @@ pub extern "C" fn length() -> usize {
     unsafe { (&*(&raw const BUFFER)).len() }
 }
 #[export_name = "worldDraw"]
-pub unsafe extern "C" fn run(world: usize, flags: u32, mask_hi: u32, mask_lo: u32, inv_h: f32) {
+pub unsafe extern "C" fn run(
+    world: usize,
+    flags: u32,
+    mask_hi: u32,
+    mask_lo: u32,
+    inv_h: f32,
+) -> usize {
     regions::select(world as u32);
     let header = crate::world_query::HEADER;
     let out = &mut *(&raw mut BUFFER);
-    out.clear();
+    let start = out.len();
     let visited = &mut *(&raw mut VISITED);
     visited.resize(bodies::body_cap().div_ceil(64), 0);
     visited.fill(0);
@@ -302,7 +313,13 @@ pub unsafe extern "C" fn run(world: usize, flags: u32, mask_hi: u32, mask_lo: u3
             if flags & 16 != 0 {
                 let (force, torque) = crate::joint_draw::reaction(col, ta, tb, inv_h);
                 let p = pa.lerp(pb, 0.5);
-                segment(out, p, p.mul_add(0.001, force), 0xf0ffff);
+                // The published draw used a JavaScript number for its display scale.
+                let scaled = Vec3::new(
+                    (0.001_f64 * force.x as f64) as f32,
+                    (0.001_f64 * force.y as f64) as f32,
+                    (0.001_f64 * force.z as f64) as f32,
+                );
+                segment(out, p, p.add(scaled), 0xf0ffff);
                 let n = begin(out, 11, 0xf0ffff);
                 vector(out, p);
                 out.extend([force.length().to_bits(), torque.length().to_bits()]);
@@ -310,4 +327,5 @@ pub unsafe extern "C" fn run(world: usize, flags: u32, mask_hi: u32, mask_lo: u3
             }
         }
     }
+    start
 }

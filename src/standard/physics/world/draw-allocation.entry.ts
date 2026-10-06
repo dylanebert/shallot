@@ -21,11 +21,33 @@ export default async function create(input: string) {
             false;
     return {
         step: () => {
-            if (input === "buffer") {
+            if (input === "buffer" || input === "nested-buffer") {
                 q.prepare(draw.drawingBounds.lowerBound);
                 q.bounds(draw.drawingBounds);
-                k.worldDraw(world.state.worldId, 31, 0xffffffff, 0xffffffff, world.state.invH);
-                if (k.worldDrawLen() === 0) throw new Error("draw subject emitted no primitives");
+                const start = k.worldDraw(
+                    world.state.worldId,
+                    31,
+                    0xffffffff,
+                    0xffffffff,
+                    world.state.invH,
+                );
+                if (k.worldDrawLen() === start)
+                    throw new Error("draw subject emitted no primitives");
+                if (input === "nested-buffer") {
+                    const nested = k.worldDraw(
+                        world.state.worldId,
+                        1,
+                        0xffffffff,
+                        0xffffffff,
+                        world.state.invH,
+                    );
+                    if (nested <= start || k.worldDrawLen() <= nested)
+                        throw new Error("nested draw lost its pending stream");
+                    k.worldDrawRelease(nested);
+                    if (k.worldDrawLen() !== nested)
+                        throw new Error("nested draw failed to release its stream");
+                }
+                k.worldDrawRelease(start);
             } else {
                 world.draw(draw);
                 if (input === "leak") leaked = new Set([1, 2, 3]);

@@ -165,36 +165,46 @@ export type CompoundDrawChild = {
 };
 
 // Requested observations use the same kernel primitive encoder as the public draw.
-function observe(world: WorldState, shape: number): DataView {
-    const k = kernel(world.ecsState);
-    k.worldDrawShape(world.worldId, shape);
-    return new DataView(k.memory.buffer);
-}
 export function readShapeMesh(world: WorldState, shape: number): Mesh {
-    const v = observe(world, shape);
-    return drawMesh(v, kernel(world.ecsState).worldDrawPtr() + 40);
+    const k = kernel(world.ecsState);
+    const start = k.worldDrawShape(world.worldId, shape);
+    try {
+        return drawMesh(new DataView(k.memory.buffer), k.worldDrawPtr() + start * 4 + 40);
+    } finally {
+        k.worldDrawRelease(start);
+    }
 }
 export function readShapeHeightField(world: WorldState, shape: number): HeightFieldData {
-    const v = observe(world, shape);
-    return drawHeightField(v, kernel(world.ecsState).worldDrawPtr() + 52);
+    const k = kernel(world.ecsState);
+    const start = k.worldDrawShape(world.worldId, shape);
+    try {
+        return drawHeightField(new DataView(k.memory.buffer), k.worldDrawPtr() + start * 4 + 52);
+    } finally {
+        k.worldDrawRelease(start);
+    }
 }
 export function readCompoundChildren(world: WorldState, shape: number): CompoundDrawChild[] {
-    const v = observe(world, shape),
-        k = kernel(world.ecsState),
-        end = k.worldDrawPtr() + k.worldDrawLen() * 4;
-    const children: CompoundDrawChild[] = [];
-    for (let o = k.worldDrawPtr(); o < end; o += v.getUint32(o + 4, true) * 4) {
-        const type = v.getUint32(o, true),
-            p = o + 40;
-        const geometry =
-            type === ShapeType.Sphere
-                ? drawSphere(v, p)
-                : type === ShapeType.Capsule
-                  ? drawCapsule(v, p)
-                  : type === ShapeType.Hull
-                    ? drawHull(v, p + 12)
-                    : drawMesh(v, p);
-        children.push({ type, transform: drawTransform(v, o + 12), geometry });
+    const k = kernel(world.ecsState);
+    const start = k.worldDrawShape(world.worldId, shape);
+    try {
+        const v = new DataView(k.memory.buffer),
+            end = k.worldDrawPtr() + k.worldDrawLen() * 4;
+        const children: CompoundDrawChild[] = [];
+        for (let o = k.worldDrawPtr() + start * 4; o < end; o += v.getUint32(o + 4, true) * 4) {
+            const type = v.getUint32(o, true),
+                p = o + 40;
+            const geometry =
+                type === ShapeType.Sphere
+                    ? drawSphere(v, p)
+                    : type === ShapeType.Capsule
+                      ? drawCapsule(v, p)
+                      : type === ShapeType.Hull
+                        ? drawHull(v, p + 12)
+                        : drawMesh(v, p);
+            children.push({ type, transform: drawTransform(v, o + 12), geometry });
+        }
+        return children;
+    } finally {
+        k.worldDrawRelease(start);
     }
-    return children;
 }

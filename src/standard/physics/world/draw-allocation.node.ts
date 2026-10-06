@@ -7,7 +7,7 @@ import {
 import { CEILING } from "../../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
-for (const input of ["walk", "buffer"]) {
+for (const input of ["walk", "buffer", "nested-buffer"]) {
     test(`warmed debug draw ${input} allocates nothing beyond fresh callback arguments`, async () => {
         const sample = await sampleAllocation(
             resolve(import.meta.dir, "draw-allocation.entry.ts"),
