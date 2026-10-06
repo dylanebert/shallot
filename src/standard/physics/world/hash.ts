@@ -38,14 +38,14 @@ export function hashWorldStateOracleSentinel(world: WorldState): bigint {
     return hashWorldStateWithSeed(world, FNV_INIT ^ 0x9e3779b97f4a7c15n);
 }
 
-function hashWorldStateWithSeed(world: WorldState, initial: bigint): bigint {
-    const transformScratch1 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-    const linearVelocityScratch8 = { x: 0, y: 0, z: 0 };
-    const angularVelocityScratch11 = { x: 0, y: 0, z: 0 };
+const transformScratch1 = {
+    p: { x: 0, y: 0, z: 0 },
+    q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+};
+const linearVelocityScratch8 = { x: 0, y: 0, z: 0 };
+const angularVelocityScratch11 = { x: 0, y: 0, z: 0 };
 
+function hashWorldStateWithSeed(world: WorldState, initial: bigint): bigint {
     let hash = initial;
 
     const bodyCount = world.bodies.length;

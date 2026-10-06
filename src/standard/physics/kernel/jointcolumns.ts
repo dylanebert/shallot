@@ -86,12 +86,16 @@ export function writeJointFlag(
     const bits = readJointWord(world, joint, field);
     writeJointWord(world, joint, field, value ? bits | mask : bits & ~mask);
 }
-export function readJointVec3(world: WorldState, joint: Joint, field: number): Vec3 {
-    return {
-        x: readJointFloat(world, joint, field),
-        y: readJointFloat(world, joint, field + 1),
-        z: readJointFloat(world, joint, field + 2),
-    };
+export function readJointVec3(
+    world: WorldState,
+    joint: Joint,
+    field: number,
+    out: Vec3 = { x: 0, y: 0, z: 0 },
+): Vec3 {
+    out.x = readJointFloat(world, joint, field);
+    out.y = readJointFloat(world, joint, field + 1);
+    out.z = readJointFloat(world, joint, field + 2);
+    return out;
 }
 export function writeJointVec3(world: WorldState, joint: Joint, field: number, v: Vec3): void {
     writeJointFloat(world, joint, field, v.x);
@@ -114,8 +118,15 @@ export function readJointVec2(
 ): { x: number; y: number } {
     return { x: readJointFloat(world, joint, field), y: readJointFloat(world, joint, field + 1) };
 }
-export function readJointQuat(world: WorldState, joint: Joint, field: number): Quat {
-    return { v: readJointVec3(world, joint, field), s: readJointFloat(world, joint, field + 3) };
+export function readJointQuat(
+    world: WorldState,
+    joint: Joint,
+    field: number,
+    out: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 },
+): Quat {
+    readJointVec3(world, joint, field, out.v);
+    out.s = readJointFloat(world, joint, field + 3);
+    return out;
 }
 export function writeJointQuat(world: WorldState, joint: Joint, field: number, q: Quat): void {
     writeJointVec3(world, joint, field, q.v);

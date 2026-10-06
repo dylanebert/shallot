@@ -44,7 +44,6 @@ import {
     type Quat,
     quat,
     steiner,
-    subPos,
     transformWorldPoint,
     type Vec3,
     vec3,
@@ -274,6 +273,15 @@ export function bodySetAngularVelocity(world: WorldState, body: Body, angularVel
     setStateField(world, state, "angularVelocity", w);
 }
 
+const targetCenter = vec3.zero();
+const targetLocalCenter = vec3.zero();
+const targetPose: WorldTransform = { p: vec3.zero(), q: quat.identity() };
+const targetExtent = vec3.zero();
+const targetLinear = vec3.zero();
+const targetAngular = vec3.zero();
+const targetDifference = vec3.zero();
+const targetConjugate = vec3.zero();
+
 /**
  * Drive a (typically kinematic) body toward a target transform over one time step by setting the
  * linear and angular velocity that reaches it (b3Body_SetTargetTransform). Used to animate a kinematic
@@ -286,14 +294,6 @@ export function bodySetTargetTransform(
     timeStep: number,
     wake: boolean,
 ): void {
-    const centerScratch1 = { x: 0, y: 0, z: 0 };
-    const localCenterScratch2 = { x: 0, y: 0, z: 0 };
-    const transformScratch3 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-    const maxExtentScratch4 = { x: 0, y: 0, z: 0 };
-
     if (body.setIndex === SetType.Disabled) return;
     if (bodyType(world, body.id) === BodyType.Static || timeStep <= 0) return;
     if (body.setIndex !== SetType.Awake && wake === false) return;
@@ -301,38 +301,56 @@ export function bodySetTargetTransform(
     const sim = getBodySim(world, body);
 
     // Linear velocity from the world-space center difference, demoted to f32.
-    const center1 = readSimCenter(world, sim, centerScratch1);
-    const center2 = transformWorldPoint(
-        target,
-        readSimLocalCenter(world, sim, localCenterScratch2),
-    );
+    readSimCenter(world, sim, targetCenter);
+    readSimLocalCenter(world, sim, targetLocalCenter);
+    quat.rotateOut(target.q, targetLocalCenter, targetLinear);
+    vec3.addOut(targetLinear, target.p, targetLinear);
+    vec3.subOut(targetLinear, targetCenter, targetLinear);
     const invTimeStep = f32(1 / timeStep);
-    const linearVelocity = vec3.scale(invTimeStep, subPos(center2, center1));
+    vec3.scaleOut(invTimeStep, targetLinear, targetLinear);
 
     // Angular velocity: w = 2 * (q2 - q1) * conj(q1) / dt, using the shortest-arc quaternion.
-    const q1 = readSimTransform(world, sim, transformScratch3).q;
-    let q2 = target.q;
-    if (quat.dot(q1, q2) < 0) q2 = quat.negate(q2);
-    const dq: Quat = { v: vec3.sub(q2.v, q1.v), s: f32(q2.s - q1.s) };
-    const omega = quat.mul(dq, quat.conjugate(q1));
-    const angularVelocity = vec3.scale(f32(2 * invTimeStep), omega.v);
+    const q1 = readSimTransform(world, sim, targetPose).q;
+    const q2 = target.q;
+    const xx = f32(q1.v.x * q2.v.x);
+    const yy = f32(q1.v.y * q2.v.y);
+    const zz = f32(q1.v.z * q2.v.z);
+    const ss = f32(q1.s * q2.s);
+    const sign = f32(f32(f32(xx + yy) + zz) + ss) < 0 ? -1 : 1;
+    targetDifference.x = f32(sign * q2.v.x - q1.v.x);
+    targetDifference.y = f32(sign * q2.v.y - q1.v.y);
+    targetDifference.z = f32(sign * q2.v.z - q1.v.z);
+    const ds = f32(sign * q2.s - q1.s);
+    targetConjugate.x = -q1.v.x;
+    targetConjugate.y = -q1.v.y;
+    targetConjugate.z = -q1.v.z;
+    vec3.crossOut(targetDifference, targetConjugate, targetAngular);
+    targetAngular.x = f32(
+        f32(targetAngular.x + f32(ds * targetConjugate.x)) + f32(q1.s * targetDifference.x),
+    );
+    targetAngular.y = f32(
+        f32(targetAngular.y + f32(ds * targetConjugate.y)) + f32(q1.s * targetDifference.y),
+    );
+    targetAngular.z = f32(
+        f32(targetAngular.z + f32(ds * targetConjugate.z)) + f32(q1.s * targetDifference.z),
+    );
+    vec3.scaleOut(f32(2 * invTimeStep), targetAngular, targetAngular);
 
     // If the body is asleep, wake only when the target motion exceeds the sleep threshold.
     if (body.setIndex !== SetType.Awake) {
-        const maxVelocity = f32(
-            vec3.length(linearVelocity) +
-                vec3.length(
-                    vec3.mul(angularVelocity, readSimMaxExtent(world, sim, maxExtentScratch4)),
-                ),
-        );
+        readSimMaxExtent(world, sim, targetExtent);
+        targetExtent.x = f32(targetAngular.x * targetExtent.x);
+        targetExtent.y = f32(targetAngular.y * targetExtent.y);
+        targetExtent.z = f32(targetAngular.z * targetExtent.z);
+        const maxVelocity = f32(vec3.length(targetLinear) + vec3.length(targetExtent));
         if (maxVelocity < body.sleepThreshold) return;
         wakeBody(world, body);
     }
 
     const state = getBodyState(world, body);
     if (state === null) return;
-    setStateField(world, state, "linearVelocity", linearVelocity);
-    setStateField(world, state, "angularVelocity", angularVelocity);
+    setStateField(world, state, "linearVelocity", targetLinear);
+    setStateField(world, state, "angularVelocity", targetAngular);
 }
 
 // --- forces + impulses -----------------------------------------------------------------------
@@ -379,11 +397,28 @@ export function bodyApplyTorque(world: WorldState, body: Body, torque: Vec3, wak
 // Clamp a linear velocity to the world's max linear speed (the shared tail of the impulse setters).
 function clampLinearSpeed(world: WorldState, v: Vec3): Vec3 {
     const maxLinearSpeed = world.maxLinearSpeed;
-    if (vec3.lengthSq(v) > f32(maxLinearSpeed * maxLinearSpeed)) {
-        return vec3.scale(maxLinearSpeed, vec3.normalize(v));
+    const lengthSq = vec3.lengthSq(v);
+    if (lengthSq > f32(maxLinearSpeed * maxLinearSpeed)) {
+        if (lengthSq > f32(1000 * FLT_MIN)) {
+            vec3.scaleOut(f32(1 / f32(Math.sqrt(lengthSq))), v, v);
+        } else {
+            v.x = 0;
+            v.y = 0;
+            v.z = 0;
+        }
+        vec3.scaleOut(maxLinearSpeed, v, v);
     }
     return v;
 }
+
+const impulseScratch = {
+    linear: vec3.zero(),
+    angular: vec3.zero(),
+    center: vec3.zero(),
+    r: vec3.zero(),
+    mrn: vec3.zero(),
+    inertia: mat3.zero(),
+};
 
 /**
  * Apply an instantaneous world-space impulse at a world-space point, changing velocity immediately
@@ -396,14 +431,7 @@ export function bodyApplyLinearImpulse(
     impulse: Vec3,
     point: Pos,
     wake: boolean,
-    scratch = {
-        linear: vec3.zero(),
-        angular: vec3.zero(),
-        center: vec3.zero(),
-        r: vec3.zero(),
-        mrn: vec3.zero(),
-        inertia: mat3.zero(),
-    },
+    scratch = impulseScratch,
 ): void {
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
@@ -446,28 +474,22 @@ export function bodyApplyLinearImpulseToCenter(
     impulse: Vec3,
     wake: boolean,
 ): void {
-    const linearVelocityScratch1 = { x: 0, y: 0, z: 0 };
-
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
     const state = getBodyState(world, body);
     if (state === null) return;
 
-    setStateField(
-        world,
-        state,
-        "linearVelocity",
-        clampLinearSpeed(
-            world,
-            vec3.mulAdd(
-                readStateLinearVelocity(world, state, linearVelocityScratch1),
-                simInvMass(world, sim),
-                impulse,
-            ),
-        ),
-    );
+    const v = readStateLinearVelocity(world, state, impulseScratch.linear);
+    vec3.mulAddOut(v, simInvMass(world, sim), impulse, v);
+    setStateField(world, state, "linearVelocity", clampLinearSpeed(world, v));
 }
+
+const angularImpulsePose: WorldTransform = { p: vec3.zero(), q: quat.identity() };
+const angularImpulseInertia = mat3.zero();
+const angularImpulseLocal = vec3.zero();
+const angularImpulseDelta = vec3.zero();
+const angularImpulseVelocity = vec3.zero();
 
 /** Apply an instantaneous angular impulse, changing angular velocity immediately (b3Body_ApplyAngularImpulse). */
 export function bodyApplyAngularImpulse(
@@ -476,21 +498,6 @@ export function bodyApplyAngularImpulse(
     impulse: Vec3,
     wake: boolean,
 ): void {
-    const transformScratch1 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-    const invInertiaLocalScratch2 = {
-        cx: { x: 0, y: 0, z: 0 },
-        cy: { x: 0, y: 0, z: 0 },
-        cz: { x: 0, y: 0, z: 0 },
-    };
-    const angularVelocityScratch3 = { x: 0, y: 0, z: 0 };
-    const transformScratch4 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
@@ -498,20 +505,14 @@ export function bodyApplyAngularImpulse(
     if (state === null) return;
 
     // Rotate the impulse into the body frame, apply the local inverse inertia, rotate back.
-    const localImpulse = quat.invRotate(readSimTransform(world, sim, transformScratch1).q, impulse);
-    const localDelta = mat3.mulV(
-        readSimInvInertiaLocal(world, sim, invInertiaLocalScratch2),
-        localImpulse,
-    );
-    setStateField(
-        world,
-        state,
-        "angularVelocity",
-        vec3.add(
-            readStateAngularVelocity(world, state, angularVelocityScratch3),
-            quat.rotate(readSimTransform(world, sim, transformScratch4).q, localDelta),
-        ),
-    );
+    const q = readSimTransform(world, sim, angularImpulsePose).q;
+    quat.invRotateOut(q, impulse, angularImpulseLocal);
+    readSimInvInertiaLocal(world, sim, angularImpulseInertia);
+    mat3.mulVOut(angularImpulseInertia, angularImpulseLocal, angularImpulseDelta);
+    quat.rotateOut(q, angularImpulseDelta, angularImpulseDelta);
+    readStateAngularVelocity(world, state, angularImpulseVelocity);
+    vec3.addOut(angularImpulseVelocity, angularImpulseDelta, angularImpulseVelocity);
+    setStateField(world, state, "angularVelocity", angularImpulseVelocity);
 }
 
 // --- transform + type + awake ----------------------------------------------------------------

@@ -9,6 +9,12 @@ import { CEILING } from "../../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 const scenes = {
+    target: "an eligible target-transform call",
+    "target-return": "target-transform early returns",
+    "impulse-linear": "linear impulses at a point",
+    "impulse-center": "linear impulses at the center",
+    "impulse-angular": "angular impulses",
+    "prismatic-read": "a prismatic joint speed read",
     force: "an awake body under force and torque",
     authored: "64 authored distance and spherical joint pendulums",
     spherical: "64 spherical joints with a localFrameB on static anchors",

@@ -174,75 +174,64 @@ export function prismaticJointTranslation(world: WorldState, sim: Joint): number
     return vec3.dot(d, jointAxis);
 }
 
+const speedPoseA = { p: vec3.zero(), q: quat.identity() };
+const speedPoseB = { p: vec3.zero(), q: quat.identity() };
+const speedFrame = quat.identity();
+const speedAxisX = { x: 1, y: 0, z: 0 };
+const speedAxis = vec3.zero();
+const speedLocalCenter = vec3.zero();
+const speedCenterA = vec3.zero();
+const speedCenterB = vec3.zero();
+const speedRA = vec3.zero();
+const speedRB = vec3.zero();
+const speedD = vec3.zero();
+const speedLinearA = vec3.zero();
+const speedLinearB = vec3.zero();
+const speedAngularA = vec3.zero();
+const speedAngularB = vec3.zero();
+const speedRelative = vec3.zero();
+const speedTmp = vec3.zero();
+const speedZero = vec3.zero();
+
 /** The current translation speed along the joint axis (b3PrismaticJoint_GetSpeed). */
 export function prismaticJointSpeed(world: WorldState, sim: Joint): number {
-    const transformScratch1 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-    const transformScratch2 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-    const localCenterScratch3 = { x: 0, y: 0, z: 0 };
-    const localCenterScratch4 = { x: 0, y: 0, z: 0 };
-    const centerScratch5 = { x: 0, y: 0, z: 0 };
-    const centerScratch6 = { x: 0, y: 0, z: 0 };
-    const linearVelocityScratch7 = { x: 0, y: 0, z: 0 };
-    const linearVelocityScratch8 = { x: 0, y: 0, z: 0 };
-    const angularVelocityScratch9 = { x: 0, y: 0, z: 0 };
-    const angularVelocityScratch10 = { x: 0, y: 0, z: 0 };
-
     const bodyA = world.bodies[sim.edges[0].bodyId];
     const bodyB = world.bodies[sim.edges[1].bodyId];
     const bodySimA = getBodySim(world, bodyA);
     const bodySimB = getBodySim(world, bodyB);
     const stateA = getBodyState(world, bodyA);
     const stateB = getBodyState(world, bodyB);
-    const qA = readSimTransform(world, bodySimA, transformScratch1).q;
-    const qB = readSimTransform(world, bodySimB, transformScratch2).q;
-    const axisA = quat.rotate(
-        qA,
-        quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisX()),
-    );
-    const rA = quat.rotate(
-        qA,
-        vec3.sub(
-            readJointVec3(world, sim, J_LOCAL_FRAME_A),
-            readSimLocalCenter(world, bodySimA, localCenterScratch3),
-        ),
-    );
-    const rB = quat.rotate(
-        qB,
-        vec3.sub(
-            readJointVec3(world, sim, J_LOCAL_FRAME_B),
-            readSimLocalCenter(world, bodySimB, localCenterScratch4),
-        ),
-    );
+    const qA = readSimTransform(world, bodySimA, speedPoseA).q;
+    const qB = readSimTransform(world, bodySimB, speedPoseB).q;
+    readJointQuat(world, sim, J_LOCAL_FRAME_A + 3, speedFrame);
+    quat.rotateOut(speedFrame, speedAxisX, speedAxis);
+    quat.rotateOut(qA, speedAxis, speedAxis);
+    readJointVec3(world, sim, J_LOCAL_FRAME_A, speedRA);
+    readSimLocalCenter(world, bodySimA, speedLocalCenter);
+    vec3.subOut(speedRA, speedLocalCenter, speedRA);
+    quat.rotateOut(qA, speedRA, speedRA);
+    readJointVec3(world, sim, J_LOCAL_FRAME_B, speedRB);
+    readSimLocalCenter(world, bodySimB, speedLocalCenter);
+    vec3.subOut(speedRB, speedLocalCenter, speedRB);
+    quat.rotateOut(qB, speedRB, speedRB);
 
     // Difference the centers directly; positions are f32 in the single-precision build.
-    const d = vec3.add(
-        vec3.sub(
-            readSimCenter(world, bodySimB, centerScratch5),
-            readSimCenter(world, bodySimA, centerScratch6),
-        ),
-        vec3.sub(rB, rA),
-    );
-    const zero: Vec3 = {
-        x: 0,
-        y: 0,
-        z: 0,
-    };
-    const vA =
-        stateA !== null ? readStateLinearVelocity(world, stateA, linearVelocityScratch7) : zero;
-    const vB =
-        stateB !== null ? readStateLinearVelocity(world, stateB, linearVelocityScratch8) : zero;
-    const wA =
-        stateA !== null ? readStateAngularVelocity(world, stateA, angularVelocityScratch9) : zero;
-    const wB =
-        stateB !== null ? readStateAngularVelocity(world, stateB, angularVelocityScratch10) : zero;
-    const vRel = vec3.sub(vec3.add(vB, vec3.cross(wB, rB)), vec3.add(vA, vec3.cross(wA, rA)));
+    readSimCenter(world, bodySimA, speedCenterA);
+    readSimCenter(world, bodySimB, speedCenterB);
+    vec3.subOut(speedCenterB, speedCenterA, speedD);
+    vec3.subOut(speedRB, speedRA, speedTmp);
+    vec3.addOut(speedD, speedTmp, speedD);
+    const vA = stateA !== null ? readStateLinearVelocity(world, stateA, speedLinearA) : speedZero;
+    const vB = stateB !== null ? readStateLinearVelocity(world, stateB, speedLinearB) : speedZero;
+    const wA = stateA !== null ? readStateAngularVelocity(world, stateA, speedAngularA) : speedZero;
+    const wB = stateB !== null ? readStateAngularVelocity(world, stateB, speedAngularB) : speedZero;
+    vec3.crossOut(wB, speedRB, speedRelative);
+    vec3.addOut(vB, speedRelative, speedRelative);
+    vec3.crossOut(wA, speedRA, speedTmp);
+    vec3.addOut(vA, speedTmp, speedTmp);
+    vec3.subOut(speedRelative, speedTmp, speedRelative);
 
     // The axis moves with body A, so account for its rotation.
-    return f32(vec3.dot(d, vec3.cross(wA, axisA)) + vec3.dot(axisA, vRel));
+    vec3.crossOut(wA, speedAxis, speedTmp);
+    return f32(vec3.dot(speedD, speedTmp) + vec3.dot(speedAxis, speedRelative));
 }

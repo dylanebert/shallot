@@ -14,7 +14,7 @@ import {
     type Vec3,
 } from "../api/index";
 import { LINEAR_SLOP } from "../common/constants";
-import { f32, PI } from "../common/math";
+import { f32, froundConfig, PI, quat, vec3 } from "../common/math";
 
 function frame(x: number, y: number, z: number) {
     return { p: { x, y, z }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
@@ -36,6 +36,54 @@ function pendulum(): { physicsWorld: PhysicsWorld; joint: Joint } {
     });
     return { physicsWorld, joint };
 }
+
+test("prismatic speed scratch preserves the f32 anchor and rotating-axis terms", () => {
+    const world = new PhysicsWorld({ gravity: vec3.zero() });
+    try {
+        const a = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 1.2, y: 2.3, z: 3.4 },
+            rotation: quat.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4),
+            linearVelocity: { x: 0.1, y: 0.2, z: 0.3 },
+            angularVelocity: { x: 0.4, y: 0.5, z: 0.6 },
+        });
+        const b = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 4.5, y: 5.6, z: 6.7 },
+            rotation: quat.fromAxisAngle({ x: 1, y: 0, z: 0 }, 0.7),
+            linearVelocity: { x: 0.7, y: 0.8, z: 0.9 },
+            angularVelocity: { x: 1.1, y: 1.2, z: 1.3 },
+        });
+        a.createSphere({}, { center: { x: 0.2, y: 0.3, z: 0.4 }, radius: 0.5 });
+        b.createSphere({}, { center: { x: 0.3, y: 0.4, z: 0.5 }, radius: 0.5 });
+        const localFrameA = froundConfig({
+            p: { x: 0.6, y: 0.7, z: 0.8 },
+            q: quat.fromAxisAngle({ x: 0, y: 0, z: 1 }, 0.3),
+        });
+        const localFrameB = froundConfig(frame(0.9, 1.1, 1.2));
+        const joint = world.createPrismaticJoint(a, b, { localFrameA, localFrameB });
+        const qA = a.getRotation();
+        const qB = b.getRotation();
+        const axis = quat.rotate(qA, quat.rotate(localFrameA.q, vec3.axisX()));
+        const rA = quat.rotate(qA, vec3.sub(localFrameA.p, a.getMassData().center));
+        const rB = quat.rotate(qB, vec3.sub(localFrameB.p, b.getMassData().center));
+        const d = vec3.add(
+            vec3.sub(b.getWorldCenterOfMass(), a.getWorldCenterOfMass()),
+            vec3.sub(rB, rA),
+        );
+        const wA = a.getAngularVelocity();
+        const wB = b.getAngularVelocity();
+        const vRel = vec3.sub(
+            vec3.add(b.getLinearVelocity(), vec3.cross(wB, rB)),
+            vec3.add(a.getLinearVelocity(), vec3.cross(wA, rA)),
+        );
+        const expected = f32(vec3.dot(d, vec3.cross(wA, axis)) + vec3.dot(axis, vRel));
+        expect(joint.getSpeed()).toBe(expected);
+        expect(joint.getSpeed()).toBe(expected);
+    } finally {
+        world.destroy();
+    }
+});
 
 test("a joint handle kept past its destroy resolves again once its slot is reused, so a stale reference would silently drive somebody else's constraint", () => {
     const { physicsWorld, joint } = pendulum();

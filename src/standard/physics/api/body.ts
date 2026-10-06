@@ -410,20 +410,30 @@ export class Body {
         bodyApplyLinearImpulse(
             this.world,
             this.record(),
-            froundConfig(impulse),
-            froundConfig(point),
+            this.roundVector(impulse, this._forceScratch),
+            this.roundVector(point, this._pointScratch),
             wake,
         );
     }
 
     /** Apply an instantaneous impulse at the center of mass, changing linear velocity immediately. */
     applyLinearImpulseToCenter(impulse: Vec3, wake = true): void {
-        bodyApplyLinearImpulseToCenter(this.world, this.record(), froundConfig(impulse), wake);
+        bodyApplyLinearImpulseToCenter(
+            this.world,
+            this.record(),
+            this.roundVector(impulse, this._forceScratch),
+            wake,
+        );
     }
 
     /** Apply an instantaneous angular impulse, changing angular velocity immediately. */
     applyAngularImpulse(impulse: Vec3, wake = true): void {
-        bodyApplyAngularImpulse(this.world, this.record(), froundConfig(impulse), wake);
+        bodyApplyAngularImpulse(
+            this.world,
+            this.record(),
+            this.roundVector(impulse, this._forceScratch),
+            wake,
+        );
     }
 
     /** @returns whether the body is in the awake solver set. */
