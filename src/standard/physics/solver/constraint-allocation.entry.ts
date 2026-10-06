@@ -24,7 +24,44 @@ const SPACING = 8;
 export default async function create(input: string) {
     if (input === "authored") return authored();
     if (input === "spherical") return spherical();
+    if (input === "force") return forced();
     throw new Error(`constraint allocation has no scene ${input}`);
+}
+
+async function forced() {
+    const solver = new PhysicsWorld({ enableSleep: false, enableContinuous: false });
+    const body = solver.createBody({ type: BodyType.Dynamic });
+    body.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
+    const force = { x: 1, y: 2, z: 3 };
+    const point = { x: 1, y: 0, z: 0 };
+    const app = await createApp({
+        defaults: false,
+        plugins: [
+            {
+                name: "force-allocation",
+                systems: [
+                    {
+                        name: "force-step",
+                        group: "fixed",
+                        update: () => {
+                            body.applyForce(force, point, false);
+                            body.applyForceToCenter(force, false);
+                            body.applyTorque(force, false);
+                            solver.step(1 / 60, 4);
+                        },
+                    },
+                ],
+            },
+        ],
+    });
+    return {
+        step: () => app.world.step(1 / 60),
+        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
+        dispose: () => {
+            app.dispose();
+            solver.destroy();
+        },
+    };
 }
 
 async function authored() {

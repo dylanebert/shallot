@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
 import { SetType } from "../common/constants";
-import { bodySimSlot, setSimField, simBodyId, simField } from "../kernel/bodycolumns";
+import { bodySimSlot, setSimField, simBodyId } from "../kernel/bodycolumns";
+import { FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE } from "../kernel/columns";
 import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
 import {
     setArrayCount,
@@ -10,30 +11,9 @@ import {
     solverSetCount,
     solverSetIndex,
 } from "../kernel/solversetcolumns";
-import type { BodySim } from "./body";
 import { transferBody } from "./solverset";
 import type { WorldState } from "./world";
 
-const fields: (keyof BodySim)[] = [
-    "transform",
-    "center",
-    "rotation0",
-    "center0",
-    "localCenter",
-    "force",
-    "torque",
-    "invMass",
-    "invInertiaLocal",
-    "invInertiaWorld",
-    "minExtent",
-    "maxExtent",
-    "maxAngularVelocity",
-    "linearDamping",
-    "angularDamping",
-    "gravityScale",
-    "bodyId",
-    "flags",
-];
 function sims(world: WorldState) {
     world.bodyStore.refreshViews();
     const result = new Map<number, unknown[]>();
@@ -44,10 +24,12 @@ function sims(world: WorldState) {
                 id = simBodyId(world, slot);
             expect(world.bodies[id].setIndex).toBe(set);
             expect(world.bodies[id].localIndex).toBe(i);
-            result.set(
-                id,
-                fields.map((field) => simField(world, slot, field)),
-            );
+            const columns = world.bodyStore.simColumns(set);
+            result.set(id, [
+                Array.from(columns.simF.subarray(i * SIM_STRIDE, (i + 1) * SIM_STRIDE)),
+                Array.from(columns.finF.subarray(i * FIN_STRIDE, (i + 1) * FIN_STRIDE)),
+                Array.from(columns.sim2U.subarray(i * SIM2_STRIDE, (i + 1) * SIM2_STRIDE)),
+            ]);
         }
         for (let i = 0; i < setArrayCount(world, set, 1); ++i) {
             const island = world.islands[setArrayGet(world, set, 1, i)];

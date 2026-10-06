@@ -1,5 +1,6 @@
+import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
-import { type BodySimRef, bodySimSlot } from "./bodycolumns";
+import { bodySimSlot } from "./bodycolumns";
 import { kernel } from "./kernel";
 
 function active(world: WorldState) {
@@ -23,7 +24,7 @@ export function releaseSolverSet(world: WorldState, set: number): void {
 export function setBodyCount(world: WorldState, set: number): number {
     return active(world).solverSetBodyCount(set);
 }
-export function setBodyPush(world: WorldState, set: number, sim: BodySimRef): number {
+export function setBodyPush(world: WorldState, set: number, sim: BodySim | number): number {
     const i = active(world).solverSetBodyAppend(set);
     world.bodyStore.refreshViews();
     world.bodyStore.writeSim(bodySimSlot(set, i), sim);

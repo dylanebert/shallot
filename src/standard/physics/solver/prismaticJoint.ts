@@ -1,5 +1,11 @@
 import { f32, quat, type Vec3, vec3 } from "../common/math";
-import { simField, stateField } from "../kernel/bodycolumns";
+import {
+    readSimCenter,
+    readSimLocalCenter,
+    readSimTransform,
+    readStateAngularVelocity,
+    readStateLinearVelocity,
+} from "../kernel/bodycolumns";
 import {
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
@@ -31,7 +37,7 @@ import {
     writeJointVec2,
     writeJointVec3,
 } from "../kernel/jointcolumns";
-import { getBodySim, getBodyState, getBodyTransformQuick } from "../world/body";
+import { getBodySim, getBodyState, readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -103,7 +109,13 @@ export function createPrismaticJoint(
     return pair;
 }
 export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const transformA = readBodyTransform(
+        world,
+        world.bodies[sim.edges[0].bodyId],
+        bodyPoseScratch1,
+    );
 
     // impulse in joint space
     const impulse: Vec3 = {
@@ -126,7 +138,13 @@ export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {
 
 /** The reaction torque this joint applies (b3GetPrismaticJointTorque). */
 export function getPrismaticJointTorque(world: WorldState, sim: Joint): Vec3 {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const transformA = readBodyTransform(
+        world,
+        world.bodies[sim.edges[0].bodyId],
+        bodyPoseScratch1,
+    );
     let torque = vec3.scale(world.invH, readJointVec3(world, sim, PJ_ANGULAR_IMPULSE));
     torque = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), torque);
     torque = quat.rotate(transformA.q, torque);
@@ -135,8 +153,19 @@ export function getPrismaticJointTorque(world: WorldState, sim: Joint): Vec3 {
 
 /** The current translation along the joint axis (b3PrismaticJoint_GetTranslation). */
 export function prismaticJointTranslation(world: WorldState, sim: Joint): number {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const transformA = readBodyTransform(
+        world,
+        world.bodies[sim.edges[0].bodyId],
+        bodyPoseScratch1,
+    );
+    const transformB = readBodyTransform(
+        world,
+        world.bodies[sim.edges[1].bodyId],
+        bodyPoseScratch2,
+    );
     let jointAxis = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisX());
     jointAxis = quat.rotate(transformA.q, jointAxis);
     const anchorA = quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A));
@@ -147,14 +176,31 @@ export function prismaticJointTranslation(world: WorldState, sim: Joint): number
 
 /** The current translation speed along the joint axis (b3PrismaticJoint_GetSpeed). */
 export function prismaticJointSpeed(world: WorldState, sim: Joint): number {
+    const transformScratch1 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+    const transformScratch2 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+    const localCenterScratch3 = { x: 0, y: 0, z: 0 };
+    const localCenterScratch4 = { x: 0, y: 0, z: 0 };
+    const centerScratch5 = { x: 0, y: 0, z: 0 };
+    const centerScratch6 = { x: 0, y: 0, z: 0 };
+    const linearVelocityScratch7 = { x: 0, y: 0, z: 0 };
+    const linearVelocityScratch8 = { x: 0, y: 0, z: 0 };
+    const angularVelocityScratch9 = { x: 0, y: 0, z: 0 };
+    const angularVelocityScratch10 = { x: 0, y: 0, z: 0 };
+
     const bodyA = world.bodies[sim.edges[0].bodyId];
     const bodyB = world.bodies[sim.edges[1].bodyId];
     const bodySimA = getBodySim(world, bodyA);
     const bodySimB = getBodySim(world, bodyB);
     const stateA = getBodyState(world, bodyA);
     const stateB = getBodyState(world, bodyB);
-    const qA = simField(world, bodySimA, "transform").q;
-    const qB = simField(world, bodySimB, "transform").q;
+    const qA = readSimTransform(world, bodySimA, transformScratch1).q;
+    const qB = readSimTransform(world, bodySimB, transformScratch2).q;
     const axisA = quat.rotate(
         qA,
         quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisX()),
@@ -163,20 +209,23 @@ export function prismaticJointSpeed(world: WorldState, sim: Joint): number {
         qA,
         vec3.sub(
             readJointVec3(world, sim, J_LOCAL_FRAME_A),
-            simField(world, bodySimA, "localCenter"),
+            readSimLocalCenter(world, bodySimA, localCenterScratch3),
         ),
     );
     const rB = quat.rotate(
         qB,
         vec3.sub(
             readJointVec3(world, sim, J_LOCAL_FRAME_B),
-            simField(world, bodySimB, "localCenter"),
+            readSimLocalCenter(world, bodySimB, localCenterScratch4),
         ),
     );
 
     // Difference the centers directly; positions are f32 in the single-precision build.
     const d = vec3.add(
-        vec3.sub(simField(world, bodySimB, "center"), simField(world, bodySimA, "center")),
+        vec3.sub(
+            readSimCenter(world, bodySimB, centerScratch5),
+            readSimCenter(world, bodySimA, centerScratch6),
+        ),
         vec3.sub(rB, rA),
     );
     const zero: Vec3 = {
@@ -184,10 +233,14 @@ export function prismaticJointSpeed(world: WorldState, sim: Joint): number {
         y: 0,
         z: 0,
     };
-    const vA = stateA !== null ? stateField(world, stateA, "linearVelocity") : zero;
-    const vB = stateB !== null ? stateField(world, stateB, "linearVelocity") : zero;
-    const wA = stateA !== null ? stateField(world, stateA, "angularVelocity") : zero;
-    const wB = stateB !== null ? stateField(world, stateB, "angularVelocity") : zero;
+    const vA =
+        stateA !== null ? readStateLinearVelocity(world, stateA, linearVelocityScratch7) : zero;
+    const vB =
+        stateB !== null ? readStateLinearVelocity(world, stateB, linearVelocityScratch8) : zero;
+    const wA =
+        stateA !== null ? readStateAngularVelocity(world, stateA, angularVelocityScratch9) : zero;
+    const wB =
+        stateB !== null ? readStateAngularVelocity(world, stateB, angularVelocityScratch10) : zero;
     const vRel = vec3.sub(vec3.add(vB, vec3.cross(wB, rB)), vec3.add(vA, vec3.cross(wA, rA)));
 
     // The axis moves with body A, so account for its rotation.

@@ -65,7 +65,7 @@ import {
     writeShape,
     writeTightAabb,
 } from "../kernel/shapecolumns";
-import { type Body, getBodyTransformQuick, updateBodyMassData } from "../world/body";
+import { type Body, readBodyTransform, updateBodyMassData } from "../world/body";
 import { createSensor, destroySensor, type Visitor } from "../world/sensor";
 import {
     addCompoundToDatabase,
@@ -517,6 +517,8 @@ export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void
 }
 
 export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter): void {
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
     writeShapeFilter(world, shape.id, toFilterBits(filter));
     const body = world.bodies[shapeBodyId(world, shape.id)];
     let key = body.headContactKey;
@@ -536,7 +538,7 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
             shape,
             world.broadPhase,
             bodyType(world, body.id),
-            getBodyTransformQuick(world, body),
+            readBodyTransform(world, body, bodyPoseScratch1),
             true,
         );
     }
@@ -697,6 +699,8 @@ function createShape(
     shapeType: ShapeType,
     scale: Vec3 = { x: 1, y: 1, z: 1 },
 ): Shape | null {
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
     // Compound and height-field shapes must be on static bodies (b3CreateShape). They carry no mass,
     // so a dynamic body with one would have zero mass and blow up; the C returns null here.
     if (
@@ -707,7 +711,7 @@ function createShape(
     }
 
     world.locked = true;
-    const bodyTransform = getBodyTransformQuick(world, body);
+    const bodyTransform = readBodyTransform(world, body, bodyPoseScratch1);
     const shape = createShapeInternal(world, body, bodyTransform, def, geometry, shapeType, scale);
     if (shape === null) {
         world.locked = false;

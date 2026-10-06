@@ -9,6 +9,7 @@ import { CEILING } from "../../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 const scenes = {
+    force: "an awake body under force and torque",
     authored: "64 authored distance and spherical joint pendulums",
     spherical: "64 spherical joints with a localFrameB on static anchors",
 };

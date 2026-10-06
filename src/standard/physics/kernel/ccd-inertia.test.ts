@@ -2,7 +2,12 @@ import { expect, test } from "bun:test";
 import { BodyType, makeBoxHull, PhysicsWorld } from "../api";
 import { mat3 } from "../common/math";
 import { BodyFlags, getBodySim } from "../world/body";
-import { simField, simFlags } from "./bodycolumns";
+import {
+    readSimInvInertiaLocal,
+    readSimInvInertiaWorld,
+    readSimTransform,
+    simFlags,
+} from "./bodycolumns";
 
 test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
@@ -25,10 +30,28 @@ test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", (
         expect(world.state.bodies[body.id.index1 - 1].flags & BodyFlags.hadTimeOfImpact).not.toBe(
             0,
         );
-        const rotation = mat3.fromQuat(simField(world.state, sim, "transform").q);
-        expect(simField(world.state, sim, "invInertiaWorld")).toEqual(
+        const rotation = mat3.fromQuat(
+            readSimTransform(world.state, sim, {
+                p: { x: 0, y: 0, z: 0 },
+                q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+            }).q,
+        );
+        expect(
+            readSimInvInertiaWorld(world.state, sim, {
+                cx: { x: 0, y: 0, z: 0 },
+                cy: { x: 0, y: 0, z: 0 },
+                cz: { x: 0, y: 0, z: 0 },
+            }),
+        ).toEqual(
             mat3.mul(
-                mat3.mul(rotation, simField(world.state, sim, "invInertiaLocal")),
+                mat3.mul(
+                    rotation,
+                    readSimInvInertiaLocal(world.state, sim, {
+                        cx: { x: 0, y: 0, z: 0 },
+                        cy: { x: 0, y: 0, z: 0 },
+                        cz: { x: 0, y: 0, z: 0 },
+                    }),
+                ),
                 mat3.transpose(rotation),
             ),
         );

@@ -1,4 +1,8 @@
-import { simField, stateField } from "../kernel/bodycolumns";
+import {
+    readSimTransform,
+    readStateAngularVelocity,
+    readStateLinearVelocity,
+} from "../kernel/bodycolumns";
 // The deterministic world-state hash — Box3D's b3HashWorldState (recording.c/recording.h, Erin
 // Catto, MIT). This is the bit-exact regression contract: the fixture generator emits this FNV-1a
 // hash after every step, and the port asserts equality. It walks live bodies in id order, mixing
@@ -35,6 +39,13 @@ export function hashWorldStateOracleSentinel(world: WorldState): bigint {
 }
 
 function hashWorldStateWithSeed(world: WorldState, initial: bigint): bigint {
+    const transformScratch1 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+    const linearVelocityScratch8 = { x: 0, y: 0, z: 0 };
+    const angularVelocityScratch11 = { x: 0, y: 0, z: 0 };
+
     let hash = initial;
 
     const bodyCount = world.bodies.length;
@@ -47,22 +58,31 @@ function hashWorldStateWithSeed(world: WorldState, initial: bigint): bigint {
 
         const sim = getBodySim(world, body);
 
-        hash = mixFloat(hash, simField(world, sim, "transform").p.x);
-        hash = mixFloat(hash, simField(world, sim, "transform").p.y);
-        hash = mixFloat(hash, simField(world, sim, "transform").p.z);
-        hash = mixFloat(hash, simField(world, sim, "transform").q.v.x);
-        hash = mixFloat(hash, simField(world, sim, "transform").q.v.y);
-        hash = mixFloat(hash, simField(world, sim, "transform").q.v.z);
-        hash = mixFloat(hash, simField(world, sim, "transform").q.s);
+        hash = mixFloat(hash, readSimTransform(world, sim, transformScratch1).p.x);
+        hash = mixFloat(hash, readSimTransform(world, sim, transformScratch1).p.y);
+        hash = mixFloat(hash, readSimTransform(world, sim, transformScratch1).p.z);
+        hash = mixFloat(hash, readSimTransform(world, sim, transformScratch1).q.v.x);
+        hash = mixFloat(hash, readSimTransform(world, sim, transformScratch1).q.v.y);
+        hash = mixFloat(hash, readSimTransform(world, sim, transformScratch1).q.v.z);
+        hash = mixFloat(hash, readSimTransform(world, sim, transformScratch1).q.s);
 
         const state = getBodyState(world, body);
         if (state !== null) {
-            hash = mixFloat(hash, stateField(world, state, "linearVelocity").x);
-            hash = mixFloat(hash, stateField(world, state, "linearVelocity").y);
-            hash = mixFloat(hash, stateField(world, state, "linearVelocity").z);
-            hash = mixFloat(hash, stateField(world, state, "angularVelocity").x);
-            hash = mixFloat(hash, stateField(world, state, "angularVelocity").y);
-            hash = mixFloat(hash, stateField(world, state, "angularVelocity").z);
+            hash = mixFloat(hash, readStateLinearVelocity(world, state, linearVelocityScratch8).x);
+            hash = mixFloat(hash, readStateLinearVelocity(world, state, linearVelocityScratch8).y);
+            hash = mixFloat(hash, readStateLinearVelocity(world, state, linearVelocityScratch8).z);
+            hash = mixFloat(
+                hash,
+                readStateAngularVelocity(world, state, angularVelocityScratch11).x,
+            );
+            hash = mixFloat(
+                hash,
+                readStateAngularVelocity(world, state, angularVelocityScratch11).y,
+            );
+            hash = mixFloat(
+                hash,
+                readStateAngularVelocity(world, state, angularVelocityScratch11).z,
+            );
         }
     }
 

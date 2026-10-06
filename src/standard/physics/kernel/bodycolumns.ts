@@ -291,7 +291,7 @@ export class BodyStore extends KernelViews {
     }
 
     /** Initialize a sim from a body definition, or copy an existing column row in the kernel. */
-    writeSim(i: number, s: BodySimRef): void {
+    writeSim(i: number, s: BodySim | number): void {
         const destination = i;
         const target = this.simColumns(bodySimSet(i));
         i = bodySimIndex(i);
@@ -393,108 +393,12 @@ export function createBodyStore(world: World | undefined, worldId: number): Body
     return new BodyStore(world, worldId);
 }
 
-export type BodySimRef = BodySim | number;
-export type BodyStateRef = BodyState | number;
-
-export function simField<K extends keyof BodySim>(
-    world: WorldState,
-    ref: BodySimRef,
-    field: K,
-): BodySim[K] {
-    if (typeof ref !== "number") return ref[field];
-    const store = world.bodyStore.simColumns(simSet(world, ref));
-    const i = simIndex(world, ref);
-    switch (field) {
-        case "transform": {
-            const sf = store.simF;
-            const ff = store.finF;
-            const so = i * SIM_STRIDE;
-            const fo = i * FIN_STRIDE;
-            return {
-                p: { x: ff[fo + 9], y: ff[fo + 10], z: ff[fo + 11] },
-                q: { v: { x: sf[so + 28], y: sf[so + 29], z: sf[so + 30] }, s: sf[so + 31] },
-            } as BodySim[K];
-        }
-        case "center": {
-            const ff = store.finF;
-            const fo = i * FIN_STRIDE;
-            return { x: ff[fo], y: ff[fo + 1], z: ff[fo + 2] } as BodySim[K];
-        }
-        case "rotation0": {
-            const s2 = store.sim2F;
-            const o = i * SIM2_STRIDE + S2_ROTATION0;
-            return { v: { x: s2[o], y: s2[o + 1], z: s2[o + 2] }, s: s2[o + 3] } as BodySim[K];
-        }
-        case "center0": {
-            const s2 = store.sim2F;
-            const o = i * SIM2_STRIDE + S2_CENTER0;
-            return { x: s2[o], y: s2[o + 1], z: s2[o + 2] } as BodySim[K];
-        }
-        case "localCenter": {
-            const ff = store.finF;
-            const fo = i * FIN_STRIDE;
-            return { x: ff[fo + 3], y: ff[fo + 4], z: ff[fo + 5] } as BodySim[K];
-        }
-        case "force": {
-            const sf = store.simF;
-            const so = i * SIM_STRIDE;
-            return { x: sf[so + 4], y: sf[so + 5], z: sf[so + 6] } as BodySim[K];
-        }
-        case "torque": {
-            const sf = store.simF;
-            const so = i * SIM_STRIDE;
-            return { x: sf[so + 7], y: sf[so + 8], z: sf[so + 9] } as BodySim[K];
-        }
-        case "invMass": {
-            return store.simF[i * SIM_STRIDE] as BodySim[K];
-        }
-        case "invInertiaLocal": {
-            return readColumnMat3(store.simF, i * SIM_STRIDE + 10) as BodySim[K];
-        }
-        case "invInertiaWorld": {
-            return readColumnMat3(store.simF, i * SIM_STRIDE + 19) as BodySim[K];
-        }
-        case "minExtent": {
-            return store.sim2F[i * SIM2_STRIDE + S2_MIN_EXTENT] as BodySim[K];
-        }
-        case "maxExtent": {
-            const ff = store.finF;
-            const fo = i * FIN_STRIDE;
-            return { x: ff[fo + 6], y: ff[fo + 7], z: ff[fo + 8] } as BodySim[K];
-        }
-        case "maxAngularVelocity": {
-            return store.sim2F[i * SIM2_STRIDE + S2_MAX_ANGULAR_VELOCITY] as BodySim[K];
-        }
-        case "linearDamping": {
-            return store.simF[i * SIM_STRIDE + 2] as BodySim[K];
-        }
-        case "angularDamping": {
-            return store.simF[i * SIM_STRIDE + 3] as BodySim[K];
-        }
-        case "gravityScale": {
-            return store.simF[i * SIM_STRIDE + 1] as BodySim[K];
-        }
-        case "bodyId": {
-            return store.sim2U[i * SIM2_STRIDE + S2_BODY_ID] as BodySim[K];
-        }
-        case "flags": {
-            return store.sim2U[i * SIM2_STRIDE + S2_FLAGS] as BodySim[K];
-        }
-        default:
-            throw new Error("unknown body sim field");
-    }
-}
-
 export function setSimField<K extends keyof BodySim>(
     world: WorldState,
-    ref: BodySimRef,
+    ref: number,
     field: K,
     value: BodySim[K],
 ): void {
-    if (typeof ref !== "number") {
-        (ref as BodySim)[field] = value;
-        return;
-    }
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     switch (field) {
@@ -627,53 +531,12 @@ export function setSimField<K extends keyof BodySim>(
     }
 }
 
-export function stateField<K extends keyof BodyState>(
-    world: WorldState,
-    ref: BodyStateRef,
-    field: K,
-): BodyState[K] {
-    if (typeof ref !== "number") return ref[field];
-    const store = world.bodyStore;
-    const i = ref;
-    switch (field) {
-        case "linearVelocity": {
-            const f = store.stateF;
-            const o = i * STATE_STRIDE;
-            return { x: f[o], y: f[o + 1], z: f[o + 2] } as BodyState[K];
-        }
-        case "angularVelocity": {
-            const f = store.stateF;
-            const o = i * STATE_STRIDE;
-            return { x: f[o + 3], y: f[o + 4], z: f[o + 5] } as BodyState[K];
-        }
-        case "deltaPosition": {
-            const f = store.stateF;
-            const o = i * STATE_STRIDE;
-            return { x: f[o + 6], y: f[o + 7], z: f[o + 8] } as BodyState[K];
-        }
-        case "deltaRotation": {
-            const f = store.stateF;
-            const o = i * STATE_STRIDE;
-            return { v: { x: f[o + 9], y: f[o + 10], z: f[o + 11] }, s: f[o + 12] } as BodyState[K];
-        }
-        case "flags": {
-            return store.flagsU[i] as BodyState[K];
-        }
-        default:
-            throw new Error("unknown body state field");
-    }
-}
-
 export function setStateField<K extends keyof BodyState>(
     world: WorldState,
-    ref: BodyStateRef,
+    ref: number,
     field: K,
     value: BodyState[K],
 ): void {
-    if (typeof ref !== "number") {
-        (ref as BodyState)[field] = value;
-        return;
-    }
     const store = world.bodyStore;
     const i = ref;
     switch (field) {
@@ -724,149 +587,88 @@ export function setStateField<K extends keyof BodyState>(
     }
 }
 
-function readColumnMat3(f: Float32Array, o: number): Mat3 {
-    return {
-        cx: { x: f[o], y: f[o + 1], z: f[o + 2] },
-        cy: { x: f[o + 3], y: f[o + 4], z: f[o + 5] },
-        cz: { x: f[o + 6], y: f[o + 7], z: f[o + 8] },
-    };
-}
-
-export function isResidentSim(sim: BodySimRef): boolean {
-    return typeof sim === "number";
-}
-export function isResidentState(state: BodyStateRef): boolean {
-    return typeof state === "number";
-}
-
 export function readSimTransform(
     world: WorldState,
-    ref: BodySimRef,
+    ref: number,
     out: WorldTransform,
 ): WorldTransform {
-    if (typeof ref === "number") {
-        const sf = world.bodyStore.simColumns(simSet(world, ref)).simF,
-            ff = world.bodyStore.simColumns(simSet(world, ref)).finF;
-        const so = simIndex(world, ref) * SIM_STRIDE,
-            fo = simIndex(world, ref) * FIN_STRIDE;
-        out.p.x = ff[fo + 9];
-        out.p.y = ff[fo + 10];
-        out.p.z = ff[fo + 11];
-        out.q.v.x = sf[so + 28];
-        out.q.v.y = sf[so + 29];
-        out.q.v.z = sf[so + 30];
-        out.q.s = sf[so + 31];
-    } else {
-        const t = ref.transform;
-        Object.assign(out.p, t.p);
-        Object.assign(out.q.v, t.q.v);
-        out.q.s = t.q.s;
-    }
+    const sf = world.bodyStore.simColumns(simSet(world, ref)).simF,
+        ff = world.bodyStore.simColumns(simSet(world, ref)).finF;
+    const so = simIndex(world, ref) * SIM_STRIDE,
+        fo = simIndex(world, ref) * FIN_STRIDE;
+    out.p.x = ff[fo + 9];
+    out.p.y = ff[fo + 10];
+    out.p.z = ff[fo + 11];
+    out.q.v.x = sf[so + 28];
+    out.q.v.y = sf[so + 29];
+    out.q.v.z = sf[so + 30];
+    out.q.s = sf[so + 31];
     return out;
 }
 
-export function readSimCenter(world: WorldState, ref: BodySimRef, out: Vec3): Vec3 {
-    if (typeof ref === "number") {
-        const f = world.bodyStore.simColumns(simSet(world, ref)).finF;
-        const o = simIndex(world, ref) * FIN_STRIDE + 0;
-        out.x = f[o];
-        out.y = f[o + 1];
-        out.z = f[o + 2];
-    } else {
-        const v = ref.center;
-        out.x = v.x;
-        out.y = v.y;
-        out.z = v.z;
-    }
+export function readSimCenter(world: WorldState, ref: number, out: Vec3): Vec3 {
+    const f = world.bodyStore.simColumns(simSet(world, ref)).finF;
+    const o = simIndex(world, ref) * FIN_STRIDE + 0;
+    out.x = f[o];
+    out.y = f[o + 1];
+    out.z = f[o + 2];
     return out;
 }
 
-export function readSimLocalCenter(world: WorldState, ref: BodySimRef, out: Vec3): Vec3 {
-    if (typeof ref === "number") {
-        const f = world.bodyStore.simColumns(simSet(world, ref)).finF;
-        const o = simIndex(world, ref) * FIN_STRIDE + 3;
-        out.x = f[o];
-        out.y = f[o + 1];
-        out.z = f[o + 2];
-    } else {
-        const v = ref.localCenter;
-        out.x = v.x;
-        out.y = v.y;
-        out.z = v.z;
-    }
+export function readSimLocalCenter(world: WorldState, ref: number, out: Vec3): Vec3 {
+    const f = world.bodyStore.simColumns(simSet(world, ref)).finF;
+    const o = simIndex(world, ref) * FIN_STRIDE + 3;
+    out.x = f[o];
+    out.y = f[o + 1];
+    out.z = f[o + 2];
     return out;
 }
 
-export function readStateLinearVelocity(world: WorldState, ref: BodyStateRef, out: Vec3): Vec3 {
-    if (typeof ref === "number") {
-        const f = world.bodyStore.stateF;
-        const o = ref * STATE_STRIDE + 0;
-        out.x = f[o];
-        out.y = f[o + 1];
-        out.z = f[o + 2];
-    } else {
-        const v = ref.linearVelocity;
-        out.x = v.x;
-        out.y = v.y;
-        out.z = v.z;
-    }
+export function readStateLinearVelocity(world: WorldState, ref: number, out: Vec3): Vec3 {
+    const f = world.bodyStore.stateF;
+    const o = ref * STATE_STRIDE + 0;
+    out.x = f[o];
+    out.y = f[o + 1];
+    out.z = f[o + 2];
     return out;
 }
 
-export function readStateAngularVelocity(world: WorldState, ref: BodyStateRef, out: Vec3): Vec3 {
-    if (typeof ref === "number") {
-        const f = world.bodyStore.stateF;
-        const o = ref * STATE_STRIDE + 3;
-        out.x = f[o];
-        out.y = f[o + 1];
-        out.z = f[o + 2];
-    } else {
-        const v = ref.angularVelocity;
-        out.x = v.x;
-        out.y = v.y;
-        out.z = v.z;
-    }
+export function readStateAngularVelocity(world: WorldState, ref: number, out: Vec3): Vec3 {
+    const f = world.bodyStore.stateF;
+    const o = ref * STATE_STRIDE + 3;
+    out.x = f[o];
+    out.y = f[o + 1];
+    out.z = f[o + 2];
     return out;
 }
 
-export function writeSimTransform(world: WorldState, ref: BodySimRef, t: WorldTransform): void {
-    if (typeof ref === "number") {
-        const sf = world.bodyStore.simColumns(simSet(world, ref)).simF;
-        const ff = world.bodyStore.simColumns(simSet(world, ref)).finF;
-        const so = simIndex(world, ref) * SIM_STRIDE;
-        const fo = simIndex(world, ref) * FIN_STRIDE;
-        ff[fo + 9] = t.p.x;
-        ff[fo + 10] = t.p.y;
-        ff[fo + 11] = t.p.z;
-        sf[so + 28] = t.q.v.x;
-        sf[so + 29] = t.q.v.y;
-        sf[so + 30] = t.q.v.z;
-        sf[so + 31] = t.q.s;
-    } else {
-        Object.assign(ref.transform.p, t.p);
-        Object.assign(ref.transform.q.v, t.q.v);
-        ref.transform.q.s = t.q.s;
-    }
+export function writeSimTransform(world: WorldState, ref: number, t: WorldTransform): void {
+    const sf = world.bodyStore.simColumns(simSet(world, ref)).simF;
+    const ff = world.bodyStore.simColumns(simSet(world, ref)).finF;
+    const so = simIndex(world, ref) * SIM_STRIDE;
+    const fo = simIndex(world, ref) * FIN_STRIDE;
+    ff[fo + 9] = t.p.x;
+    ff[fo + 10] = t.p.y;
+    ff[fo + 11] = t.p.z;
+    sf[so + 28] = t.q.v.x;
+    sf[so + 29] = t.q.v.y;
+    sf[so + 30] = t.q.v.z;
+    sf[so + 31] = t.q.s;
 }
 
-export function writeSimRotation0(world: WorldState, ref: BodySimRef, q: Quat): void {
-    if (typeof ref === "number") {
-        const s2 = world.bodyStore.simColumns(simSet(world, ref)).sim2F;
-        const o = simIndex(world, ref) * SIM2_STRIDE + S2_ROTATION0;
-        s2[o] = q.v.x;
-        s2[o + 1] = q.v.y;
-        s2[o + 2] = q.v.z;
-        s2[o + 3] = q.s;
-    } else {
-        Object.assign(ref.rotation0.v, q.v);
-        ref.rotation0.s = q.s;
-    }
+export function writeSimRotation0(world: WorldState, ref: number, q: Quat): void {
+    const s2 = world.bodyStore.simColumns(simSet(world, ref)).sim2F;
+    const o = simIndex(world, ref) * SIM2_STRIDE + S2_ROTATION0;
+    s2[o] = q.v.x;
+    s2[o + 1] = q.v.y;
+    s2[o + 2] = q.v.z;
+    s2[o + 3] = q.s;
 }
 /** Append an awake body at its local index and initialize its columns. */
 export function residentPush(
     world: WorldState,
     initState: BodyState,
-    initSim: BodySimRef,
+    initSim: BodySim | number,
     headShapeId: number,
 ): void {
     const store = world.bodyStore;
@@ -909,20 +711,13 @@ function simSet(world: WorldState, ref: number): number {
 function simIndex(world: WorldState, ref: number): number {
     return ref < 0 ? world.bodies[-ref - 1].localIndex : bodySimIndex(ref);
 }
-export function readSimInvInertiaLocal(world: WorldState, ref: BodySimRef, out: Mat3): Mat3 {
+export function readSimInvInertiaLocal(world: WorldState, ref: number, out: Mat3): Mat3 {
     return readSimMatrix(world, ref, 10, out);
 }
-export function readSimInvInertiaWorld(world: WorldState, ref: BodySimRef, out: Mat3): Mat3 {
+export function readSimInvInertiaWorld(world: WorldState, ref: number, out: Mat3): Mat3 {
     return readSimMatrix(world, ref, 19, out);
 }
-function readSimMatrix(world: WorldState, ref: BodySimRef, offset: number, out: Mat3): Mat3 {
-    if (typeof ref !== "number") {
-        const m = offset === 10 ? ref.invInertiaLocal : ref.invInertiaWorld;
-        Object.assign(out.cx, m.cx);
-        Object.assign(out.cy, m.cy);
-        Object.assign(out.cz, m.cz);
-        return out;
-    }
+function readSimMatrix(world: WorldState, ref: number, offset: number, out: Mat3): Mat3 {
     const f = world.bodyStore.simColumns(simSet(world, ref)).simF,
         o = simIndex(world, ref) * SIM_STRIDE + offset;
     out.cx.x = f[o];
@@ -937,58 +732,90 @@ function readSimMatrix(world: WorldState, ref: BodySimRef, offset: number, out: 
     return out;
 }
 
-export function simInvMass(world: WorldState, ref: BodySimRef): number {
-    if (typeof ref !== "number") return ref.invMass;
+export function simInvMass(world: WorldState, ref: number): number {
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     return store.simF[i * SIM_STRIDE];
 }
 
-export function simMinExtent(world: WorldState, ref: BodySimRef): number {
-    if (typeof ref !== "number") return ref.minExtent;
+export function simMinExtent(world: WorldState, ref: number): number {
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     return store.sim2F[i * SIM2_STRIDE + S2_MIN_EXTENT];
 }
 
-export function simMaxAngularVelocity(world: WorldState, ref: BodySimRef): number {
-    if (typeof ref !== "number") return ref.maxAngularVelocity;
+export function simMaxAngularVelocity(world: WorldState, ref: number): number {
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     return store.sim2F[i * SIM2_STRIDE + S2_MAX_ANGULAR_VELOCITY];
 }
 
-export function simLinearDamping(world: WorldState, ref: BodySimRef): number {
-    if (typeof ref !== "number") return ref.linearDamping;
+export function simLinearDamping(world: WorldState, ref: number): number {
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     return store.simF[i * SIM_STRIDE + 2];
 }
 
-export function simAngularDamping(world: WorldState, ref: BodySimRef): number {
-    if (typeof ref !== "number") return ref.angularDamping;
+export function simAngularDamping(world: WorldState, ref: number): number {
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     return store.simF[i * SIM_STRIDE + 3];
 }
 
-export function simGravityScale(world: WorldState, ref: BodySimRef): number {
-    if (typeof ref !== "number") return ref.gravityScale;
+export function simGravityScale(world: WorldState, ref: number): number {
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     return store.simF[i * SIM_STRIDE + 1];
 }
 
-export function simBodyId(world: WorldState, ref: BodySimRef): number {
-    if (typeof ref !== "number") return ref.bodyId;
+export function simBodyId(world: WorldState, ref: number): number {
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     return store.sim2U[i * SIM2_STRIDE + S2_BODY_ID];
 }
 
-export function simFlags(world: WorldState, ref: BodySimRef): number {
-    if (typeof ref !== "number") return ref.flags;
+export function simFlags(world: WorldState, ref: number): number {
     const store = world.bodyStore.simColumns(simSet(world, ref));
     const i = simIndex(world, ref);
     return store.sim2U[i * SIM2_STRIDE + S2_FLAGS];
+}
+
+export function addSimForce(world: WorldState, ref: number, v: Vec3): void {
+    const f = world.bodyStore.simColumns(simSet(world, ref)).simF;
+    const o = simIndex(world, ref) * SIM_STRIDE + 4;
+    f[o] = Math.fround(f[o] + v.x);
+    f[o + 1] = Math.fround(f[o + 1] + v.y);
+    f[o + 2] = Math.fround(f[o + 2] + v.z);
+}
+export function addSimTorque(world: WorldState, ref: number, v: Vec3): void {
+    const f = world.bodyStore.simColumns(simSet(world, ref)).simF;
+    const o = simIndex(world, ref) * SIM_STRIDE + 7;
+    f[o] = Math.fround(f[o] + v.x);
+    f[o + 1] = Math.fround(f[o + 1] + v.y);
+    f[o + 2] = Math.fround(f[o + 2] + v.z);
+}
+export function addSimForceTorque(world: WorldState, ref: number, force: Vec3, point: Vec3): void {
+    const columns = world.bodyStore.simColumns(simSet(world, ref));
+    const fo = simIndex(world, ref) * FIN_STRIDE;
+    const x = Math.fround(point.x - columns.finF[fo]);
+    const y = Math.fround(point.y - columns.finF[fo + 1]);
+    const z = Math.fround(point.z - columns.finF[fo + 2]);
+    const f = columns.simF;
+    const o = simIndex(world, ref) * SIM_STRIDE + 7;
+    f[o] = Math.fround(f[o] + Math.fround(Math.fround(y * force.z) - Math.fround(z * force.y)));
+    f[o + 1] = Math.fround(
+        f[o + 1] + Math.fround(Math.fround(z * force.x) - Math.fround(x * force.z)),
+    );
+    f[o + 2] = Math.fround(
+        f[o + 2] + Math.fround(Math.fround(x * force.y) - Math.fround(y * force.x)),
+    );
+}
+
+export function readSimMaxExtent(world: WorldState, ref: number, out: Vec3): Vec3 {
+    const f = world.bodyStore.simColumns(simSet(world, ref)).finF;
+    const o = simIndex(world, ref) * FIN_STRIDE + 6;
+    out.x = f[o];
+    out.y = f[o + 1];
+    out.z = f[o + 2];
+    return out;
 }

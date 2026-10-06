@@ -1,6 +1,6 @@
 import { ContactField, contactField } from "../collision/contact";
 import { contactTotalImpulse, readContactManifolds } from "../collision/manifoldstore";
-import { simField } from "../kernel/bodycolumns";
+import { readSimCenter } from "../kernel/bodycolumns";
 import { shapeBodyId } from "../kernel/filtercolumns";
 import { setArrayCount, setArrayGet, setBodyCount } from "../kernel/solversetcolumns";
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
@@ -158,6 +158,9 @@ function buildJointEvents(context: StepContext): void {
  * is the mid-anchor offset from the two bodies' mid-center.
  */
 function buildHitEvents(context: StepContext): void {
+    const centerScratch1 = { x: 0, y: 0, z: 0 };
+    const centerScratch2 = { x: 0, y: 0, z: 0 };
+
     const world = context.world;
     const worldId = world.worldId;
     const threshold = world.hitEventThreshold;
@@ -170,8 +173,8 @@ function buildHitEvents(context: StepContext): void {
         const simA = getBodySim(world, world.bodies[shapeBodyId(world, shapeA.id)]);
         const simB = getBodySim(world, world.bodies[shapeBodyId(world, shapeB.id)]);
         const midCenter = vec3.lerp(
-            simField(world, simA, "center"),
-            simField(world, simB, "center"),
+            readSimCenter(world, simA, centerScratch1),
+            readSimCenter(world, simB, centerScratch2),
             f32(0.5),
         );
 

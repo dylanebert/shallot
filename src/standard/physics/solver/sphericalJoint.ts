@@ -31,7 +31,7 @@ import {
     writeJointQuat,
     writeJointVec3,
 } from "../kernel/jointcolumns";
-import { getBodyTransformQuick } from "../world/body";
+import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -144,8 +144,11 @@ export function getSphericalJointForce(world: WorldState, sim: Joint): Vec3 {
 
 /** The reaction torque this joint applies (b3GetSphericalJointTorque). */
 export function getSphericalJointTorque(world: WorldState, sim: Joint): Vec3 {
-    const xfA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
-    const xfB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const xfA = readBodyTransform(world, world.bodies[sim.edges[0].bodyId], bodyPoseScratch1);
+    const xfB = readBodyTransform(world, world.bodies[sim.edges[1].bodyId], bodyPoseScratch2);
     const qA = quat.mul(xfA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
     const qB = quat.mul(xfB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     const coneAxis = quat.rotate(qA, vec3.axisZ());
@@ -169,8 +172,19 @@ export function getSphericalJointTorque(world: WorldState, sim: Joint): Vec3 {
 
 /** @returns the relative rotation of the two joint frames, twist-adjusted (shared by cone/twist getters). */
 function relativeFrameRotation(world: WorldState, sim: Joint): Quat {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const transformA = readBodyTransform(
+        world,
+        world.bodies[sim.edges[0].bodyId],
+        bodyPoseScratch1,
+    );
+    const transformB = readBodyTransform(
+        world,
+        world.bodies[sim.edges[1].bodyId],
+        bodyPoseScratch2,
+    );
     const quatA = quat.mul(transformA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
     let quatB = quat.mul(transformB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     if (quat.dot(quatA, quatB) < 0) {

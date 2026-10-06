@@ -27,7 +27,7 @@ import {
     writeJointFlag,
     writeJointFloat,
 } from "../kernel/jointcolumns";
-import { getBodyTransformQuick } from "../world/body";
+import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -96,8 +96,19 @@ export function createDistanceJoint(
     return pair;
 }
 export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const transformA = readBodyTransform(
+        world,
+        world.bodies[sim.edges[0].bodyId],
+        bodyPoseScratch1,
+    );
+    const transformB = readBodyTransform(
+        world,
+        world.bodies[sim.edges[1].bodyId],
+        bodyPoseScratch2,
+    );
     const pA = vec3.add(
         quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A)),
         transformA.p,
@@ -123,8 +134,19 @@ export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
 
 /** The current distance between the two anchor points (b3DistanceJoint_GetCurrentLength). */
 export function distanceJointCurrentLength(world: WorldState, sim: Joint): number {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const transformA = readBodyTransform(
+        world,
+        world.bodies[sim.edges[0].bodyId],
+        bodyPoseScratch1,
+    );
+    const transformB = readBodyTransform(
+        world,
+        world.bodies[sim.edges[1].bodyId],
+        bodyPoseScratch2,
+    );
     const pA = vec3.add(
         quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A)),
         transformA.p,

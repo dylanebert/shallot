@@ -3,14 +3,13 @@ import {
     bodySimSlot,
     readSimInvInertiaLocal,
     readSimInvInertiaWorld,
+    readSimMaxExtent,
     setSimField,
     setStateField,
     simBodyId,
-    simField,
     simFlags,
     simInvMass,
     simMinExtent,
-    stateField,
 } from "../kernel/bodycolumns";
 import { bodyType, setBodyType, shapeSensorIndex } from "../kernel/filtercolumns";
 import {
@@ -53,8 +52,9 @@ import {
 } from "../common/math";
 import { type BodyDef, BodyType, ShapeType } from "../common/types";
 import {
-    isResidentSim,
-    isResidentState,
+    addSimForce,
+    addSimForceTorque,
+    addSimTorque,
     readSimCenter,
     readSimLocalCenter,
     readSimTransform,
@@ -196,18 +196,6 @@ export type Body = {
     name: string;
 };
 
-const cloneVec = (v: Vec3): Vec3 => ({ x: v.x, y: v.y, z: v.z });
-const _cloneQuat = (q: Quat): Quat => ({ v: cloneVec(q.v), s: q.s });
-const _cloneMat3 = (m: Mat3): Mat3 => ({
-    cx: cloneVec(m.cx),
-    cy: cloneVec(m.cy),
-    cz: cloneVec(m.cz),
-});
-
-/**
- * Deep-copy a body sim (the C `memcpy(simDst, simSrc)` in every solver-set transfer). The target
- * must not alias the source's Vec3/Quat/Mat3 sub-objects — the solver mutates them in place.
- */
 /** @returns the sim slot addressed by the body record (b3GetBodySim). */
 export function getBodySim(_world: WorldState, body: Body): number {
     return -body.id - 1;
@@ -233,9 +221,13 @@ export function makeBodyId(world: WorldState, bodyId: number): EntityId {
     };
 }
 
-/** @returns the body's world transform (b3GetBodyTransformQuick). */
-export function getBodyTransformQuick(world: WorldState, body: Body): WorldTransform {
-    return simField(world, getBodySim(world, body), "transform");
+/** Copy the body's world transform into caller-owned output (b3GetBodyTransformQuick). */
+export function readBodyTransform(
+    world: WorldState,
+    body: Body,
+    out: WorldTransform,
+): WorldTransform {
+    return readSimTransform(world, getBodySim(world, body), out);
 }
 
 /**
@@ -262,16 +254,7 @@ export function bodySetLinearVelocity(world: WorldState, body: Body, linearVeloc
     if (wake > 0) wakeBody(world, body);
     const state = getBodyState(world, body);
     if (state === null) return;
-    // Copy, don't store the caller's object: finalize mutates state.linearVelocity in place. A column
-    // view's setter already copies the components.
-    setStateField(
-        world,
-        state,
-        "linearVelocity",
-        isResidentState(state)
-            ? linearVelocity
-            : { x: linearVelocity.x, y: linearVelocity.y, z: linearVelocity.z },
-    );
+    setStateField(world, state, "linearVelocity", linearVelocity);
 }
 
 /**
@@ -303,6 +286,14 @@ export function bodySetTargetTransform(
     timeStep: number,
     wake: boolean,
 ): void {
+    const centerScratch1 = { x: 0, y: 0, z: 0 };
+    const localCenterScratch2 = { x: 0, y: 0, z: 0 };
+    const transformScratch3 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+    const maxExtentScratch4 = { x: 0, y: 0, z: 0 };
+
     if (body.setIndex === SetType.Disabled) return;
     if (bodyType(world, body.id) === BodyType.Static || timeStep <= 0) return;
     if (body.setIndex !== SetType.Awake && wake === false) return;
@@ -310,13 +301,16 @@ export function bodySetTargetTransform(
     const sim = getBodySim(world, body);
 
     // Linear velocity from the world-space center difference, demoted to f32.
-    const center1 = simField(world, sim, "center");
-    const center2 = transformWorldPoint(target, simField(world, sim, "localCenter"));
+    const center1 = readSimCenter(world, sim, centerScratch1);
+    const center2 = transformWorldPoint(
+        target,
+        readSimLocalCenter(world, sim, localCenterScratch2),
+    );
     const invTimeStep = f32(1 / timeStep);
     const linearVelocity = vec3.scale(invTimeStep, subPos(center2, center1));
 
     // Angular velocity: w = 2 * (q2 - q1) * conj(q1) / dt, using the shortest-arc quaternion.
-    const q1 = simField(world, sim, "transform").q;
+    const q1 = readSimTransform(world, sim, transformScratch3).q;
     let q2 = target.q;
     if (quat.dot(q1, q2) < 0) q2 = quat.negate(q2);
     const dq: Quat = { v: vec3.sub(q2.v, q1.v), s: f32(q2.s - q1.s) };
@@ -327,7 +321,9 @@ export function bodySetTargetTransform(
     if (body.setIndex !== SetType.Awake) {
         const maxVelocity = f32(
             vec3.length(linearVelocity) +
-                vec3.length(vec3.mul(angularVelocity, simField(world, sim, "maxExtent"))),
+                vec3.length(
+                    vec3.mul(angularVelocity, readSimMaxExtent(world, sim, maxExtentScratch4)),
+                ),
         );
         if (maxVelocity < body.sleepThreshold) return;
         wakeBody(world, body);
@@ -355,16 +351,8 @@ export function bodyApplyForce(
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
-    setSimField(world, sim, "force", vec3.add(simField(world, sim, "force"), force));
-    setSimField(
-        world,
-        sim,
-        "torque",
-        vec3.add(
-            simField(world, sim, "torque"),
-            vec3.cross(subPos(point, simField(world, sim, "center")), force),
-        ),
-    );
+    addSimForce(world, sim, force);
+    addSimForceTorque(world, sim, force, point);
 }
 
 /** Accumulate a world-space force at the center of mass (b3Body_ApplyForceToCenter). No torque. */
@@ -377,7 +365,7 @@ export function bodyApplyForceToCenter(
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
-    setSimField(world, sim, "force", vec3.add(simField(world, sim, "force"), force));
+    addSimForce(world, sim, force);
 }
 
 /** Accumulate a torque about the center of mass (b3Body_ApplyTorque). */
@@ -385,7 +373,7 @@ export function bodyApplyTorque(world: WorldState, body: Body, torque: Vec3, wak
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
-    setSimField(world, sim, "torque", vec3.add(simField(world, sim, "torque"), torque));
+    addSimTorque(world, sim, torque);
 }
 
 // Clamp a linear velocity to the world's max linear speed (the shared tail of the impulse setters).
@@ -439,7 +427,7 @@ export function bodyApplyLinearImpulse(
             v.z = 0;
         }
     }
-    setStateField(world, state, "linearVelocity", isResidentState(state) ? v : { ...v });
+    setStateField(world, state, "linearVelocity", v);
 
     readSimCenter(world, sim, scratch.center);
     vec3.subOut(point, scratch.center, scratch.r);
@@ -448,12 +436,7 @@ export function bodyApplyLinearImpulse(
     mat3.mulVOut(scratch.inertia, scratch.r, scratch.mrn);
     const angular = readStateAngularVelocity(world, state, scratch.angular);
     vec3.addOut(angular, scratch.mrn, angular);
-    setStateField(
-        world,
-        state,
-        "angularVelocity",
-        isResidentState(state) ? angular : { ...angular },
-    );
+    setStateField(world, state, "angularVelocity", angular);
 }
 
 /** Apply an instantaneous impulse at the center of mass (b3Body_ApplyLinearImpulseToCenter). */
@@ -463,6 +446,8 @@ export function bodyApplyLinearImpulseToCenter(
     impulse: Vec3,
     wake: boolean,
 ): void {
+    const linearVelocityScratch1 = { x: 0, y: 0, z: 0 };
+
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
@@ -476,7 +461,7 @@ export function bodyApplyLinearImpulseToCenter(
         clampLinearSpeed(
             world,
             vec3.mulAdd(
-                stateField(world, state, "linearVelocity"),
+                readStateLinearVelocity(world, state, linearVelocityScratch1),
                 simInvMass(world, sim),
                 impulse,
             ),
@@ -491,6 +476,21 @@ export function bodyApplyAngularImpulse(
     impulse: Vec3,
     wake: boolean,
 ): void {
+    const transformScratch1 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+    const invInertiaLocalScratch2 = {
+        cx: { x: 0, y: 0, z: 0 },
+        cy: { x: 0, y: 0, z: 0 },
+        cz: { x: 0, y: 0, z: 0 },
+    };
+    const angularVelocityScratch3 = { x: 0, y: 0, z: 0 };
+    const transformScratch4 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
     if (body.setIndex !== SetType.Awake) return;
     const sim = getBodySim(world, body);
@@ -498,15 +498,18 @@ export function bodyApplyAngularImpulse(
     if (state === null) return;
 
     // Rotate the impulse into the body frame, apply the local inverse inertia, rotate back.
-    const localImpulse = quat.invRotate(simField(world, sim, "transform").q, impulse);
-    const localDelta = mat3.mulV(simField(world, sim, "invInertiaLocal"), localImpulse);
+    const localImpulse = quat.invRotate(readSimTransform(world, sim, transformScratch1).q, impulse);
+    const localDelta = mat3.mulV(
+        readSimInvInertiaLocal(world, sim, invInertiaLocalScratch2),
+        localImpulse,
+    );
     setStateField(
         world,
         state,
         "angularVelocity",
         vec3.add(
-            stateField(world, state, "angularVelocity"),
-            quat.rotate(simField(world, sim, "transform").q, localDelta),
+            readStateAngularVelocity(world, state, angularVelocityScratch3),
+            quat.rotate(readSimTransform(world, sim, transformScratch4).q, localDelta),
         ),
     );
 }
@@ -525,19 +528,6 @@ const setInertiaTmp = mat3.zero();
 const setInvILocal = mat3.zero();
 const setInvIWorld = mat3.zero();
 
-function copyQuat(q: Quat, o: Quat): void {
-    o.v.x = q.v.x;
-    o.v.y = q.v.y;
-    o.v.z = q.v.z;
-    o.s = q.s;
-}
-
-function copyMat3(m: Mat3, o: Mat3): void {
-    vec3.copy(m.cx, o.cx);
-    vec3.copy(m.cy, o.cy);
-    vec3.copy(m.cz, o.cz);
-}
-
 /**
  * Teleport a body to a new pose (b3Body_SetTransform), recomputing its center of mass, world inverse
  * inertia, and shape broadphase proxies. Does not change velocity; the body keeps moving from the new
@@ -552,7 +542,6 @@ export function bodySetTransform(
     const sim = getBodySim(world, body);
 
     // Read back the f32 column write before deriving the center and inertia.
-    const resident = isResidentSim(sim);
     const transform = setPose;
     transform.p.x = position.x;
     transform.p.y = position.y;
@@ -561,13 +550,8 @@ export function bodySetTransform(
     transform.q.v.y = rotation.v.y;
     transform.q.v.z = rotation.v.z;
     transform.q.s = rotation.s;
-    if (resident) {
-        writeSimTransform(world, sim, transform);
-        readSimTransform(world, sim, transform);
-    } else {
-        vec3.copy(transform.p, simField(world, sim, "transform").p);
-        copyQuat(transform.q, simField(world, sim, "transform").q);
-    }
+    writeSimTransform(world, sim, transform);
+    readSimTransform(world, sim, transform);
 
     readSimLocalCenter(world, sim, setLocalCenter);
     quat.rotateOut(transform.q, setLocalCenter, setCenter);
@@ -579,17 +563,10 @@ export function bodySetTransform(
     mat3.transposeOut(setRotation, setRotationT);
     mat3.mulOut(setInertiaTmp, setRotationT, setInvIWorld);
 
-    if (resident) {
-        setSimField(world, sim, "center", setCenter);
-        setSimField(world, sim, "invInertiaWorld", setInvIWorld);
-        writeSimRotation0(world, sim, transform.q);
-        setSimField(world, sim, "center0", setCenter);
-    } else {
-        vec3.copy(setCenter, simField(world, sim, "center"));
-        copyMat3(setInvIWorld, simField(world, sim, "invInertiaWorld"));
-        writeSimRotation0(world, sim, transform.q);
-        vec3.copy(setCenter, simField(world, sim, "center0"));
-    }
+    setSimField(world, sim, "center", setCenter);
+    setSimField(world, sim, "invInertiaWorld", setInvIWorld);
+    writeSimRotation0(world, sim, transform.q);
+    setSimField(world, sim, "center0", setCenter);
 
     const broadPhase = world.broadPhase;
     let shapeId = body.headShapeId;
@@ -626,6 +603,8 @@ export function bodySetTransform(
  * bodies carrying a compound or height-field shape when the target type is non-static.
  */
 export function bodySetType(world: WorldState, body: Body, type: BodyType): void {
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
     world.locked = true;
 
     const originalType = bodyType(world, body.id);
@@ -722,7 +701,7 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
     }
 
     // Recreate shape proxies in the broadphase against the new body type.
-    const transform = getBodyTransformQuick(world, body);
+    const transform = readBodyTransform(world, body, bodyPoseScratch1);
     let shapeId = body.headShapeId;
     while (shapeId !== NULL_INDEX) {
         const shape = world.shapes[shapeId];
@@ -906,26 +885,25 @@ export function createBody(world: WorldState, def: BodyDef): number {
 
     const set = setId;
     const bodySim = emptyBodySim();
-    simField(world, bodySim, "transform").p = { ...def.position };
-    simField(world, bodySim, "transform").q = { v: { ...def.rotation.v }, s: def.rotation.s };
-    setSimField(world, bodySim, "center", { ...def.position });
-    writeSimRotation0(world, bodySim, simField(world, bodySim, "transform").q);
-    setSimField(world, bodySim, "center0", { ...simField(world, bodySim, "center") });
-    setSimField(world, bodySim, "minExtent", HUGE);
-    setSimField(world, bodySim, "linearDamping", def.linearDamping);
-    setSimField(world, bodySim, "angularDamping", def.angularDamping);
-    setSimField(world, bodySim, "gravityScale", def.gravityScale);
-    setSimField(world, bodySim, "bodyId", bodyId);
+    bodySim.transform.p = { ...def.position };
+    bodySim.transform.q = { v: { ...def.rotation.v }, s: def.rotation.s };
+    bodySim.center = { ...def.position };
+    bodySim.rotation0.v = { ...def.rotation.v };
+    bodySim.rotation0.s = def.rotation.s;
+    bodySim.center0 = { ...def.position };
+    bodySim.minExtent = HUGE;
+    bodySim.linearDamping = def.linearDamping;
+    bodySim.angularDamping = def.angularDamping;
+    bodySim.gravityScale = def.gravityScale;
+    bodySim.bodyId = bodyId;
     let flags = lockFlags;
     flags |= def.isBullet ? BodyFlags.isBullet : 0;
     flags |= def.allowFastRotation ? BodyFlags.allowFastRotation : 0;
     flags |= def.type === BodyType.Dynamic ? BodyFlags.dynamicFlag : 0;
     flags |= def.enableSleep ? BodyFlags.enableSleep : 0;
     flags |= def.enableContactRecycling ? BodyFlags.enableContactRecycling : 0;
-    setSimField(world, bodySim, "flags", flags);
-    // Awake rows are initialized via residentPush below, once
-    // the region is sized); every other set holds the plain sim. Defer the awake push so the view lands
-    // over the resident record rather than a plain object being replaced.
+    bodySim.flags = flags;
+    // Defer the awake append until its state columns have been reserved.
     if (setId !== SetType.Awake) setBodyPush(world, set, bodySim);
 
     // The awake body's solver state is column-resident; its initial values are written into the region
@@ -933,15 +911,10 @@ export function createBody(world: WorldState, def: BodyDef): number {
     let awakeState: BodyState | null = null;
     if (setId === SetType.Awake) {
         awakeState = identityBodyState();
-        setStateField(world, awakeState, "linearVelocity", { ...def.linearVelocity });
-        setStateField(world, awakeState, "angularVelocity", { ...def.angularVelocity });
-        setStateField(world, awakeState, "flags", simFlags(world, bodySim));
-        setSimField(
-            world,
-            bodySim,
-            "maxAngularVelocity",
-            f32(vec3.length(def.angularVelocity) + f32(5.0)),
-        );
+        awakeState.linearVelocity = { ...def.linearVelocity };
+        awakeState.angularVelocity = { ...def.angularVelocity };
+        awakeState.flags = bodySim.flags;
+        bodySim.maxAngularVelocity = f32(vec3.length(def.angularVelocity) + f32(5.0));
     }
 
     if (bodyId === world.bodies.length) {
@@ -973,7 +946,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     body.mass = 0;
     body.inertia = mat3.zero();
     setBodyType(world, body.id, def.type);
-    body.flags = simFlags(world, bodySim);
+    body.flags = bodySim.flags;
 
     // enabled dynamic and kinematic bodies need an island
     if (setId >= SetType.Awake) {
@@ -1076,6 +1049,33 @@ export function destroyBody(world: WorldState, body: Body): void {
 
 /** Recompute mass, center of mass, and inertia from the body's shapes (b3UpdateBodyMassData). */
 export function updateBodyMassData(world: WorldState, body: Body): void {
+    const transformScratch1 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+    const centerScratch2 = { x: 0, y: 0, z: 0 };
+    const maxExtentScratch3 = { x: 0, y: 0, z: 0 };
+    const transformScratch4 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+    const invInertiaLocalScratch5 = {
+        cx: { x: 0, y: 0, z: 0 },
+        cy: { x: 0, y: 0, z: 0 },
+        cz: { x: 0, y: 0, z: 0 },
+    };
+    const centerScratch6 = { x: 0, y: 0, z: 0 };
+    const transformScratch7 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+    const localCenterScratch8 = { x: 0, y: 0, z: 0 };
+    const centerScratch9 = { x: 0, y: 0, z: 0 };
+    const angularVelocityScratch10 = { x: 0, y: 0, z: 0 };
+    const centerScratch11 = { x: 0, y: 0, z: 0 };
+    const linearVelocityScratch12 = { x: 0, y: 0, z: 0 };
+    const maxExtentScratch13 = { x: 0, y: 0, z: 0 };
+
     const bodySim = getBodySim(world, body);
 
     body.mass = 0;
@@ -1093,8 +1093,12 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
 
     // Static and kinematic sims have zero mass.
     if (bodyType(world, body.id) !== BodyType.Dynamic) {
-        setSimField(world, bodySim, "center", { ...simField(world, bodySim, "transform").p });
-        setSimField(world, bodySim, "center0", { ...simField(world, bodySim, "center") });
+        setSimField(world, bodySim, "center", {
+            ...readSimTransform(world, bodySim, transformScratch1).p,
+        });
+        setSimField(world, bodySim, "center0", {
+            ...readSimCenter(world, bodySim, centerScratch2),
+        });
 
         if (bodyType(world, body.id) === BodyType.Kinematic) {
             let shapeId = body.headShapeId;
@@ -1111,7 +1115,7 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
                     world,
                     bodySim,
                     "maxExtent",
-                    vec3.max(simField(world, bodySim, "maxExtent"), extent.maxExtent),
+                    vec3.max(readSimMaxExtent(world, bodySim, maxExtentScratch3), extent.maxExtent),
                 );
                 shapeId = s.nextShapeId;
             }
@@ -1157,42 +1161,47 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
     const det = mat3.det(body.inertia);
     if (det > 0) {
         setSimField(world, bodySim, "invInertiaLocal", mat3.invertT(body.inertia));
-        const rotationMatrix = mat3.fromQuat(simField(world, bodySim, "transform").q);
+        const rotationMatrix = mat3.fromQuat(readSimTransform(world, bodySim, transformScratch4).q);
         setSimField(
             world,
             bodySim,
             "invInertiaWorld",
             mat3.mul(
-                mat3.mul(rotationMatrix, simField(world, bodySim, "invInertiaLocal")),
+                mat3.mul(
+                    rotationMatrix,
+                    readSimInvInertiaLocal(world, bodySim, invInertiaLocalScratch5),
+                ),
                 mat3.transpose(rotationMatrix),
             ),
         );
     }
 
-    const oldCenter = simField(world, bodySim, "center");
+    const oldCenter = readSimCenter(world, bodySim, centerScratch6);
     setSimField(world, bodySim, "localCenter", localCenter);
     setSimField(
         world,
         bodySim,
         "center",
         transformWorldPoint(
-            simField(world, bodySim, "transform"),
-            simField(world, bodySim, "localCenter"),
+            readSimTransform(world, bodySim, transformScratch7),
+            readSimLocalCenter(world, bodySim, localCenterScratch8),
         ),
     );
-    setSimField(world, bodySim, "center0", { ...simField(world, bodySim, "center") });
+    setSimField(world, bodySim, "center0", {
+        ...readSimCenter(world, bodySim, centerScratch9),
+    });
 
     const state = getBodyState(world, body);
     if (state !== null) {
         const deltaLinear = vec3.cross(
-            stateField(world, state, "angularVelocity"),
-            vec3.sub(simField(world, bodySim, "center"), oldCenter),
+            readStateAngularVelocity(world, state, angularVelocityScratch10),
+            vec3.sub(readSimCenter(world, bodySim, centerScratch11), oldCenter),
         );
         setStateField(
             world,
             state,
             "linearVelocity",
-            vec3.add(stateField(world, state, "linearVelocity"), deltaLinear),
+            vec3.add(readStateLinearVelocity(world, state, linearVelocityScratch12), deltaLinear),
         );
     }
 
@@ -1210,7 +1219,7 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
             world,
             bodySim,
             "maxExtent",
-            vec3.max(simField(world, bodySim, "maxExtent"), extent.maxExtent),
+            vec3.max(readSimMaxExtent(world, bodySim, maxExtentScratch13), extent.maxExtent),
         );
         extentShapeId = s.nextShapeId;
     }
@@ -1226,10 +1235,12 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
 
 /** @returns the body's mass, local center of mass, and rotational inertia (b3Body_GetMassData). */
 export function getMassData(world: WorldState, body: Body): MassData {
+    const localCenterScratch1 = { x: 0, y: 0, z: 0 };
+
     const bodySim = getBodySim(world, body);
     return {
         mass: body.mass,
-        center: simField(world, bodySim, "localCenter"),
+        center: readSimLocalCenter(world, bodySim, localCenterScratch1),
         inertia: body.inertia,
     };
 }

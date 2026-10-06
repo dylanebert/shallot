@@ -36,7 +36,7 @@ import {
     writeJointVec2,
     writeJointVec3,
 } from "../kernel/jointcolumns";
-import { getBodyTransformQuick } from "../world/body";
+import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { createJoint, type Joint, type JointDef, JointType } from "./joint";
 
@@ -146,7 +146,13 @@ export function getRevoluteJointForce(world: WorldState, sim: Joint): Vec3 {
 
 /** The reaction torque this joint applies (b3GetRevoluteJointTorque). */
 export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const transformA = readBodyTransform(
+        world,
+        world.bodies[sim.edges[0].bodyId],
+        bodyPoseScratch1,
+    );
     let axis = quat.rotate(readJointQuat(world, sim, J_LOCAL_FRAME_A + 3), vec3.axisZ());
     axis = quat.rotate(transformA.q, axis);
     const relQ = quat.invMul(
@@ -206,8 +212,19 @@ export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
 
 /** The current hinge angle (b3RevoluteJoint_GetAngle): relative twist of the two joint frames. */
 export function revoluteJointAngle(world: WorldState, sim: Joint): number {
-    const transformA = getBodyTransformQuick(world, world.bodies[sim.edges[0].bodyId]);
-    const transformB = getBodyTransformQuick(world, world.bodies[sim.edges[1].bodyId]);
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+    const transformA = readBodyTransform(
+        world,
+        world.bodies[sim.edges[0].bodyId],
+        bodyPoseScratch1,
+    );
+    const transformB = readBodyTransform(
+        world,
+        world.bodies[sim.edges[1].bodyId],
+        bodyPoseScratch2,
+    );
     const quatA = quat.mul(transformA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
     let quatB = quat.mul(transformB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
     if (quat.dot(quatA, quatB) < 0) {

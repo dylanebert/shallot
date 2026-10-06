@@ -1,4 +1,4 @@
-import { simField, simFlags } from "../kernel/bodycolumns";
+import { readSimCenter, readSimTransform, simFlags } from "../kernel/bodycolumns";
 import { bodyType, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
 // Debug visualization walk: resolve every shape and joint in the world to a flat set of typed draw
 // callbacks the caller renders. Ported from Box3D's b3World_Draw (physics_world.c) + b3DrawJoint
@@ -38,7 +38,7 @@ import type { HullData } from "../shapes/hull";
 import type { Mesh } from "../shapes/mesh";
 import type { Shape } from "../shapes/shape";
 import { getJointConstraintForce, getJointConstraintTorque, JointType } from "../solver/joint";
-import { type Body, BodyFlags, getBodySim, getBodyTransformQuick } from "./body";
+import { type Body, BodyFlags, getBodySim, readBodyTransform } from "./body";
 import type { WorldState } from "./world";
 
 const BODY_TYPE_COUNT = 3;
@@ -229,6 +229,9 @@ function drawSolidShape(
 
 /** Draw one joint: anchors, the A→pA→pB→B connection, and both local frames (b3DrawJoint, minimal). */
 function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
     const joint = world.joints[jointId];
     const bodyA = world.bodies[joint.edges[0].bodyId];
     const bodyB = world.bodies[joint.edges[1].bodyId];
@@ -236,8 +239,8 @@ function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
 
     const anchorA = readJointVec3(world, joint, J_LOCAL_FRAME_A);
     const anchorB = readJointVec3(world, joint, J_LOCAL_FRAME_B);
-    const transformA = getBodyTransformQuick(world, bodyA);
-    const transformB = getBodyTransformQuick(world, bodyB);
+    const transformA = readBodyTransform(world, bodyA, bodyPoseScratch1);
+    const transformB = readBodyTransform(world, bodyB, bodyPoseScratch2);
     const pA = transformWorldPoint(transformA, anchorA);
     const pB = transformWorldPoint(transformB, anchorB);
 
@@ -280,6 +283,12 @@ function drawJoint(draw: DebugDraw, world: WorldState, jointId: number): void {
  * typed callbacks on `draw` (b3World_Draw). `maskBits` filters by shape category. Read-only.
  */
 export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint): void {
+    const centerScratch1 = { x: 0, y: 0, z: 0 };
+    const transformScratch2 = {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    };
+
     (world.broadPhase as BroadPhase).store.refreshIfStale();
     const trees = (world.broadPhase as BroadPhase).trees;
     const visitedBodies = new Set<number>();
@@ -288,6 +297,11 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
 
     for (let i = 0; i < BODY_TYPE_COUNT; ++i) {
         tree.query(trees[i], draw.drawingBounds, maskHi, maskLo, false, (_proxyId, shapeId) => {
+            const centerScratch1 = {
+                p: { x: 0, y: 0, z: 0 },
+                q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+            };
+
             const shape = world.shapes[shapeId];
             visitedBodies.add(shapeBodyId(world, shape.id));
 
@@ -295,7 +309,7 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
                 const body = world.bodies[shapeBodyId(world, shape.id)];
                 const sim = getBodySim(world, body);
                 const color = bodyColor(world, body, shape);
-                drawSolidShape(draw, shape, simField(world, sim, "transform"), color);
+                drawSolidShape(draw, shape, readSimTransform(world, sim, centerScratch1), color);
             }
             if (draw.drawBounds) {
                 draw.drawAabb(readFatAabb(world, shape.id, drawBounds), DebugColor.gold);
@@ -310,8 +324,8 @@ export function worldDraw(world: WorldState, draw: DebugDraw, maskBits: bigint):
             if (bodyType(world, body.id) !== BodyType.Dynamic) continue;
             const sim = getBodySim(world, body);
             const transform: WorldTransform = {
-                p: simField(world, sim, "center"),
-                q: simField(world, sim, "transform").q,
+                p: readSimCenter(world, sim, centerScratch1),
+                q: readSimTransform(world, sim, transformScratch2).q,
             };
             draw.drawTransform(transform);
             const p = transformWorldPoint(transform, { x: 0.1, y: 0.1, z: 0.1 });

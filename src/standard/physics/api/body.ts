@@ -19,10 +19,10 @@ import {
     type ShapeDef,
 } from "../common/types";
 import {
+    readSimCenter,
     readSimTransform,
+    readStateAngularVelocity,
     readStateLinearVelocity,
-    simField,
-    stateField,
 } from "../kernel/bodycolumns";
 import { bodyType } from "../kernel/filtercolumns";
 import { kernel, setQueryCallback } from "../kernel/kernel";
@@ -59,8 +59,8 @@ import {
     destroyBody,
     getBodySim,
     getBodyState,
-    getBodyTransformQuick,
     getMassData,
+    readBodyTransform,
     updateBodyMassData,
 } from "../world/body";
 import type { WorldState } from "../world/world";
@@ -115,6 +115,16 @@ export class Body {
     constructor(world: WorldState, id: EntityId) {
         this.world = world;
         this.id = id;
+    }
+
+    private readonly _forceScratch = { x: 0, y: 0, z: 0 };
+    private readonly _pointScratch = { x: 0, y: 0, z: 0 };
+
+    private roundVector(v: Vec3, out: Vec3): Vec3 {
+        out.x = Math.fround(v.x);
+        out.y = Math.fround(v.y);
+        out.z = Math.fround(v.z);
+        return out;
     }
 
     private record(): BodyRecord {
@@ -264,7 +274,11 @@ export class Body {
 
     /** @returns the world-space center of mass. */
     getWorldCenterOfMass(): Pos {
-        return { ...simField(this.world, getBodySim(this.world, this.record()), "center") };
+        return readSimCenter(this.world, getBodySim(this.world, this.record()), {
+            x: 0,
+            y: 0,
+            z: 0,
+        });
     }
 
     /**
@@ -272,17 +286,17 @@ export class Body {
      * @example const local = body.getLocalPoint(hit.point);
      */
     getLocalPoint(worldPoint: Pos): Vec3 {
-        return invTransformWorldPoint(getBodyTransformQuick(this.world, this.record()), worldPoint);
+        const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+        return invTransformWorldPoint(
+            readBodyTransform(this.world, this.record(), bodyPoseScratch1),
+            worldPoint,
+        );
     }
 
     /** @returns the body's linear velocity (zero when the body is not awake). Pass `out` to fill it instead of allocating. */
-    getLinearVelocity(out?: Vec3): Vec3 {
+    getLinearVelocity(out: Vec3 = { x: 0, y: 0, z: 0 }): Vec3 {
         const state = getBodyState(this.world, this.record());
-        if (out === undefined) {
-            return state === null
-                ? { x: 0, y: 0, z: 0 }
-                : { ...stateField(this.world, state, "linearVelocity") };
-        }
         if (state !== null) return readStateLinearVelocity(this.world, state, out);
         out.x = 0;
         out.y = 0;
@@ -292,10 +306,12 @@ export class Body {
 
     /** @returns the body's angular velocity (zero when the body is not awake). */
     getAngularVelocity(): Vec3 {
+        const angularVelocityScratch1 = { x: 0, y: 0, z: 0 };
+
         const state = getBodyState(this.world, this.record());
         return state === null
             ? { x: 0, y: 0, z: 0 }
-            : { ...stateField(this.world, state, "angularVelocity") };
+            : readStateAngularVelocity(this.world, state, angularVelocityScratch1);
     }
 
     /** Set the body's linear velocity, waking it when nonzero. */
@@ -357,17 +373,33 @@ export class Body {
      * produces a torque. `wake` wakes a sleeping body first. @example body.applyForce(f, hit, true);
      */
     applyForce(force: Vec3, point: Pos, wake = true): void {
-        bodyApplyForce(this.world, this.record(), froundConfig(force), froundConfig(point), wake);
+        bodyApplyForce(
+            this.world,
+            this.record(),
+            this.roundVector(force, this._forceScratch),
+            this.roundVector(point, this._pointScratch),
+            wake,
+        );
     }
 
     /** Accumulate a world-space force at the center of mass over the next step (no torque). */
     applyForceToCenter(force: Vec3, wake = true): void {
-        bodyApplyForceToCenter(this.world, this.record(), froundConfig(force), wake);
+        bodyApplyForceToCenter(
+            this.world,
+            this.record(),
+            this.roundVector(force, this._forceScratch),
+            wake,
+        );
     }
 
     /** Accumulate a torque about the center of mass over the next step. */
     applyTorque(torque: Vec3, wake = true): void {
-        bodyApplyTorque(this.world, this.record(), froundConfig(torque), wake);
+        bodyApplyTorque(
+            this.world,
+            this.record(),
+            this.roundVector(torque, this._forceScratch),
+            wake,
+        );
     }
 
     /**
@@ -494,10 +526,12 @@ export class Body {
      * (b3Body_GetClosestPoint). Uses the body's stored transform.
      */
     getClosestPoint(target: Vec3): { point: Vec3; distance: number } {
+        const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
         const origin = { x: 0, y: 0, z: 0 };
         const q = queryColumns(this.world);
         const k = q.prepare(origin);
-        q.placement(getBodyTransformQuick(this.world, this.record()), origin);
+        q.placement(readBodyTransform(this.world, this.record(), bodyPoseScratch1), origin);
         q.proxy({ points: [target], count: 1, radius: 0 });
         k.bodyQuery(this.world.worldId, 3, this.record().headShapeId, 0);
         return {

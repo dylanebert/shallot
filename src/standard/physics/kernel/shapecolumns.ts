@@ -1,5 +1,6 @@
 import type { World } from "../../../engine";
-import { type BodySimRef, simField, simFlags } from "./bodycolumns";
+import { simFlags } from "./bodycolumns";
+import { FIN_STRIDE, SIM_STRIDE } from "./columns";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
 // can walk a body's shape list and compute its AABBs without a per-step marshal. Each World owns
@@ -244,27 +245,19 @@ export class ShapeStore extends KernelViews {
         u[n + 51] = Number(shape.enableHitEvents);
     }
 
-    writeQueryPose(world: WorldState, shapeId: number, body: Body, sim?: BodySimRef): void {
+    writeQueryPose(world: WorldState, shapeId: number, body: Body, sim?: number): void {
         const n = shapeId * SHAPE_STRIDE;
         this.shapeU[n + 32] = body.setIndex === SetType.Awake ? body.localIndex + 1 : 0;
         if (body.setIndex === SetType.Awake) return;
         if (!sim) throw new Error("physics: a non-awake query shape requires its sleeping pose");
-        const pose = simField(world, sim, "transform");
+        const columns = world.bodyStore.simColumns(body.setIndex);
+        const fo = body.localIndex * FIN_STRIDE;
+        const so = body.localIndex * SIM_STRIDE;
         this.shapeU[n + 42] = simFlags(world, sim);
         const f = this.shapeF;
-        f[n + 44] = simField(world, sim, "center").x;
-        f[n + 45] = simField(world, sim, "center").y;
-        f[n + 46] = simField(world, sim, "center").z;
-        f[n + 47] = simField(world, sim, "localCenter").x;
-        f[n + 48] = simField(world, sim, "localCenter").y;
-        f[n + 49] = simField(world, sim, "localCenter").z;
-        f[n + 18] = pose.p.x;
-        f[n + 19] = pose.p.y;
-        f[n + 20] = pose.p.z;
-        f[n + 21] = pose.q.v.x;
-        f[n + 22] = pose.q.v.y;
-        f[n + 23] = pose.q.v.z;
-        f[n + 24] = pose.q.s;
+        for (let j = 0; j < 6; j++) f[n + 44 + j] = columns.finF[fo + j];
+        for (let j = 0; j < 3; j++) f[n + 18 + j] = columns.finF[fo + 9 + j];
+        for (let j = 0; j < 4; j++) f[n + 21 + j] = columns.simF[so + 28 + j];
     }
 
     /** Refresh a shape's pool reference without touching its material or finalize lanes. */

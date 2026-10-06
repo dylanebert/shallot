@@ -75,7 +75,7 @@ import {
     removeJointRecord,
     writeJointWord,
 } from "../kernel/jointcolumns";
-import { type Body, getBodyTransformQuick, wakeBody } from "../world/body";
+import { type Body, readBodyTransform, wakeBody } from "../world/body";
 import { linkJoint, unlinkJoint } from "../world/island";
 import { wakeSolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
@@ -516,9 +516,12 @@ export function wakeJointBodies(world: WorldState, joint: Joint): void {
 
 /** The linear separation error at the joint anchors (b3Joint_GetLinearSeparation). */
 export function getJointLinearSeparation(world: WorldState, joint: Joint): number {
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
     const sim = joint;
-    const xfA = getBodyTransformQuick(world, world.bodies[joint.edges[0].bodyId]);
-    const xfB = getBodyTransformQuick(world, world.bodies[joint.edges[1].bodyId]);
+    const xfA = readBodyTransform(world, world.bodies[joint.edges[0].bodyId], bodyPoseScratch1);
+    const xfB = readBodyTransform(world, world.bodies[joint.edges[1].bodyId], bodyPoseScratch2);
     const pA = transformWorldPoint(xfA, readJointVec3(world, sim, J_LOCAL_FRAME_A));
     const pB = transformWorldPoint(xfB, readJointVec3(world, sim, J_LOCAL_FRAME_B));
     const dp = vec3.sub(pB, pA);
@@ -590,9 +593,12 @@ function axisSeparation(
 
 /** The angular separation error at the joint (b3Joint_GetAngularSeparation). */
 export function getJointAngularSeparation(world: WorldState, joint: Joint): number {
+    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
     const sim = joint;
-    const xfA = getBodyTransformQuick(world, world.bodies[joint.edges[0].bodyId]);
-    const xfB = getBodyTransformQuick(world, world.bodies[joint.edges[1].bodyId]);
+    const xfA = readBodyTransform(world, world.bodies[joint.edges[0].bodyId], bodyPoseScratch1);
+    const xfB = readBodyTransform(world, world.bodies[joint.edges[1].bodyId], bodyPoseScratch2);
     const relQ = quat.invMul(xfA.q, xfB.q);
     switch (joint.type) {
         case JointType.Distance:
