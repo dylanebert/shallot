@@ -16,7 +16,7 @@
 // assert; the child instances keep their own geometry references either way.
 
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
-import { type AABB, aabb, type Transform, type Vec3, vec3, xf } from "../common/math";
+import { type AABB, type Transform, type Vec3, xf } from "../common/math";
 import { cloneMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import * as tree from "../kernel/treecolumns";
 import {
@@ -332,17 +332,6 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         sharedHullCount: sharedHullHashes.size,
         sharedMeshCount: sharedMeshes.length,
     };
-}
-
-/** Enclosing AABB of a compound under a transform (b3ComputeCompoundAABB): its tree root, transformed. */
-const compoundBounds = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } };
-export function computeCompoundAABB(
-    compound: CompoundData,
-    transform: Transform,
-    out: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() },
-): AABB {
-    tree.getAABBInto(compound.tree, compound.tree.root, compoundBounds);
-    return aabb.transformOut(transform, compoundBounds, out);
 }
 
 /** Callback for a compound tree query; return false to stop (b3CompoundQueryFcn). */

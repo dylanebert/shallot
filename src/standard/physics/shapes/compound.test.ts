@@ -18,7 +18,6 @@ import { readNode } from "../kernel/treecolumns";
 import {
     type CompoundData,
     type CompoundDef,
-    computeCompoundAABB,
     createCompound,
     getCompoundChild,
     getCompoundMaterials,
@@ -28,6 +27,7 @@ import { type Capsule, computeCapsuleAABB, computeSphereAABB, type Sphere } from
 import gold from "./geometry.gold.json";
 import { computeHullAABB, type HullData, makeBoxHull } from "./hull";
 import { computeMeshAABB, createBoxMesh, type MeshData } from "./mesh";
+import { computeShapeAABB } from "./shape";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -504,28 +504,36 @@ test("a compound's child index stops resolving to the right child shape, its inn
 
     vector("CompoundAABBContainsChildren — root AABB contains every child's AABB", () => {
         const c = buildMixed();
-        const root = computeCompoundAABB(c, xf.identity());
-        const childCount = c.capsules.length + c.hulls.length + c.meshes.length + c.spheres.length;
-        for (let i = 0; i < childCount; ++i) {
-            const child = getCompoundChild(c, i);
-            let box: ReturnType<typeof computeSphereAABB>;
-            switch (child.type) {
-                case ShapeType.Capsule:
-                    box = computeCapsuleAABB(child.capsule as Capsule, child.transform);
-                    break;
-                case ShapeType.Sphere:
-                    box = computeSphereAABB(child.sphere as Sphere, child.transform);
-                    break;
-                case ShapeType.Hull:
-                    box = computeHullAABB(child.hull as HullData, child.transform);
-                    break;
-                default: {
-                    const m = child.mesh as { data: MeshData; scale: Vec3 };
-                    box = computeMeshAABB(m.data, child.transform, m.scale);
-                    break;
+        const world = new PhysicsWorld();
+        try {
+            const body = world.createBody({ type: BodyType.Static });
+            const shape = body.createCompound({}, c);
+            const root = computeShapeAABB(world.state, shape.id.index1 - 1, xf.identity());
+            const childCount =
+                c.capsules.length + c.hulls.length + c.meshes.length + c.spheres.length;
+            for (let i = 0; i < childCount; ++i) {
+                const child = getCompoundChild(c, i);
+                let box: ReturnType<typeof computeSphereAABB>;
+                switch (child.type) {
+                    case ShapeType.Capsule:
+                        box = computeCapsuleAABB(child.capsule as Capsule, child.transform);
+                        break;
+                    case ShapeType.Sphere:
+                        box = computeSphereAABB(child.sphere as Sphere, child.transform);
+                        break;
+                    case ShapeType.Hull:
+                        box = computeHullAABB(child.hull as HullData, child.transform);
+                        break;
+                    default: {
+                        const m = child.mesh as { data: MeshData; scale: Vec3 };
+                        box = computeMeshAABB(m.data, child.transform, m.scale);
+                        break;
+                    }
                 }
+                expect(aabb.contains(root, box)).toBe(true);
             }
-            expect(aabb.contains(root, box)).toBe(true);
+        } finally {
+            world.destroy();
         }
     });
 });

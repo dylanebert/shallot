@@ -43,7 +43,6 @@ import {
     vec3,
     xf,
 } from "../common/math";
-import type { MassData } from "./geometry";
 
 // Final hull indices are uint8, so vertex/edge/face counts cap at 255.
 const HULL_LIMIT = 255;
@@ -1466,41 +1465,9 @@ export function makeOffsetBoxHull(hx: number, hy: number, hz: number, offset: Ve
 
 // --- geometry queries -----------------------------------------------------------------------
 
-/** Mass properties of a hull at the given density (b3ComputeHullMass). */
-export function computeHullMass(
-    shape: HullData,
-    density: number,
-    out: MassData = { mass: 0, center: vec3.zero(), inertia: mat3.zero() },
-): MassData {
-    out.mass = f32(density * shape.volume);
-    vec3.copy(shape.center, out.center);
-    vec3.scaleOut(density, shape.centralInertia.cx, out.inertia.cx);
-    vec3.scaleOut(density, shape.centralInertia.cy, out.inertia.cy);
-    vec3.scaleOut(density, shape.centralInertia.cz, out.inertia.cz);
-    return out;
-}
-
 /** Enclosing AABB of a transformed hull (b3ComputeHullAABB). */
 export function computeHullAABB(shape: HullData, transform: Transform): AABB {
     return aabb.transform(transform, shape.aabb);
-}
-
-/** Min/max extent of a hull relative to `origin`, for sleeping bounds (b3ComputeHullExtent). */
-export function computeHullExtent(
-    hull: HullData,
-    origin: Vec3,
-    out = { minExtent: 0, maxExtent: { x: 0, y: 0, z: 0 } },
-): { minExtent: number; maxExtent: Vec3 } {
-    const maxExtent = out.maxExtent;
-    maxExtent.x = maxExtent.y = maxExtent.z = 0;
-    for (let index = 0; index < hull.vertexCount; ++index) {
-        const point = hull.points[index];
-        maxExtent.x = maxf(maxExtent.x, Math.abs(f32(point.x - origin.x)));
-        maxExtent.y = maxf(maxExtent.y, Math.abs(f32(point.y - origin.y)));
-        maxExtent.z = maxf(maxExtent.z, Math.abs(f32(point.z - origin.z)));
-    }
-    out.minExtent = hull.innerRadius;
-    return out;
 }
 
 /** Index of the hull vertex farthest along `direction` (b3FindHullSupportVertex). */

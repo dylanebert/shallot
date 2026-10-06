@@ -10,17 +10,7 @@
 // visit order are what must stay bit-exact. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import { LINEAR_SLOP } from "../common/constants";
-import {
-    type AABB,
-    aabb,
-    clampf,
-    maxf,
-    minf,
-    plane,
-    type Transform,
-    type Vec3,
-    vec3,
-} from "../common/math";
+import { type AABB, clampf, maxf, minf, plane, type Vec3, vec3 } from "../common/math";
 import { MeshEdgeFlags, type Triangle } from "./mesh";
 
 const f32 = Math.fround;
@@ -447,15 +437,6 @@ export function getHeightFieldTriangle(hf: HeightFieldData, triangleIndex: numbe
 /** Per-triangle material index of a height field (b3GetHeightFieldMaterial). */
 export function getHeightFieldMaterial(hf: HeightFieldData, triangleIndex: number): number {
     return hf.materialIndices[triangleIndex >> 1];
-}
-
-/** AABB of a height field under a transform (b3ComputeHeightFieldAABB = b3AABB_Transform of the box). */
-export function computeHeightFieldAABB(
-    hf: HeightFieldData,
-    transform: Transform,
-    out: AABB = { lowerBound: vec3.zero(), upperBound: vec3.zero() },
-): AABB {
-    return aabb.transformOut(transform, hf.aabb, out);
 }
 
 /**

@@ -6,9 +6,7 @@ import {
     type Capsule,
     computeCapsuleAABB,
     computeCapsuleAABBOut,
-    computeCapsuleMass,
     computeSphereAABB,
-    computeSphereMass,
     type MassData,
     roundCapsule,
     roundSphere,
@@ -86,33 +84,48 @@ function exercisePublicShapeLifecycle(): void {
 
 test("computeSphereMass or computeCapsuleMass drifts from the Box3D C reference's f32 bits for a sphere or capsule vector, including the ragdoll bone capsule where an unrounded 0.4 sphere-inertia literal costs a ULP", () => {
     exercisePublicShapeLifecycle();
-    // f32-round non-exact literals (0.35, 0.3) to match the C float inputs bit-for-bit.
-    const unit: Sphere = { center: v(0, 0, 0), radius: 1 };
-    assertMass(computeSphereMass(unit, 1), sphereGold("unit"));
+    const world = new PhysicsWorld();
+    try {
+        const body = world.createBody({ type: BodyType.Dynamic });
+        // f32-round non-exact literals (0.35, 0.3) to match the C float inputs bit-for-bit.
+        const unit: Sphere = { center: v(0, 0, 0), radius: 1 };
+        assertMass(body.createSphere({ density: 1 }, unit).computeMassData(), sphereGold("unit"));
 
-    const offset: Sphere = { center: v(0.5, -1, 2), radius: f32(0.35) };
-    assertMass(computeSphereMass(offset, 2.5), sphereGold("offset"));
+        const offset: Sphere = { center: v(0.5, -1, 2), radius: f32(0.35) };
+        assertMass(
+            body.createSphere({ density: 2.5 }, offset).computeMassData(),
+            sphereGold("offset"),
+        );
 
-    const vertical: Capsule = { center1: v(0, -1, 0), center2: v(0, 1, 0), radius: 0.5 };
-    assertMass(computeCapsuleMass(vertical, 1), capsuleGold("vertical"));
+        const vertical: Capsule = { center1: v(0, -1, 0), center2: v(0, 1, 0), radius: 0.5 };
+        assertMass(
+            body.createCapsule({ density: 1 }, vertical).computeMassData(),
+            capsuleGold("vertical"),
+        );
 
-    const skew: Capsule = {
-        center1: v(-1, 0.5, 0.25),
-        center2: v(1.5, -0.5, 0.75),
-        radius: f32(0.3),
-    };
-    assertMass(computeCapsuleMass(skew, 3), capsuleGold("skew"));
+        const skew: Capsule = {
+            center1: v(-1, 0.5, 0.25),
+            center2: v(1.5, -0.5, 0.75),
+            radius: f32(0.3),
+        };
+        assertMass(body.createCapsule({ density: 3 }, skew).computeMassData(), capsuleGold("skew"));
 
-    // Regression: an x-axis ragdoll bone (r = 0.12, water density). The sphere-inertia 0.4f
-    // literal must be f32-rounded — f64 0.4 vs C 0.4f round differently for this mass, so the
-    // buggy version was ~1 ULP off on the axis inertia (the divergence that broke the rain
-    // fixture).
-    const bone: Capsule = {
-        center1: v(0.06, 0, 0),
-        center2: v(-0.06, 0, 0),
-        radius: f32(0.12),
-    };
-    assertMass(computeCapsuleMass(bone, 1000), capsuleGold("bone"));
+        // Regression: an x-axis ragdoll bone (r = 0.12, water density). The sphere-inertia 0.4f
+        // literal must be f32-rounded — f64 0.4 vs C 0.4f round differently for this mass, so the
+        // buggy version was ~1 ULP off on the axis inertia (the divergence that broke the rain
+        // fixture).
+        const bone: Capsule = {
+            center1: v(0.06, 0, 0),
+            center2: v(-0.06, 0, 0),
+            radius: f32(0.12),
+        };
+        assertMass(
+            body.createCapsule({ density: 1000 }, bone).computeMassData(),
+            capsuleGold("bone"),
+        );
+    } finally {
+        world.destroy();
+    }
 });
 
 test("computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule at center +/- radius, or stops following the transform's translation", () => {

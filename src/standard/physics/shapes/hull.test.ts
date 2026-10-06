@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
+import { PhysicsWorld } from "../api/world";
 import { f32, quat, type Vec3, vec3, xf } from "../common/math";
+import { BodyType } from "../common/types";
 import gold from "./geometry.gold.json";
 import {
     cloneHull,
     computeHullAABB,
-    computeHullMass,
     createCone,
     createCylinder,
     createHull,
@@ -309,9 +310,15 @@ test("the convex hull builder is nondeterministic across two identical builds (s
     expect(h2).toEqual(h1);
 
     // Unit cube: volume 8, centered at the origin. Density 2 -> mass 16.
-    const mass = computeHullMass(h1, 2);
-    expect(mass.mass).toBe(16);
-    expect(mass.center).toEqual(v(0, 0, 0));
+    const world = new PhysicsWorld();
+    try {
+        const body = world.createBody({ type: BodyType.Dynamic });
+        const mass = body.createHull({ density: 2 }, cloneHull(h1)).computeMassData();
+        expect(mass.mass).toBe(16);
+        expect(mass.center).toEqual(v(0, 0, 0));
+    } finally {
+        world.destroy();
+    }
 
     const clone = cloneHull(h1);
     expect(clone).toEqual(h1);

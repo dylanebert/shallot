@@ -26,12 +26,7 @@ import { ShapeType } from "../common/types";
 import { uploadGeometry } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
 import { createProxy, createTree, query } from "../kernel/treecolumns";
-import {
-    type Capsule,
-    computeCapsuleMass,
-    computeSphereAABB,
-    type Sphere,
-} from "../shapes/geometry";
+import { type Capsule, computeSphereAABB, type Sphere } from "../shapes/geometry";
 import { hashWorldStateOracleSentinel } from "../world/hash";
 import { loadScenarioCorpus, runScenario, type ScenarioOutput } from "./scenario";
 
@@ -268,13 +263,21 @@ function runBaseCase(item: OracleCase): unknown {
                 center2: vec(input.center2),
                 radius: f32(String(input.radius)),
             };
-            const mass = computeCapsuleMass(shape, f32(String(input.density)));
-            return {
-                mass: bits(mass.mass),
-                center: outVec(mass.center),
-                // The upstream v6 capsule-mass adapter serializes the matrix's first column.
-                inertia: outVec(mass.inertia.cx),
-            };
+            const world = makeOracleWorld();
+            try {
+                const body = world.createBody({ type: BodyType.Dynamic });
+                const mass = body
+                    .createCapsule({ density: f32(String(input.density)) }, shape)
+                    .computeMassData();
+                return {
+                    mass: bits(mass.mass),
+                    center: outVec(mass.center),
+                    // The upstream v6 capsule-mass adapter serializes the matrix's first column.
+                    inertia: outVec(mass.inertia.cx),
+                };
+            } finally {
+                world.destroy();
+            }
         }
         case "distance.point-segment.v1.scalar":
         case "distance.point-segment.v1.simd":
