@@ -1,5 +1,5 @@
 //! Narrowphase borrows each retained b3HullData directly, including its relative-offset arrays.
-//! The non-convex upload pool is world-owned and changes only when its authoring set changes.
+//! Meshes, height fields and compounds are retained as identity-keyed native images.
 
 use crate::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
 use crate::manifold::{collide_hulls, make_feature_id, LocalManifold, SatCache};
@@ -33,50 +33,17 @@ pub(crate) unsafe fn hull_record(index: usize) -> &'static HullRecord {
     &*(index as *const HullRecord)
 }
 
-pub unsafe fn relocate_compound_hulls(id: usize, record: usize, relocations: &[(u32, u32)]) {
-    let base = COLUMNS[id].layout[EXTRA] as *mut u32;
-    let r = base.add(record);
-    let children = base.add(*r.add(4) as usize);
-    for i in 0..*r.add(2) as usize {
-        let child = children.add(i * 19);
-        if *child == 3 {
-            let pointer = child.add(12);
-            if let Ok(index) = relocations.binary_search_by_key(&*pointer, |r| r.0) {
-                *pointer = relocations[index].1;
-            }
-        }
-    }
-}
-
-// GEO_LAYOUT indices (byte offsets into linear memory), in memory order.
-const EXTRA: usize = 6;
-const N_GEO: usize = 8;
-
-use crate::regions::{self, Columns, MAX_WORLDS};
-static mut COLUMNS: [Columns<N_GEO>; MAX_WORLDS] = [Columns::EMPTY; MAX_WORLDS];
-
-#[export_name = "geoLayoutPtr"]
-pub extern "C" fn geo_layout_ptr() -> *const u32 {
-    unsafe { COLUMNS[regions::active()].layout.as_ptr() }
-}
-
-#[export_name = "reserveGeometry"]
-pub extern "C" fn reserve_geometry(extra_words: usize) {
-    unsafe {
-        COLUMNS[regions::active()].reserve(EXTRA, extra_words * 4);
-    }
-}
 pub unsafe fn reset(id: usize) {
-    COLUMNS[id].release();
     crate::hull_database::reset(id);
+    crate::geometry_database::reset(id);
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
-    COLUMNS[id].snapshot(out);
     crate::hull_database::snapshot(id, out);
+    crate::geometry_database::snapshot(id, out);
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
-    COLUMNS[id].restore(input);
     crate::hull_database::restore(id, input);
+    crate::geometry_database::restore(id, input);
 }
 
 /// Borrow the arrays hanging off a b3HullData header (`usize` is u32 on wasm32).
@@ -128,11 +95,6 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
         faces,
         planes,
     }
-}
-
-/// Address a word in the active World's non-convex pool; stored references are word offsets.
-pub(crate) unsafe fn extra_ptr(index: usize) -> *const u32 {
-    (COLUMNS[regions::active()].layout[EXTRA] as *const u32).add(index)
 }
 
 pub(crate) unsafe fn mesh_view(r: *const u32, scale: Vec3) -> crate::mesh_query::Mesh<'static> {

@@ -484,19 +484,25 @@ export type Kernel = {
     pairsOverflow(): number;
     rebuildTrees(): void;
 
-    // Static geometry columns (kernel/src/geo.rs) — convex-hull pools uploaded once per interned hull,
-    // read by the convex narrowphase. `reserveGeometry` sizes this World's allocations
-    // for the given totals; `geoLayoutPtr` returns the byte-offset header TS writes the hulls through
-    // (geocolumns.ts). `collideHullsGeo` runs the hull-hull narrowphase over two column-backed hulls,
-    // writing the manifold to the buffer at `geoOutPtr` — the geometry-read verification.
-    reserveGeometry(extraWords: number): void;
-    geoLayoutPtr(): number;
+    // Immutable native geometry images are retained by caller identity inside each world; shapes
+    // and compounds hold the resulting kernel address. Hulls remain content-interned separately.
     hullUploadBuffer(world: number, bytes: number): number;
     hullDatabaseAdd(world: number, bytes: number): number;
     hullDatabaseLookup(world: number, bytes: number): number;
     hullDatabaseRemove(world: number, handle: number): void;
     hullDatabaseCount(world: number): number;
     hullDatabaseRefs(world: number, handle: number): number;
+    geometryUploadBuffer(world: number, bytes: number): number;
+    geometryDatabaseAdd(
+        world: number,
+        kind: number,
+        identity: number,
+        bytes: number,
+        refs: number,
+    ): number;
+    geometryDatabaseLookup(world: number, kind: number, identity: number): number;
+    geometryDatabaseRemove(world: number, kind: number, pointer: number): void;
+    geometryDatabaseRefs(world: number, kind: number, pointer: number): number;
 
     // The contact-id directory grows on allocation. Its block addresses remain stable while the
     // manifold-count allocators grow; this layout header exposes only the directory's address.

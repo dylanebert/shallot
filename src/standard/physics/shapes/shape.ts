@@ -439,7 +439,7 @@ function createShapeInternal(
             break;
         }
         case ShapeType.Mesh: {
-            addGeometryToDatabase(world, world.meshDatabase, geometry as MeshData);
+            addGeometryToDatabase(world, world.meshDatabase, geometry as MeshData, ShapeType.Mesh);
             const mesh = (world.shapeGeometry[shape].mesh ??= {
                 data: geometry as MeshData,
                 scale: vec3.zero(),
@@ -449,7 +449,12 @@ function createShapeInternal(
             break;
         }
         case ShapeType.HeightField:
-            addGeometryToDatabase(world, world.heightFieldDatabase, geometry as HeightFieldData);
+            addGeometryToDatabase(
+                world,
+                world.heightFieldDatabase,
+                geometry as HeightFieldData,
+                ShapeType.HeightField,
+            );
             world.shapeGeometry[shape].heightField = geometry as HeightFieldData;
             break;
         case ShapeType.Compound:

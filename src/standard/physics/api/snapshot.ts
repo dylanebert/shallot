@@ -1,3 +1,4 @@
+import { refreshGeometryRecords } from "../kernel/geocolumns";
 import { kernel } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { CheckpointStore } from "../kernel/views";
@@ -36,8 +37,14 @@ function snapshotStores(state: WorldState): Map<object, StoreName> {
     return stores;
 }
 
-function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, StoreName>): T {
+function clone<T>(
+    value: T,
+    seen: Map<object, unknown>,
+    stores: Map<object, StoreName>,
+    opaque: WeakSet<object>,
+): T {
     if (value === null || typeof value !== "object") return value;
+    if (opaque.has(value as object)) return value;
     const store = stores.get(value as object);
     if (store) return STORE_MARKERS[store] as T;
     const prior = seen.get(value as object);
@@ -52,19 +59,20 @@ function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, Stor
     if (value instanceof Map) {
         const out = new Map();
         seen.set(value, out);
-        for (const [k, v] of value) out.set(clone(k, seen, stores), clone(v, seen, stores));
+        for (const [k, v] of value)
+            out.set(clone(k, seen, stores, opaque), clone(v, seen, stores, opaque));
         return out as T;
     }
     if (value instanceof Set) {
         const out = new Set();
         seen.set(value, out);
-        for (const item of value) out.add(clone(item, seen, stores));
+        for (const item of value) out.add(clone(item, seen, stores, opaque));
         return out as T;
     }
     if (Array.isArray(value)) {
         const out: unknown[] = [];
         seen.set(value, out);
-        for (const item of value) out.push(clone(item, seen, stores));
+        for (const item of value) out.push(clone(item, seen, stores, opaque));
         return out as T;
     }
     const out = Object.create(Object.getPrototypeOf(value)) as Record<PropertyKey, unknown>;
@@ -72,7 +80,6 @@ function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, Stor
     for (const key of Reflect.ownKeys(value)) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor && "value" in descriptor && key !== "userData")
-            // Upload registers contain no logical state and may hold detached linear-memory views.
             descriptor.value =
                 key === "geometryUploadScratch"
                     ? undefined
@@ -81,7 +88,7 @@ function clone<T>(value: T, seen: Map<object, unknown>, stores: Map<object, Stor
                         key === "jointUserData" ||
                         key === "jointEventUserData"
                       ? descriptor.value.slice()
-                      : clone(descriptor.value, seen, stores);
+                      : clone(descriptor.value, seen, stores, opaque);
         if (descriptor) Object.defineProperty(out, key, descriptor);
     }
     return out as T;
@@ -91,12 +98,13 @@ function restoreClone<T>(
     value: T,
     seen: Map<object, unknown>,
     stores: Record<StoreName, object>,
-    root?: WorldState,
+    root: WorldState | undefined,
+    opaque: WeakSet<object>,
 ): T {
     if (value === null || typeof value !== "object") return value;
-    for (const name of Object.keys(STORE_MARKERS) as StoreName[]) {
+    if (opaque.has(value as object)) return value;
+    for (const name of Object.keys(STORE_MARKERS) as StoreName[])
         if ((value as object) === STORE_MARKERS[name]) return stores[name] as T;
-    }
     const prior = seen.get(value as object);
     if (prior !== undefined) return prior as T;
     if (ArrayBuffer.isView(value)) {
@@ -110,19 +118,22 @@ function restoreClone<T>(
         const out = new Map();
         seen.set(value, out);
         for (const [k, v] of value)
-            out.set(restoreClone(k, seen, stores), restoreClone(v, seen, stores));
+            out.set(
+                restoreClone(k, seen, stores, undefined, opaque),
+                restoreClone(v, seen, stores, undefined, opaque),
+            );
         return out as T;
     }
     if (value instanceof Set) {
         const out = new Set();
         seen.set(value, out);
-        for (const item of value) out.add(restoreClone(item, seen, stores));
+        for (const item of value) out.add(restoreClone(item, seen, stores, undefined, opaque));
         return out as T;
     }
     if (Array.isArray(value)) {
         const out: unknown[] = [];
         seen.set(value, out);
-        for (const item of value) out.push(restoreClone(item, seen, stores));
+        for (const item of value) out.push(restoreClone(item, seen, stores, undefined, opaque));
         return out as T;
     }
     const out = (root ?? Object.create(Object.getPrototypeOf(value))) as Record<
@@ -130,9 +141,8 @@ function restoreClone<T>(
         unknown
     >;
     seen.set(value as object, out);
-    for (const key of Reflect.ownKeys(out)) {
+    for (const key of Reflect.ownKeys(out))
         if (!Reflect.has(value, key)) Reflect.deleteProperty(out, key);
-    }
     for (const key of Reflect.ownKeys(value)) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor && "value" in descriptor && key !== "userData")
@@ -142,7 +152,7 @@ function restoreClone<T>(
                 key === "jointUserData" ||
                 key === "jointEventUserData"
                     ? descriptor.value.slice()
-                    : restoreClone(descriptor.value, seen, stores);
+                    : restoreClone(descriptor.value, seen, stores, undefined, opaque);
         if (descriptor) Object.defineProperty(out, key, descriptor);
     }
     return out as T;
@@ -162,12 +172,20 @@ export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldS
     const length = k.worldSnapshot(state.worldId);
     const pointer = k.worldSnapshotBuffer(length);
     const stores = snapshotStores(state);
+    const opaque = new WeakSet<object>();
+    for (const data of [
+        ...state.meshDatabase.keys(),
+        ...state.heightFieldDatabase.keys(),
+        ...state.compoundDatabase.keys(),
+    ])
+        opaque.add(data as object);
     const checkpoints: Partial<Record<StoreName, unknown>> = {};
     for (const [store, name] of stores) {
         checkpoints[name] = clone(
             (store as CheckpointStore).captureCheckpoint(),
             new Map(),
             stores,
+            opaque,
         );
     }
     const seen = state.ecsState
@@ -176,7 +194,7 @@ export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldS
     return {
         // The ECS owner is identity, not solver data; snapshots never clone or retain it.
         state: {
-            world: clone(state, seen, stores),
+            world: clone(state, seen, stores, opaque),
             checkpoints,
             bindings,
         },
@@ -219,15 +237,25 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         broadStore: state.broadPhase.store,
         query: queryColumns(state),
     };
-    restoreClone(saved.world, new Map(), stores, state);
+    const opaque = new WeakSet<object>();
+    for (const data of [
+        ...saved.world.meshDatabase.keys(),
+        ...saved.world.heightFieldDatabase.keys(),
+        ...saved.world.compoundDatabase.keys(),
+    ])
+        opaque.add(data as object);
+    restoreClone(saved.world, new Map(), stores, state, opaque);
     // World identity and capacity belong to the target handle, not the snapshot's source handle.
     Object.assign(state, identity);
     for (const name of Object.keys(saved.checkpoints) as StoreName[]) {
-        stores[name].restoreCheckpoint(restoreClone(saved.checkpoints[name], new Map(), stores));
+        stores[name].restoreCheckpoint(
+            restoreClone(saved.checkpoints[name], new Map(), stores, undefined, opaque),
+        );
     }
     const k = kernel(state.ecsState);
     const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength);
     new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);
     k.worldRestore(state.worldId);
+    refreshGeometryRecords(state);
     state.manifoldStore.refreshViews();
 }

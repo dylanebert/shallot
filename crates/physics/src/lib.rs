@@ -32,6 +32,8 @@ pub mod continuous;
 pub mod continuous_shape;
 pub mod distance;
 pub mod finalize;
+#[cfg(target_arch = "wasm32")]
+mod geometry_database;
 pub mod height_query;
 pub mod hull;
 pub mod integrate;

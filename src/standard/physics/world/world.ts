@@ -21,7 +21,13 @@ import {
     type WorldDef,
 } from "../common/types";
 import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
-import { hullDatabaseIndex, stageHullUpload } from "../kernel/geocolumns";
+import {
+    geometryIdentity,
+    hullDatabaseIndex,
+    releaseGeometryData,
+    retainGeometryData,
+    stageHullUpload,
+} from "../kernel/geocolumns";
 import { islandKernel } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
@@ -179,18 +185,26 @@ export const defaultFrictionCallback: MixCallback = (a, _idA, b, _idB) =>
 /** Default restitution mixing: the larger of the two (b3DefaultRestitutionCallback). */
 export const defaultRestitutionCallback: MixCallback = (a, _idA, b, _idB) => maxf(a, b);
 
-export type GeometryRecord = { refCount: number; geoIndex: number };
+export type GeometryRecord = { refCount: number; geoIndex: number; kind: number; identity: number };
 
 /** Retain immutable query geometry by identity; only set membership changes invalidate residency. */
 export function addGeometryToDatabase<T>(
     world: WorldState,
     database: Map<T, GeometryRecord>,
     data: T,
+    kind: number,
 ): void {
     const entry = database.get(data);
-    if (entry) entry.refCount += 1;
-    else {
-        database.set(data, { refCount: 1, geoIndex: -1 });
+    if (entry) {
+        entry.refCount += 1;
+        if (entry.geoIndex >= 0) retainGeometryData(world, kind, entry.identity);
+    } else {
+        database.set(data, {
+            refCount: 1,
+            geoIndex: -1,
+            kind,
+            identity: geometryIdentity(data as object),
+        });
         world.geometryDirty = true;
     }
 }
@@ -202,29 +216,20 @@ export function removeGeometryFromDatabase<T>(
 ): void {
     const entry = database.get(data);
     if (!entry) return;
+    if (entry.geoIndex >= 0) releaseGeometryData(world, entry.kind, entry.geoIndex);
     if (--entry.refCount === 0) {
         database.delete(data);
         world.geometryDirty = true;
     }
 }
 
-/** A compound datum retains its shared geometry once, independent of the number of shape instances. */
+/** Retain a compound image; Box3D's blob embeds its shared hull and mesh images. */
 export function addCompoundToDatabase(world: WorldState, data: CompoundData): void {
-    const existing = world.compoundDatabase.has(data);
-    addGeometryToDatabase(world, world.compoundDatabase, data);
-    if (existing) return;
-    for (const child of data.hulls) addHullToDatabase(world, child.hull);
-    for (const child of data.meshes)
-        addGeometryToDatabase(world, world.meshDatabase, child.meshData);
+    addGeometryToDatabase(world, world.compoundDatabase, data, 1);
 }
 
 export function removeCompoundFromDatabase(world: WorldState, data: CompoundData): void {
-    const last = world.compoundDatabase.get(data)?.refCount === 1;
     removeGeometryFromDatabase(world, world.compoundDatabase, data);
-    if (!last) return;
-    for (const child of data.hulls) removeHullFromDatabase(world, child.hull);
-    for (const child of data.meshes)
-        removeGeometryFromDatabase(world, world.meshDatabase, child.meshData);
 }
 
 // --- hull database ---------------------------------------------------------------------------

@@ -461,7 +461,7 @@ unsafe fn dispatch_mesh(
     use crate::mesh_contact::{compute_mesh_manifolds, TriangleSource, MAX_TRIANGLES};
     let slot = disp[r + D_MESH_SLOT] as usize;
     let cache = &mut *manifolds::mesh_cache_ptr(contact_id);
-    let record = crate::geo::extra_ptr(geom[0] as usize);
+    let record = geom[0] as *const u32;
     let source = if ty == 4 {
         let mesh = crate::geo::mesh_view(
             record,
@@ -849,7 +849,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             let mut child_radius = 0.0;
             let mut compound_geometry = [0u32; 19];
             if type_a == 1 {
-                let compound = crate::geo::extra_ptr(geom_a[0] as usize);
+                let compound = geom_a[0] as *const u32;
                 compound_geometry =
                     crate::compound_query::child_words(compound, disp[r + D_CHILD] as usize);
                 type_a = compound_geometry[0];

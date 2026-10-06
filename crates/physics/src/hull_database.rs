@@ -337,7 +337,9 @@ mod runtime {
         reset(world);
         let db = &mut DATABASES[world];
         let n = regions::read_word(input);
-        db.allocate_table(n);
+        if n != 0 {
+            db.allocate_table(n);
+        }
         let mut relocations = Vec::new();
         for i in 0..n {
             db.metadata[i] = regions::read_word(input) as u16;

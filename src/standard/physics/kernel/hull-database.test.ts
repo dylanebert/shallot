@@ -11,13 +11,14 @@ import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 function compoundHullPointer(world: PhysicsWorld, shape: number): number {
     const store = world.state.shapeStore;
     store.refreshViews();
-    const u = store.materialU;
-    const pool = u[(kernel(world.state.ecsState).geoLayoutPtr() >>> 2) + 6] >>> 2;
-    const record = pool + store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
-    return u[pool + u[record + 4] + 12];
+    const pointer = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
+    const view = new DataView(store.materialU.buffer);
+    const hullArray = view.getUint32(pointer + 84, true);
+    const hullImage = view.getUint32(pointer + hullArray + 28, true);
+    return pointer + hullImage;
 }
 
-test("compound hull pointers relocate once across shared instances and survive the source world's destruction", () => {
+test("compound hull images relocate with caller-owned compound identity and survive source destruction", () => {
     const source = new PhysicsWorld(),
         target = new PhysicsWorld();
     try {
@@ -32,7 +33,10 @@ test("compound hull pointers relocate once across shared instances and survive t
         target.restore(source.snapshot());
         const pointer = compoundHullPointer(target, shape.id.index1 - 1);
         expect(pointer).not.toBe(old);
-        expect(pointer).toBe(hullDatabaseIndex(target.state, hull));
+        expect(
+            new DataView(target.state.shapeStore.materialU.buffer).getBigUint64(pointer, true),
+        ).toBe(0x4a4c9587de57485cn);
+        expect([...target.state.compoundDatabase.keys()][0]).toBe(data);
         source.destroy();
         const hit = target.castRayClosest({ x: -3, y: 0, z: 0 }, { x: 6, y: 0, z: 0 });
         expect(hit.hit).toBe(true);

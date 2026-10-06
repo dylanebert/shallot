@@ -1,49 +1,18 @@
-import type { World } from "../../../engine";
-import type { Vec3 } from "../common/math";
 import type { SurfaceMaterial } from "../common/types";
 import type { CompoundData } from "../shapes/compound";
 import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
 import { hash64NonZero, hullByteCount, hullImage, writeHullImage } from "../shapes/hullbytes";
 import type { MeshData } from "../shapes/mesh";
-import type { GeometryRecord, WorldState } from "../world/world";
+import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
-/** World-owned authoring upload registers, not geometry storage. Contents clear after upload;
- * capacity and linear-memory views survive a database miss, as the kernel pools do. */
+/** World-owned upload scratch for authored bytes; retained geometry lives in kernel allocations. */
 export class GeometryUploadScratch {
-    words = new Uint32Array(16);
-    count = 0;
     u: Uint32Array = new Uint32Array(0);
     f: Float32Array = new Float32Array(0);
     bytes: Uint8Array = new Uint8Array(0);
     hashes: BigUint64Array = new BigUint64Array(0);
-    private readonly _float = new Float32Array(1);
-    private readonly _uint = new Uint32Array(this._float.buffer);
-    bits(x: number): number {
-        this._float[0] = x;
-        return this._uint[0];
-    }
-    put(x: number): void {
-        if (this.count === this.words.length) {
-            const next = new Uint32Array(this.words.length * 2);
-            next.set(this.words);
-            this.words = next;
-        }
-        this.words[this.count++] = x;
-    }
-    vec(p: Vec3): void {
-        this.put(this.bits(p.x));
-        this.put(this.bits(p.y));
-        this.put(this.bits(p.z));
-    }
-    append(values: ArrayLike<number>): void {
-        for (let i = 0; i < values.length; ++i) this.put(values[i]);
-    }
-    appendBytes(bytes: Uint8Array): void {
-        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        for (let i = 0; i < bytes.length; i += 4) this.put(view.getUint32(i, true));
-    }
     views(buffer: ArrayBufferLike): void {
         if (this.u.buffer !== buffer) {
             this.u = new Uint32Array(buffer);
@@ -53,28 +22,37 @@ export class GeometryUploadScratch {
         }
     }
 }
-function uploadGeometry(world: World | undefined, scratch: GeometryUploadScratch): void {
-    const k = kernel(world);
-    k.reserveGeometry(scratch.count);
-    scratch.views(k.memory.buffer);
-    const u = scratch.u;
-    const extraBase = u[(k.geoLayoutPtr() >>> 2) + 6] >>> 2;
-    for (let i = 0; i < scratch.count; ++i) u[extraBase + i] = scratch.words[i];
-}
-
-/** Upload this world's changed authoring set. Nonconvex records retain their query layout until C2b;
- * their pool-relative references survive linear-memory growth. */
+/** Upload newly retained identity values, then publish their kernel addresses in shape records. */
 export function rebuildGeometry(world: WorldState): void {
-    const s = (world.geometryUploadScratch ??= new GeometryUploadScratch());
-    s.count = 0;
-    world.meshDatabase.forEach(stageMesh, world);
-    world.heightFieldDatabase.forEach(stageHeight, world);
-    world.compoundDatabase.forEach(stageCompound, world);
     const k = kernel(world.ecsState);
+    for (const [data, entry] of world.meshDatabase)
+        if (entry.geoIndex < 0)
+            entry.geoIndex = uploadGeometryData(
+                world,
+                4,
+                entry.identity,
+                entry.refCount,
+                meshImage(data),
+            );
+    for (const [data, entry] of world.heightFieldDatabase)
+        if (entry.geoIndex < 0)
+            entry.geoIndex = uploadGeometryData(
+                world,
+                2,
+                entry.identity,
+                entry.refCount,
+                heightImage(data),
+            );
+    for (const [data, entry] of world.compoundDatabase)
+        if (entry.geoIndex < 0)
+            entry.geoIndex = uploadGeometryData(
+                world,
+                1,
+                entry.identity,
+                entry.refCount,
+                compoundImage(data),
+            );
     k.shapeSetActiveWorld(world.worldId);
-    uploadGeometry(world.ecsState, s);
-    s.words.fill(0, 0, s.count);
-    s.count = 0;
     world.geometryUploadCount += 1;
     world.shapeStore.refreshViews();
     world.bodyStore.refreshViews();
@@ -93,6 +71,44 @@ export function stageHullUpload(world: WorldState, hull: HullData): number {
     return bytes;
 }
 
+const identities = new WeakMap<object, number>();
+let nextIdentity = 1;
+export function geometryIdentity(value: object): number {
+    let id = identities.get(value);
+    if (id === undefined) {
+        id = nextIdentity++;
+        identities.set(value, id);
+    }
+    return id;
+}
+export function uploadGeometryData(
+    world: WorldState,
+    kind: number,
+    identity: number,
+    refs: number,
+    image: Uint8Array,
+): number {
+    const k = kernel(world.ecsState);
+    const input = k.geometryUploadBuffer(world.worldId, image.byteLength);
+    const scratch = (world.geometryUploadScratch ??= new GeometryUploadScratch());
+    scratch.views(k.memory.buffer);
+    scratch.bytes.set(image, input);
+    return k.geometryDatabaseAdd(world.worldId, kind, identity, image.byteLength, refs) >>> 0;
+}
+export function retainGeometryData(world: WorldState, kind: number, identity: number): void {
+    kernel(world.ecsState).geometryDatabaseAdd(world.worldId, kind, identity, 0, 1);
+}
+export function releaseGeometryData(world: WorldState, kind: number, pointer: number): void {
+    kernel(world.ecsState).geometryDatabaseRemove(world.worldId, kind, pointer);
+}
+export function refreshGeometryRecords(world: WorldState): void {
+    const k = kernel(world.ecsState);
+    for (const db of [world.meshDatabase, world.heightFieldDatabase, world.compoundDatabase]) {
+        for (const entry of db.values())
+            entry.geoIndex =
+                k.geometryDatabaseLookup(world.worldId, entry.kind, entry.identity) >>> 0;
+    }
+}
 export function hullDatabaseIndex(world: WorldState, hull: HullData): number {
     const bytes = stageHullUpload(world, hull);
     const index = kernel(world.ecsState).hullDatabaseLookup(world.worldId, bytes);
@@ -324,7 +340,9 @@ function compoundImage(c: CompoundData): Uint8Array {
             }),
         ),
     );
-    const bytes = concat(chunks);
+    const raw = concat(chunks);
+    const bytes = new Uint8Array(align8(raw.length));
+    bytes.set(raw);
     const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const u = (o: number, x: number) => v.setUint32(o, x, true);
     v.setBigUint64(
@@ -375,19 +393,4 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
 function putTransform(v: DataView, o: number, t: import("../common/math").Transform): void {
     const values = [t.p.x, t.p.y, t.p.z, t.q.v.x, t.q.v.y, t.q.v.z, t.q.s];
     for (let i = 0; i < values.length; ++i) v.setFloat32(o + i * 4, values[i], true);
-}
-function stageMesh(this: WorldState, entry: GeometryRecord, m: MeshData): void {
-    const s = this.geometryUploadScratch!;
-    entry.geoIndex = s.count;
-    s.appendBytes(meshImage(m));
-}
-function stageHeight(this: WorldState, entry: GeometryRecord, h: HeightFieldData): void {
-    const s = this.geometryUploadScratch!;
-    entry.geoIndex = s.count;
-    s.appendBytes(heightImage(h));
-}
-function stageCompound(this: WorldState, entry: GeometryRecord, c: CompoundData): void {
-    const s = this.geometryUploadScratch!;
-    entry.geoIndex = s.count;
-    s.appendBytes(compoundImage(c));
 }

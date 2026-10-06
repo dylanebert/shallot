@@ -8,13 +8,16 @@ import {
 } from "../../../diagnostics/first-person-allocation/allocation";
 import { CEILING } from "../../../scripts/test-tiers";
 import { PhysicsWorld } from "./api/world";
-import { BodyType, defaultSurfaceMaterial } from "./common/types";
+import { BodyType, defaultSurfaceMaterial, ShapeType } from "./common/types";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { hullDatabaseIndex } from "./kernel/geocolumns";
 import { type Kernel, kernelState } from "./kernel/kernel";
+import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./kernel/shapecolumns";
 import { shapeAllocationSubject } from "./shape-allocation.fixture";
 import { createCompound } from "./shapes/compound";
+import { createGrid } from "./shapes/heightfield";
 import { makeBoxHull } from "./shapes/hull";
+import { createGridMesh } from "./shapes/mesh";
 
 setDefaultTimeout(CEILING.node);
 const entry = resolve(import.meta.dir, "fixtures/shape-allocation.entry.ts");
@@ -134,6 +137,47 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
             expect(k.hullDatabaseCount(world.state.worldId)).toBe(count);
             // b3AddHullToDatabase clones on a miss; a hit and releasing either reference allocate nothing.
             expect(k.allocationCount() - destroyBefore).toBe(0);
+        }
+        const meshData = createGridMesh(3, 3, 1, 0, true);
+        const heightData = createGrid(3, 3, { x: 1, y: 1, z: 1 }, false);
+        const compoundData = createCompound({
+            spheres: [
+                {
+                    sphere: { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+                    material: defaultSurfaceMaterial(),
+                },
+            ],
+        })!;
+        const geometryCases = [
+            { kind: ShapeType.Mesh, create: () => ground.createMesh({}, meshData)! },
+            {
+                kind: ShapeType.HeightField,
+                create: () => ground.createHeightField({}, heightData)!,
+            },
+            { kind: ShapeType.Compound, create: () => ground.createCompound({}, compoundData)! },
+        ];
+        for (const { kind, create } of geometryCases) {
+            for (let i = 0; i < 12; ++i) create().destroy();
+            for (let i = 0; i < 12; ++i) {
+                const missBefore = k.allocationCount();
+                const first = create();
+                const firstIndex = first.id.index1 - 1;
+                const pointer =
+                    world.state.shapeStore.shapeU[firstIndex * SHAPE_STRIDE + S_GEO_REFERENCE];
+                expect(k.allocationCount() - missBefore).toBeGreaterThan(0);
+                expect(k.geometryDatabaseRefs(world.state.worldId, kind, pointer)).toBe(1);
+                const hitBefore = k.allocationCount();
+                const duplicate = create();
+                // Box3D creates an owned material for every compound; database hits add nothing else.
+                expect(k.allocationCount() - hitBefore).toBe(kind === ShapeType.Compound ? 1 : 0);
+                expect(k.geometryDatabaseRefs(world.state.worldId, kind, pointer)).toBe(2);
+                const releaseBefore = k.allocationCount();
+                first.destroy();
+                expect(k.geometryDatabaseRefs(world.state.worldId, kind, pointer)).toBe(1);
+                duplicate.destroy();
+                expect(k.geometryDatabaseRefs(world.state.worldId, kind, pointer)).toBe(0);
+                expect(k.allocationCount() - releaseBefore).toBe(0);
+            }
         }
         const controlBefore = k.allocationCount();
         k.allocationControl();

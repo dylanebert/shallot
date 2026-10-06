@@ -6,7 +6,7 @@ import { createHullShape, createSphereShape } from "../shapes/shape";
 import { step } from "../solver/step";
 import { createBody } from "../world/body";
 import { createWorld, destroyWorld, getWorld, type WorldState } from "../world/world";
-import { init } from "./kernel";
+import { init, kernel } from "./kernel";
 
 await init(undefined, { threads: 0 });
 
@@ -48,8 +48,8 @@ test("alternating standalone Worlds collide against their own hull geometry with
         expect(touching(a)).toBe(1);
         step(b, 1 / 60, 4);
         expect(touching(b)).toBe(0);
-        expect(a.geometryUploadCount).toBe(1);
-        expect(b.geometryUploadCount).toBe(1);
+        expect(kernel(a.ecsState).hullDatabaseCount(a.worldId)).toBe(1);
+        expect(kernel(b.ecsState).hullDatabaseCount(b.worldId)).toBe(1);
     } finally {
         destroyWorld(a);
         if (b) destroyWorld(b);
