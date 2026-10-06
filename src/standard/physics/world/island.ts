@@ -1,277 +1,61 @@
-import { ContactField, contactField, setContactField } from "../collision/contact";
-import {
-    setArrayCount,
-    setArrayGet,
-    setArrayPop,
-    setArrayPush,
-    setArrayWrite,
-} from "../kernel/solversetcolumns";
-// Persistent islands of connected awake bodies, joints, and touching contacts. Ported from
-// Box3D's island.c (Erin Catto, MIT). An island lives inside a solver set; static bodies are never
-// in an island. Contacts/joints are stored as links carrying both body ids inline so the split
-// pass never touches b3Contact/b3Joint.
-//
-// Contacts and joints are linked/unlinked as they form and break. Validation is compiled out in the fixture build, so b3ValidateIsland is a no-op.
-
-import { NULL_INDEX, swapRemove } from "../common/array";
+import { ContactField, contactField } from "../collision/contact";
+import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
-import { allocId, freeId } from "../common/ids";
+import {
+    addIslandBody,
+    applyIslandFixes,
+    islandArrayCount,
+    islandArrayGet,
+    islandField,
+    islandKernel,
+    setIslandField,
+} from "../kernel/islandcolumns";
 import type { Joint } from "../solver/joint";
 import { wakeSolverSet } from "./solverset";
 import type { WorldState } from "./world";
 
-/** Cached contact edge stored in an island for split-time union-find (b3ContactLink). */
-export type ContactLink = { contactId: number; bodyIdA: number; bodyIdB: number };
-
-/** Cached joint edge stored in an island (b3JointLink). */
-export type JointLink = { jointId: number; bodyIdA: number; bodyIdB: number };
-
-/** A persistent island of connected awake bodies (b3Island). */
-export type Island = {
-    setIndex: number;
-    localIndex: number;
-    islandId: number;
-    constraintRemoveCount: number;
-    bodies: number[];
-    contacts: ContactLink[];
-    joints: JointLink[];
-};
-
-/** @returns a fresh empty island slot value. */
-function emptyIsland(): Island {
-    return {
-        setIndex: NULL_INDEX,
-        localIndex: NULL_INDEX,
-        islandId: NULL_INDEX,
-        constraintRemoveCount: 0,
-        bodies: [],
-        contacts: [],
-        joints: [],
-    };
+export function createIsland(world: WorldState, set: number): number {
+    return islandKernel(world).islandCreate(set);
 }
-
-export function createIsland(world: WorldState, setIndex: number): Island {
-    const islandId = allocId(world.islandIdPool);
-    if (islandId === world.islands.length) {
-        world.islands.push(emptyIsland());
-    }
-
-    const set = setIndex;
-    const island = world.islands[islandId];
-    island.setIndex = setIndex;
-    island.localIndex = setArrayCount(world, set, 1);
-    island.islandId = islandId;
-    island.bodies = [];
-    island.contacts = [];
-    island.joints = [];
-    island.constraintRemoveCount = 0;
-
-    setArrayPush(world, set, 1, islandId);
-    return island;
+export function destroyIsland(world: WorldState, id: number): void {
+    if (world.splitIslandId === id) world.splitIslandId = NULL_INDEX;
+    islandKernel(world).islandDestroy(id);
 }
-
-export function destroyIsland(world: WorldState, islandId: number): void {
-    if (world.splitIslandId === islandId) {
-        world.splitIslandId = NULL_INDEX;
-    }
-
-    // assume island is empty
-    const island = world.islands[islandId];
-    const set = island.setIndex;
-    {
-        const localIndex = island.localIndex;
-        const lastIndex = setArrayCount(world, set, 1) - 1;
-        const moveIslandId = setArrayGet(world, set, 1, lastIndex);
-        setArrayWrite(world, set, 1, localIndex, setArrayGet(world, set, 1, lastIndex));
-        world.islands[moveIslandId].localIndex = localIndex;
-        setArrayPop(world, set, 1);
-    }
-
-    island.constraintRemoveCount = 0;
-    island.localIndex = NULL_INDEX;
-    island.islandId = NULL_INDEX;
-    island.setIndex = NULL_INDEX;
-    island.bodies = [];
-    island.contacts = [];
-    island.joints = [];
-
-    freeId(world.islandIdPool, islandId);
+export function unlinkContact(world: WorldState, id: number): void {
+    islandKernel(world).islandUnlinkContact(id);
 }
-
-/** Unlink a contact from its island when it stops touching or is destroyed (b3UnlinkContact). */
-export function unlinkContact(world: WorldState, contact: number): void {
-    const islandId = contactField(world, contact, ContactField.islandId);
-    const island = world.islands[islandId];
-
-    const removeIndex = contactField(world, contact, ContactField.islandIndex);
-    const movedIndex = swapRemove(island.contacts, removeIndex);
-    if (movedIndex !== NULL_INDEX) {
-        const movedLink = island.contacts[removeIndex];
-        setContactField(world, movedLink.contactId, ContactField.islandIndex, removeIndex);
-    }
-
-    setContactField(world, contact, ContactField.islandId, NULL_INDEX);
-    setContactField(world, contact, ContactField.islandIndex, NULL_INDEX);
-    island.constraintRemoveCount += 1;
-}
-
-// Merge two islands, keeping the larger to reduce reshuffling; the smaller is emptied and destroyed
-// (b3MergeIslands). @returns the surviving island id. Handles null ids (a static-body edge).
-function mergeIslands(world: WorldState, islandIdA: number, islandIdB: number): number {
-    if (islandIdA === islandIdB) {
-        return islandIdA;
-    }
-    if (islandIdA === NULL_INDEX) {
-        return islandIdB;
-    }
-    if (islandIdB === NULL_INDEX) {
-        return islandIdA;
-    }
-
-    let bigIsland: Island;
-    let smallIsland: Island;
-    {
-        const islandA = world.islands[islandIdA];
-        const islandB = world.islands[islandIdB];
-        // Keep the biggest island to reduce cache misses
-        if (islandA.bodies.length >= islandB.bodies.length) {
-            bigIsland = islandA;
-            smallIsland = islandB;
-        } else {
-            bigIsland = islandB;
-            smallIsland = islandA;
-        }
-    }
-
-    const bigIslandId = bigIsland.islandId;
-
-    // Move bodies from smaller island to larger island
-    for (let i = 0; i < smallIsland.bodies.length; ++i) {
-        const bodyId = smallIsland.bodies[i];
-        const body = world.bodies[bodyId];
-        body.islandId = bigIslandId;
-        body.islandIndex = bigIsland.bodies.length;
-        bigIsland.bodies.push(bodyId);
-    }
-
-    // Migrate contacts from smaller island to larger island
-    for (let i = 0; i < smallIsland.contacts.length; ++i) {
-        const link = smallIsland.contacts[i];
-        const contact = link.contactId;
-        setContactField(world, contact, ContactField.islandId, bigIslandId);
-        setContactField(world, contact, ContactField.islandIndex, bigIsland.contacts.length);
-        bigIsland.contacts.push(link);
-    }
-
-    // Migrate joints from smaller island to larger island
-    for (let i = 0; i < smallIsland.joints.length; ++i) {
-        const link = smallIsland.joints[i];
-        const joint = world.joints[link.jointId];
-        joint.islandId = bigIslandId;
-        joint.islandIndex = bigIsland.joints.length;
-        bigIsland.joints.push(link);
-    }
-
-    bigIsland.constraintRemoveCount += smallIsland.constraintRemoveCount;
-
-    destroyIsland(world, smallIsland.islandId);
-
-    return bigIslandId;
-}
-
-// Add a touching contact to an island's contact link list (b3AddContactToIsland).
-function addContactToIsland(world: WorldState, islandId: number, contact: number): void {
-    const island = world.islands[islandId];
-    setContactField(world, contact, ContactField.islandId, islandId);
-    setContactField(world, contact, ContactField.islandIndex, island.contacts.length);
-    island.contacts.push({
-        contactId: contact,
-        bodyIdA: contactField(world, contact, ContactField.bodyIdA + 3 * 0),
-        bodyIdB: contactField(world, contact, ContactField.bodyIdA + 3 * 1),
-    });
-}
-
-// Link a touching contact into an island, merging the two bodies' islands (b3LinkContact). Wakes a
-// sleeping body whose partner is awake so the merged island lives in the awake set.
-export function linkContact(world: WorldState, contact: number): void {
-    const bodyIdA = contactField(world, contact, ContactField.bodyIdA + 3 * 0);
-    const bodyIdB = contactField(world, contact, ContactField.bodyIdA + 3 * 1);
-    const bodyA = world.bodies[bodyIdA];
-    const bodyB = world.bodies[bodyIdB];
-
-    // Wake the sleeping body if the other is awake.
-    if (bodyA.setIndex === SetType.Awake && bodyB.setIndex >= SetType.FirstSleeping) {
+function wakeEndpoints(world: WorldState, a: number, b: number): void {
+    const bodyA = world.bodies[a],
+        bodyB = world.bodies[b];
+    if (bodyA.setIndex === SetType.Awake && bodyB.setIndex >= SetType.FirstSleeping)
         wakeSolverSet(world, bodyB.setIndex);
-    }
-    if (bodyB.setIndex === SetType.Awake && bodyA.setIndex >= SetType.FirstSleeping) {
+    else if (bodyB.setIndex === SetType.Awake && bodyA.setIndex >= SetType.FirstSleeping)
         wakeSolverSet(world, bodyA.setIndex);
-    }
-
-    const islandIdA = bodyA.islandId;
-    const islandIdB = bodyB.islandId;
-
-    // Merge islands. This destroys one of the islands.
-    const finalIslandId = mergeIslands(world, islandIdA, islandIdB);
-
-    // Add contact to the island that survived
-    addContactToIsland(world, finalIslandId, contact);
 }
-
-// Add a joint to an island's joint link list (b3AddJointToIsland).
-function addJointToIsland(world: WorldState, islandId: number, joint: Joint): void {
-    const island = world.islands[islandId];
-    joint.islandId = islandId;
-    joint.islandIndex = island.joints.length;
-    island.joints.push({
-        jointId: joint.jointId,
-        bodyIdA: joint.edges[0].bodyId,
-        bodyIdB: joint.edges[1].bodyId,
-    });
+export function linkContact(world: WorldState, id: number): void {
+    const a = contactField(world, id, ContactField.bodyIdA),
+        b = contactField(world, id, ContactField.bodyIdA + 3);
+    wakeEndpoints(world, a, b);
+    islandKernel(world).islandLinkContact(id, world.bodies[a].islandId, world.bodies[b].islandId);
+    applyIslandFixes(world);
 }
-
-// Link a joint into an island, merging the two bodies' islands (b3LinkJoint). Wakes a sleeping body
-// whose partner is awake so the merged island lives in the awake set.
 export function linkJoint(world: WorldState, joint: Joint): void {
-    const bodyA = world.bodies[joint.edges[0].bodyId];
-    const bodyB = world.bodies[joint.edges[1].bodyId];
-
-    if (bodyA.setIndex === SetType.Awake && bodyB.setIndex >= SetType.FirstSleeping) {
-        wakeSolverSet(world, bodyB.setIndex);
-    } else if (bodyB.setIndex === SetType.Awake && bodyA.setIndex >= SetType.FirstSleeping) {
-        wakeSolverSet(world, bodyA.setIndex);
-    }
-
-    const islandIdA = bodyA.islandId;
-    const islandIdB = bodyB.islandId;
-
-    // Merge islands. This destroys one of the islands.
-    const finalIslandId = mergeIslands(world, islandIdA, islandIdB);
-
-    // Add joint to the island that survived
-    addJointToIsland(world, finalIslandId, joint);
+    const a = joint.edges[0].bodyId,
+        b = joint.edges[1].bodyId;
+    wakeEndpoints(world, a, b);
+    islandKernel(world).islandLinkJoint(
+        joint.jointId,
+        a,
+        b,
+        world.bodies[a].islandId,
+        world.bodies[b].islandId,
+    );
+    applyIslandFixes(world);
 }
-
-/** Unlink a joint from its island when it is destroyed (b3UnlinkJoint). */
 export function unlinkJoint(world: WorldState, joint: Joint): void {
-    if (joint.islandId === NULL_INDEX) {
-        return;
-    }
-
-    const islandId = joint.islandId;
-    const island = world.islands[islandId];
-
-    const removeIndex = joint.islandIndex;
-    const movedIndex = swapRemove(island.joints, removeIndex);
-    if (movedIndex !== NULL_INDEX) {
-        const movedLink = island.joints[removeIndex];
-        world.joints[movedLink.jointId].islandIndex = removeIndex;
-    }
-
-    joint.islandId = NULL_INDEX;
-    joint.islandIndex = NULL_INDEX;
-    island.constraintRemoveCount += 1;
+    islandKernel(world).islandUnlinkJoint(joint.jointId, joint.islandId, joint.islandIndex);
+    applyIslandFixes(world);
 }
-
 // --- Union-find island split -----------------------------------------------------------------
 
 // Find the root of a node's component, halving the path for later queries (b3IslandFindParent).
@@ -318,12 +102,19 @@ function islandUnion(
 // (b3SplitIsland). Uses union-find over the surviving contact/joint links; static bodies (null island
 // index) don't connect components. A no-op that only clears constraintRemoveCount when still connected.
 export function splitIsland(world: WorldState, baseId: number): void {
-    const baseIsland = world.islands[baseId];
+    const baseBodyIds = Array.from({ length: islandArrayCount(world, baseId, 0) }, (_, i) =>
+        islandArrayGet(world, baseId, 0, i),
+    );
+    const links = (kind: number) =>
+        Array.from({ length: islandArrayCount(world, baseId, kind) }, (_, i) => ({
+            id: islandArrayGet(world, baseId, kind, i),
+            bodyIdA: islandArrayGet(world, baseId, kind, i, 1),
+            bodyIdB: islandArrayGet(world, baseId, kind, i, 2),
+        }));
+    const baseContacts = links(1),
+        baseJoints = links(2);
 
-    const baseBodyCount = baseIsland.bodies.length;
-    const baseBodyIds = baseIsland.bodies;
-    const baseContacts = baseIsland.contacts;
-    const baseJoints = baseIsland.joints;
+    const baseBodyCount = baseBodyIds.length;
     const baseContactCount = baseContacts.length;
     const baseJointCount = baseJoints.length;
 
@@ -387,7 +178,7 @@ export function splitIsland(world: WorldState, baseId: number): void {
 
     // Early return — island is still fully connected, no split needed.
     if (componentCount === 1) {
-        baseIsland.constraintRemoveCount = 0;
+        setIslandField(world, baseId, 3, 0);
         return;
     }
 
@@ -406,7 +197,7 @@ export function splitIsland(world: WorldState, baseId: number): void {
     const islandIds: number[] = new Array(islandCount);
     for (let i = 0; i < islandCount; ++i) {
         const newIsland = createIsland(world, SetType.Awake);
-        islandIds[i] = newIsland.islandId;
+        islandIds[i] = newIsland;
     }
 
     // Assign bodies to new islands.
@@ -414,37 +205,27 @@ export function splitIsland(world: WorldState, baseId: number): void {
         const bodyId = baseBodyIds[i];
         const root = findParent(parents, i);
         const newIslandId = islandIds[rootMap[root]];
-        const body = world.bodies[bodyId];
-        const newIsland = world.islands[newIslandId];
-        body.islandId = newIslandId;
-        body.islandIndex = newIsland.bodies.length;
-        newIsland.bodies.push(bodyId);
+        addIslandBody(world, newIslandId, bodyId);
     }
 
     // Assign contacts to the island of their bodies (a static body carries no island id).
     for (let i = 0; i < baseContactCount; ++i) {
         const link = baseContacts[i];
-        const contact = link.contactId;
         const bodyA = world.bodies[link.bodyIdA];
         const bodyB = world.bodies[link.bodyIdB];
         const targetIslandId = bodyA.islandId !== NULL_INDEX ? bodyA.islandId : bodyB.islandId;
-        const targetIsland = world.islands[targetIslandId];
-        setContactField(world, contact, ContactField.islandId, targetIslandId);
-        setContactField(world, contact, ContactField.islandIndex, targetIsland.contacts.length);
-        targetIsland.contacts.push(link);
+        islandKernel(world).islandAddContact(targetIslandId, link.id, link.bodyIdA, link.bodyIdB);
+        applyIslandFixes(world);
     }
 
     // Assign joints to the island of their bodies.
     for (let i = 0; i < baseJointCount; ++i) {
         const link = baseJoints[i];
-        const joint = world.joints[link.jointId];
         const bodyA = world.bodies[link.bodyIdA];
         const bodyB = world.bodies[link.bodyIdB];
         const targetIslandId = bodyA.islandId !== NULL_INDEX ? bodyA.islandId : bodyB.islandId;
-        const targetIsland = world.islands[targetIslandId];
-        joint.islandId = targetIslandId;
-        joint.islandIndex = targetIsland.joints.length;
-        targetIsland.joints.push(link);
+        islandKernel(world).islandAddJoint(targetIslandId, link.id, link.bodyIdA, link.bodyIdB);
+        applyIslandFixes(world);
     }
 
     // Destroy the now-emptied base island.

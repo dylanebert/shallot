@@ -26,11 +26,11 @@ import {
     SIM2_STRIDE,
 } from "../kernel/columns";
 import { consumeContinuous, prepareContinuous, solveBullets } from "../kernel/continuouscolumns";
+import { islandField } from "../kernel/islandcolumns";
 import { collectJointEvents, jointArrayCount, stageJointBodies } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
 import { getShapeUserMaterialId } from "../shapes/shape";
 import { BODY_TRANSIENT_FLAGS, BodyFlags, getBodySim } from "../world/body";
-
 import { splitIsland } from "../world/island";
 import { trySleepIsland } from "../world/solverset";
 import type { WorldState } from "../world/world";
@@ -102,10 +102,10 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
 
         // Any single body in an island can keep it awake; a sleepy body in a split-pending island is
         // tracked as a split candidate (ties broken by island id for determinism).
-        const island = world.islands[body.islandId];
+        const islandId = body.islandId;
         if (body.sleepTime < TIME_TO_SLEEP) {
-            context.awakeIslands[island.localIndex] = true;
-        } else if (island.constraintRemoveCount > 0) {
+            context.awakeIslands[islandField(world, islandId, 1)] = true;
+        } else if (islandField(world, islandId, 3) > 0) {
             if (
                 body.sleepTime > context.splitSleepTime ||
                 (body.sleepTime === context.splitSleepTime && body.islandId > context.splitIslandId)

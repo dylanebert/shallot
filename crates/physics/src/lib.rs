@@ -35,6 +35,8 @@ pub mod finalize;
 pub mod height_query;
 pub mod hull;
 pub mod integrate;
+#[cfg(target_arch = "wasm32")]
+mod island;
 pub mod joint;
 pub mod joint_abi;
 #[cfg(target_arch = "wasm32")]

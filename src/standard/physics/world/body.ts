@@ -65,6 +65,12 @@ import {
     writeSimRotation0,
     writeSimTransform,
 } from "../kernel/bodycolumns";
+import {
+    addIslandBody,
+    islandArrayCount,
+    islandField,
+    removeIslandBody,
+} from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
 import {
     destroyShapeSlot,
@@ -747,8 +753,7 @@ export function bodySetAwake(world: WorldState, body: Body, awake: boolean): voi
     if (awake && body.setIndex >= SetType.FirstSleeping) {
         wakeBody(world, body);
     } else if (awake === false && body.setIndex === SetType.Awake) {
-        const island = world.islands[body.islandId];
-        if (island.constraintRemoveCount > 0) {
+        if (islandField(world, body.islandId, 3) > 0) {
             // Must split the island before sleeping. This is expensive.
             splitIsland(world, body.islandId);
         }
@@ -810,9 +815,7 @@ function emptyBody(): Body {
 
 function createIslandForBody(world: WorldState, setIndex: number, body: Body): void {
     const island = createIsland(world, setIndex);
-    island.bodies.push(body.id);
-    body.islandId = island.islandId;
-    body.islandIndex = 0;
+    addIslandBody(world, island, body.id);
 }
 
 function removeBodyFromIsland(world: WorldState, body: Body): void {
@@ -821,17 +824,9 @@ function removeBodyFromIsland(world: WorldState, body: Body): void {
     }
 
     const islandId = body.islandId;
-    const island = world.islands[islandId];
-    {
-        const localIndex = body.islandIndex;
-        const movedBodyId = island.bodies[island.bodies.length - 1];
-        island.bodies[localIndex] = movedBodyId;
-        world.bodies[movedBodyId].islandIndex = localIndex;
-        island.bodies.pop();
-    }
-
-    if (island.bodies.length === 0) {
-        destroyIsland(world, island.islandId);
+    removeIslandBody(world, islandId, body.islandIndex);
+    if (islandArrayCount(world, islandId, 0) === 0) {
+        destroyIsland(world, islandId);
     }
 
     body.islandId = NULL_INDEX;

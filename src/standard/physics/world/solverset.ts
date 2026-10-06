@@ -7,6 +7,12 @@ import {
 import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
 import { bodySimSlot, simBodyId } from "../kernel/bodycolumns";
+import {
+    islandArrayCount,
+    islandArrayGet,
+    islandField,
+    setIslandField,
+} from "../kernel/islandcolumns";
 import { syncBodyQuery } from "../kernel/shapecolumns";
 import {
     createSolverSet,
@@ -72,9 +78,8 @@ export function wakeSolverSet(world: WorldState, set: number): void {
     const islands = setArrayCount(world, set, 1);
     for (let i = 0; i < islands; ++i) {
         const id = setArrayGet(world, set, 1, i);
-        const island = world.islands[id];
-        island.localIndex = setArrayPush(world, SetType.Awake, 1, id);
-        island.setIndex = SetType.Awake;
+        setIslandField(world, id, 1, setArrayPush(world, SetType.Awake, 1, id));
+        setIslandField(world, id, 0, SetType.Awake);
     }
     // Contact classification sees the final graph placement of both endpoints.
     for (let i = 0; i < count; ++i)
@@ -89,10 +94,14 @@ export function mergeSolverSets(world: WorldState, first: number, second: number
         const kind = moves[i],
             id = moves[i + 1],
             index = moves[i + 2];
-        const record =
-            kind === 0 ? world.bodies[id] : kind === 1 ? world.joints[id] : world.islands[id];
-        record.setIndex = target;
-        record.localIndex = index;
+        if (kind === 2) {
+            setIslandField(world, id, 0, target);
+            setIslandField(world, id, 1, index);
+        } else {
+            const record = kind === 0 ? world.bodies[id] : world.joints[id];
+            record.setIndex = target;
+            record.localIndex = index;
+        }
         if (kind === 0) syncBodyQuery(world, world.bodies[id]);
     }
 }
@@ -151,11 +160,11 @@ export function transferJoint(
 }
 
 export function trySleepIsland(world: WorldState, id: number): void {
-    const island = world.islands[id];
-    if (island.constraintRemoveCount > 0 && island.bodies.length > 1) return;
+    if (islandField(world, id, 3) > 0 && islandArrayCount(world, id, 0) > 1) return;
     const sleep = createSolverSet(world);
     world.bodyStore.refreshViews();
-    for (const bodyId of island.bodies) {
+    for (let i = 0; i < islandArrayCount(world, id, 0); ++i) {
+        const bodyId = islandArrayGet(world, id, 0, i);
         const body = world.bodies[bodyId];
         if (body.bodyMoveIndex !== NULL_INDEX) {
             world.bodyStore.markMoveAsleep(body.bodyMoveIndex);
@@ -194,16 +203,18 @@ export function trySleepIsland(world: WorldState, id: number): void {
             );
         }
     }
-    for (const contact of island.contacts) sleepSetContact(world, contact.contactId, sleep);
-    for (const joint of island.joints)
-        transferJoint(world, sleep, SetType.Awake, world.joints[joint.jointId]);
-    const index = island.localIndex;
+    for (let i = 0; i < islandArrayCount(world, id, 1); ++i)
+        sleepSetContact(world, islandArrayGet(world, id, 1, i), sleep);
+    for (let i = 0; i < islandArrayCount(world, id, 2); ++i)
+        transferJoint(world, sleep, SetType.Awake, world.joints[islandArrayGet(world, id, 2, i)]);
+    const index = islandField(world, id, 1);
     const result = moveSetIsland(world, SetType.Awake, index, sleep);
     const destination = result[0],
         moved = result[1] | 0;
-    if (moved !== NULL_INDEX) world.islands[moved].localIndex = index;
-    island.setIndex = sleep;
-    island.localIndex = destination;
-    for (const body of island.bodies) reclassifyBodyContacts(world, world.bodies[body]);
+    if (moved !== NULL_INDEX) setIslandField(world, moved, 1, index);
+    setIslandField(world, id, 0, sleep);
+    setIslandField(world, id, 1, destination);
+    for (let i = 0; i < islandArrayCount(world, id, 0); ++i)
+        reclassifyBodyContacts(world, world.bodies[islandArrayGet(world, id, 0, i)]);
     if (world.splitIslandId === id) world.splitIslandId = NULL_INDEX;
 }

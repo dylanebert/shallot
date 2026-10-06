@@ -32,6 +32,7 @@ pub extern "C" fn reset(world: u32) {
         crate::manifolds::reset(id);
         crate::joints::reset(id);
         crate::solver_set::reset(id);
+        crate::island::reset(id);
         crate::constraint_graph::reset(id);
         crate::broad::reset(id);
         crate::geo::reset(id);
@@ -58,6 +59,7 @@ pub extern "C" fn snapshot(world: u32) -> usize {
         crate::manifolds::snapshot(world as usize, &mut out);
         crate::joints::snapshot(world as usize, &mut out);
         crate::solver_set::snapshot(world as usize, &mut out);
+        crate::island::snapshot(world as usize, &mut out);
         crate::constraint_graph::snapshot(world as usize, &mut out);
         crate::broad::snapshot(world as usize, &mut out);
         crate::geo::snapshot(world as usize, &mut out);
@@ -85,6 +87,7 @@ pub extern "C" fn restore(world: u32) {
         crate::manifolds::restore(world as usize, &mut input);
         crate::joints::restore(world as usize, &mut input);
         crate::solver_set::restore(world as usize, &mut input);
+        crate::island::restore(world as usize, &mut input);
         crate::constraint_graph::restore(world as usize, &mut input);
         crate::broad::restore(world as usize, &mut input);
         crate::geo::restore(world as usize, &mut input);

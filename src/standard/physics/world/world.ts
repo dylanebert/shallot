@@ -15,6 +15,7 @@ import { createIdPool, type EntityId, type IdPool, idCount } from "../common/ids
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
 import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
+import { islandKernel } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
@@ -28,7 +29,6 @@ import { destroyShapeAllocations } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import type { Joint } from "../solver/joint";
 import type { Body } from "./body";
-import type { Island } from "./island";
 import { createStepProfile, type StepProfile } from "./profile";
 import type { Sensor, SensorBeginTouchEvent } from "./sensor";
 import { destroySolverSet } from "./solverset";
@@ -95,9 +95,6 @@ export type WorldState = {
     // contact create/destroy + body wake/sleep/transfer events (contact.ts, solverset.ts) instead of
     // re-gathered per step. Order-free; state transitions are processed in contact-id order.
     awakeContacts: number[];
-
-    islandIdPool: IdPool;
-    islands: Island[];
 
     /** Public shape authoring records and handle bridge; slot lifecycle is kernel-owned. */
     shapes: Shape[];
@@ -298,8 +295,6 @@ function makeWorldState(
         jointIdPool: createIdPool(),
         joints: [],
         awakeContacts: [],
-        islandIdPool: createIdPool(),
-        islands: [],
         shapes: [],
         hullDatabase: new Map(),
         meshDatabase: new Map(),
@@ -452,7 +447,7 @@ export function worldCounters(world: WorldState): Counters {
         shapeCount: kernel(world.ecsState).shapeCount(world.worldId),
         contactCount: contactCount(world),
         jointCount: idCount(world.jointIdPool),
-        islandCount: idCount(world.islandIdPool),
+        islandCount: islandKernel(world).islandCount(),
     };
 }
 

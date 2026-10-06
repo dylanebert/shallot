@@ -85,6 +85,24 @@ export type Kernel = {
         a: number,
         b: number,
     ): number;
+    islandAddContact(id: number, contact: number, a: number, b: number): void;
+    islandAddJoint(id: number, joint: number, a: number, b: number): void;
+    islandCreate(set: number): number;
+    islandDestroy(id: number): void;
+    islandCount(): number;
+    islandField(id: number, field: number): number;
+    islandSetField(id: number, field: number, value: number): void;
+    islandArrayCount(id: number, kind: number): number;
+    islandArrayGet(id: number, kind: number, index: number, lane: number): number;
+    islandAddBody(id: number, body: number): void;
+    islandRemoveBody(id: number, index: number): void;
+    islandLinkContact(id: number, a: number, b: number): void;
+    islandUnlinkContact(id: number): void;
+    islandLinkJoint(id: number, bodyA: number, bodyB: number, a: number, b: number): void;
+    islandUnlinkJoint(id: number, island: number, index: number): void;
+    islandFixCount(): number;
+    islandFixData(): number;
+    islandFixClear(): void;
     solverSetCreate(): number;
     solverSetCount(): number;
     solverSetIndex(id: number): number;

@@ -3,6 +3,7 @@ import { BodyType, PhysicsWorld } from "../api";
 import { SetType } from "../common/constants";
 import { bodySimSlot, setSimField, simBodyId } from "../kernel/bodycolumns";
 import { FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE } from "../kernel/columns";
+import { islandField } from "../kernel/islandcolumns";
 import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
 import {
     setArrayCount,
@@ -32,9 +33,9 @@ function sims(world: WorldState) {
             ]);
         }
         for (let i = 0; i < setArrayCount(world, set, 1); ++i) {
-            const island = world.islands[setArrayGet(world, set, 1, i)];
-            expect(island.setIndex).toBe(set);
-            expect(island.localIndex).toBe(i);
+            const island = setArrayGet(world, set, 1, i);
+            expect(islandField(world, island, 0)).toBe(set);
+            expect(islandField(world, island, 1)).toBe(i);
         }
     }
     for (const joint of world.joints) {
