@@ -1305,20 +1305,6 @@ export function kernel(world: World | undefined): Kernel {
     return runtime.instance;
 }
 
-/**
- * The shared memory's current byte length, or 0 single-threaded — the staleness key for views over the
- * kernel's columns.
- *
- * A `memory.grow` detaches every view over an unshared memory (`length === 0`, the single-thread
- * path's guard). A shared memory never detaches: grow hands back a *new* `SharedArrayBuffer` object
- * aliasing the same backing store, so an old view still reads and writes the correct physical bytes and
- * only misses the new tail. Views over the shared path therefore key staleness on this length changing.
- */
-export function sharedBytes(world: World | undefined): number {
-    const memory = kernelState(world).sharedMemory;
-    return memory === null ? 0 : memory.buffer.byteLength;
-}
-
 /** The worker pool the solve may run on, or null when the kernel is single-threaded — or when a worker
  * has faulted, which kills the kernel (`runPool`). */
 export function workers(world: World | undefined): Pool | null {

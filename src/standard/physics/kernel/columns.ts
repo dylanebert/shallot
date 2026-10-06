@@ -1,15 +1,3 @@
-import type { World } from "../../../engine";
-// Typed-array views over the kernel's shared solver columns (kernel/src/arena.rs). `reserveColumns`
-// lays out the columns in wasm linear memory for one step's counts and returns views over them.
-// Because `reserve` may `memory.grow` (which replaces the buffer and detaches every existing view),
-// the views are re-derived whenever the buffer, a column offset or a column length differs from the
-// last reservation, and reused otherwise, so a steady step constructs no typed arrays.
-//
-// The strides and column order MIRROR the Rust ABI (kernel/src/body.rs, kernel/src/contact.rs). The
-// wasm layout is the contract; a mismatch here silently corrupts the solve, so keep them in lockstep.
-
-import { kernel } from "./kernel";
-
 // Body columns (body.rs + bodies.rs). All resident in the persistent body region — the awake
 // `BodySim`/`BodyState` are offset-backed views over them (bodycolumns.ts), so no per-step marshal.
 export const STATE_STRIDE = 16;
@@ -17,38 +5,18 @@ export const STATE_STRIDE = 16;
 export const STATE_LIVE = 13;
 export const SIM_STRIDE = 32;
 export const FIN_STRIDE = 12;
-export const FIN_OUT_STRIDE = 2;
 /** The `BodySim` fields the per-step `sim`/`fin` columns omit (kernel never gathers them), held in a
  * second resident column: rotation0(4) center0(3) minExtent(1) maxAngularVelocity(1) bodyId(1)
  * flags(1) headShapeId(1) = 12 (body.rs `SIM2_STRIDE`). Mirrors the Rust ABI. */
 export const SIM2_STRIDE = 12;
-export const SIM2_LIVE = 12;
 /** Retained body-move bridge: body index, generation, fellAsleep. */
 export const MOVE_STRIDE = 11;
 // sim2 field offsets.
-export const S2_ROTATION0 = 0; // v3 + s
 export const S2_CENTER0 = 4;
 export const S2_MIN_EXTENT = 7;
 export const S2_MAX_ANGULAR_VELOCITY = 8;
 export const S2_BODY_ID = 9;
 export const S2_FLAGS = 10;
-/** Head of the body's shape list — the lane the kernel finalize refit walks the shape column from
- * (shapes.rs). u32: `NULL_INDEX` (-1) wraps to 0xFFFFFFFF, the kernel's `NULL_SHAPE`. */
-export const S2_HEAD_SHAPE = 11;
-
-// Per scalar solver-record slot (manifold_abi.rs): contactId, transient mc base, transient mcp base.
-// The narrowphase → solver map for the scalar (mesh/overflow) path; the persistent directory + pool
-// it points into live in the manifold region (manifoldstore.ts).
-export const SLOT_STRIDE = 3;
-
-// Wide (convex) transient constraint columns (contact_wide.rs). Only the meta column is written
-// TS-side (the lane → contactId map); the record + index columns are kernel-internal.
-export const WIDE_META_STRIDE = 5;
-
-// Per-active-color span (contact_wide.rs / arena.rs): wideStart, wideCount, meshStart, meshCount,
-// jointArrayKey, jointCount. The staged solve selects the resident graph-color joint array by key.
-export const COLOR_SPAN_STRIDE = 6;
-
 // Joint record (kernel/src/joint_abi.rs). One flat f32 record per joint slot: a common header (the
 // state indices and body ids via u32 bits, cached invMass/invInertia, the local frames,
 // the base constraint frequency + softness) then a per-type payload (distance's
@@ -58,15 +26,6 @@ export const J_TORQUE_THRESHOLD = 127;
 export const J_EVENT = 128;
 export const JOINT_STRIDE = 130;
 export const J_JOINT_ID = 129;
-export const J_TYPE = 0;
-export const J_SIM_INDEX_A = 1;
-export const J_SIM_INDEX_B = 2;
-export const J_INV_MASS_A = 3;
-export const J_INV_MASS_B = 4;
-export const J_INV_IA = 5; // mat3 5..13
-export const J_INV_IB = 14; // mat3 14..22
-export const J_BODY_ID_A = 23;
-export const J_BODY_ID_B = 33;
 export const J_LOCAL_FRAME_A = 43; // Transform p 43..45 q 46..49
 export const J_LOCAL_FRAME_B = 50; // Transform p 50..52 q 53..56
 export const J_CONSTRAINT_HERTZ = 57;
@@ -83,8 +42,6 @@ export const DJ_MAX_MOTOR_FORCE = J_PAYLOAD + 7;
 export const DJ_MOTOR_SPEED = J_PAYLOAD + 8;
 export const DJ_ENABLE = J_PAYLOAD + 9;
 export const DJ_IMPULSE = J_PAYLOAD + 10;
-export const DJ_LOWER_IMPULSE = J_PAYLOAD + 11;
-export const DJ_UPPER_IMPULSE = J_PAYLOAD + 12;
 export const DJ_MOTOR_IMPULSE = J_PAYLOAD + 13;
 export const DJ_ENABLE_SPRING = 0x1;
 export const DJ_ENABLE_LIMIT = 0x2;
@@ -97,7 +54,6 @@ export const WJ_LINEAR_DAMPING_RATIO = J_PAYLOAD + 1;
 export const WJ_ANGULAR_HERTZ = J_PAYLOAD + 2;
 export const WJ_ANGULAR_DAMPING_RATIO = J_PAYLOAD + 3;
 export const WJ_LINEAR_IMPULSE = J_PAYLOAD + 4; // vec3
-export const WJ_ANGULAR_IMPULSE = J_PAYLOAD + 7; // vec3
 
 // Revolute-joint payload (joint_abi.rs revolute section). AppConfig, the persistent impulses (linear vec3 +
 // perp vec2 + four scalar), then prepare's scratch. Marshal writes config + impulses.
@@ -110,16 +66,7 @@ export const RJ_LOWER_ANGLE = J_PAYLOAD + 5;
 export const RJ_UPPER_ANGLE = J_PAYLOAD + 6;
 export const RJ_ENABLE = J_PAYLOAD + 7;
 export const RJ_LINEAR_IMPULSE = J_PAYLOAD + 8; // vec3
-export const RJ_FRAME_A = J_PAYLOAD + 17;
-export const RJ_FRAME_B = J_PAYLOAD + 24;
-export const RJ_ROTATION_AXIS_Z = J_PAYLOAD + 31;
-export const RJ_PERP_AXIS_X = J_PAYLOAD + 34;
-export const RJ_PERP_AXIS_Y = J_PAYLOAD + 37;
-export const RJ_PERP_IMPULSE = J_PAYLOAD + 11; // vec2
-export const RJ_SPRING_IMPULSE = J_PAYLOAD + 13;
 export const RJ_MOTOR_IMPULSE = J_PAYLOAD + 14;
-export const RJ_LOWER_IMPULSE = J_PAYLOAD + 15;
-export const RJ_UPPER_IMPULSE = J_PAYLOAD + 16;
 export const RJ_ENABLE_SPRING = 0x1;
 export const RJ_ENABLE_MOTOR = 0x2;
 export const RJ_ENABLE_LIMIT = 0x4;
@@ -136,11 +83,7 @@ export const SJ_CONE_ANGLE = J_PAYLOAD + 8;
 export const SJ_TARGET_ROTATION = J_PAYLOAD + 9; // quat
 export const SJ_ENABLE = J_PAYLOAD + 13;
 export const SJ_LINEAR_IMPULSE = J_PAYLOAD + 14; // vec3
-export const SJ_SPRING_IMPULSE = J_PAYLOAD + 17; // vec3
 export const SJ_MOTOR_IMPULSE = J_PAYLOAD + 20; // vec3
-export const SJ_LOWER_TWIST_IMPULSE = J_PAYLOAD + 23;
-export const SJ_UPPER_TWIST_IMPULSE = J_PAYLOAD + 24;
-export const SJ_SWING_IMPULSE = J_PAYLOAD + 25;
 export const SJ_ENABLE_SPRING = 0x1;
 export const SJ_ENABLE_MOTOR = 0x2;
 export const SJ_ENABLE_CONE_LIMIT = 0x4;
@@ -157,11 +100,7 @@ export const PJ_LOWER_TRANSLATION = J_PAYLOAD + 5;
 export const PJ_UPPER_TRANSLATION = J_PAYLOAD + 6;
 export const PJ_ENABLE = J_PAYLOAD + 7;
 export const PJ_PERP_IMPULSE = J_PAYLOAD + 8; // vec2
-export const PJ_ANGULAR_IMPULSE = J_PAYLOAD + 10; // vec3
-export const PJ_SPRING_IMPULSE = J_PAYLOAD + 13;
 export const PJ_MOTOR_IMPULSE = J_PAYLOAD + 14;
-export const PJ_LOWER_IMPULSE = J_PAYLOAD + 15;
-export const PJ_UPPER_IMPULSE = J_PAYLOAD + 16;
 export const PJ_ENABLE_SPRING = 0x1;
 export const PJ_ENABLE_MOTOR = 0x2;
 export const PJ_ENABLE_LIMIT = 0x4;
@@ -182,14 +121,8 @@ export const WHJ_STEERING_HERTZ = J_PAYLOAD + 10;
 export const WHJ_STEERING_DAMPING_RATIO = J_PAYLOAD + 11;
 export const WHJ_ENABLE = J_PAYLOAD + 12;
 export const WHJ_LINEAR_IMPULSE = J_PAYLOAD + 13; // vec2
-export const WHJ_ANGULAR_IMPULSE = J_PAYLOAD + 15; // vec2
 export const WHJ_SPIN_IMPULSE = J_PAYLOAD + 17;
-export const WHJ_SUSPENSION_SPRING_IMPULSE = J_PAYLOAD + 18;
-export const WHJ_LOWER_SUSPENSION_IMPULSE = J_PAYLOAD + 19;
-export const WHJ_UPPER_SUSPENSION_IMPULSE = J_PAYLOAD + 20;
 export const WHJ_STEERING_SPRING_IMPULSE = J_PAYLOAD + 21;
-export const WHJ_LOWER_STEERING_IMPULSE = J_PAYLOAD + 22;
-export const WHJ_UPPER_STEERING_IMPULSE = J_PAYLOAD + 23;
 export const WHJ_ENABLE_SPIN_MOTOR = 0x1;
 export const WHJ_ENABLE_SUSPENSION_SPRING = 0x2;
 export const WHJ_ENABLE_SUSPENSION_LIMIT = 0x4;
@@ -209,9 +142,6 @@ export const MJ_ANGULAR_DAMPING_RATIO = J_PAYLOAD + 11;
 export const MJ_MAX_SPRING_FORCE = J_PAYLOAD + 12;
 export const MJ_MAX_SPRING_TORQUE = J_PAYLOAD + 13;
 export const MJ_LINEAR_VELOCITY_IMPULSE = J_PAYLOAD + 14; // vec3
-export const MJ_ANGULAR_VELOCITY_IMPULSE = J_PAYLOAD + 17; // vec3
-export const MJ_LINEAR_SPRING_IMPULSE = J_PAYLOAD + 20; // vec3
-export const MJ_ANGULAR_SPRING_IMPULSE = J_PAYLOAD + 23; // vec3
 
 // Parallel-joint payload (joint_abi.rs parallel section). AppConfig, the one persistent vec2 impulse, then
 // prepare's scratch. Marshal writes config + impulse.
@@ -219,98 +149,3 @@ export const PLJ_HERTZ = J_PAYLOAD;
 export const PLJ_DAMPING_RATIO = J_PAYLOAD + 1;
 export const PLJ_MAX_TORQUE = J_PAYLOAD + 2;
 export const PLJ_PERP_IMPULSE = J_PAYLOAD + 3; // vec2
-export const PLJ_QUAT_A = J_PAYLOAD + 5;
-export const PLJ_QUAT_B = J_PAYLOAD + 9;
-export const PLJ_PERP_AXIS_X = J_PAYLOAD + 13;
-export const PLJ_PERP_AXIS_Y = J_PAYLOAD + 16;
-
-// LAYOUT header indices (arena.rs), in memory order. STATE/FLAGS/SIM/FIN are resident (their LAYOUT
-// entries point into the body region — bodycolumns.ts), consumed through the `BodySim`/`BodyState`
-// views, so the per-step reservation never derives a scratch view for them. FIN_OUT is resident too
-// but transient (sleep velocity and maximum motion); TS reads sleep velocity through `finOut`.
-const FIN_OUT = 4;
-const SLOT_SCALAR = 5;
-const WIDE_META = 12;
-const COLOR_SPAN = 14;
-const N_COLS = 15;
-
-/** The column views the TS side reads or writes. The body columns (`state`/`flags`/`sim`/`fin`) are
- * resident — held across steps in the body region and viewed through the `BodySim`/`BodyState`
- * views (bodycolumns.ts), not here. The transient constraint columns (cc/mc/mcp) and the persistent
- * directory/pool are kernel-internal. */
-export type Columns = {
-    /** Per-body sleepVelocity and maxMotion, recomputed each step. TS reads sleepVelocity for the
-     * retained sleep policy; kernel continuous finalization reads both. */
-    finOut: Float32Array;
-    /** Per scalar solver-record slot (contactId, transient mc base, transient mcp base). TS writes it
-     * in graph-color order; the kernel scalar `prepare`/`store` gather each contact through it. */
-    slotScalar: Uint32Array;
-    /** Per-wide-record lane map: laneContact[4] (contactId per lane) + laneCount. TS writes convex
-     * contacts here in color order; the kernel wide `prepare`/`store` gather through it. */
-    wideMeta: Uint32Array;
-    /** Per-active-color contact ranges and joint-array key/count, consumed by the staged solve. */
-    colorSpan: Uint32Array;
-};
-
-// The last reservation's views, re-derived only when the buffer, a column offset, or a column length
-// changes, so a steady step mints no typed-array views.
-let layoutView = new Uint32Array(0);
-let reserved: Columns | null = null;
-
-function viewsCurrent(
-    views: Columns,
-    buf: ArrayBufferLike,
-    layout: Uint32Array,
-    lengths: number[],
-): boolean {
-    return (
-        views.finOut.buffer === buf &&
-        views.finOut.byteOffset === layout[FIN_OUT] &&
-        views.finOut.length === lengths[0] &&
-        views.slotScalar.byteOffset === layout[SLOT_SCALAR] &&
-        views.slotScalar.length === lengths[1] &&
-        views.wideMeta.byteOffset === layout[WIDE_META] &&
-        views.wideMeta.length === lengths[2] &&
-        views.colorSpan.byteOffset === layout[COLOR_SPAN] &&
-        views.colorSpan.length === lengths[3]
-    );
-}
-
-const reservedLengths = [0, 0, 0, 0];
-
-/**
- * Reserve the solver columns for one step's counts and return typed-array views over them. Call once
- * per step, before driving the kernel phases; the returned views are valid until the next
- * `reserveColumns` (or any other call that can grow memory).
- */
-export function reserveColumns(
-    world: World | undefined,
-    body: number,
-    contact: number,
-    manifold: number,
-    point: number,
-    wide: number,
-    color: number,
-): Columns {
-    const k = kernel(world);
-    k.reserve(body, contact, manifold, point, wide, color);
-    const buf = k.memory.buffer;
-    const layoutPtr = k.layoutPtr();
-    if (layoutView.buffer !== buf || layoutView.byteOffset !== layoutPtr) {
-        layoutView = new Uint32Array(buf, layoutPtr, N_COLS);
-    }
-    const layout = layoutView;
-    const lengths = reservedLengths;
-    lengths[0] = body * FIN_OUT_STRIDE;
-    lengths[1] = contact * SLOT_STRIDE;
-    lengths[2] = wide * WIDE_META_STRIDE;
-    lengths[3] = color * COLOR_SPAN_STRIDE;
-    if (reserved !== null && viewsCurrent(reserved, buf, layout, lengths)) return reserved;
-    reserved = {
-        finOut: new Float32Array(buf, layout[FIN_OUT], lengths[0]),
-        slotScalar: new Uint32Array(buf, layout[SLOT_SCALAR], lengths[1]),
-        wideMeta: new Uint32Array(buf, layout[WIDE_META], lengths[2]),
-        colorSpan: new Uint32Array(buf, layout[COLOR_SPAN], lengths[3]),
-    };
-    return reserved;
-}

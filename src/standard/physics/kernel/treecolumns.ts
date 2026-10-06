@@ -27,7 +27,6 @@ export type DynamicTree = {
     captureCheckpoint(): unknown;
     restoreCheckpoint(state: unknown): void;
 };
-export const NULL_INDEX = -1;
 const STRIDE = 12;
 let depth = 0;
 class TreeMetadata {
@@ -249,23 +248,6 @@ export function createProxy(
         hi,
         lo,
         user,
-    );
-}
-export function moveProxy(t: DynamicTree, id: number, box: AABB): void {
-    if (!t.store) {
-        mutation(t, 1, id, box);
-        return;
-    }
-    t.store.refreshIfStale();
-    kernel(t.store.ecsState).treeMoveProxy(
-        t.treeIndex,
-        id,
-        box.lowerBound.x,
-        box.lowerBound.y,
-        box.lowerBound.z,
-        box.upperBound.x,
-        box.upperBound.y,
-        box.upperBound.z,
     );
 }
 export function enlargeProxy(t: DynamicTree, id: number, box: AABB): void {

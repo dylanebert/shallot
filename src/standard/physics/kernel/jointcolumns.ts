@@ -68,13 +68,6 @@ export function readJointVec3(
 export function writeJointVec3(world: WorldState, joint: Joint, field: number, v: Vec3): void {
     jointKernel(world).jointWriteVec3(joint, field, v.x, v.y, v.z);
 }
-export function readJointVec2(
-    world: WorldState,
-    joint: Joint,
-    field: number,
-): { x: number; y: number } {
-    return { x: readJointFloat(world, joint, field), y: readJointFloat(world, joint, field + 1) };
-}
 export function readJointQuat(
     world: WorldState,
     joint: Joint,

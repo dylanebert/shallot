@@ -9,9 +9,6 @@ export function islandKernel(world: WorldState) {
 export function islandField(world: WorldState, id: number, field: number): number {
     return islandKernel(world).islandField(id, field);
 }
-export function setIslandField(world: WorldState, id: number, field: number, value: number): void {
-    islandKernel(world).islandSetField(id, field, value);
-}
 export function islandArrayCount(world: WorldState, id: number, kind: number): number {
     return islandKernel(world).islandArrayCount(id, kind);
 }

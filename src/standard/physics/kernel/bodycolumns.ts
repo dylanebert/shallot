@@ -1,20 +1,17 @@
 import type { World } from "../../../engine";
-import { BodyField, bodyField } from "./bodyrecords";
 // The persistent body region (kernel/src/bodies.rs) — the awake body columns held resident across
 // steps in each World's allocations: velocity/delta `state` + `flags` and the
 // integrate/finalize `sim`/`fin`/`sim2` fields. The solver runs directly over these columns
 // (the kernel phases alias `LAYOUT[STATE]`/`LAYOUT[SIM]`/etc here), so a step no longer marshals the
-// body in and reads it back out — the column is the single source of truth. This module owns the
-// grow-only sizing (the region tracks the total-body high-water so it never shrinks with the churny
-// awake set), body-column field access, and the record migration that mirrors the
-// JS-array swap-remove when an awake body leaves the set.
+// body in and reads it back out — the column is the single source of truth. This module provides
+// body-column views and field access; the kernel owns sizing and record migration.
 //
 // Each World owns its columns. A reserve can reallocate a column without growing memory, so
 // refresh after grow-capable calls checks both the column offsets and the memory buffer.
 
 import { SetType } from "../common/constants";
-import type { Mat3, Quat, Vec3, WorldTransform } from "../common/math";
-import type { BodySim, BodyState } from "../world/body";
+import type { Mat3, Vec3, WorldTransform } from "../common/math";
+import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import {
     FIN_STRIDE,
@@ -22,10 +19,8 @@ import {
     S2_BODY_ID,
     S2_CENTER0,
     S2_FLAGS,
-    S2_HEAD_SHAPE,
     S2_MAX_ANGULAR_VELOCITY,
     S2_MIN_EXTENT,
-    S2_ROTATION0,
     SIM_STRIDE,
     SIM2_STRIDE,
     STATE_STRIDE,
@@ -55,26 +50,7 @@ type MovedRows = { eids: Uint32Array; pos: Float32Array; quat: Float32Array; vel
  * gather/scatter writes the running worker's record (bodies.rs `IDENT_RECORDS`). */
 export const IDENT_RECORDS = 8;
 
-/** @returns the smallest power-of-two capacity ≥ `need`, at least 16 (amortizes region grows). */
-function growCap(need: number): number {
-    let cap = 16;
-    while (cap < need) cap *= 2;
-    return cap;
-}
-
-/**
- * Size the persistent body region to hold `bodyCount` bodies (the total-body high-water). Grows the
- * kernel columns only when the count exceeds the current capacity. @returns true if they grew;
- * callers refresh views after growth.
- */
-export function reserveBodies(world: World | undefined, bodyCount: number): boolean {
-    return kernel(world).reserveBodies(growCap(bodyCount)) !== 0;
-}
-
-/**
- * Typed-array views over the resident `state` + `flags` columns, plus the initial-write + record
- * initialization the body lifecycle needs. One per world.
- */
+/** Typed-array views over the kernel's resident body columns. One per world. */
 export class BodyStore extends KernelViews {
     readonly worldId: number;
     constructor(ecsState: World | undefined, worldId: number) {
@@ -163,7 +139,6 @@ export class BodyStore extends KernelViews {
         this.#continuousCount = 0;
         this.#syncRanges.clear();
         this.#setColumns.clear();
-        this.#setResults.clear();
     }
 
     refreshContinuous(count = this.#continuousCount): void {
@@ -200,15 +175,6 @@ export class BodyStore extends KernelViews {
         return rows;
     }
 
-    readonly #setResults = new Map<number, Uint32Array>();
-    moveResult(ptr: number, length: number): Uint32Array {
-        const buffer = kernel(this.ecsState).memory.buffer;
-        const old = this.#setResults.get(ptr);
-        if (old?.buffer === buffer && old.length === length) return old;
-        const result = new Uint32Array(buffer, ptr, length);
-        this.#setResults.set(ptr, result);
-        return result;
-    }
     forgetSet(set: number): void {
         this.#setColumns.delete(set);
     }
@@ -252,124 +218,6 @@ export class BodyStore extends KernelViews {
         };
         this.#setColumns.set(set, columns);
         return columns;
-    }
-
-    /** Marshal a plain `BodyState` into the resident column at record `i` — the object→view write on a
-     * body entering the awake set (create / wake / transfer), not a per-step cost. */
-    writeState(i: number, s: BodyState): void {
-        const f = this.stateF;
-        const o = i * STATE_STRIDE;
-        f[o] = s.linearVelocity.x;
-        f[o + 1] = s.linearVelocity.y;
-        f[o + 2] = s.linearVelocity.z;
-        f[o + 3] = s.angularVelocity.x;
-        f[o + 4] = s.angularVelocity.y;
-        f[o + 5] = s.angularVelocity.z;
-        f[o + 6] = s.deltaPosition.x;
-        f[o + 7] = s.deltaPosition.y;
-        f[o + 8] = s.deltaPosition.z;
-        f[o + 9] = s.deltaRotation.v.x;
-        f[o + 10] = s.deltaRotation.v.y;
-        f[o + 11] = s.deltaRotation.v.z;
-        f[o + 12] = s.deltaRotation.s;
-        this.flagsU[i] = s.flags;
-    }
-
-    /** Initialize a sim from a body definition, or copy an existing column row in the kernel. */
-    writeSim(i: number, s: BodySim | number): void {
-        const destination = i;
-        const target = this.simColumns(bodySimSet(i));
-        i = bodySimIndex(i);
-        if (typeof s === "number") {
-            kernel(this.ecsState).solverSetCopyBody(
-                bodySimSet(s),
-                bodySimIndex(s),
-                bodySimSet(destination),
-                i,
-            );
-            return;
-        }
-        const sf = target.simF;
-        const so = i * SIM_STRIDE;
-        sf[so] = s.invMass;
-        sf[so + 1] = s.gravityScale;
-        sf[so + 2] = s.linearDamping;
-        sf[so + 3] = s.angularDamping;
-        const force = s.force;
-        sf[so + 4] = force.x;
-        sf[so + 5] = force.y;
-        sf[so + 6] = force.z;
-        const torque = s.torque;
-        sf[so + 7] = torque.x;
-        sf[so + 8] = torque.y;
-        sf[so + 9] = torque.z;
-        const invLocal = s.invInertiaLocal;
-        sf[so + 10] = invLocal.cx.x;
-        sf[so + 11] = invLocal.cx.y;
-        sf[so + 12] = invLocal.cx.z;
-        sf[so + 13] = invLocal.cy.x;
-        sf[so + 14] = invLocal.cy.y;
-        sf[so + 15] = invLocal.cy.z;
-        sf[so + 16] = invLocal.cz.x;
-        sf[so + 17] = invLocal.cz.y;
-        sf[so + 18] = invLocal.cz.z;
-        const invWorld = s.invInertiaWorld;
-        sf[so + 19] = invWorld.cx.x;
-        sf[so + 20] = invWorld.cx.y;
-        sf[so + 21] = invWorld.cx.z;
-        sf[so + 22] = invWorld.cy.x;
-        sf[so + 23] = invWorld.cy.y;
-        sf[so + 24] = invWorld.cy.z;
-        sf[so + 25] = invWorld.cz.x;
-        sf[so + 26] = invWorld.cz.y;
-        sf[so + 27] = invWorld.cz.z;
-        const q = s.transform.q;
-        sf[so + 28] = q.v.x;
-        sf[so + 29] = q.v.y;
-        sf[so + 30] = q.v.z;
-        sf[so + 31] = q.s;
-
-        const ff = target.finF;
-        const fo = i * FIN_STRIDE;
-        const center = s.center;
-        ff[fo] = center.x;
-        ff[fo + 1] = center.y;
-        ff[fo + 2] = center.z;
-        const localCenter = s.localCenter;
-        ff[fo + 3] = localCenter.x;
-        ff[fo + 4] = localCenter.y;
-        ff[fo + 5] = localCenter.z;
-        const maxExtent = s.maxExtent;
-        ff[fo + 6] = maxExtent.x;
-        ff[fo + 7] = maxExtent.y;
-        ff[fo + 8] = maxExtent.z;
-        const p = s.transform.p;
-        ff[fo + 9] = p.x;
-        ff[fo + 10] = p.y;
-        ff[fo + 11] = p.z;
-
-        const s2f = target.sim2F;
-        const s2o = i * SIM2_STRIDE;
-        const rotation0 = s.rotation0;
-        s2f[s2o + S2_ROTATION0] = rotation0.v.x;
-        s2f[s2o + S2_ROTATION0 + 1] = rotation0.v.y;
-        s2f[s2o + S2_ROTATION0 + 2] = rotation0.v.z;
-        s2f[s2o + S2_ROTATION0 + 3] = rotation0.s;
-        const center0 = s.center0;
-        s2f[s2o + S2_CENTER0] = center0.x;
-        s2f[s2o + S2_CENTER0 + 1] = center0.y;
-        s2f[s2o + S2_CENTER0 + 2] = center0.z;
-        s2f[s2o + S2_MIN_EXTENT] = s.minExtent;
-        s2f[s2o + S2_MAX_ANGULAR_VELOCITY] = s.maxAngularVelocity;
-        target.sim2U[s2o + S2_BODY_ID] = s.bodyId;
-        target.sim2U[s2o + S2_FLAGS] = s.flags;
-    }
-
-    /** Write the head of the body's shape list into record `i`'s sim2 lane — the entry point the
-     * in-kernel finalize refit walks the shape column from (shapes.rs). `NULL_INDEX` (-1) wraps to the
-     * kernel's `NULL_SHAPE` sentinel through the u32 view. */
-    writeHeadShape(i: number, headShapeId: number): void {
-        this.sim2U[i * SIM2_STRIDE + S2_HEAD_SHAPE] = headShapeId;
     }
 }
 
@@ -515,62 +363,6 @@ export function setSimField<K extends keyof BodySim>(
     }
 }
 
-export function setStateField<K extends keyof BodyState>(
-    world: WorldState,
-    ref: number,
-    field: K,
-    value: BodyState[K],
-): void {
-    const store = world.bodyStore;
-    const i = ref;
-    switch (field) {
-        case "linearVelocity": {
-            const v = value as Vec3;
-            const f = store.stateF;
-            const o = i * STATE_STRIDE;
-            f[o] = v.x;
-            f[o + 1] = v.y;
-            f[o + 2] = v.z;
-            return;
-        }
-        case "angularVelocity": {
-            const v = value as Vec3;
-            const f = store.stateF;
-            const o = i * STATE_STRIDE;
-            f[o + 3] = v.x;
-            f[o + 4] = v.y;
-            f[o + 5] = v.z;
-            return;
-        }
-        case "deltaPosition": {
-            const v = value as Vec3;
-            const f = store.stateF;
-            const o = i * STATE_STRIDE;
-            f[o + 6] = v.x;
-            f[o + 7] = v.y;
-            f[o + 8] = v.z;
-            return;
-        }
-        case "deltaRotation": {
-            const q = value as Quat;
-            const f = store.stateF;
-            const o = i * STATE_STRIDE;
-            f[o + 9] = q.v.x;
-            f[o + 10] = q.v.y;
-            f[o + 11] = q.v.z;
-            f[o + 12] = q.s;
-            return;
-        }
-        case "flags": {
-            const v = value as number;
-            store.flagsU[i] = v;
-            return;
-        }
-        default:
-            throw new Error("unknown body state field");
-    }
-}
-
 export function readSimTransform(
     world: WorldState,
     ref: number,
@@ -626,61 +418,6 @@ export function readStateAngularVelocity(world: WorldState, ref: number, out: Ve
     return out;
 }
 
-export function writeSimTransform(world: WorldState, ref: number, t: WorldTransform): void {
-    const sf = world.bodyStore.memoryF;
-    const ff = world.bodyStore.memoryF;
-    const so = simOffset(world, ref, 1);
-    const fo = simOffset(world, ref, 2);
-    ff[fo + 9] = t.p.x;
-    ff[fo + 10] = t.p.y;
-    ff[fo + 11] = t.p.z;
-    sf[so + 28] = t.q.v.x;
-    sf[so + 29] = t.q.v.y;
-    sf[so + 30] = t.q.v.z;
-    sf[so + 31] = t.q.s;
-}
-
-export function writeSimRotation0(world: WorldState, ref: number, q: Quat): void {
-    const s2 = world.bodyStore.memoryF;
-    const o = simOffset(world, ref, 5) + S2_ROTATION0;
-    s2[o] = q.v.x;
-    s2[o + 1] = q.v.y;
-    s2[o + 2] = q.v.z;
-    s2[o + 3] = q.s;
-}
-/** Append an awake body at its local index and initialize its columns. */
-export function residentPush(
-    world: WorldState,
-    initState: BodyState,
-    initSim: BodySim | number,
-    headShapeId: number,
-): void {
-    const store = world.bodyStore;
-    const i = kernel(world.ecsState).solverSetBodyAppend(SetType.Awake);
-    store.writeState(i, initState);
-    store.writeSim(i, initSim);
-    store.writeHeadShape(i, headShapeId);
-}
-
-/**
- * Re-write an awake body's headShapeId lane after its shape list changed (shape create / destroy). A
- * body outside the awake set has no resident record — its lane is written when it enters one, from the
- * body's then-current `headShapeId`.
- */
-export function syncHeadShape(world: WorldState, body: number): void {
-    if (bodyField(world, body, BodyField.setIndex) !== SetType.Awake) return;
-    world.bodyStore.refreshViews();
-    world.bodyStore.writeHeadShape(
-        bodyField(world, body, BodyField.localIndex),
-        bodyField(world, body, BodyField.headShapeId),
-    );
-}
-
-/** Swap-remove an awake row; return the body moved into the hole, or NULL_INDEX. */
-export function residentRemove(world: WorldState, index: number): number {
-    return kernel(world.ecsState).solverSetRemoveBody(SetType.Awake, index) | 0;
-}
-
 export function bodySimSlot(set: number, index: number): number {
     return set === SetType.Awake ? index : (set + 1) * 4294967296 + index;
 }
@@ -718,31 +455,6 @@ export function simInvMass(world: WorldState, ref: number): number {
     return store.memoryF[simOffset(world, ref, 1)];
 }
 
-export function simMinExtent(world: WorldState, ref: number): number {
-    const store = world.bodyStore;
-    return store.memoryF[simOffset(world, ref, 5) + S2_MIN_EXTENT];
-}
-
-export function simMaxAngularVelocity(world: WorldState, ref: number): number {
-    const store = world.bodyStore;
-    return store.memoryF[simOffset(world, ref, 5) + S2_MAX_ANGULAR_VELOCITY];
-}
-
-export function simLinearDamping(world: WorldState, ref: number): number {
-    const store = world.bodyStore;
-    return store.memoryF[simOffset(world, ref, 1) + 2];
-}
-
-export function simAngularDamping(world: WorldState, ref: number): number {
-    const store = world.bodyStore;
-    return store.memoryF[simOffset(world, ref, 1) + 3];
-}
-
-export function simGravityScale(world: WorldState, ref: number): number {
-    const store = world.bodyStore;
-    return store.memoryF[simOffset(world, ref, 1) + 1];
-}
-
 export function simBodyId(world: WorldState, ref: number): number {
     if (ref < 0) return -ref - 1;
     const k = kernel(world.ecsState);
@@ -753,46 +465,6 @@ export function simBodyId(world: WorldState, ref: number): number {
 export function simFlags(world: WorldState, ref: number): number {
     const store = world.bodyStore;
     return store.memoryU[simOffset(world, ref, 5) + S2_FLAGS];
-}
-
-export function addSimForce(world: WorldState, ref: number, v: Vec3): void {
-    const f = world.bodyStore.memoryF;
-    const o = simOffset(world, ref, 1) + 4;
-    f[o] = Math.fround(f[o] + v.x);
-    f[o + 1] = Math.fround(f[o + 1] + v.y);
-    f[o + 2] = Math.fround(f[o + 2] + v.z);
-}
-export function addSimTorque(world: WorldState, ref: number, v: Vec3): void {
-    const f = world.bodyStore.memoryF;
-    const o = simOffset(world, ref, 1) + 7;
-    f[o] = Math.fround(f[o] + v.x);
-    f[o + 1] = Math.fround(f[o + 1] + v.y);
-    f[o + 2] = Math.fround(f[o + 2] + v.z);
-}
-export function addSimForceTorque(world: WorldState, ref: number, force: Vec3, point: Vec3): void {
-    const columns = world.bodyStore;
-    const fo = simOffset(world, ref, 2);
-    const x = Math.fround(point.x - columns.memoryF[fo]);
-    const y = Math.fround(point.y - columns.memoryF[fo + 1]);
-    const z = Math.fround(point.z - columns.memoryF[fo + 2]);
-    const f = columns.memoryF;
-    const o = simOffset(world, ref, 1) + 7;
-    f[o] = Math.fround(f[o] + Math.fround(Math.fround(y * force.z) - Math.fround(z * force.y)));
-    f[o + 1] = Math.fround(
-        f[o + 1] + Math.fround(Math.fround(z * force.x) - Math.fround(x * force.z)),
-    );
-    f[o + 2] = Math.fround(
-        f[o + 2] + Math.fround(Math.fround(x * force.y) - Math.fround(y * force.x)),
-    );
-}
-
-export function readSimMaxExtent(world: WorldState, ref: number, out: Vec3): Vec3 {
-    const f = world.bodyStore.memoryF;
-    const o = simOffset(world, ref, 2) + 6;
-    out.x = f[o];
-    out.y = f[o + 1];
-    out.z = f[o + 2];
-    return out;
 }
 
 function simOffset(world: WorldState, ref: number, column: number): number {

@@ -73,19 +73,6 @@ export function acquireHeightFieldData(world: WorldState, data: HeightFieldData)
 export function acquireCompoundData(world: WorldState, data: CompoundData): number {
     return acquireGeometryData(world, 1, data, compoundImage);
 }
-export function releaseGeometryData(world: WorldState, kind: number, pointer: number): void {
-    const k = kernel(world.ecsState);
-    const identity = k.geometryDatabaseIdentity(world.worldId, kind, pointer);
-    const refs = k.geometryDatabaseRefs(world.worldId, kind, pointer);
-    k.geometryDatabaseRemove(world.worldId, kind, pointer);
-    if (
-        refs === 1 &&
-        k.geometryDatabaseLookup(world.worldId, 4, identity) === 0 &&
-        k.geometryDatabaseLookup(world.worldId, 2, identity) === 0 &&
-        k.geometryDatabaseLookup(world.worldId, 1, identity) === 0
-    )
-        world.geometryIdentityValues.delete(identity);
-}
 export function hullDatabaseIndex(world: WorldState, hull: HullData): number {
     const bytes = stageHullUpload(world, hull);
     const index = kernel(world.ecsState).hullDatabaseLookup(world.worldId, bytes);

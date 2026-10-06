@@ -21,36 +21,15 @@ import { KernelViews } from "./views";
 
 /** Word stride of one kernel shape record, mirroring `shapes.rs`. */
 export const SHAPE_STRIDE = 69;
-export const S_PROXY_KEY = 50;
 /** b3Shape union: inline sphere or capsule, data reference plus mesh scale, or data reference. */
 export const S_GEOM = 2;
 /** First union word: retained hull pointer or non-convex pool word offset. */
 export const S_GEO_REFERENCE = S_GEOM;
 /** Kernel shape-record attachment lanes, outside finalize output. */
 export const S_MATERIAL_HEAD = 16;
-export const S_MATERIAL_COUNT = 17;
 
 /** Surface material: friction, restitution, rolling, tangent xyz, u64 user id and color. */
 export const MATERIAL_STRIDE = 9;
-
-/** @returns the smallest power-of-two capacity ≥ `need`, at least 16 (amortizes region grows). */
-function growCap(need: number): number {
-    let cap = 16;
-    while (cap < need) cap *= 2;
-    return cap;
-}
-
-/**
- * Size the persistent shape region to hold `shapeCount` shapes (the shape high-water). Grows the kernel
- * columns only when the count exceeds the current capacity. @returns true if they grew;
- * callers refresh views after growth.
- */
-export function reserveShapes(world: World | undefined, shapeCount: number): boolean {
-    const cap = growCap(shapeCount);
-    const fatGrew = kernel(world).reserveFatAabb(cap) !== 0;
-    const shapeGrew = kernel(world).reserveShapes(cap) !== 0;
-    return fatGrew || shapeGrew;
-}
 
 /** Allocate a world-local shape slot in the kernel pool. The shape record itself is authored below,
  * but index reuse, generation and validity are never decided by TypeScript. */
@@ -274,10 +253,6 @@ export class ShapeStore extends KernelViews {
     }
 }
 
-export function syncBodyQuery(world: WorldState, body: number): void {
-    kernel(world.ecsState).shapeSyncBody(world.worldId, body);
-}
-
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
 export function createShapeStore(world: World | undefined, worldId: number): ShapeStore {
     return new ShapeStore(world, worldId);
@@ -360,11 +335,4 @@ function readBounds(f: Float32Array, o: number, out: AABB): AABB {
     out.upperBound.y = f[o + 4];
     out.upperBound.z = f[o + 5];
     return out;
-}
-
-/** Size and write the resident fat-AABB lane owned by the shape store. */
-export function writeFatAabb(world: WorldState, shapeId: number, box: AABB): void {
-    kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
-    world.shapeStore.refreshViews();
-    world.shapeStore.writeFatAabb(shapeId, box);
 }
