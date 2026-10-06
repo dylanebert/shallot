@@ -1,6 +1,5 @@
 import { contactHit } from "../collision/manifoldstore";
 import { OVERFLOW_INDEX } from "../common/constants";
-import type { BodySimRef } from "../kernel/bodycolumns";
 import { COLOR_SPAN_STRIDE, type Columns } from "../kernel/columns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
@@ -24,7 +23,7 @@ export type StepContext = {
     awakeIslands: boolean[];
     splitIslandId: number;
     splitSleepTime: number;
-    bulletBodies: BodySimRef[];
+    bulletBodies: number[];
     hitEventContacts: Set<number>;
     jointEventFlags: Set<number>;
 };

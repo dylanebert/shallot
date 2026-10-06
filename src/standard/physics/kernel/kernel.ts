@@ -62,6 +62,28 @@ export type Kernel = {
 
     // Allocator-owned body columns for the selected World, sized to its body high-water.
     reserveBodies(cap: number): number;
+    solverSetTransferBody(
+        source: number,
+        index: number,
+        target: number,
+        flags: number,
+        head: number,
+        clearTransient: number,
+    ): number;
+    solverSetWakeBody(source: number, index: number, flags: number, head: number): number;
+    solverSetRemoveBody(source: number, index: number): number;
+    solverSetCopyBody(source: number, index: number, target: number, destination: number): void;
+    solverSetMoveContact(source: number, index: number, target: number): number;
+    solverSetSleepContact(id: number, target: number): void;
+    solverSetMoveIsland(source: number, index: number, target: number): number;
+    solverSetTransferJoint(
+        source: number,
+        color: number,
+        index: number,
+        target: number,
+        a: number,
+        b: number,
+    ): number;
     solverSetCreate(): number;
     solverSetCount(): number;
     solverSetIndex(id: number): number;

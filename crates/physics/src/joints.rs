@@ -3,12 +3,13 @@ use crate::col::Col;
 use crate::joint_abi::{JOINT_STRIDE, J_JOINT_ID, NULL_INDEX};
 use crate::regions::{self, Columns, MAX_WORLDS};
 
-struct JointArray {
-    records: Columns<1>,
-    count: usize,
+#[derive(Clone, Copy)]
+pub(crate) struct JointArray {
+    pub(crate) records: Columns<1>,
+    pub(crate) count: usize,
 }
 impl JointArray {
-    const EMPTY: Self = Self {
+    pub(crate) const EMPTY: Self = Self {
         records: Columns::EMPTY,
         count: 0,
     };
@@ -32,10 +33,13 @@ impl JointArray {
         *self.ptr(index).add(J_JOINT_ID)
     }
 }
-static mut ARRAYS: [Vec<JointArray>; MAX_WORLDS] = [const { Vec::new() }; MAX_WORLDS];
+static mut ARRAYS: [[JointArray; crate::constraint_graph::COLORS]; MAX_WORLDS] =
+    [[JointArray::EMPTY; crate::constraint_graph::COLORS]; MAX_WORLDS];
 unsafe fn array(key: usize) -> &'static mut JointArray {
+    if key >= crate::constraint_graph::COLORS {
+        return crate::solver_set::joint_array(key - crate::constraint_graph::COLORS);
+    }
     let arrays = &mut ARRAYS[regions::active()];
-    arrays.resize_with(arrays.len().max(key + 1), || JointArray::EMPTY);
     &mut arrays[key]
 }
 #[export_name = "jointArrayRelease"]
@@ -112,7 +116,7 @@ pub unsafe fn reset(id: usize) {
     for a in &mut ARRAYS[id] {
         a.records.release();
     }
-    ARRAYS[id] = Vec::new();
+    ARRAYS[id] = [JointArray::EMPTY; crate::constraint_graph::COLORS];
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     regions::write_word(out, ARRAYS[id].len());
@@ -124,7 +128,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     reset(id);
     let count = regions::read_word(input);
-    ARRAYS[id].resize_with(count, || JointArray::EMPTY);
+    assert_eq!(count, crate::constraint_graph::COLORS);
     for a in &mut ARRAYS[id] {
         a.count = regions::read_word(input);
         a.records.restore(input);

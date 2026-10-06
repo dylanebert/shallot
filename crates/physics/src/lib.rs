@@ -49,6 +49,7 @@ pub mod parfor;
 pub mod query;
 pub mod recycle;
 mod simd;
+#[cfg(target_arch = "wasm32")]
 mod solver_set;
 pub mod stages;
 mod toi;

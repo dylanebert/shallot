@@ -1,7 +1,7 @@
 //! Box3D constraint_graph.c: persistent color occupancy and contact lists.
 use crate::regions::MAX_WORLDS;
 use crate::{bodies, joints, manifold_abi::*, manifolds, regions};
-const COLORS: usize = 24;
+pub(crate) const COLORS: usize = 24;
 const OVERFLOW: usize = COLORS - 1;
 const DYNAMIC: usize = COLORS - 4;
 #[repr(C)]

@@ -1,13 +1,21 @@
 //! solver_set.c's set array and id pool. Body columns retain the solver's column layout.
-use crate::body::{FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
+use crate::body::{FIN_OUT_STRIDE, FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::regions::{self, Columns, MAX_WORLDS};
 const AWAKE: usize = 2;
-const STRIDES: [usize; 6] = [STATE_STRIDE, SIM_STRIDE, FIN_STRIDE, 1, 1, SIM2_STRIDE];
+const STRIDES: [usize; 6] = [
+    STATE_STRIDE,
+    SIM_STRIDE,
+    FIN_STRIDE,
+    FIN_OUT_STRIDE,
+    1,
+    SIM2_STRIDE,
+];
 struct SolverSet {
     columns: Columns<6>,
     body_count: usize,
     indices: [Vec<i32>; 2],
     index: i32,
+    joint_sims: crate::joints::JointArray,
 }
 impl SolverSet {
     fn empty() -> Self {
@@ -16,6 +24,7 @@ impl SolverSet {
             body_count: 0,
             indices: [Vec::new(), Vec::new()],
             index: -1,
+            joint_sims: crate::joints::JointArray::EMPTY,
         }
     }
 }
@@ -59,6 +68,7 @@ pub unsafe extern "C" fn index(id: usize) -> i32 {
 pub unsafe extern "C" fn destroy(id: usize) {
     let s = set(id);
     s.columns.release();
+    s.joint_sims.records.release();
     *s = SolverSet::empty();
     world().free.push(id);
 }
@@ -123,6 +133,7 @@ pub unsafe extern "C" fn array_pop(id: usize, kind: usize) {
 pub unsafe fn reset(id: usize) {
     for s in &mut WORLDS[id].sets {
         s.columns.release();
+        s.joint_sims.records.release();
     }
     WORLDS[id] = Sets {
         sets: Vec::new(),
@@ -136,6 +147,8 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
         regions::write_word(out, s.index as usize);
         regions::write_word(out, s.body_count);
         s.columns.snapshot(out);
+        regions::write_word(out, s.joint_sims.count);
+        s.joint_sims.records.snapshot(out);
         for v in &s.indices {
             regions::write_word(out, v.len());
             for &x in v {
@@ -157,6 +170,8 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
         s.index = regions::read_word(input) as i32;
         s.body_count = regions::read_word(input);
         s.columns.restore(input);
+        s.joint_sims.count = regions::read_word(input);
+        s.joint_sims.records.restore(input);
         for v in &mut s.indices {
             let n = regions::read_word(input);
             for _ in 0..n {
@@ -169,4 +184,186 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     for _ in 0..n {
         w.free.push(regions::read_word(input));
     }
+}
+
+pub unsafe fn awake_base(column: usize) -> usize {
+    set(AWAKE).columns.layout[column] as usize
+}
+pub unsafe fn reserve_awake(cap: usize) {
+    let s = set(AWAKE);
+    for c in 0..6 {
+        s.columns
+            .reserve(c, (cap + crate::bodies::IDENT_RECORDS) * STRIDES[c] * 4);
+    }
+}
+pub unsafe fn joint_array(id: usize) -> &'static mut crate::joints::JointArray {
+    &mut set(id).joint_sims
+}
+unsafe fn body_ptr(id: usize, index: usize, column: usize) -> *mut u32 {
+    (set(id).columns.layout[column] as *mut u32).add(index * STRIDES[column])
+}
+unsafe fn copy_body(source: usize, index: usize, target: usize, destination: usize) {
+    for c in [1, 2, 5] {
+        core::ptr::copy(
+            body_ptr(source, index, c),
+            body_ptr(target, destination, c),
+            STRIDES[c],
+        );
+    }
+}
+unsafe fn remove_body(source: usize, index: usize) -> u32 {
+    let last = body_count(source) - 1;
+    let mut moved = u32::MAX;
+    if index != last {
+        copy_body(source, last, source, index);
+        moved = *body_ptr(source, index, 5).add(crate::body::S2_BODY_ID);
+        if source == AWAKE {
+            for c in [0, 4] {
+                core::ptr::copy(
+                    body_ptr(source, last, c),
+                    body_ptr(source, index, c),
+                    STRIDES[c],
+                );
+            }
+        }
+    }
+    body_pop(source);
+    moved
+}
+unsafe fn wake_state(index: usize, flags: u32, head: i32) {
+    body_ptr(AWAKE, index, 0).write_bytes(0, STATE_STRIDE);
+    *body_ptr(AWAKE, index, 0).add(12) = 1.0f32.to_bits();
+    *body_ptr(AWAKE, index, 4) = flags;
+    *body_ptr(AWAKE, index, 5).add(crate::body::S2_HEAD_SHAPE) = head as u32;
+}
+static mut BODY_RESULT: [u32; 2] = [0; 2];
+#[export_name = "solverSetTransferBody"]
+pub unsafe extern "C" fn transfer_body(
+    source: usize,
+    index: usize,
+    target: usize,
+    flags: u32,
+    head: i32,
+    clear_transient: bool,
+) -> usize {
+    let destination = body_append(target);
+    copy_body(source, index, target, destination);
+    if clear_transient {
+        *body_ptr(target, destination, 5).add(crate::body::S2_FLAGS) &=
+            !(crate::body::flags::IS_FAST
+                | crate::body::flags::IS_SPEED_CAPPED
+                | crate::body::flags::HAD_TIME_OF_IMPACT);
+    }
+    if target == AWAKE {
+        wake_state(destination, flags, head);
+    }
+    let moved = remove_body(source, index);
+    BODY_RESULT = [destination as u32, moved];
+    core::ptr::addr_of!(BODY_RESULT) as usize
+}
+#[export_name = "solverSetWakeBody"]
+pub unsafe extern "C" fn wake_body(source: usize, index: usize, flags: u32, head: i32) -> usize {
+    let destination = body_append(AWAKE);
+    copy_body(source, index, AWAKE, destination);
+    wake_state(destination, flags, head);
+    destination
+}
+#[export_name = "solverSetRemoveBody"]
+pub unsafe extern "C" fn destroy_body(source: usize, index: usize) -> u32 {
+    remove_body(source, index)
+}
+#[export_name = "solverSetCopyBody"]
+pub unsafe extern "C" fn copy_body_row(
+    source: usize,
+    index: usize,
+    target: usize,
+    destination: usize,
+) {
+    copy_body(source, index, target, destination)
+}
+#[export_name = "solverSetMoveContact"]
+pub unsafe extern "C" fn move_contact(source: usize, index: usize, target: usize) -> usize {
+    use crate::manifold_abi::*;
+    let id = array_get(source, 0, index);
+    let destination = array_push(target, 0, id);
+    let moved = array_remove(source, 0, index);
+    let d = crate::manifolds::dir_col();
+    if moved != -1 {
+        d.set(
+            array_get(source, 0, index) as usize * DIR_STRIDE + DIR_LOCAL_INDEX,
+            index as u32,
+        );
+    }
+    d.set(id as usize * DIR_STRIDE + DIR_SET_INDEX, target as u32);
+    d.set(
+        id as usize * DIR_STRIDE + DIR_LOCAL_INDEX,
+        destination as u32,
+    );
+    destination
+}
+#[export_name = "solverSetSleepContact"]
+pub unsafe extern "C" fn sleep_contact(id: usize, target: usize) {
+    use crate::manifold_abi::*;
+    let d = crate::manifolds::dir_col();
+    let o = id * DIR_STRIDE;
+    let destination = array_push(target, 0, id as i32);
+    crate::constraint_graph::remove_contact(
+        d.get(o + DIR_EDGE_A) as usize,
+        d.get(o + DIR_EDGE_B) as usize,
+        d.get(o + DIR_COLOR_INDEX) as usize,
+        d.get(o + DIR_LOCAL_INDEX) as usize,
+        d.get(o + 6) & 0x00400000 != 0,
+    );
+    d.set(o + DIR_SET_INDEX, target as u32);
+    d.set(o + DIR_COLOR_INDEX, u32::MAX);
+    d.set(o + DIR_LOCAL_INDEX, destination as u32);
+}
+static mut ISLAND_RESULT: [u32; 2] = [0; 2];
+#[export_name = "solverSetMoveIsland"]
+pub unsafe extern "C" fn move_island(source: usize, index: usize, target: usize) -> usize {
+    let id = array_get(source, 1, index);
+    let destination = array_push(target, 1, id);
+    let old = array_remove(source, 1, index);
+    let moved = if old == -1 {
+        u32::MAX
+    } else {
+        array_get(source, 1, index) as u32
+    };
+    ISLAND_RESULT = [destination as u32, moved];
+    core::ptr::addr_of!(ISLAND_RESULT) as usize
+}
+static mut JOINT_RESULT: [u32; 3] = [0; 3];
+#[export_name = "solverSetTransferJoint"]
+pub unsafe extern "C" fn transfer_joint(
+    source: usize,
+    color: usize,
+    index: usize,
+    target: usize,
+    a: usize,
+    b: usize,
+) -> usize {
+    let source_key = if source == AWAKE {
+        color
+    } else {
+        crate::constraint_graph::COLORS + source
+    };
+    let target_color;
+    let destination;
+    let moved;
+    if target == AWAKE {
+        let ptr = crate::constraint_graph::add_joint(source_key, index, a, b) as *const u32;
+        target_color = *ptr;
+        destination = *ptr.add(1);
+        moved = *ptr.add(2);
+    } else {
+        let key = crate::constraint_graph::COLORS + target;
+        destination = crate::joints::count(key) as u32;
+        target_color = u32::MAX;
+        if source == AWAKE {
+            crate::constraint_graph::clear(color, a, b);
+        }
+        moved = crate::joints::move_record(source_key, index, key);
+    }
+    JOINT_RESULT = [target_color, destination, moved];
+    core::ptr::addr_of!(JOINT_RESULT) as usize
 }

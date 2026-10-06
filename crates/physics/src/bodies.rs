@@ -1,6 +1,6 @@
 //! Each World's awake columns and public body lifecycle records own their allocations.
 use crate::body::flags::DYNAMIC;
-use crate::body::{FIN_OUT_STRIDE, FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
+use crate::body::{FIN_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::regions::{self, Columns, MAX_WORLDS};
 
 pub const IDENT_RECORDS: usize = 8;
@@ -49,7 +49,13 @@ unsafe fn world_mut(id: usize) -> &'static mut Bodies {
     &mut WORLDS[id]
 }
 fn base(column: usize) -> usize {
-    unsafe { world(regions::active()).columns.layout[column] as usize }
+    unsafe {
+        if column < 6 {
+            crate::solver_set::awake_base(column)
+        } else {
+            world(regions::active()).columns.layout[column] as usize
+        }
+    }
 }
 pub fn state_base() -> usize {
     base(B_STATE)
@@ -101,7 +107,13 @@ pub extern "C" fn body_cap() -> usize {
 }
 #[export_name = "bodyLayoutPtr"]
 pub extern "C" fn body_layout_ptr() -> *const u32 {
-    unsafe { world(regions::active()).columns.layout.as_ptr() }
+    unsafe {
+        let w = world_mut(regions::active());
+        for c in 0..6 {
+            w.columns.layout[c] = crate::solver_set::awake_base(c) as u32;
+        }
+        w.columns.layout.as_ptr()
+    }
 }
 #[export_name = "reserveBodies"]
 pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
@@ -111,17 +123,7 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
             return 0;
         }
         let old = w.cap;
-        for (column, stride) in [
-            (B_STATE, STATE_STRIDE),
-            (B_SIM, SIM_STRIDE),
-            (B_FIN, FIN_STRIDE),
-            (B_FIN_OUT, FIN_OUT_STRIDE),
-            (B_FLAGS, 1),
-            (B_SIM2, SIM2_STRIDE),
-        ] {
-            w.columns
-                .reserve(column, (cap + IDENT_RECORDS) * stride * 4);
-        }
+        crate::solver_set::reserve_awake(cap);
         for column in [
             B_RECORD_GENERATION,
             B_RECORD_ALIVE,
@@ -145,10 +147,11 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         }
         // Wide null lanes need one write-disjoint identity per worker.
         for worker in 0..IDENT_RECORDS {
-            let ptr = (w.columns.layout[B_STATE] as *mut f32).add((cap + worker) * STATE_STRIDE);
+            let ptr = (crate::solver_set::awake_base(B_STATE) as *mut f32)
+                .add((cap + worker) * STATE_STRIDE);
             ptr.write_bytes(0, STATE_STRIDE);
             *ptr.add(12) = 1.0;
-            *(w.columns.layout[B_FLAGS] as *mut u32).add(cap + worker) = DYNAMIC;
+            *(crate::solver_set::awake_base(B_FLAGS) as *mut u32).add(cap + worker) = DYNAMIC;
         }
         w.cap = cap;
         1

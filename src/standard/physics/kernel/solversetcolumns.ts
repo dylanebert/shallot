@@ -18,6 +18,7 @@ export function solverSetIndex(world: WorldState, set: number): number {
 }
 export function releaseSolverSet(world: WorldState, set: number): void {
     active(world).solverSetDestroy(set);
+    world.bodyStore.forgetSet(set);
 }
 export function setBodyCount(world: WorldState, set: number): number {
     return active(world).solverSetBodyCount(set);
@@ -33,9 +34,8 @@ export function setBodyPop(world: WorldState, set: number): void {
 }
 export function setBodyRemove(world: WorldState, set: number, index: number): number {
     const last = setBodyCount(world, set) - 1;
-    if (index !== last) world.bodyStore.writeSim(bodySimSlot(set, index), bodySimSlot(set, last));
-    setBodyPop(world, set);
-    return index === last ? -1 : last;
+    active(world).solverSetRemoveBody(set, index);
+    return last === index ? -1 : last;
 }
 export function setArrayCount(world: WorldState, set: number, kind: number): number {
     return active(world).solverSetArrayCount(set, kind);
@@ -71,4 +71,66 @@ export function setArraySnapshot(world: WorldState, set: number, kind: number): 
     return Array.from({ length: setArrayCount(world, set, kind) }, (_, i) =>
         setArrayGet(world, set, kind, i),
     );
+}
+
+export function transferBodyColumns(
+    world: WorldState,
+    source: number,
+    index: number,
+    target: number,
+    flags: number,
+    head: number,
+    clearTransient: boolean,
+): Uint32Array {
+    const ptr = active(world).solverSetTransferBody(
+        source,
+        index,
+        target,
+        flags,
+        head,
+        Number(clearTransient),
+    );
+    world.bodyStore.refreshViews();
+    return world.bodyStore.moveResult(ptr, 2);
+}
+export function wakeBodyColumns(
+    world: WorldState,
+    source: number,
+    index: number,
+    flags: number,
+    head: number,
+): number {
+    return active(world).solverSetWakeBody(source, index, flags, head);
+}
+export function moveSetContact(
+    world: WorldState,
+    source: number,
+    index: number,
+    target: number,
+): void {
+    active(world).solverSetMoveContact(source, index, target);
+}
+export function sleepSetContact(world: WorldState, id: number, target: number): void {
+    active(world).solverSetSleepContact(id, target);
+}
+export function moveSetIsland(
+    world: WorldState,
+    source: number,
+    index: number,
+    target: number,
+): Uint32Array {
+    return world.bodyStore.moveResult(active(world).solverSetMoveIsland(source, index, target), 2);
+}
+export function transferJointColumns(
+    world: WorldState,
+    source: number,
+    color: number,
+    index: number,
+    target: number,
+    a: number,
+    b: number,
+): Uint32Array {
+    const ptr = active(world).solverSetTransferJoint(source, color, index, target, a, b);
+    world.bodyStore.refreshViews();
+    return world.bodyStore.moveResult(ptr, 3);
 }

@@ -11,13 +11,14 @@ import {
 } from "../../engine";
 import type { PhysicsWorld } from "./api/world";
 import { type CollisionPlane, clipVector, solvePlanes } from "./collision/mover";
-import { f32, PI, quat, vec3, xf } from "./common/math";
+import { f32, mat3, PI, quat, vec3, xf } from "./common/math";
 import { BodyType } from "./common/types";
 import {
     readSimCenter,
+    readSimInvInertiaWorld,
     readStateAngularVelocity,
     readStateLinearVelocity,
-    simField,
+    simInvMass,
 } from "./kernel/bodycolumns";
 import { bodyType, shapeBodyId } from "./kernel/filtercolumns";
 import { queryColumns } from "./kernel/querycolumns";
@@ -101,6 +102,7 @@ export const characterScratch = {
         r: vec3.zero(),
         rn: vec3.zero(),
         mrn: vec3.zero(),
+        inertia: mat3.zero(),
         vr: vec3.zero(),
         impulse: vec3.zero(),
         solved: { delta: vec3.zero(), iterationCount: 0 },
@@ -339,12 +341,12 @@ function push(physics: PhysicsWorld, s: Scratch): void {
         readSimCenter(state, sim, s.center);
         vec3.subOut(s.points[i], s.center, s.r);
         vec3.crossOut(s.r, s.normal, s.rn);
-        const m = simField(state, sim, "invInertiaWorld");
+        const m = readSimInvInertiaWorld(state, sim, s.inertia);
         const rn = s.rn;
         s.mrn.x = f32(f32(f32(m.cx.x * rn.x) + f32(m.cy.x * rn.y)) + f32(m.cz.x * rn.z));
         s.mrn.y = f32(f32(f32(m.cx.y * rn.x) + f32(m.cy.y * rn.y)) + f32(m.cz.y * rn.z));
         s.mrn.z = f32(f32(f32(m.cx.z * rn.x) + f32(m.cy.z * rn.y)) + f32(m.cz.z * rn.z));
-        const mass = f32(simField(state, sim, "invMass") + vec3.dot(rn, s.mrn));
+        const mass = f32(simInvMass(state, sim) + vec3.dot(rn, s.mrn));
         const normalMass = mass > 0 ? f32(1 / mass) : 0;
         s.vr.x = 0;
         s.vr.y = 0;

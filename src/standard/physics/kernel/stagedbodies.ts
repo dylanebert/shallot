@@ -1,6 +1,7 @@
 import { SetType } from "../common/constants";
-import { type Body, getBodySim } from "../world/body";
+import type { Body } from "../world/body";
 import type { WorldState } from "../world/world";
+import { kernel } from "./kernel";
 import { setBodyCount } from "./solversetcolumns";
 
 export function beginBodyStaging(world: WorldState): void {
@@ -18,7 +19,12 @@ export function bodyColumnIndex(world: WorldState, body: Body): number {
                 ? world.bodies.length - setBodyCount(world, SetType.Static) + body.localIndex
                 : world.bodyStagingCursor++;
         if (world.bodyStore.stale) world.bodyStore.refreshViews();
-        world.bodyStore.writeSim(index, getBodySim(world, body));
+        kernel(world.ecsState).solverSetCopyBody(
+            body.setIndex,
+            body.localIndex,
+            SetType.Awake,
+            index,
+        );
         world.bodyStagingIndices[body.id] = index;
         world.bodyStagingStamps[body.id] = world.bodyStagingEpoch;
     }

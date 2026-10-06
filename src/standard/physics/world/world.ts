@@ -115,7 +115,7 @@ export type WorldState = {
     // region for the manifolds keyed by contactId. Slots are tracked on contact create/destroy.
     manifoldStore: ManifoldStore;
     // Resident body-state columns (velocity/delta/flags of awake bodies), held across steps in the
-    // body region. The awake set's `bodyStates` are offset-backed views over this store (bodycolumns.ts).
+    // body region. BodyStore binds typed views over the solver sets' columns.
     bodyStore: BodyStore;
     bodyStagingEpoch: number;
     bodyStagingCursor: number;

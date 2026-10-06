@@ -1,4 +1,4 @@
-import { simField } from "../kernel/bodycolumns";
+import { simField, simFlags } from "../kernel/bodycolumns";
 import { bodyType, shapeBodyId, shapeSensorIndex } from "../kernel/filtercolumns";
 // Debug visualization walk: resolve every shape and joint in the world to a flat set of typed draw
 // callbacks the caller renders. Ported from Box3D's b3World_Draw (physics_world.c) + b3DrawJoint
@@ -161,10 +161,10 @@ function bodyColor(world: WorldState, body: Body, shape: Shape): number {
     if (body.setIndex === SetType.Disabled) return DebugColor.slateGray;
     if (shapeSensorIndex(world, shape.id) !== NULL_INDEX) return DebugColor.wheat;
     if (body.flags & BodyFlags.hadTimeOfImpact) return DebugColor.lime;
-    if (simField(world, sim, "flags") & BodyFlags.isBullet && body.setIndex === SetType.Awake)
+    if (simFlags(world, sim) & BodyFlags.isBullet && body.setIndex === SetType.Awake)
         return DebugColor.turquoise;
     if (body.flags & BodyFlags.isSpeedCapped) return DebugColor.yellow;
-    if (simField(world, sim, "flags") & BodyFlags.isFast) return DebugColor.orange;
+    if (simFlags(world, sim) & BodyFlags.isFast) return DebugColor.orange;
     if (bodyType(world, body.id) === BodyType.Static) return DebugColor.darkGray;
     if (bodyType(world, body.id) === BodyType.Kinematic) {
         return body.setIndex === SetType.Awake ? DebugColor.steelBlue : DebugColor.lightSteelBlue;

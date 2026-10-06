@@ -1,5 +1,5 @@
 import type { World } from "../../../engine";
-import { type BodySimRef, simField } from "./bodycolumns";
+import { type BodySimRef, simField, simFlags } from "./bodycolumns";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
 // can walk a body's shape list and compute its AABBs without a per-step marshal. Each World owns
@@ -250,7 +250,7 @@ export class ShapeStore extends KernelViews {
         if (body.setIndex === SetType.Awake) return;
         if (!sim) throw new Error("physics: a non-awake query shape requires its sleeping pose");
         const pose = simField(world, sim, "transform");
-        this.shapeU[n + 42] = simField(world, sim, "flags");
+        this.shapeU[n + 42] = simFlags(world, sim);
         const f = this.shapeF;
         f[n + 44] = simField(world, sim, "center").x;
         f[n + 45] = simField(world, sim, "center").y;

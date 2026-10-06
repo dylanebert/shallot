@@ -246,6 +246,8 @@ pub mod flags {
     pub const LOCK_ANGULAR_X: u32 = 0x0000_0008;
     pub const LOCK_ANGULAR_Y: u32 = 0x0000_0010;
     pub const LOCK_ANGULAR_Z: u32 = 0x0000_0020;
+    pub const IS_FAST: u32 = 0x0000_0040;
+    pub const HAD_TIME_OF_IMPACT: u32 = 0x0000_0200;
     pub const IS_SPEED_CAPPED: u32 = 0x0000_0100;
     pub const ALLOW_FAST_ROTATION: u32 = 0x0000_0400;
     /// Set on dynamic bodies; the contact solver only writes velocity back to bodies that carry it.

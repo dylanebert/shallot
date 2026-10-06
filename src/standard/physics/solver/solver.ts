@@ -73,7 +73,7 @@ function finalizeBodies(context: StepContext, cols: Columns): void {
         const s2o = simIndex * SIM2_STRIDE;
         const simFlags = sim2U[s2o + S2_FLAGS];
         const fast = simFlags & BodyFlags.isFast;
-        if (fast && simFlags & BodyFlags.isBullet) context.bulletBodies.push(sims[simIndex]);
+        if (fast && simFlags & BodyFlags.isBullet) context.bulletBodies.push(simIndex);
 
         const body = world.bodies[sim2U[s2o + S2_BODY_ID]];
         body.bodyMoveIndex = simIndex;
@@ -252,7 +252,7 @@ export function solve(world: WorldState, context: StepContext): void {
     // reserveColumns may have grown wasm memory, detaching every view; re-derive the manifold store's
     // (writeSlots writes contact rows through them) and the body store's (body staging and the
     // finalize tail read resident sim/state columns through them) before either is touched. The body
-    // columns are resident (bodycolumns.ts) — the awake `BodySim`/`BodyState` are views over them, so no
+    // columns are resident (bodycolumns.ts), so no
     // per-step marshal runs; the kernel reads them where they already live.
     world.manifoldStore.refreshViews();
     world.bodyStore.refreshViews();

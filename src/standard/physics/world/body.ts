@@ -1,10 +1,15 @@
 import { ContactField, contactField } from "../collision/contact";
-import type { BodySimRef, BodyStateRef } from "../kernel/bodycolumns";
 import {
     bodySimSlot,
+    readSimInvInertiaLocal,
+    readSimInvInertiaWorld,
     setSimField,
     setStateField,
+    simBodyId,
     simField,
+    simFlags,
+    simInvMass,
+    simMinExtent,
     stateField,
 } from "../kernel/bodycolumns";
 import { bodyType, setBodyType, shapeSensorIndex } from "../kernel/filtercolumns";
@@ -203,13 +208,13 @@ const _cloneMat3 = (m: Mat3): Mat3 => ({
  * Deep-copy a body sim (the C `memcpy(simDst, simSrc)` in every solver-set transfer). The target
  * must not alias the source's Vec3/Quat/Mat3 sub-objects — the solver mutates them in place.
  */
-/** @returns the body's simulation payload from whichever solver set owns it (b3GetBodySim). */
-export function getBodySim(_world: WorldState, body: Body): BodySimRef {
-    return bodySimSlot(body.setIndex, body.localIndex);
+/** @returns the sim slot addressed by the body record (b3GetBodySim). */
+export function getBodySim(_world: WorldState, body: Body): number {
+    return -body.id - 1;
 }
 
-/** @returns the body's solver state, or null when the body is not awake (b3GetBodyState). */
-export function getBodyState(_world: WorldState, body: Body): BodyStateRef | null {
+/** @returns the awake state's local index, or null (b3GetBodyState). */
+export function getBodyState(_world: WorldState, body: Body): number | null {
     if (body.setIndex === SetType.Awake) {
         return body.localIndex;
     }
@@ -409,6 +414,7 @@ export function bodyApplyLinearImpulse(
         center: vec3.zero(),
         r: vec3.zero(),
         mrn: vec3.zero(),
+        inertia: mat3.zero(),
     },
 ): void {
     if (wake && body.setIndex >= SetType.FirstSleeping) wakeBody(world, body);
@@ -418,7 +424,7 @@ export function bodyApplyLinearImpulse(
     if (state === null) return;
 
     const v = readStateLinearVelocity(world, state, scratch.linear);
-    vec3.mulAddOut(v, simField(world, sim, "invMass"), impulse, v);
+    vec3.mulAddOut(v, simInvMass(world, sim), impulse, v);
     const lengthSq = vec3.lengthSq(v);
     const max = world.maxLinearSpeed;
     if (lengthSq > f32(max * max)) {
@@ -438,7 +444,8 @@ export function bodyApplyLinearImpulse(
     readSimCenter(world, sim, scratch.center);
     vec3.subOut(point, scratch.center, scratch.r);
     vec3.crossOut(scratch.r, impulse, scratch.r);
-    mat3.mulVOut(simField(world, sim, "invInertiaWorld"), scratch.r, scratch.mrn);
+    readSimInvInertiaWorld(world, sim, scratch.inertia);
+    mat3.mulVOut(scratch.inertia, scratch.r, scratch.mrn);
     const angular = readStateAngularVelocity(world, state, scratch.angular);
     vec3.addOut(angular, scratch.mrn, angular);
     setStateField(
@@ -470,7 +477,7 @@ export function bodyApplyLinearImpulseToCenter(
             world,
             vec3.mulAdd(
                 stateField(world, state, "linearVelocity"),
-                simField(world, sim, "invMass"),
+                simInvMass(world, sim),
                 impulse,
             ),
         ),
@@ -544,10 +551,7 @@ export function bodySetTransform(
 ): void {
     const sim = getBodySim(world, body);
 
-    // The pose stages through registers. A column view's setters copy components, and reading its
-    // transform back takes the column's f32 store, exactly as the getter did. A plain record's pose
-    // sub-objects are its own (created fresh, deep-copied across set transfers), so they take the
-    // components in place.
+    // Read back the f32 column write before deriving the center and inertia.
     const resident = isResidentSim(sim);
     const transform = setPose;
     transform.p.x = position.x;
@@ -570,7 +574,7 @@ export function bodySetTransform(
     vec3.addOut(setCenter, transform.p, setCenter);
 
     mat3.fromQuatOut(transform.q, setRotation);
-    copyMat3(simField(world, sim, "invInertiaLocal"), setInvILocal);
+    readSimInvInertiaLocal(world, sim, setInvILocal);
     mat3.mulOut(setRotation, setInvILocal, setInertiaTmp);
     mat3.transposeOut(setRotation, setRotationT);
     mat3.mulOut(setInertiaTmp, setRotationT, setInvIWorld);
@@ -919,7 +923,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     flags |= def.enableSleep ? BodyFlags.enableSleep : 0;
     flags |= def.enableContactRecycling ? BodyFlags.enableContactRecycling : 0;
     setSimField(world, bodySim, "flags", flags);
-    // Awake bodies hold a column-backed `ResidentBodySim` view (pushed via `residentPush` below, once
+    // Awake rows are initialized via residentPush below, once
     // the region is sized); every other set holds the plain sim. Defer the awake push so the view lands
     // over the resident record rather than a plain object being replaced.
     if (setId !== SetType.Awake) setBodyPush(world, set, bodySim);
@@ -931,7 +935,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
         awakeState = identityBodyState();
         setStateField(world, awakeState, "linearVelocity", { ...def.linearVelocity });
         setStateField(world, awakeState, "angularVelocity", { ...def.angularVelocity });
-        setStateField(world, awakeState, "flags", simField(world, bodySim, "flags"));
+        setStateField(world, awakeState, "flags", simFlags(world, bodySim));
         setSimField(
             world,
             bodySim,
@@ -969,7 +973,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     body.mass = 0;
     body.inertia = mat3.zero();
     setBodyType(world, body.id, def.type);
-    body.flags = simField(world, bodySim, "flags");
+    body.flags = simFlags(world, bodySim);
 
     // enabled dynamic and kinematic bodies need an island
     if (setId >= SetType.Awake) {
@@ -1054,7 +1058,7 @@ export function destroyBody(world: WorldState, body: Body): void {
         const movedIndex = setBodyRemove(world, set, body.localIndex);
         if (movedIndex !== NULL_INDEX) {
             const movedSim = bodySimSlot(set, body.localIndex);
-            world.bodies[simField(world, movedSim, "bodyId")].localIndex = body.localIndex;
+            world.bodies[simBodyId(world, movedSim)].localIndex = body.localIndex;
         }
         if (set >= SetType.FirstSleeping && setBodyCount(world, set) === 0) {
             // Remove the solver set if it is now an orphan
@@ -1101,7 +1105,7 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
                     world,
                     bodySim,
                     "minExtent",
-                    minf(simField(world, bodySim, "minExtent"), extent.minExtent),
+                    minf(simMinExtent(world, bodySim), extent.minExtent),
                 );
                 setSimField(
                     world,
@@ -1137,7 +1141,7 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
 
     if (body.mass > 0) {
         setSimField(world, bodySim, "invMass", f32(1 / body.mass));
-        localCenter = vec3.scale(simField(world, bodySim, "invMass"), localCenter);
+        localCenter = vec3.scale(simInvMass(world, bodySim), localCenter);
     }
 
     for (let shapeIndex = 0; shapeIndex < masses.length; ++shapeIndex) {
@@ -1200,7 +1204,7 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
             world,
             bodySim,
             "minExtent",
-            minf(simField(world, bodySim, "minExtent"), extent.minExtent),
+            minf(simMinExtent(world, bodySim), extent.minExtent),
         );
         setSimField(
             world,
@@ -1212,7 +1216,7 @@ export function updateBodyMassData(world: WorldState, body: Body): void {
     }
 
     // Apply fixed rotation
-    if ((simField(world, bodySim, "flags") & FIXED_ROTATION) === FIXED_ROTATION) {
+    if ((simFlags(world, bodySim) & FIXED_ROTATION) === FIXED_ROTATION) {
         body.inertia = mat3.zero();
         setSimField(world, bodySim, "invInertiaLocal", mat3.zero());
         setSimField(world, bodySim, "invInertiaWorld", mat3.zero());
