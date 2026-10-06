@@ -1,10 +1,11 @@
 import { SetType } from "../common/constants";
 import { type Body, getBodySim } from "../world/body";
 import type { WorldState } from "../world/world";
+import { setBodyCount } from "./solversetcolumns";
 
 export function beginBodyStaging(world: WorldState): void {
     ++world.bodyStagingEpoch;
-    world.bodyStagingCursor = world.solverSets[SetType.Awake].bodySims.length;
+    world.bodyStagingCursor = setBodyCount(world, SetType.Awake);
 }
 
 export function bodyColumnIndex(world: WorldState, body: Body): number {
@@ -14,9 +15,7 @@ export function bodyColumnIndex(world: WorldState, body: Body): number {
         // Sleeping rows are consumed before linking; joint prepare only references awake/static sims.
         const index =
             body.setIndex === SetType.Static
-                ? world.bodies.length -
-                  world.solverSets[SetType.Static].bodySims.length +
-                  body.localIndex
+                ? world.bodies.length - setBodyCount(world, SetType.Static) + body.localIndex
                 : world.bodyStagingCursor++;
         if (world.bodyStore.stale) world.bodyStore.refreshViews();
         world.bodyStore.writeSim(index, getBodySim(world, body));

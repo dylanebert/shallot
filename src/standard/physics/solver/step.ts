@@ -24,7 +24,7 @@ import { solve } from "./solver";
 function newStepContext(world: WorldState): StepContext {
     return {
         world,
-        sims: [],
+        bodyCount: 0,
         dt: 0,
         invDt: 0,
         h: 0,

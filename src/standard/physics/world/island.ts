@@ -1,4 +1,11 @@
 import { ContactField, contactField, setContactField } from "../collision/contact";
+import {
+    setArrayCount,
+    setArrayGet,
+    setArrayPop,
+    setArrayPush,
+    setArrayWrite,
+} from "../kernel/solversetcolumns";
 // Persistent islands of connected awake bodies, joints, and touching contacts. Ported from
 // Box3D's island.c (Erin Catto, MIT). An island lives inside a solver set; static bodies are never
 // in an island. Contacts/joints are stored as links carrying both body ids inline so the split
@@ -18,9 +25,6 @@ export type ContactLink = { contactId: number; bodyIdA: number; bodyIdB: number 
 
 /** Cached joint edge stored in an island (b3JointLink). */
 export type JointLink = { jointId: number; bodyIdA: number; bodyIdB: number };
-
-/** The movable island stub stored in a solver set's island column (b3IslandSim). */
-export type IslandSim = { islandId: number };
 
 /** A persistent island of connected awake bodies (b3Island). */
 export type Island = {
@@ -52,17 +56,17 @@ export function createIsland(world: WorldState, setIndex: number): Island {
         world.islands.push(emptyIsland());
     }
 
-    const set = world.solverSets[setIndex];
+    const set = setIndex;
     const island = world.islands[islandId];
     island.setIndex = setIndex;
-    island.localIndex = set.islandSims.length;
+    island.localIndex = setArrayCount(world, set, 1);
     island.islandId = islandId;
     island.bodies = [];
     island.contacts = [];
     island.joints = [];
     island.constraintRemoveCount = 0;
 
-    set.islandSims.push({ islandId });
+    setArrayPush(world, set, 1, islandId);
     return island;
 }
 
@@ -73,14 +77,14 @@ export function destroyIsland(world: WorldState, islandId: number): void {
 
     // assume island is empty
     const island = world.islands[islandId];
-    const set = world.solverSets[island.setIndex];
+    const set = island.setIndex;
     {
         const localIndex = island.localIndex;
-        const lastIndex = set.islandSims.length - 1;
-        const moveIslandId = set.islandSims[lastIndex].islandId;
-        set.islandSims[localIndex] = set.islandSims[lastIndex];
+        const lastIndex = setArrayCount(world, set, 1) - 1;
+        const moveIslandId = setArrayGet(world, set, 1, lastIndex);
+        setArrayWrite(world, set, 1, localIndex, setArrayGet(world, set, 1, lastIndex));
         world.islands[moveIslandId].localIndex = localIndex;
-        set.islandSims.pop();
+        setArrayPop(world, set, 1);
     }
 
     island.constraintRemoveCount = 0;

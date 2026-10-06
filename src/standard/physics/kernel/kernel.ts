@@ -62,6 +62,20 @@ export type Kernel = {
 
     // Allocator-owned body columns for the selected World, sized to its body high-water.
     reserveBodies(cap: number): number;
+    solverSetCreate(): number;
+    solverSetCount(): number;
+    solverSetIndex(id: number): number;
+    solverSetDestroy(id: number): void;
+    solverSetBodyCount(id: number): number;
+    solverSetBodyAppend(id: number): number;
+    solverSetBodyPop(id: number): void;
+    solverSetLayout(id: number): number;
+    solverSetArrayCount(id: number, kind: number): number;
+    solverSetArrayGet(id: number, kind: number, index: number): number;
+    solverSetArrayPush(id: number, kind: number, value: number): number;
+    solverSetArrayRemove(id: number, kind: number, index: number): number;
+    solverSetArrayWrite(id: number, kind: number, index: number, value: number): void;
+    solverSetArrayPop(id: number, kind: number): void;
     bodyLayoutPtr(): number;
     bodySetEntity(world: number, body: number, eid: number): void;
     bodySyncMoved(count: number): number;

@@ -1,3 +1,4 @@
+import { createSolverSet, solverSetCount, solverSetIndex } from "../kernel/solversetcolumns";
 // The simulation world: the root that owns every entity pool and the broad-phase. Ported from
 // Box3D's physics_world.c (Erin Catto, MIT). Each entity type has an id pool paired with a sparse
 // array of records; the hot payload lives in solver sets. Worlds live in a fixed registry so a
@@ -10,7 +11,7 @@ import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { contactCount } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
 import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
-import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
+import { createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
 import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
@@ -30,7 +31,7 @@ import type { Body } from "./body";
 import type { Island } from "./island";
 import { createStepProfile, type StepProfile } from "./profile";
 import type { Sensor, SensorBeginTouchEvent } from "./sensor";
-import { destroySolverSet, emptySolverSet, type SolverSet } from "./solverset";
+import { destroySolverSet } from "./solverset";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
 export const MAX_WORLDS = 128;
@@ -86,9 +87,6 @@ export type WorldState = {
 
     /** Public body records are the authoring/handle bridge; lifecycle lives in wasm. */
     bodies: Body[];
-
-    solverSetIdPool: IdPool;
-    solverSets: SolverSet[];
 
     jointIdPool: IdPool;
     joints: Joint[];
@@ -297,8 +295,6 @@ function makeWorldState(
         broadPhase: createBroadPhase(world, capacity, worldId),
         bodyFilters: new BodyFilters(),
         bodies: [],
-        solverSetIdPool: createIdPool(),
-        solverSets: [],
         jointIdPool: createIdPool(),
         joints: [],
         awakeContacts: [],
@@ -363,9 +359,7 @@ function makeWorldState(
 
     // Create the three permanent sets in order so their ids land 0 (static), 1 (disabled), 2 (awake).
     for (let i = 0; i < 3; ++i) {
-        const set = emptySolverSet();
-        set.setIndex = allocId(physicsWorld.solverSetIdPool);
-        physicsWorld.solverSets.push(set);
+        createSolverSet(physicsWorld);
     }
 
     return physicsWorld;
@@ -434,8 +428,8 @@ export function destroyWorld(world: WorldState): void {
     }
 
     // Destroy live solver sets (GC reclaims the rest).
-    for (let i = 0; i < world.solverSets.length; ++i) {
-        if (world.solverSets[i].setIndex !== -1) {
+    for (let i = 0; i < solverSetCount(world); ++i) {
+        if (solverSetIndex(world, i) !== -1) {
             destroySolverSet(world, i);
         }
     }

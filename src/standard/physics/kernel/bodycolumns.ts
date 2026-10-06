@@ -216,6 +216,48 @@ export class BodyStore extends KernelViews {
         return out;
     }
 
+    private readonly setColumns = new Map<
+        number,
+        {
+            layout: Uint32Array;
+            simF: Float32Array;
+            finF: Float32Array;
+            sim2F: Float32Array;
+            sim2U: Uint32Array;
+        }
+    >();
+    simColumns(ref: number) {
+        if (ref < 4294967296) return this;
+        const set = Math.floor(ref / 4294967296) - 1;
+        const k = kernel(this.ecsState);
+        k.bodySetActiveWorld(this.worldId);
+        const ptr = k.solverSetLayout(set);
+        const old = this.setColumns.get(set);
+        const layout =
+            old?.layout.buffer === k.memory.buffer && old.layout.byteOffset === ptr
+                ? old.layout
+                : new Uint32Array(k.memory.buffer, ptr, 6);
+        const count = k.solverSetBodyCount(set);
+        if (
+            old &&
+            old.simF.buffer === k.memory.buffer &&
+            old.simF.byteOffset === layout[1] &&
+            old.finF.byteOffset === layout[2] &&
+            old.sim2F.byteOffset === layout[5] &&
+            old.simF.length >= count * SIM_STRIDE
+        )
+            return old;
+        const columns = {
+            layout,
+            simF: new Float32Array(k.memory.buffer, layout[1], count * SIM_STRIDE),
+            finF: new Float32Array(k.memory.buffer, layout[2], count * FIN_STRIDE),
+            sim2F: new Float32Array(k.memory.buffer, layout[5], count * SIM2_STRIDE),
+            sim2U: new Uint32Array(k.memory.buffer, layout[5], count * SIM2_STRIDE),
+        };
+        this.setColumns.set(set, columns);
+        return columns;
+    }
+
     /** Marshal a plain `BodyState` into the resident column at record `i` — the object→view write on a
      * body entering the awake set (create / wake / transfer), not a per-step cost. */
     writeState(i: number, s: BodyState): void {
@@ -254,11 +296,24 @@ export class BodyStore extends KernelViews {
      * plain `BodySim` (from a sleeping/static set) or already a view (reads its getters either way).
      * Field order mirrors read_sim / read_fin (kernel/src/body.rs) + the sim2 offsets (columns.ts). */
     writeSim(i: number, s: BodySimRef): void {
+        const target = this.simColumns(i);
+        i = bodySimIndex(i);
         if (typeof s === "number") {
-            this.migrateSim(s, i);
+            const source = this.simColumns(s);
+            const row = bodySimIndex(s);
+            for (const [key, stride] of [
+                ["simF", SIM_STRIDE],
+                ["finF", FIN_STRIDE],
+                ["sim2F", SIM2_LIVE],
+            ] as const) {
+                const from = source[key],
+                    to = target[key];
+                const step = key === "sim2F" ? SIM2_STRIDE : stride;
+                to.set(from.subarray(row * step, row * step + stride), i * step);
+            }
             return;
         }
-        const sf = this.simF;
+        const sf = target.simF;
         const so = i * SIM_STRIDE;
         sf[so] = s.invMass;
         sf[so + 1] = s.gravityScale;
@@ -298,7 +353,7 @@ export class BodyStore extends KernelViews {
         sf[so + 30] = q.v.z;
         sf[so + 31] = q.s;
 
-        const ff = this.finF;
+        const ff = target.finF;
         const fo = i * FIN_STRIDE;
         const center = s.center;
         ff[fo] = center.x;
@@ -317,7 +372,7 @@ export class BodyStore extends KernelViews {
         ff[fo + 10] = p.y;
         ff[fo + 11] = p.z;
 
-        const s2f = this.sim2F;
+        const s2f = target.sim2F;
         const s2o = i * SIM2_STRIDE;
         const rotation0 = s.rotation0;
         s2f[s2o + S2_ROTATION0] = rotation0.v.x;
@@ -330,8 +385,8 @@ export class BodyStore extends KernelViews {
         s2f[s2o + S2_CENTER0 + 2] = center0.z;
         s2f[s2o + S2_MIN_EXTENT] = s.minExtent;
         s2f[s2o + S2_MAX_ANGULAR_VELOCITY] = s.maxAngularVelocity;
-        this.sim2U[s2o + S2_BODY_ID] = s.bodyId;
-        this.sim2U[s2o + S2_FLAGS] = s.flags;
+        target.sim2U[s2o + S2_BODY_ID] = s.bodyId;
+        target.sim2U[s2o + S2_FLAGS] = s.flags;
     }
 
     /** Write the head of the body's shape list into record `i`'s sim2 lane — the entry point the
@@ -365,8 +420,8 @@ export function simField<K extends keyof BodySim>(
     field: K,
 ): BodySim[K] {
     if (typeof ref !== "number") return ref[field];
-    const store = world.bodyStore;
-    const i = ref;
+    const store = world.bodyStore.simColumns(ref);
+    const i = bodySimIndex(ref);
     switch (field) {
         case "transform": {
             const sf = store.simF;
@@ -458,8 +513,8 @@ export function setSimField<K extends keyof BodySim>(
         (ref as BodySim)[field] = value;
         return;
     }
-    const store = world.bodyStore;
-    const i = ref;
+    const store = world.bodyStore.simColumns(ref);
+    const i = bodySimIndex(ref);
     switch (field) {
         case "center": {
             const v = value as Vec3;
@@ -708,10 +763,10 @@ export function readSimTransform(
     out: WorldTransform,
 ): WorldTransform {
     if (typeof ref === "number") {
-        const sf = world.bodyStore.simF,
-            ff = world.bodyStore.finF;
-        const so = ref * SIM_STRIDE,
-            fo = ref * FIN_STRIDE;
+        const sf = world.bodyStore.simColumns(ref).simF,
+            ff = world.bodyStore.simColumns(ref).finF;
+        const so = bodySimIndex(ref) * SIM_STRIDE,
+            fo = bodySimIndex(ref) * FIN_STRIDE;
         out.p.x = ff[fo + 9];
         out.p.y = ff[fo + 10];
         out.p.z = ff[fo + 11];
@@ -730,8 +785,8 @@ export function readSimTransform(
 
 export function readSimCenter(world: WorldState, ref: BodySimRef, out: Vec3): Vec3 {
     if (typeof ref === "number") {
-        const f = world.bodyStore.finF;
-        const o = ref * FIN_STRIDE + 0;
+        const f = world.bodyStore.simColumns(ref).finF;
+        const o = bodySimIndex(ref) * FIN_STRIDE + 0;
         out.x = f[o];
         out.y = f[o + 1];
         out.z = f[o + 2];
@@ -746,8 +801,8 @@ export function readSimCenter(world: WorldState, ref: BodySimRef, out: Vec3): Ve
 
 export function readSimLocalCenter(world: WorldState, ref: BodySimRef, out: Vec3): Vec3 {
     if (typeof ref === "number") {
-        const f = world.bodyStore.finF;
-        const o = ref * FIN_STRIDE + 3;
+        const f = world.bodyStore.simColumns(ref).finF;
+        const o = bodySimIndex(ref) * FIN_STRIDE + 3;
         out.x = f[o];
         out.y = f[o + 1];
         out.z = f[o + 2];
@@ -794,10 +849,10 @@ export function readStateAngularVelocity(world: WorldState, ref: BodyStateRef, o
 
 export function writeSimTransform(world: WorldState, ref: BodySimRef, t: WorldTransform): void {
     if (typeof ref === "number") {
-        const sf = world.bodyStore.simF;
-        const ff = world.bodyStore.finF;
-        const so = ref * SIM_STRIDE;
-        const fo = ref * FIN_STRIDE;
+        const sf = world.bodyStore.simColumns(ref).simF;
+        const ff = world.bodyStore.simColumns(ref).finF;
+        const so = bodySimIndex(ref) * SIM_STRIDE;
+        const fo = bodySimIndex(ref) * FIN_STRIDE;
         ff[fo + 9] = t.p.x;
         ff[fo + 10] = t.p.y;
         ff[fo + 11] = t.p.z;
@@ -814,8 +869,8 @@ export function writeSimTransform(world: WorldState, ref: BodySimRef, t: WorldTr
 
 export function writeSimRotation0(world: WorldState, ref: BodySimRef, q: Quat): void {
     if (typeof ref === "number") {
-        const s2 = world.bodyStore.sim2F;
-        const o = ref * SIM2_STRIDE + S2_ROTATION0;
+        const s2 = world.bodyStore.simColumns(ref).sim2F;
+        const o = bodySimIndex(ref) * SIM2_STRIDE + S2_ROTATION0;
         s2[o] = q.v.x;
         s2[o + 1] = q.v.y;
         s2[o + 2] = q.v.z;
@@ -827,19 +882,16 @@ export function writeSimRotation0(world: WorldState, ref: BodySimRef, q: Quat): 
 }
 /** Append an awake body at its local index and initialize its columns. */
 export function residentPush(
-    store: BodyStore,
-    bodyStates: BodyStateRef[],
-    bodySims: BodySimRef[],
+    world: WorldState,
     initState: BodyState,
     initSim: BodySimRef,
     headShapeId: number,
 ): void {
-    const i = bodyStates.length;
+    const store = world.bodyStore;
+    const i = kernel(world.ecsState).solverSetBodyAppend(SetType.Awake);
     store.writeState(i, initState);
     store.writeSim(i, initSim);
     store.writeHeadShape(i, headShapeId);
-    bodyStates.push(i);
-    bodySims.push(i);
 }
 
 /**
@@ -854,54 +906,23 @@ export function syncHeadShape(world: WorldState, body: Body): void {
 }
 
 /** Swap-remove an awake row; return the body moved into the hole, or NULL_INDEX. */
-export function residentRemove(
-    store: BodyStore,
-    bodyStates: BodyStateRef[],
-    bodySims: BodySimRef[],
-    index: number,
-): number {
-    const last = bodyStates.length - 1;
+export function residentRemove(world: WorldState, index: number): number {
+    const store = world.bodyStore;
+    const k = kernel(world.ecsState);
+    const last = k.solverSetBodyCount(SetType.Awake) - 1;
     let movedBodyId = NULL_INDEX;
     if (index !== last) {
         store.migrate(last, index);
         store.migrateSim(last, index);
         movedBodyId = store.sim2U[index * SIM2_STRIDE + S2_BODY_ID];
     }
-    bodyStates.pop();
-    bodySims.pop();
+    k.solverSetBodyPop(SetType.Awake);
     return movedBodyId;
 }
 
-const cloneVec = (v: Vec3): Vec3 => ({ x: v.x, y: v.y, z: v.z });
-const cloneQuat = (q: Quat): Quat => ({ v: cloneVec(q.v), s: q.s });
-const cloneMat3 = (m: Mat3): Mat3 => ({
-    cx: cloneVec(m.cx),
-    cy: cloneVec(m.cy),
-    cz: cloneVec(m.cz),
-});
-
-export function copyBodySim(world: WorldState, s: BodySimRef): BodySim {
-    return {
-        transform: {
-            p: cloneVec(simField(world, s, "transform").p),
-            q: cloneQuat(simField(world, s, "transform").q),
-        },
-        center: cloneVec(simField(world, s, "center")),
-        rotation0: cloneQuat(simField(world, s, "rotation0")),
-        center0: cloneVec(simField(world, s, "center0")),
-        localCenter: cloneVec(simField(world, s, "localCenter")),
-        force: cloneVec(simField(world, s, "force")),
-        torque: cloneVec(simField(world, s, "torque")),
-        invMass: simField(world, s, "invMass"),
-        invInertiaLocal: cloneMat3(simField(world, s, "invInertiaLocal")),
-        invInertiaWorld: cloneMat3(simField(world, s, "invInertiaWorld")),
-        minExtent: simField(world, s, "minExtent"),
-        maxExtent: cloneVec(simField(world, s, "maxExtent")),
-        maxAngularVelocity: simField(world, s, "maxAngularVelocity"),
-        linearDamping: simField(world, s, "linearDamping"),
-        angularDamping: simField(world, s, "angularDamping"),
-        gravityScale: simField(world, s, "gravityScale"),
-        bodyId: simField(world, s, "bodyId"),
-        flags: simField(world, s, "flags"),
-    };
+export function bodySimSlot(set: number, index: number): number {
+    return set === SetType.Awake ? index : (set + 1) * 4294967296 + index;
+}
+export function bodySimIndex(ref: number): number {
+    return ref % 4294967296;
 }

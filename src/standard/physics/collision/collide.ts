@@ -1,10 +1,16 @@
 // Box3D's collide tasks own contact updates; the ascending touch pass stays with graph/island owners.
-import { NULL_INDEX, swapRemove } from "../common/array";
+import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
 import { f32, mulWorldTransforms, quat, vec3, type WorldTransform, xf } from "../common/math";
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { readSimTransform } from "../kernel/bodycolumns";
 import { type Kernel, kernel, ParKind, runPool, threads, workers } from "../kernel/kernel";
+import {
+    setArrayCount,
+    setArrayGet,
+    setArrayPush,
+    setArrayRemove,
+} from "../kernel/solversetcolumns";
 import { bodyColumnIndex } from "../kernel/stagedbodies";
 import { getCompoundChild } from "../shapes/compound";
 import {
@@ -228,9 +234,9 @@ function mixContact(world: WorldState, id: number): void {
     );
 }
 function removeNonTouchingContact(world: WorldState, index: number): void {
-    const set = world.solverSets[SetType.Awake];
-    if (swapRemove(set.contactIndices, index) !== NULL_INDEX)
-        setContactField(world, set.contactIndices[index], ContactField.localIndex, index);
+    const set = SetType.Awake;
+    if (setArrayRemove(world, set, 0, index) !== NULL_INDEX)
+        setContactField(world, setArrayGet(world, set, 0, index), ContactField.localIndex, index);
 }
 function applyTouch(world: WorldState, id: number): void {
     const flags = contactField(world, id, ContactField.flags);
@@ -278,10 +284,10 @@ function applyTouch(world: WorldState, id: number): void {
         const color = contactField(world, id, ContactField.colorIndex);
         const local = contactField(world, id, ContactField.localIndex);
         unlinkContact(world, id);
-        const set = world.solverSets[SetType.Awake];
+        const set = SetType.Awake;
         setContactField(world, id, ContactField.colorIndex, NULL_INDEX);
-        setContactField(world, id, ContactField.localIndex, set.contactIndices.length);
-        set.contactIndices.push(id);
+        setContactField(world, id, ContactField.localIndex, setArrayCount(world, set, 0));
+        setArrayPush(world, set, 0, id);
         removeContactFromGraph(
             world,
             contactBodyId(world, id, 0),

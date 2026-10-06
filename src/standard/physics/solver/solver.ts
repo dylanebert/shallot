@@ -2,6 +2,7 @@ import { ContactField, contactField } from "../collision/contact";
 import { contactTotalImpulse, readContactManifolds } from "../collision/manifoldstore";
 import { simField } from "../kernel/bodycolumns";
 import { shapeBodyId } from "../kernel/filtercolumns";
+import { setArrayCount, setArrayGet, setBodyCount } from "../kernel/solversetcolumns";
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
 // MIT). The port runs the canonical colored constraint schedule, with a real overflow fallback:
 // prepare each selected color, then for each substep integrate velocities, warm-start, solve (bias),
@@ -54,10 +55,9 @@ const awakeIslandsScratch: boolean[] = [];
 /** Publish continuous hits and apply the retained body/island metadata policy after kernel finalization. */
 function finalizeBodies(context: StepContext, cols: Columns): void {
     const world = context.world;
-    const sims = context.sims;
+    const count = context.bodyCount;
     const enableSleep = world.enableSleep;
     const timeStep = context.dt;
-    const count = sims.length;
 
     // Kernel finalization publishes one retained move record per awake body. Keep only its valid
     // prefix count here; the public World bridge reads the wasm records after the step.
@@ -229,14 +229,14 @@ export function solve(world: WorldState, context: StepContext): void {
     // Only count steps that advance the simulation
     world.stepIndex += 1;
 
-    const awakeSet = world.solverSets[SetType.Awake];
-    const awakeBodyCount = awakeSet.bodySims.length;
+    const awakeSet = SetType.Awake;
+    const awakeBodyCount = setBodyCount(world, awakeSet);
     if (awakeBodyCount === 0) {
         updateBeginContactImpulses(world);
         return;
     }
 
-    context.sims = awakeSet.bodySims;
+    context.bodyCount = awakeBodyCount;
     // The layout fixes the contact and joint ranges.
     const layout = computeLayout(world);
     const pool = workers(world.ecsState);
@@ -279,7 +279,7 @@ export function solve(world: WorldState, context: StepContext): void {
     const subStepCount = context.subStepCount;
 
     const jointTotal = stageJointBodies(world, layout, cols.colorSpan);
-    prepareContinuous(world, context.sims);
+    prepareContinuous(world, context.bodyCount);
     k.solveBuild(
         (pool?.size ?? 0) + 1,
         subStepCount,
@@ -331,7 +331,7 @@ export function solve(world: WorldState, context: StepContext): void {
     // Reset the per-step sleep bookkeeping (the C per-worker b3TaskContext reset before finalize).
     // The island marks reuse a grow-only module buffer — valid prefix = this step's awake island
     // count, cleared here; never read across steps (finalize writes it, the sleep pass below reads it).
-    const islandCount = awakeSet.islandSims.length;
+    const islandCount = setArrayCount(world, awakeSet, 1);
     while (awakeIslandsScratch.length < islandCount) awakeIslandsScratch.push(false);
     for (let i = 0; i < islandCount; ++i) awakeIslandsScratch[i] = false;
     context.awakeIslands = awakeIslandsScratch;
@@ -357,7 +357,7 @@ export function solve(world: WorldState, context: StepContext): void {
     // fully enlarged once finalize has refit every non-bullet proxy (b3World_Step's bullet stage).
     if (context.bulletBodies.length > 0) {
         phaseStart = performance.now();
-        solveBullets(world, context.sims);
+        solveBullets(world, context.bodyCount);
         profile.bullets = performance.now() - phaseStart;
     }
 
@@ -374,12 +374,12 @@ export function solve(world: WorldState, context: StepContext): void {
         }
 
         // Reverse order because sleeping an island swap-removes it from the awake islandSims.
-        const islands = awakeSet.islandSims;
-        for (let islandIndex = islands.length - 1; islandIndex >= 0; --islandIndex) {
+        const count = setArrayCount(world, awakeSet, 1);
+        for (let islandIndex = count - 1; islandIndex >= 0; --islandIndex) {
             if (context.awakeIslands[islandIndex]) {
                 continue;
             }
-            trySleepIsland(world, islands[islandIndex].islandId);
+            trySleepIsland(world, setArrayGet(world, awakeSet, 1, islandIndex));
         }
         profile.sleepIslands = performance.now() - phaseStart;
     }

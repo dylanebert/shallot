@@ -1,5 +1,5 @@
 import { atan2, f32, mat3, quat, type Vec3, vec3 } from "../common/math";
-import { simField, stateField } from "../kernel/bodycolumns";
+import { bodySimSlot, simField, stateField } from "../kernel/bodycolumns";
 import {
     J_LOCAL_FRAME_A,
     J_LOCAL_FRAME_B,
@@ -176,8 +176,8 @@ export function getWheelJointForce(world: WorldState, sim: Joint): Vec3 {
 /** The reaction torque this joint applies (b3GetWheelJointTorque). */
 export function getWheelJointTorque(world: WorldState, sim: Joint): Vec3 {
     const bodyA = world.bodies[sim.edges[0].bodyId];
-    const setA = world.solverSets[bodyA.setIndex];
-    const bodySimA = setA.bodySims[bodyA.localIndex];
+    const setA = bodyA.setIndex;
+    const bodySimA = bodySimSlot(setA, bodyA.localIndex);
     const qA = quat.mul(
         simField(world, bodySimA, "transform").q,
         readJointQuat(world, sim, J_LOCAL_FRAME_A + 3),
@@ -190,8 +190,8 @@ export function getWheelJointTorque(world: WorldState, sim: Joint): Vec3 {
 export function wheelJointSpinSpeed(world: WorldState, sim: Joint): number {
     const bodyA = world.bodies[sim.edges[0].bodyId];
     const bodyB = world.bodies[sim.edges[1].bodyId];
-    const setB = world.solverSets[bodyB.setIndex];
-    const bodySimB = setB.bodySims[bodyB.localIndex];
+    const setB = bodyB.setIndex;
+    const bodySimB = bodySimSlot(setB, bodyB.localIndex);
     const quatB = quat.mul(
         simField(world, bodySimB, "transform").q,
         readJointQuat(world, sim, J_LOCAL_FRAME_B + 3),
@@ -213,10 +213,10 @@ export function wheelJointSpinSpeed(world: WorldState, sim: Joint): number {
 export function wheelJointSteeringAngle(world: WorldState, sim: Joint): number {
     const bodyA = world.bodies[sim.edges[0].bodyId];
     const bodyB = world.bodies[sim.edges[1].bodyId];
-    const setA = world.solverSets[bodyA.setIndex];
-    const setB = world.solverSets[bodyB.setIndex];
-    const bodySimA = setA.bodySims[bodyA.localIndex];
-    const bodySimB = setB.bodySims[bodyB.localIndex];
+    const setA = bodyA.setIndex;
+    const setB = bodyB.setIndex;
+    const bodySimA = bodySimSlot(setA, bodyA.localIndex);
+    const bodySimB = bodySimSlot(setB, bodyB.localIndex);
     const quatA = quat.mul(
         simField(world, bodySimA, "transform").q,
         readJointQuat(world, sim, J_LOCAL_FRAME_A + 3),

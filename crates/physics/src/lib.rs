@@ -49,6 +49,7 @@ pub mod parfor;
 pub mod query;
 pub mod recycle;
 mod simd;
+mod solver_set;
 pub mod stages;
 mod toi;
 pub mod triangle_manifold;

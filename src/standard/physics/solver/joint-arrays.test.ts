@@ -5,6 +5,7 @@ import { GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/constants"
 import { DJ_IMPULSE, DJ_MOTOR_IMPULSE, J_JOINT_ID, JOINT_STRIDE } from "../kernel/columns";
 import { jointArrayCount, jointArrayKey, jointAt, writeJointFloat } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
+import { solverSetCount } from "../kernel/solversetcolumns";
 import type { WorldState } from "../world/world";
 
 function records(world: WorldState): Map<number, number[]> {
@@ -24,7 +25,7 @@ function records(world: WorldState): Map<number, number[]> {
         expect(words[J_JOINT_ID]).toBe(joint.jointId);
         result.set(joint.jointId, Array.from(words));
     }
-    for (let key = 0; key < GRAPH_COLOR_COUNT + world.solverSets.length; ++key) {
+    for (let key = 0; key < GRAPH_COLOR_COUNT + solverSetCount(world); ++key) {
         for (let i = 0; i < jointArrayCount(world, key); ++i) {
             const joint = jointAt(world, key, i);
             expect(jointArrayKey(joint)).toBe(key);

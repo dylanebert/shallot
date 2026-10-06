@@ -1,6 +1,16 @@
 import { ContactField, contactField, setContactField } from "../collision/contact";
-import type { BodySimRef, BodyStateRef } from "../kernel/bodycolumns";
-import { copyBodySim, setSimField, setStateField, simField } from "../kernel/bodycolumns";
+import { bodySimSlot, setSimField, setStateField, simField } from "../kernel/bodycolumns";
+import {
+    createSolverSet,
+    releaseSolverSet,
+    setArrayCount,
+    setArrayGet,
+    setArrayPush,
+    setArrayRemove,
+    setBodyCount,
+    setBodyPush,
+    setBodyRemove,
+} from "../kernel/solversetcolumns";
 // Solver sets: the SoA storage that gives bodies/contacts/islands high memory locality. Ported
 // from Box3D's solver_set.c (Erin Catto, MIT). Four fixed roles (constants.ts SetType): static,
 // disabled, awake, and one set per sleeping island group. A body's sim lives in its set's bodySims
@@ -11,9 +21,8 @@ import { copyBodySim, setSimField, setStateField, simField } from "../kernel/bod
 // transferJoint moves a joint's sim between sets (used by setType).
 
 import { ContactFlags, reclassifyBodyContacts, writeBodySimIndex } from "../collision/contact";
-import { NULL_INDEX, swapRemove } from "../common/array";
+import { NULL_INDEX } from "../common/array";
 import { GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/constants";
-import { allocId, freeId } from "../common/ids";
 import { residentPush, residentRemove } from "../kernel/bodycolumns";
 import { moveJointRecord, releaseJointArray } from "../kernel/jointcolumns";
 import { syncBodyQuery } from "../kernel/shapecolumns";
@@ -25,48 +34,20 @@ import {
 } from "../solver/graph";
 import type { Joint } from "../solver/joint";
 import { BODY_TRANSIENT_FLAGS, type Body, identityBodyState } from "./body";
-import type { IslandSim } from "./island";
 import type { WorldState } from "./world";
 
-/** Contiguous SoA storage for one solver set (b3SolverSet). */
-export type SolverSet = {
-    bodySims: BodySimRef[];
-    // Only the awake set has body states.
-    bodyStates: BodyStateRef[];
-    // Sleeping sets: all contacts. Awake set: non-touching only. Static/disabled: empty.
-    contactIndices: number[];
-    islandSims: IslandSim[];
-    setIndex: number;
-};
-
-/** @returns a fresh empty solver set. */
-export function emptySolverSet(): SolverSet {
-    return {
-        bodySims: [],
-        bodyStates: [],
-        contactIndices: [],
-        islandSims: [],
-        setIndex: NULL_INDEX,
-    };
-}
-
+export type SolverSet = number;
 export function destroySolverSet(world: WorldState, setIndex: number): void {
     releaseJointArray(world, GRAPH_COLOR_COUNT + setIndex);
-    const set = world.solverSets[setIndex];
-    set.bodySims = [];
-    set.bodyStates = [];
-    set.contactIndices = [];
-    set.islandSims = [];
-    freeId(world.solverSetIdPool, setIndex);
-    set.setIndex = NULL_INDEX;
+    releaseSolverSet(world, setIndex);
 }
 
 // Wake a solver set. Does not merge islands. Handles non-touching contacts parked in the disabled
 // set and (via graph.ts) touching contacts / joints held in the constraint graph.
 export function wakeSolverSet(world: WorldState, setIndex: number): void {
-    const set = world.solverSets[setIndex];
-    const awakeSet = world.solverSets[SetType.Awake];
-    const disabledSet = world.solverSets[SetType.Disabled];
+    const set = setIndex;
+    const awakeSet = SetType.Awake;
+    const disabledSet = SetType.Disabled;
 
     const bodies = world.bodies;
 
@@ -75,27 +56,20 @@ export function wakeSolverSet(world: WorldState, setIndex: number): void {
     // and the initial writes below go straight through them.
     world.bodyStore.refreshViews();
 
-    const bodyCount = set.bodySims.length;
+    const bodyCount = setBodyCount(world, set);
     for (let i = 0; i < bodyCount; ++i) {
-        const simSrc = set.bodySims[i];
+        const simSrc = bodySimSlot(set, i);
 
         const body = bodies[simField(world, simSrc, "bodyId")];
         body.setIndex = SetType.Awake;
-        body.localIndex = awakeSet.bodySims.length;
+        body.localIndex = setBodyCount(world, awakeSet);
         body.sleepTime = 0;
 
         // The body enters the awake set as resident sim + state views: marshal the sleeping set's plain
         // `simSrc` into the resident columns and append both views (in lockstep by localIndex).
         const state = identityBodyState();
         setStateField(world, state, "flags", body.flags);
-        residentPush(
-            world.bodyStore,
-            awakeSet.bodyStates,
-            awakeSet.bodySims,
-            state,
-            simSrc,
-            body.headShapeId,
-        );
+        residentPush(world, state, simSrc, body.headShapeId);
         syncBodyQuery(world, body);
 
         // move non-touching contacts from disabled set to awake set
@@ -118,13 +92,13 @@ export function wakeSolverSet(world: WorldState, setIndex: number): void {
                 world,
                 contact,
                 ContactField.localIndex,
-                awakeSet.contactIndices.length,
+                setArrayCount(world, awakeSet, 0),
             );
-            awakeSet.contactIndices.push(contactId);
+            setArrayPush(world, awakeSet, 0, contactId);
 
-            const movedLocalIndex = swapRemove(disabledSet.contactIndices, localIndex);
+            const movedLocalIndex = setArrayRemove(world, disabledSet, 0, localIndex);
             if (movedLocalIndex !== NULL_INDEX) {
-                const movedContactIndex = disabledSet.contactIndices[localIndex];
+                const movedContactIndex = setArrayGet(world, disabledSet, 0, localIndex);
                 setContactField(world, movedContactIndex, ContactField.localIndex, localIndex);
             }
         }
@@ -134,20 +108,20 @@ export function wakeSolverSet(world: WorldState, setIndex: number): void {
     wakeSetConstraints(world, set);
 
     // transfer islands from sleeping set to awake set
-    const islandCount = set.islandSims.length;
+    const islandCount = setArrayCount(world, set, 1);
     for (let i = 0; i < islandCount; ++i) {
-        const islandSrc = set.islandSims[i];
-        const island = world.islands[islandSrc.islandId];
+        const islandSrc = setArrayGet(world, set, 1, i);
+        const island = world.islands[islandSrc];
         island.setIndex = SetType.Awake;
-        island.localIndex = awakeSet.islandSims.length;
-        awakeSet.islandSims.push({ islandId: islandSrc.islandId });
+        island.localIndex = setArrayCount(world, awakeSet, 1);
+        setArrayPush(world, awakeSet, 1, islandSrc);
     }
 
     // Re-partition the woken bodies' contacts into the incremental collide lists. Runs after
     // wakeSetConstraints so every touching contact already carries setIndex Awake; a contact between two
     // woken bodies converges once both endpoints are visited (reclassify is idempotent).
-    for (let i = 0; i < set.bodySims.length; ++i) {
-        reclassifyBodyContacts(world, bodies[simField(world, set.bodySims[i], "bodyId")]);
+    for (let i = 0; i < setBodyCount(world, set); ++i) {
+        reclassifyBodyContacts(world, bodies[simField(world, bodySimSlot(set, i), "bodyId")]);
     }
 
     destroySolverSet(world, setIndex);
@@ -164,52 +138,40 @@ export function transferBody(
     }
 
     const sourceIndex = body.localIndex;
-    const sourceSim = sourceSet.bodySims[sourceIndex];
-    const targetIndex = targetSet.bodySims.length;
+    const sourceSim = bodySimSlot(sourceSet, sourceIndex);
+    const targetIndex = setBodyCount(world, targetSet);
 
     // Add to the target set. The awake set holds resident sim + state views (marshal `sourceSim` into
     // the columns); every other set holds a plain deep copy. At most one of source/target is awake, so
     // at most one resident op runs — refresh the store's views first (a prior grow may have detached
     // them). Transient body flags are cleared on the fresh copy either way (b3_bodyTransientFlags).
-    if (targetSet.setIndex === SetType.Awake) {
+    if (targetSet === SetType.Awake) {
         world.bodyStore.refreshViews();
         const state = identityBodyState();
         setStateField(world, state, "flags", body.flags);
-        residentPush(
-            world.bodyStore,
-            targetSet.bodyStates,
-            targetSet.bodySims,
-            state,
-            sourceSim,
-            body.headShapeId,
-        );
+        residentPush(world, state, sourceSim, body.headShapeId);
         setSimField(
             world,
-            targetSet.bodySims[targetIndex],
+            bodySimSlot(targetSet, targetIndex),
             "flags",
-            simField(world, targetSet.bodySims[targetIndex], "flags") & ~BODY_TRANSIENT_FLAGS,
+            simField(world, bodySimSlot(targetSet, targetIndex), "flags") & ~BODY_TRANSIENT_FLAGS,
         );
     } else {
-        const targetSim = copyBodySim(world, sourceSim);
+        setBodyPush(world, targetSet, sourceSim);
+        const targetSim = bodySimSlot(targetSet, targetIndex);
         setSimField(
             world,
             targetSim,
             "flags",
             simField(world, targetSim, "flags") & ~BODY_TRANSIENT_FLAGS,
         );
-        targetSet.bodySims.push(targetSim);
     }
 
     // Remove from the source set: migrate the resident tail record (awake) or swap-remove the plain
     // array, then fix the moved body's localIndex.
-    if (sourceSet.setIndex === SetType.Awake) {
+    if (sourceSet === SetType.Awake) {
         world.bodyStore.refreshViews();
-        const movedBodyId = residentRemove(
-            world.bodyStore,
-            sourceSet.bodyStates,
-            sourceSet.bodySims,
-            sourceIndex,
-        );
+        const movedBodyId = residentRemove(world, sourceIndex);
         if (movedBodyId !== NULL_INDEX) {
             const movedBody = world.bodies[movedBodyId];
             movedBody.localIndex = sourceIndex;
@@ -218,14 +180,14 @@ export function transferBody(
             syncBodyQuery(world, movedBody);
         }
     } else {
-        const movedIndex = swapRemove(sourceSet.bodySims, sourceIndex);
+        const movedIndex = setBodyRemove(world, sourceSet, sourceIndex);
         if (movedIndex !== NULL_INDEX) {
-            const movedSim = sourceSet.bodySims[sourceIndex];
+            const movedSim = bodySimSlot(sourceSet, sourceIndex);
             world.bodies[simField(world, movedSim, "bodyId")].localIndex = sourceIndex;
         }
     }
 
-    body.setIndex = targetSet.setIndex;
+    body.setIndex = targetSet;
     body.localIndex = targetIndex;
     syncBodyQuery(world, body);
 
@@ -249,15 +211,15 @@ export function transferJoint(
         return;
     }
 
-    if (sourceSet.setIndex === SetType.Awake && joint.colorIndex !== OVERFLOW_INDEX) {
+    if (sourceSet === SetType.Awake && joint.colorIndex !== OVERFLOW_INDEX) {
         clearGraphBodies(world, joint.colorIndex, joint.edges[0].bodyId, joint.edges[1].bodyId);
     }
-    if (targetSet.setIndex === SetType.Awake) {
+    if (targetSet === SetType.Awake) {
         addJointToGraph(world, joint);
         joint.setIndex = SetType.Awake;
     } else {
-        const destination = moveJointRecord(world, joint, GRAPH_COLOR_COUNT + targetSet.setIndex);
-        joint.setIndex = targetSet.setIndex;
+        const destination = moveJointRecord(world, joint, GRAPH_COLOR_COUNT + targetSet);
+        joint.setIndex = targetSet;
         joint.localIndex = destination;
         joint.colorIndex = NULL_INDEX;
     }
@@ -274,20 +236,12 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
     }
 
     // Create a new sleeping solver set.
-    const sleepSetId = allocId(world.solverSetIdPool);
-    if (sleepSetId === world.solverSets.length) {
-        world.solverSets.push(emptySolverSet());
-    }
-    const sleepSet = world.solverSets[sleepSetId];
-    sleepSet.bodySims = [];
-    sleepSet.bodyStates = [];
-    sleepSet.contactIndices = [];
-    sleepSet.islandSims = [];
-    sleepSet.setIndex = sleepSetId;
+    const sleepSetId = createSolverSet(world);
+    const sleepSet = sleepSetId;
 
     // Grab awake/disabled after creating the sleep set (solverSets may have grown).
-    const awakeSet = world.solverSets[SetType.Awake];
-    const disabledSet = world.solverSets[SetType.Disabled];
+    const awakeSet = SetType.Awake;
+    const disabledSet = SetType.Disabled;
 
     // The island's bodies leave the resident awake column below; refresh the store's views first (a
     // grow this step may have detached them) so the swap-remove migrations read/write live bytes.
@@ -305,19 +259,13 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
         }
 
         const awakeBodyIndex = body.localIndex;
-        const awakeSim = awakeSet.bodySims[awakeBodyIndex];
+        const awakeSim = bodySimSlot(awakeSet, awakeBodyIndex);
 
-        // The sleeping set holds a plain deep copy (view→object marshal via cloneBodySim); the awake
-        // set's resident sim + state records then compact via one swap-remove migration.
-        const sleepBodyIndex = sleepSet.bodySims.length;
-        sleepSet.bodySims.push(copyBodySim(world, awakeSim));
+        // Preserve the sim, discard its state, then compact the awake row.
+        const sleepBodyIndex = setBodyCount(world, sleepSet);
+        setBodyPush(world, sleepSet, awakeSim);
 
-        const movedBodyId = residentRemove(
-            world.bodyStore,
-            awakeSet.bodyStates,
-            awakeSet.bodySims,
-            awakeBodyIndex,
-        );
+        const movedBodyId = residentRemove(world, awakeBodyIndex);
         if (movedBodyId !== NULL_INDEX) {
             const movedBody = world.bodies[movedBodyId];
             movedBody.localIndex = awakeBodyIndex;
@@ -363,13 +311,13 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
                 world,
                 contact,
                 ContactField.localIndex,
-                disabledSet.contactIndices.length,
+                setArrayCount(world, disabledSet, 0),
             );
-            disabledSet.contactIndices.push(contact);
+            setArrayPush(world, disabledSet, 0, contact);
 
-            const movedLocalIndex = swapRemove(awakeSet.contactIndices, localIndex);
+            const movedLocalIndex = setArrayRemove(world, awakeSet, 0, localIndex);
             if (movedLocalIndex !== NULL_INDEX) {
-                const movedContactIndex = awakeSet.contactIndices[localIndex];
+                const movedContactIndex = setArrayGet(world, awakeSet, 0, localIndex);
                 setContactField(world, movedContactIndex, ContactField.localIndex, localIndex);
             }
         }
@@ -380,8 +328,8 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
         const contactId = island.contacts[i].contactId;
         const contact = contactId;
 
-        const sleepContactIndex = sleepSet.contactIndices.length;
-        sleepSet.contactIndices.push(contactId);
+        const sleepContactIndex = setArrayCount(world, sleepSet, 0);
+        setArrayPush(world, sleepSet, 0, contactId);
 
         // A touching contact lives in its assigned color's scalar `contacts` (mesh/overflow) or
         // `convexContacts` (a convex contact in a real color); removeContactFromGraph handles both,
@@ -412,11 +360,11 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
     // Move the island struct itself to the sleeping set.
     {
         const islandIndex = island.localIndex;
-        sleepSet.islandSims.push({ islandId });
+        setArrayPush(world, sleepSet, 1, islandId);
 
-        const movedIslandIndex = swapRemove(awakeSet.islandSims, islandIndex);
+        const movedIslandIndex = setArrayRemove(world, awakeSet, 1, islandIndex);
         if (movedIslandIndex !== NULL_INDEX) {
-            const movedIslandId = awakeSet.islandSims[islandIndex].islandId;
+            const movedIslandId = setArrayGet(world, awakeSet, 1, islandIndex);
             world.islands[movedIslandId].localIndex = islandIndex;
         }
 

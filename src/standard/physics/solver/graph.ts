@@ -2,6 +2,7 @@ import { ContactField, contactField } from "../collision/contact";
 import { GRAPH_COLOR_COUNT, SetType } from "../common/constants";
 import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
+import { setArrayCount, setArrayGet } from "../kernel/solversetcolumns";
 import type { SolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
 import type { Joint } from "./joint";
@@ -88,13 +89,13 @@ export function removeJointFromGraph(
 }
 export function wakeSetConstraints(world: WorldState, set: SolverSet): void {
     const k = graphKernel(world);
-    const key = GRAPH_COLOR_COUNT + set.setIndex;
+    const key = GRAPH_COLOR_COUNT + set;
     const count = jointArrayCount(world, key);
-    const contacts = set.contactIndices.length;
+    const contacts = setArrayCount(world, set, 0);
     const ptr = k.graphWakeBuffer(contacts, count);
     let input = new Uint32Array(k.memory.buffer, ptr, 3 * (contacts + count));
     for (let i = 0; i < contacts; ++i) {
-        const id = set.contactIndices[i];
+        const id = setArrayGet(world, set, 0, i);
         input[3 * i] = id;
         input[3 * i + 1] = world.bodies[contactField(world, id, ContactField.bodyIdA)].localIndex;
         input[3 * i + 2] =

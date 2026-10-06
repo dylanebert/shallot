@@ -1,3 +1,4 @@
+import { setArrayCount, setArraySnapshot } from "../kernel/solversetcolumns";
 import { ContactField, contactCapacity, contactField } from "./contact";
 // contact machinery: create/destroy and the solver-set placement it picks. Contacts are normally
 // born from the broad-phase collide phase (solver stage); here they're driven directly so the
@@ -37,7 +38,7 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
     const contact = 0;
     // Both bodies awake → the contact lives in the awake set as non-touching.
     expect(contactField(world, contact, ContactField.setIndex)).toBe(SetType.Awake);
-    expect(world.solverSets[SetType.Awake].contactIndices).toContain(0);
+    expect(setArraySnapshot(world, SetType.Awake, 0)).toContain(0);
     // Edge list threaded through both bodies.
     expect(a.body.contactCount, "body a contactCount").toBe(1);
     expect(b.body.contactCount, "body b contactCount").toBe(1);
@@ -53,7 +54,7 @@ test("createContact leaves a body edge, an awake-set row or a broad-phase pair e
     expect(b.body.contactCount, "body b contactCount after destroy").toBe(0);
     expect(a.body.headContactKey).toBe(NULL_INDEX);
     expect(b.body.headContactKey).toBe(NULL_INDEX);
-    expect(world.solverSets[SetType.Awake].contactIndices.length).toBe(0);
+    expect(setArrayCount(world, SetType.Awake, 0)).toBe(0);
     expect(removeKey(world.broadPhase.pairSet, a.shape.id, b.shape.id, 0)).toBe(false);
 });
 

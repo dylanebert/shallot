@@ -6,6 +6,12 @@ import type { Vec3 } from "../common/math";
 import { BodyType, ShapeType } from "../common/types";
 import { bodyType, shapeBodyId } from "../kernel/filtercolumns";
 import { kernel } from "../kernel/kernel";
+import {
+    setArrayCount,
+    setArrayGet,
+    setArrayPush,
+    setArrayRemove,
+} from "../kernel/solversetcolumns";
 import { getCompoundChild } from "../shapes/compound";
 import type { Shape } from "../shapes/shape";
 import { removeContactFromGraph } from "../solver/graph";
@@ -149,11 +155,11 @@ export function createContact(
         bodyA.setIndex === SetType.Awake || bodyB.setIndex === SetType.Awake
             ? SetType.Awake
             : SetType.Disabled;
-    const set = world.solverSets[setIndex];
+    const set = setIndex;
     k.bodySetActiveWorld(world.worldId);
     const id = k.allocContact();
     setContactField(world, id, ContactField.setIndex, setIndex);
-    setContactField(world, id, ContactField.localIndex, set.contactIndices.length);
+    setContactField(world, id, ContactField.localIndex, setArrayCount(world, set, 0));
     setContactField(world, id, ContactField.shapeIdA, shapeA.id);
     setContactField(world, id, ContactField.shapeIdB, shapeB.id);
     setContactField(world, id, ContactField.childIndex, childIndex);
@@ -197,7 +203,7 @@ export function createContact(
         body.contactCount += 1;
     }
     addKey(world.broadPhase.pairSet, shapeA.id, shapeB.id, childIndex);
-    set.contactIndices.push(id);
+    setArrayPush(world, set, 0, id);
     updateAwakeContact(world, id);
     setContactField(
         world,
@@ -265,11 +271,11 @@ export function destroyContact(world: WorldState, id: number, wakeBodies: boolea
             (flags & ContactFlags.simMeshContact) !== 0,
         );
     } else {
-        const set = world.solverSets[contactField(world, id, ContactField.setIndex)];
-        if (swapRemove(set.contactIndices, localIndex) !== NULL_INDEX)
+        const set = contactField(world, id, ContactField.setIndex);
+        if (setArrayRemove(world, set, 0, localIndex) !== NULL_INDEX)
             setContactField(
                 world,
-                set.contactIndices[localIndex],
+                setArrayGet(world, set, 0, localIndex),
                 ContactField.localIndex,
                 localIndex,
             );

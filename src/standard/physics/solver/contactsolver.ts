@@ -10,7 +10,7 @@ import type { Softness } from "./softness";
 /** The per-step solver context threaded through the solve (b3StepContext, scalar subset). */
 export type StepContext = {
     world: WorldState;
-    sims: BodySimRef[];
+    bodyCount: number;
     dt: number;
     invDt: number;
     h: number;

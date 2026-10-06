@@ -1,7 +1,19 @@
 import { ContactField, contactField } from "../collision/contact";
 import type { BodySimRef, BodyStateRef } from "../kernel/bodycolumns";
-import { setSimField, setStateField, simField, stateField } from "../kernel/bodycolumns";
+import {
+    bodySimSlot,
+    setSimField,
+    setStateField,
+    simField,
+    stateField,
+} from "../kernel/bodycolumns";
 import { bodyType, setBodyType, shapeSensorIndex } from "../kernel/filtercolumns";
+import {
+    createSolverSet,
+    setBodyCount,
+    setBodyPush,
+    setBodyRemove,
+} from "../kernel/solversetcolumns";
 // Rigid body lifecycle and the 3-way body split, ported from Box3D's body.c (Erin Catto, MIT).
 // A body is stored as three records: the cold organizational handle (b3Body, in world.bodies,
 // id-indexed), the hot simulation payload (b3BodySim, in a solver set's bodySims column), and the
@@ -13,9 +25,9 @@ import { bodyType, setBodyType, shapeSensorIndex } from "../kernel/filtercolumns
 
 import { moveProxy as bpMoveProxy } from "../collision/broadphase";
 import { destroyContact, writeBodySimIndex } from "../collision/contact";
-import { NULL_INDEX, swapRemove } from "../common/array";
+import { NULL_INDEX } from "../common/array";
 import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "../common/constants";
-import { allocId, type EntityId } from "../common/ids";
+import type { EntityId } from "../common/ids";
 import {
     aabb,
     FLT_MIN,
@@ -71,7 +83,6 @@ import { createIsland, destroyIsland, linkJoint, splitIsland, unlinkJoint } from
 import { destroySensor } from "./sensor";
 import {
     destroySolverSet,
-    emptySolverSet,
     transferBody,
     transferJoint,
     trySleepIsland,
@@ -193,14 +204,14 @@ const _cloneMat3 = (m: Mat3): Mat3 => ({
  * must not alias the source's Vec3/Quat/Mat3 sub-objects — the solver mutates them in place.
  */
 /** @returns the body's simulation payload from whichever solver set owns it (b3GetBodySim). */
-export function getBodySim(world: WorldState, body: Body): BodySimRef {
-    return world.solverSets[body.setIndex].bodySims[body.localIndex];
+export function getBodySim(_world: WorldState, body: Body): BodySimRef {
+    return bodySimSlot(body.setIndex, body.localIndex);
 }
 
 /** @returns the body's solver state, or null when the body is not awake (b3GetBodyState). */
-export function getBodyState(world: WorldState, body: Body): BodyStateRef | null {
+export function getBodyState(_world: WorldState, body: Body): BodyStateRef | null {
     if (body.setIndex === SetType.Awake) {
-        return world.solverSets[SetType.Awake].bodyStates[body.localIndex];
+        return body.localIndex;
     }
     return null;
 }
@@ -651,7 +662,7 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
     wakeBody(world, body);
 
     // Stage 4: move all live joints to the static set so they can re-acquire consistent colors below.
-    const staticSet = world.solverSets[SetType.Static];
+    const staticSet = SetType.Static;
     let jointKey = body.headJointKey;
     while (jointKey !== NULL_INDEX) {
         const jointId = jointKey >> 1;
@@ -666,7 +677,7 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
         wakeBody(world, world.bodies[joint.edges[1].bodyId]);
 
         unlinkJoint(world, joint);
-        transferJoint(world, staticSet, world.solverSets[joint.setIndex], joint);
+        transferJoint(world, staticSet, joint.setIndex, joint);
     }
 
     // Stage 5: change the type and transfer the body between solver sets.
@@ -674,8 +685,8 @@ export function bodySetType(world: WorldState, body: Body, type: BodyType): void
     if (type === BodyType.Dynamic) body.flags |= BodyFlags.dynamicFlag;
     else body.flags &= ~BodyFlags.dynamicFlag;
 
-    const awakeSet = world.solverSets[SetType.Awake];
-    const sourceSet = world.solverSets[body.setIndex];
+    const awakeSet = SetType.Awake;
+    const sourceSet = body.setIndex;
     const targetSet = type === BodyType.Static ? staticSet : awakeSet;
     transferBody(world, targetSet, sourceSet, body);
 
@@ -874,11 +885,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
         setId = SetType.Awake;
     } else {
         // new set for a sleeping body in its own island
-        setId = allocId(world.solverSetIdPool);
-        if (setId === world.solverSets.length) {
-            world.solverSets.push(emptySolverSet());
-        }
-        world.solverSets[setId].setIndex = setId;
+        setId = createSolverSet(world);
     }
 
     // The cold record remains the world-local authoring/handle bridge; the lifecycle fields are
@@ -893,7 +900,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     lockFlags |= def.motionLocks.angularY ? BodyFlags.lockAngularY : 0;
     lockFlags |= def.motionLocks.angularZ ? BodyFlags.lockAngularZ : 0;
 
-    const set = world.solverSets[setId];
+    const set = setId;
     const bodySim = emptyBodySim();
     simField(world, bodySim, "transform").p = { ...def.position };
     simField(world, bodySim, "transform").q = { v: { ...def.rotation.v }, s: def.rotation.s };
@@ -915,7 +922,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     // Awake bodies hold a column-backed `ResidentBodySim` view (pushed via `residentPush` below, once
     // the region is sized); every other set holds the plain sim. Defer the awake push so the view lands
     // over the resident record rather than a plain object being replaced.
-    if (setId !== SetType.Awake) set.bodySims.push(bodySim);
+    if (setId !== SetType.Awake) setBodyPush(world, set, bodySim);
 
     // The awake body's solver state is column-resident; its initial values are written into the region
     // once it's sized to the new total-body high-water (below, after the body id is registered).
@@ -943,7 +950,8 @@ export function createBody(world: WorldState, def: BodyDef): number {
     body.setIndex = setId;
     // Awake: the sim view is pushed below, so its index is the current (pre-push) length; every other
     // set already pushed at line above, so its index is length - 1.
-    body.localIndex = setId === SetType.Awake ? set.bodySims.length : set.bodySims.length - 1;
+    body.localIndex =
+        setId === SetType.Awake ? setBodyCount(world, set) : setBodyCount(world, set) - 1;
 
     body.headShapeId = NULL_INDEX;
     body.shapeCount = 0;
@@ -977,14 +985,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     // first — a prior grow may have left the store's views detached, and the writes go through them).
     if (awakeState !== null) {
         world.bodyStore.refreshViews();
-        residentPush(
-            world.bodyStore,
-            set.bodyStates,
-            set.bodySims,
-            awakeState,
-            bodySim,
-            body.headShapeId,
-        );
+        residentPush(world, awakeState, bodySim, body.headShapeId);
     }
 
     world.locked = false;
@@ -1035,18 +1036,13 @@ export function destroyBody(world: WorldState, body: Body): void {
     removeBodyFromIsland(world, body);
 
     // Remove body sim from the solver set that owns it.
-    const set = world.solverSets[body.setIndex];
+    const set = body.setIndex;
     if (body.setIndex === SetType.Awake) {
         // Awake: sim + state are resident views. Migrate the tail record (sim + world) into the freed
         // slot, drop the tail views, and fix the moved body's localIndex. (No refresh needed — unlike
         // the in-step sleep/wake/transfer paths, destroyBody runs outside step(), so no manifold/geo
         // grow has detached the store's views since the last create.)
-        const movedBodyId = residentRemove(
-            world.bodyStore,
-            set.bodyStates,
-            set.bodySims,
-            body.localIndex,
-        );
+        const movedBodyId = residentRemove(world, body.localIndex);
         if (movedBodyId !== NULL_INDEX) {
             const movedBody = world.bodies[movedBodyId];
             movedBody.localIndex = body.localIndex;
@@ -1055,14 +1051,14 @@ export function destroyBody(world: WorldState, body: Body): void {
             syncBodyQuery(world, movedBody);
         }
     } else {
-        const movedIndex = swapRemove(set.bodySims, body.localIndex);
+        const movedIndex = setBodyRemove(world, set, body.localIndex);
         if (movedIndex !== NULL_INDEX) {
-            const movedSim = set.bodySims[body.localIndex];
+            const movedSim = bodySimSlot(set, body.localIndex);
             world.bodies[simField(world, movedSim, "bodyId")].localIndex = body.localIndex;
         }
-        if (set.setIndex >= SetType.FirstSleeping && set.bodySims.length === 0) {
+        if (set >= SetType.FirstSleeping && setBodyCount(world, set) === 0) {
             // Remove the solver set if it is now an orphan
-            destroySolverSet(world, set.setIndex);
+            destroySolverSet(world, set);
         }
     }
 
