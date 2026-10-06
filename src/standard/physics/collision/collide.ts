@@ -12,6 +12,7 @@ import {
     setArrayPush,
     setArrayRemove,
 } from "../kernel/solversetcolumns";
+import { shapeHullInnerRadius } from "../shapes/hull";
 import { getShapeMaterial, getShapeMaterialCount, type Shape } from "../shapes/shape";
 import type { StepContext } from "../solver/contactsolver";
 import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
@@ -65,7 +66,7 @@ function readRollingRadius(world: WorldState, shape: Shape, out: { radius: numbe
             out.radius = world.shapeGeometry[shape].capsule!.radius;
             break;
         case ShapeType.Hull:
-            out.radius = f32(0.25 * world.shapeGeometry[shape].hull!.innerRadius);
+            out.radius = f32(0.25 * shapeHullInnerRadius(world, shape));
             break;
         default:
             out.radius = 0;
@@ -150,7 +151,7 @@ function mixMesh(
     readRollingRadius(world, shapeB, radiusReport);
     const radius =
         shapeField(world, shapeB, ShapeField.type) === ShapeType.Hull
-            ? world.shapeGeometry[shapeB].hull!.innerRadius
+            ? shapeHullInnerRadius(world, shapeB)
             : radiusReport.radius;
     mixedMaterial.friction = mixedFriction;
     mixedMaterial.restitution = mixedRestitution;

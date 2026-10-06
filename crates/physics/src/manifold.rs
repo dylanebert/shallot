@@ -2063,8 +2063,12 @@ pub fn collide_hulls(
             let q2 = transform_b_to_a.point(points_b[twin2.origin as usize]);
             let e2 = q2.sub(p2);
 
-            let u2 = transform_b_to_a.q.rotate(planes_b[edge2.face as usize].normal);
-            let v2 = transform_b_to_a.q.rotate(planes_b[twin2.face as usize].normal);
+            let u2 = transform_b_to_a
+                .q
+                .rotate(planes_b[edge2.face as usize].normal);
+            let v2 = transform_b_to_a
+                .q
+                .rotate(planes_b[twin2.face as usize].normal);
 
             let is_mink = is_minkowski_face(u1, v1, e1, u2.neg(), v2.neg(), e2);
             if is_mink {

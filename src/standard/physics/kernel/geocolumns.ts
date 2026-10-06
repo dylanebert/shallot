@@ -4,13 +4,14 @@ import { ShapeType } from "../common/types";
 import type { CompoundData } from "../shapes/compound";
 import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
+import { hullByteCount, writeHullImage } from "../shapes/hullbytes";
 import type { MeshData } from "../shapes/mesh";
 import type { GeometryRecord, WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
-const HULL_HEADER_WORDS = 36;
 const align8 = (words: number): number => (words + 1) & ~1;
 const EMPTY: readonly number[] = [];
+const EMPTY_HULLS: readonly UploadHull[] = [];
 export type UploadHull = Pick<
     HullData,
     | "center"
@@ -28,19 +29,17 @@ export type UploadHull = Pick<
     | "edges"
     | "faces"
     | "planes"
-    | "geoIndex"
 >;
 
 /** World-owned authoring upload registers, not geometry storage. Contents clear after upload;
  * capacity and linear-memory views survive a database miss, as the kernel pools do. */
 export class GeometryUploadScratch {
-    hulls: (UploadHull | undefined)[] = [];
-    hullCount = 0;
     words = new Uint32Array(16);
     count = 0;
     u: Uint32Array = new Uint32Array(0);
     f: Float32Array = new Float32Array(0);
     bytes: Uint8Array = new Uint8Array(0);
+    hashes: BigUint64Array = new BigUint64Array(0);
     private readonly _float = new Float32Array(1);
     private readonly _uint = new Uint32Array(this._float.buffer);
     bits(x: number): number {
@@ -68,25 +67,12 @@ export class GeometryUploadScratch {
             this.u = new Uint32Array(buffer);
             this.f = new Float32Array(buffer);
             this.bytes = new Uint8Array(buffer);
+            this.hashes = new BigUint64Array(buffer);
         }
     }
 }
 function hullSize(h: UploadHull): number {
-    return (
-        HULL_HEADER_WORDS +
-        align8(Math.ceil(h.vertexCount / 4)) +
-        align8(h.vertexCount * 3) +
-        align8(h.edgeCount) +
-        align8(h.faceCount * 4) +
-        align8(Math.ceil(h.faceCount / 4)) +
-        3 * ((h.vertexCount + 3) & ~3) +
-        3 * ((h.faceCount + 3) & ~3)
-    );
-}
-function writeVector(f: Float32Array, o: number, p: Vec3): void {
-    f[o] = p.x;
-    f[o + 1] = p.y;
-    f[o + 2] = p.z;
+    return hullByteCount(h) / 4;
 }
 
 /** Upload Box3D b3HullData headers and their eight-byte-aligned relative-offset trailing arrays.
@@ -114,106 +100,25 @@ export function uploadGeometry(
     let base = align8(hullCount);
     for (let i = 0; i < hullCount; ++i) {
         const h = hulls[i]!;
-        h.geoIndex = i;
-        const r = pool + base;
         u[pool + i] = base * 4;
-        u[r] = 0xde57485c;
-        u[r + 1] = 0x4a4c9587;
-        u[r + 2] = h.hash >>> 0;
-        writeHullProperties(f, r, h);
-        let off = HULL_HEADER_WORDS;
-        const vertices = r + off;
-        u[r + 25] = h.vertexCount;
-        u[r + 26] = off * 4;
-        off += align8(Math.ceil(h.vertexCount / 4));
-        const points = r + off;
-        u[r + 27] = off * 4;
-        off += align8(h.vertexCount * 3);
-        const edges = r + off;
-        u[r + 28] = h.edgeCount;
-        u[r + 29] = off * 4;
-        off += align8(h.edgeCount);
-        const planes = r + off;
-        u[r + 30] = h.faceCount;
-        u[r + 31] = off * 4;
-        off += align8(h.faceCount * 4);
-        const faces = r + off;
-        u[r + 32] = off * 4;
-        off += align8(Math.ceil(h.faceCount / 4));
-        const nv = (h.vertexCount + 3) & ~3,
-            nf = (h.faceCount + 3) & ~3;
-        const soa = r + off;
-        u[r + 33] = off * 4;
-        u[r + 34] = (off + 3 * nv) * 4;
-        u[r + 35] = hullSize(h) * 4;
-        for (let p = 0; p < nv; ++p) {
-            const pt = h.points[p < h.vertexCount ? p : 0];
-            f[soa + p] = pt.x;
-            f[soa + nv + p] = pt.y;
-            f[soa + 2 * nv + p] = pt.z;
-        }
-        for (let n = 0; n < nf; ++n) {
-            if (n < h.faceCount) {
-                const normal = h.planes[n].normal;
-                f[soa + 3 * nv + n] = normal.x;
-                f[soa + 3 * nv + nf + n] = normal.y;
-                f[soa + 3 * nv + 2 * nf + n] = normal.z;
-            } else {
-                f[soa + 3 * nv + n] = 0;
-                f[soa + 3 * nv + nf + n] = 0;
-                f[soa + 3 * nv + 2 * nf + n] = 0;
-            }
-        }
-        for (let p = 0; p < h.vertexCount; ++p) {
-            writeVector(f, points + 3 * p, h.points[p]);
-            scratch.bytes[vertices * 4 + p] = h.vertices[p].edge;
-        }
-        for (let e = 0; e < h.edgeCount; ++e) {
-            const ed = h.edges[e],
-                o = edges * 4 + 4 * e;
-            scratch.bytes[o] = ed.next;
-            scratch.bytes[o + 1] = ed.twin;
-            scratch.bytes[o + 2] = ed.origin;
-            scratch.bytes[o + 3] = ed.face;
-        }
-        for (let n = 0; n < h.faceCount; ++n) {
-            scratch.bytes[faces * 4 + n] = h.faces[n].edge;
-            writeVector(f, planes + 4 * n, h.planes[n].normal);
-            f[planes + 4 * n + 3] = h.planes[n].offset;
-        }
+        writeHullImage(h, scratch.bytes, u, f, scratch.hashes, (pool + base) * 4);
         base += hullSize(h);
     }
-}
-
-function writeHullProperties(f: Float32Array, r: number, h: UploadHull): void {
-    writeVector(f, r + 4, h.aabb.lowerBound);
-    writeVector(f, r + 7, h.aabb.upperBound);
-    f[r + 10] = h.surfaceArea;
-    f[r + 11] = h.volume;
-    f[r + 12] = h.innerRadius;
-    writeVector(f, r + 13, h.center);
-    writeVector(f, r + 16, h.centralInertia.cx);
-    writeVector(f, r + 19, h.centralInertia.cy);
-    writeVector(f, r + 22, h.centralInertia.cz);
 }
 
 /** Upload this world's changed authoring set. Nonconvex records retain their query layout until C2b;
  * their pool-relative references survive linear-memory growth. */
 export function rebuildGeometry(world: WorldState): void {
     const s = (world.geometryUploadScratch ??= new GeometryUploadScratch());
-    s.hullCount = 0;
     s.count = 0;
-    world.hullDatabase.forEach(stageHull, world);
     world.meshDatabase.forEach(stageMesh, world);
     world.heightFieldDatabase.forEach(stageHeight, world);
     world.compoundDatabase.forEach(stageCompound, world);
     const k = kernel(world.ecsState);
     k.shapeSetActiveWorld(world.worldId);
-    uploadGeometry(world.ecsState, s.hulls, s.words, s, s.hullCount, s.count);
-    for (let i = 0; i < s.hullCount; ++i) s.hulls[i] = undefined;
+    uploadGeometry(world.ecsState, EMPTY_HULLS, s.words, s, 0, s.count);
     s.words.fill(0, 0, s.count);
     s.count = 0;
-    s.hullCount = 0;
     world.geometryUploadCount += 1;
     world.shapeStore.refreshViews();
     world.bodyStore.refreshViews();
@@ -222,10 +127,21 @@ export function rebuildGeometry(world: WorldState): void {
         if (k.shapeAlive(world.worldId, id)) world.shapeStore.writeGeometryReference(world, id);
     }
 }
-function stageHull(this: WorldState, entry: { hull: HullData; refCount: number }): void {
-    const s = this.geometryUploadScratch!;
-    entry.hull.geoIndex = s.hullCount;
-    s.hulls[s.hullCount++] = entry.hull;
+export function stageHullUpload(world: WorldState, hull: HullData): number {
+    const k = kernel(world.ecsState);
+    const bytes = hullByteCount(hull);
+    const ptr = k.hullUploadBuffer(world.worldId, bytes);
+    const s = (world.geometryUploadScratch ??= new GeometryUploadScratch());
+    s.views(k.memory.buffer);
+    writeHullImage(hull, s.bytes, s.u, s.f, s.hashes, ptr);
+    return bytes;
+}
+
+export function hullDatabaseIndex(world: WorldState, hull: HullData): number {
+    const bytes = stageHullUpload(world, hull);
+    const index = kernel(world.ecsState).hullDatabaseLookup(world.worldId, bytes);
+    if (index === -1) throw new Error("hull is not retained by this world");
+    return index >>> 0;
 }
 function stageMesh(this: WorldState, entry: GeometryRecord, m: MeshData): void {
     const s = this.geometryUploadScratch!;
@@ -308,7 +224,7 @@ function stageCompound(this: WorldState, entry: GeometryRecord, c: CompoundData)
         s.vec(child.transform.q.v);
         s.put(s.bits(child.transform.q.s));
         materials(s, child.materialIndex);
-        s.put(this.hullDatabase.get(child.hull.hash | 0)!.hull.geoIndex);
+        s.put(hullDatabaseIndex(this, child.hull));
         s.put(s.bits(child.hull.innerRadius));
         for (let i = 0; i < 5; ++i) s.put(0);
     }

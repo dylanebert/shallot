@@ -42,7 +42,7 @@ const drawBounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
 import { getCompoundChild } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
-import type { HullData } from "../shapes/hull";
+import { type HullData, readShapeHull } from "../shapes/hull";
 import type { Mesh } from "../shapes/mesh";
 import type { Shape } from "../shapes/shape";
 import { getJointConstraintForce, getJointConstraintTorque, JointType } from "../solver/joint";
@@ -207,7 +207,7 @@ function drawSolidShape(
             draw.drawSolidCapsule(transform, world.shapeGeometry[shape].capsule as Capsule, color);
             break;
         case ShapeType.Hull:
-            draw.drawSolidHull(transform, world.shapeGeometry[shape].hull as HullData, color);
+            draw.drawSolidHull(transform, readShapeHull(world, shape), color);
             break;
         case ShapeType.Mesh:
             draw.drawSolidMesh(transform, world.shapeGeometry[shape].mesh as Mesh, color);

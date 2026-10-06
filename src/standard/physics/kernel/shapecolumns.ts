@@ -180,8 +180,7 @@ export class ShapeStore extends KernelViews {
         const o = shape * SHAPE_STRIDE + S_GEO_REFERENCE;
         const type = shapeField(world, shape, ShapeField.type);
         const geometry = world.shapeGeometry[shape];
-        if (type === ShapeType.Hull) this.shapeU[o] = geometry.hull!.geoIndex;
-        else if (type === ShapeType.Mesh)
+        if (type === ShapeType.Mesh)
             this.shapeU[o] = world.meshDatabase.get(geometry.mesh!.data)!.geoIndex;
         else if (type === ShapeType.HeightField)
             this.shapeU[o] = world.heightFieldDatabase.get(geometry.heightField!)!.geoIndex;

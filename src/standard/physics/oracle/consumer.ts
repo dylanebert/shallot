@@ -519,7 +519,7 @@ function runBaseCase(item: OracleCase): unknown {
                 b = makeBoxHull(1, 1, 1);
             uploadGeometry(undefined, [a, b]);
             const k = kernel(undefined);
-            const count = k.collideHullsGeo(a.geoIndex, b.geoIndex, 1.25, 0.1, 0, 0, 0, 0, 1);
+            const count = k.collideHullsGeo(0, 1, 1.25, 0.1, 0, 0, 0, 0, 1);
             const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4 + count * 5);
             const words = new Uint32Array(out.buffer, out.byteOffset, out.length);
             const triangles = new Int32Array(k.memory.buffer, k.geoTriangleOutPtr(), count);

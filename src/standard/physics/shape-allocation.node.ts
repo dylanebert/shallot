@@ -10,6 +10,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { PhysicsWorld } from "./api/world";
 import { BodyType, defaultSurfaceMaterial } from "./common/types";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
+import { hullDatabaseIndex } from "./kernel/geocolumns";
 import { type Kernel, kernelState } from "./kernel/kernel";
 import { shapeAllocationSubject } from "./shape-allocation.fixture";
 import { createCompound } from "./shapes/compound";
@@ -116,13 +117,23 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
         const missingHull = makeBoxHull(0.625, 0.375, 0.875);
         for (let i = 0; i < 32; ++i) ground.createHull({}, missingHull).destroy();
         for (let i = 0; i < 32; ++i) {
-            expect(world.state.hullDatabase.has(missingHull.hash | 0)).toBe(false);
+            const count = k.hullDatabaseCount(world.state.worldId);
             const missBefore = k.allocationCount();
             const shape = ground.createHull({}, missingHull);
-            expect(world.state.hullDatabase.has(missingHull.hash | 0)).toBe(true);
+            const handle = hullDatabaseIndex(world.state, missingHull);
+            expect(k.hullDatabaseCount(world.state.worldId)).toBe(count + 1);
+            expect(k.allocationCount() - missBefore).toBe(1);
+            const hitBefore = k.allocationCount();
+            const duplicate = ground.createHull({}, missingHull);
+            expect(k.hullDatabaseRefs(world.state.worldId, handle)).toBe(2);
+            expect(k.allocationCount() - hitBefore).toBe(0);
+            const destroyBefore = k.allocationCount();
             shape.destroy();
-            // Geometry uploads reuse warmed kernel pool capacity, even on database misses.
-            expect(k.allocationCount() - missBefore).toBe(0);
+            expect(k.hullDatabaseRefs(world.state.worldId, handle)).toBe(1);
+            duplicate.destroy();
+            expect(k.hullDatabaseCount(world.state.worldId)).toBe(count);
+            // b3AddHullToDatabase clones on a miss; a hit and releasing either reference allocate nothing.
+            expect(k.allocationCount() - destroyBefore).toBe(0);
         }
         const controlBefore = k.allocationCount();
         k.allocationControl();

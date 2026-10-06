@@ -36,6 +36,7 @@ import {
     createShapeSlot,
     destroyShapeSlot,
     readShapeMaterials,
+    S_GEO_REFERENCE,
     SHAPE_STRIDE,
     shapeMaterialCount,
     writeShape,
@@ -71,7 +72,6 @@ export type Shape = number;
 export type ShapeGeometry = {
     sphere?: Sphere;
     capsule?: Capsule;
-    hull?: HullData;
     mesh?: Mesh;
     heightField?: HeightFieldData;
     compound?: CompoundData;
@@ -320,8 +320,11 @@ export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter):
 
 export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
     if (shapeField(world, shape, ShapeField.type) === ShapeType.Hull) {
-        removeHullFromDatabase(world, world.shapeGeometry[shape].hull as HullData);
-        world.shapeGeometry[shape].hull = undefined;
+        world.shapeStore.refreshViews();
+        removeHullFromDatabase(
+            world,
+            world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE],
+        );
     } else if (shapeField(world, shape, ShapeField.type) === ShapeType.Mesh) {
         removeGeometryFromDatabase(
             world,
@@ -367,7 +370,6 @@ function createShapeInternal(
     world.shapeGeometry[shape] ??= {
         sphere: undefined,
         capsule: undefined,
-        hull: undefined,
         mesh: undefined,
         heightField: undefined,
         compound: undefined,
@@ -423,9 +425,14 @@ function createShapeInternal(
             s.radius = fields[g + 3];
             break;
         }
-        case ShapeType.Hull:
-            world.shapeGeometry[shape].hull = addHullToDatabase(world, geometry as HullData);
+        case ShapeType.Hull: {
+            const handle = addHullToDatabase(world, geometry as HullData);
+            world.shapeStore.refreshViews();
+            world.bodyStore.refreshViews();
+            world.manifoldStore.refreshViews();
+            world.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE] = handle;
             break;
+        }
         case ShapeType.Mesh: {
             addGeometryToDatabase(world, world.meshDatabase, geometry as MeshData);
             const mesh = (world.shapeGeometry[shape].mesh ??= {

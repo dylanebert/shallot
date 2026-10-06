@@ -32,7 +32,11 @@ pub(crate) struct HullRecord {
     pub soa_normal_offset: i32,
     pub byte_count: i32,
 }
+#[inline(always)]
 pub(crate) unsafe fn hull_record(index: usize) -> &'static HullRecord {
+    if let Some(record) = crate::hull_database::record(regions::active(), index) {
+        return record;
+    }
     let base = COLUMNS[regions::active()].layout[REC] as *const u8;
     let offset = *(base as *const u32).add(index);
     &*(base.add(offset as usize) as *const HullRecord)
@@ -62,12 +66,15 @@ pub extern "C" fn reserve_geometry(hull_words: usize, extra_words: usize) {
 }
 pub unsafe fn reset(id: usize) {
     COLUMNS[id].release();
+    crate::hull_database::reset(id);
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     COLUMNS[id].snapshot(out);
+    crate::hull_database::snapshot(id, out);
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     COLUMNS[id].restore(input);
+    crate::hull_database::restore(id, input);
 }
 
 /// Borrow the arrays hanging off a b3HullData header (`usize` is u32 on wasm32).

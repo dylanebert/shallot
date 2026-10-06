@@ -120,6 +120,8 @@ mod contact_list;
 mod fataabb;
 #[cfg(target_arch = "wasm32")]
 mod geo;
+#[cfg(any(target_arch = "wasm32", test))]
+mod hull_database;
 #[cfg(target_arch = "wasm32")]
 mod joint_lifecycle;
 mod joint_record;

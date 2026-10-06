@@ -21,6 +21,7 @@ import {
     type WorldDef,
 } from "../common/types";
 import { type BodyStore, createBodyStore } from "../kernel/bodycolumns";
+import { hullDatabaseIndex, stageHullUpload } from "../kernel/geocolumns";
 import { islandKernel } from "../kernel/islandcolumns";
 import { kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
@@ -96,8 +97,6 @@ export type WorldState = {
     shapeNames: string[];
     shapeDefInput: ShapeDef;
 
-    // Reference-counted store of shared hull data keyed by content hash (b3HullMap).
-    hullDatabase: Map<number, { hull: HullData; refCount: number }>;
     meshDatabase: Map<MeshData, GeometryRecord>;
     heightFieldDatabase: Map<HeightFieldData, GeometryRecord>;
     compoundDatabase: Map<CompoundData, GeometryRecord>;
@@ -231,31 +230,15 @@ export function removeCompoundFromDatabase(world: WorldState, data: CompoundData
 // --- hull database ---------------------------------------------------------------------------
 
 /** Intern a hull by content, sharing a single copy across shapes (b3AddHullToDatabase). */
-export function addHullToDatabase(world: WorldState, src: HullData): HullData {
-    const entry = world.hullDatabase.get(src.hash | 0);
-    if (entry !== undefined) {
-        entry.refCount += 1;
-        return entry.hull;
-    }
-    world.hullDatabase.set(src.hash | 0, { hull: src, refCount: 1 });
-    // The hull set changed: flag the kernel's static geometry columns for re-upload at the next step
-    // (deferred so hull creation never triggers a main-thread wasm instantiate before `init()`).
-    world.geometryDirty = true;
-    return src;
+export function addHullToDatabase(world: WorldState, src: HullData): number {
+    const bytes = stageHullUpload(world, src);
+    return kernel(world.ecsState).hullDatabaseAdd(world.worldId, bytes) >>> 0;
 }
 
 /** Release a hull reference, dropping the shared copy when the last shape lets go (b3RemoveHullFromDatabase). */
-export function removeHullFromDatabase(world: WorldState, data: HullData): void {
-    const entry = world.hullDatabase.get(data.hash | 0);
-    if (entry === undefined) {
-        return;
-    }
-    entry.refCount -= 1;
-    if (entry.refCount === 0) {
-        world.hullDatabase.delete(data.hash | 0);
-        // The hull set changed: re-upload the remaining hulls (compacting geo indices) at the next step.
-        world.geometryDirty = true;
-    }
+export function removeHullFromDatabase(world: WorldState, data: HullData | number): void {
+    const handle = typeof data === "number" ? data : hullDatabaseIndex(world, data);
+    kernel(world.ecsState).hullDatabaseRemove(world.worldId, handle);
 }
 
 // --- world registry --------------------------------------------------------------------------
@@ -293,7 +276,6 @@ function makeWorldState(
         shapeUserData: [],
         shapeNames: [],
         shapeDefInput: defaultShapeDef(),
-        hullDatabase: new Map(),
         meshDatabase: new Map(),
         heightFieldDatabase: new Map(),
         compoundDatabase: new Map(),
@@ -412,7 +394,7 @@ export function destroyWorld(world: WorldState): void {
     }
 
     // Every shape released its hull reference, so the database must be empty.
-    if (world.hullDatabase.size !== 0) {
+    if (kernel(world.ecsState).hullDatabaseCount(world.worldId) !== 0) {
         throw new Error("physics: hull database not empty at world destroy");
     }
 

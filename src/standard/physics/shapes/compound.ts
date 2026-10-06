@@ -274,7 +274,7 @@ export function createCompound(def: CompoundDef): CompoundData | null {
 
     // Hulls — proxy first (matching the C loop order), then material + shared-hull de-dup by content hash.
     const hulls: CompoundHull[] = [];
-    const sharedHullHashes = new Set<number>();
+    const sharedHullHashes = new Set<bigint>();
     for (const hd of hullDefs) {
         const box = computeHullAABB(hd.hull, hd.transform);
         tree.createProxy(t, box, ALL_BITS_HI, ALL_BITS_LO, childIndex);

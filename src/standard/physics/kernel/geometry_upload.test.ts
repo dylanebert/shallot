@@ -21,7 +21,7 @@ import {
 import { step } from "../solver/step";
 import { createBody, destroyBody } from "../world/body";
 import { createWorld, destroyWorld, getWorld, type WorldState } from "../world/world";
-import { uploadGeometry } from "./geocolumns";
+import { hullDatabaseIndex, uploadGeometry } from "./geocolumns";
 import { init, kernel } from "./kernel";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 
@@ -52,7 +52,12 @@ test("hull upload derives padded SoA vertices and normals from authoring, withou
         const soa = new Float32Array(k.memory.buffer, base + record[33], 3 * (nv + nf));
         expect(record[34]).toBe(record[33] + 12 * nv);
         const floats = new Float32Array(k.memory.buffer, base, 36);
-        expect(Array.from(record.slice(0, 4))).toEqual([0xde57485c, 0x4a4c9587, h.hash >>> 0, 0]);
+        expect(Array.from(record.slice(0, 4))).toEqual([
+            0xde57485c,
+            0x4a4c9587,
+            Number(h.hash & 0xffffffffn),
+            Number(h.hash >> 32n),
+        ]);
         expect(Array.from(floats.slice(4, 25))).toEqual([
             h.aabb.lowerBound.x,
             h.aabb.lowerBound.y,
@@ -214,7 +219,9 @@ test("height-field and compound instances retain resident records, including a c
             expect(world.geometryUploadCount).toBe(before + 2);
         }
         expect(world.meshDatabase.get(mesh)?.refCount).toBe(1);
-        expect(world.hullDatabase.get(hull.hash | 0)?.refCount).toBe(1);
+        expect(
+            kernel(world.ecsState).hullDatabaseRefs(world.worldId, hullDatabaseIndex(world, hull)),
+        ).toBe(1);
         expect(world.heightFieldDatabase.size).toBe(0);
         expect(world.compoundDatabase.size).toBe(0);
     } finally {

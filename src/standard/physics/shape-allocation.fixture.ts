@@ -2,7 +2,7 @@ import type { PhysicsWorld } from "./api/world";
 import { updateBroadPhasePairs } from "./collision/pairs";
 import { mat3, vec3, xf } from "./common/math";
 import { BodyType, defaultShapeDef } from "./common/types";
-import { rebuildGeometry } from "./kernel/geocolumns";
+import { hullDatabaseIndex } from "./kernel/geocolumns";
 import { queryColumns } from "./kernel/querycolumns";
 import { createCompound } from "./shapes/compound";
 import { createGrid } from "./shapes/heightfield";
@@ -43,6 +43,7 @@ export function shapeAllocationSubject(
         radius: 0.3,
     };
     const hull = makeBoxHull(0.5, 0.75, 0.25);
+    const missingHull = makeBoxHull(0.625, 0.375, 0.875);
     const mesh = createGridMesh(2, 2, 1, 1, true);
     const scale = { x: -1.25, y: 1, z: 0.75 };
     const heightField = createGrid(3, 3, { x: 1, y: 1, z: 1 }, false);
@@ -54,6 +55,7 @@ export function shapeAllocationSubject(
     staticBody.createHeightField({}, heightField);
     staticBody.createCompound({}, compound);
     world.step(1 / 60, 1);
+    const hullIndex = hullDatabaseIndex(state, hull);
     const pose = xf.identity();
     const bounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
     const mass = { mass: 0, center: vec3.zero(), inertia: mat3.zero() };
@@ -80,7 +82,10 @@ export function shapeAllocationSubject(
     const wideMaterialId = 0x10000000000000001n;
     let serial = 0;
     return () => {
-        if (upload) rebuildGeometry(state);
+        if (upload) {
+            const miss = createHullShape(state, id, def, missingHull)!;
+            destroyShape(state, miss, true);
+        }
         for (let i = 0; i < 16; ++i) {
             const kind = serial++ % 3;
             def.isSensor = (i & 3) === 0;
@@ -100,7 +105,7 @@ export function shapeAllocationSubject(
             getShapeCentroid(state, shape, center);
             k.shapeQueryRay(state.worldId, shape, 1);
             // The hull-hull contact path borrows the same uploaded geometry as live contacts.
-            k.collideHullsGeo(hull.geoIndex, hull.geoIndex, 0.25, 0, 0, 0, 0, 0, 1);
+            k.collideHullsGeo(hullIndex, hullIndex, 0.25, 0, 0, 0, 0, 0, 1);
             setShapeFilter(state, shape, filterA);
             setShapeFilter(state, shape, filterB);
             def.baseMaterial.userMaterialId = (i & 1) === 0 ? negativeMaterialId : wideMaterialId;

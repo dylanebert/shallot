@@ -316,7 +316,7 @@ test("a convex hull's support vertex is not the extreme point along the query di
 test("the convex hull builder is nondeterministic across two identical builds (structure or hash), computeHullMass ignores the hull's volume or center, or cloneHull returns a shallow copy that aliases the original's points", () => {
     const h1 = createHull(cubeCorners, 8) as HullData;
     const h2 = createHull(cubeCorners, 8) as HullData;
-    expect(h1.hash).not.toBe(0);
+    expect(h1.hash).not.toBe(0n);
     expect(h2.hash).toBe(h1.hash);
     expect(h2).toEqual(h1);
 

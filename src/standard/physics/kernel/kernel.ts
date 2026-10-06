@@ -491,6 +491,13 @@ export type Kernel = {
     // writing the manifold to the buffer at `geoOutPtr` — the geometry-read verification.
     reserveGeometry(hullWords: number, extraWords: number): void;
     geoLayoutPtr(): number;
+    hullUploadBuffer(world: number, bytes: number): number;
+    hullDatabaseAdd(world: number, bytes: number): number;
+    hullDatabaseLookup(world: number, bytes: number): number;
+    hullDatabaseRemove(world: number, handle: number): void;
+    hullDatabaseCount(world: number): number;
+    hullDatabaseRefs(world: number, handle: number): number;
+    hullDataPtr(world: number, handle: number): number;
 
     // The contact-id directory grows on allocation. Its block addresses remain stable while the
     // manifold-count allocators grow; this layout header exposes only the directory's address.

@@ -8,11 +8,6 @@
 // affected geometry (nodes are fully initialized on creation), so the output is identical; the
 // list *iteration order* is what the baked arrays inherit, and that is preserved exactly.
 //
-// The C b3HullData is a single blob with byte offsets into trailing arrays; the port stores plain
-// arrays. The content `hash` is a deterministic DJB2 over that content (non-zero, stable) but is
-// NOT byte-identical to the C struct hash — the world-state hash never consumes it (it hashes only
-// body transforms + velocities), so hull geometry is what must stay bit-exact, not this field.
-
 import { NULL_INDEX } from "../common/array";
 import {
     type AABB,
@@ -43,6 +38,10 @@ import {
     vec3,
     xf,
 } from "../common/math";
+import { kernel } from "../kernel/kernel";
+import { S_GEO_REFERENCE, SHAPE_STRIDE } from "../kernel/shapecolumns";
+import type { WorldState } from "../world/world";
+import { hash64NonZero, hullImage } from "./hullbytes";
 
 // Final hull indices are uint8, so vertex/edge/face counts cap at 255.
 const HULL_LIMIT = 255;
@@ -83,12 +82,72 @@ export type HullData = {
     edges: HullHalfEdge[];
     faces: HullFace[];
     planes: Plane[];
-    hash: number;
-    /** Index of this hull's record in the kernel's static geometry columns (geocolumns.ts), or
-     * `NULL_INDEX` until it is interned into the hull database and uploaded. Refreshed on every
-     * geometry rebuild; the convex narrowphase passes it to the kernel to read the hull from wasm. */
-    geoIndex: number;
+    hash: bigint;
 };
+
+export function shapeHullInnerRadius(world: WorldState, shape: number): number {
+    const store = world.shapeStore;
+    store.refreshViews();
+    const handle = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
+    const ptr = kernel(world.ecsState).hullDataPtr(world.worldId, handle);
+    return store.materialF[(ptr >>> 2) + 12];
+}
+
+/** Independent hull geometry for a requested debug-draw callback. */
+export function readShapeHull(world: WorldState, shape: number): HullData {
+    const store = world.shapeStore;
+    store.refreshViews();
+    const handle = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
+    const ptr = kernel(world.ecsState).hullDataPtr(world.worldId, handle);
+    const r = ptr >>> 2,
+        u = store.materialU,
+        f = store.materialF;
+    const vector = (o: number): Vec3 => ({ x: f[o], y: f[o + 1], z: f[o + 2] });
+    const bytes = new Uint8Array(f.buffer);
+    const vertexCount = u[r + 25],
+        edgeCount = u[r + 28],
+        faceCount = u[r + 30];
+    const vertices = [],
+        points = [],
+        edges = [],
+        faces = [],
+        planes = [];
+    for (let i = 0; i < vertexCount; ++i) {
+        vertices.push({ edge: bytes[ptr + u[r + 26] + i] });
+        points.push(vector(r + u[r + 27] / 4 + 3 * i));
+    }
+    for (let i = 0; i < edgeCount; ++i) {
+        const o = ptr + u[r + 29] + 4 * i;
+        edges.push({
+            next: bytes[o],
+            twin: bytes[o + 1],
+            origin: bytes[o + 2],
+            face: bytes[o + 3],
+        });
+    }
+    for (let i = 0; i < faceCount; ++i) {
+        faces.push({ edge: bytes[ptr + u[r + 32] + i] });
+        const o = r + u[r + 31] / 4 + 4 * i;
+        planes.push({ normal: vector(o), offset: f[o + 3] });
+    }
+    return {
+        aabb: { lowerBound: vector(r + 4), upperBound: vector(r + 7) },
+        surfaceArea: f[r + 10],
+        volume: f[r + 11],
+        innerRadius: f[r + 12],
+        center: vector(r + 13),
+        centralInertia: { cx: vector(r + 16), cy: vector(r + 19), cz: vector(r + 22) },
+        vertexCount,
+        edgeCount,
+        faceCount,
+        vertices,
+        points,
+        edges,
+        faces,
+        planes,
+        hash: BigInt(u[r + 2]) | (BigInt(u[r + 3]) << 32n),
+    };
+}
 
 // --- quickhull builder ----------------------------------------------------------------------
 
@@ -1083,48 +1142,6 @@ function sumProducts(
     return f32(f32(f32(p1 + p2) + p3) + p4);
 }
 
-const HASH_INIT = 5381;
-
-// DJB2 over the hull's geometric content — deterministic and non-zero, mirroring b3Hash's mix.
-// Not byte-identical to the C struct hash (see file header); the world hash never consumes it.
-function hashHull(hull: HullData): number {
-    let h = HASH_INIT >>> 0;
-    const buf = new ArrayBuffer(4);
-    const view = new DataView(buf);
-    const bytes = new Uint8Array(buf);
-    const mixFloat = (f: number) => {
-        view.setFloat32(0, f, true);
-        for (let i = 0; i < 4; ++i) h = ((h << 5) + h + bytes[i]) >>> 0;
-    };
-    const mixInt = (n: number) => {
-        view.setInt32(0, n | 0, true);
-        for (let i = 0; i < 4; ++i) h = ((h << 5) + h + bytes[i]) >>> 0;
-    };
-
-    mixInt(hull.vertexCount);
-    mixInt(hull.edgeCount);
-    mixInt(hull.faceCount);
-    for (const p of hull.points) {
-        mixFloat(p.x);
-        mixFloat(p.y);
-        mixFloat(p.z);
-    }
-    for (const e of hull.edges) {
-        mixInt(e.next);
-        mixInt(e.twin);
-        mixInt(e.origin);
-        mixInt(e.face);
-    }
-    for (const f of hull.faces) mixInt(f.edge);
-    for (const pl of hull.planes) {
-        mixFloat(pl.normal.x);
-        mixFloat(pl.normal.y);
-        mixFloat(pl.normal.z);
-        mixFloat(pl.offset);
-    }
-    return h !== 0 ? h : 1;
-}
-
 // --- public hull construction ---------------------------------------------------------------
 
 /** Build a convex hull from a point cloud, clamping the vertex budget to [4, 255] (b3CreateHull). */
@@ -1222,14 +1239,13 @@ export function createHull(points: Vec3[], maxVertexCount: number): HullData | n
         edges,
         faces,
         planes,
-        hash: 0,
-        geoIndex: NULL_INDEX,
+        hash: 0n,
     };
 
     updateHullBounds(hull);
     if (!updateHullBulkProperties(hull)) return null;
 
-    hull.hash = hashHull(hull);
+    hull.hash = hash64NonZero(hullImage(hull));
     return hull;
 }
 
@@ -1258,7 +1274,6 @@ export function cloneHull(hull: HullData): HullData {
         faces: hull.faces.map((f) => ({ ...f })),
         planes: hull.planes.map((pl) => ({ normal: { ...pl.normal }, offset: pl.offset })),
         hash: hull.hash,
-        geoIndex: NULL_INDEX,
     };
 }
 
@@ -1440,11 +1455,10 @@ export function makeTransformedBoxHull(
         edges: BOX_EDGES.map((e) => ({ ...e })),
         faces: BOX_FACE_EDGE.map((edge) => ({ edge })),
         planes,
-        hash: 0,
-        geoIndex: NULL_INDEX,
+        hash: 0n,
     };
 
-    hull.hash = hashHull(hull);
+    hull.hash = hash64NonZero(hullImage(hull));
     return hull;
 }
 
