@@ -3,6 +3,7 @@ import { bufferMove } from "./collision/broadphase";
 import { contactCount } from "./collision/contact";
 import { updateBroadPhasePairs } from "./collision/pairs";
 import { BodyType } from "./common/types";
+import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { DJ_LENGTH, J_EVENT } from "./kernel/columns";
 import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { collectJointEvents, readJointFloat, writeJointFloat } from "./kernel/jointcolumns";
@@ -16,6 +17,29 @@ import {
     JointType,
 } from "./solver/joint";
 import type { WorldState } from "./world/world";
+
+export function splitAllocationSubject(physics: PhysicsWorld): () => void {
+    const a = physics.createBody({ type: BodyType.Dynamic, enableSleep: false });
+    const b = physics.createBody({
+        type: BodyType.Dynamic,
+        enableSleep: false,
+        position: { x: 1, y: 0, z: 0 },
+    });
+    physics.createDistanceJoint(a, b);
+    physics.createDistanceJoint(a, b).destroy();
+    const state = physics.state;
+    const k = kernel(state.ecsState);
+    const island = bodyField(state, a.id.index1 - 1, BodyField.islandId);
+    return () => {
+        k.bodySetActiveWorld(state.worldId);
+        // Replay the removed redundant edge: connectivity stays intact, but a split task must run.
+        k.islandSetField(island, 3, 1);
+        k.islandSetSplitCandidate(island);
+        physics.step(Math.fround(1 / 60), 4);
+        if (k.islandField(island, 3) !== 0 || k.islandSplitCandidate() !== -1)
+            throw new Error("split allocation subject did not complete its split task");
+    };
+}
 
 function tune(world: WorldState, id: number, i: number): void {
     const length = i + 0.125;

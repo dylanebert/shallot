@@ -209,8 +209,8 @@ unsafe fn columns() -> Columns<'static> {
 
 // --- the staged solver's view of the arena (solve.rs) ----------------------------------------
 // The staged solve derives its columns once, up front, and hands the same handles to every worker —
-// which is sound because no allocation, memory growth or free may run
-// between the fork and the join (the MT concurrency invariant).
+// whose handles remain valid because none of these columns relocate between fork and join.
+// The concurrent split can grow island storage, not these solver buffers.
 
 /// The scalar solver's columns, as `solve.rs`'s `StageWork` holds them.
 pub(crate) unsafe fn scalar_columns() -> Columns<'static> {

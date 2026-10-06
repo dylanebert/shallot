@@ -10,6 +10,7 @@ import { CEILING } from "../../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { PhysicsWorld } from "../api/world";
+import { splitAllocationSubject } from "../joint-allocation.fixture";
 import { shutdown, threads, workers } from "../kernel/kernel";
 
 const pooled = process.env.PHYSICS_CORPUS_POOL === "1";
@@ -24,6 +25,18 @@ import { loadConsumerCorpus, runCommonInput } from "../oracle/consumer";
 import { loadScenarioCorpus, runScenario } from "../oracle/scenario";
 import { compareCase } from "../oracle/strict";
 import { makeBoxHull } from "../shapes/hull";
+
+test("a split candidate completes before finalize on the serial and live-pool step", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    try {
+        const split = splitAllocationSubject(world);
+        for (let i = 0; i < 20; ++i) split();
+        expect(world.getCounters().islandCount).toBe(1);
+        expect(world.getProfile().sleepIslands).toBe(0);
+    } finally {
+        world.destroy();
+    }
+});
 
 test("sensor tasks keep query scratch independent for sensors sharing every visitor", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });

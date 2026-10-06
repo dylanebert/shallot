@@ -94,10 +94,7 @@ pub unsafe extern "C" fn finalize(count: usize, dt: f32, enable_sleep: bool) -> 
         bullets |= flags & (body::flags::IS_FAST | crate::continuous::IS_BULLET)
             == (body::flags::IS_FAST | crate::continuous::IS_BULLET);
     }
-    let split = crate::body_record::runtime::finish(count, dt, enable_sleep);
-    if enable_sleep && split != -1 {
-        island::set_split_candidate(split);
-    }
+    crate::body_record::runtime::finish(count, dt, enable_sleep);
     bullets
 }
 
@@ -566,23 +563,13 @@ pub unsafe extern "C" fn advance() -> u32 {
                     DRIVER.sleep,
                 );
                 accumulate(4, start);
-                DRIVER.phase_start = ticks();
                 if DRIVER.threads > 1 {
                     return 1;
                 }
                 crate::solve::run_mt();
             }
             6 => {
-                let candidate = island::split_candidate();
                 island::set_split_candidate(-1);
-                DRIVER.phase_start = ticks();
-                DRIVER.phase = 7;
-                if candidate != -1 && parallel(5, candidate as usize, DRIVER.threads as f32) {
-                    return 1;
-                }
-            }
-            7 => {
-                accumulate(14, DRIVER.phase_start);
                 PROFILE[world].constraints =
                     (ticks() - DRIVER.solve_start) as f32 - PROFILE[world].solver_setup;
                 DRIVER.phase_start = ticks();
@@ -624,11 +611,14 @@ pub unsafe extern "C" fn advance() -> u32 {
                 crate::continuous::consume(world, DRIVER.count, true);
                 accumulate(16, start);
                 SYNC_COUNT = bodies::body_sync_moved(events::count(world, 6));
-                let start = ticks();
                 if DRIVER.sleep {
+                    let start = ticks();
+                    island::set_split_candidate(crate::body_record::runtime::gather_split(
+                        DRIVER.count,
+                    ));
                     sleep_islands();
+                    accumulate(21, start);
                 }
-                accumulate(21, start);
                 DRIVER.phase = 10;
             }
             10 => {

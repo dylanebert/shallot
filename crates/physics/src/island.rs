@@ -312,17 +312,83 @@ fn union(
         }
     }
 }
+struct SplitScratch {
+    indices: Vec<i32>,
+    parents: Vec<usize>,
+    ranks: Vec<usize>,
+    contact_counts: Vec<usize>,
+    joint_counts: Vec<usize>,
+    root_map: Vec<usize>,
+    body_counts: Vec<usize>,
+    component_contacts: Vec<usize>,
+    component_joints: Vec<usize>,
+    ids: Vec<usize>,
+}
+impl SplitScratch {
+    const EMPTY: Self = Self {
+        indices: Vec::new(),
+        parents: Vec::new(),
+        ranks: Vec::new(),
+        contact_counts: Vec::new(),
+        joint_counts: Vec::new(),
+        root_map: Vec::new(),
+        body_counts: Vec::new(),
+        component_contacts: Vec::new(),
+        component_joints: Vec::new(),
+        ids: Vec::new(),
+    };
+}
+// Like Box3D's task contexts/arena, scratch is retained by the worker, not allocated by a split.
+static mut SPLIT_SCRATCH: [SplitScratch; crate::bodies::IDENT_RECORDS] =
+    [const { SplitScratch::EMPTY }; crate::bodies::IDENT_RECORDS];
+pub unsafe fn prepare_split(base: usize, worker: usize) {
+    let s = &mut SPLIT_SCRATCH[worker];
+    s.indices
+        .resize(crate::bodies::body_length(regions::active() as u32), -1);
+    let n = record(base).bodies.len();
+    for v in [
+        &mut s.parents,
+        &mut s.ranks,
+        &mut s.contact_counts,
+        &mut s.joint_counts,
+        &mut s.root_map,
+        &mut s.body_counts,
+        &mut s.component_contacts,
+        &mut s.component_joints,
+    ] {
+        v.resize(n, 0);
+    }
+    s.ids.clear();
+    s.ids.reserve(n);
+}
 #[export_name = "islandSplit"]
 pub unsafe extern "C" fn split(base: usize) {
-    let count = crate::bodies::body_length(regions::active() as u32);
-    let indices: Vec<i32> = (0..count)
-        .map(|id| crate::bodies::record(regions::active(), id).island_index)
-        .collect();
+    prepare_split(base, 0);
+    split_task(base, 0);
+}
+pub unsafe fn split_task(base: usize, worker: usize) {
+    let SplitScratch {
+        indices,
+        parents,
+        ranks,
+        contact_counts,
+        joint_counts,
+        root_map,
+        body_counts,
+        component_contacts,
+        component_joints,
+        ids,
+    } = &mut SPLIT_SCRATCH[worker];
+    for (id, index) in indices.iter_mut().enumerate() {
+        *index = crate::bodies::record(regions::active(), id).island_index;
+    }
     let n = record(base).bodies.len();
-    let mut parents: Vec<usize> = (0..n).collect();
-    let mut ranks = vec![0; n];
-    let mut contact_counts = vec![0; n];
-    let mut joint_counts = vec![0; n];
+    for (i, p) in parents.iter_mut().enumerate() {
+        *p = i;
+    }
+    ranks.fill(0);
+    contact_counts.fill(0);
+    joint_counts.fill(0);
     for kind in 0..2 {
         let links = if kind == 0 {
             &record(base).contacts
@@ -334,15 +400,15 @@ pub unsafe extern "C" fn split(base: usize) {
             let b = indices[l.body_b as usize];
             if a != -1 && b != -1 {
                 union(
-                    &mut parents,
-                    &mut ranks,
+                    parents,
+                    ranks,
                     a as usize,
                     b as usize,
-                    &mut contact_counts,
-                    &mut joint_counts,
+                    contact_counts,
+                    joint_counts,
                 );
             }
-            let root = find_parent(&mut parents, if a != -1 { a } else { b } as usize);
+            let root = find_parent(parents, if a != -1 { a } else { b } as usize);
             if kind == 0 {
                 contact_counts[root] += 1;
             } else {
@@ -350,10 +416,9 @@ pub unsafe extern "C" fn split(base: usize) {
             }
         }
     }
-    drop(ranks);
     let mut components = 0;
     for i in 0..n {
-        parents[i] = find_parent(&mut parents, i);
+        parents[i] = find_parent(parents, i);
         if parents[i] == i {
             components += 1;
         }
@@ -362,13 +427,10 @@ pub unsafe extern "C" fn split(base: usize) {
         record(base).constraint_remove_count = 0;
         return;
     }
-    let bodies = std::mem::take(&mut record(base).bodies);
-    let contacts = std::mem::take(&mut record(base).contacts);
-    let joints = std::mem::take(&mut record(base).joints);
-    let mut root_map = vec![usize::MAX; n];
-    let mut body_counts = vec![0; components];
-    let mut component_contacts = vec![0; components];
-    let mut component_joints = vec![0; components];
+    root_map.fill(usize::MAX);
+    body_counts.fill(0);
+    component_contacts.fill(0);
+    component_joints.fill(0);
     let mut island_count = 0;
     for i in 0..n {
         let root = parents[i];
@@ -380,7 +442,6 @@ pub unsafe extern "C" fn split(base: usize) {
         }
         body_counts[root_map[root]] += 1;
     }
-    let mut ids = Vec::with_capacity(island_count);
     for i in 0..island_count {
         let id = create(2);
         ids.push(id);
@@ -389,16 +450,19 @@ pub unsafe extern "C" fn split(base: usize) {
         s.contacts.reserve(component_contacts[i]);
         s.joints.reserve(component_joints[i]);
     }
-    for (i, &body) in bodies.iter().enumerate() {
+    for i in 0..n {
+        let body = record(base).bodies[i];
         add_body(ids[root_map[parents[i]]], body);
     }
-    for l in contacts {
+    for i in 0..record(base).contacts.len() {
+        let l = record(base).contacts[i];
         let a = indices[l.body_a as usize];
         let b = indices[l.body_b as usize];
         let index = if a != -1 { a } else { b } as usize;
         add_contact(ids[root_map[parents[index]]], l);
     }
-    for l in joints {
+    for i in 0..record(base).joints.len() {
+        let l = record(base).joints[i];
         let a = indices[l.body_a as usize];
         let b = indices[l.body_b as usize];
         let index = if a != -1 { a } else { b } as usize;

@@ -8,7 +8,7 @@ import {
 } from "../../../diagnostics/first-person-allocation/allocation";
 import { CEILING } from "../../../scripts/test-tiers";
 import { PhysicsWorld } from "./api/world";
-import { jointAllocationSubject } from "./joint-allocation.fixture";
+import { jointAllocationSubject, splitAllocationSubject } from "./joint-allocation.fixture";
 import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 
 setDefaultTimeout(CEILING.node);
@@ -19,6 +19,7 @@ test("the same warm joint subject allocates no WASM heap and its counting alloca
     const runtime = kernelState(undefined);
     const previous = runtime.instance;
     let world: PhysicsWorld | undefined;
+    let splitWorld: PhysicsWorld | undefined;
     try {
         const build = Bun.spawnSync(
             [
@@ -55,13 +56,22 @@ test("the same warm joint subject allocates no WASM heap and its counting alloca
         runtime.instance = k;
         world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
         const step = jointAllocationSubject(world);
-        for (let i = 0; i < 1200; ++i) step();
+        splitWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+        const split = splitAllocationSubject(splitWorld);
+        for (let i = 0; i < 1200; ++i) {
+            step();
+            split();
+        }
         const before = k.allocationCount();
-        for (let i = 0; i < 600; ++i) step();
+        for (let i = 0; i < 600; ++i) {
+            step();
+            split();
+        }
         expect(k.allocationCount() - before).toBe(0);
         k.allocationControl();
         expect(k.allocationCount() - before).toBeGreaterThan(0);
     } finally {
+        splitWorld?.destroy();
         world?.destroy();
         runtime.instance = previous;
         rmSync(dir, { recursive: true, force: true });

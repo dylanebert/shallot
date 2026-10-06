@@ -2,8 +2,8 @@
 //!
 //! `stages.rs` owns the staged solver's machinery (stage list, CAS-claimed blocks, barriers, the serial
 //! overflow); `parfor.rs` owns the flat block-claim sweep the outer phases use; `arena.rs` owns the
-//! columns. This module is the seam between them: it builds the [`Plan`] from the layout TS already
-//! computed, holds the [`Context`] and the [`Work`] in linear memory where every thread's instance sees
+//! columns. This module is the seam between them: it builds the [`Plan`] from the kernel graph layout,
+//! holds the [`Context`] and the [`Work`] in linear memory where every thread's instance sees
 //! them, and exposes the entries the pool drives —
 //!
 //!   - a **build** on the main thread (`solveBuild` for the staged solve, `parBuild` for one outer
@@ -11,8 +11,9 @@
 //!   - `runMt` on the main thread (the orchestrator) and `workerMain` in each pooled worker, both of
 //!     which dispatch on that job.
 //!
-//! One job is live at a time, by construction: the pool is woken once per build and every worker is
-//! parked again before the next one.
+//! One pool round is live at a time: the pool is woken once per build and every worker is parked
+//! before the next one. A solve round also runs its queued island split on worker 1 (or worker 0
+//! without a pool), before that worker enters the solver; the shared join waits for both tasks.
 //!
 //! **The join contract** (`stages::run`): every worker calls `run` exactly once per solve, and the
 //! orchestrator's `run` blocks until all of them have left. `src/pool.ts`'s round is what guarantees the
@@ -23,8 +24,9 @@
 //! written here, and the worker's `Atomics.wait`/`load` is the acquire. That ordering also means the
 //! buffers below are only ever written while every worker is parked.
 //!
-//! **No allocation, memory growth or free between fork and join**: columns are derived once and
-//! shared by value with workers. Reserves run before the fork, so those handles remain valid until join.
+//! **No relocation of solve columns between fork and join**: column reserves and split-scratch
+//! reserves run before the fork. The split may grow island records and lists, but not body, contact
+//! or joint solver arrays; the solver's shared column handles remain valid until the join.
 //!
 //! Wasm-only, like the arena it reads. Native `cargo test` drives the same machinery over owned columns
 //! (`kernel/tests/stages.rs`).
@@ -250,8 +252,7 @@ impl StageWork for Work {
 
     fn finalize(&self, b: Block) {
         // SAFETY: the body + shape + fat-AABB regions were reserved pre-solve on the main thread, and
-        // no thread grows memory between the pool's wake and its join (module header) — the same
-        // contract this sweep ran under as its own parallel-for round before it fused here.
+        // the solver and split have joined, and these columns stay fixed for this parallel-for.
         unsafe {
             arena::finalize_block(
                 b.start,
@@ -407,6 +408,11 @@ pub extern "C" fn solve_build(
         // Drop the previous solve's context before re-borrowing its buffers. The workers have all left
         // it (the join in `stages::run`), so nothing else holds them.
         CTX = None;
+        SPLIT_ID = crate::island::split_candidate();
+        SPLIT_WORKER = usize::from(thread_count > 1);
+        if SPLIT_ID != -1 {
+            crate::island::prepare_split(SPLIT_ID as usize, SPLIT_WORKER);
+        }
 
         let (spans, color_count) = arena::color_span_column();
         let out = &mut *(&raw mut SPANS);
@@ -508,7 +514,6 @@ enum Job {
     Contacts,
     Bullets,
     Pairs,
-    Split,
     Sensors,
     Finalize,
 }
@@ -516,6 +521,8 @@ enum Job {
 /// `parBuild`'s `kind` argument, mirrored in `src/kernel.ts`.
 const KIND_CONTACTS: u32 = 2;
 
+static mut SPLIT_ID: i32 = -1;
+static mut SPLIT_WORKER: usize = 0;
 static mut JOB: Job = Job::None;
 static mut PAR: Option<Par> = None;
 
@@ -540,7 +547,6 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
         KIND_CONTACTS => Job::Contacts,
         3 => Job::Bullets,
         4 => Job::Pairs,
-        5 => Job::Split,
         6 => Job::Sensors,
         7 => Job::Finalize,
         _ => panic!("unknown parallel-for kind"),
@@ -554,8 +560,8 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
         },
         thread_count,
     );
-    let fork = if job == Job::Split || job == Job::Sensors || job == Job::Finalize {
-        thread_count > 1 && (job == Job::Split || count > 0)
+    let fork = if job == Job::Sensors || job == Job::Finalize {
+        thread_count > 1 && count > 0
     } else {
         par.block_count() >= 2 && worth_forking(count, thread_count - 1, COLLIDE_FORK_MIN)
     };
@@ -583,6 +589,13 @@ fn run_job(index: usize) {
                 let (Some(ctx), Some(work)) = (&*(&raw const CTX), &*(&raw const WORK)) else {
                     return;
                 };
+                // Worker 1 handles the queued split while worker 0 and the other thieves solve.
+                // Its solver exit acknowledgement joins both jobs before finalization.
+                if SPLIT_ID != -1 && index == SPLIT_WORKER {
+                    let start = crate::physics_world::ticks();
+                    crate::island::split_task(SPLIT_ID as usize, index);
+                    crate::physics_world::accumulate(14, start);
+                }
                 stages::run(ctx, work, index);
             }
             job => {
@@ -595,11 +608,6 @@ fn run_job(index: usize) {
                     Job::Pairs => p
                         .par
                         .run(|s, e| crate::pairwork::query_block(s, e, p.a as usize)),
-                    Job::Split => {
-                        if index == if p.a > 1.0 { 1 } else { 0 } {
-                            crate::island::split(p.count);
-                        }
-                    }
                     Job::Sensors => p.par.run(|s, e| crate::sensor::task(s, e)),
                     Job::Finalize => p.par.run(|s, e| {
                         let work = (&*(&raw const WORK)).as_ref().unwrap();

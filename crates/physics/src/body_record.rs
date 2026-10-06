@@ -101,15 +101,13 @@ pub(crate) mod runtime {
     use crate::math::Mat3;
     use crate::{bodies, body, island, regions};
     #[export_name = "bodyFinish"]
-    pub unsafe extern "C" fn finish(count: usize, time_step: f32, enable_sleep: bool) -> i32 {
+    pub unsafe extern "C" fn finish(count: usize, time_step: f32, enable_sleep: bool) {
         let sim2 = bodies::sim2_base() as *mut u32;
         let state_flags = bodies::flags_base() as *mut u32;
         let out = bodies::fin_out_base() as *const f32;
         let transient =
             body::flags::IS_FAST | body::flags::IS_SPEED_CAPPED | body::flags::HAD_TIME_OF_IMPACT;
         crate::events::set_move_count(regions::active(), count);
-        let mut split_id = -1;
-        let mut split_sleep = 0.0;
         for index in 0..count {
             let row = sim2.add(index * body::SIM2_STRIDE);
             let id = *row.add(body::S2_BODY_ID) as usize;
@@ -132,6 +130,15 @@ pub(crate) mod runtime {
             } else {
                 record.sleep_time += time_step;
             }
+        }
+    }
+    pub unsafe fn gather_split(count: usize) -> i32 {
+        let sim2 = bodies::sim2_base() as *const u32;
+        let mut split_id = -1;
+        let mut split_sleep = 0.0;
+        for index in 0..count {
+            let id = *sim2.add(index * body::SIM2_STRIDE + body::S2_BODY_ID) as usize;
+            let record = bodies::record(regions::active(), id);
             if record.sleep_time >= 0.5
                 && island::field(record.island_id as usize, 3) > 0
                 && (record.sleep_time > split_sleep
