@@ -425,6 +425,7 @@ fn triangle_hull_face_preserves_componentwise_signed_zero() {
             vec3(&tri[0]),
             vec3(&tri[1]),
             vec3(&tri[2]),
+            0,
             &mut cache,
             true,
         );
@@ -516,6 +517,7 @@ fn triangle_hull_face_last_plane_cuts_large_triangle() {
             Vec3::new(0.5, -1.0, -1.0),
             Vec3::new(0.5, 0.0, 1.0),
             Vec3::new(0.5, 1.0, -1.0),
+            0,
             &mut cache,
             true,
         );
@@ -551,6 +553,7 @@ fn triangle_face_last_plane_cuts_box_to_small_triangle() {
             Vec3::new(0.5, -0.25, 0.25),
             Vec3::new(0.5, 0.25, -0.25),
             Vec3::new(0.5, -0.25, -0.25),
+            0,
             &mut cache,
             true,
         );

@@ -278,7 +278,7 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
                     &mut m, capacity, &ca, tri[0], tri[1], tri[2], &mut cache,
                 ),
                 18 => crate::triangle_manifold::collide_hull_and_triangle(
-                    &mut m, capacity, &ha, tri[0], tri[1], tri[2], &mut sat, true,
+                    &mut m, capacity, &ha, tri[0], tri[1], tri[2], 0, &mut sat, true,
                 ),
                 _ => unreachable!(),
             }

@@ -19,6 +19,13 @@ const SINGLE: FeaturePair = FeaturePair {
     index2: 0,
 };
 
+struct TriangleData {
+    points: [Vec3; 3],
+    edges: [Vec3; 3],
+    plane: Plane,
+    flags: u32,
+}
+
 #[derive(Clone, Copy)]
 struct Axis {
     normal: Vec3,
@@ -113,7 +120,12 @@ fn edge_axis(
         ty: 4,
     })
 }
-fn edges_axis(tri: &[Vec3; 3], edges: &[Vec3; 3], plane: Plane, hull: &HullData) -> Axis {
+fn edges_axis(triangle: &TriangleData, hull: &HullData) -> Axis {
+    // Box3D retains the flags at this boundary but does not yet filter edge axes.
+    let _flags = triangle.flags;
+    let tri = &triangle.points;
+    let edges = &triangle.edges;
+    let plane = triangle.plane;
     let mut result = Axis {
         normal: Vec3::ZERO,
         separation: f32::NEG_INFINITY,
@@ -349,6 +361,7 @@ pub fn collide_hull_and_triangle(
     v1: Vec3,
     v2: Vec3,
     v3: Vec3,
+    triangle_flags: u32,
     cache: &mut SatCache,
     speculative: bool,
 ) {
@@ -371,7 +384,13 @@ pub fn collide_hull_and_triangle(
         cache.separation = offset;
         return;
     }
-    let edges = [v2.sub(v1), v3.sub(v2), v1.sub(v3)];
+    let triangle = TriangleData {
+        points: tri,
+        edges: [v2.sub(v1), v3.sub(v2), v1.sub(v3)],
+        plane,
+        flags: triangle_flags,
+    };
+    let edges = triangle.edges;
     let distance = if speculative { SPECULATIVE } else { 0.0 };
     cache.hit = 1;
     match cache.ty {
@@ -466,7 +485,7 @@ pub fn collide_hull_and_triangle(
             return;
         }
         8 => {
-            let query = edges_axis(&tri, &edges, plane, hull);
+            let query = edges_axis(&triangle, hull);
             if query.a != usize::MAX {
                 hull_edge_contact(m, capacity, &tri, &edges, hull, query, cache);
             }
@@ -485,7 +504,7 @@ pub fn collide_hull_and_triangle(
         b.save(cache);
         return;
     }
-    let e = edges_axis(&tri, &edges, plane, hull);
+    let e = edges_axis(&triangle, hull);
     if e.separation > distance {
         e.save(cache);
         return;

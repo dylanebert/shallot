@@ -633,6 +633,7 @@ pub fn compute_mesh_manifolds(
                     a,
                     b,
                     c,
+                    triangle.flags,
                     &mut triangle.sat,
                     speculative,
                 );
