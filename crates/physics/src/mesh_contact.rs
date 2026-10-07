@@ -243,7 +243,12 @@ struct TriangleManifold {
     point_base: usize,
     point_count: usize,
     feature: u32,
+}
+
+#[derive(Clone, Copy)]
+struct TentativeTriangle {
     squared_distance: f32,
+    index: u32,
 }
 
 struct TriangleResult {
@@ -275,6 +280,7 @@ pub struct MeshScratch<'a> {
     triangles: &'a mut [TriangleResult],
     accepted: &'a mut [usize],
     tentative: &'a mut [usize],
+    tentative_triangles: &'a mut [TentativeTriangle],
     membership: &'a mut [usize],
     clusters: &'a mut [Cluster],
     triangle_points: &'a mut [LocalManifoldPoint],
@@ -288,12 +294,13 @@ pub struct MeshScratch<'a> {
 const SCRATCH_BYTES: usize = MAX_TRIANGLES
     * (core::mem::size_of::<TriangleResult>()
         + 3 * core::mem::size_of::<usize>()
+        + core::mem::size_of::<TentativeTriangle>()
         + core::mem::size_of::<Cluster>())
     + MAX_POINTS
         * (2 * core::mem::size_of::<LocalManifoldPoint>()
             + core::mem::size_of::<u32>()
             + core::mem::size_of::<Point2D>())
-    + 11 * 16;
+    + 12 * 16;
 
 pub struct MeshStorage {
     words: [u128; SCRATCH_BYTES.div_ceil(16)],
@@ -319,6 +326,7 @@ impl MeshStorage {
                 triangles: span(base, &mut offset, count),
                 accepted: span(base, &mut offset, count),
                 tentative: span(base, &mut offset, count),
+                tentative_triangles: span(base, &mut offset, count),
                 membership: span(base, &mut offset, count),
                 clusters: span(base, &mut offset, count),
                 triangle_points: span(base, &mut offset, count * 32),
@@ -503,13 +511,11 @@ fn cull(points: &mut [Point2D]) -> usize {
     points[..count].copy_from_slice(&final_points[..count]);
     count
 }
-fn sort_tentative(indices: &mut [usize], triangles: &[TriangleResult]) {
+fn sort_tentative(indices: &mut [TentativeTriangle]) {
     if indices.len() <= 1 {
         return;
     }
-    let less = |a: usize, b: usize| {
-        triangles[a].manifold.squared_distance < triangles[b].manifold.squared_distance
-    };
+    let less = |a: TentativeTriangle, b: TentativeTriangle| a.squared_distance < b.squared_distance;
     let mut left = 0;
     let mut right = indices.len() - 1;
     let mut stack = [(0usize, 0usize); 32];
@@ -668,7 +674,6 @@ pub fn compute_mesh_manifolds(
                 point_base,
                 point_count: m.point_count,
                 feature: m.feature,
-                squared_distance: m.squared_distance,
             },
             normal,
             indices: m.vertex_indices,
@@ -681,17 +686,21 @@ pub fn compute_mesh_manifolds(
             scratch.accepted[accepted_count] = i;
             accepted_count += 1;
         } else {
-            scratch.tentative[tentative_count] = i;
+            if matches!(shape, ConvexShape::Sphere(_)) {
+                scratch.tentative_triangles[tentative_count] = TentativeTriangle {
+                    squared_distance: m.squared_distance,
+                    index: i as u32,
+                };
+            } else {
+                scratch.tentative[tentative_count] = i;
+            }
             tentative_count += 1;
         }
     }
     if matches!(shape, ConvexShape::Sphere(_)) {
-        sort_tentative(
-            &mut scratch.tentative[..tentative_count],
-            &scratch.triangles,
-        );
+        sort_tentative(&mut scratch.tentative_triangles[..tentative_count]);
         for i in 0..tentative_count {
-            let index = scratch.tentative[i];
+            let index = scratch.tentative_triangles[i].index as usize;
             let t = &scratch.triangles[index];
             let [a, b, c] = t.indices;
             let edges = [
