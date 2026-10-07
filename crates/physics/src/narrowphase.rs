@@ -29,17 +29,31 @@ const GEOM_CAPACITY: usize = 32;
 
 /// The GJK/SAT warm-start caches a convex contact carries between steps (b3ContactCache). The
 /// hull-vs-sphere/capsule paths use `simplex_cache`; hull-vs-hull uses `sat_cache`.
-pub struct ConvexContactCache {
-    pub simplex_cache: SimplexCache,
-    pub sat_cache: SatCache,
+pub enum ConvexContactCache {
+    Empty,
+    Simplex(SimplexCache),
+    Sat(SatCache),
 }
 
 impl ConvexContactCache {
     pub fn empty() -> ConvexContactCache {
-        ConvexContactCache {
-            simplex_cache: SimplexCache::empty(),
-            sat_cache: SatCache::empty(),
+        ConvexContactCache::Empty
+    }
+
+    fn simplex(&mut self) -> &mut SimplexCache {
+        if !matches!(self, Self::Simplex(_)) {
+            *self = Self::Simplex(SimplexCache::empty());
         }
+        let Self::Simplex(cache) = self else { unreachable!() };
+        cache
+    }
+
+    fn sat(&mut self) -> &mut SatCache {
+        if !matches!(self, Self::Sat(_)) {
+            *self = Self::Sat(SatCache::empty());
+        }
+        let Self::Sat(cache) = self else { unreachable!() };
+        cache
     }
 }
 
@@ -146,7 +160,7 @@ pub fn compute_convex_manifold(
                 a,
                 b,
                 transform_b_to_a,
-                &mut cache.simplex_cache,
+                cache.simplex(),
             );
         }
         (ConvexShape::Hull(a), ConvexShape::Capsule(b)) => {
@@ -156,7 +170,7 @@ pub fn compute_convex_manifold(
                 a,
                 b,
                 transform_b_to_a,
-                &mut cache.simplex_cache,
+                cache.simplex(),
             );
         }
         (ConvexShape::Hull(a), ConvexShape::Hull(b)) => {
@@ -166,7 +180,7 @@ pub fn compute_convex_manifold(
                 a,
                 b,
                 transform_b_to_a,
-                &mut cache.sat_cache,
+                cache.sat(),
             );
         }
         // Shape A is always the primary type, so no other ordered pairing occurs.

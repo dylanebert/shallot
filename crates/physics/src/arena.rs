@@ -931,12 +931,13 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             let base = read_dir(dir, contact_id).manifold_base;
             let uses_sat = type_a == TY_HULL && type_b == TY_HULL;
             let uses_simplex = (type_a == TY_HULL || type_b == TY_HULL) && !uses_sat;
-            let mut cache = ConvexContactCache::empty();
-            if uses_sat {
-                cache.sat_cache = read_sat(dir, contact_id);
+            let mut cache = if uses_sat {
+                ConvexContactCache::Sat(read_sat(dir, contact_id))
             } else if uses_simplex {
-                cache.simplex_cache = read_simplex(dir, contact_id);
-            }
+                ConvexContactCache::Simplex(read_simplex(dir, contact_id))
+            } else {
+                ConvexContactCache::empty()
+            };
 
             let resident = disp[r + D_OLD_COUNT] != 0;
             let mut m = if resident {
@@ -973,10 +974,10 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 };
                 write_manifold(&m, crate::manifold_abi::block_col(pool, address, 1), 0);
             }
-            if uses_sat {
-                write_sat(dir, contact_id, &cache.sat_cache);
-            } else if uses_simplex {
-                write_simplex(dir, contact_id, &cache.simplex_cache);
+            match &cache {
+                ConvexContactCache::Sat(cache) => write_sat(dir, contact_id, cache),
+                ConvexContactCache::Simplex(cache) => write_simplex(dir, contact_id, cache),
+                ConvexContactCache::Empty => {}
             }
             mix_surface(
                 disp,
