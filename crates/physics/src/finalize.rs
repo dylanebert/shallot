@@ -9,7 +9,7 @@
 
 use crate::body::{
     clear_sim_force_torque, flags::DYNAMIC, read_fin, read_sim, read_state, write_fin_center,
-    write_fin_transform_p, write_sim_inv_inertia_world, write_sim_rotation, write_state,
+    write_fin_transform_p, write_sim_inv_inertia_world, write_sim_rotation,
     S2_BODY_ID, S2_CENTER0, S2_FLAGS, S2_MIN_EXTENT, S2_ROTATION0, SIM2_STRIDE,
 };
 use crate::col::Col;
@@ -140,7 +140,7 @@ pub unsafe fn finalize(
 ) {
     for i in start..start + count {
         crate::continuous::reset_body(i);
-        let mut s = read_state(state_col, i);
+        let s = read_state(state_col, i);
         let sim = read_sim(sim_col, i);
         let fin = read_fin(fin_col, i);
 
@@ -169,8 +169,11 @@ pub unsafe fn finalize(
             POSITION_SLEEP_FACTOR * inv_dt * max_delta_position,
         );
 
-        s.delta_position = Vec3::ZERO;
-        s.delta_rotation = Quat::IDENTITY;
+        let state_offset = i * crate::body::STATE_STRIDE;
+        for n in 6..12 {
+            state_col.set(state_offset + n, 0.0);
+        }
+        state_col.set(state_offset + 12, 1.0);
 
         let transform_p = center.add(q.rotate(fin.local_center).neg());
 
@@ -180,7 +183,6 @@ pub unsafe fn finalize(
             .mul(sim.inv_inertia_local)
             .mul(rotation_matrix.transpose());
 
-        write_state(state_col, i, &s);
         write_sim_rotation(sim_col, i, q);
         write_sim_inv_inertia_world(sim_col, i, inv_inertia_world);
         clear_sim_force_torque(sim_col, i);
