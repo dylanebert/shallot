@@ -73,13 +73,17 @@ impl Database {
         }
     }
     fn empty(&self, home: usize) -> Option<(usize, u16)> {
-        for d in 1..LINK as usize {
-            let bucket = (home + d * (d + 1) / 2) & self.mask();
+        let mut displacement = 1u16;
+        let mut linear_displacement = 1usize;
+        loop {
+            let bucket = (home + linear_displacement) & self.mask();
             if self.metadata[bucket] == 0 {
-                return Some((bucket, d as u16));
+                return Some((bucket, displacement));
             }
+            displacement += 1;
+            if displacement == LINK { return None; }
+            linear_displacement += displacement as usize;
         }
-        None
     }
     fn predecessor(&self, home: usize, displacement: u16) -> usize {
         let mut bucket = home;
@@ -104,20 +108,37 @@ impl Database {
         self.metadata[prev] = (self.metadata[prev] & !LINK) | d;
         true
     }
-    fn insert_raw(&mut self, value: Bucket) -> bool {
-        if self.buckets.is_empty() || self.count + 1 > (self.buckets.len() as f64 * 0.9) as usize {
-            return false;
-        }
+    fn insert_raw(&mut self, value: Bucket, unique: bool) -> bool {
+        if self.buckets.is_empty() { return false; }
         let hash = self.hash(value.key);
         let fragment = ((hash >> 48) as u16) & FRAGMENT;
         let home = hash as usize & self.mask();
         if self.metadata[home] & HOME == 0 {
+            if (self.count + 1) as f64 > self.buckets.len() as f64 * 0.9 {
+                return false;
+            }
             if self.metadata[home] != 0 && !self.evict(home) {
                 return false;
             }
             self.buckets[home] = value;
             self.metadata[home] = fragment | HOME | LINK;
         } else {
+            if !unique {
+                let mut bucket = home;
+                loop {
+                    if self.metadata[bucket] & FRAGMENT == fragment
+                        && unsafe { image(self.buckets[bucket].key) == image(value.key) }
+                    {
+                        self.buckets[bucket] = value;
+                        return true;
+                    }
+                    if self.metadata[bucket] & LINK == LINK { break; }
+                    bucket = self.next(home, bucket);
+                }
+            }
+            if (self.count + 1) as f64 > self.buckets.len() as f64 * 0.9 {
+                return false;
+            }
             let Some((empty, d)) = self.empty(home) else {
                 return false;
             };
@@ -139,7 +160,7 @@ impl Database {
             self.count = 0;
             let mut success = true;
             for i in 0..old_buckets.len() {
-                if old_metadata[i] != 0 && !self.insert_raw(old_buckets[i]) {
+                if old_metadata[i] != 0 && !self.insert_raw(old_buckets[i], true) {
                     success = false;
                     break;
                 }
@@ -171,7 +192,7 @@ impl Database {
         }
         let key = Box::into_raw(bytes.to_vec().into_boxed_slice()) as *mut u64 as usize;
         let bucket = Bucket { key, refs: 1 };
-        while !self.insert_raw(bucket) {
+        while !self.insert_raw(bucket, false) {
             self.grow();
         }
         key
