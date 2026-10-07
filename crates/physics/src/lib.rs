@@ -20,6 +20,7 @@
 #![allow(clippy::should_implement_trait)]
 #![allow(clippy::too_many_arguments)]
 
+mod aabb;
 pub mod body;
 pub mod col;
 #[cfg(target_arch = "wasm32")]

@@ -165,7 +165,7 @@ fn mesh_impact(
             let lo = min(min(a, b), min(c, d));
             let hi = max(max(a, b), max(c, d));
             if bounds_overlap(lower, upper, lo, hi) {
-                if field.clockwise {
+                if field.clockwise() {
                     context.triangle([a, b, c]);
                     context.triangle([d, c, b]);
                 } else {

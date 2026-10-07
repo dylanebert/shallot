@@ -61,14 +61,16 @@ fn mesh_and_height_traversals_return_the_triangle_impact() {
         scale: Vec3::new(1.0, 1.0, 1.0),
     });
     let height = Shape::Height(HeightField {
-        lower: Vec3::ZERO,
-        upper: Vec3::new(1.0, 0.0, 1.0),
-        min_height: 0.0,
-        height_scale: 1.0,
-        scale: Vec3::new(1.0, 1.0, 1.0),
-        columns: 2,
-        rows: 2,
-        clockwise: false,
+        header: &shallot_physics::height_query::HeightHeader {
+            lower: Vec3::ZERO,
+            upper: Vec3::new(1.0, 0.0, 1.0),
+            min_height: 0.0,
+            height_scale: 1.0,
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            column_count: 2,
+            row_count: 2,
+            ..Default::default()
+        },
         heights: &[0; 4],
         materials: &[0],
     });

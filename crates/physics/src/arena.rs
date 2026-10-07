@@ -483,7 +483,7 @@ unsafe fn dispatch_mesh(
         TriangleSource::Height {
             flags: core::slice::from_raw_parts(
                 (record as *const u8).add(*record.add(21) as usize),
-                2 * (field.columns - 1) * (field.rows - 1),
+                2 * (field.columns() - 1) * (field.rows() - 1),
             ),
             field,
         }

@@ -4,32 +4,73 @@ use crate::distance::{
     SimplexCache,
 };
 use crate::manifold::Capsule;
-use crate::math::{absf, clampf, maxf, minf, Plane, Transform, Vec3, FLT_EPSILON, FLT_MAX};
+use crate::math::{absf, Plane, Transform, Vec3, FLT_MAX};
 use crate::mesh_query::{
-    bounds_overlap, bounds_triangle_overlap, component, intersect_ray_triangle, max, min, mul,
-    proxy_bounds, signed_volume,
+    bounds_overlap, bounds_triangle_overlap, intersect_ray_triangle, max, min, mul, proxy_bounds,
+    signed_volume,
 };
 use crate::query::{PlaneResult, RayCastInput, ShapeCastInput};
-#[derive(Clone, Copy)]
-pub struct HeightField<'a> {
+#[repr(C)]
+pub struct HeightHeader {
     pub lower: Vec3,
     pub upper: Vec3,
     pub min_height: f32,
+    pub max_height: f32,
     pub height_scale: f32,
     pub scale: Vec3,
-    pub columns: usize,
-    pub rows: usize,
-    pub clockwise: bool,
+    pub column_count: u32,
+    pub row_count: u32,
+    pub heights_offset: u32,
+    pub materials_offset: u32,
+    pub triangle_count: u32,
+    pub flags: u32,
+}
+impl Default for HeightHeader {
+    fn default() -> Self {
+        Self {
+            lower: Vec3::ZERO,
+            upper: Vec3::ZERO,
+            min_height: 0.0,
+            max_height: 0.0,
+            height_scale: 0.0,
+            scale: Vec3::ZERO,
+            column_count: 0,
+            row_count: 0,
+            heights_offset: 0,
+            materials_offset: 0,
+            triangle_count: 0,
+            flags: 0,
+        }
+    }
+}
+#[derive(Clone, Copy)]
+pub struct HeightField<'a> {
+    pub header: &'a HeightHeader,
     pub heights: &'a [u16],
     pub materials: &'a [u8],
 }
+impl core::ops::Deref for HeightField<'_> {
+    type Target = HeightHeader;
+    fn deref(&self) -> &HeightHeader {
+        self.header
+    }
+}
 impl HeightField<'_> {
+    pub(crate) fn columns(self) -> usize {
+        self.column_count as usize
+    }
+    pub(crate) fn rows(self) -> usize {
+        self.row_count as usize
+    }
+    pub(crate) fn clockwise(self) -> bool {
+        self.flags & 255 != 0
+    }
     pub(crate) fn corners(self, row: usize, col: usize) -> [Vec3; 4] {
         let indices = [
-            row * self.columns + col,
-            row * self.columns + col + 1,
-            (row + 1) * self.columns + col,
-            (row + 1) * self.columns + col + 1,
+            row * self.columns() + col,
+            row * self.columns() + col + 1,
+            (row + 1) * self.columns() + col,
+            (row + 1) * self.columns() + col + 1,
         ];
         let x = [col, col + 1, col, col + 1];
         let z = [row, row, row + 1, row + 1];
@@ -55,14 +96,14 @@ impl HeightField<'_> {
         let min_col = (lower.x / self.scale.x).floor() as i32;
         let max_col = (upper.x / self.scale.x).floor() as i32;
         for row in min_row..=max_row {
-            if row < 0 || self.rows as i32 - 1 <= row {
+            if row < 0 || self.rows() as i32 - 1 <= row {
                 continue;
             }
             for col in min_col..=max_col {
-                if col < 0 || self.columns as i32 - 1 <= col {
+                if col < 0 || self.columns() as i32 - 1 <= col {
                     continue;
                 }
-                let index = row as usize * (self.columns - 1) + col as usize;
+                let index = row as usize * (self.columns() - 1) + col as usize;
                 if self.materials[index] != 255
                     && !visit(index, self.corners(row as usize, col as usize))
                 {
@@ -71,49 +112,6 @@ impl HeightField<'_> {
             }
         }
     }
-}
-fn ray_bounds(lower: Vec3, upper: Vec3, p1: Vec3, p2: Vec3) -> Option<(f32, f32)> {
-    let d = p2.sub(p1);
-    let length = d.length();
-    if length < FLT_EPSILON {
-        return if bounds_overlap(lower, upper, p1, p1) {
-            Some((0.0, 0.0))
-        } else {
-            None
-        };
-    }
-    let dir = d.scale(1.0 / length);
-    let mut t_min = 0.0;
-    let mut t_max = length;
-    for i in 0..3 {
-        let c = component(dir, i);
-        let start = component(p1, i);
-        let lo = component(lower, i);
-        let hi = component(upper, i);
-        if absf(c) < FLT_EPSILON {
-            if start < lo || start > hi {
-                return None;
-            }
-        } else {
-            let mut t1 = (lo - start) / c;
-            let mut t2 = (hi - start) / c;
-            if t1 > t2 {
-                core::mem::swap(&mut t1, &mut t2);
-            }
-            t_min = maxf(t_min, t1);
-            t_max = minf(t_max, t2);
-            if t_min > t_max {
-                return None;
-            }
-        }
-    }
-    if t_max < 0.0 {
-        return None;
-    }
-    Some((
-        clampf(t_min / length, 0.0, 1.0),
-        clampf(t_max / length, 0.0, 1.0),
-    ))
 }
 fn dda(start: i32, end: i32, scale: f32, position: f32, delta: f32) -> (f32, f32, i32) {
     if start < end {
@@ -154,7 +152,7 @@ pub fn shape_cast_height(field: HeightField, input: &ShapeCastInput) -> CastOutp
         triangle_index: 0,
         ..CastOutput::MISS
     };
-    let Some((min_fraction, max_fraction)) = ray_bounds(
+    let Some((min_fraction, max_fraction)) = crate::aabb::ray_cast(
         field.lower.sub(extent).sub(margin),
         field.upper.add(extent).add(margin),
         start,
@@ -220,20 +218,20 @@ pub fn shape_cast_height(field: HeightField, input: &ShapeCastInput) -> CastOutp
     };
     loop {
         for row in tail_row.min(head_row)..=tail_row.max(head_row) {
-            if row < 0 || row >= field.rows as i32 - 1 {
+            if row < 0 || row >= field.rows() as i32 - 1 {
                 continue;
             }
             for col in tail_col.min(head_col)..=tail_col.max(head_col) {
-                if col < 0 || col >= field.columns as i32 - 1 {
+                if col < 0 || col >= field.columns() as i32 - 1 {
                     continue;
                 }
-                let cell = row as usize * (field.columns - 1) + col as usize;
+                let cell = row as usize * (field.columns() - 1) + col as usize;
                 let material = field.materials[cell];
                 if material == 255 {
                     continue;
                 }
                 let mut corners = field.corners(row as usize, col as usize);
-                if field.clockwise {
+                if field.clockwise() {
                     corners.swap(1, 2);
                 }
                 let [a, b, c, d] = corners;
@@ -420,7 +418,7 @@ pub fn collide_mover_height(
     };
     let mut cache = SimplexCache::empty();
     field.visit_cells(lower, upper, |cell, mut corners| {
-        if field.clockwise {
+        if field.clockwise() {
             corners.swap(1, 2);
         }
         let [a, b, c, d] = corners;

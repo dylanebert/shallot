@@ -125,19 +125,12 @@ pub(crate) unsafe fn mesh_view(r: *const u32, scale: Vec3) -> crate::mesh_query:
 }
 
 pub(crate) unsafe fn height_view(r: *const u32) -> crate::height_query::HeightField<'static> {
-    use crate::height_query::HeightField;
-    let f = r.cast::<f32>();
-    let columns = *r.add(17) as usize;
-    let rows = *r.add(18) as usize;
+    use crate::height_query::{HeightField, HeightHeader};
+    let header = &*r.add(5).cast::<HeightHeader>();
+    let columns = header.column_count as usize;
+    let rows = header.row_count as usize;
     HeightField {
-        lower: *(f.add(5) as *const Vec3),
-        upper: *(f.add(8) as *const Vec3),
-        min_height: *f.add(11),
-        height_scale: *f.add(13),
-        scale: *(f.add(14) as *const Vec3),
-        columns,
-        rows,
-        clockwise: *r.add(22) & 255 != 0,
+        header,
         heights: core::slice::from_raw_parts(
             r.cast::<u8>().add(*r.add(19) as usize).cast::<u16>(),
             columns * rows,

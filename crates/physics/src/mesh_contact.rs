@@ -66,11 +66,11 @@ impl TriangleSource<'_> {
             }
             Self::Height { field, flags } => {
                 let cell = index >> 1;
-                let row = cell / (field.columns - 1);
-                let column = cell - row * (field.columns - 1);
-                let i11 = row * field.columns + column;
+                let row = cell / (field.columns() - 1);
+                let column = cell - row * (field.columns() - 1);
+                let i11 = row * field.columns() + column;
                 let i12 = i11 + 1;
-                let i21 = (row + 1) * field.columns + column;
+                let i21 = (row + 1) * field.columns() + column;
                 let i22 = i21 + 1;
                 let mut indices = if index & 1 == 0 {
                     [i11 as u32, i21 as u32, i12 as u32]
@@ -78,15 +78,15 @@ impl TriangleSource<'_> {
                     [i22 as u32, i12 as u32, i21 as u32]
                 };
                 let mut flags = flags[index];
-                if field.clockwise {
+                if field.clockwise() {
                     indices.swap(1, 2);
                     let edge1 = flags & 0x11;
                     let edge3 = flags & 0x44;
                     flags = (flags & !0x55) | (edge1 << 2) | (edge3 >> 2);
                 }
                 let vertices = indices.map(|i| {
-                    let row = i as usize / field.columns;
-                    let column = i as usize % field.columns;
+                    let row = i as usize / field.columns();
+                    let column = i as usize % field.columns();
                     mul(
                         field.scale,
                         Vec3::new(
@@ -161,9 +161,9 @@ impl TriangleSource<'_> {
                 let max_row = (upper.z / field.scale.z).floor() as i32;
                 let min_column = (lower.x / field.scale.x).floor() as i32;
                 let max_column = (upper.x / field.scale.x).floor() as i32;
-                for row in min_row.max(0)..=max_row.min(field.rows as i32 - 2) {
-                    for column in min_column.max(0)..=max_column.min(field.columns as i32 - 2) {
-                        let cell = row as usize * (field.columns - 1) + column as usize;
+                for row in min_row.max(0)..=max_row.min(field.rows() as i32 - 2) {
+                    for column in min_column.max(0)..=max_column.min(field.columns() as i32 - 2) {
+                        let cell = row as usize * (field.columns() - 1) + column as usize;
                         if field.materials[cell] == 255 {
                             continue;
                         }
@@ -973,14 +973,16 @@ mod tests {
         let flags = [0u8; 8];
         let source = TriangleSource::Height {
             field: crate::height_query::HeightField {
-                lower: Vec3::ZERO,
-                upper: Vec3::new(2.0, 0.0, 2.0),
-                min_height: 0.0,
-                height_scale: 1.0,
-                scale: Vec3::new(1.0, 1.0, 1.0),
-                columns: 3,
-                rows: 3,
-                clockwise: false,
+                header: &crate::height_query::HeightHeader {
+                    lower: Vec3::ZERO,
+                    upper: Vec3::new(2.0, 0.0, 2.0),
+                    min_height: 0.0,
+                    height_scale: 1.0,
+                    scale: Vec3::new(1.0, 1.0, 1.0),
+                    column_count: 3,
+                    row_count: 3,
+                    ..Default::default()
+                },
                 heights: &heights,
                 materials: &materials,
             },
