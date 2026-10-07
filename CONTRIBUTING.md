@@ -177,7 +177,7 @@ bun run format                   # biome
 - Steady play allocates nothing.
 - A memory claim creates and disposes its subject, returns to baseline and fails on a deliberately leaking control; retention is measured after GC, and sampler sites are diagnostics, not results.
 - Performance uses counted work and same-machine ratio oracles; real-hardware timings name the hardware and are reported, never asserted.
-- An oracle is a separate measurement: run when its claim or tool changes, recorded in the commit, and repeated only for a named doubt.
+- An oracle is a separate measurement: run when its claim or tool changes, its result recorded in its commit message, and repeated only for a named doubt; the tree keeps the tool, never a run's output.
 
 | Claim | Tool / tier |
 |---|---|

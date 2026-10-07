@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { Glob } from "bun";
@@ -33,6 +34,18 @@ function recipeSourceViolations(root: string): string[] {
         }
     }
     return violations;
+}
+
+function diagnosticsSourceViolations(root: string): string[] {
+    if (!existsSync(resolve(root, "diagnostics"))) return [];
+    const files = execFileSync("git", ["ls-files", "-z", "--", "diagnostics/"], {
+        cwd: root,
+        encoding: "utf8",
+    });
+    return files
+        .split("\0")
+        .filter((file) => file && !/\.(ts|mjs|c|h|py|rs)$/.test(file))
+        .map((file) => `${file}: diagnostics keeps source tools, never a run's output`);
 }
 
 function shallotPackage(name: string): boolean {
@@ -168,5 +181,9 @@ function dependencyViolations(root: string): string[] {
 }
 
 export function readProjectPolicy(root: string): string[] {
-    return [...recipeSourceViolations(root), ...dependencyViolations(root)];
+    return [
+        ...recipeSourceViolations(root),
+        ...diagnosticsSourceViolations(root),
+        ...dependencyViolations(root),
+    ];
 }
