@@ -1491,16 +1491,7 @@ struct AxisQuery {
 }
 
 fn hull_aabb_center_extents(hull: &HullData) -> (Vec3, Vec3) {
-    let mut lower = hull.points[0];
-    let mut upper = hull.points[0];
-    for point in hull.points.iter().take(hull.vertex_count).skip(1) {
-        lower.x = minf(lower.x, point.x);
-        lower.y = minf(lower.y, point.y);
-        lower.z = minf(lower.z, point.z);
-        upper.x = maxf(upper.x, point.x);
-        upper.y = maxf(upper.y, point.y);
-        upper.z = maxf(upper.z, point.z);
-    }
+    let [lower, upper] = hull.bounds;
     (lower.add(upper).scale(0.5), upper.sub(lower).scale(0.5))
 }
 
@@ -1592,7 +1583,6 @@ fn compute_separating_axis(
     let rotation = Mat3::from_quat(transform_b_to_a.q);
     let inverse_rotation = rotation.transpose();
     let (center_b, extent_b) = hull_aabb_center_extents(hull_b);
-    let (center_a, extent_a) = hull_aabb_center_extents(hull_a);
     let mut result = AxisQuery {
         face_a: SeparatingAxis {
             normal: Vec3::ZERO,
@@ -1642,6 +1632,7 @@ fn compute_separating_axis(
         }
     }
 
+    let (center_a, extent_a) = hull_aabb_center_extents(hull_a);
     for i in 0..hull_b.face_count {
         let plane = hull_b.planes[i];
         let direction = rotation.mul_v(plane.normal).neg();

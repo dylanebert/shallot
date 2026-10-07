@@ -58,6 +58,7 @@ pub struct HullFace {
 /// the static geometry columns (3c.2b) — same view type either way.
 pub struct HullData<'a> {
     pub center: Vec3,
+    pub bounds: [Vec3; 2],
     pub vertex_count: usize,
     pub edge_count: usize,
     pub face_count: usize,
@@ -152,6 +153,7 @@ mod tests {
         ];
         let hull = HullData {
             center: Vec3::ZERO,
+            bounds: [Vec3::ZERO; 2],
             vertex_count: points.len(),
             edge_count: 0,
             face_count: 0,
@@ -177,6 +179,7 @@ mod tests {
                 .collect();
             let hull = HullData {
                 center: Vec3::ZERO,
+                bounds: [Vec3::ZERO; 2],
                 vertex_count: count,
                 edge_count: 0,
                 face_count: 0,

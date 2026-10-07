@@ -80,6 +80,7 @@ pub(crate) unsafe fn hull_view(index: usize) -> HullData<'static> {
 
     HullData {
         center,
+        bounds: rec.bounds,
         vertex_count,
         edge_count,
         face_count,
