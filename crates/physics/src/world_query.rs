@@ -127,8 +127,18 @@ pub(crate) unsafe fn sensor_task(
                 |_, id| {
                     let id = id as usize;
                     let o = id * SHAPE_STRIDE;
-                    if id == sensor_id
-                        || r.get(o + S_QUERY_SENSOR) & SENSOR_FLAG == 0
+                    if id == sensor_id {
+                        return true;
+                    }
+                    if !matches!(
+                        r.get(o + S_TYPE),
+                        crate::finalize::TY_SPHERE
+                            | crate::finalize::TY_CAPSULE
+                            | crate::finalize::TY_HULL
+                    ) {
+                        return true;
+                    }
+                    if r.get(o + S_QUERY_SENSOR) & SENSOR_FLAG == 0
                         || r.get(n + S_QUERY_BODY) == r.get(o + S_QUERY_BODY)
                     {
                         return true;
@@ -146,14 +156,6 @@ pub(crate) unsafe fn sensor_task(
                             | (r.get(o + S_QUERY_CATEGORY + 1) & r.get(n + S_QUERY_MASK + 1)))
                             == 0
                     {
-                        return true;
-                    }
-                    if !matches!(
-                        r.get(o + S_TYPE),
-                        crate::finalize::TY_SPHERE
-                            | crate::finalize::TY_CAPSULE
-                            | crate::finalize::TY_HULL
-                    ) {
                         return true;
                     }
                     let (visitor, _) = query_abi::active_shape(id);
