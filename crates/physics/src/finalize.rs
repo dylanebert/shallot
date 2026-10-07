@@ -177,14 +177,7 @@ pub unsafe fn finalize(
 
         let transform_p = center.add(q.rotate(fin.local_center).neg());
 
-        // World-space inverse inertia tensor: R * invInertiaLocal * Rᵀ.
-        let rotation_matrix = Mat3::from_quat(q);
-        let inv_inertia_world = rotation_matrix
-            .mul(sim.inv_inertia_local)
-            .mul(rotation_matrix.transpose());
-
         write_sim_rotation(sim_col, i, q);
-        write_sim_inv_inertia_world(sim_col, i, inv_inertia_world);
         clear_sim_force_torque(sim_col, i);
         write_fin_center(fin_col, i, center);
         write_fin_transform_p(fin_col, i, transform_p);
@@ -222,6 +215,16 @@ pub unsafe fn finalize(
             sim2_col.set(s2 + S2_CENTER0 + 1, center.y);
             sim2_col.set(s2 + S2_CENTER0 + 2, center.z);
         }
+
+        // Continuous collision can clip the rotation before inertia is rebuilt.
+        let rotation_matrix = Mat3::from_quat(read_sim(sim_col, i).rotation);
+        write_sim_inv_inertia_world(
+            sim_col,
+            i,
+            rotation_matrix
+                .mul(sim.inv_inertia_local)
+                .mul(rotation_matrix.transpose()),
+        );
     }
 }
 

@@ -1297,10 +1297,6 @@ pub(crate) unsafe fn finalize_block(
             crate::bodies::sim2_base(world_index) as *mut f32,
             b * SIM2_STRIDE,
         );
-        let sim2_u = Col::new(
-            crate::bodies::sim2_base(world_index) as *mut u32,
-            b * SIM2_STRIDE,
-        );
         finalize::finalize(
             world_index,
             state,
@@ -1316,21 +1312,6 @@ pub(crate) unsafe fn finalize_block(
         );
         for i in start..end {
             crate::events::write_move(world_index, i);
-        }
-        // Continuous can clip the rotation. Box3D rebuilds inertia from the resulting pose,
-        // not the discrete candidate; non-fast bodies already have that tensor.
-        for i in start..end {
-            if sim2_u.atomic_get(i * SIM2_STRIDE + crate::body::S2_FLAGS) & 0x40 != 0 {
-                let body = crate::body::read_sim(sim, i);
-                let rotation = crate::math::Mat3::from_quat(body.rotation);
-                crate::body::write_sim_inv_inertia_world(
-                    sim,
-                    i,
-                    rotation
-                        .mul(body.inv_inertia_local)
-                        .mul(rotation.transpose()),
-                );
-            }
         }
         refit_block(world_index, sim, fin, start, end);
     }
