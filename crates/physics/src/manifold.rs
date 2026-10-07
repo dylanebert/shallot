@@ -553,8 +553,8 @@ fn query_edge_direction_hull_and_capsule(
     EdgeQuery {
         normal: max_normal,
         separation: max_separation,
-        index_a: max_index_a & 0xff,
-        index_b: max_index_b & 0xff,
+        index_a: max_index_a,
+        index_b: max_index_b,
     }
 }
 
