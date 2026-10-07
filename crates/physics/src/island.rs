@@ -405,7 +405,6 @@ fn union(
     }
 }
 struct SplitScratch {
-    indices: Vec<i32>,
     parents: Vec<usize>,
     ranks: Vec<usize>,
     contact_counts: Vec<usize>,
@@ -418,7 +417,6 @@ struct SplitScratch {
 }
 impl SplitScratch {
     const EMPTY: Self = Self {
-        indices: Vec::new(),
         parents: Vec::new(),
         ranks: Vec::new(),
         contact_counts: Vec::new(),
@@ -435,8 +433,6 @@ static mut SPLIT_SCRATCH: [SplitScratch; crate::solve::MAX_THREADS] =
     [const { SplitScratch::EMPTY }; crate::solve::MAX_THREADS];
 pub unsafe fn prepare_split(world_index: usize, base: usize, worker: usize) {
     let s = &mut SPLIT_SCRATCH[worker];
-    s.indices
-        .resize(crate::bodies::body_length(world_index as u32), -1);
     let n = record(world_index, base).bodies.len();
     for v in [
         &mut s.parents,
@@ -464,7 +460,6 @@ pub unsafe extern "C" fn split_in_world(world_index: usize, base: usize) {
 }
 pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
     let SplitScratch {
-        indices,
         parents,
         ranks,
         contact_counts,
@@ -475,9 +470,6 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
         component_joints,
         ids,
     } = &mut SPLIT_SCRATCH[worker];
-    for (id, index) in indices.iter_mut().enumerate() {
-        *index = crate::bodies::record(world_index, id).island_index;
-    }
     let n = record(world_index, base).bodies.len();
     for (i, p) in parents.iter_mut().enumerate() {
         *p = i;
@@ -492,8 +484,8 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
             &record(world_index, base).joints
         };
         for l in links {
-            let a = indices[l.body_a as usize];
-            let b = indices[l.body_b as usize];
+            let a = crate::bodies::record(world_index, l.body_a as usize).island_index;
+            let b = crate::bodies::record(world_index, l.body_b as usize).island_index;
             if a != -1 && b != -1 {
                 union(
                     parents,
@@ -552,17 +544,15 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
     }
     for i in 0..record(world_index, base).contacts.len() {
         let l = record(world_index, base).contacts[i];
-        let a = indices[l.body_a as usize];
-        let b = indices[l.body_b as usize];
-        let index = if a != -1 { a } else { b } as usize;
-        add_contact(world_index, ids[root_map[parents[index]]], l);
+        let a = crate::bodies::record(world_index, l.body_a as usize).island_id;
+        let b = crate::bodies::record(world_index, l.body_b as usize).island_id;
+        add_contact(world_index, if a != -1 { a } else { b } as usize, l);
     }
     for i in 0..record(world_index, base).joints.len() {
         let l = record(world_index, base).joints[i];
-        let a = indices[l.body_a as usize];
-        let b = indices[l.body_b as usize];
-        let index = if a != -1 { a } else { b } as usize;
-        add_joint(world_index, ids[root_map[parents[index]]], l);
+        let a = crate::bodies::record(world_index, l.body_a as usize).island_id;
+        let b = crate::bodies::record(world_index, l.body_b as usize).island_id;
+        add_joint(world_index, if a != -1 { a } else { b } as usize, l);
     }
     destroy_in_world(world_index, base);
 }
