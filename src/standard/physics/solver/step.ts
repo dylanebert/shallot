@@ -1,4 +1,3 @@
-import { readJointEventUserData } from "../kernel/jointcolumns";
 import { kernel, threads } from "../kernel/kernel";
 import {
     defaultFrictionCallback,
@@ -12,7 +11,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.locked = true;
     world.broadPhase.store.initialize();
     world.bodyStore.syncCount = 0;
-    world.jointEventUserData.fill(null);
     const k = kernel(world.ecsState);
     k.stepBegin(
         world.worldId,
@@ -44,6 +42,5 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.manifoldStore.refreshViews();
     world.shapeStore.refreshViews();
     world.broadPhase.store.refreshIfStale();
-    readJointEventUserData(world);
     world.locked = false;
 }

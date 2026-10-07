@@ -193,7 +193,8 @@ function fillJointEvents(world: WorldState, out: JointEvent[]): void {
     for (let i = 0, count = eventCount(world, EventKind.Joint); i < count; ++i) {
         out.push({
             joint: new Joint(world, eventId(world, EventKind.Joint, i, 0)),
-            userData: world.jointEventUserData[i],
+            userData:
+                world.jointUserData[kernel(world.ecsState).eventWord(world.worldId, EventKind.Joint, i, 2)],
         });
     }
 }
