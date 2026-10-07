@@ -469,7 +469,7 @@ fn hull_face_a_last_plane_cuts_translated_box() {
     let b = hull(&g["hulls"][0]["hullB"]);
     for capacity in [4, 8] {
         let mut cache = SatCache::empty();
-        cache.ty = shallot_physics::manifold::separating_feature::FACE_AXIS_A;
+        cache.ty = shallot_physics::manifold::separating_feature::FACE_AXIS_A as u8;
         cache.index_a = 1;
         cache.separation = -0.25;
         for _ in 0..2 {
