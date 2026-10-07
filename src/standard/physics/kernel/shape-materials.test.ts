@@ -65,13 +65,13 @@ test("one material is inline and multiple materials are contiguous, owned and re
         const manyId = many.id.index1 - 1;
         const read = (id: number) => getShapeMaterials(state, id);
         expect(k.shapeMaterialPtr(state.worldId, oneId)).toBe(
-            state.shapeStore.shapeU.byteOffset + (oneId * SHAPE_STRIDE + 52) * 4,
+            state.shapeStore.shapeU.byteOffset + (oneId * SHAPE_STRIDE + 26) * 4,
         );
-        expect(state.shapeStore.shapeU[oneId * SHAPE_STRIDE + 16]).toBe(0);
+        expect(state.shapeStore.shapeU[oneId * SHAPE_STRIDE + 36]).toBe(0);
         expect(read(oneId)).toEqual([materials[0]]);
         expect(read(manyId)).toEqual(materials);
         const ptr = k.shapeMaterialPtr(state.worldId, manyId);
-        expect(new Float32Array(k.memory.buffer, ptr, 18)[9]).toBe(materials[1].friction);
+        expect(new Float32Array(k.memory.buffer, ptr, 20)[10]).toBe(materials[1].friction);
         materials[1].friction = 0.75;
         expect(read(manyId)[1].friction).toBe(0.25);
         const saved = world.snapshot();
