@@ -116,25 +116,6 @@ pub unsafe fn set_location(id: usize, set: usize, index: usize) {
     let body = record_mut(regions::active(), id);
     body.set_index = set as i32;
     body.local_index = index as i32;
-    sync_contacts(id);
-}
-
-pub unsafe fn sync_contacts(id: usize) {
-    use crate::manifold_abi::*;
-    let body = record(regions::active(), id);
-    let index = if body.body_type == 0 {
-        u32::MAX
-    } else {
-        body.local_index as u32
-    };
-    let d = crate::manifolds::dir_col();
-    let mut key = body.head_contact_key;
-    while key != -1 {
-        let edge = (key & 1) as usize;
-        let offset = (key >> 1) as usize * DIR_STRIDE;
-        d.set(offset + 9 + edge, index);
-        key = d.get(offset + DIR_EDGE_A + 2 + 3 * edge) as i32;
-    }
 }
 
 pub fn state_base() -> usize {

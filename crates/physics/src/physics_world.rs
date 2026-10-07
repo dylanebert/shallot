@@ -489,11 +489,7 @@ pub unsafe extern "C" fn try_sleep_island(id: usize) {
     let target = solver_set::create();
     for i in 0..island::array_count(id, 0) {
         let body = island::array_get(id, 0, i, 0) as usize;
-        let moved = crate::body_record::runtime::transfer(world, body, target, false);
-        if moved != u32::MAX {
-            crate::shape_lifecycle::sync_body(world, moved as usize);
-        }
-        crate::shape_lifecycle::sync_body(world, body);
+        crate::body_record::runtime::transfer(world, body, target, false);
         let mut key = bodies::record(world, body).head_contact_key;
         let d = manifolds::dir_col();
         while key != -1 {
@@ -523,7 +519,6 @@ pub unsafe extern "C" fn try_sleep_island(id: usize) {
     island::set_field(id, 1, *result as i32);
     for i in 0..island::array_count(id, 0) {
         let body = island::array_get(id, 0, i, 0) as usize;
-        bodies::sync_contacts(body);
         let d = manifolds::dir_col();
         let mut key = bodies::record(world, body).head_contact_key;
         while key != -1 {

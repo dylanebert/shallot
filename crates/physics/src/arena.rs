@@ -1150,6 +1150,18 @@ pub(crate) unsafe fn recycle_block(
         for i in start..end {
             let contact_id = contacts[i] as usize;
             let o = contact_id * DIR_STRIDE;
+            for (edge, lane) in [(DIR_EDGE_A, 9), (DIR_EDGE_B, 10)] {
+                let body =
+                    crate::bodies::record(crate::regions::active(), dir.get(o + edge) as usize);
+                dir.set(
+                    o + lane,
+                    if body.body_type == 0 {
+                        u32::MAX
+                    } else {
+                        body.local_index as u32
+                    },
+                );
+            }
             let flags = dir.get(o + 6) & !SIM_UPDATED;
             dir.set(o + 6, flags);
             let mut record = [0u32; RECYCLE_STRIDE];

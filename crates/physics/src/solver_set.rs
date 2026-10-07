@@ -573,7 +573,6 @@ pub unsafe fn wake(set: usize) {
         let id = body_id(set, i) as usize;
         let body = *bodies::record(world, id);
         wake_body(set, i, body.flags, body.head_shape_id);
-        crate::shape_lifecycle::sync_body(world, id);
         let mut key = body.head_contact_key;
         while key != -1 {
             let id = (key >> 1) as usize;
@@ -620,7 +619,6 @@ pub unsafe fn wake(set: usize) {
     // Classification needs the final graph placement of both endpoints.
     for i in 0..count {
         let id = body_id(set, i) as usize;
-        bodies::sync_contacts(id);
         let mut key = bodies::record(world, id).head_contact_key;
         while key != -1 {
             let id = (key >> 1) as usize;

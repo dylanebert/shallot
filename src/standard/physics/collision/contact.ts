@@ -112,9 +112,6 @@ export function updateAwakeContact(world: WorldState, id: number): void {
     k.bodySetActiveWorld(world.worldId);
     k.awakeContactUpdate(id);
 }
-export function writeBodySimIndex(world: WorldState, body: number): void {
-    kernel(world.ecsState).bodySyncContacts(world.worldId, body);
-}
 export function reclassifyBodyContacts(world: WorldState, body: number): void {
     kernel(world.ecsState).bodyReclassifyContacts(world.worldId, body);
 }

@@ -51,10 +51,7 @@ pub unsafe extern "C" fn destroy(world: usize, id: usize) {
         shape::destroy_internal(world, s, true);
     }
     body::remove_island(world, id);
-    let moved = bodies::body_destroy(world as u32, id as u32);
-    if moved != u32::MAX {
-        shape::sync_body(world, moved as usize);
-    }
+    bodies::body_destroy(world as u32, id as u32);
 }
 #[export_name = "bodySetType"]
 pub unsafe extern "C" fn set_type(world: usize, id: usize, kind: i32) {

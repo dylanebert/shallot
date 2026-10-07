@@ -212,16 +212,17 @@ fn hi(b: [f32; 6]) -> Vec3 {
 }
 unsafe fn target_sweep(id: usize, base: Vec3) -> Sweep {
     let u = shapes::col();
-    let f = shapes::col_f();
     let o = id * shapes::SHAPE_STRIDE;
-    let awake = u.get(o + 32);
-    if awake != 0 {
-        return sweep(awake as usize - 1, base);
+    let body_id = u.get(o + 29) as usize;
+    let record = bodies::record(crate::regions::active(), body_id);
+    if record.set_index == 2 {
+        return sweep(record.local_index as usize, base);
     }
-    let c = v(f, o + 44).sub(base);
-    let q = q(f, o + 21);
+    let sim = bodies::column(body_id, 1, body::SIM_STRIDE);
+    let c = v(sim, body::CENTER).sub(base);
+    let q = q(sim, body::ROTATION);
     Sweep {
-        local_center: v(f, o + 47),
+        local_center: v(sim, body::LOCAL_CENTER),
         c1: c,
         c2: c,
         q1: q,
@@ -334,11 +335,16 @@ pub(crate) unsafe fn solve(i: usize) {
                     {
                         return true;
                     }
-                    let awake = u.get(a + 32);
-                    let target_flags = if awake != 0 {
-                        s2.atomic_get((awake as usize - 1) * body::SIM2_STRIDE + body::S2_FLAGS)
+                    let target_body = u.get(a + 29) as usize;
+                    let record = bodies::record(crate::regions::active(), target_body);
+                    let target_flags = if record.set_index == 2 {
+                        s2.atomic_get(
+                            record.local_index as usize * body::SIM2_STRIDE + body::S2_FLAGS,
+                        )
                     } else {
-                        u.get(a + 42)
+                        bodies::column(target_body, 5, body::SIM2_STRIDE)
+                            .get(body::S2_FLAGS)
+                            .to_bits()
                     };
                     if target_flags & IS_BULLET != 0 {
                         return true;
