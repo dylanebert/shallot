@@ -12,6 +12,8 @@ struct Broad {
     tree: [usize; 3],
     set: usize,
     set_count: usize,
+    rebuild: [crate::regions::Buffer; 6],
+    rebuild_capacity: [usize; 3],
 }
 impl Broad {
     const EMPTY: Self = Self {
@@ -19,6 +21,8 @@ impl Broad {
         tree: [0; 3],
         set: 0,
         set_count: 0,
+        rebuild: [crate::regions::Buffer::EMPTY; 6],
+        rebuild_capacity: [0; 3],
     };
 }
 static mut WORLDS: [Broad; MAX_WORLDS] = [Broad::EMPTY; MAX_WORLDS];
@@ -46,6 +50,19 @@ pub fn tree_ptr(world_index: usize, i: usize) -> *mut u32 {
 }
 pub fn tree_cap(world_index: usize, i: usize) -> usize {
     unsafe { world(world_index).tree[i] }
+}
+pub unsafe fn rebuild_scratch(world_index: usize, index: usize, count: usize) -> (*mut i32, *mut f32, usize) {
+    let w = &mut WORLDS[world_index];
+    if count > w.rebuild_capacity[index] {
+        let capacity = count + count / 2;
+        for (slot, stride) in [(2 * index, 4), (2 * index + 1, 12)] {
+            w.rebuild[slot].release();
+            w.rebuild[slot] = crate::regions::Buffer::allocate(capacity * stride);
+            (w.rebuild[slot].ptr as *mut u8).write_bytes(0, capacity * stride);
+        }
+        w.rebuild_capacity[index] = capacity;
+    }
+    (w.rebuild[2 * index].ptr as *mut i32, w.rebuild[2 * index + 1].ptr as *mut f32, w.rebuild_capacity[index])
 }
 pub fn set_count(world_index: usize) -> usize {
     unsafe { world(world_index).set_count }
@@ -369,6 +386,7 @@ pub extern "C" fn reserve_broad_in_world(
     }
 }
 pub unsafe fn reset(id: usize) {
+    for buffer in &mut WORLDS[id].rebuild { buffer.release(); }
     WORLDS[id].columns.release();
     WORLDS[id] = Broad::EMPTY;
 }

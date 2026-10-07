@@ -36,20 +36,19 @@ pub unsafe extern "C" fn mutate(
     udh: u32,
 ) -> i32 {
     let pool = slice::from_raw_parts_mut(ptr, cap * STRIDE);
-    let s = slice::from_raw_parts_mut(state, 6);
-    let mut root = s[0] as i32;
-    let mut count = s[1] as usize;
-    let mut free = s[2] as i32;
+    let root = &mut *(state as *mut i32);
+    let count = &mut *(state.add(1) as *mut usize);
+    let free = &mut *(state.add(2) as *mut i32);
     let lo = [lx, ly, lz];
     let hi = [hx, hy, hz];
     let result = match op {
         0 => {
-            s[3] += 1;
+            *state.add(3) += 1;
             tree::create_proxy(
                 pool,
-                &mut root,
-                &mut count,
-                &mut free,
+                root,
+                count,
+                free,
                 lo,
                 hi,
                 ch,
@@ -58,7 +57,7 @@ pub unsafe extern "C" fn mutate(
             )
         }
         1 => {
-            tree::move_proxy(pool, &mut root, &mut count, &mut free, id, lo, hi);
+            tree::move_proxy(pool, root, count, free, id, lo, hi);
             id
         }
         2 => {
@@ -66,12 +65,12 @@ pub unsafe extern "C" fn mutate(
             id
         }
         3 => {
-            tree::destroy_proxy(pool, &mut root, &mut count, &mut free, id);
-            s[3] -= 1;
+            tree::destroy_proxy(pool, root, count, free, id);
+            *state.add(3) -= 1;
             id
         }
         4 => {
-            let n = (s[3] as usize).max(1);
+            let n = (*state.add(3) as usize).max(1);
             let scratch = if ptr == state.add(6) {
                 ptr.add(cap * STRIDE)
             } else {
@@ -89,16 +88,11 @@ pub unsafe extern "C" fn mutate(
                 gather_stack: &mut gather,
                 build_stack: &mut build,
             };
-            root = tree::rebuild(pool, root, s[3] as usize, id != 0, &mut rb);
-            count = rb.node_count;
-            free = rb.free_list;
-            root
+            *root = tree::rebuild(pool, *root, *state.add(3) as usize, id != 0, &mut rb);
+            *root
         }
         _ => unreachable!(),
     };
-    s[0] = root as u32;
-    s[1] = count as u32;
-    s[2] = free as u32;
     result
 }
 #[export_name = "treeMutateResident"]
@@ -156,23 +150,22 @@ pub unsafe extern "C" fn mutate_resident_in_world(
     let state = crate::broad::tree_state(world_index, index);
     let ptr = crate::broad::tree_ptr(world_index, index);
     if op == 4 {
-        let n = (*state.add(3) as usize).max(1);
-        let scratch = reserve(0, n * 4);
+        let count = *state.add(3) as usize;
+        if count == 0 { return *state as i32; }
+        let (indices, centers, n) = crate::broad::rebuild_scratch(world_index, index, count);
         let mut gather = [0; STACK_SIZE];
         let mut build = [0; STACK_SIZE * 5];
         let mut rb = Rebuild {
-            node_count: *state.add(1) as usize,
-            free_list: *state.add(2) as i32,
-            leaf_indices: slice::from_raw_parts_mut(scratch as *mut i32, n),
-            leaf_centers: slice::from_raw_parts_mut(scratch.add(n) as *mut f32, n * 3),
+            node_count: &mut *(state.add(1) as *mut usize),
+            free_list: &mut *(state.add(2) as *mut i32),
+            leaf_indices: slice::from_raw_parts_mut(indices, n),
+            leaf_centers: slice::from_raw_parts_mut(centers, n * 3),
             gather_stack: &mut gather,
             build_stack: &mut build,
         };
         let pool = slice::from_raw_parts_mut(ptr, crate::broad::tree_cap(world_index, index) * STRIDE);
         let root = tree::rebuild(pool, *state as i32, *state.add(3) as usize, id != 0, &mut rb);
         *state = root as u32;
-        *state.add(1) = rb.node_count as u32;
-        *state.add(2) = rb.free_list as u32;
         return root;
     }
     mutate(

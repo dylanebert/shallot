@@ -802,8 +802,8 @@ pub const QUERY_MASK_LO: u32 = ALL_BITS;
 /// Rebuild state threaded through the mutation (nodeCount / freeList change as internals free + alloc;
 /// root is the new root). proxyCount is invariant across a rebuild.
 pub struct Rebuild<'a> {
-    pub node_count: usize,
-    pub free_list: i32,
+    pub node_count: &'a mut usize,
+    pub free_list: &'a mut i32,
     pub leaf_indices: &'a mut [i32],
     pub leaf_centers: &'a mut [f32], // 3 per leaf
     pub gather_stack: &'a mut [i32],
@@ -827,19 +827,19 @@ fn reset_to_default(pool: &mut [u32], i: i32) {
 /// Pop a free node (rebuild never grows: the pool is sized `2*proxyCap-1` ≥ any live tree, so the free
 /// list is never empty here: gathering frees the internal nodes needed by the rebuild).
 fn allocate_node(pool: &mut [u32], rb: &mut Rebuild) -> i32 {
-    let node_index = rb.free_list;
-    rb.free_list = pool[node_index as usize * STRIDE + 10] as i32;
+    let node_index = *rb.free_list;
+    *rb.free_list = pool[node_index as usize * STRIDE + 10] as i32;
     reset_to_default(pool, node_index);
-    rb.node_count += 1;
+    *rb.node_count += 1;
     node_index
 }
 
 fn free_node(pool: &mut [u32], rb: &mut Rebuild, node_id: i32) {
     let n = node_id as usize * STRIDE;
-    pool[n + 10] = rb.free_list as u32;
+    pool[n + 10] = *rb.free_list as u32;
     pool[n + 11] &= !0xffff; // flags = 0 (height untouched)
-    rb.free_list = node_id;
-    rb.node_count -= 1;
+    *rb.free_list = node_id;
+    *rb.node_count -= 1;
 }
 
 /// Median split of leaf centers along the longest axis (Hoare partition). Returns the left count.
