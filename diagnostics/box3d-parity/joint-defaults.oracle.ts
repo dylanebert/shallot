@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { BodyType, init, type Joint, PhysicsWorld } from "../../src/standard/physics/api";
+import { J_CONSTRAINT_SOFTNESS } from "../../src/standard/physics/kernel/joint-layout";
 import { readJointFloat } from "../../src/standard/physics/kernel/jointcolumns";
 import { jointDrawScale } from "../../src/standard/physics/kernel/jointrecords";
 import { nativeSseOutput } from "./native-evidence";
@@ -23,10 +24,6 @@ const kinds = [
 type Kind = (typeof kinds)[number];
 type Values = { s: number[]; p: number[]; flags: number };
 type PublicJoint = Joint & Record<string, (...args: unknown[]) => unknown>;
-// joint_abi.rs J_CONSTRAINT_SOFTNESS; the existing joint-column reader is sufficient for this
-// diagnostic, so the internal observation does not need a shipped export.
-const J_CONSTRAINT_SOFTNESS = 59;
-
 function generated(kind: number, sample: number): Values {
     let state = (0x47d7f7cc ^ Math.imul(kind, 0x9e3779b9) ^ Math.imul(sample, 0x85ebca6b)) >>> 0;
     const next = () => {
@@ -371,7 +368,7 @@ for (const kind of kinds) {
     });
 }
 
-test.todo("joint_lifecycle.rs:127-135 vs Box3D src/joint.c:309-313: creation and spring enable/disable preserve rigid default constraint softness [0, 1, 0]", () => {
+test("joint_lifecycle.rs:127-135 vs Box3D src/joint.c:309-313: creation and spring enable/disable preserve rigid default constraint softness [0, 1, 0]", () => {
     expect(rows.map((row) => row.actual.slice(-3))).toEqual(
         rows.map((row) => row.native.slice(-3)),
     );

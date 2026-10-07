@@ -204,6 +204,9 @@ pub unsafe extern "C" fn create_in_world(
     joints::write_word_in_world(world_index, key, index, J_TYPE, joint_type as u32);
     joints::write_float_in_world(world_index, key, index, J_CONSTRAINT_HERTZ, hertz);
     joints::write_float_in_world(world_index, key, index, J_CONSTRAINT_DAMPING, damping);
+    joints::write_float_in_world(world_index, key, index, J_CONSTRAINT_SOFTNESS, 0.0);
+    joints::write_float_in_world(world_index, key, index, J_CONSTRAINT_SOFTNESS + 1, 1.0);
+    joints::write_float_in_world(world_index, key, index, J_CONSTRAINT_SOFTNESS + 2, 0.0);
     joints::write_float_in_world(world_index, key, index, J_FORCE_THRESHOLD, force);
     joints::write_float_in_world(world_index, key, index, J_TORQUE_THRESHOLD, torque);
     if records::record(world_index, id).set_index > 1 {
