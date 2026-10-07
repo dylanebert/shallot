@@ -21,6 +21,7 @@ import {
     type WorldDef,
 } from "../common/types";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
+import { readJointEventUserData } from "../kernel/jointcolumns";
 import { kernel, rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { TreeStats } from "../kernel/treecolumns";
@@ -189,12 +190,12 @@ function fillContactHits(world: WorldState, out: ContactHitEvent[]): void {
 }
 
 function fillJointEvents(world: WorldState, out: JointEvent[]): void {
+    readJointEventUserData(world);
     out.length = 0;
     for (let i = 0, count = eventCount(world, EventKind.Joint); i < count; ++i) {
         out.push({
             joint: new Joint(world, eventId(world, EventKind.Joint, i, 0)),
-            userData:
-                world.jointUserData[kernel(world.ecsState).eventWord(world.worldId, EventKind.Joint, i, 2)],
+            userData: world.jointEventUserData[i],
         });
     }
 }

@@ -40,7 +40,12 @@ import {
     WJ_ANGULAR_HERTZ,
     WJ_LINEAR_HERTZ,
 } from "../kernel/columns";
-import { readJointFlag, readJointFloat, readJointVec3 } from "../kernel/jointcolumns";
+import {
+    readJointEventUserData,
+    readJointFlag,
+    readJointFloat,
+    readJointVec3,
+} from "../kernel/jointcolumns";
 import { JointField, jointField, jointViews } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { readBodyTransform } from "../world/body";
@@ -178,6 +183,7 @@ export function createJointRecord(world: WorldState, def: JointDef, type: JointT
         def.constraintHertz,
         def.constraintDampingRatio,
     );
+    readJointEventUserData(world);
     world.jointUserData[joint] = def.userData;
     return joint;
 }
@@ -187,6 +193,7 @@ export function finishJointCreation(
     def: JointDef,
     joint: Joint,
 ): { joint: Joint } {
+    readJointEventUserData(world);
     world.jointUserData[joint] = def.userData;
     return { joint };
 }
@@ -204,6 +211,7 @@ export function createFilterJoint(world: WorldState, def: JointDef): { joint: Jo
 export function destroyJointInternal(world: WorldState, joint: Joint, wakeBodies: boolean): void {
     const k = kernel(world.ecsState);
     k.bodySetActiveWorld(world.worldId);
+    readJointEventUserData(world);
     k.jointDestroy(joint, +wakeBodies);
     world.jointUserData[joint] = null;
 }

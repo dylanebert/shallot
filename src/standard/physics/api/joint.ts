@@ -48,6 +48,7 @@ import {
     RJ_UPPER_ANGLE,
 } from "../kernel/columns";
 import {
+    readJointEventUserData,
     readJointFlag,
     readJointFloat,
     readJointTransform,
@@ -153,6 +154,7 @@ export class Joint {
 
     /** Attach arbitrary user data to this joint. */
     setUserData(userData: unknown): void {
+        readJointEventUserData(this.world);
         this.world.jointUserData[this.record()] = userData;
     }
 

@@ -100,6 +100,7 @@ const eventViews = new WeakMap<WorldState, Uint32Array>();
 export function collectJointEvents(world: WorldState): void {
     const k = jointKernel(world);
     k.jointCollectEvents();
+    world.jointEventUserData.length = 0;
     readJointEventUserData(world);
 }
 export function readJointEventUserData(world: WorldState): void {
@@ -112,7 +113,7 @@ export function readJointEventUserData(world: WorldState): void {
         eventViews.set(world, words);
     }
     const start = k.eventBufferPtr(world.worldId, 5) >>> 2;
-    for (let i = 0; i < count; ++i) {
+    for (let i = world.jointEventUserData.length; i < count; ++i) {
         const id = words[start + i * 3 + 2];
         world.jointEventUserData[i] = world.jointUserData[id];
     }
