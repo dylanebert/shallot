@@ -866,6 +866,9 @@ export class PhysicsWorld {
                 planes.push({
                     plane: { normal: { x: f[n], y: f[n + 1], z: f[n + 2] }, offset: f[n + 3] },
                     point: { x: f[n + 4], y: f[n + 5], z: f[n + 6] },
+                    triangleIndex: f[n + 7],
+                    childIndex: f[n + 8],
+                    materialIndex: f[n + 9],
                 });
             }
             return Number(fcn(queryShape(this.state, id), planes));

@@ -36,6 +36,9 @@ function upload(planes: CollisionPlane[], count: number) {
 export type PlaneResult = {
     plane: Plane;
     point: Vec3;
+    triangleIndex?: number;
+    childIndex?: number;
+    materialIndex?: number;
 };
 
 /**

@@ -670,7 +670,7 @@ for (const [operation, entry] of [
     [5, "api/world.ts:819-835"],
     [11, "api/body.ts:607-638"],
 ] as const) {
-    test.todo(`${entry}: public mover planes preserve triangleIndex, childIndex and materialIndex`, () => {
+    test(`${entry}: public mover planes preserve triangleIndex, childIndex and materialIndex`, () => {
         for (let i = 0; i < inputs.length; ++i) {
             if (inputs[i].operation !== operation) continue;
             expect(runPublic(inputs[i])).toEqual(nativeRows[i]);

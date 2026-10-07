@@ -645,6 +645,9 @@ export class Body {
                 plane: {
                     plane: { normal: { x: f[0], y: f[1], z: f[2] }, offset: f[3] },
                     point: { x: f[4], y: f[5], z: f[6] },
+                    triangleIndex: f[7],
+                    childIndex: f[8],
+                    materialIndex: f[9],
                 },
             });
             return 1;
