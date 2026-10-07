@@ -1,11 +1,107 @@
-//! solver_set.c's set array and id pool. Body columns retain the solver's column layout.
-use crate::body::{SIM_STRIDE, STATE_STRIDE};
-use crate::regions::{self, Columns, MAX_WORLDS};
+//! solver_set.c's body sim/state arrays and set id pool.
+use crate::body::{BodySim, BodyState, STATE_STRIDE};
+use crate::regions::{self, MAX_WORLDS};
+use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 const AWAKE: usize = 2;
-const STRIDES: [usize; 6] = [STATE_STRIDE, SIM_STRIDE, 0, 0, 0, 0];
+
+#[repr(C)]
+struct BodyArray<T> {
+    data: *mut T,
+    count: i32,
+    capacity: i32,
+}
+impl<T> BodyArray<T> {
+    const EMPTY: Self = Self {
+        data: 16 as *mut T,
+        count: 0,
+        capacity: 0,
+    };
+    unsafe fn reserve(&mut self, capacity: usize) {
+        let capacity =
+            i32::try_from(capacity).expect("body array capacity exceeds Box3D's int range");
+        if capacity <= self.capacity {
+            return;
+        }
+        let bytes = capacity as usize * core::mem::size_of::<T>();
+        let layout = Layout::from_size_align(bytes, 16).unwrap();
+        let data = alloc(layout) as *mut T;
+        if data.is_null() {
+            handle_alloc_error(layout);
+        }
+        if self.capacity != 0 {
+            core::ptr::copy_nonoverlapping(self.data, data, self.capacity as usize);
+            dealloc(
+                self.data.cast(),
+                Layout::from_size_align(self.capacity as usize * core::mem::size_of::<T>(), 16)
+                    .unwrap(),
+            );
+        }
+        self.data = data;
+        self.capacity = capacity;
+        regions::invalidate_views();
+    }
+    unsafe fn emplace(&mut self) -> usize {
+        if self.count == self.capacity {
+            let capacity = if self.capacity == 0 {
+                16
+            } else {
+                self.capacity
+                    .checked_mul(2)
+                    .expect("body array capacity exceeds Box3D's int range")
+            };
+            self.reserve(capacity as usize);
+        }
+        let index = self.count as usize;
+        self.count += 1;
+        index
+    }
+    unsafe fn remove_swap(&mut self, index: usize) -> i32 {
+        debug_assert!(index < self.count as usize);
+        self.count -= 1;
+        if index != self.count as usize {
+            core::ptr::copy_nonoverlapping(
+                self.data.add(self.count as usize),
+                self.data.add(index),
+                1,
+            );
+            self.count
+        } else {
+            -1
+        }
+    }
+    unsafe fn release(&mut self) {
+        if self.capacity != 0 {
+            dealloc(
+                self.data.cast(),
+                Layout::from_size_align(self.capacity as usize * core::mem::size_of::<T>(), 16)
+                    .unwrap(),
+            );
+            regions::invalidate_views();
+        }
+        *self = Self::EMPTY;
+    }
+    unsafe fn snapshot(&self, out: &mut Vec<u8>) {
+        regions::write_word(out, self.capacity as usize);
+        regions::write_word(out, self.count as usize);
+        out.extend_from_slice(core::slice::from_raw_parts(
+            self.data.cast::<u8>(),
+            self.count as usize * core::mem::size_of::<T>(),
+        ));
+    }
+    unsafe fn restore(&mut self, input: &mut &[u8]) {
+        self.reserve(regions::read_word(input));
+        self.count = regions::read_word(input) as i32;
+        assert!(0 <= self.count && self.count <= self.capacity);
+        let bytes = self.count as usize * core::mem::size_of::<T>();
+        let (data, rest) = input.split_at(bytes);
+        core::ptr::copy_nonoverlapping(data.as_ptr(), self.data.cast::<u8>(), bytes);
+        *input = rest;
+    }
+}
 struct SolverSet {
-    columns: Columns<6>,
-    body_count: usize,
+    body_sims: BodyArray<BodySim>,
+    body_states: BodyArray<BodyState>,
+    body_layout: [u32; 6],
     indices: [Vec<i32>; 2],
     index: i32,
     joint_sims: crate::joints::JointArray,
@@ -13,8 +109,9 @@ struct SolverSet {
 impl SolverSet {
     fn empty() -> Self {
         Self {
-            columns: Columns::EMPTY,
-            body_count: 0,
+            body_sims: BodyArray::EMPTY,
+            body_states: BodyArray::EMPTY,
+            body_layout: [16; 6],
             indices: [Vec::new(), Vec::new()],
             index: -1,
             joint_sims: crate::joints::JointArray::EMPTY,
@@ -60,38 +157,41 @@ pub unsafe extern "C" fn index(id: usize) -> i32 {
 #[export_name = "solverSetDestroy"]
 pub unsafe extern "C" fn destroy(id: usize) {
     let s = set(id);
-    s.columns.release();
+    s.body_sims.release();
+    s.body_states.release();
     s.joint_sims.records.release();
     *s = SolverSet::empty();
     world().free.push(id);
 }
 #[export_name = "solverSetBodyCount"]
 pub unsafe extern "C" fn body_count(id: usize) -> usize {
-    set(id).body_count
+    set(id).body_sims.count as usize
 }
 #[export_name = "solverSetBodyAppend"]
 pub unsafe extern "C" fn body_append(id: usize) -> usize {
     let s = set(id);
-    let i = s.body_count;
-    s.body_count += 1;
-    if id != AWAKE {
-        for c in [1] {
-            s.columns.reserve(c, s.body_count * STRIDES[c] * 4);
-        }
+    let i = s.body_sims.emplace();
+    if id == AWAKE {
+        let state_index = s.body_states.emplace();
+        debug_assert_eq!(i, state_index);
     }
     i
 }
 #[export_name = "solverSetBodyPop"]
 pub unsafe extern "C" fn body_pop(id: usize) {
-    set(id).body_count -= 1;
+    let s = set(id);
+    s.body_sims.count -= 1;
+    if id == AWAKE {
+        s.body_states.count -= 1;
+    }
 }
 #[export_name = "solverSetLayout"]
 pub unsafe extern "C" fn layout(id: usize) -> *const u32 {
     let s = set(id);
-    s.columns.layout[2] = s.columns.layout[1];
-    s.columns.layout[5] = s.columns.layout[1];
-    s.columns.layout[4] = s.columns.layout[0];
-    s.columns.layout.as_ptr()
+    let sim = s.body_sims.data as usize as u32;
+    let state = s.body_states.data as usize as u32;
+    s.body_layout = [state, sim, sim, 16, state, sim];
+    s.body_layout.as_ptr()
 }
 #[export_name = "solverSetArrayCount"]
 pub unsafe extern "C" fn array_count(id: usize, kind: usize) -> usize {
@@ -129,7 +229,8 @@ pub unsafe extern "C" fn array_pop(id: usize, kind: usize) {
 }
 pub unsafe fn reset(id: usize) {
     for s in &mut WORLDS[id].sets {
-        s.columns.release();
+        s.body_sims.release();
+        s.body_states.release();
         s.joint_sims.records.release();
     }
     WORLDS[id] = Sets {
@@ -142,8 +243,8 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     regions::write_word(out, w.sets.len());
     for s in &w.sets {
         regions::write_word(out, s.index as usize);
-        regions::write_word(out, s.body_count);
-        s.columns.snapshot(out);
+        s.body_sims.snapshot(out);
+        s.body_states.snapshot(out);
         regions::write_word(out, s.joint_sims.count);
         s.joint_sims.records.snapshot(out);
         for v in &s.indices {
@@ -165,8 +266,18 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     for _ in 0..count {
         let mut s = SolverSet::empty();
         s.index = regions::read_word(input) as i32;
-        s.body_count = regions::read_word(input);
-        s.columns.restore(input);
+        s.body_sims.restore(input);
+        s.body_states.restore(input);
+        if s.index == AWAKE as i32 && s.body_states.capacity >= crate::bodies::IDENT_RECORDS as i32
+        {
+            let cap = s.body_states.capacity as usize - crate::bodies::IDENT_RECORDS;
+            for worker in 0..crate::bodies::IDENT_RECORDS {
+                let state = s.body_states.data.add(cap + worker);
+                state.write_bytes(0, 1);
+                (*state).delta_rotation = crate::math::Quat::IDENTITY;
+                (*state).flags = crate::body::flags::DYNAMIC;
+            }
+        }
         s.joint_sims.count = regions::read_word(input);
         s.joint_sims.records.restore(input);
         for v in &mut s.indices {
@@ -184,20 +295,18 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
 }
 
 pub unsafe fn awake_base(column: usize) -> usize {
-    set(AWAKE).columns.layout[if column == 2 || column == 5 {
-        1
-    } else if column == 4 {
-        0
-    } else {
-        column
-    }] as usize
+    let s = set(AWAKE);
+    match column {
+        0 | 4 => s.body_states.data as usize,
+        1 | 2 | 5 => s.body_sims.data as usize,
+        _ => 16,
+    }
 }
 pub unsafe fn reserve_awake(cap: usize) {
     let s = set(AWAKE);
-    for c in 0..6 {
-        s.columns
-            .reserve(c, (cap + crate::bodies::IDENT_RECORDS) * STRIDES[c] * 4);
-    }
+    let capacity = cap + crate::bodies::IDENT_RECORDS;
+    s.body_sims.reserve(capacity);
+    s.body_states.reserve(capacity);
 }
 pub unsafe fn joint_array(id: usize) -> &'static mut crate::joints::JointArray {
     &mut set(id).joint_sims
@@ -208,16 +317,17 @@ pub(crate) unsafe fn body_ptr_world(
     index: usize,
     column: usize,
 ) -> *mut u32 {
-    let column = if column == 2 || column == 5 {
-        1
-    } else {
-        column
-    };
-    if column == 4 {
-        (WORLDS[world].sets[id].columns.layout[0] as *mut u32)
-            .add(index * STATE_STRIDE + crate::body::STATE_FLAGS)
-    } else {
-        (WORLDS[world].sets[id].columns.layout[column] as *mut u32).add(index * STRIDES[column])
+    let s = &WORLDS[world].sets[id];
+    match column {
+        0 => s.body_states.data.add(index).cast(),
+        4 => s
+            .body_states
+            .data
+            .add(index)
+            .cast::<u32>()
+            .add(crate::body::STATE_FLAGS),
+        1 | 2 | 5 => s.body_sims.data.add(index).cast(),
+        _ => 16 as *mut u32,
     }
 }
 
@@ -240,32 +350,24 @@ pub unsafe extern "C" fn body_id(set: usize, index: usize) -> u32 {
 }
 
 unsafe fn copy_body(source: usize, index: usize, target: usize, destination: usize) {
-    for c in [1] {
-        core::ptr::copy(
-            body_ptr(source, index, c),
-            body_ptr(target, destination, c),
-            STRIDES[c],
-        );
-    }
+    let src = set(source).body_sims.data.add(index);
+    let dst = set(target).body_sims.data.add(destination);
+    core::ptr::copy(src, dst, 1);
 }
 unsafe fn remove_body(source: usize, index: usize) -> u32 {
-    let last = body_count(source) - 1;
-    let mut moved = u32::MAX;
-    if index != last {
-        copy_body(source, last, source, index);
-        moved = *body_ptr(source, index, 5).add(crate::body::S2_BODY_ID);
+    let s = set(source);
+    let removed = s.body_sims.remove_swap(index);
+    let moved = if removed != -1 {
+        let moved = (*s.body_sims.data.add(index)).body_id as u32;
         crate::bodies::set_location(moved as usize, source, index);
-        if source == AWAKE {
-            for c in [0] {
-                core::ptr::copy(
-                    body_ptr(source, last, c),
-                    body_ptr(source, index, c),
-                    STRIDES[c],
-                );
-            }
-        }
+        moved
+    } else {
+        u32::MAX
+    };
+    if source == AWAKE {
+        let state_removed = s.body_states.remove_swap(index);
+        debug_assert_eq!(removed, state_removed);
     }
-    body_pop(source);
     moved
 }
 unsafe fn wake_state(index: usize, flags: u32, head: i32) {
@@ -284,16 +386,17 @@ pub unsafe extern "C" fn transfer_body(
     head: i32,
     clear_transient: bool,
 ) -> usize {
-    let destination = body_append(target);
+    if target == source {
+        BODY_RESULT = [index as u32, u32::MAX];
+        return core::ptr::addr_of!(BODY_RESULT) as usize;
+    }
+    let destination = set(target).body_sims.emplace();
     copy_body(source, index, target, destination);
     if clear_transient {
         *body_ptr(target, destination, 5).add(crate::body::S2_FLAGS) &=
             !(crate::body::flags::IS_FAST
                 | crate::body::flags::IS_SPEED_CAPPED
                 | crate::body::flags::HAD_TIME_OF_IMPACT);
-    }
-    if target == AWAKE {
-        wake_state(destination, flags, head);
     }
     let id = *body_ptr(target, destination, 5).add(crate::body::S2_BODY_ID);
     if source == AWAKE && target >= 3 {
@@ -303,8 +406,13 @@ pub unsafe extern "C" fn transfer_body(
             record.body_move_index = -1;
         }
     }
-    crate::bodies::set_location(id as usize, target, destination);
     let moved = remove_body(source, index);
+    if target == AWAKE {
+        let state_index = set(target).body_states.emplace();
+        debug_assert_eq!(state_index, destination);
+        wake_state(destination, flags, head);
+    }
+    crate::bodies::set_location(id as usize, target, destination);
     BODY_RESULT = [destination as u32, moved];
     core::ptr::addr_of!(BODY_RESULT) as usize
 }

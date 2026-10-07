@@ -379,6 +379,7 @@ impl Vec2 {
 
 // --- quat -----------------------------------------------------------------------------------
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Quat {
     pub v: Vec3,
@@ -799,6 +800,7 @@ impl Mat2 {
 
 // --- transform ------------------------------------------------------------------------------
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transform {
     pub p: Vec3,

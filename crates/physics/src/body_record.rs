@@ -561,13 +561,7 @@ pub(crate) mod runtime {
         record.sleep_threshold = threshold;
         record.flags = flags;
         record.body_type = body_type;
-        for (column, stride) in [
-            (1, body::SIM_STRIDE),
-            (2, body::FIN_STRIDE),
-            (5, body::SIM2_STRIDE),
-        ] {
-            crate::solver_set::body_ptr(set, index, column).write_bytes(0, stride);
-        }
+        crate::solver_set::body_ptr(set, index, 1).write_bytes(0, body::SIM_STRIDE);
         let sim = bodies::column(id as usize, 1, body::SIM_STRIDE);
         let fin = bodies::column(id as usize, 2, body::FIN_STRIDE);
         let sim2 = bodies::column(id as usize, 5, body::SIM2_STRIDE);
@@ -592,6 +586,7 @@ pub(crate) mod runtime {
         sim2.set(body::S2_BODY_ID, f32::from_bits(id));
         sim2.set(body::S2_FLAGS, f32::from_bits(flags));
         if set == 2 {
+            crate::solver_set::body_ptr(set, index, 0).write_bytes(0, body::STATE_STRIDE);
             let state = body::State {
                 linear_velocity: Vec3::new(vx, vy, vz),
                 angular_velocity: Vec3::new(wx, wy, wz),

@@ -9,7 +9,7 @@ static mut VIEW_EPOCH: u32 = 0;
 pub extern "C" fn view_epoch_ptr() -> *const u32 {
     &raw const VIEW_EPOCH
 }
-unsafe fn invalidate_views() {
+pub(crate) unsafe fn invalidate_views() {
     VIEW_EPOCH = VIEW_EPOCH.wrapping_add(1);
 }
 

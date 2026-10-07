@@ -28,6 +28,60 @@ pub const GRAVITY_SCALE: usize = 51;
 pub const S2_BODY_ID: usize = 52;
 pub const S2_FLAGS: usize = 53;
 
+#[repr(C)]
+pub struct BodySim {
+    pub transform: crate::math::Transform,
+    pub center: Vec3,
+    pub rotation0: Quat,
+    pub center0: Vec3,
+    pub local_center: Vec3,
+    pub force: Vec3,
+    pub torque: Vec3,
+    pub inv_mass: f32,
+    pub inv_inertia_local: Mat3,
+    pub inv_inertia_world: Mat3,
+    pub min_extent: f32,
+    pub max_extent: Vec3,
+    pub linear_damping: f32,
+    pub angular_damping: f32,
+    pub gravity_scale: f32,
+    pub body_id: i32,
+    pub flags: u32,
+}
+
+#[repr(C)]
+pub struct BodyState {
+    pub linear_velocity: Vec3,
+    pub angular_velocity: Vec3,
+    pub delta_position: Vec3,
+    pub delta_rotation: Quat,
+    pub flags: u32,
+    pub padding: [u32; 2],
+}
+const _: () = assert!(core::mem::size_of::<BodySim>() == SIM_STRIDE * 4);
+const _: () = assert!(core::mem::size_of::<BodyState>() == STATE_STRIDE * 4);
+const _: () = {
+    use core::mem::offset_of;
+    assert!(offset_of!(BodyState, flags) == STATE_FLAGS * 4);
+    assert!(offset_of!(BodySim, transform) == TRANSFORM_P * 4);
+    assert!(offset_of!(BodySim, center) == CENTER * 4);
+    assert!(offset_of!(BodySim, rotation0) == S2_ROTATION0 * 4);
+    assert!(offset_of!(BodySim, center0) == S2_CENTER0 * 4);
+    assert!(offset_of!(BodySim, local_center) == LOCAL_CENTER * 4);
+    assert!(offset_of!(BodySim, force) == FORCE * 4);
+    assert!(offset_of!(BodySim, torque) == TORQUE * 4);
+    assert!(offset_of!(BodySim, inv_mass) == INV_MASS * 4);
+    assert!(offset_of!(BodySim, inv_inertia_local) == INV_INERTIA_LOCAL * 4);
+    assert!(offset_of!(BodySim, inv_inertia_world) == INV_INERTIA_WORLD * 4);
+    assert!(offset_of!(BodySim, min_extent) == S2_MIN_EXTENT * 4);
+    assert!(offset_of!(BodySim, max_extent) == MAX_EXTENT * 4);
+    assert!(offset_of!(BodySim, linear_damping) == LINEAR_DAMPING * 4);
+    assert!(offset_of!(BodySim, angular_damping) == ANGULAR_DAMPING * 4);
+    assert!(offset_of!(BodySim, gravity_scale) == GRAVITY_SCALE * 4);
+    assert!(offset_of!(BodySim, body_id) == S2_BODY_ID * 4);
+    assert!(offset_of!(BodySim, flags) == S2_FLAGS * 4);
+};
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct State {
     pub linear_velocity: Vec3,
