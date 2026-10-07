@@ -382,7 +382,7 @@ test.todo("distance.rs:777-783 vs distance.c:947-951: line containment writes it
 test.todo("distance.rs:824-838 vs distance.c:997-1011: invalid normal retains witness and iteration outputs", () => {
     compare(results.filter((r) => r.label?.startsWith("invalid-normal-")));
 });
-test.todo("manifold.rs:794 vs convex_manifold.c:384-389: sphere-sphere separation retains caller manifold", () => {
+test("manifold.rs:794 vs convex_manifold.c:384-389: sphere-sphere separation retains caller manifold", () => {
     compare(results.filter((r) => r.label === "sphere-sphere-retained-early-exit"));
 });
 test("manifold.rs:383-388 vs convex_manifold.c:36: endpoint on clip plane is not another intersection", () => {

@@ -788,7 +788,6 @@ pub fn collide_spheres(
     sphere_b: &Sphere,
     transform_b_to_a: Transform,
 ) {
-    manifold.point_count = 0;
     if capacity == 0 {
         return;
     }
