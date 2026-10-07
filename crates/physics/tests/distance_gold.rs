@@ -273,10 +273,10 @@ fn shape_distance_bit_exact() {
             &format!("{name} cache.metric"),
         );
         let want_count = wc["count"].as_u64().unwrap() as usize;
-        assert_eq!(cache.count, want_count, "{name} cache.count");
+        assert_eq!(cache.count as usize, want_count, "{name} cache.count");
         let wia = wc["indexA"].as_array().unwrap();
         let wib = wc["indexB"].as_array().unwrap();
-        for i in 0..cache.count {
+        for i in 0..cache.count as usize {
             assert_eq!(
                 cache.index_a[i] as u64,
                 wia[i].as_u64().unwrap(),
