@@ -216,12 +216,9 @@ fn commit_bounds(u: Col<u32>, f: Col<f32>, s2: Col<u32>, i: usize, o: usize, b: 
     let fb = o + shapes::S_FAT_AABB;
     let cached = core::array::from_fn(|n| f.get(fb + n));
     let escaped = !crate::finalize::aabb_contains(&cached, &b);
-    let flags = u.get(o + shapes::S_FLAGS);
-    u.set(
-        o + shapes::S_FLAGS,
-        (flags & !shapes::ENLARGED_FLAG) | if escaped { shapes::ENLARGED_FLAG } else { 0 },
-    );
     if escaped {
+        let flags = u.get(o + shapes::S_FLAGS);
+        u.set(o + shapes::S_FLAGS, flags | shapes::ENLARGED_FLAG);
         let margin = f.get(o + 9);
         for n in 0..3 {
             f.set(fb + n, b[n] - margin);
