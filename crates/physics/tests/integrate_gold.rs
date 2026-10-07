@@ -50,7 +50,17 @@ fn integrate_velocities_matches_c() {
         let input = floats(&case["in"]); // sim(32) + lin(3) + ang(3) + dr(4) + gravity(3) + h(1)
         let want = floats(&case["out"]); // lv(3) + av(3)
 
-        let mut sim_col = input[0..SIM_STRIDE].to_vec();
+        let mut sim_col = vec![0.0; SIM_STRIDE];
+        let map: Vec<usize> = [
+            vec![26, 51, 49, 50, 20, 21, 22, 23, 24, 25],
+            (27..36).collect(),
+            (36..45).collect(),
+            (3..7).collect(),
+        ]
+        .concat();
+        for (i, offset) in map.into_iter().enumerate() {
+            sim_col[offset] = input[i];
+        }
         // Rebuild the full state column; deltaPosition (slots 6..9) is unused by this phase.
         let mut state_col = vec![0.0f32; STATE_STRIDE];
         state_col[0..3].copy_from_slice(&input[32..35]); // linearVelocity
