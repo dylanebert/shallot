@@ -57,7 +57,6 @@ use crate::joint_abi::{
     WJ_FIXED_ROTATION, WJ_FRAME_A, WJ_FRAME_B, WJ_LINEAR_DAMPING_RATIO, WJ_LINEAR_HERTZ,
     WJ_LINEAR_IMPULSE, WJ_LINEAR_SPRING,
 };
-use crate::joint_abi::{J_EVENT, J_FORCE_THRESHOLD, J_TORQUE_THRESHOLD};
 use crate::math::{
     atan2, blend2, blend3, clampf, maxf, minf, Mat2, Mat3, Quat, Transform, Vec2, Vec3, FLT_MIN, PI,
 };
@@ -232,7 +231,6 @@ fn prepare_sims(
         local_center_a: fin_a.local_center,
         local_center_b: fin_b.local_center,
     };
-    set(joints, slot, J_EVENT, 0.0);
     let hertz = minf(get(joints, slot, J_CONSTRAINT_HERTZ), 0.25 * inv_h);
     let soft = make_soft(hertz, get(joints, slot, J_CONSTRAINT_DAMPING), h);
     set(joints, slot, J_CONSTRAINT_SOFTNESS, soft.bias_rate);
@@ -288,20 +286,10 @@ pub fn solve(
         TY_PARALLEL => solve_parallel(joints, slot, state_col, flags_col, h),
         _ => {}
     }
-    if use_bias && get(joints, slot, J_EVENT) == 0.0 {
-        let force_threshold = get(joints, slot, J_FORCE_THRESHOLD);
-        let torque_threshold = get(joints, slot, J_TORQUE_THRESHOLD);
-        if force_threshold < f32::MAX || torque_threshold < f32::MAX {
-            let (force, torque) = reaction(joints, slot, inv_h);
-            if force >= force_threshold || torque >= torque_threshold {
-                set(joints, slot, J_EVENT, 1.0);
-            }
-        }
-    }
 }
 
 /// b3GetJointReaction: scalar impulse magnitudes at the biased solve, before relaxation.
-fn reaction(joints: Col<f32>, slot: usize, inv_h: f32) -> (f32, f32) {
+pub(crate) fn reaction(joints: Col<f32>, slot: usize, inv_h: f32) -> (f32, f32) {
     let g = |field| get(joints, slot, field);
     let v = |field| get_vec3(joints, slot, field);
     let (linear, angular) = match joint_type(joints, slot) {

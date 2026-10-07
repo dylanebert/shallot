@@ -20,9 +20,8 @@ export const S2_FLAGS = 53;
 // config, its persistent impulses, and prepare's scratch). Mirror of `joint_abi.rs` — keep in sync.
 export const J_FORCE_THRESHOLD = 126;
 export const J_TORQUE_THRESHOLD = 127;
-export const J_EVENT = 128;
-export const JOINT_STRIDE = 130;
-export const J_JOINT_ID = 129;
+export const JOINT_STRIDE = 129;
+export const J_JOINT_ID = 128;
 export const J_LOCAL_FRAME_A = 43; // Transform p 43..45 q 46..49
 export const J_LOCAL_FRAME_B = 50; // Transform p 50..52 q 53..56
 export const J_CONSTRAINT_HERTZ = 57;

@@ -272,6 +272,7 @@ struct TaskContext {
     arena: crate::task_memory::WorkerArena,
     materials: usize,
     hit_event_bitset: crate::bitset::BitSet,
+    joint_state_bitset: crate::bitset::BitSet,
     has_hit_events: bool,
 }
 static mut TASK_CONTEXTS: [Vec<TaskContext>; crate::regions::MAX_WORLDS] =
@@ -295,12 +296,32 @@ pub(crate) unsafe fn reset_hit_events(world: usize, workers: usize) {
         arena: crate::task_memory::WorkerArena::new(128 * 1024),
         materials: 0,
         hit_event_bitset: crate::bitset::BitSet::new(1024),
+        joint_state_bitset: crate::bitset::BitSet::new(1024),
         has_hit_events: false,
     });
     for context in contexts {
         context.hit_event_bitset.set_count_and_clear(capacity);
         context.has_hit_events = false;
     }
+}
+
+pub(crate) unsafe fn reset_joint_states(world: usize) {
+    let capacity = u32::try_from(crate::joint_record::capacity_in_world(world)).unwrap();
+    for context in &mut TASK_CONTEXTS[world] {
+        context.joint_state_bitset.set_count_and_clear(capacity);
+    }
+}
+
+pub(crate) unsafe fn joint_states(world: usize, worker: usize) -> &'static crate::bitset::BitSet {
+    &(*task_context(world, worker)).joint_state_bitset
+}
+
+pub(crate) unsafe fn union_joint_states(world: usize) -> &'static crate::bitset::BitSet {
+    let (first, rest) = TASK_CONTEXTS[world].split_first_mut().unwrap();
+    for context in rest {
+        first.joint_state_bitset.union(&context.joint_state_bitset);
+    }
+    &first.joint_state_bitset
 }
 
 pub(crate) unsafe fn mark_hit_event(world: usize, worker: usize, contact: usize) {
@@ -379,6 +400,7 @@ pub extern "C" fn reserve_collide_in_world(
             arena: crate::task_memory::WorkerArena::new(128 * 1024),
             materials: 0,
             hit_event_bitset: crate::bitset::BitSet::new(1024),
+            joint_state_bitset: crate::bitset::BitSet::new(1024),
             has_hit_events: false,
         });
         CONTACT_LIST_PTR = reserve_scratch(world_index, count * 4);

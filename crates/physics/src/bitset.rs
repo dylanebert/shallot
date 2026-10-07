@@ -53,6 +53,12 @@ impl BitSet {
         *self.bits.add(block) |= 1u64 << (bit % 64);
     }
 
+    pub fn get(&self, bit: usize) -> bool {
+        let block = bit / 64;
+        assert!(block < self.block_count as usize);
+        unsafe { *self.bits.add(block) & (1u64 << (bit % 64)) != 0 }
+    }
+
     pub fn union(&mut self, other: &Self) {
         assert_eq!(self.block_count, other.block_count);
         for i in 0..self.block_count as usize {
@@ -91,7 +97,9 @@ mod tests {
             .enumerate()
         {
             for &id in ids {
+                assert!(!sets[worker].get(id));
                 unsafe { sets[worker].set(id) };
+                assert!(sets[worker].get(id));
             }
         }
         let (first, rest) = sets.split_first_mut().unwrap();

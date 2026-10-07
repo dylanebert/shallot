@@ -354,10 +354,12 @@ impl StageWork for Work {
         }
     }
 
-    fn solve_joints(&self, b: Block, use_bias: bool, _worker: usize) {
+    fn solve_joints(&self, b: Block, use_bias: bool, worker: usize) {
+        let joints = self.joints[b.color as usize];
+        let states = unsafe { arena::joint_states(self.world, worker) };
         for slot in b.start..b.start + b.count {
             crate::joint::solve(
-                self.joints[b.color as usize],
+                joints,
                 slot,
                 self.cols.state,
                 self.cols.flags,
@@ -365,6 +367,20 @@ impl StageWork for Work {
                 self.h,
                 self.inv_h,
             );
+            if use_bias {
+                use crate::joint_abi::{get, J_FORCE_THRESHOLD, J_JOINT_ID, J_TORQUE_THRESHOLD};
+                let force_threshold = get(joints, slot, J_FORCE_THRESHOLD);
+                let torque_threshold = get(joints, slot, J_TORQUE_THRESHOLD);
+                if force_threshold < f32::MAX || torque_threshold < f32::MAX {
+                    let id = get(joints, slot, J_JOINT_ID).to_bits() as usize;
+                    if !states.get(id) {
+                        let (force, torque) = crate::joint::reaction(joints, slot, self.inv_h);
+                        if force >= force_threshold || torque >= torque_threshold {
+                            unsafe { states.set(id) };
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -509,6 +525,7 @@ pub extern "C" fn solve_build_in_world(
     assert!((1..=MAX_THREADS).contains(&thread_count));
     unsafe {
         arena::reset_hit_events(world_index, thread_count);
+        arena::reset_joint_states(world_index);
         // Drop the previous solve's context before re-borrowing its buffers. The workers have all left
         // it (the join in `stages::run`), so nothing else holds them.
         CTX = None;

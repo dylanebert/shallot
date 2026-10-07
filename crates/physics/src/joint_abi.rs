@@ -412,10 +412,9 @@ pub const PLJ_FIXED_ROTATION: usize = J_PAYLOAD + 22;
 /// (23) are narrower.
 pub const J_FORCE_THRESHOLD: usize = J_PAYLOAD + 64;
 pub const J_TORQUE_THRESHOLD: usize = J_PAYLOAD + 65;
-pub const J_EVENT: usize = J_PAYLOAD + 66;
 /// Joint identity for array swap-remove fix-ups (u32 bits).
-pub const J_JOINT_ID: usize = 129;
-pub const JOINT_STRIDE: usize = 130;
+pub const J_JOINT_ID: usize = 128;
+pub const JOINT_STRIDE: usize = 129;
 
 // --- accessors --------------------------------------------------------------------------------
 

@@ -11,17 +11,15 @@ pub unsafe extern "C" fn collect_events() -> usize {
 
 pub unsafe extern "C" fn collect_events_in_world(world_index: usize) -> usize {
     crate::events::clear_joints(world_index);
-    for id in 0..records::capacity_in_world(world_index) {
-        let r = records::record(world_index, id);
-        if r.set_index == 2
-            && joints::read_float_in_world(
-                world_index,
-                r.color_index as usize,
-                r.local_index as usize,
-                J_EVENT,
-            ) != 0.0
-        {
+    let states = crate::arena::union_joint_states(world_index);
+    for k in 0..states.block_count as usize {
+        let mut word = *states.bits.add(k);
+        while word != 0 {
+            let id = 64 * k + word.trailing_zeros() as usize;
+            let r = records::record(world_index, id);
+            assert_eq!(r.set_index, 2);
             crate::events::joint(world_index, id, r.generation as u32);
+            word &= word - 1;
         }
     }
     crate::events::count(world_index, 5)
