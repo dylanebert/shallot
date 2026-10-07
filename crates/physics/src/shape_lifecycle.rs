@@ -80,10 +80,11 @@ unsafe fn body_record_bounds(world: usize, id: usize, shape: usize) {
     regions::select(world as u32);
     let pose = bodies::geometry(id).0;
     let tight = crate::continuous::bounds(shape, pose);
-    let fat = crate::fataabb::col();
+    let fat = shapes::col_f();
+    let fat_offset = shape * shapes::SHAPE_STRIDE + shapes::S_FAT_AABB;
     let mut previous = [0.0; 6];
     for lane in 0..6 {
-        previous[lane] = fat.get(shape * 6 + lane);
+        previous[lane] = fat.get(fat_offset + lane);
     }
     let (bounds, escaped) = crate::finalize::refit_bounds(tight, &previous);
     let f = shapes::col_f();
@@ -99,7 +100,7 @@ unsafe fn body_record_bounds(world: usize, id: usize, shape: usize) {
             enlarged[lane + 3] += margin;
         }
         for lane in 0..6 {
-            fat.set(shape * 6 + lane, enlarged[lane]);
+            fat.set(fat_offset + lane, enlarged[lane]);
         }
         let key = shapes::col().get(o + shapes::S_PROXY_KEY);
         if key != u32::MAX {
@@ -199,7 +200,7 @@ unsafe fn write_bounds(id: usize, body_type: usize, tight: [f32; 6]) -> [f32; 6]
     let o = id * shapes::SHAPE_STRIDE;
     let (bounds, _) = crate::finalize::refit_bounds(tight, &[0.0; 6]);
     let f = shapes::col_f();
-    let fat = crate::fataabb::col();
+    let fat = shapes::col_f();
     let margin = if body_type == 0 { 0.02 } else { f.get(o + 9) };
     let mut enlarged = bounds;
     for lane in 0..3 {
@@ -208,7 +209,7 @@ unsafe fn write_bounds(id: usize, body_type: usize, tight: [f32; 6]) -> [f32; 6]
     }
     for lane in 0..6 {
         f.set(o + 10 + lane, bounds[lane]);
-        fat.set(id * 6 + lane, enlarged[lane]);
+        fat.set(o + shapes::S_FAT_AABB + lane, enlarged[lane]);
     }
     enlarged
 }

@@ -243,7 +243,7 @@ pub unsafe extern "C" fn move_proxy(
 pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
     let sim2 = crate::bodies::sim2_base() as *mut u32;
     let shapes = crate::shapes::col();
-    let fat = crate::fataabb::col();
+    let fat = crate::shapes::col_f();
     for i in 0..count {
         let row = sim2.add(i * SIM2_STRIDE);
         let flags = *row.add(S2_FLAGS);
@@ -260,7 +260,7 @@ pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
                 crate::broad::buffer_move(key);
             } else if shapes.get(o + crate::shapes::S_FLAGS) & crate::shapes::ENLARGED_FLAG != 0 {
                 let index = (key & 3) as usize;
-                let b = id as usize * 6;
+                let b = o + crate::shapes::S_FAT_AABB;
                 let pool = slice::from_raw_parts_mut(
                     crate::broad::tree_ptr(index),
                     crate::broad::tree_cap(index) * STRIDE,

@@ -250,9 +250,8 @@ pub unsafe extern "C" fn run(
                 }
                 if flags & 2 != 0 {
                     let o = begin(out, 9, 0xffd700);
-                    for &value in &crate::fataabb::col_slice()[id * 6..id * 6 + 6] {
-                        out.push(value.to_bits());
-                    }
+                    let bounds = n + shapes::S_FAT_AABB;
+                    out.extend_from_slice(&r[bounds..bounds + 6]);
                     end(out, o);
                 }
                 true

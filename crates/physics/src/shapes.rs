@@ -118,6 +118,9 @@ pub fn col_f() -> Col<'static, f32> {
 pub fn col_slice() -> &'static [u32] {
     unsafe { core::slice::from_raw_parts(base() as *const u32, shape_cap() * SHAPE_STRIDE) }
 }
+pub fn col_f_slice() -> &'static [f32] {
+    unsafe { core::slice::from_raw_parts(base() as *const f32, shape_cap() * SHAPE_STRIDE) }
+}
 #[export_name = "shapeSetActiveWorld"]
 pub extern "C" fn shape_set_active_world(id: u32) {
     regions::select(id);
@@ -144,7 +147,6 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
             p.write_bytes(0, SHAPE_STRIDE);
             *p.add(S_ID) = NULL_SHAPE;
         }
-        crate::fataabb::reserve_fat_aabb(cap);
         w.shape.cap = cap;
         1
     }
@@ -286,10 +288,6 @@ pub extern "C" fn shape_create(
         *(p.add(8) as *mut f32) = explosion;
         for lane in [S_NEXT, S_PREV, S_PROXY_KEY, S_SENSOR_INDEX] {
             *p.add(lane) = NULL_SHAPE;
-        }
-        let fat = crate::fataabb::col();
-        for lane in 0..6 {
-            fat.set(shape * 6 + lane, 0.0);
         }
         shape as u32
     }

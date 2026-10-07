@@ -290,9 +290,6 @@ export type Kernel = {
     islandSetSplitCandidate(id: number): void;
 
     // One allocator-owned fat AABB per shape in the selected World.
-    reserveFatAabb(cap: number): number;
-    fatAabbLayoutPtr(): number;
-    fatAabbCap(): number;
 
     // Allocator-owned shape records and lifecycle columns for the selected World.
     reserveShapes(cap: number): number;

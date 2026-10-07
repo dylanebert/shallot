@@ -77,8 +77,6 @@ export class ShapeStore extends KernelViews {
     shapeF = new Float32Array(0);
     /** Borrowed synchronous geometry result; copied before another kernel call. */
     geometryOutput = new Float32Array(0);
-    /** Resident fat-AABB column owned by this shape store, not a second helper store. */
-    fatF = new Float32Array(0);
     /** Addressable memory for inline materials and owned contiguous material arrays. */
     materialU = new Uint32Array(0);
     materialF = new Float32Array(0);
@@ -87,7 +85,6 @@ export class ShapeStore extends KernelViews {
     private readonly _ids = new Map<number, { low: number; high: number; value: bigint }>();
     // The held layout header views are derived from.
     private _layout = new Uint32Array(0);
-    private _fatLayout = new Uint32Array(0);
 
     // Shape/material lifecycle metadata and contents are entirely native region data.
     captureCheckpoint(): null {
@@ -101,17 +98,12 @@ export class ShapeStore extends KernelViews {
         const k = kernel(this.ecsState);
         k.shapeSetActiveWorld(this._worldId);
         const cap = k.shapeCap();
-        const fatCap = k.fatAabbCap();
-        if (cap === 0 && fatCap === 0) return;
+        if (cap === 0) return;
         const buf = k.memory.buffer;
         const ptr = k.shapeLayoutPtr();
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
             this._layout = new Uint32Array(buf, ptr, 1);
-        const fatPtr = k.fatAabbLayoutPtr();
-        if (this._fatLayout.buffer !== buf || this._fatLayout.byteOffset !== fatPtr)
-            this._fatLayout = new Uint32Array(buf, fatPtr, 1);
         const layout = this._layout;
-        const fatLayout = this._fatLayout;
         if (
             this.shapeU.buffer !== buf ||
             this.shapeU.byteOffset !== layout[0] ||
@@ -119,13 +111,6 @@ export class ShapeStore extends KernelViews {
         ) {
             this.shapeU = new Uint32Array(buf, layout[0], cap * SHAPE_STRIDE);
             this.shapeF = new Float32Array(buf, layout[0], cap * SHAPE_STRIDE);
-        }
-        if (
-            this.fatF.buffer !== buf ||
-            this.fatF.byteOffset !== fatLayout[0] ||
-            this.fatF.length !== fatCap * 6
-        ) {
-            this.fatF = new Float32Array(buf, fatLayout[0], fatCap * 6);
         }
         if (this.geometryOutput.buffer !== buf)
             this.geometryOutput = new Float32Array(buf, k.shapeGeometryOutputPtr(), 13);
@@ -231,8 +216,8 @@ export class ShapeStore extends KernelViews {
 
     /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
     writeFatAabb(shapeId: number, fat: AABB): void {
-        const o = shapeId * 6;
-        const f = this.fatF;
+        const o = shapeId * SHAPE_STRIDE + 16;
+        const f = this.shapeF;
         f[o] = fat.lowerBound.x;
         f[o + 1] = fat.lowerBound.y;
         f[o + 2] = fat.lowerBound.z;
@@ -301,7 +286,7 @@ export function readShapeAabb(world: WorldState, shapeId: number, out: AABB): AA
 /** Copy the kernel-owned fat bounds into caller-owned scratch. */
 export function readFatAabb(world: WorldState, shapeId: number, out: AABB): AABB {
     world.shapeStore.refreshViews();
-    return readBounds(world.shapeStore.fatF, shapeId * 6, out);
+    return readBounds(world.shapeStore.shapeF, shapeId * SHAPE_STRIDE + 16, out);
 }
 
 function readBounds(f: Float32Array, o: number, out: AABB): AABB {

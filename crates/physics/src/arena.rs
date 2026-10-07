@@ -31,7 +31,6 @@ use crate::narrowphase::{
 };
 use crate::recycle::try_recycle;
 
-use crate::fataabb::AABB_STRIDE as FAT_STRIDE;
 use crate::geo::hull_view;
 use crate::regions::Buffer;
 
@@ -1055,8 +1054,8 @@ fn read_max_extent(fin: &[f32], i: usize) -> Vec3 {
 /// bit-identical to `src/math.ts` `aabb.overlaps` — the same six comparisons.)
 #[inline]
 fn fat_overlap(fat: &[f32], sa: usize, sb: usize) -> bool {
-    let a = sa * FAT_STRIDE;
-    let b = sb * FAT_STRIDE;
+    let a = sa * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FAT_AABB;
+    let b = sb * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FAT_AABB;
     !(fat[a + 3] < fat[b]
         || fat[a] > fat[b + 3]
         || fat[a + 4] < fat[b + 1]
@@ -1150,7 +1149,7 @@ pub(crate) unsafe fn recycle_block(
         let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
         let dir = manifolds::dir_col();
         let pool = manifolds::pool_col();
-        let fat = crate::fataabb::col_slice();
+        let fat = crate::shapes::col_f_slice();
 
         for i in start..end {
             let contact_id = contacts[i] as usize;
@@ -1328,7 +1327,7 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
         );
         let shape_u = crate::shapes::col();
         let shape_f = crate::shapes::col_f();
-        let fat = crate::fataabb::col();
+        let fat = crate::shapes::col_f();
         for i in start..end {
             if sim2.atomic_get(i * SIM2_STRIDE + crate::body::S2_FLAGS) & 0x40 != 0 {
                 continue;
@@ -1348,7 +1347,7 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
             while shape_id != crate::shapes::NULL_SHAPE {
                 let o = shape_id as usize * crate::shapes::SHAPE_STRIDE;
                 let bounds = crate::continuous::bounds(shape_id as usize, xf);
-                let fb = shape_id as usize * FAT_STRIDE;
+                let fb = o + crate::shapes::S_FAT_AABB;
                 let fat_aabb = core::array::from_fn(|n| fat.get(fb + n));
                 let (cand, escaped) = finalize::refit_bounds(bounds, &fat_aabb);
                 for n in 0..6 {

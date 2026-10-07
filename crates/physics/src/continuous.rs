@@ -415,8 +415,8 @@ pub(crate) unsafe fn solve(i: usize) {
         for n in 0..6 {
             f.set(o + 10 + n, b[n]);
         }
-        let fat = crate::fataabb::col();
-        let fb = id as usize * 6;
+        let fat = shapes::col_f();
+        let fb = o + shapes::S_FAT_AABB;
         let cached = [
             fat.get(fb),
             fat.get(fb + 1),

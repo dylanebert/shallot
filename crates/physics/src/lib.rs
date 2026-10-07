@@ -148,7 +148,6 @@ mod draw;
 #[cfg(any(target_arch = "wasm32", test))]
 mod events;
 #[cfg(target_arch = "wasm32")]
-mod fataabb;
 #[cfg(target_arch = "wasm32")]
 mod geo;
 #[cfg(any(target_arch = "wasm32", test))]

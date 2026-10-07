@@ -28,7 +28,6 @@ pub extern "C" fn reset(world: u32) {
     let id = world as usize;
     assert!(id < MAX_WORLDS);
     unsafe {
-        crate::fataabb::reset(id);
         crate::manifolds::reset(id);
         crate::joints::reset(id);
         crate::joint_record::reset(id);
@@ -60,7 +59,6 @@ pub extern "C" fn snapshot(world: u32) -> usize {
         let mut out = Vec::new();
         crate::bodies::snapshot(world as usize, &mut out);
         crate::shapes::snapshot(world as usize, &mut out);
-        crate::fataabb::snapshot(world as usize, &mut out);
         crate::manifolds::snapshot(world as usize, &mut out);
         crate::joints::snapshot(world as usize, &mut out);
         crate::joint_record::snapshot(world as usize, &mut out);
@@ -92,7 +90,6 @@ pub extern "C" fn restore(world: u32) {
         let mut input = (&*(&raw const SNAPSHOT)).as_slice();
         crate::bodies::restore(world as usize, &mut input);
         crate::shapes::restore(world as usize, &mut input);
-        crate::fataabb::restore(world as usize, &mut input);
         crate::manifolds::restore(world as usize, &mut input);
         crate::joints::restore(world as usize, &mut input);
         crate::joint_record::restore(world as usize, &mut input);
