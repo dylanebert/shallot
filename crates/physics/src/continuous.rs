@@ -78,7 +78,7 @@ unsafe fn fin() -> Col<'static, f32> {
 unsafe fn sim2() -> Col<'static, u32> {
     Col::new(
         bodies::sim2_base() as *mut u32,
-        (bodies::body_cap() + 8) * 12,
+        (bodies::body_cap() + 8) * body::SIM2_STRIDE,
     )
 }
 fn v(c: Col<f32>, o: usize) -> Vec3 {
@@ -100,13 +100,13 @@ unsafe fn sweep(i: usize, base: Vec3) -> Sweep {
     let s = sim();
     let s2 = Col::new(
         bodies::sim2_base() as *mut f32,
-        (bodies::body_cap() + 8) * 12,
+        (bodies::body_cap() + 8) * body::SIM2_STRIDE,
     );
     Sweep {
         local_center: v(f, i * 12 + 3),
-        c1: v(s2, i * 12 + 4).sub(base),
+        c1: v(s2, i * body::SIM2_STRIDE + body::S2_CENTER0).sub(base),
         c2: v(f, i * 12).sub(base),
-        q1: q(s2, i * 12),
+        q1: q(s2, i * body::SIM2_STRIDE + body::S2_ROTATION0),
         q2: q(s, i * 32 + 28),
     }
 }
@@ -252,7 +252,9 @@ pub(crate) unsafe fn reset_body(i: usize) {
 /// As `finalize`, and `reserve_at` must have reserved continuous rows for every body in `[start, end)`.
 pub unsafe fn bullets(start: usize, end: usize) {
     for i in start..end {
-        if sim2().atomic_get(i * 12 + 10) & (IS_FAST | IS_BULLET) == (IS_FAST | IS_BULLET) {
+        if sim2().atomic_get(i * body::SIM2_STRIDE + body::S2_FLAGS) & (IS_FAST | IS_BULLET)
+            == (IS_FAST | IS_BULLET)
+        {
             solve(i);
         }
     }
@@ -265,17 +267,17 @@ pub(crate) unsafe fn solve(i: usize) {
     let ff = fin();
     let f2 = Col::new(
         bodies::sim2_base() as *mut f32,
-        (bodies::body_cap() + 8) * 12,
+        (bodies::body_cap() + 8) * body::SIM2_STRIDE,
     );
-    let base = v(f2, i * 12 + 4);
+    let base = v(f2, i * body::SIM2_STRIDE + body::S2_CENTER0);
     let sw = sweep(i, base);
     let end = end(sw);
-    let bullet = s2.atomic_get(i * 12 + 10) & IS_BULLET != 0;
-    let body_id = s2.get(i * 12 + 9);
+    let bullet = s2.atomic_get(i * body::SIM2_STRIDE + body::S2_FLAGS) & IS_BULLET != 0;
+    let body_id = s2.get(i * body::SIM2_STRIDE + body::S2_BODY_ID);
     let mut fraction = 1.0;
     let mut hits = [(0u32, 0u32, 0.0f32); 8];
     let mut hit_count = 0;
-    let head = s2.get(i * 12 + 11);
+    let head = s2.get(i * body::SIM2_STRIDE + body::S2_HEAD_SHAPE);
     let mut id = head;
     while id != u32::MAX {
         let fast = id as usize;
@@ -334,7 +336,7 @@ pub(crate) unsafe fn solve(i: usize) {
                     }
                     let awake = u.get(a + 32);
                     let target_flags = if awake != 0 {
-                        s2.atomic_get((awake as usize - 1) * 12 + 10)
+                        s2.atomic_get((awake as usize - 1) * body::SIM2_STRIDE + body::S2_FLAGS)
                     } else {
                         u.get(a + 42)
                     };
@@ -360,7 +362,7 @@ pub(crate) unsafe fn solve(i: usize) {
                         }
                     } else if output.fraction > 0.0 && output.fraction < fraction {
                         fraction = output.fraction;
-                        s2.atomic_or(i * 12 + 10, HAD_TIME_OF_IMPACT);
+                        s2.atomic_or(i * body::SIM2_STRIDE + body::S2_FLAGS, HAD_TIME_OF_IMPACT);
                     }
                     true
                 },
@@ -375,9 +377,9 @@ pub(crate) unsafe fn solve(i: usize) {
         body::write_fin_transform_p(ff, i, base.add(c.sub(rotation.rotate(sw.local_center))));
     }
     let rotation = q(sf, i * 32 + 28);
-    put(f2, i * 12, rotation.v);
-    f2.set(i * 12 + 3, rotation.s);
-    put(f2, i * 12 + 4, v(ff, i * 12));
+    put(f2, i * body::SIM2_STRIDE + body::S2_ROTATION0, rotation.v);
+    f2.set(i * body::SIM2_STRIDE + body::S2_ROTATION0 + 3, rotation.s);
+    put(f2, i * body::SIM2_STRIDE + body::S2_CENTER0, v(ff, i * 12));
     let xf = Transform {
         p: v(ff, i * 12 + 9),
         q: rotation,
@@ -425,7 +427,7 @@ pub(crate) unsafe fn solve(i: usize) {
                 fat.set(fb + n, b[n] - margin);
                 fat.set(fb + n + 3, b[n + 3] + margin);
             }
-            s2.atomic_or(i * 12 + 10, ENLARGE_BOUNDS);
+            s2.atomic_or(i * body::SIM2_STRIDE + body::S2_FLAGS, ENLARGE_BOUNDS);
         }
         id = u.get(o + 1);
     }

@@ -605,10 +605,6 @@ pub(crate) mod runtime {
                 &state,
             );
             *(crate::solver_set::body_ptr(set, index, 4)) = flags;
-            sim2.set(
-                body::S2_MAX_ANGULAR_VELOCITY,
-                state.angular_velocity.length() + 5.0,
-            );
         }
         if set >= 2 {
             let island = island::create(set);

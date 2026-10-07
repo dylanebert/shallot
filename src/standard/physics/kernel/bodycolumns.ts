@@ -19,7 +19,6 @@ import {
     S2_BODY_ID,
     S2_CENTER0,
     S2_FLAGS,
-    S2_MAX_ANGULAR_VELOCITY,
     S2_MIN_EXTENT,
     SIM_STRIDE,
     SIM2_STRIDE,
@@ -74,7 +73,7 @@ export class BodyStore extends KernelViews {
      * localCenter, maxExtent, transform.p). */
     finF = new Float32Array(0);
     /** Resident sim2 column (`SIM2_STRIDE` f32 per body) — the `BodySim` fields the kernel never
-     * gathers (rotation0, center0, minExtent, maxAngularVelocity, bodyId, flags). */
+     * gathers (rotation0, center0, minExtent, bodyId, flags). */
     sim2F = new Float32Array(0);
     /** The same sim2 bytes viewed as u32, for the integer `bodyId`/`flags` slots. */
     sim2U = new Uint32Array(0);
@@ -326,11 +325,6 @@ export function setSimField<K extends keyof BodySim>(
             ff[fo + 6] = v.x;
             ff[fo + 7] = v.y;
             ff[fo + 8] = v.z;
-            return;
-        }
-        case "maxAngularVelocity": {
-            const v = value as number;
-            store.memoryF[simOffset(world, ref, 5) + S2_MAX_ANGULAR_VELOCITY] = v;
             return;
         }
         case "linearDamping": {

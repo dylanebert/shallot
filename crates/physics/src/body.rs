@@ -204,10 +204,10 @@ pub fn clear_sim_force_torque(col: Col<f32>, i: usize) {
 // --- sim2 column ----------------------------------------------------------------------------
 
 /// 4-byte stride of the second resident sim column: the `BodySim` fields the per-step `sim`/`fin`
-/// columns omit — rotation0(4) center0(3) minExtent(1) maxAngularVelocity(1) bodyId(1) flags(1) — plus
-/// the headShapeId lane below, 12 slots exactly. The region backs the full `BodySim`/`BodyState` surface
+/// columns omit — rotation0(4) center0(3) minExtent(1) bodyId(1) flags(1) — plus
+/// the headShapeId lane below, 11 slots exactly. The region backs the full `BodySim`/`BodyState` surface
 /// (the 4a.2/4a.3 views need every field), laid out once here so a later slice never re-spaces it.
-pub const SIM2_STRIDE: usize = 12;
+pub const SIM2_STRIDE: usize = 11;
 
 /// Slot of the sweep-base rotation (`BodySim.rotation0`, a quat: v3 + s) in the sim2 column — the
 /// pose the next step's continuous sweep rotates from. Finalize writes it for every non-fast body
@@ -221,16 +221,15 @@ pub const S2_CENTER0: usize = 4;
 /// Slot of `BodySim.minExtent` in the sim2 column — the smallest shape half-extent, against which the
 /// finalize fast-body test compares this step's motion (`columns.ts` `S2_MIN_EXTENT`).
 pub const S2_MIN_EXTENT: usize = 7;
-pub const S2_MAX_ANGULAR_VELOCITY: usize = 8;
 /// Public body index carried by the resident sim2 record for lifecycle/move publication.
-pub const S2_BODY_ID: usize = 9;
-pub const S2_FLAGS: usize = 10;
+pub const S2_BODY_ID: usize = 8;
+pub const S2_FLAGS: usize = 9;
 
 /// Slot of the head of the body's shape list (its `nextShapeId` chain runs through the shape column,
 /// shapes.rs), written TS-side at marshal-in and on any shape-list mutation of an awake body. The lane
 /// rides the whole-record migration an awake-set swap-remove does. `NULL_SHAPE` when the body has no
 /// shapes. Read through a u32 view of the column.
-pub const S2_HEAD_SHAPE: usize = 11;
+pub const S2_HEAD_SHAPE: usize = 10;
 
 // --- flags ----------------------------------------------------------------------------------
 

@@ -70,7 +70,6 @@ export type BodySim = {
     invInertiaWorld: Mat3;
     minExtent: number;
     maxExtent: Vec3;
-    maxAngularVelocity: number;
     linearDamping: number;
     angularDamping: number;
     gravityScale: number;

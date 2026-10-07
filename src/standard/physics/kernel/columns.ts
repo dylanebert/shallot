@@ -6,17 +6,16 @@ export const STATE_LIVE = 13;
 export const SIM_STRIDE = 32;
 export const FIN_STRIDE = 12;
 /** The `BodySim` fields the per-step `sim`/`fin` columns omit (kernel never gathers them), held in a
- * second resident column: rotation0(4) center0(3) minExtent(1) maxAngularVelocity(1) bodyId(1)
- * flags(1) headShapeId(1) = 12 (body.rs `SIM2_STRIDE`). Mirrors the Rust ABI. */
-export const SIM2_STRIDE = 12;
+ * second resident column: rotation0(4) center0(3) minExtent(1) bodyId(1)
+ * flags(1) headShapeId(1) = 11 (body.rs `SIM2_STRIDE`). Mirrors the Rust ABI. */
+export const SIM2_STRIDE = 11;
 /** Retained body-move bridge: body index, generation, fellAsleep. */
 export const MOVE_STRIDE = 11;
 // sim2 field offsets.
 export const S2_CENTER0 = 4;
 export const S2_MIN_EXTENT = 7;
-export const S2_MAX_ANGULAR_VELOCITY = 8;
-export const S2_BODY_ID = 9;
-export const S2_FLAGS = 10;
+export const S2_BODY_ID = 8;
+export const S2_FLAGS = 9;
 // Joint record (kernel/src/joint_abi.rs). One flat f32 record per joint slot: a common header (the
 // state indices and body ids via u32 bits, cached invMass/invInertia, the local frames,
 // the base constraint frequency + softness) then a per-type payload (distance's
