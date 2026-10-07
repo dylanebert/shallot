@@ -40,7 +40,7 @@ import {
     createHullShape,
     createMeshShape,
     createSphereShape,
-    getShapeMaterials,
+    getShapeMaterialCount,
     type Shape as ShapeRecord,
 } from "../shapes/shape";
 import {
@@ -102,7 +102,7 @@ function bodyHit(world: WorldState, q: QueryColumns, origin: Pos): BodyCastHit {
         };
     const record = id;
     const f = q.resultF;
-    const materials = getShapeMaterials(world, record);
+    const materialCount = getShapeMaterialCount(world, record);
     return {
         shape: new Shape(world, {
             index1: id + 1,
@@ -113,8 +113,10 @@ function bodyHit(world: WorldState, q: QueryColumns, origin: Pos): BodyCastHit {
         normal: { x: f[9], y: f[10], z: f[11] },
         fraction: f[5],
         triangleIndex: f[13],
-        userMaterialId:
-            materials[Math.max(0, Math.min(materials.length - 1, f[15]))].userMaterialId,
+        userMaterialId: world.shapeStore.materialUserIdAt(
+            record,
+            Math.max(0, Math.min(materialCount - 1, f[15])),
+        ),
         hit: true,
     };
 }
