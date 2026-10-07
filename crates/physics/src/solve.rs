@@ -716,7 +716,9 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
     };
     let par = ParFor::new(
         count,
-        if job == Job::Sensors || job == Job::Finalize {
+        if job == Job::Bullets {
+            8
+        } else if job == Job::Sensors || job == Job::Finalize {
             16
         } else {
             COLLIDE_MIN_RANGE
