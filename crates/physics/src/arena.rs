@@ -324,8 +324,12 @@ unsafe fn task_context(world: usize, worker: usize) -> *mut TaskContext {
 pub(crate) unsafe fn prepare_finalize(world: usize, count: usize) {
     let islands = crate::solver_set::array_count_in_world(world, 2, 1);
     for context in &mut TASK_CONTEXTS[world] {
-        context.awake_island_bitset.set_count_and_clear(islands as u32);
-        context.enlarged_sim_bitset.set_count_and_clear(count as u32);
+        context
+            .awake_island_bitset
+            .set_count_and_clear(islands as u32);
+        context
+            .enlarged_sim_bitset
+            .set_count_and_clear(count as u32);
         context.split_island_id = -1;
         context.split_sleep_time = 0.0;
         context.sensor_hits.clear();
@@ -333,7 +337,9 @@ pub(crate) unsafe fn prepare_finalize(world: usize, count: usize) {
 }
 
 pub(crate) unsafe fn push_sensor_hit(world: usize, worker: usize, sensor: usize, visitor: usize) {
-    (*task_context(world, worker)).sensor_hits.push((sensor, visitor));
+    (*task_context(world, worker))
+        .sensor_hits
+        .push((sensor, visitor));
 }
 
 pub(crate) unsafe fn publish_sensor_hits(world: usize) {
@@ -348,12 +354,13 @@ pub(crate) unsafe fn mark_finalize_island(world: usize, worker: usize, body_id: 
     let body = crate::bodies::record(world, body_id);
     let context = &mut *task_context(world, worker);
     if body.sleep_time < 0.5 {
-        context.awake_island_bitset.set(
-            crate::island::field_in_world(world, body.island_id as usize, 1) as usize,
-        );
+        context
+            .awake_island_bitset
+            .set(crate::island::field_in_world(world, body.island_id as usize, 1) as usize);
     } else if crate::island::field_in_world(world, body.island_id as usize, 3) > 0
         && (body.sleep_time > context.split_sleep_time
-            || (body.sleep_time == context.split_sleep_time && body.island_id > context.split_island_id))
+            || (body.sleep_time == context.split_sleep_time
+                && body.island_id > context.split_island_id))
     {
         context.split_island_id = body.island_id;
         context.split_sleep_time = body.sleep_time;
@@ -367,10 +374,15 @@ pub(crate) unsafe fn mark_enlarged(world: usize, worker: usize, sim: usize) {
 pub(crate) unsafe fn reduce_finalize(world: usize) {
     let (first, rest) = TASK_CONTEXTS[world].split_first_mut().unwrap();
     for context in rest {
-        first.awake_island_bitset.union(&context.awake_island_bitset);
-        first.enlarged_sim_bitset.union(&context.enlarged_sim_bitset);
+        first
+            .awake_island_bitset
+            .union(&context.awake_island_bitset);
+        first
+            .enlarged_sim_bitset
+            .union(&context.enlarged_sim_bitset);
         if context.split_sleep_time > first.split_sleep_time
-            || (context.split_sleep_time == first.split_sleep_time && context.split_island_id > first.split_island_id)
+            || (context.split_sleep_time == first.split_sleep_time
+                && context.split_island_id > first.split_island_id)
         {
             first.split_sleep_time = context.split_sleep_time;
             first.split_island_id = context.split_island_id;
@@ -771,6 +783,48 @@ struct Surface {
     restitution: f32,
     rolling: f32,
     tangent: Vec3,
+    shape: usize,
+    index: usize,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+extern "C" {
+    fn materialCallback(
+        kind: u32,
+        shape_a: usize,
+        index_a: usize,
+        shape_b: usize,
+        index_b: usize,
+        values: *mut f32,
+    );
+}
+
+unsafe fn mix_value(kind: u32, a: Surface, b: Surface, custom: bool) -> f32 {
+    if custom {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut values = [
+                if kind == 0 { a.friction } else { a.restitution },
+                if kind == 0 { b.friction } else { b.restitution },
+                0.0,
+            ];
+            materialCallback(
+                kind,
+                a.shape,
+                a.index,
+                b.shape,
+                b.index,
+                values.as_mut_ptr(),
+            );
+            return values[2];
+        }
+    }
+    if kind == 0 {
+        (a.friction * b.friction).sqrt()
+    } else {
+        a.restitution.max(b.restitution)
+    }
 }
 
 fn surface(world_index: usize, shape: usize, index: usize) -> Surface {
@@ -781,6 +835,8 @@ fn surface(world_index: usize, shape: usize, index: usize) -> Surface {
         restitution: f(1),
         rolling: f(2),
         tangent: Vec3::new(f(3), f(4), f(5)),
+        shape,
+        index,
     }
 }
 
@@ -838,8 +894,9 @@ unsafe fn mix_surface(
     count: usize,
     mesh: bool,
     child_radius: f32,
+    custom: bool,
 ) {
-    if count == 0 || DEFAULT_MIX == 0 {
+    if count == 0 || (!custom && DEFAULT_MIX == 0) {
         return;
     }
     let a_index = |i: usize| map.map_or(i, |m| m[i.min(3)] as usize);
@@ -864,9 +921,25 @@ unsafe fn mix_surface(
         for i in 0..count {
             let pc = output.get(i * MANIFOLD_STRIDE + M_POINT_COUNT).to_bits() as usize;
             for j in 0..pc {
-                let m = surface(world_index, sa, a_index(*materials.add(i * 4 + j) as usize));
-                friction += (m.friction * b.friction).sqrt();
-                restitution += m.restitution.max(b.restitution);
+                let index = if custom {
+                    let triangle = output
+                        .get(
+                            i * MANIFOLD_STRIDE
+                                + crate::manifold_abi::M_POINTS
+                                + j * crate::manifold_abi::POOL_POINT_STRIDE
+                                + crate::manifold_abi::P_TRIANGLE_INDEX,
+                        )
+                        .to_bits() as usize;
+                    let child = dir
+                        .get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_CHILD_INDEX)
+                        as usize;
+                    crate::geo::shape_material_index(world_index, sa, child, triangle)
+                } else {
+                    a_index(*materials.add(i * 4 + j) as usize)
+                };
+                let m = surface(world_index, sa, index);
+                friction += mix_value(0, m, b, custom);
+                restitution += mix_value(1, m, b, custom);
                 tangent = tangent.add(m.tangent);
                 samples += 1.0;
             }
@@ -894,8 +967,8 @@ unsafe fn mix_surface(
             0.0
         };
         (
-            (a.friction * b.friction).sqrt(),
-            a.restitution.max(b.restitution),
+            mix_value(0, a, b, custom),
+            mix_value(1, a, b, custom),
             rolling,
             qa.rotate(a.tangent).sub(qb.rotate(b.tangent)),
         )
@@ -1005,6 +1078,7 @@ unsafe fn update_contact(
                 count,
                 true,
                 child_radius,
+                false,
             );
             finish_contact(world_index, thread, contact_id, count, hit);
             return;
@@ -1080,6 +1154,7 @@ unsafe fn update_contact(
             touching as usize,
             false,
             child_radius,
+            false,
         );
         // The pre-solve callback belongs here when stage 7 publishes it.
         finish_contact(world_index, thread, contact_id, touching as usize, hit);
@@ -1087,6 +1162,66 @@ unsafe fn update_contact(
 }
 
 /// Run the same contact tasks on the calling thread when the sweep does not fork.
+#[export_name = "mixContacts"]
+pub unsafe extern "C" fn mix_contacts(world_index: usize) {
+    use crate::manifold_abi::*;
+    let dir = manifolds::dir_col(world_index);
+    let shapes = crate::shapes::col_slice(world_index);
+    for i in 0..crate::contact_list::count_in_world(world_index) {
+        let id = crate::contact_list::get_in_world(world_index, i) as usize;
+        let o = id * DIR_STRIDE;
+        let count = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
+        if dir.get(o + DIR_FLAGS) & 0x0200_0000 == 0 || count == 0 {
+            continue;
+        }
+        let sa = dir.get(o + DIR_SHAPE_A) as usize;
+        let sb = dir.get(o + DIR_SHAPE_B) as usize;
+        let a = &shapes[sa * crate::shapes::SHAPE_STRIDE..];
+        let b = &shapes[sb * crate::shapes::SHAPE_STRIDE..];
+        let (mut xf_a, _, _) =
+            crate::bodies::geometry(world_index, a[crate::shapes::S_QUERY_BODY] as usize);
+        let (xf_b, _, _) =
+            crate::bodies::geometry(world_index, b[crate::shapes::S_QUERY_BODY] as usize);
+        let mut kind = a[crate::shapes::S_TYPE];
+        let mut map = None;
+        let mut radius = 0.0;
+        if kind == 1 {
+            let child = crate::compound_query::child_words(
+                a[48] as *const u32,
+                dir.get(o + DIR_CHILD_INDEX) as usize,
+            );
+            kind = child[0];
+            map = Some([child[8], child[9], child[10], child[11]]);
+            if kind == TY_HULL || kind == 4 {
+                xf_a = xf_a.mul(read_xf(&child, 1));
+            }
+            radius = match kind {
+                TY_HULL => 0.25 * f32::from_bits(child[13]),
+                TY_SPHERE => f32::from_bits(child[15]),
+                TY_CAPSULE => f32::from_bits(child[18]),
+                _ => 0.0,
+            };
+        }
+        let flip = (kind == TY_SPHERE && b[crate::shapes::S_TYPE] != TY_SPHERE)
+            || (kind == TY_CAPSULE && b[crate::shapes::S_TYPE] == TY_HULL);
+        mix_surface(
+            world_index,
+            id,
+            sa,
+            sb,
+            0,
+            xf_a,
+            xf_b,
+            map,
+            flip,
+            count,
+            kind == 2 || kind == 4,
+            radius,
+            true,
+        );
+    }
+}
+
 #[export_name = "dispatchContacts"]
 pub extern "C" fn dispatch_contacts(count: usize) {
     dispatch_contacts_in_world(crate::regions::active(), count)
@@ -1403,7 +1538,13 @@ pub(crate) unsafe fn finalize_block(
 /// # Safety
 /// The body + shape + fat-AABB regions must be reserved for every reachable shape, and no thread may grow
 /// memory while this runs (the MT concurrency invariant).
-pub(crate) unsafe fn refit_body(world_index: usize, worker: usize, sim: Col<f32>, fin: Col<f32>, i: usize) {
+pub(crate) unsafe fn refit_body(
+    world_index: usize,
+    worker: usize,
+    sim: Col<f32>,
+    fin: Col<f32>,
+    i: usize,
+) {
     unsafe {
         let records = crate::bodies::body_cap_in_world(world_index);
         let sim2 = Col::new(
@@ -1415,7 +1556,13 @@ pub(crate) unsafe fn refit_body(world_index: usize, worker: usize, sim: Col<f32>
         let fat = crate::shapes::col_f(world_index);
         {
             if sim2.atomic_get(i * SIM2_STRIDE + crate::body::S2_FLAGS) & 0x40 != 0 {
-                if crate::bodies::record(world_index, sim2.get(i * SIM2_STRIDE + crate::body::S2_BODY_ID) as usize).head_shape_id != -1 {
+                if crate::bodies::record(
+                    world_index,
+                    sim2.get(i * SIM2_STRIDE + crate::body::S2_BODY_ID) as usize,
+                )
+                .head_shape_id
+                    != -1
+                {
                     mark_enlarged(world_index, worker, i);
                 }
                 return;

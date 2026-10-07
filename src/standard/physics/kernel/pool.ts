@@ -64,7 +64,7 @@ const OP_SOLVE = 1;
 const WORKER_SRC = `
 const boot = (d, post) => {
     let clock = new Float64Array(d.memory.buffer);
-    const ex = new WebAssembly.Instance(d.module, { env: { memory: d.memory, solverPause: (${solverPause.toString()}), now(p) { if (clock.buffer !== d.memory.buffer) clock = new Float64Array(d.memory.buffer); clock[p >>> 3] = performance.now(); }, queryCallback() { throw new Error("physics: worker invoked a user query callback"); }, kernelPanic(p, n) { console.error("physics kernel " + new TextDecoder().decode(new Uint8Array(d.memory.buffer, p, n).slice())); } } }).exports;
+    const ex = new WebAssembly.Instance(d.module, { env: { memory: d.memory, solverPause: (${solverPause.toString()}), now(p) { if (clock.buffer !== d.memory.buffer) clock = new Float64Array(d.memory.buffer); clock[p >>> 3] = performance.now(); }, queryCallback() { throw new Error("physics: worker invoked a user query callback"); }, materialCallback() { throw new Error("physics: worker invoked a user material callback"); }, kernelPanic(p, n) { console.error("physics kernel " + new TextDecoder().decode(new Uint8Array(d.memory.buffer, p, n).slice())); } } }).exports;
     ex.__stack_pointer.value = d.stackTop;
     ex.__wasm_init_tls(d.tlsBase);
     const ctl = new Int32Array(d.ctl);

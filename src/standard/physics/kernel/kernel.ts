@@ -13,6 +13,7 @@
 // auto count. The MT artifact loads behind a dynamic `import()`, so a single-thread consumer never parses it.
 
 import type { World } from "../../../engine";
+import type { WorldState } from "../world/world";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, solverPause, type Pool } from "./pool";
 
@@ -821,6 +822,7 @@ export type Kernel = {
     jointSetEventBit(world: number, id: number): void;
     awakeContactCount(): number;
     awakeContactGet(index: number): number;
+    mixContacts(world: number): void;
     awakeContactCopy(ptr: number): void;
     jointRecordCount(): number;
     jointRecordCapacity(): number;
@@ -904,6 +906,7 @@ export type QueryCallback = (kind: number, shape: number, data: number, count: n
 
 export interface KernelState {
     queryCallback: QueryCallback | null;
+    materialWorld: WorldState | null;
     queryWorld: number;
     callbackDepth: number;
     queryFailed: boolean;
@@ -922,6 +925,7 @@ export interface KernelState {
 function createKernelState(): KernelState {
     return {
         queryCallback: null,
+        materialWorld: null,
         queryWorld: -1,
         callbackDepth: 0,
         queryFailed: false,
@@ -1034,6 +1038,37 @@ function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length
     };
 }
 
+function materialImport(runtime: KernelState) {
+    let values = new Float32Array(0);
+    return (
+        kind: number,
+        shapeA: number,
+        indexA: number,
+        shapeB: number,
+        indexB: number,
+        pointer: number,
+    ): void => {
+        if (runtime.queryFailed) return;
+        try {
+            const world = runtime.materialWorld;
+            if (world === null) throw new Error("physics: material callback is not installed");
+            const idA = world.shapeStore.materialUserIdAt(shapeA, indexA);
+            const idB = world.shapeStore.materialUserIdAt(shapeB, indexB);
+            const memory = kernel(world.ecsState).memory.buffer;
+            if (values.buffer !== memory) values = new Float32Array(memory);
+            const o = pointer >>> 2;
+            if (kind === 0) {
+                values[o + 2] = world.frictionCallback(values[o], idA, values[o + 1], idB);
+            } else {
+                values[o + 2] = world.restitutionCallback(values[o], idA, values[o + 1], idB);
+            }
+        } catch (error) {
+            runtime.queryFailed = true;
+            runtime.queryError = error;
+        }
+    };
+}
+
 function queryImport(runtime: KernelState): QueryCallback {
     return (kind, shape, data, count) => {
         if (runtime.queryFailed) return 0;
@@ -1117,6 +1152,7 @@ async function single(runtime: KernelState): Promise<void> {
         env: {
             solverPause,
             queryCallback: queryImport(runtime),
+            materialCallback: materialImport(runtime),
             now: clockImport(() => instance.memory),
             kernelPanic: panicImport(() => instance.memory),
         },
@@ -1145,6 +1181,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
                 solverPause,
                 memory,
                 queryCallback: queryImport(runtime),
+                materialCallback: materialImport(runtime),
                 now: clockImport(() => memory),
                 kernelPanic: panicImport(() => memory),
             },
@@ -1274,6 +1311,7 @@ export function kernel(world: World | undefined): Kernel {
             env: {
                 solverPause,
                 queryCallback: queryImport(runtime),
+                materialCallback: materialImport(runtime),
                 now: clockImport(() => instance.memory),
                 kernelPanic: panicImport(() => instance.memory),
             },
