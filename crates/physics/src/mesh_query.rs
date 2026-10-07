@@ -4,7 +4,7 @@ use crate::distance::{
     SimplexCache,
 };
 use crate::manifold::Capsule;
-use crate::math::{absf, maxf, minf, Plane, Transform, Vec3, FLT_MAX};
+use crate::math::{absf, maxf, minf, Plane, Transform, Vec3};
 use crate::query::{PlaneResult, RayCastInput, ShapeCastInput};
 
 #[repr(C)]
@@ -123,9 +123,9 @@ pub(crate) fn intersect_ray_triangle(start: Vec3, delta: Vec3, vertices: [Vec3; 
     minf(lambda, 1.0)
 }
 pub(crate) fn proxy_bounds(proxy: ShapeProxy) -> (Vec3, Vec3) {
-    let mut lower = Vec3::new(FLT_MAX, FLT_MAX, FLT_MAX);
-    let mut upper = lower.neg();
-    for p in &proxy.points[..proxy.count] {
+    let mut lower = proxy.points[0];
+    let mut upper = lower;
+    for p in &proxy.points[1..proxy.count] {
         lower = min(lower, *p);
         upper = max(upper, *p);
     }
