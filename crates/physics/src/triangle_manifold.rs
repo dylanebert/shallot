@@ -143,12 +143,12 @@ fn hull_face_contact(
 ) -> f32 {
     m.point_count = 0;
     let plane = hull.planes[query.b];
-    let mut buffer1 = [ClipVertex::ZERO; 128];
-    let mut buffer2 = [ClipVertex::ZERO; 128];
+    let mut buffer1 = [core::mem::MaybeUninit::<ClipVertex>::uninit(); 64];
+    let mut buffer2 = [core::mem::MaybeUninit::<ClipVertex>::uninit(); 64];
     let mut input = &mut buffer1;
     let mut output = &mut buffer2;
     for i in 0..3 {
-        input[i] = ClipVertex {
+        input[i].write(ClipVertex {
             position: tri[i],
             separation: plane.separation(tri[i]),
             pair: FeaturePair {
@@ -157,7 +157,7 @@ fn hull_face_contact(
                 owner2: 1,
                 index2: i as u8,
             },
-        };
+        });
     }
     let mut count = 3;
     let first = hull.faces[query.b].edge as usize;
@@ -169,7 +169,8 @@ fn hull_face_contact(
         let v2 = hull.points[next.origin as usize];
         let side = v2.sub(v1).normalize().cross(plane.normal);
         count = clip_polygon(
-            &input[..count],
+            // The seed loop and clip_polygon initialize exactly the returned prefix.
+            unsafe { core::slice::from_raw_parts(input.as_ptr().cast(), count) },
             count,
             Plane::from_normal_and_point(side, v1),
             edge as u8,
@@ -188,7 +189,9 @@ fn hull_face_contact(
     }
     let mut min_separation = f32::MAX;
     let mut final_count = 0;
-    for p in &input[..count.min(capacity)] {
+    for slot in &input[..count.min(capacity)] {
+        // Clipping initializes exactly the active prefix.
+        let p = unsafe { slot.assume_init_ref() };
         min_separation = minf(min_separation, p.separation);
         if !speculative && p.separation > 0.0 {
             continue;
@@ -224,8 +227,8 @@ fn triangle_face_contact(
     speculative: bool,
 ) -> f32 {
     let face = find_incident_face(hull, plane.normal, query.b);
-    let mut buffer1 = [ClipVertex::ZERO; 128];
-    let mut buffer2 = [ClipVertex::ZERO; 128];
+    let mut buffer1 = [core::mem::MaybeUninit::<ClipVertex>::uninit(); 64];
+    let mut buffer2 = [core::mem::MaybeUninit::<ClipVertex>::uninit(); 64];
     let mut input = &mut buffer1;
     let mut output = &mut buffer2;
     let first = hull.faces[face].edge as usize;
@@ -234,7 +237,7 @@ fn triangle_face_contact(
     loop {
         let e = hull.edges[edge];
         let p = hull.points[hull.edges[e.next as usize].origin as usize];
-        input[count] = ClipVertex {
+        input[count].write(ClipVertex {
             position: p,
             separation: plane.separation(p),
             pair: FeaturePair {
@@ -243,10 +246,10 @@ fn triangle_face_contact(
                 owner2: 1,
                 index2: e.next,
             },
-        };
+        });
         count += 1;
         edge = e.next as usize;
-        if edge == first || count == 128 {
+        if edge == first || count == 64 {
             break;
         }
     }
@@ -256,7 +259,8 @@ fn triangle_face_contact(
         }
         let side = edges[i].cross(plane.normal).normalize();
         count = clip_polygon(
-            &input[..count],
+            // The seed loop and clip_polygon initialize exactly the returned prefix.
+            unsafe { core::slice::from_raw_parts(input.as_ptr().cast(), count) },
             count,
             Plane::from_normal_and_point(side, tri[i]),
             i as u8,
@@ -271,7 +275,9 @@ fn triangle_face_contact(
     }
     let mut min_separation = f32::MAX;
     let mut final_count = 0;
-    for p in &input[..count.min(capacity)] {
+    for slot in &input[..count.min(capacity)] {
+        // Clipping initializes exactly the active prefix.
+        let p = unsafe { slot.assume_init_ref() };
         min_separation = minf(min_separation, p.separation);
         if !speculative && p.separation > 0.0 {
             continue;
