@@ -189,12 +189,13 @@ impl<const N: usize> Columns<N> {
         old
     }
     pub unsafe fn snapshot(&self, out: &mut Vec<u8>) {
-        for buffer in &self.buffers {
-            write_word(out, buffer.bytes);
-            out.extend_from_slice(core::slice::from_raw_parts(
-                buffer.ptr as *const u8,
-                buffer.bytes,
-            ));
+        self.snapshot_prefix(out, self.buffers.map(|buffer| buffer.bytes));
+    }
+    pub unsafe fn snapshot_prefix(&self, out: &mut Vec<u8>, bytes: [usize; N]) {
+        for (buffer, bytes) in self.buffers.iter().zip(bytes) {
+            assert!(bytes <= buffer.bytes);
+            write_word(out, bytes);
+            out.extend_from_slice(core::slice::from_raw_parts(buffer.ptr as *const u8, bytes));
         }
     }
     pub unsafe fn restore(&mut self, input: &mut &[u8]) {
