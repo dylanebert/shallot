@@ -30,7 +30,6 @@ use crate::narrowphase::{
     compute_convex_manifold, ConvexContactCache, ConvexShape, Manifold, MAX_MANIFOLD_POINTS,
 };
 
-
 use crate::geo::hull_view;
 use crate::regions::Buffer;
 
@@ -255,16 +254,6 @@ pub(crate) unsafe fn color_span_column() -> (Col<'static, u32>, usize) {
 }
 
 // --- b3CollideTask / b3UpdateContact --------------------------------------------------------
-// Shape geometry is gathered locally for the convex/mesh routines; no task payload crosses the FFI.
-const DISPATCH_STRIDE: usize = 32;
-const D_DEFAULT_MIX: usize = 31;
-const D_SHAPE_A: usize = 29;
-const D_SHAPE_B: usize = 30;
-const D_OLD_COUNT: usize = 28;
-const D_CHILD: usize = 19;
-const D_MESH_SLOT: usize = 20;
-const D_LOWER: usize = 21;
-const D_UPPER: usize = 24;
 static mut MESH_OUTPUT_PTR: usize = 0;
 static mut MESH_MATERIAL_PTR: usize = 0;
 static mut MESH_SCRATCH_PTR: usize = 0;
@@ -273,13 +262,6 @@ struct DispatchScratch {
     old: [Manifold; 256],
     previous: [crate::manifold_abi::ContactCache; 256],
 }
-const D_CONTACT: usize = 0;
-const D_TYPE_A: usize = 1;
-const D_TYPE_B: usize = 2;
-const D_BODY_A: usize = 3;
-const D_BODY_B: usize = 4;
-const D_GEOM_A: usize = 5; // ≤7 slots (sphere c3+r / capsule c1_3+c2_3+r / hull geoIndex)
-const D_GEOM_B: usize = 12; // ≤7 slots
 
 static mut CONTACT_LIST_PTR: usize = 0;
 static mut CONTACT_STATES: [Vec<crate::bitset::BitSet>; crate::regions::MAX_WORLDS] =
@@ -299,7 +281,6 @@ pub(crate) unsafe fn union_contact_states(world: usize) -> &'static crate::bitse
 }
 static mut DEFAULT_MIX: u32 = 1;
 static mut RECYCLE_DISTANCE: f32 = 0.0;
-const SIM_UPDATED: u32 = 0x0200_0000;
 
 #[export_name = "reserveCollide"]
 pub extern "C" fn reserve_collide(count: usize, threads: usize, default_mix: u32, distance: f32) {
@@ -497,8 +478,8 @@ fn write_manifold(m: &Manifold, pool: Col<f32>, base: usize) {
 
 unsafe fn dispatch_mesh(
     world_index: usize,
-    disp: &[u32],
-    r: usize,
+    shape_b: &[u32],
+    old_count: usize,
     geom: &[u32],
     ty: u32,
     xf_a: Transform,
@@ -511,7 +492,7 @@ unsafe fn dispatch_mesh(
     center_b: Vec3,
 ) -> usize {
     use crate::mesh_contact::{compute_mesh_manifolds, TriangleSource, MAX_TRIANGLES};
-    let slot = disp[r + D_MESH_SLOT] as usize;
+    let slot = thread;
     let cache = &mut *manifolds::mesh_cache_ptr(world_index, contact_id);
     let record = geom[0] as *const u32;
     let source = if ty == 4 {
@@ -542,23 +523,16 @@ unsafe fn dispatch_mesh(
     };
     let vec = |o: usize| {
         Vec3::new(
-            f32::from_bits(disp[r + o]),
-            f32::from_bits(disp[r + o + 1]),
-            f32::from_bits(disp[r + o + 2]),
+            f32::from_bits(shape_b[o]),
+            f32::from_bits(shape_b[o + 1]),
+            f32::from_bits(shape_b[o + 2]),
         )
     };
     let scratch = &mut *(MESH_SCRATCH_PTR as *mut DispatchScratch).add(thread);
-    cache.refresh(
-        &source,
-        xf_a,
-        vec(D_LOWER),
-        vec(D_UPPER),
-        &mut scratch.previous,
-    );
+    cache.refresh(&source, xf_a, vec(10), vec(13), &mut scratch.previous);
     let dir = manifolds::dir_col(world_index);
     let pool = manifolds::pool_col();
     let entry = read_dir(dir, contact_id);
-    let old_count = disp[r + D_OLD_COUNT] as usize;
     let pool = crate::manifold_abi::block_col(pool, entry.manifold_base, old_count);
     for i in 0..old_count {
         let o = i * MANIFOLD_STRIDE;
@@ -588,7 +562,7 @@ unsafe fn dispatch_mesh(
             m.points[j].triangle_index = pool.get(p + P_TRIANGLE_INDEX).to_bits() as i32;
         }
     }
-    let shape = read_shape(disp[r + D_TYPE_B], disp, r + D_GEOM_B);
+    let shape = read_shape(shape_b[crate::shapes::S_TYPE], shape_b, 48);
     let directory = manifolds::dir_col(world_index);
     let shape_a =
         directory.get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_SHAPE_A) as usize;
@@ -739,7 +713,10 @@ fn store_surface(
 
 unsafe fn mix_surface(
     world_index: usize,
-    disp: &[u32],
+    contact_id: usize,
+    sa: usize,
+    sb: usize,
+    thread: usize,
     xf_a: Transform,
     xf_b: Transform,
     map: Option<[u32; 4]>,
@@ -748,11 +725,9 @@ unsafe fn mix_surface(
     mesh: bool,
     child_radius: f32,
 ) {
-    if count == 0 || disp[D_DEFAULT_MIX] == 0 {
+    if count == 0 || DEFAULT_MIX == 0 {
         return;
     }
-    let sa = disp[D_SHAPE_A] as usize;
-    let sb = disp[D_SHAPE_B] as usize;
     let a_index = |i: usize| map.map_or(i, |m| m[i.min(3)] as usize);
     let mut a = surface(world_index, sa, a_index(0));
     let mut b = surface(world_index, sb, 0);
@@ -763,7 +738,7 @@ unsafe fn mix_surface(
     };
     let mut radius_b = shape_radius(world_index, sb, mesh);
     let (friction, restitution, rolling, tangent) = if mesh {
-        let slot = disp[D_MESH_SLOT] as usize;
+        let slot = thread;
         let output = Col::new(
             (MESH_OUTPUT_PTR as *mut f32).add(slot * 256 * MANIFOLD_STRIDE),
             256 * MANIFOLD_STRIDE,
@@ -814,7 +789,7 @@ unsafe fn mix_surface(
     };
     store_surface(
         world_index,
-        disp[D_CONTACT] as usize,
+        contact_id,
         friction,
         restitution,
         rolling,
@@ -822,234 +797,193 @@ unsafe fn mix_surface(
     );
 }
 
-/// Compute convex, mesh, height-field and compound-child contacts in `[start, end)`.
-/// Tasks allocate new convex blocks and resize mesh blocks only when the cluster count changes.
-/// Mesh scratch preserves matched impulses before the resident block is cleared and populated.
-/// Per-thread scratch is disjoint across worker indices.
-///
-/// Box3D's collide task: update each contact in place and mark its touch state by id.
+/// Box3D's b3UpdateContact over the shapes and body poses resolved by the collide task.
 ///
 /// # Safety
-/// Body/shape columns and per-thread scratch are reserved before the fork. Only the locked manifold
-/// block allocators may allocate or free; their chunks never move. Each contact runs in one task.
-pub(crate) unsafe fn contact_block(
+/// Shapes and worker scratch stay resident during the fork. Each contact runs in one task.
+unsafe fn update_contact(
     world_index: usize,
-    start: usize,
-    end: usize,
-    total: usize,
     thread: usize,
+    contact_id: usize,
+    shape_a: &[u32],
+    shape_b: &[u32],
+    parent_xf: Transform,
+    local_center_a: Vec3,
+    xf_b: Transform,
+    local_center_b: Vec3,
+    fast: bool,
 ) {
     unsafe {
         use crate::manifold_abi::*;
-        let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
         let dir = manifolds::dir_col(world_index);
         let pool = manifolds::pool_col();
-
-        for i in start..end {
-            recycle_block(
+        let o = contact_id * DIR_STRIDE;
+        let old_count = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
+        let shape_id_a = dir.get(o + DIR_SHAPE_A) as usize;
+        let shape_id_b = dir.get(o + DIR_SHAPE_B) as usize;
+        let hit = shape_a[crate::shapes::S_HIT_EVENTS] & crate::shapes::HIT_FLAG != 0
+            || shape_b[crate::shapes::S_HIT_EVENTS] & crate::shapes::HIT_FLAG != 0;
+        let mut type_a = shape_a[crate::shapes::S_TYPE];
+        let type_b = shape_b[crate::shapes::S_TYPE];
+        let mut xf_a = parent_xf;
+        let center_a = parent_xf.q.rotate(local_center_a);
+        let center_b = xf_b.q.rotate(local_center_b);
+        let mut geom_a = &shape_a[48..55];
+        let mut child_offset = Vec3::ZERO;
+        let mut material_map = None;
+        let mut child_radius = 0.0;
+        let compound_geometry = if type_a == 1 {
+            let compound = geom_a[0] as *const u32;
+            Some(crate::compound_query::child_words(
+                compound,
+                dir.get(o + DIR_CHILD_INDEX) as usize,
+            ))
+        } else {
+            None
+        };
+        if let Some(compound_geometry) = &compound_geometry {
+            type_a = compound_geometry[0];
+            material_map = Some([
+                compound_geometry[8],
+                compound_geometry[9],
+                compound_geometry[10],
+                compound_geometry[11],
+            ]);
+            let local = read_xf(compound_geometry, 1);
+            child_offset = parent_xf.q.rotate(local.p);
+            if type_a == TY_HULL || type_a == 4 {
+                xf_a = parent_xf.mul(local);
+            }
+            geom_a = &compound_geometry[12..19];
+            child_radius = match type_a {
+                TY_HULL => 0.25 * f32::from_bits(geom_a[1]),
+                TY_SPHERE => f32::from_bits(geom_a[3]),
+                TY_CAPSULE => f32::from_bits(geom_a[6]),
+                _ => 0.0,
+            };
+        }
+        if type_a == 2 || type_a == 4 {
+            let count = dispatch_mesh(
                 world_index,
-                i,
-                i + 1,
-                total,
-                RECYCLE_DISTANCE,
-                RECYCLE_DISTANCE.min(0.02),
+                shape_b,
+                old_count,
+                geom_a,
+                type_a,
+                xf_a,
+                xf_b,
+                child_offset,
+                contact_id,
                 thread,
+                fast,
+                center_a,
+                center_b,
             );
-            let contact = contacts[i] as usize;
-            let o = contact * DIR_STRIDE;
-            if dir.get(o + DIR_FLAGS) & SIM_UPDATED == 0 {
-                continue;
-            }
-            let mut record = [0u32; DISPATCH_STRIDE];
-            record[D_CONTACT] = contact as u32;
-            record[D_SHAPE_A] = dir.get(o + DIR_SHAPE_A);
-            record[D_SHAPE_B] = dir.get(o + DIR_SHAPE_B);
-            record[D_BODY_A] = dir.get(o + DIR_EDGE_A);
-            record[D_BODY_B] = dir.get(o + DIR_EDGE_B);
-            record[D_CHILD] = dir.get(o + DIR_CHILD_INDEX);
-            record[D_OLD_COUNT] = dir.get(o + DIR_MANIFOLD_COUNT);
-            record[D_MESH_SLOT] = thread as u32;
-            record[D_DEFAULT_MIX] = DEFAULT_MIX;
-            let shapes = crate::shapes::col_slice(world_index);
-            let sb = record[D_SHAPE_B] as usize * crate::shapes::SHAPE_STRIDE;
-            record[D_LOWER..D_LOWER + 3].copy_from_slice(&shapes[sb + 10..sb + 13]);
-            record[D_UPPER..D_UPPER + 3].copy_from_slice(&shapes[sb + 13..sb + 16]);
-            let sa = record[D_SHAPE_A] as usize * crate::shapes::SHAPE_STRIDE;
-            let hit = shapes[sa + crate::shapes::S_HIT_EVENTS] & crate::shapes::HIT_FLAG != 0
-                || shapes[sb + crate::shapes::S_HIT_EVENTS] & crate::shapes::HIT_FLAG != 0;
-            for (id_slot, type_slot, geom_slot) in [
-                (D_SHAPE_A, D_TYPE_A, D_GEOM_A),
-                (D_SHAPE_B, D_TYPE_B, D_GEOM_B),
-            ] {
-                let s = record[id_slot] as usize * crate::shapes::SHAPE_STRIDE;
-                let ty = shapes[s + crate::shapes::S_TYPE];
-                record[type_slot] = ty;
-                record[geom_slot..geom_slot + 7].copy_from_slice(&shapes[s + 48..s + 55]);
-            }
-            let disp = &record[..];
-            let r = 0;
-            let contact_id = disp[r + D_CONTACT] as usize;
-            let mut type_a = disp[r + D_TYPE_A];
-            let type_b = disp[r + D_TYPE_B];
-            let body_a = disp[r + D_BODY_A] as usize;
-            let body_b = disp[r + D_BODY_B] as usize;
-            let (parent_xf, fin_a, flags_a) = crate::bodies::geometry(world_index, body_a);
-            let (xf_b, fin_b, flags_b) = crate::bodies::geometry(world_index, body_b);
-            let mut xf_a = parent_xf;
-            let center_a = parent_xf.q.rotate(fin_a.local_center);
-            let center_b = xf_b.q.rotate(fin_b.local_center);
-            let fast = (flags_a | flags_b) & 0x40 != 0;
-            let mut geom_a = &disp[r + D_GEOM_A..r + D_GEOM_A + 7];
-            let mut child_offset = Vec3::ZERO;
-            let mut material_map = None;
-            let mut child_radius = 0.0;
-            let compound_geometry = if type_a == 1 {
-                let compound = geom_a[0] as *const u32;
-                Some(crate::compound_query::child_words(
-                    compound,
-                    disp[r + D_CHILD] as usize,
-                ))
-            } else {
-                None
-            };
-            if let Some(compound_geometry) = &compound_geometry {
-                type_a = compound_geometry[0];
-                material_map = Some([
-                    compound_geometry[8],
-                    compound_geometry[9],
-                    compound_geometry[10],
-                    compound_geometry[11],
-                ]);
-                let local = read_xf(compound_geometry, 1);
-                child_offset = parent_xf.q.rotate(local.p);
-                if type_a == TY_HULL || type_a == 4 {
-                    xf_a = parent_xf.mul(local);
-                }
-                geom_a = &compound_geometry[12..19];
-                child_radius = match type_a {
-                    TY_HULL => 0.25 * f32::from_bits(geom_a[1]),
-                    TY_SPHERE => f32::from_bits(geom_a[3]),
-                    TY_CAPSULE => f32::from_bits(geom_a[6]),
-                    _ => 0.0,
-                };
-            }
-            let disp = &record[..];
-            if type_a == 2 || type_a == 4 {
-                let count = dispatch_mesh(
-                    world_index,
-                    disp,
-                    r,
-                    geom_a,
-                    type_a,
-                    xf_a,
-                    xf_b,
-                    child_offset,
-                    contact_id,
-                    thread,
-                    fast,
-                    center_a,
-                    center_b,
-                );
-                mix_surface(
-                    world_index,
-                    disp,
-                    xf_a,
-                    xf_b,
-                    material_map,
-                    false,
-                    count,
-                    true,
-                    child_radius,
-                );
-                if count > 0 {
-                    let address = if count == record[D_OLD_COUNT] as usize {
-                        let address = dir.get(o + DIR_MANIFOLD_BASE) as usize;
-                        (address as *mut u8).write_bytes(0, count * MANIFOLD_STRIDE * 4);
-                        address
-                    } else {
-                        manifolds::allocate_manifolds_in_world(world_index, contact_id, count)
-                    };
-                    let source = MESH_OUTPUT_PTR + thread * 256 * MANIFOLD_STRIDE * 4;
-                    manifolds::copy_manifolds(source, address, count);
-                }
-                finish_contact(world_index, thread, contact_id, count, hit);
-                continue;
-            }
-            let mut shape_a = read_shape(type_a, geom_a, 0);
-            let mut shape_b = read_shape(type_b, disp, r + D_GEOM_B);
-            let flip = (type_a == TY_SPHERE && type_b != TY_SPHERE)
-                || (type_a == TY_CAPSULE && type_b == TY_HULL);
-            let (convex_xf_a, convex_xf_b) = if flip {
-                core::mem::swap(&mut shape_a, &mut shape_b);
-                (xf_b, xf_a)
-            } else {
-                (xf_a, xf_b)
-            };
-
-            let base = read_dir(dir, contact_id).manifold_base;
-            let uses_sat = type_a == TY_HULL && type_b == TY_HULL;
-            let uses_simplex = (type_a == TY_HULL || type_b == TY_HULL) && !uses_sat;
-            let mut cache = if uses_sat {
-                ConvexContactCache::Sat(read_sat(dir, contact_id))
-            } else if uses_simplex {
-                ConvexContactCache::Simplex(read_simplex(dir, contact_id))
-            } else {
-                ConvexContactCache::empty()
-            };
-
-            let resident = disp[r + D_OLD_COUNT] != 0;
-            let mut m = if resident {
-                read_manifold_warm(crate::manifold_abi::block_col(pool, base, 1), 0)
-            } else {
-                Manifold::new()
-            };
-            let touching = compute_convex_manifold(
-                &mut m,
-                &shape_a,
-                convex_xf_a,
-                &shape_b,
-                convex_xf_b,
-                &mut cache,
-            );
-            if flip {
-                m.normal = m.normal.neg();
-                for p in &mut m.points[..m.point_count] {
-                    core::mem::swap(&mut p.anchor_a, &mut p.anchor_b);
-                }
-            }
-            for p in &mut m.points[..m.point_count] {
-                p.anchor_a = p.anchor_a.add(child_offset);
-            }
-            for p in &mut m.points[..m.point_count] {
-                p.anchor_a = p.anchor_a.sub(center_a);
-                p.anchor_b = p.anchor_b.sub(center_b);
-            }
-            if touching {
-                let address = if resident {
-                    base
-                } else {
-                    manifolds::allocate_manifolds_in_world(world_index, contact_id, 1)
-                };
-                write_manifold(&m, crate::manifold_abi::block_col(pool, address, 1), 0);
-            }
-            match &cache {
-                ConvexContactCache::Sat(cache) => write_sat(dir, contact_id, cache),
-                ConvexContactCache::Simplex(cache) => write_simplex(dir, contact_id, cache),
-                ConvexContactCache::Empty => {}
-            }
             mix_surface(
                 world_index,
-                disp,
+                contact_id,
+                shape_id_a,
+                shape_id_b,
+                thread,
                 xf_a,
                 xf_b,
                 material_map,
-                flip,
-                touching as usize,
                 false,
+                count,
+                true,
                 child_radius,
             );
-            finish_contact(world_index, thread, contact_id, touching as usize, hit);
+            if count > 0 {
+                let address = if count == old_count {
+                    let address = dir.get(o + DIR_MANIFOLD_BASE) as usize;
+                    (address as *mut u8).write_bytes(0, count * MANIFOLD_STRIDE * 4);
+                    address
+                } else {
+                    manifolds::allocate_manifolds_in_world(world_index, contact_id, count)
+                };
+                let source = MESH_OUTPUT_PTR + thread * 256 * MANIFOLD_STRIDE * 4;
+                manifolds::copy_manifolds(source, address, count);
+            }
+            finish_contact(world_index, thread, contact_id, count, hit);
+            return;
         }
+        let mut shape_a = read_shape(type_a, geom_a, 0);
+        let mut shape_b = read_shape(type_b, shape_b, 48);
+        let flip = (type_a == TY_SPHERE && type_b != TY_SPHERE)
+            || (type_a == TY_CAPSULE && type_b == TY_HULL);
+        let (convex_xf_a, convex_xf_b) = if flip {
+            core::mem::swap(&mut shape_a, &mut shape_b);
+            (xf_b, xf_a)
+        } else {
+            (xf_a, xf_b)
+        };
+
+        let base = read_dir(dir, contact_id).manifold_base;
+        let uses_sat = type_a == TY_HULL && type_b == TY_HULL;
+        let uses_simplex = (type_a == TY_HULL || type_b == TY_HULL) && !uses_sat;
+        let mut cache = if uses_sat {
+            ConvexContactCache::Sat(read_sat(dir, contact_id))
+        } else if uses_simplex {
+            ConvexContactCache::Simplex(read_simplex(dir, contact_id))
+        } else {
+            ConvexContactCache::empty()
+        };
+
+        let resident = old_count != 0;
+        let mut m = if resident {
+            read_manifold_warm(crate::manifold_abi::block_col(pool, base, 1), 0)
+        } else {
+            Manifold::new()
+        };
+        let touching = compute_convex_manifold(
+            &mut m,
+            &shape_a,
+            convex_xf_a,
+            &shape_b,
+            convex_xf_b,
+            &mut cache,
+        );
+        if flip {
+            m.normal = m.normal.neg();
+            for p in &mut m.points[..m.point_count] {
+                core::mem::swap(&mut p.anchor_a, &mut p.anchor_b);
+            }
+        }
+        for p in &mut m.points[..m.point_count] {
+            p.anchor_a = p.anchor_a.add(child_offset);
+        }
+        for p in &mut m.points[..m.point_count] {
+            p.anchor_a = p.anchor_a.sub(center_a);
+            p.anchor_b = p.anchor_b.sub(center_b);
+        }
+        if touching {
+            let address = if resident {
+                base
+            } else {
+                manifolds::allocate_manifolds_in_world(world_index, contact_id, 1)
+            };
+            write_manifold(&m, crate::manifold_abi::block_col(pool, address, 1), 0);
+        }
+        match &cache {
+            ConvexContactCache::Sat(cache) => write_sat(dir, contact_id, cache),
+            ConvexContactCache::Simplex(cache) => write_simplex(dir, contact_id, cache),
+            ConvexContactCache::Empty => {}
+        }
+        mix_surface(
+            world_index,
+            contact_id,
+            shape_id_a,
+            shape_id_b,
+            thread,
+            xf_a,
+            xf_b,
+            material_map,
+            flip,
+            touching as usize,
+            false,
+            child_radius,
+        );
+        // The pre-solve callback belongs here when stage 7 publishes it.
+        finish_contact(world_index, thread, contact_id, touching as usize, hit);
     }
 }
 
@@ -1065,51 +999,6 @@ pub extern "C" fn dispatch_contacts_in_world(world_index: usize, count: usize) {
 
 // --- contact recycle -----------------------------------------------------------------------
 // Recycle poses resolve body ids through the resident records across sleep/wake transitions.
-
-/// Per-contact recycle inputs.
-const RECYCLE_STRIDE: usize = 7;
-const R_COUNT: usize = 6;
-const R_STATIC_A: u32 = 4;
-const R_STATIC_B: u32 = 8;
-const R_MESH: u32 = 16;
-const R_CONTACT: usize = 0;
-const R_BODY_A: usize = 1;
-const R_BODY_B: usize = 2;
-const R_SHAPE_A: usize = 3; // shapeId → fat-AABB column record
-const R_SHAPE_B: usize = 4;
-const R_BITS: usize = 5;
-/// bit0: the contact may recycle this step (recycleDistance>0 && relativeTransformValid && recycleFlag).
-const R_ELIGIBLE: u32 = 1;
-/// bit1: the contact was touching at step entry (selects the recycle tolerance).
-const R_WAS_TOUCHING: u32 = 2;
-
-/// Body `i`'s world transform from the resident sim (rotation) + fin (position) columns.
-#[inline]
-fn read_body_xf(sim: &[f32], fin: &[f32], i: usize) -> Transform {
-    let so = i * SIM_STRIDE;
-    let fo = i * FIN_STRIDE;
-    Transform {
-        p: Vec3::new(fin[fo + 9], fin[fo + 10], fin[fo + 11]),
-        q: Quat {
-            v: Vec3::new(sim[so + 28], sim[so + 29], sim[so + 30]),
-            s: sim[so + 31],
-        },
-    }
-}
-
-/// Body `i`'s center of mass from the resident fin column.
-#[inline]
-fn read_center(fin: &[f32], i: usize) -> Vec3 {
-    let fo = i * FIN_STRIDE;
-    Vec3::new(fin[fo], fin[fo + 1], fin[fo + 2])
-}
-
-/// Body `i`'s max extent from the resident fin column.
-#[inline]
-fn read_max_extent(fin: &[f32], i: usize) -> Vec3 {
-    let fo = i * FIN_STRIDE;
-    Vec3::new(fin[fo + 6], fin[fo + 7], fin[fo + 8])
-}
 
 /// Do shapes `sa` and `sb`'s fat AABBs overlap? (b3AABB_Overlaps over the resident fat-AABB column;
 /// bit-identical to `src/math.ts` `aabb.overlaps` — the same six comparisons.)
@@ -1186,25 +1075,15 @@ fn write_pose_cache(dir: Col<u32>, contact_id: usize, xf_a: Transform, xf_b: Tra
     dir.set(o + DIR_CACHED_REL_POSE + 6, rel.q.s.to_bits());
 }
 
-/// Run the recycle branch for the input records in `[start, end)` of a column of `total`. `recycle_dist` /
-/// `recycle_dist_non_touching` are the two world tolerances (touching vs speculative); the per-record
-/// `wasTouching` bit selects between them. Writes each contact's result into the output column:
-/// 0 = recycled (separations updated in-kernel), 1 = needs full narrowphase (pose cached in-kernel),
-/// 2 = disjoint (fat AABBs no longer overlap).
-///
-/// One block of the parallel sweep (`parfor.rs`), or the whole column on the serial path. As
-/// [`contact_block`], records are independent: the body / fat-AABB columns are read-only here, and every
-/// write lands in the record's own contact's directory + manifold slots.
+/// Update each contact in Box3D's collide-task order.
 ///
 /// # Safety
-/// The contact list, body-index map and body/shape columns remain at their addresses during collide.
-pub(crate) unsafe fn recycle_block(
+/// Contacts run in disjoint tasks; bodies and shapes stay resident for the fork.
+pub(crate) unsafe fn contact_block(
     world_index: usize,
     start: usize,
     end: usize,
     total: usize,
-    recycle_dist: f32,
-    recycle_dist_non_touching: f32,
     thread: usize,
 ) {
     unsafe {
@@ -1213,88 +1092,71 @@ pub(crate) unsafe fn recycle_block(
         let dir = manifolds::dir_col(world_index);
         let pool = manifolds::pool_col();
         let fat = crate::shapes::col_f_slice(world_index);
+        let shapes = crate::shapes::col_slice(world_index);
+        let recycle_dist = RECYCLE_DISTANCE;
+        let recycle_dist_non_touching = recycle_dist.min(0.02);
 
         for i in start..end {
             let contact_id = contacts[i] as usize;
             let o = contact_id * DIR_STRIDE;
-            for (edge, lane) in [(DIR_EDGE_A, DIR_INDEX_A), (DIR_EDGE_B, DIR_INDEX_B)] {
-                let body = crate::bodies::record(world_index, dir.get(o + edge) as usize);
-                dir.set(
-                    o + lane,
-                    if body.body_type == 0 {
-                        u32::MAX
-                    } else {
-                        body.local_index as u32
-                    },
-                );
-            }
-            let flags = dir.get(o + DIR_FLAGS) & !SIM_UPDATED;
-            dir.set(o + DIR_FLAGS, flags);
-            let mut record = [0u32; RECYCLE_STRIDE];
-            record[R_CONTACT] = contact_id as u32;
-            record[R_BODY_A] = dir.get(o + DIR_EDGE_A);
-            record[R_BODY_B] = dir.get(o + DIR_EDGE_B);
-            record[R_SHAPE_A] = dir.get(o + DIR_SHAPE_A);
-            record[R_SHAPE_B] = dir.get(o + DIR_SHAPE_B);
-            record[R_COUNT] = dir.get(o + DIR_MANIFOLD_COUNT);
-            let mut bits = 0;
-            if dir.get(o + DIR_INDEX_A) == u32::MAX {
-                bits |= R_STATIC_A;
-            }
-            if dir.get(o + DIR_INDEX_B) == u32::MAX {
-                bits |= R_STATIC_B;
-            }
-            if flags & 0x0040_0000 != 0 {
-                bits |= R_MESH;
-            }
-            if recycle_dist > 0.0 && flags & 0x0080_0000 != 0 && flags & 0x10 != 0 {
-                bits |= R_ELIGIBLE;
-            }
-            if flags & 0x0001_0000 != 0 {
-                bits |= R_WAS_TOUCHING;
-            }
-            record[R_BITS] = bits;
-            let input = &record[..];
-            let r = 0;
-
-            // Fat-AABB overlap first — matching the TS collide's first per-contact check.
-            if !fat_overlap(
-                fat,
-                input[r + R_SHAPE_A] as usize,
-                input[r + R_SHAPE_B] as usize,
-            ) {
+            let flags = dir.get(o + DIR_FLAGS);
+            let sa = dir.get(o + DIR_SHAPE_A) as usize;
+            let sb = dir.get(o + DIR_SHAPE_B) as usize;
+            if !fat_overlap(fat, sa, sb) {
                 dir.set(o + DIR_FLAGS, (flags | 0x0002_0000) & !0x0001_0000);
                 mark_contact_state(world_index, thread, contact_id);
                 continue;
             }
 
-            let la = input[r + R_BODY_A] as usize;
-            let lb = input[r + R_BODY_B] as usize;
-            let bits = input[r + R_BITS];
+            let sa = &shapes[sa * crate::shapes::SHAPE_STRIDE..][..crate::shapes::SHAPE_STRIDE];
+            let sb = &shapes[sb * crate::shapes::SHAPE_STRIDE..][..crate::shapes::SHAPE_STRIDE];
+            let la = sa[crate::shapes::S_QUERY_BODY] as usize;
+            let lb = sb[crate::shapes::S_QUERY_BODY] as usize;
+            let body_a = crate::bodies::record(world_index, la);
+            let body_b = crate::bodies::record(world_index, lb);
+            let static_a = body_a.body_type == 0;
+            let static_b = body_b.body_type == 0;
+            dir.set(
+                o + DIR_INDEX_A,
+                if static_a {
+                    u32::MAX
+                } else {
+                    body_a.local_index as u32
+                },
+            );
+            dir.set(
+                o + DIR_INDEX_B,
+                if static_b {
+                    u32::MAX
+                } else {
+                    body_b.local_index as u32
+                },
+            );
             let (xf_a, fin_a, flags_a) = crate::bodies::geometry(world_index, la);
             let (xf_b, fin_b, flags_b) = crate::bodies::geometry(world_index, lb);
             let center_a = fin_a.center;
             let center_b = fin_b.center;
-            let extent_a = if bits & R_STATIC_A != 0 {
+            let extent_a = if static_a {
                 Vec3::ZERO
             } else {
                 fin_a.max_extent
             };
-            let extent_b = if bits & R_STATIC_B != 0 {
+            let extent_b = if static_b {
                 Vec3::ZERO
             } else {
                 fin_b.max_extent
             };
-            let fast_mesh = bits & R_MESH != 0 && (flags_a | flags_b) & 0x40 != 0;
-            let tol = if bits & R_WAS_TOUCHING != 0 {
+            let fast = (flags_a | flags_b) & 0x40 != 0;
+            let fast_mesh = flags & 0x0040_0000 != 0 && fast;
+            let tol = if flags & 0x0001_0000 != 0 {
                 recycle_dist
             } else {
                 recycle_dist_non_touching
             };
 
-            if bits & R_ELIGIBLE != 0 && !fast_mesh {
+            if !fast_mesh && recycle_dist > 0.0 && flags & 0x0080_0000 != 0 && flags & 0x10 != 0 {
                 let (rot_a, rot_b, rel) = read_pose_cache(dir, contact_id);
-                let mc = input[r + R_COUNT] as usize;
+                let mc = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
                 let angle_a = xf_a.q.dot(rot_a);
                 let angle_b = xf_b.q.dot(rot_b);
                 let angular_distance = crate::math::minf(angle_a * angle_a, angle_b * angle_b);
@@ -1345,8 +1207,10 @@ pub(crate) unsafe fn recycle_block(
                                 let r_a = matrix_a.mul_v(anchor_a);
                                 let r_b = matrix_b.mul_v(anchor_b);
                                 let dp = dc.add(r_b.sub(r_a));
-                                manifolds.set(po + P_SEPARATION,
-                                    manifolds.get(po + P_BASE_SEPARATION) + dp.dot(normal));
+                                manifolds.set(
+                                    po + P_SEPARATION,
+                                    manifolds.get(po + P_BASE_SEPARATION) + dp.dot(normal),
+                                );
                                 manifolds.set(po + P_PERSISTED, f32::from_bits(1));
                             }
                         }
@@ -1355,10 +1219,20 @@ pub(crate) unsafe fn recycle_block(
                 }
             }
 
-            // Recycle missed (or the contact isn't eligible yet): cache this step's pose for the next
-            // step and defer to the full narrowphase.
             write_pose_cache(dir, contact_id, xf_a, xf_b);
-            dir.set(o + DIR_FLAGS, flags | 0x0080_0000 | SIM_UPDATED);
+            dir.set(o + DIR_FLAGS, flags | 0x0080_0000);
+            update_contact(
+                world_index,
+                thread,
+                contact_id,
+                sa,
+                sb,
+                xf_a,
+                fin_a.local_center,
+                xf_b,
+                fin_b.local_center,
+                fast,
+            );
         }
     }
 }
