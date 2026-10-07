@@ -304,7 +304,7 @@ for (const [operation, entry] of [
     [16, "triangle_manifold.rs:578-579 reciprocal barycentrics; Box3D math_functions.c:554-555"],
 ] as const) {
     const rows = results.filter((r) => r.operation === operation);
-    const check = operation <= 3 ? test : test.todo;
+    const check = test;
     check(`${entry}: seeded boundary outputs equal Box3D SSE2 bits`, () => {
         compare(rows);
     });

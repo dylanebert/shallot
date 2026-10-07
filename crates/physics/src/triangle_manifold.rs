@@ -575,8 +575,8 @@ fn closest_point(a: Vec3, b: Vec3, c: Vec3, q: Vec3) -> (Vec3, u32) {
     if va <= 0.0 && d4 >= d3 && d5 >= d6 {
         return (b.mul_add((d4 - d3) / ((d4 - d3) + (d5 - d6)), c.sub(b)), 4);
     }
-    let denom = 1.0 / ((va + vb) + vc);
-    (a.mul_add(vb * denom, ab).mul_add(vc * denom, ac), FACE)
+    let denom = (va + vb) + vc;
+    (a.mul_add(vb / denom, ab).mul_add(vc / denom, ac), FACE)
 }
 
 pub fn collide_sphere_and_triangle(

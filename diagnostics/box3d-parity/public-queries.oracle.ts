@@ -711,7 +711,7 @@ for (const kind of [3, 4, 5]) {
     });
 }
 
-test.todo("triangle_manifold.rs:578-579 vs math_functions.c:554-555: seeded mesh sphere contact preserves native barycentrics", () => {
+test("triangle_manifold.rs:578-579 vs math_functions.c:554-555: seeded mesh sphere contact preserves native barycentrics", () => {
     const i = contactInputs.findIndex(
         (input) => input.compositeKind === 3 && input.label === "seeded 0 sphere",
     );
