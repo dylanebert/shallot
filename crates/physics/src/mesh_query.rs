@@ -198,6 +198,18 @@ pub fn shape_cast_mesh(mesh: Mesh, input: &ShapeCastInput) -> CastOutput {
     let mut stack = [0; STACK_SIZE];
     let mut count = 0;
     let mut index = 0;
+    let mut cast_input = ShapeCastPairInput {
+        proxy_a: ShapeProxy {
+            points: &[],
+            count: 3,
+            radius: 0.0,
+        },
+        proxy_b: input.proxy,
+        transform: Transform::IDENTITY,
+        translation_b: input.translation,
+        max_fraction: output.fraction,
+        can_encroach: input.can_encroach,
+    };
     loop {
         let node = &mesh.nodes[index];
         let node_min = node.lower.sub(inv_extent);
@@ -219,23 +231,17 @@ pub fn shape_cast_mesh(mesh: Mesh, input: &ShapeCastInput) -> CastOutput {
                         continue;
                     }
                     let shifted = [Vec3::ZERO, b.sub(a), c.sub(a)];
+                    cast_input.transform.p = a.neg();
                     let mut pair = shape_cast(&ShapeCastPairInput {
                         proxy_a: ShapeProxy {
                             points: &shifted,
-                            count: 3,
-                            radius: 0.0,
+                            ..cast_input.proxy_a
                         },
-                        proxy_b: input.proxy,
-                        transform: Transform {
-                            p: a.neg(),
-                            ..Transform::IDENTITY
-                        },
-                        translation_b: input.translation,
-                        max_fraction: output.fraction,
-                        can_encroach: input.can_encroach,
+                        ..cast_input
                     });
                     if pair.hit {
                         pair.point = pair.point.add(a);
+                        cast_input.max_fraction = pair.fraction;
                         output = pair;
                         output.triangle_index = t as i32;
                         output.material_index = mesh.materials[t as usize] as i32;
@@ -327,6 +333,17 @@ pub fn overlap_mesh(mesh: Mesh, transform: Transform, proxy: ShapeProxy) -> bool
     };
     let (lower, upper) = proxy_bounds(local);
     let mut overlap = false;
+    let input = DistanceInput {
+        proxy_a: ShapeProxy {
+            points: &[],
+            count: 3,
+            radius: 0.0,
+        },
+        proxy_b: local,
+        transform: Transform::IDENTITY,
+        use_radii: true,
+    };
+    let mut cache = SimplexCache::empty();
     visit_triangles(mesh, lower, upper, false, |_, triangle| {
         let input = DistanceInput {
             proxy_a: ShapeProxy {
@@ -334,11 +351,10 @@ pub fn overlap_mesh(mesh: Mesh, transform: Transform, proxy: ShapeProxy) -> bool
                 count: 3,
                 radius: 0.0,
             },
-            proxy_b: local,
-            transform: Transform::IDENTITY,
-            use_radii: true,
+            ..input
         };
-        overlap = shape_distance(&input, &mut SimplexCache::empty()).distance < 0.1 * 0.005;
+        cache.count = 0;
+        overlap = shape_distance(&input, &mut cache).distance < 0.1 * 0.005;
         !overlap
     });
     overlap
@@ -348,14 +364,29 @@ pub fn collide_mover_mesh(planes: &mut [PlaneResult], mesh: Mesh, mover: &Capsul
     if planes.is_empty() {
         return 0;
     }
-    let points = [mover.center1, mover.center2];
+    let points = mover.points();
     let (lower, upper) = proxy_bounds(ShapeProxy {
-        points: &points,
+        points,
         count: 2,
         radius: mover.radius,
     });
     let center = mover.center1.lerp(mover.center2, 0.5);
     let mut count = 0;
+    let input = DistanceInput {
+        proxy_a: ShapeProxy {
+            points: &[],
+            count: 3,
+            radius: 0.0,
+        },
+        proxy_b: ShapeProxy {
+            points,
+            count: 2,
+            radius: 0.0,
+        },
+        transform: Transform::IDENTITY,
+        use_radii: false,
+    };
+    let mut cache = SimplexCache::empty();
     visit_triangles(mesh, lower, upper, mesh.reflected(), |index, triangle| {
         if signed_volume(triangle, center) < 0.0 {
             return true;
@@ -366,15 +397,10 @@ pub fn collide_mover_mesh(planes: &mut [PlaneResult], mesh: Mesh, mover: &Capsul
                 count: 3,
                 radius: 0.0,
             },
-            proxy_b: ShapeProxy {
-                points: &points,
-                count: 2,
-                radius: 0.0,
-            },
-            transform: Transform::IDENTITY,
-            use_radii: false,
+            ..input
         };
-        let distance = shape_distance(&input, &mut SimplexCache::empty());
+        cache.count = 0;
+        let distance = shape_distance(&input, &mut cache);
         if distance.distance != 0.0 && distance.distance <= mover.radius {
             planes[count] = PlaneResult {
                 plane: Plane {

@@ -206,6 +206,18 @@ pub fn shape_cast_height(field: HeightField, input: &ShapeCastInput) -> CastOutp
     let grid_offset = input.max_fraction * min_fraction;
     let bounds_min = min(center_start, center_end).sub(extent);
     let bounds_max = max(center_start, center_end).add(extent);
+    let mut cast_input = ShapeCastPairInput {
+        proxy_a: ShapeProxy {
+            points: &[],
+            count: 3,
+            radius: 0.0,
+        },
+        proxy_b: input.proxy,
+        transform: Transform::IDENTITY,
+        translation_b: input.translation,
+        max_fraction: best,
+        can_encroach: input.can_encroach,
+    };
     loop {
         for row in tail_row.min(head_row)..=tail_row.max(head_row) {
             if row < 0 || row >= field.rows as i32 - 1 {
@@ -256,23 +268,17 @@ pub fn shape_cast_height(field: HeightField, input: &ShapeCastInput) -> CastOutp
                         let origin = vertices[0];
                         let shifted =
                             [Vec3::ZERO, vertices[1].sub(origin), vertices[2].sub(origin)];
+                        cast_input.transform.p = origin.neg();
                         let pair = shape_cast(&ShapeCastPairInput {
                             proxy_a: ShapeProxy {
                                 points: &shifted,
-                                count: 3,
-                                radius: 0.0,
+                                ..cast_input.proxy_a
                             },
-                            proxy_b: input.proxy,
-                            transform: Transform {
-                                p: origin.neg(),
-                                ..Transform::IDENTITY
-                            },
-                            translation_b: input.translation,
-                            max_fraction: best,
-                            can_encroach: input.can_encroach,
+                            ..cast_input
                         });
                         if pair.hit {
                             best = pair.fraction;
+                            cast_input.max_fraction = best;
                             result = pair;
                             result.point = result.point.add(origin);
                             result.triangle_index = (2 * cell + i) as i32;
@@ -328,13 +334,17 @@ pub fn shape_cast_height(field: HeightField, input: &ShapeCastInput) -> CastOutp
     result
 }
 pub fn overlap_height(field: HeightField, transform: Transform, proxy: ShapeProxy) -> bool {
-    let mut points = [Vec3::ZERO; 128];
+    let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
     let count = proxy.count.min(128);
+    let inv = transform.invert();
+    let matrix = crate::math::Mat3::from_quat(inv.q);
     for i in 0..count {
-        points[i] = transform.inv_point(proxy.points[i]);
+        points[i].write(matrix.mul_v(proxy.points[i]).add(inv.p));
     }
+    // b3MakeLocalProxy exposes only the prefix written through its inverse matrix.
+    let points = unsafe { core::slice::from_raw_parts(points.as_ptr().cast::<Vec3>(), count) };
     let local = ShapeProxy {
-        points: &points,
+        points,
         count,
         radius: proxy.radius,
     };
@@ -342,6 +352,17 @@ pub fn overlap_height(field: HeightField, transform: Transform, proxy: ShapeProx
     let center = lower.add(upper).scale(0.5);
     let extent = upper.sub(center);
     let mut overlap = false;
+    let input = DistanceInput {
+        proxy_a: ShapeProxy {
+            points: &[],
+            count: 3,
+            radius: 0.0,
+        },
+        proxy_b: local,
+        transform: Transform::IDENTITY,
+        use_radii: true,
+    };
+    let mut cache = SimplexCache::empty();
     field.visit_cells(lower, upper, |_, [a, b, c, d]| {
         for (bounds, vertices) in [([a, c, b], [a, c, b]), ([c, d, b], [d, b, c])] {
             if !bounds_triangle_overlap(center, extent, bounds) {
@@ -353,11 +374,10 @@ pub fn overlap_height(field: HeightField, transform: Transform, proxy: ShapeProx
                     count: 3,
                     radius: 0.0,
                 },
-                proxy_b: local,
-                transform: Transform::IDENTITY,
-                use_radii: true,
+                ..input
             };
-            if shape_distance(&input, &mut SimplexCache::empty()).distance < 0.1 * 0.005 {
+            cache.count = 0;
+            if shape_distance(&input, &mut cache).distance < 0.1 * 0.005 {
                 overlap = true;
                 return false;
             }
@@ -384,6 +404,21 @@ pub fn collide_mover_height(
     let bounds_center = lower.add(upper).scale(0.5);
     let extent = upper.sub(bounds_center);
     let mut count = 0;
+    let input = DistanceInput {
+        proxy_a: ShapeProxy {
+            points: &[],
+            count: 3,
+            radius: 0.0,
+        },
+        proxy_b: ShapeProxy {
+            points,
+            count: 2,
+            radius: 0.0,
+        },
+        transform: Transform::IDENTITY,
+        use_radii: false,
+    };
+    let mut cache = SimplexCache::empty();
     field.visit_cells(lower, upper, |cell, mut corners| {
         if field.clockwise {
             corners.swap(1, 2);
@@ -404,15 +439,10 @@ pub fn collide_mover_height(
                     count: 3,
                     radius: 0.0,
                 },
-                proxy_b: ShapeProxy {
-                    points,
-                    count: 2,
-                    radius: 0.0,
-                },
-                transform: Transform::IDENTITY,
-                use_radii: false,
+                ..input
             };
-            let distance = shape_distance(&input, &mut SimplexCache::empty());
+            cache.count = 0;
+            let distance = shape_distance(&input, &mut cache);
             if distance.distance != 0.0 && distance.distance <= mover.radius {
                 planes[count] = PlaneResult {
                     plane: Plane {
