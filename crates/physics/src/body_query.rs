@@ -9,6 +9,9 @@ use crate::{query_abi, world_query};
 /// Operations: ray, shape cast, overlap, closest point, collide mover.
 #[export_name = "bodyQuery"]
 pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) {
+    if operation == 4 && capacity == 0 {
+        return;
+    }
     unsafe {
         crate::shapes::shape_set_active_world(world as u32);
         let header = world_query::HEADER;
@@ -70,9 +73,6 @@ pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) 
                 continue;
             }
             if operation == 4 {
-                if count >= capacity {
-                    break;
-                }
                 if !matches!(
                     shape,
                     query::Shape::Sphere(_) | query::Shape::Capsule(_) | query::Shape::Hull(_)
@@ -84,10 +84,20 @@ pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) 
                     center2: proxy.points[1],
                     radius: proxy.radius,
                 };
-                let mut planes = [PlaneResult::ZERO; 1];
-                if query::collide_mover(&mut planes, &shape, transform, &mover, materials) != 0 {
-                    world_query::callback(2, shape_id, planes.as_ptr() as *const u8, 1);
+                let plane = (&raw mut world_query::RESULT as *mut u32).cast::<PlaneResult>();
+                if query::collide_mover(
+                    core::slice::from_raw_parts_mut(plane, 1),
+                    &shape,
+                    transform,
+                    &mover,
+                    materials,
+                ) != 0
+                {
+                    world_query::callback(2, shape_id, plane.cast::<u8>(), 1);
                     count += 1;
+                    if count == capacity {
+                        return;
+                    }
                 }
                 continue;
             }
