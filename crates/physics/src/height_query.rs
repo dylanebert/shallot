@@ -54,8 +54,14 @@ impl HeightField<'_> {
         let max_row = (upper.z / self.scale.z).floor() as i32;
         let min_col = (lower.x / self.scale.x).floor() as i32;
         let max_col = (upper.x / self.scale.x).floor() as i32;
-        for row in min_row.max(0)..=max_row.min(self.rows as i32 - 2) {
-            for col in min_col.max(0)..=max_col.min(self.columns as i32 - 2) {
+        for row in min_row..=max_row {
+            if row < 0 || self.rows as i32 - 1 <= row {
+                continue;
+            }
+            for col in min_col..=max_col {
+                if col < 0 || self.columns as i32 - 1 <= col {
+                    continue;
+                }
                 let index = row as usize * (self.columns - 1) + col as usize;
                 if self.materials[index] != 255
                     && !visit(index, self.corners(row as usize, col as usize))
