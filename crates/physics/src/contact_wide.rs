@@ -5,7 +5,7 @@ use crate::body::{read_sim, read_state, STATE_STRIDE};
 use crate::col::Col;
 use crate::contact::{Softness, NULL_INDEX};
 use crate::manifold_abi as mabi;
-use crate::manifold_abi::{read_dir, set_hit};
+use crate::manifold_abi::read_dir;
 use crate::math::{Mat2, Mat3, Vec2, Vec3, FLT_EPSILON};
 
 const SPECULATIVE_DISTANCE: f32 = 0.02;
@@ -1181,6 +1181,7 @@ pub fn store(
     start: usize,
     count: usize,
     hit_event_threshold: f32,
+    mut mark_hit: impl FnMut(usize),
 ) {
     const ENABLE_HIT_EVENT: u32 = 0x0010_0000; // b3_simEnableHitEvent (contact.h)
     let neg_hit = -hit_event_threshold;
@@ -1204,8 +1205,6 @@ pub fn store(
         let riz = ld(wide, wo + ROLLING_IMPULSE + 8).to_array();
 
         for lane in 0..lane_count {
-            let contact_id = unsafe { *span.contacts.add(local + lane) as usize };
-            let d = read_dir(dir, contact_id);
             let manifold = unsafe {
                 *wide
                     .ptr()
@@ -1218,8 +1217,6 @@ pub fn store(
             }
             let pool = unsafe { Col::new(manifold.cast::<f32>(), mabi::MANIFOLD_STRIDE) };
             let mpo = 0; // convex: exactly one manifold
-            let contact_flags = d.flags;
-
             pool.set(
                 mpo + mabi::M_FRICTION,
                 f1[lane] * t1x[lane] + f2[lane] * t2x[lane],
@@ -1255,13 +1252,15 @@ pub fn store(
                 );
             }
 
+            let contact_id = unsafe { *span.contacts.add(local + lane) as usize };
+            let contact_flags = dir.get(contact_id * mabi::DIR_STRIDE + mabi::DIR_FLAGS);
             if contact_flags & ENABLE_HIT_EVENT != 0 {
                 for pi in 0..point_count {
                     let pp = mpo + mabi::M_POINTS + pi * mabi::POOL_POINT_STRIDE;
                     let normal_velocity = pool.get(pp + mabi::P_NORMAL_VELOCITY);
                     let total_normal_impulse = pool.get(pp + mabi::P_TOTAL_NORMAL_IMPULSE);
                     if normal_velocity < neg_hit && total_normal_impulse > 0.0 {
-                        set_hit(dir, contact_id);
+                        mark_hit(contact_id);
                         break;
                     }
                 }

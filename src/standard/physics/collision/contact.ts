@@ -8,7 +8,6 @@ import { DIR_STRIDE } from "./manifoldstore";
 
 export const ContactFlags = {
     contactTouchingFlag: 0x00000001,
-    contactHitEventFlag: 0x00000002,
     contactEnableContactEvents: 0x00000004,
     contactStaticFlag: 0x00000008,
     contactRecycleFlag: 0x00000010,

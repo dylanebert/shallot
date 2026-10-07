@@ -294,7 +294,6 @@ pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
     unsafe {
         let result = &mut SOLVE_LAYOUT[world_index];
         let g = colors(world_index);
-        let dir = manifolds::dir_col(world_index);
         CONTACT_SPANS[world_index].fill(EMPTY_CONTACT_SPAN);
         WIDE_SPANS[world_index].fill(EMPTY_WIDE_SPAN);
         let (mut contacts, mut manifolds, mut wide, mut active) = (0, 0, 0, 0);
@@ -327,13 +326,6 @@ pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
             for spec in &mut c.contacts {
                 spec.manifold_start = manifolds;
                 manifolds += spec.manifold_count as i32;
-                let flags = spec.contact_id as usize * DIR_STRIDE + DIR_FLAGS;
-                dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
-            }
-            // Retained per-contact hit flags are the event binding until hit bitsets replace them.
-            for &id in &c.convex_contacts {
-                let flags = id as usize * DIR_STRIDE + DIR_FLAGS;
-                dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
             }
             contacts += count;
             wide += nw;
@@ -352,8 +344,6 @@ pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
         for spec in &mut overflow.contacts {
             spec.manifold_start = overflow_manifolds;
             overflow_manifolds += spec.manifold_count as i32;
-            let flags = spec.contact_id as usize * DIR_STRIDE + DIR_FLAGS;
-            dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
         }
         let overflow_count = overflow.contacts.len() as i32;
         OVERFLOW_MANIFOLDS[world_index] = overflow_manifolds as usize;

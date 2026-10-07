@@ -92,7 +92,6 @@ pub const DIR_RESTITUTION: usize = offset_of!(ContactRecord, restitution) / 4;
 pub const DIR_ROLLING_RESISTANCE: usize = offset_of!(ContactRecord, rolling_resistance) / 4;
 pub const DIR_TANGENT_VELOCITY: usize = offset_of!(ContactRecord, tangent_velocity) / 4;
 pub const DIR_FLAGS: usize = offset_of!(ContactRecord, flags) / 4;
-pub const CONTACT_HIT_EVENT: u32 = 0x00000002;
 pub const DIR_MANIFOLD_COUNT: usize = offset_of!(ContactRecord, manifold_count) / 4;
 pub const DIR_MANIFOLD_BASE: usize = offset_of!(ContactRecord, manifolds) / 4;
 pub const DIR_INDEX_A: usize = offset_of!(ContactRecord, body_sim_index_a) / 4;
@@ -165,12 +164,4 @@ pub fn block_col(pool: Col<f32>, base: usize, count: usize) -> Col<f32> {
     #[cfg(target_arch = "wasm32")]
     let _ = pool;
     unsafe { Col::new(ptr, count * MANIFOLD_STRIDE) }
-}
-
-/// Set contact `contact_id`'s per-step hit-event flag (the solver `store` phase; TS reads it back to
-/// build the user-facing hit events).
-#[inline]
-pub fn set_hit(dir: Col<u32>, contact_id: usize) {
-    let offset = contact_id * DIR_STRIDE + DIR_FLAGS;
-    dir.atomic_or(offset, CONTACT_HIT_EVENT);
 }

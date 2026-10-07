@@ -4,9 +4,9 @@ use crate::body::flags as body_flags;
 use crate::body::{read_sim, read_state, STATE_STRIDE};
 use crate::col::Col;
 use crate::manifold_abi::{
-    read_dir, set_hit, MANIFOLD_STRIDE, M_FRICTION, M_NORMAL, M_POINTS, M_POINT_COUNT, M_ROLLING,
-    M_TWIST, POOL_POINT_STRIDE, P_ANCHOR_A, P_ANCHOR_B, P_NORMAL_IMPULSE, P_NORMAL_VELOCITY,
-    P_SEPARATION, P_TOTAL_NORMAL_IMPULSE,
+    read_dir, MANIFOLD_STRIDE, M_FRICTION, M_NORMAL, M_POINTS, M_POINT_COUNT, M_ROLLING, M_TWIST,
+    POOL_POINT_STRIDE, P_ANCHOR_A, P_ANCHOR_B, P_NORMAL_IMPULSE, P_NORMAL_VELOCITY, P_SEPARATION,
+    P_TOTAL_NORMAL_IMPULSE,
 };
 use crate::math::{blend2, clampf, maxf, Mat2, Mat3, Quat, Vec2, Vec3, FLT_EPSILON};
 
@@ -600,10 +600,16 @@ pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
 
 // --- store ----------------------------------------------------------------------------------
 
-/// Write the solved impulses back into the persistent manifold pool and flag hit events
+/// Write the solved impulses back into the persistent manifold pool and mark hit events
 /// (b3StoreImpulses_Mesh). The pool records are the persistent warm-start state the next step reads;
-/// the hit flag lands in the directory (TS reads it back to build the user-facing events).
-pub fn store(cols: &Columns, start: usize, count: usize, hit_event_threshold: f32) {
+/// Hits mark the calling worker's bitset for publication after the solve joins.
+pub fn store(
+    cols: &Columns,
+    start: usize,
+    count: usize,
+    hit_event_threshold: f32,
+    mut mark_hit: impl FnMut(usize),
+) {
     unsafe {
         const SIM_ENABLE_HIT_EVENT: u32 = 0x0010_0000;
         let neg_hit_threshold = -hit_event_threshold;
@@ -659,7 +665,7 @@ pub fn store(cols: &Columns, start: usize, count: usize, hit_event_threshold: f3
                         && normal_velocity < neg_hit_threshold
                         && total_normal_impulse > 0.0
                     {
-                        set_hit(cols.dir, contact_id);
+                        mark_hit(contact_id);
                         flagged = true;
                     }
                 }

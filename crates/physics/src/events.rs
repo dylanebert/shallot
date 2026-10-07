@@ -277,102 +277,105 @@ mod runtime {
     }
 
     pub unsafe extern "C" fn build_hits_in_world(world: usize, threshold: f32) {
+        let Some(bits) = crate::arena::union_hit_events(world) else {
+            return;
+        };
         let w = state(world);
         let d = manifolds::dir_col(world as usize);
-        for contact in 0..manifolds::contact_record_capacity(world) {
-            let o = contact * DIR_STRIDE;
-            let flags = d.get(o + DIR_FLAGS);
-            if flags & CONTACT_HIT_EVENT == 0 {
-                continue;
-            }
-            d.set(o + DIR_FLAGS, flags & !CONTACT_HIT_EVENT);
-            if d.get(o + DIR_CONTACT_ID) == u32::MAX {
-                continue;
-            }
-            let a = d.get(o + DIR_SHAPE_A) as usize;
-            let b = d.get(o + DIR_SHAPE_B) as usize;
-            let ar = bodies::record(
-                world,
-                shapes::col(world as usize).get(a * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY)
-                    as usize,
-            );
-            let br = bodies::record(
-                world,
-                shapes::col(world as usize).get(b * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY)
-                    as usize,
-            );
-            let center = body::read_fin(
-                crate::col::Col::new(
-                    crate::solver_set::body_ptr(
-                        world as usize,
-                        ar.set_index as usize,
-                        ar.local_index as usize,
-                        2,
-                    ) as *mut f32,
-                    body::SIM_STRIDE,
-                ),
-                0,
-            )
-            .center;
-            let center_b = body::read_fin(
-                crate::col::Col::new(
-                    crate::solver_set::body_ptr(
-                        world as usize,
-                        br.set_index as usize,
-                        br.local_index as usize,
-                        2,
-                    ) as *mut f32,
-                    body::SIM_STRIDE,
-                ),
-                0,
-            )
-            .center;
-            let mid = center.lerp(center_b, 0.5);
-            let entry = read_dir(d, contact);
-            let m = block_col(
-                manifolds::pool_col(),
-                entry.manifold_base,
-                entry.manifold_count,
-            );
-            let mut speed = threshold;
-            let mut best = None;
-            for i in 0..entry.manifold_count {
-                let o = i * MANIFOLD_STRIDE;
-                for p in 0..m.get(o + M_POINT_COUNT).to_bits() as usize {
-                    let n = o + M_POINTS + p * POOL_POINT_STRIDE;
-                    let approach = -m.get(n + P_NORMAL_VELOCITY);
-                    if approach > speed && m.get(n + P_TOTAL_NORMAL_IMPULSE) > 0.0 {
-                        speed = approach;
-                        let a = Vec3::new(m.get(n), m.get(n + 1), m.get(n + 2));
-                        let b = Vec3::new(m.get(n + 3), m.get(n + 4), m.get(n + 5));
-                        best = Some((
-                            mid.add(a.lerp(b, 0.5)),
-                            Vec3::new(
-                                m.get(o + M_NORMAL),
-                                m.get(o + M_NORMAL + 1),
-                                m.get(o + M_NORMAL + 2),
-                            ),
-                            m.get(n + P_TRIANGLE_INDEX).to_bits() as i32,
-                        ));
+        for word in 0..bits.block_count as usize {
+            let mut mask = *bits.bits.add(word);
+            while mask != 0 {
+                let contact = word * 64 + mask.trailing_zeros() as usize;
+                mask &= mask - 1;
+                let o = contact * DIR_STRIDE;
+                if d.get(o + DIR_CONTACT_ID) == u32::MAX {
+                    continue;
+                }
+                let a = d.get(o + DIR_SHAPE_A) as usize;
+                let b = d.get(o + DIR_SHAPE_B) as usize;
+                let ar = bodies::record(
+                    world,
+                    shapes::col(world as usize).get(a * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY)
+                        as usize,
+                );
+                let br = bodies::record(
+                    world,
+                    shapes::col(world as usize).get(b * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY)
+                        as usize,
+                );
+                let center = body::read_fin(
+                    crate::col::Col::new(
+                        crate::solver_set::body_ptr(
+                            world as usize,
+                            ar.set_index as usize,
+                            ar.local_index as usize,
+                            2,
+                        ) as *mut f32,
+                        body::SIM_STRIDE,
+                    ),
+                    0,
+                )
+                .center;
+                let center_b = body::read_fin(
+                    crate::col::Col::new(
+                        crate::solver_set::body_ptr(
+                            world as usize,
+                            br.set_index as usize,
+                            br.local_index as usize,
+                            2,
+                        ) as *mut f32,
+                        body::SIM_STRIDE,
+                    ),
+                    0,
+                )
+                .center;
+                let mid = center.lerp(center_b, 0.5);
+                let entry = read_dir(d, contact);
+                let m = block_col(
+                    manifolds::pool_col(),
+                    entry.manifold_base,
+                    entry.manifold_count,
+                );
+                let mut speed = threshold;
+                let mut best = None;
+                for i in 0..entry.manifold_count {
+                    let o = i * MANIFOLD_STRIDE;
+                    for p in 0..m.get(o + M_POINT_COUNT).to_bits() as usize {
+                        let n = o + M_POINTS + p * POOL_POINT_STRIDE;
+                        let approach = -m.get(n + P_NORMAL_VELOCITY);
+                        if approach > speed && m.get(n + P_TOTAL_NORMAL_IMPULSE) > 0.0 {
+                            speed = approach;
+                            let a = Vec3::new(m.get(n), m.get(n + 1), m.get(n + 2));
+                            let b = Vec3::new(m.get(n + 3), m.get(n + 4), m.get(n + 5));
+                            best = Some((
+                                mid.add(a.lerp(b, 0.5)),
+                                Vec3::new(
+                                    m.get(o + M_NORMAL),
+                                    m.get(o + M_NORMAL + 1),
+                                    m.get(o + M_NORMAL + 2),
+                                ),
+                                m.get(n + P_TRIANGLE_INDEX).to_bits() as i32,
+                            ));
+                        }
                     }
                 }
-            }
-            if let Some((point, normal, triangle)) = best {
-                w.contact_hit.push(ContactHit {
-                    a: shape_id(world, a),
-                    b: shape_id(world, b),
-                    contact: contact_id(world, contact, d.get(o + DIR_GENERATION)),
-                    point: [point.x, point.y, point.z],
-                    normal: [normal.x, normal.y, normal.z],
-                    speed,
-                    material_a: material(
-                        world as usize,
-                        a,
-                        d.get(o + DIR_CHILD_INDEX) as usize,
-                        triangle,
-                    ),
-                    material_b: material(world as usize, b, 0, triangle),
-                });
+                if let Some((point, normal, triangle)) = best {
+                    w.contact_hit.push(ContactHit {
+                        a: shape_id(world, a),
+                        b: shape_id(world, b),
+                        contact: contact_id(world, contact, d.get(o + DIR_GENERATION)),
+                        point: [point.x, point.y, point.z],
+                        normal: [normal.x, normal.y, normal.z],
+                        speed,
+                        material_a: material(
+                            world as usize,
+                            a,
+                            d.get(o + DIR_CHILD_INDEX) as usize,
+                            triangle,
+                        ),
+                        material_b: material(world as usize, b, 0, triangle),
+                    });
+                }
             }
         }
     }

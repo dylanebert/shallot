@@ -274,6 +274,8 @@ pub(crate) unsafe fn color_span_column() -> (Col<'static, u32>, usize) {
 struct TaskContext {
     arena: crate::task_memory::WorkerArena,
     materials: usize,
+    hit_event_bitset: crate::bitset::BitSet,
+    has_hit_events: bool,
 }
 static mut TASK_CONTEXTS: [Vec<TaskContext>; crate::regions::MAX_WORLDS] =
     [const { Vec::new() }; crate::regions::MAX_WORLDS];
@@ -287,6 +289,45 @@ pub(crate) unsafe fn sync_task_arenas(world: usize) {
         context.arena.sync();
         context.materials = 0;
     }
+}
+
+pub(crate) unsafe fn reset_hit_events(world: usize, workers: usize) {
+    let capacity = u32::try_from(manifolds::contact_record_capacity(world)).unwrap();
+    let contexts = &mut TASK_CONTEXTS[world];
+    contexts.resize_with(workers, || TaskContext {
+        arena: crate::task_memory::WorkerArena::new(128 * 1024),
+        materials: 0,
+        hit_event_bitset: crate::bitset::BitSet::new(1024),
+        has_hit_events: false,
+    });
+    for context in contexts {
+        context.hit_event_bitset.set_count_and_clear(capacity);
+        context.has_hit_events = false;
+    }
+}
+
+pub(crate) unsafe fn mark_hit_event(world: usize, worker: usize, contact: usize) {
+    let context = &mut *task_context(world, worker);
+    context.hit_event_bitset.set(contact);
+}
+
+pub(crate) unsafe fn finish_hit_events(world: usize, worker: usize, has_hits: bool) {
+    let context = &mut *task_context(world, worker);
+    context.has_hit_events |= has_hits;
+}
+
+pub(crate) unsafe fn union_hit_events(world: usize) -> Option<&'static crate::bitset::BitSet> {
+    let contexts = &mut TASK_CONTEXTS[world];
+    if !contexts.iter().any(|context| context.has_hit_events) {
+        return None;
+    }
+    let (first, rest) = contexts.split_first_mut().unwrap();
+    for context in rest {
+        if context.has_hit_events {
+            first.hit_event_bitset.union(&context.hit_event_bitset);
+        }
+    }
+    Some(&first.hit_event_bitset)
 }
 
 static mut CONTACT_LIST_PTR: usize = 0;
@@ -340,6 +381,8 @@ pub extern "C" fn reserve_collide_in_world(
         TASK_CONTEXTS[world_index].resize_with(mesh_threads, || TaskContext {
             arena: crate::task_memory::WorkerArena::new(128 * 1024),
             materials: 0,
+            hit_event_bitset: crate::bitset::BitSet::new(1024),
+            has_hit_events: false,
         });
         CONTACT_LIST_PTR = reserve_scratch(world_index, count * 4);
     }

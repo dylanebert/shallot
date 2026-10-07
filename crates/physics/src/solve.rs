@@ -40,8 +40,7 @@ use crate::integrate;
 use crate::math::Vec3;
 use crate::parfor::{worth_forking, ParFor, COLLIDE_FORK_MIN, COLLIDE_MIN_RANGE};
 use crate::stages::{
-    self, max_sizes, Block, ColorSpan, Context, Plan, Stage, StageWork, SyncBlock,
-    MAX_COLORS,
+    self, max_sizes, Block, ColorSpan, Context, Plan, Stage, StageWork, SyncBlock, MAX_COLORS,
 };
 
 /// Threads the solve can ever run on: the shadow stack affords main + 7 workers (`src/pool.ts`
@@ -224,7 +223,8 @@ impl StageWork for Work {
         contact::restitution(&self.cols, b.start, b.count, self.restitution_threshold);
     }
 
-    fn store_wide(&self, b: Block, _worker: usize) {
+    fn store_wide(&self, b: Block, worker: usize) {
+        let mut has_hits = false;
         contact_wide::store(
             self.wide,
             self.wide_spans,
@@ -233,11 +233,27 @@ impl StageWork for Work {
             b.start,
             b.count,
             self.hit_threshold,
+            |contact| unsafe {
+                arena::mark_hit_event(self.world, worker, contact);
+                has_hits = true;
+            },
         );
+        unsafe { arena::finish_hit_events(self.world, worker, has_hits) };
     }
 
-    fn store_mesh(&self, b: Block, _worker: usize) {
-        contact::store(&self.cols, b.start, b.count, self.hit_threshold);
+    fn store_mesh(&self, b: Block, worker: usize) {
+        let mut has_hits = false;
+        contact::store(
+            &self.cols,
+            b.start,
+            b.count,
+            self.hit_threshold,
+            |contact| unsafe {
+                arena::mark_hit_event(self.world, worker, contact);
+                has_hits = true;
+            },
+        );
+        unsafe { arena::finish_hit_events(self.world, worker, has_hits) };
     }
 
     fn finalize(&self, b: Block) {
@@ -291,12 +307,18 @@ impl StageWork for Work {
     }
 
     fn store_overflow(&self) {
+        let mut has_hits = false;
         contact::store(
             &self.overflow_cols,
             0,
             self.overflow_count,
             self.hit_threshold,
+            |contact| unsafe {
+                arena::mark_hit_event(self.world, 0, contact);
+                has_hits = true;
+            },
         );
+        unsafe { arena::finish_hit_events(self.world, 0, has_hits) };
     }
 
     // --- joints -------------------------------------------------------------------------------
@@ -487,6 +509,7 @@ pub extern "C" fn solve_build_in_world(
 ) {
     assert!((1..=MAX_THREADS).contains(&thread_count));
     unsafe {
+        arena::reset_hit_events(world_index, thread_count);
         // Drop the previous solve's context before re-borrowing its buffers. The workers have all left
         // it (the join in `stages::run`), so nothing else holds them.
         CTX = None;
