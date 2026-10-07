@@ -19,7 +19,11 @@ impl JointArray {
         capacity: 0,
     };
     fn layout(capacity: usize) -> Layout {
-        Layout::from_size_align(capacity * core::mem::size_of::<JointSim>(), 16).unwrap()
+        Layout::from_size_align(
+            (capacity * core::mem::size_of::<JointSim>()).next_multiple_of(16),
+            16,
+        )
+        .unwrap()
     }
     pub(crate) unsafe fn reserve(&mut self, capacity: usize) {
         if capacity <= self.capacity {
