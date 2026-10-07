@@ -286,7 +286,12 @@ pub fn solve(
 }
 
 /// b3GetJointReaction: scalar impulse magnitudes at the biased solve, before relaxation.
-pub(crate) fn reaction(joints: Col<f32>, slot: usize, inv_h: f32) -> (f32, f32) {
+pub(crate) fn reaction(
+    joints: Col<f32>,
+    slot: usize,
+    inv_h: f32,
+    body_rotation: impl Fn(usize) -> Quat,
+) -> (f32, f32) {
     let g = |field| get(joints, slot, field);
     let v = |field| get_vec3(joints, slot, field);
     let (linear, angular) = match joint_type(joints, slot) {
@@ -330,12 +335,16 @@ pub(crate) fn reaction(joints: Col<f32>, slot: usize, inv_h: f32) -> (f32, f32) 
             .length(),
         ),
         TY_SPHERICAL => {
-            let cone = get_transform(joints, slot, SJ_FRAME_A).q.rotate(Vec3 {
+            let qa = body_rotation(g(J_BODY_ID_A).to_bits() as usize)
+                .mul(get_transform(joints, slot, crate::joint_abi::J_LOCAL_FRAME_A).q);
+            let qb = body_rotation(g(J_BODY_ID_B).to_bits() as usize)
+                .mul(get_transform(joints, slot, crate::joint_abi::J_LOCAL_FRAME_B).q);
+            let cone = qa.rotate(Vec3 {
                 x: 0.0,
                 y: 0.0,
                 z: 1.0,
             });
-            let twist = get_transform(joints, slot, SJ_FRAME_B).q.rotate(Vec3 {
+            let twist = qb.rotate(Vec3 {
                 x: 0.0,
                 y: 0.0,
                 z: 1.0,
@@ -3292,8 +3301,8 @@ mod tests {
                 &[
                     (SJ_LINEAR_IMPULSE, 3.0),
                     (SJ_LINEAR_IMPULSE + 1, 4.0),
-                    (SJ_FRAME_A + 6, 1.0),
-                    (SJ_FRAME_B + 6, 1.0),
+                    (crate::joint_abi::J_LOCAL_FRAME_A + 6, 1.0),
+                    (crate::joint_abi::J_LOCAL_FRAME_B + 6, 1.0),
                     (SJ_SPRING_IMPULSE, 3.0),
                     (SJ_MOTOR_IMPULSE + 1, 4.0),
                     (SJ_LOWER_TWIST_IMPULSE, 13.0),
@@ -3331,7 +3340,11 @@ mod tests {
                 record[field] = value;
             }
             let col = unsafe { Col::of(&mut record) };
-            assert_eq!(reaction(col, 0, 2.0), expected, "joint type {kind}");
+            assert_eq!(
+                reaction(col, 0, 2.0, |_| Quat::IDENTITY),
+                expected,
+                "joint type {kind}"
+            );
         }
     }
 }

@@ -374,7 +374,19 @@ impl StageWork for Work {
                 if force_threshold < f32::MAX || torque_threshold < f32::MAX {
                     let id = get(joints, slot, J_JOINT_ID).to_bits() as usize;
                     if !states.get(id) {
-                        let (force, torque) = crate::joint::reaction(joints, slot, self.inv_h);
+                        let (force, torque) =
+                            crate::joint::reaction(joints, slot, self.inv_h, |id| unsafe {
+                                crate::body::read_sim(
+                                    crate::bodies::column(
+                                        self.world,
+                                        id,
+                                        1,
+                                        crate::body::SIM_STRIDE,
+                                    ),
+                                    0,
+                                )
+                                .rotation
+                            });
                         if force >= force_threshold || torque >= torque_threshold {
                             unsafe { states.set(id) };
                         }
