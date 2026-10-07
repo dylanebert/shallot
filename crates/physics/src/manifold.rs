@@ -31,6 +31,7 @@ pub struct Sphere {
 }
 
 /// Capsule primitive (b3Capsule).
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Capsule {
     pub center1: Vec3,

@@ -15,12 +15,7 @@ struct Visitor<'a> {
     pub upper: Vec3,
 }
 
-fn make_visitor<'a>(
-    shape: &'a Shape,
-    sweep: Sweep,
-    fraction: f32,
-    points: &'a mut [Vec3; 2],
-) -> Visitor<'a> {
+fn make_visitor<'a>(shape: &'a Shape, sweep: Sweep, fraction: f32) -> Visitor<'a> {
     let (centroid, min_extent) = match shape {
         Shape::Sphere(s) => (s.center, s.radius),
         Shape::Capsule(s) => (s.center1.lerp(s.center2, 0.5), s.radius),
@@ -45,7 +40,7 @@ fn make_visitor<'a>(
     let (lo1, hi1) = bounds(start(sweep));
     let (lo2, hi2) = bounds(sweep.transform(fraction));
     Visitor {
-        proxy: shape_proxy(shape, points),
+        proxy: shape_proxy(shape),
         centroid,
         min_extent,
         sweep,
@@ -183,24 +178,24 @@ fn mesh_impact(
     }
     context.output
 }
-fn shape_proxy<'a>(shape: &'a Shape, points: &'a mut [Vec3; 2]) -> ShapeProxy<'a> {
+fn shape_proxy<'a>(shape: &'a Shape) -> ShapeProxy<'a> {
     match shape {
-        Shape::Sphere(s) => {
-            points[0] = s.center;
-            ShapeProxy {
-                points,
-                count: 1,
-                radius: s.radius,
-            }
-        }
-        Shape::Capsule(s) => {
-            *points = [s.center1, s.center2];
-            ShapeProxy {
-                points,
-                count: 2,
-                radius: s.radius,
-            }
-        }
+        Shape::Sphere(s) => ShapeProxy {
+            points: core::slice::from_ref(&s.center),
+            count: 1,
+            radius: s.radius,
+        },
+        Shape::Capsule(s) => ShapeProxy {
+            // repr(C) keeps the two initialized Vec3 centers contiguous in this capsule.
+            points: unsafe {
+                core::slice::from_raw_parts(
+                    (s as *const crate::manifold::Capsule).cast::<Vec3>(),
+                    2,
+                )
+            },
+            count: 2,
+            radius: s.radius,
+        },
         Shape::Hull(h) => ShapeProxy {
             points: h.points,
             count: h.vertex_count,
@@ -217,9 +212,8 @@ fn convex_impact(
     sweep_b: Sweep,
     fraction: f32,
 ) -> TOIOutput {
-    let mut points = [Vec3::ZERO; 2];
     time_of_impact(&TOIInput {
-        proxy_a: shape_proxy(shape, &mut points),
+        proxy_a: shape_proxy(shape),
         proxy_b,
         sweep_a: target,
         sweep_b,
@@ -235,10 +229,9 @@ pub fn shape_time_of_impact(
     fraction: f32,
     is_sensor: bool,
 ) -> TOIOutput {
-    let mut points_b = [Vec3::ZERO; 2];
     match shape {
         Shape::Mesh(_) | Shape::Height(_) => {
-            let visitor = make_visitor(shape_b, sweep_b, fraction, &mut points_b);
+            let visitor = make_visitor(shape_b, sweep_b, fraction);
             let (lower, upper) =
                 transform_bounds(start(target).invert(), visitor.lower, visitor.upper);
             mesh_impact(
@@ -254,7 +247,7 @@ pub fn shape_time_of_impact(
         }
         #[cfg(target_arch = "wasm32")]
         Shape::Compound(compound) => {
-            let visitor = make_visitor(shape_b, sweep_b, fraction, &mut points_b);
+            let visitor = make_visitor(shape_b, sweep_b, fraction);
             let xf = Transform {
                 p: target.c1,
                 q: target.q1,
@@ -296,12 +289,6 @@ pub fn shape_time_of_impact(
             });
             output
         }
-        _ => convex_impact(
-            shape,
-            target,
-            shape_proxy(shape_b, &mut points_b),
-            sweep_b,
-            fraction,
-        ),
+        _ => convex_impact(shape, target, shape_proxy(shape_b), sweep_b, fraction),
     }
 }
