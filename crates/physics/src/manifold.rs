@@ -1495,38 +1495,56 @@ fn hull_aabb_center_extents(hull: &HullData) -> (Vec3, Vec3) {
     (lower.add(upper).scale(0.5), upper.sub(lower).scale(0.5))
 }
 
-// Box3D's NV/NF/NE scratch arrays include four zero tail lanes.
-const HULL_SOA_CAPACITY: usize = 132;
+const NV: usize = 128 + 4;
+const NF: usize = 128 + 4;
+const NE: usize = 128 + 4;
 
-struct HullSoa3 {
-    x: [f32; HULL_SOA_CAPACITY],
-    y: [f32; HULL_SOA_CAPACITY],
-    z: [f32; HULL_SOA_CAPACITY],
+struct SatScratch<const N: usize> {
+    values: [core::mem::MaybeUninit<f32>; N],
+    initialized: usize,
 }
 
-impl HullSoa3 {
-    fn zero() -> Self {
-        Self {
-            x: [0.0; HULL_SOA_CAPACITY],
-            y: [0.0; HULL_SOA_CAPACITY],
-            z: [0.0; HULL_SOA_CAPACITY],
-        }
+impl<const N: usize> SatScratch<N> {
+    fn new() -> Self {
+        Self { values: [core::mem::MaybeUninit::uninit(); N], initialized: 0 }
+    }
+    fn set(&mut self, i: usize, value: f32) {
+        assert!(i <= self.initialized);
+        self.values[i].write(value);
+        self.initialized = self.initialized.max(i + 1);
+    }
+    fn get(&self, i: usize) -> f32 {
+        assert!(i < self.initialized);
+        // Only the sequentially written prefix is readable.
+        unsafe { self.values[i].assume_init() }
+    }
+    fn load(&self, i: usize) -> crate::simd::FloatW {
+        assert!(i + 4 <= self.initialized);
+        // No reference includes the unwritten suffix.
+        unsafe { crate::simd::FloatW::load(core::slice::from_raw_parts(self.values.as_ptr().add(i).cast(), 4)) }
+    }
+}
+
+struct HullSoa3<const N: usize> {
+    x: SatScratch<N>,
+    y: SatScratch<N>,
+    z: SatScratch<N>,
+}
+
+impl<const N: usize> HullSoa3<N> {
+    fn new() -> Self {
+        Self { x: SatScratch::new(), y: SatScratch::new(), z: SatScratch::new() }
     }
     fn set(&mut self, i: usize, v: Vec3) {
-        self.x[i] = v.x;
-        self.y[i] = v.y;
-        self.z[i] = v.z;
+        self.x.set(i, v.x);
+        self.y.set(i, v.y);
+        self.z.set(i, v.z);
     }
     fn get(&self, i: usize) -> Vec3 {
-        Vec3::new(self.x[i], self.y[i], self.z[i])
+        Vec3::new(self.x.get(i), self.y.get(i), self.z.get(i))
     }
     fn load(&self, i: usize) -> [crate::simd::FloatW; 3] {
-        use crate::simd::FloatW;
-        [
-            FloatW::load(&self.x[i..]),
-            FloatW::load(&self.y[i..]),
-            FloatW::load(&self.z[i..]),
-        ]
+        [self.x.load(i), self.y.load(i), self.z.load(i)]
     }
 }
 
@@ -1542,12 +1560,13 @@ fn splat3(v: Vec3) -> [crate::simd::FloatW; 3] {
     [FloatW::splat(v.x), FloatW::splat(v.y), FloatW::splat(v.z)]
 }
 
-fn negative_transform_from_soa(
-    matrix: Mat3,
+fn negative_transform_from_soa<const N: usize>(
+    matrix: &Mat3,
     translation: Vec3,
     input: &[f32],
     point: bool,
-) -> HullSoa3 {
+    out: &mut HullSoa3<N>,
+) {
     use crate::simd::FloatW;
     let n = input.len() / 3;
     let rows = [
@@ -1556,7 +1575,6 @@ fn negative_transform_from_soa(
         splat3(Vec3::new(matrix.cx.z, matrix.cy.z, matrix.cz.z)),
     ];
     let t = splat3(translation);
-    let mut out = HullSoa3::zero();
     for i in (0..n).step_by(4) {
         let v = [
             FloatW::load(&input[i..]),
@@ -1568,10 +1586,11 @@ fn negative_transform_from_soa(
             if point {
                 value = value.add(t[axis]);
             }
-            values[i..i + 4].copy_from_slice(&value.neg().to_array());
+            for (lane, value) in value.neg().to_array().into_iter().enumerate() {
+                values.set(i + lane, value);
+            }
         }
     }
-    out
 }
 
 fn compute_separating_axis(
@@ -1657,15 +1676,15 @@ fn compute_separating_axis(
     }
 
     use crate::simd::FloatW;
-    let b_normals =
-        negative_transform_from_soa(rotation, transform_b_to_a.p, &hull_b.soa_normals, false);
-    let b_points =
-        negative_transform_from_soa(rotation, transform_b_to_a.p, &hull_b.soa_points, true);
-    let mut a_n0 = HullSoa3::zero();
-    let mut a_n1 = HullSoa3::zero();
-    let mut a_dir = HullSoa3::zero();
-    let mut a_v0 = HullSoa3::zero();
-    let mut a_tol = [0.0; HULL_SOA_CAPACITY];
+    let mut b_normals = HullSoa3::<NF>::new();
+    let mut b_points = HullSoa3::<NV>::new();
+    negative_transform_from_soa(&rotation, transform_b_to_a.p, &hull_b.soa_normals, false, &mut b_normals);
+    negative_transform_from_soa(&rotation, transform_b_to_a.p, &hull_b.soa_points, true, &mut b_points);
+    let mut a_n0 = HullSoa3::<NE>::new();
+    let mut a_n1 = HullSoa3::<NE>::new();
+    let mut a_dir = HullSoa3::<NE>::new();
+    let mut a_v0 = HullSoa3::<NE>::new();
+    let mut a_tol = SatScratch::<NE>::new();
     let na = hull_a.edge_count / 2;
     let squared_tol = 0.005 * 0.005;
     for i in 0..na {
@@ -1678,7 +1697,14 @@ fn compute_separating_axis(
         a_dir.set(i, dir);
         a_v0.set(i, v0);
         // b3ComputeSeparatingAxis computes this scalar sum left-to-right, not b3Dot3W.
-        a_tol[i] = squared_tol * (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+        a_tol.set(i, squared_tol * (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z));
+    }
+    for i in na..na + 4 {
+        a_n0.set(i, Vec3::ZERO);
+        a_n1.set(i, Vec3::ZERO);
+        a_dir.set(i, Vec3::ZERO);
+        a_v0.set(i, Vec3::ZERO);
+        a_tol.set(i, 0.0);
     }
     let zero = FloatW::zero();
     let eps = FloatW::splat(-0.0001);
@@ -1703,7 +1729,7 @@ fn compute_separating_axis(
                 .less_than(eps)
                 .and(adc.mul(bdc).less_than(eps))
                 .and(cba.mul(bdc).less_than(eps))
-                .and(max_cd.greater_than(FloatW::load(&a_tol[i..])));
+                .and(max_cd.greater_than(a_tol.load(i)));
             if !mask.any_true() {
                 continue;
             }
