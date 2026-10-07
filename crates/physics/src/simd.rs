@@ -23,6 +23,64 @@ pub struct FloatW(
 );
 
 impl FloatW {
+    #[inline]
+    fn shuffle<const X: usize, const Y: usize, const Z: usize, const W: usize>(self) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            Self(i32x4_shuffle::<X, Y, Z, W>(self.0, self.0))
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Self::set(self.0[X], self.0[Y], self.0[Z], self.0[W])
+        }
+    }
+
+    #[inline]
+    fn abs(self) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            Self(f32x4_abs(self.0))
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.map(f32::abs)
+        }
+    }
+
+    #[inline]
+    fn any3(self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            i32x4_bitmask(self.0) & 7 != 0
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.0[..3].iter().any(|v| v.to_bits() != 0)
+        }
+    }
+
+    #[inline]
+    fn cross3(self, b: Self) -> Self {
+        self.shuffle::<1, 2, 0, 3>()
+            .mul(b.shuffle::<2, 0, 1, 3>())
+            .sub(self.shuffle::<2, 0, 1, 3>().mul(b.shuffle::<1, 2, 0, 3>()))
+    }
+
+    #[inline]
+    fn modified_cross3(self, b: Self) -> Self {
+        self.shuffle::<1, 2, 0, 3>()
+            .mul(b.shuffle::<2, 0, 1, 3>())
+            .add(self.shuffle::<2, 0, 1, 3>().mul(b.shuffle::<1, 2, 0, 3>()))
+    }
+
+    #[inline]
+    fn dot3(self, b: Self) -> Self {
+        let p = self.mul(b);
+        p.shuffle::<0, 0, 0, 0>()
+            .add(p.shuffle::<1, 1, 1, 1>())
+            .add(p.shuffle::<2, 2, 2, 2>())
+    }
+
     /// Recover the index embedded in the minimum lane (b3MinIndexW).
     #[inline]
     pub fn min_index(self, bit_count: u32) -> usize {
@@ -36,6 +94,113 @@ impl FloatW {
         let a = a.min(Self::set(a.0[2], a.0[3], a.0[0], a.0[1]));
         (a.to_array()[0].to_bits() & ((1 << bit_count) - 1)) as usize
     }
+}
+
+#[inline]
+fn vector(v: crate::math::Vec3) -> FloatW {
+    FloatW::set(v.x, v.y, v.z, 0.0)
+}
+
+// simd.c:95: SAT uses xyz in one SIMD vector, not a scalar axis loop.
+pub(crate) fn bounds_triangle_overlap(
+    center: crate::math::Vec3,
+    extent: crate::math::Vec3,
+    vertices: [crate::math::Vec3; 3],
+) -> bool {
+    let center = vector(center);
+    let extent = vector(extent);
+    let [v1, v2, v3] = vertices.map(|v| vector(v).sub(center));
+    let zero = FloatW::zero();
+    let tri_min = v1.min(v2.min(v3));
+    let tri_max = v1.max(v2.max(v3));
+    if tri_min
+        .sub(extent)
+        .max(tri_max.add(extent).neg())
+        .greater_than(zero)
+        .any3()
+    {
+        return false;
+    }
+    let e1 = v2.sub(v1);
+    let e2 = v3.sub(v2);
+    let e3 = v1.sub(v3);
+    let normal = e1.cross3(e2);
+    if normal
+        .dot3(v1)
+        .abs()
+        .sub(normal.abs().dot3(extent))
+        .greater_than(zero)
+        .any3()
+    {
+        return false;
+    }
+    let separation = |edge: FloatW, sum: FloatW, other: FloatW| {
+        edge.cross3(sum)
+            .abs()
+            .sub(edge.cross3(other).abs())
+            .sub(FloatW::splat(2.0).mul(edge.abs().modified_cross3(extent)))
+            .greater_than(zero)
+            .any3()
+    };
+    !separation(e1, v1.add(v3), e3)
+        && !separation(e2, v1.add(v2), e1)
+        && !separation(e3, v2.add(v3), e2)
+}
+
+// simd.c:157: transpose the three edge normals to evaluate the three volumes together.
+pub(crate) fn intersect_ray_triangle(
+    start: crate::math::Vec3,
+    delta: crate::math::Vec3,
+    vertices: [crate::math::Vec3; 3],
+) -> f32 {
+    let start = vector(start);
+    let delta = vector(delta);
+    let [a, b, c] = vertices.map(vector);
+    let half = FloatW::splat(0.5);
+    let n1 = c.sub(b).cross3(half.mul(b.add(c)).sub(start));
+    let n2 = a.sub(c).cross3(half.mul(c.add(a)).sub(start));
+    let n3 = b.sub(a).cross3(half.mul(a.add(b)).sub(start));
+    #[cfg(target_arch = "wasm32")]
+    let (x, y, z) = {
+        let xy = i32x4_shuffle::<0, 1, 4, 5>(n1.0, n2.0);
+        let zz = i32x4_shuffle::<2, 3, 6, 7>(n1.0, n2.0);
+        (
+            FloatW(i32x4_shuffle::<0, 2, 4, 4>(xy, n3.0)),
+            FloatW(i32x4_shuffle::<1, 3, 5, 5>(xy, n3.0)),
+            FloatW(i32x4_shuffle::<0, 2, 6, 6>(zz, n3.0)),
+        )
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let (x, y, z) = (
+        FloatW::set(n1.0[0], n2.0[0], n3.0[0], 0.0),
+        FloatW::set(n1.0[1], n2.0[1], n3.0[1], 0.0),
+        FloatW::set(n1.0[2], n2.0[2], n3.0[2], 0.0),
+    );
+    let volumes = x
+        .mul(delta.shuffle::<0, 0, 0, 0>())
+        .add(y.mul(delta.shuffle::<1, 1, 1, 1>()))
+        .add(z.mul(delta.shuffle::<2, 2, 2, 2>()));
+    if volumes.less_than(FloatW::zero()).any3() {
+        return 1.0;
+    }
+    let normal = b.sub(a).cross3(c.sub(a));
+    let denominator = normal.dot3(delta);
+    if FloatW::zero()
+        .less_than(denominator)
+        .or(denominator.equals(FloatW::zero()))
+        .any3()
+    {
+        return 1.0;
+    }
+    let lambda = normal.dot3(a.sub(start)).div(denominator);
+    if lambda
+        .less_than(FloatW::zero())
+        .or(lambda.equals(FloatW::zero()))
+        .any3()
+    {
+        return 1.0;
+    }
+    lambda.min(FloatW::splat(1.0)).to_array()[0]
 }
 
 #[cfg(target_arch = "wasm32")]

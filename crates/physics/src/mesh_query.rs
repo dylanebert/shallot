@@ -4,7 +4,7 @@ use crate::distance::{
     SimplexCache,
 };
 use crate::manifold::Capsule;
-use crate::math::{absf, maxf, minf, Plane, Transform, Vec3};
+use crate::math::{maxf, minf, Plane, Transform, Vec3};
 use crate::query::{PlaneResult, RayCastInput, ShapeCastInput};
 
 #[repr(C)]
@@ -71,56 +71,14 @@ pub(crate) fn bounds_ray_overlap(lower: Vec3, upper: Vec3, start: Vec3, delta: V
     !positive(separation)
 }
 pub(crate) fn bounds_triangle_overlap(center: Vec3, extent: Vec3, vertices: [Vec3; 3]) -> bool {
-    let [v1, v2, v3] = vertices.map(|v| v.sub(center));
-    let tri_min = min(v1, min(v2, v3));
-    let tri_max = max(v1, max(v2, v3));
-    if positive(max(tri_min.sub(extent), tri_max.add(extent).neg())) {
-        return false;
-    }
-    let e1 = v2.sub(v1);
-    let e2 = v3.sub(v2);
-    let e3 = v1.sub(v3);
-    let normal = e1.cross(e2);
-    if absf(normal.dot(v1)) - normal.abs().dot(extent) > 0.0 {
-        return false;
-    }
-    let sep = |edge: Vec3, sum: Vec3, other: Vec3| {
-        edge.cross(sum)
-            .abs()
-            .sub(edge.cross(other).abs())
-            .sub(edge.abs().modified_cross(extent).scale(2.0))
-    };
-    !positive(sep(e1, v1.add(v3), e3))
-        && !positive(sep(e2, v1.add(v2), e1))
-        && !positive(sep(e3, v2.add(v3), e2))
+    crate::simd::bounds_triangle_overlap(center, extent, vertices)
 }
 pub(crate) fn signed_volume(vertices: [Vec3; 3], p: Vec3) -> f32 {
     let [a, b, c] = vertices;
     b.sub(a).cross(c.sub(a)).dot(p.sub(a))
 }
 pub(crate) fn intersect_ray_triangle(start: Vec3, delta: Vec3, vertices: [Vec3; 3]) -> f32 {
-    let [a, b, c] = vertices;
-    let edges = [c.sub(b), a.sub(c), b.sub(a)];
-    let midpoints = [
-        b.add(c).scale(0.5),
-        c.add(a).scale(0.5),
-        a.add(b).scale(0.5),
-    ];
-    for i in 0..3 {
-        if edges[i].cross(midpoints[i].sub(start)).dot(delta) < 0.0 {
-            return 1.0;
-        }
-    }
-    let normal = b.sub(a).cross(c.sub(a));
-    let denominator = normal.dot(delta);
-    if denominator >= 0.0 {
-        return 1.0;
-    }
-    let lambda = normal.dot(a.sub(start)) / denominator;
-    if lambda <= 0.0 {
-        return 1.0;
-    }
-    minf(lambda, 1.0)
+    crate::simd::intersect_ray_triangle(start, delta, vertices)
 }
 pub(crate) fn proxy_bounds(proxy: ShapeProxy) -> (Vec3, Vec3) {
     let mut lower = proxy.points[0];
@@ -162,19 +120,22 @@ pub fn ray_cast_mesh(mesh: Mesh, input: &RayCastInput) -> CastOutput {
     };
     let start = mul(mesh.inverse_scale(), input.origin);
     let delta = mul(mesh.inverse_scale(), input.translation);
-    let mut end = start.add(delta.scale(output.fraction));
+    let reflected = mesh.reflected();
+    let end = start.add(delta.scale(output.fraction));
+    let mut swept_lower = min(start, end);
+    let mut swept_upper = max(start, end);
     let mut stack = [0; STACK_SIZE];
     let mut count = 0;
     let mut index = 0;
     loop {
-        let node = mesh.nodes[index];
-        if bounds_overlap(node.lower, node.upper, min(start, end), max(start, end))
+        let node = &mesh.nodes[index];
+        if bounds_overlap(node.lower, node.upper, swept_lower, swept_upper)
             && bounds_ray_overlap(node.lower, node.upper, start, delta)
         {
             if node.is_leaf() {
                 for t in node.triangle_offset..node.triangle_offset + node.triangle_count() {
                     let vertices = mesh
-                        .triangle(t as usize, mesh.reflected())
+                        .triangle(t as usize, reflected)
                         .map(|v| mul(mesh.scale, v));
                     let alpha = intersect_ray_triangle(input.origin, input.translation, vertices);
                     if alpha < output.fraction {
@@ -187,7 +148,9 @@ pub fn ray_cast_mesh(mesh: Mesh, input: &RayCastInput) -> CastOutput {
                         output.triangle_index = t as i32;
                         output.material_index = mesh.materials[t as usize] as i32;
                         output.hit = true;
-                        end = start.add(delta.scale(alpha));
+                        let end = start.add(delta.scale(alpha));
+                        swept_lower = min(start, end);
+                        swept_upper = max(start, end);
                     }
                 }
             } else {
@@ -225,32 +188,33 @@ pub fn shape_cast_mesh(mesh: Mesh, input: &ShapeCastInput) -> CastOutput {
     let start = mul(inv, center);
     let delta = mul(inv, input.translation);
     let inv_extent = mul(inv.abs(), extent);
-    let mut end = start.add(delta.scale(output.fraction));
-    let mut scaled_end = center.add(input.translation.scale(output.fraction));
+    let reflected = mesh.reflected();
+    let end = start.add(delta.scale(output.fraction));
+    let mut swept_lower = min(start, end);
+    let mut swept_upper = max(start, end);
+    let scaled_end = center.add(input.translation.scale(output.fraction));
+    let mut scaled_lower = min(center, scaled_end);
+    let mut scaled_upper = max(center, scaled_end);
     let mut stack = [0; STACK_SIZE];
     let mut count = 0;
     let mut index = 0;
     loop {
-        let node = mesh.nodes[index];
+        let node = &mesh.nodes[index];
         let node_min = node.lower.sub(inv_extent);
         let node_max = node.upper.add(inv_extent);
-        if bounds_overlap(node_min, node_max, min(start, end), max(start, end))
+        if bounds_overlap(node_min, node_max, swept_lower, swept_upper)
             && bounds_ray_overlap(node_min, node_max, start, delta)
         {
             if node.is_leaf() {
                 for t in node.triangle_offset..node.triangle_offset + node.triangle_count() {
                     let vertices = mesh
-                        .triangle(t as usize, mesh.reflected())
+                        .triangle(t as usize, reflected)
                         .map(|v| mul(mesh.scale, v));
                     let [a, b, c] = vertices;
                     let triangle_min = min(a, min(b, c)).sub(extent);
                     let triangle_max = max(a, max(b, c)).add(extent);
-                    if !bounds_overlap(
-                        triangle_min,
-                        triangle_max,
-                        min(center, scaled_end),
-                        max(center, scaled_end),
-                    ) || signed_volume(vertices, center) < 0.0
+                    if !bounds_overlap(triangle_min, triangle_max, scaled_lower, scaled_upper)
+                        || signed_volume(vertices, center) < 0.0
                     {
                         continue;
                     }
@@ -275,8 +239,12 @@ pub fn shape_cast_mesh(mesh: Mesh, input: &ShapeCastInput) -> CastOutput {
                         output = pair;
                         output.triangle_index = t as i32;
                         output.material_index = mesh.materials[t as usize] as i32;
-                        scaled_end = center.add(input.translation.scale(output.fraction));
-                        end = start.add(delta.scale(output.fraction));
+                        let scaled_end = center.add(input.translation.scale(output.fraction));
+                        scaled_lower = min(center, scaled_end);
+                        scaled_upper = max(center, scaled_end);
+                        let end = start.add(delta.scale(output.fraction));
+                        swept_lower = min(start, end);
+                        swept_upper = max(start, end);
                     }
                 }
             } else {
@@ -316,7 +284,7 @@ pub(crate) fn visit_triangles(
     let mut count = 0;
     let mut index = 0;
     loop {
-        let node = mesh.nodes[index];
+        let node = &mesh.nodes[index];
         if bounds_overlap(node.lower, node.upper, lower, upper) {
             if node.is_leaf() {
                 for t in node.triangle_offset..node.triangle_offset + node.triangle_count() {
@@ -343,13 +311,17 @@ pub(crate) fn visit_triangles(
 }
 
 pub fn overlap_mesh(mesh: Mesh, transform: Transform, proxy: ShapeProxy) -> bool {
-    let mut points = [Vec3::ZERO; 128];
+    let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
     let count = proxy.count.min(points.len());
+    let inv = transform.invert();
+    let matrix = crate::math::Mat3::from_quat(inv.q);
     for i in 0..count {
-        points[i] = transform.inv_point(proxy.points[i]);
+        points[i].write(matrix.mul_v(proxy.points[i]).add(inv.p));
     }
+    // b3MakeLocalProxy writes only the active prefix through the inverse-transform matrix.
+    let points = unsafe { core::slice::from_raw_parts(points.as_ptr().cast::<Vec3>(), count) };
     let local = ShapeProxy {
-        points: &points,
+        points,
         count,
         radius: proxy.radius,
     };
