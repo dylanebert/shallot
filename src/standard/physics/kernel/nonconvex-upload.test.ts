@@ -7,6 +7,7 @@ import { createGrid } from "../shapes/heightfield";
 import { makeBoxHull } from "../shapes/hull";
 import { hash64NonZero } from "../shapes/hullbytes";
 import { createBoxMesh, createGridMesh } from "../shapes/mesh";
+import { ShapeField, shapeField } from "./shaperecords";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 
 function image(world: PhysicsWorld, shape: number): Uint8Array {
@@ -14,7 +15,7 @@ function image(world: PhysicsWorld, shape: number): Uint8Array {
     store.refreshViews();
     const u = store.materialU;
     const record = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
-    const sizeWord = store.shapeU[shape * SHAPE_STRIDE] === ShapeType.Compound ? 2 : 4;
+    const sizeWord = shapeField(world.state, shape, ShapeField.type) === ShapeType.Compound ? 2 : 4;
     return new Uint8Array(u.buffer, record, u[record / 4 + sizeWord]);
 }
 function checkHash(bytes: Uint8Array): void {
