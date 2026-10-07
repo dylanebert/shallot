@@ -190,9 +190,11 @@ function fillContactHits(world: WorldState, out: ContactHitEvent[]): void {
 }
 
 function fillJointEvents(world: WorldState, out: JointEvent[]): void {
-    readJointEventUserData(world);
+    const count = eventCount(world, EventKind.Joint);
     out.length = 0;
-    for (let i = 0, count = eventCount(world, EventKind.Joint); i < count; ++i) {
+    if (count === 0) return;
+    readJointEventUserData(world);
+    for (let i = 0; i < count; ++i) {
         out.push({
             joint: new Joint(world, eventId(world, EventKind.Joint, i, 0)),
             userData: world.jointEventUserData[i],
