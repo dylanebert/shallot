@@ -347,7 +347,11 @@ mod runtime {
                         let b = Vec3::new(m.get(n + 3), m.get(n + 4), m.get(n + 5));
                         best = Some((
                             mid.add(a.lerp(b, 0.5)),
-                            Vec3::new(m.get(o), m.get(o + 1), m.get(o + 2)),
+                            Vec3::new(
+                                m.get(o + M_NORMAL),
+                                m.get(o + M_NORMAL + 1),
+                                m.get(o + M_NORMAL + 2),
+                            ),
                             m.get(n + P_TRIANGLE_INDEX).to_bits() as i32,
                         ));
                     }
