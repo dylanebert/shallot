@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
-import { J_EVENT } from "../kernel/columns";
-import { collectJointEvents, writeJointFloat } from "../kernel/jointcolumns";
+import { collectJointEvents } from "../kernel/jointcolumns";
+import { kernel } from "../kernel/kernel";
 
 test("plain-id joint bindings preserve public frames, bodies, tuning and user-data snapshot identity", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
@@ -92,7 +92,9 @@ test("a foreign snapshot preserves captured joint-event id values while delivery
         const b = source.createBody({ type: BodyType.Dynamic });
         const userData = { label: "captured" };
         const joint = source.createFilterJoint(a, b, { userData });
-        writeJointFloat(source.state, joint.id.index1 - 1, J_EVENT, 1);
+        const k = kernel(source.state.ecsState);
+        k.jointResetEventBits(source.state.worldId);
+        k.jointSetEventBit(source.state.worldId, joint.id.index1 - 1);
         collectJointEvents(source.state);
         const captured = source.getJointEvents()[0].joint.id;
         expect(source.state.worldId).not.toBe(target.state.worldId);
@@ -114,8 +116,10 @@ test("internal joint event collection preserves ordered public ids, generations 
         const b = world.createBody({ type: BodyType.Dynamic });
         const data = [{ label: "first" }, { label: "second" }];
         const joints = data.map((userData) => world.createFilterJoint(a, b, { userData }));
+        const k = kernel(world.state.ecsState);
+        k.jointResetEventBits(world.state.worldId);
         for (let i = joints.length - 1; i >= 0; --i)
-            writeJointFloat(world.state, joints[i].id.index1 - 1, J_EVENT, 1);
+            k.jointSetEventBit(world.state.worldId, joints[i].id.index1 - 1);
         collectJointEvents(world.state);
         const expectedIds = joints.map((joint) => joint.id);
         const saved = world.snapshot();

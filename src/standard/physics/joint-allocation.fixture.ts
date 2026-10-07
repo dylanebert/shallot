@@ -4,7 +4,7 @@ import { contactCount } from "./collision/contact";
 import { updateBroadPhasePairs } from "./collision/pairs";
 import { BodyType } from "./common/types";
 import { BodyField, bodyField } from "./kernel/bodyrecords";
-import { DJ_LENGTH, J_EVENT } from "./kernel/columns";
+import { DJ_LENGTH } from "./kernel/columns";
 import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { collectJointEvents, readJointFloat, writeJointFloat } from "./kernel/jointcolumns";
 import { JointField, jointDrawScale, jointField, setJointDrawScale } from "./kernel/jointrecords";
@@ -80,7 +80,9 @@ export function jointAllocationSubject(physics: PhysicsWorld, control?: () => vo
             tune(state, id, i);
             if (jointField(state, id, JointField.bodyIdA) !== defs[i].bodyIdA)
                 throw new Error("joint allocation subject lost its definition or identity");
-            writeJointFloat(state, id, J_EVENT, 1);
+            const k = kernel(state.ecsState);
+            k.jointResetEventBits(state.worldId);
+            k.jointSetEventBit(state.worldId, id);
             collectJointEvents(state);
             if (
                 eventCount(state, EventKind.Joint) !== 1 ||

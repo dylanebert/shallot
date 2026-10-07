@@ -275,6 +275,17 @@ struct TaskContext {
     joint_state_bitset: crate::bitset::BitSet,
     has_hit_events: bool,
 }
+impl TaskContext {
+    fn new() -> Self {
+        Self {
+            arena: unsafe { crate::task_memory::WorkerArena::new(128 * 1024) },
+            materials: 0,
+            hit_event_bitset: crate::bitset::BitSet::new(1024),
+            joint_state_bitset: crate::bitset::BitSet::new(1024),
+            has_hit_events: false,
+        }
+    }
+}
 static mut TASK_CONTEXTS: [Vec<TaskContext>; crate::regions::MAX_WORLDS] =
     [const { Vec::new() }; crate::regions::MAX_WORLDS];
 
@@ -292,17 +303,26 @@ pub(crate) unsafe fn sync_task_arenas(world: usize) {
 pub(crate) unsafe fn reset_hit_events(world: usize, workers: usize) {
     let capacity = u32::try_from(manifolds::contact_record_capacity(world)).unwrap();
     let contexts = &mut TASK_CONTEXTS[world];
-    contexts.resize_with(workers, || TaskContext {
-        arena: crate::task_memory::WorkerArena::new(128 * 1024),
-        materials: 0,
-        hit_event_bitset: crate::bitset::BitSet::new(1024),
-        joint_state_bitset: crate::bitset::BitSet::new(1024),
-        has_hit_events: false,
-    });
+    contexts.resize_with(workers, TaskContext::new);
     for context in contexts {
         context.hit_event_bitset.set_count_and_clear(capacity);
         context.has_hit_events = false;
     }
+}
+
+// Filter joints cannot emit a solver event; fixtures inject candidates before publication.
+#[export_name = "jointResetEventBits"]
+pub unsafe extern "C" fn reset_joint_event_bits(world: usize) {
+    if TASK_CONTEXTS[world].is_empty() {
+        TASK_CONTEXTS[world].push(TaskContext::new());
+    }
+    reset_joint_states(world);
+}
+
+#[export_name = "jointSetEventBit"]
+pub unsafe extern "C" fn set_joint_event_bit(world: usize, id: usize) {
+    assert_eq!(crate::joint_record::record(world, id).set_index, 2);
+    joint_states(world, 0).set(id);
 }
 
 pub(crate) unsafe fn reset_joint_states(world: usize) {
@@ -396,13 +416,7 @@ pub extern "C" fn reserve_collide_in_world(
         for state in states {
             state.set_count_and_clear(capacity);
         }
-        TASK_CONTEXTS[world_index].resize_with(mesh_threads, || TaskContext {
-            arena: crate::task_memory::WorkerArena::new(128 * 1024),
-            materials: 0,
-            hit_event_bitset: crate::bitset::BitSet::new(1024),
-            joint_state_bitset: crate::bitset::BitSet::new(1024),
-            has_hit_events: false,
-        });
+        TASK_CONTEXTS[world_index].resize_with(mesh_threads, TaskContext::new);
         CONTACT_LIST_PTR = reserve_scratch(world_index, count * 4);
     }
 }

@@ -818,6 +818,8 @@ export type Kernel = {
     jointUnlink(id: number): void;
     solverSetWake(set: number): void;
     jointCollectEvents(): number;
+    jointResetEventBits(world: number): void;
+    jointSetEventBit(world: number, id: number): void;
     awakeContactCount(): number;
     awakeContactGet(index: number): number;
     awakeContactCopy(ptr: number): void;
