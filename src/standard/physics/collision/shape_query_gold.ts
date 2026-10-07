@@ -164,7 +164,8 @@ export function kernelMover(
             false,
         );
         const k = kernel(undefined);
-        const ptr = k.scratchPtr();
+        // This fixture takes no snapshots; borrow their byte staging buffer for caller-owned output.
+        const ptr = k.worldSnapshotBuffer(capacity * 40);
         const count = k.shapeQueryMover(world.worldId, id, ptr, capacity, 1);
         const f = new Float32Array(k.memory.buffer, ptr, count * 10);
         for (let i = 0; i < count; ++i) {

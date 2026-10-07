@@ -60,7 +60,7 @@ const boot = (d, post) => {
     ex.__stack_pointer.value = d.stackTop;
     ex.__wasm_init_tls(d.tlsBase);
     const ctl = new Int32Array(d.ctl);
-    post({ index: d.index, stackPointer: ex.__stack_pointer.value, tlsBase: ex.__tls_base.value, scratchPtr: ex.scratchPtr() });
+    post({ index: d.index, stackPointer: ex.__stack_pointer.value, tlsBase: ex.__tls_base.value });
     let seen = 0;
     for (;;) {
         while (Atomics.load(ctl, ${CTL_SEQ}) === seen) Atomics.wait(ctl, ${CTL_SEQ}, seen);
@@ -120,13 +120,11 @@ type Boot = {
     testFault: boolean;
 };
 
-/** What a worker reports once it has instantiated and bootstrapped — the two globals it set plus a real
- * call into the module, so a broken instantiation surfaces at `init()` instead of mid-solve. */
+/** What a worker reports after instantiation, stack setup and TLS initialization. */
 export type WorkerReady = {
     index: number;
     stackPointer: number;
     tlsBase: number;
-    scratchPtr: number;
 };
 
 export type Pool = {

@@ -23,8 +23,6 @@ export type Kernel = {
     installPanicHook?(): void;
     viewEpochPtr(): number;
     activeWorld(): number;
-    /** Toolchain smoke buffer offset + scale, the standing wasm-simd128 cliff gate (kernel.test.ts). */
-    scratchPtr(): number;
     /** Per-shape scratch input: transform(7), count/radius, translation(3), fraction/encroach,
      * then up to 128 xyz points. Cast output: hit, fraction, point(3), normal(3), iterations,
      * triangle, child, material. Mover output is caller-owned: normal(3), offset, point(3),
@@ -69,7 +67,6 @@ export type Kernel = {
     eventBuildHits(world: number, threshold: number): void;
     sensorVisitorCount(world: number, index: number): number;
     sensorVisitorWord(world: number, index: number, visitor: number, word: number): number;
-    smokeScale(len: number, k: number): void;
 
     // Shared-column arena (kernel/src/arena.rs). `reserve` lays out the columns for one step's counts
     // and may grow memory; `layoutPtr` returns the byte-offset header the TS views derive from (see
