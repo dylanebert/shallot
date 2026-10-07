@@ -131,7 +131,7 @@ pub fn prepare(
             let d = read_dir(cols.dir, contact_id);
             let index_a = d.index_a;
             let index_b = d.index_b;
-            let manifold_count = d.manifold_count;
+            let manifold_count = spec.manifold_count as usize;
             let cols = Columns {
                 pool: crate::manifold_abi::block_col(cols.pool, d.manifold_base, manifold_count),
                 ..*cols

@@ -19,6 +19,28 @@ static mut CONTACT_SPANS: [[ContactPrepareSpan; COLORS + 1]; MAX_WORLDS] =
     [[EMPTY_CONTACT_SPAN; COLORS + 1]; MAX_WORLDS];
 static mut WIDE_SPANS: [[WidePrepareSpan; COLORS + 1]; MAX_WORLDS] =
     [[EMPTY_WIDE_SPAN; COLORS + 1]; MAX_WORLDS];
+static mut OVERFLOW_SPANS: [[ContactPrepareSpan; 2]; MAX_WORLDS] =
+    [[EMPTY_CONTACT_SPAN; 2]; MAX_WORLDS];
+static mut OVERFLOW_MANIFOLDS: [usize; MAX_WORLDS] = [0; MAX_WORLDS];
+
+pub(crate) unsafe fn overflow_spans(world: usize) -> crate::col::Col<'static, ContactPrepareSpan> {
+    crate::col::Col::new(OVERFLOW_SPANS[world].as_mut_ptr(), 2)
+}
+pub(crate) unsafe fn overflow_manifold_count(world: usize) -> usize {
+    OVERFLOW_MANIFOLDS[world]
+}
+pub(crate) unsafe fn overflow_contact_count(world: usize) -> usize {
+    GRAPHS[world][OVERFLOW].contacts.len()
+}
+
+// The graph's backing arrays stay put during collide; each task owns one contact spec.
+pub(crate) unsafe fn update_manifold_count(world: usize, color: usize, index: usize, count: u16) {
+    let contacts = (&*GRAPHS[world].as_ptr().add(color))
+        .contacts
+        .as_ptr()
+        .cast_mut();
+    core::ptr::addr_of_mut!((*contacts.add(index)).manifold_count).write(count);
+}
 
 pub(crate) unsafe fn prepare_spans(
     world: usize,
@@ -252,17 +274,6 @@ const LAYOUT_STRIDE: usize = 5;
 const LAYOUT_HEADER: usize = 10;
 static mut SOLVE_LAYOUT: [[u32; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS] =
     [[0; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS];
-unsafe fn extent(world_index: usize, id: u32) -> (u32, u32) {
-    let d = manifolds::dir_col(world_index);
-    let o = id as usize * DIR_STRIDE;
-    let n = d.get(o + DIR_MANIFOLD_COUNT);
-    let p = d.get(o + DIR_MANIFOLD_BASE) as *const u32;
-    let mut points = 0;
-    for i in 0..n as usize {
-        points += *p.add(i * MANIFOLD_STRIDE + M_POINT_COUNT);
-    }
-    (n, points)
-}
 #[export_name = "graphComputeLayout"]
 pub extern "C" fn compute_layout() -> usize {
     compute_layout_in_world(crate::regions::active())
@@ -272,114 +283,111 @@ pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
     unsafe {
         let result = &mut SOLVE_LAYOUT[world_index];
         let g = colors(world_index);
-        let (mut contacts, mut manifolds, mut points, mut wide, mut active) = (0, 0, 0, 0, 0);
-        for (color, c) in g.iter().enumerate().take(OVERFLOW) {
-            if c.convex_contacts.len()
-                + c.contacts.len()
-                + joints::count_in_world(world_index, color)
-                == 0
-            {
+        let dir = manifolds::dir_col(world_index);
+        CONTACT_SPANS[world_index].fill(EMPTY_CONTACT_SPAN);
+        WIDE_SPANS[world_index].fill(EMPTY_WIDE_SPAN);
+        let (mut contacts, mut manifolds, mut wide, mut active) = (0, 0, 0, 0);
+        for (color, c) in g.iter_mut().enumerate().take(OVERFLOW) {
+            let n = c.convex_contacts.len() as i32;
+            let count = c.contacts.len() as i32;
+            if n + count + joints::count_in_world(world_index, color) as i32 == 0 {
                 continue;
             }
+            let nw = if n == 0 { 0 } else { (n - 1) / 4 + 1 };
             let o = LAYOUT_HEADER + active * LAYOUT_STRIDE;
-            let n = c.convex_contacts.len() as u32;
-            let nw = n.div_ceil(4);
-            result[o..o + LAYOUT_STRIDE].copy_from_slice(&[color as u32, wide, nw, 0, 0]);
-            for &id in &c.convex_contacts {
-                let (m, p) = extent(world_index, id);
-                manifolds += m;
-                points += p;
+            result[o..o + LAYOUT_STRIDE].copy_from_slice(&[
+                color as u32,
+                wide as u32,
+                nw as u32,
+                contacts as u32,
+                count as u32,
+            ]);
+            WIDE_SPANS[world_index][active] = WidePrepareSpan {
+                start: wide,
+                count: n,
+                contacts: c.convex_contacts.as_ptr(),
+            };
+            CONTACT_SPANS[world_index][active] = ContactPrepareSpan {
+                start: contacts,
+                count,
+                contacts: c.contacts.as_ptr(),
+            };
+            // The scalar spec already carries its manifold count from collide.
+            for spec in &mut c.contacts {
+                spec.manifold_start = manifolds;
+                manifolds += spec.manifold_count as i32;
+                let flags = spec.contact_id as usize * DIR_STRIDE + DIR_FLAGS;
+                dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
             }
-            contacts += n;
+            // Retained per-contact hit flags are the event binding until hit bitsets replace them.
+            for &id in &c.convex_contacts {
+                let flags = id as usize * DIR_STRIDE + DIR_FLAGS;
+                dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
+            }
+            contacts += count;
             wide += nw;
             active += 1;
         }
-        let mesh_start = contacts;
-        for a in 0..active {
-            let o = LAYOUT_HEADER + a * LAYOUT_STRIDE;
-            let c = &g[result[o] as usize];
-            result[o + 3] = contacts;
-            result[o + 4] = c.contacts.len() as u32;
-            for s in &c.contacts {
-                let (m, p) = extent(world_index, s.contact_id as u32);
-                manifolds += m;
-                points += p;
-            }
-            contacts += c.contacts.len() as u32;
+        CONTACT_SPANS[world_index][active] = ContactPrepareSpan {
+            start: contacts,
+            ..EMPTY_CONTACT_SPAN
+        };
+        WIDE_SPANS[world_index][active] = WidePrepareSpan {
+            start: wide,
+            ..EMPTY_WIDE_SPAN
+        };
+        let overflow = &mut g[OVERFLOW];
+        let mut overflow_manifolds = 0;
+        for spec in &mut overflow.contacts {
+            spec.manifold_start = overflow_manifolds;
+            overflow_manifolds += spec.manifold_count as i32;
+            let flags = spec.contact_id as usize * DIR_STRIDE + DIR_FLAGS;
+            dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
         }
-        let overflow_start = contacts;
-        for s in &g[OVERFLOW].contacts {
-            let (m, p) = extent(world_index, s.contact_id as u32);
-            manifolds += m;
-            points += p;
-        }
-        let overflow_count = g[OVERFLOW].contacts.len() as u32;
-        contacts += overflow_count;
+        let overflow_count = overflow.contacts.len() as i32;
+        OVERFLOW_MANIFOLDS[world_index] = overflow_manifolds as usize;
+        OVERFLOW_SPANS[world_index] = [
+            ContactPrepareSpan {
+                start: 0,
+                count: overflow_count,
+                contacts: overflow.contacts.as_ptr(),
+            },
+            ContactPrepareSpan {
+                start: overflow_count,
+                ..EMPTY_CONTACT_SPAN
+            },
+        ];
         result[..LAYOUT_HEADER].copy_from_slice(&[
-            contacts,
-            manifolds,
-            points,
-            wide,
-            mesh_start,
-            overflow_start - mesh_start,
-            wide,
-            overflow_start,
-            overflow_count,
+            (contacts + overflow_count) as u32,
+            (manifolds + overflow_manifolds) as u32,
+            0,
+            wide as u32,
+            0,
+            contacts as u32,
+            wide as u32,
+            0,
+            overflow_count as u32,
             active as u32,
         ]);
         result.as_ptr() as usize
     }
 }
-#[export_name = "graphWriteSlots"]
-pub extern "C" fn write_slots() {
-    write_slots_in_world(crate::regions::active())
-}
 
-pub extern "C" fn write_slots_in_world(world_index: usize) {
-    unsafe {
-        let dir = manifolds::dir_col(world_index);
-        let g = colors(world_index);
-        CONTACT_SPANS[world_index].fill(EMPTY_CONTACT_SPAN);
-        WIDE_SPANS[world_index].fill(EMPTY_WIDE_SPAN);
-        let (mut gm, mut cursor, mut wide, mut span) = (0, 0, 0, 0);
-        for c in g.iter().take(OVERFLOW) {
-            let n = c.convex_contacts.len();
-            WIDE_SPANS[world_index][span] = WidePrepareSpan {
-                start: wide,
-                count: n as i32,
-                contacts: c.convex_contacts.as_ptr(),
-            };
-            for &id in &c.convex_contacts {
-                let flags = id as usize * DIR_STRIDE + DIR_FLAGS;
-                dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
-                gm += extent(world_index, id).0 as i32;
-                cursor += 1;
-            }
-            wide += n.div_ceil(4) as i32;
-            span += 1;
+pub(crate) unsafe fn initialize_constraints(world: usize) {
+    let (wide, _, _) = crate::arena::wide_columns(world);
+    for span in WIDE_SPANS[world]
+        .iter()
+        .take(SOLVE_LAYOUT[world][9] as usize)
+    {
+        let count = span.count as usize;
+        if count % crate::contact_wide::LANES != 0 {
+            let tail = span.start as usize + count.div_ceil(crate::contact_wide::LANES) - 1;
+            core::ptr::write_bytes(
+                wide.ptr().add(tail * crate::contact_wide::WIDE_STRIDE),
+                0,
+                crate::contact_wide::WIDE_STRIDE,
+            );
         }
-        WIDE_SPANS[world_index][span] = WidePrepareSpan {
-            start: wide,
-            ..EMPTY_WIDE_SPAN
-        };
-        for (span, c) in g.iter_mut().enumerate() {
-            CONTACT_SPANS[world_index][span] = ContactPrepareSpan {
-                start: cursor,
-                count: c.contacts.len() as i32,
-                contacts: c.contacts.as_ptr(),
-            };
-            for s in &mut c.contacts {
-                let flags = s.contact_id as usize * DIR_STRIDE + DIR_FLAGS;
-                dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
-                s.manifold_start = gm;
-                gm += extent(world_index, s.contact_id as u32).0 as i32;
-                cursor += 1;
-            }
-        }
-        CONTACT_SPANS[world_index][COLORS] = ContactPrepareSpan {
-            start: cursor,
-            ..EMPTY_CONTACT_SPAN
-        };
     }
 }
 pub unsafe fn reset(id: usize) {

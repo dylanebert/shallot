@@ -69,6 +69,8 @@ const SIM: usize = 2;
 const FIN: usize = 3;
 const CC: usize = 6;
 const MC: usize = 8;
+const OVERFLOW_CC: usize = 7;
+const OVERFLOW_MC: usize = 9;
 const WIDE: usize = 11;
 // Per-active-color spans (wide/mesh/joint start+count) for the batched color loop + staged solve.
 const COLOR_SPAN: usize = 14;
@@ -81,6 +83,8 @@ static mut LAYOUT: [u32; N_COLS] = [0; N_COLS];
 static mut BODY_COUNT: usize = 0;
 static mut CONTACT_COUNT: usize = 0;
 static mut MANIFOLD_COUNT: usize = 0;
+static mut OVERFLOW_CONTACT_COUNT: usize = 0;
+static mut OVERFLOW_MANIFOLD_COUNT: usize = 0;
 // Wide record count (each groups up to 4 convex contacts); sizes the wide transient columns.
 static mut WIDE_COUNT: usize = 0;
 // Active color count — the number of spans in the COLOR_SPAN column the batched shims loop over.
@@ -143,8 +147,10 @@ pub extern "C" fn reserve_in_world(
 ) {
     unsafe {
         BODY_COUNT = body;
-        CONTACT_COUNT = contact;
-        MANIFOLD_COUNT = manifold;
+        OVERFLOW_CONTACT_COUNT = crate::constraint_graph::overflow_contact_count(world_index);
+        OVERFLOW_MANIFOLD_COUNT = crate::constraint_graph::overflow_manifold_count(world_index);
+        CONTACT_COUNT = contact - OVERFLOW_CONTACT_COUNT;
+        MANIFOLD_COUNT = manifold - OVERFLOW_MANIFOLD_COUNT;
         let _ = point;
         WIDE_COUNT = wide;
         COLOR_COUNT = color;
@@ -161,20 +167,23 @@ pub extern "C" fn reserve_in_world(
         LAYOUT[SIM] = crate::bodies::sim_base(world_index) as u32;
         LAYOUT[FIN] = crate::bodies::fin_base(world_index) as u32;
         let mut off = 0;
-        LAYOUT[CC] = off as u32;
-        off += contact * core::mem::size_of::<ContactConstraint>();
-        LAYOUT[MC] = off as u32;
-        off += manifold * core::mem::size_of::<ManifoldConstraint>();
-        off = (off + 15) & !15;
         LAYOUT[WIDE] = off as u32;
         off += wide * WIDE_STRIDE * 4;
+        LAYOUT[CC] = off as u32;
+        off += CONTACT_COUNT * core::mem::size_of::<ContactConstraint>();
+        LAYOUT[MC] = off as u32;
+        off += MANIFOLD_COUNT * core::mem::size_of::<ManifoldConstraint>();
+        LAYOUT[OVERFLOW_CC] = off as u32;
+        off += OVERFLOW_CONTACT_COUNT * core::mem::size_of::<ContactConstraint>();
+        LAYOUT[OVERFLOW_MC] = off as u32;
+        off += OVERFLOW_MANIFOLD_COUNT * core::mem::size_of::<ManifoldConstraint>();
         LAYOUT[COLOR_SPAN] = off as u32;
         off += color * COLOR_SPAN_STRIDE * 4;
 
         let continuous_offset = off;
         off += body * crate::continuous::STRIDE * 4;
         let base = reserve_scratch(world_index, off);
-        for column in [CC, MC, WIDE, COLOR_SPAN] {
+        for column in [CC, MC, OVERFLOW_CC, OVERFLOW_MC, WIDE, COLOR_SPAN] {
             LAYOUT[column] += base as u32;
         }
         crate::continuous::reserve_at(base + continuous_offset, body);
@@ -216,6 +225,21 @@ unsafe fn columns(world_index: usize) -> Columns<'static> {
 /// The scalar solver's columns, as `solve.rs`'s `StageWork` holds them.
 pub(crate) unsafe fn scalar_columns(world_index: usize) -> Columns<'static> {
     columns(world_index)
+}
+
+pub(crate) unsafe fn overflow_columns(world: usize) -> Columns<'static> {
+    Columns {
+        cc: Col::new(
+            LAYOUT[OVERFLOW_CC] as *mut ContactConstraint,
+            OVERFLOW_CONTACT_COUNT,
+        ),
+        mc: Col::new(
+            LAYOUT[OVERFLOW_MC] as *mut ManifoldConstraint,
+            OVERFLOW_MANIFOLD_COUNT,
+        ),
+        spans: crate::constraint_graph::overflow_spans(world),
+        ..columns(world)
+    }
 }
 
 /// Float and index views of the same wide records, plus graph prepare spans.
@@ -1139,6 +1163,16 @@ pub(crate) unsafe fn contact_block(
                 fin_b.local_center,
                 fast,
             );
+            let updated = dir.get(o + DIR_FLAGS);
+            if flags & 0x0001_0000 != 0 && updated & 0x0001_0000 != 0 && updated & 0x0040_0000 != 0
+            {
+                crate::constraint_graph::update_manifold_count(
+                    world_index,
+                    dir.get(o + DIR_COLOR_INDEX) as usize,
+                    dir.get(o + DIR_LOCAL_INDEX) as usize,
+                    dir.get(o + DIR_MANIFOLD_COUNT) as u16,
+                );
+            }
         }
     }
 }

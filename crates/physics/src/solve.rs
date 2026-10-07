@@ -40,7 +40,7 @@ use crate::integrate;
 use crate::math::Vec3;
 use crate::parfor::{worth_forking, ParFor, COLLIDE_FORK_MIN, COLLIDE_MIN_RANGE};
 use crate::stages::{
-    self, max_sizes, Block, BlockType, ColorSpan, Context, Plan, Stage, StageWork, SyncBlock,
+    self, max_sizes, Block, ColorSpan, Context, Plan, Stage, StageWork, SyncBlock,
     MAX_COLORS,
 };
 
@@ -69,13 +69,13 @@ static mut WORK: Option<Work> = None;
 struct Work {
     world: usize,
     cols: Columns<'static>,
+    overflow_cols: Columns<'static>,
     wide: Col<'static, f32>,
     wide_idx: Col<'static, u32>,
     wide_spans: Col<'static, crate::contact_spans::WidePrepareSpan>,
 
     /// The serial spill: contact records the graph coloring could not separate. Never becomes blocks —
     /// the orchestrator runs it alone, in creation order, between stages.
-    overflow_start: usize,
     overflow_count: usize,
 
     /// Active graph-color arrays and their joint-prepare spans (b3JointPrepareSpan).
@@ -103,17 +103,6 @@ struct Work {
     hit_threshold: f32,
     /// The world's continuous toggle, for the fused finalize's fast-candidate predicate.
     enable_continuous: bool,
-}
-
-impl Work {
-    fn overflow(&self) -> Block {
-        Block {
-            start: self.overflow_start,
-            count: self.overflow_count,
-            block_type: BlockType::Contact,
-            color: u8::MAX,
-        }
-    }
 }
 
 impl StageWork for Work {
@@ -267,23 +256,47 @@ impl StageWork for Work {
     }
 
     fn prepare_overflow(&self) {
-        self.prepare_mesh(self.overflow());
+        contact::prepare(
+            &self.overflow_cols,
+            0,
+            self.overflow_count,
+            self.contact_softness,
+            self.static_softness,
+            self.warm_start_scale,
+        );
     }
 
     fn warm_start_overflow(&self) {
-        self.warm_start_mesh(self.overflow());
+        contact::warm_start(&self.overflow_cols, 0, self.overflow_count);
     }
 
     fn solve_overflow(&self, use_bias: bool) {
-        self.solve_mesh(self.overflow(), use_bias);
+        contact::solve(
+            &self.overflow_cols,
+            0,
+            self.overflow_count,
+            use_bias,
+            self.inv_h,
+            self.contact_speed,
+        );
     }
 
     fn restitution_overflow(&self) {
-        self.restitution_mesh(self.overflow());
+        contact::restitution(
+            &self.overflow_cols,
+            0,
+            self.overflow_count,
+            self.restitution_threshold,
+        );
     }
 
     fn store_overflow(&self) {
-        self.store_mesh(self.overflow(), 0);
+        contact::store(
+            &self.overflow_cols,
+            0,
+            self.overflow_count,
+            self.hit_threshold,
+        );
     }
 
     // --- joints -------------------------------------------------------------------------------
@@ -448,7 +461,7 @@ pub extern "C" fn solve_build_in_world(
     wide_total: usize,
     mesh_start: usize,
     mesh_total: usize,
-    overflow_start: usize,
+    _overflow_start: usize,
     overflow_count: usize,
     joint_total: usize,
     overflow_joint_count: usize,
@@ -516,10 +529,10 @@ pub extern "C" fn solve_build_in_world(
         WORK = Some(Work {
             world: world_index,
             cols: arena::scalar_columns(world_index),
+            overflow_cols: arena::overflow_columns(world_index),
             wide,
             wide_idx,
             wide_spans,
-            overflow_start,
             overflow_count,
             joints,
             joint_bases,

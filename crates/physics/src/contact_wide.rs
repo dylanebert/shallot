@@ -704,9 +704,6 @@ pub fn prepare(
         // Only `lane_count` lanes are filled below; this zeroes the tail lanes of a partial record,
         // mirroring box3d's memset of the remainder wide slot. Without it a stale nonzero index would
         // gather a bogus body in `warm_start`/`solve`.
-        for k in 0..3 * LANES {
-            idx.set(io + k, 0);
-        }
 
         // Per-lane staging; SoA lane vectors are written into the record after the lane loop.
         let mut inv_mass_a = [0.0f32; 4];

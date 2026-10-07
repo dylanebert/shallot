@@ -121,14 +121,6 @@ pub const P_FEATURE_ID: usize = offset_of!(ManifoldPointRecord, feature_id) / 4;
 pub const P_TRIANGLE_INDEX: usize = offset_of!(ManifoldPointRecord, triangle_index) / 4;
 pub const P_PERSISTED: usize = offset_of!(ManifoldPointRecord, persisted) / 4;
 
-/// u32 stride of one scalar solver-record slot: contactId, manifoldStart (transient `mc` base),
-/// pointStart (transient `mcp` base). Maps a per-color scalar record to its persistent contact and its
-/// slice of the per-step-sequential transient constraint columns.
-pub const SLOT_STRIDE: usize = 3;
-pub const SLOT_CONTACT: usize = 0;
-pub const SLOT_MANIFOLD_START: usize = 1;
-pub const SLOT_POINT_START: usize = 2;
-
 /// The directory record the solver gathers for one contact.
 pub struct DirEntry {
     pub friction: f32,

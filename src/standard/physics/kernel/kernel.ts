@@ -652,7 +652,6 @@ export type Kernel = {
     contactCapacity(worldId: number): number;
     contactCount(worldId: number): number;
     graphComputeLayout(): number;
-    graphWriteSlots(): void;
     graphCreate(capacity: number): void;
     graphBodyBit(color: number, id: number): number;
     graphAssignColor(a: number, b: number, ta: number, tb: number): number;

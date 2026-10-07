@@ -223,7 +223,7 @@ pub unsafe extern "C" fn solve_build_in_world(
         *layout.add(3) as usize,
         *layout.add(9) as usize,
     );
-    constraint_graph::write_slots_in_world(world_index);
+    constraint_graph::initialize_constraints(world_index);
     let (spans, colors) = crate::arena::color_span_column();
     let mut total = 0;
     for i in 0..colors {
