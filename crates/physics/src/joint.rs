@@ -1851,16 +1851,6 @@ fn solve_prismatic(
     let enable_motor = crate::joint_abi::enabled(joints, slot, PJ_ENABLE, PJ_ENABLE_MOTOR);
     let enable_limit = crate::joint_abi::enabled(joints, slot, PJ_ENABLE, PJ_ENABLE_LIMIT);
 
-    let mut perp_impulse = Vec2::new(
-        get(joints, slot, PJ_PERP_IMPULSE),
-        get(joints, slot, PJ_PERP_IMPULSE + 1),
-    );
-    let mut angular_impulse = get_vec3(joints, slot, PJ_ANGULAR_IMPULSE);
-    let mut spring_impulse = get(joints, slot, PJ_SPRING_IMPULSE);
-    let mut motor_impulse = get(joints, slot, PJ_MOTOR_IMPULSE);
-    let mut lower_impulse = get(joints, slot, PJ_LOWER_IMPULSE);
-    let mut upper_impulse = get(joints, slot, PJ_UPPER_IMPULSE);
-
     let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
     let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
 
@@ -1889,9 +1879,15 @@ fn solve_prismatic(
 
         let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
         let cdot = v_rel.dot(joint_axis);
+        let spring_impulse = get(joints, slot, PJ_SPRING_IMPULSE);
         let delta_impulse =
             -mass_scale * axial_mass * (cdot + bias) - impulse_scale * spring_impulse;
-        spring_impulse += delta_impulse;
+        set(
+            joints,
+            slot,
+            PJ_SPRING_IMPULSE,
+            spring_impulse + delta_impulse,
+        );
 
         let p = joint_axis.scale(delta_impulse);
         let l_a = s_ax.scale(delta_impulse);
@@ -1905,13 +1901,14 @@ fn solve_prismatic(
     if enable_motor && !fixed_rotation {
         let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
         let cdot = v_rel.dot(joint_axis) - motor_speed;
+        let motor_impulse = get(joints, slot, PJ_MOTOR_IMPULSE);
 
         let mut delta_impulse = -axial_mass * cdot;
         let mut new_impulse = motor_impulse + delta_impulse;
         let max_impulse = max_motor_force * h;
         new_impulse = clampf(new_impulse, -max_impulse, max_impulse);
         delta_impulse = new_impulse - motor_impulse;
-        motor_impulse = new_impulse;
+        set(joints, slot, PJ_MOTOR_IMPULSE, new_impulse);
 
         let p = joint_axis.scale(delta_impulse);
         let l_a = s_ax.scale(delta_impulse);
@@ -1941,10 +1938,11 @@ fn solve_prismatic(
                 }
                 let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
                 let cdot = v_rel.dot(joint_axis);
-                let old_impulse = lower_impulse;
+                let old_impulse = get(joints, slot, PJ_LOWER_IMPULSE);
                 let mut delta_impulse =
                     -mass_scale * axial_mass * (cdot + bias) - impulse_scale * old_impulse;
-                lower_impulse = maxf(old_impulse + delta_impulse, 0.0);
+                let lower_impulse = maxf(old_impulse + delta_impulse, 0.0);
+                set(joints, slot, PJ_LOWER_IMPULSE, lower_impulse);
                 delta_impulse = lower_impulse - old_impulse;
 
                 let p = joint_axis.scale(delta_impulse);
@@ -1955,7 +1953,7 @@ fn solve_prismatic(
                 v_b = v_b.mul_add(m_b, p);
                 w_b = w_b.add(i_b.mul_v(l_b));
             } else {
-                lower_impulse = 0.0;
+                set(joints, slot, PJ_LOWER_IMPULSE, 0.0);
             }
         }
 
@@ -1976,10 +1974,11 @@ fn solve_prismatic(
                 // sign flipped on Cdot
                 let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
                 let cdot = -v_rel.dot(joint_axis);
-                let old_impulse = upper_impulse;
+                let old_impulse = get(joints, slot, PJ_UPPER_IMPULSE);
                 let delta_impulse =
                     -mass_scale * axial_mass * (cdot + bias) - impulse_scale * old_impulse;
-                upper_impulse = maxf(old_impulse + delta_impulse, 0.0);
+                let upper_impulse = maxf(old_impulse + delta_impulse, 0.0);
+                set(joints, slot, PJ_UPPER_IMPULSE, upper_impulse);
 
                 // sign flipped on applied impulse
                 let neg_delta_impulse = old_impulse - upper_impulse;
@@ -1991,7 +1990,7 @@ fn solve_prismatic(
                 v_b = v_b.mul_add(m_b, p);
                 w_b = w_b.add(i_b.mul_v(l_b));
             } else {
-                upper_impulse = 0.0;
+                set(joints, slot, PJ_UPPER_IMPULSE, 0.0);
             }
         }
     }
@@ -2013,11 +2012,17 @@ fn solve_prismatic(
         }
 
         let cdot = w_b.sub(w_a);
+        let angular_impulse = get_vec3(joints, slot, PJ_ANGULAR_IMPULSE);
         let impulse = rotation_mass
             .mul_v(cdot.add(bias))
             .scale(-mass_scale)
             .sub(angular_impulse.scale(impulse_scale));
-        angular_impulse = angular_impulse.add(impulse);
+        set_vec3(
+            joints,
+            slot,
+            PJ_ANGULAR_IMPULSE,
+            angular_impulse.add(impulse),
+        );
 
         w_a = w_a.sub(i_a.mul_v(impulse));
         w_b = w_b.add(i_b.mul_v(impulse));
@@ -2055,10 +2060,15 @@ fn solve_prismatic(
             cy: Vec2::new(kyz, kzz),
         };
 
-        let old_impulse = perp_impulse;
+        let old_impulse = Vec2::new(
+            get(joints, slot, PJ_PERP_IMPULSE),
+            get(joints, slot, PJ_PERP_IMPULSE + 1),
+        );
         let sol = k.solve(cdot.add(bias));
         let delta_impulse = sol.scale(-mass_scale).sub(old_impulse.scale(impulse_scale));
-        perp_impulse = old_impulse.add(delta_impulse);
+        let perp_impulse = old_impulse.add(delta_impulse);
+        set(joints, slot, PJ_PERP_IMPULSE, perp_impulse.x);
+        set(joints, slot, PJ_PERP_IMPULSE + 1, perp_impulse.y);
 
         let p = blend2(delta_impulse.x, perp_y_axis, delta_impulse.y, perp_z_axis);
         v_a = v_a.mul_sub(m_a, p);
@@ -2066,14 +2076,6 @@ fn solve_prismatic(
         v_b = v_b.mul_add(m_b, p);
         w_b = w_b.add(i_b.mul_v(blend2(delta_impulse.x, s_by, delta_impulse.y, s_bz)));
     }
-
-    set(joints, slot, PJ_PERP_IMPULSE, perp_impulse.x);
-    set(joints, slot, PJ_PERP_IMPULSE + 1, perp_impulse.y);
-    set_vec3(joints, slot, PJ_ANGULAR_IMPULSE, angular_impulse);
-    set(joints, slot, PJ_SPRING_IMPULSE, spring_impulse);
-    set(joints, slot, PJ_MOTOR_IMPULSE, motor_impulse);
-    set(joints, slot, PJ_LOWER_IMPULSE, lower_impulse);
-    set(joints, slot, PJ_UPPER_IMPULSE, upper_impulse);
 
     if end_a.dynamic {
         write_velocity(state_col, base.sim_index_a, v_a, w_a);
