@@ -395,7 +395,7 @@ test("manifold.rs:383-388 vs convex_manifold.c:36: endpoint on clip plane is not
 test.todo("manifold.rs:383-388,558-559,1424-1431 vs convex_manifold.c:36,127-128,931-934: clipped-away face with null edge", () => {
     compare(results.filter((r) => r.label?.startsWith("null-axis-")));
 });
-test.todo("manifold.rs:1424-1431 vs convex_manifold.c:939: hull-capsule face/edge tolerance chooses the native point count", () => {
+test("manifold.rs:1424-1431 vs convex_manifold.c:939: hull-capsule face/edge tolerance chooses the native point count", () => {
     const row = results.find((r) => r.label === "manifold-14-29")!;
     expect(row.actual[0]).toBe(row.native[0]);
 });

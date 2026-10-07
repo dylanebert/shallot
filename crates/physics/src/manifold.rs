@@ -1403,13 +1403,13 @@ pub fn collide_hull_and_capsule(
         face_separation = deepest_point_separation(manifold);
     }
 
+    if edge_query.index_a == -1 {
+        return;
+    }
+
     // Create edge contact if face contact fails or edge contact is significantly better.
-    let k_rel_edge_tolerance: f32 = 0.9;
-    let k_abs_tolerance = 0.5 * LINEAR_SLOP;
     let edge_separation = edge_query.separation - capsule_b.radius;
-    if manifold.point_count == 0
-        || edge_separation > k_rel_edge_tolerance * face_separation + k_abs_tolerance
-    {
+    if manifold.point_count == 0 || edge_separation > face_separation + LINEAR_SLOP {
         build_hull_and_capsule_edge_contact(
             manifold,
             capacity,
