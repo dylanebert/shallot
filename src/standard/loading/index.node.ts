@@ -4,10 +4,9 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createApp } from "../../engine";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
 test("build awaits an application-owned loading completion promise before cleanup and returning the app", async () => {

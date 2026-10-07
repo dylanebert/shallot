@@ -20,8 +20,10 @@ import {
 import { PointsPlugin } from "./points.fixture";
 
 setDefaultTimeout(CEILING.node);
-const peerModule = "bun-webgpu";
-await (await import(peerModule)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 if (typeof ResizeObserver === "undefined") {
     globalThis.ResizeObserver = class {
         observe() {}

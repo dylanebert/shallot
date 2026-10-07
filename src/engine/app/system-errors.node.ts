@@ -3,8 +3,9 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { runApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
 await setupGlobals();
 
 test("runApp logs a system error once, keeps healthy frames running and resumes after swapSystem", async () => {

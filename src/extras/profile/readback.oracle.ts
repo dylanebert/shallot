@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createApp } from "../../engine";
 import { Profile, ProfilePlugin } from "./index";
 
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+await setupGlobals();
 
 async function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;

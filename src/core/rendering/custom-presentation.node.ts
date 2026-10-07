@@ -18,8 +18,10 @@ import {
 import { tonemappingStateKey } from "./tonemapping-state";
 
 setDefaultTimeout(CEILING.node);
-const peerModule = "bun-webgpu";
-await (await import(peerModule)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 const Replacement: Plugin = {
     name: "Replacement",

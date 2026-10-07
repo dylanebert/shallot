@@ -7,8 +7,9 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { cpuTotal } from "../../extras/profile/cpu";
 
 setDefaultTimeout(CEILING.node);
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
 await setupGlobals();
 let live: Awaited<ReturnType<typeof createApp>> | null = null;
 afterEach(() => {

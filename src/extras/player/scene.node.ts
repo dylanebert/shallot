@@ -17,8 +17,10 @@ import {
 } from "../../index";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 test("a Player capsule retains its collider geometry and rests above the floor", async () => {
     const app = await createApp({

@@ -27,9 +27,9 @@ test("browser exports load without Bun- or Node-only modules", async () => {
     });
     const metafile = checkBuild(result, "browser capture");
     expect(edgesOf(metafile).filter((path) => BUILTINS.test(path))).toEqual([]);
-    expect(
-        Object.keys(metafile.inputs).some((path) => /(?:playwright|bun-webgpu)/.test(path)),
-    ).toBe(false);
+    expect(Object.keys(metafile.inputs).some((path) => /(?:playwright|webgpu)/.test(path))).toBe(
+        false,
+    );
 });
 
 test("Bun engine exports load without Node-only modules or project tooling", async () => {

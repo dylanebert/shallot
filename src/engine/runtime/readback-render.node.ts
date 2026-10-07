@@ -5,8 +5,10 @@ import { createApp } from "../app";
 import { rawDevice } from "./gpu";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 test("rendered frames without a request map nothing", async () => {
     const owner = await createApp({ defaults: false, plugins: [] });

@@ -1,12 +1,11 @@
 import { expect, test } from "bun:test";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import * as d from "typegpu/data";
 import { createApp, type Plugin } from "../app";
 import { u32 } from "../index";
 import { component } from "./component";
 import type { World } from "./world";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
 const UPLOAD_RECORD = d.struct({ value: d.u32, tag: d.u32 });

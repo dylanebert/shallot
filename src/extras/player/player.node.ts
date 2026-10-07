@@ -25,8 +25,8 @@ import {
     Transform,
 } from "@dylanebert/shallot";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
 await setupGlobals();
 
 test("the public Player controller consumes held, released and neutral input to drive a Character and a linked Transform without a Camera, renderer or browser input", async () => {

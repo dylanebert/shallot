@@ -41,7 +41,7 @@ test("a packed headless app steps on a GPU and refuses without navigator.gpu", a
                     type: "module",
                     dependencies: {
                         "@dylanebert/shallot": `file:../${tarballName}`,
-                        "bun-webgpu": rootPackage.devDependencies["bun-webgpu"],
+                        webgpu: rootPackage.devDependencies["webgpu"],
                     },
                     devDependencies: { "@types/bun": rootPackage.devDependencies["@types/bun"] },
                 },
@@ -62,7 +62,7 @@ import { createApp, type Plugin } from "@dylanebert/shallot/app";
 import { component, f32, Time } from "@dylanebert/shallot/ecs";
 import * as Rendering from "@dylanebert/shallot/rendering";
 import { drainLog, probeTexture } from "@dylanebert/shallot/runtime";
-import { setupGlobals } from "bun-webgpu";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 
@@ -92,7 +92,7 @@ test("the packed engine refuses with Bun's optional peer fix when navigator.gpu 
     Object.defineProperty(navigator, "gpu", { configurable: true, value: undefined });
     try {
         await expect(createApp({ plugins: [Counter], defaults: false })).rejects.toThrow(
-            "WebGPU unavailable: navigator.gpu is missing in Bun. Install the optional bun-webgpu peer dependency",
+            "WebGPU unavailable: navigator.gpu is missing in Bun. Install the optional webgpu peer dependency",
         );
     } finally {
         if (previous) Object.defineProperty(navigator, "gpu", previous);
@@ -121,9 +121,9 @@ test("the packed headless plugin set steps the world through public engine subpa
         run(
             ["bun", "install", "--linker=isolated", "--no-progress"],
             project,
-            "installing packed project and bun-webgpu",
+            "installing packed project and webgpu",
         );
-        expect(existsSync(join(project, "node_modules/bun-webgpu/package.json"))).toBe(true);
+        expect(existsSync(join(project, "node_modules/webgpu/package.json"))).toBe(true);
         const tests = run(["bun", "test"], project, "testing packed GPU project");
         expect(tests).toContain("the packed engine refuses with Bun's optional peer fix");
         expect(tests).toContain("the packed headless plugin set steps the world");

@@ -16,13 +16,10 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { Demo } from "./demo";
 
-const peerModule = "bun-webgpu";
-const peer = (await import(peerModule)) as Record<string, unknown> & {
-    setupGlobals(): Promise<void>;
-};
-await bounded("frame probe WebGPU setup", peer.setupGlobals());
+await bounded("frame probe WebGPU setup", setupGlobals());
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`${label} timed out after 5000 ms`)), 5000);

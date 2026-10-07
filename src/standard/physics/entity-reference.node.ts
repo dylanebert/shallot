@@ -16,8 +16,9 @@ import {
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
 await setupGlobals();
 
 test("recycled bodies retry failed marshals and placement warnings, including restored bindings", async () => {

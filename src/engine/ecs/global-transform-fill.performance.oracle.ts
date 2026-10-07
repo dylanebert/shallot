@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -6,8 +7,7 @@ import { createApp } from "../app";
 import { probeBuffer } from "../runtime";
 import { Xform } from "../utils";
 
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+await setupGlobals();
 
 const layout = tgpu.bindGroupLayout({
     current: { storage: d.arrayOf(Xform), access: "readonly" },

@@ -5,8 +5,10 @@ import { createApp, GlobalTransform, Time } from "../../engine";
 import { physicsWorld, readBody, StandardPhysicsPlugin, setKinematic } from ".";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 test("a default Body is static, takes no velocity, and refuses setKinematic with one warning", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });

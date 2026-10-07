@@ -4,14 +4,13 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { Body, BodyType } from "../../core/physics";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { readBody, StandardPhysicsPlugin } from "../../standard/physics";
 import { CanvasContext } from "../app/canvas.fixture";
 import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../index";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {

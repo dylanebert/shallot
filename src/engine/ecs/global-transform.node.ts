@@ -27,8 +27,10 @@ if (typeof ResizeObserver === "undefined") {
         },
     });
 }
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 const SpawnedPlacement = { marker: u32 };
 

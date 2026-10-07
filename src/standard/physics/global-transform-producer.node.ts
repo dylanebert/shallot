@@ -6,8 +6,10 @@ import { physicsWorld, readBody, StandardPhysicsPlugin } from ".";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 test("a body falling asleep publishes zero ECS velocity, and waking publishes its current velocity", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });

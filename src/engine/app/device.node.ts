@@ -7,14 +7,11 @@ setDefaultTimeout(CEILING.node);
 import { Body, BodyType, ShapeKind } from "../../core/physics";
 import { hashPhysics, readBody, StandardPhysicsPlugin } from "../../standard/physics";
 import "../../standard";
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { globalTransformTable, Time, type World } from "../index";
 import { createApp } from "./index";
 
-const peerModule = "bun-webgpu";
-const peer = (await import(peerModule)) as Record<string, unknown> & {
-    setupGlobals(): Promise<void>;
-};
-const { setupGlobals } = peer;
 await setupGlobals();
 
 let live: Awaited<ReturnType<typeof createApp>> | null = null;
@@ -43,12 +40,12 @@ async function refusalMessage(): Promise<string> {
     );
 }
 
-test("missing navigator.gpu names the Bun runtime and optional bun-webgpu peer fix", async () => {
+test("missing navigator.gpu names the Bun runtime and optional webgpu peer fix", async () => {
     const restore = replaceGpu(undefined);
     try {
         const message = await refusalMessage();
         expect(message).toContain("navigator.gpu is missing in Bun");
-        expect(message).toContain("optional bun-webgpu peer");
+        expect(message).toContain("optional webgpu peer");
     } finally {
         restore();
     }

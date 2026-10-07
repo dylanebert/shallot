@@ -7,8 +7,10 @@ import { probeBuffer } from "../../engine/runtime";
 import { CLUSTER_COUNT, LIGHT_GRID_OFFSET, LIGHT_POOL, requestLightOverflow } from "./cluster";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 test("light culling clamps an overflowing index pool without readback and exposes drops only on request", async () => {
     const subject = await createRenderedSubject();

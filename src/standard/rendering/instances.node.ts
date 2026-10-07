@@ -12,8 +12,8 @@ import { meshInstanceTable } from "./preprocess";
 import { Draws } from "./registry";
 import "../../standard";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
 await setupGlobals();
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {

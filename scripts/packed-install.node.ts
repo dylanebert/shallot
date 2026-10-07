@@ -52,6 +52,7 @@ test("packed examples install by copy-out as isolated standalone projects", asyn
                     devDependencies: {
                         "@types/bun": rootPackage.devDependencies["@types/bun"],
                         typescript: rootPackage.devDependencies.typescript,
+                        webgpu: rootPackage.devDependencies.webgpu,
                     },
                 },
                 null,

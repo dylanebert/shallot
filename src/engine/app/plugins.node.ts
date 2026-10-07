@@ -97,11 +97,9 @@ const everyPlugin: readonly Plugin[] = [
     VignettePlugin,
 ];
 
-const peerModule = "bun-webgpu";
-const peer = (await import(peerModule)) as Record<string, unknown> & {
-    setupGlobals(): Promise<void>;
-};
-await withTimeout("WebGPU global setup", peer.setupGlobals(), 5000);
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await withTimeout("WebGPU global setup", setupGlobals(), 5000);
 const createCanvasContext = CanvasContext as unknown as new (
     canvas: HTMLCanvasElement,
     width: number,

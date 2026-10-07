@@ -21,6 +21,13 @@ const ROOT = resolve(import.meta.dir, "..");
 const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const TYPEGPU_RANGE = ENGINE.peerDependencies.typegpu as string;
 
+test("Dawn webgpu is an optional peer with the verified development pin", () => {
+    expect(ENGINE.peerDependencies.webgpu).toBe("^0.6.2");
+    expect(ENGINE.peerDependenciesMeta.webgpu).toEqual({ optional: true });
+    expect(ENGINE.devDependencies.webgpu).toBe("^0.6.2");
+    expect(ENGINE.exports["./webgpu"]).toBe("./src/engine/runtime/webgpu.ts");
+});
+
 test("Vite is a supported plugin peer and a Shallot development dependency", () => {
     expect(ENGINE.peerDependencies.vite).toBe("^8.0.0");
     expect(ENGINE.devDependencies.vite).toBe("^8.3.1");

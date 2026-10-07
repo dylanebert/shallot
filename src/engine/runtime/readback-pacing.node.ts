@@ -5,8 +5,10 @@ import { component, snapshot, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 test("a deterministic composition hashes identically under two frame pacings with requested readback active", async () => {
     const Counter = { value: u32 };

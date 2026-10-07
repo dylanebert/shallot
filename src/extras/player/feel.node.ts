@@ -20,8 +20,10 @@ import {
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 async function scene(y = 2) {
     let player = 0,

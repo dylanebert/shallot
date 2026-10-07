@@ -8,8 +8,8 @@ export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () =
     let subject: T;
     beforeAll(async () => {
         const start = performance.now();
-        const peer = "bun-webgpu";
-        await (await import(peer)).setupGlobals();
+        const { setupGlobals } = await import("@dylanebert/shallot/webgpu");
+        await setupGlobals();
         subject = await compile();
         if (process.env.SHALLOT_GPU_COMPILE_ORACLE === "1") {
             console.log(

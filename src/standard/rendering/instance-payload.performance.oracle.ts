@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createApp } from "../../engine/app";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {

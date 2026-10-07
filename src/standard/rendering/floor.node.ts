@@ -51,8 +51,10 @@ import {
 import "../../standard";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 const gpu = create(["backend=metal"]);
 const proof: Plugin = {
     name: "FloorProof",

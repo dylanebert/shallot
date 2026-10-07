@@ -7,6 +7,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### Device and world ownership
 
 - Every built app requires WebGPU.
+- Headless Bun and Node apps install the optional `webgpu` peer and call `setupGlobals` from `@dylanebert/shallot/webgpu` before building; browser apps use the host's WebGPU.
 - A build acquires the composition's required capabilities, grants preferred features where available, and refuses with the cause; it never forwards adapter maxima.
 - Each build acquires a device unless supplied `config.device`; apps may share that device.
 - Each app owns its world storage and allocations; disposing one releases its resources, not the device or a sibling's data.

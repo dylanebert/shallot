@@ -16,8 +16,9 @@ import { defaultWeldJointDef } from "./solver/weldJoint";
 import { defaultWheelJointDef } from "./solver/wheelJoint";
 
 setDefaultTimeout(CEILING.node);
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
 await setupGlobals();
 let app: Awaited<ReturnType<typeof createApp>>;
 beforeAll(async () => {

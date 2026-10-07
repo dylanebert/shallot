@@ -18,10 +18,9 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { Demo, Route } from "./demo";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
 async function ascent() {

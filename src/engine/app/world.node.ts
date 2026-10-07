@@ -13,10 +13,10 @@ import { isolationFont } from "../../extras/text/font.fixture";
 import { Draws } from "../../standard/rendering";
 import { f32, GlobalTransform, probeBuffer, requestGPU, Time, Transform, World } from "../index";
 import "../../standard";
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createApp, swapPlugins } from "./index";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
 const Value = { amount: f32 };

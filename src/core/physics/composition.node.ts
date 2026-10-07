@@ -13,8 +13,8 @@ import {
 
 setDefaultTimeout(CEILING.node);
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
 await setupGlobals();
 
 test("core PhysicsPlugin builds without a solver and accepts shared components with defaults", async () => {

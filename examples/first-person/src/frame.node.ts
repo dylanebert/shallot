@@ -13,9 +13,9 @@ import { Demo } from "./demo";
 
 setDefaultTimeout(CEILING.node);
 
-const peerModule = "bun-webgpu";
-const peer = (await import(peerModule)) as { setupGlobals(): Promise<void> };
-await peer.setupGlobals();
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 test("first-person presents a nonuniform final frame with byte-identical captures at one state", async () => {
     const app = await createApp({

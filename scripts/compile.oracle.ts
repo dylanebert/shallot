@@ -1,8 +1,8 @@
 import { test } from "bun:test";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { compileSubjects, measureCompile } from "./compile.fixture";
 
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+await setupGlobals();
 for (const subject of compileSubjects) {
     test(`report ${subject.name} compile duration`, async () => {
         console.log(

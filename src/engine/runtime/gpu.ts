@@ -1264,7 +1264,7 @@ async function acquireDevice(
         const runtime = gpuRuntimeName();
         const fix =
             runtime === "Bun"
-                ? " Install the optional bun-webgpu peer dependency to enable GPU builds."
+                ? " Install the optional webgpu peer dependency to enable GPU builds."
                 : "";
         throw new UnsupportedError(
             `WebGPU unavailable: navigator.gpu is missing in ${runtime}.${fix}`,

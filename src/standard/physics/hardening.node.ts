@@ -16,10 +16,9 @@ import {
     snapshotPhysics,
     type WorldSnapshot,
 } from "@dylanebert/shallot/standard/physics";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { physicsCounters } from "./runtime";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
 function addBody(

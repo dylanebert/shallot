@@ -22,6 +22,7 @@ if (docs.length === 0) {
 // These are the package ranges that installation commands and workspace manifests must agree with.
 const PIN_SOURCES: Record<string, { manifest: string; field: string }> = {
     typegpu: { manifest: "package.json", field: "peerDependencies" },
+    webgpu: { manifest: "package.json", field: "peerDependencies" },
     "unplugin-typegpu": { manifest: "package.json", field: "dependencies" },
     typescript: { manifest: "package.json", field: "devDependencies" },
 };

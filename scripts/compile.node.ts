@@ -4,8 +4,10 @@ import { compileSubjects, measureCompile } from "./compile.fixture";
 import { CEILING } from "./test-tiers";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 const pipelineCounts: Record<string, number> = {
     "engine-only": 0,
     "core rendering": 1, // Stage 6 moved the cluster-grid, light-compact and light-cull pipelines to standard.

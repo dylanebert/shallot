@@ -44,7 +44,7 @@ test("a Node allocation import does not load the display-only oracle or Hyprland
     const built = await Bun.build({
         entrypoints: [resolve(import.meta.dir, "allocation.ts")],
         metafile: true,
-        external: ["playwright", "bun-webgpu", "chromium-bidi"],
+        external: ["playwright", "webgpu", "chromium-bidi"],
         target: "bun",
     });
     if (!built.success || built.metafile === undefined)

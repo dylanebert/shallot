@@ -16,8 +16,8 @@ import {
     snapshotPhysics,
 } from "@dylanebert/shallot/standard/physics";
 
-const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
 await setupGlobals();
 
 function addBox(

@@ -6,8 +6,10 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { jointIds } from "./solver/joint.fixture";
 
 setDefaultTimeout(CEILING.node);
-const peer = "bun-webgpu";
-await (await import(peer)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 test("values asserted against by Box3D create warn once and skip, while positive infinite weld hertz is accepted", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });

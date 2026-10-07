@@ -13,8 +13,10 @@ import { probeBuffer } from "../runtime";
 import { createApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
-const peerModule = "bun-webgpu";
-await (await import(peerModule)).setupGlobals();
+
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+
+await setupGlobals();
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
