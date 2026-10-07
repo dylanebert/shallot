@@ -29,8 +29,8 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, head: u32, capacity
         let mut count = 0;
         while id != NULL_SHAPE {
             let shape_id = id as usize;
-            id = crate::shapes::col(world as usize).get(shape_id * SHAPE_STRIDE + S_NEXT);
-            if operation != 3 && !world_query::accepts(world as usize, shape_id, &header) {
+            id = crate::shapes::col(world).get(shape_id * SHAPE_STRIDE + S_NEXT);
+            if operation != 3 && !world_query::accepts(world, shape_id, &header) {
                 continue;
             }
             let (shape, materials) = query_abi::shape(world, shape_id);

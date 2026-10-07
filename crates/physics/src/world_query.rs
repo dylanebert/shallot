@@ -255,17 +255,17 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
         let mut stack = [0; tree::STACK_SIZE];
         for i in 0..3 {
             let pool = core::slice::from_raw_parts(
-                broad::tree_ptr(world as usize, i),
-                broad::tree_cap(world as usize, i) * tree::STRIDE,
+                broad::tree_ptr(world, i),
+                broad::tree_cap(world, i) * tree::STRIDE,
             );
             let root = header[i * 2] as i32;
             let count = header[i * 2 + 1] as usize;
             let tree_fraction = fraction;
             let mut visit = |clip: f32, _: i32, shape_id: u32| -> f32 {
                 let id = shape_id as usize;
-                if !accepts(world as usize, id, &header)
+                if !accepts(world, id, &header)
                     || (exclude_body
-                        && crate::shapes::col(world as usize).get(id * SHAPE_STRIDE + S_QUERY_BODY)
+                        && crate::shapes::col(world).get(id * SHAPE_STRIDE + S_QUERY_BODY)
                             + 1
                             == header[19])
                 {
@@ -285,7 +285,7 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                     return fraction;
                 }
                 let (shape, materials) = query_abi::shape(world, id);
-                let transform = pose(world as usize, id, origin);
+                let transform = pose(world, id, origin);
                 if operation == 1 {
                     if !query::overlap_shape(&shape, transform, proxy) {
                         return 1.0;

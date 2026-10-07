@@ -221,12 +221,12 @@ pub unsafe extern "C" fn set_collide_connected(world: usize, id: usize, collide:
 }
 
 pub unsafe extern "C" fn set_collide_connected_in_world(world: usize, id: usize, collide: bool) {
-    let r = records::record(world as usize, id);
+    let r = records::record(world, id);
     if r.collide_connected == collide {
         return;
     }
-    records::record_mut(world as usize, id).collide_connected = collide;
-    let r = records::record(world as usize, id);
+    records::record_mut(world, id).collide_connected = collide;
+    let r = records::record(world, id);
     let a = r.edges[0].body_id as usize;
     let b = r.edges[1].body_id as usize;
     if collide {
@@ -239,10 +239,10 @@ pub unsafe extern "C" fn set_collide_connected_in_world(world: usize, id: usize,
         };
         while shape != -1 {
             let o = shape as usize * crate::shapes::SHAPE_STRIDE;
-            let u = crate::shapes::col(world as usize);
+            let u = crate::shapes::col(world);
             let key = u.get(o + crate::shapes::S_PROXY_KEY);
             if key != u32::MAX {
-                crate::broad::buffer_move_in_world(world as usize, key);
+                crate::broad::buffer_move_in_world(world, key);
             }
             shape = u.get(o + crate::shapes::S_NEXT) as i32;
         }
@@ -257,11 +257,11 @@ pub unsafe extern "C" fn set_collide_connected_in_world(world: usize, id: usize,
         while key != -1 {
             let id = (key >> 1) as usize;
             let edge = (key & 1) as usize;
-            let d = crate::manifolds::dir_col(world as usize);
+            let d = crate::manifolds::dir_col(world);
             let o = id * crate::manifold_abi::DIR_STRIDE + crate::manifold_abi::DIR_EDGE_A;
             key = d.get(o + 2 + 3 * edge) as i32;
             if d.get(o + 3 * (edge ^ 1)) as i32 == other {
-                crate::contact_lifecycle::destroy(world as usize, id, false);
+                crate::contact_lifecycle::destroy(world, id, false);
             }
         }
     }
@@ -273,11 +273,11 @@ pub unsafe extern "C" fn wake_bodies(world: usize, id: usize) {
 }
 
 pub unsafe extern "C" fn wake_bodies_in_world(world: usize, id: usize) {
-    let r = records::record(world as usize, id);
+    let r = records::record(world, id);
     let a = r.edges[0].body_id as usize;
     let b = r.edges[1].body_id as usize;
-    wake_body(world as usize, a);
-    wake_body(world as usize, b);
+    wake_body(world, a);
+    wake_body(world, b);
 }
 unsafe fn location(world_index: usize, id: usize) -> (usize, usize) {
     let r = records::record(world_index, id);
@@ -333,8 +333,8 @@ pub unsafe extern "C" fn enable(world: usize, id: usize, bit: u32, enabled: bool
 }
 
 pub unsafe extern "C" fn enable_in_world(world: usize, id: usize, bit: u32, enabled: bool) {
-    let (key, index) = location(world as usize, id);
-    let (field, impulse, count) = match (records::record(world as usize, id).joint_type as u32, bit)
+    let (key, index) = location(world, id);
+    let (field, impulse, count) = match (records::record(world, id).joint_type as u32, bit)
     {
         (TY_DISTANCE, DJ_ENABLE_SPRING | DJ_ENABLE_LIMIT) => (DJ_ENABLE, 0, 0),
         (TY_DISTANCE, DJ_ENABLE_MOTOR) => (DJ_ENABLE, DJ_MOTOR_IMPULSE, 1),
@@ -355,14 +355,14 @@ pub unsafe extern "C" fn enable_in_world(world: usize, id: usize, bit: u32, enab
         (TY_WHEEL, WHJ_ENABLE_STEERING_LIMIT) => (WHJ_ENABLE, WHJ_LOWER_STEERING_IMPULSE, 2),
         _ => unreachable!(),
     };
-    let bits = joints::read_word_in_world(world as usize, key, index, field);
+    let bits = joints::read_word_in_world(world, key, index, field);
     if (bits & bit != 0) != enabled {
         for lane in 0..count {
-            joints::write_float_in_world(world as usize, key, index, impulse + lane, 0.0);
+            joints::write_float_in_world(world, key, index, impulse + lane, 0.0);
         }
     }
     joints::write_word_in_world(
-        world as usize,
+        world,
         key,
         index,
         field,
@@ -381,8 +381,8 @@ pub unsafe extern "C" fn set_limits_in_world(
     mut lower: f32,
     mut upper: f32,
 ) {
-    let (key, index) = location(world as usize, id);
-    let kind = records::record(world as usize, id).joint_type as u32;
+    let (key, index) = location(world, id);
+    let kind = records::record(world, id).joint_type as u32;
     if kind == TY_DISTANCE {
         lower = crate::math::clampf(
             lower,
@@ -415,21 +415,21 @@ pub unsafe extern "C" fn set_limits_in_world(
         _ => unreachable!(),
     };
     if kind == TY_WHEEL {
-        if lower != joints::read_float_in_world(world as usize, key, index, lo)
-            || upper != joints::read_float_in_world(world as usize, key, index, hi)
+        if lower != joints::read_float_in_world(world, key, index, lo)
+            || upper != joints::read_float_in_world(world, key, index, hi)
         {
-            joints::write_float_in_world(world as usize, key, index, lo, lower);
-            joints::write_float_in_world(world as usize, key, index, hi, upper);
+            joints::write_float_in_world(world, key, index, lo, lower);
+            joints::write_float_in_world(world, key, index, hi, upper);
             for field in [WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_UPPER_SUSPENSION_IMPULSE] {
-                joints::write_float_in_world(world as usize, key, index, field, 0.0);
+                joints::write_float_in_world(world, key, index, field, 0.0);
             }
         }
     } else {
-        joints::write_float_in_world(world as usize, key, index, lo, lower);
-        joints::write_float_in_world(world as usize, key, index, hi, upper);
+        joints::write_float_in_world(world, key, index, lo, lower);
+        joints::write_float_in_world(world, key, index, hi, upper);
         if kind == TY_DISTANCE {
             for field in [DJ_IMPULSE, DJ_LOWER_IMPULSE, DJ_UPPER_IMPULSE] {
-                joints::write_float_in_world(world as usize, key, index, field, 0.0);
+                joints::write_float_in_world(world, key, index, field, 0.0);
             }
         }
     }
@@ -441,9 +441,9 @@ pub unsafe extern "C" fn set_length(world: usize, id: usize, length: f32) {
 }
 
 pub unsafe extern "C" fn set_length_in_world(world: usize, id: usize, length: f32) {
-    let (key, index) = location(world as usize, id);
+    let (key, index) = location(world, id);
     joints::write_float_in_world(
-        world as usize,
+        world,
         key,
         index,
         DJ_LENGTH,
@@ -454,7 +454,7 @@ pub unsafe extern "C" fn set_length_in_world(world: usize, id: usize, length: f3
         ),
     );
     for field in [DJ_IMPULSE, DJ_LOWER_IMPULSE, DJ_UPPER_IMPULSE] {
-        joints::write_float_in_world(world as usize, key, index, field, 0.0);
+        joints::write_float_in_world(world, key, index, field, 0.0);
     }
 }
 #[export_name = "motorJointSetMaxSpring"]
@@ -469,9 +469,9 @@ pub unsafe extern "C" fn set_max_spring_in_world(
     torque: bool,
     value: f32,
 ) {
-    let (key, index) = location(world as usize, id);
+    let (key, index) = location(world, id);
     joints::write_float_in_world(
-        world as usize,
+        world,
         key,
         index,
         if torque {

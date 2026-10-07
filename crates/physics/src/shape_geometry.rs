@@ -226,7 +226,7 @@ mod wasm {
     }
 
     pub unsafe extern "C" fn compute_mass_in_world(world: usize, id: usize) {
-        let m = mass(world as usize, id);
+        let m = mass(world, id);
         OUTPUT[0] = m.mass;
         put_vector(1, m.center);
         put_vector(4, m.inertia.cx);
@@ -246,7 +246,7 @@ mod wasm {
         y: f32,
         z: f32,
     ) {
-        let (minimum, maximum) = extent(world as usize, id, Vec3::new(x, y, z));
+        let (minimum, maximum) = extent(world, id, Vec3::new(x, y, z));
         OUTPUT[0] = minimum;
         put_vector(1, maximum);
     }
@@ -280,7 +280,7 @@ mod wasm {
         extra: f32,
     ) {
         let b = bounds(
-            world as usize,
+            world,
             id,
             Transform {
                 p: Vec3::new(x, y, z),
@@ -314,7 +314,7 @@ mod wasm {
         y: f32,
         z: f32,
     ) -> usize {
-        geo::hull_view(reference(world as usize, id)).support_vertex(Vec3::new(x, y, z))
+        geo::hull_view(reference(world, id)).support_vertex(Vec3::new(x, y, z))
     }
     #[export_name = "shapeFindHullSupportFace"]
     pub unsafe extern "C" fn find_hull_support_face(
@@ -335,7 +335,7 @@ mod wasm {
         y: f32,
         z: f32,
     ) -> usize {
-        geo::hull_view(reference(world as usize, id)).support_face(Vec3::new(x, y, z))
+        geo::hull_view(reference(world, id)).support_face(Vec3::new(x, y, z))
     }
     #[export_name = "shapeGetCentroid"]
     pub unsafe extern "C" fn get_centroid(world: usize, id: usize) {
@@ -344,7 +344,7 @@ mod wasm {
     }
 
     pub unsafe extern "C" fn get_centroid_in_world(world: usize, id: usize) {
-        put_vector(0, centroid(world as usize, id));
+        put_vector(0, centroid(world, id));
     }
     #[export_name = "shapeFinishGeometry"]
     pub unsafe extern "C" fn finish_geometry(world: usize, id: usize) {
@@ -353,13 +353,13 @@ mod wasm {
     }
 
     pub unsafe extern "C" fn finish_geometry_in_world(world: usize, id: usize) {
-        let c = centroid(world as usize, id);
-        let f = shapes::col_f(world as usize);
+        let c = centroid(world, id);
+        let f = shapes::col_f(world);
         let o = id * shapes::SHAPE_STRIDE;
         f.set(o + 22, c.x);
         f.set(o + 23, c.y);
         f.set(o + 24, c.z);
-        f.set(o + 9, margin(world as usize, id));
+        f.set(o + 9, margin(world, id));
     }
     #[export_name = "shapeCanCreate"]
     pub unsafe extern "C" fn can_create(world: usize, body: usize, kind: u32) -> bool {
@@ -394,11 +394,11 @@ mod wasm {
         g: f32,
     ) -> u32 {
         let o = id * shapes::SHAPE_STRIDE;
-        let floats = shapes::col_f(world as usize);
-        let mut t = kind(world as usize, id);
+        let floats = shapes::col_f(world);
+        let mut t = kind(world, id);
         if t == 0 && Vec3::new(d - a, e - b, f - c).length_sq() <= 0.005f32 * 0.005f32 {
             t = 5;
-            shapes::col(world as usize).set(o + shapes::S_TYPE, t);
+            shapes::col(world).set(o + shapes::S_TYPE, t);
             let center = Vec3::new(a, b, c).lerp(Vec3::new(d, e, f), 0.5);
             for (lane, value) in [center.x, center.y, center.z, g].into_iter().enumerate() {
                 floats.set(o + 48 + lane, value);

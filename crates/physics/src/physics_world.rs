@@ -11,15 +11,15 @@ pub unsafe extern "C" fn destroy_world(world: usize) {
 }
 
 pub unsafe extern "C" fn destroy_world_in_world(world: usize) {
-    for id in 0..crate::shapes::shape_cap_in_world(world as usize) {
+    for id in 0..crate::shapes::shape_cap_in_world(world) {
         if crate::shapes::shape_alive(world as u32, id as u32) != 0 {
             crate::shape_lifecycle::release_geometry(world, id);
         }
     }
     assert_eq!(crate::hull_database::count(world), 0);
-    for id in 0..solver_set::count_in_world(world as usize) {
-        if solver_set::index_in_world(world as usize, id) != -1 {
-            solver_set::destroy_in_world(world as usize, id);
+    for id in 0..solver_set::count_in_world(world) {
+        if solver_set::index_in_world(world, id) != -1 {
+            solver_set::destroy_in_world(world, id);
         }
     }
     bodies::body_reset_world(world as u32);
@@ -58,18 +58,18 @@ pub unsafe extern "C" fn link_contact(world: usize, id: usize) {
 }
 
 pub unsafe extern "C" fn link_contact_in_world(world: usize, id: usize) {
-    let d = manifolds::dir_col(world as usize);
+    let d = manifolds::dir_col(world);
     let a = d.get(id * DIR_STRIDE + DIR_EDGE_A) as usize;
     let b = d.get(id * DIR_STRIDE + DIR_EDGE_B) as usize;
     let sa = bodies::record(world, a).set_index;
     let sb = bodies::record(world, b).set_index;
     if sa == 2 && sb >= 3 {
-        solver_set::wake(world as usize, sb as usize);
+        solver_set::wake(world, sb as usize);
     } else if sb == 2 && sa >= 3 {
-        solver_set::wake(world as usize, sa as usize);
+        solver_set::wake(world, sa as usize);
     }
     island::link_contact_in_world(
-        world as usize,
+        world,
         id as i32,
         bodies::record(world, a).island_id,
         bodies::record(world, b).island_id,
@@ -466,7 +466,7 @@ pub unsafe extern "C" fn begin_in_world(
     let substeps = substeps.max(1) as usize;
     context(dt, substeps, hertz, damping);
     bodies::reserve_bodies_in_world(
-        world as usize,
+        world,
         bodies::body_length(world as u32)
             .max(16)
             .next_power_of_two(),

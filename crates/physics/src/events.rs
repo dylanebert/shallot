@@ -210,7 +210,7 @@ mod runtime {
     }
 
     pub unsafe extern "C" fn contact_touch_in_world(world: usize, contact: usize, begin: bool) {
-        let d = manifolds::dir_col(world as usize);
+        let d = manifolds::dir_col(world);
         let o = contact * DIR_STRIDE;
         let a = shape_id(world, d.get(o + DIR_SHAPE_A) as usize);
         let b = shape_id(world, d.get(o + DIR_SHAPE_B) as usize);
@@ -259,14 +259,14 @@ mod runtime {
 
     pub unsafe extern "C" fn update_begin_impulses_in_world(world: usize) {
         let w = state(world);
-        let d = manifolds::dir_col(world as usize);
+        let d = manifolds::dir_col(world);
         for e in &mut w.contact_begin {
             let contact = e.contact.index1 as usize - 1;
             let o = contact * DIR_STRIDE;
             if d.get(o + DIR_CONTACT_ID) != u32::MAX
                 && d.get(o + DIR_GENERATION) == e.contact.generation
             {
-                e.normal_impulse = total_impulse(world as usize, contact);
+                e.normal_impulse = total_impulse(world, contact);
             }
         }
     }
@@ -281,7 +281,7 @@ mod runtime {
             return;
         };
         let w = state(world);
-        let d = manifolds::dir_col(world as usize);
+        let d = manifolds::dir_col(world);
         for word in 0..bits.block_count as usize {
             let mut mask = *bits.bits.add(word);
             while mask != 0 {
@@ -295,18 +295,18 @@ mod runtime {
                 let b = d.get(o + DIR_SHAPE_B) as usize;
                 let ar = bodies::record(
                     world,
-                    shapes::col(world as usize).get(a * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY)
+                    shapes::col(world).get(a * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY)
                         as usize,
                 );
                 let br = bodies::record(
                     world,
-                    shapes::col(world as usize).get(b * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY)
+                    shapes::col(world).get(b * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY)
                         as usize,
                 );
                 let center = body::read_fin(
                     crate::col::Col::new(
                         crate::solver_set::body_ptr(
-                            world as usize,
+                            world,
                             ar.set_index as usize,
                             ar.local_index as usize,
                             2,
@@ -319,7 +319,7 @@ mod runtime {
                 let center_b = body::read_fin(
                     crate::col::Col::new(
                         crate::solver_set::body_ptr(
-                            world as usize,
+                            world,
                             br.set_index as usize,
                             br.local_index as usize,
                             2,
@@ -368,12 +368,12 @@ mod runtime {
                         normal: [normal.x, normal.y, normal.z],
                         speed,
                         material_a: material(
-                            world as usize,
+                            world,
                             a,
                             d.get(o + DIR_CHILD_INDEX) as usize,
                             triangle,
                         ),
-                        material_b: material(world as usize, b, 0, triangle),
+                        material_b: material(world, b, 0, triangle),
                     });
                 }
             }
@@ -445,7 +445,7 @@ mod runtime {
             3 => w.contact_end[1 - w.end_index].as_ptr().add(index).cast(),
             4 => w.contact_hit.as_ptr().add(index).cast(),
             5 => w.joints.as_ptr().add(index).cast(),
-            6 => (bodies::move_base(world as usize) as *const BodyMove)
+            6 => (bodies::move_base(world) as *const BodyMove)
                 .add(index)
                 .cast(),
             _ => panic!("event kind"),

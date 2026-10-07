@@ -93,7 +93,7 @@ pub unsafe extern "C" fn create_in_world(world: usize, id: usize) {
     crate::shape_lifecycle::attach_sensor_in_world(world, id, index as i32);
 }
 pub unsafe fn record_hit(world: usize, sensor: usize, other: usize) {
-    let index = shapes::col(world as usize).get(sensor * shapes::SHAPE_STRIDE + 4) as usize;
+    let index = shapes::col(world).get(sensor * shapes::SHAPE_STRIDE + 4) as usize;
     state(world).sensors[index].hits.push(visitor(world, other));
 }
 pub unsafe fn prepare(world_index: usize, workers: usize) -> usize {
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn destroy(world: usize, id: usize) {
 }
 
 pub unsafe extern "C" fn destroy_in_world(world: usize, id: usize) {
-    let index = shapes::col(world as usize).get(id * shapes::SHAPE_STRIDE + 4) as usize;
+    let index = shapes::col(world).get(id * shapes::SHAPE_STRIDE + 4) as usize;
     let w = state(world);
     for v in &w.sensors[index].overlaps2 {
         crate::events::sensor_touch(world, id, *v, true);

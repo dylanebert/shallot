@@ -153,7 +153,7 @@ pub(crate) mod runtime {
         let record = bodies::record(world, id);
         if record.set_index == 2 {
             let state = crate::col::Col::new(
-                bodies::state_base(world as usize) as *mut f32,
+                bodies::state_base(world) as *mut f32,
                 (record.local_index as usize + 1) * body::STATE_STRIDE,
             );
             let offset =
@@ -205,8 +205,8 @@ pub(crate) mod runtime {
         if record.set_index != 2 {
             return;
         }
-        let sim = bodies::column(world as usize, id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world as usize, id, 2, body::FIN_STRIDE);
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
         let v = Vec3::new(x, y, z);
         if kind <= 2 {
             let offset = if kind == 2 { body::TORQUE } else { body::FORCE };
@@ -222,7 +222,7 @@ pub(crate) mod runtime {
             }
             return;
         }
-        let state_col = bodies::column(world as usize, id, 0, body::STATE_STRIDE);
+        let state_col = bodies::column(world, id, 0, body::STATE_STRIDE);
         let mut state = body::read_state(state_col, 0);
         let data = body::read_sim(sim, 0);
         if kind == 3 || kind == 4 {
@@ -279,9 +279,9 @@ pub(crate) mod runtime {
     ) {
         use crate::math::{Quat, Vec3};
 
-        let sim = bodies::column(world as usize, id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world as usize, id, 2, body::FIN_STRIDE);
-        let sim2 = bodies::column(world as usize, id, 5, body::SIM2_STRIDE);
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
+        let sim2 = bodies::column(world, id, 5, body::SIM2_STRIDE);
         let q = Quat {
             v: Vec3::new(qx, qy, qz),
             s: qs,
@@ -327,7 +327,7 @@ pub(crate) mod runtime {
             return u32::MAX;
         }
         let result = crate::solver_set::transfer_body_in_world(
-            world as usize,
+            world,
             body.set_index as usize,
             body.local_index as usize,
             target,
@@ -348,7 +348,7 @@ pub(crate) mod runtime {
     pub unsafe extern "C" fn wake_record_in_world(world: usize, id: usize) {
         let body = *bodies::record(world, id);
         crate::solver_set::wake_body_in_world(
-            world as usize,
+            world,
             body.set_index as usize,
             body.local_index as usize,
             body.flags,
@@ -381,7 +381,7 @@ pub(crate) mod runtime {
         angular_damping: f32,
         gravity_scale: f32,
     ) -> u32 {
-        crate::regions::select(world as u32);
+        crate::regions::select(world);
         unsafe {
             create_sim_in_world(
                 world,
@@ -549,7 +549,7 @@ pub(crate) mod runtime {
         {
             return false;
         }
-        let (pose, fin, _) = bodies::geometry(world as usize, id);
+        let (pose, fin, _) = bodies::geometry(world, id);
         let q = Quat {
             v: Vec3::new(qx, qy, qz),
             s: qs,
@@ -584,7 +584,7 @@ pub(crate) mod runtime {
             }
             crate::body_mutation::wake_body_in_world(world, id);
         }
-        let state = bodies::column(world as usize, id, 0, body::STATE_STRIDE);
+        let state = bodies::column(world, id, 0, body::STATE_STRIDE);
         for (lane, value) in [
             linear.x, linear.y, linear.z, angular.x, angular.y, angular.z,
         ]
@@ -608,10 +608,10 @@ pub(crate) mod runtime {
             & !(body::flags::IS_FAST
                 | body::flags::IS_SPEED_CAPPED
                 | body::flags::HAD_TIME_OF_IMPACT);
-        bodies::column(world as usize, id, 5, body::SIM2_STRIDE)
+        bodies::column(world, id, 5, body::SIM2_STRIDE)
             .set(body::S2_FLAGS, f32::from_bits(flags));
         if record.set_index == 2 {
-            *crate::solver_set::body_ptr(world as usize, 2, record.local_index as usize, 4) = flags;
+            *crate::solver_set::body_ptr(world, 2, record.local_index as usize, 4) = flags;
         }
     }
 
@@ -641,8 +641,8 @@ pub(crate) mod runtime {
         let record = bodies::record_mut(world, id);
         record.mass = 0.0;
         record.inertia = Mat3::ZERO;
-        let sim = bodies::column(world as usize, id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world as usize, id, 2, body::FIN_STRIDE);
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
         sim.set(body::INV_MASS, 0.0);
         for lane in body::INV_INERTIA_LOCAL..body::S2_MIN_EXTENT {
             sim.set(lane, 0.0);
@@ -651,7 +651,7 @@ pub(crate) mod runtime {
             fin.set(body::LOCAL_CENTER + lane, 0.0);
             fin.set(body::MAX_EXTENT + lane, 0.0);
         }
-        bodies::column(world as usize, id, 5, body::SIM2_STRIDE).set(body::S2_MIN_EXTENT, 1.0e5);
+        bodies::column(world, id, 5, body::SIM2_STRIDE).set(body::S2_MIN_EXTENT, 1.0e5);
     }
 
     unsafe fn mass_finish(world: usize, id: usize) {
@@ -661,23 +661,23 @@ pub(crate) mod runtime {
         if record.shape_count == 0 {
             return;
         }
-        let sim = bodies::column(world as usize, id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world as usize, id, 2, body::FIN_STRIDE);
-        let sim2 = bodies::column(world as usize, id, 5, body::SIM2_STRIDE);
-        let pose = bodies::geometry(world as usize, id).0;
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
+        let sim2 = bodies::column(world, id, 5, body::SIM2_STRIDE);
+        let pose = bodies::geometry(world, id).0;
         let mut center = Vec3::ZERO;
         if record.body_type == 2 {
             let mut shape = record.head_shape_id;
             while shape != -1 {
                 let id = shape as usize;
-                shape = next_shape(world as usize, id);
-                if crate::shapes::col_f(world as usize)
+                shape = next_shape(world, id);
+                if crate::shapes::col_f(world)
                     .get(id * crate::shapes::SHAPE_STRIDE + crate::shapes::S_DENSITY)
                     == 0.0
                 {
                     continue;
                 }
-                let entry = crate::shape_geometry::mass(world as usize, id);
+                let entry = crate::shape_geometry::mass(world, id);
                 record.mass += entry.mass;
                 center = center.mul_add(entry.mass, entry.center);
             }
@@ -688,14 +688,14 @@ pub(crate) mod runtime {
             let mut shape = record.head_shape_id;
             while shape != -1 {
                 let id = shape as usize;
-                shape = next_shape(world as usize, id);
-                if crate::shapes::col_f(world as usize)
+                shape = next_shape(world, id);
+                if crate::shapes::col_f(world)
                     .get(id * crate::shapes::SHAPE_STRIDE + crate::shapes::S_DENSITY)
                     == 0.0
                 {
                     continue;
                 }
-                let entry = crate::shape_geometry::mass(world as usize, id);
+                let entry = crate::shape_geometry::mass(world, id);
                 if entry.mass == 0.0 {
                     continue;
                 }
@@ -741,7 +741,7 @@ pub(crate) mod runtime {
             let next_center = pose.point(center);
             body::write_fin_center(fin, 0, next_center);
             if record.set_index == 2 {
-                let state = bodies::column(world as usize, id, 0, body::STATE_STRIDE);
+                let state = bodies::column(world, id, 0, body::STATE_STRIDE);
                 let velocity = Vec3::new(state.get(0), state.get(1), state.get(2));
                 let angular = Vec3::new(state.get(3), state.get(4), state.get(5));
                 let next = velocity.add(angular.cross(next_center.sub(old_center)));
@@ -765,8 +765,8 @@ pub(crate) mod runtime {
     }
 
     unsafe fn mass_extent(world: usize, id: usize, minimum: f32, x: f32, y: f32, z: f32) {
-        let fin = bodies::column(world as usize, id, 2, body::FIN_STRIDE);
-        let sim2 = bodies::column(world as usize, id, 5, body::SIM2_STRIDE);
+        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
+        let sim2 = bodies::column(world, id, 5, body::SIM2_STRIDE);
         sim2.set(
             body::S2_MIN_EXTENT,
             crate::math::minf(sim2.get(body::S2_MIN_EXTENT), minimum),
@@ -787,7 +787,7 @@ pub(crate) mod runtime {
     pub unsafe extern "C" fn update_mass_in_world(world: usize, id: usize) {
         mass_begin(world, id);
         mass_finish(world, id);
-        let fin = bodies::column(world as usize, id, 2, body::FIN_STRIDE);
+        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
         let center = body::read_fin(fin, 0).local_center;
         let record = bodies::record(world, id);
         let mut shape = if record.body_type == 0 {
@@ -797,9 +797,9 @@ pub(crate) mod runtime {
         };
         while shape != -1 {
             let (minimum, maximum) =
-                crate::shape_geometry::extent(world as usize, shape as usize, center);
+                crate::shape_geometry::extent(world, shape as usize, center);
             mass_extent(world, id, minimum, maximum.x, maximum.y, maximum.z);
-            shape = next_shape(world as usize, shape as usize);
+            shape = next_shape(world, shape as usize);
         }
     }
 
@@ -815,9 +815,9 @@ pub(crate) mod runtime {
             return;
         }
         let island = body.island_id as usize;
-        island::remove_body_in_world(world as usize, island, body.island_index as usize);
-        if island::array_count_in_world(world as usize, island, 0) == 0 {
-            island::destroy_in_world(world as usize, island);
+        island::remove_body_in_world(world, island, body.island_index as usize);
+        if island::array_count_in_world(world, island, 0) == 0 {
+            island::destroy_in_world(world, island);
         }
     }
 
@@ -830,8 +830,8 @@ pub(crate) mod runtime {
     pub unsafe extern "C" fn create_island_in_world(world: usize, id: usize) {
         let set = bodies::record(world, id).set_index as usize;
         island::add_body_in_world(
-            world as usize,
-            island::create_in_world(world as usize, set),
+            world,
+            island::create_in_world(world, set),
             id as i32,
         );
     }
