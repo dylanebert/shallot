@@ -107,11 +107,7 @@ impl HullData<'_> {
             let dot = nz.mul(z).add(ny.mul(y).add(nx.mul(x)));
             minimum = minimum.min(bias.sub(dot).embed_index(i));
         }
-        let lanes = minimum.to_array();
-        let value = lanes
-            .into_iter()
-            .fold(f32::INFINITY, |a, b| if a < b { a } else { b });
-        (value.to_bits() & 0x7f) as usize
+        minimum.min_index(7)
     }
 
     /// Index of the hull face whose normal is most aligned with `direction` (b3FindHullSupportFace).

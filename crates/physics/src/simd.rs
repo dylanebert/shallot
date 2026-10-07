@@ -22,6 +22,22 @@ pub struct FloatW(
     #[cfg(not(target_arch = "wasm32"))] [f32; 4],
 );
 
+impl FloatW {
+    /// Recover the index embedded in the minimum lane (b3MinIndexW).
+    #[inline]
+    pub fn min_index(self, bit_count: u32) -> usize {
+        #[cfg(target_arch = "wasm32")]
+        let a = self.min(FloatW(i32x4_shuffle::<1, 0, 3, 2>(self.0, self.0)));
+        #[cfg(not(target_arch = "wasm32"))]
+        let a = self.min(Self::set(self.0[1], self.0[0], self.0[3], self.0[2]));
+        #[cfg(target_arch = "wasm32")]
+        let a = a.min(FloatW(i32x4_shuffle::<2, 3, 0, 1>(a.0, a.0)));
+        #[cfg(not(target_arch = "wasm32"))]
+        let a = a.min(Self::set(a.0[2], a.0[3], a.0[0], a.0[1]));
+        (a.to_array()[0].to_bits() & ((1 << bit_count) - 1)) as usize
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 impl FloatW {
     #[inline]
