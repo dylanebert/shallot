@@ -202,12 +202,18 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
         let origin = v(&header, 10);
         let (r, _, proxy) = query_abi::input();
         // A user callback can recursively query; keep inputs independent of the shared ABI scratch.
-        let mut points = [Vec3::ZERO; 128];
-        points[..proxy.count].copy_from_slice(&proxy.points[..proxy.count]);
-        let proxy = ShapeProxy {
-            points: &points,
-            count: proxy.count,
-            radius: proxy.radius,
+        let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
+        let proxy = if user_callback != 0 && matches!(operation, 1 | 4 | 5 | 6) {
+            for (target, point) in points.iter_mut().zip(&proxy.points[..proxy.count]) {
+                target.write(*point);
+            }
+            ShapeProxy {
+                points: core::slice::from_raw_parts(points.as_ptr().cast::<Vec3>(), proxy.count),
+                count: proxy.count,
+                radius: proxy.radius,
+            }
+        } else {
+            proxy
         };
         let translation = Vec3::new(r[9], r[10], r[11]);
         let mut fraction = 1.0;
@@ -272,8 +278,8 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                 }
                 if operation == 5 {
                     let mover = Capsule {
-                        center1: points[0],
-                        center2: points[1],
+                        center1: proxy.points[0],
+                        center2: proxy.points[1],
                         radius: proxy.radius,
                     };
                     let mut planes = [PlaneResult::ZERO; 64];
