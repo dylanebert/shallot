@@ -273,6 +273,44 @@ fn capsule_triangle_manifold_and_feature_are_bit_exact_under_warm_cache() {
 }
 
 #[test]
+fn capsule_triangle_capacity_and_clipped_away_segment() {
+    for scene in gold()["capsuleTriangle"].as_array().unwrap() {
+        let tri = scene["tri"].as_array().unwrap();
+        for capacity in [0, 1, 2, 8] {
+            let mut cache = SimplexCache::empty();
+            for _ in 0..2 {
+                let mut m = LocalManifold::new();
+                collide_capsule_and_triangle(
+                    &mut m,
+                    capacity,
+                    &capsule(&scene["a"]),
+                    vec3(&tri[0]),
+                    vec3(&tri[1]),
+                    vec3(&tri[2]),
+                    &mut cache,
+                );
+                assert!(m.point_count <= capacity.min(2));
+            }
+        }
+        let shift = Vec3::new(1000.0, 1000.0, 1000.0);
+        let mut cache = SimplexCache::empty();
+        for _ in 0..2 {
+            let mut m = LocalManifold::new();
+            collide_capsule_and_triangle(
+                &mut m,
+                2,
+                &capsule(&scene["a"]),
+                vec3(&tri[0]).add(shift),
+                vec3(&tri[1]).add(shift),
+                vec3(&tri[2]).add(shift),
+                &mut cache,
+            );
+            assert_eq!(m.point_count, 0);
+        }
+    }
+}
+
+#[test]
 fn spheres_bit_exact() {
     let g = gold();
     for scene in g["spheres"].as_array().unwrap() {
@@ -422,6 +460,130 @@ fn triangle_hull_face_preserves_componentwise_signed_zero() {
             expected,
             "{name}"
         );
+    }
+}
+
+#[test]
+fn triangle_clipping_preserves_capacity_filtering_and_cached_reconstruction() {
+    let g = gold();
+    let storage = hull(&g["hulls"][0]["hullA"]);
+    for scene in g["hullTriangle"].as_array().unwrap() {
+        let tri = scene["tri"].as_array().unwrap();
+        for capacity in [3, 4, 8] {
+            for speculative in [false, true] {
+                let mut cache = SatCache::empty();
+                let mut cold = LocalManifold::new();
+                shallot_physics::triangle_manifold::collide_hull_and_triangle(
+                    &mut cold,
+                    capacity,
+                    &storage.view(),
+                    vec3(&tri[0]),
+                    vec3(&tri[1]),
+                    vec3(&tri[2]),
+                    &mut cache,
+                    speculative,
+                );
+                assert!(cold.point_count <= capacity);
+                if capacity < 4 {
+                    assert_eq!(cold.point_count, 0);
+                }
+                if !speculative {
+                    assert!(cold.points[..cold.point_count]
+                        .iter()
+                        .all(|p| p.separation <= 0.0));
+                }
+                let mut warm = LocalManifold::new();
+                shallot_physics::triangle_manifold::collide_hull_and_triangle(
+                    &mut warm,
+                    capacity,
+                    &storage.view(),
+                    vec3(&tri[0]),
+                    vec3(&tri[1]),
+                    vec3(&tri[2]),
+                    &mut cache,
+                    speculative,
+                );
+                assert_eq!(warm.point_count, cold.point_count, "{}", scene["name"]);
+                for (a, b) in warm.points[..warm.point_count].iter().zip(&cold.points) {
+                    assert_eq!(make_feature_id(a.pair), make_feature_id(b.pair));
+                    assert_eq!(a.separation.to_bits(), b.separation.to_bits());
+                    assert_eq!(
+                        [
+                            a.point.x.to_bits(),
+                            a.point.y.to_bits(),
+                            a.point.z.to_bits()
+                        ],
+                        [
+                            b.point.x.to_bits(),
+                            b.point.y.to_bits(),
+                            b.point.z.to_bits()
+                        ]
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cached_hull_reference_clips_triangle_through_four_side_planes() {
+    let g = gold();
+    let storage = hull(&g["hulls"][0]["hullA"]);
+    let hull = storage.view();
+    for face in 0..hull.face_count {
+        let plane = hull.planes[face];
+        let center = plane.normal.scale(plane.offset);
+        let seed = if plane.normal.x.abs() < 0.5 {
+            Vec3::new(1.0, 0.0, 0.0)
+        } else {
+            Vec3::new(0.0, 1.0, 0.0)
+        };
+        let u = plane.normal.cross(seed).normalize().scale(0.1);
+        let v = u.cross(plane.normal);
+        let tri = [center.sub(u).sub(v), center.add(u).sub(v), center.add(v)];
+        let mut cache = SatCache::empty();
+        cache.ty = 3;
+        cache.index_b = face;
+        cache.separation = 0.0;
+        for _ in 0..2 {
+            let mut m = LocalManifold::new();
+            shallot_physics::triangle_manifold::collide_hull_and_triangle(
+                &mut m, 4, &hull, tri[0], tri[1], tri[2], &mut cache, true,
+            );
+            assert_eq!(cache.ty, 3);
+            assert_eq!(cache.hit, 1);
+            assert_eq!(m.point_count, 3);
+            for p in &m.points[..m.point_count] {
+                assert_eq!(p.separation, 0.0);
+                assert!(tri
+                    .iter()
+                    .any(|v| [v.x, v.y, v.z] == [p.point.x, p.point.y, p.point.z]));
+            }
+        }
+    }
+}
+
+#[test]
+fn hull_clipping_reconstructs_at_each_capacity() {
+    let g = gold();
+    let a = hull(&g["hulls"][0]["hullA"]);
+    let b = hull(&g["hulls"][0]["hullB"]);
+    for capacity in [1, 2, 3, 4, 8] {
+        let mut cache = SatCache::empty();
+        let t = Transform {
+            p: Vec3::new(0.9, 0.0, 0.0),
+            q: Quat::IDENTITY,
+        };
+        let mut cold = LocalManifold::new();
+        collide_hulls(&mut cold, capacity, &a.view(), &b.view(), t, &mut cache);
+        assert_eq!(cold.point_count, if capacity < 4 { 0 } else { 4 });
+        let mut warm = LocalManifold::new();
+        collide_hulls(&mut warm, capacity, &a.view(), &b.view(), t, &mut cache);
+        assert_eq!(warm.point_count, cold.point_count);
+        for (a, b) in warm.points[..warm.point_count].iter().zip(&cold.points) {
+            assert_eq!(make_feature_id(a.pair), make_feature_id(b.pair));
+            assert_eq!(a.separation.to_bits(), b.separation.to_bits());
+        }
     }
 }
 

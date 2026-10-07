@@ -143,8 +143,10 @@ fn hull_face_contact(
 ) -> f32 {
     m.point_count = 0;
     let plane = hull.planes[query.b];
-    let mut input = [ClipVertex::ZERO; 128];
-    let mut output = [ClipVertex::ZERO; 128];
+    let mut buffer1 = [ClipVertex::ZERO; 128];
+    let mut buffer2 = [ClipVertex::ZERO; 128];
+    let mut input = &mut buffer1;
+    let mut output = &mut buffer2;
     for i in 0..3 {
         input[i] = ClipVertex {
             position: tri[i],
@@ -167,12 +169,12 @@ fn hull_face_contact(
         let v2 = hull.points[next.origin as usize];
         let side = v2.sub(v1).normalize().cross(plane.normal);
         count = clip_polygon(
-            &input,
+            &input[..count],
             count,
             Plane::from_normal_and_point(side, v1),
             edge as u8,
             plane,
-            &mut output,
+            output,
         );
         if count < 3 {
             *cache = SatCache::empty();
@@ -222,8 +224,10 @@ fn triangle_face_contact(
     speculative: bool,
 ) -> f32 {
     let face = find_incident_face(hull, plane.normal, query.b);
-    let mut input = [ClipVertex::ZERO; 128];
-    let mut output = [ClipVertex::ZERO; 128];
+    let mut buffer1 = [ClipVertex::ZERO; 128];
+    let mut buffer2 = [ClipVertex::ZERO; 128];
+    let mut input = &mut buffer1;
+    let mut output = &mut buffer2;
     let first = hull.faces[face].edge as usize;
     let mut edge = first;
     let mut count = 0;
@@ -252,12 +256,12 @@ fn triangle_face_contact(
         }
         let side = edges[i].cross(plane.normal).normalize();
         count = clip_polygon(
-            &input,
+            &input[..count],
             count,
             Plane::from_normal_and_point(side, tri[i]),
             i as u8,
             plane,
-            &mut output,
+            output,
         );
         core::mem::swap(&mut input, &mut output);
     }
