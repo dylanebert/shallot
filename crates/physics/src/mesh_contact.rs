@@ -172,11 +172,10 @@ impl TriangleSource<'_> {
                         let cell_upper = max(max(a, b), max(c, d));
                         if bounds_overlap(lower, upper, cell_lower, cell_upper) {
                             for i in [2 * cell, 2 * cell + 1] {
-                                if count == MAX_TRIANGLES {
-                                    return count;
+                                if count < MAX_TRIANGLES {
+                                    indices[count] = i;
+                                    count += 1;
                                 }
-                                indices[count] = i;
-                                count += 1;
                             }
                         }
                     }
