@@ -10,9 +10,8 @@
 //! Two disciplines are load-bearing and mirrored from the port:
 //!   - min/max are explicit comparisons (`a < b ? a : b`), never `f32::min`/`max`, which diverge
 //!     from box3d's scalar `b3MinFloat`/`b3MaxFloat` on NaN and signed zero.
-//!   - `remainderf` (inside the trig unwind) keeps its intermediate in f64 on purpose — the true
-//!     remainder is f32-representable and the f64 subtraction is exact, reproducing libm
-//!     `remainderf` bit for bit. Every other op stays in f32.
+//!   - Angle reduction uses an f64 modulo of twice the period to retain quotient parity
+//!     even when a finite f32 angle is too large for quotient subtraction.
 
 // biome-ignore-parity: the file mirrors src/math.ts; comments there explain the arithmetic.
 
@@ -71,40 +70,23 @@ pub fn clampf(a: f32, lo: f32, hi: f32) -> f32 {
 
 // --- transcendentals ------------------------------------------------------------------------
 
-// Round to nearest integer, ties to even, in f64 (matches the quotient rounding libm remainderf uses).
-fn rint_even(x: f64) -> f64 {
-    let fl = x.floor();
-    let diff = x - fl;
-    if diff < 0.5 {
-        return fl;
-    }
-    if diff > 0.5 {
-        return fl + 1.0;
-    }
-    if fl % 2.0 == 0.0 {
-        fl
-    } else {
-        fl + 1.0
-    }
-}
-
-// IEEE-754 remainder. The intermediate stays in f64 on purpose: for finite f32 inputs the true
-// remainder is f32-representable and the f64 subtraction is exact, so this reproduces libm
-// remainderf bit for bit over the sim's range (see the module note).
+// Reducing modulo two periods retains the even-quotient tie rule without forming a
+// rounded large quotient. The bounded subtractions are exact for f32 operands in f64.
 fn remainderf(x: f32, y: f32) -> f32 {
-    let xf = x as f64;
-    let yf = y as f64;
-    let n = rint_even(xf / yf);
-    let r = (xf - n * yf) as f32;
-    if r == 0.0 {
-        // A zero remainder takes the sign of the dividend.
-        if x.is_sign_negative() {
-            -0.0
-        } else {
-            0.0
-        }
+    let period = (y as f64).abs();
+    let mut r = (x as f64).abs() % (2.0 * period);
+    if r > period {
+        r -= 2.0 * period;
+    }
+    if r > 0.5 * period {
+        r -= period;
+    } else if r < -0.5 * period {
+        r += period;
+    }
+    if x.is_sign_negative() {
+        (-r) as f32
     } else {
-        r
+        r as f32
     }
 }
 
