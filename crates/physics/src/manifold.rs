@@ -2208,7 +2208,9 @@ pub fn collide_hulls(
         );
         if edge_manifold.point_count == 1 {
             manifold.normal = edge_manifold.normal;
-            manifold.point_count = 1;
+            manifold.point_count = edge_manifold.point_count;
+            manifold.feature = edge_manifold.feature;
+            manifold.squared_distance = edge_manifold.squared_distance;
             manifold.points[0] = edge_manifold.points[0];
             *cache = edge_cache;
         }
