@@ -77,6 +77,7 @@ export type WorldState = {
 
     // JavaScript user values cannot inhabit a wasm pointer; native joint events index these values.
     jointEventUserData: unknown[];
+    jointEventUserDataCount: number;
 
     stepIndex: number;
 
@@ -172,6 +173,7 @@ function makeWorldState(
         shapeStore: createShapeStore(world, worldId),
         queryColumns: null,
         jointEventUserData: [],
+        jointEventUserDataCount: 0,
         stepIndex: 0,
         profile: createStepProfile(),
         gravity: { ...def.gravity },

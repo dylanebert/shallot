@@ -11,7 +11,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.locked = true;
     world.broadPhase.store.initialize();
     world.bodyStore.syncCount = 0;
-    world.jointEventUserData.length = 0;
+    world.jointEventUserDataCount = 0;
     const k = kernel(world.ecsState);
     k.stepBegin(
         world.worldId,
