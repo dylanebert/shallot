@@ -76,23 +76,25 @@ mod runtime {
 
     pub unsafe fn alloc(world_index: usize) -> u32 {
         let w = &mut WORLDS[world_index];
-        let id = if let Some(id) = w.free.pop() {
-            id
+        let (id, generation) = if let Some(id) = w.free.pop() {
+            (
+                id,
+                record(world_index, id as usize).generation.wrapping_add(1),
+            )
         } else {
             let id = w.next;
             w.next += 1;
             w.records
                 .reserve(0, w.next * core::mem::size_of::<JointRecord>());
-            (w.records.layout[0] as usize as *mut JointRecord)
-                .add(id)
-                .write(JointRecord::EMPTY);
-            id as u32
+            (id as u32, 1)
         };
-        let r = record_mut(world_index, id as usize);
-        let generation = r.generation.wrapping_add(1);
-        *r = JointRecord::EMPTY;
-        r.generation = generation;
-        r.joint_id = id as i32;
+        (w.records.layout[0] as usize as *mut JointRecord)
+            .add(id as usize)
+            .write(JointRecord {
+                generation,
+                joint_id: id as i32,
+                ..JointRecord::EMPTY
+            });
         id
     }
 
