@@ -55,6 +55,17 @@ struct Step {
 // The pool runs one round at a time; this address publishes the world's step allocation.
 static mut STEP: *mut Step = core::ptr::null_mut();
 
+pub(crate) unsafe fn release_step(world: usize) {
+    if !STEP.is_null()
+        && (*STEP)
+            .work
+            .as_ref()
+            .is_some_and(|work| work.world == world)
+    {
+        STEP = core::ptr::null_mut();
+    }
+}
+
 /// The arena's columns and this step's scalars, as every block sees them. The columns are [`Col`]s —
 /// shared-mutable handles, because a stage's blocks run concurrently over one column and only their
 /// *writes* are disjoint (col.rs).
@@ -845,7 +856,7 @@ pub extern "C" fn worker_fault() {
         if *(&raw const JOB) != Job::Solve {
             return;
         }
-        if !STEP.is_null() {
+        if JOB == Job::Solve && !STEP.is_null() {
             let Some(ctx) = &(*STEP).ctx else {
                 return;
             };

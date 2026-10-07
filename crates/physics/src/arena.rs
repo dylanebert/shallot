@@ -38,6 +38,7 @@ pub unsafe fn reserve_solve(world: usize, bytes: usize) -> usize {
 
 pub unsafe fn free_solve(world: usize) {
     if SOLVE_PTR[world] != 0 {
+        crate::solve::release_step(world);
         STACKS[world].free(SOLVE_PTR[world] as *mut u8);
         SOLVE_PTR[world] = 0;
     }
