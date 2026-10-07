@@ -104,7 +104,6 @@ pub(crate) mod runtime {
     pub unsafe extern "C" fn finish(count: usize, time_step: f32, enable_sleep: bool) {
         let sim2 = bodies::sim2_base() as *mut u32;
         let state_flags = bodies::flags_base() as *mut u32;
-        let out = bodies::fin_out_base() as *const f32;
         let transient =
             body::flags::IS_FAST | body::flags::IS_SPEED_CAPPED | body::flags::HAD_TIME_OF_IMPACT;
         crate::events::set_move_count(regions::active(), count);
@@ -121,7 +120,6 @@ pub(crate) mod runtime {
             *row.add(body::S2_FLAGS) =
                 (sim_flags & !transient) | (sim_flags & body::flags::IS_FAST);
             *state_flags.add(index) = flags & !transient;
-            record.sleep_velocity = *out.add(index * body::FIN_OUT_STRIDE);
             if !enable_sleep
                 || record.flags & body::flags::ENABLE_SLEEP == 0
                 || record.sleep_velocity > record.sleep_threshold

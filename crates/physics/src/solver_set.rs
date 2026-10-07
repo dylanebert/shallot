@@ -1,12 +1,12 @@
 //! solver_set.c's set array and id pool. Body columns retain the solver's column layout.
-use crate::body::{FIN_OUT_STRIDE, FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
+use crate::body::{FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::regions::{self, Columns, MAX_WORLDS};
 const AWAKE: usize = 2;
 const STRIDES: [usize; 6] = [
     STATE_STRIDE,
     SIM_STRIDE,
     FIN_STRIDE,
-    FIN_OUT_STRIDE,
+    0,
     1,
     SIM2_STRIDE,
 ];

@@ -28,7 +28,7 @@ import {
 import { kernel } from "./kernel";
 import { KernelViews } from "./views";
 
-// BODY_LAYOUT header indices (bodies.rs), in memory order: world, sim, fin, finOut, flags, sim2.
+// BODY_LAYOUT header indices (bodies.rs); slot 3 is unallocated.
 export const B_STATE = 0;
 const B_SIM = 1;
 const B_FIN = 2;

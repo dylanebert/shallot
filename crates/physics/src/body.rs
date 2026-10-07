@@ -129,10 +129,6 @@ pub fn read_sim(col: Col<f32>, i: usize) -> SimIntegrate {
 /// `transform.q` stays in `sim` (finalize reads+writes it there, alongside the inertia/force fields).
 pub const FIN_STRIDE: usize = 12;
 
-/// f32 stride of the per-body finalize output: sleepVelocity for the retained sleep policy and
-/// kernel continuous decision, then maxMotion for kernel continuous finalization.
-pub const FIN_OUT_STRIDE: usize = 2;
-
 /// The finalize column's geometric fields for one body (`center` is read then overwritten with the
 /// advanced value; `transform_p` is write-only).
 #[derive(Clone, Copy, Debug, PartialEq)]

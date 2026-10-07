@@ -242,47 +242,11 @@ fn filtered(a: usize, b: usize) -> bool {
 /// # Safety
 /// The body columns must be reserved for the active world, no other thread may write the bodies in
 /// `[start, end)`, and no thread may grow memory while this runs.
-pub unsafe fn finalize(start: usize, end: usize, enabled: bool) {
-    let out = Col::new(
-        bodies::fin_out_base() as *mut f32,
-        (bodies::body_cap() + 8) * 2,
-    );
-    let s2 = sim2();
-    let f2 = Col::new(
-        bodies::sim2_base() as *mut f32,
-        (bodies::body_cap() + 8) * 12,
-    );
-    for i in start..end {
-        let c = scratch();
-        c.set(i * STRIDE + 1, 0);
-        let body = bodies::record(
-            crate::regions::active(),
-            s2.get(i * 12 + body::S2_BODY_ID) as usize,
-        );
-        let threshold = if ENABLE_SLEEP && body.flags & body::flags::ENABLE_SLEEP != 0 {
-            body.sleep_threshold
-        } else {
-            -1.0
-        };
-        let awake = out.get(i * 2) > threshold;
-        let flags = s2.atomic_get(i * 12 + 10) & !IS_FAST;
-        s2.atomic_set(i * 12 + 10, flags);
-        if enabled
-            && awake
-            && flags & body::flags::DYNAMIC != 0
-            && out.get(i * 2 + 1) > 0.5 * f2.get(i * 12 + 7)
-        {
-            s2.atomic_set(i * 12 + 10, flags | IS_FAST);
-            if flags & IS_BULLET == 0 {
-                solve(i);
-            }
-        } else {
-            put(f2, i * 12 + 4, v(fin(), i * 12));
-            let rotation = q(sim(), i * 32 + 28);
-            put(f2, i * 12, rotation.v);
-            f2.set(i * 12 + 3, rotation.s);
-        }
-    }
+pub unsafe fn sleep_enabled() -> bool {
+    ENABLE_SLEEP
+}
+pub(crate) unsafe fn reset_body(i: usize) {
+    scratch().set(i * STRIDE + 1, 0);
 }
 /// # Safety
 /// As `finalize`, and `reserve_at` must have reserved continuous rows for every body in `[start, end)`.
@@ -293,7 +257,7 @@ pub unsafe fn bullets(start: usize, end: usize) {
         }
     }
 }
-unsafe fn solve(i: usize) {
+pub(crate) unsafe fn solve(i: usize) {
     let u = shapes::col();
     let f = shapes::col_f();
     let s2 = sim2();

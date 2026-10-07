@@ -1,10 +1,8 @@
 //! Pose finalize: the per-body pose-advance phase of box3d's soft-step solver, ported op-for-op from
 //! `solver.c` (b3FinalizeBodiesTask). It advances the center + rotation from the solved deltas,
 //! rebuilds the world inertia tensor and body-origin transform, resets the per-step delta/force
-//! accumulators, and emits sleep velocity and maximum motion for the sleep policy and kernel CCD.
-//!
-//! This module owns the pose arithmetic. The arena follows it with the continuous sweep and shape
-//! bounds commit. TypeScript consumes sleep outputs; the kernel enlarges proxies serially.
+//! accumulators, writes the body's sleep velocity and decides whether it needs a continuous sweep.
+//! The arena follows it with shape bounds commit; the kernel enlarges proxies serially.
 //!
 //! Every arithmetic op maps one-to-one to the C scalar path (no SIMD, no FMA); bit-identical to the
 //! the frozen historical oracle vectors; current target evidence belongs to the standalone oracle.
@@ -12,7 +10,7 @@
 use crate::body::{
     clear_sim_force_torque, flags::DYNAMIC, read_fin, read_sim, read_state, write_fin_center,
     write_fin_transform_p, write_sim_inv_inertia_world, write_sim_rotation, write_state,
-    FIN_OUT_STRIDE, S2_CENTER0, S2_MIN_EXTENT, S2_ROTATION0, SIM2_STRIDE,
+    S2_BODY_ID, S2_CENTER0, S2_FLAGS, S2_MIN_EXTENT, S2_ROTATION0, SIM2_STRIDE,
 };
 use crate::col::Col;
 use crate::math::{maxf, minf, Mat3, Quat, Transform, Vec3};
@@ -119,18 +117,18 @@ pub fn convex_bounds(shape_type: u32, geom: &[f32], xf: Transform) -> [f32; 6] {
 /// Reads state (velocities + deltas), sim (transform.q + invInertiaLocal), the finalize column
 /// (center, localCenter, maxExtent), and the sim2 minExtent + flags. Writes the advanced
 /// center/transform.p (finalize column), transform.q + invInertiaWorld (sim), the cleared force/torque
-/// (sim), the reset deltas (state), `[sleepVelocity, maxMotion]` per body (out column), and — for every
-/// non-fast body — the sweep base center0/rotation0 (sim2). `h` is the full-step dt, `inv_dt` its inverse.
+/// (sim), the reset deltas (state), sleepVelocity on the owning body, and the sweep base for
+/// non-fast bodies. Fast non-bullets sweep immediately; bullets retain their base for the deferred
+/// sweep. `h` is the full-step dt, `inv_dt` its inverse.
 ///
-/// The sweep base is updated here for bodies below the motion threshold. Kernel continuous
-/// finalization completes the sleep-aware decision: sleepy bodies advance discretely, and fast
-/// non-bullets get their base from the clipped CCD pose. Bullets retain their base until their
-/// deferred sweep. With continuous disabled every body advances discretely.
-pub fn finalize(
+/// # Safety
+/// Resident body records and continuous scratch must be reserved. Only this worker may write
+/// bodies in the requested range, and no worker may grow memory while it runs.
+#[cfg(target_arch = "wasm32")]
+pub unsafe fn finalize(
     state_col: Col<f32>,
     sim_col: Col<f32>,
     fin_col: Col<f32>,
-    out_col: Col<f32>,
     sim2_col: Col<f32>,
     flags_col: Col<u32>,
     start: usize,
@@ -140,6 +138,7 @@ pub fn finalize(
     enable_continuous: bool,
 ) {
     for i in start..start + count {
+        crate::continuous::reset_body(i);
         let mut s = read_state(state_col, i);
         let sim = read_sim(sim_col, i);
         let fin = read_fin(fin_col, i);
@@ -180,8 +179,6 @@ pub fn finalize(
             .mul(sim.inv_inertia_local)
             .mul(rotation_matrix.transpose());
 
-        let max_motion = maxf(max_delta_position, max_velocity * h);
-
         write_state(state_col, i, &s);
         write_sim_rotation(sim_col, i, q);
         write_sim_inv_inertia_world(sim_col, i, inv_inertia_world);
@@ -189,20 +186,28 @@ pub fn finalize(
         write_fin_center(fin_col, i, center);
         write_fin_transform_p(fin_col, i, transform_p);
 
-        let o = i * FIN_OUT_STRIDE;
-        out_col.set(o, sleep_velocity);
-        out_col.set(o + 1, max_motion);
-
-        // Sweep base for the next continuous step: center0 = center, rotation0 = q, written for every
-        // body that isn't a fast candidate (b3FinalizeBodiesTask's non-fast/sleepy branch). A fast
-        // candidate — continuous enabled, dynamic, moving farther than half its smallest extent — is
-        // left for the CCD path to set. `min_extent` and the dynamic bit ride the sim2/flags columns.
         let s2 = i * SIM2_STRIDE;
-        let min_extent = sim2_col.get(s2 + S2_MIN_EXTENT);
-        let is_dynamic = flags_col.get(i) & DYNAMIC != 0;
-        let fast_candidate =
-            enable_continuous && is_dynamic && max_motion > SAFETY_FACTOR * min_extent;
-        if !fast_candidate {
+        let body_id = sim2_col.get(s2 + S2_BODY_ID).to_bits() as usize;
+        let body = crate::bodies::record_mut(crate::regions::active(), body_id);
+        body.sleep_velocity = sleep_velocity;
+        let awake = !crate::continuous::sleep_enabled()
+            || body.flags & crate::body::flags::ENABLE_SLEEP == 0
+            || sleep_velocity > body.sleep_threshold;
+        let flags = sim2_col.get(s2 + S2_FLAGS).to_bits() & !crate::continuous::IS_FAST;
+        sim2_col.set(s2 + S2_FLAGS, f32::from_bits(flags));
+        let mut fast_candidate = false;
+        if awake {
+            let max_motion = maxf(max_delta_position, max_velocity * h);
+            fast_candidate = enable_continuous
+                && flags_col.get(i) & DYNAMIC != 0
+                && max_motion > SAFETY_FACTOR * sim2_col.get(s2 + S2_MIN_EXTENT);
+        }
+        if fast_candidate {
+            sim2_col.set(s2 + S2_FLAGS, f32::from_bits(flags | crate::continuous::IS_FAST));
+            if flags & crate::continuous::IS_BULLET == 0 {
+                crate::continuous::solve(i);
+            }
+        } else {
             sim2_col.set(s2 + S2_ROTATION0, q.v.x);
             sim2_col.set(s2 + S2_ROTATION0 + 1, q.v.y);
             sim2_col.set(s2 + S2_ROTATION0 + 2, q.v.z);

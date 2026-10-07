@@ -12,7 +12,7 @@
 //! [`Col`]s rather than `&mut` slices — `col.rs` carries the argument.
 
 use crate::body::{
-    FIN_OUT_STRIDE, FIN_STRIDE, S2_HEAD_SHAPE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE,
+    FIN_STRIDE, S2_HEAD_SHAPE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE,
 };
 use crate::col::Col;
 use crate::contact::{Columns, CC_META_STRIDE, CC_STRIDE, MCP_STRIDE, MC_META_STRIDE, MC_STRIDE};
@@ -57,7 +57,6 @@ const STATE: usize = 0;
 const FLAGS: usize = 1;
 const SIM: usize = 2;
 const FIN: usize = 3;
-const FIN_OUT: usize = 4;
 // Per scalar solver-record slot: contactId + transient mc/mcp bases (the narrowphase → solver map;
 // the persistent directory + pool it points into live in the manifold region, manifolds.rs).
 const SLOT_SCALAR: usize = 5;
@@ -131,7 +130,7 @@ pub extern "C" fn reserve(
         COLOR_COUNT = color;
 
         // The body columns are resident (4a.2/4a.3): `state` + `flags` (velocity/delta/flags),
-        // and `sim` + `fin` + `finOut` (the integrate/finalize sim fields) live in the persistent body
+        // and `sim` + `fin` (the integrate/finalize sim fields) live in the persistent body
         // region (bodies.rs), held across steps, so the awake `BodySim`/`BodyState` become offset-backed
         // views and no per-step marshal runs. Point their LAYOUT entries at that region instead of
         // allocating per-step scratch; the phase shims read `LAYOUT[SIM]`/etc unchanged. `reserveBodies`
@@ -141,7 +140,6 @@ pub extern "C" fn reserve(
         LAYOUT[FLAGS] = crate::bodies::flags_base() as u32;
         LAYOUT[SIM] = crate::bodies::sim_base() as u32;
         LAYOUT[FIN] = crate::bodies::fin_base() as u32;
-        LAYOUT[FIN_OUT] = crate::bodies::fin_out_base() as u32;
         let mut off = 0;
         LAYOUT[SLOT_SCALAR] = off as u32;
         off += contact * SLOT_STRIDE * 4;
@@ -1257,7 +1255,6 @@ pub(crate) unsafe fn finalize_block(
         let state = f32s(STATE, b * STATE_STRIDE);
         let sim = f32s(SIM, b * SIM_STRIDE);
         let fin = f32s(FIN, b * FIN_STRIDE);
-        let out = f32s(FIN_OUT, b * FIN_OUT_STRIDE);
         let flags = u32s(FLAGS, b);
         let sim2 = Col::new(crate::bodies::sim2_base() as *mut f32, b * SIM2_STRIDE);
         let sim2_u = Col::new(crate::bodies::sim2_base() as *mut u32, b * SIM2_STRIDE);
@@ -1265,7 +1262,6 @@ pub(crate) unsafe fn finalize_block(
             state,
             sim,
             fin,
-            out,
             sim2,
             flags,
             start,
@@ -1274,7 +1270,6 @@ pub(crate) unsafe fn finalize_block(
             inv_dt,
             enable_continuous,
         );
-        crate::continuous::finalize(start, end, enable_continuous);
         for i in start..end {
             crate::events::write_move(i);
         }

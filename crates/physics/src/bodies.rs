@@ -32,7 +32,6 @@ pub const MOVE_STRIDE: usize = core::mem::size_of::<crate::events::BodyMove>() /
 const B_STATE: usize = 0;
 const B_SIM: usize = 1;
 const B_FIN: usize = 2;
-const B_FIN_OUT: usize = 3;
 const B_FLAGS: usize = 4;
 const B_SIM2: usize = 5;
 const B_MOVE: usize = 6;
@@ -149,9 +148,6 @@ pub fn sim_base() -> usize {
 }
 pub fn fin_base() -> usize {
     base(B_FIN)
-}
-pub fn fin_out_base() -> usize {
-    base(B_FIN_OUT)
 }
 pub fn sim2_base() -> usize {
     base(B_SIM2)
