@@ -524,7 +524,7 @@ pub fn ray_cast<F: FnMut(f32, i32, u32) -> f32>(
     require_all: bool,
     cb: F,
 ) -> (u32, u32) {
-    cast(
+    cast::<0, _>(
         pool,
         root,
         node_count,
@@ -554,7 +554,7 @@ pub fn box_cast<F: FnMut(f32, i32, u32) -> f32>(
     require_all: bool,
     cb: F,
 ) -> (u32, u32) {
-    cast(
+    cast::<0, _>(
         pool,
         root,
         node_count,
@@ -569,7 +569,7 @@ pub fn box_cast<F: FnMut(f32, i32, u32) -> f32>(
         cb,
     )
 }
-fn cast<F: FnMut(f32, i32, u32) -> f32>(
+pub(crate) fn cast<const FLAGS_SHIFT: u32, F: FnMut(f32, i32, u32) -> f32>(
     pool: &[u32],
     root: i32,
     node_count: usize,
@@ -627,7 +627,7 @@ fn cast<F: FnMut(f32, i32, u32) -> f32>(
             continue;
         }
         let n = id as usize * STRIDE;
-        if is_leaf(pool, id) {
+        if (pool[n + 11] >> FLAGS_SHIFT) & LEAF != 0 {
             let value = cb(fraction, id, pool[n + 8]);
             stats.1 += 1;
             if value == 0.0 {

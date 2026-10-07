@@ -2,7 +2,7 @@
 use crate::distance::{CastOutput, ShapeProxy};
 use crate::manifold::Capsule;
 use crate::math::{Mat3, Quat, Transform, Vec3};
-use crate::mesh_query::{bounds_overlap, bounds_ray_overlap, max, min, proxy_bounds};
+use crate::mesh_query::proxy_bounds;
 use crate::query::{
     collide_mover_local, overlap_shape, ray_cast_shape, shape_cast_local, PlaneResult,
     RayCastInput, Shape, ShapeCastInput,
@@ -189,62 +189,32 @@ pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i
     };
     (shape, xf, materials)
 }
-fn bounds(c: Compound, index: usize) -> (Vec3, Vec3) {
-    let r = &c.nodes[index * 12..];
-    (vec(r, 0), vec(r, 3))
-}
 fn cast(
     c: Compound,
     lower: Vec3,
     upper: Vec3,
     translation: Vec3,
-    mut fraction: f32,
+    fraction: f32,
+    box_cast: bool,
     mut visit: impl FnMut(usize, f32) -> f32,
 ) {
     if c.root < 0 {
         return;
     }
-    let start = lower.add(upper).scale(0.5);
-    let extent = upper.sub(start);
-    let mut stack = [0usize; 1024];
-    let mut count = 1;
-    stack[0] = c.root as usize;
-    while count > 0 {
-        count -= 1;
-        let index = stack[count];
-        let r = &c.nodes[index * 12..];
-        let (lo, hi) = bounds(c, index);
-        let t = translation.scale(fraction);
-        if !bounds_overlap(lo, hi, min(lower, lower.add(t)), max(upper, upper.add(t)))
-            || !bounds_ray_overlap(lo.sub(extent), hi.add(extent), start, translation)
-        {
-            continue;
-        }
-        if r[11] >> 16 & 4 != 0 {
-            let value = visit(r[8] as usize, fraction);
-            if value == 0.0 {
-                return;
-            }
-            if value > 0.0 && value <= fraction {
-                fraction = value;
-            }
-        } else if count < 1023 {
-            let a = r[8] as usize;
-            let b = r[9] as usize;
-            let (a1, a2) = bounds(c, a);
-            let (b1, b2) = bounds(c, b);
-            let (far, near) = if a1.add(a2).scale(0.5).sub(start).length_sq()
-                < b1.add(b2).scale(0.5).sub(start).length_sq()
-            {
-                (b, a)
-            } else {
-                (a, b)
-            };
-            stack[count] = far;
-            stack[count + 1] = near;
-            count += 2;
-        }
-    }
+    crate::tree::cast::<16, _>(
+        c.nodes,
+        c.root,
+        c.data[8] as usize,
+        lower,
+        upper,
+        translation,
+        fraction,
+        u32::MAX,
+        u32::MAX,
+        false,
+        box_cast,
+        |fraction, _, index| visit(index as usize, fraction),
+    );
 }
 pub(crate) fn query(c: Compound, lower: Vec3, upper: Vec3, visit: impl FnMut(i32, u32) -> bool) {
     if c.root < 0 {
@@ -275,6 +245,7 @@ pub fn ray_cast_compound(c: Compound, input: &RayCastInput) -> CastOutput {
         input.origin,
         input.translation,
         input.max_fraction,
+        false,
         |index, fraction| {
             let (shape, xf, materials) = child(c, index);
             let mut out = ray_cast_shape(
@@ -285,8 +256,8 @@ pub fn ray_cast_compound(c: Compound, input: &RayCastInput) -> CastOutput {
                     ..*input
                 },
             );
-            out.material_index = materials[out.material_index.min(3) as usize];
             if out.hit {
+                out.material_index = materials[out.material_index.min(3) as usize];
                 out.child_index = index as i32;
                 result = out;
                 out.fraction
@@ -312,6 +283,7 @@ pub fn shape_cast_compound(c: Compound, input: &ShapeCastInput) -> CastOutput {
         upper,
         input.translation,
         input.max_fraction,
+        true,
         |index, fraction| {
             let (shape, xf, materials) = child(c, index);
             // Box3D uses the inverse transform's rotation matrix here, rather than inverse-point
@@ -334,8 +306,8 @@ pub fn shape_cast_compound(c: Compound, input: &ShapeCastInput) -> CastOutput {
                 can_encroach: input.can_encroach,
             };
             let mut out = shape_cast_local(&shape, &local);
-            out.material_index = materials[out.material_index.min(3) as usize];
             if out.hit {
+                out.material_index = materials[out.material_index.min(3) as usize];
                 out.point = xf.point(out.point);
                 out.normal = xf.q.rotate(out.normal);
                 out.child_index = index as i32;
