@@ -22,7 +22,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 /// Target blocks per worker, so a worker that finishes early can steal (box3d `blocksPerWorker`). The
 /// block size grows once the item count passes `min_range * BLOCKS_PER_WORKER * workers`, which keeps the
 /// block count — and so the per-block claim overhead — bounded.
-const BLOCKS_PER_WORKER: usize = 4;
+const BLOCKS_PER_WORKER: usize = 32;
 
 /// Minimum items per collide block (box3d `physics_world.c`: "task should take at least 40us on a 4GHz
 /// CPU"). Both outer collide phases — recycle and convex dispatch — are per-contact sweeps.
