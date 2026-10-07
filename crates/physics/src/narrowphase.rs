@@ -29,6 +29,7 @@ const GEOM_CAPACITY: usize = 32;
 
 /// The GJK/SAT warm-start caches a convex contact carries between steps (b3ContactCache). The
 /// hull-vs-sphere/capsule paths use `simplex_cache`; hull-vs-hull uses `sat_cache`.
+#[derive(Clone, Copy)]
 pub enum ConvexContactCache {
     Empty,
     Simplex(SimplexCache),
@@ -40,7 +41,7 @@ impl ConvexContactCache {
         ConvexContactCache::Empty
     }
 
-    fn simplex(&mut self) -> &mut SimplexCache {
+    pub(crate) fn simplex(&mut self) -> &mut SimplexCache {
         if !matches!(self, Self::Simplex(_)) {
             *self = Self::Simplex(SimplexCache::empty());
         }
@@ -50,7 +51,7 @@ impl ConvexContactCache {
         cache
     }
 
-    fn sat(&mut self) -> &mut SatCache {
+    pub(crate) fn sat(&mut self) -> &mut SatCache {
         if !matches!(self, Self::Sat(_)) {
             *self = Self::Sat(SatCache::empty());
         }

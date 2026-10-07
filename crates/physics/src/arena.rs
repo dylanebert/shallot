@@ -256,7 +256,7 @@ static mut MESH_SCRATCH_PTR: usize = 0;
 struct DispatchScratch {
     mesh: crate::mesh_contact::MeshStorage,
     old: [Manifold; 256],
-    previous: [crate::mesh_contact::TriangleInput; 256],
+    previous: [crate::mesh_contact::TriangleCache; 256],
 }
 const D_CONTACT: usize = 0;
 const D_TYPE_A: usize = 1;
@@ -550,6 +550,7 @@ unsafe fn dispatch_mesh(
     let count = compute_mesh_manifolds(
         &mut mesh,
         &mut cache.triangles[..cache.count],
+        |index| source.triangle(index),
         &shape,
         xf_a,
         xf_b,

@@ -1,8 +1,7 @@
 //! Mesh contact reduction from Box3D mesh_contact.c (Erin Catto, MIT).
-use crate::distance::SimplexCache;
 use crate::manifold::{make_feature_id, LocalManifold, LocalManifoldPoint, SatCache};
 use crate::math::{absf, maxf, minf, Mat3, Transform, Vec2, Vec3};
-use crate::narrowphase::{ConvexShape, Manifold};
+use crate::narrowphase::{ConvexContactCache, ConvexShape, Manifold};
 use crate::triangle_manifold::{
     collide_capsule_and_triangle, collide_hull_and_triangle, collide_sphere_and_triangle,
 };
@@ -22,8 +21,20 @@ pub struct TriangleInput {
     pub flags: u32,
     pub triangle_index: i32,
     pub material_index: u32,
-    pub simplex: SimplexCache,
-    pub sat: SatCache,
+}
+
+#[derive(Clone, Copy)]
+pub struct TriangleCache {
+    pub triangle_index: i32,
+    pub cache: ConvexContactCache,
+}
+impl TriangleCache {
+    fn empty(index: usize) -> Self {
+        Self {
+            triangle_index: index as i32,
+            cache: ConvexContactCache::Empty,
+        }
+    }
 }
 pub enum TriangleSource<'a> {
     Mesh {
@@ -95,8 +106,6 @@ impl TriangleSource<'_> {
             flags: flags as u32,
             triangle_index: index as i32,
             material_index: material_index as u32,
-            simplex: SimplexCache::empty(),
-            sat: SatCache::empty(),
         }
     }
 
@@ -183,7 +192,7 @@ pub struct MeshCache {
     pub lower: Vec3,
     pub upper: Vec3,
     pub count: usize,
-    pub triangles: [TriangleInput; MAX_TRIANGLES],
+    pub triangles: [TriangleCache; MAX_TRIANGLES],
 }
 impl MeshCache {
     pub fn refresh(
@@ -192,7 +201,7 @@ impl MeshCache {
         xf: Transform,
         lower: Vec3,
         upper: Vec3,
-        previous: &mut [TriangleInput; MAX_TRIANGLES],
+        previous: &mut [TriangleCache; MAX_TRIANGLES],
     ) {
         let contains = self.lower.x <= lower.x
             && self.lower.y <= lower.y
@@ -201,13 +210,6 @@ impl MeshCache {
             && self.upper.y >= upper.y
             && self.upper.z >= upper.z;
         if contains {
-            for triangle in &mut self.triangles[..self.count] {
-                let simplex = triangle.simplex;
-                let sat = triangle.sat;
-                *triangle = source.triangle(triangle.triangle_index as usize);
-                triangle.simplex = simplex;
-                triangle.sat = sat;
-            }
             return;
         }
         let radius = 0.05 + 4.0 * SLOP;
@@ -224,13 +226,12 @@ impl MeshCache {
         previous[..self.count].copy_from_slice(&self.triangles[..self.count]);
         let mut old_index = 0;
         for i in 0..count {
-            self.triangles[i] = source.triangle(indices[i]);
+            self.triangles[i] = TriangleCache::empty(indices[i]);
             while old_index < self.count && previous[old_index].triangle_index < indices[i] as i32 {
                 old_index += 1;
             }
             if old_index < self.count && previous[old_index].triangle_index == indices[i] as i32 {
-                self.triangles[i].simplex = previous[old_index].simplex;
-                self.triangles[i].sat = previous[old_index].sat;
+                self.triangles[i].cache = previous[old_index].cache;
             }
         }
         self.count = count;
@@ -586,7 +587,8 @@ fn sort_tentative(indices: &mut [usize], triangles: &[TriangleResult]) {
 /// Geometry is in mesh-local coordinates; the caller owns query/cache refresh and storage.
 pub fn compute_mesh_manifolds(
     scratch: &mut MeshScratch,
-    triangles: &mut [TriangleInput],
+    triangles: &mut [TriangleCache],
+    geometry: impl Fn(usize) -> TriangleInput,
     shape: &ConvexShape,
     xf_a: Transform,
     xf_b: Transform,
@@ -601,10 +603,11 @@ pub fn compute_mesh_manifolds(
     let mut tentative_count = 0;
     let mut total = 0;
     let capacity = triangles.len() * 32;
-    for (i, triangle) in triangles.iter_mut().enumerate() {
+    for (i, cached) in triangles.iter_mut().enumerate() {
         if total + 3 >= capacity {
             break;
         }
+        let triangle = geometry(cached.triangle_index as usize);
         let [a, b, c] = triangle.vertices.map(|v| matrix.mul_v(v).add(transform.p));
         let point_base = total;
         let mut m = LocalManifold::new(&mut scratch.triangle_points[total..capacity]);
@@ -620,11 +623,12 @@ pub fn compute_mesh_manifolds(
                 a,
                 b,
                 c,
-                &mut triangle.simplex,
+                cached.cache.simplex(),
             ),
             ConvexShape::Hull(h) => {
-                if fast && triangle.sat.ty == 4 {
-                    triangle.sat = SatCache::empty();
+                let sat = cached.cache.sat();
+                if fast && sat.ty == 4 {
+                    *sat = SatCache::empty();
                 }
                 collide_hull_and_triangle(
                     &mut m,
@@ -634,7 +638,7 @@ pub fn compute_mesh_manifolds(
                     b,
                     c,
                     triangle.flags,
-                    &mut triangle.sat,
+                    sat,
                     speculative,
                 );
             }
@@ -895,7 +899,7 @@ mod tests {
             },
             flags: &flags,
         };
-        let empty = source.triangle(0);
+        let empty = TriangleCache::empty(0);
         let mut cache = MeshCache {
             lower: Vec3::new(f32::MAX, f32::MAX, f32::MAX),
             upper: Vec3::new(-f32::MAX, -f32::MAX, -f32::MAX),
@@ -912,8 +916,8 @@ mod tests {
             ],
             [0, 1]
         );
-        cache.triangles[0].simplex.metric = 17.0;
-        cache.triangles[1].sat.separation = 29.0;
+        cache.triangles[0].cache.simplex().metric = 17.0;
+        cache.triangles[1].cache.sat().separation = 29.0;
         cache.refresh(
             &source,
             Transform::IDENTITY,
@@ -921,12 +925,16 @@ mod tests {
             upper,
             &mut previous,
         );
-        assert_eq!(cache.triangles[0].simplex.metric, 17.0);
-        assert_eq!(cache.triangles[1].sat.separation, 29.0);
+        assert_eq!(cache.triangles[0].cache.simplex().metric, 17.0);
+        assert_eq!(cache.triangles[1].cache.sat().separation, 29.0);
         assert_eq!(
             [
-                cache.triangles[0].material_index,
-                cache.triangles[1].material_index
+                source
+                    .triangle(cache.triangles[0].triangle_index as usize)
+                    .material_index,
+                source
+                    .triangle(cache.triangles[1].triangle_index as usize)
+                    .material_index
             ],
             materials.map(u32::from)
         );
@@ -957,7 +965,7 @@ mod tests {
         let upper = Vec3::new(2.0, 1.0, 2.0);
         let count = source.query(lower, upper, &mut indices);
         assert_eq!(&indices[..count], &[0, 1, 4, 5, 6, 7]);
-        let empty = source.triangle(0);
+        let empty = TriangleCache::empty(0);
         let mut cache = MeshCache {
             lower: Vec3::new(f32::MAX, f32::MAX, f32::MAX),
             upper: Vec3::new(-f32::MAX, -f32::MAX, -f32::MAX),
@@ -967,15 +975,27 @@ mod tests {
         let mut previous = [empty; MAX_TRIANGLES];
         cache.refresh(&source, Transform::IDENTITY, lower, upper, &mut previous);
         assert_eq!(cache.count, 6);
-        cache.triangles[2].simplex.metric = 17.0;
+        cache.triangles[2].cache.simplex().metric = 17.0;
         let lower = Vec3::new(0.0, -1.1, 1.1);
         cache.refresh(&source, Transform::IDENTITY, lower, upper, &mut previous);
         assert_eq!(cache.count, 4);
         assert_eq!(cache.triangles[0].triangle_index, 4);
-        assert_eq!(cache.triangles[0].simplex.metric, 17.0);
-        assert_eq!(cache.triangles[0].material_index, 1);
-        assert_eq!(cache.triangles[1].material_index, 1);
-        let a = cache.triangles[0].vertices;
+        assert_eq!(cache.triangles[0].cache.simplex().metric, 17.0);
+        assert_eq!(
+            source
+                .triangle(cache.triangles[0].triangle_index as usize)
+                .material_index,
+            1
+        );
+        assert_eq!(
+            source
+                .triangle(cache.triangles[1].triangle_index as usize)
+                .material_index,
+            1
+        );
+        let a = source
+            .triangle(cache.triangles[0].triangle_index as usize)
+            .vertices;
         assert!(a[1].sub(a[0]).cross(a[2].sub(a[0])).y > 0.0);
     }
 
@@ -992,15 +1012,13 @@ mod tests {
         let b = Vec3::new(-1.0, 0.0, 1.0);
         let c = Vec3::new(1.0, 0.0, 1.0);
         let d = Vec3::new(1.0, 0.2, -1.0);
-        let mut triangles = [
+        let geometry = [
             TriangleInput {
                 vertices: [a, b, c],
                 indices: [0, 1, 2],
                 flags: 0,
                 triangle_index: 0,
                 material_index: 7,
-                simplex: SimplexCache::empty(),
-                sat: SatCache::empty(),
             },
             TriangleInput {
                 vertices: [a, c, d],
@@ -1008,10 +1026,9 @@ mod tests {
                 flags: 0,
                 triangle_index: 1,
                 material_index: 3,
-                simplex: SimplexCache::empty(),
-                sat: SatCache::empty(),
             },
         ];
+        let mut triangles = [TriangleCache::empty(0), TriangleCache::empty(1)];
         let shape = ConvexShape::Sphere(crate::manifold::Sphere {
             center: Vec3::new(0.25, 0.4, 0.25),
             radius: 0.5,
@@ -1019,6 +1036,7 @@ mod tests {
         let count = compute_mesh_manifolds(
             &mut scratch,
             &mut triangles,
+            |index| geometry[index],
             &shape,
             Transform::IDENTITY,
             Transform::IDENTITY,
@@ -1040,6 +1058,7 @@ mod tests {
             compute_mesh_manifolds(
                 &mut scratch,
                 &mut triangles,
+                |index| geometry[index],
                 &shape,
                 Transform::IDENTITY,
                 Transform::IDENTITY,
