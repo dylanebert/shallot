@@ -175,7 +175,7 @@ pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize) {
     let s = set(world_index, id);
     s.body_sims.release();
     s.body_states.release();
-    s.joint_sims.records.release();
+    s.joint_sims.release();
     *s = SolverSet::empty();
     world(world_index).free.push(id);
 }
@@ -308,7 +308,7 @@ pub unsafe fn reset(id: usize) {
     for s in &mut WORLDS[id].sets {
         s.body_sims.release();
         s.body_states.release();
-        s.joint_sims.records.release();
+        s.joint_sims.release();
     }
     WORLDS[id] = Sets {
         sets: Vec::new(),
@@ -322,8 +322,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
         regions::write_word(out, s.index as usize);
         s.body_sims.snapshot(out);
         s.body_states.snapshot(out);
-        regions::write_word(out, s.joint_sims.count);
-        s.joint_sims.records.snapshot(out);
+        s.joint_sims.snapshot(out);
         for v in &s.indices {
             regions::write_word(out, v.len());
             for &x in v {
@@ -345,8 +344,7 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
         s.index = regions::read_word(input) as i32;
         s.body_sims.restore(input);
         s.body_states.restore(input);
-        s.joint_sims.count = regions::read_word(input);
-        s.joint_sims.records.restore(input);
+        s.joint_sims.restore(input);
         for v in &mut s.indices {
             let n = regions::read_word(input);
             for _ in 0..n {

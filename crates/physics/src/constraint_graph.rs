@@ -393,7 +393,7 @@ pub(crate) unsafe fn initialize_constraints(world: usize) {
 }
 pub unsafe fn reset(id: usize) {
     for color in &mut GRAPHS[id] {
-        color.joint_sims.records.release();
+        color.joint_sims.release();
     }
     GRAPHS[id] = [const { GraphColor::EMPTY }; COLORS];
 }

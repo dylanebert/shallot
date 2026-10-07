@@ -1,25 +1,57 @@
 //! Joint-sim arrays owned by each world, in graph-color and solver-set order.
 use crate::col::Col;
 use crate::joint_abi::{JOINT_STRIDE, J_JOINT_ID, NULL_INDEX};
-use crate::regions::{self, Columns};
+use crate::joint_sim::JointSim;
+use crate::regions;
+use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub(crate) struct JointArray {
-    pub(crate) records: Columns<1>,
+    data: *mut JointSim,
     pub(crate) count: usize,
+    capacity: usize,
 }
 impl JointArray {
     pub(crate) const EMPTY: Self = Self {
-        records: Columns::EMPTY,
+        data: 16 as *mut JointSim,
         count: 0,
+        capacity: 0,
     };
+    fn layout(capacity: usize) -> Layout {
+        Layout::from_size_align(capacity * core::mem::size_of::<JointSim>(), 16).unwrap()
+    }
+    unsafe fn reserve(&mut self, capacity: usize) {
+        if capacity <= self.capacity {
+            return;
+        }
+        i32::try_from(capacity).expect("joint array capacity exceeds Box3D int range");
+        let layout = Self::layout(capacity);
+        let data = alloc(layout).cast::<JointSim>();
+        if data.is_null() {
+            handle_alloc_error(layout);
+        }
+        if self.capacity != 0 {
+            core::ptr::copy_nonoverlapping(self.data, data, self.capacity);
+            dealloc(self.data.cast(), Self::layout(self.capacity));
+        }
+        self.data = data;
+        self.capacity = capacity;
+        regions::invalidate_views();
+    }
     unsafe fn ptr(&self, index: usize) -> *mut u32 {
-        (self.records.layout[0] as *mut u32).add(index * JOINT_STRIDE)
+        self.data.add(index).cast()
     }
     unsafe fn append(&mut self) -> usize {
         let index = self.count;
-        self.records.reserve(0, (index + 1) * JOINT_STRIDE * 4);
-        self.ptr(index).write_bytes(0, JOINT_STRIDE);
+        if index == self.capacity {
+            self.reserve(if self.capacity == 0 {
+                16
+            } else {
+                self.capacity.checked_mul(2).unwrap()
+            });
+        }
+        self.data.add(index).write_bytes(0, 1);
         self.count += 1;
         index
     }
@@ -29,8 +61,31 @@ impl JointArray {
         if index == self.count {
             return NULL_INDEX;
         }
-        core::ptr::copy_nonoverlapping(self.ptr(self.count), self.ptr(index), JOINT_STRIDE);
-        *self.ptr(index).add(J_JOINT_ID)
+        core::ptr::copy_nonoverlapping(self.data.add(self.count), self.data.add(index), 1);
+        (*self.data.add(index)).joint_id as u32
+    }
+    pub(crate) unsafe fn release(&mut self) {
+        if self.capacity != 0 {
+            dealloc(self.data.cast(), Self::layout(self.capacity));
+            regions::invalidate_views();
+        }
+        *self = Self::EMPTY;
+    }
+    pub(crate) unsafe fn snapshot(&self, out: &mut Vec<u8>) {
+        regions::write_word(out, self.capacity);
+        regions::write_word(out, self.count);
+        out.extend_from_slice(core::slice::from_raw_parts(
+            self.data.cast::<u8>(),
+            self.count * core::mem::size_of::<JointSim>(),
+        ));
+    }
+    pub(crate) unsafe fn restore(&mut self, input: &mut &[u8]) {
+        self.reserve(regions::read_word(input));
+        self.count = regions::read_word(input);
+        assert!(self.count <= self.capacity);
+        let (bytes, rest) = input.split_at(self.count * core::mem::size_of::<JointSim>());
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.data.cast(), bytes.len());
+        *input = rest;
     }
 }
 unsafe fn array(world_index: usize, key: usize) -> &'static mut JointArray {
@@ -47,8 +102,7 @@ pub extern "C" fn release(key: usize) {
 pub extern "C" fn release_in_world(world_index: usize, key: usize) {
     unsafe {
         let a = array(world_index, key);
-        a.records.release();
-        a.count = 0;
+        a.release();
     }
 }
 #[export_name = "jointArrayCount"]
@@ -65,7 +119,7 @@ pub extern "C" fn pointer(key: usize) -> usize {
 }
 
 pub extern "C" fn pointer_in_world(world_index: usize, key: usize) -> usize {
-    unsafe { array(world_index, key).records.layout[0] as usize }
+    unsafe { array(world_index, key).data as usize }
 }
 #[export_name = "jointArrayAppend"]
 pub extern "C" fn append(key: usize) -> usize {
@@ -197,16 +251,14 @@ pub unsafe fn column(world_index: usize, key: usize) -> Col<'static, f32> {
 pub unsafe fn reset(id: usize) {
     for color in 0..crate::constraint_graph::COLORS {
         let a = crate::constraint_graph::joint_array(id, color);
-        a.records.release();
-        *a = JointArray::EMPTY;
+        a.release();
     }
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     regions::write_word(out, crate::constraint_graph::COLORS);
     for color in 0..crate::constraint_graph::COLORS {
         let a = crate::constraint_graph::joint_array(id, color);
-        regions::write_word(out, a.count);
-        a.records.snapshot(out);
+        a.snapshot(out);
     }
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
@@ -215,7 +267,6 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     assert_eq!(count, crate::constraint_graph::COLORS);
     for color in 0..crate::constraint_graph::COLORS {
         let a = crate::constraint_graph::joint_array(id, color);
-        a.count = regions::read_word(input);
-        a.records.restore(input);
+        a.restore(input);
     }
 }
