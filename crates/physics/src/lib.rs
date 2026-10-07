@@ -134,6 +134,8 @@ mod body_mutation;
 #[cfg(target_arch = "wasm32")]
 mod body_query;
 mod body_record;
+#[cfg(all(target_arch = "wasm32", feature = "box3d-oracle"))]
+mod box3d_oracle;
 #[cfg(target_arch = "wasm32")]
 mod broad;
 #[cfg(target_arch = "wasm32")]

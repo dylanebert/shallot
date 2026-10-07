@@ -8,6 +8,7 @@ description = "wasm-simd128 contact-solve + integration kernel for upstream"
 
 [features]
 count-allocations = []
+box3d-oracle = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]
