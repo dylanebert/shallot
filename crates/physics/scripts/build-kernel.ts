@@ -261,6 +261,18 @@ writeFileSync(
         "",
     ].join("\n"),
 );
+const jointNamePtr = layoutKernel.exports.jointLayoutNamePtr as (index: number) => number;
+const jointNameLen = layoutKernel.exports.jointLayoutNameLen as (index: number) => number;
+const jointOffset = layoutKernel.exports.jointLayoutOffset as (index: number) => number;
+const jointMemory = (layoutKernel.exports.memory as WebAssembly.Memory).buffer;
+const jointLayout = ["// Generated from Rust joint-sim offsets by build-kernel.ts."];
+for (let i = 0; ; ++i) {
+    const ptr = jointNamePtr(i);
+    if (ptr === 0) break;
+    const name = new TextDecoder().decode(new Uint8Array(jointMemory, ptr, jointNameLen(i)));
+    jointLayout.push(`export const ${name} = ${jointOffset(i)};`);
+}
+writeFileSync(resolve(engineDir, "joint-layout.ts"), `${jointLayout.join("\n")}\n`);
 const stBase64 = st.toString("base64");
 emit(
     resolve(engineDir, "kernel.wasm.ts"),

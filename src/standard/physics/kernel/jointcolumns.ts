@@ -52,7 +52,9 @@ export function readJointFlag(
     field: number,
     mask: number,
 ): boolean {
-    return (readJointWord(world, joint, field) & mask) !== 0;
+    const k = jointKernel(world);
+    const byte = k.jointSimPtr(joint) + (field & 0xffff) + (31 - Math.clz32(mask));
+    return ((jointViews(k).words[byte >>> 2] >>> ((byte & 3) * 8)) & 0xff) !== 0;
 }
 export function readJointVec3(
     world: WorldState,

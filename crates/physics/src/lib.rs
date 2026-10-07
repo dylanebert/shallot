@@ -44,6 +44,8 @@ pub mod integrate;
 mod island;
 pub mod joint;
 pub mod joint_abi;
+mod joint_layout;
+pub mod joint_sim;
 #[cfg(target_arch = "wasm32")]
 mod joints;
 pub mod manifold;

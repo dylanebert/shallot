@@ -171,18 +171,15 @@ pub unsafe fn prepare_world(
 ) {
     let a = get(joints, slot, J_BODY_ID_A).to_bits() as usize;
     let b = get(joints, slot, J_BODY_ID_B).to_bits() as usize;
-    for (id, field) in [
-        (a, crate::joint_abi::J_SIM_INDEX_A),
-        (b, crate::joint_abi::J_SIM_INDEX_B),
-    ] {
+    let index = |id| {
         let body = crate::bodies::record(world_index, id);
-        let index = if body.set_index == 2 {
+        if body.set_index == 2 {
             body.local_index as u32
         } else {
             u32::MAX
-        };
-        set(joints, slot, field, f32::from_bits(index));
-    }
+        }
+    };
+    crate::joint_abi::set_indices(joints, slot, index(a), index(b));
     prepare_sims(
         joints,
         slot,
@@ -398,7 +395,7 @@ fn prepare_distance(
     h: f32,
     enable_warm_starting: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_DISTANCE>(joints, slot);
 
     let anchor_a = pose
         .qa
@@ -443,7 +440,7 @@ fn prepare_distance(
 
 /// b3WarmStartDistanceJoint.
 fn warm_start_distance(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_DISTANCE>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -529,7 +526,7 @@ fn solve_distance(
     h: f32,
     inv_h: f32,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_DISTANCE>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -560,10 +557,9 @@ fn solve_distance(
     let length = separation.length();
     let axis = separation.normalize();
 
-    let enable = get(joints, slot, DJ_ENABLE).to_bits();
-    let enable_spring = enable & DJ_ENABLE_SPRING != 0;
-    let enable_limit = enable & DJ_ENABLE_LIMIT != 0;
-    let enable_motor = enable & DJ_ENABLE_MOTOR != 0;
+    let enable_spring = crate::joint_abi::enabled(joints, slot, DJ_ENABLE, DJ_ENABLE_SPRING);
+    let enable_limit = crate::joint_abi::enabled(joints, slot, DJ_ENABLE, DJ_ENABLE_LIMIT);
+    let enable_motor = crate::joint_abi::enabled(joints, slot, DJ_ENABLE, DJ_ENABLE_MOTOR);
 
     let length_joint = get(joints, slot, DJ_LENGTH);
     let min_length = get(joints, slot, DJ_MIN_LENGTH);
@@ -711,7 +707,7 @@ fn prepare_weld(
     h: f32,
     enable_warm_starting: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_WELD>(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -770,7 +766,7 @@ fn prepare_weld(
 
 /// b3WarmStartWeldJoint.
 fn warm_start_weld(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_WELD>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -814,7 +810,7 @@ fn solve_weld(
     flags_col: Col<u32>,
     use_bias: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_WELD>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -935,7 +931,7 @@ fn prepare_revolute(
     h: f32,
     enable_warm_starting: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_REVOLUTE>(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -1006,7 +1002,7 @@ fn prepare_revolute(
 
 /// b3WarmStartRevoluteJoint.
 fn warm_start_revolute(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_REVOLUTE>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -1065,7 +1061,7 @@ fn solve_revolute(
     h: f32,
     inv_h: f32,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_REVOLUTE>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -1086,10 +1082,9 @@ fn solve_revolute(
     let spring_soft = read_softness(joints, slot, RJ_SPRING_SOFTNESS);
     let cs = read_softness(joints, slot, J_CONSTRAINT_SOFTNESS);
     let fixed_rotation = get(joints, slot, RJ_FIXED_ROTATION) != 0.0;
-    let enable = get(joints, slot, RJ_ENABLE).to_bits();
-    let enable_spring = enable & RJ_ENABLE_SPRING != 0;
-    let enable_motor = enable & RJ_ENABLE_MOTOR != 0;
-    let enable_limit = enable & RJ_ENABLE_LIMIT != 0;
+    let enable_spring = crate::joint_abi::enabled(joints, slot, RJ_ENABLE, RJ_ENABLE_SPRING);
+    let enable_motor = crate::joint_abi::enabled(joints, slot, RJ_ENABLE, RJ_ENABLE_MOTOR);
+    let enable_limit = crate::joint_abi::enabled(joints, slot, RJ_ENABLE, RJ_ENABLE_LIMIT);
     let target_angle = get(joints, slot, RJ_TARGET_ANGLE);
     let motor_speed = get(joints, slot, RJ_MOTOR_SPEED);
     let max_motor_torque = get(joints, slot, RJ_MAX_MOTOR_TORQUE);
@@ -1313,7 +1308,7 @@ fn prepare_spherical(
     h: f32,
     enable_warm_starting: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_SPHERICAL>(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -1336,9 +1331,8 @@ fn prepare_spherical(
     let cone_axis = frame_a.q.rotate(axis_z);
     let twist_axis = frame_b.q.rotate(axis_z);
 
-    let enable = get(joints, slot, SJ_ENABLE).to_bits();
-    let enable_cone = enable & SJ_ENABLE_CONE_LIMIT != 0;
-    let enable_twist = enable & SJ_ENABLE_TWIST_LIMIT != 0;
+    let enable_cone = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT);
+    let enable_twist = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_TWIST_LIMIT);
 
     let mut swing_axis = Vec3::ZERO;
     let mut swing_mass = 0.0;
@@ -1403,7 +1397,7 @@ fn prepare_spherical(
 
 /// b3WarmStartSphericalJoint.
 fn warm_start_spherical(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_SPHERICAL>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -1460,7 +1454,7 @@ fn solve_spherical(
     h: f32,
     inv_h: f32,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_SPHERICAL>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -1490,11 +1484,10 @@ fn solve_spherical(
     let lower_twist_angle = get(joints, slot, SJ_LOWER_TWIST_ANGLE);
     let upper_twist_angle = get(joints, slot, SJ_UPPER_TWIST_ANGLE);
     let cone_angle = get(joints, slot, SJ_CONE_ANGLE);
-    let enable = get(joints, slot, SJ_ENABLE).to_bits();
-    let enable_spring = enable & SJ_ENABLE_SPRING != 0;
-    let enable_motor = enable & SJ_ENABLE_MOTOR != 0;
-    let enable_cone = enable & SJ_ENABLE_CONE_LIMIT != 0;
-    let enable_twist = enable & SJ_ENABLE_TWIST_LIMIT != 0;
+    let enable_spring = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_SPRING);
+    let enable_motor = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_MOTOR);
+    let enable_cone = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT);
+    let enable_twist = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_TWIST_LIMIT);
 
     let mut linear_impulse = get_vec3(joints, slot, SJ_LINEAR_IMPULSE);
     let mut spring_impulse = get_vec3(joints, slot, SJ_SPRING_IMPULSE);
@@ -1687,7 +1680,7 @@ fn prepare_prismatic(
     h: f32,
     enable_warm_starting: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_PRISMATIC>(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -1746,7 +1739,7 @@ fn prepare_prismatic(
 
 /// b3WarmStartPrismaticJoint.
 fn warm_start_prismatic(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_PRISMATIC>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -1825,7 +1818,7 @@ fn solve_prismatic(
     h: f32,
     inv_h: f32,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_PRISMATIC>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -1853,10 +1846,9 @@ fn solve_prismatic(
     let max_motor_force = get(joints, slot, PJ_MAX_MOTOR_FORCE);
     let lower_translation = get(joints, slot, PJ_LOWER_TRANSLATION);
     let upper_translation = get(joints, slot, PJ_UPPER_TRANSLATION);
-    let enable = get(joints, slot, PJ_ENABLE).to_bits();
-    let enable_spring = enable & PJ_ENABLE_SPRING != 0;
-    let enable_motor = enable & PJ_ENABLE_MOTOR != 0;
-    let enable_limit = enable & PJ_ENABLE_LIMIT != 0;
+    let enable_spring = crate::joint_abi::enabled(joints, slot, PJ_ENABLE, PJ_ENABLE_SPRING);
+    let enable_motor = crate::joint_abi::enabled(joints, slot, PJ_ENABLE, PJ_ENABLE_MOTOR);
+    let enable_limit = crate::joint_abi::enabled(joints, slot, PJ_ENABLE, PJ_ENABLE_LIMIT);
 
     let mut perp_impulse = Vec2::new(
         get(joints, slot, PJ_PERP_IMPULSE),
@@ -2114,7 +2106,7 @@ fn prepare_wheel(
     h: f32,
     enable_warm_starting: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_WHEEL>(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -2199,7 +2191,7 @@ fn prepare_wheel(
 /// b3WarmStartWheelJoint.
 #[allow(clippy::too_many_lines)]
 fn warm_start_wheel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_WHEEL>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -2223,8 +2215,7 @@ fn warm_start_wheel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_co
     let steering_spring_impulse = get(joints, slot, WHJ_STEERING_SPRING_IMPULSE);
     let lower_steering_impulse = get(joints, slot, WHJ_LOWER_STEERING_IMPULSE);
     let upper_steering_impulse = get(joints, slot, WHJ_UPPER_STEERING_IMPULSE);
-    let enable = get(joints, slot, WHJ_ENABLE).to_bits();
-    let enable_steering = enable & WHJ_ENABLE_STEERING != 0;
+    let enable_steering = crate::joint_abi::enabled(joints, slot, WHJ_ENABLE, WHJ_ENABLE_STEERING);
 
     let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
     let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
@@ -2343,7 +2334,7 @@ fn solve_wheel(
     h: f32,
     inv_h: f32,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_WHEEL>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -2375,12 +2366,15 @@ fn solve_wheel(
     let max_steering_torque = get(joints, slot, WHJ_MAX_STEERING_TORQUE);
     let lower_steering_limit = get(joints, slot, WHJ_LOWER_STEERING_LIMIT);
     let upper_steering_limit = get(joints, slot, WHJ_UPPER_STEERING_LIMIT);
-    let enable = get(joints, slot, WHJ_ENABLE).to_bits();
-    let enable_spin_motor = enable & WHJ_ENABLE_SPIN_MOTOR != 0;
-    let enable_suspension_spring = enable & WHJ_ENABLE_SUSPENSION_SPRING != 0;
-    let enable_suspension_limit = enable & WHJ_ENABLE_SUSPENSION_LIMIT != 0;
-    let enable_steering = enable & WHJ_ENABLE_STEERING != 0;
-    let enable_steering_limit = enable & WHJ_ENABLE_STEERING_LIMIT != 0;
+    let enable_spin_motor =
+        crate::joint_abi::enabled(joints, slot, WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR);
+    let enable_suspension_spring =
+        crate::joint_abi::enabled(joints, slot, WHJ_ENABLE, WHJ_ENABLE_SUSPENSION_SPRING);
+    let enable_suspension_limit =
+        crate::joint_abi::enabled(joints, slot, WHJ_ENABLE, WHJ_ENABLE_SUSPENSION_LIMIT);
+    let enable_steering = crate::joint_abi::enabled(joints, slot, WHJ_ENABLE, WHJ_ENABLE_STEERING);
+    let enable_steering_limit =
+        crate::joint_abi::enabled(joints, slot, WHJ_ENABLE, WHJ_ENABLE_STEERING_LIMIT);
 
     let mut linear_impulse = Vec2::new(
         get(joints, slot, WHJ_LINEAR_IMPULSE),
@@ -2792,7 +2786,7 @@ fn prepare_motor(
     h: f32,
     enable_warm_starting: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_MOTOR>(joints, slot);
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
@@ -2838,7 +2832,7 @@ fn prepare_motor(
 /// b3WarmStartMotorJoint. The combined linear + angular impulses are applied to both ends (the C writes
 /// unconditionally through the identity state; only dynamic ends are written back).
 fn warm_start_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_MOTOR>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -2886,7 +2880,7 @@ fn warm_start_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_co
 /// b3SolveMotorJoint (`solveMotorJoint`; takes no `useBias`). Four independent sub-solves gated on their
 /// max effort: angular spring, angular velocity, linear spring, linear velocity.
 fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>, h: f32) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_MOTOR>(joints, slot);
     let m_a = base.inv_mass_a;
     let m_b = base.inv_mass_b;
     let i_a = base.inv_ia;
@@ -3063,7 +3057,7 @@ fn prepare_parallel(
     h: f32,
     enable_warm_starting: bool,
 ) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_PARALLEL>(joints, slot);
 
     let fixed_rotation = base.inv_ia.add(base.inv_ib).det() < 1000.0 * FLT_MIN;
 
@@ -3098,7 +3092,7 @@ fn prepare_parallel(
 
 /// b3WarmStartParallelJoint. Angular-only — the linear velocities pass through untouched.
 fn warm_start_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_PARALLEL>(joints, slot);
     let i_a = base.inv_ia;
     let i_b = base.inv_ib;
 
@@ -3136,7 +3130,7 @@ fn warm_start_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags
 /// b3SolveParallelJoint (`solveParallelJoint`). Takes no `useBias` — a pure soft constraint, solved
 /// identically in the bias and relax passes.
 fn solve_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Col<u32>, h: f32) {
-    let base = read_base(joints, slot);
+    let base = read_base::<TY_PARALLEL>(joints, slot);
     let i_a = base.inv_ia;
     let i_b = base.inv_ib;
 

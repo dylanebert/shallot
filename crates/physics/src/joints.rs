@@ -159,8 +159,13 @@ pub extern "C" fn read_word_in_world(
     field: usize,
 ) -> u32 {
     unsafe {
-        assert!(index < array(world_index, key).count && field < JOINT_STRIDE);
-        *array(world_index, key).ptr(index).add(field)
+        assert!(index < array(world_index, key).count);
+        if field & crate::joint_abi::BOOL_FIELD != 0 {
+            crate::joint_abi::read_flags(column(world_index, key), index, field)
+        } else {
+            assert!(field < JOINT_STRIDE);
+            *array(world_index, key).ptr(index).add(field)
+        }
     }
 }
 #[export_name = "jointWriteWord"]
@@ -176,8 +181,13 @@ pub extern "C" fn write_word_in_world(
     value: u32,
 ) {
     unsafe {
-        assert!(index < array(world_index, key).count && field < JOINT_STRIDE);
-        *array(world_index, key).ptr(index).add(field) = value;
+        assert!(index < array(world_index, key).count);
+        if field & crate::joint_abi::BOOL_FIELD != 0 {
+            crate::joint_abi::write_flags(column(world_index, key), index, field, value);
+        } else {
+            assert!(field < JOINT_STRIDE);
+            *array(world_index, key).ptr(index).add(field) = value;
+        }
     }
 }
 pub unsafe fn column(world_index: usize, key: usize) -> Col<'static, f32> {
