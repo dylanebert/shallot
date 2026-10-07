@@ -27,11 +27,9 @@ pub unsafe extern "C" fn should_collide_in_world(world_index: usize, a: u32, b: 
     }
     true
 }
-use crate::body::flags::DYNAMIC;
 use crate::body::{FIN_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::regions::{self, Columns, MAX_WORLDS};
 
-pub const IDENT_RECORDS: usize = 8;
 pub const MOVE_STRIDE: usize = core::mem::size_of::<crate::events::BodyMove>() / 4;
 const B_STATE: usize = 0;
 const B_SIM: usize = 1;
@@ -208,14 +206,6 @@ pub extern "C" fn reserve_bodies_in_world(world_index: usize, cap: usize) -> u32
         }
         for id in old..cap {
             *(w.columns.layout[B_RECORD_EID] as *mut u32).add(id) = u32::MAX;
-        }
-        // Wide null lanes need one write-disjoint identity per worker.
-        for worker in 0..IDENT_RECORDS {
-            let ptr = (crate::solver_set::awake_base(world_index, B_STATE) as *mut f32)
-                .add((cap + worker) * STATE_STRIDE);
-            ptr.write_bytes(0, STATE_STRIDE);
-            *ptr.add(12) = 1.0;
-            *(ptr as *mut u32).add(crate::body::STATE_FLAGS) = DYNAMIC;
         }
         w.cap = cap;
         1

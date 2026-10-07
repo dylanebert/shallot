@@ -59,7 +59,7 @@ const N_COLS: usize = 15;
 pub(crate) const COLOR_SPAN_STRIDE: usize = 6;
 
 /// The worker index the serial (single-crossing) shims run as — the thread driving the step is always
-/// worker 0 (`stages::run`). It selects the null-lane identity record the wide gather/scatter writes.
+/// worker 0 (`stages::run`).
 const ORCHESTRATOR: usize = 0;
 
 // LAYOUT indices, in memory order.
@@ -190,13 +190,10 @@ pub extern "C" fn reserve_in_world(
     }
 }
 
-/// Records the resident body columns hold: the awake bodies plus the per-thread identity records the
-/// wide gather remaps null lanes onto (`bodies::reserve_bodies` lays out `cap + IDENT_RECORDS`). The
-/// body columns are sized by that, not by `BODY_COUNT`, so a column's `len` bounds every element its
-/// phases can reach — the wide gather reaches an identity record, which sits past the awake count.
+/// Resident body column capacity; null gathers use a local dummy.
 #[inline]
 unsafe fn body_records(world_index: usize) -> usize {
-    crate::bodies::body_cap_in_world(world_index) + crate::bodies::IDENT_RECORDS
+    crate::bodies::body_cap_in_world(world_index)
 }
 
 /// Body views, graph prepare spans and native-shaped constraints for the current reservation.
@@ -1299,7 +1296,7 @@ pub(crate) unsafe fn finalize_block(
 /// memory while this runs (the MT concurrency invariant).
 unsafe fn refit_block(world_index: usize, sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
     unsafe {
-        let records = crate::bodies::body_cap_in_world(world_index) + crate::bodies::IDENT_RECORDS;
+        let records = crate::bodies::body_cap_in_world(world_index);
         let sim2 = Col::new(
             crate::bodies::sim2_base(world_index) as *mut u32,
             records * SIM2_STRIDE,

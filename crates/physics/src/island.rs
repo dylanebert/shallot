@@ -431,8 +431,8 @@ impl SplitScratch {
     };
 }
 // Like Box3D's task contexts/arena, scratch is retained by the worker, not allocated by a split.
-static mut SPLIT_SCRATCH: [SplitScratch; crate::bodies::IDENT_RECORDS] =
-    [const { SplitScratch::EMPTY }; crate::bodies::IDENT_RECORDS];
+static mut SPLIT_SCRATCH: [SplitScratch; crate::solve::MAX_THREADS] =
+    [const { SplitScratch::EMPTY }; crate::solve::MAX_THREADS];
 pub unsafe fn prepare_split(world_index: usize, base: usize, worker: usize) {
     let s = &mut SPLIT_SCRATCH[worker];
     s.indices

@@ -32,7 +32,6 @@
 //! (`kernel/tests/stages.rs`).
 
 use crate::arena;
-use crate::bodies::IDENT_RECORDS;
 use crate::col::Col;
 use crate::contact::{self, Columns, Softness};
 use crate::contact_wide;
@@ -45,7 +44,7 @@ use crate::stages::{
 
 /// Threads the solve can ever run on: the shadow stack affords main + 7 workers (`src/pool.ts`
 /// `maxWorkers`), and each needs its own null-lane identity record.
-const MAX_THREADS: usize = IDENT_RECORDS;
+pub(crate) const MAX_THREADS: usize = 8;
 
 const MAX: stages::Sizes = max_sizes(MAX_THREADS);
 

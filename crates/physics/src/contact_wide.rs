@@ -205,14 +205,7 @@ fn body_terms(sim: Col<f32>, state: Col<f32>, index: u32) -> (f32, Mat3, Vec3, V
 
 // --- body gather / scatter ------------------------------------------------------------------
 //
-// 4c: the wasm-simd path gathers each body as 4 aligned `v128` record loads + unpack-only 4×4 shuffle
-// transposes, and scatters velocities back with a whole-vector store (b3GatherBodies/b3ScatterBodies's
-// actual SSE shape — `research/gather-spike` measured 1.9× JSC / 2.5× V8 over the field-wise scalar
-// gather this replaced, bit-identical output). It reads/writes raw pointers into the resident state
-// column (bodies.rs). Null gathers select a local dummy body; the measured whole-vector scatter
-// still uses per-worker trailing identity records. Pure data movement — no fixture
-// regen; the wasm transpose is fixture-gated (52/52), and native `cargo test` keeps the field-wise
-// scalar gather below as the bit-identical reference the gold vectors exercise.
+// Null gathers select a local dummy; scatters skip null lanes so no shared dummy is written.
 
 /// Wide body solver state (b3BodyStateW): the four gathered bodies' velocities + deltas across lanes.
 struct BodyStateW {
@@ -229,32 +222,12 @@ const ALL_LOCKS: u32 = body_flags::LOCK_LINEAR_X
     | body_flags::LOCK_ANGULAR_Y
     | body_flags::LOCK_ANGULAR_Z;
 
-/// Record index of `worker`'s trailing null-lane record, one of the [`IDENT_RECORDS`] the persistent
-/// body region reserves past its `bodyCap` real records (bodies.rs), each initialised to zero
-/// velocity/delta + identity rotation + DYNAMIC. Only the measured whole-vector scatter uses these;
-/// gathers select a local dummy. Native scatter skips null lanes, so the fallback returns 0.
-///
-/// **Per worker, not one.** `scatter_t` writes the record for every null lane it fast-paths, so two
-/// blocks of a stage holding static-lane records would write the same bytes from two threads. Always
-/// the *same* bytes (a null lane gathers zero velocity and carries `invMass = 0` / `invI = 0`, so the
-/// solve hands back what it gathered) — benign by value, but still a same-address concurrent write, and
-/// the only element of the state column that is not write-disjoint. Giving each worker its own record
-/// makes the whole column disjoint, which is what `Col`'s promise (col.rs) rests on.
-#[cfg(target_arch = "wasm32")]
-#[inline]
-fn ident_rec(worker: usize) -> usize {
-    debug_assert!(worker < crate::bodies::IDENT_RECORDS);
-    crate::bodies::body_cap() + worker
-}
-#[cfg(not(target_arch = "wasm32"))]
 #[inline]
 fn ident_rec(_worker: usize) -> usize {
     0
 }
 
-/// Per-lane scalar scatter (b3ScatterBodies SSE2 branch): write each dynamic lane's velocity back with
-/// motion locks; null lanes (idx 0) and statics are skipped. The native path's only scatter, and the
-/// wasm path's fallback when a lane is locked/static and the whole-vector store can't apply the lock.
+// Box3D's explicit lane blocks keep null and non-dynamic bodies out of the write set.
 fn scatter_scalar(
     state: Col<f32>,
     flags: Col<u32>,
@@ -269,15 +242,15 @@ fn scatter_scalar(
     let wx = w.x.to_array();
     let wy = w.y.to_array();
     let wz = w.z.to_array();
-    for lane in 0..LANES {
+    let scatter_lane = |lane: usize| {
         let i = idx.get(io + lane);
         if i == 0 {
-            continue;
+            return;
         }
         let b = (i - 1) as usize;
         let f = flags.get(b * STATE_STRIDE);
         if f & body_flags::DYNAMIC == 0 {
-            continue;
+            return;
         }
         let mut v = [vx[lane], vy[lane], vz[lane]];
         let mut w = [wx[lane], wy[lane], wz[lane]];
@@ -308,7 +281,11 @@ fn scatter_scalar(
         state.set(o + 3, w[0]);
         state.set(o + 4, w[1]);
         state.set(o + 5, w[2]);
-    }
+    };
+    scatter_lane(0);
+    scatter_lane(1);
+    scatter_lane(2);
+    scatter_lane(3);
 }
 
 // --- native (scalar) gather / scatter: the bit-identical reference for `cargo test` ----------
@@ -435,14 +412,6 @@ fn scatter(
 
 // --- wasm (simd128) record-transpose gather / scatter ---------------------------------------
 
-/// Branchless null remap: idx 0 (null/static) → the identity record, idx k → record k-1.
-#[cfg(target_arch = "wasm32")]
-#[inline(always)]
-fn rec_of(i: u32, ident: usize) -> usize {
-    let m = ((i == 0) as usize).wrapping_neg(); // 0 or usize::MAX
-    ((i.wrapping_sub(1) as usize) & !m) | (ident & m)
-}
-
 /// 4×4 f32 transpose (unpcklps/unpckhps + movlhps/movhlps decomposition).
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
@@ -468,7 +437,7 @@ fn gather_body(state: Col<f32>, index: u32, dummy: *const f32) -> *const f32 {
     }
 }
 
-/// Gather four bodies' full solver state: 4 aligned v128 record loads + shuffle transposes → 13 lanes.
+/// Gather four bodies' full solver state: 4 unaligned v128 record loads + shuffle transposes → 13 lanes.
 #[cfg(target_arch = "wasm32")]
 fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyStateW {
     let mut dummy = [0.0f32; STATE_STRIDE];
@@ -568,40 +537,7 @@ fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3
     }
 }
 
-/// Lock-free fast scatter: block 0 `[vx vy vz wx]` transposed back + whole v128 store per body; block 1
-/// `[wy wz dpx dpy]` is half-written → load, shuffle-blend the new wy/wz in, store back (dp preserved).
-#[cfg(target_arch = "wasm32")]
-#[inline(always)]
-unsafe fn scatter_t(state: *mut f32, recs: &[usize; 4], v: &Vec3W, w: &Vec3W) {
-    let (b0, b1, b2, b3) = transpose4(v.x.v128(), v.y.v128(), v.z.v128(), w.x.v128());
-    let t0 = i32x4_shuffle::<0, 4, 1, 5>(w.y.v128(), w.z.v128()); // wy0 wz0 wy1 wz1
-    let t1 = i32x4_shuffle::<2, 6, 3, 7>(w.y.v128(), w.z.v128()); // wy2 wz2 wy3 wz3
-
-    let p0 = state.add(recs[0] * STATE_STRIDE);
-    v128_store(p0 as *mut v128, b0);
-    let c0 = v128_load(p0.add(4) as *const v128);
-    v128_store(p0.add(4) as *mut v128, i32x4_shuffle::<0, 1, 6, 7>(t0, c0));
-
-    let p1 = state.add(recs[1] * STATE_STRIDE);
-    v128_store(p1 as *mut v128, b1);
-    let c1 = v128_load(p1.add(4) as *const v128);
-    v128_store(p1.add(4) as *mut v128, i32x4_shuffle::<2, 3, 6, 7>(t0, c1));
-
-    let p2 = state.add(recs[2] * STATE_STRIDE);
-    v128_store(p2 as *mut v128, b2);
-    let c2 = v128_load(p2.add(4) as *const v128);
-    v128_store(p2.add(4) as *mut v128, i32x4_shuffle::<0, 1, 6, 7>(t1, c2));
-
-    let p3 = state.add(recs[3] * STATE_STRIDE);
-    v128_store(p3 as *mut v128, b3);
-    let c3 = v128_load(p3.add(4) as *const v128);
-    v128_store(p3.add(4) as *mut v128, i32x4_shuffle::<2, 3, 6, 7>(t1, c3));
-}
-
-/// Write four gathered bodies' velocities back (b3ScatterBodies). When every lane is dynamic and
-/// unlocked (the pyramid-bulk case), one hoisted flags check gates the whole-vector `scatter_t`; the
-/// null/static lanes it also writes land on the identity record (zero velocity, DYNAMIC) harmlessly.
-/// Any locked or non-dynamic lane falls back to the per-lane scalar scatter.
+// Box3D contact_solver.c's SIMD scatter writes only velocities, skipping null lanes.
 #[cfg(target_arch = "wasm32")]
 fn scatter(
     state: Col<f32>,
@@ -612,24 +548,8 @@ fn scatter(
     w: &Vec3W,
     ident: usize,
 ) {
-    let recs = [
-        rec_of(idx.get(io), ident),
-        rec_of(idx.get(io + 1), ident),
-        rec_of(idx.get(io + 2), ident),
-        rec_of(idx.get(io + 3), ident),
-    ];
-    let fp = flags.ptr();
-    unsafe {
-        let f0 = *fp.add(recs[0] * STATE_STRIDE);
-        let f1 = *fp.add(recs[1] * STATE_STRIDE);
-        let f2 = *fp.add(recs[2] * STATE_STRIDE);
-        let f3 = *fp.add(recs[3] * STATE_STRIDE);
-        if (f0 | f1 | f2 | f3) & ALL_LOCKS == 0 && (f0 & f1 & f2 & f3) & body_flags::DYNAMIC != 0 {
-            scatter_t(state.ptr(), &recs, v, w);
-        } else {
-            scatter_scalar(state, flags, idx, io, v, w);
-        }
-    }
+    let _ = ident;
+    scatter_scalar(state, flags, idx, io, v, w);
 }
 
 // --- prepare --------------------------------------------------------------------------------
@@ -819,8 +739,7 @@ pub fn prepare(
 // --- warm start -----------------------------------------------------------------------------
 
 /// Seed body velocities from the warm-start impulses (b3WarmStartContacts_Convex) for records
-/// `[start, start+count)`. `worker` names the thread running this block — it selects the null-lane
-/// identity record the gather/scatter writes ([`ident_rec`]); 0 on the serial path.
+/// `[start, start+count)`.
 pub fn warm_start(
     wide: Col<f32>,
     idx: Col<u32>,
@@ -904,7 +823,6 @@ pub fn warm_start(
 /// One TGS solve/relax pass over records `[start, start+count)` (b3SolveContacts_Convex). `use_bias`
 /// selects the biased solve (position drift removal, friction skipped) vs the relax pass (no bias,
 /// friction applied). `inv_h` is the inverse sub-step, `contact_speed` the max separation speed.
-/// `worker` names the thread running this block ([`ident_rec`]); 0 on the serial path.
 #[allow(clippy::too_many_arguments)]
 pub fn solve(
     wide: Col<f32>,
@@ -1090,8 +1008,7 @@ pub fn solve(
 
 // --- restitution ----------------------------------------------------------------------------
 
-/// Apply restitution bounce over records `[start, start+count)` (b3ApplyRestitution_Convex). `worker`
-/// names the thread running this block ([`ident_rec`]); 0 on the serial path.
+/// Apply restitution bounce over records `[start, start+count)` (b3ApplyRestitution_Convex).
 #[allow(clippy::too_many_arguments)]
 pub fn restitution(
     wide: Col<f32>,

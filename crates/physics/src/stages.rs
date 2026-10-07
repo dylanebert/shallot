@@ -207,13 +207,7 @@ pub trait StageWork: Sync {
     fn solve_mesh(&self, block: Block, use_bias: bool);
     fn integrate_positions(&self, block: Block);
     fn restitution_mesh(&self, block: Block);
-    // `worker_index` on the three wide phases: their gather/scatter remaps null/static lanes onto a
-    // per-worker identity record (`contact_wide::ident_rec`), which is what keeps the state column
-    // write-disjoint across blocks. The store phases and the joint solve take it because box3d's do —
-    // there it selects the worker's `b3TaskContext` event bit sets; this port's store writes a whole
-    // `u32` hit slot per contact instead, so nothing needs the lane yet, and the joints unit inherits
-    // the parameter. A parallel phase that ever *appends* must take a per-worker lane merged in worker
-    // order — never a shared cursor, which would make the output depend on claim order.
+    // Worker indices select task-owned event bits; publication happens after the parallel phase.
     fn warm_start_wide(&self, block: Block, worker_index: usize);
     fn solve_wide(&self, block: Block, use_bias: bool, worker_index: usize);
     fn restitution_wide(&self, block: Block, worker_index: usize);

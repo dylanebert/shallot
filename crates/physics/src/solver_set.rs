@@ -345,16 +345,6 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
         s.index = regions::read_word(input) as i32;
         s.body_sims.restore(input);
         s.body_states.restore(input);
-        if s.index == AWAKE as i32 && s.body_states.capacity >= crate::bodies::IDENT_RECORDS as i32
-        {
-            let cap = s.body_states.capacity as usize - crate::bodies::IDENT_RECORDS;
-            for worker in 0..crate::bodies::IDENT_RECORDS {
-                let state = s.body_states.data.add(cap + worker);
-                state.write_bytes(0, 1);
-                (*state).delta_rotation = crate::math::Quat::IDENTITY;
-                (*state).flags = crate::body::flags::DYNAMIC;
-            }
-        }
         s.joint_sims.count = regions::read_word(input);
         s.joint_sims.records.restore(input);
         for v in &mut s.indices {
@@ -381,9 +371,8 @@ pub unsafe fn awake_base(world_index: usize, column: usize) -> usize {
 }
 pub unsafe fn reserve_awake(world_index: usize, cap: usize) {
     let s = set(world_index, AWAKE);
-    let capacity = cap + crate::bodies::IDENT_RECORDS;
-    s.body_sims.reserve(capacity);
-    s.body_states.reserve(capacity);
+    s.body_sims.reserve(cap);
+    s.body_states.reserve(cap);
 }
 pub unsafe fn joint_array(world_index: usize, id: usize) -> &'static mut crate::joints::JointArray {
     &mut set(world_index, id).joint_sims
