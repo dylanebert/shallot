@@ -34,7 +34,7 @@ import {
 } from "./joints";
 import { kernel } from "./kernel/kernel";
 import { marshalBody } from "./marshal";
-import { PROFILE_FIELDS } from "./world/profile";
+import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
 
 export function resetSignatures(world: World): void {
     resetConstraints(world.resource(physicsRuntimeKey).constraints);
@@ -412,6 +412,7 @@ export const StepPhysicsSystem: System = {
         physicsWorld.step(fixedDeltaTime, SUBSTEPS);
         const record = world.recordSink;
         if (record) {
+            readStepProfile(physicsWorld.state);
             const profile = physicsWorld.state.profile;
             for (let i = 0; i < phaseFields.length; i++) {
                 const ms = profile[phaseFields[i]];
