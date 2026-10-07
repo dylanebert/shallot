@@ -5,7 +5,7 @@ import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
 import { createGridMesh } from "../shapes/mesh";
 import { kernel } from "./kernel";
-import { SHAPE_STRIDE } from "./shapecolumns";
+import { SHAPE_STRIDE, S_GEO_REFERENCE } from "./shapecolumns";
 
 test("kernel geometry uploads are caller-identity keyed, refcounted, world-local and snapshot-stable", () => {
     const source = new PhysicsWorld();
@@ -32,7 +32,8 @@ test("kernel geometry uploads are caller-identity keyed, refcounted, world-local
         const heightB = body.createHeightField({}, field)!;
         const compoundA = body.createCompound({}, compound)!;
         const compoundB = body.createCompound({}, compound)!;
-        const ptr = (shape: number) => source.state.shapeStore.shapeU[shape * SHAPE_STRIDE + 2];
+        const ptr = (shape: number) =>
+            source.state.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
         const meshPtr = ptr(meshA.id.index1 - 1);
         const heightPtr = ptr(heightA.id.index1 - 1);
         const compoundPtr = ptr(compoundA.id.index1 - 1);
@@ -51,7 +52,7 @@ test("kernel geometry uploads are caller-identity keyed, refcounted, world-local
         target.restore(source.snapshot());
         const targetKernel = kernel(target.state.ecsState);
         const targetPtr = (shape: number) =>
-            target.state.shapeStore.shapeU[shape * SHAPE_STRIDE + 2];
+            target.state.shapeStore.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
         const targetMeshPtr = targetPtr(meshA.id.index1 - 1);
         const targetHeightPtr = targetPtr(heightA.id.index1 - 1);
         const targetCompoundPtr = targetPtr(compoundA.id.index1 - 1);
