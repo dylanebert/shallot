@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
 import { contactIds } from "../collision/contact";
+import gold from "../collision/recycle.gold.json";
 import { BodyField, bodyField } from "./bodyrecords";
 import { SIM_STRIDE } from "./columns";
 import * as layout from "./contact-layout";
 import { kernel } from "./kernel";
-import gold from "../collision/recycle.gold.json";
 
 const scratch = new Uint32Array(1);
 const float = new Float32Array(scratch.buffer);

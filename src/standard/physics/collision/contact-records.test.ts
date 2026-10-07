@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { BodyType, createMesh, hash, makeBoxHull, PhysicsWorld } from "../api";
+import { DIR_BLOCK, M_POINTS, POINT_STRIDE } from "../kernel/contact-layout";
 import { kernel } from "../kernel/kernel";
 import { ContactField, ContactFlags, contactCapacity, contactField, contactIds } from "./contact";
-import { DIR_BLOCK, M_POINTS, POINT_STRIDE } from "../kernel/contact-layout";
 import { DIR_STRIDE, MANIFOLD_STRIDE } from "./manifoldstore";
 
 test("a steady mesh cluster count reuses and clears its resident block without allocating or freeing", () => {

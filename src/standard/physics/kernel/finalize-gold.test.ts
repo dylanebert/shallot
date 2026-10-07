@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
 import { BodyFlags } from "../world/body";
 import { BodyField, bodyField } from "./bodyrecords";
-import { SIM_STRIDE, STATE_STRIDE, S2_CENTER0, S2_MIN_EXTENT, S2_FLAGS } from "./columns";
+import { S2_CENTER0, S2_FLAGS, S2_MIN_EXTENT, SIM_STRIDE, STATE_STRIDE } from "./columns";
 import gold from "./finalize.gold.json";
 import { kernel } from "./kernel";
 

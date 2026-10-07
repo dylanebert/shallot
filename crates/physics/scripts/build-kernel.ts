@@ -199,7 +199,8 @@ const [st, shared] = await Promise.all([
 const layoutModule = new WebAssembly.Module(new Uint8Array(st));
 const layoutImports: WebAssembly.Imports = {};
 for (const { module, name, kind } of WebAssembly.Module.imports(layoutModule)) {
-    if (kind !== "function") throw new Error(`unsupported layout import: ${module}.${name} (${kind})`);
+    if (kind !== "function")
+        throw new Error(`unsupported layout import: ${module}.${name} (${kind})`);
     (layoutImports[module] ??= {})[name] = () => {
         throw new Error(`layout discovery called ${module}.${name}`);
     };

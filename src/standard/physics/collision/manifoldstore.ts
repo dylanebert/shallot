@@ -1,44 +1,44 @@
 import type { World } from "../../../engine";
 import type { SurfaceMaterial } from "../common/types";
+import {
+    DIR_BLOCK,
+    DIR_COUNT,
+    DIR_FLAGS,
+    DIR_FRICTION,
+    DIR_RESTITUTION,
+    DIR_ROLLING_RESISTANCE,
+    DIR_STRIDE,
+    DIR_TANGENT_VELOCITY,
+    M_FRICTION,
+    M_NORMAL,
+    M_POINT_COUNT,
+    M_POINTS,
+    M_ROLLING,
+    M_TWIST,
+    MANIFOLD_STRIDE,
+    P_ANCHOR_A,
+    P_ANCHOR_B,
+    P_BASE_SEPARATION,
+    P_FEATURE_ID,
+    P_NORMAL_IMPULSE,
+    P_NORMAL_VELOCITY,
+    P_PERSISTED,
+    P_SEPARATION,
+    P_TOTAL_NORMAL_IMPULSE,
+    P_TRIANGLE_INDEX,
+    POINT_STRIDE,
+} from "../kernel/contact-layout";
 import { kernel } from "../kernel/kernel";
 import { KernelViews } from "../kernel/views";
 import type { WorldState } from "../world/world";
 import type { Manifold } from "./contact";
 
-import {
-    DIR_STRIDE,
-    DIR_COUNT,
-    DIR_BLOCK,
-    DIR_FLAGS,
-    DIR_FRICTION,
-    DIR_RESTITUTION,
-    DIR_ROLLING_RESISTANCE,
-    DIR_TANGENT_VELOCITY,
-    MANIFOLD_STRIDE,
-    M_NORMAL,
-    M_TWIST,
-    M_FRICTION,
-    M_ROLLING,
-    M_POINT_COUNT,
-    M_POINTS,
-    POINT_STRIDE,
-    P_ANCHOR_A,
-    P_ANCHOR_B,
-    P_SEPARATION,
-    P_BASE_SEPARATION,
-    P_NORMAL_IMPULSE,
-    P_TOTAL_NORMAL_IMPULSE,
-    P_NORMAL_VELOCITY,
-    P_FEATURE_ID,
-    P_TRIANGLE_INDEX,
-    P_PERSISTED,
-} from "../kernel/contact-layout";
 export {
-    DIR_STRIDE,
-    MANIFOLD_STRIDE,
     DIR_BLOCK,
+    DIR_STRIDE,
     M_POINT_COUNT,
     M_POINTS,
+    MANIFOLD_STRIDE,
     POINT_STRIDE,
 } from "../kernel/contact-layout";
 

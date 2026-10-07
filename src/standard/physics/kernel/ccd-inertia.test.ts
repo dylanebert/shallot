@@ -27,9 +27,7 @@ test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", (
         world.step(1 / 60, 4);
         const sim = getBodySim(world.state, body.id.index1 - 1);
         expect(simFlags(world.state, sim) & BodyFlags.isFast).not.toBe(0);
-        expect(
-            simFlags(world.state, sim) & BodyFlags.hadTimeOfImpact,
-        ).not.toBe(0);
+        expect(simFlags(world.state, sim) & BodyFlags.hadTimeOfImpact).not.toBe(0);
         const rotation = mat3.fromQuat(
             readSimTransform(world.state, sim, {
                 p: { x: 0, y: 0, z: 0 },

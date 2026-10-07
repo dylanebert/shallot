@@ -7,8 +7,8 @@ import { createGrid } from "../shapes/heightfield";
 import { makeBoxHull } from "../shapes/hull";
 import { hash64NonZero } from "../shapes/hullbytes";
 import { createBoxMesh, createGridMesh } from "../shapes/mesh";
-import { ShapeField, shapeField } from "./shaperecords";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
+import { ShapeField, shapeField } from "./shaperecords";
 
 function image(world: PhysicsWorld, shape: number): Uint8Array {
     const store = world.state.shapeStore;

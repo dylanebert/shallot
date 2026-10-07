@@ -5,7 +5,7 @@ import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
 import { createGridMesh } from "../shapes/mesh";
 import { kernel } from "./kernel";
-import { SHAPE_STRIDE, S_GEO_REFERENCE } from "./shapecolumns";
+import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 
 test("kernel geometry uploads are caller-identity keyed, refcounted, world-local and snapshot-stable", () => {
     const source = new PhysicsWorld();

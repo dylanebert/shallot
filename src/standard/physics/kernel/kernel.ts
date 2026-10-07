@@ -15,7 +15,7 @@
 import type { World } from "../../../engine";
 import type { WorldState } from "../world/world";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
-import { createPool, maxWorkers, solverPause, type Pool } from "./pool";
+import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
 
 /** The kernel's exported surface — grows as each solver phase ports to wasm. */
 export type Kernel = {

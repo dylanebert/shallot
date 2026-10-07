@@ -22,6 +22,7 @@ export const ContactFlags = {
 } as const;
 
 export { ContactField } from "../kernel/contact-layout";
+
 import { ContactField } from "../kernel/contact-layout";
 
 /** Read a field at a contact id; signed null indices remain -1. */
