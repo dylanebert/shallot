@@ -268,6 +268,9 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
         for n in 0..6 {
             f.set(o + 10 + n, box2[n]);
         }
+        if matches!(u.get(o + shapes::S_TYPE), 2 | 4) {
+            continue;
+        }
         if u.get(o + 4) != u32::MAX {
             continue;
         }
