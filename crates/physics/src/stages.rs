@@ -48,6 +48,7 @@ const NULL_COLOR: u8 = u8::MAX;
 
 /// Every block of one stage is claimed and run before the next stage starts (b3SolverStageType).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u32)]
 pub enum StageType {
     PrepareJoints,
     PrepareWideContacts,
@@ -65,6 +66,7 @@ pub enum StageType {
 /// What a block's index range indexes (b3SolverBlockType). The tag rides the block, not the stage,
 /// so a color stage can mix joint, wide-contact, and mesh-contact blocks and run them concurrently.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
 pub enum BlockType {
     Body,
     Joint,
@@ -85,20 +87,38 @@ pub struct Block {
     pub color: u8,
 }
 
-impl Block {
-    const EMPTY: Block = Block {
+/// A block plus the atomic workers CAS to claim it (b3SyncBlock). The descriptor is written once at
+/// build and only ever read after; the atomic is the only mutable field, so the claim winner copies
+/// the descriptor out by value and never aliases what other workers are CAS-writing.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SolverBlock {
+    start: i32,
+    count: u16,
+    block_type: BlockType,
+    color: u8,
+}
+
+impl SolverBlock {
+    const EMPTY: Self = Self {
         start: 0,
         count: 0,
         block_type: BlockType::Body,
         color: NULL_COLOR,
     };
+    fn work(self) -> Block {
+        Block {
+            start: self.start as usize,
+            count: self.count as usize,
+            block_type: self.block_type,
+            color: self.color,
+        }
+    }
 }
 
-/// A block plus the atomic workers CAS to claim it (b3SyncBlock). The descriptor is written once at
-/// build and only ever read after; the atomic is the only mutable field, so the claim winner copies
-/// the descriptor out by value and never aliases what other workers are CAS-writing.
+#[repr(C)]
 pub struct SyncBlock {
-    block: Block,
+    block: SolverBlock,
     sync_index: AtomicI32,
 }
 
@@ -107,7 +127,7 @@ impl SyncBlock {
     /// `static`. Each use constructs a fresh, unclaimed block; that is the point, not a hazard.
     #[allow(clippy::declare_interior_mutable_const)]
     pub const EMPTY: SyncBlock = SyncBlock {
-        block: Block::EMPTY,
+        block: SolverBlock::EMPTY,
         sync_index: AtomicI32::new(0),
     };
 }
@@ -120,11 +140,11 @@ impl SyncBlock {
 /// spun on by the orchestrator, so two stages sharing a line put one stage's barrier under the other's
 /// write traffic. Unaligned, the data-section layout decides how much of that a build gets, and any
 /// static added near this array re-rolls it (measured: a layout shift alone cost the 8-thread solve 34%).
-#[repr(align(64))]
+#[repr(C, align(64))]
 pub struct Stage {
-    ty: StageType,
     block_start: usize,
-    block_count: usize,
+    ty: StageType,
+    block_count: i32,
     color: u8,
     completion: AtomicI32,
 }
@@ -285,16 +305,18 @@ fn init_blocks(
     color: u8,
 ) {
     for (i, sb) in blocks.iter_mut().enumerate().take(dim.count) {
-        sb.block = Block {
-            start: base + i * dim.size,
-            count: dim.size,
+        sb.block = SolverBlock {
+            start: i32::try_from(base + i * dim.size)
+                .expect("solver block start exceeds Box3D int"),
+            count: u16::try_from(dim.size).expect("solver block size exceeds Box3D UINT16_MAX"),
             block_type,
             color,
         };
         sb.sync_index.store(0, Ordering::SeqCst);
     }
     if dim.count > 0 {
-        blocks[dim.count - 1].block.count = item_count - (dim.count - 1) * dim.size;
+        blocks[dim.count - 1].block.count = u16::try_from(item_count - (dim.count - 1) * dim.size)
+            .expect("solver tail block exceeds Box3D UINT16_MAX");
     }
 }
 
@@ -372,7 +394,7 @@ pub fn sizes(plan: &Plan) -> Sizes {
 /// Everything but `sync_bits` is read-only once built.
 pub struct Context<'a> {
     stages: &'a [Stage],
-    blocks: &'a [SyncBlock],
+    blocks: core::marker::PhantomData<&'a [SyncBlock]>,
     colors: &'a [ColorSpan],
     sub_step_count: usize,
     worker_count: usize,
@@ -425,7 +447,8 @@ fn init_stage(
     stages[*s] = Stage {
         ty,
         block_start,
-        block_count,
+        block_count: i32::try_from(block_count)
+            .expect("solver stage block count exceeds Box3D int"),
         color,
         completion: AtomicI32::new(0),
     };
@@ -646,10 +669,13 @@ pub fn build<'a>(
     );
 
     debug_assert_eq!(s, need.stages);
+    for stage in &mut stages[..need.stages] {
+        stage.block_start = blocks.as_ptr().wrapping_add(stage.block_start) as usize;
+    }
 
     Context {
         stages: &stages[..need.stages],
-        blocks: &blocks[..need.blocks],
+        blocks: core::marker::PhantomData,
         colors: plan.colors,
         sub_step_count: plan.sub_step_count,
         worker_count: plan.worker_count,
@@ -721,7 +747,7 @@ fn execute_stage<W: StageWork>(
     sync: i32,
     worker_index: usize,
 ) {
-    let block_count = stage.block_count;
+    let block_count = stage.block_count as usize;
     let Some(start) = worker_start_index(worker_index, block_count, ctx.worker_count) else {
         return;
     };
@@ -729,7 +755,7 @@ fn execute_stage<W: StageWork>(
     let mut completed = 0;
     let mut i = start;
     for _ in 0..block_count {
-        let sb = &ctx.blocks[stage.block_start + i];
+        let sb = unsafe { &*(stage.block_start as *const SyncBlock).add(i) };
         if sb
             .sync_index
             .compare_exchange(previous_sync, sync, Ordering::SeqCst, Ordering::SeqCst)
@@ -737,7 +763,7 @@ fn execute_stage<W: StageWork>(
         {
             // Copy the descriptor out: the CAS winner owns this block, and the descriptor is
             // immutable for the whole solve, so nothing here aliases the atomic others are writing.
-            execute_block(work, stage.ty, sb.block, worker_index);
+            execute_block(work, stage.ty, sb.block.work(), worker_index);
             completed += 1;
         }
 
@@ -763,7 +789,7 @@ fn execute_main_stage<W: StageWork>(
     sync_bits: u32,
 ) -> Option<()> {
     let stage = &ctx.stages[stage_index];
-    let block_count = stage.block_count;
+    let block_count = stage.block_count as usize;
     if block_count == 0 {
         return Some(());
     }
@@ -772,7 +798,7 @@ fn execute_main_stage<W: StageWork>(
         execute_block(
             work,
             stage.ty,
-            ctx.blocks[stage.block_start].block,
+            unsafe { (*(stage.block_start as *const SyncBlock)).block.work() },
             ORCHESTRATOR,
         );
         return Some(());
@@ -1051,7 +1077,8 @@ mod tests {
             let mut covered = vec![0u32; item_count];
             for b in &blocks {
                 assert_eq!(b.block.color, 7);
-                for i in b.block.start..b.block.start + b.block.count {
+                let block = b.block.work();
+                for i in block.start..block.start + block.count {
                     covered[i - 100] += 1;
                 }
             }
@@ -1064,6 +1091,41 @@ mod tests {
 
     /// The workers' home blocks must partition the ring: every block is someone's start when there
     /// are at least as many blocks as workers, and no two workers share a home.
+    #[test]
+    fn solver_descriptor_widths_match_box3d() {
+        assert_eq!(core::mem::size_of::<SolverBlock>(), 8);
+        assert_eq!(core::mem::size_of::<SyncBlock>(), 12);
+        assert_eq!(core::mem::size_of::<StageType>(), 4);
+        let mut blocks = [SyncBlock::EMPTY];
+        init_blocks(
+            &mut blocks,
+            BlockDim {
+                size: u16::MAX as usize,
+                count: 1,
+            },
+            0,
+            u16::MAX as usize,
+            BlockType::Body,
+            NULL_COLOR,
+        );
+        assert_eq!(blocks[0].block.count, u16::MAX);
+    }
+
+    #[test]
+    #[should_panic(expected = "solver block size exceeds Box3D UINT16_MAX")]
+    fn solver_block_overflow_is_refused_not_truncated() {
+        let mut blocks = [SyncBlock::EMPTY];
+        let size = u16::MAX as usize + 1;
+        init_blocks(
+            &mut blocks,
+            BlockDim { size, count: 1 },
+            0,
+            size,
+            BlockType::Body,
+            NULL_COLOR,
+        );
+    }
+
     #[test]
     fn worker_start_indices_are_distinct() {
         for worker_count in 1..9usize {
