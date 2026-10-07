@@ -7,13 +7,13 @@
 
 use crate::simd::FloatW;
 
-/// `min(b, max(-b, a))` — clamp `a` to `[-b, b]` (box3d `b3SymClampW`). Operand order matters: the C
+/// `min(max(-b, a), b)` — clamp `a` to `[-b, b]` (box3d `b3SymClampW`). Operand order matters: the C
 /// computes `b3MaxW(nb, a)` (nb first), which differs from `max(a, nb)` on signed zero / NaN.
 #[inline]
 pub fn sym_clamp(a: FloatW, b: FloatW) -> FloatW {
     let nb = b.neg();
     let c = nb.max(a);
-    b.min(c)
+    c.min(b)
 }
 
 #[derive(Clone, Copy)]
