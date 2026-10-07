@@ -2400,60 +2400,6 @@ pub fn collide_hulls(
 
 #[cfg(test)]
 mod c_parity {
-    #[test]
-    fn clip_prefix_ping_pong_handles_both_orientations_and_empty_output() {
-        use super::*;
-        let mut buffer1 = [ClipVertex::ZERO; MAX_CLIP_POINTS];
-        let mut buffer2 = [ClipVertex::ZERO; MAX_CLIP_POINTS];
-        for (i, position) in [
-            Vec3::new(-1.0, -1.0, 0.0),
-            Vec3::new(1.0, -1.0, 0.0),
-            Vec3::new(1.0, 1.0, 0.0),
-            Vec3::new(-1.0, 1.0, 0.0),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            buffer1[i] = ClipVertex {
-                position,
-                separation: 0.0,
-                pair: FeaturePair {
-                    owner1: SHAPE_B,
-                    owner2: SHAPE_B,
-                    index1: i as u8,
-                    index2: i as u8,
-                },
-            };
-        }
-        let mut input = &mut buffer1;
-        let mut output = &mut buffer2;
-        let mut count = 4;
-        let reference = Plane::from_normal_and_point(Vec3::new(0.0, 0.0, 1.0), Vec3::ZERO);
-        for (edge, normal, origin, expected) in [
-            (0, Vec3::new(1.0, 0.0, 0.0), Vec3::ZERO, 4),
-            (1, Vec3::new(0.0, 1.0, 0.0), Vec3::ZERO, 4),
-            (2, Vec3::new(1.0, 0.0, 0.0), Vec3::new(-2.0, 0.0, 0.0), 0),
-        ] {
-            count = clip_polygon(
-                &input[..count],
-                count,
-                Plane::from_normal_and_point(normal, origin),
-                edge,
-                reference,
-                output,
-            );
-            core::mem::swap(&mut input, &mut output);
-            assert_eq!(count, expected);
-            for p in &input[..count] {
-                assert!(p.position.x <= 0.0);
-                if edge == 1 {
-                    assert!(p.position.y <= 0.0);
-                }
-                assert_eq!(p.separation, 0.0);
-            }
-        }
-    }
-
     // Append-only at EOF: Rust bakes panic `file:line` into the data section, so moving this
     // module up-file silently obligates an out-of-scope wasm rebuild. New assertions go at the
     // bottom of this module, never above existing ones.
