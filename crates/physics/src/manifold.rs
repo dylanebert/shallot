@@ -2047,11 +2047,7 @@ pub fn collide_hulls(
             if is_mink {
                 let cba = u2.dot(e1);
                 let dba = v2.dot(e1);
-                let adc = -u1.dot(e2);
-                let bdc = -v1.dot(e2);
-                if cba * dba >= 0.0 || adc * bdc >= 0.0 || cba * bdc <= 0.0 {
-                    // The cached edge pair is no longer a Minkowski edge.
-                } else {
+                {
                     let squared_tolerance = 0.005f32 * 0.005;
                     if maxf(cba * cba, dba * dba) >= squared_tolerance * e1.length_sq() {
                         let t = cba / (cba - dba);
