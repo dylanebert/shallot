@@ -1498,13 +1498,6 @@ fn solve_spherical(
     let enable_cone = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT);
     let enable_twist = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_TWIST_LIMIT);
 
-    let mut linear_impulse = get_vec3(joints, slot, SJ_LINEAR_IMPULSE);
-    let mut spring_impulse = get_vec3(joints, slot, SJ_SPRING_IMPULSE);
-    let mut motor_impulse = get_vec3(joints, slot, SJ_MOTOR_IMPULSE);
-    let mut lower_twist_impulse = get(joints, slot, SJ_LOWER_TWIST_IMPULSE);
-    let mut upper_twist_impulse = get(joints, slot, SJ_UPPER_TWIST_IMPULSE);
-    let mut swing_impulse = get(joints, slot, SJ_SWING_IMPULSE);
-
     let quat_a = end_a.state.delta_rotation.mul(frame_a.q);
     let quat_b = end_b.state.delta_rotation.mul(frame_b.q);
     let rel_q = quat_a.inv_mul(quat_b);
@@ -1518,11 +1511,12 @@ fn solve_spherical(
         let impulse_scale = spring_soft.impulse_scale;
         let cdot = w_b.sub(w_a);
 
+        let spring_impulse = get_vec3(joints, slot, SJ_SPRING_IMPULSE);
         let impulse = rotation_mass
             .mul_v(cdot.add(bias))
             .scale(-mass_scale)
             .mul_sub(impulse_scale, spring_impulse);
-        spring_impulse = spring_impulse.add(impulse);
+        set_vec3(joints, slot, SJ_SPRING_IMPULSE, spring_impulse.add(impulse));
 
         w_a = w_a.sub(i_a.mul_v(impulse));
         w_b = w_b.add(i_b.mul_v(impulse));
@@ -1531,6 +1525,7 @@ fn solve_spherical(
     if enable_motor && !fixed_rotation {
         let cdot = w_b.sub(w_a);
         let mut lambda = rotation_mass.mul_v(cdot.sub(motor_velocity)).neg();
+        let motor_impulse = get_vec3(joints, slot, SJ_MOTOR_IMPULSE);
         let mut new_impulse = motor_impulse.add(lambda);
         let length = new_impulse.length_sq().sqrt();
         let max_impulse = max_motor_torque * h;
@@ -1538,7 +1533,7 @@ fn solve_spherical(
             new_impulse = new_impulse.scale(max_impulse / length);
         }
         lambda = new_impulse.sub(motor_impulse);
-        motor_impulse = new_impulse;
+        set_vec3(joints, slot, SJ_MOTOR_IMPULSE, new_impulse);
 
         w_a = w_a.sub(i_a.mul_v(lambda));
         w_b = w_b.add(i_b.mul_v(lambda));
@@ -1561,10 +1556,11 @@ fn solve_spherical(
                 impulse_scale = cs.impulse_scale;
             }
             let cdot = w_b.sub(w_a).dot(twist_jacobian);
-            let old_impulse = lower_twist_impulse;
+            let old_impulse = get(joints, slot, SJ_LOWER_TWIST_IMPULSE);
             let mut delta_impulse =
                 -mass_scale * twist_mass * (cdot + bias) - impulse_scale * old_impulse;
-            lower_twist_impulse = maxf(old_impulse + delta_impulse, 0.0);
+            let lower_twist_impulse = maxf(old_impulse + delta_impulse, 0.0);
+            set(joints, slot, SJ_LOWER_TWIST_IMPULSE, lower_twist_impulse);
             delta_impulse = lower_twist_impulse - old_impulse;
             w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(twist_jacobian));
             w_b = w_b.mul_add(delta_impulse, i_b.mul_v(twist_jacobian));
@@ -1585,10 +1581,11 @@ fn solve_spherical(
             }
             // sign flipped on Cdot
             let cdot = w_a.sub(w_b).dot(twist_jacobian);
-            let old_impulse = upper_twist_impulse;
+            let old_impulse = get(joints, slot, SJ_UPPER_TWIST_IMPULSE);
             let mut delta_impulse =
                 -mass_scale * twist_mass * (cdot + bias) - impulse_scale * old_impulse;
-            upper_twist_impulse = maxf(old_impulse + delta_impulse, 0.0);
+            let upper_twist_impulse = maxf(old_impulse + delta_impulse, 0.0);
+            set(joints, slot, SJ_UPPER_TWIST_IMPULSE, upper_twist_impulse);
             delta_impulse = upper_twist_impulse - old_impulse;
             // sign flipped on applied impulse
             w_a = w_a.mul_add(delta_impulse, i_a.mul_v(twist_jacobian));
@@ -1611,10 +1608,11 @@ fn solve_spherical(
         }
         // sign flipped on Cdot
         let cdot = w_a.sub(w_b).dot(swing_axis);
-        let old_impulse = swing_impulse;
+        let old_impulse = get(joints, slot, SJ_SWING_IMPULSE);
         let mut delta_impulse =
             -mass_scale * swing_mass * (cdot + bias) - impulse_scale * old_impulse;
-        swing_impulse = maxf(old_impulse + delta_impulse, 0.0);
+        let swing_impulse = maxf(old_impulse + delta_impulse, 0.0);
+        set(joints, slot, SJ_SWING_IMPULSE, swing_impulse);
         delta_impulse = swing_impulse - old_impulse;
         // sign flipped on applied impulse
         w_a = w_a.mul_add(delta_impulse, i_a.mul_v(swing_axis));
@@ -1651,23 +1649,17 @@ fn solve_spherical(
         k.cz.z += mm;
 
         let b = k.solve(cdot.add(bias));
+        let linear_impulse = get_vec3(joints, slot, SJ_LINEAR_IMPULSE);
         let impulse = b
             .scale(-mass_scale)
             .sub(linear_impulse.scale(impulse_scale));
-        linear_impulse = linear_impulse.add(impulse);
+        set_vec3(joints, slot, SJ_LINEAR_IMPULSE, linear_impulse.add(impulse));
 
         v_a = v_a.mul_sub(m_a, impulse);
         w_a = w_a.sub(i_a.mul_v(r_a.cross(impulse)));
         v_b = v_b.mul_add(m_b, impulse);
         w_b = w_b.add(i_b.mul_v(r_b.cross(impulse)));
     }
-
-    set_vec3(joints, slot, SJ_LINEAR_IMPULSE, linear_impulse);
-    set_vec3(joints, slot, SJ_SPRING_IMPULSE, spring_impulse);
-    set_vec3(joints, slot, SJ_MOTOR_IMPULSE, motor_impulse);
-    set(joints, slot, SJ_LOWER_TWIST_IMPULSE, lower_twist_impulse);
-    set(joints, slot, SJ_UPPER_TWIST_IMPULSE, upper_twist_impulse);
-    set(joints, slot, SJ_SWING_IMPULSE, swing_impulse);
 
     if end_a.dynamic {
         write_velocity(state_col, base.sim_index_a, v_a, w_a);
