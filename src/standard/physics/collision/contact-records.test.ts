@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { BodyType, createMesh, hash, makeBoxHull, PhysicsWorld } from "../api";
 import { kernel } from "../kernel/kernel";
 import { ContactField, ContactFlags, contactCapacity, contactField, contactIds } from "./contact";
+import { DIR_BLOCK, M_POINTS, POINT_STRIDE } from "../kernel/contact-layout";
 import { DIR_STRIDE, MANIFOLD_STRIDE } from "./manifoldstore";
 
 test("a steady mesh cluster count reuses and clears its resident block without allocating or freeing", () => {
@@ -37,19 +38,22 @@ test("a steady mesh cluster count reuses and clears its resident block without a
         const id = ids[0],
             count = contactField(state, id, ContactField.manifoldCount);
         expect(count).toBe(1);
-        const address = state.manifoldStore.dirU[id * DIR_STRIDE + 8];
+        const address = state.manifoldStore.dirU[id * DIR_STRIDE + DIR_BLOCK];
         const operations = k.manifoldAllocatorOperations(state.worldId);
         expect(operations).toBe(1n);
         for (let i = 1; i <= 5; ++i) {
-            new Uint32Array(k.memory.buffer, address, MANIFOLD_STRIDE)[MANIFOLD_STRIDE - 1] =
-                0x12345678;
+            new Uint32Array(k.memory.buffer, address, MANIFOLD_STRIDE)[
+                M_POINTS + 4 * POINT_STRIDE - 1
+            ] = 0x12345678;
             body.setTransform({ x: i * 0.1, y: 0.49, z: 0 }, { v: { x: 0, y: 0, z: 0 }, s: 1 });
             world.step(1 / 60, 1);
             expect(contactIds(state)).toEqual(ids);
             expect(contactField(state, id, ContactField.manifoldCount)).toBe(count);
-            expect(state.manifoldStore.dirU[id * DIR_STRIDE + 8]).toBe(address);
+            expect(state.manifoldStore.dirU[id * DIR_STRIDE + DIR_BLOCK]).toBe(address);
             expect(
-                new Uint32Array(k.memory.buffer, address, MANIFOLD_STRIDE)[MANIFOLD_STRIDE - 1],
+                new Uint32Array(k.memory.buffer, address, MANIFOLD_STRIDE)[
+                    M_POINTS + 4 * POINT_STRIDE - 1
+                ],
             ).toBe(0);
             expect(k.manifoldAllocatorOperations(state.worldId)).toBe(operations);
         }
@@ -73,7 +77,7 @@ test("manifold-count blocks stay at their addresses through chunk growth, recycl
             ids.push(id);
             k.allocateManifolds(id, (i % 2) + 1);
         }
-        expect(state.manifoldStore.dirU[first * DIR_STRIDE + 8]).toBe(address);
+        expect(state.manifoldStore.dirU[first * DIR_STRIDE + DIR_BLOCK]).toBe(address);
         expect(Array.from(new Uint32Array(k.memory.buffer, address, MANIFOLD_STRIDE))).toEqual(
             new Array(MANIFOLD_STRIDE).fill(0x12345678),
         );
@@ -99,7 +103,7 @@ test("manifold-count blocks stay at their addresses through chunk growth, recycl
         expect(k.allocContact()).toBe(ids[7]);
         expect(k.allocContact()).toBe(ids[2]);
         expect(contactField(state, first, ContactField.manifoldCount)).toBe(1);
-        const restoredAddress = state.manifoldStore.dirU[first * DIR_STRIDE + 8];
+        const restoredAddress = state.manifoldStore.dirU[first * DIR_STRIDE + DIR_BLOCK];
         expect(
             Array.from(new Uint32Array(k.memory.buffer, restoredAddress, MANIFOLD_STRIDE)),
         ).toEqual(new Array(MANIFOLD_STRIDE).fill(0));
