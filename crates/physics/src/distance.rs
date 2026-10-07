@@ -823,20 +823,19 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
         iteration += 1;
     }
 
+    let w = compute_witness_points(&simplex);
+    output.point_a = w.0;
+    output.point_b = w.1;
+    output.iterations = iteration;
+
     normal = normal.normalize();
     if !normal.is_normalized() {
         // Treat as overlap.
         return output;
     }
 
-    let w = compute_witness_points(&simplex);
-    write_cache(cache, &simplex);
-
-    output.point_a = w.0;
-    output.point_b = w.1;
     output.distance = w.0.distance(w.1);
     output.normal = normal;
-    output.iterations = iteration;
 
     if input.use_radii {
         let r_a = input.proxy_a.radius;
@@ -847,5 +846,6 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
         output.point_b = output.point_b.mul_sub(r_b, normal);
     }
 
+    write_cache(cache, &simplex);
     output
 }

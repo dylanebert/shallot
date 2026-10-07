@@ -304,7 +304,7 @@ for (const [operation, entry] of [
     [16, "triangle_manifold.rs:578-579 reciprocal barycentrics; Box3D math_functions.c:554-555"],
 ] as const) {
     const rows = results.filter((r) => r.operation === operation);
-    const check = operation <= 2 ? test : test.todo;
+    const check = operation <= 3 ? test : test.todo;
     check(`${entry}: seeded boundary outputs equal Box3D SSE2 bits`, () => {
         compare(rows);
     });
@@ -379,7 +379,7 @@ test("distance.rs:745-750 vs distance.c:847-851: contained tetrahedron writes it
 test("distance.rs:777-783 vs distance.c:947-951: line containment writes iterations", () => {
     compare(results.filter((r) => r.label === "proxy-3-2-1-0"));
 });
-test.todo("distance.rs:824-838 vs distance.c:997-1011: invalid normal retains witness and iteration outputs", () => {
+test("distance.rs:824-838 vs distance.c:997-1011: invalid normal retains witness and iteration outputs", () => {
     compare(results.filter((r) => r.label?.startsWith("invalid-normal-")));
 });
 test("manifold.rs:794 vs convex_manifold.c:384-389: sphere-sphere separation retains caller manifold", () => {
