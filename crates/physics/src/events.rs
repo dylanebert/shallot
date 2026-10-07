@@ -281,10 +281,11 @@ mod runtime {
         let d = manifolds::dir_col(world as usize);
         for contact in 0..manifolds::contact_record_capacity(world) {
             let o = contact * DIR_STRIDE;
-            if d.get(o + 11) == 0 {
+            let flags = d.get(o + DIR_FLAGS);
+            if flags & CONTACT_HIT_EVENT == 0 {
                 continue;
             }
-            d.set(o + 11, 0);
+            d.set(o + DIR_FLAGS, flags & !CONTACT_HIT_EVENT);
             if d.get(o + DIR_CONTACT_ID) == u32::MAX {
                 continue;
             }

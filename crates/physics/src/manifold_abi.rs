@@ -23,7 +23,7 @@ use crate::math::Vec3;
 /// the in-kernel recycle loop's cached relative pose (`DIR_CACHED_*`, 4b.3c). Both tails are folded here
 /// because they share the directory's key (contactId) and its grow-in-place lifecycle (the directory sits
 /// at the region anchor, so a grow preserves it with no memmove).
-pub const DIR_STRIDE: usize = 54;
+pub const DIR_STRIDE: usize = 53;
 pub const DIR_SET_INDEX: usize = 37;
 pub const DIR_COLOR_INDEX: usize = 38;
 pub const DIR_LOCAL_INDEX: usize = 39;
@@ -36,18 +36,18 @@ pub const DIR_ISLAND_ID: usize = 49;
 pub const DIR_ISLAND_INDEX: usize = 50;
 pub const DIR_CONTACT_ID: usize = 51;
 pub const DIR_GENERATION: usize = 52;
-pub const DIR_MESH_CACHE: usize = 53;
+pub const DIR_MESH_CACHE: usize = 11;
 const DIR_FRICTION: usize = 0;
 const DIR_RESTITUTION: usize = 1;
 const DIR_ROLLING_RESISTANCE: usize = 2;
 const DIR_TANGENT_VELOCITY: usize = 3; // 3..5
-const DIR_FLAGS: usize = 6;
+pub const DIR_FLAGS: usize = 6;
+pub const CONTACT_HIT_EVENT: u32 = 0x00000002;
 const DIR_MANIFOLD_COUNT: usize = 7;
 /// Byte address of a stable manifold block in WASM; native fixtures use a record offset into their owned backing column.
 pub const DIR_MANIFOLD_BASE: usize = 8;
 const DIR_INDEX_A: usize = 9;
 const DIR_INDEX_B: usize = 10;
-const DIR_HIT: usize = 11;
 /// First slot of the convex cache union (10 slots, 12..21): the wider `SimplexCache` (metric f32 +
 /// count + indexA[4] + indexB[4]) overlaps the narrower `SatCache` (separation f32 + type + indexA +
 /// indexB + hit), exactly like box3d's union — a contact uses one or the other by shape pair.
@@ -148,5 +148,6 @@ pub fn block_col(pool: Col<f32>, base: usize, count: usize) -> Col<f32> {
 /// build the user-facing hit events).
 #[inline]
 pub fn set_hit(dir: Col<u32>, contact_id: usize) {
-    dir.set(contact_id * DIR_STRIDE + DIR_HIT, 1);
+    let offset = contact_id * DIR_STRIDE + DIR_FLAGS;
+    dir.atomic_or(offset, CONTACT_HIT_EVENT);
 }

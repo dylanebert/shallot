@@ -324,7 +324,8 @@ pub extern "C" fn write_slots_in_world(world_index: usize) {
         for c in g.iter().take(OVERFLOW) {
             let n = c.convex_contacts.len();
             for (j, &id) in c.convex_contacts.iter().enumerate() {
-                dir.set(id as usize * DIR_STRIDE + 11, 0);
+                let flags = id as usize * DIR_STRIDE + DIR_FLAGS;
+                dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
                 meta.set(
                     (wide + j / 4) * crate::contact_wide::WIDE_META_STRIDE + j % 4,
                     id,
@@ -345,7 +346,8 @@ pub extern "C" fn write_slots_in_world(world_index: usize) {
         }
         for c in g.iter() {
             for s in &c.contacts {
-                dir.set(s.contact_id as usize * DIR_STRIDE + 11, 0);
+                let flags = s.contact_id as usize * DIR_STRIDE + DIR_FLAGS;
+                dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
                 let o = cursor * SLOT_STRIDE;
                 slot.set(o, s.contact_id);
                 slot.set(o + 1, gm);

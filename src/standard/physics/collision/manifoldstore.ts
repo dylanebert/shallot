@@ -5,11 +5,11 @@ import { KernelViews } from "../kernel/views";
 import type { WorldState } from "../world/world";
 import type { Manifold } from "./contact";
 
-export const DIR_STRIDE = 54;
+export const DIR_STRIDE = 53;
 export const MANIFOLD_STRIDE = 67;
 const DIR_COUNT = 7;
 export const DIR_BLOCK = 8;
-const DIR_HIT = 11;
+const DIR_FLAGS = 6;
 export const M_POINT_COUNT = 10;
 export const M_POINTS = 11;
 export const POINT_STRIDE = 14;
@@ -88,7 +88,7 @@ export function readContactMaterial(dirF: Float32Array, id: number) {
     };
 }
 export function contactHit(dirU: Uint32Array, id: number): boolean {
-    return dirU[id * DIR_STRIDE + DIR_HIT] !== 0;
+    return (dirU[id * DIR_STRIDE + DIR_FLAGS] & 0x00000002) !== 0;
 }
 export function contactPointCount(
     dirU: Uint32Array,
