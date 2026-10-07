@@ -76,27 +76,30 @@ unsafe fn visitor(world: usize, id: usize) -> Visitor {
 }
 #[export_name = "sensorCreate"]
 pub unsafe extern "C" fn create(world: usize, id: usize) {
+    unsafe { create_in_world(world, id) }
+}
+
+pub unsafe extern "C" fn create_in_world(world: usize, id: usize) {
     let w = state(world);
     let index = w.sensors.len();
     w.sensors.push(Sensor {
         shape_id: id,
         ..Sensor::default()
     });
-    crate::shape_lifecycle::attach_sensor(world, id, index as i32);
+    crate::shape_lifecycle::attach_sensor_in_world(world, id, index as i32);
 }
 pub unsafe fn record_hit(world: usize, sensor: usize, other: usize) {
-    shapes::shape_set_active_world(world as u32);
-    let index = shapes::col().get(sensor * shapes::SHAPE_STRIDE + 4) as usize;
+    let index = shapes::col(world as usize).get(sensor * shapes::SHAPE_STRIDE + 4) as usize;
     state(world).sensors[index].hits.push(visitor(world, other));
 }
-pub unsafe fn prepare() -> usize {
-    let w = state(regions::active());
+pub unsafe fn prepare(world_index: usize) -> usize {
+    let w = state(world_index);
     w.event_bits.resize(w.sensors.len().div_ceil(64), 0);
     w.event_bits.fill(0);
     w.sensors.len()
 }
-pub unsafe fn task(start: usize, end: usize) {
-    let world = regions::active();
+pub unsafe fn task(world_index: usize, start: usize, end: usize) {
+    let world = world_index;
     let sensors = (*(&raw const WORLDS))[world].sensors.as_ptr().cast_mut();
     let bits = (*(&raw const WORLDS))[world].event_bits.as_ptr().cast_mut();
     for index in start..end {
@@ -105,7 +108,7 @@ pub unsafe fn task(start: usize, end: usize) {
         s.overlaps2.clear();
         s.overlaps2.extend_from_slice(&s.hits);
         s.hits.clear();
-        let r = shapes::col();
+        let r = shapes::col(world_index);
         let n = s.shape_id * shapes::SHAPE_STRIDE;
         let body = r.get(n + shapes::S_QUERY_BODY) as usize;
         if bodies::record(world, body).set_index == 1
@@ -119,13 +122,13 @@ pub unsafe fn task(start: usize, end: usize) {
         }
         let mut header = [0; 20];
         for i in 0..3 {
-            header[2 * i] = *crate::broad::tree_state(i);
-            header[2 * i + 1] = crate::broad::tree_cap(i) as u32;
+            header[2 * i] = *crate::broad::tree_state(world_index, i);
+            header[2 * i + 1] = crate::broad::tree_cap(world_index, i) as u32;
         }
         for j in 0..6 {
             header[13 + j] = r.get(n + 10 + j);
         }
-        world_query::sensor_task(s.shape_id, &header, |id| {
+        world_query::sensor_task(world_index, s.shape_id, &header, |id| {
             s.overlaps2.push(visitor(world, id))
         });
         s.overlaps2.sort_unstable_by_key(|v| v.shape_id);
@@ -174,17 +177,24 @@ pub unsafe fn publish(world: usize) {
 }
 #[export_name = "sensorDestroy"]
 pub unsafe extern "C" fn destroy(world: usize, id: usize) {
-    shapes::shape_set_active_world(world as u32);
-    let index = shapes::col().get(id * shapes::SHAPE_STRIDE + 4) as usize;
+    unsafe { destroy_in_world(world, id) }
+}
+
+pub unsafe extern "C" fn destroy_in_world(world: usize, id: usize) {
+    let index = shapes::col(world as usize).get(id * shapes::SHAPE_STRIDE + 4) as usize;
     let w = state(world);
     for v in &w.sensors[index].overlaps2 {
         crate::events::sensor_touch(world, id, *v, true);
     }
     w.sensors.swap_remove(index);
     if index < w.sensors.len() {
-        crate::shape_lifecycle::attach_sensor(world, w.sensors[index].shape_id, index as i32);
+        crate::shape_lifecycle::attach_sensor_in_world(
+            world,
+            w.sensors[index].shape_id,
+            index as i32,
+        );
     }
-    crate::shape_lifecycle::attach_sensor(world, id, -1);
+    crate::shape_lifecycle::attach_sensor_in_world(world, id, -1);
 }
 #[export_name = "sensorVisitorCount"]
 pub unsafe extern "C" fn visitor_count(world: usize, index: usize) -> usize {

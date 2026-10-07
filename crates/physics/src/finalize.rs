@@ -126,6 +126,7 @@ pub fn convex_bounds(shape_type: u32, geom: &[f32], xf: Transform) -> [f32; 6] {
 /// bodies in the requested range, and no worker may grow memory while it runs.
 #[cfg(target_arch = "wasm32")]
 pub unsafe fn finalize(
+    world_index: usize,
     state_col: Col<f32>,
     sim_col: Col<f32>,
     fin_col: Col<f32>,
@@ -188,7 +189,7 @@ pub unsafe fn finalize(
 
         let s2 = i * SIM2_STRIDE;
         let body_id = sim2_col.get(s2 + S2_BODY_ID).to_bits() as usize;
-        let body = crate::bodies::record_mut(crate::regions::active(), body_id);
+        let body = crate::bodies::record_mut(world_index, body_id);
         body.sleep_velocity = sleep_velocity;
         let awake = !crate::continuous::sleep_enabled()
             || body.flags & crate::body::flags::ENABLE_SLEEP == 0
@@ -208,7 +209,7 @@ pub unsafe fn finalize(
                 f32::from_bits(flags | crate::continuous::IS_FAST),
             );
             if flags & crate::continuous::IS_BULLET == 0 {
-                crate::continuous::solve(i);
+                crate::continuous::solve(world_index, i);
             }
         } else {
             sim2_col.set(s2 + S2_ROTATION0, q.v.x);

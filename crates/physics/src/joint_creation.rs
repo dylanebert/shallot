@@ -1,10 +1,9 @@
 //! joint.c per-kind payload initialization. JointArray::append zeroes the payload,
 //! including impulses and solver scratch, before these definition fields are written.
-use crate::{constraint_graph as graph, joint_abi::*, joint_record, joints, math::*, regions};
+use crate::{constraint_graph as graph, joint_abi::*, joint_record, joints, math::*};
 
 unsafe fn location(world: usize, id: usize) -> (usize, usize) {
-    regions::select(world as u32);
-    let r = joint_record::record(id);
+    let r = joint_record::record(world as usize, id);
     (
         if r.set_index == 2 {
             r.color_index as usize
@@ -32,6 +31,42 @@ pub unsafe extern "C" fn distance(
     limit: bool,
     motor: bool,
 ) {
+    unsafe {
+        distance_in_world(
+            world,
+            id,
+            length,
+            hertz,
+            damping,
+            lower_force,
+            upper_force,
+            min_length,
+            max_length,
+            max_force,
+            speed,
+            spring,
+            limit,
+            motor,
+        )
+    }
+}
+
+pub unsafe extern "C" fn distance_in_world(
+    world: usize,
+    id: usize,
+    length: f32,
+    hertz: f32,
+    damping: f32,
+    lower_force: f32,
+    upper_force: f32,
+    min_length: f32,
+    max_length: f32,
+    max_force: f32,
+    speed: f32,
+    spring: bool,
+    limit: bool,
+    motor: bool,
+) {
     let (key, index) = location(world, id);
     for (field, value) in [
         (DJ_LENGTH, maxf(length, 0.005)),
@@ -44,9 +79,10 @@ pub unsafe extern "C" fn distance(
         (DJ_MAX_MOTOR_FORCE, max_force),
         (DJ_MOTOR_SPEED, speed),
     ] {
-        joints::write_float(key, index, field, value);
+        joints::write_float_in_world(world as usize, key, index, field, value);
     }
-    joints::write_word(
+    joints::write_word_in_world(
+        world as usize,
         key,
         index,
         DJ_ENABLE,
@@ -58,6 +94,28 @@ pub unsafe extern "C" fn distance(
 
 #[export_name = "jointInitRevolute"]
 pub unsafe extern "C" fn revolute(
+    world: usize,
+    id: usize,
+    hertz: f32,
+    damping: f32,
+    target: f32,
+    lower: f32,
+    upper: f32,
+    max_torque: f32,
+    speed: f32,
+    spring: bool,
+    limit: bool,
+    motor: bool,
+) {
+    unsafe {
+        revolute_in_world(
+            world, id, hertz, damping, target, lower, upper, max_torque, speed, spring, limit,
+            motor,
+        )
+    }
+}
+
+pub unsafe extern "C" fn revolute_in_world(
     world: usize,
     id: usize,
     hertz: f32,
@@ -87,9 +145,10 @@ pub unsafe extern "C" fn revolute(
         (RJ_MAX_MOTOR_TORQUE, max_torque),
         (RJ_MOTOR_SPEED, speed),
     ] {
-        joints::write_float(key, index, field, value);
+        joints::write_float_in_world(world as usize, key, index, field, value);
     }
-    joints::write_word(
+    joints::write_word_in_world(
+        world as usize,
         key,
         index,
         RJ_ENABLE,
@@ -101,6 +160,52 @@ pub unsafe extern "C" fn revolute(
 
 #[export_name = "jointInitSpherical"]
 pub unsafe extern "C" fn spherical(
+    world: usize,
+    id: usize,
+    hertz: f32,
+    damping: f32,
+    qx: f32,
+    qy: f32,
+    qz: f32,
+    qs: f32,
+    cone: f32,
+    lower: f32,
+    upper: f32,
+    max_torque: f32,
+    vx: f32,
+    vy: f32,
+    vz: f32,
+    spring: bool,
+    cone_limit: bool,
+    twist_limit: bool,
+    motor: bool,
+) {
+    unsafe {
+        spherical_in_world(
+            world,
+            id,
+            hertz,
+            damping,
+            qx,
+            qy,
+            qz,
+            qs,
+            cone,
+            lower,
+            upper,
+            max_torque,
+            vx,
+            vy,
+            vz,
+            spring,
+            cone_limit,
+            twist_limit,
+            motor,
+        )
+    }
+}
+
+pub unsafe extern "C" fn spherical_in_world(
     world: usize,
     id: usize,
     hertz: f32,
@@ -143,9 +248,10 @@ pub unsafe extern "C" fn spherical(
         (SJ_MOTOR_VELOCITY + 1, vy),
         (SJ_MOTOR_VELOCITY + 2, vz),
     ] {
-        joints::write_float(key, index, field, value);
+        joints::write_float_in_world(world as usize, key, index, field, value);
     }
-    joints::write_word(
+    joints::write_word_in_world(
+        world as usize,
         key,
         index,
         SJ_ENABLE,
@@ -171,6 +277,27 @@ pub unsafe extern "C" fn prismatic(
     limit: bool,
     motor: bool,
 ) {
+    unsafe {
+        prismatic_in_world(
+            world, id, hertz, damping, target, lower, upper, max_force, speed, spring, limit, motor,
+        )
+    }
+}
+
+pub unsafe extern "C" fn prismatic_in_world(
+    world: usize,
+    id: usize,
+    hertz: f32,
+    damping: f32,
+    target: f32,
+    lower: f32,
+    upper: f32,
+    max_force: f32,
+    speed: f32,
+    spring: bool,
+    limit: bool,
+    motor: bool,
+) {
     let (key, index) = location(world, id);
     for (field, value) in [
         (PJ_HERTZ, hertz),
@@ -181,9 +308,10 @@ pub unsafe extern "C" fn prismatic(
         (PJ_MAX_MOTOR_FORCE, max_force),
         (PJ_MOTOR_SPEED, speed),
     ] {
-        joints::write_float(key, index, field, value);
+        joints::write_float_in_world(world as usize, key, index, field, value);
     }
-    joints::write_word(
+    joints::write_word_in_world(
+        world as usize,
         key,
         index,
         PJ_ENABLE,
@@ -195,6 +323,52 @@ pub unsafe extern "C" fn prismatic(
 
 #[export_name = "jointInitWheel"]
 pub unsafe extern "C" fn wheel(
+    world: usize,
+    id: usize,
+    suspension_spring: bool,
+    suspension_hertz: f32,
+    suspension_damping: f32,
+    suspension_limit: bool,
+    suspension_lower: f32,
+    suspension_upper: f32,
+    spin_motor: bool,
+    max_spin_torque: f32,
+    spin_speed: f32,
+    steering: bool,
+    steering_hertz: f32,
+    steering_damping: f32,
+    steering_target: f32,
+    max_steering_torque: f32,
+    steering_limit: bool,
+    steering_lower: f32,
+    steering_upper: f32,
+) {
+    unsafe {
+        wheel_in_world(
+            world,
+            id,
+            suspension_spring,
+            suspension_hertz,
+            suspension_damping,
+            suspension_limit,
+            suspension_lower,
+            suspension_upper,
+            spin_motor,
+            max_spin_torque,
+            spin_speed,
+            steering,
+            steering_hertz,
+            steering_damping,
+            steering_target,
+            max_steering_torque,
+            steering_limit,
+            steering_lower,
+            steering_upper,
+        )
+    }
+}
+
+pub unsafe extern "C" fn wheel_in_world(
     world: usize,
     id: usize,
     suspension_spring: bool,
@@ -230,9 +404,10 @@ pub unsafe extern "C" fn wheel(
         (WHJ_LOWER_STEERING_LIMIT, steering_lower),
         (WHJ_UPPER_STEERING_LIMIT, steering_upper),
     ] {
-        joints::write_float(key, index, field, value);
+        joints::write_float_in_world(world as usize, key, index, field, value);
     }
-    joints::write_word(
+    joints::write_word_in_world(
+        world as usize,
         key,
         index,
         WHJ_ENABLE,
@@ -253,6 +428,26 @@ pub unsafe extern "C" fn weld(
     angular_hertz: f32,
     angular_damping: f32,
 ) {
+    unsafe {
+        weld_in_world(
+            world,
+            id,
+            linear_hertz,
+            linear_damping,
+            angular_hertz,
+            angular_damping,
+        )
+    }
+}
+
+pub unsafe extern "C" fn weld_in_world(
+    world: usize,
+    id: usize,
+    linear_hertz: f32,
+    linear_damping: f32,
+    angular_hertz: f32,
+    angular_damping: f32,
+) {
     let (key, index) = location(world, id);
     for (field, value) in [
         (WJ_LINEAR_HERTZ, linear_hertz),
@@ -260,12 +455,52 @@ pub unsafe extern "C" fn weld(
         (WJ_ANGULAR_HERTZ, angular_hertz),
         (WJ_ANGULAR_DAMPING_RATIO, angular_damping),
     ] {
-        joints::write_float(key, index, field, value);
+        joints::write_float_in_world(world as usize, key, index, field, value);
     }
 }
 
 #[export_name = "jointInitMotor"]
 pub unsafe extern "C" fn motor(
+    world: usize,
+    id: usize,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    max_force: f32,
+    ax: f32,
+    ay: f32,
+    az: f32,
+    max_torque: f32,
+    linear_hertz: f32,
+    linear_damping: f32,
+    spring_force: f32,
+    angular_hertz: f32,
+    angular_damping: f32,
+    spring_torque: f32,
+) {
+    unsafe {
+        motor_in_world(
+            world,
+            id,
+            lx,
+            ly,
+            lz,
+            max_force,
+            ax,
+            ay,
+            az,
+            max_torque,
+            linear_hertz,
+            linear_damping,
+            spring_force,
+            angular_hertz,
+            angular_damping,
+            spring_torque,
+        )
+    }
+}
+
+pub unsafe extern "C" fn motor_in_world(
     world: usize,
     id: usize,
     lx: f32,
@@ -300,12 +535,22 @@ pub unsafe extern "C" fn motor(
         (MJ_ANGULAR_DAMPING_RATIO, angular_damping),
         (MJ_MAX_SPRING_TORQUE, spring_torque),
     ] {
-        joints::write_float(key, index, field, value);
+        joints::write_float_in_world(world as usize, key, index, field, value);
     }
 }
 
 #[export_name = "jointInitParallel"]
 pub unsafe extern "C" fn parallel(
+    world: usize,
+    id: usize,
+    hertz: f32,
+    damping: f32,
+    max_torque: f32,
+) {
+    unsafe { parallel_in_world(world, id, hertz, damping, max_torque) }
+}
+
+pub unsafe extern "C" fn parallel_in_world(
     world: usize,
     id: usize,
     hertz: f32,
@@ -318,6 +563,6 @@ pub unsafe extern "C" fn parallel(
         (PLJ_DAMPING_RATIO, damping),
         (PLJ_MAX_TORQUE, max_torque),
     ] {
-        joints::write_float(key, index, field, value);
+        joints::write_float_in_world(world as usize, key, index, field, value);
     }
 }

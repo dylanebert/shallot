@@ -67,6 +67,7 @@ static mut WORK: Option<Work> = None;
 /// shared-mutable handles, because a stage's blocks run concurrently over one column and only their
 /// *writes* are disjoint (col.rs).
 struct Work {
+    world: usize,
     cols: Columns<'static>,
     wide: Col<'static, f32>,
     wide_idx: Col<'static, u32>,
@@ -121,7 +122,7 @@ impl StageWork for Work {
     }
     fn profile(&self, field: usize, start: f64) {
         unsafe {
-            crate::physics_world::accumulate(field, start);
+            crate::physics_world::accumulate(self.world, field, start);
         }
     }
     fn prepare_wide(&self, b: Block) {
@@ -255,6 +256,7 @@ impl StageWork for Work {
         // the solver and split have joined, and these columns stay fixed for this parallel-for.
         unsafe {
             arena::finalize_block(
+                self.world,
                 b.start,
                 b.start + b.count,
                 self.dt,
@@ -295,6 +297,7 @@ impl StageWork for Work {
             for slot in start..end {
                 unsafe {
                     crate::joint::prepare_world(
+                        self.world,
                         self.joints[color],
                         slot - base,
                         self.h,
@@ -335,6 +338,7 @@ impl StageWork for Work {
         for slot in 0..self.overflow_joint_count {
             unsafe {
                 crate::joint::prepare_world(
+                    self.world,
                     self.overflow_joints,
                     slot,
                     self.h,
@@ -403,15 +407,80 @@ pub extern "C" fn solve_build(
     hit_event_threshold: f32,
     enable_continuous: u32,
 ) {
+    solve_build_in_world(
+        crate::regions::active(),
+        thread_count,
+        sub_step_count,
+        wide_total,
+        mesh_start,
+        mesh_total,
+        overflow_start,
+        overflow_count,
+        joint_total,
+        overflow_joint_count,
+        gx,
+        gy,
+        gz,
+        h,
+        inv_h,
+        dt,
+        inv_dt,
+        max_linear_velocity,
+        contact_speed,
+        cs_bias,
+        cs_mass,
+        cs_impulse,
+        ss_bias,
+        ss_mass,
+        ss_impulse,
+        warm_start_scale,
+        restitution_threshold,
+        hit_event_threshold,
+        enable_continuous,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+
+pub extern "C" fn solve_build_in_world(
+    world_index: usize,
+    thread_count: usize,
+    sub_step_count: usize,
+    wide_total: usize,
+    mesh_start: usize,
+    mesh_total: usize,
+    overflow_start: usize,
+    overflow_count: usize,
+    joint_total: usize,
+    overflow_joint_count: usize,
+    gx: f32,
+    gy: f32,
+    gz: f32,
+    h: f32,
+    inv_h: f32,
+    dt: f32,
+    inv_dt: f32,
+    max_linear_velocity: f32,
+    contact_speed: f32,
+    cs_bias: f32,
+    cs_mass: f32,
+    cs_impulse: f32,
+    ss_bias: f32,
+    ss_mass: f32,
+    ss_impulse: f32,
+    warm_start_scale: f32,
+    restitution_threshold: f32,
+    hit_event_threshold: f32,
+    enable_continuous: u32,
+) {
     assert!((1..=MAX_THREADS).contains(&thread_count));
     unsafe {
         // Drop the previous solve's context before re-borrowing its buffers. The workers have all left
         // it (the join in `stages::run`), so nothing else holds them.
         CTX = None;
-        SPLIT_ID = crate::island::split_candidate();
+        SPLIT_ID = crate::island::split_candidate_in_world(world_index);
         SPLIT_WORKER = usize::from(thread_count > 1);
         if SPLIT_ID != -1 {
-            crate::island::prepare_split(SPLIT_ID as usize, SPLIT_WORKER);
+            crate::island::prepare_split(world_index, SPLIT_ID as usize, SPLIT_WORKER);
         }
 
         let (spans, color_count) = arena::color_span_column();
@@ -435,14 +504,18 @@ pub extern "C" fn solve_build(
             if c < color_count {
                 joint_bases[c] = base;
                 base += out[c].joint_count;
-                crate::joints::column(spans.get(c * arena::COLOR_SPAN_STRIDE + 4) as usize)
+                crate::joints::column(
+                    world_index,
+                    spans.get(c * arena::COLOR_SPAN_STRIDE + 4) as usize,
+                )
             } else {
                 Col::new(16 as *mut f32, 0)
             }
         });
         let (wide, wide_idx, wide_meta) = arena::wide_columns();
         WORK = Some(Work {
-            cols: arena::scalar_columns(),
+            world: world_index,
+            cols: arena::scalar_columns(world_index),
             wide,
             wide_idx,
             wide_meta,
@@ -451,10 +524,10 @@ pub extern "C" fn solve_build(
             joints,
             joint_bases,
             color_count,
-            overflow_joints: crate::joints::column(MAX_COLORS - 1),
+            overflow_joints: crate::joints::column(world_index, MAX_COLORS - 1),
             fin: Col::new(
-                crate::bodies::fin_base() as *mut f32,
-                crate::bodies::body_cap() * crate::body::FIN_STRIDE,
+                crate::bodies::fin_base(world_index) as *mut f32,
+                crate::bodies::body_cap_in_world(world_index) * crate::body::FIN_STRIDE,
             ),
             overflow_joint_count,
             enable_warm_starting: warm_start_scale != 0.0,
@@ -581,7 +654,7 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
 ///
 /// No build means the pool was woken without one — a caller bug, but a benign one: every thread reads the
 /// same `Job::None` and returns without entering a spin.
-fn run_job(index: usize) {
+fn run_job(world_index: usize, index: usize) {
     unsafe {
         match *(&raw const JOB) {
             Job::None => {}
@@ -593,8 +666,8 @@ fn run_job(index: usize) {
                 // Its solver exit acknowledgement joins both jobs before finalization.
                 if SPLIT_ID != -1 && index == SPLIT_WORKER {
                     let start = crate::physics_world::ticks();
-                    crate::island::split_task(SPLIT_ID as usize, index);
-                    crate::physics_world::accumulate(14, start);
+                    crate::island::split_task(world_index, SPLIT_ID as usize, index);
+                    crate::physics_world::accumulate(world_index, 14, start);
                 }
                 stages::run(ctx, work, index);
             }
@@ -603,12 +676,16 @@ fn run_job(index: usize) {
                     return;
                 };
                 match job {
-                    Job::Contacts => p.par.run(|s, e| arena::contact_block(s, e, p.count, index)),
-                    Job::Bullets => p.par.run(|s, e| crate::continuous::bullets(s, e)),
+                    Job::Contacts => p
+                        .par
+                        .run(|s, e| arena::contact_block(world_index, s, e, p.count, index)),
+                    Job::Bullets => p
+                        .par
+                        .run(|s, e| crate::continuous::bullets(world_index, s, e)),
                     Job::Pairs => p
                         .par
-                        .run(|s, e| crate::pairwork::query_block(s, e, p.a as usize)),
-                    Job::Sensors => p.par.run(|s, e| crate::sensor::task(s, e)),
+                        .run(|s, e| crate::pairwork::query_block(world_index, s, e, p.a as usize)),
+                    Job::Sensors => p.par.run(|s, e| crate::sensor::task(world_index, s, e)),
                     Job::Finalize => p.par.run(|s, e| {
                         let work = (&*(&raw const WORK)).as_ref().unwrap();
                         work.finalize(Block {
@@ -631,7 +708,11 @@ fn run_job(index: usize) {
 /// first, and the pool must already be awake.
 #[export_name = "runMt"]
 pub extern "C" fn run_mt() {
-    run_job(0);
+    run_mt_in_world(crate::regions::active())
+}
+
+pub extern "C" fn run_mt_in_world(world_index: usize) {
+    run_job(world_index, 0);
 }
 
 /// A pooled worker's entry: run the built job as worker `index` (1-based — 0 is the orchestrator).
@@ -639,7 +720,11 @@ pub extern "C" fn run_mt() {
 /// next step (`stages::run`'s contract).
 #[export_name = "workerMain"]
 pub extern "C" fn worker_main(index: usize) {
-    run_job(index);
+    worker_main_in_world(crate::regions::active(), index)
+}
+
+pub extern "C" fn worker_main_in_world(world_index: usize, index: usize) {
+    run_job(world_index, index);
 }
 
 /// A worker died inside [`worker_main`] — a wasm trap, which unwinds into its JS round body. Called from

@@ -67,15 +67,15 @@ mod runtime {
     }
     static mut WORLDS: [Records; MAX_WORLDS] = [const { Records::EMPTY }; MAX_WORLDS];
 
-    pub unsafe fn record(id: usize) -> &'static JointRecord {
-        &*(WORLDS[regions::active()].records.layout[0] as usize as *const JointRecord).add(id)
+    pub unsafe fn record(world_index: usize, id: usize) -> &'static JointRecord {
+        &*(WORLDS[world_index].records.layout[0] as usize as *const JointRecord).add(id)
     }
-    pub unsafe fn record_mut(id: usize) -> &'static mut JointRecord {
-        &mut *(WORLDS[regions::active()].records.layout[0] as usize as *mut JointRecord).add(id)
+    pub unsafe fn record_mut(world_index: usize, id: usize) -> &'static mut JointRecord {
+        &mut *(WORLDS[world_index].records.layout[0] as usize as *mut JointRecord).add(id)
     }
 
-    pub unsafe fn alloc() -> u32 {
-        let w = &mut WORLDS[regions::active()];
+    pub unsafe fn alloc(world_index: usize) -> u32 {
+        let w = &mut WORLDS[world_index];
         let id = if let Some(id) = w.free.pop() {
             id
         } else {
@@ -89,7 +89,7 @@ mod runtime {
                 .write(JointRecord::EMPTY);
             id as u32
         };
-        let r = record_mut(id as usize);
+        let r = record_mut(world_index, id as usize);
         let generation = r.generation.wrapping_add(1);
         *r = JointRecord::EMPTY;
         r.generation = generation;
@@ -97,36 +97,39 @@ mod runtime {
         id
     }
 
-    pub unsafe fn link_bodies(id: usize, a: usize, b: usize) {
+    pub unsafe fn link_bodies(world_index: usize, id: usize, a: usize, b: usize) {
         for (side, body_id) in [a, b].into_iter().enumerate() {
-            let body = crate::bodies::record_mut(regions::active(), body_id);
+            let body = crate::bodies::record_mut(world_index, body_id);
             let head = body.head_joint_key;
             let key = ((id as i32) << 1) | side as i32;
-            record_mut(id).edges[side] = super::JointEdge {
+            record_mut(world_index, id).edges[side] = super::JointEdge {
                 body_id: body_id as i32,
                 prev_key: -1,
                 next_key: head,
             };
             if head != -1 {
-                record_mut((head >> 1) as usize).edges[(head & 1) as usize].prev_key = key;
+                record_mut(world_index, (head >> 1) as usize).edges[(head & 1) as usize].prev_key =
+                    key;
             }
             body.head_joint_key = key;
             body.joint_count += 1;
         }
     }
 
-    pub unsafe fn unlink_bodies(id: usize) {
-        let edges = record(id).edges;
+    pub unsafe fn unlink_bodies(world_index: usize, id: usize) {
+        let edges = record(world_index, id).edges;
         for (side, edge) in edges.into_iter().enumerate() {
             if edge.prev_key != -1 {
-                record_mut((edge.prev_key >> 1) as usize).edges[(edge.prev_key & 1) as usize]
+                record_mut(world_index, (edge.prev_key >> 1) as usize).edges
+                    [(edge.prev_key & 1) as usize]
                     .next_key = edge.next_key;
             }
             if edge.next_key != -1 {
-                record_mut((edge.next_key >> 1) as usize).edges[(edge.next_key & 1) as usize]
+                record_mut(world_index, (edge.next_key >> 1) as usize).edges
+                    [(edge.next_key & 1) as usize]
                     .prev_key = edge.prev_key;
             }
-            let body = crate::bodies::record_mut(regions::active(), edge.body_id as usize);
+            let body = crate::bodies::record_mut(world_index, edge.body_id as usize);
             if body.head_joint_key == (((id as i32) << 1) | side as i32) {
                 body.head_joint_key = edge.next_key;
             }
@@ -134,8 +137,8 @@ mod runtime {
         }
     }
 
-    pub unsafe fn set_location(id: usize, key: usize, index: usize) {
-        let r = record_mut(id);
+    pub unsafe fn set_location(world_index: usize, id: usize, key: usize, index: usize) {
+        let r = record_mut(world_index, id);
         if key < crate::constraint_graph::COLORS {
             r.set_index = 2;
             r.color_index = key as i32;
@@ -146,42 +149,59 @@ mod runtime {
         r.local_index = index as i32;
     }
 
-    pub unsafe fn free(id: u32) {
-        let r = record_mut(id as usize);
+    pub unsafe fn free(world_index: usize, id: u32) {
+        let r = record_mut(world_index, id as usize);
         r.set_index = -1;
         r.color_index = -1;
         r.local_index = -1;
         r.joint_id = -1;
-        WORLDS[regions::active()].free.push(id);
+        WORLDS[world_index].free.push(id);
     }
 
     #[export_name = "jointSimPtr"]
     pub unsafe extern "C" fn sim_pointer(id: usize) -> usize {
-        let r = record(id);
+        unsafe { sim_pointer_in_world(crate::regions::active(), id) }
+    }
+
+    pub unsafe extern "C" fn sim_pointer_in_world(world_index: usize, id: usize) -> usize {
+        let r = record(world_index, id);
         assert!(r.set_index >= 0 && r.local_index >= 0);
         let key = if r.set_index == 2 {
             r.color_index as usize
         } else {
             crate::constraint_graph::COLORS + r.set_index as usize
         };
-        assert!((r.local_index as usize) < crate::joints::count(key));
-        crate::joints::pointer(key) + r.local_index as usize * crate::joint_abi::JOINT_STRIDE * 4
+        assert!((r.local_index as usize) < crate::joints::count_in_world(world_index, key));
+        crate::joints::pointer_in_world(world_index, key)
+            + r.local_index as usize * crate::joint_abi::JOINT_STRIDE * 4
     }
 
     #[export_name = "jointRecordPtr"]
     pub unsafe extern "C" fn pointer() -> usize {
-        WORLDS[regions::active()].records.layout[0] as usize
+        unsafe { pointer_in_world(crate::regions::active()) }
+    }
+
+    pub unsafe extern "C" fn pointer_in_world(world_index: usize) -> usize {
+        WORLDS[world_index].records.layout[0] as usize
     }
 
     #[export_name = "jointRecordCount"]
     pub unsafe extern "C" fn count() -> usize {
-        let w = &WORLDS[regions::active()];
+        unsafe { count_in_world(crate::regions::active()) }
+    }
+
+    pub unsafe extern "C" fn count_in_world(world_index: usize) -> usize {
+        let w = &WORLDS[world_index];
         w.next - w.free.len()
     }
 
     #[export_name = "jointRecordCapacity"]
     pub unsafe extern "C" fn capacity() -> usize {
-        WORLDS[regions::active()].next
+        unsafe { capacity_in_world(crate::regions::active()) }
+    }
+
+    pub unsafe extern "C" fn capacity_in_world(world_index: usize) -> usize {
+        WORLDS[world_index].next
     }
 
     pub unsafe fn reset(world: usize) {

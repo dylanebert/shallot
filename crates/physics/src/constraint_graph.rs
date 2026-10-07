@@ -18,8 +18,8 @@ struct GraphColor {
     contacts: Vec<ContactSpec>,
 }
 static mut GRAPHS: [Vec<GraphColor>; MAX_WORLDS] = [const { Vec::new() }; MAX_WORLDS];
-unsafe fn colors() -> &'static mut Vec<GraphColor> {
-    let g = &mut GRAPHS[regions::active()];
+unsafe fn colors(world_index: usize) -> &'static mut Vec<GraphColor> {
+    let g = &mut GRAPHS[world_index];
     g.resize_with(COLORS, GraphColor::default);
     g
 }
@@ -34,29 +34,47 @@ fn set(c: &mut GraphColor, id: usize) {
 }
 #[export_name = "graphCreate"]
 pub extern "C" fn create(capacity: usize) {
+    create_in_world(crate::regions::active(), capacity)
+}
+
+pub extern "C" fn create_in_world(world_index: usize, capacity: usize) {
     unsafe {
-        for c in colors().iter_mut().take(OVERFLOW) {
+        for c in colors(world_index).iter_mut().take(OVERFLOW) {
             c.body_set.resize(capacity.max(8).div_ceil(64), 0);
         }
     }
 }
-pub extern "C" fn create_joint(a: usize, b: usize) -> usize {
-    let color = joint_color(a, b);
-    joints::append(color);
+pub extern "C" fn create_joint(world_index: usize, a: usize, b: usize) -> usize {
+    let color = joint_color(world_index, a, b);
+    joints::append_in_world(world_index, color);
     color
 }
-pub fn add_joint(source: usize, index: usize, a: usize, b: usize) {
-    let color = joint_color(a, b);
-    joints::move_record(source, index, color);
+pub fn add_joint(world_index: usize, source: usize, index: usize, a: usize, b: usize) {
+    let color = joint_color(world_index, a, b);
+    joints::move_record_in_world(world_index, source, index, color);
 }
 #[export_name = "graphBodyBit"]
 pub extern "C" fn body_bit(color: usize, id: usize) -> bool {
-    unsafe { bit(&colors()[color], id) }
+    body_bit_in_world(crate::regions::active(), color, id)
+}
+
+pub extern "C" fn body_bit_in_world(world_index: usize, color: usize, id: usize) -> bool {
+    unsafe { bit(&colors(world_index)[color], id) }
 }
 #[export_name = "graphAssignColor"]
 pub extern "C" fn assign(a: usize, b: usize, ta: u32, tb: u32) -> usize {
+    assign_in_world(crate::regions::active(), a, b, ta, tb)
+}
+
+pub extern "C" fn assign_in_world(
+    world_index: usize,
+    a: usize,
+    b: usize,
+    ta: u32,
+    tb: u32,
+) -> usize {
     unsafe {
-        let g = colors();
+        let g = colors(world_index);
         if ta == 2 && tb == 2 {
             for (i, c) in g.iter_mut().enumerate().take(DYNAMIC) {
                 if !bit(c, a) && !bit(c, b) {
@@ -79,11 +97,15 @@ pub extern "C" fn assign(a: usize, b: usize, ta: u32, tb: u32) -> usize {
 }
 #[export_name = "graphClearBodies"]
 pub extern "C" fn clear(color: usize, a: usize, b: usize) {
+    clear_in_world(crate::regions::active(), color, a, b)
+}
+
+pub extern "C" fn clear_in_world(world_index: usize, color: usize, a: usize, b: usize) {
     if color == OVERFLOW {
         return;
     }
     unsafe {
-        let c = &mut colors()[color];
+        let c = &mut colors(world_index)[color];
         for id in [a, b] {
             if let Some(w) = c.body_set.get_mut(id / 64) {
                 *w &= !(1 << (id % 64));
@@ -93,8 +115,12 @@ pub extern "C" fn clear(color: usize, a: usize, b: usize) {
 }
 #[export_name = "graphContactCount"]
 pub extern "C" fn count(color: usize, scalar: bool) -> usize {
+    count_in_world(crate::regions::active(), color, scalar)
+}
+
+pub extern "C" fn count_in_world(world_index: usize, color: usize, scalar: bool) -> usize {
     unsafe {
-        let c = &colors()[color];
+        let c = &colors(world_index)[color];
         if scalar {
             c.contacts.len()
         } else {
@@ -104,8 +130,12 @@ pub extern "C" fn count(color: usize, scalar: bool) -> usize {
 }
 #[export_name = "graphContactPtr"]
 pub extern "C" fn pointer(color: usize, scalar: bool) -> usize {
+    pointer_in_world(crate::regions::active(), color, scalar)
+}
+
+pub extern "C" fn pointer_in_world(world_index: usize, color: usize, scalar: bool) -> usize {
     unsafe {
-        let c = &colors()[color];
+        let c = &colors(world_index)[color];
         if scalar {
             c.contacts.as_ptr() as usize
         } else {
@@ -115,20 +145,27 @@ pub extern "C" fn pointer(color: usize, scalar: bool) -> usize {
 }
 #[export_name = "graphAddContact"]
 pub extern "C" fn add_contact(id: usize, index_a: u32, index_b: u32) {
+    add_contact_in_world(crate::regions::active(), id, index_a, index_b)
+}
+
+pub extern "C" fn add_contact_in_world(world_index: usize, id: usize, index_a: u32, index_b: u32) {
     unsafe {
-        let d = manifolds::dir_col();
+        let d = manifolds::dir_col(world_index);
         let o = id * DIR_STRIDE;
         let a = d.get(o + DIR_EDGE_A) as usize;
         let b = d.get(o + DIR_EDGE_B) as usize;
-        let ta = bodies::get_type(regions::active(), a);
-        let tb = bodies::get_type(regions::active(), b);
-        let color = assign(a, b, ta, tb);
+        let ta = bodies::get_type(world_index, a);
+        let tb = bodies::get_type(world_index, b);
+        let color = assign_in_world(world_index, a, b, ta, tb);
         let scalar = d.get(o + 6) & 0x00400000 != 0 || color == OVERFLOW;
         d.set(o + DIR_COLOR_INDEX, color as u32);
-        d.set(o + DIR_LOCAL_INDEX, count(color, scalar) as u32);
+        d.set(
+            o + DIR_LOCAL_INDEX,
+            count_in_world(world_index, color, scalar) as u32,
+        );
         d.set(o + 9, if ta == 0 { u32::MAX } else { index_a });
         d.set(o + 10, if tb == 0 { u32::MAX } else { index_b });
-        let c = &mut colors()[color];
+        let c = &mut colors(world_index)[color];
         if scalar {
             c.contacts.push(ContactSpec {
                 contact_id: id as u32,
@@ -142,9 +179,20 @@ pub extern "C" fn add_contact(id: usize, index_a: u32, index_b: u32) {
 }
 #[export_name = "graphRemoveContact"]
 pub extern "C" fn remove_contact(a: usize, b: usize, color: usize, index: usize, mesh: bool) {
-    clear(color, a, b);
+    remove_contact_in_world(crate::regions::active(), a, b, color, index, mesh)
+}
+
+pub extern "C" fn remove_contact_in_world(
+    world_index: usize,
+    a: usize,
+    b: usize,
+    color: usize,
+    index: usize,
+    mesh: bool,
+) {
+    clear_in_world(world_index, color, a, b);
     unsafe {
-        let c = &mut colors()[color];
+        let c = &mut colors(world_index)[color];
         let moved = if mesh || color == OVERFLOW {
             c.contacts.swap_remove(index);
             c.contacts.get(index).map(|s| s.contact_id)
@@ -153,30 +201,38 @@ pub extern "C" fn remove_contact(a: usize, b: usize, color: usize, index: usize,
             c.convex_contacts.get(index).copied()
         };
         if let Some(id) = moved {
-            manifolds::dir_col().set(id as usize * DIR_STRIDE + DIR_LOCAL_INDEX, index as u32);
+            manifolds::dir_col(world_index)
+                .set(id as usize * DIR_STRIDE + DIR_LOCAL_INDEX, index as u32);
         }
     }
 }
-fn joint_color(a: usize, b: usize) -> usize {
+fn joint_color(world_index: usize, a: usize, b: usize) -> usize {
     unsafe {
-        assign(
+        assign_in_world(
+            world_index,
             a,
             b,
-            bodies::get_type(regions::active(), a),
-            bodies::get_type(regions::active(), b),
+            bodies::get_type(world_index, a),
+            bodies::get_type(world_index, b),
         )
     }
 }
-pub extern "C" fn remove_joint(a: usize, b: usize, color: usize, index: usize) -> u32 {
-    clear(color, a, b);
-    joints::remove(color, index)
+pub extern "C" fn remove_joint(
+    world_index: usize,
+    a: usize,
+    b: usize,
+    color: usize,
+    index: usize,
+) -> u32 {
+    clear_in_world(world_index, color, a, b);
+    joints::remove_in_world(world_index, color, index)
 }
 const LAYOUT_STRIDE: usize = 5;
 const LAYOUT_HEADER: usize = 10;
 static mut SOLVE_LAYOUT: [[u32; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS] =
     [[0; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS];
-unsafe fn extent(id: u32) -> (u32, u32) {
-    let d = manifolds::dir_col();
+unsafe fn extent(world_index: usize, id: u32) -> (u32, u32) {
+    let d = manifolds::dir_col(world_index);
     let o = id as usize * DIR_STRIDE;
     let n = d.get(o + 7);
     let p = d.get(o + DIR_MANIFOLD_BASE) as *const u32;
@@ -188,12 +244,20 @@ unsafe fn extent(id: u32) -> (u32, u32) {
 }
 #[export_name = "graphComputeLayout"]
 pub extern "C" fn compute_layout() -> usize {
+    compute_layout_in_world(crate::regions::active())
+}
+
+pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
     unsafe {
-        let result = &mut SOLVE_LAYOUT[regions::active()];
-        let g = colors();
+        let result = &mut SOLVE_LAYOUT[world_index];
+        let g = colors(world_index);
         let (mut contacts, mut manifolds, mut points, mut wide, mut active) = (0, 0, 0, 0, 0);
         for (color, c) in g.iter().enumerate().take(OVERFLOW) {
-            if c.convex_contacts.len() + c.contacts.len() + joints::count(color) == 0 {
+            if c.convex_contacts.len()
+                + c.contacts.len()
+                + joints::count_in_world(world_index, color)
+                == 0
+            {
                 continue;
             }
             let o = LAYOUT_HEADER + active * LAYOUT_STRIDE;
@@ -201,7 +265,7 @@ pub extern "C" fn compute_layout() -> usize {
             let nw = n.div_ceil(4);
             result[o..o + LAYOUT_STRIDE].copy_from_slice(&[color as u32, wide, nw, 0, 0]);
             for &id in &c.convex_contacts {
-                let (m, p) = extent(id);
+                let (m, p) = extent(world_index, id);
                 manifolds += m;
                 points += p;
             }
@@ -216,7 +280,7 @@ pub extern "C" fn compute_layout() -> usize {
             result[o + 3] = contacts;
             result[o + 4] = c.contacts.len() as u32;
             for s in &c.contacts {
-                let (m, p) = extent(s.contact_id);
+                let (m, p) = extent(world_index, s.contact_id);
                 manifolds += m;
                 points += p;
             }
@@ -224,7 +288,7 @@ pub extern "C" fn compute_layout() -> usize {
         }
         let overflow_start = contacts;
         for s in &g[OVERFLOW].contacts {
-            let (m, p) = extent(s.contact_id);
+            let (m, p) = extent(world_index, s.contact_id);
             manifolds += m;
             points += p;
         }
@@ -247,11 +311,15 @@ pub extern "C" fn compute_layout() -> usize {
 }
 #[export_name = "graphWriteSlots"]
 pub extern "C" fn write_slots() {
+    write_slots_in_world(crate::regions::active())
+}
+
+pub extern "C" fn write_slots_in_world(world_index: usize) {
     unsafe {
-        let slot = crate::arena::scalar_columns().slot;
+        let slot = crate::arena::scalar_columns(world_index).slot;
         let (_, _, meta) = crate::arena::wide_columns();
-        let dir = manifolds::dir_col();
-        let g = colors();
+        let dir = manifolds::dir_col(world_index);
+        let g = colors(world_index);
         let (mut gm, mut gp, mut cursor, mut wide) = (0, 0, 0, 0);
         for c in g.iter().take(OVERFLOW) {
             let n = c.convex_contacts.len();
@@ -261,7 +329,7 @@ pub extern "C" fn write_slots() {
                     (wide + j / 4) * crate::contact_wide::WIDE_META_STRIDE + j % 4,
                     id,
                 );
-                let (m, p) = extent(id);
+                let (m, p) = extent(world_index, id);
                 gm += m;
                 gp += p;
                 cursor += 1;
@@ -282,7 +350,7 @@ pub extern "C" fn write_slots() {
                 slot.set(o, s.contact_id);
                 slot.set(o + 1, gm);
                 slot.set(o + 2, gp);
-                let (m, p) = extent(s.contact_id);
+                let (m, p) = extent(world_index, s.contact_id);
                 gm += m;
                 gp += p;
                 cursor += 1;

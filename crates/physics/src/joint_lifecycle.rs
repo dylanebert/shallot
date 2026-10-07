@@ -1,39 +1,52 @@
 //! joint.c identity lifecycle.
 use crate::{
     bodies, constraint_graph as graph, island, joint_abi::*, joint_record as records, joints,
-    regions, solver_set as sets,
+    solver_set as sets,
 };
 pub unsafe fn reset(_world: usize) {}
 #[export_name = "jointCollectEvents"]
 pub unsafe extern "C" fn collect_events() -> usize {
-    crate::events::clear_joints(regions::active());
-    for id in 0..records::capacity() {
-        let r = records::record(id);
+    unsafe { collect_events_in_world(crate::regions::active()) }
+}
+
+pub unsafe extern "C" fn collect_events_in_world(world_index: usize) -> usize {
+    crate::events::clear_joints(world_index);
+    for id in 0..records::capacity_in_world(world_index) {
+        let r = records::record(world_index, id);
         if r.set_index == 2
-            && joints::read_float(r.color_index as usize, r.local_index as usize, J_EVENT) != 0.0
+            && joints::read_float_in_world(
+                world_index,
+                r.color_index as usize,
+                r.local_index as usize,
+                J_EVENT,
+            ) != 0.0
         {
-            crate::events::joint(regions::active(), id, r.generation as u32);
+            crate::events::joint(world_index, id, r.generation as u32);
         }
     }
-    crate::events::count(regions::active(), 5)
+    crate::events::count(world_index, 5)
 }
 unsafe fn begin() {}
-unsafe fn wake_body(id: usize) {
-    sets::wake(bodies::record(regions::active(), id).set_index as usize);
+unsafe fn wake_body(world_index: usize, id: usize) {
+    sets::wake(
+        world_index,
+        bodies::record(world_index, id).set_index as usize,
+    );
 }
-unsafe fn link(id: usize) {
-    let r = *records::record(id);
+unsafe fn link(world_index: usize, id: usize) {
+    let r = *records::record(world_index, id);
     let a = r.edges[0].body_id as usize;
     let b = r.edges[1].body_id as usize;
-    let world = regions::active();
+    let world = world_index;
     let sa = bodies::record(world, a).set_index;
     let sb = bodies::record(world, b).set_index;
     if sa == 2 && sb >= 3 {
-        sets::wake(sb as usize);
+        sets::wake(world_index, sb as usize);
     } else if sb == 2 && sa >= 3 {
-        sets::wake(sa as usize);
+        sets::wake(world_index, sa as usize);
     }
-    island::link_joint(
+    island::link_joint_in_world(
+        world_index,
         id as i32,
         a as i32,
         b as i32,
@@ -43,14 +56,22 @@ unsafe fn link(id: usize) {
 }
 #[export_name = "jointLink"]
 pub unsafe extern "C" fn link_record(id: usize) {
+    unsafe { link_record_in_world(crate::regions::active(), id) }
+}
+
+pub unsafe extern "C" fn link_record_in_world(world_index: usize, id: usize) {
     begin();
-    link(id);
+    link(world_index, id);
 }
 #[export_name = "jointUnlink"]
 pub unsafe extern "C" fn unlink_record(id: usize) {
-    let r = *records::record(id);
+    unsafe { unlink_record_in_world(crate::regions::active(), id) }
+}
+
+pub unsafe extern "C" fn unlink_record_in_world(world_index: usize, id: usize) {
+    let r = *records::record(world_index, id);
     if r.island_id != -1 {
-        island::unlink_joint(id as i32, r.island_id, r.island_index as usize);
+        island::unlink_joint_in_world(world_index, id as i32, r.island_id, r.island_index as usize);
     }
 }
 #[export_name = "jointCreate"]
@@ -79,13 +100,69 @@ pub unsafe extern "C" fn create(
     hertz: f32,
     damping: f32,
 ) -> u32 {
+    unsafe {
+        create_in_world(
+            crate::regions::active(),
+            a,
+            b,
+            joint_type,
+            draw_scale,
+            collide_connected,
+            ax,
+            ay,
+            az,
+            aqx,
+            aqy,
+            aqz,
+            aqs,
+            bx,
+            by,
+            bz,
+            bqx,
+            bqy,
+            bqz,
+            bqs,
+            force,
+            torque,
+            hertz,
+            damping,
+        )
+    }
+}
+
+pub unsafe extern "C" fn create_in_world(
+    world_index: usize,
+    a: usize,
+    b: usize,
+    joint_type: i32,
+    draw_scale: f32,
+    collide_connected: bool,
+    ax: f32,
+    ay: f32,
+    az: f32,
+    aqx: f32,
+    aqy: f32,
+    aqz: f32,
+    aqs: f32,
+    bx: f32,
+    by: f32,
+    bz: f32,
+    bqx: f32,
+    bqy: f32,
+    bqz: f32,
+    bqs: f32,
+    force: f32,
+    torque: f32,
+    hertz: f32,
+    damping: f32,
+) -> u32 {
     begin();
-    let id = records::alloc() as usize;
-    let world = regions::active();
-    records::record_mut(id).joint_type = joint_type;
-    records::record_mut(id).draw_scale = draw_scale;
-    records::record_mut(id).collide_connected = collide_connected;
-    records::link_bodies(id, a, b);
+    let id = records::alloc(world_index) as usize;
+    let world = world_index;
+    records::record_mut(world_index, id).joint_type = joint_type;
+    records::record_mut(world_index, id).draw_scale = draw_scale;
+    records::record_mut(world_index, id).collide_connected = collide_connected;
+    records::link_bodies(world_index, id, a, b);
     let sa = bodies::record(world, a).set_index;
     let sb = bodies::record(world, b).set_index;
     let max = sa.max(sb) as usize;
@@ -95,25 +172,25 @@ pub unsafe extern "C" fn create(
         graph::COLORS
     } else if sa == 2 || sb == 2 {
         if max >= 3 {
-            sets::wake(max);
+            sets::wake(world_index, max);
         }
-        graph::create_joint(a, b)
+        graph::create_joint(world_index, a, b)
     } else {
         graph::COLORS + max
     };
     let index = if key < graph::COLORS {
-        joints::count(key) - 1
+        joints::count_in_world(world_index, key) - 1
     } else {
-        joints::append(key)
+        joints::append_in_world(world_index, key)
     };
-    records::set_location(id, key, index);
-    joints::write_word(key, index, J_JOINT_ID, id as u32);
-    joints::write_word(key, index, J_BODY_ID_A, a as u32);
-    joints::write_word(key, index, J_BODY_ID_B, b as u32);
+    records::set_location(world_index, id, key, index);
+    joints::write_word_in_world(world_index, key, index, J_JOINT_ID, id as u32);
+    joints::write_word_in_world(world_index, key, index, J_BODY_ID_A, a as u32);
+    joints::write_word_in_world(world_index, key, index, J_BODY_ID_B, b as u32);
     if sa >= 3 && sb >= 3 && sa != sb {
-        sets::merge(sa as usize, sb as usize);
+        sets::merge(world_index, sa as usize, sb as usize);
     }
-    let r = records::record(id);
+    let r = records::record(world_index, id);
     let key = if r.set_index == 2 {
         r.color_index as usize
     } else {
@@ -121,29 +198,33 @@ pub unsafe extern "C" fn create(
     };
     let index = r.local_index as usize;
     for (field, value) in [ax, ay, az, aqx, aqy, aqz, aqs].into_iter().enumerate() {
-        joints::write_float(key, index, J_LOCAL_FRAME_A + field, value);
+        joints::write_float_in_world(world_index, key, index, J_LOCAL_FRAME_A + field, value);
     }
     for (field, value) in [bx, by, bz, bqx, bqy, bqz, bqs].into_iter().enumerate() {
-        joints::write_float(key, index, J_LOCAL_FRAME_B + field, value);
+        joints::write_float_in_world(world_index, key, index, J_LOCAL_FRAME_B + field, value);
     }
-    joints::write_word(key, index, J_TYPE, joint_type as u32);
-    joints::write_float(key, index, J_CONSTRAINT_HERTZ, hertz);
-    joints::write_float(key, index, J_CONSTRAINT_DAMPING, damping);
-    joints::write_float(key, index, J_FORCE_THRESHOLD, force);
-    joints::write_float(key, index, J_TORQUE_THRESHOLD, torque);
-    if records::record(id).set_index > 1 {
-        link(id);
+    joints::write_word_in_world(world_index, key, index, J_TYPE, joint_type as u32);
+    joints::write_float_in_world(world_index, key, index, J_CONSTRAINT_HERTZ, hertz);
+    joints::write_float_in_world(world_index, key, index, J_CONSTRAINT_DAMPING, damping);
+    joints::write_float_in_world(world_index, key, index, J_FORCE_THRESHOLD, force);
+    joints::write_float_in_world(world_index, key, index, J_TORQUE_THRESHOLD, torque);
+    if records::record(world_index, id).set_index > 1 {
+        link(world_index, id);
     }
     id as u32
 }
 #[export_name = "jointSetCollideConnected"]
 pub unsafe extern "C" fn set_collide_connected(world: usize, id: usize, collide: bool) {
-    regions::select(world as u32);
-    let r = *records::record(id);
+    crate::regions::select(world as u32);
+    unsafe { set_collide_connected_in_world(world, id, collide) }
+}
+
+pub unsafe extern "C" fn set_collide_connected_in_world(world: usize, id: usize, collide: bool) {
+    let r = *records::record(world as usize, id);
     if r.collide_connected == collide {
         return;
     }
-    records::record_mut(id).collide_connected = collide;
+    records::record_mut(world as usize, id).collide_connected = collide;
     let a = r.edges[0].body_id as usize;
     let b = r.edges[1].body_id as usize;
     if collide {
@@ -156,10 +237,10 @@ pub unsafe extern "C" fn set_collide_connected(world: usize, id: usize, collide:
         };
         while shape != -1 {
             let o = shape as usize * crate::shapes::SHAPE_STRIDE;
-            let u = crate::shapes::col();
+            let u = crate::shapes::col(world as usize);
             let key = u.get(o + crate::shapes::S_PROXY_KEY);
             if key != u32::MAX {
-                crate::broad::buffer_move(key);
+                crate::broad::buffer_move_in_world(world as usize, key);
             }
             shape = u.get(o + crate::shapes::S_NEXT) as i32;
         }
@@ -174,24 +255,28 @@ pub unsafe extern "C" fn set_collide_connected(world: usize, id: usize, collide:
         while key != -1 {
             let id = (key >> 1) as usize;
             let edge = (key & 1) as usize;
-            let d = crate::manifolds::dir_col();
+            let d = crate::manifolds::dir_col(world as usize);
             let o = id * crate::manifold_abi::DIR_STRIDE + crate::manifold_abi::DIR_EDGE_A;
             key = d.get(o + 2 + 3 * edge) as i32;
             if d.get(o + 3 * (edge ^ 1)) as i32 == other {
-                crate::physics_world::destroy_contact(id, false);
+                crate::physics_world::destroy_contact(world as usize, id, false);
             }
         }
     }
 }
 #[export_name = "jointWakeBodies"]
 pub unsafe extern "C" fn wake_bodies(world: usize, id: usize) {
-    regions::select(world as u32);
-    let r = *records::record(id);
-    wake_body(r.edges[0].body_id as usize);
-    wake_body(r.edges[1].body_id as usize);
+    crate::regions::select(world as u32);
+    unsafe { wake_bodies_in_world(world, id) }
 }
-unsafe fn location(id: usize) -> (usize, usize) {
-    let r = records::record(id);
+
+pub unsafe extern "C" fn wake_bodies_in_world(world: usize, id: usize) {
+    let r = *records::record(world as usize, id);
+    wake_body(world as usize, r.edges[0].body_id as usize);
+    wake_body(world as usize, r.edges[1].body_id as usize);
+}
+unsafe fn location(world_index: usize, id: usize) -> (usize, usize) {
+    let r = records::record(world_index, id);
     (
         if r.set_index == 2 {
             r.color_index as usize
@@ -203,22 +288,50 @@ unsafe fn location(id: usize) -> (usize, usize) {
 }
 #[export_name = "jointWriteVec3"]
 pub unsafe extern "C" fn write_vec3(id: usize, field: usize, x: f32, y: f32, z: f32) {
-    let (key, index) = location(id);
-    joints::write_float(key, index, field, x);
-    joints::write_float(key, index, field + 1, y);
-    joints::write_float(key, index, field + 2, z);
+    unsafe { write_vec3_in_world(crate::regions::active(), id, field, x, y, z) }
+}
+
+pub unsafe extern "C" fn write_vec3_in_world(
+    world_index: usize,
+    id: usize,
+    field: usize,
+    x: f32,
+    y: f32,
+    z: f32,
+) {
+    let (key, index) = location(world_index, id);
+    joints::write_float_in_world(world_index, key, index, field, x);
+    joints::write_float_in_world(world_index, key, index, field + 1, y);
+    joints::write_float_in_world(world_index, key, index, field + 2, z);
 }
 #[export_name = "jointWriteQuat"]
 pub unsafe extern "C" fn write_quat(id: usize, field: usize, x: f32, y: f32, z: f32, s: f32) {
-    write_vec3(id, field, x, y, z);
-    let (key, index) = location(id);
-    joints::write_float(key, index, field + 3, s);
+    unsafe { write_quat_in_world(crate::regions::active(), id, field, x, y, z, s) }
+}
+
+pub unsafe extern "C" fn write_quat_in_world(
+    world_index: usize,
+    id: usize,
+    field: usize,
+    x: f32,
+    y: f32,
+    z: f32,
+    s: f32,
+) {
+    write_vec3_in_world(world_index, id, field, x, y, z);
+    let (key, index) = location(world_index, id);
+    joints::write_float_in_world(world_index, key, index, field + 3, s);
 }
 #[export_name = "jointEnable"]
 pub unsafe extern "C" fn enable(world: usize, id: usize, bit: u32, enabled: bool) {
-    regions::select(world as u32);
-    let (key, index) = location(id);
-    let (field, impulse, count) = match (records::record(id).joint_type as u32, bit) {
+    crate::regions::select(world as u32);
+    unsafe { enable_in_world(world, id, bit, enabled) }
+}
+
+pub unsafe extern "C" fn enable_in_world(world: usize, id: usize, bit: u32, enabled: bool) {
+    let (key, index) = location(world as usize, id);
+    let (field, impulse, count) = match (records::record(world as usize, id).joint_type as u32, bit)
+    {
         (TY_DISTANCE, DJ_ENABLE_SPRING | DJ_ENABLE_LIMIT) => (DJ_ENABLE, 0, 0),
         (TY_DISTANCE, DJ_ENABLE_MOTOR) => (DJ_ENABLE, DJ_MOTOR_IMPULSE, 1),
         (TY_REVOLUTE, RJ_ENABLE_SPRING) => (RJ_ENABLE, RJ_SPRING_IMPULSE, 1),
@@ -238,13 +351,14 @@ pub unsafe extern "C" fn enable(world: usize, id: usize, bit: u32, enabled: bool
         (TY_WHEEL, WHJ_ENABLE_STEERING_LIMIT) => (WHJ_ENABLE, WHJ_LOWER_STEERING_IMPULSE, 2),
         _ => unreachable!(),
     };
-    let bits = joints::read_word(key, index, field);
+    let bits = joints::read_word_in_world(world as usize, key, index, field);
     if (bits & bit != 0) != enabled {
         for lane in 0..count {
-            joints::write_float(key, index, impulse + lane, 0.0);
+            joints::write_float_in_world(world as usize, key, index, impulse + lane, 0.0);
         }
     }
-    joints::write_word(
+    joints::write_word_in_world(
+        world as usize,
         key,
         index,
         field,
@@ -252,10 +366,19 @@ pub unsafe extern "C" fn enable(world: usize, id: usize, bit: u32, enabled: bool
     );
 }
 #[export_name = "jointSetLimits"]
-pub unsafe extern "C" fn set_limits(world: usize, id: usize, mut lower: f32, mut upper: f32) {
-    regions::select(world as u32);
-    let (key, index) = location(id);
-    let kind = records::record(id).joint_type as u32;
+pub unsafe extern "C" fn set_limits(world: usize, id: usize, lower: f32, upper: f32) {
+    crate::regions::select(world as u32);
+    unsafe { set_limits_in_world(world, id, lower, upper) }
+}
+
+pub unsafe extern "C" fn set_limits_in_world(
+    world: usize,
+    id: usize,
+    mut lower: f32,
+    mut upper: f32,
+) {
+    let (key, index) = location(world as usize, id);
+    let kind = records::record(world as usize, id).joint_type as u32;
     if kind == TY_DISTANCE {
         lower = crate::math::clampf(
             lower,
@@ -287,26 +410,31 @@ pub unsafe extern "C" fn set_limits(world: usize, id: usize, mut lower: f32, mut
         TY_WHEEL => (WHJ_LOWER_SUSPENSION_LIMIT, WHJ_UPPER_SUSPENSION_LIMIT),
         _ => unreachable!(),
     };
-    let changed =
-        lower != joints::read_float(key, index, lo) || upper != joints::read_float(key, index, hi);
-    joints::write_float(key, index, lo, lower);
-    joints::write_float(key, index, hi, upper);
+    let changed = lower != joints::read_float_in_world(world as usize, key, index, lo)
+        || upper != joints::read_float_in_world(world as usize, key, index, hi);
+    joints::write_float_in_world(world as usize, key, index, lo, lower);
+    joints::write_float_in_world(world as usize, key, index, hi, upper);
     if kind == TY_DISTANCE {
         for field in [DJ_IMPULSE, DJ_LOWER_IMPULSE, DJ_UPPER_IMPULSE] {
-            joints::write_float(key, index, field, 0.0);
+            joints::write_float_in_world(world as usize, key, index, field, 0.0);
         }
     }
     if kind == TY_WHEEL && changed {
         for field in [WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_UPPER_SUSPENSION_IMPULSE] {
-            joints::write_float(key, index, field, 0.0);
+            joints::write_float_in_world(world as usize, key, index, field, 0.0);
         }
     }
 }
 #[export_name = "distanceJointSetLength"]
 pub unsafe extern "C" fn set_length(world: usize, id: usize, length: f32) {
-    regions::select(world as u32);
-    let (key, index) = location(id);
-    joints::write_float(
+    crate::regions::select(world as u32);
+    unsafe { set_length_in_world(world, id, length) }
+}
+
+pub unsafe extern "C" fn set_length_in_world(world: usize, id: usize, length: f32) {
+    let (key, index) = location(world as usize, id);
+    joints::write_float_in_world(
+        world as usize,
         key,
         index,
         DJ_LENGTH,
@@ -317,14 +445,24 @@ pub unsafe extern "C" fn set_length(world: usize, id: usize, length: f32) {
         ),
     );
     for field in [DJ_IMPULSE, DJ_LOWER_IMPULSE, DJ_UPPER_IMPULSE] {
-        joints::write_float(key, index, field, 0.0);
+        joints::write_float_in_world(world as usize, key, index, field, 0.0);
     }
 }
 #[export_name = "motorJointSetMaxSpring"]
 pub unsafe extern "C" fn set_max_spring(world: usize, id: usize, torque: bool, value: f32) {
-    regions::select(world as u32);
-    let (key, index) = location(id);
-    joints::write_float(
+    crate::regions::select(world as u32);
+    unsafe { set_max_spring_in_world(world, id, torque, value) }
+}
+
+pub unsafe extern "C" fn set_max_spring_in_world(
+    world: usize,
+    id: usize,
+    torque: bool,
+    value: f32,
+) {
+    let (key, index) = location(world as usize, id);
+    joints::write_float_in_world(
+        world as usize,
         key,
         index,
         if torque {
@@ -337,11 +475,16 @@ pub unsafe extern "C" fn set_max_spring(world: usize, id: usize, torque: bool, v
 }
 #[export_name = "jointTransfer"]
 pub unsafe extern "C" fn transfer(id: usize, target: usize) {
-    let r = *records::record(id);
+    unsafe { transfer_in_world(crate::regions::active(), id, target) }
+}
+
+pub unsafe extern "C" fn transfer_in_world(world_index: usize, id: usize, target: usize) {
+    let r = *records::record(world_index, id);
     if r.set_index as usize == target {
         return;
     }
     sets::transfer_joint(
+        world_index,
         r.set_index as usize,
         r.color_index as usize,
         r.local_index as usize,
@@ -352,23 +495,32 @@ pub unsafe extern "C" fn transfer(id: usize, target: usize) {
 }
 #[export_name = "jointDestroy"]
 pub unsafe extern "C" fn destroy(id: usize, wake_attached: bool) {
+    unsafe { destroy_in_world(crate::regions::active(), id, wake_attached) }
+}
+
+pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize, wake_attached: bool) {
     begin();
-    let r = *records::record(id);
-    records::unlink_bodies(id);
-    unlink_record(id);
+    let r = *records::record(world_index, id);
+    records::unlink_bodies(world_index, id);
+    unlink_record_in_world(world_index, id);
     if r.set_index == 2 {
         graph::remove_joint(
+            world_index,
             r.edges[0].body_id as usize,
             r.edges[1].body_id as usize,
             r.color_index as usize,
             r.local_index as usize,
         );
     } else {
-        joints::remove(graph::COLORS + r.set_index as usize, r.local_index as usize);
+        joints::remove_in_world(
+            world_index,
+            graph::COLORS + r.set_index as usize,
+            r.local_index as usize,
+        );
     }
-    records::free(id as u32);
+    records::free(world_index, id as u32);
     if wake_attached {
-        wake_body(r.edges[0].body_id as usize);
-        wake_body(r.edges[1].body_id as usize);
+        wake_body(world_index, r.edges[0].body_id as usize);
+        wake_body(world_index, r.edges[1].body_id as usize);
     }
 }

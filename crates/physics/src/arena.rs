@@ -118,6 +118,26 @@ pub extern "C" fn reserve(
     wide: usize,
     color: usize,
 ) {
+    reserve_in_world(
+        crate::regions::active(),
+        body,
+        contact,
+        manifold,
+        point,
+        wide,
+        color,
+    )
+}
+
+pub extern "C" fn reserve_in_world(
+    world_index: usize,
+    body: usize,
+    contact: usize,
+    manifold: usize,
+    point: usize,
+    wide: usize,
+    color: usize,
+) {
     unsafe {
         BODY_COUNT = body;
         CONTACT_COUNT = contact;
@@ -133,10 +153,10 @@ pub extern "C" fn reserve(
         // allocating per-step scratch; the phase shims read `LAYOUT[SIM]`/etc unchanged. `reserveBodies`
         // (run before this, in `step()`) has laid the region out for the current total-body high-water.
         // The remaining columns share the per-step arena.
-        LAYOUT[STATE] = crate::bodies::state_base() as u32;
-        LAYOUT[FLAGS] = crate::bodies::flags_base() as u32;
-        LAYOUT[SIM] = crate::bodies::sim_base() as u32;
-        LAYOUT[FIN] = crate::bodies::fin_base() as u32;
+        LAYOUT[STATE] = crate::bodies::state_base(world_index) as u32;
+        LAYOUT[FLAGS] = crate::bodies::flags_base(world_index) as u32;
+        LAYOUT[SIM] = crate::bodies::sim_base(world_index) as u32;
+        LAYOUT[FIN] = crate::bodies::fin_base(world_index) as u32;
         let mut off = 0;
         LAYOUT[SLOT_SCALAR] = off as u32;
         off += contact * SLOT_STRIDE * 4;
@@ -174,16 +194,16 @@ pub extern "C" fn reserve(
 /// body columns are sized by that, not by `BODY_COUNT`, so a column's `len` bounds every element its
 /// phases can reach — the wide gather reaches an identity record, which sits past the awake count.
 #[inline]
-unsafe fn body_records() -> usize {
-    crate::bodies::body_cap() + crate::bodies::IDENT_RECORDS
+unsafe fn body_records(world_index: usize) -> usize {
+    crate::bodies::body_cap_in_world(world_index) + crate::bodies::IDENT_RECORDS
 }
 
 /// All the scalar solver's columns over the current reservation. The body + slot + transient columns
 /// are disjoint byte ranges of the per-step solver region; the directory + pool live in the persistent
 /// manifold region (`manifolds`) — also disjoint. Every one is a shared-mutable [`Col`]: the phases
 /// index them by body / record id and, under the staged solver, do so from several threads at once.
-unsafe fn columns() -> Columns<'static> {
-    let b = body_records();
+unsafe fn columns(world_index: usize) -> Columns<'static> {
+    let b = body_records(world_index);
     let c = CONTACT_COUNT;
     let m = MANIFOLD_COUNT;
     let p = POINT_COUNT;
@@ -192,7 +212,7 @@ unsafe fn columns() -> Columns<'static> {
         flags: u32s(FLAGS, b * STATE_STRIDE),
         sim: f32s(SIM, b * SIM_STRIDE),
         slot: u32s(SLOT_SCALAR, c * SLOT_STRIDE),
-        dir: manifolds::dir_col(),
+        dir: manifolds::dir_col(world_index),
         pool: manifolds::pool_col(),
         cc: f32s(CC, c * CC_STRIDE),
         cc_meta: u32s(CC_META, c * CC_META_STRIDE),
@@ -208,8 +228,8 @@ unsafe fn columns() -> Columns<'static> {
 // The concurrent split can grow island storage, not these solver buffers.
 
 /// The scalar solver's columns, as `solve.rs`'s `StageWork` holds them.
-pub(crate) unsafe fn scalar_columns() -> Columns<'static> {
-    columns()
+pub(crate) unsafe fn scalar_columns(world_index: usize) -> Columns<'static> {
+    columns(world_index)
 }
 
 /// The wide solver's transient columns: records, lane→body index map, lane→contact meta.
@@ -269,11 +289,27 @@ const SIM_UPDATED: u32 = 0x0200_0000;
 
 #[export_name = "reserveCollide"]
 pub extern "C" fn reserve_collide(count: usize, threads: usize, default_mix: u32, distance: f32) {
+    reserve_collide_in_world(
+        crate::regions::active(),
+        count,
+        threads,
+        default_mix,
+        distance,
+    )
+}
+
+pub extern "C" fn reserve_collide_in_world(
+    world_index: usize,
+    count: usize,
+    threads: usize,
+    default_mix: u32,
+    distance: f32,
+) {
     unsafe {
         DEFAULT_MIX = default_mix;
         RECYCLE_DISTANCE = distance;
-        let words = manifolds::contact_capacity(crate::regions::active()).div_ceil(32);
-        let mesh_threads = if manifolds::has_mesh_caches() {
+        let words = manifolds::contact_capacity(world_index).div_ceil(32);
+        let mesh_threads = if manifolds::has_mesh_caches(world_index) {
             threads.max(1)
         } else {
             0
@@ -312,8 +348,8 @@ unsafe fn mark_contact_state(contact: usize) {
     core::sync::atomic::AtomicU32::from_ptr((CONTACT_STATE_PTR as *mut u32).add(contact / 32))
         .fetch_or(1 << (contact % 32), core::sync::atomic::Ordering::Relaxed);
 }
-unsafe fn finish_contact(contact: usize, count: usize, hit: bool) {
-    let dir = manifolds::dir_col();
+unsafe fn finish_contact(world_index: usize, contact: usize, count: usize, hit: bool) {
+    let dir = manifolds::dir_col(world_index);
     let o = contact * DIR_STRIDE + 6;
     let old = dir.get(o);
     let was_touching = old & 0x0001_0000 != 0;
@@ -328,7 +364,7 @@ unsafe fn finish_contact(contact: usize, count: usize, hit: bool) {
             mark_contact_state(contact);
         }
     } else {
-        manifolds::free_manifolds(contact);
+        manifolds::free_manifolds_in_world(world_index, contact);
         if old & 0x0040_0000 == 0 {
             flags |= old & 0x0010_0000;
         }
@@ -440,6 +476,7 @@ fn write_manifold(m: &Manifold, pool: Col<f32>, base: usize) {
 }
 
 unsafe fn dispatch_mesh(
+    world_index: usize,
     disp: &[u32],
     r: usize,
     geom: &[u32],
@@ -455,7 +492,7 @@ unsafe fn dispatch_mesh(
 ) -> usize {
     use crate::mesh_contact::{compute_mesh_manifolds, TriangleSource, MAX_TRIANGLES};
     let slot = disp[r + D_MESH_SLOT] as usize;
-    let cache = &mut *manifolds::mesh_cache_ptr(contact_id);
+    let cache = &mut *manifolds::mesh_cache_ptr(world_index, contact_id);
     let record = geom[0] as *const u32;
     let source = if ty == 4 {
         let mesh = crate::geo::mesh_view(
@@ -498,7 +535,7 @@ unsafe fn dispatch_mesh(
         vec(D_UPPER),
         &mut scratch.previous,
     );
-    let dir = manifolds::dir_col();
+    let dir = manifolds::dir_col(world_index);
     let pool = manifolds::pool_col();
     let entry = read_dir(dir, contact_id);
     let old_count = disp[r + D_OLD_COUNT] as usize;
@@ -528,12 +565,12 @@ unsafe fn dispatch_mesh(
         }
     }
     let shape = read_shape(disp[r + D_TYPE_B], disp, r + D_GEOM_B);
-    let directory = manifolds::dir_col();
+    let directory = manifolds::dir_col(world_index);
     let shape_a =
         directory.get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_SHAPE_A) as usize;
     let shape_b =
         directory.get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_SHAPE_B) as usize;
-    let shape_records = crate::shapes::col();
+    let shape_records = crate::shapes::col(world_index);
     let speculative = shape_records
         .get(shape_a * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS)
         & crate::shapes::SPECULATIVE_FLAG
@@ -648,8 +685,8 @@ struct Surface {
     tangent: Vec3,
 }
 
-fn surface(shape: usize, index: usize) -> Surface {
-    let materials = crate::shapes::material(shape, index);
+fn surface(world_index: usize, shape: usize, index: usize) -> Surface {
+    let materials = crate::shapes::material(world_index, shape, index);
     let f = |i| f32::from_bits(materials[i]);
     Surface {
         friction: f(0),
@@ -659,8 +696,8 @@ fn surface(shape: usize, index: usize) -> Surface {
     }
 }
 
-fn shape_radius(shape: usize, full_hull: bool) -> f32 {
-    let shapes = crate::shapes::col_slice();
+fn shape_radius(world_index: usize, shape: usize, full_hull: bool) -> f32 {
+    let shapes = crate::shapes::col_slice(world_index);
     let s = shape * crate::shapes::SHAPE_STRIDE;
     match shapes[s + crate::shapes::S_TYPE] {
         TY_SPHERE => f32::from_bits(shapes[s + 51]),
@@ -675,8 +712,15 @@ fn shape_radius(shape: usize, full_hull: bool) -> f32 {
     }
 }
 
-fn store_surface(id: usize, friction: f32, restitution: f32, rolling: f32, tangent: Vec3) {
-    let dir = manifolds::dir_col();
+fn store_surface(
+    world_index: usize,
+    id: usize,
+    friction: f32,
+    restitution: f32,
+    rolling: f32,
+    tangent: Vec3,
+) {
+    let dir = manifolds::dir_col(world_index);
     let o = id * DIR_STRIDE;
     for (i, v) in [
         friction,
@@ -694,6 +738,7 @@ fn store_surface(id: usize, friction: f32, restitution: f32, rolling: f32, tange
 }
 
 unsafe fn mix_surface(
+    world_index: usize,
     disp: &[u32],
     xf_a: Transform,
     xf_b: Transform,
@@ -709,14 +754,14 @@ unsafe fn mix_surface(
     let sa = disp[D_SHAPE_A] as usize;
     let sb = disp[D_SHAPE_B] as usize;
     let a_index = |i: usize| map.map_or(i, |m| m[i.min(3)] as usize);
-    let mut a = surface(sa, a_index(0));
-    let mut b = surface(sb, 0);
+    let mut a = surface(world_index, sa, a_index(0));
+    let mut b = surface(world_index, sb, 0);
     let mut radius_a = if map.is_some() {
         child_radius
     } else {
-        shape_radius(sa, false)
+        shape_radius(world_index, sa, false)
     };
-    let mut radius_b = shape_radius(sb, mesh);
+    let mut radius_b = shape_radius(world_index, sb, mesh);
     let (friction, restitution, rolling, tangent) = if mesh {
         let slot = disp[D_MESH_SLOT] as usize;
         let output = Col::new(
@@ -731,7 +776,7 @@ unsafe fn mix_surface(
         for i in 0..count {
             let pc = output.get(i * MANIFOLD_STRIDE + M_POINT_COUNT).to_bits() as usize;
             for j in 0..pc {
-                let m = surface(sa, a_index(*materials.add(i * 4 + j) as usize));
+                let m = surface(world_index, sa, a_index(*materials.add(i * 4 + j) as usize));
                 friction += (m.friction * b.friction).sqrt();
                 restitution += m.restitution.max(b.restitution);
                 tangent = tangent.add(m.tangent);
@@ -768,6 +813,7 @@ unsafe fn mix_surface(
         )
     };
     store_surface(
+        world_index,
         disp[D_CONTACT] as usize,
         friction,
         restitution,
@@ -786,15 +832,22 @@ unsafe fn mix_surface(
 /// # Safety
 /// Body/shape columns and per-thread scratch are reserved before the fork. Only the locked manifold
 /// block allocators may allocate or free; their chunks never move. Each contact runs in one task.
-pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, thread: usize) {
+pub(crate) unsafe fn contact_block(
+    world_index: usize,
+    start: usize,
+    end: usize,
+    total: usize,
+    thread: usize,
+) {
     unsafe {
         use crate::manifold_abi::*;
         let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
-        let dir = manifolds::dir_col();
+        let dir = manifolds::dir_col(world_index);
         let pool = manifolds::pool_col();
 
         for i in start..end {
             recycle_block(
+                world_index,
                 i,
                 i + 1,
                 total,
@@ -816,7 +869,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             record[D_OLD_COUNT] = dir.get(o + 7);
             record[D_MESH_SLOT] = thread as u32;
             record[D_DEFAULT_MIX] = DEFAULT_MIX;
-            let shapes = crate::shapes::col_slice();
+            let shapes = crate::shapes::col_slice(world_index);
             let sb = record[D_SHAPE_B] as usize * crate::shapes::SHAPE_STRIDE;
             record[D_LOWER..D_LOWER + 3].copy_from_slice(&shapes[sb + 10..sb + 13]);
             record[D_UPPER..D_UPPER + 3].copy_from_slice(&shapes[sb + 13..sb + 16]);
@@ -839,8 +892,8 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             let type_b = disp[r + D_TYPE_B];
             let body_a = disp[r + D_BODY_A] as usize;
             let body_b = disp[r + D_BODY_B] as usize;
-            let (parent_xf, fin_a, flags_a) = crate::bodies::geometry(body_a);
-            let (xf_b, fin_b, flags_b) = crate::bodies::geometry(body_b);
+            let (parent_xf, fin_a, flags_a) = crate::bodies::geometry(world_index, body_a);
+            let (xf_b, fin_b, flags_b) = crate::bodies::geometry(world_index, body_b);
             let mut xf_a = parent_xf;
             let center_a = parent_xf.q.rotate(fin_a.local_center);
             let center_b = xf_b.q.rotate(fin_b.local_center);
@@ -882,6 +935,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             let disp = &record[..];
             if type_a == 2 || type_a == 4 {
                 let count = dispatch_mesh(
+                    world_index,
                     disp,
                     r,
                     geom_a,
@@ -896,6 +950,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                     center_b,
                 );
                 mix_surface(
+                    world_index,
                     disp,
                     xf_a,
                     xf_b,
@@ -911,12 +966,12 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                         (address as *mut u8).write_bytes(0, count * MANIFOLD_STRIDE * 4);
                         address
                     } else {
-                        manifolds::allocate_manifolds(contact_id, count)
+                        manifolds::allocate_manifolds_in_world(world_index, contact_id, count)
                     };
                     let source = MESH_OUTPUT_PTR + thread * 256 * MANIFOLD_STRIDE * 4;
                     manifolds::copy_manifolds(source, address, count);
                 }
-                finish_contact(contact_id, count, hit);
+                finish_contact(world_index, contact_id, count, hit);
                 continue;
             }
             let mut shape_a = read_shape(type_a, geom_a, 0);
@@ -972,7 +1027,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 let address = if resident {
                     base
                 } else {
-                    manifolds::allocate_manifolds(contact_id, 1)
+                    manifolds::allocate_manifolds_in_world(world_index, contact_id, 1)
                 };
                 write_manifold(&m, crate::manifold_abi::block_col(pool, address, 1), 0);
             }
@@ -982,6 +1037,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 ConvexContactCache::Empty => {}
             }
             mix_surface(
+                world_index,
                 disp,
                 xf_a,
                 xf_b,
@@ -991,7 +1047,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 false,
                 child_radius,
             );
-            finish_contact(contact_id, touching as usize, hit);
+            finish_contact(world_index, contact_id, touching as usize, hit);
         }
     }
 }
@@ -999,7 +1055,11 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
 /// Run the same contact tasks on the calling thread when the sweep does not fork.
 #[export_name = "dispatchContacts"]
 pub extern "C" fn dispatch_contacts(count: usize) {
-    unsafe { contact_block(0, count, count, 0) }
+    dispatch_contacts_in_world(crate::regions::active(), count)
+}
+
+pub extern "C" fn dispatch_contacts_in_world(world_index: usize, count: usize) {
+    unsafe { contact_block(world_index, 0, count, count, 0) }
 }
 
 // --- contact recycle -----------------------------------------------------------------------
@@ -1138,6 +1198,7 @@ fn write_pose_cache(dir: Col<u32>, contact_id: usize, xf_a: Transform, xf_b: Tra
 /// # Safety
 /// The contact list, body-index map and body/shape columns remain at their addresses during collide.
 pub(crate) unsafe fn recycle_block(
+    world_index: usize,
     start: usize,
     end: usize,
     total: usize,
@@ -1147,16 +1208,15 @@ pub(crate) unsafe fn recycle_block(
     unsafe {
         use crate::manifold_abi::*;
         let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
-        let dir = manifolds::dir_col();
+        let dir = manifolds::dir_col(world_index);
         let pool = manifolds::pool_col();
-        let fat = crate::shapes::col_f_slice();
+        let fat = crate::shapes::col_f_slice(world_index);
 
         for i in start..end {
             let contact_id = contacts[i] as usize;
             let o = contact_id * DIR_STRIDE;
             for (edge, lane) in [(DIR_EDGE_A, 9), (DIR_EDGE_B, 10)] {
-                let body =
-                    crate::bodies::record(crate::regions::active(), dir.get(o + edge) as usize);
+                let body = crate::bodies::record(world_index, dir.get(o + edge) as usize);
                 dir.set(
                     o + lane,
                     if body.body_type == 0 {
@@ -1209,8 +1269,8 @@ pub(crate) unsafe fn recycle_block(
             let la = input[r + R_BODY_A] as usize;
             let lb = input[r + R_BODY_B] as usize;
             let bits = input[r + R_BITS];
-            let (xf_a, fin_a, flags_a) = crate::bodies::geometry(la);
-            let (xf_b, fin_b, flags_b) = crate::bodies::geometry(lb);
+            let (xf_a, fin_a, flags_a) = crate::bodies::geometry(world_index, la);
+            let (xf_b, fin_b, flags_b) = crate::bodies::geometry(world_index, lb);
             let center_a = fin_a.center;
             let center_b = fin_b.center;
             let extent_a = if bits & R_STATIC_A != 0 {
@@ -1258,6 +1318,7 @@ pub(crate) unsafe fn recycle_block(
 /// # Safety
 /// The body columns must be reserved for `body_records()`, and no thread may grow memory while this runs.
 pub(crate) unsafe fn finalize_block(
+    world_index: usize,
     start: usize,
     end: usize,
     h: f32,
@@ -1265,14 +1326,21 @@ pub(crate) unsafe fn finalize_block(
     enable_continuous: bool,
 ) {
     unsafe {
-        let b = body_records();
+        let b = body_records(world_index);
         let state = f32s(STATE, b * STATE_STRIDE);
         let sim = f32s(SIM, b * SIM_STRIDE);
         let fin = f32s(FIN, b * FIN_STRIDE);
         let flags = u32s(FLAGS, b * STATE_STRIDE);
-        let sim2 = Col::new(crate::bodies::sim2_base() as *mut f32, b * SIM2_STRIDE);
-        let sim2_u = Col::new(crate::bodies::sim2_base() as *mut u32, b * SIM2_STRIDE);
+        let sim2 = Col::new(
+            crate::bodies::sim2_base(world_index) as *mut f32,
+            b * SIM2_STRIDE,
+        );
+        let sim2_u = Col::new(
+            crate::bodies::sim2_base(world_index) as *mut u32,
+            b * SIM2_STRIDE,
+        );
         finalize::finalize(
+            world_index,
             state,
             sim,
             fin,
@@ -1285,7 +1353,7 @@ pub(crate) unsafe fn finalize_block(
             enable_continuous,
         );
         for i in start..end {
-            crate::events::write_move(i);
+            crate::events::write_move(world_index, i);
         }
         // Continuous can clip the rotation. Box3D rebuilds inertia from the resulting pose,
         // not the discrete candidate; non-fast bodies already have that tensor.
@@ -1302,7 +1370,7 @@ pub(crate) unsafe fn finalize_block(
                 );
             }
         }
-        refit_block(sim, fin, start, end);
+        refit_block(world_index, sim, fin, start, end);
     }
 }
 
@@ -1318,16 +1386,16 @@ pub(crate) unsafe fn finalize_block(
 /// # Safety
 /// The body + shape + fat-AABB regions must be reserved for every reachable shape, and no thread may grow
 /// memory while this runs (the MT concurrency invariant).
-unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
+unsafe fn refit_block(world_index: usize, sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
     unsafe {
-        let records = crate::bodies::body_cap() + crate::bodies::IDENT_RECORDS;
+        let records = crate::bodies::body_cap_in_world(world_index) + crate::bodies::IDENT_RECORDS;
         let sim2 = Col::new(
-            crate::bodies::sim2_base() as *mut u32,
+            crate::bodies::sim2_base(world_index) as *mut u32,
             records * SIM2_STRIDE,
         );
-        let shape_u = crate::shapes::col();
-        let shape_f = crate::shapes::col_f();
-        let fat = crate::shapes::col_f();
+        let shape_u = crate::shapes::col(world_index);
+        let shape_f = crate::shapes::col_f(world_index);
+        let fat = crate::shapes::col_f(world_index);
         for i in start..end {
             if sim2.atomic_get(i * SIM2_STRIDE + crate::body::S2_FLAGS) & 0x40 != 0 {
                 continue;
@@ -1342,11 +1410,10 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
                 },
             };
             let body_id = sim2.get(i * SIM2_STRIDE + crate::body::S2_BODY_ID) as usize;
-            let mut shape_id =
-                crate::bodies::record(crate::regions::active(), body_id).head_shape_id as u32;
+            let mut shape_id = crate::bodies::record(world_index, body_id).head_shape_id as u32;
             while shape_id != crate::shapes::NULL_SHAPE {
                 let o = shape_id as usize * crate::shapes::SHAPE_STRIDE;
-                let bounds = crate::continuous::bounds(shape_id as usize, xf);
+                let bounds = crate::continuous::bounds(world_index, shape_id as usize, xf);
                 let fb = o + crate::shapes::S_FAT_AABB;
                 let fat_aabb = core::array::from_fn(|n| fat.get(fb + n));
                 let (cand, escaped) = finalize::refit_bounds(bounds, &fat_aabb);

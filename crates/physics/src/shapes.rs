@@ -106,20 +106,40 @@ unsafe fn world(id: usize) -> &'static Shapes {
 unsafe fn world_mut(id: usize) -> &'static mut Shapes {
     &mut WORLDS[id]
 }
-fn base() -> usize {
-    unsafe { world(regions::active()).columns.layout[0] as usize }
+fn base(world_index: usize) -> usize {
+    unsafe { world(world_index).columns.layout[0] as usize }
 }
-pub fn col() -> Col<'static, u32> {
-    unsafe { Col::new(base() as *mut u32, shape_cap() * SHAPE_STRIDE) }
+pub fn col(world_index: usize) -> Col<'static, u32> {
+    unsafe {
+        Col::new(
+            base(world_index) as *mut u32,
+            shape_cap_in_world(world_index) * SHAPE_STRIDE,
+        )
+    }
 }
-pub fn col_f() -> Col<'static, f32> {
-    unsafe { Col::new(base() as *mut f32, shape_cap() * SHAPE_STRIDE) }
+pub fn col_f(world_index: usize) -> Col<'static, f32> {
+    unsafe {
+        Col::new(
+            base(world_index) as *mut f32,
+            shape_cap_in_world(world_index) * SHAPE_STRIDE,
+        )
+    }
 }
-pub fn col_slice() -> &'static [u32] {
-    unsafe { core::slice::from_raw_parts(base() as *const u32, shape_cap() * SHAPE_STRIDE) }
+pub fn col_slice(world_index: usize) -> &'static [u32] {
+    unsafe {
+        core::slice::from_raw_parts(
+            base(world_index) as *const u32,
+            shape_cap_in_world(world_index) * SHAPE_STRIDE,
+        )
+    }
 }
-pub fn col_f_slice() -> &'static [f32] {
-    unsafe { core::slice::from_raw_parts(base() as *const f32, shape_cap() * SHAPE_STRIDE) }
+pub fn col_f_slice(world_index: usize) -> &'static [f32] {
+    unsafe {
+        core::slice::from_raw_parts(
+            base(world_index) as *const f32,
+            shape_cap_in_world(world_index) * SHAPE_STRIDE,
+        )
+    }
 }
 #[export_name = "shapeSetActiveWorld"]
 pub extern "C" fn shape_set_active_world(id: u32) {
@@ -127,23 +147,35 @@ pub extern "C" fn shape_set_active_world(id: u32) {
 }
 #[export_name = "shapeLayoutPtr"]
 pub extern "C" fn shape_layout_ptr() -> *const u32 {
-    unsafe { world(regions::active()).columns.layout.as_ptr() }
+    shape_layout_ptr_in_world(crate::regions::active())
+}
+
+pub extern "C" fn shape_layout_ptr_in_world(world_index: usize) -> *const u32 {
+    unsafe { world(world_index).columns.layout.as_ptr() }
 }
 #[export_name = "shapeCap"]
 pub extern "C" fn shape_cap() -> usize {
-    unsafe { world(regions::active()).shape.cap }
+    shape_cap_in_world(crate::regions::active())
+}
+
+pub extern "C" fn shape_cap_in_world(world_index: usize) -> usize {
+    unsafe { world(world_index).shape.cap }
 }
 #[export_name = "reserveShapes"]
 pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
+    reserve_shapes_in_world(crate::regions::active(), cap)
+}
+
+pub extern "C" fn reserve_shapes_in_world(world_index: usize, cap: usize) -> u32 {
     unsafe {
-        let w = world_mut(regions::active());
+        let w = world_mut(world_index);
         if cap <= w.shape.cap {
             return 0;
         }
         w.columns.reserve(0, cap * SHAPE_STRIDE * 4);
         w.columns.reserve(FREE_ARRAY, cap.max(32) * 4);
         for id in w.shape.cap..cap {
-            let p = record(regions::active(), id);
+            let p = record(world_index, id);
             p.write_bytes(0, SHAPE_STRIDE);
             *p.add(S_ID) = NULL_SHAPE;
         }
@@ -202,9 +234,9 @@ unsafe fn material_ptr(id: usize, shape: usize) -> *mut u32 {
 pub unsafe extern "C" fn shape_material_ptr(id: u32, shape: u32) -> usize {
     material_ptr(id as usize, shape as usize) as usize
 }
-pub(crate) fn material(shape: usize, index: usize) -> &'static [u32] {
+pub(crate) fn material(world_index: usize, shape: usize, index: usize) -> &'static [u32] {
     unsafe {
-        let id = regions::active();
+        let id = world_index;
         let count = *record(id, shape).add(S_MATERIAL_COUNT) as usize;
         assert!(count > 0);
         core::slice::from_raw_parts(
@@ -262,10 +294,22 @@ pub extern "C" fn shape_create(
     flags: u32,
 ) -> u32 {
     regions::select(id);
+    shape_create_in_world(id as usize, id, body, kind, density, explosion, flags)
+}
+
+pub extern "C" fn shape_create_in_world(
+    world_index: usize,
+    id: u32,
+    body: u32,
+    kind: u32,
+    density: f32,
+    explosion: f32,
+    flags: u32,
+) -> u32 {
     unsafe {
         let p = world(id as usize).shape;
         if p.free == 0 && p.next == p.cap {
-            reserve_shapes((p.cap * 2).max(16));
+            reserve_shapes_in_world(world_index, (p.cap * 2).max(16));
         }
         let w = world_mut(id as usize);
         let shape = if w.shape.free > 0 {

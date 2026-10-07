@@ -9,11 +9,14 @@ use crate::{query_abi, world_query};
 /// Operations: ray, shape cast, overlap, closest point, collide mover.
 #[export_name = "bodyQuery"]
 pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) {
+    run_in_world(world, operation, head, capacity)
+}
+
+pub extern "C" fn run_in_world(world: usize, operation: u32, head: u32, capacity: usize) {
     if operation == 4 && capacity == 0 {
         return;
     }
     unsafe {
-        crate::shapes::shape_set_active_world(world as u32);
         let header = world_query::HEADER;
         let (r, transform, proxy) = query_abi::input();
         let translation = Vec3::new(r[9], r[10], r[11]);
@@ -26,8 +29,8 @@ pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) 
         let mut count = 0;
         while id != NULL_SHAPE {
             let shape_id = id as usize;
-            id = crate::shapes::col().get(shape_id * SHAPE_STRIDE + S_NEXT);
-            if operation != 3 && !world_query::accepts(shape_id, &header) {
+            id = crate::shapes::col(world as usize).get(shape_id * SHAPE_STRIDE + S_NEXT);
+            if operation != 3 && !world_query::accepts(world as usize, shape_id, &header) {
                 continue;
             }
             let (shape, materials) = query_abi::shape(world, shape_id);

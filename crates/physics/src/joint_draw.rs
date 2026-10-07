@@ -3,13 +3,18 @@
 #[export_name = "jointReaction"]
 pub unsafe extern "C" fn run(world: usize, id: usize, inv_h: f32, torque: u32) {
     crate::regions::select(world as u32);
-    let j = crate::joint_record::record(id);
+    unsafe { run_in_world(world, id, inv_h, torque) }
+}
+#[cfg(target_arch = "wasm32")]
+
+pub unsafe extern "C" fn run_in_world(world: usize, id: usize, inv_h: f32, torque: u32) {
+    let j = crate::joint_record::record(world as usize, id);
     let c = Col::new(
-        crate::joint_record::sim_pointer(id) as *mut f32,
+        crate::joint_record::sim_pointer_in_world(world as usize, id) as *mut f32,
         JOINT_STRIDE,
     );
-    let a = crate::draw::pose(j.edges[0].body_id as usize);
-    let b = crate::draw::pose(j.edges[1].body_id as usize);
+    let a = crate::draw::pose(world as usize, j.edges[0].body_id as usize);
+    let b = crate::draw::pose(world as usize, j.edges[1].body_id as usize);
     if torque != 0 {
         let kind = joint_type(c, 0);
         let (qa, qb, px, py) = match kind {

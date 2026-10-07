@@ -44,10 +44,10 @@ fn v(r: &[u32], i: usize) -> Vec3 {
         f32::from_bits(r[i + 2]),
     )
 }
-pub(crate) unsafe fn pose(id: usize, origin: Vec3) -> Transform {
-    let body = crate::shapes::col().get(id * SHAPE_STRIDE + S_QUERY_BODY) as usize;
-    let fin = crate::bodies::column(body, 2, crate::body::FIN_STRIDE);
-    let sim = crate::bodies::column(body, 1, crate::body::SIM_STRIDE);
+pub(crate) unsafe fn pose(world_index: usize, id: usize, origin: Vec3) -> Transform {
+    let body = crate::shapes::col(world_index).get(id * SHAPE_STRIDE + S_QUERY_BODY) as usize;
+    let fin = crate::bodies::column(world_index, body, 2, crate::body::FIN_STRIDE);
+    let sim = crate::bodies::column(world_index, body, 1, crate::body::SIM_STRIDE);
     Transform {
         p: Vec3::new(fin.get(0), fin.get(1), fin.get(2)).sub(origin),
         q: Quat {
@@ -56,8 +56,8 @@ pub(crate) unsafe fn pose(id: usize, origin: Vec3) -> Transform {
         },
     }
 }
-pub(crate) fn accepts(id: usize, header: &[u32; 20]) -> bool {
-    let r = crate::shapes::col_slice();
+pub(crate) fn accepts(world_index: usize, id: usize, header: &[u32; 20]) -> bool {
+    let r = crate::shapes::col_slice(world_index);
     let n = id * SHAPE_STRIDE;
     ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY - 1] & header[9])) != 0
         && ((r[n + S_QUERY_MASK] & header[6]) | (r[n + S_QUERY_MASK - 1] & header[7])) != 0
@@ -85,6 +85,7 @@ pub(crate) unsafe fn write_cast(out: &CastOutput, target: *mut u32, material: i3
 }
 // Header, traversal stack and narrow-phase points belong to the calling task, not the query ABI.
 pub(crate) unsafe fn sensor_task(
+    world_index: usize,
     sensor_id: usize,
     header: &[u32; 20],
     mut emit: impl FnMut(usize),
@@ -92,14 +93,16 @@ pub(crate) unsafe fn sensor_task(
     {
         let lo = v(header, 13);
         let hi = v(header, 16);
-        let r = crate::shapes::col();
+        let r = crate::shapes::col(world_index);
         let n = sensor_id * SHAPE_STRIDE;
-        let (sensor, _) = query_abi::active_shape(sensor_id);
-        let sensor_transform = pose(sensor_id, Vec3::ZERO);
+        let (sensor, _) = query_abi::active_shape(world_index, sensor_id);
+        let sensor_transform = pose(world_index, sensor_id, Vec3::ZERO);
         let mut stack = [0; tree::STACK_SIZE];
         for i in 0..3 {
-            let pool =
-                core::slice::from_raw_parts(broad::tree_ptr(i), broad::tree_cap(i) * tree::STRIDE);
+            let pool = core::slice::from_raw_parts(
+                broad::tree_ptr(world_index, i),
+                broad::tree_cap(world_index, i) * tree::STRIDE,
+            );
             tree::query(
                 pool,
                 header[2 * i] as i32,
@@ -144,8 +147,8 @@ pub(crate) unsafe fn sensor_task(
                     {
                         return true;
                     }
-                    let (visitor, _) = query_abi::active_shape(id);
-                    let relative = sensor_transform.inv_mul(pose(id, Vec3::ZERO));
+                    let (visitor, _) = query_abi::active_shape(world_index, id);
+                    let relative = sensor_transform.inv_mul(pose(world_index, id, Vec3::ZERO));
                     let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
                     let (count, radius) = match visitor {
                         query::Shape::Sphere(s) => {
@@ -200,8 +203,11 @@ pub(crate) unsafe fn sensor_task(
 /// Without a callback, collide mover publishes the first eight planes in traversal order.
 #[export_name = "worldQuery"]
 pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
+    run_in_world(world, operation, user_callback)
+}
+
+pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32) {
     unsafe {
-        crate::shapes::shape_set_active_world(world as u32);
         let header = HEADER;
         let exclude_body = matches!(operation, 3 | 5 | 6) && header[19] != 0;
         let origin = v(&header, 10);
@@ -249,16 +255,19 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
         let mut leaf_visits = 0;
         let mut stack = [0; tree::STACK_SIZE];
         for i in 0..3 {
-            let pool =
-                core::slice::from_raw_parts(broad::tree_ptr(i), broad::tree_cap(i) * tree::STRIDE);
+            let pool = core::slice::from_raw_parts(
+                broad::tree_ptr(world as usize, i),
+                broad::tree_cap(world as usize, i) * tree::STRIDE,
+            );
             let root = header[i * 2] as i32;
             let count = header[i * 2 + 1] as usize;
             let tree_fraction = fraction;
             let mut visit = |clip: f32, _: i32, shape_id: u32| -> f32 {
                 let id = shape_id as usize;
-                if !accepts(id, &header)
+                if !accepts(world as usize, id, &header)
                     || (exclude_body
-                        && crate::shapes::col().get(id * SHAPE_STRIDE + S_QUERY_BODY) + 1
+                        && crate::shapes::col(world as usize).get(id * SHAPE_STRIDE + S_QUERY_BODY)
+                            + 1
                             == header[19])
                 {
                     return clip;
@@ -277,7 +286,7 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                     return fraction;
                 }
                 let (shape, materials) = query_abi::shape(world, id);
-                let transform = pose(id, origin);
+                let transform = pose(world as usize, id, origin);
                 if operation == 1 {
                     if !query::overlap_shape(&shape, transform, proxy) {
                         return 1.0;

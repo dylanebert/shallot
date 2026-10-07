@@ -117,15 +117,51 @@ pub unsafe extern "C" fn mutate_resident(
     ud: u32,
     udh: u32,
 ) -> i32 {
-    let state = crate::broad::tree_state(index);
-    let ptr = crate::broad::tree_ptr(index);
+    unsafe {
+        mutate_resident_in_world(
+            crate::regions::active(),
+            index,
+            op,
+            id,
+            lx,
+            ly,
+            lz,
+            hx,
+            hy,
+            hz,
+            ch,
+            cl,
+            ud,
+            udh,
+        )
+    }
+}
+
+pub unsafe extern "C" fn mutate_resident_in_world(
+    world_index: usize,
+    index: usize,
+    op: u32,
+    id: i32,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+    ch: u32,
+    cl: u32,
+    ud: u32,
+    udh: u32,
+) -> i32 {
+    let state = crate::broad::tree_state(world_index, index);
+    let ptr = crate::broad::tree_ptr(world_index, index);
     if op == 4 {
         let n = (*state.add(3) as usize).max(1);
         let scratch = reserve(0, 6 + n * 4);
         core::ptr::copy_nonoverlapping(state, scratch, 6);
         let result = mutate(
             ptr,
-            crate::broad::tree_cap(index),
+            crate::broad::tree_cap(world_index, index),
             scratch,
             op,
             id,
@@ -145,7 +181,7 @@ pub unsafe extern "C" fn mutate_resident(
     }
     mutate(
         ptr,
-        crate::broad::tree_cap(index),
+        crate::broad::tree_cap(world_index, index),
         state,
         op,
         id,
@@ -175,19 +211,55 @@ pub unsafe extern "C" fn create_proxy(
     cl: u32,
     user: u32,
 ) -> i32 {
-    let cap = crate::broad::tree_cap(index);
-    let state = crate::broad::tree_state(index);
+    unsafe {
+        create_proxy_in_world(
+            crate::regions::active(),
+            index,
+            lx,
+            ly,
+            lz,
+            hx,
+            hy,
+            hz,
+            ch,
+            cl,
+            user,
+        )
+    }
+}
+
+pub unsafe extern "C" fn create_proxy_in_world(
+    world_index: usize,
+    index: usize,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+    ch: u32,
+    cl: u32,
+    user: u32,
+) -> i32 {
+    let cap = crate::broad::tree_cap(world_index, index);
+    let state = crate::broad::tree_state(world_index, index);
     if cap - (*state.add(1) as usize) < 2 {
         let next = if cap == 0 { 31 } else { cap + (cap >> 1) };
         let mut caps = [
-            crate::broad::tree_cap(0),
-            crate::broad::tree_cap(1),
-            crate::broad::tree_cap(2),
+            crate::broad::tree_cap(world_index, 0),
+            crate::broad::tree_cap(world_index, 1),
+            crate::broad::tree_cap(world_index, 2),
         ];
         caps[index] = next;
-        crate::broad::reserve_broad(caps[0], caps[1], caps[2], crate::broad::set_cap());
-        let state = crate::broad::tree_state(index);
-        let ptr = crate::broad::tree_ptr(index);
+        crate::broad::reserve_broad_in_world(
+            world_index,
+            caps[0],
+            caps[1],
+            caps[2],
+            crate::broad::set_cap(world_index),
+        );
+        let state = crate::broad::tree_state(world_index, index);
+        let ptr = crate::broad::tree_ptr(world_index, index);
         for i in cap..next {
             *ptr.add(i * STRIDE + 10) = if i + 1 == next {
                 u32::MAX
@@ -205,11 +277,45 @@ pub unsafe extern "C" fn create_proxy(
             *ptr.add(i * STRIDE + 10) = cap as u32;
         }
     }
-    mutate_resident(index, 0, 0, lx, ly, lz, hx, hy, hz, ch, cl, user, 0)
+    mutate_resident_in_world(
+        world_index,
+        index,
+        0,
+        0,
+        lx,
+        ly,
+        lz,
+        hx,
+        hy,
+        hz,
+        ch,
+        cl,
+        user,
+        0,
+    )
 }
 #[export_name = "treeDestroyProxy"]
 pub unsafe extern "C" fn destroy_proxy(index: usize, id: i32) {
-    mutate_resident(index, 3, id, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0);
+    unsafe { destroy_proxy_in_world(crate::regions::active(), index, id) }
+}
+
+pub unsafe extern "C" fn destroy_proxy_in_world(world_index: usize, index: usize, id: i32) {
+    mutate_resident_in_world(
+        world_index,
+        index,
+        3,
+        id,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0,
+        0,
+        0,
+        0,
+    );
 }
 #[export_name = "treeEnlargeProxy"]
 pub unsafe extern "C" fn enlarge_proxy(
@@ -222,7 +328,36 @@ pub unsafe extern "C" fn enlarge_proxy(
     hy: f32,
     hz: f32,
 ) {
-    mutate_resident(index, 2, id, lx, ly, lz, hx, hy, hz, 0, 0, 0, 0);
+    unsafe { enlarge_proxy_in_world(crate::regions::active(), index, id, lx, ly, lz, hx, hy, hz) }
+}
+
+pub unsafe extern "C" fn enlarge_proxy_in_world(
+    world_index: usize,
+    index: usize,
+    id: i32,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+) {
+    mutate_resident_in_world(
+        world_index,
+        index,
+        2,
+        id,
+        lx,
+        ly,
+        lz,
+        hx,
+        hy,
+        hz,
+        0,
+        0,
+        0,
+        0,
+    );
 }
 #[export_name = "treeMoveProxy"]
 pub unsafe extern "C" fn move_proxy(
@@ -235,15 +370,48 @@ pub unsafe extern "C" fn move_proxy(
     hy: f32,
     hz: f32,
 ) {
-    mutate_resident(index, 1, id, lx, ly, lz, hx, hy, hz, 0, 0, 0, 0);
+    unsafe { move_proxy_in_world(crate::regions::active(), index, id, lx, ly, lz, hx, hy, hz) }
+}
+
+pub unsafe extern "C" fn move_proxy_in_world(
+    world_index: usize,
+    index: usize,
+    id: i32,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    hx: f32,
+    hy: f32,
+    hz: f32,
+) {
+    mutate_resident_in_world(
+        world_index,
+        index,
+        1,
+        id,
+        lx,
+        ly,
+        lz,
+        hx,
+        hy,
+        hz,
+        0,
+        0,
+        0,
+        0,
+    );
 }
 
 /// Box3D solver.c: awake sim order, then each body's head-to-next shape order.
 #[export_name = "treeEnlargePass"]
 pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
-    let sim2 = crate::bodies::sim2_base() as *mut u32;
-    let shapes = crate::shapes::col();
-    let fat = crate::shapes::col_f();
+    unsafe { enlarge_pass_in_world(crate::regions::active(), count, bullets) }
+}
+
+pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize, bullets: u32) {
+    let sim2 = crate::bodies::sim2_base(world_index) as *mut u32;
+    let shapes = crate::shapes::col(world_index);
+    let fat = crate::shapes::col_f(world_index);
     for i in 0..count {
         let row = sim2.add(i * SIM2_STRIDE);
         let flags = *row.add(S2_FLAGS);
@@ -252,18 +420,18 @@ pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
             continue;
         }
         let body_id = *row.add(S2_BODY_ID) as usize;
-        let mut id = crate::bodies::record(crate::regions::active(), body_id).head_shape_id as u32;
+        let mut id = crate::bodies::record(world_index, body_id).head_shape_id as u32;
         while id != u32::MAX {
             let o = id as usize * crate::shapes::SHAPE_STRIDE;
             let key = shapes.get(o + crate::shapes::S_PROXY_KEY);
             if bullets == 0 && bullet {
-                crate::broad::buffer_move(key);
+                crate::broad::buffer_move_in_world(world_index, key);
             } else if shapes.get(o + crate::shapes::S_FLAGS) & crate::shapes::ENLARGED_FLAG != 0 {
                 let index = (key & 3) as usize;
                 let b = o + crate::shapes::S_FAT_AABB;
                 let pool = slice::from_raw_parts_mut(
-                    crate::broad::tree_ptr(index),
-                    crate::broad::tree_cap(index) * STRIDE,
+                    crate::broad::tree_ptr(world_index, index),
+                    crate::broad::tree_cap(world_index, index) * STRIDE,
                 );
                 tree::enlarge_proxy(
                     pool,
@@ -277,7 +445,7 @@ pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
                     flags & !crate::shapes::ENLARGED_FLAG,
                 );
                 if bullets == 0 {
-                    crate::broad::buffer_move(key);
+                    crate::broad::buffer_move_in_world(world_index, key);
                 }
             }
             id = shapes.get(o + crate::shapes::S_NEXT);

@@ -4,7 +4,7 @@ use crate::{
     joint_abi::*,
     joint_record,
     math::{Quat, Transform, Vec3},
-    regions, shapes, tree,
+    shapes, tree,
 };
 static mut BUFFER: Vec<u32> = Vec::new();
 static mut VISITED: Vec<u64> = Vec::new();
@@ -42,9 +42,9 @@ fn frame(out: &mut Vec<u32>, t: Transform) {
     transform(out, t);
     end(out, n);
 }
-pub(crate) unsafe fn pose(id: usize) -> Transform {
-    let sim = bodies::column(id, 1, body::SIM_STRIDE);
-    let fin = bodies::column(id, 2, body::FIN_STRIDE);
+pub(crate) unsafe fn pose(world_index: usize, id: usize) -> Transform {
+    let sim = bodies::column(world_index, id, 1, body::SIM_STRIDE);
+    let fin = bodies::column(world_index, id, 2, body::FIN_STRIDE);
     Transform {
         p: Vec3::new(fin.get(0), fin.get(1), fin.get(2)),
         q: Quat {
@@ -93,8 +93,8 @@ unsafe fn tf(p: *const u32, n: usize) -> Transform {
         },
     }
 }
-unsafe fn shape(out: &mut Vec<u32>, id: usize, t: Transform, color: u32) {
-    let r = shapes::col_slice();
+unsafe fn shape(world_index: usize, out: &mut Vec<u32>, id: usize, t: Transform, color: u32) {
+    let r = shapes::col_slice(world_index);
     let n = id * shapes::SHAPE_STRIDE;
     let kind = r[n + shapes::S_TYPE];
     let geo = r.as_ptr().add(n + shapes::S_GEOM);
@@ -136,15 +136,15 @@ unsafe fn shape(out: &mut Vec<u32>, id: usize, t: Transform, color: u32) {
     }
 }
 unsafe fn color(world: usize, id: usize) -> u32 {
-    let r = shapes::col_slice();
+    let r = shapes::col_slice(world as usize);
     let n = id * shapes::SHAPE_STRIDE;
-    let custom = shapes::material(id, 0)[8];
+    let custom = shapes::material(world as usize, id, 0)[8];
     if custom != 0 {
         return custom;
     }
     let body_id = r[n + shapes::S_QUERY_BODY] as usize;
     let b = bodies::record(world, body_id);
-    let sim = bodies::column(body_id, 5, body::SIM2_STRIDE);
+    let sim = bodies::column(world as usize, body_id, 5, body::SIM2_STRIDE);
     let flags = sim.get(body::S2_FLAGS).to_bits();
     if b.body_type == 2 && b.mass == 0.0 {
         0xff0000
@@ -176,10 +176,14 @@ unsafe fn color(world: usize, id: usize) -> u32 {
 }
 #[export_name = "worldDrawShape"]
 pub unsafe extern "C" fn observe_shape(world: usize, id: usize) -> usize {
-    regions::select(world as u32);
+    crate::regions::select(world as u32);
+    unsafe { observe_shape_in_world(world, id) }
+}
+
+pub unsafe extern "C" fn observe_shape_in_world(world: usize, id: usize) -> usize {
     let out = &mut *(&raw mut BUFFER);
     let start = out.len();
-    shape(out, id, Transform::IDENTITY, 0);
+    shape(world as usize, out, id, Transform::IDENTITY, 0);
     start
 }
 #[export_name = "worldDrawRelease"]
@@ -202,12 +206,22 @@ pub unsafe extern "C" fn run(
     mask_lo: u32,
     inv_h: f32,
 ) -> usize {
-    regions::select(world as u32);
+    crate::regions::select(world as u32);
+    unsafe { run_in_world(world, flags, mask_hi, mask_lo, inv_h) }
+}
+
+pub unsafe extern "C" fn run_in_world(
+    world: usize,
+    flags: u32,
+    mask_hi: u32,
+    mask_lo: u32,
+    inv_h: f32,
+) -> usize {
     let header = crate::world_query::HEADER;
     let out = &mut *(&raw mut BUFFER);
     let start = out.len();
     let visited = &mut *(&raw mut VISITED);
-    visited.resize(bodies::body_cap().div_ceil(64), 0);
+    visited.resize(bodies::body_cap_in_world(world as usize).div_ceil(64), 0);
     visited.fill(0);
     let order = &mut *(&raw mut BODY_ORDER);
     order.clear();
@@ -223,8 +237,10 @@ pub unsafe extern "C" fn run(
     ];
     let mut stack = [0; tree::STACK_SIZE];
     for i in 0..3 {
-        let pool =
-            core::slice::from_raw_parts(broad::tree_ptr(i), broad::tree_cap(i) * tree::STRIDE);
+        let pool = core::slice::from_raw_parts(
+            broad::tree_ptr(world as usize, i),
+            broad::tree_cap(world as usize, i) * tree::STRIDE,
+        );
         tree::query(
             pool,
             header[2 * i] as i32,
@@ -237,7 +253,7 @@ pub unsafe extern "C" fn run(
             &mut stack,
             |_, id| {
                 let id = id as usize;
-                let r = shapes::col_slice();
+                let r = shapes::col_slice(world as usize);
                 let n = id * shapes::SHAPE_STRIDE;
                 let body_id = r[n + shapes::S_QUERY_BODY] as usize;
                 let bit = 1u64 << (body_id % 64);
@@ -246,7 +262,13 @@ pub unsafe extern "C" fn run(
                     order.push(body_id);
                 }
                 if flags & 1 != 0 {
-                    shape(out, id, pose(body_id), color(world, id));
+                    shape(
+                        world as usize,
+                        out,
+                        id,
+                        pose(world as usize, body_id),
+                        color(world, id),
+                    );
                 }
                 if flags & 2 != 0 {
                     let o = begin(out, 9, 0xffd700);
@@ -264,10 +286,10 @@ pub unsafe extern "C" fn run(
             if b.body_type != 2 {
                 continue;
             }
-            let fin = bodies::column(id, 2, body::FIN_STRIDE);
+            let fin = bodies::column(world as usize, id, 2, body::FIN_STRIDE);
             let t = Transform {
                 p: body::read_fin(fin, 0).center,
-                q: pose(id).q,
+                q: pose(world as usize, id).q,
             };
             frame(out, t);
             let n = begin(out, 10, 0xffffff);
@@ -277,8 +299,8 @@ pub unsafe extern "C" fn run(
         }
     }
     if flags & 8 != 0 {
-        for id in 0..joint_record::capacity() {
-            let j = joint_record::record(id);
+        for id in 0..joint_record::capacity_in_world(world as usize) {
+            let j = joint_record::record(world as usize, id);
             if j.set_index < 0 {
                 continue;
             }
@@ -287,9 +309,12 @@ pub unsafe extern "C" fn run(
             if bodies::record(world, a).set_index == 1 || bodies::record(world, b).set_index == 1 {
                 continue;
             }
-            let ta = pose(a);
-            let tb = pose(b);
-            let col = crate::col::Col::new(joint_record::sim_pointer(id) as *mut f32, JOINT_STRIDE);
+            let ta = pose(world as usize, a);
+            let tb = pose(world as usize, b);
+            let col = crate::col::Col::new(
+                joint_record::sim_pointer_in_world(world as usize, id) as *mut f32,
+                JOINT_STRIDE,
+            );
             let pa = ta.point(get_vec3(col, 0, J_LOCAL_FRAME_A));
             let pb = tb.point(get_vec3(col, 0, J_LOCAL_FRAME_B));
             if j.joint_type == 2 {

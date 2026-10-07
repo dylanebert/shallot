@@ -43,59 +43,79 @@ static mut WORLDS: [Islands; regions::MAX_WORLDS] = [const {
         free: Vec::new(),
     }
 }; regions::MAX_WORLDS];
-unsafe fn world() -> &'static mut Islands {
-    &mut WORLDS[regions::active()]
+unsafe fn world(world_index: usize) -> &'static mut Islands {
+    &mut WORLDS[world_index]
 }
-unsafe fn record(id: usize) -> &'static mut Island {
-    &mut world().records[id]
+unsafe fn record(world_index: usize, id: usize) -> &'static mut Island {
+    &mut world(world_index).records[id]
 }
 #[export_name = "islandSplitCandidate"]
 pub unsafe extern "C" fn split_candidate() -> i32 {
-    world().split_island_id
+    unsafe { split_candidate_in_world(crate::regions::active()) }
+}
+
+pub unsafe extern "C" fn split_candidate_in_world(world_index: usize) -> i32 {
+    world(world_index).split_island_id
 }
 #[export_name = "islandSetSplitCandidate"]
 pub unsafe extern "C" fn set_split_candidate(id: i32) {
-    world().split_island_id = id;
+    unsafe { set_split_candidate_in_world(crate::regions::active(), id) }
+}
+
+pub unsafe extern "C" fn set_split_candidate_in_world(world_index: usize, id: i32) {
+    world(world_index).split_island_id = id;
 }
 #[export_name = "islandCanSleep"]
 pub unsafe extern "C" fn can_sleep(id: usize) -> bool {
-    record(id)
-        .bodies
-        .iter()
-        .all(|&body| crate::bodies::record(regions::active(), body as usize).sleep_time >= 0.5)
+    unsafe { can_sleep_in_world(crate::regions::active(), id) }
 }
 
-unsafe fn fix(kind: i32, id: i32, island: i32, index: i32) {
+pub unsafe extern "C" fn can_sleep_in_world(world_index: usize, id: usize) -> bool {
+    record(world_index, id)
+        .bodies
+        .iter()
+        .all(|&body| crate::bodies::record(world_index, body as usize).sleep_time >= 0.5)
+}
+
+unsafe fn fix(world_index: usize, kind: i32, id: i32, island: i32, index: i32) {
     if kind == 0 {
-        let body = crate::bodies::record_mut(regions::active(), id as usize);
+        let body = crate::bodies::record_mut(world_index, id as usize);
         body.island_id = island;
         body.island_index = index;
     } else {
-        let joint = crate::joint_record::record_mut(id as usize);
+        let joint = crate::joint_record::record_mut(world_index, id as usize);
         joint.island_id = island;
         joint.island_index = index;
     }
 }
-unsafe fn contact_fix(id: i32, island: i32, index: i32) {
-    let d = manifolds::dir_col();
+unsafe fn contact_fix(world_index: usize, id: i32, island: i32, index: i32) {
+    let d = manifolds::dir_col(world_index);
     let base = id as usize * DIR_STRIDE;
     d.set(base + DIR_ISLAND_ID, island as u32);
     d.set(base + DIR_ISLAND_INDEX, index as u32);
 }
 #[export_name = "islandCount"]
 pub unsafe extern "C" fn count() -> usize {
-    world().records.len() - world().free.len()
+    unsafe { count_in_world(crate::regions::active()) }
+}
+
+pub unsafe extern "C" fn count_in_world(world_index: usize) -> usize {
+    world(world_index).records.len() - world(world_index).free.len()
 }
 #[export_name = "islandCreate"]
 pub unsafe extern "C" fn create(set: usize) -> usize {
-    let w = world();
+    unsafe { create_in_world(crate::regions::active(), set) }
+}
+
+pub unsafe extern "C" fn create_in_world(world_index: usize, set: usize) -> usize {
+    let w = world(world_index);
     let id = if let Some(id) = w.free.pop() {
         id
     } else {
         w.records.push(Island::default());
         w.records.len() - 1
     };
-    let index = solver_set::array_push(set, 1, id as i32);
+    let index = solver_set::array_push_in_world(world_index, set, 1, id as i32);
     w.records[id] = Island {
         set_index: set as i32,
         local_index: index as i32,
@@ -106,23 +126,31 @@ pub unsafe extern "C" fn create(set: usize) -> usize {
 }
 #[export_name = "islandDestroy"]
 pub unsafe extern "C" fn destroy(id: usize) {
-    if world().split_island_id == id as i32 {
-        world().split_island_id = -1;
+    unsafe { destroy_in_world(crate::regions::active(), id) }
+}
+
+pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize) {
+    if world(world_index).split_island_id == id as i32 {
+        world(world_index).split_island_id = -1;
     }
-    let s = record(id);
+    let s = record(world_index, id);
     let set = s.set_index as usize;
     let index = s.local_index as usize;
-    let last = solver_set::array_count(set, 1) - 1;
-    let moved = solver_set::array_get(set, 1, last);
-    solver_set::array_write(set, 1, index, moved);
-    record(moved as usize).local_index = index as i32;
-    solver_set::array_pop(set, 1);
-    world().records[id] = Island::default();
-    world().free.push(id);
+    let last = solver_set::array_count_in_world(world_index, set, 1) - 1;
+    let moved = solver_set::array_get_in_world(world_index, set, 1, last);
+    solver_set::array_write_in_world(world_index, set, 1, index, moved);
+    record(world_index, moved as usize).local_index = index as i32;
+    solver_set::array_pop_in_world(world_index, set, 1);
+    world(world_index).records[id] = Island::default();
+    world(world_index).free.push(id);
 }
 #[export_name = "islandField"]
 pub unsafe extern "C" fn field(id: usize, field: usize) -> i32 {
-    let s = record(id);
+    unsafe { field_in_world(crate::regions::active(), id, field) }
+}
+
+pub unsafe extern "C" fn field_in_world(world_index: usize, id: usize, field: usize) -> i32 {
+    let s = record(world_index, id);
     match field {
         0 => s.set_index,
         1 => s.local_index,
@@ -133,7 +161,16 @@ pub unsafe extern "C" fn field(id: usize, field: usize) -> i32 {
 }
 #[export_name = "islandSetField"]
 pub unsafe extern "C" fn set_field(id: usize, field: usize, value: i32) {
-    let s = record(id);
+    unsafe { set_field_in_world(crate::regions::active(), id, field, value) }
+}
+
+pub unsafe extern "C" fn set_field_in_world(
+    world_index: usize,
+    id: usize,
+    field: usize,
+    value: i32,
+) {
+    let s = record(world_index, id);
     match field {
         0 => s.set_index = value,
         1 => s.local_index = value,
@@ -143,7 +180,11 @@ pub unsafe extern "C" fn set_field(id: usize, field: usize, value: i32) {
 }
 #[export_name = "islandArrayCount"]
 pub unsafe extern "C" fn array_count(id: usize, kind: usize) -> usize {
-    let s = record(id);
+    unsafe { array_count_in_world(crate::regions::active(), id, kind) }
+}
+
+pub unsafe extern "C" fn array_count_in_world(world_index: usize, id: usize, kind: usize) -> usize {
+    let s = record(world_index, id);
     match kind {
         0 => s.bodies.len(),
         1 => s.contacts.len(),
@@ -153,7 +194,17 @@ pub unsafe extern "C" fn array_count(id: usize, kind: usize) -> usize {
 }
 #[export_name = "islandArrayGet"]
 pub unsafe extern "C" fn array_get(id: usize, kind: usize, index: usize, lane: usize) -> i32 {
-    let s = record(id);
+    unsafe { array_get_in_world(crate::regions::active(), id, kind, index, lane) }
+}
+
+pub unsafe extern "C" fn array_get_in_world(
+    world_index: usize,
+    id: usize,
+    kind: usize,
+    index: usize,
+    lane: usize,
+) -> i32 {
+    let s = record(world_index, id);
     if kind == 0 {
         return s.bodies[index];
     }
@@ -171,66 +222,82 @@ pub unsafe extern "C" fn array_get(id: usize, kind: usize, index: usize, lane: u
 }
 #[export_name = "islandAddBody"]
 pub unsafe extern "C" fn add_body(id: usize, body: i32) {
-    let s = record(id);
-    fix(0, body, id as i32, s.bodies.len() as i32);
+    unsafe { add_body_in_world(crate::regions::active(), id, body) }
+}
+
+pub unsafe extern "C" fn add_body_in_world(world_index: usize, id: usize, body: i32) {
+    let s = record(world_index, id);
+    fix(world_index, 0, body, id as i32, s.bodies.len() as i32);
     s.bodies.push(body);
 }
 #[export_name = "islandRemoveBody"]
 pub unsafe extern "C" fn remove_body(id: usize, index: usize) {
-    let s = record(id);
+    unsafe { remove_body_in_world(crate::regions::active(), id, index) }
+}
+
+pub unsafe extern "C" fn remove_body_in_world(world_index: usize, id: usize, index: usize) {
+    let s = record(world_index, id);
     let removed = s.bodies.swap_remove(index);
     if index < s.bodies.len() {
-        fix(0, s.bodies[index], id as i32, index as i32);
+        fix(world_index, 0, s.bodies[index], id as i32, index as i32);
     }
-    fix(0, removed, -1, -1);
+    fix(world_index, 0, removed, -1, -1);
 }
-unsafe fn merge(a: i32, b: i32) -> usize {
+unsafe fn merge(world_index: usize, a: i32, b: i32) -> usize {
     if a == b || b == -1 {
         return a as usize;
     }
     if a == -1 {
         return b as usize;
     }
-    let (big, small) = if record(a as usize).bodies.len() >= record(b as usize).bodies.len() {
+    let (big, small) = if record(world_index, a as usize).bodies.len()
+        >= record(world_index, b as usize).bodies.len()
+    {
         (a as usize, b as usize)
     } else {
         (b as usize, a as usize)
     };
-    let bodies = std::mem::take(&mut record(small).bodies);
-    record(big).bodies.reserve(bodies.len());
+    let bodies = std::mem::take(&mut record(world_index, small).bodies);
+    record(world_index, big).bodies.reserve(bodies.len());
     for id in bodies {
-        add_body(big, id);
+        add_body_in_world(world_index, big, id);
     }
-    let contacts = std::mem::take(&mut record(small).contacts);
-    record(big).contacts.reserve(contacts.len());
+    let contacts = std::mem::take(&mut record(world_index, small).contacts);
+    record(world_index, big).contacts.reserve(contacts.len());
     for l in contacts {
-        add_contact(big, l);
+        add_contact(world_index, big, l);
     }
-    let joints = std::mem::take(&mut record(small).joints);
-    record(big).joints.reserve(joints.len());
+    let joints = std::mem::take(&mut record(world_index, small).joints);
+    record(world_index, big).joints.reserve(joints.len());
     for l in joints {
-        add_joint(big, l);
+        add_joint(world_index, big, l);
     }
-    record(big).constraint_remove_count += record(small).constraint_remove_count;
-    destroy(small);
+    record(world_index, big).constraint_remove_count +=
+        record(world_index, small).constraint_remove_count;
+    destroy_in_world(world_index, small);
     big
 }
-unsafe fn add_contact(id: usize, l: Link) {
-    let s = record(id);
-    contact_fix(l.id, id as i32, s.contacts.len() as i32);
+unsafe fn add_contact(world_index: usize, id: usize, l: Link) {
+    let s = record(world_index, id);
+    contact_fix(world_index, l.id, id as i32, s.contacts.len() as i32);
     s.contacts.push(l);
 }
-unsafe fn add_joint(id: usize, l: Link) {
-    let s = record(id);
-    fix(1, l.id, id as i32, s.joints.len() as i32);
+unsafe fn add_joint(world_index: usize, id: usize, l: Link) {
+    let s = record(world_index, id);
+    fix(world_index, 1, l.id, id as i32, s.joints.len() as i32);
     s.joints.push(l);
 }
 #[export_name = "islandLinkContact"]
 pub unsafe extern "C" fn link_contact(contact: i32, a: i32, b: i32) {
-    let id = merge(a, b);
-    let d = manifolds::dir_col();
+    unsafe { link_contact_in_world(crate::regions::active(), contact, a, b) }
+}
+
+pub unsafe extern "C" fn link_contact_in_world(world_index: usize, contact: i32, a: i32, b: i32) {
+    let id = merge(world_index, a, b);
+    let d = manifolds::dir_col(world_index);
     let base = contact as usize * DIR_STRIDE;
     add_contact(
+        world_index,
         id,
         Link {
             id: contact,
@@ -241,22 +308,38 @@ pub unsafe extern "C" fn link_contact(contact: i32, a: i32, b: i32) {
 }
 #[export_name = "islandUnlinkContact"]
 pub unsafe extern "C" fn unlink_contact(contact: i32) {
-    let d = manifolds::dir_col();
+    unsafe { unlink_contact_in_world(crate::regions::active(), contact) }
+}
+
+pub unsafe extern "C" fn unlink_contact_in_world(world_index: usize, contact: i32) {
+    let d = manifolds::dir_col(world_index);
     let base = contact as usize * DIR_STRIDE;
     let id = d.get(base + DIR_ISLAND_ID) as usize;
     let index = d.get(base + DIR_ISLAND_INDEX) as usize;
-    let s = record(id);
+    let s = record(world_index, id);
     s.contacts.swap_remove(index);
     if index < s.contacts.len() {
-        contact_fix(s.contacts[index].id, id as i32, index as i32);
+        contact_fix(world_index, s.contacts[index].id, id as i32, index as i32);
     }
-    contact_fix(contact, -1, -1);
+    contact_fix(world_index, contact, -1, -1);
     s.constraint_remove_count += 1;
 }
 #[export_name = "islandLinkJoint"]
 pub unsafe extern "C" fn link_joint(joint: i32, body_a: i32, body_b: i32, a: i32, b: i32) {
-    let id = merge(a, b);
+    unsafe { link_joint_in_world(crate::regions::active(), joint, body_a, body_b, a, b) }
+}
+
+pub unsafe extern "C" fn link_joint_in_world(
+    world_index: usize,
+    joint: i32,
+    body_a: i32,
+    body_b: i32,
+    a: i32,
+    b: i32,
+) {
+    let id = merge(world_index, a, b);
     add_joint(
+        world_index,
         id,
         Link {
             id: joint,
@@ -267,15 +350,24 @@ pub unsafe extern "C" fn link_joint(joint: i32, body_a: i32, body_b: i32, a: i32
 }
 #[export_name = "islandUnlinkJoint"]
 pub unsafe extern "C" fn unlink_joint(joint: i32, id: i32, index: usize) {
+    unsafe { unlink_joint_in_world(crate::regions::active(), joint, id, index) }
+}
+
+pub unsafe extern "C" fn unlink_joint_in_world(
+    world_index: usize,
+    joint: i32,
+    id: i32,
+    index: usize,
+) {
     if id == -1 {
         return;
     }
-    let s = record(id as usize);
+    let s = record(world_index, id as usize);
     s.joints.swap_remove(index);
     if index < s.joints.len() {
-        fix(1, s.joints[index].id, id, index as i32);
+        fix(world_index, 1, s.joints[index].id, id, index as i32);
     }
-    fix(1, joint, -1, -1);
+    fix(world_index, 1, joint, -1, -1);
     s.constraint_remove_count += 1;
 }
 fn find_parent(parents: &mut [usize], mut node: usize) -> usize {
@@ -341,11 +433,11 @@ impl SplitScratch {
 // Like Box3D's task contexts/arena, scratch is retained by the worker, not allocated by a split.
 static mut SPLIT_SCRATCH: [SplitScratch; crate::bodies::IDENT_RECORDS] =
     [const { SplitScratch::EMPTY }; crate::bodies::IDENT_RECORDS];
-pub unsafe fn prepare_split(base: usize, worker: usize) {
+pub unsafe fn prepare_split(world_index: usize, base: usize, worker: usize) {
     let s = &mut SPLIT_SCRATCH[worker];
     s.indices
-        .resize(crate::bodies::body_length(regions::active() as u32), -1);
-    let n = record(base).bodies.len();
+        .resize(crate::bodies::body_length(world_index as u32), -1);
+    let n = record(world_index, base).bodies.len();
     for v in [
         &mut s.parents,
         &mut s.ranks,
@@ -363,10 +455,14 @@ pub unsafe fn prepare_split(base: usize, worker: usize) {
 }
 #[export_name = "islandSplit"]
 pub unsafe extern "C" fn split(base: usize) {
-    prepare_split(base, 0);
-    split_task(base, 0);
+    unsafe { split_in_world(crate::regions::active(), base) }
 }
-pub unsafe fn split_task(base: usize, worker: usize) {
+
+pub unsafe extern "C" fn split_in_world(world_index: usize, base: usize) {
+    prepare_split(world_index, base, 0);
+    split_task(world_index, base, 0);
+}
+pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
     let SplitScratch {
         indices,
         parents,
@@ -380,9 +476,9 @@ pub unsafe fn split_task(base: usize, worker: usize) {
         ids,
     } = &mut SPLIT_SCRATCH[worker];
     for (id, index) in indices.iter_mut().enumerate() {
-        *index = crate::bodies::record(regions::active(), id).island_index;
+        *index = crate::bodies::record(world_index, id).island_index;
     }
-    let n = record(base).bodies.len();
+    let n = record(world_index, base).bodies.len();
     for (i, p) in parents.iter_mut().enumerate() {
         *p = i;
     }
@@ -391,9 +487,9 @@ pub unsafe fn split_task(base: usize, worker: usize) {
     joint_counts.fill(0);
     for kind in 0..2 {
         let links = if kind == 0 {
-            &record(base).contacts
+            &record(world_index, base).contacts
         } else {
-            &record(base).joints
+            &record(world_index, base).joints
         };
         for l in links {
             let a = indices[l.body_a as usize];
@@ -424,7 +520,7 @@ pub unsafe fn split_task(base: usize, worker: usize) {
         }
     }
     if components == 1 {
-        record(base).constraint_remove_count = 0;
+        record(world_index, base).constraint_remove_count = 0;
         return;
     }
     root_map.fill(usize::MAX);
@@ -443,32 +539,32 @@ pub unsafe fn split_task(base: usize, worker: usize) {
         body_counts[root_map[root]] += 1;
     }
     for i in 0..island_count {
-        let id = create(2);
+        let id = create_in_world(world_index, 2);
         ids.push(id);
-        let s = record(id);
+        let s = record(world_index, id);
         s.bodies.reserve(body_counts[i]);
         s.contacts.reserve(component_contacts[i]);
         s.joints.reserve(component_joints[i]);
     }
     for i in 0..n {
-        let body = record(base).bodies[i];
-        add_body(ids[root_map[parents[i]]], body);
+        let body = record(world_index, base).bodies[i];
+        add_body_in_world(world_index, ids[root_map[parents[i]]], body);
     }
-    for i in 0..record(base).contacts.len() {
-        let l = record(base).contacts[i];
+    for i in 0..record(world_index, base).contacts.len() {
+        let l = record(world_index, base).contacts[i];
         let a = indices[l.body_a as usize];
         let b = indices[l.body_b as usize];
         let index = if a != -1 { a } else { b } as usize;
-        add_contact(ids[root_map[parents[index]]], l);
+        add_contact(world_index, ids[root_map[parents[index]]], l);
     }
-    for i in 0..record(base).joints.len() {
-        let l = record(base).joints[i];
+    for i in 0..record(world_index, base).joints.len() {
+        let l = record(world_index, base).joints[i];
         let a = indices[l.body_a as usize];
         let b = indices[l.body_b as usize];
         let index = if a != -1 { a } else { b } as usize;
-        add_joint(ids[root_map[parents[index]]], l);
+        add_joint(world_index, ids[root_map[parents[index]]], l);
     }
-    destroy(base);
+    destroy_in_world(world_index, base);
 }
 pub unsafe fn reset(id: usize) {
     WORLDS[id] = Islands {

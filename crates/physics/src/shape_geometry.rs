@@ -64,26 +64,31 @@ mod wasm {
         math::{maxf, minf, Quat, Transform},
         regions, shapes,
     };
-    unsafe fn vector(id: usize, lane: usize) -> Vec3 {
-        let f = shapes::col_f();
+    unsafe fn vector(world_index: usize, id: usize, lane: usize) -> Vec3 {
+        let f = shapes::col_f(world_index);
         let o = id * shapes::SHAPE_STRIDE + lane;
         Vec3::new(f.get(o), f.get(o + 1), f.get(o + 2))
     }
-    fn kind(id: usize) -> u32 {
-        shapes::col().get(id * shapes::SHAPE_STRIDE + shapes::S_TYPE)
+    fn kind(world_index: usize, id: usize) -> u32 {
+        shapes::col(world_index).get(id * shapes::SHAPE_STRIDE + shapes::S_TYPE)
     }
-    fn reference(id: usize) -> usize {
-        shapes::col().get(id * shapes::SHAPE_STRIDE + shapes::S_GEO_REFERENCE) as usize
+    fn reference(world_index: usize, id: usize) -> usize {
+        shapes::col(world_index).get(id * shapes::SHAPE_STRIDE + shapes::S_GEO_REFERENCE) as usize
     }
-    pub(crate) unsafe fn mass(id: usize) -> MassData {
-        let f = shapes::col_f();
+    pub(crate) unsafe fn mass(world_index: usize, id: usize) -> MassData {
+        let f = shapes::col_f(world_index);
         let o = id * shapes::SHAPE_STRIDE;
         let density = f.get(o + shapes::S_DENSITY);
-        match kind(id) {
-            0 => capsule_mass(vector(id, 48), vector(id, 51), f.get(o + 54), density),
-            5 => sphere_mass(vector(id, 48), f.get(o + 51), density),
+        match kind(world_index, id) {
+            0 => capsule_mass(
+                vector(world_index, id, 48),
+                vector(world_index, id, 51),
+                f.get(o + 54),
+                density,
+            ),
+            5 => sphere_mass(vector(world_index, id, 48), f.get(o + 51), density),
             3 => {
-                let h = geo::hull_record(reference(id));
+                let h = geo::hull_record(reference(world_index, id));
                 MassData {
                     mass: density * h.volume,
                     center: h.center,
@@ -97,9 +102,9 @@ mod wasm {
             _ => MassData::ZERO,
         }
     }
-    pub(crate) unsafe fn bounds(id: usize, pose: Transform) -> [f32; 6] {
-        if kind(id) == 3 {
-            let h = geo::hull_record(reference(id));
+    pub(crate) unsafe fn bounds(world_index: usize, id: usize, pose: Transform) -> [f32; 6] {
+        if kind(world_index, id) == 3 {
+            let h = geo::hull_record(reference(world_index, id));
             let center = pose.point(h.bounds[0].add(h.bounds[1]).scale(0.5));
             let extent = Mat3::from_quat(pose.q)
                 .abs()
@@ -108,28 +113,28 @@ mod wasm {
             let hi = center.add(extent);
             [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z]
         } else {
-            crate::continuous::bounds(id, pose)
+            crate::continuous::bounds(world_index, id, pose)
         }
     }
-    pub(crate) unsafe fn centroid(id: usize) -> Vec3 {
-        match kind(id) {
-            0 => vector(id, 48).lerp(vector(id, 51), 0.5),
-            5 => vector(id, 48),
-            3 => geo::hull_record(reference(id)).center,
+    pub(crate) unsafe fn centroid(world_index: usize, id: usize) -> Vec3 {
+        match kind(world_index, id) {
+            0 => vector(world_index, id, 48).lerp(vector(world_index, id, 51), 0.5),
+            5 => vector(world_index, id, 48),
+            3 => geo::hull_record(reference(world_index, id)).center,
             _ => {
-                let b = bounds(id, Transform::IDENTITY);
+                let b = bounds(world_index, id, Transform::IDENTITY);
                 Vec3::new(b[0] + b[3], b[1] + b[4], b[2] + b[5]).scale(0.5)
             }
         }
     }
-    pub(crate) unsafe fn extent(id: usize, center: Vec3) -> (f32, Vec3) {
+    pub(crate) unsafe fn extent(world_index: usize, id: usize, center: Vec3) -> (f32, Vec3) {
         let o = id * shapes::SHAPE_STRIDE;
-        let f = shapes::col_f();
-        match kind(id) {
+        let f = shapes::col_f(world_index);
+        match kind(world_index, id) {
             0 => {
                 let r = f.get(o + 54);
-                let a = vector(id, 48).sub(center).abs();
-                let b = vector(id, 51).sub(center).abs();
+                let a = vector(world_index, id, 48).sub(center).abs();
+                let b = vector(world_index, id, 51).sub(center).abs();
                 (
                     r,
                     Vec3::new(maxf(a.x, b.x) + r, maxf(a.y, b.y) + r, maxf(a.z, b.z) + r),
@@ -137,12 +142,12 @@ mod wasm {
             }
             5 => {
                 let r = f.get(o + 51);
-                let h = vector(id, 48).sub(center).abs();
+                let h = vector(world_index, id, 48).sub(center).abs();
                 (r, h.add(Vec3::new(r, r, r)))
             }
             3 => {
-                let h = geo::hull_record(reference(id));
-                let view = geo::hull_view(reference(id));
+                let h = geo::hull_record(reference(world_index, id));
+                let view = geo::hull_view(reference(world_index, id));
                 let mut maximum = Vec3::ZERO;
                 for p in view.points {
                     let d = p.sub(center).abs();
@@ -155,7 +160,7 @@ mod wasm {
                 (h.inner_radius, maximum)
             }
             1 | 4 => {
-                let b = bounds(id, Transform::IDENTITY);
+                let b = bounds(world_index, id, Transform::IDENTITY);
                 let lo = Vec3::new(b[0], b[1], b[2]);
                 let hi = Vec3::new(b[3], b[4], b[5]);
                 let p = Vec3::new(
@@ -183,14 +188,17 @@ mod wasm {
             _ => (0.0, Vec3::ZERO),
         }
     }
-    unsafe fn margin(id: usize) -> f32 {
+    unsafe fn margin(world_index: usize, id: usize) -> f32 {
         let o = id * shapes::SHAPE_STRIDE;
-        let f = shapes::col_f();
-        let radius = match kind(id) {
-            0 => 0.5 * vector(id, 51).distance(vector(id, 48)) + f.get(o + 54),
+        let f = shapes::col_f(world_index);
+        let radius = match kind(world_index, id) {
+            0 => {
+                0.5 * vector(world_index, id, 51).distance(vector(world_index, id, 48))
+                    + f.get(o + 54)
+            }
             5 => f.get(o + 51),
             3 => {
-                let h = geo::hull_view(reference(id));
+                let h = geo::hull_view(reference(world_index, id));
                 let mut r = 0.0;
                 for p in h.points {
                     r = maxf(r, p.sub(h.center).length_sq());
@@ -213,8 +221,12 @@ mod wasm {
     }
     #[export_name = "shapeComputeMass"]
     pub unsafe extern "C" fn compute_mass(world: usize, id: usize) {
-        regions::select(world as u32);
-        let m = mass(id);
+        crate::regions::select(world as u32);
+        unsafe { compute_mass_in_world(world, id) }
+    }
+
+    pub unsafe extern "C" fn compute_mass_in_world(world: usize, id: usize) {
+        let m = mass(world as usize, id);
         OUTPUT[0] = m.mass;
         put_vector(1, m.center);
         put_vector(4, m.inertia.cx);
@@ -223,8 +235,18 @@ mod wasm {
     }
     #[export_name = "shapeComputeExtent"]
     pub unsafe extern "C" fn compute_extent(world: usize, id: usize, x: f32, y: f32, z: f32) {
-        regions::select(world as u32);
-        let (minimum, maximum) = extent(id, Vec3::new(x, y, z));
+        crate::regions::select(world as u32);
+        unsafe { compute_extent_in_world(world, id, x, y, z) }
+    }
+
+    pub unsafe extern "C" fn compute_extent_in_world(
+        world: usize,
+        id: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) {
+        let (minimum, maximum) = extent(world as usize, id, Vec3::new(x, y, z));
         OUTPUT[0] = minimum;
         put_vector(1, maximum);
     }
@@ -241,8 +263,24 @@ mod wasm {
         qs: f32,
         extra: f32,
     ) {
-        regions::select(world as u32);
+        crate::regions::select(world as u32);
+        unsafe { compute_aabb_in_world(world, id, x, y, z, qx, qy, qz, qs, extra) }
+    }
+
+    pub unsafe extern "C" fn compute_aabb_in_world(
+        world: usize,
+        id: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+        qx: f32,
+        qy: f32,
+        qz: f32,
+        qs: f32,
+        extra: f32,
+    ) {
         let b = bounds(
+            world as usize,
             id,
             Transform {
                 p: Vec3::new(x, y, z),
@@ -265,8 +303,18 @@ mod wasm {
         y: f32,
         z: f32,
     ) -> usize {
-        regions::select(world as u32);
-        geo::hull_view(reference(id)).support_vertex(Vec3::new(x, y, z))
+        crate::regions::select(world as u32);
+        unsafe { find_hull_support_vertex_in_world(world, id, x, y, z) }
+    }
+
+    pub unsafe extern "C" fn find_hull_support_vertex_in_world(
+        world: usize,
+        id: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> usize {
+        geo::hull_view(reference(world as usize, id)).support_vertex(Vec3::new(x, y, z))
     }
     #[export_name = "shapeFindHullSupportFace"]
     pub unsafe extern "C" fn find_hull_support_face(
@@ -276,24 +324,42 @@ mod wasm {
         y: f32,
         z: f32,
     ) -> usize {
-        regions::select(world as u32);
-        geo::hull_view(reference(id)).support_face(Vec3::new(x, y, z))
+        crate::regions::select(world as u32);
+        unsafe { find_hull_support_face_in_world(world, id, x, y, z) }
+    }
+
+    pub unsafe extern "C" fn find_hull_support_face_in_world(
+        world: usize,
+        id: usize,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> usize {
+        geo::hull_view(reference(world as usize, id)).support_face(Vec3::new(x, y, z))
     }
     #[export_name = "shapeGetCentroid"]
     pub unsafe extern "C" fn get_centroid(world: usize, id: usize) {
-        regions::select(world as u32);
-        put_vector(0, centroid(id));
+        crate::regions::select(world as u32);
+        unsafe { get_centroid_in_world(world, id) }
+    }
+
+    pub unsafe extern "C" fn get_centroid_in_world(world: usize, id: usize) {
+        put_vector(0, centroid(world as usize, id));
     }
     #[export_name = "shapeFinishGeometry"]
     pub unsafe extern "C" fn finish_geometry(world: usize, id: usize) {
-        regions::select(world as u32);
-        let c = centroid(id);
-        let f = shapes::col_f();
+        crate::regions::select(world as u32);
+        unsafe { finish_geometry_in_world(world, id) }
+    }
+
+    pub unsafe extern "C" fn finish_geometry_in_world(world: usize, id: usize) {
+        let c = centroid(world as usize, id);
+        let f = shapes::col_f(world as usize);
         let o = id * shapes::SHAPE_STRIDE;
         f.set(o + 22, c.x);
         f.set(o + 23, c.y);
         f.set(o + 24, c.z);
-        f.set(o + 9, margin(id));
+        f.set(o + 9, margin(world as usize, id));
     }
     #[export_name = "shapeCanCreate"]
     pub unsafe extern "C" fn can_create(world: usize, body: usize, kind: u32) -> bool {
@@ -312,13 +378,27 @@ mod wasm {
         f: f32,
         g: f32,
     ) -> u32 {
-        regions::select(world as u32);
+        crate::regions::select(world as u32);
+        unsafe { set_geometry_in_world(world, id, a, b, c, d, e, f, g) }
+    }
+
+    pub unsafe extern "C" fn set_geometry_in_world(
+        world: usize,
+        id: usize,
+        a: f32,
+        b: f32,
+        c: f32,
+        d: f32,
+        e: f32,
+        f: f32,
+        g: f32,
+    ) -> u32 {
         let o = id * shapes::SHAPE_STRIDE;
-        let floats = shapes::col_f();
-        let mut t = kind(id);
+        let floats = shapes::col_f(world as usize);
+        let mut t = kind(world as usize, id);
         if t == 0 && Vec3::new(d - a, e - b, f - c).length_sq() <= 0.005f32 * 0.005f32 {
             t = 5;
-            shapes::col().set(o + shapes::S_TYPE, t);
+            shapes::col(world as usize).set(o + shapes::S_TYPE, t);
             let center = Vec3::new(a, b, c).lerp(Vec3::new(d, e, f), 0.5);
             for (lane, value) in [center.x, center.y, center.z, g].into_iter().enumerate() {
                 floats.set(o + 48 + lane, value);

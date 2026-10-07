@@ -48,9 +48,13 @@ pub extern "C" fn contact_count(world: usize) -> usize {
 }
 #[export_name = "allocContact"]
 pub extern "C" fn alloc_contact() -> usize {
+    alloc_contact_in_world(crate::regions::active())
+}
+
+pub extern "C" fn alloc_contact_in_world(world_index: usize) -> usize {
     use crate::manifold_abi::*;
     unsafe {
-        let world = regions::active();
+        let world = world_index;
         let id = if let Some(id) = FREE_IDS[world].pop() {
             id
         } else {
@@ -58,8 +62,8 @@ pub extern "C" fn alloc_contact() -> usize {
             NEXT_IDS[world] += 1;
             id
         };
-        reserve_directory((id + 1).next_power_of_two().max(16));
-        let dir = dir_col();
+        reserve_directory(world_index, (id + 1).next_power_of_two().max(16));
+        let dir = dir_col(world_index);
         let o = id * DIR_STRIDE;
         let generation = dir.get(o + DIR_GENERATION).wrapping_add(1);
         for field in 0..DIR_STRIDE {
@@ -92,10 +96,14 @@ pub extern "C" fn alloc_contact() -> usize {
 }
 #[export_name = "freeContact"]
 pub extern "C" fn free_contact(contact: usize) {
+    free_contact_in_world(crate::regions::active(), contact)
+}
+
+pub extern "C" fn free_contact_in_world(world_index: usize, contact: usize) {
     use crate::manifold_abi::*;
     unsafe {
-        let world = regions::active();
-        let dir = dir_col();
+        let world = world_index;
+        let dir = dir_col(world_index);
         for field in [
             DIR_CONTACT_ID,
             DIR_SET_INDEX,
@@ -172,8 +180,8 @@ pub extern "C" fn manifold_allocator_operations(world: usize) -> u64 {
     }
 }
 
-pub fn has_mesh_caches() -> bool {
-    unsafe { !MESH_CACHES[regions::active()].is_empty() }
+pub fn has_mesh_caches(world_index: usize) -> bool {
+    unsafe { !MESH_CACHES[world_index].is_empty() }
 }
 
 #[export_name = "meshCacheCapacity"]
@@ -183,8 +191,12 @@ pub extern "C" fn mesh_cache_capacity(world: usize) -> usize {
 }
 #[export_name = "ensureMeshCache"]
 pub extern "C" fn ensure_mesh_cache(contact: usize) {
+    ensure_mesh_cache_in_world(crate::regions::active(), contact)
+}
+
+pub extern "C" fn ensure_mesh_cache_in_world(world_index: usize, contact: usize) {
     unsafe {
-        let caches = &mut MESH_CACHES[regions::active()];
+        let caches = &mut MESH_CACHES[world_index];
         caches.resize(caches.len().max(contact + 1), Columns::EMPTY);
         if caches[contact].layout[0] == 16 {
             caches[contact].reserve(0, core::mem::size_of::<crate::mesh_contact::MeshCache>());
@@ -192,7 +204,7 @@ pub extern "C" fn ensure_mesh_cache(contact: usize) {
             cache.lower = crate::math::Vec3::new(f32::MAX, f32::MAX, f32::MAX);
             cache.upper = crate::math::Vec3::new(-f32::MAX, -f32::MAX, -f32::MAX);
         }
-        dir_col().set(
+        dir_col(world_index).set(
             contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE,
             caches[contact].layout[0],
         );
@@ -200,24 +212,31 @@ pub extern "C" fn ensure_mesh_cache(contact: usize) {
 }
 #[export_name = "freeMeshCache"]
 pub extern "C" fn free_mesh_cache(contact: usize) {
+    free_mesh_cache_in_world(crate::regions::active(), contact)
+}
+
+pub extern "C" fn free_mesh_cache_in_world(world_index: usize, contact: usize) {
     unsafe {
-        if let Some(cache) = MESH_CACHES[regions::active()].get_mut(contact) {
+        if let Some(cache) = MESH_CACHES[world_index].get_mut(contact) {
             cache.release();
         }
-        dir_col().set(
+        dir_col(world_index).set(
             contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE,
             0,
         );
     }
 }
-pub unsafe fn mesh_cache_ptr(contact: usize) -> *mut crate::mesh_contact::MeshCache {
-    dir_col().get(contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE)
+pub unsafe fn mesh_cache_ptr(
+    world_index: usize,
+    contact: usize,
+) -> *mut crate::mesh_contact::MeshCache {
+    dir_col(world_index).get(contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE)
         as *mut crate::mesh_contact::MeshCache
 }
 
-pub fn dir_col() -> Col<'static, u32> {
+pub fn dir_col(world_index: usize) -> Col<'static, u32> {
     unsafe {
-        let id = regions::active();
+        let id = world_index;
         Col::new(COLUMNS[id].layout[0] as *mut u32, CAPS[id] * DIR_STRIDE)
     }
 }
@@ -252,7 +271,15 @@ unsafe fn free(id: usize, contact: usize) {
 }
 #[export_name = "allocateManifolds"]
 pub extern "C" fn allocate_manifolds(contact: usize, count: usize) -> usize {
-    let id = regions::active();
+    allocate_manifolds_in_world(crate::regions::active(), contact, count)
+}
+
+pub extern "C" fn allocate_manifolds_in_world(
+    world_index: usize,
+    contact: usize,
+    count: usize,
+) -> usize {
+    let id = world_index;
     lock(id);
     let address = unsafe { allocate(id, contact, count) };
     unlock(id);
@@ -265,7 +292,11 @@ pub extern "C" fn allocate_manifolds(contact: usize, count: usize) -> usize {
 }
 #[export_name = "freeManifolds"]
 pub extern "C" fn free_manifolds(contact: usize) {
-    let id = regions::active();
+    free_manifolds_in_world(crate::regions::active(), contact)
+}
+
+pub extern "C" fn free_manifolds_in_world(world_index: usize, contact: usize) {
+    let id = world_index;
     lock(id);
     unsafe {
         free(id, contact);
@@ -283,16 +314,20 @@ pub fn copy_manifolds(source: usize, address: usize, count: usize) {
 }
 #[export_name = "manifoldLayoutPtr"]
 pub extern "C" fn manifold_layout_ptr() -> *const u32 {
-    unsafe { COLUMNS[regions::active()].layout.as_ptr() }
+    manifold_layout_ptr_in_world(crate::regions::active())
+}
+
+pub extern "C" fn manifold_layout_ptr_in_world(world_index: usize) -> *const u32 {
+    unsafe { COLUMNS[world_index].layout.as_ptr() }
 }
 #[export_name = "contactRecordCapacity"]
 pub extern "C" fn contact_record_capacity(world: usize) -> usize {
     assert!(world < MAX_WORLDS);
     unsafe { CAPS[world] }
 }
-fn reserve_directory(contact_cap: usize) {
+fn reserve_directory(world_index: usize, contact_cap: usize) {
     unsafe {
-        let id = regions::active();
+        let id = world_index;
         if contact_cap > CAPS[id] {
             COLUMNS[id].reserve(0, contact_cap * DIR_STRIDE * 4);
             CAPS[id] = contact_cap;

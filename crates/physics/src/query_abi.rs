@@ -36,14 +36,13 @@ pub(crate) unsafe fn geometry(kind: u32, r: &[u32]) -> Shape<'static> {
     }
 }
 pub(crate) unsafe fn shape(world: usize, id: usize) -> (Shape<'static>, i32) {
-    crate::shapes::shape_set_active_world(world as u32);
-    active_shape(id)
+    active_shape(world as usize, id)
 }
-pub(crate) unsafe fn active_shape(id: usize) -> (Shape<'static>, i32) {
-    let col = crate::shapes::col();
+pub(crate) unsafe fn active_shape(world_index: usize, id: usize) -> (Shape<'static>, i32) {
+    let col = crate::shapes::col(world_index);
     let o = id * SHAPE_STRIDE;
     let kind = col.get(o + S_TYPE);
-    let r = &crate::shapes::col_slice()[o + S_GEOM..o + S_GEOM + 7];
+    let r = &crate::shapes::col_slice(world_index)[o + S_GEOM..o + S_GEOM + 7];
     (geometry(kind, r), col.get(o + S_MATERIAL_COUNT) as i32)
 }
 pub(crate) unsafe fn input() -> (&'static [f32], Transform, ShapeProxy<'static>) {
@@ -95,6 +94,19 @@ pub unsafe extern "C" fn query_compound(
     uy: f32,
     uz: f32,
 ) {
+    unsafe { query_compound_in_world(world, id, lx, ly, lz, ux, uy, uz) }
+}
+
+pub unsafe extern "C" fn query_compound_in_world(
+    world: usize,
+    id: usize,
+    lx: f32,
+    ly: f32,
+    lz: f32,
+    ux: f32,
+    uy: f32,
+    uz: f32,
+) {
     let (Shape::Compound(compound), _) = shape(world, id) else {
         unreachable!()
     };
@@ -107,6 +119,10 @@ pub unsafe extern "C" fn query_compound(
 }
 #[export_name = "shapeQueryRay"]
 pub extern "C" fn ray(world: usize, id: usize, local: u32) {
+    ray_in_world(world, id, local)
+}
+
+pub extern "C" fn ray_in_world(world: usize, id: usize, local: u32) {
     unsafe {
         let (shape, _) = shape(world, id);
         let (r, xf, proxy) = input();
@@ -124,6 +140,10 @@ pub extern "C" fn ray(world: usize, id: usize, local: u32) {
 }
 #[export_name = "shapeQueryCast"]
 pub extern "C" fn cast(world: usize, id: usize, local: u32) {
+    cast_in_world(world, id, local)
+}
+
+pub extern "C" fn cast_in_world(world: usize, id: usize, local: u32) {
     unsafe {
         let (shape, _) = shape(world, id);
         let (r, xf, proxy) = input();
@@ -142,6 +162,10 @@ pub extern "C" fn cast(world: usize, id: usize, local: u32) {
 }
 #[export_name = "shapeQueryOverlap"]
 pub extern "C" fn overlap(world: usize, id: usize) -> u32 {
+    overlap_in_world(world, id)
+}
+
+pub extern "C" fn overlap_in_world(world: usize, id: usize) -> u32 {
     unsafe {
         let (shape, _) = shape(world, id);
         let (_, xf, proxy) = input();
@@ -152,6 +176,16 @@ pub extern "C" fn overlap(world: usize, id: usize) -> u32 {
 /// `planes` must address capacity writable PlaneResult records (40 bytes each) in linear memory.
 #[export_name = "shapeQueryMover"]
 pub unsafe extern "C" fn mover(
+    world: usize,
+    id: usize,
+    planes: *mut PlaneResult,
+    capacity: usize,
+    local: u32,
+) -> usize {
+    unsafe { mover_in_world(world, id, planes, capacity, local) }
+}
+
+pub unsafe extern "C" fn mover_in_world(
     world: usize,
     id: usize,
     planes: *mut PlaneResult,

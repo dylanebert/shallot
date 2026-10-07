@@ -100,19 +100,31 @@ fn rehash(old: (&[u32], &[u32], &[u32]), new: (&mut [u32], &mut [u32], &mut [u32
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadCreateSet"]
 pub extern "C" fn create_set(need: usize) {
-    crate::broad::reserve_broad(0, 0, 0, capacity(need));
+    create_set_in_world(crate::regions::active(), need)
+}
+#[cfg(target_arch = "wasm32")]
+
+pub extern "C" fn create_set_in_world(world_index: usize, need: usize) {
+    crate::broad::reserve_broad_in_world(world_index, 0, 0, 0, capacity(need));
 }
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadEnsureSet"]
 pub extern "C" fn ensure_set(need: usize) {
-    if crate::broad::set_cap() == 0 {
-        create_set(need);
+    ensure_set_in_world(crate::regions::active(), need)
+}
+#[cfg(target_arch = "wasm32")]
+
+pub extern "C" fn ensure_set_in_world(world_index: usize, need: usize) {
+    if crate::broad::set_cap(world_index) == 0 {
+        create_set_in_world(world_index, need);
     }
 }
 #[cfg(target_arch = "wasm32")]
-unsafe fn resident() -> (&'static mut [u32], &'static mut [u32], &'static mut [u32]) {
-    let cap = crate::broad::set_cap();
-    let (hi, lo, hashes) = crate::broad::set_ptrs();
+unsafe fn resident(
+    world_index: usize,
+) -> (&'static mut [u32], &'static mut [u32], &'static mut [u32]) {
+    let cap = crate::broad::set_cap(world_index);
+    let (hi, lo, hashes) = crate::broad::set_ptrs(world_index);
     (
         core::slice::from_raw_parts_mut(hi as *mut u32, cap),
         core::slice::from_raw_parts_mut(lo as *mut u32, cap),
@@ -124,22 +136,27 @@ unsafe fn resident() -> (&'static mut [u32], &'static mut [u32], &'static mut [u
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadAddPair"]
 pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
-    ensure_set(16);
+    unsafe { add_pair_in_world(crate::regions::active(), a, b, child) }
+}
+#[cfg(target_arch = "wasm32")]
+
+pub unsafe extern "C" fn add_pair_in_world(world_index: usize, a: u32, b: u32, child: u32) -> u32 {
+    ensure_set_in_world(world_index, 16);
     let (a, b) = (pair_key_hi(a, b), pair_key_lo(a, b, child));
     let hash = key_hash(a, b);
-    let (hi, lo, hashes) = resident();
+    let (hi, lo, hashes) = resident(world_index);
     if hashes[find(hi, lo, hashes, a, b, hash)] != 0 {
         return 1;
     }
-    if 2 * crate::broad::set_count() >= hashes.len() {
+    if 2 * crate::broad::set_count(world_index) >= hashes.len() {
         let old = (hi.to_vec(), lo.to_vec(), hashes.to_vec());
-        crate::broad::reserve_broad(0, 0, 0, hashes.len() * 2);
-        let (hi, lo, hashes) = resident();
+        crate::broad::reserve_broad_in_world(world_index, 0, 0, 0, hashes.len() * 2);
+        let (hi, lo, hashes) = resident(world_index);
         rehash((&old.0, &old.1, &old.2), (hi, lo, hashes));
     }
-    let (hi, lo, hashes) = resident();
+    let (hi, lo, hashes) = resident(world_index);
     insert(hi, lo, hashes, a, b, hash);
-    crate::broad::change_set_count(1);
+    crate::broad::change_set_count(world_index, 1);
     0
 }
 /// # Safety
@@ -147,13 +164,23 @@ pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
 #[cfg(target_arch = "wasm32")]
 #[export_name = "broadRemovePair"]
 pub unsafe extern "C" fn remove_pair(a: u32, b: u32, child: u32) -> u32 {
-    if crate::broad::set_cap() == 0 {
+    unsafe { remove_pair_in_world(crate::regions::active(), a, b, child) }
+}
+#[cfg(target_arch = "wasm32")]
+
+pub unsafe extern "C" fn remove_pair_in_world(
+    world_index: usize,
+    a: u32,
+    b: u32,
+    child: u32,
+) -> u32 {
+    if crate::broad::set_cap(world_index) == 0 {
         return 0;
     }
-    let (hi, lo, hashes) = resident();
+    let (hi, lo, hashes) = resident(world_index);
     let found = remove(hi, lo, hashes, pair_key_hi(a, b), pair_key_lo(a, b, child));
     if found {
-        crate::broad::change_set_count(-1);
+        crate::broad::change_set_count(world_index, -1);
     }
     found as u32
 }

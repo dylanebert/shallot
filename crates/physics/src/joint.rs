@@ -163,6 +163,7 @@ pub fn prepare(
 /// may write that joint or grow memory while this runs.
 #[cfg(target_arch = "wasm32")]
 pub unsafe fn prepare_world(
+    world_index: usize,
     joints: Col<f32>,
     slot: usize,
     h: f32,
@@ -175,7 +176,7 @@ pub unsafe fn prepare_world(
         (a, crate::joint_abi::J_SIM_INDEX_A),
         (b, crate::joint_abi::J_SIM_INDEX_B),
     ] {
-        let body = crate::bodies::record(crate::regions::active(), id);
+        let body = crate::bodies::record(world_index, id);
         let index = if body.set_index == 2 {
             body.local_index as u32
         } else {
@@ -186,10 +187,22 @@ pub unsafe fn prepare_world(
     prepare_sims(
         joints,
         slot,
-        crate::body::read_sim(crate::bodies::column(a, 1, crate::body::SIM_STRIDE), 0),
-        crate::body::read_sim(crate::bodies::column(b, 1, crate::body::SIM_STRIDE), 0),
-        crate::body::read_fin(crate::bodies::column(a, 2, crate::body::FIN_STRIDE), 0),
-        crate::body::read_fin(crate::bodies::column(b, 2, crate::body::FIN_STRIDE), 0),
+        crate::body::read_sim(
+            crate::bodies::column(world_index, a, 1, crate::body::SIM_STRIDE),
+            0,
+        ),
+        crate::body::read_sim(
+            crate::bodies::column(world_index, b, 1, crate::body::SIM_STRIDE),
+            0,
+        ),
+        crate::body::read_fin(
+            crate::bodies::column(world_index, a, 2, crate::body::FIN_STRIDE),
+            0,
+        ),
+        crate::body::read_fin(
+            crate::bodies::column(world_index, b, 2, crate::body::FIN_STRIDE),
+            0,
+        ),
         h,
         inv_h,
         enable_warm_starting,

@@ -2,7 +2,11 @@
 
 #[export_name = "bodyShouldBodiesCollide"]
 pub unsafe extern "C" fn should_collide(a: u32, b: u32) -> bool {
-    let world_id = crate::regions::active();
+    unsafe { should_collide_in_world(crate::regions::active(), a, b) }
+}
+
+pub unsafe extern "C" fn should_collide_in_world(world_index: usize, a: u32, b: u32) -> bool {
+    let world_id = world_index;
     let a = record(world_id, a as usize);
     let b = record(world_id, b as usize);
     if a.body_type != 2 && b.body_type != 2 {
@@ -14,7 +18,7 @@ pub unsafe extern "C" fn should_collide(a: u32, b: u32) -> bool {
         (b.head_joint_key, a.id)
     };
     while key != -1 {
-        let joint = crate::joint_record::record((key >> 1) as usize);
+        let joint = crate::joint_record::record(world_index, (key >> 1) as usize);
         let edge = (key & 1) as usize;
         if !joint.collide_connected && joint.edges[edge ^ 1].body_id == other {
             return false;
@@ -76,28 +80,40 @@ unsafe fn world(id: usize) -> &'static Bodies {
 unsafe fn world_mut(id: usize) -> &'static mut Bodies {
     &mut WORLDS[id]
 }
-fn base(column: usize) -> usize {
+fn base(world_index: usize, column: usize) -> usize {
     unsafe {
         if column < 6 {
-            crate::solver_set::awake_base(column)
+            crate::solver_set::awake_base(world_index, column)
         } else {
-            world(regions::active()).columns.layout[column] as usize
+            world(world_index).columns.layout[column] as usize
         }
     }
 }
-pub unsafe fn column(id: usize, column: usize, stride: usize) -> crate::col::Col<'static, f32> {
-    let body = record(regions::active(), id);
+pub unsafe fn column(
+    world_index: usize,
+    id: usize,
+    column: usize,
+    stride: usize,
+) -> crate::col::Col<'static, f32> {
+    let body = record(world_index, id);
     crate::col::Col::new(
-        crate::solver_set::body_ptr(body.set_index as usize, body.local_index as usize, column)
-            as *mut f32,
+        crate::solver_set::body_ptr(
+            world_index,
+            body.set_index as usize,
+            body.local_index as usize,
+            column,
+        ) as *mut f32,
         stride,
     )
 }
 
-pub unsafe fn geometry(id: usize) -> (crate::math::Transform, crate::body::SimFinalize, u32) {
-    let sim = column(id, 1, SIM_STRIDE);
-    let fin = column(id, 2, FIN_STRIDE);
-    let sim2 = column(id, 5, crate::body::SIM2_STRIDE);
+pub unsafe fn geometry(
+    world_index: usize,
+    id: usize,
+) -> (crate::math::Transform, crate::body::SimFinalize, u32) {
+    let sim = column(world_index, id, 1, SIM_STRIDE);
+    let fin = column(world_index, id, 2, FIN_STRIDE);
+    let sim2 = column(world_index, id, 5, crate::body::SIM2_STRIDE);
     let pose = crate::math::Transform {
         p: crate::math::Vec3::new(fin.get(0), fin.get(1), fin.get(2)),
         q: crate::math::Quat {
@@ -112,57 +128,69 @@ pub unsafe fn geometry(id: usize) -> (crate::math::Transform, crate::body::SimFi
     )
 }
 
-pub unsafe fn set_location(id: usize, set: usize, index: usize) {
-    let body = record_mut(regions::active(), id);
+pub unsafe fn set_location(world_index: usize, id: usize, set: usize, index: usize) {
+    let body = record_mut(world_index, id);
     body.set_index = set as i32;
     body.local_index = index as i32;
 }
 
-pub fn state_base() -> usize {
-    base(B_STATE)
+pub fn state_base(world_index: usize) -> usize {
+    base(world_index, B_STATE)
 }
-pub fn flags_base() -> usize {
-    base(B_STATE) + crate::body::STATE_FLAGS * 4
+pub fn flags_base(world_index: usize) -> usize {
+    base(world_index, B_STATE) + crate::body::STATE_FLAGS * 4
 }
-pub fn sim_base() -> usize {
-    base(B_SIM)
+pub fn sim_base(world_index: usize) -> usize {
+    base(world_index, B_SIM)
 }
-pub fn fin_base() -> usize {
-    base(B_FIN)
+pub fn fin_base(world_index: usize) -> usize {
+    base(world_index, B_FIN)
 }
-pub fn sim2_base() -> usize {
-    base(B_SIM2)
+pub fn sim2_base(world_index: usize) -> usize {
+    base(world_index, B_SIM2)
 }
 pub unsafe fn get_type(world_id: usize, id: usize) -> u32 {
     record(world_id, id).body_type as u32
 }
-pub fn move_base() -> usize {
-    base(B_MOVE)
+pub fn move_base(world_index: usize) -> usize {
+    base(world_index, B_MOVE)
 }
 
 #[export_name = "bodyCap"]
 pub extern "C" fn body_cap() -> usize {
-    unsafe { world(regions::active()).cap }
+    body_cap_in_world(crate::regions::active())
+}
+
+pub extern "C" fn body_cap_in_world(world_index: usize) -> usize {
+    unsafe { world(world_index).cap }
 }
 #[export_name = "bodyLayoutPtr"]
 pub extern "C" fn body_layout_ptr() -> *const u32 {
+    body_layout_ptr_in_world(crate::regions::active())
+}
+
+pub extern "C" fn body_layout_ptr_in_world(world_index: usize) -> *const u32 {
     unsafe {
-        let w = world_mut(regions::active());
+        let w = world_mut(world_index);
         for c in 0..6 {
-            w.columns.layout[c] = crate::solver_set::awake_base(c) as u32;
+            w.columns.layout[c] = crate::solver_set::awake_base(world_index, c) as u32;
         }
         w.columns.layout.as_ptr()
     }
 }
 #[export_name = "reserveBodies"]
 pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
+    reserve_bodies_in_world(crate::regions::active(), cap)
+}
+
+pub extern "C" fn reserve_bodies_in_world(world_index: usize, cap: usize) -> u32 {
     unsafe {
-        let w = world_mut(regions::active());
+        let w = world_mut(world_index);
         if cap <= w.cap {
             return 0;
         }
         let old = w.cap;
-        crate::solver_set::reserve_awake(cap);
+        crate::solver_set::reserve_awake(world_index, cap);
         for column in [B_RECORD_EID, B_SYNC_EID, B_SYNC_INDEX] {
             w.columns.reserve(column, cap * 4);
         }
@@ -183,7 +211,7 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         }
         // Wide null lanes need one write-disjoint identity per worker.
         for worker in 0..IDENT_RECORDS {
-            let ptr = (crate::solver_set::awake_base(B_STATE) as *mut f32)
+            let ptr = (crate::solver_set::awake_base(world_index, B_STATE) as *mut f32)
                 .add((cap + worker) * STATE_STRIDE);
             ptr.write_bytes(0, STATE_STRIDE);
             *ptr.add(12) = 1.0;
@@ -205,8 +233,12 @@ pub extern "C" fn body_set_entity(id: usize, body: usize, eid: u32) {
 }
 #[export_name = "bodySyncMoved"]
 pub extern "C" fn body_sync_moved(count: usize) -> usize {
+    body_sync_moved_in_world(crate::regions::active(), count)
+}
+
+pub extern "C" fn body_sync_moved_in_world(world_index: usize, count: usize) -> usize {
     unsafe {
-        let layout = world(regions::active()).columns.layout;
+        let layout = world(world_index).columns.layout;
         let mut written = 0;
         for row in 0..count {
             let event = &*(layout[B_MOVE] as *const crate::events::BodyMove).add(row);
@@ -234,8 +266,8 @@ pub extern "C" fn body_sync_moved(count: usize) -> usize {
         written
     }
 }
-pub(crate) unsafe fn mark_move_asleep(index: usize) {
-    let layout = world(regions::active()).columns.layout;
+pub(crate) unsafe fn mark_move_asleep(world_index: usize, index: usize) {
+    let layout = world(world_index).columns.layout;
     (*(layout[B_MOVE] as *mut crate::events::BodyMove).add(index)).fell_asleep = true;
     let row = *(layout[B_SYNC_INDEX] as *const u32).add(index);
     if row != u32::MAX {
@@ -248,10 +280,14 @@ pub(crate) unsafe fn mark_move_asleep(index: usize) {
 #[export_name = "bodyCreate"]
 pub extern "C" fn body_create(id: u32) -> u32 {
     regions::select(id);
+    body_create_in_world(id as usize, id)
+}
+
+pub extern "C" fn body_create_in_world(world_index: usize, id: u32) -> u32 {
     unsafe {
         let p = world(id as usize);
         if p.free.is_empty() && p.next == p.cap {
-            reserve_bodies((p.cap * 2).max(16));
+            reserve_bodies_in_world(world_index, (p.cap * 2).max(16));
         }
         let w = world_mut(id as usize);
         let body = if let Some(body) = w.free.pop() {
@@ -274,6 +310,11 @@ pub extern "C" fn body_create(id: u32) -> u32 {
 }
 #[export_name = "bodyDestroy"]
 pub extern "C" fn body_destroy(id: u32, body: u32) -> u32 {
+    regions::select(id);
+    body_destroy_in_world(id as usize, id, body)
+}
+
+pub extern "C" fn body_destroy_in_world(world_index: usize, id: u32, body: u32) -> u32 {
     unsafe {
         let w = world_mut(id as usize);
         let body = body as usize;
@@ -283,13 +324,17 @@ pub extern "C" fn body_destroy(id: u32, body: u32) -> u32 {
         if record(id as usize, body).id == -1 {
             return u32::MAX;
         }
-        regions::select(id);
+
         let previous = *record(id as usize, body);
         let moved = if previous.set_index >= 0 {
             let source = previous.set_index as usize;
-            let moved = crate::solver_set::destroy_body(source, previous.local_index as usize);
-            if source >= 3 && crate::solver_set::body_count(source) == 0 {
-                crate::solver_set::destroy(source);
+            let moved = crate::solver_set::destroy_body_in_world(
+                world_index,
+                source,
+                previous.local_index as usize,
+            );
+            if source >= 3 && crate::solver_set::body_count_in_world(world_index, source) == 0 {
+                crate::solver_set::destroy_in_world(world_index, source);
             }
             moved
         } else {
@@ -342,8 +387,8 @@ pub extern "C" fn body_count(id: u32) -> usize {
 pub extern "C" fn body_length(id: u32) -> usize {
     unsafe { world(id as usize).next }
 }
-pub fn active_generation(id: u32) -> u32 {
-    body_generation(regions::active() as u32, id)
+pub fn active_generation(world_index: usize, id: u32) -> u32 {
+    body_generation(world_index as u32, id)
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     let w = &WORLDS[id];
