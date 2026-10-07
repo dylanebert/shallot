@@ -212,6 +212,25 @@ pub unsafe fn bullets(world_index: usize, worker: usize, start: usize, end: usiz
         solve(world_index, worker, bullet_body(index));
     }
 }
+fn commit_bounds(u: Col<u32>, f: Col<f32>, s2: Col<u32>, i: usize, o: usize, b: [f32; 6]) {
+    let fb = o + shapes::S_FAT_AABB;
+    let cached = core::array::from_fn(|n| f.get(fb + n));
+    let escaped = !crate::finalize::aabb_contains(&cached, &b);
+    let flags = u.get(o + shapes::S_FLAGS);
+    u.set(
+        o + shapes::S_FLAGS,
+        (flags & !shapes::ENLARGED_FLAG) | if escaped { shapes::ENLARGED_FLAG } else { 0 },
+    );
+    if escaped {
+        let margin = f.get(o + 9);
+        for n in 0..3 {
+            f.set(fb + n, b[n] - margin);
+            f.set(fb + n + 3, b[n + 3] + margin);
+        }
+        s2.atomic_or(i * body::SIM2_STRIDE + body::S2_FLAGS, ENLARGE_BOUNDS);
+    }
+}
+
 pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
     let u = shapes::col(world_index);
     let f = shapes::col_f(world_index);
@@ -338,6 +357,7 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
         body::write_sim_rotation(sf, i, rotation);
         body::write_fin_center(ff, i, base.add(c));
         body::write_fin_transform_p(ff, i, base.add(c.sub(rotation.rotate(sw.local_center))));
+        crate::events::write_move(world_index, i);
     }
     let rotation = q(sf, i * body::SIM_STRIDE + body::ROTATION);
     put(f2, i * body::SIM2_STRIDE + body::S2_ROTATION0, rotation.v);
@@ -347,56 +367,32 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
         i * body::SIM2_STRIDE + body::S2_CENTER0,
         v(ff, i * body::SIM_STRIDE + body::CENTER),
     );
-    let xf = Transform {
-        p: v(ff, i * body::SIM_STRIDE + body::TRANSFORM_P),
-        q: rotation,
-    };
     id = head;
-    while id != u32::MAX {
-        let o = id as usize * shapes::SHAPE_STRIDE;
-        let mut b = [
-            f.get(o + 10),
-            f.get(o + 11),
-            f.get(o + 12),
-            f.get(o + 13),
-            f.get(o + 14),
-            f.get(o + 15),
-        ];
-        if fraction < 1.0 {
-            b = bounds(world_index, id as usize, xf);
+    if fraction < 1.0 {
+        let xf = Transform {
+            p: v(ff, i * body::SIM_STRIDE + body::TRANSFORM_P),
+            q: rotation,
+        };
+        while id != u32::MAX {
+            let o = id as usize * shapes::SHAPE_STRIDE;
+            let mut b = bounds(world_index, id as usize, xf);
             for n in 0..3 {
                 b[n] -= 0.02;
                 b[n + 3] += 0.02;
             }
-        }
-        for n in 0..6 {
-            f.set(o + 10 + n, b[n]);
-        }
-        let fat = shapes::col_f(world_index);
-        let fb = o + shapes::S_FAT_AABB;
-        let cached = [
-            fat.get(fb),
-            fat.get(fb + 1),
-            fat.get(fb + 2),
-            fat.get(fb + 3),
-            fat.get(fb + 4),
-            fat.get(fb + 5),
-        ];
-        let escaped = !crate::finalize::aabb_contains(&cached, &b);
-        let flags = u.get(o + shapes::S_FLAGS);
-        u.set(
-            o + shapes::S_FLAGS,
-            (flags & !shapes::ENLARGED_FLAG) | if escaped { shapes::ENLARGED_FLAG } else { 0 },
-        );
-        if escaped {
-            let margin = f.get(o + 9);
-            for n in 0..3 {
-                fat.set(fb + n, b[n] - margin);
-                fat.set(fb + n + 3, b[n + 3] + margin);
+            for n in 0..6 {
+                f.set(o + 10 + n, b[n]);
             }
-            s2.atomic_or(i * body::SIM2_STRIDE + body::S2_FLAGS, ENLARGE_BOUNDS);
+            commit_bounds(u, f, s2, i, o, b);
+            id = u.get(o + 3);
         }
-        id = u.get(o + 3);
+    } else {
+        while id != u32::MAX {
+            let o = id as usize * shapes::SHAPE_STRIDE;
+            let b = core::array::from_fn(|n| f.get(o + 10 + n));
+            commit_bounds(u, f, s2, i, o, b);
+            id = u.get(o + 3);
+        }
     }
     for (sensor, visitor, t) in hits.into_iter().take(hit_count) {
         if t < fraction {
