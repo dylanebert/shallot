@@ -24,7 +24,7 @@ pub struct HeightField<'a> {
     pub materials: &'a [u8],
 }
 impl HeightField<'_> {
-    fn corners(self, row: usize, col: usize) -> [Vec3; 4] {
+    pub(crate) fn corners(self, row: usize, col: usize) -> [Vec3; 4] {
         let indices = [
             row * self.columns + col,
             row * self.columns + col + 1,

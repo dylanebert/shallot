@@ -167,10 +167,9 @@ impl TriangleSource<'_> {
                         if field.materials[cell] == 255 {
                             continue;
                         }
-                        let a = self.triangle(2 * cell).vertices;
-                        let b = self.triangle(2 * cell + 1).vertices;
-                        let cell_lower = min(min(a[0], a[1]), min(a[2], b[0]));
-                        let cell_upper = max(max(a[0], a[1]), max(a[2], b[0]));
+                        let [a, b, c, d] = field.corners(row as usize, column as usize);
+                        let cell_lower = min(min(a, b), min(c, d));
+                        let cell_upper = max(max(a, b), max(c, d));
                         if bounds_overlap(lower, upper, cell_lower, cell_upper) {
                             for i in [2 * cell, 2 * cell + 1] {
                                 if count == MAX_TRIANGLES {
