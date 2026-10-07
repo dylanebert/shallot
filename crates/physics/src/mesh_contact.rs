@@ -1115,15 +1115,14 @@ mod tests {
         let mut cache = MeshCache {
             lower: upper,
             upper: lower,
-            count: 0,
-            triangles: [TriangleCache::empty(0); MAX_TRIANGLES],
+            triangles: TriangleCacheArray::EMPTY,
         };
         cache.refresh(
             &source,
             Transform::IDENTITY,
             lower,
             upper,
-            &mut [TriangleCache::empty(0); MAX_TRIANGLES],
+            &mut [crate::manifold_abi::ContactCache { words: [0; 4] }; MAX_TRIANGLES],
         );
     }
 
@@ -1154,38 +1153,39 @@ mod tests {
         let upper = Vec3::new(2.0, 1.0, 2.0);
         let count = source.query(lower, upper, &mut indices);
         assert_eq!(&indices[..count], &[0, 1, 4, 5, 6, 7]);
-        let empty = TriangleCache::empty(0);
+        let empty = crate::manifold_abi::ContactCache { words: [0; 4] };
         let mut cache = MeshCache {
             lower: Vec3::new(f32::MAX, f32::MAX, f32::MAX),
             upper: Vec3::new(-f32::MAX, -f32::MAX, -f32::MAX),
-            count: 0,
-            triangles: [empty; MAX_TRIANGLES],
+            triangles: TriangleCacheArray::EMPTY,
         };
         let mut previous = [empty; MAX_TRIANGLES];
         cache.refresh(&source, Transform::IDENTITY, lower, upper, &mut previous);
-        assert_eq!(cache.count, 6);
-        cache.triangles[2].cache.simplex().metric = 17.0;
+        assert_eq!(cache.triangles.count, 6);
+        cache.triangles.as_mut_slice()[2].cache.simplex.metric = 17.0;
         let lower = Vec3::new(0.0, -1.1, 1.1);
         cache.refresh(&source, Transform::IDENTITY, lower, upper, &mut previous);
-        assert_eq!(cache.count, 4);
-        assert_eq!(cache.triangles[0].triangle_index, 4);
-        assert_eq!(cache.triangles[0].cache.simplex().metric, 17.0);
+        assert_eq!(cache.triangles.count, 4);
+        let triangles = cache.triangles.as_mut_slice();
+        assert_eq!(triangles[0].triangle_index, 4);
+        assert_eq!(unsafe { triangles[0].cache.simplex.metric }, 17.0);
         assert_eq!(
             source
-                .triangle(cache.triangles[0].triangle_index as usize)
+                .triangle(triangles[0].triangle_index as usize)
                 .material_index,
             1
         );
         assert_eq!(
             source
-                .triangle(cache.triangles[1].triangle_index as usize)
+                .triangle(triangles[1].triangle_index as usize)
                 .material_index,
             1
         );
         let a = source
-            .triangle(cache.triangles[0].triangle_index as usize)
+            .triangle(triangles[0].triangle_index as usize)
             .vertices;
         assert!(a[1].sub(a[0]).cross(a[2].sub(a[0])).y > 0.0);
+        unsafe { cache.triangles.release(); }
     }
 
     #[test]
