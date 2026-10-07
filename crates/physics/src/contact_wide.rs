@@ -209,8 +209,8 @@ fn body_terms(sim: Col<f32>, state: Col<f32>, index: u32) -> (f32, Mat3, Vec3, V
 // transposes, and scatters velocities back with a whole-vector store (b3GatherBodies/b3ScatterBodies's
 // actual SSE shape — `research/gather-spike` measured 1.9× JSC / 2.5× V8 over the field-wise scalar
 // gather this replaced, bit-identical output). It reads/writes raw pointers into the resident state
-// column (bodies.rs), so a null/static lane (idx 0) remaps to the region's trailing identity record
-// (`ident_rec`) instead of the per-lane branch the scalar path takes. Pure data movement — no fixture
+// column (bodies.rs). Null gathers select a local dummy body; the measured whole-vector scatter
+// still uses per-worker trailing identity records. Pure data movement — no fixture
 // regen; the wasm transpose is fixture-gated (52/52), and native `cargo test` keeps the field-wise
 // scalar gather below as the bit-identical reference the gold vectors exercise.
 
@@ -231,9 +231,8 @@ const ALL_LOCKS: u32 = body_flags::LOCK_LINEAR_X
 
 /// Record index of `worker`'s trailing null-lane record, one of the [`IDENT_RECORDS`] the persistent
 /// body region reserves past its `bodyCap` real records (bodies.rs), each initialised to zero
-/// velocity/delta + identity rotation + DYNAMIC. 4c's wasm gather remaps every null/static lane (idx 0)
-/// there. Native never touches it — its field-wise gather staples an identity into null lanes directly —
-/// so the fallback returns 0.
+/// velocity/delta + identity rotation + DYNAMIC. Only the measured whole-vector scatter uses these;
+/// gathers select a local dummy. Native scatter skips null lanes, so the fallback returns 0.
 ///
 /// **Per worker, not one.** `scatter_t` writes the record for every null lane it fast-paths, so two
 /// blocks of a stage holding static-lane records would write the same bytes from two threads. Always
@@ -459,15 +458,26 @@ fn transpose4(a: v128, b: v128, c: v128, d: v128) -> (v128, v128, v128, v128) {
     (r0, r1, r2, r3)
 }
 
+#[cfg(target_arch = "wasm32")]
+#[inline]
+fn gather_body(state: Col<f32>, index: u32, dummy: *const f32) -> *const f32 {
+    if index == 0 {
+        dummy
+    } else {
+        unsafe { state.ptr().add((index - 1) as usize * STATE_STRIDE) }
+    }
+}
+
 /// Gather four bodies' full solver state: 4 aligned v128 record loads + shuffle transposes → 13 lanes.
 #[cfg(target_arch = "wasm32")]
-fn gather(state: Col<f32>, idx: Col<u32>, io: usize, ident: usize) -> BodyStateW {
-    let p = state.ptr();
+fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyStateW {
+    let mut dummy = [0.0f32; STATE_STRIDE];
+    dummy[12] = 1.0;
     unsafe {
-        let p0 = p.add(rec_of(idx.get(io), ident) * STATE_STRIDE);
-        let p1 = p.add(rec_of(idx.get(io + 1), ident) * STATE_STRIDE);
-        let p2 = p.add(rec_of(idx.get(io + 2), ident) * STATE_STRIDE);
-        let p3 = p.add(rec_of(idx.get(io + 3), ident) * STATE_STRIDE);
+        let p0 = gather_body(state, idx.get(io), dummy.as_ptr());
+        let p1 = gather_body(state, idx.get(io + 1), dummy.as_ptr());
+        let p2 = gather_body(state, idx.get(io + 2), dummy.as_ptr());
+        let p3 = gather_body(state, idx.get(io + 3), dummy.as_ptr());
         let (vx, vy, vz, wx) = transpose4(
             v128_load(p0 as *const v128),
             v128_load(p1 as *const v128),
@@ -523,13 +533,14 @@ fn gather(state: Col<f32>, idx: Col<u32>, io: usize, ident: usize) -> BodyStateW
 
 /// Velocities-only gather (warm start reads no deltas): 2 v128 loads + 2 transposes per body quad.
 #[cfg(target_arch = "wasm32")]
-fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, ident: usize) -> (Vec3W, Vec3W) {
-    let p = state.ptr();
+fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3W, Vec3W) {
+    let mut dummy = [0.0f32; STATE_STRIDE];
+    dummy[12] = 1.0;
     unsafe {
-        let p0 = p.add(rec_of(idx.get(io), ident) * STATE_STRIDE);
-        let p1 = p.add(rec_of(idx.get(io + 1), ident) * STATE_STRIDE);
-        let p2 = p.add(rec_of(idx.get(io + 2), ident) * STATE_STRIDE);
-        let p3 = p.add(rec_of(idx.get(io + 3), ident) * STATE_STRIDE);
+        let p0 = gather_body(state, idx.get(io), dummy.as_ptr());
+        let p1 = gather_body(state, idx.get(io + 1), dummy.as_ptr());
+        let p2 = gather_body(state, idx.get(io + 2), dummy.as_ptr());
+        let p3 = gather_body(state, idx.get(io + 3), dummy.as_ptr());
         let (vx, vy, vz, wx) = transpose4(
             v128_load(p0 as *const v128),
             v128_load(p1 as *const v128),
