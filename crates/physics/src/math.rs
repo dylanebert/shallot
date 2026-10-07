@@ -574,7 +574,7 @@ pub fn compute_quat_between_unit_vectors(v1: Vec3, v2: Vec3) -> Quat {
 }
 
 /// Extract a quaternion from a rotation matrix (b3MakeQuatFromMatrix).
-pub fn make_quat_from_matrix(m: Mat3) -> Quat {
+pub fn make_quat_from_matrix(m: &Mat3) -> Quat {
     let c1 = m.cx;
     let c2 = m.cy;
     let c3 = m.cz;

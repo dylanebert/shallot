@@ -95,7 +95,7 @@ fn dispatch(name: &str, a: &[f32]) -> Vec<f32> {
         "computeQuatBetween" | "computeQuatBetweenAntiparallel" => {
             flat_q(compute_quat_between_unit_vectors(v3(a, 0), v3(a, 3)))
         }
-        "makeQuatFromMatrix" => flat_q(make_quat_from_matrix(mat3(a, 0))),
+        "makeQuatFromMatrix" => flat_q(make_quat_from_matrix(&mat3(a, 0))),
         "makeMatrixFromQuat" => flat_m(Mat3::from_quat(quat(a, 0))),
         "invertMatrix" => flat_m(mat3(a, 0).invert()),
         "solve3" => flat_v(mat3(a, 0).solve(v3(a, 9))),
