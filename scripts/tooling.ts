@@ -1,8 +1,8 @@
-// Compile the Node-reachable tooling export (the archived exports rules' compiled-tooling-export law): a
-// `vite.config.ts` resolves through Node's plain ESM loader, which throws `ERR_UNKNOWN_FILE_EXTENSION` on
-// the package's raw `.ts` source — the reason every other export stays raw `.ts` (the mandatory TypeGPU
-// transform must see engine source untransformed) doesn't reach `./vite`, whose only consumption context
-// is Node. Browser subject configs and the display oracle share the Chromium arguments in
+// Compile the Node-reachable tooling export: a `vite.config.ts` resolves through Node's plain ESM loader,
+// which throws `ERR_UNKNOWN_FILE_EXTENSION` on the package's raw `.ts` source. Every other export stays raw
+// `.ts`, so its types point at source and a linked checkout serves what ships; the project's TypeGPU
+// transform covers engine and game code alike. Neither reason reaches `./vite`, whose only consumption
+// context is Node. Browser subject configs and the display oracle share the Chromium arguments in
 // `scripts/chromium.ts`.
 // `dist/vite.js` and the TypeScript-generated `dist/vite.d.ts` are generated here by `bun run build`
 // and `prepare`. `tsc` reads the `types`
