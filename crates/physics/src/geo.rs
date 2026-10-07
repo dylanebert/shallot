@@ -152,14 +152,14 @@ pub extern "C" fn shape_material_index(
 ) -> usize {
     unsafe {
         let (record, pointer) = crate::shapes::geometry_record(world, shape);
-        match *record {
+        match *record.add(crate::shapes::S_TYPE) {
             1 => crate::compound_query::child_material_index(pointer, child, triangle) as usize,
             2 => height_view(pointer).materials[triangle >> 1] as usize,
             4 => {
                 let scale = Vec3::new(
-                    f32::from_bits(*record.add(3)),
-                    f32::from_bits(*record.add(4)),
-                    f32::from_bits(*record.add(5)),
+                    f32::from_bits(*record.add(crate::shapes::S_GEOM + 1)),
+                    f32::from_bits(*record.add(crate::shapes::S_GEOM + 2)),
+                    f32::from_bits(*record.add(crate::shapes::S_GEOM + 3)),
                 );
                 mesh_view(pointer, scale).materials[triangle] as usize
             }
@@ -171,7 +171,7 @@ pub extern "C" fn shape_material_index(
 pub extern "C" fn shape_compound_child_type(world: usize, shape: usize, child: usize) -> u32 {
     unsafe {
         let (record, pointer) = crate::shapes::geometry_record(world, shape);
-        assert_eq!(*record, 1);
+        assert_eq!(*record.add(crate::shapes::S_TYPE), 1);
         crate::compound_query::child_words(pointer, child)[0]
     }
 }
@@ -179,7 +179,7 @@ pub extern "C" fn shape_compound_child_type(world: usize, shape: usize, child: u
 pub extern "C" fn shape_compound_child(world: usize, shape: usize, child: usize) -> *const u32 {
     unsafe {
         let (record, pointer) = crate::shapes::geometry_record(world, shape);
-        assert_eq!(*record, 1);
+        assert_eq!(*record.add(crate::shapes::S_TYPE), 1);
         let words = crate::compound_query::child_words(pointer, child);
         let out = &raw mut COMPOUND_CHILD_OUT as *mut u32;
         *out = words[0];

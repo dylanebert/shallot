@@ -378,14 +378,14 @@ pub(crate) mod runtime {
         let shapes = crate::shapes::col();
         let stride = crate::shapes::SHAPE_STRIDE;
         match crate::manifolds::contact_pair_order(
-            shapes.get(shape_a * stride) as usize,
-            shapes.get(shape_b * stride) as usize,
+            shapes.get(shape_a * stride + crate::shapes::S_TYPE) as usize,
+            shapes.get(shape_b * stride + crate::shapes::S_TYPE) as usize,
         ) {
             0 => return usize::MAX,
             2 => core::mem::swap(&mut shape_a, &mut shape_b),
             _ => {}
         }
-        let kind = shapes.get(shape_a * stride);
+        let kind = shapes.get(shape_a * stride + crate::shapes::S_TYPE);
         if kind == 2 || kind == 4 {
             flags |= 0x0040_0000;
         }
@@ -398,8 +398,8 @@ pub(crate) mod runtime {
         if shape_flags & 16 != 0 {
             flags |= 0x0020_0000;
         }
-        let a = shapes.get(shape_a * stride + 29) as usize;
-        let b = shapes.get(shape_b * stride + 29) as usize;
+        let a = shapes.get(shape_a * stride + 1) as usize;
+        let b = shapes.get(shape_b * stride + 1) as usize;
         let body_a = *bodies::record(world, a);
         let body_b = *bodies::record(world, b);
         let set = if body_a.set_index == 2 || body_b.set_index == 2 {
@@ -867,7 +867,6 @@ pub(crate) mod runtime {
             mass_extent(world, id, minimum, maximum.x, maximum.y, maximum.z);
             shape = next_shape(shape as usize);
         }
-        crate::shape_lifecycle::sync_body(world, id);
     }
 
     #[export_name = "bodyRemoveIsland"]

@@ -70,7 +70,7 @@ mod wasm {
         Vec3::new(f.get(o), f.get(o + 1), f.get(o + 2))
     }
     fn kind(id: usize) -> u32 {
-        shapes::col().get(id * shapes::SHAPE_STRIDE)
+        shapes::col().get(id * shapes::SHAPE_STRIDE + shapes::S_TYPE)
     }
     fn reference(id: usize) -> usize {
         shapes::col().get(id * shapes::SHAPE_STRIDE + shapes::S_GEO_REFERENCE) as usize
@@ -80,8 +80,8 @@ mod wasm {
         let o = id * shapes::SHAPE_STRIDE;
         let density = f.get(o + shapes::S_DENSITY);
         match kind(id) {
-            0 => capsule_mass(vector(id, 2), vector(id, 5), f.get(o + 8), density),
-            5 => sphere_mass(vector(id, 2), f.get(o + 5), density),
+            0 => capsule_mass(vector(id, 48), vector(id, 51), f.get(o + 54), density),
+            5 => sphere_mass(vector(id, 48), f.get(o + 51), density),
             3 => {
                 let h = geo::hull_record(reference(id));
                 MassData {
@@ -113,8 +113,8 @@ mod wasm {
     }
     pub(crate) unsafe fn centroid(id: usize) -> Vec3 {
         match kind(id) {
-            0 => vector(id, 2).lerp(vector(id, 5), 0.5),
-            5 => vector(id, 2),
+            0 => vector(id, 48).lerp(vector(id, 51), 0.5),
+            5 => vector(id, 48),
             3 => geo::hull_record(reference(id)).center,
             _ => {
                 let b = bounds(id, Transform::IDENTITY);
@@ -127,17 +127,17 @@ mod wasm {
         let f = shapes::col_f();
         match kind(id) {
             0 => {
-                let r = f.get(o + 8);
-                let a = vector(id, 2).sub(center).abs();
-                let b = vector(id, 5).sub(center).abs();
+                let r = f.get(o + 54);
+                let a = vector(id, 48).sub(center).abs();
+                let b = vector(id, 51).sub(center).abs();
                 (
                     r,
                     Vec3::new(maxf(a.x, b.x) + r, maxf(a.y, b.y) + r, maxf(a.z, b.z) + r),
                 )
             }
             5 => {
-                let r = f.get(o + 5);
-                let h = vector(id, 2).sub(center).abs();
+                let r = f.get(o + 51);
+                let h = vector(id, 48).sub(center).abs();
                 (r, h.add(Vec3::new(r, r, r)))
             }
             3 => {
@@ -187,8 +187,8 @@ mod wasm {
         let o = id * shapes::SHAPE_STRIDE;
         let f = shapes::col_f();
         let radius = match kind(id) {
-            0 => 0.5 * vector(id, 5).distance(vector(id, 2)) + f.get(o + 8),
-            5 => f.get(o + 5),
+            0 => 0.5 * vector(id, 51).distance(vector(id, 48)) + f.get(o + 54),
+            5 => f.get(o + 51),
             3 => {
                 let h = geo::hull_view(reference(id));
                 let mut r = 0.0;
@@ -290,18 +290,10 @@ mod wasm {
         let c = centroid(id);
         let f = shapes::col_f();
         let o = id * shapes::SHAPE_STRIDE;
-        f.set(o + 65, c.x);
-        f.set(o + 66, c.y);
-        f.set(o + 67, c.z);
-        f.set(o + 40, margin(id));
-        f.set(
-            o + 43,
-            if kind(id) == 3 {
-                geo::hull_record(reference(id)).inner_radius
-            } else {
-                0.0
-            },
-        );
+        f.set(o + 22, c.x);
+        f.set(o + 23, c.y);
+        f.set(o + 24, c.z);
+        f.set(o + 9, margin(id));
     }
     #[export_name = "shapeCanCreate"]
     pub unsafe extern "C" fn can_create(world: usize, body: usize, kind: u32) -> bool {
@@ -326,19 +318,19 @@ mod wasm {
         let mut t = kind(id);
         if t == 0 && Vec3::new(d - a, e - b, f - c).length_sq() <= 0.005f32 * 0.005f32 {
             t = 5;
-            shapes::col().set(o, t);
+            shapes::col().set(o + shapes::S_TYPE, t);
             let center = Vec3::new(a, b, c).lerp(Vec3::new(d, e, f), 0.5);
             for (lane, value) in [center.x, center.y, center.z, g].into_iter().enumerate() {
-                floats.set(o + 2 + lane, value);
+                floats.set(o + 48 + lane, value);
             }
         } else if t == 4 {
             for (lane, value) in [a, b, c].into_iter().enumerate() {
                 let sign = if value >= 0.0 { 1.0 } else { -1.0 };
-                floats.set(o + 3 + lane, sign * maxf(value.abs(), 0.01));
+                floats.set(o + 49 + lane, sign * maxf(value.abs(), 0.01));
             }
         } else {
             for (lane, value) in [a, b, c, d, e, f, g].into_iter().enumerate() {
-                floats.set(o + 2 + lane, value);
+                floats.set(o + 48 + lane, value);
             }
         }
         t

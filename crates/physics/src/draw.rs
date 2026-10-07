@@ -96,8 +96,8 @@ unsafe fn tf(p: *const u32, n: usize) -> Transform {
 unsafe fn shape(out: &mut Vec<u32>, id: usize, t: Transform, color: u32) {
     let r = shapes::col_slice();
     let n = id * shapes::SHAPE_STRIDE;
-    let kind = r[n];
-    let geo = r.as_ptr().add(n + 2);
+    let kind = r[n + shapes::S_TYPE];
+    let geo = r.as_ptr().add(n + shapes::S_GEOM);
     if kind != 1 {
         let p = if kind == 0 || kind == 5 {
             geo

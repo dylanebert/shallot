@@ -1,35 +1,39 @@
 //! World-local shape and material columns. A reachable shape is authored before it is queried.
 use crate::col::Col;
 use crate::regions::{self, Columns, MAX_WORLDS};
-pub const SHAPE_STRIDE: usize = 69;
-pub const S_ID: usize = 61;
-pub const S_PREV: usize = 62;
-pub const S_DENSITY: usize = 63;
-pub const S_GENERATION: usize = 68;
+pub const SHAPE_STRIDE: usize = 56;
+pub const S_ID: usize = 0;
+pub const S_PREV: usize = 2;
+pub const S_DENSITY: usize = 7;
+pub const S_GENERATION: usize = 47;
 pub const S_FLAGS: usize = S_GENERATION;
 pub const SENSOR_FLAG: u32 = 1 << 16;
 pub const HIT_FLAG: u32 = 8 << 16;
 pub const ENLARGED_FLAG: u32 = 32 << 16;
 pub const SPECULATIVE_FLAG: u32 = 64 << 16;
-pub const S_MATERIAL: usize = 52;
+pub const S_MATERIAL: usize = 26;
 pub const S_HIT_EVENTS: usize = S_FLAGS;
-pub const S_PROXY_KEY: usize = 50;
-pub const S_QUERY_POSE: usize = 18;
-pub const S_QUERY_CATEGORY: usize = 25;
-pub const S_QUERY_MASK: usize = 27;
-pub const S_QUERY_BODY: usize = 29;
+pub const S_PROXY_KEY: usize = 5;
+pub const S_QUERY_CATEGORY: usize = 39;
+pub const S_QUERY_MASK: usize = 41;
+pub const S_QUERY_BODY: usize = 1;
 pub const S_QUERY_SENSOR: usize = S_FLAGS;
-pub const S_QUERY_GROUP: usize = 31;
-pub const S_TYPE: usize = 0;
-pub const S_NEXT: usize = 1;
-pub const S_GEOM: usize = 2;
+pub const S_QUERY_GROUP: usize = 42;
+pub const S_TYPE: usize = 6;
+pub const S_NEXT: usize = 3;
+pub const S_GEOM: usize = 48;
+pub const S_AABB: usize = 10;
+pub const S_FAT_AABB: usize = 16;
+pub const S_MARGIN: usize = 9;
+pub const S_SENSOR_INDEX: usize = 4;
+pub const S_CENTROID: usize = 22;
 pub const S_GEO_REFERENCE: usize = S_GEOM;
-pub const S_MATERIAL_HEAD: usize = 16;
-pub const S_MATERIAL_COUNT: usize = 17;
+pub const S_MATERIAL_HEAD: usize = 36;
+pub const S_MATERIAL_COUNT: usize = 25;
 pub const NULL_SHAPE: u32 = u32::MAX;
 const FREE_ARRAY: usize = 1;
 const N_SHAPE: usize = 2;
-pub const MATERIAL_STRIDE: usize = 9;
+pub const MATERIAL_STRIDE: usize = 10;
 
 #[derive(Clone, Copy)]
 struct Pool {
@@ -154,7 +158,7 @@ unsafe fn free_materials(id: usize, shape: usize) {
     if *p.add(S_MATERIAL_HEAD) != 0 {
         std::alloc::dealloc(
             *p.add(S_MATERIAL_HEAD) as *mut u8,
-            std::alloc::Layout::from_size_align_unchecked(count * MATERIAL_STRIDE * 4, 4),
+            std::alloc::Layout::from_size_align_unchecked(count * MATERIAL_STRIDE * 4, 8),
         );
     }
     *p.add(S_MATERIAL_HEAD) = 0;
@@ -166,7 +170,7 @@ pub unsafe extern "C" fn allocate_materials(id: u32, shape: u32, count: usize) -
     free_materials(id as usize, shape as usize);
     let compound = *record(id as usize, shape as usize).add(S_TYPE) == crate::finalize::TY_COMPOUND;
     let ptr = if count > 1 || (count > 0 && compound) {
-        let layout = std::alloc::Layout::from_size_align_unchecked(count * MATERIAL_STRIDE * 4, 4);
+        let layout = std::alloc::Layout::from_size_align_unchecked(count * MATERIAL_STRIDE * 4, 8);
         let p = std::alloc::alloc(layout);
         if p.is_null() {
             std::alloc::handle_alloc_error(layout);
@@ -240,6 +244,7 @@ pub unsafe extern "C" fn material_set(
     *p.add(6) = low;
     *p.add(7) = high;
     *p.add(8) = color;
+    *p.add(9) = 0;
 }
 #[export_name = "shapeMaterialCount"]
 pub extern "C" fn shape_material_count(id: u32, shape: u32) -> u32 {
@@ -278,8 +283,8 @@ pub extern "C" fn shape_create(
         *p.add(S_QUERY_BODY) = body;
         *((p.add(S_FLAGS) as *mut u8).add(2)) = flags as u8;
         *(p.add(S_DENSITY) as *mut f32) = density;
-        *(p.add(64) as *mut f32) = explosion;
-        for lane in [S_NEXT, S_PREV, S_PROXY_KEY, 41] {
+        *(p.add(8) as *mut f32) = explosion;
+        for lane in [S_NEXT, S_PREV, S_PROXY_KEY, S_SENSOR_INDEX] {
             *p.add(lane) = NULL_SHAPE;
         }
         let fat = crate::fataabb::col();

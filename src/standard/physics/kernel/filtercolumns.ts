@@ -8,10 +8,10 @@ export function bodyType(world: WorldState, id: number): BodyType {
     return bodyField(world, id, BodyField.type) as BodyType;
 }
 export function shapeBodyId(world: WorldState, id: number): number {
-    return world.shapeStore.shapeU[id * SHAPE_STRIDE + 29] | 0;
+    return world.shapeStore.shapeU[id * SHAPE_STRIDE + 1] | 0;
 }
 export function shapeSensorIndex(world: WorldState, id: number): number {
-    return world.shapeStore.shapeU[id * SHAPE_STRIDE + 41] | 0;
+    return world.shapeStore.shapeU[id * SHAPE_STRIDE + 4] | 0;
 }
 export function writeShapeFilterValue(
     world: WorldState,

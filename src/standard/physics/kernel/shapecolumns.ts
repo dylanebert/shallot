@@ -3,7 +3,6 @@ import type { AABB } from "../common/math";
 import type { ShapeDef, ShapeType, SurfaceMaterial } from "../common/types";
 import type { Shape } from "../shapes/shape";
 import type { WorldState } from "../world/world";
-import { shapeBodyId } from "./filtercolumns";
 import { kernel } from "./kernel";
 // The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
 // geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
@@ -20,16 +19,16 @@ import { kernel } from "./kernel";
 import { KernelViews } from "./views";
 
 /** Word stride of one kernel shape record, mirroring `shapes.rs`. */
-export const SHAPE_STRIDE = 69;
+export const SHAPE_STRIDE = 56;
 /** b3Shape union: inline sphere or capsule, data reference plus mesh scale, or data reference. */
-export const S_GEOM = 2;
+export const S_GEOM = 48;
 /** First union word: retained hull pointer or non-convex pool word offset. */
 export const S_GEO_REFERENCE = S_GEOM;
 /** Kernel shape-record attachment lanes, outside finalize output. */
-export const S_MATERIAL_HEAD = 16;
+export const S_MATERIAL_HEAD = 36;
 
 /** Surface material: friction, restitution, rolling, tangent xyz, u64 user id and color. */
-export const MATERIAL_STRIDE = 9;
+export const MATERIAL_STRIDE = 10;
 
 /** Allocate a world-local shape slot in the kernel pool. The shape record itself is authored below,
  * but index reuse, generation and validity are never decided by TypeScript. */
@@ -135,16 +134,6 @@ export class ShapeStore extends KernelViews {
             this.materialF = new Float32Array(buf);
             this._materialData = new DataView(buf);
         }
-    }
-
-    /** Attach the body's query pose; geometry references were written at shape creation. */
-    write(world: WorldState, shape: Shape): void {
-        const body = shapeBodyId(world, shape);
-        this.writeQueryPose(world, shape, body);
-    }
-
-    writeQueryPose(world: WorldState, shapeId: number, body: number): void {
-        kernel(world.ecsState).shapeQueryPose(world.worldId, shapeId, body);
     }
 
     /** Refresh a shape's pool reference without touching its material or finalize lanes. */
@@ -291,22 +280,10 @@ export function shapeMaterialCount(world: WorldState, shape: Shape): number {
     return k.shapeMaterialCount(world.worldId, shape) >>> 0;
 }
 
-/**
- * Write a newly created shape's record into the resident column, sizing the region to the new shape
- * high-water first. Refresh views after a grow-capable call before writing.
- */
-export function writeShape(world: WorldState, shape: Shape): void {
-    kernel(world.ecsState).shapeSetActiveWorld(world.worldId);
-    world.manifoldStore.refreshViews();
-    world.bodyStore.refreshViews();
-    world.shapeStore.refreshViews();
-    world.shapeStore.write(world, shape);
-}
-
 /** Keep the last shape bounds resident in `shapeF`, the shape store's current view, for the next
  * continuous sweep. */
 export function writeTightAabb(shapeF: Float32Array, shapeId: number, box: AABB): void {
-    const o = shapeId * SHAPE_STRIDE + 34;
+    const o = shapeId * SHAPE_STRIDE + 10;
     shapeF[o] = box.lowerBound.x;
     shapeF[o + 1] = box.lowerBound.y;
     shapeF[o + 2] = box.lowerBound.z;
@@ -318,7 +295,7 @@ export function writeTightAabb(shapeF: Float32Array, shapeId: number, box: AABB)
 /** Copy the kernel-owned tight bounds into caller-owned scratch. */
 export function readShapeAabb(world: WorldState, shapeId: number, out: AABB): AABB {
     world.shapeStore.refreshViews();
-    return readBounds(world.shapeStore.shapeF, shapeId * SHAPE_STRIDE + 34, out);
+    return readBounds(world.shapeStore.shapeF, shapeId * SHAPE_STRIDE + 10, out);
 }
 
 /** Copy the kernel-owned fat bounds into caller-owned scratch. */

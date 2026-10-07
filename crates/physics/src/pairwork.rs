@@ -238,16 +238,16 @@ impl<'a> Emitter<'a> {
         }
         let a = &self.shape[found_shape as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
         let b = &self.shape[self.query_shape as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
-        if a[29] == b[29] {
+        if a[1] == b[1] {
             return true;
         }
-        if a[41] != u32::MAX || b[41] != u32::MAX {
+        if a[4] != u32::MAX || b[4] != u32::MAX {
             return true;
         }
         if !shapes_collide(a, b) {
             return true;
         }
-        if !unsafe { crate::bodies::should_collide(a[29], b[29]) } {
+        if !unsafe { crate::bodies::should_collide(a[1], b[1]) } {
             return true;
         }
         self.emit(child, found_shape, self.query_shape);
@@ -256,10 +256,10 @@ impl<'a> Emitter<'a> {
 }
 
 fn shapes_collide(a: &[u32], b: &[u32]) -> bool {
-    if a[31] == b[31] && a[31] != 0 {
-        return a[31] as i32 > 0;
+    if a[42] == b[42] && a[42] != 0 {
+        return a[42] as i32 > 0;
     }
-    ((a[27] & b[25]) | (a[28] & b[26])) != 0 && ((a[25] & b[27]) | (a[26] & b[28])) != 0
+    ((a[41] & b[39]) | (a[40] & b[38])) != 0 && ((a[39] & b[41]) | (a[38] & b[40])) != 0
 }
 
 /// After the join, grow capacity for a read-only retry if the survivor lists overflowed.

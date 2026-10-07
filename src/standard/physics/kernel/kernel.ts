@@ -243,7 +243,6 @@ export type Kernel = {
         qz: number,
         qs: number,
     ): void;
-    shapeQueryPose(world: number, shape: number, body: number): void;
     shapeSyncBodyBounds(world: number, body: number): void;
     shapeBodyAllowsType(world: number, body: number, type: number): number;
     shapeBodyTake(world: number, body: number): number;
@@ -373,7 +372,6 @@ export type Kernel = {
     shapeAttachSensor(world: number, id: number, sensor: number): void;
     shapeLink(world: number, id: number, body: number): void;
     shapeUnlink(world: number, id: number): void;
-    shapeSyncBody(world: number, body: number): void;
     shapeCreateProxy(world: number, id: number, force: number): void;
     shapeCreateProxyTransform(
         world: number,

@@ -1,5 +1,5 @@
 //! Nongeometry shape lifecycle in Box3D's body/shape list and proxy order.
-use crate::{bodies, body, regions, shapes};
+use crate::{bodies, regions, shapes};
 
 #[export_name = "shapeLink"]
 pub unsafe extern "C" fn link(world: usize, id: usize, body_id: usize) {
@@ -7,7 +7,7 @@ pub unsafe extern "C" fn link(world: usize, id: usize, body_id: usize) {
     let body = bodies::record_mut(world, body_id);
     let u = shapes::col();
     let o = id * shapes::SHAPE_STRIDE;
-    u.set(o + 29, body_id as u32);
+    u.set(o + 1, body_id as u32);
     u.set(o + shapes::S_PREV, u32::MAX);
     u.set(o + shapes::S_NEXT, body.head_shape_id as u32);
     if body.head_shape_id != -1 {
@@ -24,7 +24,7 @@ pub unsafe extern "C" fn unlink(world: usize, id: usize) {
     regions::select(world as u32);
     let u = shapes::col();
     let o = id * shapes::SHAPE_STRIDE;
-    let body_id = u.get(o + 29) as usize;
+    let body_id = u.get(o + 1) as usize;
     let prev = u.get(o + shapes::S_PREV);
     let next = u.get(o + shapes::S_NEXT);
     if prev != u32::MAX {
@@ -67,54 +67,12 @@ pub unsafe extern "C" fn body_allows_type(world: usize, body: usize, kind: u32) 
     }
     true
 }
-#[export_name = "shapeQueryPose"]
-pub unsafe extern "C" fn query_pose(world: usize, shape: usize, body_id: usize) {
-    regions::select(world as u32);
-    let record = bodies::record(world, body_id);
-    let o = shape * shapes::SHAPE_STRIDE;
-    let columns = shapes::col();
-    columns.set(
-        o + 32,
-        if record.set_index == 2 {
-            record.local_index as u32 + 1
-        } else {
-            0
-        },
-    );
-    if record.set_index == 2 {
-        return;
-    }
-    let sim = bodies::column(body_id, 1, body::SIM_STRIDE);
-    let fin = bodies::column(body_id, 2, body::FIN_STRIDE);
-    let sim2 = bodies::column(body_id, 5, body::SIM2_STRIDE);
-    columns.set(o + 42, sim2.get(body::S2_FLAGS).to_bits());
-    for lane in 0..3 {
-        columns.set(o + 44 + lane, fin.get(body::CENTER + lane).to_bits());
-        columns.set(o + 47 + lane, fin.get(body::LOCAL_CENTER + lane).to_bits());
-    }
-    for lane in 0..3 {
-        columns.set(o + 18 + lane, fin.get(body::TRANSFORM_P + lane).to_bits());
-    }
-    for lane in 0..4 {
-        columns.set(o + 21 + lane, sim.get(body::ROTATION + lane).to_bits());
-    }
-}
-#[export_name = "shapeSyncBody"]
-pub unsafe extern "C" fn sync_body(world: usize, id: usize) {
-    regions::select(world as u32);
-    let mut shape = bodies::record(world, id).head_shape_id;
-    while shape != -1 {
-        query_pose(world, shape as usize, id);
-        shape = shapes::col().get(shape as usize * shapes::SHAPE_STRIDE + shapes::S_NEXT) as i32;
-    }
-}
 #[export_name = "shapeSyncBodyBounds"]
 pub unsafe extern "C" fn sync_body_bounds(world: usize, body_id: usize) {
     regions::select(world as u32);
     let mut shape = bodies::record(world, body_id).head_shape_id;
     while shape != -1 {
         body_record_bounds(world, body_id, shape as usize);
-        query_pose(world, shape as usize, body_id);
         shape = shapes::col().get(shape as usize * shapes::SHAPE_STRIDE + shapes::S_NEXT) as i32;
     }
 }
@@ -131,10 +89,10 @@ unsafe fn body_record_bounds(world: usize, id: usize, shape: usize) {
     let f = shapes::col_f();
     let o = shape * shapes::SHAPE_STRIDE;
     for lane in 0..6 {
-        f.set(o + 34 + lane, bounds[lane]);
+        f.set(o + 10 + lane, bounds[lane]);
     }
     if escaped {
-        let margin = f.get(o + 40);
+        let margin = f.get(o + 9);
         let mut enlarged = bounds;
         for lane in 0..3 {
             enlarged[lane] -= margin;
@@ -173,7 +131,7 @@ pub unsafe extern "C" fn create_proxy(world: usize, id: usize, force: bool) {
     regions::select(world as u32);
     let u = shapes::col();
     let o = id * shapes::SHAPE_STRIDE;
-    let body_id = u.get(o + 29) as usize;
+    let body_id = u.get(o + 1) as usize;
     let tight = crate::continuous::bounds(id, bodies::geometry(body_id).0);
     create_proxy_bounds(
         world, id, force, tight[0], tight[1], tight[2], tight[3], tight[4], tight[5],
@@ -219,7 +177,7 @@ unsafe fn create_proxy_bounds(
     regions::select(world as u32);
     let u = shapes::col();
     let o = id * shapes::SHAPE_STRIDE;
-    let body_id = u.get(o + 29) as usize;
+    let body_id = u.get(o + 1) as usize;
     let body_type = bodies::record(world, body_id).body_type as usize;
     let enlarged = write_bounds(id, body_type, [lx, ly, lz, hx, hy, hz]);
     let key = crate::broad::create_proxy(
@@ -230,27 +188,26 @@ unsafe fn create_proxy_bounds(
         enlarged[3],
         enlarged[4],
         enlarged[5],
-        u.get(o + 25),
-        u.get(o + 26),
+        u.get(o + 39),
+        u.get(o + 38),
         id as u32,
         force as u32,
     );
     u.set(o + shapes::S_PROXY_KEY, key);
-    query_pose(world, id, body_id);
 }
 unsafe fn write_bounds(id: usize, body_type: usize, tight: [f32; 6]) -> [f32; 6] {
     let o = id * shapes::SHAPE_STRIDE;
     let (bounds, _) = crate::finalize::refit_bounds(tight, &[0.0; 6]);
     let f = shapes::col_f();
     let fat = crate::fataabb::col();
-    let margin = if body_type == 0 { 0.02 } else { f.get(o + 40) };
+    let margin = if body_type == 0 { 0.02 } else { f.get(o + 9) };
     let mut enlarged = bounds;
     for lane in 0..3 {
         enlarged[lane] -= margin;
         enlarged[lane + 3] += margin;
     }
     for lane in 0..6 {
-        f.set(o + 34 + lane, bounds[lane]);
+        f.set(o + 10 + lane, bounds[lane]);
         fat.set(id * 6 + lane, enlarged[lane]);
     }
     enlarged
@@ -271,7 +228,7 @@ pub unsafe fn destroy_internal(world: usize, id: usize, wake: bool) {
     unlink(world, id);
     destroy_proxy(world, id);
     destroy_contacts(world, id, wake);
-    if u.get(id * shapes::SHAPE_STRIDE + 41) != u32::MAX {
+    if u.get(id * shapes::SHAPE_STRIDE + 4) != u32::MAX {
         crate::sensor::destroy(world, id);
     }
     release_geometry(world, id);
@@ -280,7 +237,7 @@ pub unsafe fn destroy_internal(world: usize, id: usize, wake: bool) {
 #[export_name = "shapeDestroyWorld"]
 pub unsafe extern "C" fn destroy(world: usize, id: usize, update_mass: bool) {
     regions::select(world as u32);
-    let body = shapes::col().get(id * shapes::SHAPE_STRIDE + 29) as usize;
+    let body = shapes::col().get(id * shapes::SHAPE_STRIDE + 1) as usize;
     destroy_internal(world, id, true);
     if update_mass {
         crate::body_record::runtime::update_mass(world, body);
@@ -297,7 +254,7 @@ pub unsafe extern "C" fn finish_create(
     regions::select(world as u32);
     let u = shapes::col();
     let o = id * shapes::SHAPE_STRIDE;
-    let body = u.get(o + 29) as usize;
+    let body = u.get(o + 1) as usize;
     if bodies::record(world, body).set_index != 1 {
         create_proxy(world, id, force && u.get(o + shapes::S_TYPE) != 1);
     }
@@ -381,11 +338,11 @@ pub unsafe extern "C" fn set_filter(
     regions::select(world as u32);
     let u = shapes::col();
     let o = id * shapes::SHAPE_STRIDE;
-    if u.get(o + 25) == category_hi
-        && u.get(o + 26) == category_lo
-        && u.get(o + 27) == mask_hi
-        && u.get(o + 28) == mask_lo
-        && u.get(o + 31) as i32 == group
+    if u.get(o + 39) == category_hi
+        && u.get(o + 38) == category_lo
+        && u.get(o + 41) == mask_hi
+        && u.get(o + 40) == mask_lo
+        && u.get(o + 42) as i32 == group
     {
         return;
     }
@@ -393,7 +350,7 @@ pub unsafe extern "C" fn set_filter(
     destroy_contacts(world, id, true);
     // shape.c compares category bits after assigning the filter, so invokeContacts recreates the proxy.
     let proxy = u.get(o + shapes::S_PROXY_KEY);
-    let body = u.get(o + 29) as usize;
+    let body = u.get(o + 1) as usize;
     if proxy != u32::MAX {
         destroy_proxy(world, id);
         create_proxy(world, id, true);
@@ -415,11 +372,11 @@ pub unsafe extern "C" fn filter_write(
     regions::select(world as u32);
     let u = shapes::col();
     let o = id * shapes::SHAPE_STRIDE;
-    u.set(o + 25, category_hi);
-    u.set(o + 26, category_lo);
-    u.set(o + 27, mask_hi);
-    u.set(o + 28, mask_lo);
-    u.set(o + 31, group as u32);
+    u.set(o + 39, category_hi);
+    u.set(o + 38, category_lo);
+    u.set(o + 41, mask_hi);
+    u.set(o + 40, mask_lo);
+    u.set(o + 42, group as u32);
 }
 #[export_name = "shapeContactNext"]
 pub unsafe extern "C" fn contact_next(world: usize, id: usize, mut key: i32) -> i32 {
@@ -428,7 +385,7 @@ pub unsafe extern "C" fn contact_next(world: usize, id: usize, mut key: i32) -> 
     if key == -2 {
         key = bodies::record(
             world,
-            shapes::col().get(id * shapes::SHAPE_STRIDE + 29) as usize,
+            shapes::col().get(id * shapes::SHAPE_STRIDE + 1) as usize,
         )
         .head_contact_key;
     }
@@ -446,7 +403,7 @@ pub unsafe extern "C" fn contact_next(world: usize, id: usize, mut key: i32) -> 
 #[export_name = "shapeAttachSensor"]
 pub unsafe extern "C" fn attach_sensor(world: usize, id: usize, index: i32) {
     regions::select(world as u32);
-    shapes::col().set(id * shapes::SHAPE_STRIDE + 41, index as u32);
+    shapes::col().set(id * shapes::SHAPE_STRIDE + 4, index as u32);
 }
 #[export_name = "shapeBodyProxies"]
 pub unsafe extern "C" fn body_proxies(world: usize, id: usize, mode: u32) {

@@ -59,8 +59,8 @@ pub(crate) unsafe fn pose(id: usize, origin: Vec3) -> Transform {
 pub(crate) fn accepts(id: usize, header: &[u32; 20]) -> bool {
     let r = crate::shapes::col_slice();
     let n = id * SHAPE_STRIDE;
-    ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY + 1] & header[9])) != 0
-        && ((r[n + S_QUERY_MASK] & header[6]) | (r[n + S_QUERY_MASK + 1] & header[7])) != 0
+    ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY - 1] & header[9])) != 0
+        && ((r[n + S_QUERY_MASK] & header[6]) | (r[n + S_QUERY_MASK - 1] & header[7])) != 0
 }
 pub(crate) unsafe fn write_cast(out: &CastOutput, target: *mut u32, material: i32) {
     for (index, value) in [
@@ -107,7 +107,7 @@ pub(crate) unsafe fn sensor_task(
                 [lo.x, lo.y, lo.z],
                 [hi.x, hi.y, hi.z],
                 r.get(n + S_QUERY_MASK),
-                r.get(n + S_QUERY_MASK + 1),
+                r.get(n + S_QUERY_MASK - 1),
                 false,
                 &mut stack,
                 |_, id| {
@@ -136,10 +136,10 @@ pub(crate) unsafe fn sensor_task(
                             return true;
                         }
                     } else if ((r.get(n + S_QUERY_CATEGORY) & r.get(o + S_QUERY_MASK))
-                        | (r.get(n + S_QUERY_CATEGORY + 1) & r.get(o + S_QUERY_MASK + 1)))
+                        | (r.get(n + S_QUERY_CATEGORY - 1) & r.get(o + S_QUERY_MASK - 1)))
                         == 0
                         || ((r.get(o + S_QUERY_CATEGORY) & r.get(n + S_QUERY_MASK))
-                            | (r.get(o + S_QUERY_CATEGORY + 1) & r.get(n + S_QUERY_MASK + 1)))
+                            | (r.get(o + S_QUERY_CATEGORY - 1) & r.get(n + S_QUERY_MASK - 1)))
                             == 0
                     {
                         return true;

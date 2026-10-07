@@ -27,7 +27,6 @@ import {
     S_GEO_REFERENCE,
     SHAPE_STRIDE,
     shapeMaterialCount,
-    writeShape,
 } from "../kernel/shapecolumns";
 import { releaseGeometryIdentities } from "../world/body";
 import type { Visitor } from "../world/sensor";
@@ -46,14 +45,14 @@ export type Shape = number;
 export function readShapeSphere(world: WorldState, shape: Shape): Sphere {
     world.shapeStore.refreshViews();
     const f = world.shapeStore.shapeF,
-        o = shape * SHAPE_STRIDE + 2;
+        o = shape * SHAPE_STRIDE + 48;
     return { center: { x: f[o], y: f[o + 1], z: f[o + 2] }, radius: f[o + 3] };
 }
 
 export function readShapeCapsule(world: WorldState, shape: Shape): Capsule {
     world.shapeStore.refreshViews();
     const f = world.shapeStore.shapeF,
-        o = shape * SHAPE_STRIDE + 2;
+        o = shape * SHAPE_STRIDE + 48;
     return {
         center1: { x: f[o], y: f[o + 1], z: f[o + 2] },
         center2: { x: f[o + 3], y: f[o + 4], z: f[o + 5] },
@@ -63,7 +62,7 @@ export function readShapeCapsule(world: WorldState, shape: Shape): Capsule {
 
 export function shapeRadius(world: WorldState, shape: Shape): number {
     world.shapeStore.refreshViews();
-    const offset = shapeField(world, shape, ShapeField.type) === ShapeType.Sphere ? 5 : 8;
+    const offset = shapeField(world, shape, ShapeField.type) === ShapeType.Sphere ? 51 : 54;
     return world.shapeStore.shapeF[shape * SHAPE_STRIDE + offset];
 }
 
@@ -365,7 +364,6 @@ function createShapeInternal(
               ? def.materials
               : def.baseMaterial;
     world.shapeStore.writeMaterials(world, shape, materials);
-    writeShape(world, shape);
     k.shapeFinishGeometry(world.worldId, shape);
 
     world.broadPhase.store.initialize();

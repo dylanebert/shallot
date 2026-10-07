@@ -45,7 +45,7 @@ pub unsafe extern "C" fn destroy(world: usize, id: usize) {
         let u = crate::shapes::col();
         let o = s * crate::shapes::SHAPE_STRIDE;
         shape_id = u.get(o + crate::shapes::S_NEXT) as i32;
-        if u.get(o + 41) != u32::MAX {
+        if u.get(o + 4) != u32::MAX {
             crate::sensor::destroy(world, s);
         }
         shape::destroy_internal(world, s, true);

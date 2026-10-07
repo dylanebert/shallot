@@ -433,9 +433,9 @@ unsafe fn parallel(kind: u32, count: usize, a: f32) -> bool {
 pub unsafe extern "C" fn create_contact(world: usize, a: usize, b: usize, child: i32) {
     regions::select(world as u32);
     let r = crate::shapes::col();
-    let compound = if r.get(a * crate::shapes::SHAPE_STRIDE) == 1 {
+    let compound = if r.get(a * crate::shapes::SHAPE_STRIDE + crate::shapes::S_TYPE) == 1 {
         Some(a)
-    } else if r.get(b * crate::shapes::SHAPE_STRIDE) == 1 {
+    } else if r.get(b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_TYPE) == 1 {
         Some(b)
     } else {
         None

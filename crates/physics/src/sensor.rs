@@ -86,7 +86,7 @@ pub unsafe extern "C" fn create(world: usize, id: usize) {
 }
 pub unsafe fn record_hit(world: usize, sensor: usize, other: usize) {
     shapes::shape_set_active_world(world as u32);
-    let index = shapes::col().get(sensor * shapes::SHAPE_STRIDE + 41) as usize;
+    let index = shapes::col().get(sensor * shapes::SHAPE_STRIDE + 4) as usize;
     state(world).sensors[index].hits.push(visitor(world, other));
 }
 pub unsafe fn prepare() -> usize {
@@ -123,7 +123,7 @@ pub unsafe fn task(start: usize, end: usize) {
             header[2 * i + 1] = crate::broad::tree_cap(i) as u32;
         }
         for j in 0..6 {
-            header[13 + j] = r.get(n + 34 + j);
+            header[13 + j] = r.get(n + 10 + j);
         }
         world_query::sensor_task(s.shape_id, &header, |id| {
             s.overlaps2.push(visitor(world, id))
@@ -175,7 +175,7 @@ pub unsafe fn publish(world: usize) {
 #[export_name = "sensorDestroy"]
 pub unsafe extern "C" fn destroy(world: usize, id: usize) {
     shapes::shape_set_active_world(world as u32);
-    let index = shapes::col().get(id * shapes::SHAPE_STRIDE + 41) as usize;
+    let index = shapes::col().get(id * shapes::SHAPE_STRIDE + 4) as usize;
     let w = state(world);
     for v in &w.sensors[index].overlaps2 {
         crate::events::sensor_touch(world, id, *v, true);

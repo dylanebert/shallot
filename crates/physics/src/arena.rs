@@ -663,10 +663,15 @@ fn surface(shape: usize, index: usize) -> Surface {
 fn shape_radius(shape: usize, full_hull: bool) -> f32 {
     let shapes = crate::shapes::col_slice();
     let s = shape * crate::shapes::SHAPE_STRIDE;
-    match shapes[s] {
-        TY_SPHERE => f32::from_bits(shapes[s + 5]),
-        TY_CAPSULE => f32::from_bits(shapes[s + 8]),
-        TY_HULL => (if full_hull { 1.0 } else { 0.25 }) * f32::from_bits(shapes[s + 43]),
+    match shapes[s + crate::shapes::S_TYPE] {
+        TY_SPHERE => f32::from_bits(shapes[s + 51]),
+        TY_CAPSULE => f32::from_bits(shapes[s + 54]),
+        TY_HULL => {
+            (if full_hull { 1.0 } else { 0.25 })
+                * unsafe {
+                    crate::geo::hull_record(shapes[s + crate::shapes::S_GEOM] as usize).inner_radius
+                }
+        }
         _ => 0.0,
     }
 }
@@ -814,8 +819,8 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
             record[D_DEFAULT_MIX] = DEFAULT_MIX;
             let shapes = crate::shapes::col_slice();
             let sb = record[D_SHAPE_B] as usize * crate::shapes::SHAPE_STRIDE;
-            record[D_LOWER..D_LOWER + 3].copy_from_slice(&shapes[sb + 34..sb + 37]);
-            record[D_UPPER..D_UPPER + 3].copy_from_slice(&shapes[sb + 37..sb + 40]);
+            record[D_LOWER..D_LOWER + 3].copy_from_slice(&shapes[sb + 10..sb + 13]);
+            record[D_UPPER..D_UPPER + 3].copy_from_slice(&shapes[sb + 13..sb + 16]);
             let sa = record[D_SHAPE_A] as usize * crate::shapes::SHAPE_STRIDE;
             let hit = shapes[sa + crate::shapes::S_HIT_EVENTS] & crate::shapes::HIT_FLAG != 0
                 || shapes[sb + crate::shapes::S_HIT_EVENTS] & crate::shapes::HIT_FLAG != 0;
@@ -826,7 +831,7 @@ pub(crate) unsafe fn contact_block(start: usize, end: usize, total: usize, threa
                 let s = record[id_slot] as usize * crate::shapes::SHAPE_STRIDE;
                 let ty = shapes[s + crate::shapes::S_TYPE];
                 record[type_slot] = ty;
-                record[geom_slot..geom_slot + 7].copy_from_slice(&shapes[s + 2..s + 9]);
+                record[geom_slot..geom_slot + 7].copy_from_slice(&shapes[s + 48..s + 55]);
             }
             let disp = &record[..];
             let r = 0;
@@ -1347,7 +1352,7 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
                 let fat_aabb = core::array::from_fn(|n| fat.get(fb + n));
                 let (cand, escaped) = finalize::refit_bounds(bounds, &fat_aabb);
                 for n in 0..6 {
-                    shape_f.set(o + 34 + n, cand[n]);
+                    shape_f.set(o + 10 + n, cand[n]);
                 }
                 let flags = shape_u.get(o + crate::shapes::S_FLAGS);
                 shape_u.set(
@@ -1360,7 +1365,7 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
                         },
                 );
                 if escaped {
-                    let margin = shape_f.get(o + 40);
+                    let margin = shape_f.get(o + 9);
                     for n in 0..3 {
                         fat.set(fb + n, cand[n] - margin);
                         fat.set(fb + 3 + n, cand[3 + n] + margin);
