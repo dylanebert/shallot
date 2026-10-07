@@ -1231,18 +1231,11 @@ fn build_hull_and_capsule_edge_contact(
 
     let edge2 = edges[query.index_b as usize];
     let twin2 = edges[edge2.twin as usize];
-    let ch = hull_a.center;
     let ph = points[edge2.origin as usize];
     let qh = points[twin2.origin as usize];
     let eh = qh.sub(ph);
 
-    let mut normal = ec.cross(eh);
-    normal = normal.normalize();
-
-    // Normal should point outward from hull.
-    if normal.dot(ph.sub(ch)) < 0.0 {
-        normal = normal.neg();
-    }
+    let normal = query.normal;
 
     let result = line_distance(ph, eh, pc, ec);
     if !is_within_segments(&result) {

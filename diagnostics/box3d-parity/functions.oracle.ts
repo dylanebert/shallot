@@ -399,10 +399,10 @@ test("manifold.rs:1424-1431 vs convex_manifold.c:939: hull-capsule face/edge tol
     const row = results.find((r) => r.label === "manifold-14-29")!;
     expect(row.actual[0]).toBe(row.native[0]);
 });
-test.todo("manifold.rs:1252-1261 vs convex_manifold.c:782: hull-capsule edge uses query normal", () => {
+test("manifold.rs:1252-1261 vs convex_manifold.c:782: hull-capsule edge uses query normal", () => {
     compare(results.filter((r) => ["manifold-14-62", "manifold-14-100"].includes(r.label ?? "")));
 });
-test.todo("manifold.rs:1424-1431,1252-1261: generated hull-capsule edge decisions and normals equal Box3D SSE2 bits", () => {
+test("manifold.rs:1424-1431,1252-1261: generated hull-capsule edge decisions and normals equal Box3D SSE2 bits", () => {
     compare(
         results.filter(
             (r) =>
