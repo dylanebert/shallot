@@ -1307,9 +1307,7 @@ fn solve_revolute(
 
 // --- spherical joint --------------------------------------------------------------------------
 
-/// b3PrepareSphericalJoint (`src/sphericalJoint.ts` `prepareSphericalJoint`). The cone axis is body A's
-/// local z, the twist axis body B's; the swing axis / twist jacobian / masses are zero when their limit
-/// is off (matching the serial path's zero-defaulted fields, so the read in warm-start no-ops safely).
+/// b3PrepareSphericalJoint.
 fn prepare_spherical(
     joints: Col<f32>,
     slot: usize,
@@ -1343,16 +1341,18 @@ fn prepare_spherical(
     let enable_cone = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT);
     let enable_twist = crate::joint_abi::enabled(joints, slot, SJ_ENABLE, SJ_ENABLE_TWIST_LIMIT);
 
-    let mut swing_axis = Vec3::ZERO;
-    let mut swing_mass = 0.0;
     if enable_cone {
-        swing_axis = cone_axis.cross(twist_axis).normalize();
+        let swing_axis = cone_axis.cross(twist_axis).normalize();
         let k = swing_axis.dot(inv_inertia_sum.mul_v(swing_axis));
-        swing_mass = if k > 0.0 { 1.0 / k } else { 0.0 };
+        set(
+            joints,
+            slot,
+            SJ_SWING_MASS,
+            if k > 0.0 { 1.0 / k } else { 0.0 },
+        );
+        set_vec3(joints, slot, SJ_SWING_AXIS, swing_axis);
     }
 
-    let mut twist_jacobian = Vec3::ZERO;
-    let mut twist_mass = 0.0;
     if enable_twist {
         let rel_q = frame_a.q.inv_mul(frame_b.q);
         let num = rel_q.v.x * rel_q.v.x + rel_q.v.y * rel_q.v.y;
@@ -1361,9 +1361,15 @@ fn prepare_spherical(
 
         let swing_axis_t = cone_axis.cross(twist_axis).normalize();
         let perp_axis = swing_axis_t.cross(cone_axis);
-        twist_jacobian = cone_axis.mul_add(tan_theta_over_2, perp_axis);
+        let twist_jacobian = cone_axis.mul_add(tan_theta_over_2, perp_axis);
         let k = twist_jacobian.dot(inv_inertia_sum.mul_v(twist_jacobian));
-        twist_mass = if k > 0.0 { 1.0 / k } else { 0.0 };
+        set(
+            joints,
+            slot,
+            SJ_TWIST_MASS,
+            if k > 0.0 { 1.0 / k } else { 0.0 },
+        );
+        set_vec3(joints, slot, SJ_TWIST_JACOBIAN, twist_jacobian);
     }
 
     let rotation_mass = if fixed_rotation {
@@ -1381,11 +1387,7 @@ fn prepare_spherical(
     set_transform(joints, slot, SJ_FRAME_A, frame_a);
     set_transform(joints, slot, SJ_FRAME_B, frame_b);
     set_vec3(joints, slot, SJ_DELTA_CENTER, delta_center);
-    set_vec3(joints, slot, SJ_SWING_AXIS, swing_axis);
-    set_vec3(joints, slot, SJ_TWIST_JACOBIAN, twist_jacobian);
     set_mat3(joints, slot, SJ_ROTATION_MASS, rotation_mass);
-    set(joints, slot, SJ_SWING_MASS, swing_mass);
-    set(joints, slot, SJ_TWIST_MASS, twist_mass);
     write_softness(joints, slot, SJ_SPRING_SOFTNESS, soft);
     set(
         joints,
