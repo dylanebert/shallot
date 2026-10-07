@@ -942,18 +942,12 @@ pub fn collide_capsules(
                 let pair0 = vertices_b[0].pair;
                 let pair1 = vertices_b[1].pair;
 
-                manifold.points[0] = LocalManifoldPoint {
-                    point: point1,
-                    separation: distance1 - radius,
-                    pair: pair0,
-                    triangle_index: 0,
-                };
-                manifold.points[1] = LocalManifoldPoint {
-                    point: point2,
-                    separation: distance2 - radius,
-                    pair: pair1,
-                    triangle_index: 0,
-                };
+                manifold.points[0].point = point1;
+                manifold.points[0].separation = distance1 - radius;
+                manifold.points[0].pair = pair0;
+                manifold.points[1].point = point2;
+                manifold.points[1].separation = distance2 - radius;
+                manifold.points[1].pair = pair1;
 
                 return;
             }
@@ -1026,18 +1020,12 @@ fn build_hull_face_and_capsule_contact(
         manifold.normal = normal;
         manifold.point_count = 2;
 
-        manifold.points[0] = LocalManifoldPoint {
-            point: point1,
-            separation: distance1 - capsule_b.radius,
-            pair: segment_b[0].pair,
-            triangle_index: 0,
-        };
-        manifold.points[1] = LocalManifoldPoint {
-            point: point2,
-            separation: distance2 - capsule_b.radius,
-            pair: segment_b[1].pair,
-            triangle_index: 0,
-        };
+        manifold.points[0].point = point1;
+        manifold.points[0].separation = distance1 - capsule_b.radius;
+        manifold.points[0].pair = segment_b[0].pair;
+        manifold.points[1].point = point2;
+        manifold.points[1].separation = distance2 - capsule_b.radius;
+        manifold.points[1].pair = segment_b[1].pair;
 
         return true;
     }
@@ -1186,18 +1174,12 @@ pub fn collide_hull_and_capsule(
                     manifold.normal = normal;
                     manifold.point_count = 2;
 
-                    manifold.points[0] = LocalManifoldPoint {
-                        point: point1,
-                        separation: distance1 - capsule_b.radius,
-                        pair: vertices_b[0].pair,
-                        triangle_index: 0,
-                    };
-                    manifold.points[1] = LocalManifoldPoint {
-                        point: point2,
-                        separation: distance2 - capsule_b.radius,
-                        pair: vertices_b[1].pair,
-                        triangle_index: 0,
-                    };
+                    manifold.points[0].point = point1;
+                    manifold.points[0].separation = distance1 - capsule_b.radius;
+                    manifold.points[0].pair = vertices_b[0].pair;
+                    manifold.points[1].point = point2;
+                    manifold.points[1].separation = distance2 - capsule_b.radius;
+                    manifold.points[1].pair = vertices_b[1].pair;
 
                     return;
                 }
@@ -1495,12 +1477,10 @@ fn build_edge_contact(
     manifold.normal = normal;
     manifold.point_count = 1;
 
-    manifold.points[0] = LocalManifoldPoint {
-        point,
-        separation,
-        pair: make_feature_pair(SHAPE_A, query.index_a as u8, SHAPE_B, query.index_b as u8),
-        triangle_index: 0,
-    };
+    manifold.points[0].point = point;
+    manifold.points[0].separation = separation;
+    manifold.points[0].pair =
+        make_feature_pair(SHAPE_A, query.index_a as u8, SHAPE_B, query.index_b as u8);
 
     cache.separation = separation;
     cache.ty = separating_feature::EDGE_PAIR_AXIS;
