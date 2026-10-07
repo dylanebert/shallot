@@ -160,21 +160,21 @@ pub(crate) unsafe fn sensor_task(
                     }
                     let (visitor, _) = query_abi::active_shape(id);
                     let relative = sensor_transform.inv_mul(pose(id, Vec3::ZERO));
-                    let mut points = [Vec3::ZERO; 128];
+                    let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
                     let (count, radius) = match visitor {
                         query::Shape::Sphere(s) => {
-                            points[0] = relative.point(s.center);
+                            points[0].write(relative.point(s.center));
                             (1, s.radius)
                         }
                         query::Shape::Capsule(s) => {
-                            points[0] = relative.point(s.center1);
-                            points[1] = relative.point(s.center2);
+                            points[0].write(relative.point(s.center1));
+                            points[1].write(relative.point(s.center2));
                             (2, s.radius)
                         }
                         query::Shape::Hull(h) => {
                             let count = h.vertex_count.min(128);
                             for j in 0..count {
-                                points[j] = relative.point(h.points[j]);
+                                points[j].write(relative.point(h.points[j]));
                             }
                             (count, 0.0)
                         }
@@ -192,7 +192,11 @@ pub(crate) unsafe fn sensor_task(
                         &sensor,
                         Transform::IDENTITY,
                         ShapeProxy {
-                            points: &points,
+                            // Each convex branch initializes precisely count points.
+                            points: core::slice::from_raw_parts(
+                                points.as_ptr().cast::<Vec3>(),
+                                count,
+                            ),
                             count,
                             radius,
                         },

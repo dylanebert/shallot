@@ -87,14 +87,16 @@ pub(crate) fn ray_cast_local(shape: &Shape, input: &RayCastInput) -> CastOutput 
 }
 
 pub fn shape_cast_shape(shape: &Shape, transform: Transform, input: &ShapeCastInput) -> CastOutput {
-    let mut points = [Vec3::ZERO; 128];
+    let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
     let count = input.proxy.count.min(128);
     for (i, p) in points[..count].iter_mut().enumerate() {
-        *p = transform.inv_point(input.proxy.points[i]);
+        p.write(transform.inv_point(input.proxy.points[i]));
     }
+    // Only the transformed prefix is initialized and exposed to the proxy.
+    let points = unsafe { core::slice::from_raw_parts(points.as_ptr().cast::<Vec3>(), count) };
     let local = ShapeCastInput {
         proxy: ShapeProxy {
-            points: &points,
+            points,
             count,
             radius: input.proxy.radius,
         },

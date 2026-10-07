@@ -283,14 +283,17 @@ pub fn shape_cast_compound(c: Compound, input: &ShapeCastInput) -> CastOutput {
             // quaternion math used by b3ShapeCastShape. Preserve that arithmetic path.
             let inv = xf.invert();
             let matrix = Mat3::from_quat(inv.q);
-            let mut points = [Vec3::ZERO; 128];
+            let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
             let count = input.proxy.count.min(128);
             for (i, p) in points[..count].iter_mut().enumerate() {
-                *p = matrix.mul_v(input.proxy.points[i]).add(inv.p);
+                p.write(matrix.mul_v(input.proxy.points[i]).add(inv.p));
             }
+            // The inverse-matrix path initializes exactly the proxy's active prefix.
+            let points =
+                unsafe { core::slice::from_raw_parts(points.as_ptr().cast::<Vec3>(), count) };
             let local = ShapeCastInput {
                 proxy: ShapeProxy {
-                    points: &points,
+                    points,
                     count,
                     radius: input.proxy.radius,
                 },
