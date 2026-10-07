@@ -7,13 +7,15 @@
 //! Every arithmetic op maps one-to-one to the C scalar path (no SIMD, no FMA); bit-identical to the
 //! the frozen historical oracle vectors; current target evidence belongs to the standalone oracle.
 
+#[cfg(target_arch = "wasm32")]
 use crate::body::{
     clear_sim_force_torque, flags::DYNAMIC, read_fin, read_sim, read_state, write_fin_center,
     write_fin_transform_p, write_sim_inv_inertia_world, write_sim_rotation,
     S2_BODY_ID, S2_CENTER0, S2_FLAGS, S2_MIN_EXTENT, S2_ROTATION0, SIM2_STRIDE,
 };
+#[cfg(target_arch = "wasm32")]
 use crate::col::Col;
-use crate::math::{maxf, minf, Mat3, Quat, Transform, Vec3};
+use crate::math::{maxf, minf, Mat3, Transform, Vec3};
 
 /// Position-correction weight for the sleep-velocity blend (b3FinalizeBodies `positionSleepFactor`).
 const POSITION_SLEEP_FACTOR: f32 = 0.5;

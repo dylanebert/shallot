@@ -1,6 +1,6 @@
 //! Joint-sim arrays owned by each world, in graph-color and solver-set order.
 use crate::col::Col;
-use crate::joint_abi::{JOINT_STRIDE, J_JOINT_ID, NULL_INDEX};
+use crate::joint_abi::{JOINT_STRIDE, NULL_INDEX};
 use crate::joint_sim::JointSim;
 use crate::regions;
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};

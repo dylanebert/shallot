@@ -1,6 +1,6 @@
 //! Box3D physics_world.c: serial contact transitions and step context.
 use crate::{
-    bodies, body, constraint_graph, contact_list, events, island, manifold_abi::*, manifolds,
+    bodies, constraint_graph, contact_list, events, island, manifold_abi::*, manifolds,
     regions, solver_set,
 };
 
@@ -149,8 +149,8 @@ pub unsafe extern "C" fn finalize(count: usize, dt: f32, enable_sleep: bool) -> 
 pub unsafe extern "C" fn finalize_in_world(
     world_index: usize,
     count: usize,
-    dt: f32,
-    enable_sleep: bool,
+    _dt: f32,
+    _enable_sleep: bool,
 ) -> bool {
     crate::events::set_move_count(world_index, count);
     crate::continuous::bullet_count() != 0
