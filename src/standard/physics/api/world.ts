@@ -703,6 +703,17 @@ export class PhysicsWorld {
         translation: Vec3,
         filter: QueryFilter = defaultQueryFilter(),
     ): RayResult {
+        if (!this.isValid() || this.state.locked)
+            return {
+                shape: null,
+                point: { x: 0, y: 0, z: 0 },
+                normal: { x: 0, y: 0, z: 0 },
+                fraction: 0,
+                userMaterialId: 0n,
+                triangleIndex: 0,
+                childIndex: 0,
+                hit: false,
+            };
         const q = queryColumns(this.state);
         const k = q.prepare(origin, filter);
         q.translation(translation);
@@ -731,6 +742,7 @@ export class PhysicsWorld {
         fcn: CastCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): TreeStats {
+        if (!this.isValid() || this.state.locked) return { nodeVisits: 0, leafVisits: 0 };
         const q = queryColumns(this.state);
         const k = q.prepare(origin, filter);
         q.translation(translation);
@@ -756,6 +768,7 @@ export class PhysicsWorld {
         fcn: OverlapCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): TreeStats {
+        if (!this.isValid() || this.state.locked) return { nodeVisits: 0, leafVisits: 0 };
         const q = queryColumns(this.state);
         const k = q.prepare({ x: 0, y: 0, z: 0 }, filter);
         q.bounds(box);
@@ -781,6 +794,7 @@ export class PhysicsWorld {
         fcn: OverlapCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): TreeStats {
+        if (!this.isValid() || this.state.locked) return { nodeVisits: 0, leafVisits: 0 };
         const q = queryColumns(this.state);
         const k = q.prepare(origin, filter);
         q.proxy(proxy);
@@ -807,6 +821,7 @@ export class PhysicsWorld {
         fcn: CastCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): TreeStats {
+        if (!this.isValid() || this.state.locked) return { nodeVisits: 0, leafVisits: 0 };
         const q = queryColumns(this.state);
         const k = q.prepare(origin, filter);
         q.proxy(proxy);
@@ -837,6 +852,7 @@ export class PhysicsWorld {
         fcn: PlaneResultCallback,
         filter: QueryFilter = defaultQueryFilter(),
     ): void {
+        if (!this.isValid() || this.state.locked) return;
         const q = queryColumns(this.state);
         const k = q.prepare(origin, filter);
         q.mover(mover.center1, mover.center2, mover.radius);
@@ -873,6 +889,7 @@ export class PhysicsWorld {
         filter: QueryFilter = defaultQueryFilter(),
         fcn: MoverFilterCallback | null = null,
     ): number {
+        if (!this.isValid() || this.state.locked) return 1;
         const q = queryColumns(this.state);
         const k = q.prepare(origin, filter);
         q.mover(mover.center1, mover.center2, mover.radius);

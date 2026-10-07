@@ -506,6 +506,16 @@ export class Body {
         filter: QueryFilter = defaultQueryFilter(),
         maxFraction = 1,
     ): BodyCastHit {
+        if (this.world.locked || !this.isValid())
+            return {
+                shape: null,
+                point: { x: 0, y: 0, z: 0 },
+                normal: { x: 0, y: 0, z: 0 },
+                fraction: 0,
+                triangleIndex: 0,
+                userMaterialId: 0n,
+                hit: false,
+            };
         const q = queryColumns(this.world);
         const k = q.prepare(origin, filter);
         q.placement(bodyTransform, origin);
@@ -533,6 +543,16 @@ export class Body {
         maxFraction = 1,
         canEncroach = false,
     ): BodyCastHit {
+        if (this.world.locked || !this.isValid())
+            return {
+                shape: null,
+                point: { x: 0, y: 0, z: 0 },
+                normal: { x: 0, y: 0, z: 0 },
+                fraction: 0,
+                triangleIndex: 0,
+                userMaterialId: 0n,
+                hit: false,
+            };
         const q = queryColumns(this.world);
         const k = q.prepare(origin, filter);
         q.placement(bodyTransform, origin);
@@ -556,6 +576,7 @@ export class Body {
         bodyTransform: Transform,
         filter: QueryFilter = defaultQueryFilter(),
     ): boolean {
+        if (this.world.locked || !this.isValid()) return false;
         const q = queryColumns(this.world);
         const k = q.prepare(origin, filter);
         q.placement(bodyTransform, origin);
@@ -574,6 +595,8 @@ export class Body {
      * (b3Body_GetClosestPoint). Uses the body's stored transform.
      */
     getClosestPoint(target: Vec3): { point: Vec3; distance: number } {
+        if (this.world.locked || !this.isValid())
+            return { point: { x: 0, y: 0, z: 0 }, distance: 0 };
         const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
 
         const origin = { x: 0, y: 0, z: 0 };
@@ -605,6 +628,7 @@ export class Body {
         capacity = 4,
         filter: QueryFilter = defaultQueryFilter(),
     ): BodyPlane[] {
+        if (this.world.locked || !this.isValid()) return [];
         const q = queryColumns(this.world);
         const k = q.prepare(origin, filter);
         q.placement(bodyTransform, origin);
