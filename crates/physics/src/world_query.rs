@@ -45,32 +45,14 @@ fn v(r: &[u32], i: usize) -> Vec3 {
     )
 }
 pub(crate) unsafe fn pose(id: usize, origin: Vec3) -> Transform {
-    let r = crate::shapes::col_slice();
-    let n = id * SHAPE_STRIDE + S_QUERY_POSE;
-    let awake = r[id * SHAPE_STRIDE + 32];
-    if awake != 0 {
-        let index = awake as usize - 1;
-        let fin = core::slice::from_raw_parts(
-            (crate::bodies::fin_base() as *const u32).add(index * 12),
-            12,
-        );
-        let sim = core::slice::from_raw_parts(
-            (crate::bodies::sim_base() as *const u32).add(index * 32),
-            32,
-        );
-        return Transform {
-            p: v(fin, 9).sub(origin),
-            q: Quat {
-                v: v(sim, 28),
-                s: f32::from_bits(sim[31]),
-            },
-        };
-    }
+    let body = crate::shapes::col().get(id * SHAPE_STRIDE + S_QUERY_BODY) as usize;
+    let fin = crate::bodies::column(body, 2, crate::body::FIN_STRIDE);
+    let sim = crate::bodies::column(body, 1, crate::body::SIM_STRIDE);
     Transform {
-        p: v(r, n).sub(origin),
+        p: Vec3::new(fin.get(9), fin.get(10), fin.get(11)).sub(origin),
         q: Quat {
-            v: v(r, n + 3),
-            s: f32::from_bits(r[n + 6]),
+            v: Vec3::new(sim.get(28), sim.get(29), sim.get(30)),
+            s: sim.get(31),
         },
     }
 }
