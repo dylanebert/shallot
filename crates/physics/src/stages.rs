@@ -135,12 +135,7 @@ impl SyncBlock {
 /// A stage: a slice of the shared block array, plus the counter its barrier spins on (b3SolverStage).
 /// Iterative stages (warm start / solve / relax / restitution of one color) re-use one block slice
 /// every sub-step; the blocks' sync indices grow monotonically across those re-uses.
-///
-/// One cache line each. `completion` is `fetch_add`ed by every worker that ran a block of the stage and
-/// spun on by the orchestrator, so two stages sharing a line put one stage's barrier under the other's
-/// write traffic. Unaligned, the data-section layout decides how much of that a build gets, and any
-/// static added near this array re-rolls it (measured: a layout shift alone cost the 8-thread solve 34%).
-#[repr(C, align(64))]
+#[repr(C)]
 pub struct Stage {
     block_start: usize,
     ty: StageType,
@@ -400,7 +395,7 @@ pub struct Context<'a> {
     worker_count: usize,
     /// `(syncIndex << 16) | stageIndex`, monotone within a step. `u32::MAX` is the finish sentinel.
     /// Its own cache line: every worker read-spins on it while the orchestrator writes it, and it must
-    /// not share a line with the counters the workers *write* (`exited`) — see [`Stage`].
+    /// not share a line with the counters the workers *write* (`exited`), as in solver.h's step context.
     sync_bits: Line<AtomicU32>,
     /// Workers that have seen the finish sentinel and left [`run`]. The orchestrator waits on this
     /// before returning — see [`run`].
@@ -1113,6 +1108,18 @@ mod tests {
         assert_eq!(core::mem::size_of::<SolverBlock>(), 8);
         assert_eq!(core::mem::size_of::<SyncBlock>(), 12);
         assert_eq!(core::mem::size_of::<StageType>(), 4);
+        assert_eq!(
+            core::mem::align_of::<Stage>(),
+            core::mem::align_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::size_of::<Stage>(),
+            if core::mem::size_of::<usize>() == 4 {
+                20
+            } else {
+                24
+            }
+        );
         let mut blocks = [SyncBlock::EMPTY];
         init_blocks(
             &mut blocks,
