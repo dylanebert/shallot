@@ -226,7 +226,8 @@ mod runtime {
         for &id in &w.free {
             regions::write_word(out, id as usize);
         }
-        w.records.snapshot_prefix(out, [w.next * core::mem::size_of::<JointRecord>()]);
+        w.records
+            .snapshot_prefix(out, [w.next * core::mem::size_of::<JointRecord>()]);
     }
     pub unsafe fn restore(world: usize, input: &mut &[u8]) {
         reset(world);

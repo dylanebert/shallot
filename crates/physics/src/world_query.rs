@@ -92,8 +92,16 @@ pub(crate) unsafe fn sensor_task(
     {
         let r = crate::shapes::col(world_index);
         let n = sensor_id * SHAPE_STRIDE;
-        let lo = Vec3::new(f32::from_bits(r.get(n + 10)), f32::from_bits(r.get(n + 11)), f32::from_bits(r.get(n + 12)));
-        let hi = Vec3::new(f32::from_bits(r.get(n + 13)), f32::from_bits(r.get(n + 14)), f32::from_bits(r.get(n + 15)));
+        let lo = Vec3::new(
+            f32::from_bits(r.get(n + 10)),
+            f32::from_bits(r.get(n + 11)),
+            f32::from_bits(r.get(n + 12)),
+        );
+        let hi = Vec3::new(
+            f32::from_bits(r.get(n + 13)),
+            f32::from_bits(r.get(n + 14)),
+            f32::from_bits(r.get(n + 15)),
+        );
         let (sensor, _) = query_abi::active_shape(world_index, sensor_id);
         let sensor_transform = pose(world_index, sensor_id, Vec3::ZERO);
         let mut stack = [0; tree::STACK_SIZE];
@@ -104,8 +112,16 @@ pub(crate) unsafe fn sensor_task(
             );
             tree::query(
                 pool,
-                if broad::tree_cap(world_index, i) == 0 { -1 } else { *broad::tree_state(world_index, i) as i32 },
-                if broad::tree_cap(world_index, i) == 0 { 0 } else { *broad::tree_state(world_index, i).add(1) as usize },
+                if broad::tree_cap(world_index, i) == 0 {
+                    -1
+                } else {
+                    *broad::tree_state(world_index, i) as i32
+                },
+                if broad::tree_cap(world_index, i) == 0 {
+                    0
+                } else {
+                    *broad::tree_state(world_index, i).add(1) as usize
+                },
                 [lo.x, lo.y, lo.z],
                 [hi.x, hi.y, hi.z],
                 r.get(n + S_QUERY_MASK),
@@ -265,8 +281,7 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                 let id = shape_id as usize;
                 if !accepts(world, id, &header)
                     || (exclude_body
-                        && crate::shapes::col(world).get(id * SHAPE_STRIDE + S_QUERY_BODY)
-                            + 1
+                        && crate::shapes::col(world).get(id * SHAPE_STRIDE + S_QUERY_BODY) + 1
                             == header[19])
                 {
                     return clip;

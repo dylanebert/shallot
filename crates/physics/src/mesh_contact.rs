@@ -1187,7 +1187,9 @@ mod tests {
             .triangle(triangles[0].triangle_index as usize)
             .vertices;
         assert!(a[1].sub(a[0]).cross(a[2].sub(a[0])).y > 0.0);
-        unsafe { cache.triangles.release(); }
+        unsafe {
+            cache.triangles.release();
+        }
     }
 
     #[test]

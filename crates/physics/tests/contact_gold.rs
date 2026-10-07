@@ -82,10 +82,9 @@ fn repack(input: &[f32], old_stride: usize, stride: usize, map: &[usize]) -> Vec
     out
 }
 
-fn observe(
-    c: &ContactConstraint,
-    manifolds: &[ManifoldConstraint],
-) -> (Vec<f32>, Vec<u32>, Vec<f32>, Vec<u32>, Vec<f32>) {
+type ContactObservation = (Vec<f32>, Vec<u32>, Vec<f32>, Vec<u32>, Vec<f32>);
+
+fn observe(c: &ContactConstraint, manifolds: &[ManifoldConstraint]) -> ContactObservation {
     use shallot_physics::math::{Mat3, Vec3};
     fn v(v: Vec3) -> Vec<f32> {
         vec![v.x, v.y, v.z]

@@ -330,8 +330,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
         regions::write_word(out, value);
     }
     let count = NEXT_IDS[id];
-    let dir =
-        core::slice::from_raw_parts(COLUMNS[id].layout[0] as *const u32, count * DIR_STRIDE);
+    let dir = core::slice::from_raw_parts(COLUMNS[id].layout[0] as *const u32, count * DIR_STRIDE);
     // world_snapshot.c serializes contents, never allocator positions or free chunks.
     for (index, &word) in dir.iter().enumerate() {
         regions::write_word(

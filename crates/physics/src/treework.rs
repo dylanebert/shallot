@@ -151,7 +151,9 @@ pub unsafe extern "C" fn mutate_resident_in_world(
     let ptr = crate::broad::tree_ptr(world_index, index);
     if op == 4 {
         let count = *state.add(3) as usize;
-        if count == 0 { return *state as i32; }
+        if count == 0 {
+            return *state as i32;
+        }
         let (indices, centers, n) = crate::broad::rebuild_scratch(world_index, index, count);
         let mut gather = [0; STACK_SIZE];
         let mut build = [0; STACK_SIZE * 5];
@@ -163,8 +165,15 @@ pub unsafe extern "C" fn mutate_resident_in_world(
             gather_stack: &mut gather,
             build_stack: &mut build,
         };
-        let pool = slice::from_raw_parts_mut(ptr, crate::broad::tree_cap(world_index, index) * STRIDE);
-        let root = tree::rebuild(pool, *state as i32, *state.add(3) as usize, id != 0, &mut rb);
+        let pool =
+            slice::from_raw_parts_mut(ptr, crate::broad::tree_cap(world_index, index) * STRIDE);
+        let root = tree::rebuild(
+            pool,
+            *state as i32,
+            *state.add(3) as usize,
+            id != 0,
+            &mut rb,
+        );
         *state = root as u32;
         return root;
     }
@@ -402,7 +411,11 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
     let shapes = crate::shapes::col(world_index);
     let fat = crate::shapes::col_f(world_index);
     let enlarged = crate::arena::enlarged_sims(world_index);
-    let blocks = if bullets == 0 { count.div_ceil(64) } else { crate::continuous::bullet_count() };
+    let blocks = if bullets == 0 {
+        count.div_ceil(64)
+    } else {
+        crate::continuous::bullet_count()
+    };
     for block in 0..blocks {
         let mut mask = if bullets == 0 {
             *enlarged.bits.add(block)
@@ -410,7 +423,11 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
             1
         };
         while mask != 0 {
-            let i = if bullets == 0 { block * 64 + mask.trailing_zeros() as usize } else { crate::continuous::bullet_body(block) };
+            let i = if bullets == 0 {
+                block * 64 + mask.trailing_zeros() as usize
+            } else {
+                crate::continuous::bullet_body(block)
+            };
             mask &= mask - 1;
             if i >= count {
                 break;

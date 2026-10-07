@@ -29,9 +29,24 @@ impl Database {
     fn entry(&self, kind: u32, pointer: usize) -> Option<&Entry> {
         self.entries.get(&pointer).filter(|e| e.kind == kind)
     }
-    fn retain(&mut self, kind: u32, identity: u32, bytes: usize, refs: u32, payload: Vec<u64>) -> usize {
+    fn retain(
+        &mut self,
+        kind: u32,
+        identity: u32,
+        bytes: usize,
+        refs: u32,
+        payload: Vec<u64>,
+    ) -> usize {
         let pointer = Box::into_raw(payload.into_boxed_slice()) as *mut u64 as usize;
-        self.entries.insert(pointer, Entry { kind, identity, refs, bytes });
+        self.entries.insert(
+            pointer,
+            Entry {
+                kind,
+                identity,
+                refs,
+                bytes,
+            },
+        );
         self.identities.insert((kind, identity), pointer);
         pointer
     }
@@ -54,16 +69,22 @@ impl Database {
         let entry = self.entries.get_mut(&pointer).expect("retained geometry");
         assert_eq!(entry.kind, kind);
         entry.refs -= 1;
-        if entry.refs != 0 { return; }
+        if entry.refs != 0 {
+            return;
+        }
         let entry = self.entries.remove(&pointer).unwrap();
         self.identities.remove(&(entry.kind, entry.identity));
-        unsafe { release(pointer, entry.bytes); }
+        unsafe {
+            release(pointer, entry.bytes);
+        }
     }
     fn clear(&mut self) {
         self.upload.fill(0);
         drop(core::mem::take(&mut self.upload));
         for (pointer, entry) in core::mem::take(&mut self.entries) {
-            unsafe { release(pointer, entry.bytes); }
+            unsafe {
+                release(pointer, entry.bytes);
+            }
         }
         self.identities = Index::default();
     }
@@ -71,11 +92,18 @@ impl Database {
         self.entries.capacity() * core::mem::size_of::<(usize, Entry)>()
             + self.identities.capacity() * core::mem::size_of::<((u32, u32), usize)>()
             + self.upload.capacity() * core::mem::size_of::<u64>()
-            + self.entries.values().map(|entry| entry.bytes.div_ceil(8) * 8).sum::<usize>()
+            + self
+                .entries
+                .values()
+                .map(|entry| entry.bytes.div_ceil(8) * 8)
+                .sum::<usize>()
     }
 }
 unsafe fn release(pointer: usize, bytes: usize) {
-    drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(pointer as *mut u64, bytes.div_ceil(8))));
+    drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+        pointer as *mut u64,
+        bytes.div_ceil(8),
+    )));
 }
 static mut DATABASES: [Database; MAX_WORLDS] = [const { Database::new() }; MAX_WORLDS];
 
@@ -97,11 +125,17 @@ pub extern "C" fn lookup(world: usize, kind: u32, identity: u32) -> usize {
 }
 #[export_name = "geometryDatabaseRemove"]
 pub extern "C" fn remove(world: usize, kind: u32, pointer: usize) {
-    unsafe { DATABASES[world].remove(kind, pointer); }
+    unsafe {
+        DATABASES[world].remove(kind, pointer);
+    }
 }
 #[export_name = "geometryDatabaseIdentity"]
 pub extern "C" fn identity(world: usize, kind: u32, pointer: usize) -> u32 {
-    unsafe { DATABASES[world].entry(kind, pointer).map_or(0, |e| e.identity) }
+    unsafe {
+        DATABASES[world]
+            .entry(kind, pointer)
+            .map_or(0, |e| e.identity)
+    }
 }
 #[export_name = "geometryDatabaseCount"]
 pub extern "C" fn count(world: usize) -> usize {

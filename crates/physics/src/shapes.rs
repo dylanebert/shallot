@@ -398,7 +398,8 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
             regions::write_word(out, value);
         }
     }
-    w.columns.snapshot_prefix(out, [w.shape.next * SHAPE_STRIDE * 4, w.shape.free * 4]);
+    w.columns
+        .snapshot_prefix(out, [w.shape.next * SHAPE_STRIDE * 4, w.shape.free * 4]);
     for shape in 0..w.shape.next {
         let count = *record(id, shape).add(S_MATERIAL_COUNT) as usize;
         if *record(id, shape).add(S_MATERIAL_HEAD) != 0 {

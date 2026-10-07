@@ -335,8 +335,8 @@ pub(crate) mod runtime {
             body.head_shape_id,
             clear_transient,
         ) as *const u32;
-        let moved = *result.add(1);
-        moved
+
+        *result.add(1)
     }
 
     #[export_name = "bodyWakeRecord"]
@@ -608,8 +608,7 @@ pub(crate) mod runtime {
             & !(body::flags::IS_FAST
                 | body::flags::IS_SPEED_CAPPED
                 | body::flags::HAD_TIME_OF_IMPACT);
-        bodies::column(world, id, 5, body::SIM2_STRIDE)
-            .set(body::S2_FLAGS, f32::from_bits(flags));
+        bodies::column(world, id, 5, body::SIM2_STRIDE).set(body::S2_FLAGS, f32::from_bits(flags));
         if record.set_index == 2 {
             *crate::solver_set::body_ptr(world, 2, record.local_index as usize, 4) = flags;
         }
@@ -796,8 +795,7 @@ pub(crate) mod runtime {
             record.head_shape_id
         };
         while shape != -1 {
-            let (minimum, maximum) =
-                crate::shape_geometry::extent(world, shape as usize, center);
+            let (minimum, maximum) = crate::shape_geometry::extent(world, shape as usize, center);
             mass_extent(world, id, minimum, maximum.x, maximum.y, maximum.z);
             shape = next_shape(world, shape as usize);
         }
@@ -829,11 +827,7 @@ pub(crate) mod runtime {
 
     pub unsafe extern "C" fn create_island_in_world(world: usize, id: usize) {
         let set = bodies::record(world, id).set_index as usize;
-        island::add_body_in_world(
-            world,
-            island::create_in_world(world, set),
-            id as i32,
-        );
+        island::add_body_in_world(world, island::create_in_world(world, set), id as i32);
     }
 
     #[export_name = "bodyColumnPtr"]

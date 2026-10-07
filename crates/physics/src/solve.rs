@@ -515,7 +515,6 @@ pub extern "C" fn solve_build(
     )
 }
 #[allow(clippy::too_many_arguments)]
-
 pub extern "C" fn solve_build_in_world(
     world_index: usize,
     thread_count: usize,
@@ -794,7 +793,8 @@ fn run_job(world_index: usize, index: usize) {
                         if index == 1 && crate::pairwork::rebuild_pending() {
                             crate::pairwork::rebuild_trees_in_world(world_index);
                         }
-                        p.par.run(|s, e| arena::contact_block(world_index, s, e, p.count, index));
+                        p.par
+                            .run(|s, e| arena::contact_block(world_index, s, e, p.count, index));
                     }
                     Job::Bullets => p
                         .par
@@ -802,15 +802,20 @@ fn run_job(world_index: usize, index: usize) {
                     Job::Pairs => p
                         .par
                         .run(|s, e| crate::pairwork::query_block(world_index, s, e, p.a as usize)),
-                    Job::Sensors => p.par.run(|s, e| crate::sensor::task(world_index, index, s, e)),
+                    Job::Sensors => p
+                        .par
+                        .run(|s, e| crate::sensor::task(world_index, index, s, e)),
                     Job::Finalize => p.par.run(|s, e| {
                         let work = (*STEP).work.as_ref().unwrap();
-                        work.finalize(Block {
-                            start: s,
-                            count: e - s,
-                            block_type: crate::stages::BlockType::Body,
-                            color: 0,
-                        }, index);
+                        work.finalize(
+                            Block {
+                                start: s,
+                                count: e - s,
+                                block_type: crate::stages::BlockType::Body,
+                                color: 0,
+                            },
+                            index,
+                        );
                     }),
                     Job::Solve | Job::None => unreachable!(),
                 }

@@ -334,8 +334,7 @@ pub unsafe extern "C" fn enable(world: usize, id: usize, bit: u32, enabled: bool
 
 pub unsafe extern "C" fn enable_in_world(world: usize, id: usize, bit: u32, enabled: bool) {
     let (key, index) = location(world, id);
-    let (field, impulse, count) = match (records::record(world, id).joint_type as u32, bit)
-    {
+    let (field, impulse, count) = match (records::record(world, id).joint_type as u32, bit) {
         (TY_DISTANCE, DJ_ENABLE_SPRING | DJ_ENABLE_LIMIT) => (DJ_ENABLE, 0, 0),
         (TY_DISTANCE, DJ_ENABLE_MOTOR) => (DJ_ENABLE, DJ_MOTOR_IMPULSE, 1),
         (TY_REVOLUTE, RJ_ENABLE_SPRING) => (RJ_ENABLE, RJ_SPRING_IMPULSE, 1),

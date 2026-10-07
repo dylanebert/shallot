@@ -52,7 +52,11 @@ pub fn tree_ptr(world_index: usize, i: usize) -> *mut u32 {
 pub fn tree_cap(world_index: usize, i: usize) -> usize {
     unsafe { world(world_index).tree[i] }
 }
-pub unsafe fn rebuild_scratch(world_index: usize, index: usize, count: usize) -> (*mut i32, *mut f32, usize) {
+pub unsafe fn rebuild_scratch(
+    world_index: usize,
+    index: usize,
+    count: usize,
+) -> (*mut i32, *mut f32, usize) {
     let w = &mut WORLDS[world_index];
     if count > w.rebuild_capacity[index] {
         let capacity = count + count / 2;
@@ -63,7 +67,11 @@ pub unsafe fn rebuild_scratch(world_index: usize, index: usize, count: usize) ->
         }
         w.rebuild_capacity[index] = capacity;
     }
-    (w.rebuild[2 * index].ptr as *mut i32, w.rebuild[2 * index + 1].ptr as *mut f32, w.rebuild_capacity[index])
+    (
+        w.rebuild[2 * index].ptr as *mut i32,
+        w.rebuild[2 * index + 1].ptr as *mut f32,
+        w.rebuild_capacity[index],
+    )
 }
 pub fn set_count(world_index: usize) -> usize {
     unsafe { world(world_index).set_count }
@@ -83,7 +91,10 @@ pub fn set_items(world_index: usize) -> *mut crate::table::Item {
 pub unsafe fn grow_set(world_index: usize) {
     let w = &mut WORLDS[world_index];
     let capacity = w.set;
-    let mut old = w.columns.replace_zeroed(ITEMS, 2 * capacity * core::mem::size_of::<crate::table::Item>());
+    let mut old = w.columns.replace_zeroed(
+        ITEMS,
+        2 * capacity * core::mem::size_of::<crate::table::Item>(),
+    );
     w.set = 2 * capacity;
     crate::table::transfer_items(
         core::slice::from_raw_parts(old.ptr as *const crate::table::Item, capacity),
@@ -112,7 +123,11 @@ unsafe fn grow_bits(world_index: usize, i: usize, count: usize) {
     if count > w.bit_capacity[i] {
         let capacity = count + count / 2;
         let mut old = w.columns.replace_zeroed(BITS + i, capacity * 8);
-        core::ptr::copy_nonoverlapping(old.ptr as *const u64, w.columns.layout[BITS + i] as *mut u64, w.bit_capacity[i]);
+        core::ptr::copy_nonoverlapping(
+            old.ptr as *const u64,
+            w.columns.layout[BITS + i] as *mut u64,
+            w.bit_capacity[i],
+        );
         old.release();
         w.bit_capacity[i] = capacity;
     }
@@ -309,10 +324,14 @@ pub unsafe extern "C" fn buffer_move_in_world(world_index: usize, key: u32) {
 pub unsafe fn unbuffer_move(world_index: usize, key: u32) {
     let i = (key & 3) as usize;
     let id = (key >> 2) as usize;
-    if id / 64 >= bits_words(world_index, i) { return; }
+    if id / 64 >= bits_words(world_index, i) {
+        return;
+    }
     let p = bits_ptr(world_index, i).add(id / 64);
     let mask = 1u64 << (id & 63);
-    if *p & mask == 0 { return; }
+    if *p & mask == 0 {
+        return;
+    }
     *p &= !mask;
     let count = base(world_index, MOVE) as *mut u32;
     for n in 0..*count as usize {
@@ -406,7 +425,8 @@ pub extern "C" fn reserve_broad_in_world(
                 w.bit_capacity[i] = 1;
             }
         }
-        w.columns.reserve(ITEMS, set * core::mem::size_of::<crate::table::Item>());
+        w.columns
+            .reserve(ITEMS, set * core::mem::size_of::<crate::table::Item>());
         w.columns
             .reserve(MOVE, (1 + tree.iter().sum::<usize>()) * 4);
         w.tree = tree;
@@ -415,7 +435,9 @@ pub extern "C" fn reserve_broad_in_world(
     }
 }
 pub unsafe fn reset(id: usize) {
-    for buffer in &mut WORLDS[id].rebuild { buffer.release(); }
+    for buffer in &mut WORLDS[id].rebuild {
+        buffer.release();
+    }
     WORLDS[id].columns.release();
     WORLDS[id] = Broad::EMPTY;
 }
@@ -426,14 +448,20 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     }
     regions::write_word(out, w.set);
     regions::write_word(out, w.set_count);
-    for value in w.bit_count { regions::write_word(out, value); }
+    for value in w.bit_count {
+        regions::write_word(out, value);
+    }
     let mut bytes = [0; N_BROAD];
     for i in 0..3 {
         bytes[i] = tree_bytes(w.tree[i]);
         bytes[BITS + i] = w.bit_count[i] * 8;
     }
     bytes[ITEMS] = w.set * core::mem::size_of::<crate::table::Item>();
-    bytes[MOVE] = if w.tree.iter().sum::<usize>() == 0 { 0 } else { (1 + move_count(id)) * 4 };
+    bytes[MOVE] = if w.tree.iter().sum::<usize>() == 0 {
+        0
+    } else {
+        (1 + move_count(id)) * 4
+    };
     w.columns.snapshot_prefix(out, bytes);
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
@@ -443,8 +471,11 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     }
     w.set = regions::read_word(input);
     w.set_count = regions::read_word(input);
-    for value in &mut w.bit_count { *value = regions::read_word(input); }
+    for value in &mut w.bit_count {
+        *value = regions::read_word(input);
+    }
     w.bit_capacity = w.bit_count;
     w.columns.restore(input);
-    w.columns.reserve(MOVE, (1 + w.tree.iter().sum::<usize>()) * 4);
+    w.columns
+        .reserve(MOVE, (1 + w.tree.iter().sum::<usize>()) * 4);
 }

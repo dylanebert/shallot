@@ -231,10 +231,18 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             pool_slice(world_index, 2),
         ];
         let roots = core::array::from_fn::<_, 3, _>(|i| {
-            if broad::tree_cap(world_index, i) == 0 { -1 } else { *broad::tree_state(world_index, i) as i32 }
+            if broad::tree_cap(world_index, i) == 0 {
+                -1
+            } else {
+                *broad::tree_state(world_index, i) as i32
+            }
         });
         let counts = core::array::from_fn::<_, 3, _>(|i| {
-            if broad::tree_cap(world_index, i) == 0 { 0 } else { *broad::tree_state(world_index, i).add(1) as usize }
+            if broad::tree_cap(world_index, i) == 0 {
+                0
+            } else {
+                *broad::tree_state(world_index, i).add(1) as usize
+            }
         });
 
         let mut em = Emitter {
@@ -327,7 +335,20 @@ pub extern "C" fn rebuild_trees_in_world(world_index: usize) {
                 continue;
             }
             crate::treework::mutate_resident_in_world(
-                world_index, ti, 4, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0,
+                world_index,
+                ti,
+                4,
+                0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0,
+                0,
+                0,
+                0,
             );
         }
         REBUILD_PENDING = false;

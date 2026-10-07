@@ -31,7 +31,9 @@ pub fn transfer_items(old: &[Item], new: &mut [Item]) {
     }
 }
 pub fn contains_item(items: &[Item], a: u32, b: u32, child: u32) -> bool {
-    if items.is_empty() { return false; }
+    if items.is_empty() {
+        return false;
+    }
     let key = item_key(a, b, child);
     let hash = key_hash((key >> 32) as u32, key as u32);
     items[item_slot(items, key, hash)].key == key
@@ -146,7 +148,6 @@ pub extern "C" fn create_set(need: usize) {
     create_set_in_world(crate::regions::active(), need)
 }
 #[cfg(target_arch = "wasm32")]
-
 pub extern "C" fn create_set_in_world(world_index: usize, need: usize) {
     crate::broad::reserve_broad_in_world(world_index, 0, 0, 0, capacity(need));
 }
@@ -156,17 +157,17 @@ pub extern "C" fn ensure_set(need: usize) {
     ensure_set_in_world(crate::regions::active(), need)
 }
 #[cfg(target_arch = "wasm32")]
-
 pub extern "C" fn ensure_set_in_world(world_index: usize, need: usize) {
     if crate::broad::set_cap(world_index) == 0 {
         create_set_in_world(world_index, need);
     }
 }
 #[cfg(target_arch = "wasm32")]
-unsafe fn resident(
-    world_index: usize,
-) -> &'static mut [Item] {
-    core::slice::from_raw_parts_mut(crate::broad::set_items(world_index), crate::broad::set_cap(world_index))
+unsafe fn resident(world_index: usize) -> &'static mut [Item] {
+    core::slice::from_raw_parts_mut(
+        crate::broad::set_items(world_index),
+        crate::broad::set_cap(world_index),
+    )
 }
 /// # Safety
 /// The active world must be selected, and this must run at a serial point, since growth moves the set.
@@ -176,7 +177,6 @@ pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
     unsafe { add_pair_in_world(crate::regions::active(), a, b, child) }
 }
 #[cfg(target_arch = "wasm32")]
-
 /// # Safety
 /// `world_index` must identify a live world, exclusively accessed while its set may grow.
 pub unsafe extern "C" fn add_pair_in_world(world_index: usize, a: u32, b: u32, child: u32) -> u32 {
@@ -202,7 +202,6 @@ pub unsafe extern "C" fn remove_pair(a: u32, b: u32, child: u32) -> u32 {
     unsafe { remove_pair_in_world(crate::regions::active(), a, b, child) }
 }
 #[cfg(target_arch = "wasm32")]
-
 /// # Safety
 /// `world_index` must identify a live world, with no concurrent access to its set.
 pub unsafe extern "C" fn remove_pair_in_world(
@@ -218,7 +217,9 @@ pub unsafe extern "C" fn remove_pair_in_world(
     let key = item_key(a, b, child);
     let hash = key_hash((key >> 32) as u32, key as u32);
     let mut i = item_slot(items, key, hash);
-    if items[i].hash == 0 { return 0; }
+    if items[i].hash == 0 {
+        return 0;
+    }
     items[i].key = 0;
     items[i].hash = 0;
     crate::broad::change_set_count(world_index, -1);
@@ -226,9 +227,17 @@ pub unsafe extern "C" fn remove_pair_in_world(
     let mut j = i;
     loop {
         j = (j + 1) & mask;
-        if items[j].hash == 0 { break; }
+        if items[j].hash == 0 {
+            break;
+        }
         let k = items[j].hash as usize & mask;
-        if if i <= j { i < k && k <= j } else { i < k || k <= j } { continue; }
+        if if i <= j {
+            i < k && k <= j
+        } else {
+            i < k || k <= j
+        } {
+            continue;
+        }
         items[i] = items[j];
         items[j].key = 0;
         items[j].hash = 0;

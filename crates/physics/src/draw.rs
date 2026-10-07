@@ -262,13 +262,7 @@ pub unsafe extern "C" fn run_in_world(
                     order.push(body_id);
                 }
                 if flags & 1 != 0 {
-                    shape(
-                        world,
-                        out,
-                        id,
-                        pose(world, body_id),
-                        color(world, id),
-                    );
+                    shape(world, out, id, pose(world, body_id), color(world, id));
                 }
                 if flags & 2 != 0 {
                     let o = begin(out, 9, 0xffd700);

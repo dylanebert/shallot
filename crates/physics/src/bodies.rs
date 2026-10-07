@@ -389,10 +389,14 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
         regions::write_word(out, id as usize);
     }
     let mut bytes = [0; N_BODY];
-    for column in [B_RECORD_EID, B_SYNC_EID, B_SYNC_INDEX] { bytes[column] = w.next * 4; }
+    for column in [B_RECORD_EID, B_SYNC_EID, B_SYNC_INDEX] {
+        bytes[column] = w.next * 4;
+    }
     bytes[B_RECORD] = w.next * core::mem::size_of::<crate::body_record::BodyRecord>();
     bytes[B_MOVE] = w.next * MOVE_STRIDE * 4;
-    for column in [B_SYNC_POS, B_SYNC_QUAT, B_SYNC_VEL] { bytes[column] = w.next * 16; }
+    for column in [B_SYNC_POS, B_SYNC_QUAT, B_SYNC_VEL] {
+        bytes[column] = w.next * 16;
+    }
     w.columns.snapshot_prefix(out, bytes);
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {

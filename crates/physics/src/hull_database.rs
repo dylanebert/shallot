@@ -81,7 +81,9 @@ impl Database {
                 return Some((bucket, displacement));
             }
             displacement += 1;
-            if displacement == LINK { return None; }
+            if displacement == LINK {
+                return None;
+            }
             linear_displacement += displacement as usize;
         }
     }
@@ -109,7 +111,9 @@ impl Database {
         true
     }
     fn insert_raw(&mut self, value: Bucket, unique: bool) -> bool {
-        if self.buckets.is_empty() { return false; }
+        if self.buckets.is_empty() {
+            return false;
+        }
         let hash = self.hash(value.key);
         let fragment = ((hash >> 48) as u16) & FRAGMENT;
         let home = hash as usize & self.mask();
@@ -132,7 +136,9 @@ impl Database {
                         self.buckets[bucket] = value;
                         return true;
                     }
-                    if self.metadata[bucket] & LINK == LINK { break; }
+                    if self.metadata[bucket] & LINK == LINK {
+                        break;
+                    }
                     bucket = self.next(home, bucket);
                 }
             }

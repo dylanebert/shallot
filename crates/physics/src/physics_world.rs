@@ -1,7 +1,7 @@
 //! Box3D physics_world.c: serial contact transitions and step context.
 use crate::{
-    bodies, constraint_graph, contact_list, events, island, manifold_abi::*, manifolds,
-    regions, solver_set,
+    bodies, constraint_graph, contact_list, events, island, manifold_abi::*, manifolds, regions,
+    solver_set,
 };
 
 #[export_name = "worldDestroyKernel"]

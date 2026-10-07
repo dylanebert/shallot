@@ -112,7 +112,9 @@ pub unsafe fn prepare(world_index: usize, workers: usize) -> usize {
 pub unsafe fn task(world_index: usize, worker: usize, start: usize, end: usize) {
     let world = world_index;
     let sensors = (*(&raw const WORLDS))[world].sensors.as_ptr().cast_mut();
-    let bits = (*(&raw const WORLDS))[world].event_bits[worker].as_ptr().cast_mut();
+    let bits = (*(&raw const WORLDS))[world].event_bits[worker]
+        .as_ptr()
+        .cast_mut();
     for index in start..end {
         let s = &mut *sensors.add(index);
         core::mem::swap(&mut s.overlaps1, &mut s.overlaps2);
@@ -147,7 +149,11 @@ pub unsafe fn publish(world: usize) {
             w.event_bits[0][block] |= w.event_bits[worker][block];
         }
     }
-    for (block, bits) in w.event_bits[0][..w.event_blocks].iter().copied().enumerate() {
+    for (block, bits) in w.event_bits[0][..w.event_blocks]
+        .iter()
+        .copied()
+        .enumerate()
+    {
         let mut bits = bits;
         while bits != 0 {
             let index = block * 64 + bits.trailing_zeros() as usize;

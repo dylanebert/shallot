@@ -430,7 +430,7 @@ pub fn solve(
                     let new_impulse = maxf(normal_impulse + delta_impulse, 0.0);
                     delta_impulse = new_impulse - normal_impulse;
                     (*cp).normal_impulse = new_impulse;
-                    (*cp).total_normal_impulse = (*cp).total_normal_impulse + new_impulse;
+                    (*cp).total_normal_impulse += new_impulse;
 
                     total_normal_impulse += new_impulse;
                     total_twist_limit += lever_arm * new_impulse;
@@ -582,7 +582,7 @@ pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
                     let new_impulse = maxf(normal_impulse + impulse, 0.0);
                     impulse = new_impulse - normal_impulse;
                     (*cp).normal_impulse = new_impulse;
-                    (*cp).total_normal_impulse = (*cp).total_normal_impulse + impulse;
+                    (*cp).total_normal_impulse += impulse;
 
                     let p_imp = normal.scale(impulse);
                     v_a = v_a.mul_sub(m_a, p_imp);

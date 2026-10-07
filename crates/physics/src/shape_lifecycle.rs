@@ -93,8 +93,8 @@ pub unsafe extern "C" fn sync_body_bounds_in_world(world: usize, body_id: usize)
     let mut shape = bodies::record(world, body_id).head_shape_id;
     while shape != -1 {
         body_record_bounds(world, body_id, shape as usize);
-        shape = shapes::col(world)
-            .get(shape as usize * shapes::SHAPE_STRIDE + shapes::S_NEXT) as i32;
+        shape =
+            shapes::col(world).get(shape as usize * shapes::SHAPE_STRIDE + shapes::S_NEXT) as i32;
     }
 }
 unsafe fn body_record_bounds(world: usize, id: usize, shape: usize) {
@@ -162,11 +162,7 @@ pub unsafe extern "C" fn create_proxy_in_world(world: usize, id: usize, force: b
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
     let body_id = u.get(o + 1) as usize;
-    let tight = crate::continuous::bounds(
-        world,
-        id,
-        bodies::geometry(world, body_id).0,
-    );
+    let tight = crate::continuous::bounds(world, id, bodies::geometry(world, body_id).0);
     create_proxy_bounds(
         world, id, force, tight[0], tight[1], tight[2], tight[3], tight[4], tight[5],
     );
@@ -459,8 +455,7 @@ pub unsafe extern "C" fn set_filter_in_world(
         destroy_proxy_in_world(world, id);
         create_proxy_in_world(world, id, true);
     } else {
-        let tight =
-            crate::continuous::bounds(world, id, bodies::geometry(world, body).0);
+        let tight = crate::continuous::bounds(world, id, bodies::geometry(world, body).0);
         write_bounds(
             world,
             id,
@@ -551,7 +546,7 @@ pub unsafe extern "C" fn body_proxies_in_world(world: usize, id: usize, mode: u3
         if mode != 0 {
             create_proxy_in_world(world, shape as usize, true);
         }
-        shape = shapes::col(world)
-            .get(shape as usize * shapes::SHAPE_STRIDE + shapes::S_NEXT) as i32;
+        shape =
+            shapes::col(world).get(shape as usize * shapes::SHAPE_STRIDE + shapes::S_NEXT) as i32;
     }
 }
