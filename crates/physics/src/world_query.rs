@@ -59,8 +59,7 @@ pub(crate) unsafe fn pose(id: usize, origin: Vec3) -> Transform {
 pub(crate) fn accepts(id: usize, header: &[u32; 20]) -> bool {
     let r = crate::shapes::col_slice();
     let n = id * SHAPE_STRIDE;
-    (header[19] == 0 || r[n + S_QUERY_BODY] + 1 != header[19])
-        && ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY + 1] & header[9])) != 0
+    ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY + 1] & header[9])) != 0
         && ((r[n + S_QUERY_MASK] & header[6]) | (r[n + S_QUERY_MASK + 1] & header[7])) != 0
 }
 pub(crate) unsafe fn write_cast(out: &CastOutput, target: *mut u32, material: i32) {
@@ -204,6 +203,7 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
     unsafe {
         crate::shapes::shape_set_active_world(world as u32);
         let header = HEADER;
+        let exclude_body = matches!(operation, 3 | 5 | 6) && header[19] != 0;
         let origin = v(&header, 10);
         let (r, _, proxy) = query_abi::input();
         // A user callback can recursively query; keep inputs independent of the shared ABI scratch.
@@ -256,7 +256,11 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
             let tree_fraction = fraction;
             let mut visit = |clip: f32, _: i32, shape_id: u32| -> f32 {
                 let id = shape_id as usize;
-                if !accepts(id, &header) {
+                if !accepts(id, &header)
+                    || (exclude_body
+                        && crate::shapes::col().get(id * SHAPE_STRIDE + S_QUERY_BODY) + 1
+                            == header[19])
+                {
                     return clip;
                 }
                 if operation == 0 {
