@@ -906,12 +906,14 @@ impl Plane {
 
 /// Normalize `a` and return its length; zero vector if `a` is tiny (b3GetLengthAndNormalize).
 pub fn get_length_and_normalize(a: Vec3) -> (Vec3, f32) {
-    let length = a.length();
-    if length < FLT_EPSILON {
-        return (Vec3::ZERO, length);
+    let length_squared = a.dot(a);
+    if length_squared > 1000.0 * f32::MIN_POSITIVE {
+        let length = length_squared.sqrt();
+        let inv_length = 1.0 / length;
+        (a.scale(inv_length), length)
+    } else {
+        (Vec3::ZERO, 0.0)
     }
-    let inv_length = 1.0 / length;
-    (a.scale(inv_length), length)
 }
 
 /// Closest points on two segments or infinite lines (b3SegmentDistanceResult).
