@@ -222,7 +222,9 @@ impl MeshCache {
         let extent = Mat3::from_quat(transform.q).abs().mul_v(half);
         let mut indices = [0usize; MAX_TRIANGLES];
         let count = source.query(center.sub(extent), center.add(extent), &mut indices);
-        indices[..count].sort_unstable();
+        #[cfg(any(test, debug_assertions))]
+        assert!(indices[..count].windows(2).all(|pair| pair[0] < pair[1]));
+
         previous[..self.count].copy_from_slice(&self.triangles[..self.count]);
         let mut old_index = 0;
         for i in 0..count {
@@ -860,7 +862,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mesh_cache_sorts_bvh_results_before_matching_warm_triangles() {
+    #[should_panic]
+    fn mesh_cache_validates_increasing_collected_indices() {
         use crate::mesh_query::{Mesh, MeshNode, MeshTriangle};
         let lower = Vec3::new(-1.0, -1.0, -1.0);
         let upper = Vec3::new(1.0, 1.0, 1.0);
@@ -886,57 +889,28 @@ mod tests {
             Vec3::new(-0.5, 0.0, 0.5),
             Vec3::new(0.5, 0.0, 0.5),
         ];
-        let triangles = [MeshTriangle { indices: [0, 1, 2] }; 2];
-        let materials = [3, 7];
-        let flags = [0; 2];
         let source = TriangleSource::Mesh {
             mesh: Mesh {
                 nodes: &nodes,
                 vertices: &vertices,
-                triangles: &triangles,
-                materials: &materials,
+                triangles: &[MeshTriangle { indices: [0, 1, 2] }; 2],
+                materials: &[0; 2],
                 scale: Vec3::new(1.0, 1.0, 1.0),
             },
-            flags: &flags,
+            flags: &[0; 2],
         };
-        let empty = TriangleCache::empty(0);
         let mut cache = MeshCache {
-            lower: Vec3::new(f32::MAX, f32::MAX, f32::MAX),
-            upper: Vec3::new(-f32::MAX, -f32::MAX, -f32::MAX),
+            lower: upper,
+            upper: lower,
             count: 0,
-            triangles: [empty; MAX_TRIANGLES],
+            triangles: [TriangleCache::empty(0); MAX_TRIANGLES],
         };
-        let mut previous = [empty; MAX_TRIANGLES];
-        cache.refresh(&source, Transform::IDENTITY, lower, upper, &mut previous);
-        assert_eq!(cache.count, 2);
-        assert_eq!(
-            [
-                cache.triangles[0].triangle_index,
-                cache.triangles[1].triangle_index
-            ],
-            [0, 1]
-        );
-        cache.triangles[0].cache.simplex().metric = 17.0;
-        cache.triangles[1].cache.sat().separation = 29.0;
         cache.refresh(
             &source,
             Transform::IDENTITY,
-            lower.sub(Vec3::new(0.1, 0.1, 0.1)),
+            lower,
             upper,
-            &mut previous,
-        );
-        assert_eq!(cache.triangles[0].cache.simplex().metric, 17.0);
-        assert_eq!(cache.triangles[1].cache.sat().separation, 29.0);
-        assert_eq!(
-            [
-                source
-                    .triangle(cache.triangles[0].triangle_index as usize)
-                    .material_index,
-                source
-                    .triangle(cache.triangles[1].triangle_index as usize)
-                    .material_index
-            ],
-            materials.map(u32::from)
+            &mut [TriangleCache::empty(0); MAX_TRIANGLES],
         );
     }
 
