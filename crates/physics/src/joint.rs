@@ -843,9 +843,6 @@ fn solve_weld(
     let delta_center = get_vec3(joints, slot, WJ_DELTA_CENTER);
     let fixed_rotation = get(joints, slot, WJ_FIXED_ROTATION) != 0.0;
 
-    let mut linear_impulse = get_vec3(joints, slot, WJ_LINEAR_IMPULSE);
-    let mut angular_impulse = get_vec3(joints, slot, WJ_ANGULAR_IMPULSE);
-
     let quat_a = end_a.state.delta_rotation.mul(frame_a.q);
     let mut quat_b = end_b.state.delta_rotation.mul(frame_b.q);
     if quat_a.dot(quat_b) < 0.0 {
@@ -855,6 +852,7 @@ fn solve_weld(
 
     // angular constraint
     if !fixed_rotation {
+        let angular_impulse = get_vec3(joints, slot, WJ_ANGULAR_IMPULSE);
         let mut bias = Vec3::ZERO;
         let mut mass_scale = 1.0_f32;
         let mut impulse_scale = 0.0;
@@ -872,7 +870,12 @@ fn solve_weld(
             .mul_v(cdot.add(bias))
             .scale(-mass_scale)
             .mul_sub(impulse_scale, angular_impulse);
-        angular_impulse = angular_impulse.add(impulse);
+        set_vec3(
+            joints,
+            slot,
+            WJ_ANGULAR_IMPULSE,
+            angular_impulse.add(impulse),
+        );
 
         w_a = w_a.sub(i_a.mul_v(impulse));
         w_b = w_b.add(i_b.mul_v(impulse));
@@ -909,17 +912,15 @@ fn solve_weld(
 
         let b = k.solve(cdot.add(bias));
 
+        let linear_impulse = get_vec3(joints, slot, WJ_LINEAR_IMPULSE);
         let impulse = b.scale(-mass_scale).mul_sub(impulse_scale, linear_impulse);
-        linear_impulse = linear_impulse.add(impulse);
+        set_vec3(joints, slot, WJ_LINEAR_IMPULSE, linear_impulse.add(impulse));
 
         v_a = v_a.mul_sub(m_a, impulse);
         w_a = w_a.sub(i_a.mul_v(r_a.cross(impulse)));
         v_b = v_b.mul_add(m_b, impulse);
         w_b = w_b.add(i_b.mul_v(r_b.cross(impulse)));
     }
-
-    set_vec3(joints, slot, WJ_LINEAR_IMPULSE, linear_impulse);
-    set_vec3(joints, slot, WJ_ANGULAR_IMPULSE, angular_impulse);
 
     if end_a.dynamic {
         write_velocity(state_col, base.sim_index_a, v_a, w_a);
