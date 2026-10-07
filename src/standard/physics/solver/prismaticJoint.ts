@@ -12,7 +12,7 @@ import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { getBodySim, getBodyState, readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, JointType } from "./joint";
+import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
 /** Prismatic joint payload (b3PrismaticJoint). Impulses persist across steps for warm starting. */
 
@@ -55,10 +55,9 @@ export function createPrismaticJoint(
 ): {
     joint: Joint;
 } {
-    const pair = createJoint(world, def.base, JointType.Prismatic);
-    kernel(world.ecsState).jointInitPrismatic(
+    const joint = kernel(world.ecsState).jointCreatePrismatic(
         world.worldId,
-        pair.joint,
+        writeJointDefinition(world, def.base),
         def.hertz,
         def.dampingRatio,
         def.targetTranslation,
@@ -70,7 +69,7 @@ export function createPrismaticJoint(
         def.enableLimit,
         def.enableMotor,
     );
-    return pair;
+    return finishJointCreation(world, def.base, joint);
 }
 export function getPrismaticJointForce(world: WorldState, sim: Joint): Vec3 {
     return readJointReaction(world, sim, false);

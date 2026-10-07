@@ -2,7 +2,7 @@ import { FLT_MAX, type Vec3 } from "../common/math";
 import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, JointType } from "./joint";
+import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
 /** Parallel joint payload (b3ParallelJoint). Impulse persists across steps for warm starting. */
 
@@ -30,15 +30,14 @@ export function createParallelJoint(
 ): {
     joint: Joint;
 } {
-    const pair = createJoint(world, def.base, JointType.Parallel);
-    kernel(world.ecsState).jointInitParallel(
+    const joint = kernel(world.ecsState).jointCreateParallel(
         world.worldId,
-        pair.joint,
+        writeJointDefinition(world, def.base),
         def.hertz,
         def.dampingRatio,
         def.maxTorque,
     );
-    return pair;
+    return finishJointCreation(world, def.base, joint);
 }
 
 export function getParallelJointTorque(world: WorldState, sim: Joint): Vec3 {

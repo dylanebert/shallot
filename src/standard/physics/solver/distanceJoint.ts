@@ -6,7 +6,7 @@ import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, JointType } from "./joint";
+import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
 /** Distance joint payload (b3DistanceJoint). Impulses persist across steps for warm starting. */
 
@@ -53,10 +53,9 @@ export function createDistanceJoint(
 ): {
     joint: Joint;
 } {
-    const pair = createJoint(world, def.base, JointType.Distance);
-    kernel(world.ecsState).jointInitDistance(
+    const joint = kernel(world.ecsState).jointCreateDistance(
         world.worldId,
-        pair.joint,
+        writeJointDefinition(world, def.base),
         def.length,
         def.hertz,
         def.dampingRatio,
@@ -70,7 +69,7 @@ export function createDistanceJoint(
         def.enableLimit,
         def.enableMotor,
     );
-    return pair;
+    return finishJointCreation(world, def.base, joint);
 }
 export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
     return readJointReaction(world, sim, false);

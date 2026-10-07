@@ -41,7 +41,7 @@ import {
     WJ_LINEAR_HERTZ,
 } from "../kernel/columns";
 import { readJointFlag, readJointFloat, readJointVec3 } from "../kernel/jointcolumns";
-import { JointField, jointField } from "../kernel/jointrecords";
+import { JointField, jointField, jointViews } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
@@ -118,6 +118,37 @@ export function defaultJointDef(): JointDef {
     };
 }
 
+export function writeJointDefinition(world: WorldState, def: JointDef): number {
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
+    const ptr = k.jointDefinitionPtr(world.worldId);
+    const { words, floats } = jointViews(k);
+    const o = ptr >>> 2;
+    words[o] = def.bodyIdA;
+    words[o + 1] = def.bodyIdB;
+    floats[o + 2] = def.drawScale;
+    words[o + 3] = Number(def.collideConnected);
+    floats[o + 4] = def.localFrameA.p.x;
+    floats[o + 5] = def.localFrameA.p.y;
+    floats[o + 6] = def.localFrameA.p.z;
+    floats[o + 7] = def.localFrameA.q.v.x;
+    floats[o + 8] = def.localFrameA.q.v.y;
+    floats[o + 9] = def.localFrameA.q.v.z;
+    floats[o + 10] = def.localFrameA.q.s;
+    floats[o + 11] = def.localFrameB.p.x;
+    floats[o + 12] = def.localFrameB.p.y;
+    floats[o + 13] = def.localFrameB.p.z;
+    floats[o + 14] = def.localFrameB.q.v.x;
+    floats[o + 15] = def.localFrameB.q.v.y;
+    floats[o + 16] = def.localFrameB.q.v.z;
+    floats[o + 17] = def.localFrameB.q.s;
+    floats[o + 18] = def.forceThreshold;
+    floats[o + 19] = def.torqueThreshold;
+    floats[o + 20] = def.constraintHertz;
+    floats[o + 21] = def.constraintDampingRatio;
+    return ptr;
+}
+
 /** Create a joint identity and sim in Box3D's solver-set and island order. */
 export function createJointRecord(world: WorldState, def: JointDef, type: JointType): Joint {
     const k = kernel(world.ecsState);
@@ -149,6 +180,11 @@ export function createJointRecord(world: WorldState, def: JointDef, type: JointT
     );
     world.jointUserData[joint] = def.userData;
     return joint;
+}
+
+export function finishJointCreation(world: WorldState, def: JointDef, joint: Joint): { joint: Joint } {
+    world.jointUserData[joint] = def.userData;
+    return { joint };
 }
 
 export function createJoint(world: WorldState, def: JointDef, type: JointType): { joint: Joint } {

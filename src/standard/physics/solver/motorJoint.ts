@@ -2,7 +2,7 @@ import type { Vec3 } from "../common/math";
 import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, JointType } from "./joint";
+import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
 /** Motor joint payload (b3MotorJoint). Impulses persist across steps for warm starting. */
 
@@ -52,10 +52,9 @@ export function createMotorJoint(
 ): {
     joint: Joint;
 } {
-    const pair = createJoint(world, def.base, JointType.Motor);
-    kernel(world.ecsState).jointInitMotor(
+    const joint = kernel(world.ecsState).jointCreateMotor(
         world.worldId,
-        pair.joint,
+        writeJointDefinition(world, def.base),
         def.linearVelocity.x,
         def.linearVelocity.y,
         def.linearVelocity.z,
@@ -71,7 +70,7 @@ export function createMotorJoint(
         def.angularDampingRatio,
         def.maxSpringTorque,
     );
-    return pair;
+    return finishJointCreation(world, def.base, joint);
 }
 export function getMotorJointForce(world: WorldState, sim: Joint): Vec3 {
     return readJointReaction(world, sim, false);

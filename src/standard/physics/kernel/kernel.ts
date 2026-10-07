@@ -685,9 +685,10 @@ export type Kernel = {
         hertz: number,
         damping: number,
     ): number;
-    jointInitDistance(
+    jointDefinitionPtr(world: number): number;
+    jointCreateDistance(
         world: number,
-        id: number,
+        definition: number,
         length: number,
         hertz: number,
         damping: number,
@@ -700,10 +701,10 @@ export type Kernel = {
         spring: boolean,
         limit: boolean,
         motor: boolean,
-    ): void;
-    jointInitRevolute(
+    ): number;
+    jointCreateRevolute(
         world: number,
-        id: number,
+        definition: number,
         hertz: number,
         damping: number,
         target: number,
@@ -714,10 +715,10 @@ export type Kernel = {
         spring: boolean,
         limit: boolean,
         motor: boolean,
-    ): void;
-    jointInitSpherical(
+    ): number;
+    jointCreateSpherical(
         world: number,
-        id: number,
+        definition: number,
         hertz: number,
         damping: number,
         qx: number,
@@ -735,10 +736,10 @@ export type Kernel = {
         coneLimit: boolean,
         twistLimit: boolean,
         motor: boolean,
-    ): void;
-    jointInitPrismatic(
+    ): number;
+    jointCreatePrismatic(
         world: number,
-        id: number,
+        definition: number,
         hertz: number,
         damping: number,
         target: number,
@@ -749,10 +750,10 @@ export type Kernel = {
         spring: boolean,
         limit: boolean,
         motor: boolean,
-    ): void;
-    jointInitWheel(
+    ): number;
+    jointCreateWheel(
         world: number,
-        id: number,
+        definition: number,
         suspensionSpring: boolean,
         suspensionHertz: number,
         suspensionDamping: number,
@@ -770,18 +771,18 @@ export type Kernel = {
         steeringLimit: boolean,
         steeringLower: number,
         steeringUpper: number,
-    ): void;
-    jointInitWeld(
+    ): number;
+    jointCreateWeld(
         world: number,
-        id: number,
+        definition: number,
         linearHertz: number,
         linearDamping: number,
         angularHertz: number,
         angularDamping: number,
-    ): void;
-    jointInitMotor(
+    ): number;
+    jointCreateMotor(
         world: number,
-        id: number,
+        definition: number,
         lx: number,
         ly: number,
         lz: number,
@@ -796,14 +797,14 @@ export type Kernel = {
         angularHertz: number,
         angularDamping: number,
         springTorque: number,
-    ): void;
-    jointInitParallel(
+    ): number;
+    jointCreateParallel(
         world: number,
-        id: number,
+        definition: number,
         hertz: number,
         damping: number,
         maxTorque: number,
-    ): void;
+    ): number;
     jointDestroy(id: number, wake: number): void;
     jointWriteVec3(id: number, field: number, x: number, y: number, z: number): void;
     jointWriteQuat(id: number, field: number, x: number, y: number, z: number, s: number): void;

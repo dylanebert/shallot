@@ -5,7 +5,7 @@ import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, JointType } from "./joint";
+import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
 /** Spherical joint payload (b3SphericalJoint). Impulses persist across steps for warm starting. */
 
@@ -62,10 +62,9 @@ export function createSphericalJoint(
 ): {
     joint: Joint;
 } {
-    const pair = createJoint(world, def.base, JointType.Spherical);
-    kernel(world.ecsState).jointInitSpherical(
+    const joint = kernel(world.ecsState).jointCreateSpherical(
         world.worldId,
-        pair.joint,
+        writeJointDefinition(world, def.base),
         def.hertz,
         def.dampingRatio,
         def.targetRotation.v.x,
@@ -84,7 +83,7 @@ export function createSphericalJoint(
         def.enableTwistLimit,
         def.enableMotor,
     );
-    return pair;
+    return finishJointCreation(world, def.base, joint);
 }
 export function getSphericalJointForce(world: WorldState, sim: Joint): Vec3 {
     return readJointReaction(world, sim, false);

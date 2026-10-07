@@ -2,7 +2,7 @@ import type { Vec3 } from "../common/math";
 import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, JointType } from "./joint";
+import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
 /** Weld joint payload (b3WeldJoint). Impulses persist across steps for warm starting. */
 
@@ -33,16 +33,15 @@ export function createWeldJoint(
 ): {
     joint: Joint;
 } {
-    const pair = createJoint(world, def.base, JointType.Weld);
-    kernel(world.ecsState).jointInitWeld(
+    const joint = kernel(world.ecsState).jointCreateWeld(
         world.worldId,
-        pair.joint,
+        writeJointDefinition(world, def.base),
         def.linearHertz,
         def.linearDampingRatio,
         def.angularHertz,
         def.angularDampingRatio,
     );
-    return pair;
+    return finishJointCreation(world, def.base, joint);
 }
 export function getWeldJointForce(world: WorldState, sim: Joint): Vec3 {
     return readJointReaction(world, sim, false);

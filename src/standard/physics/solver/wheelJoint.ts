@@ -7,7 +7,7 @@ import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { getBodyState } from "../world/body";
 import type { WorldState } from "../world/world";
-import { createJoint, type Joint, type JointDef, JointType } from "./joint";
+import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
 /** Wheel joint payload (b3WheelJoint). Impulses persist across steps for warm starting. */
 
@@ -64,10 +64,9 @@ export function createWheelJoint(
 ): {
     joint: Joint;
 } {
-    const pair = createJoint(world, def.base, JointType.Wheel);
-    kernel(world.ecsState).jointInitWheel(
+    const joint = kernel(world.ecsState).jointCreateWheel(
         world.worldId,
-        pair.joint,
+        writeJointDefinition(world, def.base),
         def.enableSuspensionSpring,
         def.suspensionHertz,
         def.suspensionDampingRatio,
@@ -86,7 +85,7 @@ export function createWheelJoint(
         def.lowerSteeringLimit,
         def.upperSteeringLimit,
     );
-    return pair;
+    return finishJointCreation(world, def.base, joint);
 }
 export function getWheelJointForce(world: WorldState, sim: Joint): Vec3 {
     return readJointReaction(world, sim, false);
