@@ -363,7 +363,7 @@ fn is_minkowski_face(a: Vec3, b: Vec3, bxa: Vec3, c: Vec3, d: Vec3, dxc: Vec3) -
 }
 
 /// b3ClipSegment — clip a 2-vertex segment against `pl`, in place. Returns the vertex count.
-fn clip_segment(segment: &mut [ClipVertex; 3], pl: Plane) -> usize {
+fn clip_segment(segment: &mut [ClipVertex; 2], pl: Plane) -> usize {
     let vertex1 = segment[0];
     let vertex2 = segment[1];
 
@@ -380,18 +380,15 @@ fn clip_segment(segment: &mut [ClipVertex; 3], pl: Plane) -> usize {
         vertex_count += 1;
     }
 
-    if (distance1 > 0.0) != (distance2 > 0.0) {
+    if distance1 * distance2 < 0.0 {
         let t = distance1 / (distance1 - distance2);
         let position = vertex1
             .position
             .scale(1.0 - t)
             .add(vertex2.position.scale(t));
         let src = if distance1 > 0.0 { vertex1 } else { vertex2 };
-        segment[vertex_count] = ClipVertex {
-            position,
-            separation: 0.0,
-            pair: src.pair,
-        };
+        segment[vertex_count].position = position;
+        segment[vertex_count].pair = src.pair;
         vertex_count += 1;
     }
 
@@ -400,7 +397,7 @@ fn clip_segment(segment: &mut [ClipVertex; 3], pl: Plane) -> usize {
 
 /// b3ClipSegmentToHullFace — clip a segment against every side plane of the reference face.
 fn clip_segment_to_hull_face(
-    segment: &mut [ClipVertex; 3],
+    segment: &mut [ClipVertex; 2],
     hull: &HullData,
     ref_face: usize,
 ) -> usize {
@@ -1038,7 +1035,7 @@ pub fn collide_capsules(
             offset: edge_a.dot(capsule_a.center2),
         };
 
-        let mut vertices_b: [ClipVertex; 3] = [
+        let mut vertices_b: [ClipVertex; 2] = [
             ClipVertex {
                 position: center_b1,
                 separation: 0.0,
@@ -1048,11 +1045,6 @@ pub fn collide_capsules(
                 position: center_b2,
                 separation: 0.0,
                 pair: make_feature_pair(SHAPE_A, 1, SHAPE_A, 1),
-            },
-            ClipVertex {
-                position: Vec3::ZERO,
-                separation: 0.0,
-                pair: FeaturePair::SINGLE,
             },
         ];
 
@@ -1157,7 +1149,7 @@ fn build_hull_face_and_capsule_contact(
     let ref_face = query.face_index;
     let ref_plane = planes[ref_face];
 
-    let mut segment_b: [ClipVertex; 3] = [
+    let mut segment_b: [ClipVertex; 2] = [
         ClipVertex {
             position: transform_b_to_a.point(capsule_b.center1),
             separation: 0.0,
@@ -1167,11 +1159,6 @@ fn build_hull_face_and_capsule_contact(
             position: transform_b_to_a.point(capsule_b.center2),
             separation: 0.0,
             pair: make_feature_pair(SHAPE_A, 1, SHAPE_A, 1),
-        },
-        ClipVertex {
-            position: Vec3::ZERO,
-            separation: 0.0,
-            pair: FeaturePair::SINGLE,
         },
     ];
 
@@ -1331,7 +1318,7 @@ pub fn collide_hull_and_capsule(
         // Try two contact points if the closest-points difference is nearly parallel to the face.
         let k_tolerance: f32 = 0.998;
         if absf(ref_plane.normal.dot(delta)) > k_tolerance {
-            let mut vertices_b: [ClipVertex; 3] = [
+            let mut vertices_b: [ClipVertex; 2] = [
                 ClipVertex {
                     position: transform_b_to_a.point(capsule_b.center1),
                     separation: 0.0,
@@ -1341,11 +1328,6 @@ pub fn collide_hull_and_capsule(
                     position: transform_b_to_a.point(capsule_b.center2),
                     separation: 0.0,
                     pair: make_feature_pair(SHAPE_A, 1, SHAPE_A, 1),
-                },
-                ClipVertex {
-                    position: Vec3::ZERO,
-                    separation: 0.0,
-                    pair: FeaturePair::SINGLE,
                 },
             ];
 

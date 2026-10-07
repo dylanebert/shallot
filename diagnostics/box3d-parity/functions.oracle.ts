@@ -385,7 +385,7 @@ test.todo("distance.rs:824-838 vs distance.c:997-1011: invalid normal retains wi
 test.todo("manifold.rs:794 vs convex_manifold.c:384-389: sphere-sphere separation retains caller manifold", () => {
     compare(results.filter((r) => r.label === "sphere-sphere-retained-early-exit"));
 });
-test.todo("manifold.rs:383-388 vs convex_manifold.c:36: endpoint on clip plane is not another intersection", () => {
+test("manifold.rs:383-388 vs convex_manifold.c:36: endpoint on clip plane is not another intersection", () => {
     compare(
         results.filter(
             (r) => r.operation === 14 && /^manifold-14-(?:[1-9]|1[0-5])$/.test(r.label ?? ""),
