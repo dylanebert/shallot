@@ -126,11 +126,7 @@ pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i
         if index < capsules {
             let r = &section(c, 19, 20, 8)[index * 8..];
             (
-                Shape::Capsule(Capsule {
-                    center1: vec(r, 0),
-                    center2: vec(r, 3),
-                    radius: f32::from_bits(r[6]),
-                }),
+                Shape::Capsule(&*r.as_ptr().cast::<Capsule>()),
                 Transform::IDENTITY,
                 [r[7] as i32, 0, 0, 0],
             )
@@ -178,10 +174,7 @@ pub(crate) fn child(c: Compound, index: usize) -> (Shape<'static>, Transform, [i
         } else {
             let r = &section(c, 27, 28, 5)[(index - capsules - hulls - meshes) * 5..];
             (
-                Shape::Sphere(crate::manifold::Sphere {
-                    center: vec(r, 0),
-                    radius: f32::from_bits(r[3]),
-                }),
+                Shape::Sphere(&*r.as_ptr().cast::<crate::manifold::Sphere>()),
                 Transform::IDENTITY,
                 [r[4] as i32, 0, 0, 0],
             )

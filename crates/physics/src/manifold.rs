@@ -24,6 +24,7 @@ const SHAPE_A: u8 = 0;
 const SHAPE_B: u8 = 1;
 
 /// Sphere primitive (b3Sphere).
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Sphere {
     pub center: Vec3,
@@ -37,6 +38,13 @@ pub struct Capsule {
     pub center1: Vec3,
     pub center2: Vec3,
     pub radius: f32,
+}
+
+impl Capsule {
+    pub(crate) fn points(&self) -> &[Vec3] {
+        // repr(C) places the two initialized centers contiguously before the radius.
+        unsafe { core::slice::from_raw_parts(core::ptr::from_ref(self).cast::<Vec3>(), 2) }
+    }
 }
 
 /// Identifies a contact point by the two intersecting edges that produced it (b3FeaturePair).

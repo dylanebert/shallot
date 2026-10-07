@@ -36,25 +36,17 @@ pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) 
                 continue;
             }
             if operation == 3 {
-                let mut points = [Vec3::ZERO; 2];
                 let convex = match &shape {
-                    query::Shape::Sphere(s) => {
-                        points[0] = s.center;
-                        ShapeProxy {
-                            points: &points,
-                            count: 1,
-                            radius: s.radius,
-                        }
-                    }
-                    query::Shape::Capsule(s) => {
-                        points[0] = s.center1;
-                        points[1] = s.center2;
-                        ShapeProxy {
-                            points: &points,
-                            count: 2,
-                            radius: s.radius,
-                        }
-                    }
+                    query::Shape::Sphere(s) => ShapeProxy {
+                        points: core::slice::from_ref(&s.center),
+                        count: 1,
+                        radius: s.radius,
+                    },
+                    query::Shape::Capsule(s) => ShapeProxy {
+                        points: s.points(),
+                        count: 2,
+                        radius: s.radius,
+                    },
                     query::Shape::Hull(h) => ShapeProxy {
                         points: h.points,
                         count: h.vertex_count,

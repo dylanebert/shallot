@@ -187,13 +187,7 @@ fn shape_proxy<'a>(shape: &'a Shape) -> ShapeProxy<'a> {
             radius: s.radius,
         },
         Shape::Capsule(s) => ShapeProxy {
-            // repr(C) keeps the two initialized Vec3 centers contiguous in this capsule.
-            points: unsafe {
-                core::slice::from_raw_parts(
-                    (s as *const crate::manifold::Capsule).cast::<Vec3>(),
-                    2,
-                )
-            },
+            points: s.points(),
             count: 2,
             radius: s.radius,
         },

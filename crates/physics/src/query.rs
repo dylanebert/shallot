@@ -53,8 +53,8 @@ impl PlaneResult {
 }
 
 pub enum Shape<'a> {
-    Sphere(Sphere),
-    Capsule(Capsule),
+    Sphere(&'a Sphere),
+    Capsule(&'a Capsule),
     Hull(HullData<'a>),
     Mesh(Mesh<'a>),
     Height(HeightField<'a>),
@@ -120,7 +120,7 @@ pub(crate) fn shape_cast_local(shape: &Shape, input: &ShapeCastInput) -> CastOut
         ),
         Shape::Capsule(s) => shape_cast_convex(
             ShapeProxy {
-                points: &[s.center1, s.center2],
+                points: s.points(),
                 count: 2,
                 radius: s.radius,
             },
@@ -154,7 +154,7 @@ pub fn overlap_shape(shape: &Shape, transform: Transform, proxy: ShapeProxy) -> 
         ),
         Shape::Capsule(s) => overlap_convex(
             ShapeProxy {
-                points: &[s.center1, s.center2],
+                points: s.points(),
                 count: 2,
                 radius: s.radius,
             },
@@ -485,7 +485,6 @@ pub fn collide_mover_capsule(shape: &Capsule, mover: &Capsule) -> Option<PlaneRe
 }
 
 pub fn collide_mover_hull(shape: &HullData, mover: &Capsule) -> Option<PlaneResult> {
-    let points = [mover.center1, mover.center2];
     let input = DistanceInput {
         proxy_a: ShapeProxy {
             points: shape.points,
@@ -493,7 +492,7 @@ pub fn collide_mover_hull(shape: &HullData, mover: &Capsule) -> Option<PlaneResu
             radius: 0.0,
         },
         proxy_b: ShapeProxy {
-            points: &points,
+            points: mover.points(),
             count: 2,
             radius: mover.radius,
         },

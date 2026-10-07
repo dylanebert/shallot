@@ -374,9 +374,9 @@ pub fn collide_mover_height(
     if planes.is_empty() {
         return 0;
     }
-    let points = [mover.center1, mover.center2];
+    let points = mover.points();
     let (lower, upper) = proxy_bounds(ShapeProxy {
-        points: &points,
+        points,
         count: 2,
         radius: mover.radius,
     });
@@ -405,7 +405,7 @@ pub fn collide_mover_height(
                     radius: 0.0,
                 },
                 proxy_b: ShapeProxy {
-                    points: &points,
+                    points,
                     count: 2,
                     radius: 0.0,
                 },

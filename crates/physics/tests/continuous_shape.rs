@@ -19,7 +19,7 @@ fn sweep(c1: Vec3, c2: Vec3) -> Sweep {
 #[test]
 fn mesh_and_height_traversals_return_the_triangle_impact() {
     let points = [Vec3::ZERO];
-    let visitor = Shape::Sphere(Sphere {
+    let visitor = Shape::Sphere(&Sphere {
         center: Vec3::ZERO,
         radius: 0.1,
     });

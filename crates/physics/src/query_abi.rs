@@ -25,15 +25,9 @@ fn vec(r: &[u32], i: usize) -> Vec3 {
 }
 pub(crate) unsafe fn geometry(kind: u32, r: &[u32]) -> Shape<'static> {
     match kind {
-        0 => Shape::Capsule(Capsule {
-            center1: vec(r, 0),
-            center2: vec(r, 3),
-            radius: f32::from_bits(r[6]),
-        }),
-        5 => Shape::Sphere(Sphere {
-            center: vec(r, 0),
-            radius: f32::from_bits(r[3]),
-        }),
+        // Resident records use the repr(C) primitive layouts and u32/f32 alignment.
+        0 => Shape::Capsule(&*r.as_ptr().cast::<Capsule>()),
+        5 => Shape::Sphere(&*r.as_ptr().cast::<Sphere>()),
         3 => Shape::Hull(crate::geo::hull_view(r[0] as usize)),
         4 => Shape::Mesh(crate::geo::mesh_view(r[0] as *const u32, vec(r, 1))),
         2 => Shape::Height(crate::geo::height_view(r[0] as *const u32)),
