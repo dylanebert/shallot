@@ -329,9 +329,9 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     for &value in &FREE_IDS[id] {
         regions::write_word(out, value);
     }
-    regions::write_word(out, CAPS[id]);
+    let count = NEXT_IDS[id];
     let dir =
-        core::slice::from_raw_parts(COLUMNS[id].layout[0] as *const u32, CAPS[id] * DIR_STRIDE);
+        core::slice::from_raw_parts(COLUMNS[id].layout[0] as *const u32, count * DIR_STRIDE);
     // world_snapshot.c serializes contents, never allocator positions or free chunks.
     for (index, &word) in dir.iter().enumerate() {
         regions::write_word(
@@ -349,7 +349,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
             },
         );
     }
-    for contact in 0..CAPS[id] {
+    for contact in 0..NEXT_IDS[id] {
         let count = dir[contact * DIR_STRIDE + DIR_MANIFOLD_COUNT] as usize;
         if count != 0 {
             let address = dir[contact * DIR_STRIDE + DIR_MANIFOLD_BASE] as usize;
@@ -359,7 +359,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
             ));
         }
     }
-    for contact in 0..CAPS[id] {
+    for contact in 0..NEXT_IDS[id] {
         if dir[contact * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS] & 0x0040_0000 != 0 {
             let cache = &mut *mesh_cache_ptr(id, contact);
             for triangle in cache.triangles.as_mut_slice() {
@@ -378,8 +378,8 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     for _ in 0..free_count {
         FREE_IDS[id].push(regions::read_word(input));
     }
-    CAPS[id] = regions::read_word(input);
-    let bytes = CAPS[id] * DIR_STRIDE * 4;
+    CAPS[id] = NEXT_IDS[id];
+    let bytes = NEXT_IDS[id] * DIR_STRIDE * 4;
     COLUMNS[id].reserve(0, bytes);
     let (data, rest) = input.split_at(bytes);
     core::ptr::copy_nonoverlapping(data.as_ptr(), COLUMNS[id].layout[0] as *mut u8, bytes);
