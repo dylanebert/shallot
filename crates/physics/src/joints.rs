@@ -80,7 +80,6 @@ impl JointArray {
         *self = Self::EMPTY;
     }
     pub(crate) unsafe fn snapshot(&self, out: &mut Vec<u8>) {
-        regions::write_word(out, self.capacity);
         regions::write_word(out, self.count);
         out.extend_from_slice(core::slice::from_raw_parts(
             self.data.cast::<u8>(),
@@ -88,8 +87,8 @@ impl JointArray {
         ));
     }
     pub(crate) unsafe fn restore(&mut self, input: &mut &[u8]) {
-        self.reserve(regions::read_word(input));
         self.count = regions::read_word(input);
+        self.reserve(self.count);
         assert!(self.count <= self.capacity);
         let (bytes, rest) = input.split_at(self.count * core::mem::size_of::<JointSim>());
         core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.data.cast(), bytes.len());

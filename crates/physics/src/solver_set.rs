@@ -81,7 +81,6 @@ impl<T> BodyArray<T> {
         *self = Self::EMPTY;
     }
     unsafe fn snapshot(&self, out: &mut Vec<u8>) {
-        regions::write_word(out, self.capacity as usize);
         regions::write_word(out, self.count as usize);
         out.extend_from_slice(core::slice::from_raw_parts(
             self.data.cast::<u8>(),
@@ -89,8 +88,8 @@ impl<T> BodyArray<T> {
         ));
     }
     unsafe fn restore(&mut self, input: &mut &[u8]) {
-        self.reserve(regions::read_word(input));
-        self.count = regions::read_word(input) as i32;
+        self.count = i32::try_from(regions::read_word(input)).unwrap();
+        self.reserve(self.count as usize);
         assert!(0 <= self.count && self.count <= self.capacity);
         let bytes = self.count as usize * core::mem::size_of::<T>();
         let (data, rest) = input.split_at(bytes);
