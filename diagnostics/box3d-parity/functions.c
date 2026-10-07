@@ -98,6 +98,49 @@ int main(void) {
                 }
                 break;
             }
+            case 98: {
+                // A double-sided polygon isolates the incident-face capacity boundary.
+                struct {
+                    b3HullData base;
+                    b3HullVertex vertices[65];
+                    b3Vec3 points[65];
+                    b3HullHalfEdge edges[130];
+                    b3Plane planes[2];
+                    b3HullFace faces[2];
+                    float soa[3 * 68];
+                } image = {0};
+                b3HullData* hull = &image.base;
+                int n = r[0];
+                hull->center.y = 1;
+                hull->vertexCount = n; hull->edgeCount = 2*n; hull->faceCount = 2;
+                hull->vertexOffset = (char*)image.vertices - (char*)hull;
+                hull->pointOffset = (char*)image.points - (char*)hull;
+                hull->edgeOffset = (char*)image.edges - (char*)hull;
+                hull->planeOffset = (char*)image.planes - (char*)hull;
+                hull->faceOffset = (char*)image.faces - (char*)hull;
+                hull->soaVertexOffset = (char*)image.soa - (char*)hull;
+                hull->byteCount = sizeof(image);
+                image.planes[0].normal = (b3Vec3){0,-1,0};
+                image.planes[1].normal = (b3Vec3){0,1,0};
+                image.faces[1].edge = n;
+                int padded = (n + 3) & ~3;
+                for (int i = 0; i < n; ++i) {
+                    float angle = 2 * B3_PI * i / n;
+                    image.points[i] = (b3Vec3){b3Cos(angle),0,b3Sin(angle)};
+                    image.vertices[i].edge = i;
+                    image.edges[i] = (b3HullHalfEdge){(i+1)%n,n+i,i,0};
+                    image.edges[n+i] = (b3HullHalfEdge){n+(i+n-1)%n,i,(i+1)%n,1};
+                }
+                for (int i = 0; i < padded; ++i) {
+                    b3Vec3 p = image.points[i < n ? i : 0];
+                    image.soa[i] = p.x; image.soa[padded+i] = p.y; image.soa[2*padded+i] = p.z;
+                }
+                word(hull->byteCount / 4);
+                for (int i = 0; i < hull->byteCount / 4; ++i) {
+                    uint32_t u; memcpy(&u, (char*)hull + 4*i, 4); word(u);
+                }
+                break;
+            }
             case 99: {
                 b3BoxHull a=b3MakeBoxHull(1,1,1), b=b3MakeBoxHull(0.6f,1.2f,0.8f);
                 word(sizeof(a)/4);
@@ -128,7 +171,7 @@ int main(void) {
                     case 15: b3CollideHulls(&m,capacity,&ha.base,&hb.base,xf,&sat); break;
                     case 16: b3CollideTriangleAndSphere(&m,capacity,tri,&sa); break;
                     case 17: b3CollideTriangleAndCapsule(&m,capacity,tri,&ca,&cache); break;
-                    case 18: b3CollideTriangleAndHull(&m,capacity,tri[0],tri[1],tri[2],0,&ha.base,&sat,true); break;
+                    case 18: b3CollideTriangleAndHull(&m,capacity,tri[0],tri[1],tri[2],0,r[43] ? (const b3HullData*)(r + 1000) : &ha.base,&sat,true); break;
                 }
                 word(m.pointCount); vector(m.normal); word(m.feature); emit(m.squaredDistance);
                 for(int i=0;i<m.pointCount;i++) { vector(points[i].point); emit(points[i].separation); word(b3MakeFeatureId(points[i].pair)); word(points[i].triangleIndex); }

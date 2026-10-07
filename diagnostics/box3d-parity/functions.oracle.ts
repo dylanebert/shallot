@@ -239,6 +239,19 @@ for (const [label, x] of [
         words: [1, 0, 0, 4, ...x, ...Array(16).fill(0)].map(bits) });
 }
 
+for (const sides of [64, 65]) {
+    const image = nativeSseOutput("functions.c", `98 1 ${hex(sides)}\n`, ["cylinder hull image"])
+        .trim().split(" ").slice(2).map((h) => Number.parseInt(h, 16));
+    const words = Array<number>(1000 + image.length).fill(0);
+    words[0] = 32;
+    words[10] = bits(1);
+    words[43] = 1;
+    words[45] = 6;
+    words.splice(34, 9, ...[-100, 0.01, 0, 0.999, 0.01, 100, 0.999, 0.01, -100].map(bits));
+    words.splice(1000, image.length, ...image);
+    cases.push({ operation: 18, words, label: `triangle-reference-incident-${sides}` });
+}
+
 const native = nativeSseOutput(
     "functions.c",
     cases.map((c) => `${c.operation} ${c.words.length} ${c.words.map(hex).join(" ")}`).join("\n"),
@@ -286,6 +299,7 @@ const results = cases.map((c, i) => {
         c.operation >= 10 ? expected.splice(6 + Number.parseInt(expected[0], 16) * 6, 9) : [];
     return { ...c, actual, native: expected, actualMetadata, nativeMetadata };
 });
+console.log(results.filter((r) => r.label?.startsWith("triangle-reference")).map((r) => ({label:r.label, actual:r.actual, native:r.native})));
 test("manifold.rs:79-96; triangle_manifold.rs:348: local manifold returns triangle normal, index, vertices and flags", () => {
     const rows = results.filter((r) => r.operation >= 10);
     const mismatches = rows.filter(
