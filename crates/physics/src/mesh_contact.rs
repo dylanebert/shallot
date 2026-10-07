@@ -287,6 +287,8 @@ pub struct MeshScratch<'a> {
     points: &'a mut [LocalManifoldPoint],
     point_materials: &'a mut [u32],
     projected: &'a mut [Point2D],
+    // Reused arena bytes need not be valid Rust bools before prefix initialization.
+    consumed: &'a mut [u8],
     pub output: &'a mut [Manifold],
     pub materials: &'a mut [[u32; 4]],
 }
@@ -300,7 +302,8 @@ const SCRATCH_BYTES: usize = MAX_TRIANGLES
         * (2 * core::mem::size_of::<LocalManifoldPoint>()
             + core::mem::size_of::<u32>()
             + core::mem::size_of::<Point2D>())
-    + 12 * 16;
+    + MAX_TRIANGLES * core::mem::size_of::<u8>()
+    + 13 * 16;
 
 pub struct MeshStorage {
     words: [u128; SCRATCH_BYTES.div_ceil(16)],
@@ -309,8 +312,9 @@ pub struct MeshStorage {
 }
 
 impl MeshStorage {
-    pub fn scratch(&mut self, count: usize) -> MeshScratch<'_> {
+    pub fn scratch(&mut self, count: usize, old_count: usize) -> MeshScratch<'_> {
         assert!(count <= MAX_TRIANGLES);
+        assert!(old_count <= MAX_TRIANGLES);
         let mut offset = 0;
         let base = self.words.as_mut_ptr().cast::<u8>();
         // The arena is initialized before this view is made. Each span is disjoint and
@@ -333,6 +337,7 @@ impl MeshStorage {
                 points: span(base, &mut offset, count * 32),
                 point_materials: span(base, &mut offset, count * 32),
                 projected: span(base, &mut offset, count * 32),
+                consumed: span(base, &mut offset, old_count),
                 output: &mut self.output[..count],
                 materials: &mut self.materials[..count],
             }
@@ -830,7 +835,8 @@ pub fn compute_mesh_manifolds(
             cluster.count += 1;
         }
     }
-    let mut consumed = [false; MAX_TRIANGLES];
+    let consumed = &mut scratch.consumed[..old.len()];
+    consumed.fill(0);
     let matrix = Mat3::from_quat(xf_b.q);
     let offset = xf_b.p.sub(xf_a.p);
     for i in 0..cluster_count {
@@ -847,7 +853,7 @@ pub fn compute_mesh_manifolds(
         let mut best_dot = 0.995;
         let mut matched = None;
         for j in 0..old.len() {
-            if consumed[j] {
+            if consumed[j] != 0 {
                 continue;
             }
             let dot = old[j].normal.dot(m.normal);
@@ -860,7 +866,7 @@ pub fn compute_mesh_manifolds(
             m.friction_impulse = old[j].friction_impulse;
             m.rolling_impulse = old[j].rolling_impulse;
             m.twist_impulse = old[j].twist_impulse;
-            consumed[j] = true;
+            consumed[j] = 1;
         }
         for j in 0..count {
             let source_index = cluster.base + j;
@@ -1027,7 +1033,7 @@ mod tests {
             storage.as_mut_ptr().write_bytes(0, 1);
             storage.assume_init()
         };
-        let mut scratch = storage.scratch(2);
+        let mut scratch = storage.scratch(2, 1);
         let a = Vec3::new(-1.0, 0.0, -1.0);
         let b = Vec3::new(-1.0, 0.0, 1.0);
         let c = Vec3::new(1.0, 0.0, 1.0);

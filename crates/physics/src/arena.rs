@@ -546,7 +546,7 @@ unsafe fn dispatch_mesh(
         && shape_records.get(shape_b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS)
             & crate::shapes::SPECULATIVE_FLAG
             != 0;
-    let mut mesh = scratch.mesh.scratch(cache.count);
+    let mut mesh = scratch.mesh.scratch(cache.count, old_count);
     let count = compute_mesh_manifolds(
         &mut mesh,
         &mut cache.triangles[..cache.count],
