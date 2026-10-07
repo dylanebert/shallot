@@ -19,8 +19,8 @@ use crate::distance::SimplexCache;
 use crate::finalize::{self, TY_CAPSULE, TY_HULL, TY_SPHERE};
 use crate::manifold::{Capsule, SatCache, Sphere};
 use crate::manifold_abi::{
-    read_dir, DIR_CACHE, DIR_CACHED_REL_POSE, DIR_CACHED_ROT_A, DIR_CACHED_ROT_B, DIR_STRIDE,
-    MANIFOLD_STRIDE, M_FRICTION, M_NORMAL, M_POINTS, M_POINT_COUNT, M_ROLLING, M_TWIST,
+    read_dir, DIR_CACHE, DIR_CACHED_REL_POSE, DIR_CACHED_ROT_A, DIR_CACHED_ROT_B, DIR_FLAGS,
+    DIR_STRIDE, MANIFOLD_STRIDE, M_FRICTION, M_NORMAL, M_POINTS, M_POINT_COUNT, M_ROLLING, M_TWIST,
     POOL_POINT_STRIDE, P_ANCHOR_A, P_ANCHOR_B, P_FEATURE_ID, P_NORMAL_IMPULSE, P_NORMAL_VELOCITY,
     P_PERSISTED, P_SEPARATION, P_TOTAL_NORMAL_IMPULSE, P_TRIANGLE_INDEX, SLOT_STRIDE,
 };
@@ -350,7 +350,7 @@ unsafe fn mark_contact_state(contact: usize) {
 }
 unsafe fn finish_contact(world_index: usize, contact: usize, count: usize, hit: bool) {
     let dir = manifolds::dir_col(world_index);
-    let o = contact * DIR_STRIDE + 6;
+    let o = contact * DIR_STRIDE + DIR_FLAGS;
     let old = dir.get(o);
     let was_touching = old & 0x0001_0000 != 0;
     let mut flags = old & !(0x0001_0000 | 0x0010_0000);
@@ -471,7 +471,12 @@ fn write_manifold(m: &Manifold, pool: Col<f32>, base: usize) {
             p + P_TRIANGLE_INDEX,
             f32::from_bits(pt.triangle_index as u32),
         );
-        pool.set(p + P_PERSISTED, f32::from_bits(pt.persisted as u32));
+        unsafe {
+            pool.ptr()
+                .add(p + P_PERSISTED)
+                .cast::<bool>()
+                .write(pt.persisted);
+        }
     }
 }
 
@@ -544,7 +549,11 @@ unsafe fn dispatch_mesh(
         let o = i * MANIFOLD_STRIDE;
         scratch.old[i] = Manifold::new();
         let m = &mut scratch.old[i];
-        m.normal = Vec3::new(pool.get(o), pool.get(o + 1), pool.get(o + 2));
+        m.normal = Vec3::new(
+            pool.get(o + M_NORMAL),
+            pool.get(o + M_NORMAL + 1),
+            pool.get(o + M_NORMAL + 2),
+        );
         m.friction_impulse = Vec3::new(
             pool.get(o + M_FRICTION),
             pool.get(o + M_FRICTION + 1),
@@ -722,18 +731,18 @@ fn store_surface(
 ) {
     let dir = manifolds::dir_col(world_index);
     let o = id * DIR_STRIDE;
-    for (i, v) in [
-        friction,
-        restitution,
-        rolling,
-        tangent.x,
-        tangent.y,
-        tangent.z,
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        dir.set(o + i, v.to_bits());
+    use crate::manifold_abi::{
+        DIR_FRICTION, DIR_RESTITUTION, DIR_ROLLING_RESISTANCE, DIR_TANGENT_VELOCITY,
+    };
+    for (field, value) in [
+        (DIR_FRICTION, friction),
+        (DIR_RESTITUTION, restitution),
+        (DIR_ROLLING_RESISTANCE, rolling),
+        (DIR_TANGENT_VELOCITY, tangent.x),
+        (DIR_TANGENT_VELOCITY + 1, tangent.y),
+        (DIR_TANGENT_VELOCITY + 2, tangent.z),
+    ] {
+        dir.set(o + field, value.to_bits());
     }
 }
 
@@ -856,7 +865,7 @@ pub(crate) unsafe fn contact_block(
             );
             let contact = contacts[i] as usize;
             let o = contact * DIR_STRIDE;
-            if dir.get(o + 6) & SIM_UPDATED == 0 {
+            if dir.get(o + DIR_FLAGS) & SIM_UPDATED == 0 {
                 continue;
             }
             let mut record = [0u32; DISPATCH_STRIDE];
@@ -866,7 +875,7 @@ pub(crate) unsafe fn contact_block(
             record[D_BODY_A] = dir.get(o + DIR_EDGE_A);
             record[D_BODY_B] = dir.get(o + DIR_EDGE_B);
             record[D_CHILD] = dir.get(o + DIR_CHILD_INDEX);
-            record[D_OLD_COUNT] = dir.get(o + 7);
+            record[D_OLD_COUNT] = dir.get(o + DIR_MANIFOLD_COUNT);
             record[D_MESH_SLOT] = thread as u32;
             record[D_DEFAULT_MIX] = DEFAULT_MIX;
             let shapes = crate::shapes::col_slice(world_index);
@@ -1215,7 +1224,7 @@ pub(crate) unsafe fn recycle_block(
         for i in start..end {
             let contact_id = contacts[i] as usize;
             let o = contact_id * DIR_STRIDE;
-            for (edge, lane) in [(DIR_EDGE_A, 9), (DIR_EDGE_B, 10)] {
+            for (edge, lane) in [(DIR_EDGE_A, DIR_INDEX_A), (DIR_EDGE_B, DIR_INDEX_B)] {
                 let body = crate::bodies::record(world_index, dir.get(o + edge) as usize);
                 dir.set(
                     o + lane,
@@ -1226,20 +1235,20 @@ pub(crate) unsafe fn recycle_block(
                     },
                 );
             }
-            let flags = dir.get(o + 6) & !SIM_UPDATED;
-            dir.set(o + 6, flags);
+            let flags = dir.get(o + DIR_FLAGS) & !SIM_UPDATED;
+            dir.set(o + DIR_FLAGS, flags);
             let mut record = [0u32; RECYCLE_STRIDE];
             record[R_CONTACT] = contact_id as u32;
             record[R_BODY_A] = dir.get(o + DIR_EDGE_A);
             record[R_BODY_B] = dir.get(o + DIR_EDGE_B);
             record[R_SHAPE_A] = dir.get(o + DIR_SHAPE_A);
             record[R_SHAPE_B] = dir.get(o + DIR_SHAPE_B);
-            record[R_COUNT] = dir.get(o + 7);
+            record[R_COUNT] = dir.get(o + DIR_MANIFOLD_COUNT);
             let mut bits = 0;
-            if dir.get(o + 9) == u32::MAX {
+            if dir.get(o + DIR_INDEX_A) == u32::MAX {
                 bits |= R_STATIC_A;
             }
-            if dir.get(o + 10) == u32::MAX {
+            if dir.get(o + DIR_INDEX_B) == u32::MAX {
                 bits |= R_STATIC_B;
             }
             if flags & 0x0040_0000 != 0 {
@@ -1261,7 +1270,7 @@ pub(crate) unsafe fn recycle_block(
                 input[r + R_SHAPE_A] as usize,
                 input[r + R_SHAPE_B] as usize,
             ) {
-                dir.set(o + 6, (flags | 0x0002_0000) & !0x0001_0000);
+                dir.set(o + DIR_FLAGS, (flags | 0x0002_0000) & !0x0001_0000);
                 mark_contact_state(contact_id);
                 continue;
             }
@@ -1304,7 +1313,7 @@ pub(crate) unsafe fn recycle_block(
             // Recycle missed (or the contact isn't eligible yet): cache this step's pose for the next
             // step and defer to the full narrowphase.
             write_pose_cache(dir, contact_id, xf_a, xf_b);
-            dir.set(o + 6, flags | 0x0080_0000 | SIM_UPDATED);
+            dir.set(o + DIR_FLAGS, flags | 0x0080_0000 | SIM_UPDATED);
         }
     }
 }

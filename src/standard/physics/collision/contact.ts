@@ -22,29 +22,8 @@ export const ContactFlags = {
     relativeTransformValid: 0x00800000,
 } as const;
 
-export const ContactField = {
-    flags: 6,
-    manifoldCount: 7,
-    bodySimIndexA: 9,
-    bodySimIndexB: 10,
-    setIndex: 37,
-    colorIndex: 38,
-    localIndex: 39,
-    bodyIdA: 40,
-    prevKeyA: 41,
-    nextKeyA: 42,
-    bodyIdB: 43,
-    prevKeyB: 44,
-    nextKeyB: 45,
-    shapeIdA: 46,
-    shapeIdB: 47,
-    childIndex: 48,
-    islandId: 49,
-    islandIndex: 50,
-    contactId: 51,
-    generation: 52,
-    collideIndex: 53,
-} as const;
+export { ContactField } from "../kernel/contact-layout";
+import { ContactField } from "../kernel/contact-layout";
 
 /** Read a field at a contact id; signed null indices remain -1. */
 export function contactField(world: WorldState, id: number, field: number): number {

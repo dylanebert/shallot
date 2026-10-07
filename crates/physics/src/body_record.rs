@@ -483,7 +483,7 @@ pub(crate) mod runtime {
         d.set(o + DIR_SHAPE_A, shape_a as u32);
         d.set(o + DIR_SHAPE_B, shape_b as u32);
         d.set(o + DIR_CHILD_INDEX, child as u32);
-        d.set(o + 6, flags);
+        d.set(o + DIR_FLAGS, flags);
         if flags & 0x0040_0000 != 0 {
             crate::manifolds::ensure_mesh_cache_in_world(world as usize, id);
         }
@@ -503,7 +503,7 @@ pub(crate) mod runtime {
             body.head_contact_key = key;
             body.contact_count += 1;
             d.set(
-                o + 9 + side,
+                o + DIR_INDEX_A + side,
                 if body.body_type == 0 {
                     u32::MAX
                 } else {
@@ -559,7 +559,7 @@ pub(crate) mod runtime {
                 d.get(o + DIR_EDGE_B) as usize,
                 color as usize,
                 index,
-                d.get(o + 6) & 0x0040_0000 != 0,
+                d.get(o + DIR_FLAGS) & 0x0040_0000 != 0,
             );
         } else {
             let set = d.get(o + DIR_SET_INDEX) as usize;

@@ -5,14 +5,42 @@ import { KernelViews } from "../kernel/views";
 import type { WorldState } from "../world/world";
 import type { Manifold } from "./contact";
 
-export const DIR_STRIDE = 53;
-export const MANIFOLD_STRIDE = 67;
-const DIR_COUNT = 7;
-export const DIR_BLOCK = 8;
-const DIR_FLAGS = 6;
-export const M_POINT_COUNT = 10;
-export const M_POINTS = 11;
-export const POINT_STRIDE = 14;
+import {
+    DIR_STRIDE,
+    DIR_COUNT,
+    DIR_BLOCK,
+    DIR_FLAGS,
+    DIR_FRICTION,
+    DIR_RESTITUTION,
+    DIR_ROLLING_RESISTANCE,
+    DIR_TANGENT_VELOCITY,
+    MANIFOLD_STRIDE,
+    M_NORMAL,
+    M_TWIST,
+    M_FRICTION,
+    M_ROLLING,
+    M_POINT_COUNT,
+    M_POINTS,
+    POINT_STRIDE,
+    P_ANCHOR_A,
+    P_ANCHOR_B,
+    P_SEPARATION,
+    P_BASE_SEPARATION,
+    P_NORMAL_IMPULSE,
+    P_TOTAL_NORMAL_IMPULSE,
+    P_NORMAL_VELOCITY,
+    P_FEATURE_ID,
+    P_TRIANGLE_INDEX,
+    P_PERSISTED,
+} from "../kernel/contact-layout";
+export {
+    DIR_STRIDE,
+    MANIFOLD_STRIDE,
+    DIR_BLOCK,
+    M_POINT_COUNT,
+    M_POINTS,
+    POINT_STRIDE,
+} from "../kernel/contact-layout";
 
 /** Current views of a world's contact directory and stable manifold blocks. */
 export class ManifoldStore extends KernelViews {
@@ -70,21 +98,25 @@ export function writeContactMaterial(
     >,
 ): void {
     const o = id * DIR_STRIDE;
-    dirF[o] = material.friction;
-    dirF[o + 1] = material.restitution;
-    dirF[o + 2] = material.rollingResistance;
-    dirF[o + 3] = material.tangentVelocity.x;
-    dirF[o + 4] = material.tangentVelocity.y;
-    dirF[o + 5] = material.tangentVelocity.z;
+    dirF[o + DIR_FRICTION] = material.friction;
+    dirF[o + DIR_RESTITUTION] = material.restitution;
+    dirF[o + DIR_ROLLING_RESISTANCE] = material.rollingResistance;
+    dirF[o + DIR_TANGENT_VELOCITY] = material.tangentVelocity.x;
+    dirF[o + DIR_TANGENT_VELOCITY + 1] = material.tangentVelocity.y;
+    dirF[o + DIR_TANGENT_VELOCITY + 2] = material.tangentVelocity.z;
 }
 /** Independent snapshot of a contact's mixed material. */
 export function readContactMaterial(dirF: Float32Array, id: number) {
     const o = id * DIR_STRIDE;
     return {
-        friction: dirF[o],
-        restitution: dirF[o + 1],
-        rollingResistance: dirF[o + 2],
-        tangentVelocity: { x: dirF[o + 3], y: dirF[o + 4], z: dirF[o + 5] },
+        friction: dirF[o + DIR_FRICTION],
+        restitution: dirF[o + DIR_RESTITUTION],
+        rollingResistance: dirF[o + DIR_ROLLING_RESISTANCE],
+        tangentVelocity: {
+            x: dirF[o + DIR_TANGENT_VELOCITY],
+            y: dirF[o + DIR_TANGENT_VELOCITY + 1],
+            z: dirF[o + DIR_TANGENT_VELOCITY + 2],
+        },
     };
 }
 export function contactHit(dirU: Uint32Array, id: number): boolean {
@@ -112,7 +144,9 @@ export function contactTotalImpulse(world: WorldState, id: number): number {
     for (let m = 0; m < count; ++m) {
         const o = base + m * MANIFOLD_STRIDE;
         for (let point = 0; point < p[o + M_POINT_COUNT]; ++point)
-            impulse = Math.fround(impulse + f[o + M_POINTS + point * POINT_STRIDE + 9]);
+            impulse = Math.fround(
+                impulse + f[o + M_POINTS + point * POINT_STRIDE + P_TOTAL_NORMAL_IMPULSE],
+            );
     }
     return impulse;
 }
@@ -131,26 +165,26 @@ export function readContactManifolds(world: WorldState, id: number): Manifold[] 
         const o = base + i * MANIFOLD_STRIDE;
         const pointCount = p[o + M_POINT_COUNT];
         const manifold: Manifold = {
-            normal: vector(o),
-            frictionImpulse: vector(o + 3),
-            twistImpulse: f[o + 6],
-            rollingImpulse: vector(o + 7),
+            normal: vector(o + M_NORMAL),
+            frictionImpulse: vector(o + M_FRICTION),
+            twistImpulse: f[o + M_TWIST],
+            rollingImpulse: vector(o + M_ROLLING),
             pointCount,
             points: [],
         };
         for (let j = 0; j < pointCount; ++j) {
             const q = o + M_POINTS + j * POINT_STRIDE;
             manifold.points.push({
-                anchorA: vector(q),
-                anchorB: vector(q + 3),
-                separation: f[q + 6],
-                baseSeparation: f[q + 7],
-                normalImpulse: f[q + 8],
-                totalNormalImpulse: f[q + 9],
-                normalVelocity: f[q + 10],
-                featureId: p[q + 11],
-                triangleIndex: s[q + 12],
-                persisted: p[q + 13] !== 0,
+                anchorA: vector(q + P_ANCHOR_A),
+                anchorB: vector(q + P_ANCHOR_B),
+                separation: f[q + P_SEPARATION],
+                baseSeparation: f[q + P_BASE_SEPARATION],
+                normalImpulse: f[q + P_NORMAL_IMPULSE],
+                totalNormalImpulse: f[q + P_TOTAL_NORMAL_IMPULSE],
+                normalVelocity: f[q + P_NORMAL_VELOCITY],
+                featureId: p[q + P_FEATURE_ID],
+                triangleIndex: s[q + P_TRIANGLE_INDEX],
+                persisted: (p[q + P_PERSISTED] & 0xff) !== 0,
             });
         }
         out.push(manifold);

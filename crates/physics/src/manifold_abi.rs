@@ -1,94 +1,117 @@
-//! The persistent contact-manifold column ABI — the narrowphase → solver handoff, keyed by contactId.
-//! The solver gathers each touching contact's material + manifold data straight out of the persistent
-//! store (`src/manifoldstore.ts`, and in the wasm build `kernel/src/manifolds.rs`) instead of a
-//! per-step marshaled copy. This module is the single source of truth for the two persistent columns'
-//! layout + the per-record slot index; it is always compiled (the wasm `manifolds` region and the
-//! native gold harnesses both mirror it), so it carries no wasm intrinsics.
-//!
-//! The contact-id directory holds the material row, body sim indices, manifold count and block
-//! address, and a per-step hit-event flag. Stable manifold-count block allocators own the manifold
-//! records (b3Manifold, points inline). Narrowphase and solve read and write the same blocks; snapshot
-//! serializes their contents, not their addresses.
-//!
-//! A per-color **slot** index maps each scalar solver record to its contactId and its slice of the
-//! transient constraint columns (which stay per-step-sequential); the wide path carries the contactId
-//! per lane in its own meta column instead.
+//! Resident contact and manifold records in Box3D field order. Word views borrow these records;
+//! pointers are WASM addresses (native fixtures supply offsets into owned manifold storage).
 
 use crate::col::Col;
-use crate::math::Vec3;
+use crate::math::{Quat, Transform, Vec3};
+use core::mem::{offset_of, size_of};
 
-/// u32 stride of a directory record, matching `src/manifoldstore.ts` `DIR_STRIDE`. Material slots
-/// (0..5) are f32 read through `f32::from_bits`; the rest are u32. Slots 0..11 are the solver's per-step
-/// row; slots 12..21 are the convex narrowphase's persistent GJK/SAT cache (`DIR_CACHE`); slots 22..36 are
-/// the in-kernel recycle loop's cached relative pose (`DIR_CACHED_*`, 4b.3c). Both tails are folded here
-/// because they share the directory's key (contactId) and its grow-in-place lifecycle (the directory sits
-/// at the region anchor, so a grow preserves it with no memmove).
-pub const DIR_STRIDE: usize = 53;
-pub const DIR_SET_INDEX: usize = 37;
-pub const DIR_COLOR_INDEX: usize = 38;
-pub const DIR_LOCAL_INDEX: usize = 39;
-pub const DIR_EDGE_A: usize = 40;
-pub const DIR_EDGE_B: usize = 43;
-pub const DIR_SHAPE_A: usize = 46;
-pub const DIR_SHAPE_B: usize = 47;
-pub const DIR_CHILD_INDEX: usize = 48;
-pub const DIR_ISLAND_ID: usize = 49;
-pub const DIR_ISLAND_INDEX: usize = 50;
-pub const DIR_CONTACT_ID: usize = 51;
-pub const DIR_GENERATION: usize = 52;
-pub const DIR_MESH_CACHE: usize = 11;
-const DIR_FRICTION: usize = 0;
-const DIR_RESTITUTION: usize = 1;
-const DIR_ROLLING_RESISTANCE: usize = 2;
-const DIR_TANGENT_VELOCITY: usize = 3; // 3..5
-pub const DIR_FLAGS: usize = 6;
+#[repr(C)]
+pub struct ContactEdge {
+    pub body_id: i32,
+    pub prev_key: i32,
+    pub next_key: i32,
+}
+#[repr(C)]
+pub union ContactCacheRecord {
+    pub convex: [u32; 10],
+    pub mesh_address: u32,
+}
+#[repr(C)]
+pub struct ContactRecord {
+    pub set_index: i32,
+    pub color_index: i32,
+    pub local_index: i32,
+    pub edges: [ContactEdge; 2],
+    pub shape_id_a: i32,
+    pub shape_id_b: i32,
+    pub child_index: i32,
+    pub island_id: i32,
+    pub island_index: i32,
+    pub contact_id: i32,
+    pub body_sim_index_a: i32,
+    pub body_sim_index_b: i32,
+    pub flags: u32,
+    pub manifolds: u32,
+    pub manifold_count: i32,
+    pub cached_rotation_a: Quat,
+    pub cached_rotation_b: Quat,
+    pub cached_relative_pose: Transform,
+    pub friction: f32,
+    pub cache: ContactCacheRecord,
+    pub restitution: f32,
+    pub rolling_resistance: f32,
+    pub tangent_velocity: Vec3,
+    pub generation: u32,
+}
+#[repr(C)]
+pub struct ManifoldPointRecord {
+    pub anchor_a: Vec3,
+    pub anchor_b: Vec3,
+    pub separation: f32,
+    pub base_separation: f32,
+    pub normal_impulse: f32,
+    pub total_normal_impulse: f32,
+    pub normal_velocity: f32,
+    pub feature_id: u32,
+    pub triangle_index: i32,
+    pub persisted: bool,
+}
+#[repr(C)]
+pub struct ManifoldRecord {
+    pub points: [ManifoldPointRecord; 4],
+    pub normal: Vec3,
+    pub twist_impulse: f32,
+    pub friction_impulse: Vec3,
+    pub rolling_impulse: Vec3,
+    pub point_count: i32,
+}
+
+pub const DIR_STRIDE: usize = size_of::<ContactRecord>() / 4;
+pub const DIR_SET_INDEX: usize = offset_of!(ContactRecord, set_index) / 4;
+pub const DIR_COLOR_INDEX: usize = offset_of!(ContactRecord, color_index) / 4;
+pub const DIR_LOCAL_INDEX: usize = offset_of!(ContactRecord, local_index) / 4;
+pub const DIR_EDGE_A: usize = offset_of!(ContactRecord, edges) / 4;
+pub const DIR_EDGE_B: usize = DIR_EDGE_A + size_of::<ContactEdge>() / 4;
+pub const DIR_SHAPE_A: usize = offset_of!(ContactRecord, shape_id_a) / 4;
+pub const DIR_SHAPE_B: usize = offset_of!(ContactRecord, shape_id_b) / 4;
+pub const DIR_CHILD_INDEX: usize = offset_of!(ContactRecord, child_index) / 4;
+pub const DIR_ISLAND_ID: usize = offset_of!(ContactRecord, island_id) / 4;
+pub const DIR_ISLAND_INDEX: usize = offset_of!(ContactRecord, island_index) / 4;
+pub const DIR_CONTACT_ID: usize = offset_of!(ContactRecord, contact_id) / 4;
+pub const DIR_GENERATION: usize = offset_of!(ContactRecord, generation) / 4;
+pub const DIR_FRICTION: usize = offset_of!(ContactRecord, friction) / 4;
+pub const DIR_RESTITUTION: usize = offset_of!(ContactRecord, restitution) / 4;
+pub const DIR_ROLLING_RESISTANCE: usize = offset_of!(ContactRecord, rolling_resistance) / 4;
+pub const DIR_TANGENT_VELOCITY: usize = offset_of!(ContactRecord, tangent_velocity) / 4;
+pub const DIR_FLAGS: usize = offset_of!(ContactRecord, flags) / 4;
 pub const CONTACT_HIT_EVENT: u32 = 0x00000002;
-const DIR_MANIFOLD_COUNT: usize = 7;
-/// Byte address of a stable manifold block in WASM; native fixtures use a record offset into their owned backing column.
-pub const DIR_MANIFOLD_BASE: usize = 8;
-const DIR_INDEX_A: usize = 9;
-const DIR_INDEX_B: usize = 10;
-/// First slot of the convex cache union (10 slots, 12..21): the wider `SimplexCache` (metric f32 +
-/// count + indexA[4] + indexB[4]) overlaps the narrower `SatCache` (separation f32 + type + indexA +
-/// indexB + hit), exactly like box3d's union — a contact uses one or the other by shape pair.
-pub const DIR_CACHE: usize = 12;
-
-// The recycle record (4b.3c): the pose cached last full narrowphase that the in-kernel recycle test
-// reads (has the contact barely moved?) and writes back (on a miss, caching this step's pose). Mirrors
-// the TS `Contact.cachedRotation*`/`cachedRelativePose` fields, column-resident for kernel contacts. No
-// cold needed: a contact is eligible to recycle only once TS has set `relativeTransformValid`, which
-// happens only after this record was written, so a fresh/recycled contactId's stale bytes are never read.
-/// Cached rotation of body A last full narrowphase (q4: 22..25).
-pub const DIR_CACHED_ROT_A: usize = 22;
-/// Cached rotation of body B last full narrowphase (q4: 26..29).
-pub const DIR_CACHED_ROT_B: usize = 26;
-/// Cached relative pose `inv(xfA)·xfB` last full narrowphase (p3 + q4: 30..36).
-pub const DIR_CACHED_REL_POSE: usize = 30;
-
-/// f32 stride of a pool manifold record (b3Manifold, 67 f32): an 11-slot header (normal 3,
-/// frictionImpulse 3, twistImpulse 1, rollingImpulse 3, pointCount 1) followed by 4 inline point
-/// records of 14 slots each. Matches `src/manifoldstore.ts` `MANIFOLD_STRIDE`.
-pub const MANIFOLD_STRIDE: usize = 67;
-pub const M_NORMAL: usize = 0; // 0..2
-pub const M_FRICTION: usize = 3; // 3..5
-pub const M_TWIST: usize = 6;
-pub const M_ROLLING: usize = 7; // 7..9
-pub const M_POINT_COUNT: usize = 10; // read via `to_bits`
-pub const M_POINTS: usize = 11; // first inline point record
-pub const POOL_POINT_STRIDE: usize = 14;
-// Point sub-offsets, relative to a point record's start.
-pub const P_ANCHOR_A: usize = 0; // 0..2
-pub const P_ANCHOR_B: usize = 3; // 3..5
-pub const P_SEPARATION: usize = 6;
-// baseSeparation: the recycle test's per-step reference separation (cached by the finish pass,
-// read + rewritten by the recycle-success separation update — see recycle.rs).
-pub const P_BASE_SEPARATION: usize = 7;
-pub const P_NORMAL_IMPULSE: usize = 8;
-pub const P_TOTAL_NORMAL_IMPULSE: usize = 9;
-pub const P_NORMAL_VELOCITY: usize = 10;
-pub const P_FEATURE_ID: usize = 11; // u32 (bits stored through the f32 pool)
-pub const P_TRIANGLE_INDEX: usize = 12; // i32
-pub const P_PERSISTED: usize = 13; // u32 (0/1)
+pub const DIR_MANIFOLD_COUNT: usize = offset_of!(ContactRecord, manifold_count) / 4;
+pub const DIR_MANIFOLD_BASE: usize = offset_of!(ContactRecord, manifolds) / 4;
+pub const DIR_INDEX_A: usize = offset_of!(ContactRecord, body_sim_index_a) / 4;
+pub const DIR_INDEX_B: usize = offset_of!(ContactRecord, body_sim_index_b) / 4;
+pub const DIR_CACHE: usize = offset_of!(ContactRecord, cache) / 4;
+pub const DIR_MESH_CACHE: usize = DIR_CACHE;
+pub const DIR_CACHED_ROT_A: usize = offset_of!(ContactRecord, cached_rotation_a) / 4;
+pub const DIR_CACHED_ROT_B: usize = offset_of!(ContactRecord, cached_rotation_b) / 4;
+pub const DIR_CACHED_REL_POSE: usize = offset_of!(ContactRecord, cached_relative_pose) / 4;
+pub const MANIFOLD_STRIDE: usize = size_of::<ManifoldRecord>() / 4;
+pub const M_NORMAL: usize = offset_of!(ManifoldRecord, normal) / 4;
+pub const M_FRICTION: usize = offset_of!(ManifoldRecord, friction_impulse) / 4;
+pub const M_TWIST: usize = offset_of!(ManifoldRecord, twist_impulse) / 4;
+pub const M_ROLLING: usize = offset_of!(ManifoldRecord, rolling_impulse) / 4;
+pub const M_POINT_COUNT: usize = offset_of!(ManifoldRecord, point_count) / 4;
+pub const M_POINTS: usize = offset_of!(ManifoldRecord, points) / 4;
+pub const POOL_POINT_STRIDE: usize = size_of::<ManifoldPointRecord>() / 4;
+pub const P_ANCHOR_A: usize = offset_of!(ManifoldPointRecord, anchor_a) / 4;
+pub const P_ANCHOR_B: usize = offset_of!(ManifoldPointRecord, anchor_b) / 4;
+pub const P_SEPARATION: usize = offset_of!(ManifoldPointRecord, separation) / 4;
+pub const P_BASE_SEPARATION: usize = offset_of!(ManifoldPointRecord, base_separation) / 4;
+pub const P_NORMAL_IMPULSE: usize = offset_of!(ManifoldPointRecord, normal_impulse) / 4;
+pub const P_TOTAL_NORMAL_IMPULSE: usize = offset_of!(ManifoldPointRecord, total_normal_impulse) / 4;
+pub const P_NORMAL_VELOCITY: usize = offset_of!(ManifoldPointRecord, normal_velocity) / 4;
+pub const P_FEATURE_ID: usize = offset_of!(ManifoldPointRecord, feature_id) / 4;
+pub const P_TRIANGLE_INDEX: usize = offset_of!(ManifoldPointRecord, triangle_index) / 4;
+pub const P_PERSISTED: usize = offset_of!(ManifoldPointRecord, persisted) / 4;
 
 /// u32 stride of one scalar solver-record slot: contactId, manifoldStart (transient `mc` base),
 /// pointStart (transient `mcp` base). Maps a per-color scalar record to its persistent contact and its

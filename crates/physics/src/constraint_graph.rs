@@ -157,20 +157,20 @@ pub extern "C" fn add_contact_in_world(world_index: usize, id: usize, index_a: u
         let ta = bodies::get_type(world_index, a);
         let tb = bodies::get_type(world_index, b);
         let color = assign_in_world(world_index, a, b, ta, tb);
-        let scalar = d.get(o + 6) & 0x00400000 != 0 || color == OVERFLOW;
+        let scalar = d.get(o + DIR_FLAGS) & 0x00400000 != 0 || color == OVERFLOW;
         d.set(o + DIR_COLOR_INDEX, color as u32);
         d.set(
             o + DIR_LOCAL_INDEX,
             count_in_world(world_index, color, scalar) as u32,
         );
-        d.set(o + 9, if ta == 0 { u32::MAX } else { index_a });
-        d.set(o + 10, if tb == 0 { u32::MAX } else { index_b });
+        d.set(o + DIR_INDEX_A, if ta == 0 { u32::MAX } else { index_a });
+        d.set(o + DIR_INDEX_B, if tb == 0 { u32::MAX } else { index_b });
         let c = &mut colors(world_index)[color];
         if scalar {
             c.contacts.push(ContactSpec {
                 contact_id: id as u32,
                 manifold_start: 0,
-                manifold_count: d.get(o + 7) as u16,
+                manifold_count: d.get(o + DIR_MANIFOLD_COUNT) as u16,
             });
         } else {
             c.convex_contacts.push(id as u32);
@@ -234,7 +234,7 @@ static mut SOLVE_LAYOUT: [[u32; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_W
 unsafe fn extent(world_index: usize, id: u32) -> (u32, u32) {
     let d = manifolds::dir_col(world_index);
     let o = id as usize * DIR_STRIDE;
-    let n = d.get(o + 7);
+    let n = d.get(o + DIR_MANIFOLD_COUNT);
     let p = d.get(o + DIR_MANIFOLD_BASE) as *const u32;
     let mut points = 0;
     for i in 0..n as usize {

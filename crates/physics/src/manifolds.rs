@@ -1,6 +1,6 @@
 //! World-owned contact directories and Box3D's manifold-count block allocators.
 use crate::col::Col;
-use crate::manifold_abi::{DIR_MANIFOLD_BASE, DIR_STRIDE, MANIFOLD_STRIDE};
+use crate::manifold_abi::{DIR_MANIFOLD_BASE, DIR_MANIFOLD_COUNT, DIR_STRIDE, MANIFOLD_STRIDE};
 use crate::regions::{self, Buffer, Columns, MAX_WORLDS};
 
 static mut COLUMNS: [Columns<1>; MAX_WORLDS] = [Columns::EMPTY; MAX_WORLDS];
@@ -70,8 +70,8 @@ pub extern "C" fn alloc_contact_in_world(world_index: usize) -> usize {
             dir.set(o + field, 0);
         }
         for field in [
-            9,
-            10,
+            DIR_INDEX_A,
+            DIR_INDEX_B,
             DIR_SET_INDEX,
             DIR_COLOR_INDEX,
             DIR_LOCAL_INDEX,
@@ -254,17 +254,17 @@ unsafe fn allocate(id: usize, contact: usize, count: usize) -> usize {
     }
     let address = allocators[count - 1].allocate();
     let dir = COLUMNS[id].layout[0] as *mut u32;
-    *dir.add(contact * DIR_STRIDE + 7) = count as u32;
+    *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_COUNT) = count as u32;
     *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_BASE) = address as u32;
     address
 }
 unsafe fn free(id: usize, contact: usize) {
     let dir = COLUMNS[id].layout[0] as *mut u32;
-    let count = *dir.add(contact * DIR_STRIDE + 7) as usize;
+    let count = *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_COUNT) as usize;
     if count != 0 {
         let address = *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_BASE) as usize;
         ALLOCATORS[id][count - 1].free(address);
-        *dir.add(contact * DIR_STRIDE + 7) = 0;
+        *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_COUNT) = 0;
         *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_BASE) = 0;
     }
 }
@@ -364,7 +364,10 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
         regions::write_word(
             out,
             if index % DIR_STRIDE == DIR_MANIFOLD_BASE
-                || index % DIR_STRIDE == crate::manifold_abi::DIR_MESH_CACHE
+                || (index % DIR_STRIDE == crate::manifold_abi::DIR_MESH_CACHE
+                    && dir[index / DIR_STRIDE * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS]
+                        & 0x0040_0000
+                        != 0)
             {
                 0
             } else {
@@ -373,7 +376,7 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
         );
     }
     for contact in 0..CAPS[id] {
-        let count = dir[contact * DIR_STRIDE + 7] as usize;
+        let count = dir[contact * DIR_STRIDE + DIR_MANIFOLD_COUNT] as usize;
         if count != 0 {
             let address = dir[contact * DIR_STRIDE + DIR_MANIFOLD_BASE] as usize;
             out.extend_from_slice(core::slice::from_raw_parts(
@@ -402,9 +405,9 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     *input = rest;
     let dir = COLUMNS[id].layout[0] as *mut u32;
     for contact in 0..CAPS[id] {
-        let count = *dir.add(contact * DIR_STRIDE + 7) as usize;
+        let count = *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_COUNT) as usize;
         if count != 0 {
-            *dir.add(contact * DIR_STRIDE + 7) = 0;
+            *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_COUNT) = 0;
             let address = allocate(id, contact, count);
             let (data, rest) = input.split_at(count * MANIFOLD_STRIDE * 4);
             core::ptr::copy_nonoverlapping(data.as_ptr(), address as *mut u8, data.len());
@@ -415,7 +418,9 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     MESH_CACHES[id].resize(len, Columns::EMPTY);
     for (contact, cache) in MESH_CACHES[id].iter_mut().enumerate() {
         cache.restore(input);
-        if contact < CAPS[id] {
+        if contact < CAPS[id]
+            && *dir.add(contact * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS) & 0x0040_0000 != 0
+        {
             *dir.add(contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE) =
                 if cache.layout[0] == 16 {
                     0

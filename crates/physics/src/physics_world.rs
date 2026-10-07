@@ -80,7 +80,7 @@ pub unsafe fn destroy_contact(world_index: usize, id: usize, wake: bool) {
     let world = world_index;
     let d = manifolds::dir_col(world_index);
     let o = id * DIR_STRIDE;
-    let flags = d.get(o + 6);
+    let flags = d.get(o + DIR_FLAGS);
     let a = d.get(o + DIR_EDGE_A) as usize;
     let b = d.get(o + DIR_EDGE_B) as usize;
     crate::table::remove_pair_in_world(
@@ -103,7 +103,7 @@ pub unsafe fn destroy_contact(world_index: usize, id: usize, wake: bool) {
 unsafe fn apply_touch(world_index: usize, id: usize) {
     let d = manifolds::dir_col(world_index);
     let o = id * DIR_STRIDE;
-    let flags = d.get(o + 6);
+    let flags = d.get(o + DIR_FLAGS);
     let world = world_index;
     if flags & 0x0002_0000 != 0 {
         crate::table::remove_pair_in_world(
@@ -131,7 +131,7 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
     let a = d.get(o + DIR_EDGE_A) as usize;
     let b = d.get(o + DIR_EDGE_B) as usize;
     if started {
-        d.set(o + 6, (flags & !0x0004_0000) | 1);
+        d.set(o + DIR_FLAGS, (flags & !0x0004_0000) | 1);
         let sa = bodies::record(world, a).set_index;
         let sb = bodies::record(world, b).set_index;
         if sa == 2 && sb >= 3 {
@@ -157,7 +157,7 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
             d.set(moved * DIR_STRIDE + DIR_LOCAL_INDEX, old as u32);
         }
     } else {
-        d.set(o + 6, flags & !(0x0008_0000 | 1));
+        d.set(o + DIR_FLAGS, flags & !(0x0008_0000 | 1));
         let color = d.get(o + DIR_COLOR_INDEX) as usize;
         let local = d.get(o + DIR_LOCAL_INDEX) as usize;
         island::unlink_contact_in_world(world_index, id as i32);

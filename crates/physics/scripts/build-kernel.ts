@@ -38,6 +38,16 @@ import { kernelInputHash } from "./kernel-inputs";
 const pkgRoot = resolve(import.meta.dir, "../../..");
 const kernelDir = resolve(pkgRoot, "crates/physics");
 const engineDir = resolve(pkgRoot, "src/standard/physics/kernel");
+const recordLayout = spawnSync(
+    "cargo",
+    ["run", "--quiet", "--example", "contact-layout", "-p", "shallot-physics"],
+    {
+        cwd: pkgRoot,
+        encoding: "utf8",
+    },
+);
+if (recordLayout.status !== 0) throw new Error(recordLayout.stderr);
+writeFileSync(resolve(engineDir, "contact-layout.ts"), recordLayout.stdout);
 
 /** The dated nightly for the shared build; needs rust-src for -Zbuild-std. */
 const NIGHTLY = "nightly-2026-09-10";

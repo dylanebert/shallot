@@ -627,7 +627,7 @@ pub unsafe extern "C" fn sleep_contact_in_world(world_index: usize, id: usize, t
         d.get(o + DIR_EDGE_B) as usize,
         d.get(o + DIR_COLOR_INDEX) as usize,
         d.get(o + DIR_LOCAL_INDEX) as usize,
-        d.get(o + 6) & 0x00400000 != 0,
+        d.get(o + DIR_FLAGS) & 0x00400000 != 0,
     );
     d.set(o + DIR_SET_INDEX, target as u32);
     d.set(o + DIR_COLOR_INDEX, u32::MAX);
