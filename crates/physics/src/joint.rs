@@ -1101,16 +1101,6 @@ fn solve_revolute(
     let lower_angle = get(joints, slot, RJ_LOWER_ANGLE);
     let upper_angle = get(joints, slot, RJ_UPPER_ANGLE);
 
-    let mut linear_impulse = get_vec3(joints, slot, RJ_LINEAR_IMPULSE);
-    let mut perp_impulse = Vec2::new(
-        get(joints, slot, RJ_PERP_IMPULSE),
-        get(joints, slot, RJ_PERP_IMPULSE + 1),
-    );
-    let mut spring_impulse = get(joints, slot, RJ_SPRING_IMPULSE);
-    let mut motor_impulse = get(joints, slot, RJ_MOTOR_IMPULSE);
-    let mut lower_impulse = get(joints, slot, RJ_LOWER_IMPULSE);
-    let mut upper_impulse = get(joints, slot, RJ_UPPER_IMPULSE);
-
     let quat_a = end_a.state.delta_rotation.mul(frame_a.q);
     let mut quat_b = end_b.state.delta_rotation.mul(frame_b.q);
     if quat_a.dot(quat_b) < 0.0 {
@@ -1127,9 +1117,15 @@ fn solve_revolute(
         let impulse_scale = spring_soft.impulse_scale;
         let cdot = w_b.sub(w_a).dot(rotation_axis_z);
 
+        let spring_impulse = get(joints, slot, RJ_SPRING_IMPULSE);
         let delta_impulse =
             -mass_scale * axial_mass * (cdot + bias) - impulse_scale * spring_impulse;
-        spring_impulse += delta_impulse;
+        set(
+            joints,
+            slot,
+            RJ_SPRING_IMPULSE,
+            spring_impulse + delta_impulse,
+        );
 
         w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(rotation_axis_z));
         w_b = w_b.mul_add(delta_impulse, i_b.mul_v(rotation_axis_z));
@@ -1137,12 +1133,13 @@ fn solve_revolute(
 
     if enable_motor && !fixed_rotation {
         let cdot = w_b.sub(w_a).dot(rotation_axis_z) - motor_speed;
+        let motor_impulse = get(joints, slot, RJ_MOTOR_IMPULSE);
         let mut delta_impulse = -axial_mass * cdot;
         let mut new_impulse = motor_impulse + delta_impulse;
         let max_impulse = max_motor_torque * h;
         new_impulse = clampf(new_impulse, -max_impulse, max_impulse);
         delta_impulse = new_impulse - motor_impulse;
-        motor_impulse = new_impulse;
+        set(joints, slot, RJ_MOTOR_IMPULSE, new_impulse);
 
         w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(rotation_axis_z));
         w_b = w_b.mul_add(delta_impulse, i_b.mul_v(rotation_axis_z));
@@ -1166,10 +1163,11 @@ fn solve_revolute(
                 impulse_scale = cs.impulse_scale;
             }
             let cdot = w_b.sub(w_a).dot(axis);
-            let old_impulse = lower_impulse;
+            let old_impulse = get(joints, slot, RJ_LOWER_IMPULSE);
             let mut delta_impulse =
                 -mass_scale * axial_mass * (cdot + bias) - impulse_scale * old_impulse;
-            lower_impulse = maxf(old_impulse + delta_impulse, 0.0);
+            let lower_impulse = maxf(old_impulse + delta_impulse, 0.0);
+            set(joints, slot, RJ_LOWER_IMPULSE, lower_impulse);
             delta_impulse = lower_impulse - old_impulse;
 
             w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(axis));
@@ -1191,10 +1189,11 @@ fn solve_revolute(
             }
             // sign flipped on Cdot
             let cdot = w_a.sub(w_b).dot(axis);
-            let old_impulse = upper_impulse;
+            let old_impulse = get(joints, slot, RJ_UPPER_IMPULSE);
             let mut delta_impulse =
                 -mass_scale * axial_mass * (cdot + bias) - impulse_scale * old_impulse;
-            upper_impulse = maxf(old_impulse + delta_impulse, 0.0);
+            let upper_impulse = maxf(old_impulse + delta_impulse, 0.0);
+            set(joints, slot, RJ_UPPER_IMPULSE, upper_impulse);
             delta_impulse = upper_impulse - old_impulse;
 
             // sign flipped on applied impulse
@@ -1237,10 +1236,15 @@ fn solve_revolute(
 
         let w_rel = w_b.sub(w_a);
         let cdot = Vec2::new(w_rel.dot(perp_axis_x), w_rel.dot(perp_axis_y));
-        let old_impulse = perp_impulse;
+        let old_impulse = Vec2::new(
+            get(joints, slot, RJ_PERP_IMPULSE),
+            get(joints, slot, RJ_PERP_IMPULSE + 1),
+        );
         let sol = k.solve(cdot.add(bias));
         let delta_impulse = sol.scale(-mass_scale).sub(old_impulse.scale(impulse_scale));
-        perp_impulse = perp_impulse.add(delta_impulse);
+        let perp_impulse = old_impulse.add(delta_impulse);
+        set(joints, slot, RJ_PERP_IMPULSE, perp_impulse.x);
+        set(joints, slot, RJ_PERP_IMPULSE + 1, perp_impulse.y);
 
         let angular_impulse = perp_axis_x
             .scale(delta_impulse.x)
@@ -1279,24 +1283,17 @@ fn solve_revolute(
         k.cz.z += mm;
 
         let b = k.solve(cdot.add(bias));
+        let linear_impulse = get_vec3(joints, slot, RJ_LINEAR_IMPULSE);
         let impulse = b
             .scale(-mass_scale)
             .sub(linear_impulse.scale(impulse_scale));
-        linear_impulse = linear_impulse.add(impulse);
+        set_vec3(joints, slot, RJ_LINEAR_IMPULSE, linear_impulse.add(impulse));
 
         v_a = v_a.mul_sub(m_a, impulse);
         w_a = w_a.sub(i_a.mul_v(r_a.cross(impulse)));
         v_b = v_b.mul_add(m_b, impulse);
         w_b = w_b.add(i_b.mul_v(r_b.cross(impulse)));
     }
-
-    set_vec3(joints, slot, RJ_LINEAR_IMPULSE, linear_impulse);
-    set(joints, slot, RJ_PERP_IMPULSE, perp_impulse.x);
-    set(joints, slot, RJ_PERP_IMPULSE + 1, perp_impulse.y);
-    set(joints, slot, RJ_SPRING_IMPULSE, spring_impulse);
-    set(joints, slot, RJ_MOTOR_IMPULSE, motor_impulse);
-    set(joints, slot, RJ_LOWER_IMPULSE, lower_impulse);
-    set(joints, slot, RJ_UPPER_IMPULSE, upper_impulse);
 
     if end_a.dynamic {
         write_velocity(state_col, base.sim_index_a, v_a, w_a);
