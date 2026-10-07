@@ -53,6 +53,7 @@ fn hull<'a>(g: &Value, points: &'a [Vec3], planes: &'a [Plane]) -> HullData<'a> 
     // The queries read points and planes only; the topology is independently held by geometry gold.
     HullData {
         center: v(&g["center"]),
+        inner_radius: 0.0,
         bounds: points.iter().fold([points[0]; 2], |[lo, hi], p| {
             [
                 Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)),

@@ -5,7 +5,7 @@ use crate::mesh_query::{bounds_overlap, max, min};
 use crate::query::Shape;
 
 /// Geometry of the convex visitor, computed once for a target traversal.
-pub struct Visitor<'a> {
+struct Visitor<'a> {
     pub proxy: ShapeProxy<'a>,
     pub centroid: Vec3,
     pub min_extent: f32,
@@ -13,6 +13,45 @@ pub struct Visitor<'a> {
     /// Swept bounds through the target query's initial maximum fraction, in the sweep frame.
     pub lower: Vec3,
     pub upper: Vec3,
+}
+
+fn make_visitor<'a>(
+    shape: &'a Shape,
+    sweep: Sweep,
+    fraction: f32,
+    points: &'a mut [Vec3; 2],
+) -> Visitor<'a> {
+    let (centroid, min_extent) = match shape {
+        Shape::Sphere(s) => (s.center, s.radius),
+        Shape::Capsule(s) => (s.center1.lerp(s.center2, 0.5), s.radius),
+        Shape::Hull(h) => (h.center, h.inner_radius),
+        _ => unreachable!(),
+    };
+    let bounds = |xf: Transform| match shape {
+        Shape::Sphere(s) => {
+            let center = xf.point(s.center);
+            let r = Vec3::new(s.radius, s.radius, s.radius);
+            (center.sub(r), center.add(r))
+        }
+        Shape::Capsule(s) => {
+            let a = xf.point(s.center1);
+            let b = xf.point(s.center2);
+            let r = Vec3::new(s.radius, s.radius, s.radius);
+            (min(a, b).sub(r), max(a, b).add(r))
+        }
+        Shape::Hull(h) => transform_bounds(xf, h.bounds[0], h.bounds[1]),
+        _ => unreachable!(),
+    };
+    let (lo1, hi1) = bounds(start(sweep));
+    let (lo2, hi2) = bounds(sweep.transform(fraction));
+    Visitor {
+        proxy: shape_proxy(shape, points),
+        centroid,
+        min_extent,
+        sweep,
+        lower: min(lo1, lo2),
+        upper: max(hi1, hi2),
+    }
 }
 
 fn transform_bounds(xf: Transform, lower: Vec3, upper: Vec3) -> (Vec3, Vec3) {
@@ -144,21 +183,20 @@ fn mesh_impact(
     }
     context.output
 }
-fn convex_impact(shape: &Shape, target: Sweep, visitor: &Visitor, fraction: f32) -> TOIOutput {
-    let mut points = [Vec3::ZERO; 2];
-    let proxy = match shape {
+fn shape_proxy<'a>(shape: &'a Shape, points: &'a mut [Vec3; 2]) -> ShapeProxy<'a> {
+    match shape {
         Shape::Sphere(s) => {
             points[0] = s.center;
             ShapeProxy {
-                points: &points,
+                points,
                 count: 1,
                 radius: s.radius,
             }
         }
         Shape::Capsule(s) => {
-            points = [s.center1, s.center2];
+            *points = [s.center1, s.center2];
             ShapeProxy {
-                points: &points,
+                points,
                 count: 2,
                 radius: s.radius,
             }
@@ -169,12 +207,22 @@ fn convex_impact(shape: &Shape, target: Sweep, visitor: &Visitor, fraction: f32)
             radius: 0.0,
         },
         _ => unreachable!(),
-    };
+    }
+}
+
+fn convex_impact(
+    shape: &Shape,
+    target: Sweep,
+    proxy_b: ShapeProxy,
+    sweep_b: Sweep,
+    fraction: f32,
+) -> TOIOutput {
+    let mut points = [Vec3::ZERO; 2];
     time_of_impact(&TOIInput {
-        proxy_a: proxy,
-        proxy_b: visitor.proxy,
+        proxy_a: shape_proxy(shape, &mut points),
+        proxy_b,
         sweep_a: target,
-        sweep_b: visitor.sweep,
+        sweep_b,
         max_fraction: fraction,
     })
 }
@@ -182,18 +230,21 @@ fn convex_impact(shape: &Shape, target: Sweep, visitor: &Visitor, fraction: f32)
 pub fn shape_time_of_impact(
     shape: &Shape,
     target: Sweep,
-    visitor: &Visitor,
+    shape_b: &Shape,
+    sweep_b: Sweep,
     fraction: f32,
     is_sensor: bool,
 ) -> TOIOutput {
+    let mut points_b = [Vec3::ZERO; 2];
     match shape {
         Shape::Mesh(_) | Shape::Height(_) => {
+            let visitor = make_visitor(shape_b, sweep_b, fraction, &mut points_b);
             let (lower, upper) =
                 transform_bounds(start(target).invert(), visitor.lower, visitor.upper);
             mesh_impact(
                 shape,
                 target,
-                visitor,
+                &visitor,
                 fraction,
                 maxf(0.5 * visitor.min_extent, 0.005),
                 is_sensor,
@@ -203,6 +254,7 @@ pub fn shape_time_of_impact(
         }
         #[cfg(target_arch = "wasm32")]
         Shape::Compound(compound) => {
+            let visitor = make_visitor(shape_b, sweep_b, fraction, &mut points_b);
             let xf = Transform {
                 p: target.c1,
                 q: target.q1,
@@ -226,7 +278,7 @@ pub fn shape_time_of_impact(
                         mesh_impact(
                             &child,
                             sweep,
-                            visitor,
+                            &visitor,
                             fraction,
                             maxf(0.75 * visitor.min_extent, 0.02),
                             false,
@@ -234,7 +286,7 @@ pub fn shape_time_of_impact(
                             hi,
                         )
                     }
-                    _ => convex_impact(&child, sweep, visitor, fraction),
+                    _ => convex_impact(&child, sweep, visitor.proxy, visitor.sweep, fraction),
                 };
                 if result.fraction > 0.0 && result.fraction < fraction {
                     output = result;
@@ -244,6 +296,12 @@ pub fn shape_time_of_impact(
             });
             output
         }
-        _ => convex_impact(shape, target, visitor, fraction),
+        _ => convex_impact(
+            shape,
+            target,
+            shape_proxy(shape_b, &mut points_b),
+            sweep_b,
+            fraction,
+        ),
     }
 }

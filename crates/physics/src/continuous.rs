@@ -2,8 +2,8 @@
 use crate::{
     bodies, body, broad,
     col::Col,
-    continuous_shape::{shape_time_of_impact, Visitor},
-    distance::{ShapeProxy, Sweep},
+    continuous_shape::shape_time_of_impact,
+    distance::Sweep,
     math::{Quat, Transform, Vec3},
     query::Shape,
     shapes, tree,
@@ -333,43 +333,9 @@ unsafe fn solve(i: usize) {
             continue;
         }
         let shape = crate::query_abi::active_shape(fast).0;
-        let mut points = [Vec3::ZERO; 2];
-        let (proxy, centroid, min_extent) = match &shape {
-            Shape::Sphere(s) => {
-                points[0] = s.center;
-                (
-                    ShapeProxy {
-                        points: &points,
-                        count: 1,
-                        radius: s.radius,
-                    },
-                    s.center,
-                    s.radius,
-                )
-            }
-            Shape::Capsule(s) => {
-                points = [s.center1, s.center2];
-                (
-                    ShapeProxy {
-                        points: &points,
-                        count: 2,
-                        radius: s.radius,
-                    },
-                    s.center1.lerp(s.center2, 0.5),
-                    s.radius,
-                )
-            }
-            Shape::Hull(h) => (
-                ShapeProxy {
-                    points: h.points,
-                    count: h.vertex_count,
-                    radius: 0.0,
-                },
-                h.center,
-                f.get(o + 43),
-            ),
-            _ => continue,
-        };
+        if !matches!(shape, Shape::Sphere(_) | Shape::Capsule(_) | Shape::Hull(_)) {
+            continue;
+        }
         let swept = union(old, box2);
         for t in 0..if bullet { 3 } else { 1 } {
             if ROOTS[t] == -1 {
@@ -414,23 +380,12 @@ unsafe fn solve(i: usize) {
                     if !crate::bodies::should_collide(body_id, u.get(a + 29)) {
                         return true;
                     }
-                    let b = union(
-                        bounds(fast, start(sw)),
-                        bounds(fast, transform(sw, fraction)),
-                    );
-                    let visitor = Visitor {
-                        proxy,
-                        centroid,
-                        min_extent,
-                        sweep: sw,
-                        lower: lo(b),
-                        upper: hi(b),
-                    };
                     let target_shape = crate::query_abi::active_shape(target).0;
                     let output = shape_time_of_impact(
                         &target_shape,
                         target_sweep(target, base),
-                        &visitor,
+                        &shape,
+                        sw,
                         fraction,
                         sensor,
                     );

@@ -1,6 +1,7 @@
-use shallot_physics::continuous_shape::{shape_time_of_impact, Visitor};
+use shallot_physics::continuous_shape::shape_time_of_impact;
 use shallot_physics::distance::{time_of_impact, ShapeProxy, Sweep, TOIInput};
 use shallot_physics::height_query::HeightField;
+use shallot_physics::manifold::Sphere;
 use shallot_physics::math::{Quat, Vec3};
 use shallot_physics::mesh_query::{Mesh, MeshNode, MeshTriangle};
 use shallot_physics::query::Shape;
@@ -18,18 +19,11 @@ fn sweep(c1: Vec3, c2: Vec3) -> Sweep {
 #[test]
 fn mesh_and_height_traversals_return_the_triangle_impact() {
     let points = [Vec3::ZERO];
-    let visitor = Visitor {
-        proxy: ShapeProxy {
-            points: &points,
-            count: 1,
-            radius: 0.1,
-        },
-        centroid: Vec3::ZERO,
-        min_extent: 0.1,
-        sweep: sweep(Vec3::new(0.25, 1.0, 0.25), Vec3::new(0.25, -1.0, 0.25)),
-        lower: Vec3::new(0.15, -1.1, 0.15),
-        upper: Vec3::new(0.35, 1.1, 0.35),
-    };
+    let visitor = Shape::Sphere(Sphere {
+        center: Vec3::ZERO,
+        radius: 0.1,
+    });
+    let visitor_sweep = sweep(Vec3::new(0.25, 1.0, 0.25), Vec3::new(0.25, -1.0, 0.25));
     let target = sweep(Vec3::ZERO, Vec3::ZERO);
     let vertices = [
         Vec3::ZERO,
@@ -42,9 +36,13 @@ fn mesh_and_height_traversals_return_the_triangle_impact() {
             count: 3,
             radius: 0.0,
         },
-        proxy_b: visitor.proxy,
+        proxy_b: ShapeProxy {
+            points: &points,
+            count: 1,
+            radius: 0.1,
+        },
         sweep_a: target,
-        sweep_b: visitor.sweep,
+        sweep_b: visitor_sweep,
         max_fraction: 1.0,
     });
     assert!(expected.fraction > 0.0 && expected.fraction < 1.0);
@@ -75,7 +73,7 @@ fn mesh_and_height_traversals_return_the_triangle_impact() {
         materials: &[0],
     });
     for shape in [&mesh, &height] {
-        let output = shape_time_of_impact(shape, target, &visitor, 1.0, false);
+        let output = shape_time_of_impact(shape, target, &visitor, visitor_sweep, 1.0, false);
         assert_eq!(output.fraction.to_bits(), expected.fraction.to_bits());
         assert_eq!(output.state, expected.state);
         assert!(!output.used_fallback);

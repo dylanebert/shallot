@@ -103,6 +103,7 @@ impl HullStore {
     fn view(&self) -> HullData<'_> {
         HullData {
             center: self.center,
+            inner_radius: 0.0,
             bounds: self.points.iter().fold([self.points[0]; 2], |[lo, hi], p| {
                 [
                     Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)),

@@ -60,6 +60,7 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
             let hull = crate::hull::HullData {
                 center: Vec3::ZERO,
                 bounds: [Vec3::ZERO; 2],
+                inner_radius: 0.0,
                 vertex_count: 8,
                 edge_count: 0,
                 face_count: 0,
