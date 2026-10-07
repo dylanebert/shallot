@@ -124,6 +124,14 @@ fn write_velocity(state_col: Col<f32>, index: u32, v: Vec3, w: Vec3) {
     state_col.set(o + 5, w.z);
 }
 
+#[inline]
+fn write_angular_velocity(state_col: Col<f32>, index: u32, w: Vec3) {
+    let o = index as usize * STATE_STRIDE;
+    state_col.set(o + 3, w.x);
+    state_col.set(o + 4, w.y);
+    state_col.set(o + 5, w.z);
+}
+
 // --- base dispatch ----------------------------------------------------------------------------
 
 /// b3PrepareJoint: clamp the base constraint hertz, compute `constraintSoftness`, dispatch to the type.
@@ -3108,20 +3116,10 @@ fn warm_start_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags
     let w_b = end_b.state.angular_velocity.add(i_b.mul_v(angular_impulse));
 
     if end_a.dynamic {
-        write_velocity(
-            state_col,
-            base.sim_index_a,
-            end_a.state.linear_velocity,
-            w_a,
-        );
+        write_angular_velocity(state_col, base.sim_index_a, w_a);
     }
     if end_b.dynamic {
-        write_velocity(
-            state_col,
-            base.sim_index_b,
-            end_b.state.linear_velocity,
-            w_b,
-        );
+        write_angular_velocity(state_col, base.sim_index_b, w_b);
     }
 }
 
@@ -3202,20 +3200,10 @@ fn solve_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col:
     }
 
     if end_a.dynamic {
-        write_velocity(
-            state_col,
-            base.sim_index_a,
-            end_a.state.linear_velocity,
-            w_a,
-        );
+        write_angular_velocity(state_col, base.sim_index_a, w_a);
     }
     if end_b.dynamic {
-        write_velocity(
-            state_col,
-            base.sim_index_b,
-            end_b.state.linear_velocity,
-            w_b,
-        );
+        write_angular_velocity(state_col, base.sim_index_b, w_b);
     }
 }
 
