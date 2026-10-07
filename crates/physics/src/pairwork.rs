@@ -21,30 +21,27 @@ const DYNAMIC: u32 = 2;
 /// u32 slots per survivor: childIndex, shapeA, shapeB, next.
 /// Each proxy owns a LIFO list; allocation order across proxies is immaterial.
 const CAND_STRIDE: usize = 4;
-/// u32 per input tree-state record: root, nodeCount, freeList, proxyCount.
-const STATE_STRIDE: usize = 4;
-/// u32 per rebuilt-tree output record: root, nodeCount, freeList.
-const REBUILD_OUT_STRIDE: usize = 3;
 
 // Slab pointers (byte offsets) in the shared per-step arena.
-static mut STATE_PTR: u32 = 0;
 static mut MOVE_PTR: u32 = 0;
 static mut MOVED_PTR: u32 = 0;
 static mut CANDEND_PTR: u32 = 0;
 static mut CAND_PTR: u32 = 0;
-static mut REBUILD_OUT_PTR: u32 = 0;
-static mut LEAFIDX_PTR: u32 = 0;
-static mut LEAFCEN_PTR: u32 = 0;
-static mut GATHER_PTR: u32 = 0;
-static mut BUILD_PTR: u32 = 0;
 
 static mut MOVE_COUNT: usize = 0;
 static mut MOVED_WORDS: usize = 0;
 static mut CAND_CAP: usize = 0;
-static mut MAX_PROXY: usize = 0;
+static mut REBUILD_PENDING: bool = false;
+
+pub unsafe fn schedule_rebuild() {
+    REBUILD_PENDING = true;
+}
+
+pub unsafe fn rebuild_pending() -> bool {
+    REBUILD_PENDING
+}
 
 /// Reserve shared pair-finding scratch, consumed before dispatch, recycle or solve reserves it.
-/// Rebuild scratch covers the largest rebuilt tree.
 #[export_name = "reservePairs"]
 pub extern "C" fn reserve_pairs() {
     reserve_pairs_in_world(crate::regions::active())
@@ -55,66 +52,20 @@ pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
         let move_count = broad::move_count(world_index);
         let cand_cap = 16 * move_count;
         CAND_CAP = cand_cap;
-        let max_proxy = [1usize, 2]
-            .into_iter()
-            .map(|i| {
-                if broad::tree_cap(world_index, i) == 0 {
-                    0
-                } else {
-                    *broad::tree_state(world_index, i).add(3) as usize
-                }
-            })
-            .max()
-            .unwrap()
-            .max(1);
         CAND_COUNT.store(0, Ordering::Relaxed);
         MOVE_COUNT = broad::move_count(world_index);
         MOVED_WORDS = broad::bits_words(world_index, DYNAMIC as usize);
-        MAX_PROXY = max_proxy;
 
         let mut off = 0;
-        STATE_PTR = off as u32;
-        off += 3 * STATE_STRIDE * 4;
         MOVE_PTR = broad::move_ptr(world_index) as u32;
         MOVED_PTR = broad::bits_ptr(world_index, DYNAMIC as usize) as u32;
         CANDEND_PTR = off as u32;
         off += move_count * 4;
         CAND_PTR = off as u32;
         off += cand_cap * CAND_STRIDE * 4;
-        REBUILD_OUT_PTR = off as u32;
-        off += 2 * REBUILD_OUT_STRIDE * 4;
-        LEAFIDX_PTR = off as u32;
-        off += max_proxy * 4;
-        LEAFCEN_PTR = off as u32;
-        off += max_proxy * 3 * 4;
-        GATHER_PTR = off as u32;
-        off += tree::STACK_SIZE * 4;
-        BUILD_PTR = off as u32;
-        off += tree::STACK_SIZE * 5 * 4;
         let base = crate::arena::reserve_scratch(world_index, off) as u32;
-        STATE_PTR += base;
         CANDEND_PTR += base;
         CAND_PTR += base;
-        REBUILD_OUT_PTR += base;
-        LEAFIDX_PTR += base;
-        LEAFCEN_PTR += base;
-        GATHER_PTR += base;
-        BUILD_PTR += base;
-        for i in 0..3 {
-            let target = (STATE_PTR as *mut u32).add(i * STATE_STRIDE);
-            if broad::tree_cap(world_index, i) == 0 {
-                *target = u32::MAX;
-                *target.add(1) = 0;
-                *target.add(2) = u32::MAX;
-                *target.add(3) = 0;
-            } else {
-                core::ptr::copy_nonoverlapping(
-                    broad::tree_state(world_index, i),
-                    target,
-                    STATE_STRIDE,
-                );
-            }
-        }
     }
 }
 
@@ -132,14 +83,6 @@ pub extern "C" fn pairs_cand_ptr() -> *const u32 {
 #[inline]
 unsafe fn pool_slice(world_index: usize, tree_index: usize) -> &'static [u32] {
     core::slice::from_raw_parts(
-        broad::tree_ptr(world_index, tree_index),
-        broad::tree_cap(world_index, tree_index) * tree::STRIDE,
-    )
-}
-
-#[inline]
-unsafe fn pool_slice_mut(world_index: usize, tree_index: usize) -> &'static mut [u32] {
-    core::slice::from_raw_parts_mut(
         broad::tree_ptr(world_index, tree_index),
         broad::tree_cap(world_index, tree_index) * tree::STRIDE,
     )
@@ -285,7 +228,6 @@ fn shapes_collide(a: &[u32], b: &[u32]) -> bool {
 pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap: usize) {
     unsafe {
         let move_count = MOVE_COUNT;
-        let state = core::slice::from_raw_parts(STATE_PTR as *const u32, 3 * STATE_STRIDE);
         let move_buf = core::slice::from_raw_parts(MOVE_PTR as *const u32, move_count);
         let moved = core::slice::from_raw_parts(MOVED_PTR as *const u32, MOVED_WORDS);
         let cand_end = CANDEND_PTR as *mut u32;
@@ -302,16 +244,12 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             pool_slice(world_index, 1),
             pool_slice(world_index, 2),
         ];
-        let roots = [
-            state[0] as i32,
-            state[STATE_STRIDE] as i32,
-            state[2 * STATE_STRIDE] as i32,
-        ];
-        let counts = [
-            state[1] as usize,
-            state[STATE_STRIDE + 1] as usize,
-            state[2 * STATE_STRIDE + 1] as usize,
-        ];
+        let roots = core::array::from_fn::<_, 3, _>(|i| {
+            if broad::tree_cap(world_index, i) == 0 { -1 } else { *broad::tree_state(world_index, i) as i32 }
+        });
+        let counts = core::array::from_fn::<_, 3, _>(|i| {
+            if broad::tree_cap(world_index, i) == 0 { 0 } else { *broad::tree_state(world_index, i).add(1) as usize }
+        });
 
         let mut em = Emitter {
             world: world_index,
@@ -393,13 +331,7 @@ fn run_query(
     );
 }
 
-/// Phase 2 — rebuild the dynamic then kinematic trees (median split, `full == false`), matching the TS
-/// order. Writes each rebuilt tree's new `[root, nodeCount, freeList]` into the rebuild-out slab (dynamic
-/// first, then kinematic), and updates their resident headers. Static is never rebuilt.
-///
-/// # Safety
-/// Runs after the query join (the query reads the pre-rebuild trees). Never grows the pool — the
-/// resident capacity (`2*proxyCap-1`) always holds the rebuilt tree.
+/// b3UpdateTreesTask: dynamic then kinematic, with no broadphase readers until its join.
 #[export_name = "rebuildTrees"]
 pub extern "C" fn rebuild_trees() {
     rebuild_trees_in_world(crate::regions::active())
@@ -407,53 +339,14 @@ pub extern "C" fn rebuild_trees() {
 
 pub extern "C" fn rebuild_trees_in_world(world_index: usize) {
     unsafe {
-        let state = core::slice::from_raw_parts(STATE_PTR as *const u32, 3 * STATE_STRIDE);
-        let out =
-            core::slice::from_raw_parts_mut(REBUILD_OUT_PTR as *mut u32, 2 * REBUILD_OUT_STRIDE);
-        let mut leaf_indices = core::slice::from_raw_parts_mut(LEAFIDX_PTR as *mut i32, MAX_PROXY);
-        let mut leaf_centers =
-            core::slice::from_raw_parts_mut(LEAFCEN_PTR as *mut f32, MAX_PROXY * 3);
-        let mut gather_stack =
-            core::slice::from_raw_parts_mut(GATHER_PTR as *mut i32, tree::STACK_SIZE);
-        let mut build_stack =
-            core::slice::from_raw_parts_mut(BUILD_PTR as *mut i32, tree::STACK_SIZE * 5);
-
-        // Dynamic (tree 2) then kinematic (tree 1).
-        for (slot, ti) in [(0usize, DYNAMIC as usize), (1usize, KINEMATIC as usize)] {
-            let so = ti * STATE_STRIDE;
-            let root = state[so] as i32;
-            let node_count = state[so + 1] as usize;
-            let free_list = state[so + 2] as i32;
-            let proxy_count = state[so + 3] as usize;
-
-            let mut rb = tree::Rebuild {
-                node_count,
-                free_list,
-                leaf_indices,
-                leaf_centers,
-                gather_stack,
-                build_stack,
-            };
-            let pool = pool_slice_mut(world_index, ti);
-            let new_root = tree::rebuild(pool, root, proxy_count, false, &mut rb);
-
-            let oo = slot * REBUILD_OUT_STRIDE;
-            out[oo] = new_root as u32;
-            out[oo + 1] = rb.node_count as u32;
-            out[oo + 2] = rb.free_list as u32;
-            if broad::tree_cap(world_index, ti) != 0 {
-                core::ptr::copy_nonoverlapping(
-                    out.as_ptr().add(oo),
-                    broad::tree_state(world_index, ti),
-                    3,
-                );
+        for ti in [DYNAMIC as usize, KINEMATIC as usize] {
+            if broad::tree_cap(world_index, ti) == 0 {
+                continue;
             }
-
-            // Re-borrow the scratch for the next tree (the Rebuild moved the &mut in).
-            leaf_indices = rb.leaf_indices;
-            leaf_centers = rb.leaf_centers;
-            gather_stack = rb.gather_stack;
-            build_stack = rb.build_stack;
+            crate::treework::mutate_resident_in_world(
+                world_index, ti, 4, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0,
+            );
         }
+        REBUILD_PENDING = false;
     }
 }

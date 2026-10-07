@@ -790,9 +790,12 @@ fn run_job(world_index: usize, index: usize) {
                     return;
                 }
                 match job {
-                    Job::Contacts => p
-                        .par
-                        .run(|s, e| arena::contact_block(world_index, s, e, p.count, index)),
+                    Job::Contacts => {
+                        if index == 1 && crate::pairwork::rebuild_pending() {
+                            crate::pairwork::rebuild_trees_in_world(world_index);
+                        }
+                        p.par.run(|s, e| arena::contact_block(world_index, s, e, p.count, index));
+                    }
                     Job::Bullets => p
                         .par
                         .run(|s, e| crate::continuous::bullets(world_index, index, s, e)),

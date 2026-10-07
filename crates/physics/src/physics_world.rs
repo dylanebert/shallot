@@ -626,13 +626,16 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
             }
             2 => {
-                crate::pairwork::rebuild_trees_in_world(world_index);
+                crate::pairwork::schedule_rebuild();
                 create_pairs(world_index);
                 crate::arena::free_scratch(world_index);
                 DRIVER.phase = 3;
             }
             3 => {
                 if PAIRS_ONLY {
+                    if crate::pairwork::rebuild_pending() {
+                        crate::pairwork::rebuild_trees_in_world(world_index);
+                    }
                     DRIVER.phase = 0;
                     PAIRS_ONLY = false;
                     crate::arena::grow_stack(world_index);
@@ -642,6 +645,10 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 DRIVER.phase_start = ticks();
                 let count = contact_list::count_in_world(world_index);
                 DRIVER.phase = 4;
+                let fork = crate::solve::par_build(2, count, DRIVER.threads, 0.0) != 0;
+                if !fork && crate::pairwork::rebuild_pending() {
+                    crate::pairwork::rebuild_trees_in_world(world_index);
+                }
                 if count != 0 {
                     crate::arena::reserve_collide_in_world(
                         world_index,
@@ -654,9 +661,10 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                         world_index,
                         crate::arena::collide_list_ptr() as *mut u32,
                     );
-                    if parallel(world_index, 2, count, 0.0) {
+                    if fork {
                         return 1;
                     }
+                    crate::solve::run_mt_in_world(world_index);
                 }
             }
             4 => {

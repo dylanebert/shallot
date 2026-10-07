@@ -157,27 +157,23 @@ pub unsafe extern "C" fn mutate_resident_in_world(
     let ptr = crate::broad::tree_ptr(world_index, index);
     if op == 4 {
         let n = (*state.add(3) as usize).max(1);
-        let scratch = reserve(0, 6 + n * 4);
-        core::ptr::copy_nonoverlapping(state, scratch, 6);
-        let result = mutate(
-            ptr,
-            crate::broad::tree_cap(world_index, index),
-            scratch,
-            op,
-            id,
-            lx,
-            ly,
-            lz,
-            hx,
-            hy,
-            hz,
-            ch,
-            cl,
-            ud,
-            udh,
-        );
-        core::ptr::copy_nonoverlapping(scratch, state, 4);
-        return result;
+        let scratch = reserve(0, n * 4);
+        let mut gather = [0; STACK_SIZE];
+        let mut build = [0; STACK_SIZE * 5];
+        let mut rb = Rebuild {
+            node_count: *state.add(1) as usize,
+            free_list: *state.add(2) as i32,
+            leaf_indices: slice::from_raw_parts_mut(scratch as *mut i32, n),
+            leaf_centers: slice::from_raw_parts_mut(scratch.add(n) as *mut f32, n * 3),
+            gather_stack: &mut gather,
+            build_stack: &mut build,
+        };
+        let pool = slice::from_raw_parts_mut(ptr, crate::broad::tree_cap(world_index, index) * STRIDE);
+        let root = tree::rebuild(pool, *state as i32, *state.add(3) as usize, id != 0, &mut rb);
+        *state = root as u32;
+        *state.add(1) = rb.node_count as u32;
+        *state.add(2) = rb.free_list as u32;
+        return root;
     }
     mutate(
         ptr,
