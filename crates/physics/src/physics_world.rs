@@ -152,15 +152,8 @@ pub unsafe extern "C" fn finalize_in_world(
     dt: f32,
     enable_sleep: bool,
 ) -> bool {
-    let sim2 = bodies::sim2_base(world_index) as *const u32;
-    let mut bullets = false;
-    for i in 0..count {
-        let flags = *sim2.add(i * body::SIM2_STRIDE + body::S2_FLAGS);
-        bullets |= flags & (body::flags::IS_FAST | crate::continuous::IS_BULLET)
-            == (body::flags::IS_FAST | crate::continuous::IS_BULLET);
-    }
     crate::events::set_move_count(world_index, count);
-    bullets
+    crate::continuous::bullet_count() != 0
 }
 
 #[export_name = "stepSolveBuild"]
@@ -746,7 +739,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 accumulate(world_index, 19, start);
                 DRIVER.phase = 8;
                 DRIVER.phase_start = ticks();
-                if bullets && parallel(world_index, 3, DRIVER.count, 0.0) {
+                if bullets && parallel(world_index, 3, crate::continuous::bullet_count(), 0.0) {
                     return 1;
                 }
                 if !bullets {

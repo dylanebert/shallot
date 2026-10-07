@@ -198,7 +198,10 @@ pub extern "C" fn reserve_in_world(
         LAYOUT[COLOR_SPAN] = off as u32;
         off += color * COLOR_SPAN_STRIDE * 4;
 
+        let bullet_offset = off;
+        off += body * 4;
         let base = reserve_scratch(world_index, off);
+        crate::continuous::reserve_bullets(base + bullet_offset);
         for column in [CC, MC, OVERFLOW_CC, OVERFLOW_MC, WIDE, COLOR_SPAN] {
             LAYOUT[column] += base as u32;
         }

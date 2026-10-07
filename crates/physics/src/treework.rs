@@ -413,14 +413,15 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
     let shapes = crate::shapes::col(world_index);
     let fat = crate::shapes::col_f(world_index);
     let enlarged = crate::arena::enlarged_sims(world_index);
-    for block in 0..count.div_ceil(64) {
+    let blocks = if bullets == 0 { count.div_ceil(64) } else { crate::continuous::bullet_count() };
+    for block in 0..blocks {
         let mut mask = if bullets == 0 {
             *enlarged.bits.add(block)
         } else {
-            u64::MAX
+            1
         };
         while mask != 0 {
-            let i = block * 64 + mask.trailing_zeros() as usize;
+            let i = if bullets == 0 { block * 64 + mask.trailing_zeros() as usize } else { crate::continuous::bullet_body(block) };
             mask &= mask - 1;
             if i >= count {
                 break;

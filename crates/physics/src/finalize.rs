@@ -219,7 +219,9 @@ pub unsafe fn finalize(
                 s2 + S2_FLAGS,
                 f32::from_bits(flags | crate::continuous::IS_FAST),
             );
-            if flags & crate::continuous::IS_BULLET == 0 {
+            if flags & crate::continuous::IS_BULLET != 0 {
+                crate::continuous::add_bullet(i);
+            } else {
                 crate::continuous::solve(world_index, worker, i);
             }
         } else {

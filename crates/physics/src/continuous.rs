@@ -12,6 +12,27 @@ pub(crate) const IS_FAST: u32 = 0x40;
 pub(crate) const IS_BULLET: u32 = 0x80;
 const HAD_TIME_OF_IMPACT: u32 = 0x200;
 pub(crate) const ENLARGE_BOUNDS: u32 = 0x800;
+static mut BULLET_BODIES: *mut u32 = core::ptr::null_mut();
+static BULLET_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+pub(crate) unsafe fn reserve_bullets(base: usize) {
+    BULLET_BODIES = base as *mut u32;
+    BULLET_COUNT.store(0, core::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) unsafe fn add_bullet(sim: usize) {
+    let index = BULLET_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    *BULLET_BODIES.add(index) = sim as u32;
+}
+
+pub(crate) fn bullet_count() -> usize {
+    BULLET_COUNT.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) unsafe fn bullet_body(index: usize) -> usize {
+    *BULLET_BODIES.add(index) as usize
+}
+
 static mut ROOTS: [i32; 3] = [-1; 3];
 static mut ENABLE_SLEEP: bool = true;
 #[export_name = "continuousRoots"]
@@ -207,13 +228,8 @@ pub unsafe fn sleep_enabled() -> bool {
 /// # Safety
 /// As `finalize`, and `reserve_at` must have reserved continuous rows for every body in `[start, end)`.
 pub unsafe fn bullets(world_index: usize, worker: usize, start: usize, end: usize) {
-    for i in start..end {
-        if sim2(world_index).atomic_get(i * body::SIM2_STRIDE + body::S2_FLAGS)
-            & (IS_FAST | IS_BULLET)
-            == (IS_FAST | IS_BULLET)
-        {
-            solve(world_index, worker, i);
-        }
+    for index in start..end {
+        solve(world_index, worker, bullet_body(index));
     }
 }
 pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
