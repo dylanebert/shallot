@@ -531,7 +531,7 @@ unsafe fn create_pairs(world_index: usize) {
 unsafe fn sleep_islands(world_index: usize) {
     for index in (0..solver_set::array_count_in_world(world_index, 2, 1)).rev() {
         let id = solver_set::array_get_in_world(world_index, 2, 1, index) as usize;
-        if island::can_sleep_in_world(world_index, id) {
+        if !crate::arena::awake_islands(world_index).get(index) {
             try_sleep_island_in_world(world_index, id);
         }
     }
@@ -720,6 +720,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
             }
             6 => {
                 island::set_split_candidate_in_world(world_index, -1);
+                crate::arena::prepare_finalize(world_index, DRIVER.count);
                 PROFILE[world].constraints =
                     (ticks() - DRIVER.solve_start) as f32 - PROFILE[world].solver_setup;
                 DRIVER.phase_start = ticks();
@@ -729,6 +730,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
             }
             12 => {
+                crate::arena::reduce_finalize(world_index);
                 let bullets =
                     finalize_in_world(world_index, DRIVER.count, CONTEXT[0], DRIVER.sleep);
                 accumulate(world_index, 15, DRIVER.phase_start);
@@ -764,10 +766,6 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 SYNC_COUNT = bodies::body_sync_moved_in_world(world_index, events::count(world, 6));
                 if DRIVER.sleep {
                     let start = ticks();
-                    island::set_split_candidate_in_world(
-                        world_index,
-                        crate::body_record::runtime::gather_split(world_index, DRIVER.count),
-                    );
                     sleep_islands(world_index);
                     accumulate(world_index, 21, start);
                 }

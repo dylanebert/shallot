@@ -291,6 +291,10 @@ struct TaskContext {
     materials: usize,
     hit_event_bitset: crate::bitset::BitSet,
     joint_state_bitset: crate::bitset::BitSet,
+    awake_island_bitset: crate::bitset::BitSet,
+    enlarged_sim_bitset: crate::bitset::BitSet,
+    split_island_id: i32,
+    split_sleep_time: f32,
     has_hit_events: bool,
 }
 impl TaskContext {
@@ -300,6 +304,10 @@ impl TaskContext {
             materials: 0,
             hit_event_bitset: crate::bitset::BitSet::new(1024),
             joint_state_bitset: crate::bitset::BitSet::new(1024),
+            awake_island_bitset: crate::bitset::BitSet::new(1024),
+            enlarged_sim_bitset: crate::bitset::BitSet::new(1024),
+            split_island_id: -1,
+            split_sleep_time: 0.0,
             has_hit_events: false,
         }
     }
@@ -309,6 +317,59 @@ static mut TASK_CONTEXTS: [Vec<TaskContext>; crate::regions::MAX_WORLDS] =
 
 unsafe fn task_context(world: usize, worker: usize) -> *mut TaskContext {
     TASK_CONTEXTS[world].as_ptr().add(worker).cast_mut()
+}
+
+pub(crate) unsafe fn prepare_finalize(world: usize, count: usize) {
+    let islands = crate::solver_set::array_count_in_world(world, 2, 1);
+    for context in &mut TASK_CONTEXTS[world] {
+        context.awake_island_bitset.set_count_and_clear(islands as u32);
+        context.enlarged_sim_bitset.set_count_and_clear(count as u32);
+        context.split_island_id = -1;
+        context.split_sleep_time = 0.0;
+    }
+}
+
+pub(crate) unsafe fn mark_finalize_island(world: usize, worker: usize, body_id: usize) {
+    let body = crate::bodies::record(world, body_id);
+    let context = &mut *task_context(world, worker);
+    if body.sleep_time < 0.5 {
+        context.awake_island_bitset.set(
+            crate::island::field_in_world(world, body.island_id as usize, 1) as usize,
+        );
+    } else if crate::island::field_in_world(world, body.island_id as usize, 3) > 0
+        && (body.sleep_time > context.split_sleep_time
+            || (body.sleep_time == context.split_sleep_time && body.island_id > context.split_island_id))
+    {
+        context.split_island_id = body.island_id;
+        context.split_sleep_time = body.sleep_time;
+    }
+}
+
+pub(crate) unsafe fn mark_enlarged(world: usize, worker: usize, sim: usize) {
+    (*task_context(world, worker)).enlarged_sim_bitset.set(sim);
+}
+
+pub(crate) unsafe fn reduce_finalize(world: usize) {
+    let (first, rest) = TASK_CONTEXTS[world].split_first_mut().unwrap();
+    for context in rest {
+        first.awake_island_bitset.union(&context.awake_island_bitset);
+        first.enlarged_sim_bitset.union(&context.enlarged_sim_bitset);
+        if context.split_sleep_time > first.split_sleep_time
+            || (context.split_sleep_time == first.split_sleep_time && context.split_island_id > first.split_island_id)
+        {
+            first.split_sleep_time = context.split_sleep_time;
+            first.split_island_id = context.split_island_id;
+        }
+    }
+    crate::island::set_split_candidate_in_world(world, first.split_island_id);
+}
+
+pub(crate) unsafe fn awake_islands(world: usize) -> &'static crate::bitset::BitSet {
+    &(*task_context(world, 0)).awake_island_bitset
+}
+
+pub(crate) unsafe fn enlarged_sims(world: usize) -> &'static crate::bitset::BitSet {
+    &(*task_context(world, 0)).enlarged_sim_bitset
 }
 
 pub(crate) unsafe fn sync_task_arenas(world: usize) {
@@ -1281,6 +1342,7 @@ pub(crate) unsafe fn contact_block(
 /// The body columns must be reserved for `body_records()`, and no thread may grow memory while this runs.
 pub(crate) unsafe fn finalize_block(
     world_index: usize,
+    worker: usize,
     start: usize,
     end: usize,
     h: f32,
@@ -1299,6 +1361,7 @@ pub(crate) unsafe fn finalize_block(
         );
         finalize::finalize(
             world_index,
+            worker,
             state,
             sim,
             fin,
@@ -1325,7 +1388,7 @@ pub(crate) unsafe fn finalize_block(
 /// # Safety
 /// The body + shape + fat-AABB regions must be reserved for every reachable shape, and no thread may grow
 /// memory while this runs (the MT concurrency invariant).
-pub(crate) unsafe fn refit_body(world_index: usize, sim: Col<f32>, fin: Col<f32>, i: usize) {
+pub(crate) unsafe fn refit_body(world_index: usize, worker: usize, sim: Col<f32>, fin: Col<f32>, i: usize) {
     unsafe {
         let records = crate::bodies::body_cap_in_world(world_index);
         let sim2 = Col::new(
@@ -1337,6 +1400,9 @@ pub(crate) unsafe fn refit_body(world_index: usize, sim: Col<f32>, fin: Col<f32>
         let fat = crate::shapes::col_f(world_index);
         {
             if sim2.atomic_get(i * SIM2_STRIDE + crate::body::S2_FLAGS) & 0x40 != 0 {
+                if crate::bodies::record(world_index, sim2.get(i * SIM2_STRIDE + crate::body::S2_BODY_ID) as usize).head_shape_id != -1 {
+                    mark_enlarged(world_index, worker, i);
+                }
                 return;
             }
             let so = i * SIM_STRIDE;
@@ -1370,6 +1436,7 @@ pub(crate) unsafe fn refit_body(world_index: usize, sim: Col<f32>, fin: Col<f32>
                         },
                 );
                 if escaped {
+                    mark_enlarged(world_index, worker, i);
                     let margin = shape_f.get(o + 9);
                     for n in 0..3 {
                         fat.set(fb + n, cand[n] - margin);

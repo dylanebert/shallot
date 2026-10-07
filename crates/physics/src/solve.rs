@@ -260,12 +260,13 @@ impl StageWork for Work {
         unsafe { arena::finish_hit_events(self.world, worker, has_hits) };
     }
 
-    fn finalize(&self, b: Block) {
+    fn finalize(&self, b: Block, worker: usize) {
         // SAFETY: the body + shape + fat-AABB regions were reserved pre-solve on the main thread, and
         // the solver and split have joined, and these columns stay fixed for this parallel-for.
         unsafe {
             arena::finalize_block(
                 self.world,
+                worker,
                 b.start,
                 b.start + b.count,
                 self.dt,
@@ -806,7 +807,7 @@ fn run_job(world_index: usize, index: usize) {
                             count: e - s,
                             block_type: crate::stages::BlockType::Body,
                             color: 0,
-                        });
+                        }, index);
                     }),
                     Job::Solve | Job::None => unreachable!(),
                 }

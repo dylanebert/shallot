@@ -207,7 +207,6 @@ export type Kernel = {
     bodyAlive(world: number, id: number): number;
     bodyCount(world: number): number;
     bodyLength(world: number): number;
-    bodyFinish(count: number, timeStep: number, enableSleep: boolean): void;
     bodyVelocitySet(
         world: number,
         id: number,

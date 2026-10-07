@@ -231,7 +231,7 @@ pub trait StageWork: Sync {
 
     /// The pose finalize, fused as the solve's terminal stage over the body blocks (header deviations).
     /// Per-body write-disjoint, like every body stage.
-    fn finalize(&self, block: Block);
+    fn finalize(&self, block: Block, worker: usize);
 
     fn prepare_overflow(&self);
     fn warm_start_overflow(&self);

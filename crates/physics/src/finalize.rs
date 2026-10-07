@@ -127,6 +127,7 @@ pub fn convex_bounds(shape_type: u32, geom: &[f32], xf: Transform) -> [f32; 6] {
 #[cfg(target_arch = "wasm32")]
 pub unsafe fn finalize(
     world_index: usize,
+    worker: usize,
     state_col: Col<f32>,
     sim_col: Col<f32>,
     fin_col: Col<f32>,
@@ -241,7 +242,8 @@ pub unsafe fn finalize(
                 .mul(sim.inv_inertia_local)
                 .mul(rotation_matrix.transpose()),
         );
-        crate::arena::refit_body(world_index, sim_col, fin_col, i);
+        crate::arena::mark_finalize_island(world_index, worker, body_id);
+        crate::arena::refit_body(world_index, worker, sim_col, fin_col, i);
     }
 }
 

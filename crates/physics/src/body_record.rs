@@ -100,63 +100,6 @@ mod tests {
 pub(crate) mod runtime {
     use crate::math::Mat3;
     use crate::{bodies, body, island};
-    #[export_name = "bodyFinish"]
-    pub unsafe extern "C" fn finish(count: usize, time_step: f32, enable_sleep: bool) {
-        unsafe { finish_in_world(crate::regions::active(), count, time_step, enable_sleep) }
-    }
-
-    pub unsafe extern "C" fn finish_in_world(
-        world_index: usize,
-        count: usize,
-        time_step: f32,
-        enable_sleep: bool,
-    ) {
-        let sim2 = bodies::sim2_base(world_index) as *mut u32;
-        let state_flags = bodies::flags_base(world_index) as *mut u32;
-        let transient =
-            body::flags::IS_FAST | body::flags::IS_SPEED_CAPPED | body::flags::HAD_TIME_OF_IMPACT;
-        crate::events::set_move_count(world_index, count);
-        for index in 0..count {
-            let row = sim2.add(index * body::SIM2_STRIDE);
-            let id = *row.add(body::S2_BODY_ID) as usize;
-            let sim_flags = *row.add(body::S2_FLAGS);
-            let flags = *state_flags.add(index * body::STATE_STRIDE);
-            let record = bodies::record_mut(world_index, id);
-            record.body_move_index = index as i32;
-            record.flags = (record.flags & !transient)
-                | ((sim_flags | flags)
-                    & (body::flags::IS_SPEED_CAPPED | body::flags::HAD_TIME_OF_IMPACT));
-            *row.add(body::S2_FLAGS) =
-                (sim_flags & !transient) | (sim_flags & body::flags::IS_FAST);
-            *state_flags.add(index * body::STATE_STRIDE) = flags & !transient;
-            if !enable_sleep
-                || record.flags & body::flags::ENABLE_SLEEP == 0
-                || record.sleep_velocity > record.sleep_threshold
-            {
-                record.sleep_time = 0.0;
-            } else {
-                record.sleep_time += time_step;
-            }
-        }
-    }
-    pub unsafe fn gather_split(world_index: usize, count: usize) -> i32 {
-        let sim2 = bodies::sim2_base(world_index) as *const u32;
-        let mut split_id = -1;
-        let mut split_sleep = 0.0;
-        for index in 0..count {
-            let id = *sim2.add(index * body::SIM2_STRIDE + body::S2_BODY_ID) as usize;
-            let record = bodies::record(world_index, id);
-            if record.sleep_time >= 0.5
-                && island::field_in_world(world_index, record.island_id as usize, 3) > 0
-                && (record.sleep_time > split_sleep
-                    || (record.sleep_time == split_sleep && record.island_id > split_id))
-            {
-                split_id = record.island_id;
-                split_sleep = record.sleep_time;
-            }
-        }
-        split_id
-    }
 
     #[export_name = "bodyVelocitySet"]
     pub unsafe extern "C" fn velocity_set(
