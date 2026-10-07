@@ -736,6 +736,7 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
             let w = compute_witness_points(&simplex);
             output.point_a = w.0;
             output.point_b = w.1;
+            output.iterations = iteration;
             return output;
         }
 
@@ -785,6 +786,7 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
             let w = compute_witness_points(&simplex);
             output.point_a = w.0;
             output.point_b = w.1;
+            output.iterations = iteration;
             return output;
         }
 

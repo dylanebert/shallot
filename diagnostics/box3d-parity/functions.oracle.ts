@@ -373,10 +373,10 @@ test("sphere-sphere generated fresh manifolds equal Box3D SSE2 bits", () => {
         ),
     );
 });
-test.todo("distance.rs:745-750 vs distance.c:847-851: contained tetrahedron writes iterations", () => {
+test("distance.rs:745-750 vs distance.c:847-851: contained tetrahedron writes iterations", () => {
     compare(results.filter((r) => r.label === "proxy-3-4-1-0"));
 });
-test.todo("distance.rs:777-783 vs distance.c:947-951: line containment writes iterations", () => {
+test("distance.rs:777-783 vs distance.c:947-951: line containment writes iterations", () => {
     compare(results.filter((r) => r.label === "proxy-3-2-1-0"));
 });
 test.todo("distance.rs:824-838 vs distance.c:997-1011: invalid normal retains witness and iteration outputs", () => {
