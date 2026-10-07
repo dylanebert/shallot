@@ -159,7 +159,7 @@ pub unsafe extern "C" fn finalize_in_world(
         bullets |= flags & (body::flags::IS_FAST | crate::continuous::IS_BULLET)
             == (body::flags::IS_FAST | crate::continuous::IS_BULLET);
     }
-    crate::body_record::runtime::finish_in_world(world_index, count, dt, enable_sleep);
+    crate::events::set_move_count(world_index, count);
     bullets
 }
 

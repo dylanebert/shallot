@@ -186,6 +186,17 @@ pub unsafe fn finalize(
         let body_id = sim2_col.get(s2 + S2_BODY_ID).to_bits() as usize;
         let body = crate::bodies::record_mut(world_index, body_id);
         body.sleep_velocity = sleep_velocity;
+        let transient = crate::body::flags::IS_FAST
+            | crate::body::flags::IS_SPEED_CAPPED
+            | crate::body::flags::HAD_TIME_OF_IMPACT;
+        let sim_flags = sim2_col.get(s2 + S2_FLAGS).to_bits();
+        let state_flags = flags_col.get(i * crate::body::STATE_STRIDE);
+        body.body_move_index = i as i32;
+        body.flags = (body.flags & !transient)
+            | ((sim_flags | state_flags)
+                & (crate::body::flags::IS_SPEED_CAPPED | crate::body::flags::HAD_TIME_OF_IMPACT));
+        sim2_col.set(s2 + S2_FLAGS, f32::from_bits(sim_flags & !transient));
+        flags_col.set(i * crate::body::STATE_STRIDE, state_flags & !transient);
         crate::events::write_move(world_index, i);
         let awake = !crate::continuous::sleep_enabled()
             || body.flags & crate::body::flags::ENABLE_SLEEP == 0
@@ -194,10 +205,14 @@ pub unsafe fn finalize(
         sim2_col.set(s2 + S2_FLAGS, f32::from_bits(flags));
         let mut fast_candidate = false;
         if awake {
+            body.sleep_time = 0.0;
             let max_motion = maxf(max_delta_position, max_velocity * h);
             fast_candidate = enable_continuous
                 && flags_col.get(i * crate::body::STATE_STRIDE) & DYNAMIC != 0
                 && max_motion > SAFETY_FACTOR * sim2_col.get(s2 + S2_MIN_EXTENT);
+        }
+        if !awake {
+            body.sleep_time += h;
         }
         if fast_candidate {
             sim2_col.set(
