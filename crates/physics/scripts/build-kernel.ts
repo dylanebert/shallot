@@ -196,9 +196,15 @@ const [st, shared] = await Promise.all([
     ),
     sharedBuild,
 ]);
-const layoutKernel = new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(st)), {
-    env: { queryCallback: () => 0, materialCallback: () => 0, now: () => 0 },
-});
+const layoutModule = new WebAssembly.Module(new Uint8Array(st));
+const layoutImports: WebAssembly.Imports = {};
+for (const { module, name, kind } of WebAssembly.Module.imports(layoutModule)) {
+    if (kind !== "function") throw new Error(`unsupported layout import: ${module}.${name} (${kind})`);
+    (layoutImports[module] ??= {})[name] = () => {
+        throw new Error(`layout discovery called ${module}.${name}`);
+    };
+}
+const layoutKernel = new WebAssembly.Instance(layoutModule, layoutImports);
 const recordOffset = layoutKernel.exports.contactRecordOffset as (index: number) => number;
 const layoutNames = [
     "DIR_STRIDE",
