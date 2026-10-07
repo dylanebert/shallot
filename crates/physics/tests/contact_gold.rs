@@ -4,12 +4,15 @@
 //! asserts every output float bit-for-bit.
 
 use serde_json::Value;
+use shallot_physics::body::{SIM_STRIDE, STATE_STRIDE};
 use shallot_physics::col::Col;
 use shallot_physics::contact::{
-    prepare, restitution, solve, store, warm_start, Columns, Softness, CC_META_STRIDE, CC_STRIDE,
-    MCP_STRIDE, MC_META_STRIDE, MC_STRIDE, NULL_INDEX,
+    prepare, restitution, solve, store, warm_start, Columns, ContactConstraint, ManifoldConstraint,
+    Softness, NULL_INDEX,
 };
-use shallot_physics::manifold_abi::{DIR_STRIDE, MANIFOLD_STRIDE};
+use shallot_physics::contact_spans::{ContactPrepareSpan, ContactSpec};
+use shallot_physics::manifold_abi::*;
+const MCP_STRIDE: usize = 12;
 
 /// SAFETY: a gold harness is single-threaded and each column has exactly one user, so `Col`'s
 /// disjoint-write promise holds trivially.
@@ -59,6 +62,101 @@ fn assert_bits(got: f32, want: f32, label: &str) {
     );
 }
 
+fn sim_map() -> Vec<usize> {
+    [
+        vec![26, 51, 49, 50, 20, 21, 22, 23, 24, 25],
+        (27..36).collect(),
+        (36..45).collect(),
+        (3..7).collect(),
+    ]
+    .concat()
+}
+
+fn repack(input: &[f32], old_stride: usize, stride: usize, map: &[usize]) -> Vec<f32> {
+    let mut out = vec![0.0; input.len() / old_stride * stride];
+    for (i, record) in input.chunks_exact(old_stride).enumerate() {
+        for (j, &offset) in map.iter().enumerate() {
+            out[i * stride + offset] = record[j];
+        }
+    }
+    out
+}
+
+fn observe(
+    c: &ContactConstraint,
+    manifolds: &[ManifoldConstraint],
+) -> (Vec<f32>, Vec<u32>, Vec<f32>, Vec<u32>, Vec<f32>) {
+    use shallot_physics::math::{Mat3, Vec3};
+    fn v(v: Vec3) -> Vec<f32> {
+        vec![v.x, v.y, v.z]
+    }
+    fn m(m: Mat3) -> Vec<f32> {
+        [v(m.cx), v(m.cy), v(m.cz)].concat()
+    }
+    let cc = [
+        vec![c.inv_mass_a, c.inv_mass_b],
+        m(c.inv_ia),
+        m(c.inv_ib),
+        m(c.rolling_mass),
+        vec![
+            c.softness.bias_rate,
+            c.softness.mass_scale,
+            c.softness.impulse_scale,
+            c.friction,
+            c.restitution,
+            c.rolling_resistance,
+        ],
+    ]
+    .concat();
+    let meta = vec![c.index_a, c.index_b, c.manifold_count as u32, 0];
+    let mut mc = Vec::new();
+    let mut mc_meta = Vec::new();
+    let mut points = Vec::new();
+    for a in manifolds {
+        mc.extend(
+            [
+                v(a.normal),
+                v(a.tangent1),
+                v(a.tangent2),
+                vec![
+                    a.tangent_mass.cx.x,
+                    a.tangent_mass.cx.y,
+                    a.tangent_mass.cy.x,
+                    a.tangent_mass.cy.y,
+                    a.friction_impulse.x,
+                    a.friction_impulse.y,
+                    a.twist_mass,
+                    a.twist_impulse,
+                ],
+                v(a.rolling_impulse),
+                vec![a.tangent_velocity1, a.tangent_velocity2],
+                v(a.center_a),
+                v(a.center_b),
+            ]
+            .concat(),
+        );
+        mc_meta.extend([a.point_count as u32, (points.len() / MCP_STRIDE) as u32]);
+        for p in &a.points[..a.point_count as usize] {
+            points.extend(
+                [
+                    v(p.r_a),
+                    v(p.r_b),
+                    vec![
+                        p.base_separation,
+                        p.normal_impulse,
+                        p.total_normal_impulse,
+                        p.normal_mass,
+                        p.relative_velocity,
+                        p.lever_arm,
+                    ],
+                ]
+                .concat(),
+            );
+        }
+    }
+    (cc, meta, mc, mc_meta, points)
+}
+
 #[test]
 fn contact_phases_match_c() {
     let gold: Value = serde_json::from_str(GOLD).expect("gold json");
@@ -71,11 +169,18 @@ fn contact_phases_match_c() {
         let contact_softness = soft(&case["contactSoftness"]);
         let static_softness = soft(&case["staticSoftness"]);
 
-        let mut state = floats(&case["state"]);
-        let mut sim = floats(&case["sim"]);
+        let mut state = repack(
+            &floats(&case["state"]),
+            16,
+            STATE_STRIDE,
+            &(0..13).collect::<Vec<_>>(),
+        );
+        let mut sim = repack(&floats(&case["sim"]), 32, SIM_STRIDE, &sim_map());
         // Both bodies flagged dynamic so warm_start writes velocities back; a static body B is
         // reached via NULL_INDEX (its flag slot is never consulted).
-        let mut flags = vec![shallot_physics::body::flags::DYNAMIC; 2];
+        let mut flags = vec![0; 2 * STATE_STRIDE];
+        flags[0] = shallot_physics::body::flags::DYNAMIC;
+        flags[STATE_STRIDE] = shallot_physics::body::flags::DYNAMIC;
 
         // The gold input is in the old IN_* handoff layout; repack it into the column-resident store
         // shapes the solver now gathers through: one scalar slot record → contactId 0, and contactId
@@ -89,23 +194,37 @@ fn contact_phases_match_c() {
         let index_b = in_contact_meta[1];
         let manifold_count = in_contact_meta[2] as usize;
 
-        // slot: one record, transient mc/mcp bases at 0.
-        let mut slot = vec![0u32, 0, 0];
+        let specs = [ContactSpec {
+            contact_id: 0,
+            manifold_start: 0,
+            manifold_count: manifold_count as u16,
+        }];
+        let mut spans = [
+            ContactPrepareSpan {
+                start: 0,
+                count: 1,
+                contacts: specs.as_ptr(),
+            },
+            ContactPrepareSpan {
+                start: i32::MAX,
+                count: 0,
+                contacts: std::ptr::null(),
+            },
+        ];
 
         // directory record for contactId 0.
         let mut dir = vec![0u32; DIR_STRIDE];
-        dir[0] = in_contact[0].to_bits(); // friction
-        dir[1] = in_contact[1].to_bits(); // restitution
-        dir[2] = in_contact[2].to_bits(); // rollingResistance
-        dir[3] = in_contact[3].to_bits(); // tangentVelocity.x
-        dir[4] = in_contact[4].to_bits();
-        dir[5] = in_contact[5].to_bits();
-        dir[6] = in_contact_meta[4]; // flags
-        dir[7] = manifold_count as u32; // manifoldCount
-        dir[8] = 0; // manifoldBase
-        dir[9] = index_a;
-        dir[10] = index_b;
-        dir[11] = 0; // hit
+        dir[DIR_FRICTION] = in_contact[0].to_bits();
+        dir[DIR_RESTITUTION] = in_contact[1].to_bits();
+        dir[DIR_ROLLING_RESISTANCE] = in_contact[2].to_bits();
+        for k in 0..3 {
+            dir[DIR_TANGENT_VELOCITY + k] = in_contact[3 + k].to_bits();
+        }
+        dir[DIR_FLAGS] = in_contact_meta[4];
+        dir[DIR_MANIFOLD_COUNT] = manifold_count as u32;
+        dir[DIR_MANIFOLD_BASE] = 0;
+        dir[DIR_INDEX_A] = index_a;
+        dir[DIR_INDEX_B] = index_b;
 
         // pool: the manifolds as b3Manifold records (header + inline points).
         let mut pool = vec![0.0f32; manifold_count.max(1) * MANIFOLD_STRIDE];
@@ -114,13 +233,27 @@ fn contact_phases_match_c() {
             let pc = in_manifold_meta[m * 2] as usize;
             let ps = in_manifold_meta[m * 2 + 1] as usize;
             let mpo = m * MANIFOLD_STRIDE;
-            for k in 0..10 {
-                pool[mpo + k] = in_manifold[imo + k]; // normal, frictionImpulse, twist, rolling
+            for (k, offset) in [
+                M_NORMAL,
+                M_NORMAL + 1,
+                M_NORMAL + 2,
+                M_FRICTION,
+                M_FRICTION + 1,
+                M_FRICTION + 2,
+                M_TWIST,
+                M_ROLLING,
+                M_ROLLING + 1,
+                M_ROLLING + 2,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                pool[mpo + offset] = in_manifold[imo + k];
             }
-            pool[mpo + 10] = f32::from_bits(pc as u32); // pointCount
+            pool[mpo + M_POINT_COUNT] = f32::from_bits(pc as u32); // pointCount
             for p in 0..pc {
                 let ipo = (ps + p) * 10; // old IN_POINT_STRIDE
-                let pp = mpo + 11 + p * 14; // M_POINTS + p * POOL_POINT_STRIDE
+                let pp = mpo + M_POINTS + p * POOL_POINT_STRIDE;
                 pool[pp] = in_point[ipo]; // anchorA
                 pool[pp + 1] = in_point[ipo + 1];
                 pool[pp + 2] = in_point[ipo + 2];
@@ -132,24 +265,21 @@ fn contact_phases_match_c() {
             }
         }
 
-        let mut cc = vec![0.0f32; CC_STRIDE];
-        let mut cc_meta = vec![0u32; CC_META_STRIDE];
-        let mut mc = vec![0.0f32; manifold_count.max(1) * MC_STRIDE];
-        let mut mc_meta = vec![0u32; manifold_count.max(1) * MC_META_STRIDE];
-        let mut mcp = vec![0.0f32; n * MCP_STRIDE];
+        // Zero is valid for these plain numeric records and raw pointers; prepare initializes
+        // every active field and pointer before any solver phase reads it.
+        let mut cc_records = vec![unsafe { std::mem::zeroed::<ContactConstraint>() }; 1];
+        let mut mc_records =
+            vec![unsafe { std::mem::zeroed::<ManifoldConstraint>() }; manifold_count.max(1)];
 
         let cols = Columns {
             state: col(&mut state),
             flags: col(&mut flags),
             sim: col(&mut sim),
-            slot: col(&mut slot),
+            spans: col(&mut spans),
             dir: col(&mut dir),
             pool: col(&mut pool),
-            cc: col(&mut cc),
-            cc_meta: col(&mut cc_meta),
-            mc: col(&mut mc),
-            mc_meta: col(&mut mc_meta),
-            mcp: col(&mut mcp),
+            cc: col(&mut cc_records),
+            mc: col(&mut mc_records),
         };
 
         // Run both phases before reading columns back: consecutive `cols` uses keep the borrow
@@ -157,6 +287,9 @@ fn contact_phases_match_c() {
         prepare(&cols, 0, 1, contact_softness, static_softness, warm);
         warm_start(&cols, 0, 1);
 
+        let (cc, cc_meta, mc, mc_meta, mcp) =
+            observe(&cc_records[0], &mc_records[..manifold_count]);
+        assert_eq!(cc_records[0].constraints, mc_records.as_mut_ptr());
         let out_cc = floats(&case["outCc"]);
         for (k, want) in out_cc.iter().enumerate() {
             assert_bits(cc[k], *want, &format!("prep[{c}].cc[{k}]"));
@@ -182,7 +315,7 @@ fn contact_phases_match_c() {
         }
         if index_b != NULL_INDEX {
             let ws_b = floats(&case["outWsB"]);
-            let o = index_b as usize * 16;
+            let o = index_b as usize * STATE_STRIDE;
             for k in 0..6 {
                 assert_bits(state[o + k], ws_b[k], &format!("ws[{c}].B[{k}]"));
             }
@@ -197,14 +330,11 @@ fn contact_phases_match_c() {
                 state: col(&mut state),
                 flags: col(&mut flags),
                 sim: col(&mut sim),
-                slot: col(&mut slot),
+                spans: col(&mut spans),
                 dir: col(&mut dir),
                 pool: col(&mut pool),
-                cc: col(&mut cc),
-                cc_meta: col(&mut cc_meta),
-                mc: col(&mut mc),
-                mc_meta: col(&mut mc_meta),
-                mcp: col(&mut mcp),
+                cc: col(&mut cc_records),
+                mc: col(&mut mc_records),
             };
             solve(&cols, 0, 1, true, inv_h, contact_speed);
             solve(&cols, 0, 1, false, inv_h, contact_speed);
@@ -216,13 +346,14 @@ fn contact_phases_match_c() {
         }
         if index_b != NULL_INDEX {
             let slv_b = floats(&case["outSlvB"]);
-            let o = index_b as usize * 16;
+            let o = index_b as usize * STATE_STRIDE;
             for k in 0..6 {
                 assert_bits(state[o + k], slv_b[k], &format!("slv[{c}].B[{k}]"));
             }
         }
 
-        // Accumulated impulses in the transient columns after both passes.
+        let (_, _, mc, _, mcp) = observe(&cc_records[0], &mc_records[..manifold_count]);
+        // Accumulated impulses in the transient records after both passes.
         let out_ni = floats(&case["outNormalImpulse"]);
         let out_tni = floats(&case["outTotalNormalImpulse"]);
         for p in 0..n {
@@ -254,6 +385,7 @@ fn contact_phases_match_c() {
         assert_bits(mc[13], out_friction[0], &format!("slv[{c}].friction.x"));
         assert_bits(mc[14], out_friction[1], &format!("slv[{c}].friction.y"));
 
+        let mut hit = 0;
         // restitution then store, chained onto the solved state.
         let rest_threshold = from_bits(case["restThreshold"].as_str().expect("restThreshold"));
         let hit_threshold = from_bits(case["hitThreshold"].as_str().expect("hitThreshold"));
@@ -262,17 +394,16 @@ fn contact_phases_match_c() {
                 state: col(&mut state),
                 flags: col(&mut flags),
                 sim: col(&mut sim),
-                slot: col(&mut slot),
+                spans: col(&mut spans),
                 dir: col(&mut dir),
                 pool: col(&mut pool),
-                cc: col(&mut cc),
-                cc_meta: col(&mut cc_meta),
-                mc: col(&mut mc),
-                mc_meta: col(&mut mc_meta),
-                mcp: col(&mut mcp),
+                cc: col(&mut cc_records),
+                mc: col(&mut mc_records),
             };
             restitution(&cols, 0, 1, rest_threshold);
-            store(&cols, 0, 1, hit_threshold);
+            store(&cols, 0, 1, hit_threshold, |_| {
+                hit = 1;
+            });
         }
 
         let rest_a = floats(&case["outRestA"]);
@@ -281,7 +412,7 @@ fn contact_phases_match_c() {
         }
         if index_b != NULL_INDEX {
             let rest_b = floats(&case["outRestB"]);
-            let o = index_b as usize * 16;
+            let o = index_b as usize * STATE_STRIDE;
             for k in 0..6 {
                 assert_bits(state[o + k], rest_b[k], &format!("rest[{c}].B[{k}]"));
             }
@@ -292,20 +423,20 @@ fn contact_phases_match_c() {
         let stored_friction = floats(&case["storedFrictionImpulse"]);
         for k in 0..3 {
             assert_bits(
-                pool[3 + k], // M_FRICTION
+                pool[M_FRICTION + k],
                 stored_friction[k],
                 &format!("store[{c}].friction[{k}]"),
             );
         }
         assert_bits(
-            pool[6], // M_TWIST
+            pool[M_TWIST],
             from_bits(case["storedTwistImpulse"].as_str().unwrap()),
             &format!("store[{c}].twist"),
         );
         let stored_rolling = floats(&case["storedRollingImpulse"]);
         for k in 0..3 {
             assert_bits(
-                pool[7 + k], // M_ROLLING
+                pool[M_ROLLING + k],
                 stored_rolling[k],
                 &format!("store[{c}].rolling[{k}]"),
             );
@@ -314,13 +445,13 @@ fn contact_phases_match_c() {
         let stored_tni = floats(&case["storedTotalNormalImpulse"]);
         let stored_nv = floats(&case["storedNormalVelocity"]);
         for p in 0..n {
-            let pp = 11 + p * 14; // M_POINTS + p * POOL_POINT_STRIDE
+            let pp = M_POINTS + p * POOL_POINT_STRIDE;
             assert_bits(pool[pp + 8], stored_ni[p], &format!("store[{c}].ni[{p}]"));
             assert_bits(pool[pp + 9], stored_tni[p], &format!("store[{c}].tni[{p}]"));
             assert_bits(pool[pp + 10], stored_nv[p], &format!("store[{c}].nv[{p}]"));
         }
         assert_eq!(
-            dir[11], // DIR_HIT
+            hit,
             case["hitFlag"].as_u64().expect("hitFlag") as u32,
             "store[{c}].hitFlag"
         );
