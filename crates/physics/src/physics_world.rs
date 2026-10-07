@@ -50,7 +50,7 @@ pub unsafe extern "C" fn destroy_contact_world(world: usize, id: usize, wake: bo
 }
 
 pub unsafe extern "C" fn destroy_contact_world_in_world(world: usize, id: usize, wake: bool) {
-    destroy_contact(world as usize, id, wake);
+    crate::contact_lifecycle::destroy(world, id, wake);
 }
 #[export_name = "contactLinkWorld"]
 pub unsafe extern "C" fn link_contact(world: usize, id: usize) {
@@ -76,48 +76,13 @@ pub unsafe extern "C" fn link_contact_in_world(world: usize, id: usize) {
         bodies::record(world, b).island_id,
     );
 }
-pub unsafe fn destroy_contact(world_index: usize, id: usize, wake: bool) {
-    let world = world_index;
-    let d = manifolds::dir_col(world_index);
-    let o = id * DIR_STRIDE;
-    let flags = d.get(o + DIR_FLAGS);
-    let a = d.get(o + DIR_EDGE_A) as usize;
-    let b = d.get(o + DIR_EDGE_B) as usize;
-    crate::table::remove_pair_in_world(
-        world_index,
-        d.get(o + DIR_SHAPE_A),
-        d.get(o + DIR_SHAPE_B),
-        d.get(o + DIR_CHILD_INDEX),
-    );
-    manifolds::free_manifolds_in_world(world_index, id);
-    manifolds::free_mesh_cache_in_world(world_index, id);
-    if flags & 5 == 5 {
-        events::contact_touch_in_world(world, id, false);
-    }
-    crate::body_record::runtime::destroy_contact_in_world(world, id);
-    if wake && flags & 1 != 0 {
-        solver_set::wake(world_index, bodies::record(world, a).set_index as usize);
-        solver_set::wake(world_index, bodies::record(world, b).set_index as usize);
-    }
-}
 unsafe fn apply_touch(world_index: usize, id: usize) {
     let d = manifolds::dir_col(world_index);
     let o = id * DIR_STRIDE;
     let flags = d.get(o + DIR_FLAGS);
     let world = world_index;
     if flags & 0x0002_0000 != 0 {
-        crate::table::remove_pair_in_world(
-            world_index,
-            d.get(o + DIR_SHAPE_A),
-            d.get(o + DIR_SHAPE_B),
-            d.get(o + DIR_CHILD_INDEX),
-        );
-        manifolds::free_manifolds_in_world(world_index, id);
-        manifolds::free_mesh_cache_in_world(world_index, id);
-        if flags & 5 == 5 {
-            events::contact_touch_in_world(world, id, false);
-        }
-        crate::body_record::runtime::destroy_contact_in_world(world, id);
+        crate::contact_lifecycle::destroy(world_index, id, false);
         return;
     }
     let started = flags & 0x0004_0000 != 0;
@@ -545,30 +510,7 @@ unsafe fn parallel(world_index: usize, kind: u32, count: usize, a: f32) -> bool 
 #[export_name = "contactCreateWorld"]
 pub unsafe extern "C" fn create_contact(world: usize, a: usize, b: usize, child: i32) {
     crate::regions::select(world as u32);
-    unsafe { create_contact_in_world(world, a, b, child) }
-}
-
-pub unsafe extern "C" fn create_contact_in_world(world: usize, a: usize, b: usize, child: i32) {
-    let r = crate::shapes::col(world as usize);
-    let compound = if r.get(a * crate::shapes::SHAPE_STRIDE + crate::shapes::S_TYPE) == 1 {
-        Some(a)
-    } else if r.get(b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_TYPE) == 1 {
-        Some(b)
-    } else {
-        None
-    };
-    let mesh = compound
-        .is_some_and(|id| crate::geo::shape_compound_child_type(world, id, child as usize) == 4);
-    let id = crate::body_record::runtime::create_contact_in_world(
-        world,
-        a,
-        b,
-        child,
-        if mesh { 0x0040_0000 } else { 0 },
-    );
-    if id != usize::MAX {
-        crate::table::add_pair_in_world(world as usize, a as u32, b as u32, child as u32);
-    }
+    crate::contact_lifecycle::create(world, a, b, child);
 }
 unsafe fn create_pairs(world_index: usize) {
     let world = world_index;
@@ -582,7 +524,7 @@ unsafe fn create_pairs(world_index: usize) {
             let a = *p.add(1) as usize;
             let b = *p.add(2) as usize;
             entry = *p.add(3);
-            create_contact_in_world(world, a, b, child as i32);
+            crate::contact_lifecycle::create(world, a, b, child as i32);
         }
     }
     crate::broad::clear_moves_in_world(world_index);

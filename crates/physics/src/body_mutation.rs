@@ -29,7 +29,7 @@ unsafe fn contacts(world: usize, id: usize, wake: bool) {
                 + 2
                 + 3 * (key & 1) as usize,
         ) as i32;
-        crate::physics_world::destroy_contact(world as usize, contact, wake);
+        crate::contact_lifecycle::destroy(world as usize, contact, wake);
     }
 }
 #[export_name = "bodyDestroyWorld"]

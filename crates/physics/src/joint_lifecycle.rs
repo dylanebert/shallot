@@ -259,7 +259,7 @@ pub unsafe extern "C" fn set_collide_connected_in_world(world: usize, id: usize,
             let o = id * crate::manifold_abi::DIR_STRIDE + crate::manifold_abi::DIR_EDGE_A;
             key = d.get(o + 2 + 3 * edge) as i32;
             if d.get(o + 3 * (edge ^ 1)) as i32 == other {
-                crate::physics_world::destroy_contact(world as usize, id, false);
+                crate::contact_lifecycle::destroy(world as usize, id, false);
             }
         }
     }

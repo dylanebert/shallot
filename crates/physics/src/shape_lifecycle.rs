@@ -345,7 +345,7 @@ unsafe fn destroy_contacts(world: usize, id: usize, wake: bool) {
                 + 3 * (key & 1) as usize,
         ) as i32;
         key = contact_next_in_world(world, id, next);
-        crate::physics_world::destroy_contact(world as usize, contact, wake);
+        crate::contact_lifecycle::destroy(world as usize, contact, wake);
     }
 }
 #[export_name = "shapeSetFlag"]

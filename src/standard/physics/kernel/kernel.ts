@@ -245,14 +245,6 @@ export type Kernel = {
     shapeBodyTake(world: number, body: number): number;
     bodyTransfer(world: number, id: number, target: number, clearTransient: boolean): number;
     bodyWakeRecord(world: number, id: number): void;
-    bodyCreateContact(
-        world: number,
-        shapeA: number,
-        shapeB: number,
-        child: number,
-        flags: number,
-    ): number;
-    bodyDestroyContact(world: number, id: number): void;
     contactCreateWorld(world: number, shapeA: number, shapeB: number, child: number): void;
     contactDestroyWorld(world: number, id: number, wake: boolean): void;
     contactLinkWorld(world: number, id: number): void;
