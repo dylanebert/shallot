@@ -198,13 +198,10 @@ pub extern "C" fn reserve_in_world(
         LAYOUT[COLOR_SPAN] = off as u32;
         off += color * COLOR_SPAN_STRIDE * 4;
 
-        let continuous_offset = off;
-        off += body * crate::continuous::STRIDE * 4;
         let base = reserve_scratch(world_index, off);
         for column in [CC, MC, OVERFLOW_CC, OVERFLOW_MC, WIDE, COLOR_SPAN] {
             LAYOUT[column] += base as u32;
         }
-        crate::continuous::reserve_at(base + continuous_offset, body);
     }
 }
 
@@ -295,6 +292,7 @@ struct TaskContext {
     enlarged_sim_bitset: crate::bitset::BitSet,
     split_island_id: i32,
     split_sleep_time: f32,
+    sensor_hits: Vec<(usize, usize)>,
     has_hit_events: bool,
 }
 impl TaskContext {
@@ -308,6 +306,7 @@ impl TaskContext {
             enlarged_sim_bitset: crate::bitset::BitSet::new(1024),
             split_island_id: -1,
             split_sleep_time: 0.0,
+            sensor_hits: Vec::new(),
             has_hit_events: false,
         }
     }
@@ -326,6 +325,19 @@ pub(crate) unsafe fn prepare_finalize(world: usize, count: usize) {
         context.enlarged_sim_bitset.set_count_and_clear(count as u32);
         context.split_island_id = -1;
         context.split_sleep_time = 0.0;
+        context.sensor_hits.clear();
+    }
+}
+
+pub(crate) unsafe fn push_sensor_hit(world: usize, worker: usize, sensor: usize, visitor: usize) {
+    (*task_context(world, worker)).sensor_hits.push((sensor, visitor));
+}
+
+pub(crate) unsafe fn publish_sensor_hits(world: usize) {
+    for context in &mut TASK_CONTEXTS[world] {
+        for (sensor, visitor) in context.sensor_hits.drain(..) {
+            crate::sensor::record_hit(world, sensor, visitor);
+        }
     }
 }
 

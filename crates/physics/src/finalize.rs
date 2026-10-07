@@ -140,7 +140,6 @@ pub unsafe fn finalize(
     enable_continuous: bool,
 ) {
     for i in start..start + count {
-        crate::continuous::reset_body(i);
         let s = read_state(state_col, i);
         let sim = read_sim(sim_col, i);
         let fin = read_fin(fin_col, i);
@@ -221,7 +220,7 @@ pub unsafe fn finalize(
                 f32::from_bits(flags | crate::continuous::IS_FAST),
             );
             if flags & crate::continuous::IS_BULLET == 0 {
-                crate::continuous::solve(world_index, i);
+                crate::continuous::solve(world_index, worker, i);
             }
         } else {
             sim2_col.set(s2 + S2_ROTATION0, q.v.x);

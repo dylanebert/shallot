@@ -795,7 +795,7 @@ fn run_job(world_index: usize, index: usize) {
                         .run(|s, e| arena::contact_block(world_index, s, e, p.count, index)),
                     Job::Bullets => p
                         .par
-                        .run(|s, e| crate::continuous::bullets(world_index, s, e)),
+                        .run(|s, e| crate::continuous::bullets(world_index, index, s, e)),
                     Job::Pairs => p
                         .par
                         .run(|s, e| crate::pairwork::query_block(world_index, s, e, p.a as usize)),

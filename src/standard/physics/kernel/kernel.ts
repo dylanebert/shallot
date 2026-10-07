@@ -54,7 +54,6 @@ export type Kernel = {
     worldQuery(world: number, operation: number, callback: number): void;
     bodyQuery(world: number, operation: number, head: number, capacity: number): void;
     sensorCreate(world: number, shape: number): void;
-    sensorConsumeContinuous(world: number, count: number, bullets: boolean): void;
     sensorDestroy(world: number, shape: number): void;
     eventCount(world: number, kind: number): number;
     eventWord(world: number, kind: number, index: number, lane: number): number;
@@ -833,7 +832,6 @@ export type Kernel = {
     meshCacheCapacity(worldId: number): number;
     freeMeshCache(contactId: number): void;
     dispatchContacts(count: number): void;
-    continuousPtr(): number;
     continuousRoots(s: number, k: number, d: number, enableSleep: boolean): void;
 
     // Solve columns are reserved while workers are parked. With no pool,

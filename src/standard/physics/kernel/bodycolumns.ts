@@ -37,7 +37,6 @@ const B_SYNC_VEL = 11;
 const B_RECORD = 13;
 export const N_BODY = 14;
 const BODY_RECORD_STRIDE = 29;
-export const CONTINUOUS_STRIDE = 18;
 
 type MovedRows = { eids: Uint32Array; pos: Float32Array; quat: Float32Array; vel: Float32Array };
 
@@ -72,9 +71,6 @@ export class BodyStore extends KernelViews {
     sim2U = new Uint32Array(0);
     /** Retained kernel body-move records: body index, generation, fellAsleep. */
     moveU = new Uint32Array(0);
-    continuousF = new Float32Array(0);
-    continuousU = new Uint32Array(0);
-    #continuousCount = 0;
     syncCount = 0;
     #syncRanges = new Map<number, MovedRows>();
     // The held layout header view the column views are derived from.
@@ -88,7 +84,6 @@ export class BodyStore extends KernelViews {
         k.bodySetActiveWorld(this.worldId);
         const cap = k.bodyCap();
         if (cap === 0) return;
-        this.refreshContinuous();
         const buf = k.memory.buffer;
         if (this.memoryF.buffer !== buf || this.memoryF.byteLength !== buf.byteLength) {
             this.memoryF = new Float32Array(buf);
@@ -128,25 +123,8 @@ export class BodyStore extends KernelViews {
 
     override restoreCheckpoint(state: unknown): void {
         this.syncCount = (state as ReturnType<BodyStore["captureCheckpoint"]>).syncCount;
-        this.#continuousCount = 0;
         this.#syncRanges.clear();
         this.#setColumns.clear();
-    }
-
-    refreshContinuous(count = this.#continuousCount): void {
-        this.#continuousCount = count;
-        const k = kernel(this.ecsState);
-        const buf = k.memory.buffer;
-        const ptr = k.continuousPtr();
-        const length = count * CONTINUOUS_STRIDE;
-        if (
-            this.continuousF.buffer === buf &&
-            this.continuousF.byteOffset === ptr &&
-            this.continuousF.length === length
-        )
-            return;
-        this.continuousF = new Float32Array(buf, ptr, length);
-        this.continuousU = new Uint32Array(buf, ptr, length);
     }
 
     /** Stable views of the kernel's compact, ECS-tagged moved rows. */

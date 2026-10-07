@@ -8,64 +8,18 @@ use crate::{
     query::Shape,
     shapes, tree,
 };
-/// Reserved lane, hit count and up to eight (sensor, visitor) output pairs per body.
-pub const STRIDE: usize = 18;
 pub(crate) const IS_FAST: u32 = 0x40;
 pub(crate) const IS_BULLET: u32 = 0x80;
 const HAD_TIME_OF_IMPACT: u32 = 0x200;
 pub(crate) const ENLARGE_BOUNDS: u32 = 0x800;
-static mut BASE: usize = 0;
-static mut COUNT: usize = 0;
 static mut ROOTS: [i32; 3] = [-1; 3];
 static mut ENABLE_SLEEP: bool = true;
-/// # Safety
-/// `base` must address `count` bodies' rows of `STRIDE` words in reserved scratch, set before the worker fork.
-pub unsafe fn reserve_at(base: usize, count: usize) {
-    BASE = base;
-    COUNT = count;
-}
-#[export_name = "continuousPtr"]
-pub extern "C" fn ptr() -> usize {
-    unsafe { BASE }
-}
 #[export_name = "continuousRoots"]
 pub extern "C" fn roots(s: i32, k: i32, d: i32, enable_sleep: bool) {
     unsafe {
         ROOTS = [s, k, d];
         ENABLE_SLEEP = enable_sleep;
     }
-}
-/// # Safety
-/// The selected world must own the finalized body rows and continuous scratch for `count` bodies;
-/// the matching task sweep must have joined before this serial sensor-hit publication.
-#[export_name = "sensorConsumeContinuous"]
-pub unsafe extern "C" fn consume(world: usize, count: usize, bullets: bool) {
-    unsafe { consume_in_world(world, count, bullets) }
-}
-
-pub unsafe extern "C" fn consume_in_world(world: usize, count: usize, bullets: bool) {
-    let out = scratch();
-    let sims = sim2(world as usize);
-    let mask = IS_FAST | IS_BULLET;
-    let wanted = IS_FAST | if bullets { IS_BULLET } else { 0 };
-    for i in 0..count {
-        if sims.get(i * body::SIM2_STRIDE + body::S2_FLAGS) & mask != wanted {
-            continue;
-        }
-        if bullets {
-            crate::events::write_move(world as usize, i);
-        }
-        for n in 0..out.get(i * STRIDE + 1) as usize {
-            crate::sensor::record_hit(
-                world,
-                out.get(i * STRIDE + 2 + n * 2) as usize,
-                out.get(i * STRIDE + 3 + n * 2) as usize,
-            );
-        }
-    }
-}
-unsafe fn scratch() -> Col<'static, u32> {
-    Col::new(BASE as *mut u32, COUNT * STRIDE)
 }
 unsafe fn sim(world_index: usize) -> Col<'static, f32> {
     Col::new(
@@ -250,22 +204,19 @@ fn filtered(world_index: usize, a: usize, b: usize) -> bool {
 pub unsafe fn sleep_enabled() -> bool {
     ENABLE_SLEEP
 }
-pub(crate) unsafe fn reset_body(i: usize) {
-    scratch().set(i * STRIDE + 1, 0);
-}
 /// # Safety
 /// As `finalize`, and `reserve_at` must have reserved continuous rows for every body in `[start, end)`.
-pub unsafe fn bullets(world_index: usize, start: usize, end: usize) {
+pub unsafe fn bullets(world_index: usize, worker: usize, start: usize, end: usize) {
     for i in start..end {
         if sim2(world_index).atomic_get(i * body::SIM2_STRIDE + body::S2_FLAGS)
             & (IS_FAST | IS_BULLET)
             == (IS_FAST | IS_BULLET)
         {
-            solve(world_index, i);
+            solve(world_index, worker, i);
         }
     }
 }
-pub(crate) unsafe fn solve(world_index: usize, i: usize) {
+pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
     let u = shapes::col(world_index);
     let f = shapes::col_f(world_index);
     let s2 = sim2(world_index);
@@ -448,14 +399,9 @@ pub(crate) unsafe fn solve(world_index: usize, i: usize) {
         }
         id = u.get(o + 3);
     }
-    let c = scratch();
-    let mut n = 0;
     for (sensor, visitor, t) in hits.into_iter().take(hit_count) {
         if t < fraction {
-            c.set(i * STRIDE + 2 + n * 2, sensor);
-            c.set(i * STRIDE + 3 + n * 2, visitor);
-            n += 1;
+            crate::arena::push_sensor_hit(world_index, worker, sensor as usize, visitor as usize);
         }
     }
-    c.set(i * STRIDE + 1, n as u32);
 }

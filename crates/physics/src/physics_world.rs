@@ -760,8 +760,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
             }
             9 => {
                 let start = ticks();
-                crate::continuous::consume_in_world(world, DRIVER.count, false);
-                crate::continuous::consume_in_world(world, DRIVER.count, true);
+                crate::arena::publish_sensor_hits(world);
                 accumulate(world_index, 16, start);
                 SYNC_COUNT = bodies::body_sync_moved_in_world(world_index, events::count(world, 6));
                 if DRIVER.sleep {
