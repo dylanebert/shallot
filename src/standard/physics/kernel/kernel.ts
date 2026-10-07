@@ -253,7 +253,6 @@ export type Kernel = {
         flags: number,
     ): number;
     bodyDestroyContact(world: number, id: number): void;
-    bodyReclassifyContacts(world: number, id: number): void;
     contactCreateWorld(world: number, shapeA: number, shapeB: number, child: number): void;
     contactDestroyWorld(world: number, id: number, wake: boolean): void;
     contactLinkWorld(world: number, id: number): void;
@@ -831,8 +830,6 @@ export type Kernel = {
     awakeContactCount(): number;
     awakeContactGet(index: number): number;
     awakeContactCopy(ptr: number): void;
-    awakeContactUpdate(id: number): void;
-    awakeContactRemove(id: number): void;
     jointRecordCount(): number;
     jointRecordCapacity(): number;
     jointRecordPtr(): number;

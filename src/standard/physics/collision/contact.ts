@@ -107,14 +107,6 @@ export function awakeContactGet(world: WorldState, index: number): number {
     k.bodySetActiveWorld(world.worldId);
     return k.awakeContactGet(index);
 }
-export function updateAwakeContact(world: WorldState, id: number): void {
-    const k = kernel(world.ecsState);
-    k.bodySetActiveWorld(world.worldId);
-    k.awakeContactUpdate(id);
-}
-export function reclassifyBodyContacts(world: WorldState, body: number): void {
-    kernel(world.ecsState).bodyReclassifyContacts(world.worldId, body);
-}
 export function createContact(
     world: WorldState,
     shapeA: Shape,

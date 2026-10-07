@@ -23,7 +23,7 @@ use crate::math::Vec3;
 /// the in-kernel recycle loop's cached relative pose (`DIR_CACHED_*`, 4b.3c). Both tails are folded here
 /// because they share the directory's key (contactId) and its grow-in-place lifecycle (the directory sits
 /// at the region anchor, so a grow preserves it with no memmove).
-pub const DIR_STRIDE: usize = 55;
+pub const DIR_STRIDE: usize = 54;
 pub const DIR_SET_INDEX: usize = 37;
 pub const DIR_COLOR_INDEX: usize = 38;
 pub const DIR_LOCAL_INDEX: usize = 39;
@@ -36,8 +36,7 @@ pub const DIR_ISLAND_ID: usize = 49;
 pub const DIR_ISLAND_INDEX: usize = 50;
 pub const DIR_CONTACT_ID: usize = 51;
 pub const DIR_GENERATION: usize = 52;
-pub const DIR_COLLIDE_INDEX: usize = 53;
-pub const DIR_MESH_CACHE: usize = 54;
+pub const DIR_MESH_CACHE: usize = 53;
 const DIR_FRICTION: usize = 0;
 const DIR_RESTITUTION: usize = 1;
 const DIR_ROLLING_RESISTANCE: usize = 2;

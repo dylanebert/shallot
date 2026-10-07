@@ -393,30 +393,7 @@ pub(crate) mod runtime {
             clear_transient,
         ) as *const u32;
         let moved = *result.add(1);
-        reclassify_contacts_in_world(world, id);
         moved
-    }
-
-    #[export_name = "bodyReclassifyContacts"]
-    pub unsafe extern "C" fn reclassify_contacts(world: usize, id: usize) {
-        crate::regions::select(world as u32);
-        unsafe { reclassify_contacts_in_world(world, id) }
-    }
-
-    pub unsafe extern "C" fn reclassify_contacts_in_world(world: usize, id: usize) {
-        let mut key = bodies::record(world, id).head_contact_key;
-        let d = crate::manifolds::dir_col(world as usize);
-        while key != -1 {
-            let contact = (key >> 1) as usize;
-            let next = d.get(
-                contact * crate::manifold_abi::DIR_STRIDE
-                    + crate::manifold_abi::DIR_EDGE_A
-                    + 2
-                    + 3 * (key & 1) as usize,
-            ) as i32;
-            crate::contact_list::update_in_world(world as usize, contact);
-            key = next;
-        }
     }
 
     #[export_name = "bodyWakeRecord"]

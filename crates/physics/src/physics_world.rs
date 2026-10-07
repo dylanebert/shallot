@@ -83,7 +83,6 @@ pub unsafe fn destroy_contact(world_index: usize, id: usize, wake: bool) {
     let flags = d.get(o + 6);
     let a = d.get(o + DIR_EDGE_A) as usize;
     let b = d.get(o + DIR_EDGE_B) as usize;
-    contact_list::remove_in_world(world_index, id);
     crate::table::remove_pair_in_world(
         world_index,
         d.get(o + DIR_SHAPE_A),
@@ -107,7 +106,6 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
     let flags = d.get(o + 6);
     let world = world_index;
     if flags & 0x0002_0000 != 0 {
-        contact_list::remove_in_world(world_index, id);
         crate::table::remove_pair_in_world(
             world_index,
             d.get(o + DIR_SHAPE_A),
@@ -570,7 +568,6 @@ pub unsafe extern "C" fn create_contact_in_world(world: usize, a: usize, b: usiz
     );
     if id != usize::MAX {
         crate::table::add_pair_in_world(world as usize, a as u32, b as u32, child as u32);
-        contact_list::update_in_world(world as usize, id);
     }
 }
 unsafe fn create_pairs(world_index: usize) {
@@ -655,17 +652,6 @@ pub unsafe extern "C" fn try_sleep_island_in_world(world_index: usize, id: usize
     }
     island::set_field_in_world(world_index, id, 0, target as i32);
     island::set_field_in_world(world_index, id, 1, *result as i32);
-    for i in 0..island::array_count_in_world(world_index, id, 0) {
-        let body = island::array_get_in_world(world_index, id, 0, i, 0) as usize;
-        let d = manifolds::dir_col(world_index);
-        let mut key = bodies::record(world, body).head_contact_key;
-        while key != -1 {
-            let contact = (key >> 1) as usize;
-            let side = (key & 1) as usize;
-            key = d.get(contact * DIR_STRIDE + DIR_EDGE_A + 2 + 3 * side) as i32;
-            contact_list::update_in_world(world_index, contact);
-        }
-    }
     if island::split_candidate_in_world(world_index) == id as i32 {
         island::set_split_candidate_in_world(world_index, -1);
     }

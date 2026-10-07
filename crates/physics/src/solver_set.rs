@@ -791,17 +791,6 @@ pub unsafe fn wake(world_index: usize, set: usize) {
         island::set_field_in_world(world_index, id as usize, 0, 2);
         island::set_field_in_world(world_index, id as usize, 1, index as i32);
     }
-    // Classification needs the final graph placement of both endpoints.
-    for i in 0..count {
-        let id = body_id_in_world(world_index, set, i) as usize;
-        let mut key = bodies::record(world, id).head_contact_key;
-        while key != -1 {
-            let id = (key >> 1) as usize;
-            let d = manifolds::dir_col(world_index);
-            key = d.get(id * DIR_STRIDE + DIR_EDGE_A + 2 + 3 * (key & 1) as usize) as i32;
-            crate::contact_list::update_in_world(world_index, id);
-        }
-    }
     destroy_in_world(world_index, set);
 }
 #[export_name = "solverSetWake"]

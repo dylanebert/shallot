@@ -85,7 +85,6 @@ pub extern "C" fn alloc_contact_in_world(world_index: usize) -> usize {
             DIR_SHAPE_B,
             DIR_ISLAND_ID,
             DIR_ISLAND_INDEX,
-            DIR_COLLIDE_INDEX,
         ] {
             dir.set(o + field, u32::MAX);
         }

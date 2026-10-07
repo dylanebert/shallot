@@ -5,7 +5,7 @@ import { KernelViews } from "../kernel/views";
 import type { WorldState } from "../world/world";
 import type { Manifold } from "./contact";
 
-export const DIR_STRIDE = 55;
+export const DIR_STRIDE = 54;
 export const MANIFOLD_STRIDE = 67;
 const DIR_COUNT = 7;
 export const DIR_BLOCK = 8;
