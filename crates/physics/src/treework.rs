@@ -412,46 +412,60 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
     let sim2 = crate::bodies::sim2_base(world_index) as *mut u32;
     let shapes = crate::shapes::col(world_index);
     let fat = crate::shapes::col_f(world_index);
-    for i in 0..count {
-        let row = sim2.add(i * SIM2_STRIDE);
-        let flags = *row.add(S2_FLAGS);
-        let bullet = flags & (IS_FAST | IS_BULLET) == (IS_FAST | IS_BULLET);
-        if bullets != 0 && (!bullet || flags & ENLARGE_BOUNDS == 0) {
-            continue;
-        }
-        let body_id = *row.add(S2_BODY_ID) as usize;
-        let mut id = crate::bodies::record(world_index, body_id).head_shape_id as u32;
-        while id != u32::MAX {
-            let o = id as usize * crate::shapes::SHAPE_STRIDE;
-            let key = shapes.get(o + crate::shapes::S_PROXY_KEY);
-            if bullets == 0 && bullet {
-                crate::broad::buffer_move_in_world(world_index, key);
-            } else if shapes.get(o + crate::shapes::S_FLAGS) & crate::shapes::ENLARGED_FLAG != 0 {
-                let index = (key & 3) as usize;
-                let b = o + crate::shapes::S_FAT_AABB;
-                let pool = slice::from_raw_parts_mut(
-                    crate::broad::tree_ptr(world_index, index),
-                    crate::broad::tree_cap(world_index, index) * STRIDE,
-                );
-                tree::enlarge_proxy(
-                    pool,
-                    (key >> 2) as i32,
-                    [fat.get(b), fat.get(b + 1), fat.get(b + 2)],
-                    [fat.get(b + 3), fat.get(b + 4), fat.get(b + 5)],
-                );
-                let flags = shapes.get(o + crate::shapes::S_FLAGS);
-                shapes.set(
-                    o + crate::shapes::S_FLAGS,
-                    flags & !crate::shapes::ENLARGED_FLAG,
-                );
-                if bullets == 0 {
-                    crate::broad::buffer_move_in_world(world_index, key);
-                }
+    let enlarged = crate::arena::enlarged_sims(world_index);
+    for block in 0..count.div_ceil(64) {
+        let mut mask = if bullets == 0 {
+            *enlarged.bits.add(block)
+        } else {
+            u64::MAX
+        };
+        while mask != 0 {
+            let i = block * 64 + mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            if i >= count {
+                break;
             }
-            id = shapes.get(o + crate::shapes::S_NEXT);
-        }
-        if bullets != 0 {
-            *row.add(S2_FLAGS) &= !ENLARGE_BOUNDS;
+            let row = sim2.add(i * SIM2_STRIDE);
+            let flags = *row.add(S2_FLAGS);
+            let bullet = flags & (IS_FAST | IS_BULLET) == (IS_FAST | IS_BULLET);
+            if bullets != 0 && (!bullet || flags & ENLARGE_BOUNDS == 0) {
+                continue;
+            }
+            let body_id = *row.add(S2_BODY_ID) as usize;
+            let mut id = crate::bodies::record(world_index, body_id).head_shape_id as u32;
+            while id != u32::MAX {
+                let o = id as usize * crate::shapes::SHAPE_STRIDE;
+                let key = shapes.get(o + crate::shapes::S_PROXY_KEY);
+                if bullets == 0 && bullet {
+                    crate::broad::buffer_move_in_world(world_index, key);
+                } else if shapes.get(o + crate::shapes::S_FLAGS) & crate::shapes::ENLARGED_FLAG != 0
+                {
+                    let index = (key & 3) as usize;
+                    let b = o + crate::shapes::S_FAT_AABB;
+                    let pool = slice::from_raw_parts_mut(
+                        crate::broad::tree_ptr(world_index, index),
+                        crate::broad::tree_cap(world_index, index) * STRIDE,
+                    );
+                    tree::enlarge_proxy(
+                        pool,
+                        (key >> 2) as i32,
+                        [fat.get(b), fat.get(b + 1), fat.get(b + 2)],
+                        [fat.get(b + 3), fat.get(b + 4), fat.get(b + 5)],
+                    );
+                    let flags = shapes.get(o + crate::shapes::S_FLAGS);
+                    shapes.set(
+                        o + crate::shapes::S_FLAGS,
+                        flags & !crate::shapes::ENLARGED_FLAG,
+                    );
+                    if bullets == 0 {
+                        crate::broad::buffer_move_in_world(world_index, key);
+                    }
+                }
+                id = shapes.get(o + crate::shapes::S_NEXT);
+            }
+            if bullets != 0 {
+                *row.add(S2_FLAGS) &= !ENLARGE_BOUNDS;
+            }
         }
     }
 }
