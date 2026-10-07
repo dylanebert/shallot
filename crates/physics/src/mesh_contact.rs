@@ -236,6 +236,8 @@ impl TriangleCacheArray {
         }
         self.count = count as i32;
     }
+    /// # Safety
+    /// A nonempty array must own the allocation made by `resize`, with no live aliases to it.
     pub unsafe fn release(&mut self) {
         if self.capacity != 0 {
             std::alloc::dealloc(

@@ -177,6 +177,8 @@ pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
 }
 #[cfg(target_arch = "wasm32")]
 
+/// # Safety
+/// `world_index` must identify a live world, exclusively accessed while its set may grow.
 pub unsafe extern "C" fn add_pair_in_world(world_index: usize, a: u32, b: u32, child: u32) -> u32 {
     ensure_set_in_world(world_index, 16);
     let key = item_key(a, b, child);
@@ -201,6 +203,8 @@ pub unsafe extern "C" fn remove_pair(a: u32, b: u32, child: u32) -> u32 {
 }
 #[cfg(target_arch = "wasm32")]
 
+/// # Safety
+/// `world_index` must identify a live world, with no concurrent access to its set.
 pub unsafe extern "C" fn remove_pair_in_world(
     world_index: usize,
     a: u32,
