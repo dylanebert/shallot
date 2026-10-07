@@ -2379,22 +2379,6 @@ fn solve_wheel(
     let enable_steering_limit =
         crate::joint_abi::enabled(joints, slot, WHJ_ENABLE, WHJ_ENABLE_STEERING_LIMIT);
 
-    let mut linear_impulse = Vec2::new(
-        get(joints, slot, WHJ_LINEAR_IMPULSE),
-        get(joints, slot, WHJ_LINEAR_IMPULSE + 1),
-    );
-    let mut angular_impulse = Vec2::new(
-        get(joints, slot, WHJ_ANGULAR_IMPULSE),
-        get(joints, slot, WHJ_ANGULAR_IMPULSE + 1),
-    );
-    let mut spin_impulse = get(joints, slot, WHJ_SPIN_IMPULSE);
-    let mut suspension_spring_impulse = get(joints, slot, WHJ_SUSPENSION_SPRING_IMPULSE);
-    let mut lower_suspension_impulse = get(joints, slot, WHJ_LOWER_SUSPENSION_IMPULSE);
-    let mut upper_suspension_impulse = get(joints, slot, WHJ_UPPER_SUSPENSION_IMPULSE);
-    let mut steering_spring_impulse = get(joints, slot, WHJ_STEERING_SPRING_IMPULSE);
-    let mut lower_steering_impulse = get(joints, slot, WHJ_LOWER_STEERING_IMPULSE);
-    let mut upper_steering_impulse = get(joints, slot, WHJ_UPPER_STEERING_IMPULSE);
-
     let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
     let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
 
@@ -2436,9 +2420,10 @@ fn solve_wheel(
         let spin_axis = matrix_b.cz;
         let cdot = w_b.sub(w_a).dot(spin_axis) - spin_speed;
         let mut impulse = -spin_mass * cdot;
-        let old_impulse = spin_impulse;
+        let old_impulse = get(joints, slot, WHJ_SPIN_IMPULSE);
         let max_impulse = h * max_spin_torque;
-        spin_impulse = clampf(spin_impulse + impulse, -max_impulse, max_impulse);
+        let spin_impulse = clampf(old_impulse + impulse, -max_impulse, max_impulse);
+        set(joints, slot, WHJ_SPIN_IMPULSE, spin_impulse);
         impulse = spin_impulse - old_impulse;
         w_a = w_a.sub(i_a.mul_v(spin_axis.scale(impulse)));
         w_b = w_b.add(i_b.mul_v(spin_axis.scale(impulse)));
@@ -2452,9 +2437,15 @@ fn solve_wheel(
         let impulse_scale = suspension_soft.impulse_scale;
 
         let cdot = matrix_a.cx.dot(v_b.sub(v_a)) + s_bx.dot(w_b) - s_ax.dot(w_a);
+        let suspension_spring_impulse = get(joints, slot, WHJ_SUSPENSION_SPRING_IMPULSE);
         let impulse = -mass_scale * suspension_mass * (cdot + bias)
             - impulse_scale * suspension_spring_impulse;
-        suspension_spring_impulse += impulse;
+        set(
+            joints,
+            slot,
+            WHJ_SUSPENSION_SPRING_IMPULSE,
+            suspension_spring_impulse + impulse,
+        );
 
         let linear = matrix_a.cx.scale(impulse);
         let angular_a = s_ax.scale(impulse);
@@ -2477,11 +2468,17 @@ fn solve_wheel(
             let impulse_scale = steering_soft.impulse_scale;
 
             let cdot = steer_axis.dot(w_b.sub(w_a));
-            let old_impulse = steering_spring_impulse;
+            let old_impulse = get(joints, slot, WHJ_STEERING_SPRING_IMPULSE);
             let mut impulse =
                 -mass_scale * steering_mass * (cdot + bias) - impulse_scale * old_impulse;
             let max_impulse = h * max_steering_torque;
-            steering_spring_impulse = clampf(old_impulse + impulse, -max_impulse, max_impulse);
+            let steering_spring_impulse = clampf(old_impulse + impulse, -max_impulse, max_impulse);
+            set(
+                joints,
+                slot,
+                WHJ_STEERING_SPRING_IMPULSE,
+                steering_spring_impulse,
+            );
             impulse = steering_spring_impulse - old_impulse;
             w_a = w_a.sub(i_a.mul_v(steer_axis.scale(impulse)));
             w_b = w_b.add(i_b.mul_v(steer_axis.scale(impulse)));
@@ -2502,10 +2499,16 @@ fn solve_wheel(
                     impulse_scale = cs.impulse_scale;
                 }
                 let cdot = steer_axis.dot(w_b.sub(w_a));
-                let old_impulse = lower_steering_impulse;
+                let old_impulse = get(joints, slot, WHJ_LOWER_STEERING_IMPULSE);
                 let mut impulse =
                     -mass_scale * steering_mass * (cdot + bias) - impulse_scale * old_impulse;
-                lower_steering_impulse = maxf(old_impulse + impulse, 0.0);
+                let lower_steering_impulse = maxf(old_impulse + impulse, 0.0);
+                set(
+                    joints,
+                    slot,
+                    WHJ_LOWER_STEERING_IMPULSE,
+                    lower_steering_impulse,
+                );
                 impulse = lower_steering_impulse - old_impulse;
                 w_a = w_a.sub(i_a.mul_v(steer_axis.scale(impulse)));
                 w_b = w_b.add(i_b.mul_v(steer_axis.scale(impulse)));
@@ -2525,10 +2528,16 @@ fn solve_wheel(
                     impulse_scale = cs.impulse_scale;
                 }
                 let cdot = steer_axis.dot(w_a.sub(w_b));
-                let old_impulse = upper_steering_impulse;
+                let old_impulse = get(joints, slot, WHJ_UPPER_STEERING_IMPULSE);
                 let mut impulse =
                     -mass_scale * steering_mass * (cdot + bias) - impulse_scale * old_impulse;
-                upper_steering_impulse = maxf(old_impulse + impulse, 0.0);
+                let upper_steering_impulse = maxf(old_impulse + impulse, 0.0);
+                set(
+                    joints,
+                    slot,
+                    WHJ_UPPER_STEERING_IMPULSE,
+                    upper_steering_impulse,
+                );
                 impulse = upper_steering_impulse - old_impulse;
                 w_a = w_a.add(i_a.mul_v(steer_axis.scale(impulse)));
                 w_b = w_b.sub(i_b.mul_v(steer_axis.scale(impulse)));
@@ -2551,10 +2560,16 @@ fn solve_wheel(
                 impulse_scale = cs.impulse_scale;
             }
             let cdot = matrix_a.cx.dot(v_b.sub(v_a)) + s_bx.dot(w_b) - s_ax.dot(w_a);
-            let mut impulse = -mass_scale * suspension_mass * (cdot + bias)
-                - impulse_scale * lower_suspension_impulse;
-            let old_impulse = lower_suspension_impulse;
-            lower_suspension_impulse = maxf(old_impulse + impulse, 0.0);
+            let old_impulse = get(joints, slot, WHJ_LOWER_SUSPENSION_IMPULSE);
+            let mut impulse =
+                -mass_scale * suspension_mass * (cdot + bias) - impulse_scale * old_impulse;
+            let lower_suspension_impulse = maxf(old_impulse + impulse, 0.0);
+            set(
+                joints,
+                slot,
+                WHJ_LOWER_SUSPENSION_IMPULSE,
+                lower_suspension_impulse,
+            );
             impulse = lower_suspension_impulse - old_impulse;
 
             let linear = matrix_a.cx.scale(impulse);
@@ -2580,10 +2595,16 @@ fn solve_wheel(
                 impulse_scale = cs.impulse_scale;
             }
             let cdot = matrix_a.cx.dot(v_a.sub(v_b)) + s_ax.dot(w_a) - s_bx.dot(w_b);
-            let mut impulse = -mass_scale * suspension_mass * (cdot + bias)
-                - impulse_scale * upper_suspension_impulse;
-            let old_impulse = upper_suspension_impulse;
-            upper_suspension_impulse = maxf(old_impulse + impulse, 0.0);
+            let old_impulse = get(joints, slot, WHJ_UPPER_SUSPENSION_IMPULSE);
+            let mut impulse =
+                -mass_scale * suspension_mass * (cdot + bias) - impulse_scale * old_impulse;
+            let upper_suspension_impulse = maxf(old_impulse + impulse, 0.0);
+            set(
+                joints,
+                slot,
+                WHJ_UPPER_SUSPENSION_IMPULSE,
+                upper_suspension_impulse,
+            );
             impulse = upper_suspension_impulse - old_impulse;
 
             let linear = matrix_a.cx.scale(impulse);
@@ -2614,9 +2635,15 @@ fn solve_wheel(
             let k = u.dot(inv_inertia_sum.mul_v(u));
             let perp_mass = if k > 0.0 { 1.0 / k } else { 0.0 };
 
+            let angular_impulse = get(joints, slot, WHJ_ANGULAR_IMPULSE);
             let delta_impulse =
-                -mass_scale * perp_mass * (cdot + bias) - impulse_scale * angular_impulse.x;
-            angular_impulse.x += delta_impulse;
+                -mass_scale * perp_mass * (cdot + bias) - impulse_scale * angular_impulse;
+            set(
+                joints,
+                slot,
+                WHJ_ANGULAR_IMPULSE,
+                angular_impulse + delta_impulse,
+            );
 
             w_a = w_a.mul_sub(delta_impulse, i_a.mul_v(u));
             w_b = w_b.mul_add(delta_impulse, i_b.mul_v(u));
@@ -2648,17 +2675,22 @@ fn solve_wheel(
             };
             let w_rel = w_b.sub(w_a);
             let cdot = Vec2::new(w_rel.dot(perp_axis_x), w_rel.dot(perp_axis_y));
-            let old_impulse = angular_impulse;
+            let old_impulse = Vec2::new(
+                get(joints, slot, WHJ_ANGULAR_IMPULSE),
+                get(joints, slot, WHJ_ANGULAR_IMPULSE + 1),
+            );
             let cdot_plus_bias = Vec2::new(cdot.x + bias.x, cdot.y + bias.y);
             let sol = k.solve(cdot_plus_bias);
             let delta_impulse = Vec2::new(
                 -mass_scale * sol.x - impulse_scale * old_impulse.x,
                 -mass_scale * sol.y - impulse_scale * old_impulse.y,
             );
-            angular_impulse = Vec2::new(
+            let angular_impulse = Vec2::new(
                 old_impulse.x + delta_impulse.x,
                 old_impulse.y + delta_impulse.y,
             );
+            set(joints, slot, WHJ_ANGULAR_IMPULSE, angular_impulse.x);
+            set(joints, slot, WHJ_ANGULAR_IMPULSE + 1, angular_impulse.y);
 
             let ang = blend2(delta_impulse.x, perp_axis_x, delta_impulse.y, perp_axis_y);
             w_a = w_a.sub(i_a.mul_v(ang));
@@ -2692,17 +2724,22 @@ fn solve_wheel(
             cy: Vec2::new(kyz, kzz),
         };
 
-        let old_impulse = linear_impulse;
+        let old_impulse = Vec2::new(
+            get(joints, slot, WHJ_LINEAR_IMPULSE),
+            get(joints, slot, WHJ_LINEAR_IMPULSE + 1),
+        );
         let cdot_plus_bias = Vec2::new(cdot.x + bias.x, cdot.y + bias.y);
         let sol = k.solve(cdot_plus_bias);
         let delta_impulse = Vec2::new(
             -mass_scale * sol.x - impulse_scale * old_impulse.x,
             -mass_scale * sol.y - impulse_scale * old_impulse.y,
         );
-        linear_impulse = Vec2::new(
+        let linear_impulse = Vec2::new(
             old_impulse.x + delta_impulse.x,
             old_impulse.y + delta_impulse.y,
         );
+        set(joints, slot, WHJ_LINEAR_IMPULSE, linear_impulse.x);
+        set(joints, slot, WHJ_LINEAR_IMPULSE + 1, linear_impulse.y);
 
         let linear = blend2(delta_impulse.x, perp_y, delta_impulse.y, perp_z);
         v_a = v_a.mul_sub(m_a, linear);
@@ -2710,48 +2747,6 @@ fn solve_wheel(
         v_b = v_b.mul_add(m_b, linear);
         w_b = w_b.add(i_b.mul_v(blend2(delta_impulse.x, s_by, delta_impulse.y, s_bz)));
     }
-
-    set(joints, slot, WHJ_LINEAR_IMPULSE, linear_impulse.x);
-    set(joints, slot, WHJ_LINEAR_IMPULSE + 1, linear_impulse.y);
-    set(joints, slot, WHJ_ANGULAR_IMPULSE, angular_impulse.x);
-    set(joints, slot, WHJ_ANGULAR_IMPULSE + 1, angular_impulse.y);
-    set(joints, slot, WHJ_SPIN_IMPULSE, spin_impulse);
-    set(
-        joints,
-        slot,
-        WHJ_SUSPENSION_SPRING_IMPULSE,
-        suspension_spring_impulse,
-    );
-    set(
-        joints,
-        slot,
-        WHJ_LOWER_SUSPENSION_IMPULSE,
-        lower_suspension_impulse,
-    );
-    set(
-        joints,
-        slot,
-        WHJ_UPPER_SUSPENSION_IMPULSE,
-        upper_suspension_impulse,
-    );
-    set(
-        joints,
-        slot,
-        WHJ_STEERING_SPRING_IMPULSE,
-        steering_spring_impulse,
-    );
-    set(
-        joints,
-        slot,
-        WHJ_LOWER_STEERING_IMPULSE,
-        lower_steering_impulse,
-    );
-    set(
-        joints,
-        slot,
-        WHJ_UPPER_STEERING_IMPULSE,
-        upper_steering_impulse,
-    );
 
     if end_a.dynamic {
         write_velocity(state_col, base.sim_index_a, v_a, w_a);
