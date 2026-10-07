@@ -54,6 +54,9 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
                 queryCallback() {
                     throw new Error("unexpected shape allocation callback");
                 },
+                materialCallback() {
+                    throw new Error("unexpected shape allocation material callback");
+                },
             },
         });
         const k = built.instance.exports as unknown as Kernel & {
