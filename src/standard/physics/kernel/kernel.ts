@@ -14,7 +14,7 @@
 
 import type { World } from "../../../engine";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
-import { createPool, maxWorkers, type Pool } from "./pool";
+import { createPool, maxWorkers, solverPause, type Pool } from "./pool";
 
 /** The kernel's exported surface — grows as each solver phase ports to wasm. */
 export type Kernel = {
@@ -1118,6 +1118,7 @@ function host(): Host {
 async function single(runtime: KernelState): Promise<void> {
     const result = await WebAssembly.instantiate(decode(KERNEL_WASM_BASE64), {
         env: {
+            solverPause,
             queryCallback: queryImport(runtime),
             now: clockImport(() => instance.memory),
             kernelPanic: panicImport(() => instance.memory),
@@ -1144,6 +1145,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
     const exports = (
         await WebAssembly.instantiate(module, {
             env: {
+                solverPause,
                 memory,
                 queryCallback: queryImport(runtime),
                 now: clockImport(() => memory),
@@ -1273,6 +1275,7 @@ export function kernel(world: World | undefined): Kernel {
         const mod = new WebAssembly.Module(decode(KERNEL_WASM_BASE64));
         const instance = new WebAssembly.Instance(mod, {
             env: {
+                solverPause,
                 queryCallback: queryImport(runtime),
                 now: clockImport(() => instance.memory),
                 kernelPanic: panicImport(() => instance.memory),

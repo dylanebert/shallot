@@ -992,17 +992,34 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     Some(())
 }
 
+fn pause(spins: u32) {
+    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+    unsafe {
+        #[link(wasm_import_module = "env")]
+        extern "C" {
+            fn solverPause(spins: u32);
+        }
+        solverPause(spins);
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
+    for _ in 0..spins {
+        core::hint::spin_loop();
+    }
+}
+
 fn steal<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
     let mut last = 0;
     loop {
         let mut bits = ctx.sync_bits.0.load(Ordering::SeqCst);
+        let mut spins = 1;
         while bits == last {
             // A sibling died: the orchestrator has abandoned the solve and will publish no further
             // stage. Leave without acking — its join breaks on the same flag.
             if ctx.faulted() {
                 return;
             }
-            core::hint::spin_loop();
+            pause(spins);
+            spins = (spins * 2).min(64);
             bits = ctx.sync_bits.0.load(Ordering::SeqCst);
         }
 

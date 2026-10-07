@@ -48,6 +48,14 @@ const JOIN_SPIN_CAP = 64;
 // Absent before Chrome 133, Firefox 137 and Safari 18.4; the join then reads the clock, as Emscripten's does.
 const HAS_PAUSE = typeof Atomics.pause === "function";
 
+export function solverPause(spins: number): void {
+    if (typeof Atomics.pause === "function") {
+        for (let i = 0; i < spins; ++i) Atomics.pause();
+    } else {
+        for (let i = 0; i < spins && performance.now() >= 0; ++i) {}
+    }
+}
+
 const OP_EXIT = 0;
 const OP_SOLVE = 1;
 
@@ -56,7 +64,7 @@ const OP_SOLVE = 1;
 const WORKER_SRC = `
 const boot = (d, post) => {
     let clock = new Float64Array(d.memory.buffer);
-    const ex = new WebAssembly.Instance(d.module, { env: { memory: d.memory, now(p) { if (clock.buffer !== d.memory.buffer) clock = new Float64Array(d.memory.buffer); clock[p >>> 3] = performance.now(); }, queryCallback() { throw new Error("physics: worker invoked a user query callback"); }, kernelPanic(p, n) { console.error("physics kernel " + new TextDecoder().decode(new Uint8Array(d.memory.buffer, p, n).slice())); } } }).exports;
+    const ex = new WebAssembly.Instance(d.module, { env: { memory: d.memory, solverPause: (${solverPause.toString()}), now(p) { if (clock.buffer !== d.memory.buffer) clock = new Float64Array(d.memory.buffer); clock[p >>> 3] = performance.now(); }, queryCallback() { throw new Error("physics: worker invoked a user query callback"); }, kernelPanic(p, n) { console.error("physics kernel " + new TextDecoder().decode(new Uint8Array(d.memory.buffer, p, n).slice())); } } }).exports;
     ex.__stack_pointer.value = d.stackTop;
     ex.__wasm_init_tls(d.tlsBase);
     const ctl = new Int32Array(d.ctl);
