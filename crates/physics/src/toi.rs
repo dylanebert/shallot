@@ -65,15 +65,15 @@ enum Separation {
     FaceB,
 }
 struct Function<'a> {
-    a: ShapeProxy<'a>,
-    b: ShapeProxy<'a>,
+    a: &'a ShapeProxy<'a>,
+    b: &'a ShapeProxy<'a>,
     sa: Sweep,
     sb: Sweep,
     kind: Separation,
     w1: Vec3,
     w2: Vec3,
 }
-fn unique(count: usize, indices: &[usize; 4]) -> usize {
+fn unique(count: usize, indices: &[usize; 3]) -> usize {
     let mut result = 0;
     for i in 0..count {
         if !indices[..i].contains(&indices[i]) {
@@ -85,9 +85,9 @@ fn unique(count: usize, indices: &[usize; 4]) -> usize {
 impl<'a> Function<'a> {
     fn new(
         cache: SimplexCache,
-        a: ShapeProxy<'a>,
+        a: &'a ShapeProxy<'a>,
         sa: Sweep,
-        b: ShapeProxy<'a>,
+        b: &'a ShapeProxy<'a>,
         sb: Sweep,
         normal: Vec3,
         t: f32,
@@ -101,8 +101,8 @@ impl<'a> Function<'a> {
             w1: normal,
             w2: Vec3::ZERO,
         };
-        let mut ia = cache.index_a;
-        let mut ib = cache.index_b;
+        let mut ia = [cache.index_a[0], cache.index_a[1], cache.index_a[2]];
+        let mut ib = [cache.index_b[0], cache.index_b[1], cache.index_b[2]];
         let ua = unique(cache.count, &ia);
         let ub = unique(cache.count, &ib);
         let xa = sa.transform(t);
@@ -189,8 +189,8 @@ impl<'a> Function<'a> {
         let axis = self.axis(xa, xb);
         match self.kind {
             Separation::Vertices | Separation::Edges => {
-                let ia = get_proxy_support(&self.a, xa.q.inv_rotate(axis));
-                let ib = get_proxy_support(&self.b, xb.q.inv_rotate(axis.neg()));
+                let ia = get_proxy_support(self.a, xa.q.inv_rotate(axis));
+                let ib = get_proxy_support(self.b, xb.q.inv_rotate(axis.neg()));
                 let delta =
                     xb.q.rotate(self.b.points[ib])
                         .sub(xa.q.rotate(self.a.points[ia]))
@@ -198,7 +198,7 @@ impl<'a> Function<'a> {
                 (delta.dot(axis), ia, ib)
             }
             Separation::FaceA => {
-                let ib = get_proxy_support(&self.b, xb.q.inv_rotate(axis).neg());
+                let ib = get_proxy_support(self.b, xb.q.inv_rotate(axis).neg());
                 (
                     xb.point(self.b.points[ib]).sub(xa.point(self.w2)).dot(axis),
                     0,
@@ -206,7 +206,7 @@ impl<'a> Function<'a> {
                 )
             }
             Separation::FaceB => {
-                let ia = get_proxy_support(&self.a, xa.q.inv_rotate(axis).neg());
+                let ia = get_proxy_support(self.a, xa.q.inv_rotate(axis).neg());
                 (
                     xa.point(self.a.points[ia]).sub(xb.point(self.w2)).dot(axis),
                     ia,
@@ -253,8 +253,8 @@ pub fn time_of_impact(input: &TOIInput) -> TOIOutput {
     sa.c2 = sa.c2.sub(origin);
     sb.c1 = sb.c1.sub(origin);
     sb.c2 = sb.c2.sub(origin);
-    let a = input.proxy_a;
-    let b = input.proxy_b;
+    let a = &input.proxy_a;
+    let b = &input.proxy_b;
     let target = maxf(0.005, a.radius + b.radius - 0.005);
     let tolerance = 0.25 * 0.005;
     let mut t1 = 0.0;
@@ -264,8 +264,8 @@ pub fn time_of_impact(input: &TOIInput) -> TOIOutput {
         let xb = sb.transform(t1);
         let distance = shape_distance(
             &DistanceInput {
-                proxy_a: a,
-                proxy_b: b,
+                proxy_a: *a,
+                proxy_b: *b,
                 transform: xa.inv_mul(xb),
                 use_radii: false,
             },
