@@ -74,13 +74,30 @@ struct Function<'a> {
     w2: Vec3,
 }
 fn unique(count: usize, indices: &[usize; 3]) -> usize {
-    let mut result = 0;
-    for i in 0..count {
-        if !indices[..i].contains(&indices[i]) {
-            result += 1;
+    debug_assert!((1..=3).contains(&count));
+    match count {
+        1 => 1,
+        2 => {
+            if indices[0] != indices[1] {
+                2
+            } else {
+                1
+            }
         }
+        3 => {
+            if indices[0] != indices[1] && indices[0] != indices[2] && indices[1] != indices[2] {
+                3
+            } else if indices[0] == indices[1]
+                && indices[0] == indices[2]
+                && indices[1] == indices[2]
+            {
+                1
+            } else {
+                2
+            }
+        }
+        _ => 0,
     }
-    result
 }
 impl<'a> Function<'a> {
     fn new(
