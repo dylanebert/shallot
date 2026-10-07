@@ -9,6 +9,8 @@ use crate::math::{line_distance, maxf, minf, Plane, Transform, Vec3};
 
 const SLOP: f32 = 0.005;
 const SPECULATIVE: f32 = 4.0 * SLOP;
+/// The triangle-reference clip capacity, `2 * B3_MAX_CLIP_POINTS` (`triangle_manifold.c:807`).
+const TRIANGLE_FACE_CLIP_POINTS: usize = 128;
 const FACE: u32 = 1;
 const EDGES: [u32; 3] = [3, 4, 5];
 const FEATURES: [u32; 8] = [0, 6, 7, 3, 8, 5, 4, 1];
@@ -239,8 +241,8 @@ fn triangle_face_contact(
     speculative: bool,
 ) -> f32 {
     let face = find_incident_face(hull, plane.normal, query.b);
-    let mut buffer1 = [core::mem::MaybeUninit::<ClipVertex>::uninit(); 64];
-    let mut buffer2 = [core::mem::MaybeUninit::<ClipVertex>::uninit(); 64];
+    let mut buffer1 = [core::mem::MaybeUninit::<ClipVertex>::uninit(); TRIANGLE_FACE_CLIP_POINTS];
+    let mut buffer2 = [core::mem::MaybeUninit::<ClipVertex>::uninit(); TRIANGLE_FACE_CLIP_POINTS];
     let mut input = &mut buffer1;
     let mut output = &mut buffer2;
     let first = hull.faces[face].edge as usize;
@@ -261,7 +263,7 @@ fn triangle_face_contact(
         });
         count += 1;
         edge = e.next as usize;
-        if edge == first || count == 64 {
+        if edge == first || count == TRIANGLE_FACE_CLIP_POINTS {
             break;
         }
     }
