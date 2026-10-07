@@ -9,6 +9,7 @@ use crate::triangle_manifold::{
 };
 
 pub const MAX_TRIANGLES: usize = 256;
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_POINTS: usize = 32 * MAX_TRIANGLES;
 const SLOP: f32 = 0.005;
 const REST_OFFSET: f32 = SLOP;
@@ -345,9 +346,10 @@ struct Point2D {
     index: usize,
 }
 
-/// Caller-owned task scratch; no allocation or shared scratch occurs during the sweep.
-/// Every field is initialized over its active span before it is read.
+/// Transient mesh scratch. Worker arenas allocate later spans at their accepted/cluster counts;
+/// native fixtures lend their initialized storage to the same reduction loop.
 pub struct MeshScratch<'a> {
+    arena: Option<crate::task_memory::Arena>,
     triangles: &'a mut [TriangleResult],
     accepted: &'a mut [usize],
     tentative: &'a mut [usize],
@@ -365,6 +367,7 @@ pub struct MeshScratch<'a> {
     pub materials: &'a mut [[u32; 4]],
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const SCRATCH_BYTES: usize = MAX_TRIANGLES
     * (core::mem::size_of::<TriangleResult>()
         + 3 * core::mem::size_of::<usize>()
@@ -377,13 +380,40 @@ const SCRATCH_BYTES: usize = MAX_TRIANGLES
     + MAX_TRIANGLES * core::mem::size_of::<u8>()
     + 13 * 16;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct MeshStorage {
     words: [u128; SCRATCH_BYTES.div_ceil(16)],
-    #[cfg(not(target_arch = "wasm32"))]
     output: [Manifold; MAX_TRIANGLES],
     materials: [[u32; 4]; MAX_TRIANGLES],
 }
 
+impl MeshScratch<'_> {
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) unsafe fn from_arena(mut arena: crate::task_memory::Arena, count: usize) -> Self {
+        let accepted = arena.span(count);
+        let tentative = arena.span(count);
+        let tentative_triangles = arena.span(count);
+        let triangle_points = arena.span(count * 32);
+        let triangles = arena.span(count);
+        Self {
+            arena: Some(arena),
+            accepted,
+            tentative,
+            tentative_triangles,
+            triangle_points,
+            triangles,
+            membership: &mut [],
+            clusters: &mut [],
+            points: &mut [],
+            point_materials: &mut [],
+            projected: &mut [],
+            consumed: &mut [],
+            materials: &mut [],
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl MeshStorage {
     pub fn scratch(&mut self, count: usize, old_count: usize) -> MeshScratch<'_> {
         assert!(count <= MAX_TRIANGLES);
@@ -400,6 +430,7 @@ impl MeshStorage {
         }
         unsafe {
             MeshScratch {
+                arena: None,
                 triangles: span(base, &mut offset, count),
                 accepted: span(base, &mut offset, count),
                 tentative: span(base, &mut offset, count),
@@ -728,7 +759,7 @@ pub fn compute_mesh_manifolds(
         xf_b,
         fast,
         speculative,
-        |count| {
+        |count, _arena| {
             output[..count].fill(Manifold::new());
             (old, &mut output[..count])
         },
@@ -747,7 +778,7 @@ pub(crate) fn compute_mesh_manifolds_into<'a, M: ManifoldOutput + 'a>(
     xf_b: Transform,
     fast: bool,
     speculative: bool,
-    prepare: impl FnOnce(usize) -> (&'a mut [M], &'a mut [M]),
+    prepare: impl FnOnce(usize, Option<&mut crate::task_memory::Arena>) -> (&'a mut [M], &'a mut [M]),
 ) -> usize {
     let transform = xf_b.inv_mul(xf_a);
     let matrix = Mat3::from_quat(transform.q);
@@ -892,6 +923,12 @@ pub(crate) fn compute_mesh_manifolds_into<'a, M: ManifoldOutput + 'a>(
             }
         }
     }
+    if let Some(arena) = &mut scratch.arena {
+        unsafe {
+            scratch.clusters = arena.span(accepted_count);
+            scratch.membership = arena.span(accepted_count);
+        }
+    }
     let mut cluster_count = 0;
     for i in 0..accepted_count {
         let t = &scratch.triangles[scratch.accepted[i]];
@@ -926,6 +963,12 @@ pub(crate) fn compute_mesh_manifolds_into<'a, M: ManifoldOutput + 'a>(
         scratch.clusters[j].base = base;
         base += scratch.clusters[j].capacity;
     }
+    if let Some(arena) = &mut scratch.arena {
+        unsafe {
+            scratch.points = arena.span(base);
+            scratch.point_materials = arena.span(base);
+        }
+    }
     for i in 0..accepted_count {
         let t = &scratch.triangles[scratch.accepted[i]];
         let cluster = &mut scratch.clusters[scratch.membership[i]];
@@ -941,14 +984,25 @@ pub(crate) fn compute_mesh_manifolds_into<'a, M: ManifoldOutput + 'a>(
         return 0;
     }
     for cluster in &mut scratch.clusters[..cluster_count] {
+        let projected = if let Some(mut arena) = scratch.arena {
+            unsafe { arena.span(if cluster.count > 1 { cluster.count } else { 0 }) }
+        } else {
+            &mut scratch.projected[..cluster.count]
+        };
         cluster.count = reduce_cluster(
             &mut scratch.points[cluster.base..cluster.base + cluster.count],
             &mut scratch.point_materials[cluster.base..cluster.base + cluster.count],
             cluster.triangle_normal,
-            &mut scratch.projected[..cluster.count],
+            projected,
         );
     }
-    let (old, output) = prepare(cluster_count);
+    let (old, output) = prepare(cluster_count, scratch.arena.as_mut());
+    if let Some(arena) = &mut scratch.arena {
+        unsafe {
+            scratch.consumed = arena.span(old.len());
+            scratch.materials = arena.span(cluster_count);
+        }
+    }
     let consumed = &mut scratch.consumed[..old.len()];
     consumed.fill(0);
     let matrix = Mat3::from_quat(xf_b.q);

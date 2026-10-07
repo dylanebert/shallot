@@ -37,7 +37,6 @@ pub unsafe fn free_scratch(world: usize) {
 pub unsafe fn grow_stack(world: usize) {
     free_scratch(world);
     STACKS[world].grow();
-    crate::regions::invalidate_views();
 }
 
 pub unsafe fn reset_stack(world: usize) {
@@ -52,7 +51,6 @@ pub unsafe fn reserve_scratch(world: usize, bytes: usize) -> usize {
     }
     let ptr = STACKS[world].alloc(bytes) as usize;
     SCRATCH_PTR[world] = ptr;
-    crate::regions::invalidate_views();
     ptr
 }
 const N_COLS: usize = 15;
@@ -270,12 +268,22 @@ pub(crate) unsafe fn color_span_column() -> (Col<'static, u32>, usize) {
 }
 
 // --- b3CollideTask / b3UpdateContact --------------------------------------------------------
-static mut MESH_MATERIAL_PTR: usize = 0;
-static mut MESH_SCRATCH_PTR: usize = 0;
-struct DispatchScratch {
-    mesh: crate::mesh_contact::MeshStorage,
-    old: [crate::manifold_abi::ManifoldRecord; 256],
-    previous: [crate::manifold_abi::ContactCache; 256],
+struct TaskContext {
+    arena: crate::task_memory::WorkerArena,
+    materials: usize,
+}
+static mut TASK_CONTEXTS: [Vec<TaskContext>; crate::regions::MAX_WORLDS] =
+    [const { Vec::new() }; crate::regions::MAX_WORLDS];
+
+unsafe fn task_context(world: usize, worker: usize) -> *mut TaskContext {
+    TASK_CONTEXTS[world].as_ptr().add(worker).cast_mut()
+}
+
+pub(crate) unsafe fn sync_task_arenas(world: usize) {
+    for context in &mut TASK_CONTEXTS[world] {
+        context.arena.sync();
+        context.materials = 0;
+    }
 }
 
 static mut CONTACT_LIST_PTR: usize = 0;
@@ -284,6 +292,7 @@ static mut CONTACT_STATES: [Vec<crate::bitset::BitSet>; crate::regions::MAX_WORL
 
 pub(crate) unsafe fn reset_contact_states(world: usize) {
     CONTACT_STATES[world] = Vec::new();
+    TASK_CONTEXTS[world] = Vec::new();
 }
 
 pub(crate) unsafe fn union_contact_states(world: usize) -> &'static crate::bitset::BitSet {
@@ -325,18 +334,11 @@ pub extern "C" fn reserve_collide_in_world(
         for state in states {
             state.set_count_and_clear(capacity);
         }
-        let mut off = (count * 4 + 15) & !15;
-        let material_off = off;
-        off += mesh_threads * 256 * 4 * 4;
-        off = (off + 15) & !15;
-        let scratch_off = off;
-        off += mesh_threads * core::mem::size_of::<DispatchScratch>();
-        let base = reserve_scratch(world_index, off);
-        CONTACT_LIST_PTR = base;
-        MESH_MATERIAL_PTR = base + material_off;
-        MESH_SCRATCH_PTR = base + scratch_off;
-        (MESH_SCRATCH_PTR as *mut u8)
-            .write_bytes(0, mesh_threads * core::mem::size_of::<DispatchScratch>());
+        TASK_CONTEXTS[world_index].resize_with(mesh_threads, || TaskContext {
+            arena: crate::task_memory::WorkerArena::new(128 * 1024),
+            materials: 0,
+        });
+        CONTACT_LIST_PTR = reserve_scratch(world_index, count * 4);
     }
 }
 #[export_name = "collideListPtr"]
@@ -449,7 +451,6 @@ unsafe fn dispatch_mesh(
 ) -> usize {
     use crate::manifold_abi::ManifoldRecord;
     use crate::mesh_contact::{compute_mesh_manifolds_into, TriangleSource, MAX_TRIANGLES};
-    let slot = thread;
     let cache = &mut *manifolds::mesh_cache_ptr(world_index, contact_id);
     let record = geom[0] as *const u32;
     let source = if ty == 4 {
@@ -485,8 +486,9 @@ unsafe fn dispatch_mesh(
             f32::from_bits(shape_b[o + 2]),
         )
     };
-    let scratch = &mut *(MESH_SCRATCH_PTR as *mut DispatchScratch).add(thread);
-    cache.refresh(&source, xf_a, vec(10), vec(13), &mut scratch.previous);
+    let mut previous = [crate::manifold_abi::ContactCache { words: [0; 4] }; MAX_TRIANGLES];
+    cache.refresh(&source, xf_a, vec(10), vec(13), &mut previous);
+    let context = &mut *task_context(world_index, thread);
     let dir = manifolds::dir_col(world_index);
     let entry = read_dir(dir, contact_id);
     let shape = read_shape(shape_b[crate::shapes::S_TYPE], shape_b, 48);
@@ -503,9 +505,10 @@ unsafe fn dispatch_mesh(
         && shape_records.get(shape_b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS)
             & crate::shapes::SPECULATIVE_FLAG
             != 0;
-    let mut mesh = scratch
-        .mesh
-        .scratch(cache.triangles.count as usize, old_count);
+    let mut mesh = crate::mesh_contact::MeshScratch::from_arena(
+        context.arena.arena,
+        cache.triangles.count as usize,
+    );
     let mut address = entry.manifold_base;
     let count = compute_mesh_manifolds_into(
         &mut mesh,
@@ -516,26 +519,33 @@ unsafe fn dispatch_mesh(
         xf_b,
         fast,
         speculative,
-        |count| {
-            if old_count > 0 {
+        |count, arena| {
+            let old_ptr = arena
+                .unwrap()
+                .bump(old_count * core::mem::size_of::<ManifoldRecord>())
+                as *mut ManifoldRecord;
+            let old = if old_count > 0 {
                 core::ptr::copy_nonoverlapping(
                     address as *const ManifoldRecord,
-                    scratch.old.as_mut_ptr(),
+                    old_ptr,
                     old_count,
                 );
-            }
+                core::slice::from_raw_parts_mut(old_ptr, old_count)
+            } else {
+                &mut []
+            };
             if count != old_count {
                 address = manifolds::allocate_manifolds_in_world(world_index, contact_id, count);
             } else {
                 (address as *mut u8).write_bytes(0, count * core::mem::size_of::<ManifoldRecord>());
             }
             (
-                &mut scratch.old[..old_count],
+                old,
                 core::slice::from_raw_parts_mut(address as *mut ManifoldRecord, count),
             )
         },
     );
-    let materials = (MESH_MATERIAL_PTR as *mut u32).add(slot * MAX_TRIANGLES * 4);
+    context.materials = mesh.materials.as_mut_ptr() as usize;
     for i in 0..count {
         let m = &mut *(address as *mut ManifoldRecord).add(i);
         for p in &mut m.points[..m.point_count as usize] {
@@ -545,9 +555,6 @@ unsafe fn dispatch_mesh(
             p.anchor_a = p.anchor_a.sub(center_a);
             p.anchor_b = p.anchor_b.sub(center_b);
             p.base_separation = p.separation;
-        }
-        for j in 0..m.point_count as usize {
-            *materials.add(i * 4 + j) = mesh.materials[i][j];
         }
     }
     count
@@ -672,12 +679,11 @@ unsafe fn mix_surface(
     };
     let mut radius_b = shape_radius(world_index, sb, mesh);
     let (friction, restitution, rolling, tangent) = if mesh {
-        let slot = thread;
         let dir = manifolds::dir_col(world_index);
         let address =
             dir.get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_MANIFOLD_BASE) as usize;
         let output = Col::new(address as *mut f32, count * MANIFOLD_STRIDE);
-        let materials = (MESH_MATERIAL_PTR as *const u32).add(slot * 256 * 4);
+        let materials = (*task_context(world_index, thread)).materials as *const u32;
         let mut friction = 0.0;
         let mut restitution = 0.0;
         let mut tangent = Vec3::ZERO;

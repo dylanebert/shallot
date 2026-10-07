@@ -667,6 +667,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
             }
             4 => {
+                crate::arena::sync_task_arenas(world_index);
                 DRIVER.phase = 5;
                 if !DRIVER.default_mix && contact_list::count_in_world(world_index) != 0 {
                     return 2;
