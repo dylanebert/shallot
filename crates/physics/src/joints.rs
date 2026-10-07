@@ -102,23 +102,12 @@ unsafe fn array(world_index: usize, key: usize) -> &'static mut JointArray {
     }
     crate::constraint_graph::joint_array(world_index, key)
 }
-#[export_name = "jointArrayRelease"]
-pub extern "C" fn release(key: usize) {
-    release_in_world(crate::regions::active(), key)
-}
-
-pub extern "C" fn release_in_world(world_index: usize, key: usize) {
-    unsafe {
-        let a = array(world_index, key);
-        a.release();
-    }
-}
 #[export_name = "jointArrayCount"]
 pub extern "C" fn count(key: usize) -> usize {
     count_in_world(crate::regions::active(), key)
 }
 
-pub extern "C" fn count_in_world(world_index: usize, key: usize) -> usize {
+pub(crate) fn count_in_world(world_index: usize, key: usize) -> usize {
     unsafe { array(world_index, key).count }
 }
 #[export_name = "jointArrayPtr"]
@@ -126,23 +115,13 @@ pub extern "C" fn pointer(key: usize) -> usize {
     pointer_in_world(crate::regions::active(), key)
 }
 
-pub extern "C" fn pointer_in_world(world_index: usize, key: usize) -> usize {
+pub(crate) fn pointer_in_world(world_index: usize, key: usize) -> usize {
     unsafe { array(world_index, key).data as usize }
 }
-#[export_name = "jointArrayAppend"]
-pub extern "C" fn append(key: usize) -> usize {
-    append_in_world(crate::regions::active(), key)
-}
-
-pub extern "C" fn append_in_world(world_index: usize, key: usize) -> usize {
+pub(crate) fn append_in_world(world_index: usize, key: usize) -> usize {
     unsafe { array(world_index, key).append() }
 }
-#[export_name = "jointArrayRemove"]
-pub extern "C" fn remove(key: usize, index: usize) -> u32 {
-    remove_in_world(crate::regions::active(), key, index)
-}
-
-pub extern "C" fn remove_in_world(world_index: usize, key: usize, index: usize) -> u32 {
+pub(crate) fn remove_in_world(world_index: usize, key: usize, index: usize) -> u32 {
     unsafe {
         let moved = array(world_index, key).remove(index);
         if moved != NULL_INDEX {
@@ -151,12 +130,7 @@ pub extern "C" fn remove_in_world(world_index: usize, key: usize, index: usize) 
         moved
     }
 }
-#[export_name = "jointArrayMove"]
-pub extern "C" fn move_record(source: usize, index: usize, target: usize) -> u32 {
-    move_record_in_world(crate::regions::active(), source, index, target)
-}
-
-pub extern "C" fn move_record_in_world(
+pub(crate) fn move_record_in_world(
     world_index: usize,
     source: usize,
     index: usize,
@@ -189,12 +163,7 @@ pub(crate) unsafe fn copy_record_in_world(
     let id = (*array(world, target).data.add(destination)).joint_id;
     crate::joint_record::set_location(world, id as usize, target, destination);
 }
-#[export_name = "jointReadFloat"]
-pub extern "C" fn read_float(key: usize, index: usize, field: usize) -> f32 {
-    read_float_in_world(crate::regions::active(), key, index, field)
-}
-
-pub extern "C" fn read_float_in_world(
+pub(crate) fn read_float_in_world(
     world_index: usize,
     key: usize,
     index: usize,
@@ -205,12 +174,7 @@ pub extern "C" fn read_float_in_world(
         f32::from_bits(*array(world_index, key).ptr(index).add(field))
     }
 }
-#[export_name = "jointWriteFloat"]
-pub extern "C" fn write_float(key: usize, index: usize, field: usize, value: f32) {
-    write_float_in_world(crate::regions::active(), key, index, field, value)
-}
-
-pub extern "C" fn write_float_in_world(
+pub(crate) fn write_float_in_world(
     world_index: usize,
     key: usize,
     index: usize,
@@ -227,7 +191,7 @@ pub extern "C" fn read_word(key: usize, index: usize, field: usize) -> u32 {
     read_word_in_world(crate::regions::active(), key, index, field)
 }
 
-pub extern "C" fn read_word_in_world(
+pub(crate) fn read_word_in_world(
     world_index: usize,
     key: usize,
     index: usize,
@@ -243,12 +207,7 @@ pub extern "C" fn read_word_in_world(
         }
     }
 }
-#[export_name = "jointWriteWord"]
-pub extern "C" fn write_word(key: usize, index: usize, field: usize, value: u32) {
-    write_word_in_world(crate::regions::active(), key, index, field, value)
-}
-
-pub extern "C" fn write_word_in_world(
+pub(crate) fn write_word_in_world(
     world_index: usize,
     key: usize,
     index: usize,

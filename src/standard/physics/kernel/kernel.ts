@@ -831,7 +831,6 @@ export type Kernel = {
     jointArrayCount(key: number): number;
     jointArrayPtr(key: number): number;
     jointReadWord(key: number, index: number, field: number): number;
-    jointWriteWord(key: number, index: number, field: number, value: number): void;
     meshCacheCapacity(worldId: number): number;
     freeMeshCache(contactId: number): void;
     dispatchContacts(count: number): void;

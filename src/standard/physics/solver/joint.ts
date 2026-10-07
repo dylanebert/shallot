@@ -182,7 +182,11 @@ export function createJointRecord(world: WorldState, def: JointDef, type: JointT
     return joint;
 }
 
-export function finishJointCreation(world: WorldState, def: JointDef, joint: Joint): { joint: Joint } {
+export function finishJointCreation(
+    world: WorldState,
+    def: JointDef,
+    joint: Joint,
+): { joint: Joint } {
     world.jointUserData[joint] = def.userData;
     return { joint };
 }
