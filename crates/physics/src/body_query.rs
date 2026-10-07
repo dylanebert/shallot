@@ -18,8 +18,8 @@ pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) 
         let (r, transform, proxy) = query_abi::input();
         let translation = Vec3::new(r[9], r[10], r[11]);
         let mut fraction = r[12];
-        let mut result = [0u32; 16];
-        result[0] = NULL_SHAPE;
+        let result = &raw mut world_query::RESULT as *mut u32;
+        result.write(NULL_SHAPE);
         let mut closest = f32::MAX;
         let mut point = transform.p;
         let mut id = head;
@@ -33,7 +33,7 @@ pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) 
             let (shape, materials) = query_abi::shape(world, shape_id);
             if operation == 2 {
                 if query::overlap_shape(&shape, transform, proxy) {
-                    result[0] = shape_id as u32;
+                    result.write(shape_id as u32);
                     break;
                 }
                 continue;
@@ -125,18 +125,15 @@ pub extern "C" fn run(world: usize, operation: u32, head: u32, capacity: usize) 
             };
             if out.hit && out.fraction <= fraction {
                 fraction = out.fraction;
-                result[0] = shape_id as u32;
-                for (j, value) in world_query::cast_record(&out).into_iter().enumerate() {
-                    result[4 + j] = value.to_bits();
-                }
+                result.write(shape_id as u32);
+                world_query::write_cast(&out, result.add(4), out.material_index);
             }
         }
         if operation == 3 {
-            result[3] = closest.to_bits();
-            result[6] = point.x.to_bits();
-            result[7] = point.y.to_bits();
-            result[8] = point.z.to_bits();
+            result.add(3).write(closest.to_bits());
+            result.add(6).write(point.x.to_bits());
+            result.add(7).write(point.y.to_bits());
+            result.add(8).write(point.z.to_bits());
         }
-        world_query::RESULT[..16].copy_from_slice(&result);
     }
 }

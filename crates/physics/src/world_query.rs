@@ -63,22 +63,6 @@ pub(crate) fn accepts(id: usize, header: &[u32; 20]) -> bool {
         && ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY + 1] & header[9])) != 0
         && ((r[n + S_QUERY_MASK] & header[6]) | (r[n + S_QUERY_MASK + 1] & header[7])) != 0
 }
-pub(crate) fn cast_record(out: &CastOutput) -> [f32; 12] {
-    [
-        u32::from(out.hit) as f32,
-        out.fraction,
-        out.point.x,
-        out.point.y,
-        out.point.z,
-        out.normal.x,
-        out.normal.y,
-        out.normal.z,
-        out.iterations as f32,
-        out.triangle_index as f32,
-        out.child_index as f32,
-        out.material_index as f32,
-    ]
-}
 pub(crate) unsafe fn write_cast(out: &CastOutput, target: *mut u32, material: i32) {
     for (index, value) in [
         u32::from(out.hit) as f32,
