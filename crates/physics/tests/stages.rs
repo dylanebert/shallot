@@ -20,14 +20,16 @@ use shallot_physics::body::flags::DYNAMIC;
 use shallot_physics::body::{SIM_STRIDE, STATE_STRIDE};
 use shallot_physics::col::Col;
 use shallot_physics::contact::{
-    self, Columns, Softness, CC_META_STRIDE, CC_STRIDE, MCP_STRIDE, MC_META_STRIDE, MC_STRIDE,
-    NULL_INDEX,
+    self, Columns, ContactConstraint, ManifoldConstraint, Softness, NULL_INDEX,
 };
-use shallot_physics::contact_wide::{self, LANES, WIDE_IDX_STRIDE, WIDE_META_STRIDE, WIDE_STRIDE};
+use shallot_physics::contact_spans::{ContactPrepareSpan, ContactSpec, WidePrepareSpan};
+use shallot_physics::contact_wide::{self, LANES, WIDE_STRIDE};
 use shallot_physics::integrate;
 use shallot_physics::manifold_abi::{
-    DIR_STRIDE, MANIFOLD_STRIDE, M_NORMAL, M_POINTS, M_POINT_COUNT, POOL_POINT_STRIDE, P_ANCHOR_A,
-    P_ANCHOR_B, P_BASE_SEPARATION, P_FEATURE_ID, P_NORMAL_IMPULSE, P_SEPARATION, SLOT_STRIDE,
+    DIR_CONTACT_ID, DIR_FLAGS, DIR_FRICTION, DIR_INDEX_A, DIR_INDEX_B, DIR_MANIFOLD_BASE,
+    DIR_MANIFOLD_COUNT, DIR_RESTITUTION, DIR_ROLLING_RESISTANCE as DIR_ROLLING, DIR_STRIDE,
+    MANIFOLD_STRIDE, M_NORMAL, M_POINTS, M_POINT_COUNT, POOL_POINT_STRIDE, P_ANCHOR_A, P_ANCHOR_B,
+    P_BASE_SEPARATION, P_FEATURE_ID, P_NORMAL_IMPULSE, P_SEPARATION,
 };
 use shallot_physics::math::Vec3;
 use shallot_physics::stages::{
@@ -43,14 +45,6 @@ fn col<T: Copy>(v: &mut [T]) -> Col<'_, T> {
 const BODY_COUNT: usize = 200;
 const SUB_STEPS: usize = 4;
 
-const DIR_FRICTION: usize = 0;
-const DIR_RESTITUTION: usize = 1;
-const DIR_ROLLING: usize = 2;
-const DIR_FLAGS: usize = 6;
-const DIR_MANIFOLD_COUNT: usize = 7;
-const DIR_MANIFOLD_BASE: usize = 8;
-const DIR_INDEX_A: usize = 9;
-const DIR_INDEX_B: usize = 10;
 /// b3_simEnableHitEvent — makes `store` write the per-contact hit flag, so the hash covers it.
 const ENABLE_HIT_EVENT: u32 = 0x0010_0000;
 
@@ -132,17 +126,17 @@ struct Scene {
     state: Vec<f32>,
     flags: Vec<u32>,
     sim: Vec<f32>,
-    slot: Vec<u32>,
+    specs: Vec<ContactSpec>,
+    prepare_spans: Vec<ContactPrepareSpan>,
     dir: Vec<u32>,
+    hits: Vec<u32>,
     pool: Vec<f32>,
-    cc: Vec<f32>,
-    cc_meta: Vec<u32>,
-    mc: Vec<f32>,
-    mc_meta: Vec<u32>,
-    mcp: Vec<f32>,
+    cc: Vec<ContactConstraint>,
+    mc: Vec<ManifoldConstraint>,
     wide: Vec<f32>,
     wide_idx: Vec<u32>,
-    wide_meta: Vec<u32>,
+    wide_contacts: Vec<u32>,
+    wide_meta: Vec<WidePrepareSpan>,
 
     spans: Vec<ColorSpan>,
     wide_total: usize,
@@ -214,19 +208,20 @@ fn build_scene() -> Scene {
 
     let mut s = Scene {
         state: vec![0.0; BODY_COUNT * STATE_STRIDE],
-        flags: vec![DYNAMIC; BODY_COUNT],
+        flags: vec![0; BODY_COUNT * STATE_STRIDE],
         sim: vec![0.0; BODY_COUNT * SIM_STRIDE],
-        slot: vec![0; record_count * SLOT_STRIDE],
+        specs: Vec::new(),
+        prepare_spans: Vec::new(),
         dir: vec![0; contact_count * DIR_STRIDE],
+        hits: vec![0; contact_count],
         pool: vec![0.0; contact_count * MANIFOLD_STRIDE],
-        cc: vec![0.0; record_count * CC_STRIDE],
-        cc_meta: vec![0; record_count * CC_META_STRIDE],
-        mc: vec![0.0; record_count * MC_STRIDE],
-        mc_meta: vec![0; record_count * MC_META_STRIDE],
-        mcp: vec![0.0; 2 * record_count * MCP_STRIDE],
+        // Plain records have valid zero numeric values and null pointers, initialized by prepare.
+        cc: vec![unsafe { std::mem::zeroed() }; record_count],
+        mc: vec![unsafe { std::mem::zeroed() }; record_count],
         wide: vec![0.0; wide_total * WIDE_STRIDE],
-        wide_idx: vec![0; wide_total * WIDE_IDX_STRIDE],
-        wide_meta: vec![0; wide_total * WIDE_META_STRIDE],
+        wide_idx: vec![0; wide_total * WIDE_STRIDE],
+        wide_contacts: Vec::new(),
+        wide_meta: Vec::new(),
         spans,
         wide_total,
         mesh_start: 0,
@@ -237,6 +232,7 @@ fn build_scene() -> Scene {
 
     for i in 0..BODY_COUNT {
         let o = i * STATE_STRIDE;
+        s.flags[o] = DYNAMIC;
         s.state[o] = jitter(i, 1); // linear velocity
         s.state[o + 1] = jitter(i, 2);
         s.state[o + 2] = jitter(i, 3);
@@ -246,20 +242,21 @@ fn build_scene() -> Scene {
         s.state[o + 12] = 1.0; // delta rotation = identity
 
         let o = i * SIM_STRIDE;
-        s.sim[o] = 1.0; // inv mass
-        s.sim[o + 1] = 1.0; // gravity scale
-        s.sim[o + 2] = 0.1; // linear damping
-        s.sim[o + 3] = 0.1; // angular damping
+        s.sim[o + 26] = 1.0; // inv mass
+        s.sim[o + 51] = 1.0; // gravity scale
+        s.sim[o + 49] = 0.1; // linear damping
+        s.sim[o + 50] = 0.1; // angular damping
         for k in 0..3 {
             // inv inertia (local == world; the bodies start unrotated)
-            s.sim[o + 10 + 4 * k] = 5.0;
-            s.sim[o + 19 + 4 * k] = 5.0;
+            s.sim[o + 27 + 4 * k] = 5.0;
+            s.sim[o + 36 + 4 * k] = 5.0;
         }
-        s.sim[o + 31] = 1.0; // rotation = identity quat
+        s.sim[o + 6] = 1.0; // rotation = identity quat
     }
 
     for (id, c) in contacts.iter().enumerate() {
         let o = id * DIR_STRIDE;
+        s.dir[o + DIR_CONTACT_ID] = id as u32;
         s.dir[o + DIR_FRICTION] = 0.6f32.to_bits();
         s.dir[o + DIR_RESTITUTION] = 0.4f32.to_bits();
         s.dir[o + DIR_ROLLING] = 0.0f32.to_bits();
@@ -293,26 +290,46 @@ fn build_scene() -> Scene {
         }
     }
 
-    for (r, id) in mesh_ids.iter().enumerate() {
-        let o = r * SLOT_STRIDE;
-        s.slot[o] = *id as u32; // contact id
-        s.slot[o + 1] = r as u32; // transient manifold base (1 manifold per contact)
-        s.slot[o + 2] = 2 * r as u32; // transient point base (2 points per manifold)
+    s.specs = mesh_ids
+        .iter()
+        .enumerate()
+        .map(|(r, id)| ContactSpec {
+            contact_id: *id as i32,
+            manifold_start: r as i32,
+            manifold_count: 1,
+        })
+        .collect();
+    s.prepare_spans = vec![
+        ContactPrepareSpan {
+            start: 0,
+            count: record_count as i32,
+            contacts: s.specs.as_ptr(),
+        },
+        ContactPrepareSpan {
+            start: i32::MAX,
+            count: 0,
+            contacts: std::ptr::null(),
+        },
+    ];
+    s.wide_contacts = wide_lanes
+        .iter()
+        .filter(|&&id| id != usize::MAX)
+        .map(|&id| id as u32)
+        .collect();
+    let mut offset = 0;
+    for (span, (_, wide, _)) in s.spans.iter().zip(&l.colors) {
+        s.wide_meta.push(WidePrepareSpan {
+            start: span.wide_start as i32,
+            count: wide.len() as i32,
+            contacts: unsafe { s.wide_contacts.as_ptr().add(offset) },
+        });
+        offset += wide.len();
     }
-
-    for r in 0..wide_total {
-        let mo = r * WIDE_META_STRIDE;
-        let mut lanes = 0;
-        for lane in 0..LANES {
-            let id = wide_lanes[r * LANES + lane];
-            if id == usize::MAX {
-                break;
-            }
-            s.wide_meta[mo + lane] = id as u32;
-            lanes += 1;
-        }
-        s.wide_meta[mo + LANES] = lanes;
-    }
+    s.wide_meta.push(WidePrepareSpan {
+        start: i32::MAX,
+        count: 0,
+        contacts: std::ptr::null(),
+    });
 
     s
 }
@@ -326,17 +343,15 @@ struct Work<'a> {
     state: Col<'a, f32>,
     flags: Col<'a, u32>,
     sim: Col<'a, f32>,
-    slot: Col<'a, u32>,
+    prepare_spans: Col<'a, ContactPrepareSpan>,
     dir: Col<'a, u32>,
+    hits: Col<'a, u32>,
     pool: Col<'a, f32>,
-    cc: Col<'a, f32>,
-    cc_meta: Col<'a, u32>,
-    mc: Col<'a, f32>,
-    mc_meta: Col<'a, u32>,
-    mcp: Col<'a, f32>,
+    cc: Col<'a, ContactConstraint>,
+    mc: Col<'a, ManifoldConstraint>,
     wide: Col<'a, f32>,
     wide_idx: Col<'a, u32>,
-    wide_meta: Col<'a, u32>,
+    wide_meta: Col<'a, WidePrepareSpan>,
 
     overflow_start: usize,
     overflow_count: usize,
@@ -370,14 +385,12 @@ impl<'a> Work<'a> {
             state: col(&mut s.state),
             flags: col(&mut s.flags),
             sim: col(&mut s.sim),
-            slot: col(&mut s.slot),
+            prepare_spans: col(&mut s.prepare_spans),
             dir: col(&mut s.dir),
+            hits: col(&mut s.hits),
             pool: col(&mut s.pool),
             cc: col(&mut s.cc),
-            cc_meta: col(&mut s.cc_meta),
             mc: col(&mut s.mc),
-            mc_meta: col(&mut s.mc_meta),
-            mcp: col(&mut s.mcp),
             wide: col(&mut s.wide),
             wide_idx: col(&mut s.wide_idx),
             wide_meta: col(&mut s.wide_meta),
@@ -413,14 +426,11 @@ impl<'a> Work<'a> {
             state: self.state,
             flags: self.flags,
             sim: self.sim,
-            slot: self.slot,
+            spans: self.prepare_spans,
             dir: self.dir,
             pool: self.pool,
             cc: self.cc,
-            cc_meta: self.cc_meta,
             mc: self.mc,
-            mc_meta: self.mc_meta,
-            mcp: self.mcp,
         }
     }
 
@@ -583,15 +593,22 @@ impl StageWork for Work<'_> {
             b.start,
             b.count,
             self.hit_threshold,
+            |id| self.hits.set(id, 1),
         );
     }
 
     fn store_mesh(&self, b: Block, _worker_index: usize) {
         self.tick();
-        contact::store(&self.columns(), b.start, b.count, self.hit_threshold);
+        contact::store(
+            &self.columns(),
+            b.start,
+            b.count,
+            self.hit_threshold,
+            |id| self.hits.set(id, 1),
+        );
     }
 
-    fn finalize(&self, b: Block) {
+    fn finalize(&self, b: Block, _worker: usize) {
         self.tick();
         // A stand-in pose advance (the real finalize arithmetic is pinned by `finalize_gold.rs` and
         // the fixture suite; what is under test here is the terminal stage's claim + barrier). Same
@@ -709,7 +726,7 @@ fn solve_serial(
     work.store_wide(all_wide, 0);
     work.store_mesh(all_mesh, 0);
 
-    work.finalize(bodies);
+    work.finalize(bodies, 0);
 }
 
 fn solve_staged(work: &Work, p: &Plan, worker_count: usize) {
@@ -726,12 +743,15 @@ fn solve_staged(work: &Work, p: &Plan, worker_count: usize) {
         stages::run(ctx, work, 0);
     });
     // b3FinalizeBodiesTask follows the solver join; it is not a solver stage.
-    work.finalize(Block {
-        start: 0,
-        count: p.body_count,
-        block_type: BlockType::Body,
-        color: 0,
-    });
+    work.finalize(
+        Block {
+            start: 0,
+            count: p.body_count,
+            block_type: BlockType::Body,
+            color: 0,
+        },
+        0,
+    );
 }
 
 /// FNV-1a over the persistent outputs of a solve: body state, the manifold pool (the impulses the
@@ -754,6 +774,11 @@ fn hash(work: &Work) -> u64 {
     }
     for i in 0..work.dir.len() {
         for b in work.dir.get(i).to_le_bytes() {
+            byte(b);
+        }
+    }
+    for i in 0..work.hits.len() {
+        for b in work.hits.get(i).to_le_bytes() {
             byte(b);
         }
     }
