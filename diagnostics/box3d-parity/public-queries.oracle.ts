@@ -1,6 +1,6 @@
 // Stage-4 public differential oracle. Both sides author the same six shapes through their public
-// helpers/APIs and receive the same float32 bit patterns. Kernel buffers expose fields the public
-// result drops; separate todos compare those absent public fields rather than substituting zeros.
+// helpers/APIs and receive the same float32 bit patterns. Both kernel buffers and public mover
+// results are compared with native identification fields.
 // Callback results are appended as delivered: order is deliberately never sorted.
 import { expect, setDefaultTimeout, test } from "bun:test";
 import {
@@ -659,8 +659,8 @@ test("published mover fields equal native; identification is also compared throu
         const actual = runPublic(inputs[i]);
         expect(actual.length).toBe(nativeRows[i].length);
         for (let j = 0; j < actual.length; ++j) {
-            // Only the three absent PlaneResult identification properties produce this marker.
-            // The full kernel comparison and public-loss todos cover those slots separately.
+            // Both kernel buffers and public PlaneResult identification fields are compared
+            // with native results.
             if (actual[j] !== "unrepresented") expect(actual[j]).toBe(nativeRows[i][j]);
         }
     }
