@@ -549,21 +549,14 @@ pub extern "C" fn solve_build_in_world(
             crate::island::prepare_split(world_index, SPLIT_ID as usize, SPLIT_WORKER);
         }
 
-        let (spans, color_count) = arena::color_span_column();
         let mut span_storage = [ColorSpan::EMPTY; MAX_COLORS];
+        let mut color_keys = [0; MAX_COLORS];
+        let (color_count, wide_total, mesh_total, joint_total) =
+            crate::constraint_graph::solver_colors(world_index, &mut span_storage, &mut color_keys);
+        let mesh_start = 0;
+        let overflow_count = crate::constraint_graph::overflow_contact_count(world_index);
+        let overflow_joint_count = crate::joints::count_in_world(world_index, MAX_COLORS - 1);
         let out = &mut span_storage;
-        for c in 0..color_count {
-            let o = c * arena::COLOR_SPAN_STRIDE;
-            out[c] = ColorSpan {
-                color: c as u8,
-                wide_start: spans.get(o) as usize,
-                wide_count: spans.get(o + 1) as usize,
-                mesh_start: spans.get(o + 2) as usize,
-                mesh_count: spans.get(o + 3) as usize,
-                joint_start: 0,
-                joint_count: spans.get(o + 5) as usize,
-            };
-        }
 
         let mut joint_bases = [0; MAX_COLORS];
         let mut base = 0;
@@ -571,10 +564,7 @@ pub extern "C" fn solve_build_in_world(
             if c < color_count {
                 joint_bases[c] = base;
                 base += out[c].joint_count;
-                crate::joints::column(
-                    world_index,
-                    spans.get(c * arena::COLOR_SPAN_STRIDE + 4) as usize,
-                )
+                crate::joints::column(world_index, color_keys[c])
             } else {
                 Col::new(16 as *mut f32, 0)
             }

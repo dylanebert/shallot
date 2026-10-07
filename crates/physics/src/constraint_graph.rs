@@ -281,6 +281,37 @@ pub extern "C" fn remove_joint(
     clear_in_world(world_index, color, a, b);
     joints::remove_in_world(world_index, color, index)
 }
+pub(crate) unsafe fn solver_colors(
+    world: usize,
+    spans: &mut [crate::stages::ColorSpan; COLORS],
+    keys: &mut [usize; COLORS],
+) -> (usize, usize, usize, usize) {
+    let (mut active, mut wide, mut contacts, mut joints) = (0, 0, 0, 0);
+    for (key, color) in GRAPHS[world].iter().enumerate().take(OVERFLOW) {
+        let joint_count = color.joint_sims.count;
+        let wide_count = color.convex_contacts.len().div_ceil(4);
+        let contact_count = color.contacts.len();
+        if wide_count + contact_count + joint_count == 0 {
+            continue;
+        }
+        keys[active] = key;
+        spans[active] = crate::stages::ColorSpan {
+            color: active as u8,
+            wide_start: wide,
+            wide_count,
+            mesh_start: contacts,
+            mesh_count: contact_count,
+            joint_start: 0,
+            joint_count,
+        };
+        wide += wide_count;
+        contacts += contact_count;
+        joints += joint_count;
+        active += 1;
+    }
+    (active, wide, contacts, joints)
+}
+
 const LAYOUT_STRIDE: usize = 5;
 const LAYOUT_HEADER: usize = 10;
 static mut SOLVE_LAYOUT: [[u32; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS] =
