@@ -70,12 +70,11 @@ fn end(s: Sweep) -> Transform {
 }
 struct MeshImpact<'a> {
     visitor: &'a Visitor<'a>,
-    target: Sweep,
+    input: TOIInput<'a>,
     c1: Vec3,
     c2: Vec3,
     fallback_radius: f32,
     is_sensor: bool,
-    fraction: f32,
     output: TOIOutput,
 }
 impl<'a> MeshImpact<'a> {
@@ -89,8 +88,17 @@ impl<'a> MeshImpact<'a> {
         let xf = start(target);
         Self {
             visitor,
-            target,
-            fraction,
+            input: TOIInput {
+                proxy_a: ShapeProxy {
+                    points: &[],
+                    count: 3,
+                    radius: 0.0,
+                },
+                proxy_b: visitor.proxy,
+                sweep_a: target,
+                sweep_b: visitor.sweep,
+                max_fraction: fraction,
+            },
             fallback_radius,
             is_sensor,
             c1: xf.inv_point(start(visitor.sweep).point(visitor.centroid)),
@@ -110,35 +118,28 @@ impl<'a> MeshImpact<'a> {
         {
             return true;
         }
-        let mut input = TOIInput {
-            proxy_a: ShapeProxy {
-                points: &points,
-                count: 3,
-                radius: 0.0,
-            },
-            proxy_b: self.visitor.proxy,
-            sweep_a: self.target,
-            sweep_b: self.visitor.sweep,
-            max_fraction: self.fraction,
-        };
-        let mut output = time_of_impact(&input);
-        if output.fraction > 0.0 && output.fraction < self.fraction {
-            self.fraction = output.fraction;
+        // The triangle loan is used only by the synchronous TOI calls below and cleared before
+        // points leaves this frame. No traversal callback can observe this temporary reference.
+        self.input.proxy_a.points = unsafe { core::slice::from_raw_parts(points.as_ptr(), 3) };
+        let mut output = time_of_impact(&self.input);
+        if output.fraction > 0.0 && output.fraction < self.input.max_fraction {
+            self.input.max_fraction = output.fraction;
             self.output = output;
         } else if output.fraction == 0.0 {
-            let centroid = [self.visitor.centroid];
-            input.proxy_b = ShapeProxy {
-                points: &centroid,
+            let mut fallback_input = self.input;
+            fallback_input.proxy_b = ShapeProxy {
+                points: core::slice::from_ref(&self.visitor.centroid),
                 count: 1,
                 radius: self.fallback_radius + 0.005,
             };
-            output = time_of_impact(&input);
-            if output.fraction > 0.0 && output.fraction < self.fraction {
+            output = time_of_impact(&fallback_input);
+            if output.fraction > 0.0 && output.fraction < self.input.max_fraction {
                 output.used_fallback = true;
-                self.fraction = output.fraction;
+                self.input.max_fraction = output.fraction;
                 self.output = output;
             }
         }
+        self.input.proxy_a.points = &[];
         true
     }
 }

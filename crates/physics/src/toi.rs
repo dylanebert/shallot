@@ -25,6 +25,7 @@ impl Sweep {
         }
     }
 }
+#[derive(Clone, Copy)]
 pub struct TOIInput<'a> {
     pub proxy_a: ShapeProxy<'a>,
     pub proxy_b: ShapeProxy<'a>,
