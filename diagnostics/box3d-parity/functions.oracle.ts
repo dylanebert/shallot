@@ -193,6 +193,48 @@ for (let operation = 10; operation <= 18; ++operation) {
     }
 }
 
+// Keep the original stream intact: named boundary tests select its exact inputs.
+for (let operation = 10; operation <= 18; ++operation) {
+    for (let i = 0; i < (operation === 18 ? 16384 : operation === 15 || operation === 17 ? 4096 : 512); ++i) {
+        const words = [...cases.find((c) => c.label === `manifold-${operation}-${operation === 18 ? 16 + i % 496 : i % 512}`)!.words];
+        const random = () => (next() / 0x100000000) * 2 - 1;
+        const put = (offset: number, values: number[]) =>
+            words.splice(offset, values.length, ...values.map(bits));
+        const reach = operation === 15 && i % 2 === 1 ? 2 : 0.6;
+        put(4, [random() * reach, random() * reach, random() * reach]);
+        if (operation === 13) {
+            put(7, [0, 0, 0, 1]);
+            const y = random() * 0.6;
+            const z = random() * 0.6;
+            const x = random() * 0.6;
+            const tilt = i % 2 === 0 ? 0 : random() * 0.02;
+            put(27, [x - 0.7, y, z, x + 0.7, y + tilt, z, 0.5]);
+        } else if (operation === 14) {
+            put(27, [-0.7, random() * 0.6, random() * 0.6,
+                0.7, random() * 0.6, random() * 0.6, 0.5]);
+        } else if (operation === 16) {
+            put(12, [random(), 0.05 + Math.abs(random()) * 0.4, random(), 0.5]);
+        } else if (operation === 17) {
+            const x = random() * 2.5;
+            const z = random() * 2.5;
+            const y = 0.05 + Math.abs(random()) * 0.4;
+            const tilt = i % 2 === 0 ? 0 : random() * 1.5;
+            put(20, [x - 0.7, y, z, x + 0.7, y + tilt, z, 0.5]);
+        } else if (operation === 18) {
+            // Triangle-hull takes both shapes in the same frame, not transform B.
+            if (i % 2 === 0) {
+                const y = random() * 0.6;
+                put(34, [-2, y, -2, 0, y, 2, 2, y, -2]);
+            } else {
+                const value = (word: number) => new Float32Array(new Uint32Array([word]).buffer)[0];
+                const shift = [random() * 0.3, random() * 0.3, random() * 0.3];
+                put(34, words.slice(34, 43).map((w, j) => value(w) + shift[j % 3]));
+            }
+        }
+        cases.push({ operation, words, label: `contact-${operation}-${i}` });
+    }
+}
+
 {
     const words = [...cases.find((c) => c.label === "manifold-10-0")!.words];
     words[1] = 1;
@@ -261,6 +303,38 @@ const native = nativeSseOutput(
     .split("\n")
     .map((line) => line.split(" ").slice(1));
 if (native.length !== cases.length) throw new Error("native returned the wrong case count");
+const coverage: { operation: number; points: Record<string, number>; branches: Record<string, number> }[] = [];
+for (let operation = 10; operation <= 18; ++operation) {
+    const points: Record<string, number> = {};
+    const branches: Record<string, number> = {};
+    for (let i = 0; i < cases.length; ++i) {
+        if (cases[i].operation !== operation || !/^(manifold|contact)-/.test(cases[i].label ?? "")) continue;
+        const row = native[i];
+        const count = Number.parseInt(row[0], 16);
+        points[count] = (points[count] ?? 0) + 1;
+        if (operation === 15 || operation === 18) {
+            // functions.c emits SAT after the variable point prefix and metadata/cache.
+            const type = Number.parseInt(row.at(-4)!, 16);
+            const name = ["invalid", "backside", "face A", "face B", "edge", "closest points"][type] ?? `type ${type}`;
+            const branch = `${name}/${count === 0 ? "separated" : "contact"}`;
+            branches[branch] = (branches[branch] ?? 0) + 1;
+        }
+    }
+    coverage.push({ operation, points, branches });
+    console.log(`native manifold ${operation}: pointCount=${JSON.stringify(points)}${Object.keys(branches).length ? ` SAT=${JSON.stringify(branches)}` : ""}`);
+}
+test("generated manifolds sample each observed point count and named SAT axis at least 32 times", () => {
+    for (const { operation, points, branches } of coverage) {
+        for (const [count, samples] of Object.entries(points)) {
+            expect(samples, `${operation}: pointCount ${count}`).toBeGreaterThanOrEqual(32);
+        }
+        for (const [branch, samples] of Object.entries(branches)) {
+            // Invalid caches name no selected axis; they are still included in the tally.
+            if (branch.startsWith("invalid/")) continue;
+            expect(samples, `${operation}: ${branch}`).toBeGreaterThanOrEqual(32);
+        }
+    }
+});
 const warm: Case[] = [];
 for (let i = 0; i < cases.length && warm.length < 64; ++i) {
     if (cases[i].operation !== 15 || native[i].at(-4) !== "00000004") continue;
@@ -299,7 +373,6 @@ const results = cases.map((c, i) => {
         c.operation >= 10 ? expected.splice(6 + Number.parseInt(expected[0], 16) * 6, 9) : [];
     return { ...c, actual, native: expected, actualMetadata, nativeMetadata };
 });
-console.log(results.filter((r) => r.label?.startsWith("triangle-reference")).map((r) => ({label:r.label, actual:r.actual, native:r.native})));
 test("manifold.rs:79-96; triangle_manifold.rs:348: local manifold returns triangle normal, index, vertices and flags", () => {
     const rows = results.filter((r) => r.operation >= 10);
     const mismatches = rows.filter(
