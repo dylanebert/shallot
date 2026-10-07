@@ -136,25 +136,18 @@ pub fn prepare(
     inv_h: f32,
     enable_warm_starting: bool,
 ) {
-    // Box3D's per-type prepare reads both body sims, caches mass/inertia for subsequent solves,
-    // and derives anchors from their poses. The prepare stage precedes any body-column writes.
-    let a = get(joints, slot, J_BODY_ID_A).to_bits() as usize;
-    let b = get(joints, slot, J_BODY_ID_B).to_bits() as usize;
-    let sim_a = crate::body::read_sim(sim, a);
-    let sim_b = crate::body::read_sim(sim, b);
-    let fin_a = crate::body::read_fin(fin, a);
-    let fin_b = crate::body::read_fin(fin, b);
-    prepare_sims(
-        joints,
-        slot,
-        sim_a,
-        sim_b,
-        fin_a,
-        fin_b,
-        h,
-        inv_h,
-        enable_warm_starting,
-    );
+    prepare_dispatch(joints, slot, h, inv_h, enable_warm_starting, || {
+        let a = get(joints, slot, J_BODY_ID_A).to_bits() as usize;
+        let b = get(joints, slot, J_BODY_ID_B).to_bits() as usize;
+        prepare_pose(
+            joints,
+            slot,
+            crate::body::read_sim(sim, a),
+            crate::body::read_sim(sim, b),
+            crate::body::read_fin(fin, a),
+            crate::body::read_fin(fin, b),
+        )
+    });
 }
 
 /// # Safety
@@ -169,65 +162,72 @@ pub unsafe fn prepare_world(
     inv_h: f32,
     enable_warm_starting: bool,
 ) {
-    let a = get(joints, slot, J_BODY_ID_A).to_bits() as usize;
-    let b = get(joints, slot, J_BODY_ID_B).to_bits() as usize;
-    let index = |id| {
-        let body = crate::bodies::record(world_index, id);
-        if body.set_index == 2 {
-            body.local_index as u32
-        } else {
-            u32::MAX
-        }
-    };
-    crate::joint_abi::set_indices(joints, slot, index(a), index(b));
-    prepare_sims(
-        joints,
-        slot,
-        crate::body::read_sim(
-            crate::bodies::column(world_index, a, 1, crate::body::SIM_STRIDE),
-            0,
-        ),
-        crate::body::read_sim(
-            crate::bodies::column(world_index, b, 1, crate::body::SIM_STRIDE),
-            0,
-        ),
-        crate::body::read_fin(
-            crate::bodies::column(world_index, a, 2, crate::body::FIN_STRIDE),
-            0,
-        ),
-        crate::body::read_fin(
-            crate::bodies::column(world_index, b, 2, crate::body::FIN_STRIDE),
-            0,
-        ),
-        h,
-        inv_h,
-        enable_warm_starting,
-    );
+    prepare_dispatch(joints, slot, h, inv_h, enable_warm_starting, || {
+        let a = get(joints, slot, J_BODY_ID_A).to_bits() as usize;
+        let b = get(joints, slot, J_BODY_ID_B).to_bits() as usize;
+        let index = |id| {
+            let body = crate::bodies::record(world_index, id);
+            if body.set_index == 2 {
+                body.local_index as u32
+            } else {
+                u32::MAX
+            }
+        };
+        crate::joint_abi::set_indices(joints, slot, index(a), index(b));
+        prepare_pose(
+            joints,
+            slot,
+            crate::body::read_sim(
+                crate::bodies::column(world_index, a, 1, crate::body::SIM_STRIDE),
+                0,
+            ),
+            crate::body::read_sim(
+                crate::bodies::column(world_index, b, 1, crate::body::SIM_STRIDE),
+                0,
+            ),
+            crate::body::read_fin(
+                crate::bodies::column(world_index, a, 2, crate::body::FIN_STRIDE),
+                0,
+            ),
+            crate::body::read_fin(
+                crate::bodies::column(world_index, b, 2, crate::body::FIN_STRIDE),
+                0,
+            ),
+        )
+    });
 }
 
-fn prepare_sims(
+#[inline]
+fn prepare_pose(
     joints: Col<f32>,
     slot: usize,
     sim_a: crate::body::SimIntegrate,
     sim_b: crate::body::SimIntegrate,
     fin_a: crate::body::SimFinalize,
     fin_b: crate::body::SimFinalize,
-    h: f32,
-    inv_h: f32,
-    enable_warm_starting: bool,
-) {
+) -> JointPose {
     set(joints, slot, J_INV_MASS_A, sim_a.inv_mass);
     set(joints, slot, J_INV_MASS_B, sim_b.inv_mass);
     set_mat3(joints, slot, J_INV_IA, sim_a.inv_inertia_world);
     set_mat3(joints, slot, J_INV_IB, sim_b.inv_inertia_world);
-    let pose = JointPose {
+    JointPose {
         qa: sim_a.rotation,
         qb: sim_b.rotation,
         center_a: fin_a.center,
         center_b: fin_b.center,
         local_center_a: fin_a.local_center,
         local_center_b: fin_b.local_center,
-    };
+    }
+}
+
+fn prepare_dispatch(
+    joints: Col<f32>,
+    slot: usize,
+    h: f32,
+    inv_h: f32,
+    enable_warm_starting: bool,
+    pose: impl FnOnce() -> JointPose,
+) {
     let hertz = minf(get(joints, slot, J_CONSTRAINT_HERTZ), 0.25 * inv_h);
     let soft = make_soft(hertz, get(joints, slot, J_CONSTRAINT_DAMPING), h);
     set(joints, slot, J_CONSTRAINT_SOFTNESS, soft.bias_rate);
@@ -235,14 +235,14 @@ fn prepare_sims(
     set(joints, slot, J_CONSTRAINT_SOFTNESS + 2, soft.impulse_scale);
 
     match joint_type(joints, slot) {
-        TY_DISTANCE => prepare_distance(joints, slot, pose, h, enable_warm_starting),
-        TY_WELD => prepare_weld(joints, slot, pose, h, enable_warm_starting),
-        TY_REVOLUTE => prepare_revolute(joints, slot, pose, h, enable_warm_starting),
-        TY_SPHERICAL => prepare_spherical(joints, slot, pose, h, enable_warm_starting),
-        TY_PRISMATIC => prepare_prismatic(joints, slot, pose, h, enable_warm_starting),
-        TY_WHEEL => prepare_wheel(joints, slot, pose, h, enable_warm_starting),
-        TY_MOTOR => prepare_motor(joints, slot, pose, h, enable_warm_starting),
-        TY_PARALLEL => prepare_parallel(joints, slot, pose, h, enable_warm_starting),
+        TY_DISTANCE => prepare_distance(joints, slot, pose(), h, enable_warm_starting),
+        TY_WELD => prepare_weld(joints, slot, pose(), h, enable_warm_starting),
+        TY_REVOLUTE => prepare_revolute(joints, slot, pose(), h, enable_warm_starting),
+        TY_SPHERICAL => prepare_spherical(joints, slot, pose(), h, enable_warm_starting),
+        TY_PRISMATIC => prepare_prismatic(joints, slot, pose(), h, enable_warm_starting),
+        TY_WHEEL => prepare_wheel(joints, slot, pose(), h, enable_warm_starting),
+        TY_MOTOR => prepare_motor(joints, slot, pose(), h, enable_warm_starting),
+        TY_PARALLEL => prepare_parallel(joints, slot, pose(), h, enable_warm_starting),
         _ => {} // TY_FILTER is a no-op (collision filter, no solve); no other awake type remains.
     }
 }
