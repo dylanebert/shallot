@@ -21,6 +21,8 @@
 #![allow(clippy::too_many_arguments)]
 
 mod aabb;
+#[cfg(any(target_arch = "wasm32", test))]
+mod bitset;
 pub mod body;
 pub mod col;
 #[cfg(target_arch = "wasm32")]

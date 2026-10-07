@@ -32,14 +32,13 @@ pub unsafe extern "C" fn apply_contact_transitions() {
 }
 
 pub unsafe extern "C" fn apply_contact_transitions_in_world(world_index: usize) {
-    let words = manifolds::contact_capacity(world_index).div_ceil(32);
-    let bits = crate::arena::contact_state_ptr() as *const u32;
-    for word in 0..words {
-        let mut mask = *bits.add(word);
+    let states = crate::arena::union_contact_states(world_index);
+    for word in 0..states.block_count as usize {
+        let mut mask = *states.bits.add(word);
         while mask != 0 {
             let bit = mask.trailing_zeros() as usize;
             mask &= mask - 1;
-            apply_touch(world_index, word * 32 + bit);
+            apply_touch(world_index, word * 64 + bit);
         }
     }
 }

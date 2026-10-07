@@ -28,6 +28,7 @@ pub extern "C" fn reset(world: u32) {
     let id = world as usize;
     assert!(id < MAX_WORLDS);
     unsafe {
+        crate::arena::reset_contact_states(id);
         crate::manifolds::reset(id);
         crate::joints::reset(id);
         crate::joint_record::reset(id);

@@ -282,7 +282,21 @@ const D_GEOM_A: usize = 5; // ≤7 slots (sphere c3+r / capsule c1_3+c2_3+r / hu
 const D_GEOM_B: usize = 12; // ≤7 slots
 
 static mut CONTACT_LIST_PTR: usize = 0;
-static mut CONTACT_STATE_PTR: usize = 0;
+static mut CONTACT_STATES: [Vec<crate::bitset::BitSet>; crate::regions::MAX_WORLDS] =
+    [const { Vec::new() }; crate::regions::MAX_WORLDS];
+
+pub(crate) unsafe fn reset_contact_states(world: usize) {
+    CONTACT_STATES[world] = Vec::new();
+}
+
+pub(crate) unsafe fn union_contact_states(world: usize) -> &'static crate::bitset::BitSet {
+    let sets = &mut CONTACT_STATES[world];
+    let (first, rest) = sets.split_first_mut().unwrap();
+    for set in rest {
+        first.union(set);
+    }
+    first
+}
 static mut DEFAULT_MIX: u32 = 1;
 static mut RECYCLE_DISTANCE: f32 = 0.0;
 const SIM_UPDATED: u32 = 0x0200_0000;
@@ -308,12 +322,14 @@ pub extern "C" fn reserve_collide_in_world(
     unsafe {
         DEFAULT_MIX = default_mix;
         RECYCLE_DISTANCE = distance;
-        let words = manifolds::contact_capacity(world_index).div_ceil(32);
         let mesh_threads = threads.max(1);
-        let mut off = count * 4;
-        let state_off = off;
-        off += words * 4;
-        off = (off + 15) & !15;
+        let states = &mut CONTACT_STATES[world_index];
+        states.resize_with(mesh_threads, || crate::bitset::BitSet::new(1024));
+        let capacity = u32::try_from(manifolds::contact_capacity(world_index)).unwrap();
+        for state in states {
+            state.set_count_and_clear(capacity);
+        }
+        let mut off = (count * 4 + 15) & !15;
         let mesh_off = off;
         off += mesh_threads * 256 * MANIFOLD_STRIDE * 4;
         let material_off = off;
@@ -323,11 +339,9 @@ pub extern "C" fn reserve_collide_in_world(
         off += mesh_threads * core::mem::size_of::<DispatchScratch>();
         reserve_scratch(off);
         CONTACT_LIST_PTR = SCRATCH.ptr;
-        CONTACT_STATE_PTR = SCRATCH.ptr + state_off;
         MESH_OUTPUT_PTR = SCRATCH.ptr + mesh_off;
         MESH_MATERIAL_PTR = SCRATCH.ptr + material_off;
         MESH_SCRATCH_PTR = SCRATCH.ptr + scratch_off;
-        (CONTACT_STATE_PTR as *mut u8).write_bytes(0, words * 4);
         (MESH_SCRATCH_PTR as *mut u8)
             .write_bytes(0, mesh_threads * core::mem::size_of::<DispatchScratch>());
     }
@@ -338,13 +352,18 @@ pub extern "C" fn collide_list_ptr() -> usize {
 }
 #[export_name = "contactStatePtr"]
 pub extern "C" fn contact_state_ptr() -> usize {
-    unsafe { CONTACT_STATE_PTR }
+    unsafe { CONTACT_STATES[crate::regions::active()][0].bits as usize }
 }
-unsafe fn mark_contact_state(contact: usize) {
-    core::sync::atomic::AtomicU32::from_ptr((CONTACT_STATE_PTR as *mut u32).add(contact / 32))
-        .fetch_or(1 << (contact % 32), core::sync::atomic::Ordering::Relaxed);
+unsafe fn mark_contact_state(world: usize, thread: usize, contact: usize) {
+    CONTACT_STATES[world][thread].set(contact);
 }
-unsafe fn finish_contact(world_index: usize, contact: usize, count: usize, hit: bool) {
+unsafe fn finish_contact(
+    world_index: usize,
+    thread: usize,
+    contact: usize,
+    count: usize,
+    hit: bool,
+) {
     let dir = manifolds::dir_col(world_index);
     let o = contact * DIR_STRIDE + DIR_FLAGS;
     let old = dir.get(o);
@@ -357,7 +376,7 @@ unsafe fn finish_contact(world_index: usize, contact: usize, count: usize, hit: 
         }
         if !was_touching {
             flags |= 0x0004_0000;
-            mark_contact_state(contact);
+            mark_contact_state(world_index, thread, contact);
         }
     } else {
         manifolds::free_manifolds_in_world(world_index, contact);
@@ -366,7 +385,7 @@ unsafe fn finish_contact(world_index: usize, contact: usize, count: usize, hit: 
         }
         if was_touching {
             flags |= 0x0008_0000;
-            mark_contact_state(contact);
+            mark_contact_state(world_index, thread, contact);
         }
     }
     dir.set(o, flags);
@@ -834,6 +853,7 @@ pub(crate) unsafe fn contact_block(
                 total,
                 RECYCLE_DISTANCE,
                 RECYCLE_DISTANCE.min(0.02),
+                thread,
             );
             let contact = contacts[i] as usize;
             let o = contact * DIR_STRIDE;
@@ -952,7 +972,7 @@ pub(crate) unsafe fn contact_block(
                     let source = MESH_OUTPUT_PTR + thread * 256 * MANIFOLD_STRIDE * 4;
                     manifolds::copy_manifolds(source, address, count);
                 }
-                finish_contact(world_index, contact_id, count, hit);
+                finish_contact(world_index, thread, contact_id, count, hit);
                 continue;
             }
             let mut shape_a = read_shape(type_a, geom_a, 0);
@@ -1028,7 +1048,7 @@ pub(crate) unsafe fn contact_block(
                 false,
                 child_radius,
             );
-            finish_contact(world_index, contact_id, touching as usize, hit);
+            finish_contact(world_index, thread, contact_id, touching as usize, hit);
         }
     }
 }
@@ -1185,6 +1205,7 @@ pub(crate) unsafe fn recycle_block(
     total: usize,
     recycle_dist: f32,
     recycle_dist_non_touching: f32,
+    thread: usize,
 ) {
     unsafe {
         use crate::manifold_abi::*;
@@ -1243,7 +1264,7 @@ pub(crate) unsafe fn recycle_block(
                 input[r + R_SHAPE_B] as usize,
             ) {
                 dir.set(o + DIR_FLAGS, (flags | 0x0002_0000) & !0x0001_0000);
-                mark_contact_state(contact_id);
+                mark_contact_state(world_index, thread, contact_id);
                 continue;
             }
 
