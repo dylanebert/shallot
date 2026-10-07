@@ -27,14 +27,17 @@ test("kernel graph contact swap-removal fixes both lists, clears body bits and r
         }
         const convex = [contact(0, false), contact(1, false), contact(129, false)];
         const scalar = [contact(2, true), contact(3, true)];
+        // Compare the same logical spec fields in the frozen assertion's packed spelling.
+        const specs = (color: number) => {
+            const words = graphContacts(world.state, color, true);
+            const packed: number[] = [];
+            for (let i = 0; i < words.length; i += 3)
+                packed.push(words[i], words[i + 1] | (words[i + 2] << 16));
+            return packed;
+        };
         const color = OVERFLOW_INDEX - 1;
         expect(Array.from(graphContacts(state, color))).toEqual(convex);
-        expect(Array.from(graphContacts(state, color, true))).toEqual([
-            scalar[0],
-            3 << 16,
-            scalar[1],
-            3 << 16,
-        ]);
+        expect(specs(color)).toEqual([scalar[0], 3 << 16, scalar[1], 3 << 16]);
         for (const [id, mesh] of [
             [convex[0], false],
             [scalar[0], true],
@@ -45,7 +48,7 @@ test("kernel graph contact swap-removal fixes both lists, clears body bits and r
         }
         expect(Array.from(graphContacts(state, color))).toEqual([convex[2], convex[1]]);
         expect(contactField(state, convex[2], ContactField.localIndex)).toBe(0);
-        expect(Array.from(graphContacts(state, color, true))).toEqual([scalar[1], 3 << 16]);
+        expect(specs(color)).toEqual([scalar[1], 3 << 16]);
         expect(contactField(state, scalar[1], ContactField.localIndex)).toBe(0);
         const a = bodies[4].id.index1 - 1;
         for (let i = 0; i < DYNAMIC_COLOR_COUNT; ++i)
@@ -55,7 +58,7 @@ test("kernel graph contact swap-removal fixes both lists, clears body bits and r
             k.graphAssignColor(a, 0, BodyType.Dynamic, BodyType.Static);
         const overflow = contact(4, false);
         expect(contactField(state, overflow, ContactField.colorIndex)).toBe(OVERFLOW_INDEX);
-        expect(Array.from(graphContacts(state, OVERFLOW_INDEX, true))).toEqual([overflow, 3 << 16]);
+        expect(specs(OVERFLOW_INDEX)).toEqual([overflow, 3 << 16]);
         expect(!!k.graphBodyBit(OVERFLOW_INDEX, a)).toBe(false);
         const snapshot = world.snapshot();
         removeContactFromGraph(state, a, anchor.id.index1 - 1, OVERFLOW_INDEX, 0, false);
@@ -64,10 +67,7 @@ test("kernel graph contact swap-removal fixes both lists, clears body bits and r
         siblingKernel.bodySetActiveWorld(sibling.state.worldId);
         expect(siblingKernel.graphAssignColor(8, 9, BodyType.Dynamic, BodyType.Dynamic)).toBe(0);
         world.restore(snapshot);
-        expect(Array.from(graphContacts(world.state, OVERFLOW_INDEX, true))).toEqual([
-            overflow,
-            3 << 16,
-        ]);
+        expect(specs(OVERFLOW_INDEX)).toEqual([overflow, 3 << 16]);
         expect(Array.from(graphContacts(world.state, color))).toEqual([convex[2], convex[1]]);
         k.bodySetActiveWorld(world.state.worldId);
         expect(!!k.graphBodyBit(color, bodies[129].id.index1 - 1)).toBe(true);
