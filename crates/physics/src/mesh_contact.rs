@@ -237,8 +237,16 @@ impl MeshCache {
     }
 }
 
+struct TriangleManifold {
+    normal: Vec3,
+    point_base: usize,
+    point_count: usize,
+    feature: u32,
+    squared_distance: f32,
+}
+
 struct TriangleResult {
-    manifold: LocalManifold,
+    manifold: TriangleManifold,
     normal: Vec3,
     indices: [u32; 3],
     flags: u32,
@@ -262,17 +270,61 @@ struct Point2D {
 
 /// Caller-owned task scratch; no allocation or shared scratch occurs during the sweep.
 /// Every field is initialized over its active span before it is read.
-pub struct MeshScratch {
-    triangles: [TriangleResult; MAX_TRIANGLES],
-    accepted: [usize; MAX_TRIANGLES],
-    tentative: [usize; MAX_TRIANGLES],
-    membership: [usize; MAX_TRIANGLES],
-    clusters: [Cluster; MAX_TRIANGLES],
-    points: [LocalManifoldPoint; MAX_POINTS],
-    point_materials: [u32; MAX_POINTS],
-    projected: [Point2D; MAX_POINTS],
-    pub output: [Manifold; MAX_TRIANGLES],
-    pub materials: [[u32; 4]; MAX_TRIANGLES],
+pub struct MeshScratch<'a> {
+    triangles: &'a mut [TriangleResult],
+    accepted: &'a mut [usize],
+    tentative: &'a mut [usize],
+    membership: &'a mut [usize],
+    clusters: &'a mut [Cluster],
+    triangle_points: &'a mut [LocalManifoldPoint],
+    points: &'a mut [LocalManifoldPoint],
+    point_materials: &'a mut [u32],
+    projected: &'a mut [Point2D],
+    pub output: &'a mut [Manifold],
+    pub materials: &'a mut [[u32; 4]],
+}
+
+const SCRATCH_BYTES: usize = MAX_TRIANGLES * (
+    core::mem::size_of::<TriangleResult>() + 3 * core::mem::size_of::<usize>()
+    + core::mem::size_of::<Cluster>()
+) + MAX_POINTS * (2 * core::mem::size_of::<LocalManifoldPoint>()
+    + core::mem::size_of::<u32>() + core::mem::size_of::<Point2D>()) + 11 * 16;
+
+pub struct MeshStorage {
+    words: [u128; SCRATCH_BYTES.div_ceil(16)],
+    output: [Manifold; MAX_TRIANGLES],
+    materials: [[u32; 4]; MAX_TRIANGLES],
+}
+
+impl MeshStorage {
+    pub fn scratch(&mut self, count: usize) -> MeshScratch<'_> {
+        assert!(count <= MAX_TRIANGLES);
+        let mut offset = 0;
+        let base = self.words.as_mut_ptr().cast::<u8>();
+        // The arena is initialized before this view is made. Each span is disjoint and
+        // count-sized; the backing store is aligned for all scratch record types.
+        unsafe fn span<'a, T>(base: *mut u8, offset: &mut usize, count: usize) -> &'a mut [T] {
+            *offset = offset.next_multiple_of(core::mem::align_of::<T>());
+            let ptr = base.add(*offset).cast::<T>();
+            *offset += count * core::mem::size_of::<T>();
+            core::slice::from_raw_parts_mut(ptr, count)
+        }
+        unsafe {
+            MeshScratch {
+                triangles: span(base, &mut offset, count),
+                accepted: span(base, &mut offset, count),
+                tentative: span(base, &mut offset, count),
+                membership: span(base, &mut offset, count),
+                clusters: span(base, &mut offset, count),
+                triangle_points: span(base, &mut offset, count * 32),
+                points: span(base, &mut offset, count * 32),
+                point_materials: span(base, &mut offset, count * 32),
+                projected: span(base, &mut offset, count * 32),
+                output: &mut self.output[..count],
+                materials: &mut self.materials[..count],
+            }
+        }
+    }
 }
 
 struct Features {
@@ -550,7 +602,9 @@ pub fn compute_mesh_manifolds(
             break;
         }
         let [a, b, c] = triangle.vertices.map(|v| matrix.mul_v(v).add(transform.p));
-        let mut m = LocalManifold::new();
+        let point_base = total;
+        let mut m = LocalManifold::new(&mut scratch.triangle_points[total..capacity]);
+        m.triangle_flags = triangle.flags;
         match shape {
             ConvexShape::Sphere(s) => {
                 collide_sphere_and_triangle(&mut m, capacity - total, s, a, b, c)
@@ -584,7 +638,10 @@ pub fn compute_mesh_manifolds(
             continue;
         }
         total += m.point_count;
-        let normal = b.sub(a).cross(c.sub(a)).normalize();
+        m.triangle_index = triangle.triangle_index;
+        m.vertex_indices = triangle.indices;
+        m.triangle_normal = b.sub(a).cross(c.sub(a)).normalize();
+        let normal = m.triangle_normal;
         let mut accept = m.feature == 1;
         if m.feature == 2 {
             accept = normal.dot(m.normal) > 0.5;
@@ -597,11 +654,17 @@ pub fn compute_mesh_manifolds(
             }
         }
         scratch.triangles[i] = TriangleResult {
-            manifold: m,
+            manifold: TriangleManifold {
+                normal: m.normal,
+                point_base,
+                point_count: m.point_count,
+                feature: m.feature,
+                squared_distance: m.squared_distance,
+            },
             normal,
-            indices: triangle.indices,
-            flags: triangle.flags,
-            triangle_index: triangle.triangle_index,
+            indices: m.vertex_indices,
+            flags: m.triangle_flags,
+            triangle_index: m.triangle_index,
             material_index: triangle.material_index,
         };
         if accept {
@@ -707,7 +770,7 @@ pub fn compute_mesh_manifolds(
         let cluster = &mut scratch.clusters[scratch.membership[i]];
         for j in 0..t.manifold.point_count {
             let index = cluster.base + cluster.count;
-            scratch.points[index] = t.manifold.points[j];
+            scratch.points[index] = scratch.triangle_points[t.manifold.point_base + j];
             scratch.points[index].triangle_index = t.triangle_index;
             scratch.point_materials[index] = t.material_index;
             cluster.count += 1;
@@ -913,12 +976,13 @@ mod tests {
 
     #[test]
     fn sphere_shared_edge_is_culled_by_adjacent_face_and_keeps_material_and_warm_impulse() {
-        let mut storage = Box::<MeshScratch>::new_uninit();
+        let mut storage = Box::<MeshStorage>::new_uninit();
         // Zero is valid for every scratch field, including persistent point booleans.
-        let mut scratch = unsafe {
+        let mut storage = unsafe {
             storage.as_mut_ptr().write_bytes(0, 1);
             storage.assume_init()
         };
+        let mut scratch = storage.scratch(2);
         let a = Vec3::new(-1.0, 0.0, -1.0);
         let b = Vec3::new(-1.0, 0.0, 1.0);
         let c = Vec3::new(1.0, 0.0, 1.0);

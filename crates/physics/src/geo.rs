@@ -231,7 +231,8 @@ pub extern "C" fn collide_spheres_geo(
     qz: f32,
     qs: f32,
 ) -> usize {
-    let mut m = LocalManifold::new();
+    let mut points = [crate::manifold::LocalManifoldPoint::ZERO; 32];
+    let mut m = LocalManifold::new(&mut points);
     crate::manifold::collide_spheres(
         &mut m,
         4,
@@ -308,7 +309,8 @@ pub extern "C" fn collide_hulls_geo(
                 s: qs,
             },
         };
-        let mut m = LocalManifold::new();
+        let mut points = [crate::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         let mut cache = SatCache::empty();
         collide_hulls(&mut m, 8, &hull_a, &hull_b, transform_b_to_a, &mut cache);
 

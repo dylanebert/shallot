@@ -232,7 +232,8 @@ fn check_triangle(m: &LocalManifold, want: &Value, label: &str) {
 fn sphere_triangle_manifold_and_reduction_feature_are_bit_exact() {
     for scene in gold()["sphereTriangle"].as_array().unwrap() {
         let tri = scene["tri"].as_array().unwrap();
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         for call in 0..2 {
             collide_sphere_and_triangle(
                 &mut m,
@@ -255,7 +256,8 @@ fn sphere_triangle_manifold_and_reduction_feature_are_bit_exact() {
 fn capsule_triangle_manifold_and_feature_are_bit_exact_under_warm_cache() {
     for scene in gold()["capsuleTriangle"].as_array().unwrap() {
         let tri = scene["tri"].as_array().unwrap();
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         let mut cache = SimplexCache::empty();
         for (call, want) in scene["manifolds"].as_array().unwrap().iter().enumerate() {
             collide_capsule_and_triangle(
@@ -284,7 +286,8 @@ fn spheres_bit_exact() {
         let a = sphere(&scene["a"]);
         let b = sphere(&scene["b"]);
         let t = xf(&scene["xf"]);
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         collide_spheres(&mut m, 1, &a, &b, t);
         check_manifold(&m, &scene["manifold"], name);
     }
@@ -298,7 +301,8 @@ fn capsule_sphere_bit_exact() {
         let a = capsule(&scene["a"]);
         let b = sphere(&scene["b"]);
         let t = xf(&scene["xf"]);
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         collide_capsule_and_sphere(&mut m, 1, &a, &b, t);
         check_manifold(&m, &scene["manifold"], name);
     }
@@ -313,7 +317,8 @@ fn hull_sphere_bit_exact() {
         let a = a_store.view();
         let b = sphere(&scene["b"]);
         let t = xf(&scene["xf"]);
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         let mut cache = SimplexCache::empty();
         for (call, want) in scene["manifolds"].as_array().unwrap().iter().enumerate() {
             collide_hull_and_sphere(&mut m, 1, &a, &b, t, &mut cache);
@@ -330,7 +335,8 @@ fn capsules_bit_exact() {
         let a = capsule(&scene["a"]);
         let b = capsule(&scene["b"]);
         let t = xf(&scene["xf"]);
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         collide_capsules(&mut m, 2, &a, &b, t);
         check_manifold(&m, &scene["manifold"], name);
     }
@@ -345,7 +351,8 @@ fn hull_capsule_bit_exact() {
         let a = a_store.view();
         let b = capsule(&scene["b"]);
         let t = xf(&scene["xf"]);
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         let mut cache = SimplexCache::empty();
         for (call, want) in scene["manifolds"].as_array().unwrap().iter().enumerate() {
             collide_hull_and_capsule(&mut m, 2, &a, &b, t, &mut cache);
@@ -366,7 +373,8 @@ fn active_hulls_preserve_reference_signed_zero_and_warm_cache() {
     let a = a_store.view();
     let b = b_store.view();
     let t = xf(&scene["xf"]);
-    let mut m = LocalManifold::new();
+    let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+    let mut m = LocalManifold::new(&mut points);
     let mut cache = SatCache::empty();
     collide_hulls(&mut m, 8, &a, &b, t, &mut cache);
     assert_bits(m.normal.x, "3f800000", "active_hulls.normal.x");
@@ -404,7 +412,8 @@ fn triangle_hull_face_preserves_componentwise_signed_zero() {
             .find(|s| s["name"] == name)
             .unwrap();
         let tri = scene["tri"].as_array().unwrap();
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         let mut cache = SatCache::empty();
         shallot_physics::triangle_manifold::collide_hull_and_triangle(
             &mut m,
@@ -460,7 +469,8 @@ fn hull_face_a_last_plane_cuts_translated_box() {
         cache.index_a = 1;
         cache.separation = -0.25;
         for _ in 0..2 {
-            let mut m = LocalManifold::new();
+            let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+            let mut m = LocalManifold::new(&mut points);
             collide_hulls(
                 &mut m,
                 capacity,
@@ -494,7 +504,8 @@ fn triangle_hull_face_last_plane_cuts_large_triangle() {
     let mut cache = SatCache::empty();
     cache.ty = 7;
     for _ in 0..2 {
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         shallot_physics::triangle_manifold::collide_hull_and_triangle(
             &mut m,
             8,
@@ -528,7 +539,8 @@ fn triangle_face_last_plane_cuts_box_to_small_triangle() {
     let mut cache = SatCache::empty();
     cache.ty = 6;
     for _ in 0..2 {
-        let mut m = LocalManifold::new();
+        let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+        let mut m = LocalManifold::new(&mut points);
         shallot_physics::triangle_manifold::collide_hull_and_triangle(
             &mut m,
             8,
@@ -553,7 +565,8 @@ fn box_face_clip_keeps_four_corners_and_exact_overlap() {
     let g = gold();
     let a = hull(&g["hulls"][0]["hullA"]);
     let b = hull(&g["hulls"][0]["hullB"]);
-    let mut m = LocalManifold::new();
+    let mut points = [shallot_physics::manifold::LocalManifoldPoint::ZERO; 32];
+    let mut m = LocalManifold::new(&mut points);
     collide_hulls(
         &mut m,
         8,

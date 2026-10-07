@@ -254,7 +254,7 @@ static mut MESH_OUTPUT_PTR: usize = 0;
 static mut MESH_MATERIAL_PTR: usize = 0;
 static mut MESH_SCRATCH_PTR: usize = 0;
 struct DispatchScratch {
-    mesh: crate::mesh_contact::MeshScratch,
+    mesh: crate::mesh_contact::MeshStorage,
     old: [Manifold; 256],
     previous: [crate::mesh_contact::TriangleInput; 256],
 }
@@ -546,8 +546,9 @@ unsafe fn dispatch_mesh(
         && shape_records.get(shape_b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS)
             & crate::shapes::SPECULATIVE_FLAG
             != 0;
+    let mut mesh = scratch.mesh.scratch(cache.count);
     let count = compute_mesh_manifolds(
-        &mut scratch.mesh,
+        &mut mesh,
         &mut cache.triangles[..cache.count],
         &shape,
         xf_a,
@@ -561,7 +562,7 @@ unsafe fn dispatch_mesh(
     let output = Col::new(output_ptr, MAX_TRIANGLES * MANIFOLD_STRIDE);
     let materials = (MESH_MATERIAL_PTR as *mut u32).add(slot * MAX_TRIANGLES * 4);
     for i in 0..count {
-        let m = &mut scratch.mesh.output[i];
+        let m = &mut mesh.output[i];
         for p in &mut m.points[..m.point_count] {
             p.anchor_a = p.anchor_a.add(child_offset);
         }
@@ -579,7 +580,7 @@ unsafe fn dispatch_mesh(
         output.set(o + M_ROLLING + 2, m.rolling_impulse.z);
         output.set(o + M_TWIST, m.twist_impulse);
         for j in 0..m.point_count {
-            *materials.add(i * 4 + j) = scratch.mesh.materials[i][j];
+            *materials.add(i * 4 + j) = mesh.materials[i][j];
         }
     }
     count

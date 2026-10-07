@@ -66,7 +66,7 @@ pub struct LocalManifoldPoint {
 }
 
 impl LocalManifoldPoint {
-    const ZERO: LocalManifoldPoint = LocalManifoldPoint {
+    pub const ZERO: LocalManifoldPoint = LocalManifoldPoint {
         point: Vec3::ZERO,
         separation: 0.0,
         pair: FeaturePair::SINGLE,
@@ -74,32 +74,33 @@ impl LocalManifoldPoint {
     };
 }
 
-/// Caller-owned local manifold. Convex callers pass Box3D's 32-point capacity; triangle-face
-/// clipping uses up to 128 entries from the mesh driver's remaining point pool. The backing buffer
-/// holds the triangle clip bound without changing the capacity each caller passes.
-pub struct LocalManifold {
+/// Local manifold borrowing caller-owned points: 32 for convex contacts, the remaining
+/// shared point-pool span for triangle contacts.
+pub struct LocalManifold<'a> {
     pub normal: Vec3,
-    pub points: [LocalManifoldPoint; 128],
+    pub triangle_normal: Vec3,
+    pub points: &'a mut [LocalManifoldPoint],
     pub point_count: usize,
+    pub triangle_index: i32,
+    pub vertex_indices: [u32; 3],
+    pub triangle_flags: u32,
     pub feature: u32,
     pub squared_distance: f32,
 }
 
-impl LocalManifold {
-    pub fn new() -> LocalManifold {
+impl<'a> LocalManifold<'a> {
+    pub fn new(points: &'a mut [LocalManifoldPoint]) -> Self {
         LocalManifold {
             normal: Vec3::ZERO,
-            points: [LocalManifoldPoint::ZERO; 128],
+            triangle_normal: Vec3::ZERO,
+            points,
             point_count: 0,
+            triangle_index: 0,
+            vertex_indices: [0; 3],
+            triangle_flags: 0,
             feature: 0,
             squared_distance: 0.0,
         }
-    }
-}
-
-impl Default for LocalManifold {
-    fn default() -> Self {
-        LocalManifold::new()
     }
 }
 
@@ -2053,7 +2054,8 @@ pub fn collide_hulls(
     if manifold.point_count == 0
         || axis_query.edge.separation > clipped_face_separation + linear_slop
     {
-        let mut edge_manifold = LocalManifold::new();
+        let mut edge_points = [LocalManifoldPoint::ZERO; 32];
+        let mut edge_manifold = LocalManifold::new(&mut edge_points);
         let mut edge_cache = SatCache::empty();
         build_edge_contact(
             &mut edge_manifold,
@@ -2065,6 +2067,10 @@ pub fn collide_hulls(
         );
         if edge_manifold.point_count == 1 {
             manifold.normal = edge_manifold.normal;
+            manifold.triangle_normal = edge_manifold.triangle_normal;
+            manifold.triangle_index = edge_manifold.triangle_index;
+            manifold.vertex_indices = edge_manifold.vertex_indices;
+            manifold.triangle_flags = edge_manifold.triangle_flags;
             manifold.point_count = edge_manifold.point_count;
             manifold.feature = edge_manifold.feature;
             manifold.squared_distance = edge_manifold.squared_distance;

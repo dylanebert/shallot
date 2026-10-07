@@ -281,12 +281,12 @@ const results = cases.map((c, i) => {
     }
     const expected = [...native[i]];
     const actualMetadata =
-        c.operation >= 10 ? actual.splice(6 + Number.parseInt(actual[0], 16) * 6, 1) : [];
+        c.operation >= 10 ? actual.splice(6 + Number.parseInt(actual[0], 16) * 6, 9) : [];
     const nativeMetadata =
         c.operation >= 10 ? expected.splice(6 + Number.parseInt(expected[0], 16) * 6, 9) : [];
     return { ...c, actual, native: expected, actualMetadata, nativeMetadata };
 });
-test.todo("manifold.rs:79-96; triangle_manifold.rs:348: local manifold returns triangle normal, index, vertices and flags", () => {
+test("manifold.rs:79-96; triangle_manifold.rs:348: local manifold returns triangle normal, index, vertices and flags", () => {
     const rows = results.filter((r) => r.operation >= 10);
     const mismatches = rows.filter(
         (r) => JSON.stringify(r.actualMetadata) !== JSON.stringify(r.nativeMetadata),

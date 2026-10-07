@@ -257,7 +257,8 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
                 index_b: r[47] as usize,
                 hit: r[48],
             };
-            let mut m = LocalManifold::new();
+            let mut points = [crate::manifold::LocalManifoldPoint::ZERO; 32];
+            let mut m = LocalManifold::new(&mut points);
             m.point_count = r[1] as usize;
             m.feature = r[2];
             m.squared_distance = f(3);
@@ -300,10 +301,18 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
                 ]);
                 n += 6;
             }
-            // The kernel LocalManifold has no triangle normal/index/vertices/flags fields.
-            // Encode absence, not zero values pretending to have been returned by the function.
-            out[n] = 0;
-            n += 1;
+            out[n..n + 9].copy_from_slice(&[
+                1,
+                m.triangle_normal.x.to_bits(),
+                m.triangle_normal.y.to_bits(),
+                m.triangle_normal.z.to_bits(),
+                m.triangle_index as u32,
+                m.vertex_indices[0],
+                m.vertex_indices[1],
+                m.vertex_indices[2],
+                m.triangle_flags,
+            ]);
+            n += 9;
             out[n..n + 15].copy_from_slice(&[
                 cache.metric.to_bits(),
                 cache.count as u32,

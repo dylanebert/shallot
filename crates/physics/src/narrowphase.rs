@@ -140,7 +140,8 @@ pub fn compute_convex_manifold(
     xf_b: Transform,
     cache: &mut ConvexContactCache,
 ) -> bool {
-    let mut geom = LocalManifold::new();
+    let mut points = [crate::manifold::LocalManifoldPoint::ZERO; GEOM_CAPACITY];
+    let mut geom = LocalManifold::new(&mut points);
     let transform_b_to_a = xf_a.inv_mul(xf_b);
 
     match (shape_a, shape_b) {
