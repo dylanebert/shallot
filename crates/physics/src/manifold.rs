@@ -1033,14 +1033,6 @@ fn build_hull_face_and_capsule_contact(
     false
 }
 
-fn deepest_point_separation(manifold: &LocalManifold) -> f32 {
-    let mut min_separation = FLT_MAX;
-    for i in 0..manifold.point_count {
-        min_separation = minf(min_separation, manifold.points[i].separation);
-    }
-    min_separation
-}
-
 fn build_hull_and_capsule_edge_contact(
     manifold: &mut LocalManifold,
     capacity: usize,
@@ -1218,7 +1210,7 @@ pub fn collide_hull_and_capsule(
     let mut face_separation = face_query.separation - capsule_b.radius;
     build_hull_face_and_capsule_contact(manifold, hull_a, capsule_b, transform_b_to_a, face_query);
     if manifold.point_count > 1 {
-        face_separation = deepest_point_separation(manifold);
+        face_separation = minf(manifold.points[0].separation, manifold.points[1].separation);
     }
 
     if edge_query.index_a == -1 {
