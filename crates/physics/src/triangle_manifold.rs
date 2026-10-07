@@ -645,28 +645,25 @@ pub fn collide_sphere_and_triangle(
     m.points[0].pair = SINGLE;
 }
 
-#[derive(Clone, Copy)]
-struct Clip {
-    position: Vec3,
-    pair: FeaturePair,
-}
-fn segment(c: &Capsule) -> [Clip; 2] {
+fn segment(c: &Capsule) -> [ClipVertex; 2] {
     [
-        Clip {
+        ClipVertex {
             position: c.center1,
             pair: SINGLE,
+            ..ClipVertex::ZERO
         },
-        Clip {
+        ClipVertex {
             position: c.center2,
             pair: FeaturePair {
                 index1: 1,
                 index2: 1,
                 ..SINGLE
             },
+            ..ClipVertex::ZERO
         },
     ]
 }
-fn clip_segment(s: &mut [Clip; 2], triangle: &[Vec3; 3], plane: Plane) -> bool {
+fn clip_segment(s: &mut [ClipVertex; 2], triangle: &[Vec3; 3], plane: Plane) -> bool {
     let mut v1 = triangle[2];
     for &v2 in triangle {
         let tangent = v2.sub(v1).normalize();
@@ -684,10 +681,8 @@ fn clip_segment(s: &mut [Clip; 2], triangle: &[Vec3; 3], plane: Plane) -> bool {
             count += 1;
         }
         if (d1 > 0.0) != (d2 > 0.0) {
-            s[count] = Clip {
-                position: p1.position.lerp(p2.position, d1 / (d1 - d2)),
-                pair: if d1 > 0.0 { p1.pair } else { p2.pair },
-            };
+            s[count].position = p1.position.lerp(p2.position, d1 / (d1 - d2));
+            s[count].pair = if d1 > 0.0 { p1.pair } else { p2.pair };
             count += 1;
         }
         if count != 2 {
@@ -697,7 +692,7 @@ fn clip_segment(s: &mut [Clip; 2], triangle: &[Vec3; 3], plane: Plane) -> bool {
     }
     true
 }
-fn face_contact(m: &mut LocalManifold, s: &[Clip; 2], plane: Plane, radius: f32) {
+fn face_contact(m: &mut LocalManifold, s: &[ClipVertex; 2], plane: Plane, radius: f32) {
     m.normal = plane.normal;
     m.feature = FACE;
     m.point_count = 2;
