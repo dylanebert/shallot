@@ -71,7 +71,7 @@ struct Work {
     cols: Columns<'static>,
     wide: Col<'static, f32>,
     wide_idx: Col<'static, u32>,
-    wide_meta: Col<'static, u32>,
+    wide_spans: Col<'static, crate::contact_spans::WidePrepareSpan>,
 
     /// The serial spill: contact records the graph coloring could not separate. Never becomes blocks —
     /// the orchestrator runs it alone, in creation order, between stages.
@@ -129,7 +129,7 @@ impl StageWork for Work {
         contact_wide::prepare(
             self.wide,
             self.wide_idx,
-            self.wide_meta,
+            self.wide_spans,
             self.cols.state,
             self.cols.sim,
             self.cols.dir,
@@ -238,7 +238,7 @@ impl StageWork for Work {
     fn store_wide(&self, b: Block, _worker: usize) {
         contact_wide::store(
             self.wide,
-            self.wide_meta,
+            self.wide_spans,
             self.cols.dir,
             self.cols.pool,
             b.start,
@@ -512,13 +512,13 @@ pub extern "C" fn solve_build_in_world(
                 Col::new(16 as *mut f32, 0)
             }
         });
-        let (wide, wide_idx, wide_meta) = arena::wide_columns();
+        let (wide, wide_idx, wide_spans) = arena::wide_columns(world_index);
         WORK = Some(Work {
             world: world_index,
             cols: arena::scalar_columns(world_index),
             wide,
             wide_idx,
-            wide_meta,
+            wide_spans,
             overflow_start,
             overflow_count,
             joints,

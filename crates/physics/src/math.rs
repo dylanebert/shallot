@@ -347,6 +347,7 @@ pub fn arbitrary_perp(v: Vec3) -> Vec3 {
 
 // --- vec2 -----------------------------------------------------------------------------------
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Vec2 {
     pub x: f32,
@@ -746,6 +747,7 @@ impl Mat3 {
 
 // --- mat2 -----------------------------------------------------------------------------------
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mat2 {
     pub cx: Vec2,

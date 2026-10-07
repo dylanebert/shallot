@@ -22,7 +22,12 @@ pub unsafe fn get_in_world(world: usize, mut index: usize) -> u32 {
             let count = graph::count_in_world(world, color, scalar);
             if index < count {
                 let ptr = graph::pointer_in_world(world, color, scalar) as *const u32;
-                return *ptr.add(index * if scalar { 2 } else { 1 });
+                return if scalar {
+                    (*(ptr.cast::<crate::contact_spans::ContactSpec>().add(index))).contact_id
+                        as u32
+                } else {
+                    *ptr.add(index)
+                };
             }
             index -= count;
         }
@@ -43,9 +48,10 @@ pub unsafe fn copy_in_world(world: usize, mut ptr: *mut u32) {
         );
         ptr = ptr.add(count);
         let count = graph::count_in_world(world, color, true);
-        let records = graph::pointer_in_world(world, color, true) as *const u32;
+        let records =
+            graph::pointer_in_world(world, color, true) as *const crate::contact_spans::ContactSpec;
         for index in 0..count {
-            *ptr = *records.add(2 * index);
+            *ptr = (*records.add(index)).contact_id as u32;
             ptr = ptr.add(1);
         }
     }

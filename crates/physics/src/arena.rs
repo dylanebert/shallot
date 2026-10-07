@@ -9,14 +9,14 @@
 
 use crate::body::{FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::col::Col;
-use crate::contact::{Columns, CC_META_STRIDE, CC_STRIDE, MCP_STRIDE, MC_META_STRIDE, MC_STRIDE};
-use crate::contact_wide::{WIDE_IDX_STRIDE, WIDE_META_STRIDE, WIDE_STRIDE};
+use crate::contact::{Columns, ContactConstraint, ManifoldConstraint};
+use crate::contact_wide::WIDE_STRIDE;
 use crate::distance::SimplexCache;
 use crate::finalize::{self, TY_CAPSULE, TY_HULL, TY_SPHERE};
 use crate::manifold::{Capsule, SatCache, Sphere};
 use crate::manifold_abi::{
     read_dir, DIR_CACHE, DIR_CACHED_REL_POSE, DIR_CACHED_ROT_A, DIR_CACHED_ROT_B, DIR_FLAGS,
-    DIR_STRIDE, MANIFOLD_STRIDE, M_POINT_COUNT, SLOT_STRIDE,
+    DIR_STRIDE, MANIFOLD_STRIDE, M_POINT_COUNT,
 };
 use crate::manifolds;
 use crate::math::{Quat, Transform, Vec3};
@@ -67,18 +67,9 @@ const STATE: usize = 0;
 const FLAGS: usize = 1;
 const SIM: usize = 2;
 const FIN: usize = 3;
-// Per scalar solver-record slot: contactId + transient mc/mcp bases (the narrowphase → solver map;
-// the persistent directory + pool it points into live in the manifold region, manifolds.rs).
-const SLOT_SCALAR: usize = 5;
 const CC: usize = 6;
-const CC_META: usize = 7;
 const MC: usize = 8;
-const MC_META: usize = 9;
-const MCP: usize = 10;
-// Wide (convex) transient constraint columns — the 4-lane contact solver's records + lane maps.
 const WIDE: usize = 11;
-const WIDE_META: usize = 12;
-const WIDE_IDX: usize = 13;
 // Per-active-color spans (wide/mesh/joint start+count) for the batched color loop + staged solve.
 const COLOR_SPAN: usize = 14;
 
@@ -90,7 +81,6 @@ static mut LAYOUT: [u32; N_COLS] = [0; N_COLS];
 static mut BODY_COUNT: usize = 0;
 static mut CONTACT_COUNT: usize = 0;
 static mut MANIFOLD_COUNT: usize = 0;
-static mut POINT_COUNT: usize = 0;
 // Wide record count (each groups up to 4 convex contacts); sizes the wide transient columns.
 static mut WIDE_COUNT: usize = 0;
 // Active color count — the number of spans in the COLOR_SPAN column the batched shims loop over.
@@ -155,7 +145,7 @@ pub extern "C" fn reserve_in_world(
         BODY_COUNT = body;
         CONTACT_COUNT = contact;
         MANIFOLD_COUNT = manifold;
-        POINT_COUNT = point;
+        let _ = point;
         WIDE_COUNT = wide;
         COLOR_COUNT = color;
 
@@ -171,31 +161,20 @@ pub extern "C" fn reserve_in_world(
         LAYOUT[SIM] = crate::bodies::sim_base(world_index) as u32;
         LAYOUT[FIN] = crate::bodies::fin_base(world_index) as u32;
         let mut off = 0;
-        LAYOUT[SLOT_SCALAR] = off as u32;
-        off += contact * SLOT_STRIDE * 4;
         LAYOUT[CC] = off as u32;
-        off += contact * CC_STRIDE * 4;
-        LAYOUT[CC_META] = off as u32;
-        off += contact * CC_META_STRIDE * 4;
+        off += contact * core::mem::size_of::<ContactConstraint>();
         LAYOUT[MC] = off as u32;
-        off += manifold * MC_STRIDE * 4;
-        LAYOUT[MC_META] = off as u32;
-        off += manifold * MC_META_STRIDE * 4;
-        LAYOUT[MCP] = off as u32;
-        off += point * MCP_STRIDE * 4;
+        off += manifold * core::mem::size_of::<ManifoldConstraint>();
+        off = (off + 15) & !15;
         LAYOUT[WIDE] = off as u32;
         off += wide * WIDE_STRIDE * 4;
-        LAYOUT[WIDE_META] = off as u32;
-        off += wide * WIDE_META_STRIDE * 4;
-        LAYOUT[WIDE_IDX] = off as u32;
-        off += wide * WIDE_IDX_STRIDE * 4;
         LAYOUT[COLOR_SPAN] = off as u32;
         off += color * COLOR_SPAN_STRIDE * 4;
 
         let continuous_offset = off;
         off += body * crate::continuous::STRIDE * 4;
         let base = reserve_scratch(world_index, off);
-        for column in SLOT_SCALAR..N_COLS {
+        for column in [CC, MC, WIDE, COLOR_SPAN] {
             LAYOUT[column] += base as u32;
         }
         crate::continuous::reserve_at(base + continuous_offset, body);
@@ -211,27 +190,21 @@ unsafe fn body_records(world_index: usize) -> usize {
     crate::bodies::body_cap_in_world(world_index) + crate::bodies::IDENT_RECORDS
 }
 
-/// All the scalar solver's columns over the current reservation. The body + slot + transient columns
-/// are disjoint byte ranges of the per-step solver region; the directory + pool live in the persistent
-/// manifold region (`manifolds`) — also disjoint. Every one is a shared-mutable [`Col`]: the phases
-/// index them by body / record id and, under the staged solver, do so from several threads at once.
+/// Body views, graph prepare spans and native-shaped constraints for the current reservation.
+/// Constraint records are disjoint across tasks; body writes are separated by graph coloring.
 unsafe fn columns(world_index: usize) -> Columns<'static> {
     let b = body_records(world_index);
     let c = CONTACT_COUNT;
     let m = MANIFOLD_COUNT;
-    let p = POINT_COUNT;
     Columns {
         state: f32s(STATE, b * STATE_STRIDE),
         flags: u32s(FLAGS, b * STATE_STRIDE),
         sim: f32s(SIM, b * SIM_STRIDE),
-        slot: u32s(SLOT_SCALAR, c * SLOT_STRIDE),
+        spans: crate::constraint_graph::prepare_spans(world_index).0,
         dir: manifolds::dir_col(world_index),
         pool: manifolds::pool_col(),
-        cc: f32s(CC, c * CC_STRIDE),
-        cc_meta: u32s(CC_META, c * CC_META_STRIDE),
-        mc: f32s(MC, m * MC_STRIDE),
-        mc_meta: u32s(MC_META, m * MC_META_STRIDE),
-        mcp: f32s(MCP, p * MCP_STRIDE),
+        cc: Col::new(LAYOUT[CC] as *mut ContactConstraint, c),
+        mc: Col::new(LAYOUT[MC] as *mut ManifoldConstraint, m),
     }
 }
 
@@ -245,13 +218,19 @@ pub(crate) unsafe fn scalar_columns(world_index: usize) -> Columns<'static> {
     columns(world_index)
 }
 
-/// The wide solver's transient columns: records, lane→body index map, lane→contact meta.
-pub(crate) unsafe fn wide_columns() -> (Col<'static, f32>, Col<'static, u32>, Col<'static, u32>) {
+/// Float and index views of the same wide records, plus graph prepare spans.
+pub(crate) unsafe fn wide_columns(
+    world: usize,
+) -> (
+    Col<'static, f32>,
+    Col<'static, u32>,
+    Col<'static, crate::contact_spans::WidePrepareSpan>,
+) {
     let w = WIDE_COUNT;
     (
         f32s(WIDE, w * WIDE_STRIDE),
-        u32s(WIDE_IDX, w * WIDE_IDX_STRIDE),
-        u32s(WIDE_META, w * WIDE_META_STRIDE),
+        u32s(WIDE, w * WIDE_STRIDE),
+        crate::constraint_graph::prepare_spans(world).1,
     )
 }
 

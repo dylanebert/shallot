@@ -13,7 +13,7 @@ const _wakeViews = new WeakMap<WorldState, Uint32Array>();
 /** Borrow the kernel's contact ids or packed b3ContactSpec words until the graph or memory grows. */
 export function graphContacts(world: WorldState, color: number, scalar = false): Uint32Array {
     const k = graphKernel(world);
-    const count = k.graphContactCount(color, +scalar) * (scalar ? 2 : 1);
+    const count = k.graphContactCount(color, +scalar) * (scalar ? 3 : 1);
     const ptr = k.graphContactPtr(color, +scalar);
     let views = contactViews.get(world);
     if (views === undefined) {

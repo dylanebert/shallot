@@ -4,13 +4,34 @@ use crate::{bodies, joints, manifold_abi::*, manifolds, regions};
 pub(crate) const COLORS: usize = 24;
 const OVERFLOW: usize = COLORS - 1;
 const DYNAMIC: usize = COLORS - 4;
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct ContactSpec {
-    contact_id: u32,
-    manifold_start: u16,
-    manifold_count: u16,
+use crate::contact_spans::{ContactPrepareSpan, ContactSpec, WidePrepareSpan};
+const EMPTY_CONTACT_SPAN: ContactPrepareSpan = ContactPrepareSpan {
+    start: i32::MAX,
+    count: 0,
+    contacts: core::ptr::null(),
+};
+const EMPTY_WIDE_SPAN: WidePrepareSpan = WidePrepareSpan {
+    start: i32::MAX,
+    count: 0,
+    contacts: core::ptr::null(),
+};
+static mut CONTACT_SPANS: [[ContactPrepareSpan; COLORS + 1]; MAX_WORLDS] =
+    [[EMPTY_CONTACT_SPAN; COLORS + 1]; MAX_WORLDS];
+static mut WIDE_SPANS: [[WidePrepareSpan; COLORS + 1]; MAX_WORLDS] =
+    [[EMPTY_WIDE_SPAN; COLORS + 1]; MAX_WORLDS];
+
+pub(crate) unsafe fn prepare_spans(
+    world: usize,
+) -> (
+    crate::col::Col<'static, ContactPrepareSpan>,
+    crate::col::Col<'static, WidePrepareSpan>,
+) {
+    (
+        crate::col::Col::new(CONTACT_SPANS[world].as_mut_ptr(), COLORS + 1),
+        crate::col::Col::new(WIDE_SPANS[world].as_mut_ptr(), COLORS + 1),
+    )
 }
+
 #[derive(Default)]
 struct GraphColor {
     body_set: Vec<u64>,
@@ -168,7 +189,7 @@ pub extern "C" fn add_contact_in_world(world_index: usize, id: usize, index_a: u
         let c = &mut colors(world_index)[color];
         if scalar {
             c.contacts.push(ContactSpec {
-                contact_id: id as u32,
+                contact_id: id as i32,
                 manifold_start: 0,
                 manifold_count: d.get(o + DIR_MANIFOLD_COUNT) as u16,
             });
@@ -195,7 +216,7 @@ pub extern "C" fn remove_contact_in_world(
         let c = &mut colors(world_index)[color];
         let moved = if mesh || color == OVERFLOW {
             c.contacts.swap_remove(index);
-            c.contacts.get(index).map(|s| s.contact_id)
+            c.contacts.get(index).map(|s| s.contact_id as u32)
         } else {
             c.convex_contacts.swap_remove(index);
             c.convex_contacts.get(index).copied()
@@ -280,7 +301,7 @@ pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
             result[o + 3] = contacts;
             result[o + 4] = c.contacts.len() as u32;
             for s in &c.contacts {
-                let (m, p) = extent(world_index, s.contact_id);
+                let (m, p) = extent(world_index, s.contact_id as u32);
                 manifolds += m;
                 points += p;
             }
@@ -288,7 +309,7 @@ pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
         }
         let overflow_start = contacts;
         for s in &g[OVERFLOW].contacts {
-            let (m, p) = extent(world_index, s.contact_id);
+            let (m, p) = extent(world_index, s.contact_id as u32);
             manifolds += m;
             points += p;
         }
@@ -316,48 +337,49 @@ pub extern "C" fn write_slots() {
 
 pub extern "C" fn write_slots_in_world(world_index: usize) {
     unsafe {
-        let slot = crate::arena::scalar_columns(world_index).slot;
-        let (_, _, meta) = crate::arena::wide_columns();
         let dir = manifolds::dir_col(world_index);
         let g = colors(world_index);
-        let (mut gm, mut gp, mut cursor, mut wide) = (0, 0, 0, 0);
+        CONTACT_SPANS[world_index].fill(EMPTY_CONTACT_SPAN);
+        WIDE_SPANS[world_index].fill(EMPTY_WIDE_SPAN);
+        let (mut gm, mut cursor, mut wide, mut span) = (0, 0, 0, 0);
         for c in g.iter().take(OVERFLOW) {
             let n = c.convex_contacts.len();
-            for (j, &id) in c.convex_contacts.iter().enumerate() {
+            WIDE_SPANS[world_index][span] = WidePrepareSpan {
+                start: wide,
+                count: n as i32,
+                contacts: c.convex_contacts.as_ptr(),
+            };
+            for &id in &c.convex_contacts {
                 let flags = id as usize * DIR_STRIDE + DIR_FLAGS;
                 dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
-                meta.set(
-                    (wide + j / 4) * crate::contact_wide::WIDE_META_STRIDE + j % 4,
-                    id,
-                );
-                let (m, p) = extent(world_index, id);
-                gm += m;
-                gp += p;
+                gm += extent(world_index, id).0 as i32;
                 cursor += 1;
             }
-            let nw = n.div_ceil(4);
-            for r in 0..nw {
-                meta.set(
-                    (wide + r) * crate::contact_wide::WIDE_META_STRIDE + 4,
-                    (n - r * 4).min(4) as u32,
-                );
-            }
-            wide += nw;
+            wide += n.div_ceil(4) as i32;
+            span += 1;
         }
-        for c in g.iter() {
-            for s in &c.contacts {
+        WIDE_SPANS[world_index][span] = WidePrepareSpan {
+            start: wide,
+            ..EMPTY_WIDE_SPAN
+        };
+        for (span, c) in g.iter_mut().enumerate() {
+            CONTACT_SPANS[world_index][span] = ContactPrepareSpan {
+                start: cursor,
+                count: c.contacts.len() as i32,
+                contacts: c.contacts.as_ptr(),
+            };
+            for s in &mut c.contacts {
                 let flags = s.contact_id as usize * DIR_STRIDE + DIR_FLAGS;
                 dir.set(flags, dir.get(flags) & !CONTACT_HIT_EVENT);
-                let o = cursor * SLOT_STRIDE;
-                slot.set(o, s.contact_id);
-                slot.set(o + 1, gm);
-                slot.set(o + 2, gp);
-                let (m, p) = extent(world_index, s.contact_id);
-                gm += m;
-                gp += p;
+                s.manifold_start = gm;
+                gm += extent(world_index, s.contact_id as u32).0 as i32;
                 cursor += 1;
             }
         }
+        CONTACT_SPANS[world_index][COLORS] = ContactPrepareSpan {
+            start: cursor,
+            ..EMPTY_CONTACT_SPAN
+        };
     }
 }
 pub unsafe fn reset(id: usize) {
@@ -402,11 +424,11 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
         let n = regions::read_word(input);
         for _ in 0..n {
             c.contacts.push(ContactSpec {
-                contact_id: u32::from_le_bytes(input[..4].try_into().unwrap()),
-                manifold_start: u16::from_le_bytes(input[4..6].try_into().unwrap()),
-                manifold_count: u16::from_le_bytes(input[6..8].try_into().unwrap()),
+                contact_id: i32::from_le_bytes(input[..4].try_into().unwrap()),
+                manifold_start: i32::from_le_bytes(input[4..8].try_into().unwrap()),
+                manifold_count: u16::from_le_bytes(input[8..10].try_into().unwrap()),
             });
-            *input = &input[8..];
+            *input = &input[10..];
         }
         GRAPHS[id].push(c);
     }

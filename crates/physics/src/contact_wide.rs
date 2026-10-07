@@ -1,24 +1,4 @@
-//! The wide (4-lane SIMD) convex contact solver, ported op-for-op from box3d's `contact_solver.c`
-//! `_Convex` functions. Four single-manifold convex contacts sharing no body (graph coloring, done
-//! TS-side) are gathered into one `b3ContactConstraintWide` and solved together across `FloatW` lanes.
-//!
-//! This is the lane win over the scalar (`contact`) path: identical soft-step arithmetic, four
-//! contacts per pass. The scalar path stays for mesh contacts (multi-manifold) and the overflow color.
-//! The friction sub-step order here (rolling → twist → central) differs from `_Mesh` (twist → rolling
-//! → central), so this path is gold-verified against its own C reference, not the scalar port.
-//!
-//! Column groups over shared wasm memory:
-//!   - **persistent** — the same column-resident contact-manifold store the scalar path gathers
-//!     (`manifold_abi`): a directory record + one pool manifold per convex contact. `meta` carries
-//!     each wide record's four lanes' contactIds; the gather reads material + indices + manifold
-//!     through `directory[contactId]` + `pool[manifoldBase]`.
-//!   - **wide** — the transient `b3ContactConstraintWide` records, SoA lanes. Prepare builds them,
-//!     solve/restitution mutate the impulses, store writes the results back into the pool manifolds.
-//!
-//! All wide arithmetic is `FloatW` (simd128 on wasm, scalar `[f32;4]` fallback natively) — bit-
-//! identical per lane, the same property that makes box3d's SIMD and `DISABLE_SIMD` builds agree.
-//! Prepare's per-lane scalar staging reuses the `math` b3 ports so its operand order matches the
-//! scalar path (and thus the reference) exactly.
+//! Box3D four-lane convex contact constraints.
 
 use crate::body::flags as body_flags;
 use crate::body::{read_sim, read_state, STATE_STRIDE};
@@ -45,36 +25,67 @@ pub const MAX_POINTS: usize = 4;
 /// SIMD lane width (B3_SIMD_WIDTH).
 pub const LANES: usize = 4;
 
-// --- wide constraint column layout (f32 offsets within one WIDE_STRIDE record) --------------
-// A FloatW occupies 4 contiguous f32 (one lane vector). Field order mirrors b3ContactConstraintWide;
-// indices/manifolds live in the meta/index columns instead of here.
+#[repr(C, align(16))]
+pub struct ContactConstraintWide {
+    index_a: [u32; LANES],
+    index_b: [u32; LANES],
+    point_counts: [i32; LANES],
+    inv_mass_a: [f32; 4],
+    inv_mass_b: [f32; 4],
+    inv_ia: [f32; 24],
+    inv_ib: [f32; 24],
+    normal: [f32; 12],
+    tangent1: [f32; 12],
+    tangent2: [f32; 12],
+    center_a: [f32; 12],
+    center_b: [f32; 12],
+    twist_mass: [f32; 4],
+    twist_impulse: [f32; 4],
+    tangent_mass: [f32; 12],
+    friction_impulse: [f32; 8],
+    rolling_mass: [f32; 24],
+    rolling_impulse: [f32; 12],
+    friction: [f32; 4],
+    rolling_resistance: [f32; 4],
+    tangent_velocity1: [f32; 4],
+    tangent_velocity2: [f32; 4],
+    bias_rate: [f32; 4],
+    mass_scale: [f32; 4],
+    impulse_scale: [f32; 4],
+    restitution: [f32; 4],
+    manifolds: [*mut mabi::ManifoldRecord; LANES],
+    points: [[f32; POINT_STRIDE]; MAX_POINTS],
+}
 
-const INV_MASS_A: usize = 0;
-const INV_MASS_B: usize = 4;
-const INV_IA: usize = 8; // SymMatrix3W: cxx,cxy,cxz,cyy,cyz,czz (6 FloatW)
-const INV_IB: usize = 32;
-const NORMAL: usize = 56; // Vec3W
-const TANGENT1: usize = 68;
-const TANGENT2: usize = 80;
-const ORIGIN_A: usize = 92;
-const ORIGIN_B: usize = 104;
-const TWIST_MASS: usize = 116;
-const TWIST_IMPULSE: usize = 120;
-const TANGENT_MASS: usize = 124; // SymMatrix2W: cxx,cxy,cyy (3 FloatW)
-const FRICTION_IMPULSE: usize = 136; // Vec2W
-const ROLLING_MASS: usize = 144; // SymMatrix3W
-const ROLLING_IMPULSE: usize = 168; // Vec3W
-const FRICTION: usize = 180;
-const ROLLING_RESISTANCE: usize = 184;
-const TANGENT_VELOCITY1: usize = 188;
-const TANGENT_VELOCITY2: usize = 192;
-const BIAS_RATE: usize = 196;
-const MASS_SCALE: usize = 200;
-const IMPULSE_SCALE: usize = 204;
-const RESTITUTION: usize = 208;
-const POINTS: usize = 212;
-const POINT_STRIDE: usize = 48; // 12 FloatW per point
+use core::mem::{offset_of, size_of};
 
+const INV_MASS_A: usize = offset_of!(ContactConstraintWide, inv_mass_a) / 4;
+const INV_MASS_B: usize = offset_of!(ContactConstraintWide, inv_mass_b) / 4;
+const INV_IA: usize = offset_of!(ContactConstraintWide, inv_ia) / 4;
+const INV_IB: usize = offset_of!(ContactConstraintWide, inv_ib) / 4;
+const NORMAL: usize = offset_of!(ContactConstraintWide, normal) / 4;
+const TANGENT1: usize = offset_of!(ContactConstraintWide, tangent1) / 4;
+const TANGENT2: usize = offset_of!(ContactConstraintWide, tangent2) / 4;
+const ORIGIN_A: usize = offset_of!(ContactConstraintWide, center_a) / 4;
+const ORIGIN_B: usize = offset_of!(ContactConstraintWide, center_b) / 4;
+const TWIST_MASS: usize = offset_of!(ContactConstraintWide, twist_mass) / 4;
+const TWIST_IMPULSE: usize = offset_of!(ContactConstraintWide, twist_impulse) / 4;
+const TANGENT_MASS: usize = offset_of!(ContactConstraintWide, tangent_mass) / 4;
+const FRICTION_IMPULSE: usize = offset_of!(ContactConstraintWide, friction_impulse) / 4;
+const ROLLING_MASS: usize = offset_of!(ContactConstraintWide, rolling_mass) / 4;
+const ROLLING_IMPULSE: usize = offset_of!(ContactConstraintWide, rolling_impulse) / 4;
+const FRICTION: usize = offset_of!(ContactConstraintWide, friction) / 4;
+const ROLLING_RESISTANCE: usize = offset_of!(ContactConstraintWide, rolling_resistance) / 4;
+const TANGENT_VELOCITY1: usize = offset_of!(ContactConstraintWide, tangent_velocity1) / 4;
+const TANGENT_VELOCITY2: usize = offset_of!(ContactConstraintWide, tangent_velocity2) / 4;
+const BIAS_RATE: usize = offset_of!(ContactConstraintWide, bias_rate) / 4;
+const MASS_SCALE: usize = offset_of!(ContactConstraintWide, mass_scale) / 4;
+const IMPULSE_SCALE: usize = offset_of!(ContactConstraintWide, impulse_scale) / 4;
+const RESTITUTION: usize = offset_of!(ContactConstraintWide, restitution) / 4;
+const POINTS: usize = offset_of!(ContactConstraintWide, points) / 4;
+const POINT_COUNTS: usize = offset_of!(ContactConstraintWide, point_counts) / 4;
+const MANIFOLDS: usize = offset_of!(ContactConstraintWide, manifolds) / 4;
+const POINT_STRIDE: usize = 48;
 // point sub-offsets (relative to a point's base)
 const P_ANCHOR_A: usize = 0;
 const P_ANCHOR_B: usize = 12;
@@ -85,14 +96,7 @@ const P_NORMAL_MASS: usize = 36;
 const P_LEVER_ARM: usize = 40;
 const P_REL_VEL: usize = 44;
 
-/// f32 stride of one wide constraint record (b3ContactConstraintWide, 101 FloatW).
-pub const WIDE_STRIDE: usize = POINTS + MAX_POINTS * POINT_STRIDE; // 404
-
-/// u32 stride of the per-record wide meta: `laneContact[4]` (input contact record per lane, NULL for
-/// inactive) then `laneCount` (active lanes, 1..=4).
-pub const WIDE_META_STRIDE: usize = LANES + 1;
-/// u32 stride of the per-record base-1 body sim indices: `indexA[4]` then `indexB[4]` (0 = null).
-pub const WIDE_IDX_STRIDE: usize = 2 * LANES;
+pub const WIDE_STRIDE: usize = size_of::<ContactConstraintWide>() / 4;
 
 // --- column load/store helpers --------------------------------------------------------------
 
@@ -679,7 +683,7 @@ fn scatter(
 pub fn prepare(
     wide: Col<f32>,
     idx: Col<u32>,
-    meta: Col<u32>,
+    spans: Col<crate::contact_spans::WidePrepareSpan>,
     state: Col<f32>,
     sim: Col<f32>,
     dir: Col<u32>,
@@ -690,17 +694,17 @@ pub fn prepare(
     static_softness: Softness,
     warm_start_scale: f32,
 ) {
-    for r in start..start + count {
+    for (r, span) in crate::contact_spans::wide_records(spans, start, count) {
         let wo = r * WIDE_STRIDE;
-        let mo = r * WIDE_META_STRIDE;
-        let io = r * WIDE_IDX_STRIDE;
-        let lane_count = meta.get(mo + LANES) as usize;
+        let io = r * WIDE_STRIDE;
+        let local = (r - span.start as usize) * LANES;
+        let lane_count = (span.count as usize - local).min(LANES);
 
         // Null every lane's body index up front (base-1, so 0 = null → gather contributes identity).
         // Only `lane_count` lanes are filled below; this zeroes the tail lanes of a partial record,
         // mirroring box3d's memset of the remainder wide slot. Without it a stale nonzero index would
         // gather a bogus body in `warm_start`/`solve`.
-        for k in 0..WIDE_IDX_STRIDE {
+        for k in 0..3 * LANES {
             idx.set(io + k, 0);
         }
 
@@ -741,11 +745,18 @@ pub fn prepare(
         let mut p_rel_vel = [[0.0f32; 4]; MAX_POINTS];
 
         for lane in 0..lane_count {
-            let contact_id = meta.get(mo + lane) as usize;
+            let contact_id = unsafe { *span.contacts.add(local + lane) as usize };
             let d = read_dir(dir, contact_id);
             let index_a = d.index_a;
             let index_b = d.index_b;
             let pool = mabi::block_col(pool, d.manifold_base, 1);
+            unsafe {
+                wide.ptr()
+                    .add(wo + MANIFOLDS)
+                    .cast::<*mut mabi::ManifoldRecord>()
+                    .add(lane)
+                    .write(pool.ptr().cast());
+            }
             let mpo = 0; // convex: exactly one manifold
 
             idx.set(io + lane, index_a.wrapping_add(1));
@@ -782,6 +793,7 @@ pub fn prepare(
             impulse_scale[lane] = soft.impulse_scale;
 
             let point_count = pool.get(mpo + mabi::M_POINT_COUNT).to_bits() as usize;
+            idx.set(io + POINT_COUNTS + lane, point_count as u32);
 
             let mut center_a = Vec3::ZERO;
             let mut center_b = Vec3::ZERO;
@@ -901,7 +913,14 @@ pub fn warm_start(
     let ident = ident_rec(worker);
     for r in start..start + count {
         let wo = r * WIDE_STRIDE;
-        let io = r * WIDE_IDX_STRIDE;
+        let io = r * WIDE_STRIDE;
+        let point_count = idx
+            .get(io + POINT_COUNTS)
+            .max(idx.get(io + POINT_COUNTS + 1))
+            .max(
+                idx.get(io + POINT_COUNTS + 2)
+                    .max(idx.get(io + POINT_COUNTS + 3)),
+            ) as usize;
         let ia = ld_sym3(wide, wo + INV_IA);
         let ib = ld_sym3(wide, wo + INV_IB);
         let inv_ma = ld(wide, wo + INV_MASS_A);
@@ -911,7 +930,7 @@ pub fn warm_start(
         let (mut ba_v, mut ba_w) = gather_vel(state, idx, io, ident);
         let (mut bb_v, mut bb_w) = gather_vel(state, idx, io + LANES, ident);
 
-        for pi in 0..MAX_POINTS {
+        for pi in 0..point_count {
             let pb = wo + POINTS + pi * POINT_STRIDE;
             let ra = ld_v3(wide, pb + P_ANCHOR_A);
             let rb = ld_v3(wide, pb + P_ANCHOR_B);
@@ -988,7 +1007,14 @@ pub fn solve(
 
     for r in start..start + count {
         let wo = r * WIDE_STRIDE;
-        let io = r * WIDE_IDX_STRIDE;
+        let io = r * WIDE_STRIDE;
+        let point_count = idx
+            .get(io + POINT_COUNTS)
+            .max(idx.get(io + POINT_COUNTS + 1))
+            .max(
+                idx.get(io + POINT_COUNTS + 2)
+                    .max(idx.get(io + POINT_COUNTS + 3)),
+            ) as usize;
         let mut ba = gather(state, idx, io, ident);
         let mut bb = gather(state, idx, io + LANES, ident);
 
@@ -1012,7 +1038,7 @@ pub fn solve(
         let mut total_normal_impulse = zero;
         let mut total_twist_limit = zero;
 
-        for pi in 0..MAX_POINTS {
+        for pi in 0..point_count {
             let pb = wo + POINTS + pi * POINT_STRIDE;
             let ra = ld_v3(wide, pb + P_ANCHOR_A);
             let rb = ld_v3(wide, pb + P_ANCHOR_B);
@@ -1163,7 +1189,14 @@ pub fn restitution(
 
     for r in start..start + count {
         let wo = r * WIDE_STRIDE;
-        let io = r * WIDE_IDX_STRIDE;
+        let io = r * WIDE_STRIDE;
+        let point_count = idx
+            .get(io + POINT_COUNTS)
+            .max(idx.get(io + POINT_COUNTS + 1))
+            .max(
+                idx.get(io + POINT_COUNTS + 2)
+                    .max(idx.get(io + POINT_COUNTS + 3)),
+            ) as usize;
         let rest = ld(wide, wo + RESTITUTION);
         if rest.all_zero() {
             continue;
@@ -1177,7 +1210,7 @@ pub fn restitution(
         let normal = ld_v3(wide, wo + NORMAL);
         let restitution_mask = rest.equals(zero);
 
-        for pi in 0..MAX_POINTS {
+        for pi in 0..point_count {
             let pb = wo + POINTS + pi * POINT_STRIDE;
             let rel_vel = ld(wide, pb + P_REL_VEL);
             let total_normal = ld(wide, pb + P_TOTAL_NORMAL_IMP);
@@ -1222,9 +1255,9 @@ pub fn restitution(
 /// through the directory; `hit_event_threshold` is the (positive) hit-speed threshold.
 pub fn store(
     wide: Col<f32>,
-    meta: Col<u32>,
+    spans: Col<crate::contact_spans::WidePrepareSpan>,
     dir: Col<u32>,
-    pool: Col<f32>,
+    _pool: Col<f32>,
     start: usize,
     count: usize,
     hit_event_threshold: f32,
@@ -1232,10 +1265,10 @@ pub fn store(
     const ENABLE_HIT_EVENT: u32 = 0x0010_0000; // b3_simEnableHitEvent (contact.h)
     let neg_hit = -hit_event_threshold;
 
-    for r in start..start + count {
+    for (r, span) in crate::contact_spans::wide_records(spans, start, count) {
         let wo = r * WIDE_STRIDE;
-        let mo = r * WIDE_META_STRIDE;
-        let lane_count = meta.get(mo + LANES) as usize;
+        let local = (r - span.start as usize) * LANES;
+        let lane_count = (span.count as usize - local).min(LANES);
 
         let f1 = ld(wide, wo + FRICTION_IMPULSE).to_array();
         let f2 = ld(wide, wo + FRICTION_IMPULSE + 4).to_array();
@@ -1251,9 +1284,19 @@ pub fn store(
         let riz = ld(wide, wo + ROLLING_IMPULSE + 8).to_array();
 
         for lane in 0..lane_count {
-            let contact_id = meta.get(mo + lane) as usize;
+            let contact_id = unsafe { *span.contacts.add(local + lane) as usize };
             let d = read_dir(dir, contact_id);
-            let pool = mabi::block_col(pool, d.manifold_base, 1);
+            let manifold = unsafe {
+                *wide
+                    .ptr()
+                    .add(wo + MANIFOLDS)
+                    .cast::<*mut mabi::ManifoldRecord>()
+                    .add(lane)
+            };
+            if manifold.is_null() {
+                continue;
+            }
+            let pool = unsafe { Col::new(manifold.cast::<f32>(), mabi::MANIFOLD_STRIDE) };
             let mpo = 0; // convex: exactly one manifold
             let contact_flags = d.flags;
 
