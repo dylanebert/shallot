@@ -222,21 +222,18 @@ mod runtime {
     pub unsafe fn snapshot(world: usize, out: &mut Vec<u8>) {
         let w = &WORLDS[world];
         regions::write_word(out, w.next);
-        regions::write_word(out, w.free.capacity());
         regions::write_word(out, w.free.len());
         for &id in &w.free {
             regions::write_word(out, id as usize);
         }
-        w.records.snapshot(out);
+        w.records.snapshot_prefix(out, [w.next * core::mem::size_of::<JointRecord>()]);
     }
     pub unsafe fn restore(world: usize, input: &mut &[u8]) {
         reset(world);
         let w = &mut WORLDS[world];
         w.next = regions::read_word(input);
-        let capacity = regions::read_word(input);
         let count = regions::read_word(input);
-        assert!(count <= capacity);
-        w.free.reserve_exact(capacity);
+        w.free.reserve_exact(count);
         for _ in 0..count {
             w.free.push(regions::read_word(input) as u32);
         }

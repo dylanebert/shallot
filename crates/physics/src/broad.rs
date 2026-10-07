@@ -426,10 +426,15 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     }
     regions::write_word(out, w.set);
     regions::write_word(out, w.set_count);
-    for array in [w.bit_count, w.bit_capacity] {
-        for value in array { regions::write_word(out, value); }
+    for value in w.bit_count { regions::write_word(out, value); }
+    let mut bytes = [0; N_BROAD];
+    for i in 0..3 {
+        bytes[i] = tree_bytes(w.tree[i]);
+        bytes[BITS + i] = w.bit_count[i] * 8;
     }
-    w.columns.snapshot(out);
+    bytes[ITEMS] = w.set * core::mem::size_of::<crate::table::Item>();
+    bytes[MOVE] = if w.tree.iter().sum::<usize>() == 0 { 0 } else { (1 + move_count(id)) * 4 };
+    w.columns.snapshot_prefix(out, bytes);
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     let w = &mut WORLDS[id];
@@ -438,8 +443,8 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     }
     w.set = regions::read_word(input);
     w.set_count = regions::read_word(input);
-    for array in [&mut w.bit_count, &mut w.bit_capacity] {
-        for value in array { *value = regions::read_word(input); }
-    }
+    for value in &mut w.bit_count { *value = regions::read_word(input); }
+    w.bit_capacity = w.bit_count;
     w.columns.restore(input);
+    w.columns.reserve(MOVE, (1 + w.tree.iter().sum::<usize>()) * 4);
 }

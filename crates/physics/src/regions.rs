@@ -188,9 +188,6 @@ impl<const N: usize> Columns<N> {
         self.layout[column] = next.ptr as u32;
         old
     }
-    pub unsafe fn snapshot(&self, out: &mut Vec<u8>) {
-        self.snapshot_prefix(out, self.buffers.map(|buffer| buffer.bytes));
-    }
     pub unsafe fn snapshot_prefix(&self, out: &mut Vec<u8>, bytes: [usize; N]) {
         for (buffer, bytes) in self.buffers.iter().zip(bytes) {
             assert!(bytes <= buffer.bytes);
