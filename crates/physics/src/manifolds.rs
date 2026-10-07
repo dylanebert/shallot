@@ -285,15 +285,6 @@ pub extern "C" fn free_manifolds_in_world(world_index: usize, contact: usize) {
     }
     unlock(id);
 }
-pub fn copy_manifolds(source: usize, address: usize, count: usize) {
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            source as *const u32,
-            address as *mut u32,
-            count * MANIFOLD_STRIDE,
-        );
-    }
-}
 #[export_name = "manifoldLayoutPtr"]
 pub extern "C" fn manifold_layout_ptr() -> *const u32 {
     manifold_layout_ptr_in_world(crate::regions::active())

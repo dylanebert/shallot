@@ -147,6 +147,9 @@ pub(crate) trait ManifoldOutput {
     fn set_point_count(&mut self, count: usize);
     fn points(&mut self) -> &mut [ManifoldPoint; MAX_MANIFOLD_POINTS];
     fn set_normal(&mut self, normal: Vec3);
+    fn normal(&self) -> Vec3;
+    fn impulses(&self) -> (Vec3, Vec3, f32);
+    fn set_impulses(&mut self, impulses: (Vec3, Vec3, f32));
 }
 
 impl ManifoldOutput for Manifold {
@@ -162,6 +165,23 @@ impl ManifoldOutput for Manifold {
     fn set_normal(&mut self, normal: Vec3) {
         self.normal = normal;
     }
+    fn normal(&self) -> Vec3 {
+        self.normal
+    }
+    fn impulses(&self) -> (Vec3, Vec3, f32) {
+        (
+            self.friction_impulse,
+            self.rolling_impulse,
+            self.twist_impulse,
+        )
+    }
+    fn set_impulses(&mut self, impulses: (Vec3, Vec3, f32)) {
+        (
+            self.friction_impulse,
+            self.rolling_impulse,
+            self.twist_impulse,
+        ) = impulses;
+    }
 }
 
 impl ManifoldOutput for crate::manifold_abi::ManifoldRecord {
@@ -176,6 +196,23 @@ impl ManifoldOutput for crate::manifold_abi::ManifoldRecord {
     }
     fn set_normal(&mut self, normal: Vec3) {
         self.normal = normal;
+    }
+    fn normal(&self) -> Vec3 {
+        self.normal
+    }
+    fn impulses(&self) -> (Vec3, Vec3, f32) {
+        (
+            self.friction_impulse,
+            self.rolling_impulse,
+            self.twist_impulse,
+        )
+    }
+    fn set_impulses(&mut self, impulses: (Vec3, Vec3, f32)) {
+        (
+            self.friction_impulse,
+            self.rolling_impulse,
+            self.twist_impulse,
+        ) = impulses;
     }
 }
 

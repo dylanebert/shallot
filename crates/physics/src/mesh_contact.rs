@@ -1,7 +1,9 @@
 //! Mesh contact reduction from Box3D mesh_contact.c (Erin Catto, MIT).
 use crate::manifold::{make_feature_id, LocalManifold, LocalManifoldPoint, SatCache};
 use crate::math::{absf, maxf, minf, Mat3, Transform, Vec2, Vec3};
-use crate::narrowphase::{ConvexShape, Manifold};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::narrowphase::Manifold;
+use crate::narrowphase::{ConvexShape, ManifoldOutput};
 use crate::triangle_manifold::{
     collide_capsule_and_triangle, collide_hull_and_triangle, collide_sphere_and_triangle,
 };
@@ -358,6 +360,7 @@ pub struct MeshScratch<'a> {
     projected: &'a mut [Point2D],
     // Reused arena bytes need not be valid Rust bools before prefix initialization.
     consumed: &'a mut [u8],
+    #[cfg(not(target_arch = "wasm32"))]
     pub output: &'a mut [Manifold],
     pub materials: &'a mut [[u32; 4]],
 }
@@ -376,6 +379,7 @@ const SCRATCH_BYTES: usize = MAX_TRIANGLES
 
 pub struct MeshStorage {
     words: [u128; SCRATCH_BYTES.div_ceil(16)],
+    #[cfg(not(target_arch = "wasm32"))]
     output: [Manifold; MAX_TRIANGLES],
     materials: [[u32; 4]; MAX_TRIANGLES],
 }
@@ -407,6 +411,7 @@ impl MeshStorage {
                 point_materials: span(base, &mut offset, count * 32),
                 projected: span(base, &mut offset, count * 32),
                 consumed: span(base, &mut offset, old_count),
+                #[cfg(not(target_arch = "wasm32"))]
                 output: &mut self.output[..count],
                 materials: &mut self.materials[..count],
             }
@@ -701,6 +706,7 @@ fn sort_tentative(indices: &mut [TentativeTriangle]) {
 
 /// Collide cached triangles into clustered persistent manifolds and per-point material indices.
 /// Geometry is in mesh-local coordinates; the caller owns query/cache refresh and storage.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn compute_mesh_manifolds(
     scratch: &mut MeshScratch,
     triangles: &mut [TriangleCache],
@@ -711,6 +717,37 @@ pub fn compute_mesh_manifolds(
     fast: bool,
     speculative: bool,
     old: &mut [Manifold],
+) -> usize {
+    let output = core::mem::take(&mut scratch.output);
+    let count = compute_mesh_manifolds_into(
+        scratch,
+        triangles,
+        geometry,
+        shape,
+        xf_a,
+        xf_b,
+        fast,
+        speculative,
+        |count| {
+            output[..count].fill(Manifold::new());
+            (old, &mut output[..count])
+        },
+    );
+    scratch.output = output;
+    count
+}
+
+/// Snapshot the old manifolds and resolve the resident destination after cluster reduction.
+pub(crate) fn compute_mesh_manifolds_into<'a, M: ManifoldOutput + 'a>(
+    scratch: &mut MeshScratch,
+    triangles: &mut [TriangleCache],
+    geometry: impl Fn(usize) -> TriangleInput,
+    shape: &ConvexShape,
+    xf_a: Transform,
+    xf_b: Transform,
+    fast: bool,
+    speculative: bool,
+    prepare: impl FnOnce(usize) -> (&'a mut [M], &'a mut [M]),
 ) -> usize {
     let transform = xf_b.inv_mul(xf_a);
     let matrix = Mat3::from_quat(transform.q);
@@ -900,43 +937,48 @@ pub fn compute_mesh_manifolds(
             cluster.count += 1;
         }
     }
+    if cluster_count == 0 {
+        return 0;
+    }
+    for cluster in &mut scratch.clusters[..cluster_count] {
+        cluster.count = reduce_cluster(
+            &mut scratch.points[cluster.base..cluster.base + cluster.count],
+            &mut scratch.point_materials[cluster.base..cluster.base + cluster.count],
+            cluster.triangle_normal,
+            &mut scratch.projected[..cluster.count],
+        );
+    }
+    let (old, output) = prepare(cluster_count);
     let consumed = &mut scratch.consumed[..old.len()];
     consumed.fill(0);
     let matrix = Mat3::from_quat(xf_b.q);
     let offset = xf_b.p.sub(xf_a.p);
     for i in 0..cluster_count {
         let cluster = scratch.clusters[i];
-        let count = reduce_cluster(
-            &mut scratch.points[cluster.base..cluster.base + cluster.count],
-            &mut scratch.point_materials[cluster.base..cluster.base + cluster.count],
-            cluster.triangle_normal,
-            &mut scratch.projected[..cluster.count],
-        );
-        let mut m = Manifold::new();
-        m.normal = matrix.mul_v(cluster.normal);
-        m.point_count = count;
+        let count = cluster.count;
+        let m = &mut output[i];
+        m.set_normal(matrix.mul_v(cluster.normal));
+        m.set_point_count(count);
         let mut best_dot = 0.995;
         let mut matched = None;
         for j in 0..old.len() {
             if consumed[j] != 0 {
                 continue;
             }
-            let dot = old[j].normal.dot(m.normal);
+            let dot = old[j].normal().dot(m.normal());
             if dot > best_dot {
                 best_dot = dot;
                 matched = Some(j);
             }
         }
         if let Some(j) = matched {
-            m.friction_impulse = old[j].friction_impulse;
-            m.rolling_impulse = old[j].rolling_impulse;
-            m.twist_impulse = old[j].twist_impulse;
+            m.set_impulses(old[j].impulses());
             consumed[j] = 1;
         }
         for j in 0..count {
             let source_index = cluster.base + j;
             let source = scratch.points[source_index];
-            let p = &mut m.points[j];
+            let p = &mut m.points()[j];
             p.anchor_b = matrix.mul_v(source.point);
             p.anchor_a = p.anchor_b.add(offset);
             p.separation = source.separation - REST_OFFSET;
@@ -944,7 +986,8 @@ pub fn compute_mesh_manifolds(
             p.triangle_index = source.triangle_index;
             scratch.materials[i][j] = scratch.point_materials[source_index];
             if let Some(k) = matched {
-                for old_point in &mut old[k].points[..old[k].point_count] {
+                let old_count = old[k].point_count();
+                for old_point in &mut old[k].points()[..old_count] {
                     if p.feature_id == old_point.feature_id
                         && p.triangle_index == old_point.triangle_index
                     {
@@ -956,7 +999,6 @@ pub fn compute_mesh_manifolds(
                 }
             }
         }
-        scratch.output[i] = m;
     }
     cluster_count
 }

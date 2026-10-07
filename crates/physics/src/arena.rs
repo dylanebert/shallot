@@ -20,13 +20,11 @@ use crate::finalize::{self, TY_CAPSULE, TY_HULL, TY_SPHERE};
 use crate::manifold::{Capsule, SatCache, Sphere};
 use crate::manifold_abi::{
     read_dir, DIR_CACHE, DIR_CACHED_REL_POSE, DIR_CACHED_ROT_A, DIR_CACHED_ROT_B, DIR_FLAGS,
-    DIR_STRIDE, MANIFOLD_STRIDE, M_FRICTION, M_NORMAL, M_POINTS, M_POINT_COUNT, M_ROLLING, M_TWIST,
-    POOL_POINT_STRIDE, P_ANCHOR_A, P_ANCHOR_B, P_FEATURE_ID, P_NORMAL_IMPULSE, P_NORMAL_VELOCITY,
-    P_PERSISTED, P_SEPARATION, P_TOTAL_NORMAL_IMPULSE, P_TRIANGLE_INDEX, SLOT_STRIDE,
+    DIR_STRIDE, MANIFOLD_STRIDE, M_POINT_COUNT, SLOT_STRIDE,
 };
 use crate::manifolds;
 use crate::math::{Quat, Transform, Vec3};
-use crate::narrowphase::{compute_convex_manifold_into, ConvexContactCache, ConvexShape, Manifold};
+use crate::narrowphase::{compute_convex_manifold_into, ConvexContactCache, ConvexShape};
 
 use crate::geo::hull_view;
 use crate::regions::Buffer;
@@ -252,12 +250,11 @@ pub(crate) unsafe fn color_span_column() -> (Col<'static, u32>, usize) {
 }
 
 // --- b3CollideTask / b3UpdateContact --------------------------------------------------------
-static mut MESH_OUTPUT_PTR: usize = 0;
 static mut MESH_MATERIAL_PTR: usize = 0;
 static mut MESH_SCRATCH_PTR: usize = 0;
 struct DispatchScratch {
     mesh: crate::mesh_contact::MeshStorage,
-    old: [Manifold; 256],
+    old: [crate::manifold_abi::ManifoldRecord; 256],
     previous: [crate::manifold_abi::ContactCache; 256],
 }
 
@@ -309,8 +306,6 @@ pub extern "C" fn reserve_collide_in_world(
             state.set_count_and_clear(capacity);
         }
         let mut off = (count * 4 + 15) & !15;
-        let mesh_off = off;
-        off += mesh_threads * 256 * MANIFOLD_STRIDE * 4;
         let material_off = off;
         off += mesh_threads * 256 * 4 * 4;
         off = (off + 15) & !15;
@@ -318,7 +313,6 @@ pub extern "C" fn reserve_collide_in_world(
         off += mesh_threads * core::mem::size_of::<DispatchScratch>();
         reserve_scratch(off);
         CONTACT_LIST_PTR = SCRATCH.ptr;
-        MESH_OUTPUT_PTR = SCRATCH.ptr + mesh_off;
         MESH_MATERIAL_PTR = SCRATCH.ptr + material_off;
         MESH_SCRATCH_PTR = SCRATCH.ptr + scratch_off;
         (MESH_SCRATCH_PTR as *mut u8)
@@ -418,45 +412,6 @@ unsafe fn read_shape(ty: u32, disp: &[u32], o: usize) -> ConvexShape<'static> {
     }
 }
 
-/// Write the computed manifold into the pool block. Only the narrowphase-owned fields — normal, point
-/// count, and per-point anchors/separation/impulses/feature id/triangle index/persisted — the header
-/// friction/twist/rolling (solver-owned, persistent) are left untouched. Separation and its recycle
-/// baseline are written together after shifting anchors to the centers of mass.
-#[inline]
-fn write_manifold(m: &Manifold, pool: Col<f32>, base: usize) {
-    let o = base * MANIFOLD_STRIDE;
-    pool.set(o + M_NORMAL, m.normal.x);
-    pool.set(o + M_NORMAL + 1, m.normal.y);
-    pool.set(o + M_NORMAL + 2, m.normal.z);
-    pool.set(o + M_POINT_COUNT, f32::from_bits(m.point_count as u32));
-    for j in 0..m.point_count {
-        let p = o + M_POINTS + j * POOL_POINT_STRIDE;
-        let pt = &m.points[j];
-        pool.set(p + P_ANCHOR_A, pt.anchor_a.x);
-        pool.set(p + P_ANCHOR_A + 1, pt.anchor_a.y);
-        pool.set(p + P_ANCHOR_A + 2, pt.anchor_a.z);
-        pool.set(p + P_ANCHOR_B, pt.anchor_b.x);
-        pool.set(p + P_ANCHOR_B + 1, pt.anchor_b.y);
-        pool.set(p + P_ANCHOR_B + 2, pt.anchor_b.z);
-        pool.set(p + P_SEPARATION, pt.separation);
-        pool.set(p + crate::manifold_abi::P_BASE_SEPARATION, pt.separation);
-        pool.set(p + P_NORMAL_IMPULSE, pt.normal_impulse);
-        pool.set(p + P_TOTAL_NORMAL_IMPULSE, pt.total_normal_impulse);
-        pool.set(p + P_NORMAL_VELOCITY, pt.normal_velocity);
-        pool.set(p + P_FEATURE_ID, f32::from_bits(pt.feature_id));
-        pool.set(
-            p + P_TRIANGLE_INDEX,
-            f32::from_bits(pt.triangle_index as u32),
-        );
-        unsafe {
-            pool.ptr()
-                .add(p + P_PERSISTED)
-                .cast::<bool>()
-                .write(pt.persisted);
-        }
-    }
-}
-
 unsafe fn dispatch_mesh(
     world_index: usize,
     shape_b: &[u32],
@@ -472,7 +427,8 @@ unsafe fn dispatch_mesh(
     center_a: Vec3,
     center_b: Vec3,
 ) -> usize {
-    use crate::mesh_contact::{compute_mesh_manifolds, TriangleSource, MAX_TRIANGLES};
+    use crate::manifold_abi::ManifoldRecord;
+    use crate::mesh_contact::{compute_mesh_manifolds_into, TriangleSource, MAX_TRIANGLES};
     let slot = thread;
     let cache = &mut *manifolds::mesh_cache_ptr(world_index, contact_id);
     let record = geom[0] as *const u32;
@@ -512,37 +468,7 @@ unsafe fn dispatch_mesh(
     let scratch = &mut *(MESH_SCRATCH_PTR as *mut DispatchScratch).add(thread);
     cache.refresh(&source, xf_a, vec(10), vec(13), &mut scratch.previous);
     let dir = manifolds::dir_col(world_index);
-    let pool = manifolds::pool_col();
     let entry = read_dir(dir, contact_id);
-    let pool = crate::manifold_abi::block_col(pool, entry.manifold_base, old_count);
-    for i in 0..old_count {
-        let o = i * MANIFOLD_STRIDE;
-        scratch.old[i] = Manifold::new();
-        let m = &mut scratch.old[i];
-        m.normal = Vec3::new(
-            pool.get(o + M_NORMAL),
-            pool.get(o + M_NORMAL + 1),
-            pool.get(o + M_NORMAL + 2),
-        );
-        m.friction_impulse = Vec3::new(
-            pool.get(o + M_FRICTION),
-            pool.get(o + M_FRICTION + 1),
-            pool.get(o + M_FRICTION + 2),
-        );
-        m.rolling_impulse = Vec3::new(
-            pool.get(o + M_ROLLING),
-            pool.get(o + M_ROLLING + 1),
-            pool.get(o + M_ROLLING + 2),
-        );
-        m.twist_impulse = pool.get(o + M_TWIST);
-        m.point_count = pool.get(o + M_POINT_COUNT).to_bits() as usize;
-        for j in 0..m.point_count {
-            let p = o + M_POINTS + j * POOL_POINT_STRIDE;
-            m.points[j].normal_impulse = pool.get(p + P_NORMAL_IMPULSE);
-            m.points[j].feature_id = pool.get(p + P_FEATURE_ID).to_bits();
-            m.points[j].triangle_index = pool.get(p + P_TRIANGLE_INDEX).to_bits() as i32;
-        }
-    }
     let shape = read_shape(shape_b[crate::shapes::S_TYPE], shape_b, 48);
     let directory = manifolds::dir_col(world_index);
     let shape_a =
@@ -560,7 +486,8 @@ unsafe fn dispatch_mesh(
     let mut mesh = scratch
         .mesh
         .scratch(cache.triangles.count as usize, old_count);
-    let count = compute_mesh_manifolds(
+    let mut address = entry.manifold_base;
+    let count = compute_mesh_manifolds_into(
         &mut mesh,
         cache.triangles.as_mut_slice(),
         |index| source.triangle(index),
@@ -569,31 +496,37 @@ unsafe fn dispatch_mesh(
         xf_b,
         fast,
         speculative,
-        &mut scratch.old[..old_count],
+        |count| {
+            if old_count > 0 {
+                core::ptr::copy_nonoverlapping(
+                    address as *const ManifoldRecord,
+                    scratch.old.as_mut_ptr(),
+                    old_count,
+                );
+            }
+            if count != old_count {
+                address = manifolds::allocate_manifolds_in_world(world_index, contact_id, count);
+            } else {
+                (address as *mut u8).write_bytes(0, count * core::mem::size_of::<ManifoldRecord>());
+            }
+            (
+                &mut scratch.old[..old_count],
+                core::slice::from_raw_parts_mut(address as *mut ManifoldRecord, count),
+            )
+        },
     );
-    let output_ptr = (MESH_OUTPUT_PTR as *mut f32).add(slot * MAX_TRIANGLES * MANIFOLD_STRIDE);
-    output_ptr.write_bytes(0, count * MANIFOLD_STRIDE);
-    let output = Col::new(output_ptr, MAX_TRIANGLES * MANIFOLD_STRIDE);
     let materials = (MESH_MATERIAL_PTR as *mut u32).add(slot * MAX_TRIANGLES * 4);
     for i in 0..count {
-        let m = &mut mesh.output[i];
-        for p in &mut m.points[..m.point_count] {
+        let m = &mut *(address as *mut ManifoldRecord).add(i);
+        for p in &mut m.points[..m.point_count as usize] {
             p.anchor_a = p.anchor_a.add(child_offset);
         }
-        for p in &mut m.points[..m.point_count] {
+        for p in &mut m.points[..m.point_count as usize] {
             p.anchor_a = p.anchor_a.sub(center_a);
             p.anchor_b = p.anchor_b.sub(center_b);
+            p.base_separation = p.separation;
         }
-        write_manifold(m, output, i);
-        let o = i * MANIFOLD_STRIDE;
-        output.set(o + M_FRICTION, m.friction_impulse.x);
-        output.set(o + M_FRICTION + 1, m.friction_impulse.y);
-        output.set(o + M_FRICTION + 2, m.friction_impulse.z);
-        output.set(o + M_ROLLING, m.rolling_impulse.x);
-        output.set(o + M_ROLLING + 1, m.rolling_impulse.y);
-        output.set(o + M_ROLLING + 2, m.rolling_impulse.z);
-        output.set(o + M_TWIST, m.twist_impulse);
-        for j in 0..m.point_count {
+        for j in 0..m.point_count as usize {
             *materials.add(i * 4 + j) = mesh.materials[i][j];
         }
     }
@@ -720,10 +653,10 @@ unsafe fn mix_surface(
     let mut radius_b = shape_radius(world_index, sb, mesh);
     let (friction, restitution, rolling, tangent) = if mesh {
         let slot = thread;
-        let output = Col::new(
-            (MESH_OUTPUT_PTR as *mut f32).add(slot * 256 * MANIFOLD_STRIDE),
-            256 * MANIFOLD_STRIDE,
-        );
+        let dir = manifolds::dir_col(world_index);
+        let address =
+            dir.get(contact_id * DIR_STRIDE + crate::manifold_abi::DIR_MANIFOLD_BASE) as usize;
+        let output = Col::new(address as *mut f32, count * MANIFOLD_STRIDE);
         let materials = (MESH_MATERIAL_PTR as *const u32).add(slot * 256 * 4);
         let mut friction = 0.0;
         let mut restitution = 0.0;
@@ -872,17 +805,6 @@ unsafe fn update_contact(
                 true,
                 child_radius,
             );
-            if count > 0 {
-                let address = if count == old_count {
-                    let address = dir.get(o + DIR_MANIFOLD_BASE) as usize;
-                    (address as *mut u8).write_bytes(0, count * MANIFOLD_STRIDE * 4);
-                    address
-                } else {
-                    manifolds::allocate_manifolds_in_world(world_index, contact_id, count)
-                };
-                let source = MESH_OUTPUT_PTR + thread * 256 * MANIFOLD_STRIDE * 4;
-                manifolds::copy_manifolds(source, address, count);
-            }
             finish_contact(world_index, thread, contact_id, count, hit);
             return;
         }
