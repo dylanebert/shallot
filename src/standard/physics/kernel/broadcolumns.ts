@@ -121,7 +121,7 @@ export class BroadStore extends KernelViews {
                 this.moveData = new Int32Array(buf, layout[6] + 4, moveCapacity);
             for (let i = 0; i < 3; i++) {
                 const old = this.movedBits[i];
-                const length = 2 * Math.ceil(k.broadTreeCap(i) / 64);
+                const length = 2 * k.broadBitsCapacity(i);
                 if (old.buffer !== buf || old.byteOffset !== layout[7 + i] || old.length !== length)
                     this.movedBits[i] = new Uint32Array(buf, layout[7 + i], length);
                 if (initial) this.movedBits[i].fill(0);

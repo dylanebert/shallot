@@ -400,6 +400,7 @@ export type Kernel = {
     bodyShouldBodiesCollide(bodyA: number, bodyB: number): number;
     broadLayoutPtr(): number;
     broadTreeCap(i: number): number;
+    broadBitsCapacity(i: number): number;
     reserveTreeWork(depth: number, words: number): number;
     treeEnlargePass(count: number, bullets: number): void;
     treeCreateProxy(

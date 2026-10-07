@@ -14,6 +14,8 @@ struct Broad {
     set_count: usize,
     rebuild: [crate::regions::Buffer; 6],
     rebuild_capacity: [usize; 3],
+    bit_count: [usize; 3],
+    bit_capacity: [usize; 3],
 }
 impl Broad {
     const EMPTY: Self = Self {
@@ -23,6 +25,8 @@ impl Broad {
         set_count: 0,
         rebuild: [crate::regions::Buffer::EMPTY; 6],
         rebuild_capacity: [0; 3],
+        bit_count: [0; 3],
+        bit_capacity: [0; 3],
     };
 }
 static mut WORLDS: [Broad; MAX_WORLDS] = [Broad::EMPTY; MAX_WORLDS];
@@ -38,9 +42,6 @@ fn tree_bytes(cap: usize) -> usize {
     } else {
         (cap * TREE_STRIDE + TREE_STATE_WORDS) * 4
     }
-}
-fn bit_bytes(cap: usize) -> usize {
-    cap.div_ceil(64) * 8
 }
 pub fn tree_state(world_index: usize, i: usize) -> *mut u32 {
     base(world_index, i) as *mut u32
@@ -100,7 +101,22 @@ pub fn bits_ptr(world_index: usize, i: usize) -> *mut u64 {
     base(world_index, BITS + i) as *mut u64
 }
 pub fn bits_words(world_index: usize, i: usize) -> usize {
-    tree_cap(world_index, i).div_ceil(64)
+    unsafe { world(world_index).bit_count[i] }
+}
+#[export_name = "broadBitsCapacity"]
+pub extern "C" fn bits_capacity(i: usize) -> usize {
+    unsafe { world(crate::regions::active()).bit_capacity[i] }
+}
+unsafe fn grow_bits(world_index: usize, i: usize, count: usize) {
+    let w = &mut WORLDS[world_index];
+    if count > w.bit_capacity[i] {
+        let capacity = count + count / 2;
+        let mut old = w.columns.replace_zeroed(BITS + i, capacity * 8);
+        core::ptr::copy_nonoverlapping(old.ptr as *const u64, w.columns.layout[BITS + i] as *mut u64, w.bit_capacity[i]);
+        old.release();
+        w.bit_capacity[i] = capacity;
+    }
+    w.bit_count[i] = count;
 }
 #[export_name = "broadTestOverlap"]
 pub unsafe extern "C" fn test_overlap(a: u32, b: u32) -> u32 {
@@ -278,6 +294,9 @@ pub unsafe extern "C" fn buffer_move(key: u32) {
 pub unsafe extern "C" fn buffer_move_in_world(world_index: usize, key: u32) {
     let i = (key & 3) as usize;
     let id = (key >> 2) as usize;
+    if id / 64 >= bits_words(world_index, i) {
+        grow_bits(world_index, i, id / 64 + 1);
+    }
     let p = bits_ptr(world_index, i).add(id / 64);
     let mask = 1u64 << (id & 63);
     if *p & mask == 0 {
@@ -290,7 +309,11 @@ pub unsafe extern "C" fn buffer_move_in_world(world_index: usize, key: u32) {
 pub unsafe fn unbuffer_move(world_index: usize, key: u32) {
     let i = (key & 3) as usize;
     let id = (key >> 2) as usize;
-    *bits_ptr(world_index, i).add(id / 64) &= !(1u64 << (id & 63));
+    if id / 64 >= bits_words(world_index, i) { return; }
+    let p = bits_ptr(world_index, i).add(id / 64);
+    let mask = 1u64 << (id & 63);
+    if *p & mask == 0 { return; }
+    *p &= !mask;
     let count = base(world_index, MOVE) as *mut u32;
     for n in 0..*count as usize {
         if *move_ptr(world_index).add(n) == key {
@@ -306,7 +329,9 @@ pub unsafe extern "C" fn clear_moved(index: usize, id: usize) {
 }
 
 pub unsafe extern "C" fn clear_moved_in_world(world_index: usize, index: usize, id: usize) {
-    *bits_ptr(world_index, index).add(id / 64) &= !(1u64 << (id & 63));
+    if id / 64 < bits_words(world_index, index) {
+        *bits_ptr(world_index, index).add(id / 64) &= !(1u64 << (id & 63));
+    }
 }
 #[export_name = "broadClearMoves"]
 pub unsafe extern "C" fn clear_moves() {
@@ -375,7 +400,11 @@ pub extern "C" fn reserve_broad_in_world(
                 *state = u32::MAX;
                 *state.add(2) = u32::MAX;
             }
-            w.columns.reserve(BITS + i, bit_bytes(tree[i]));
+            if w.bit_capacity[i] == 0 && tree[i] != 0 {
+                let mut old = w.columns.replace_zeroed(BITS + i, 8);
+                old.release();
+                w.bit_capacity[i] = 1;
+            }
         }
         w.columns.reserve(ITEMS, set * core::mem::size_of::<crate::table::Item>());
         w.columns
@@ -397,6 +426,9 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     }
     regions::write_word(out, w.set);
     regions::write_word(out, w.set_count);
+    for array in [w.bit_count, w.bit_capacity] {
+        for value in array { regions::write_word(out, value); }
+    }
     w.columns.snapshot(out);
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
@@ -406,5 +438,8 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     }
     w.set = regions::read_word(input);
     w.set_count = regions::read_word(input);
+    for array in [&mut w.bit_count, &mut w.bit_capacity] {
+        for value in array { *value = regions::read_word(input); }
+    }
     w.columns.restore(input);
 }

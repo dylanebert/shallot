@@ -19,12 +19,14 @@ struct Sensors {
     sensors: Vec<Sensor>,
     event_bits: [Vec<u64>; crate::solve::MAX_THREADS],
     workers: usize,
+    event_blocks: usize,
 }
 impl Sensors {
     const EMPTY: Self = Self {
         sensors: Vec::new(),
         event_bits: [const { Vec::new() }; crate::solve::MAX_THREADS],
         workers: 1,
+        event_blocks: 0,
     };
 }
 static mut WORLDS: [Sensors; regions::MAX_WORLDS] = [const { Sensors::EMPTY }; regions::MAX_WORLDS];
@@ -97,9 +99,13 @@ pub unsafe fn record_hit(world: usize, sensor: usize, other: usize) {
 pub unsafe fn prepare(world_index: usize, workers: usize) -> usize {
     let w = state(world_index);
     w.workers = workers;
+    let count = w.sensors.len();
+    w.event_blocks = count.div_ceil(64);
     for bits in &mut w.event_bits[..workers] {
-        bits.resize(w.sensors.len().div_ceil(64), 0);
-        bits.fill(0);
+        if bits.len() < w.event_blocks {
+            *bits = vec![0; (count + (count >> 1)).div_ceil(64)];
+        }
+        bits[..w.event_blocks].fill(0);
     }
     w.sensors.len()
 }
@@ -137,11 +143,11 @@ pub unsafe fn task(world_index: usize, worker: usize, start: usize, end: usize) 
 pub unsafe fn publish(world: usize) {
     let w = state(world);
     for worker in 1..w.workers {
-        for block in 0..w.event_bits[0].len() {
+        for block in 0..w.event_blocks {
             w.event_bits[0][block] |= w.event_bits[worker][block];
         }
     }
-    for (block, bits) in w.event_bits[0].iter().copied().enumerate() {
+    for (block, bits) in w.event_bits[0][..w.event_blocks].iter().copied().enumerate() {
         let mut bits = bits;
         while bits != 0 {
             let index = block * 64 + bits.trailing_zeros() as usize;

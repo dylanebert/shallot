@@ -182,8 +182,8 @@ impl<const N: usize> Columns<N> {
     }
     pub unsafe fn replace_zeroed(&mut self, column: usize, bytes: usize) -> Buffer {
         let old = self.buffers[column];
-        let mut next = Buffer::EMPTY;
-        next.reserve(bytes);
+        let next = Buffer::allocate(bytes);
+        (next.ptr as *mut u8).write_bytes(0, bytes);
         self.buffers[column] = next;
         self.layout[column] = next.ptr as u32;
         old
