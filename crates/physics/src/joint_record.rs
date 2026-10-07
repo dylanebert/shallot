@@ -83,7 +83,6 @@ mod runtime {
             w.next += 1;
             w.records
                 .reserve(0, w.next * core::mem::size_of::<JointRecord>());
-            w.free.reserve(w.next.saturating_sub(w.free.len()));
             (w.records.layout[0] as usize as *mut JointRecord)
                 .add(id)
                 .write(JointRecord::EMPTY);
@@ -155,7 +154,17 @@ mod runtime {
         r.color_index = -1;
         r.local_index = -1;
         r.joint_id = -1;
-        WORLDS[world_index].free.push(id);
+        let w = &mut WORLDS[world_index];
+        assert!((id as usize) < w.next);
+        if w.free.len() == w.free.capacity() {
+            let capacity = if w.free.capacity() == 0 {
+                8
+            } else {
+                2 * w.free.capacity()
+            };
+            w.free.reserve_exact(capacity - w.free.len());
+        }
+        w.free.push(id);
     }
 
     #[export_name = "jointSimPtr"]
@@ -211,6 +220,7 @@ mod runtime {
     pub unsafe fn snapshot(world: usize, out: &mut Vec<u8>) {
         let w = &WORLDS[world];
         regions::write_word(out, w.next);
+        regions::write_word(out, w.free.capacity());
         regions::write_word(out, w.free.len());
         for &id in &w.free {
             regions::write_word(out, id as usize);
@@ -221,8 +231,10 @@ mod runtime {
         reset(world);
         let w = &mut WORLDS[world];
         w.next = regions::read_word(input);
+        let capacity = regions::read_word(input);
         let count = regions::read_word(input);
-        w.free.reserve(w.next);
+        assert!(count <= capacity);
+        w.free.reserve_exact(capacity);
         for _ in 0..count {
             w.free.push(regions::read_word(input) as u32);
         }
