@@ -208,8 +208,7 @@ export class PhysicsWorld {
     readonly state: WorldState;
     private readonly _worldId: WorldId;
     private readonly _bodyForEntity?: (eid: number) => Body | null;
-    // Reused wrappers over the internal move-event pool, so getBodyEvents allocates nothing in steady
-    // state (matching the internal pool). Rebuilt lazily; valid until the next step or getBodyEvents.
+    // Only the output array is reused; move events and their body handles are fresh.
     private readonly _moveEventPool: BodyMoveEvent[] = [];
     private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
     private readonly _sensorEvents: SensorEvents = { beginEvents: [], endEvents: [] };
@@ -345,8 +344,8 @@ export class PhysicsWorld {
 
     /**
      * Body move events from the last {@link step} (b3World_GetBodyEvents), bridged from the kernel's
-     * retained finalization records. The wrapper pool is only public API ergonomics; identity, generation,
-     * sleep state and the final transform come from the retained kernel record/body columns.
+     * retained finalization records. The returned object and move-event array are reused; each call
+     * creates fresh events, transforms and body handles. Only the first `count` array entries are valid.
      * @example const ev = world.getBodyEvents(); for (let i = 0; i < ev.count; i++) sync(ev.moveEvents[i].userData, ev.moveEvents[i].transform)
      */
     getBodyEvents(): BodyEvents {
