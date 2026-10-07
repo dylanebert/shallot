@@ -54,17 +54,28 @@ pub(crate) unsafe fn prepare_spans(
     )
 }
 
-#[derive(Default)]
+#[repr(C)]
 struct GraphColor {
     body_set: Vec<u64>,
+    joint_sims: joints::JointArray,
     convex_contacts: Vec<u32>,
     contacts: Vec<ContactSpec>,
 }
-static mut GRAPHS: [Vec<GraphColor>; MAX_WORLDS] = [const { Vec::new() }; MAX_WORLDS];
-unsafe fn colors(world_index: usize) -> &'static mut Vec<GraphColor> {
-    let g = &mut GRAPHS[world_index];
-    g.resize_with(COLORS, GraphColor::default);
-    g
+impl GraphColor {
+    const EMPTY: Self = Self {
+        body_set: Vec::new(),
+        joint_sims: joints::JointArray::EMPTY,
+        convex_contacts: Vec::new(),
+        contacts: Vec::new(),
+    };
+}
+static mut GRAPHS: [[GraphColor; COLORS]; MAX_WORLDS] =
+    [const { [const { GraphColor::EMPTY }; COLORS] }; MAX_WORLDS];
+unsafe fn colors(world_index: usize) -> &'static mut [GraphColor; COLORS] {
+    &mut GRAPHS[world_index]
+}
+pub(crate) unsafe fn joint_array(world: usize, color: usize) -> &'static mut joints::JointArray {
+    &mut GRAPHS[world][color].joint_sims
 }
 fn bit(c: &GraphColor, id: usize) -> bool {
     c.body_set
@@ -391,7 +402,10 @@ pub(crate) unsafe fn initialize_constraints(world: usize) {
     }
 }
 pub unsafe fn reset(id: usize) {
-    GRAPHS[id] = Vec::new();
+    for color in &mut GRAPHS[id] {
+        color.joint_sims.records.release();
+    }
+    GRAPHS[id] = [const { GraphColor::EMPTY }; COLORS];
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     regions::write_word(out, GRAPHS[id].len());
@@ -413,10 +427,16 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     }
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
-    reset(id);
+    // Joint snapshots are decoded first; restoring contact arrays must not discard their storage.
+    for color in &mut GRAPHS[id] {
+        color.body_set = Vec::new();
+        color.convex_contacts = Vec::new();
+        color.contacts = Vec::new();
+    }
     let n = regions::read_word(input);
-    for _ in 0..n {
-        let mut c = GraphColor::default();
+    assert_eq!(n, COLORS);
+    for color in 0..n {
+        let mut c = GraphColor::EMPTY;
         let n = regions::read_word(input);
         for _ in 0..n {
             c.body_set
@@ -438,6 +458,7 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
             });
             *input = &input[10..];
         }
-        GRAPHS[id].push(c);
+        c.joint_sims = GRAPHS[id][color].joint_sims;
+        GRAPHS[id][color] = c;
     }
 }

@@ -1,7 +1,7 @@
 //! Joint-sim arrays owned by each world, in graph-color and solver-set order.
 use crate::col::Col;
 use crate::joint_abi::{JOINT_STRIDE, J_JOINT_ID, NULL_INDEX};
-use crate::regions::{self, Columns, MAX_WORLDS};
+use crate::regions::{self, Columns};
 
 #[derive(Clone, Copy)]
 pub(crate) struct JointArray {
@@ -33,14 +33,11 @@ impl JointArray {
         *self.ptr(index).add(J_JOINT_ID)
     }
 }
-static mut ARRAYS: [[JointArray; crate::constraint_graph::COLORS]; MAX_WORLDS] =
-    [[JointArray::EMPTY; crate::constraint_graph::COLORS]; MAX_WORLDS];
 unsafe fn array(world_index: usize, key: usize) -> &'static mut JointArray {
     if key >= crate::constraint_graph::COLORS {
         return crate::solver_set::joint_array(world_index, key - crate::constraint_graph::COLORS);
     }
-    let arrays = &mut ARRAYS[world_index];
-    &mut arrays[key]
+    crate::constraint_graph::joint_array(world_index, key)
 }
 #[export_name = "jointArrayRelease"]
 pub extern "C" fn release(key: usize) {
@@ -188,14 +185,16 @@ pub unsafe fn column(world_index: usize, key: usize) -> Col<'static, f32> {
     Col::new(a.ptr(0) as *mut f32, a.count * JOINT_STRIDE)
 }
 pub unsafe fn reset(id: usize) {
-    for a in &mut ARRAYS[id] {
+    for color in 0..crate::constraint_graph::COLORS {
+        let a = crate::constraint_graph::joint_array(id, color);
         a.records.release();
+        *a = JointArray::EMPTY;
     }
-    ARRAYS[id] = [JointArray::EMPTY; crate::constraint_graph::COLORS];
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
-    regions::write_word(out, ARRAYS[id].len());
-    for a in &ARRAYS[id] {
+    regions::write_word(out, crate::constraint_graph::COLORS);
+    for color in 0..crate::constraint_graph::COLORS {
+        let a = crate::constraint_graph::joint_array(id, color);
         regions::write_word(out, a.count);
         a.records.snapshot(out);
     }
@@ -204,7 +203,8 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     reset(id);
     let count = regions::read_word(input);
     assert_eq!(count, crate::constraint_graph::COLORS);
-    for a in &mut ARRAYS[id] {
+    for color in 0..crate::constraint_graph::COLORS {
+        let a = crate::constraint_graph::joint_array(id, color);
         a.count = regions::read_word(input);
         a.records.restore(input);
     }
