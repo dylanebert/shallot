@@ -511,6 +511,42 @@ fn cull(points: &mut [Point2D]) -> usize {
     points[..count].copy_from_slice(&final_points[..count]);
     count
 }
+fn reduce_cluster(
+    points: &mut [LocalManifoldPoint],
+    materials: &mut [u32],
+    normal: Vec3,
+    projected: &mut [Point2D],
+) -> usize {
+    if points.len() <= 1 {
+        return points.len();
+    }
+    let u = normal.perp();
+    let v = normal.cross(u);
+    let origin = points[0].point;
+    for (j, point) in points.iter().enumerate() {
+        let d = point.point.sub(origin);
+        projected[j] = Point2D {
+            p: Vec2 {
+                x: d.dot(u),
+                y: d.dot(v),
+            },
+            separation: point.separation,
+            index: j,
+        };
+    }
+    let count = cull(&mut projected[..points.len()]);
+    let mut final_points = [points[0]; 4];
+    let mut final_materials = [0; 4];
+    for i in 0..count {
+        let index = projected[i].index;
+        final_points[i] = points[index];
+        final_materials[i] = materials[index];
+    }
+    points[..count].copy_from_slice(&final_points[..count]);
+    materials[..count].copy_from_slice(&final_materials[..count]);
+    count
+}
+
 fn sort_tentative(indices: &mut [TentativeTriangle]) {
     if indices.len() <= 1 {
         return;
@@ -799,22 +835,12 @@ pub fn compute_mesh_manifolds(
     let offset = xf_b.p.sub(xf_a.p);
     for i in 0..cluster_count {
         let cluster = scratch.clusters[i];
-        let u = cluster.triangle_normal.perp();
-        let v = cluster.triangle_normal.cross(u);
-        let origin = scratch.points[cluster.base].point;
-        for j in 0..cluster.count {
-            let p = scratch.points[cluster.base + j];
-            let d = p.point.sub(origin);
-            scratch.projected[j] = Point2D {
-                p: Vec2 {
-                    x: d.dot(u),
-                    y: d.dot(v),
-                },
-                separation: p.separation,
-                index: j,
-            };
-        }
-        let count = cull(&mut scratch.projected[..cluster.count]);
+        let count = reduce_cluster(
+            &mut scratch.points[cluster.base..cluster.base + cluster.count],
+            &mut scratch.point_materials[cluster.base..cluster.base + cluster.count],
+            cluster.triangle_normal,
+            &mut scratch.projected[..cluster.count],
+        );
         let mut m = Manifold::new();
         m.normal = matrix.mul_v(cluster.normal);
         m.point_count = count;
@@ -837,7 +863,7 @@ pub fn compute_mesh_manifolds(
             consumed[j] = true;
         }
         for j in 0..count {
-            let source_index = cluster.base + scratch.projected[j].index;
+            let source_index = cluster.base + j;
             let source = scratch.points[source_index];
             let p = &mut m.points[j];
             p.anchor_b = matrix.mul_v(source.point);
@@ -867,6 +893,19 @@ pub fn compute_mesh_manifolds(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_point_cluster_returns_without_projecting_or_culling() {
+        let point = LocalManifoldPoint::ZERO;
+        let mut points = [point];
+        let mut materials = [7];
+        assert_eq!(
+            reduce_cluster(&mut points, &mut materials, Vec3::ZERO, &mut []),
+            1
+        );
+        assert_eq!(materials, [7]);
+        assert_eq!(points[0].point, point.point);
+    }
 
     #[test]
     #[should_panic]
