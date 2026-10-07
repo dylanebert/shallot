@@ -296,6 +296,7 @@ int main( int argc, char** argv )
 	int probeStep = getenv( "PROBE" ) ? atoi( getenv( "PROBE" ) ) : -1;
 	int focus = getenv( "FOCUS" ) ? atoi( getenv( "FOCUS" ) ) : -1;
 	int profileFrom = getenv( "PROFILE" ) ? atoi( getenv( "PROFILE" ) ) : -1;
+	int countersFrom = getenv( "COUNTERS" ) ? atoi( getenv( "COUNTERS" ) ) : profileFrom;
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
 	worldDef.enableContinuous = true;
@@ -317,6 +318,9 @@ int main( int argc, char** argv )
 			printf( "F %d", i );
 			for ( int k = 0; k < (int)( sizeof( p ) / sizeof( float ) ); ++k ) printf( " %.4f", field[k] );
 			printf( "\n" );
+		}
+		if ( countersFrom >= 0 && i >= countersFrom )
+		{
 			b3Counters n = b3World_GetCounters( worldId );
 			int manifolds = 0;
 			for ( int k = 0; k < B3_CONTACT_MANIFOLD_COUNT_BUCKETS; ++k ) manifolds += n.manifoldCounts[k];

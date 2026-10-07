@@ -5,7 +5,7 @@
 //
 // The builders transcribe Box3D 47d7f7cc's shared/benchmarks.c and shared/human.c with their f32
 // arithmetic; human.c's bone table is read from the frozen ragdoll fixture. Environment as native.c:
-// RAIN_COUNT, RAIN_GROUP, ROCKS, COLORS, CACHE, PROFILE, and on Node CPU (cpu.ts).
+// RAIN_COUNT, RAIN_GROUP, ROCKS, COLORS, CACHE, PROFILE, COUNTERS, and on Node CPU (cpu.ts).
 import { World } from "../../src/engine";
 import { awakeContactCount } from "../../src/standard/physics/collision/contact";
 import {
@@ -314,6 +314,7 @@ const state = w.state as WorldState;
 const colors = env("COLORS", -1),
     cache = env("CACHE", -1),
     profileFrom = env("PROFILE", -1),
+    countersFrom = env("COUNTERS", profileFrom),
     cpuFrom = env("CPU", -1),
     wallFrom = env("WALL", -1),
     steps = Number(stepArg);
@@ -329,6 +330,8 @@ for (let i = 0; i < steps; ++i) {
     if (profileFrom >= 0 && i >= profileFrom) {
         const p = w.getProfile();
         lines.push(`F ${i} ${PROFILE_FIELDS.map((k) => p[k].toFixed(4)).join(" ")}`);
+    }
+    if (countersFrom >= 0 && i >= countersFrom) {
         const c = w.getCounters();
         lines.push(`W ${i} contacts ${c.contactCount} awake ${awakeContactCount(state)} joints ${c.jointCount}`);
     }

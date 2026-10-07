@@ -3,15 +3,15 @@
 //
 //     BOX3D=/path/to/box3d bun test ./diagnostics/box3d-parity/phases.oracle.ts
 //
-// For each scene at 1 and 4 threads, native.c and scenes.ts (bundled for Node) step to the end of a window
-// of steps; both print every step's phase times inside it, and Shallot also its main thread's CPU profile
-// over it (cpu.ts). A test asserts only that the two hash equal at every step, so both time the same
-// world; timings are reported, never asserted. PHASE_THREADS (comma list, "1,4") picks the thread counts.
+// Every step's hash and each measured step's contact, awake and joint counts must equal native.
+// Cases run concurrently, each native then Shallot. PHASE_TIMING=1 runs sequentially with phase and
+// main-thread CPU profiling (cpu.ts) and reports timings, never asserts them.
+// PHASE_THREADS (comma list, "1,4") picks the thread counts.
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { nativeBinary, run } from "./native";
+import { nativeBinary } from "./native";
 
 setDefaultTimeout(300_000);
 
@@ -51,6 +51,7 @@ const FIELDS = [
 ];
 const SHOWN = FIELDS;
 const threadCounts = (process.env.PHASE_THREADS ?? "1,4").split(",").map(Number);
+const timing = process.env.PHASE_TIMING === "1";
 
 const native = nativeBinary();
 const dir = mkdtempSync(join(tmpdir(), "box3d-parity-phases-"));
@@ -72,19 +73,63 @@ const profile = (lines: string[]) =>
     lines.filter((l) => l.startsWith("F ")).map((l) => l.split(" ").slice(2).map(Number));
 const hashes = (lines: string[]) => lines.filter((l) => /^\d+ 0x/.test(l));
 
+async function run(cmd: string[], from: number): Promise<string[]> {
+    const proc = Bun.spawn(cmd, {
+        env: {
+            ...process.env,
+            PROFILE: timing ? String(from) : "-1",
+            CPU: timing ? String(from) : "-1",
+            COUNTERS: String(from),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+    ]);
+    if (exitCode !== 0) throw new Error(`${cmd.join(" ")} failed:\n${stderr}`);
+    return stdout.trim().split("\n");
+}
+
+async function runCase(scene: string, threads: number, from: number, to: number) {
+    const args = [scene, String(threads), String(to)];
+    const n = await run([native, ...args], from);
+    const s = await run(["node", bundle, ...args], from);
+    return { n, s };
+}
+
+const cases = new Map<string, ReturnType<typeof runCase>>();
+if (!timing) {
+    for (const [scene, [from, to]] of Object.entries(WINDOWS)) {
+        for (const threads of threadCounts) {
+            const result = runCase(scene, threads, from, to);
+            // Tests consume the failure even if a child exits before its test starts.
+            void result.catch(() => {});
+            cases.set(`${scene}:${threads}`, result);
+        }
+    }
+}
+
 for (const [scene, [from, to]] of Object.entries(WINDOWS)) {
-    test(`${scene} hashes equal native over steps ${from}-${to - 1}; its phase times are reported against b3Profile`, () => {
+    test(`${scene} hashes and counts equal native over steps ${from}-${to - 1}`, async () => {
         const report: string[] = [];
         for (const threads of threadCounts) {
-            const env = { PROFILE: String(from), CPU: String(from) };
-            const args = [scene, String(threads), String(to)];
-            const n = run([native, ...args], env)
-                .trim()
-                .split("\n");
-            const s = run(["node", bundle, ...args], env)
-                .trim()
-                .split("\n");
+            const { n, s } = await (cases.get(`${scene}:${threads}`) ?? runCase(scene, threads, from, to));
             expect(hashes(s)).toEqual(hashes(n));
+            const counters = n.filter((l) => l.startsWith("N ")).map((l) => l.split(" "));
+            const worldCounts = s.filter((l) => l.startsWith("W ")).map((l) => l.split(" "));
+            expect(counters).toHaveLength(to - from);
+            expect(worldCounts).toHaveLength(counters.length);
+            for (let i = 0; i < counters.length; ++i) {
+                for (const name of ["contacts", "awake", "joints"]) {
+                    expect(Number(worldCounts[i][worldCounts[i].indexOf(name) + 1])).toBe(
+                        Number(counters[i][counters[i].indexOf(name) + 1]),
+                    );
+                }
+            }
+            if (!timing) continue;
             const np = profile(n),
                 sp = profile(s);
             report.push(
@@ -106,15 +151,6 @@ for (const [scene, [from, to]] of Object.entries(WINDOWS)) {
             report.push(
                 `step ratio median, first and second half: ${median(ratio.slice(0, half)).toFixed(1)}, ${median(ratio.slice(half)).toFixed(1)}`,
             );
-            const counters = n.filter((l) => l.startsWith("N ")).map((l) => l.split(" "));
-            const worldCounts = s.filter((l) => l.startsWith("W ")).map((l) => l.split(" "));
-            for (let i = 0; i < counters.length; ++i) {
-                for (const name of ["contacts", "awake", "joints"]) {
-                    expect(Number(worldCounts[i][worldCounts[i].indexOf(name) + 1])).toBe(
-                        Number(counters[i][counters[i].indexOf(name) + 1]),
-                    );
-                }
-            }
             const count = (name: string) =>
                 median(counters.map((c) => Number(c[c.indexOf(name) + 1])));
             report.push(
@@ -125,6 +161,6 @@ for (const [scene, [from, to]] of Object.entries(WINDOWS)) {
                 "",
             );
         }
-        console.info(report.join("\n"));
+        if (timing) console.info(report.join("\n"));
     });
 }
