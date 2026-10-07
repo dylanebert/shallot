@@ -30,7 +30,7 @@ pub fn integrate_velocities(
 ) {
     for i in start..start + count {
         let sim = read_sim(sim_col, i);
-        let mut s = read_state(state_col, i);
+        let s = read_state(state_col, i);
 
         let mut v = s.linear_velocity;
         let mut w = s.angular_velocity;
@@ -110,9 +110,13 @@ pub fn integrate_velocities(
             w = q.rotate(omega2);
         }
 
-        s.linear_velocity = v;
-        s.angular_velocity = w;
-        write_state(state_col, i, &s);
+        let o = i * crate::body::STATE_STRIDE;
+        state_col.set(o, v.x);
+        state_col.set(o + 1, v.y);
+        state_col.set(o + 2, v.z);
+        state_col.set(o + 3, w.x);
+        state_col.set(o + 4, w.y);
+        state_col.set(o + 5, w.z);
     }
 }
 
