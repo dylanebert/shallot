@@ -2,7 +2,7 @@
 use crate::col::Col;
 use crate::math::{Mat3, Quat, Vec3};
 
-pub const STATE_STRIDE: usize = 16;
+pub const STATE_STRIDE: usize = 14;
 pub const STATE_LIVE: usize = 13;
 pub const STATE_FLAGS: usize = 13;
 pub const SIM_STRIDE: usize = 54;
@@ -56,7 +56,6 @@ pub struct BodyState {
     pub delta_position: Vec3,
     pub delta_rotation: Quat,
     pub flags: u32,
-    pub padding: [u32; 2],
 }
 const _: () = assert!(core::mem::size_of::<BodySim>() == SIM_STRIDE * 4);
 const _: () = assert!(core::mem::size_of::<BodyState>() == STATE_STRIDE * 4);

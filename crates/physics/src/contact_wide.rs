@@ -496,12 +496,12 @@ fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyState
             v128_load(p2.add(8) as *const v128),
             v128_load(p3.add(8) as *const v128),
         );
-        // block 3: only lane 0 (dq.s) is live; the dead transpose outputs fold away.
+        // Only dq.s is live; a full vector load would run past the 56-byte state or local dummy.
         let (qs, _, _, _) = transpose4(
-            v128_load(p0.add(12) as *const v128),
-            v128_load(p1.add(12) as *const v128),
-            v128_load(p2.add(12) as *const v128),
-            v128_load(p3.add(12) as *const v128),
+            v128_load32_zero(p0.add(12).cast()),
+            v128_load32_zero(p1.add(12).cast()),
+            v128_load32_zero(p2.add(12).cast()),
+            v128_load32_zero(p3.add(12).cast()),
         );
         BodyStateW {
             v: Vec3W {
