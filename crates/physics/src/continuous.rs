@@ -89,20 +89,6 @@ unsafe fn sweep(world_index: usize, i: usize, base: Vec3) -> Sweep {
         q2: q(s, i * body::SIM_STRIDE + body::ROTATION),
     }
 }
-fn transform(s: Sweep, t: f32) -> Transform {
-    let q = s.q1.nlerp(s.q2, t);
-    let c = s.c1.lerp(s.c2, t);
-    Transform {
-        p: c.sub(q.rotate(s.local_center)),
-        q,
-    }
-}
-fn start(s: Sweep) -> Transform {
-    Transform {
-        p: s.c1.sub(s.q1.rotate(s.local_center)),
-        q: s.q1,
-    }
-}
 fn end(s: Sweep) -> Transform {
     Transform {
         p: s.c2.sub(s.q2.rotate(s.local_center)),
@@ -182,12 +168,6 @@ fn union(a: [f32; 6], b: [f32; 6]) -> [f32; 6] {
         crate::math::maxf(a[4], b[4]),
         crate::math::maxf(a[5], b[5]),
     ]
-}
-fn lo(b: [f32; 6]) -> Vec3 {
-    Vec3::new(b[0], b[1], b[2])
-}
-fn hi(b: [f32; 6]) -> Vec3 {
-    Vec3::new(b[3], b[4], b[5])
 }
 unsafe fn target_sweep(world_index: usize, id: usize, base: Vec3) -> Sweep {
     let u = shapes::col(world_index);
