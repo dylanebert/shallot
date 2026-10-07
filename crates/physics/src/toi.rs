@@ -292,10 +292,6 @@ pub fn time_of_impact(input: &TOIInput) -> TOIOutput {
         let normal = xa.q.rotate(distance.normal);
         let pa = xa.point(distance.point_a);
         let pb = xa.point(distance.point_b);
-        let point = pa
-            .mul_add(a.radius, normal)
-            .lerp(pb.mul_add(-b.radius, normal), 0.5)
-            .add(origin);
         out.distance_iterations += 1;
         if distance.distance <= 0.0
             || distance.distance <= target + tolerance
@@ -309,7 +305,10 @@ pub fn time_of_impact(input: &TOIInput) -> TOIOutput {
                 1
             };
             out.fraction = if out.state == 2 { 0.0 } else { t1 };
-            out.point = point;
+            out.point = pa
+                .mul_add(a.radius, normal)
+                .lerp(pb.mul_add(-b.radius, normal), 0.5)
+                .add(origin);
             out.normal = normal;
             break;
         }
@@ -380,7 +379,10 @@ pub fn time_of_impact(input: &TOIInput) -> TOIOutput {
             }
         }
         if done {
-            out.point = point;
+            out.point = pa
+                .mul_add(a.radius, normal)
+                .lerp(pb.mul_add(-b.radius, normal), 0.5)
+                .add(origin);
             out.normal = normal;
             break;
         }
