@@ -244,6 +244,22 @@ pub(crate) fn find_incident_face(hull: &HullData, ref_normal: Vec3, vertex_index
     }
 }
 
+pub(crate) trait ClipSlot {
+    fn put(&mut self, vertex: ClipVertex);
+}
+
+impl ClipSlot for ClipVertex {
+    fn put(&mut self, vertex: ClipVertex) {
+        *self = vertex;
+    }
+}
+
+impl ClipSlot for core::mem::MaybeUninit<ClipVertex> {
+    fn put(&mut self, vertex: ClipVertex) {
+        self.write(vertex);
+    }
+}
+
 /// b3ClipPolygon — Sutherland-Hodgman clip of `polygon` against `clip_plane`, writing the clipped polygon
 /// into `out` and returning its length. Intersection points re-own their cut edge to `edge` on shape A.
 /// `out` must hold at least `count + 1` slots (the clip grows the polygon by at most one vertex).
@@ -253,7 +269,7 @@ pub(crate) fn clip_polygon(
     clip_plane: Plane,
     edge: u8,
     ref_plane: Plane,
-    out: &mut [ClipVertex],
+    out: &mut [impl ClipSlot],
 ) -> usize {
     let mut n = 0;
 
@@ -266,7 +282,7 @@ pub(crate) fn clip_polygon(
 
         if distance1 <= 0.0 && distance2 <= 0.0 {
             // Both behind: keep vertex2.
-            out[n] = vertex2;
+            out[n].put(vertex2);
             n += 1;
         } else if distance1 <= 0.0 && distance2 > 0.0 {
             // Leaving: keep intersection, adjust outgoing edge.
@@ -277,11 +293,11 @@ pub(crate) fn clip_polygon(
             let mut pair = vertex2.pair;
             pair.owner2 = SHAPE_A;
             pair.index2 = edge;
-            out[n] = ClipVertex {
+            out[n].put(ClipVertex {
                 position,
                 separation: ref_plane.separation(position),
                 pair,
-            };
+            });
             n += 1;
         } else if distance2 <= 0.0 && distance1 > 0.0 {
             // Entering: keep intersection (adjust incoming edge) then vertex2.
@@ -292,13 +308,13 @@ pub(crate) fn clip_polygon(
             let mut pair = vertex1.pair;
             pair.owner1 = SHAPE_A;
             pair.index1 = edge;
-            out[n] = ClipVertex {
+            out[n].put(ClipVertex {
                 position,
                 separation: ref_plane.separation(position),
                 pair,
-            };
+            });
             n += 1;
-            out[n] = vertex2;
+            out[n].put(vertex2);
             n += 1;
         }
 
@@ -1235,7 +1251,7 @@ fn build_polygon(
     hull: &HullData,
     inc_face: usize,
     ref_plane: Plane,
-    out: &mut [ClipVertex],
+    out: &mut [core::mem::MaybeUninit<ClipVertex>],
 ) -> usize {
     let faces = &hull.faces;
     let edges = &hull.edges;
@@ -1253,7 +1269,7 @@ fn build_polygon(
         let next = edges[next_edge_index];
 
         let position = matrix.mul_v(points[next.origin as usize]).add(transform.p);
-        out[n] = ClipVertex {
+        out[n].write(ClipVertex {
             position,
             separation: ref_plane.separation(position),
             pair: FeaturePair {
@@ -1262,7 +1278,7 @@ fn build_polygon(
                 owner2: SHAPE_B,
                 index2: next_edge_index as u8,
             },
-        };
+        });
         n += 1;
 
         edge_index = next_edge_index;
@@ -1297,8 +1313,8 @@ fn build_face_a_contact(
     let ref_normal_in_b = transform_b_to_a.q.inv_rotate(ref_plane.normal);
     let inc_face = find_incident_face(hull_b, ref_normal_in_b, query.index_b as usize);
 
-    let mut buffer1 = [ClipVertex::ZERO; MAX_CLIP_POINTS];
-    let mut buffer2 = [ClipVertex::ZERO; MAX_CLIP_POINTS];
+    let mut buffer1 = [core::mem::MaybeUninit::uninit(); MAX_CLIP_POINTS];
+    let mut buffer2 = [core::mem::MaybeUninit::uninit(); MAX_CLIP_POINTS];
     let mut input = &mut buffer1;
     let mut scratch = &mut buffer2;
     let mut point_count = build_polygon(transform_b_to_a, hull_b, inc_face, ref_plane, input);
@@ -1319,7 +1335,8 @@ fn build_face_a_contact(
         let clip_plane = Plane::from_normal_and_point(binormal, vertex1);
 
         point_count = clip_polygon(
-            &input[..point_count],
+            // build_polygon and clip_polygon initialize exactly their returned prefixes.
+            unsafe { core::slice::from_raw_parts(input.as_ptr().cast(), point_count) },
             point_count,
             clip_plane,
             edge_index as u8,
@@ -1345,18 +1362,18 @@ fn build_face_a_contact(
 
     manifold.normal = ref_plane.normal;
 
-    let mut reduce_points = [LocalManifoldPoint::ZERO; MAX_CLIP_POINTS];
+    let mut reduce_points = [core::mem::MaybeUninit::uninit(); MAX_CLIP_POINTS];
     for i in 0..point_count {
-        let clip_point = input[i];
+        let clip_point = unsafe { input[i].assume_init() };
         // Half-way point keeps positions stable when swapping the reference face from A to B.
-        reduce_points[i] = LocalManifoldPoint {
+        reduce_points[i].write(LocalManifoldPoint {
             point: clip_point
                 .position
                 .mul_sub(0.5 * clip_point.separation, ref_plane.normal),
             separation: clip_point.separation,
             pair: clip_point.pair,
             triangle_index: 0,
-        };
+        });
         min_separation = minf(min_separation, clip_point.separation);
     }
 
@@ -1365,7 +1382,11 @@ fn build_face_a_contact(
         return false;
     }
 
-    reduce_manifold_points(manifold, capacity, &mut reduce_points, point_count);
+    // Only the prefix written by the loop above becomes initialized point records.
+    let reduce_points = unsafe {
+        core::slice::from_raw_parts_mut(reduce_points.as_mut_ptr().cast(), point_count)
+    };
+    reduce_manifold_points(manifold, capacity, reduce_points, point_count);
 
     cache.separation = min_separation;
     cache.ty = separating_feature::FACE_AXIS_A;
