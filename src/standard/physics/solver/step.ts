@@ -1,6 +1,5 @@
 import { readJointEventUserData } from "../kernel/jointcolumns";
 import { kernel, threads } from "../kernel/kernel";
-import { readStepProfile } from "../world/profile";
 import {
     defaultFrictionCallback,
     defaultRestitutionCallback,
@@ -46,6 +45,5 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.shapeStore.refreshViews();
     world.broadPhase.store.refreshIfStale();
     readJointEventUserData(world);
-    readStepProfile(world);
     world.locked = false;
 }

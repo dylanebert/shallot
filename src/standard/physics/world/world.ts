@@ -26,7 +26,7 @@ import { kernel } from "../kernel/kernel";
 import type { QueryColumns } from "../kernel/querycolumns";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
 import type { HullData } from "../shapes/hull";
-import { createStepProfile, type StepProfile } from "./profile";
+import { createStepProfile, readStepProfile, type StepProfile } from "./profile";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
 export const MAX_WORLDS = 128;
@@ -286,5 +286,6 @@ export function worldCounters(world: WorldState): Counters {
 
 /** @returns a copy of the last step's phase timings (b3World_GetProfile). */
 export function worldProfile(world: WorldState): StepProfile {
+    readStepProfile(world);
     return { ...world.profile };
 }
