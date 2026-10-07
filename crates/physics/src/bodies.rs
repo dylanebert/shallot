@@ -382,18 +382,23 @@ pub fn active_generation(world_index: usize, id: u32) -> u32 {
 }
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     let w = &WORLDS[id];
-    for value in [w.cap, w.next, w.free.len()] {
+    for value in [w.next, w.free.len()] {
         regions::write_word(out, value);
     }
     for &id in &w.free {
         regions::write_word(out, id as usize);
     }
-    w.columns.snapshot(out);
+    let mut bytes = [0; N_BODY];
+    for column in [B_RECORD_EID, B_SYNC_EID, B_SYNC_INDEX] { bytes[column] = w.next * 4; }
+    bytes[B_RECORD] = w.next * core::mem::size_of::<crate::body_record::BodyRecord>();
+    bytes[B_MOVE] = w.next * MOVE_STRIDE * 4;
+    for column in [B_SYNC_POS, B_SYNC_QUAT, B_SYNC_VEL] { bytes[column] = w.next * 16; }
+    w.columns.snapshot_prefix(out, bytes);
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     let w = &mut WORLDS[id];
-    w.cap = regions::read_word(input);
     w.next = regions::read_word(input);
+    w.cap = w.next;
     let count = regions::read_word(input);
     w.free.clear();
     w.free.reserve(count);
