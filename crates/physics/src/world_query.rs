@@ -1,7 +1,7 @@
 //! Box3D world queries over the resident broad-phase pools and shape records.
 use crate::distance::{CastOutput, ShapeProxy};
 use crate::manifold::Capsule;
-use crate::math::{Quat, Transform, Vec3};
+use crate::math::{maxf, minf, Quat, Transform, Vec3};
 use crate::mesh_query::proxy_bounds;
 use crate::query::{self, PlaneResult, RayCastInput, ShapeCastInput};
 use crate::shapes::*;
@@ -216,6 +216,14 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
         } else if operation == 2 || operation == 3 {
             // Ray traversal uses origin and translation, not a shape proxy's bounds.
             (Vec3::ZERO, Vec3::ZERO)
+        } else if operation == 5 {
+            let a = proxy.points[0];
+            let b = proxy.points[1];
+            let radius = Vec3::new(proxy.radius, proxy.radius, proxy.radius);
+            (
+                Vec3::new(minf(a.x, b.x), minf(a.y, b.y), minf(a.z, b.z)).sub(radius),
+                Vec3::new(maxf(a.x, b.x), maxf(a.y, b.y), maxf(a.z, b.z)).add(radius),
+            )
         } else {
             proxy_bounds(proxy)
         };
