@@ -231,10 +231,13 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
         let mut fraction = 1.0;
         let (mut lo, mut hi) = if operation == 0 {
             (v(&header, 13), v(&header, 16))
+        } else if operation == 2 || operation == 3 {
+            // Ray traversal uses origin and translation, not a shape proxy's bounds.
+            (Vec3::ZERO, Vec3::ZERO)
         } else {
             proxy_bounds(proxy)
         };
-        if operation != 0 {
+        if operation != 0 && operation != 2 && operation != 3 {
             lo = lo.add(origin);
             hi = hi.add(origin);
         }
