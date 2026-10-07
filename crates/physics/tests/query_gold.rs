@@ -54,8 +54,10 @@ fn hull<'a>(g: &Value, points: &'a [Vec3], planes: &'a [Plane]) -> HullData<'a> 
     HullData {
         center: v(&g["center"]),
         bounds: points.iter().fold([points[0]; 2], |[lo, hi], p| {
-            [Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)),
-             Vec3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z))]
+            [
+                Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)),
+                Vec3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z)),
+            ]
         }),
         vertex_count: points.len(),
         edge_count: 0,

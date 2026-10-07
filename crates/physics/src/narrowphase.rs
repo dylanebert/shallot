@@ -44,7 +44,9 @@ impl ConvexContactCache {
         if !matches!(self, Self::Simplex(_)) {
             *self = Self::Simplex(SimplexCache::empty());
         }
-        let Self::Simplex(cache) = self else { unreachable!() };
+        let Self::Simplex(cache) = self else {
+            unreachable!()
+        };
         cache
     }
 
@@ -52,7 +54,9 @@ impl ConvexContactCache {
         if !matches!(self, Self::Sat(_)) {
             *self = Self::Sat(SatCache::empty());
         }
-        let Self::Sat(cache) = self else { unreachable!() };
+        let Self::Sat(cache) = self else {
+            unreachable!()
+        };
         cache
     }
 }

@@ -1383,9 +1383,8 @@ fn build_face_a_contact(
     }
 
     // Only the prefix written by the loop above becomes initialized point records.
-    let reduce_points = unsafe {
-        core::slice::from_raw_parts_mut(reduce_points.as_mut_ptr().cast(), point_count)
-    };
+    let reduce_points =
+        unsafe { core::slice::from_raw_parts_mut(reduce_points.as_mut_ptr().cast(), point_count) };
     reduce_manifold_points(manifold, capacity, reduce_points, point_count);
 
     cache.separation = min_separation;
@@ -1521,7 +1520,10 @@ struct SatScratch<const N: usize> {
 
 impl<const N: usize> SatScratch<N> {
     fn new() -> Self {
-        Self { values: [core::mem::MaybeUninit::uninit(); N], initialized: 0 }
+        Self {
+            values: [core::mem::MaybeUninit::uninit(); N],
+            initialized: 0,
+        }
     }
     fn set(&mut self, i: usize, value: f32) {
         assert!(i <= self.initialized);
@@ -1536,7 +1538,12 @@ impl<const N: usize> SatScratch<N> {
     fn load(&self, i: usize) -> crate::simd::FloatW {
         assert!(i + 4 <= self.initialized);
         // No reference includes the unwritten suffix.
-        unsafe { crate::simd::FloatW::load(core::slice::from_raw_parts(self.values.as_ptr().add(i).cast(), 4)) }
+        unsafe {
+            crate::simd::FloatW::load(core::slice::from_raw_parts(
+                self.values.as_ptr().add(i).cast(),
+                4,
+            ))
+        }
     }
 }
 
@@ -1548,7 +1555,11 @@ struct HullSoa3<const N: usize> {
 
 impl<const N: usize> HullSoa3<N> {
     fn new() -> Self {
-        Self { x: SatScratch::new(), y: SatScratch::new(), z: SatScratch::new() }
+        Self {
+            x: SatScratch::new(),
+            y: SatScratch::new(),
+            z: SatScratch::new(),
+        }
     }
     fn set(&mut self, i: usize, v: Vec3) {
         self.x.set(i, v.x);
@@ -1693,8 +1704,20 @@ fn compute_separating_axis(
     use crate::simd::FloatW;
     let mut b_normals = HullSoa3::<NF>::new();
     let mut b_points = HullSoa3::<NV>::new();
-    negative_transform_from_soa(&rotation, transform_b_to_a.p, &hull_b.soa_normals, false, &mut b_normals);
-    negative_transform_from_soa(&rotation, transform_b_to_a.p, &hull_b.soa_points, true, &mut b_points);
+    negative_transform_from_soa(
+        &rotation,
+        transform_b_to_a.p,
+        &hull_b.soa_normals,
+        false,
+        &mut b_normals,
+    );
+    negative_transform_from_soa(
+        &rotation,
+        transform_b_to_a.p,
+        &hull_b.soa_points,
+        true,
+        &mut b_points,
+    );
     let mut b_c = HullSoa3::<NE>::new();
     let mut b_d = HullSoa3::<NE>::new();
     let mut b_v0 = HullSoa3::<NE>::new();
@@ -1727,7 +1750,10 @@ fn compute_separating_axis(
         a_dir.set(i, dir);
         a_v0.set(i, v0);
         // b3ComputeSeparatingAxis computes this scalar sum left-to-right, not b3Dot3W.
-        a_tol.set(i, squared_tol * (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z));
+        a_tol.set(
+            i,
+            squared_tol * (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z),
+        );
     }
     for i in na..na + 4 {
         a_n0.set(i, Vec3::ZERO);

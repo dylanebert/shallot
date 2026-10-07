@@ -284,11 +284,15 @@ pub struct MeshScratch<'a> {
     pub materials: &'a mut [[u32; 4]],
 }
 
-const SCRATCH_BYTES: usize = MAX_TRIANGLES * (
-    core::mem::size_of::<TriangleResult>() + 3 * core::mem::size_of::<usize>()
-    + core::mem::size_of::<Cluster>()
-) + MAX_POINTS * (2 * core::mem::size_of::<LocalManifoldPoint>()
-    + core::mem::size_of::<u32>() + core::mem::size_of::<Point2D>()) + 11 * 16;
+const SCRATCH_BYTES: usize = MAX_TRIANGLES
+    * (core::mem::size_of::<TriangleResult>()
+        + 3 * core::mem::size_of::<usize>()
+        + core::mem::size_of::<Cluster>())
+    + MAX_POINTS
+        * (2 * core::mem::size_of::<LocalManifoldPoint>()
+            + core::mem::size_of::<u32>()
+            + core::mem::size_of::<Point2D>())
+    + 11 * 16;
 
 pub struct MeshStorage {
     words: [u128; SCRATCH_BYTES.div_ceil(16)],
