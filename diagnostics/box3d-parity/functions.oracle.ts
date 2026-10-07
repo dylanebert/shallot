@@ -415,7 +415,7 @@ test("manifold.rs:1424-1431,1252-1261: generated hull-capsule edge decisions and
 test("manifold.rs:2240-2257 vs convex_manifold.c:2089: hull-hull fallback copies complete metadata", () => {
     compare(results.filter((r) => r.operation === 15 && r.label?.startsWith("manifold-")));
 });
-test.todo("manifold.rs:2118-2157 vs convex_manifold.c:1960-1986: manual axes use b3ComputeSeparatingAxis", () => {
+test("manifold.rs:2118-2157 vs convex_manifold.c:1960-1986: manual axes use b3ComputeSeparatingAxis", () => {
     compare(results.filter((r) => r.label?.startsWith("manual-axis-")));
 });
 

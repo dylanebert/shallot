@@ -103,21 +103,13 @@ impl Default for LocalManifold {
     }
 }
 
-/// Result of a face-direction SAT query (b3FaceQuery).
 #[derive(Clone, Copy)]
-struct FaceQuery {
-    separation: f32,
-    face_index: usize,
-    vertex_index: usize,
-}
-
-/// Result of an edge-direction SAT query (b3EdgeQuery).
-#[derive(Clone, Copy)]
-struct EdgeQuery {
+struct SeparatingAxis {
     normal: Vec3,
     separation: f32,
     index_a: i32,
     index_b: i32,
+    ty: u32,
 }
 
 /// Cached separating-axis feature type (b3SeparatingFeature).
@@ -205,36 +197,6 @@ pub(crate) fn flip_pair(pair: FeaturePair) -> FeaturePair {
         owner2: 1 - pair.owner1,
         index2: pair.index1,
     }
-}
-
-/// b3EdgeEdgeSeparation — separation along the cross product of two edges, oriented outward.
-fn edge_edge_separation(p1: Vec3, e1: Vec3, c1: Vec3, p2: Vec3, e2: Vec3, c2: Vec3) -> f32 {
-    let u = e1.cross(e2);
-    let length = u.length();
-
-    // Skip near-parallel edges: |e1 x e2| = sin(alpha) * |e1| * |e2|.
-    let k_tolerance: f32 = 0.005;
-    if length < k_tolerance * (e1.length_sq() * e2.length_sq()).sqrt() {
-        return -FLT_MAX;
-    }
-    if length * length < 1000.0 * FLT_MIN {
-        return -FLT_MAX;
-    }
-
-    let mut n = u.scale(1.0 / length);
-
-    // Orient n away from the shape with the most significant sign value.
-    let sign1 = n.dot(p1.sub(c1));
-    let sign2 = n.dot(p2.sub(c2));
-    if absf(sign1) > absf(sign2) {
-        if sign1 < 0.0 {
-            n = n.neg();
-        }
-    } else if sign2 > 0.0 {
-        n = n.neg();
-    }
-
-    n.dot(p2.sub(p1))
 }
 
 /// b3FindIncidentFace — the face on `hull` most anti-parallel to `ref_normal`.
@@ -348,12 +310,6 @@ pub(crate) fn clip_polygon(
 
 // --- convex_manifold.c: Gauss-map / clip helpers -----------------------------------------------
 
-fn is_minkowski_face_isolated(a: Vec3, b: Vec3, n: Vec3) -> bool {
-    let an = a.dot(n);
-    let bn = b.dot(n);
-    an * bn <= 0.0
-}
-
 fn is_minkowski_face(a: Vec3, b: Vec3, bxa: Vec3, c: Vec3, d: Vec3, dxc: Vec3) -> bool {
     let cba = c.dot(bxa);
     let dba = d.dot(bxa);
@@ -439,7 +395,7 @@ fn query_face_direction_hull_and_capsule(
     hull: &HullData,
     capsule: &Capsule,
     capsule_transform: Transform,
-) -> FaceQuery {
+) -> SeparatingAxis {
     let mut max_face_index = 0usize;
     let mut max_vertex_index = 0usize;
     let mut max_face_separation = -FLT_MAX;
@@ -462,43 +418,12 @@ fn query_face_direction_hull_and_capsule(
         }
     }
 
-    FaceQuery {
+    SeparatingAxis {
+        normal: planes[max_face_index].normal,
         separation: max_face_separation,
-        face_index: max_face_index & 0xff,
-        vertex_index: max_vertex_index & 0xff,
-    }
-}
-
-fn query_face_directions(
-    hull_a: &HullData,
-    hull_b: &HullData,
-    relative_transform: Transform,
-) -> FaceQuery {
-    // All computations in local space of the second hull.
-    let transform = relative_transform.invert();
-    let planes_a = &hull_a.planes;
-    let points_b = &hull_b.points;
-
-    let mut max_face_index = 0usize;
-    let mut max_vertex_index = 0usize;
-    let mut max_face_separation = -FLT_MAX;
-
-    for face_index in 0..hull_a.face_count {
-        let plane = planes_a[face_index].transform(transform);
-        let vertex_index = hull_b.support_vertex(plane.normal.neg());
-        let support = points_b[vertex_index];
-        let separation = plane.separation(support);
-        if separation > max_face_separation {
-            max_face_index = face_index;
-            max_vertex_index = vertex_index;
-            max_face_separation = separation;
-        }
-    }
-
-    FaceQuery {
-        separation: max_face_separation,
-        face_index: max_face_index & 0xff,
-        vertex_index: max_vertex_index & 0xff,
+        index_a: max_face_index as i32,
+        index_b: max_vertex_index as i32,
+        ty: separating_feature::FACE_AXIS_A,
     }
 }
 
@@ -506,7 +431,7 @@ fn query_edge_direction_hull_and_capsule(
     hull: &HullData,
     capsule: &Capsule,
     capsule_transform: Transform,
-) -> EdgeQuery {
+) -> SeparatingAxis {
     let mut max_normal = Vec3::ZERO;
     let mut max_separation = -FLT_MAX;
     let mut max_index_a: i32 = -1;
@@ -550,93 +475,12 @@ fn query_edge_direction_hull_and_capsule(
         index += 2;
     }
 
-    EdgeQuery {
+    SeparatingAxis {
         normal: max_normal,
         separation: max_separation,
         index_a: max_index_a,
         index_b: max_index_b,
-    }
-}
-
-fn query_edge_directions(
-    hull_a: &HullData,
-    hull_b: &HullData,
-    transform_b_to_a: Transform,
-) -> EdgeQuery {
-    let mut max_normal = Vec3::ZERO;
-    let mut max_separation = -FLT_MAX;
-    let mut max_index_a: i32 = -1;
-    let mut max_index_b: i32 = -1;
-
-    let edges_a = &hull_a.edges;
-    let points_a = &hull_a.points;
-    let planes_a = &hull_a.planes;
-    let edges_b = &hull_b.edges;
-    let points_b = &hull_b.points;
-    let planes_b = &hull_b.planes;
-
-    // Work in frame A.
-    let matrix = Mat3::from_quat(transform_b_to_a.q);
-
-    let mut index_b = 0;
-    while index_b < hull_b.edge_count {
-        let edge_b = edges_b[index_b];
-        let twin_b = edges_b[index_b + 1];
-
-        let p_b = matrix
-            .mul_v(points_b[edge_b.origin as usize])
-            .add(transform_b_to_a.p);
-        let q_b = matrix
-            .mul_v(points_b[twin_b.origin as usize])
-            .add(transform_b_to_a.p);
-        let e_b = q_b.sub(p_b);
-
-        let u_b = matrix.mul_v(planes_b[edge_b.face as usize].normal);
-        let v_b = matrix.mul_v(planes_b[twin_b.face as usize].normal);
-
-        let mut index_a = 0;
-        while index_a < hull_a.edge_count {
-            let edge_a = edges_a[index_a];
-            let twin_a = edges_a[index_a + 1];
-
-            let p_a = points_a[edge_a.origin as usize];
-            let q_a = points_a[twin_a.origin as usize];
-            let e_a = q_a.sub(p_a);
-            let u_a = planes_a[edge_a.face as usize].normal;
-            let v_a = planes_a[twin_a.face as usize].normal;
-
-            let cba = u_b.dot(e_a);
-            let dba = v_b.dot(e_a);
-            let adc = -u_a.dot(e_b);
-            let bdc = -v_a.dot(e_b);
-            let is_mink = cba * dba < 0.0 && adc * bdc < 0.0 && cba * bdc > 0.0;
-
-            if is_mink {
-                let squared_tolerance = 0.005f32 * 0.005;
-                if maxf(cba * cba, dba * dba) < squared_tolerance * e_a.length_sq() {
-                    index_a += 2;
-                    continue;
-                }
-                let t = cba / (cba - dba);
-                let axis = u_b.lerp(v_b, t).normalize();
-                let separation = axis.dot(q_a.sub(q_b));
-                if separation > max_separation {
-                    max_normal = axis;
-                    max_separation = separation;
-                    max_index_a = index_a as i32;
-                    max_index_b = index_b as i32;
-                }
-            }
-            index_a += 2;
-        }
-        index_b += 2;
-    }
-
-    EdgeQuery {
-        normal: max_normal,
-        separation: max_separation,
-        index_a: max_index_a,
-        index_b: max_index_b,
+        ty: separating_feature::EDGE_PAIR_AXIS,
     }
 }
 
@@ -1141,11 +985,11 @@ fn build_hull_face_and_capsule_contact(
     hull_a: &HullData,
     capsule_b: &Capsule,
     transform_b_to_a: Transform,
-    query: FaceQuery,
+    query: SeparatingAxis,
 ) -> bool {
     let planes = &hull_a.planes;
 
-    let ref_face = query.face_index;
+    let ref_face = query.index_a as usize;
     let ref_plane = planes[ref_face];
 
     let mut segment_b: [ClipVertex; 2] = [
@@ -1215,7 +1059,7 @@ fn build_hull_and_capsule_edge_contact(
     hull_a: &HullData,
     capsule_b: &Capsule,
     transform_b_to_a: Transform,
-    query: EdgeQuery,
+    query: SeparatingAxis,
 ) -> bool {
     if capacity < 1 {
         return false;
@@ -1467,21 +1311,22 @@ fn build_face_a_contact(
     hull_a: &HullData,
     hull_b: &HullData,
     transform_b_to_a: Transform,
-    query: FaceQuery,
+    query: SeparatingAxis,
     cache: &mut SatCache,
 ) -> bool {
+    debug_assert_eq!(query.ty, separating_feature::FACE_AXIS_A);
     let faces_a = &hull_a.faces;
     let edges_a = &hull_a.edges;
     let planes_a = &hull_a.planes;
     let points_a = &hull_a.points;
 
     // Reference face.
-    let ref_face = query.face_index;
+    let ref_face = query.index_a as usize;
     let ref_plane = planes_a[ref_face];
 
     // Find incident face.
     let ref_normal_in_b = transform_b_to_a.q.inv_rotate(ref_plane.normal);
-    let inc_face = find_incident_face(hull_b, ref_normal_in_b, query.vertex_index);
+    let inc_face = find_incident_face(hull_b, ref_normal_in_b, query.index_b as usize);
 
     let mut buffer1 = [ClipVertex::ZERO; MAX_CLIP_POINTS];
     let mut buffer2 = [ClipVertex::ZERO; MAX_CLIP_POINTS];
@@ -1555,8 +1400,8 @@ fn build_face_a_contact(
 
     cache.separation = min_separation;
     cache.ty = separating_feature::FACE_AXIS_A;
-    cache.index_a = query.face_index & 0xff;
-    cache.index_b = query.vertex_index & 0xff;
+    cache.index_a = (query.index_a & 0xff) as usize;
+    cache.index_b = (query.index_b & 0xff) as usize;
 
     true
 }
@@ -1567,9 +1412,10 @@ fn build_face_b_contact(
     hull_a: &HullData,
     hull_b: &HullData,
     transform_b_to_a: Transform,
-    query: FaceQuery,
+    query: SeparatingAxis,
     cache: &mut SatCache,
 ) -> bool {
+    debug_assert_eq!(query.ty, separating_feature::FACE_AXIS_B);
     let transform_a_to_b = transform_b_to_a.invert();
     let touching = build_face_a_contact(
         manifold,
@@ -1577,7 +1423,13 @@ fn build_face_b_contact(
         hull_b,
         hull_a,
         transform_a_to_b,
-        query,
+        SeparatingAxis {
+            normal: query.normal.neg(),
+            index_a: query.index_b,
+            index_b: query.index_a,
+            ty: separating_feature::FACE_AXIS_A,
+            ..query
+        },
         cache,
     );
     if !touching {
@@ -1590,8 +1442,8 @@ fn build_face_b_contact(
     // Flip normal so it points from A to B, even though B owns the reference face.
     manifold.normal = matrix.mul_v(manifold.normal).neg();
     cache.ty = separating_feature::FACE_AXIS_B;
-    cache.index_a = query.vertex_index & 0xff;
-    cache.index_b = query.face_index & 0xff;
+    cache.index_a = (query.index_a & 0xff) as usize;
+    cache.index_b = (query.index_b & 0xff) as usize;
 
     for i in 0..manifold.point_count {
         manifold.points[i].point = matrix
@@ -1608,7 +1460,7 @@ fn build_edge_contact(
     hull_a: &HullData,
     hull_b: &HullData,
     transform_b_to_a: Transform,
-    query: EdgeQuery,
+    query: SeparatingAxis,
     cache: &mut SatCache,
 ) -> bool {
     let edges_a = &hull_a.edges;
@@ -1660,9 +1512,9 @@ fn build_edge_contact(
 
 #[derive(Clone, Copy)]
 struct AxisQuery {
-    face_a: FaceQuery,
-    face_b: FaceQuery,
-    edge: EdgeQuery,
+    face_a: SeparatingAxis,
+    face_b: SeparatingAxis,
+    edge: SeparatingAxis,
     separated: u32,
 }
 
@@ -1770,21 +1622,26 @@ fn compute_separating_axis(
     let (center_b, extent_b) = hull_aabb_center_extents(hull_b);
     let (center_a, extent_a) = hull_aabb_center_extents(hull_a);
     let mut result = AxisQuery {
-        face_a: FaceQuery {
+        face_a: SeparatingAxis {
+            normal: Vec3::ZERO,
             separation: -f32::INFINITY,
-            face_index: 0,
-            vertex_index: 0,
+            index_a: 0,
+            index_b: 0,
+            ty: separating_feature::FACE_AXIS_A,
         },
-        face_b: FaceQuery {
+        face_b: SeparatingAxis {
+            normal: Vec3::ZERO,
             separation: -f32::INFINITY,
-            face_index: 0,
-            vertex_index: 0,
+            index_a: 0,
+            index_b: 0,
+            ty: separating_feature::FACE_AXIS_B,
         },
-        edge: EdgeQuery {
+        edge: SeparatingAxis {
             normal: Vec3::ZERO,
             separation: -f32::INFINITY,
             index_a: -1,
             index_b: -1,
+            ty: separating_feature::EDGE_PAIR_AXIS,
         },
         separated: separating_feature::INVALID,
     };
@@ -1799,10 +1656,12 @@ fn compute_separating_axis(
         let support = direction.dot(p);
         let separation = plane_separation - support;
         if separation > result.face_a.separation {
-            result.face_a = FaceQuery {
+            result.face_a = SeparatingAxis {
+                normal: plane.normal,
                 separation,
-                face_index: i,
-                vertex_index: vertex,
+                index_a: i as i32,
+                index_b: vertex as i32,
+                ty: separating_feature::FACE_AXIS_A,
             };
             if early_return && separation > SPECULATIVE_DISTANCE {
                 result.separated = separating_feature::FACE_AXIS_A;
@@ -1820,10 +1679,12 @@ fn compute_separating_axis(
         let support = direction.dot(hull_a.points[vertex]);
         let separation = plane_separation - support;
         if separation > result.face_b.separation {
-            result.face_b = FaceQuery {
+            result.face_b = SeparatingAxis {
+                normal: rotation.mul_v(plane.normal).neg(),
                 separation,
-                face_index: i,
-                vertex_index: vertex,
+                index_a: vertex as i32,
+                index_b: i as i32,
+                ty: separating_feature::FACE_AXIS_B,
             };
             if early_return && separation > SPECULATIVE_DISTANCE {
                 result.separated = separating_feature::FACE_AXIS_B;
@@ -1901,11 +1762,12 @@ fn compute_separating_axis(
             // Lane order preserves Box3D's ties and first early return; zero tail fails the Gauss mask.
             for lane in 0..4 {
                 if s[lane] > result.edge.separation {
-                    result.edge = EdgeQuery {
+                    result.edge = SeparatingAxis {
                         normal: Vec3::new(n[0][lane], n[1][lane], n[2][lane]),
                         separation: s[lane],
                         index_a: (2 * (i + lane)) as i32,
                         index_b: (2 * j) as i32,
+                        ty: separating_feature::EDGE_PAIR_AXIS,
                     };
                     if early_return && s[lane] > SPECULATIVE_DISTANCE {
                         result.separated = separating_feature::EDGE_PAIR_AXIS;
@@ -1962,10 +1824,12 @@ pub fn collide_hulls(
                 return;
             }
 
-            let face_query = FaceQuery {
+            let face_query = SeparatingAxis {
+                normal: pl.normal,
                 separation: 0.0,
-                face_index: cache.index_a,
-                vertex_index,
+                index_a: cache.index_a as i32,
+                index_b: vertex_index as i32,
+                ty: separating_feature::FACE_AXIS_A,
             };
             let mut local_cache = SatCache::empty();
             let touching = build_face_a_contact(
@@ -1995,10 +1859,12 @@ pub fn collide_hulls(
                 return;
             }
 
-            let face_query = FaceQuery {
+            let face_query = SeparatingAxis {
+                normal: pl.normal.neg(),
                 separation: 0.0,
-                face_index: cache.index_b,
-                vertex_index,
+                index_a: vertex_index as i32,
+                index_b: cache.index_b as i32,
+                ty: separating_feature::FACE_AXIS_B,
             };
             let mut local_cache = SatCache::empty();
             let touching = build_face_b_contact(
@@ -2058,10 +1924,11 @@ pub fn collide_hulls(
                             cache.hit = 1;
                             return;
                         }
-                        let edge_query = EdgeQuery {
+                        let edge_query = SeparatingAxis {
                             normal: normal.neg(),
                             index_a: cache.index_a as i32,
                             index_b: cache.index_b as i32,
+                            ty: separating_feature::EDGE_PAIR_AXIS,
                             separation,
                         };
                         let mut local_cache = SatCache::empty();
@@ -2085,7 +1952,8 @@ pub fn collide_hulls(
 
         // Manual axes are for testing.
         separating_feature::MANUAL_FACE_AXIS_A => {
-            let face_query_a = query_face_directions(hull_a, hull_b, transform_b_to_a);
+            let face_query_a =
+                compute_separating_axis(hull_a, hull_b, transform_b_to_a, false).face_a;
             build_face_a_contact(
                 manifold,
                 capacity,
@@ -2099,7 +1967,8 @@ pub fn collide_hulls(
         }
 
         separating_feature::MANUAL_FACE_AXIS_B => {
-            let face_query_b = query_face_directions(hull_b, hull_a, transform_b_to_a.invert());
+            let face_query_b =
+                compute_separating_axis(hull_a, hull_b, transform_b_to_a, false).face_b;
             build_face_b_contact(
                 manifold,
                 capacity,
@@ -2113,7 +1982,7 @@ pub fn collide_hulls(
         }
 
         separating_feature::MANUAL_EDGE_PAIR_AXIS => {
-            let edge_query = query_edge_directions(hull_a, hull_b, transform_b_to_a);
+            let edge_query = compute_separating_axis(hull_a, hull_b, transform_b_to_a, false).edge;
             if edge_query.index_a != -1 {
                 build_edge_contact(
                     manifold,
@@ -2139,13 +2008,13 @@ pub fn collide_hulls(
         match axis_query.separated {
             separating_feature::FACE_AXIS_A => {
                 cache.separation = axis_query.face_a.separation;
-                cache.index_a = axis_query.face_a.face_index & 0xff;
-                cache.index_b = axis_query.face_a.vertex_index & 0xff;
+                cache.index_a = (axis_query.face_a.index_a & 0xff) as usize;
+                cache.index_b = (axis_query.face_a.index_b & 0xff) as usize;
             }
             separating_feature::FACE_AXIS_B => {
                 cache.separation = axis_query.face_b.separation;
-                cache.index_a = axis_query.face_b.vertex_index & 0xff;
-                cache.index_b = axis_query.face_b.face_index & 0xff;
+                cache.index_a = (axis_query.face_b.index_a & 0xff) as usize;
+                cache.index_b = (axis_query.face_b.index_b & 0xff) as usize;
             }
             _ => {
                 cache.separation = axis_query.edge.separation;
