@@ -543,16 +543,14 @@ fn run_rebuild(pool: &mut Pool, full: bool) -> i32 {
     let mut gather = vec![0i32; STACK_SIZE];
     let mut build = vec![0i32; STACK_SIZE * 5];
     let mut rb = Rebuild {
-        node_count: pool.node_count,
-        free_list: pool.free_list,
+        node_count: &mut pool.node_count,
+        free_list: &mut pool.free_list,
         leaf_indices: &mut leaf_indices,
         leaf_centers: &mut leaf_centers,
         gather_stack: &mut gather,
         build_stack: &mut build,
     };
     let new_root = tree::rebuild(&mut pool.slots, pool.root, pool.proxy_count, full, &mut rb);
-    pool.node_count = rb.node_count;
-    pool.free_list = rb.free_list;
     pool.root = new_root;
     new_root
 }
