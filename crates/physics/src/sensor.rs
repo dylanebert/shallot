@@ -17,12 +17,14 @@ struct Sensor {
 }
 struct Sensors {
     sensors: Vec<Sensor>,
-    event_bits: Vec<u64>,
+    event_bits: [Vec<u64>; crate::solve::MAX_THREADS],
+    workers: usize,
 }
 impl Sensors {
     const EMPTY: Self = Self {
         sensors: Vec::new(),
-        event_bits: Vec::new(),
+        event_bits: [const { Vec::new() }; crate::solve::MAX_THREADS],
+        workers: 1,
     };
 }
 static mut WORLDS: [Sensors; regions::MAX_WORLDS] = [const { Sensors::EMPTY }; regions::MAX_WORLDS];
@@ -92,16 +94,19 @@ pub unsafe fn record_hit(world: usize, sensor: usize, other: usize) {
     let index = shapes::col(world as usize).get(sensor * shapes::SHAPE_STRIDE + 4) as usize;
     state(world).sensors[index].hits.push(visitor(world, other));
 }
-pub unsafe fn prepare(world_index: usize) -> usize {
+pub unsafe fn prepare(world_index: usize, workers: usize) -> usize {
     let w = state(world_index);
-    w.event_bits.resize(w.sensors.len().div_ceil(64), 0);
-    w.event_bits.fill(0);
+    w.workers = workers;
+    for bits in &mut w.event_bits[..workers] {
+        bits.resize(w.sensors.len().div_ceil(64), 0);
+        bits.fill(0);
+    }
     w.sensors.len()
 }
-pub unsafe fn task(world_index: usize, start: usize, end: usize) {
+pub unsafe fn task(world_index: usize, worker: usize, start: usize, end: usize) {
     let world = world_index;
     let sensors = (*(&raw const WORLDS))[world].sensors.as_ptr().cast_mut();
-    let bits = (*(&raw const WORLDS))[world].event_bits.as_ptr().cast_mut();
+    let bits = (*(&raw const WORLDS))[world].event_bits[worker].as_ptr().cast_mut();
     for index in start..end {
         let s = &mut *sensors.add(index);
         core::mem::swap(&mut s.overlaps1, &mut s.overlaps2);
@@ -115,33 +120,28 @@ pub unsafe fn task(world_index: usize, start: usize, end: usize) {
             || r.get(n + shapes::S_FLAGS) & shapes::SENSOR_FLAG == 0
         {
             if !s.overlaps1.is_empty() {
-                core::sync::atomic::AtomicU64::from_ptr(bits.add(index / 64))
-                    .fetch_or(1 << (index % 64), core::sync::atomic::Ordering::Relaxed);
+                *bits.add(index / 64) |= 1 << (index % 64);
             }
             continue;
         }
-        let mut header = [0; 20];
-        for i in 0..3 {
-            header[2 * i] = *crate::broad::tree_state(world_index, i);
-            header[2 * i + 1] = crate::broad::tree_cap(world_index, i) as u32;
-        }
-        for j in 0..6 {
-            header[13 + j] = r.get(n + 10 + j);
-        }
-        world_query::sensor_task(world_index, s.shape_id, &header, |id| {
+        world_query::sensor_task(world_index, s.shape_id, |id| {
             s.overlaps2.push(visitor(world, id))
         });
         s.overlaps2.sort_unstable_by_key(|v| v.shape_id);
         s.overlaps2.dedup_by_key(|v| v.shape_id);
         if s.overlaps1 != s.overlaps2 {
-            core::sync::atomic::AtomicU64::from_ptr(bits.add(index / 64))
-                .fetch_or(1 << (index % 64), core::sync::atomic::Ordering::Relaxed);
+            *bits.add(index / 64) |= 1 << (index % 64);
         }
     }
 }
 pub unsafe fn publish(world: usize) {
     let w = state(world);
-    for (block, bits) in w.event_bits.iter().copied().enumerate() {
+    for worker in 1..w.workers {
+        for block in 0..w.event_bits[0].len() {
+            w.event_bits[0][block] |= w.event_bits[worker][block];
+        }
+    }
+    for (block, bits) in w.event_bits[0].iter().copied().enumerate() {
         let mut bits = bits;
         while bits != 0 {
             let index = block * 64 + bits.trailing_zeros() as usize;

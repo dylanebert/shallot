@@ -772,7 +772,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                     accumulate(world_index, 3, DRIVER.solve_start);
                 }
                 DRIVER.phase_start = ticks();
-                let count = crate::sensor::prepare(world_index);
+                let count = crate::sensor::prepare(world_index, DRIVER.threads);
                 DRIVER.phase = 11;
                 if count != 0 && parallel(world_index, 6, count, 0.0) {
                     return 1;

@@ -83,18 +83,17 @@ pub(crate) unsafe fn write_cast(out: &CastOutput, target: *mut u32, material: i3
         target.add(index).write(value.to_bits());
     }
 }
-// Header, traversal stack and narrow-phase points belong to the calling task, not the query ABI.
+// Traversal and narrow-phase scratch belongs to the calling sensor task.
 pub(crate) unsafe fn sensor_task(
     world_index: usize,
     sensor_id: usize,
-    header: &[u32; 20],
     mut emit: impl FnMut(usize),
 ) {
     {
-        let lo = v(header, 13);
-        let hi = v(header, 16);
         let r = crate::shapes::col(world_index);
         let n = sensor_id * SHAPE_STRIDE;
+        let lo = Vec3::new(f32::from_bits(r.get(n + 10)), f32::from_bits(r.get(n + 11)), f32::from_bits(r.get(n + 12)));
+        let hi = Vec3::new(f32::from_bits(r.get(n + 13)), f32::from_bits(r.get(n + 14)), f32::from_bits(r.get(n + 15)));
         let (sensor, _) = query_abi::active_shape(world_index, sensor_id);
         let sensor_transform = pose(world_index, sensor_id, Vec3::ZERO);
         let mut stack = [0; tree::STACK_SIZE];
@@ -105,8 +104,8 @@ pub(crate) unsafe fn sensor_task(
             );
             tree::query(
                 pool,
-                header[2 * i] as i32,
-                header[2 * i + 1] as usize,
+                if broad::tree_cap(world_index, i) == 0 { -1 } else { *broad::tree_state(world_index, i) as i32 },
+                if broad::tree_cap(world_index, i) == 0 { 0 } else { *broad::tree_state(world_index, i).add(1) as usize },
                 [lo.x, lo.y, lo.z],
                 [hi.x, hi.y, hi.z],
                 r.get(n + S_QUERY_MASK),

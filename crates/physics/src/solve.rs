@@ -802,7 +802,7 @@ fn run_job(world_index: usize, index: usize) {
                     Job::Pairs => p
                         .par
                         .run(|s, e| crate::pairwork::query_block(world_index, s, e, p.a as usize)),
-                    Job::Sensors => p.par.run(|s, e| crate::sensor::task(world_index, s, e)),
+                    Job::Sensors => p.par.run(|s, e| crate::sensor::task(world_index, index, s, e)),
                     Job::Finalize => p.par.run(|s, e| {
                         let work = (*STEP).work.as_ref().unwrap();
                         work.finalize(Block {
