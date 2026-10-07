@@ -29,7 +29,7 @@ use crate::math::{Quat, Transform, Vec3};
 use crate::narrowphase::{
     compute_convex_manifold, ConvexContactCache, ConvexShape, Manifold, MAX_MANIFOLD_POINTS,
 };
-use crate::recycle::try_recycle;
+
 
 use crate::geo::hull_view;
 use crate::regions::Buffer;
@@ -1295,11 +1295,63 @@ pub(crate) unsafe fn recycle_block(
             if bits & R_ELIGIBLE != 0 && !fast_mesh {
                 let (rot_a, rot_b, rel) = read_pose_cache(dir, contact_id);
                 let mc = input[r + R_COUNT] as usize;
-                if try_recycle(
-                    dir, pool, contact_id, mc, xf_a, xf_b, rot_a, rot_b, rel, center_a, center_b,
-                    extent_a, extent_b, tol,
-                ) {
-                    continue;
+                let angle_a = xf_a.q.dot(rot_a);
+                let angle_b = xf_b.q.dot(rot_b);
+                let angular_distance = crate::math::minf(angle_a * angle_a, angle_b * angle_b);
+                let xf = xf_a.inv_mul(xf_b);
+                let max_extent = Vec3::new(
+                    crate::math::maxf(extent_a.x, extent_b.x),
+                    crate::math::maxf(extent_a.y, extent_b.y),
+                    crate::math::maxf(extent_a.z, extent_b.z),
+                );
+                let dv = rel.p.sub(xf.p);
+                let dist_squared = dv.dot(dv);
+                if angular_distance > crate::recycle::RECYCLE_ANGULAR_DISTANCE
+                    && dist_squared < tol * tol
+                {
+                    let distance = dist_squared.sqrt();
+                    let slack = tol - distance;
+                    let qr = rel.q.inv_mul(xf.q);
+                    let arc = qr.v.abs().modified_cross(max_extent);
+                    let arc_sq = 4.0 * arc.length_sq();
+                    if arc_sq < slack * slack {
+                        let dq_a = xf_a.q.mul(rot_a.conjugate());
+                        let dq_b = xf_b.q.mul(rot_b.conjugate());
+                        let matrix_a = crate::math::Mat3::from_quat(dq_a);
+                        let matrix_b = crate::math::Mat3::from_quat(dq_b);
+                        let dc = center_b.sub(center_a);
+                        let base = dir.get(o + DIR_MANIFOLD_BASE) as usize;
+                        let manifolds = crate::manifold_abi::block_col(pool, base, mc);
+                        for m in 0..mc {
+                            let mo = m * MANIFOLD_STRIDE;
+                            let normal = Vec3::new(
+                                manifolds.get(mo + M_NORMAL),
+                                manifolds.get(mo + M_NORMAL + 1),
+                                manifolds.get(mo + M_NORMAL + 2),
+                            );
+                            let pc = manifolds.get(mo + M_POINT_COUNT).to_bits() as usize;
+                            for p in 0..pc {
+                                let po = mo + M_POINTS + p * POOL_POINT_STRIDE;
+                                let anchor_a = Vec3::new(
+                                    manifolds.get(po + P_ANCHOR_A),
+                                    manifolds.get(po + P_ANCHOR_A + 1),
+                                    manifolds.get(po + P_ANCHOR_A + 2),
+                                );
+                                let anchor_b = Vec3::new(
+                                    manifolds.get(po + P_ANCHOR_B),
+                                    manifolds.get(po + P_ANCHOR_B + 1),
+                                    manifolds.get(po + P_ANCHOR_B + 2),
+                                );
+                                let r_a = matrix_a.mul_v(anchor_a);
+                                let r_b = matrix_b.mul_v(anchor_b);
+                                let dp = dc.add(r_b.sub(r_a));
+                                manifolds.set(po + P_SEPARATION,
+                                    manifolds.get(po + P_BASE_SEPARATION) + dp.dot(normal));
+                                manifolds.set(po + P_PERSISTED, f32::from_bits(1));
+                            }
+                        }
+                        continue;
+                    }
                 }
             }
 
