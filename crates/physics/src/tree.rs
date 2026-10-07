@@ -691,6 +691,32 @@ pub fn query<F: FnMut(i32, u32) -> bool>(
     mask_lo: u32,
     require_all: bool,
     stack: &mut [i32],
+    cb: F,
+) -> (u32, u32) {
+    query_packed::<0, F>(
+        pool,
+        root,
+        node_count,
+        lo,
+        hi,
+        mask_hi,
+        mask_lo,
+        require_all,
+        stack,
+        cb,
+    )
+}
+
+pub(crate) fn query_packed<const FLAGS_SHIFT: u32, F: FnMut(i32, u32) -> bool>(
+    pool: &[u32],
+    root: i32,
+    node_count: usize,
+    lo: [f32; 3],
+    hi: [f32; 3],
+    mask_hi: u32,
+    mask_lo: u32,
+    require_all: bool,
+    stack: &mut [i32],
     mut cb: F,
 ) -> (u32, u32) {
     if node_count == 0 {
@@ -727,7 +753,7 @@ pub fn query<F: FnMut(i32, u32) -> bool>(
             && fget(pool, n + 2) <= bhz;
 
         if matched && overlaps {
-            if pool[n + 11] & LEAF != 0 {
+            if (pool[n + 11] >> FLAGS_SHIFT) & LEAF != 0 {
                 leaf_visits += 1;
                 if !cb(node_id, pool[n + 8]) {
                     return (node_visits, leaf_visits);

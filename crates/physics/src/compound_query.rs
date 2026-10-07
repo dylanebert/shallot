@@ -246,39 +246,23 @@ fn cast(
         }
     }
 }
-pub(crate) fn query(
-    c: Compound,
-    lower: Vec3,
-    upper: Vec3,
-    mut visit: impl FnMut(i32, u32) -> bool,
-) {
+pub(crate) fn query(c: Compound, lower: Vec3, upper: Vec3, visit: impl FnMut(i32, u32) -> bool) {
     if c.root < 0 {
         return;
     }
-    let mut stack = [0i32; 1024];
-    let mut count = 1;
-    stack[0] = c.root;
-    while count > 0 {
-        count -= 1;
-        let id = stack[count];
-        let n = id as usize * 12;
-        let r = &c.nodes[n..n + 12];
-        let lo = vec(r, 0);
-        let hi = vec(r, 3);
-        if !bounds_overlap(lo, hi, lower, upper) {
-            continue;
-        }
-        if r[11] >> 16 & 4 != 0 {
-            if !visit(id, r[8]) {
-                return;
-            }
-        } else if count < 1022 {
-            stack[count] = r[8] as i32;
-            count += 1;
-            stack[count] = r[9] as i32;
-            count += 1;
-        }
-    }
+    let mut stack = [0i32; crate::tree::STACK_SIZE];
+    crate::tree::query_packed::<16, _>(
+        c.nodes,
+        c.root,
+        c.data[8] as usize,
+        [lower.x, lower.y, lower.z],
+        [upper.x, upper.y, upper.z],
+        u32::MAX,
+        u32::MAX,
+        false,
+        &mut stack,
+        visit,
+    );
 }
 pub fn ray_cast_compound(c: Compound, input: &RayCastInput) -> CastOutput {
     let mut result = CastOutput {

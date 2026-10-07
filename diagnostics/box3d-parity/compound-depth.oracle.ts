@@ -73,6 +73,6 @@ const actual = native.map((row) => measure(row[0]));
 test("compound retained images below the traversal depth bound retain the deepest child", () => {
     expect(actual.slice(0, 2)).toEqual(native.slice(0, 2));
 });
-test.todo("compound_query.rs:267-301 vs dynamic_tree.c:1140: traversal permits B3_TREE_STACK_SIZE - 1 node pairs, not 1022", () => {
+test("compound_query.rs:267-301 vs dynamic_tree.c:1140: traversal permits B3_TREE_STACK_SIZE - 1 node pairs, not 1022", () => {
     expect(actual[2]).toEqual(native[2]);
 });
