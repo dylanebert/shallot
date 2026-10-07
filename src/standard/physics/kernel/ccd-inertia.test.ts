@@ -8,7 +8,6 @@ import {
     readSimTransform,
     simFlags,
 } from "./bodycolumns";
-import { BodyField, bodyField } from "./bodyrecords";
 
 test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
@@ -29,7 +28,7 @@ test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", (
         const sim = getBodySim(world.state, body.id.index1 - 1);
         expect(simFlags(world.state, sim) & BodyFlags.isFast).not.toBe(0);
         expect(
-            bodyField(world.state, body.id.index1 - 1, BodyField.flags) & BodyFlags.hadTimeOfImpact,
+            simFlags(world.state, sim) & BodyFlags.hadTimeOfImpact,
         ).not.toBe(0);
         const rotation = mat3.fromQuat(
             readSimTransform(world.state, sim, {
