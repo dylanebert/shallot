@@ -6,7 +6,6 @@ use crate::regions::{self, Buffer, Columns, MAX_WORLDS};
 static mut COLUMNS: [Columns<1>; MAX_WORLDS] = [Columns::EMPTY; MAX_WORLDS];
 static mut CAPS: [usize; MAX_WORLDS] = [0; MAX_WORLDS];
 static mut ALLOCATORS: [Vec<BlockAllocator>; MAX_WORLDS] = [const { Vec::new() }; MAX_WORLDS];
-static mut MESH_CACHES: [Vec<Columns<1>>; MAX_WORLDS] = [const { Vec::new() }; MAX_WORLDS];
 static mut NEXT_IDS: [usize; MAX_WORLDS] = [0; MAX_WORLDS];
 static mut FREE_IDS: [Vec<usize>; MAX_WORLDS] = [const { Vec::new() }; MAX_WORLDS];
 static LOCKS: [core::sync::atomic::AtomicU32; MAX_WORLDS] =
@@ -179,34 +178,17 @@ pub extern "C" fn manifold_allocator_operations(world: usize) -> u64 {
     }
 }
 
-pub fn has_mesh_caches(world_index: usize) -> bool {
-    unsafe { !MESH_CACHES[world_index].is_empty() }
-}
-
 #[export_name = "meshCacheCapacity"]
 pub extern "C" fn mesh_cache_capacity(world: usize) -> usize {
     assert!(world < MAX_WORLDS);
-    unsafe { MESH_CACHES[world].capacity() }
-}
-#[export_name = "ensureMeshCache"]
-pub extern "C" fn ensure_mesh_cache(contact: usize) {
-    ensure_mesh_cache_in_world(crate::regions::active(), contact)
-}
-
-pub extern "C" fn ensure_mesh_cache_in_world(world_index: usize, contact: usize) {
     unsafe {
-        let caches = &mut MESH_CACHES[world_index];
-        caches.resize(caches.len().max(contact + 1), Columns::EMPTY);
-        if caches[contact].layout[0] == 16 {
-            caches[contact].reserve(0, core::mem::size_of::<crate::mesh_contact::MeshCache>());
-            let cache = &mut *(caches[contact].layout[0] as *mut crate::mesh_contact::MeshCache);
-            cache.lower = crate::math::Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-            cache.upper = crate::math::Vec3::new(-f32::MAX, -f32::MAX, -f32::MAX);
-        }
-        dir_col(world_index).set(
-            contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE,
-            caches[contact].layout[0],
-        );
+        let dir = dir_col(world);
+        (0..CAPS[world])
+            .filter(|&contact| {
+                dir.get(contact * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS) & 0x0040_0000 != 0
+            })
+            .map(|contact| (*mesh_cache_ptr(world, contact)).triangles.capacity as usize)
+            .sum()
     }
 }
 #[export_name = "freeMeshCache"]
@@ -216,21 +198,22 @@ pub extern "C" fn free_mesh_cache(contact: usize) {
 
 pub extern "C" fn free_mesh_cache_in_world(world_index: usize, contact: usize) {
     unsafe {
-        if let Some(cache) = MESH_CACHES[world_index].get_mut(contact) {
-            cache.release();
+        if dir_col(world_index).get(contact * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS)
+            & 0x0040_0000
+            != 0
+        {
+            (*mesh_cache_ptr(world_index, contact)).triangles.release();
         }
-        dir_col(world_index).set(
-            contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE,
-            0,
-        );
     }
 }
 pub unsafe fn mesh_cache_ptr(
     world_index: usize,
     contact: usize,
 ) -> *mut crate::mesh_contact::MeshCache {
-    dir_col(world_index).get(contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE)
-        as *mut crate::mesh_contact::MeshCache
+    dir_col(world_index)
+        .ptr()
+        .add(contact * DIR_STRIDE + crate::manifold_abi::DIR_CACHE)
+        .cast::<crate::mesh_contact::MeshCache>()
 }
 
 pub fn dir_col(world_index: usize) -> Col<'static, u32> {
@@ -341,10 +324,9 @@ unsafe fn release_allocators(id: usize) {
 }
 pub unsafe fn reset(id: usize) {
     release_allocators(id);
-    for cache in &mut MESH_CACHES[id] {
-        cache.release();
+    for contact in 0..CAPS[id] {
+        free_mesh_cache_in_world(id, contact);
     }
-    MESH_CACHES[id] = Vec::new();
     COLUMNS[id].release();
     CAPS[id] = 0;
     NEXT_IDS[id] = 0;
@@ -364,7 +346,8 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
         regions::write_word(
             out,
             if index % DIR_STRIDE == DIR_MANIFOLD_BASE
-                || (index % DIR_STRIDE == crate::manifold_abi::DIR_MESH_CACHE
+                || ((index % DIR_STRIDE == crate::manifold_abi::DIR_MESH_CACHE
+                    || index % DIR_STRIDE == crate::manifold_abi::DIR_MESH_CACHE + 2)
                     && dir[index / DIR_STRIDE * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS]
                         & 0x0040_0000
                         != 0)
@@ -385,9 +368,16 @@ pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
             ));
         }
     }
-    regions::write_word(out, MESH_CACHES[id].len());
-    for cache in &MESH_CACHES[id] {
-        cache.snapshot(out);
+    for contact in 0..CAPS[id] {
+        if dir[contact * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS] & 0x0040_0000 != 0 {
+            let cache = &mut *mesh_cache_ptr(id, contact);
+            for triangle in cache.triangles.as_mut_slice() {
+                regions::write_word(out, triangle.triangle_index as u32 as usize);
+                for word in triangle.cache.words {
+                    regions::write_word(out, word as usize);
+                }
+            }
+        }
     }
 }
 pub unsafe fn restore(id: usize, input: &mut &[u8]) {
@@ -414,19 +404,25 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
             *input = rest;
         }
     }
-    let len = regions::read_word(input);
-    MESH_CACHES[id].resize(len, Columns::EMPTY);
-    for (contact, cache) in MESH_CACHES[id].iter_mut().enumerate() {
-        cache.restore(input);
-        if contact < CAPS[id]
-            && *dir.add(contact * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS) & 0x0040_0000 != 0
-        {
-            *dir.add(contact * DIR_STRIDE + crate::manifold_abi::DIR_MESH_CACHE) =
-                if cache.layout[0] == 16 {
-                    0
-                } else {
-                    cache.layout[0]
-                };
+    for contact in 0..CAPS[id] {
+        if *dir.add(contact * DIR_STRIDE + crate::manifold_abi::DIR_FLAGS) & 0x0040_0000 != 0 {
+            let cache = &mut *mesh_cache_ptr(id, contact);
+            let count = cache.triangles.count as usize;
+            cache.triangles.count = 0;
+            cache.triangles.capacity = 0;
+            cache.triangles.resize(count);
+            for index in 0..count {
+                let triangle_index = regions::read_word(input) as i32;
+                let words = core::array::from_fn(|_| regions::read_word(input) as u32);
+                cache
+                    .triangles
+                    .data
+                    .add(index)
+                    .write(crate::mesh_contact::TriangleCache {
+                        triangle_index,
+                        cache: crate::manifold_abi::ContactCache { words },
+                    });
+            }
         }
     }
 }

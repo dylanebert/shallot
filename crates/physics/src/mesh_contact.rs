@@ -1,7 +1,7 @@
 //! Mesh contact reduction from Box3D mesh_contact.c (Erin Catto, MIT).
 use crate::manifold::{make_feature_id, LocalManifold, LocalManifoldPoint, SatCache};
 use crate::math::{absf, maxf, minf, Mat3, Transform, Vec2, Vec3};
-use crate::narrowphase::{ConvexContactCache, ConvexShape, Manifold};
+use crate::narrowphase::{ConvexShape, Manifold};
 use crate::triangle_manifold::{
     collide_capsule_and_triangle, collide_hull_and_triangle, collide_sphere_and_triangle,
 };
@@ -23,16 +23,18 @@ pub struct TriangleInput {
     pub material_index: u32,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct TriangleCache {
     pub triangle_index: i32,
-    pub cache: ConvexContactCache,
+    pub cache: crate::manifold_abi::ContactCache,
 }
+#[cfg(test)]
 impl TriangleCache {
     fn empty(index: usize) -> Self {
         Self {
             triangle_index: index as i32,
-            cache: ConvexContactCache::Empty,
+            cache: crate::manifold_abi::ContactCache { words: [0; 4] },
         }
     }
 }
@@ -186,11 +188,70 @@ impl TriangleSource<'_> {
     }
 }
 
+#[repr(C)]
+pub struct TriangleCacheArray {
+    pub data: *mut TriangleCache,
+    pub count: i32,
+    pub capacity: i32,
+}
+impl TriangleCacheArray {
+    const EMPTY: Self = Self {
+        data: core::ptr::null_mut(),
+        count: 0,
+        capacity: 0,
+    };
+    pub fn as_mut_slice(&mut self) -> &mut [TriangleCache] {
+        if self.count == 0 {
+            return &mut [];
+        }
+        unsafe { core::slice::from_raw_parts_mut(self.data, self.count as usize) }
+    }
+    pub(crate) fn resize(&mut self, count: usize) {
+        use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+        if count > self.capacity as usize {
+            let layout =
+                Layout::from_size_align(count * core::mem::size_of::<TriangleCache>(), 16).unwrap();
+            unsafe {
+                let data = alloc(layout).cast::<TriangleCache>();
+                if data.is_null() {
+                    handle_alloc_error(layout);
+                }
+                if self.capacity != 0 {
+                    core::ptr::copy_nonoverlapping(self.data, data, self.capacity as usize);
+                    dealloc(
+                        self.data.cast(),
+                        Layout::from_size_align(
+                            self.capacity as usize * core::mem::size_of::<TriangleCache>(),
+                            16,
+                        )
+                        .unwrap(),
+                    );
+                }
+                self.data = data;
+                self.capacity = count as i32;
+            }
+        }
+        self.count = count as i32;
+    }
+    pub unsafe fn release(&mut self) {
+        if self.capacity != 0 {
+            std::alloc::dealloc(
+                self.data.cast(),
+                std::alloc::Layout::from_size_align(
+                    self.capacity as usize * core::mem::size_of::<TriangleCache>(),
+                    16,
+                )
+                .unwrap(),
+            );
+        }
+        *self = Self::EMPTY;
+    }
+}
+#[repr(C)]
 pub struct MeshCache {
+    pub triangles: TriangleCacheArray,
     pub lower: Vec3,
     pub upper: Vec3,
-    pub count: usize,
-    pub triangles: [TriangleCache; MAX_TRIANGLES],
 }
 impl MeshCache {
     pub fn refresh(
@@ -199,7 +260,7 @@ impl MeshCache {
         xf: Transform,
         lower: Vec3,
         upper: Vec3,
-        previous: &mut [TriangleCache; MAX_TRIANGLES],
+        previous: &mut [crate::manifold_abi::ContactCache; MAX_TRIANGLES],
     ) {
         let contains = self.lower.x <= lower.x
             && self.lower.y <= lower.y
@@ -223,18 +284,26 @@ impl MeshCache {
         #[cfg(any(test, debug_assertions))]
         assert!(indices[..count].windows(2).all(|pair| pair[0] < pair[1]));
 
-        previous[..self.count].copy_from_slice(&self.triangles[..self.count]);
+        let old = self.triangles.as_mut_slice();
         let mut old_index = 0;
         for i in 0..count {
-            self.triangles[i] = TriangleCache::empty(indices[i]);
-            while old_index < self.count && previous[old_index].triangle_index < indices[i] as i32 {
+            previous[i] = crate::manifold_abi::ContactCache { words: [0; 4] };
+            while old_index < old.len() && old[old_index].triangle_index < indices[i] as i32 {
                 old_index += 1;
             }
-            if old_index < self.count && previous[old_index].triangle_index == indices[i] as i32 {
-                self.triangles[i].cache = previous[old_index].cache;
+            if old_index < old.len() && old[old_index].triangle_index == indices[i] as i32 {
+                previous[i] = old[old_index].cache;
             }
         }
-        self.count = count;
+        self.triangles.resize(count);
+        for i in 0..count {
+            unsafe {
+                self.triangles.data.add(i).write(TriangleCache {
+                    triangle_index: indices[i] as i32,
+                    cache: previous[i],
+                });
+            }
+        }
     }
 }
 
@@ -663,17 +732,13 @@ pub fn compute_mesh_manifolds(
             ConvexShape::Sphere(s) => {
                 collide_sphere_and_triangle(&mut m, capacity - total, s, a, b, c)
             }
-            ConvexShape::Capsule(s) => collide_capsule_and_triangle(
-                &mut m,
-                capacity - total,
-                s,
-                a,
-                b,
-                c,
-                cached.cache.simplex(),
-            ),
+            ConvexShape::Capsule(s) => {
+                collide_capsule_and_triangle(&mut m, capacity - total, s, a, b, c, unsafe {
+                    &mut cached.cache.simplex
+                })
+            }
             ConvexShape::Hull(h) => {
-                let sat = cached.cache.sat();
+                let sat = unsafe { &mut cached.cache.sat };
                 if fast && sat.ty == 4 {
                     *sat = SatCache::empty();
                 }

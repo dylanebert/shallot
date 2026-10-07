@@ -484,9 +484,6 @@ pub(crate) mod runtime {
         d.set(o + DIR_SHAPE_B, shape_b as u32);
         d.set(o + DIR_CHILD_INDEX, child as u32);
         d.set(o + DIR_FLAGS, flags);
-        if flags & 0x0040_0000 != 0 {
-            crate::manifolds::ensure_mesh_cache_in_world(world as usize, id);
-        }
         for (side, body_id) in [a, b].into_iter().enumerate() {
             let body = bodies::record_mut(world, body_id);
             let edge = o + DIR_EDGE_A + 3 * side;

@@ -107,6 +107,8 @@ mod broad;
 #[cfg(target_arch = "wasm32")]
 mod compound_query;
 #[cfg(target_arch = "wasm32")]
+mod contact_layout;
+#[cfg(target_arch = "wasm32")]
 mod contact_list;
 #[cfg(target_arch = "wasm32")]
 mod draw;

@@ -1,12 +1,12 @@
 // Generated from Rust resident record offsets by build-kernel.ts.
-export const DIR_STRIDE = 46;
+export const DIR_STRIDE = 51;
 export const DIR_COUNT = 19;
 export const DIR_BLOCK = 18;
 export const DIR_FLAGS = 17;
 export const DIR_FRICTION = 35;
-export const DIR_RESTITUTION = 40;
-export const DIR_ROLLING_RESISTANCE = 41;
-export const DIR_TANGENT_VELOCITY = 42;
+export const DIR_RESTITUTION = 45;
+export const DIR_ROLLING_RESISTANCE = 46;
+export const DIR_TANGENT_VELOCITY = 47;
 export const MANIFOLD_STRIDE = 67;
 export const M_NORMAL = 56;
 export const M_TWIST = 59;
@@ -45,5 +45,5 @@ export const ContactField = {
     islandId: 12,
     islandIndex: 13,
     contactId: 14,
-    generation: 45,
+    generation: 50,
 } as const;

@@ -38,16 +38,6 @@ import { kernelInputHash } from "./kernel-inputs";
 const pkgRoot = resolve(import.meta.dir, "../../..");
 const kernelDir = resolve(pkgRoot, "crates/physics");
 const engineDir = resolve(pkgRoot, "src/standard/physics/kernel");
-const recordLayout = spawnSync(
-    "cargo",
-    ["run", "--quiet", "--example", "contact-layout", "-p", "shallot-physics"],
-    {
-        cwd: pkgRoot,
-        encoding: "utf8",
-    },
-);
-if (recordLayout.status !== 0) throw new Error(recordLayout.stderr);
-writeFileSync(resolve(engineDir, "contact-layout.ts"), recordLayout.stdout);
 
 /** The dated nightly for the shared build; needs rust-src for -Zbuild-std. */
 const NIGHTLY = "nightly-2026-09-10";
@@ -206,6 +196,71 @@ const [st, shared] = await Promise.all([
     ),
     sharedBuild,
 ]);
+const layoutKernel = new WebAssembly.Instance(new WebAssembly.Module(st), {
+    env: { queryCallback: () => 0, now: () => 0 },
+});
+const recordOffset = layoutKernel.exports.contactRecordOffset as (index: number) => number;
+const layoutNames = [
+    "DIR_STRIDE",
+    "DIR_COUNT",
+    "DIR_BLOCK",
+    "DIR_FLAGS",
+    "DIR_FRICTION",
+    "DIR_RESTITUTION",
+    "DIR_ROLLING_RESISTANCE",
+    "DIR_TANGENT_VELOCITY",
+    "MANIFOLD_STRIDE",
+    "M_NORMAL",
+    "M_TWIST",
+    "M_FRICTION",
+    "M_ROLLING",
+    "M_POINT_COUNT",
+    "M_POINTS",
+    "POINT_STRIDE",
+    "P_ANCHOR_A",
+    "P_ANCHOR_B",
+    "P_SEPARATION",
+    "P_BASE_SEPARATION",
+    "P_NORMAL_IMPULSE",
+    "P_TOTAL_NORMAL_IMPULSE",
+    "P_NORMAL_VELOCITY",
+    "P_FEATURE_ID",
+    "P_TRIANGLE_INDEX",
+    "P_PERSISTED",
+];
+const fieldNames = [
+    "flags",
+    "manifoldCount",
+    "bodySimIndexA",
+    "bodySimIndexB",
+    "setIndex",
+    "colorIndex",
+    "localIndex",
+    "bodyIdA",
+    "prevKeyA",
+    "nextKeyA",
+    "bodyIdB",
+    "prevKeyB",
+    "nextKeyB",
+    "shapeIdA",
+    "shapeIdB",
+    "childIndex",
+    "islandId",
+    "islandIndex",
+    "contactId",
+    "generation",
+];
+writeFileSync(
+    resolve(engineDir, "contact-layout.ts"),
+    [
+        "// Generated from Rust resident record offsets by build-kernel.ts.",
+        ...layoutNames.map((name, i) => `export const ${name} = ${recordOffset(i)};`),
+        "export const ContactField = {",
+        ...fieldNames.map((name, i) => `    ${name}: ${recordOffset(layoutNames.length + i)},`),
+        "} as const;",
+        "",
+    ].join("\n"),
+);
 const stBase64 = st.toString("base64");
 emit(
     resolve(engineDir, "kernel.wasm.ts"),

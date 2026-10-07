@@ -271,7 +271,7 @@ static mut MESH_SCRATCH_PTR: usize = 0;
 struct DispatchScratch {
     mesh: crate::mesh_contact::MeshStorage,
     old: [Manifold; 256],
-    previous: [crate::mesh_contact::TriangleCache; 256],
+    previous: [crate::manifold_abi::ContactCache; 256],
 }
 const D_CONTACT: usize = 0;
 const D_TYPE_A: usize = 1;
@@ -309,11 +309,7 @@ pub extern "C" fn reserve_collide_in_world(
         DEFAULT_MIX = default_mix;
         RECYCLE_DISTANCE = distance;
         let words = manifolds::contact_capacity(world_index).div_ceil(32);
-        let mesh_threads = if manifolds::has_mesh_caches(world_index) {
-            threads.max(1)
-        } else {
-            0
-        };
+        let mesh_threads = threads.max(1);
         let mut off = count * 4;
         let state_off = off;
         off += words * 4;
@@ -587,10 +583,12 @@ unsafe fn dispatch_mesh(
         && shape_records.get(shape_b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS)
             & crate::shapes::SPECULATIVE_FLAG
             != 0;
-    let mut mesh = scratch.mesh.scratch(cache.count, old_count);
+    let mut mesh = scratch
+        .mesh
+        .scratch(cache.triangles.count as usize, old_count);
     let count = compute_mesh_manifolds(
         &mut mesh,
-        &mut cache.triangles[..cache.count],
+        cache.triangles.as_mut_slice(),
         |index| source.triangle(index),
         &shape,
         xf_a,
