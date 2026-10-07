@@ -25,11 +25,12 @@ pub struct ShapeProxy<'a> {
 
 /// Warm-start data for the GJK simplex; zero-initialize on the first call (b3SimplexCache).
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct SimplexCache {
     pub metric: f32,
-    pub count: usize,
-    pub index_a: [usize; 4],
-    pub index_b: [usize; 4],
+    pub count: u16,
+    pub index_a: [u8; 4],
+    pub index_b: [u8; 4],
 }
 
 impl SimplexCache {
@@ -200,10 +201,10 @@ fn get_metric(simplex: &Simplex) -> f32 {
 fn write_cache(cache: &mut SimplexCache, simplex: &Simplex) {
     let count = simplex.count;
     cache.metric = get_metric(simplex);
-    cache.count = count;
+    cache.count = count as u16;
     for index in 0..count {
-        cache.index_a[index] = simplex.vertices[index].index_a;
-        cache.index_b[index] = simplex.vertices[index].index_b;
+        cache.index_a[index] = simplex.vertices[index].index_a as u8;
+        cache.index_b[index] = simplex.vertices[index].index_b as u8;
     }
 }
 
@@ -666,10 +667,10 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
 
     let mut simplex = Simplex::empty();
 
-    simplex.count = cache.count;
-    for i in 0..cache.count {
-        let index1 = cache.index_a[i];
-        let index2 = cache.index_b[i];
+    simplex.count = cache.count as usize;
+    for i in 0..cache.count as usize {
+        let index1 = cache.index_a[i] as usize;
+        let index2 = cache.index_b[i] as usize;
         let vertex1 = proxy_a.points[index1];
         let vertex2 = m.mul_v(proxy_b.points[index2]).add(xf_t.p);
         simplex.vertices[i].index_a = index1;

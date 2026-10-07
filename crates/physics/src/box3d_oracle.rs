@@ -100,19 +100,9 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
             if operation == 3 {
                 let mut cache = SimplexCache {
                     metric: f(16),
-                    count: r[17] as usize,
-                    index_a: [
-                        r[18] as usize,
-                        r[19] as usize,
-                        r[20] as usize,
-                        r[21] as usize,
-                    ],
-                    index_b: [
-                        r[22] as usize,
-                        r[23] as usize,
-                        r[24] as usize,
-                        r[25] as usize,
-                    ],
+                    count: r[17] as u16,
+                    index_a: [r[18] as u8, r[19] as u8, r[20] as u8, r[21] as u8],
+                    index_b: [r[22] as u8, r[23] as u8, r[24] as u8, r[25] as u8],
                 };
                 let d = shape_distance(
                     &DistanceInput {
@@ -237,26 +227,16 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
             let tri = [v(34), v(37), v(40)];
             let mut cache = SimplexCache {
                 metric: f(50),
-                count: r[51] as usize,
-                index_a: [
-                    r[52] as usize,
-                    r[53] as usize,
-                    r[54] as usize,
-                    r[55] as usize,
-                ],
-                index_b: [
-                    r[56] as usize,
-                    r[57] as usize,
-                    r[58] as usize,
-                    r[59] as usize,
-                ],
+                count: r[51] as u16,
+                index_a: [r[52] as u8, r[53] as u8, r[54] as u8, r[55] as u8],
+                index_b: [r[56] as u8, r[57] as u8, r[58] as u8, r[59] as u8],
             };
             let mut sat = SatCache {
                 separation: f(44),
-                ty: r[45],
-                index_a: r[46] as usize,
-                index_b: r[47] as usize,
-                hit: r[48],
+                ty: r[45] as u8,
+                index_a: r[46] as u8,
+                index_b: r[47] as u8,
+                hit: r[48] as u8,
             };
             let mut points = [crate::manifold::LocalManifoldPoint::ZERO; 32];
             let mut m = LocalManifold::new(&mut points);
@@ -326,10 +306,10 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
                 cache.index_b[2] as u32,
                 cache.index_b[3] as u32,
                 sat.separation.to_bits(),
-                sat.ty,
+                sat.ty as u32,
                 sat.index_a as u32,
                 sat.index_b as u32,
-                sat.hit,
+                sat.hit as u32,
             ]);
             n + 15
         }

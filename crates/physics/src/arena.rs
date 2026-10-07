@@ -628,62 +628,36 @@ unsafe fn dispatch_mesh(
     count
 }
 
-// The convex GJK/SAT cache is a `b3ContactCache` union folded into the directory (slots `DIR_CACHE`+):
-// the wider SimplexCache (10 slots) overlaps the narrower SatCache. A contact uses one or the other by
-// shape pair — hull-hull uses SAT, hull-vs-sphere/capsule uses the GJK simplex, the rest none.
-
 #[inline]
 fn read_simplex(dir: Col<u32>, id: usize) -> SimplexCache {
     let o = id * DIR_STRIDE + DIR_CACHE;
-    SimplexCache {
-        metric: f32::from_bits(dir.get(o)),
-        count: dir.get(o + 1) as usize,
-        index_a: [
-            dir.get(o + 2) as usize,
-            dir.get(o + 3) as usize,
-            dir.get(o + 4) as usize,
-            dir.get(o + 5) as usize,
-        ],
-        index_b: [
-            dir.get(o + 6) as usize,
-            dir.get(o + 7) as usize,
-            dir.get(o + 8) as usize,
-            dir.get(o + 9) as usize,
-        ],
-    }
+    unsafe { dir.ptr().add(o).cast::<SimplexCache>().read() }
 }
 
 #[inline]
 fn write_simplex(dir: Col<u32>, id: usize, c: &SimplexCache) {
     let o = id * DIR_STRIDE + DIR_CACHE;
-    dir.set(o, c.metric.to_bits());
-    dir.set(o + 1, c.count as u32);
-    for k in 0..4 {
-        dir.set(o + 2 + k, c.index_a[k] as u32);
-        dir.set(o + 6 + k, c.index_b[k] as u32);
+    unsafe {
+        let ptr = dir.ptr().add(o).cast::<SimplexCache>();
+        core::ptr::addr_of_mut!((*ptr).metric).write(c.metric);
+        core::ptr::addr_of_mut!((*ptr).count).write(c.count);
+        core::ptr::addr_of_mut!((*ptr).index_a).write(c.index_a);
+        core::ptr::addr_of_mut!((*ptr).index_b).write(c.index_b);
     }
 }
 
 #[inline]
 fn read_sat(dir: Col<u32>, id: usize) -> SatCache {
     let o = id * DIR_STRIDE + DIR_CACHE;
-    SatCache {
-        separation: f32::from_bits(dir.get(o)),
-        ty: dir.get(o + 1),
-        index_a: dir.get(o + 2) as usize,
-        index_b: dir.get(o + 3) as usize,
-        hit: dir.get(o + 4),
-    }
+    unsafe { dir.ptr().add(o).cast::<SatCache>().read() }
 }
 
 #[inline]
 fn write_sat(dir: Col<u32>, id: usize, c: &SatCache) {
     let o = id * DIR_STRIDE + DIR_CACHE;
-    dir.set(o, c.separation.to_bits());
-    dir.set(o + 1, c.ty);
-    dir.set(o + 2, c.index_a as u32);
-    dir.set(o + 3, c.index_b as u32);
-    dir.set(o + 4, c.hit);
+    unsafe {
+        dir.ptr().add(o).cast::<SatCache>().write(*c);
+    }
 }
 
 #[derive(Clone, Copy)]

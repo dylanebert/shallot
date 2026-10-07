@@ -12,8 +12,14 @@ pub struct ContactEdge {
     pub next_key: i32,
 }
 #[repr(C)]
+#[derive(Clone, Copy)]
+pub union ContactCache {
+    pub sat: crate::manifold::SatCache,
+    pub simplex: crate::distance::SimplexCache,
+}
+#[repr(C)]
 pub union ContactCacheRecord {
-    pub convex: [u32; 10],
+    pub convex: ContactCache,
     pub mesh_address: u32,
 }
 #[repr(C)]

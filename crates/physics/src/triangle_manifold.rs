@@ -39,9 +39,9 @@ struct Axis {
 impl Axis {
     fn save(self, cache: &mut SatCache) {
         cache.separation = self.separation;
-        cache.ty = self.ty;
-        cache.index_a = self.a;
-        cache.index_b = self.b;
+        cache.ty = self.ty as u8;
+        cache.index_a = self.a as u8;
+        cache.index_b = self.b as u8;
     }
 }
 fn triangle_support(tri: &[Vec3; 3], direction: Vec3) -> usize {
@@ -420,7 +420,7 @@ pub fn collide_hull_and_triangle(
             *cache = SatCache::empty();
         }
         3 => {
-            let p = hull.planes[cache.index_b];
+            let p = hull.planes[cache.index_b as usize];
             let a = triangle_support(&tri, p.normal.neg());
             let separation = p.separation(tri[a]);
             if separation > distance {
@@ -431,7 +431,7 @@ pub fn collide_hull_and_triangle(
                     normal: p.normal.neg(),
                     separation,
                     a,
-                    b: cache.index_b,
+                    b: cache.index_b as usize,
                     ty: 3,
                 };
                 let mut local = *cache;
@@ -445,8 +445,14 @@ pub fn collide_hull_and_triangle(
             *cache = SatCache::empty();
         }
         4 => {
-            if let Some(query) = edge_axis(&tri, &edges, plane, hull, cache.index_a, cache.index_b)
-            {
+            if let Some(query) = edge_axis(
+                &tri,
+                &edges,
+                plane,
+                hull,
+                cache.index_a as usize,
+                cache.index_b as usize,
+            ) {
                 if query.separation > distance {
                     return;
                 }
@@ -556,7 +562,7 @@ pub fn collide_hull_and_triangle(
         if output.distance > 0.0 {
             let mut mask = 0;
             for i in 0..simplex.count {
-                mask |= 1 << simplex.index_a[i];
+                mask |= 1 << simplex.index_a[i as usize];
             }
             m.point_count = 1;
             m.feature = FEATURES[mask];
@@ -760,7 +766,7 @@ pub fn collide_capsule_and_triangle(
         m.point_count = 1;
         let mut mask = 0;
         for i in 0..cache.count {
-            mask |= 1 << cache.index_a[i];
+            mask |= 1 << cache.index_a[i as usize];
         }
         m.feature = FEATURES[mask];
         m.points[0].point = output

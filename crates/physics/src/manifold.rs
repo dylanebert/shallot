@@ -135,12 +135,13 @@ pub mod separating_feature {
 
 /// Separating-axis test cache for temporal acceleration of hull-hull collision (b3SATCache).
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct SatCache {
     pub separation: f32,
-    pub ty: u32,
-    pub index_a: usize,
-    pub index_b: usize,
-    pub hit: u32,
+    pub ty: u8,
+    pub index_a: u8,
+    pub index_b: u8,
+    pub hit: u8,
 }
 
 impl SatCache {
@@ -1397,9 +1398,9 @@ fn build_face_a_contact(
     reduce_manifold_points(manifold, capacity, reduce_points, point_count);
 
     cache.separation = min_separation;
-    cache.ty = separating_feature::FACE_AXIS_A;
-    cache.index_a = (query.index_a & 0xff) as usize;
-    cache.index_b = (query.index_b & 0xff) as usize;
+    cache.ty = separating_feature::FACE_AXIS_A as u8;
+    cache.index_a = query.index_a as u8;
+    cache.index_b = query.index_b as u8;
 
     true
 }
@@ -1446,9 +1447,9 @@ fn build_face_b_contact(
         manifold.points[i].pair = flip_pair(manifold.points[i].pair);
     }
 
-    cache.ty = separating_feature::FACE_AXIS_B;
-    cache.index_a = (query.index_a & 0xff) as usize;
-    cache.index_b = (query.index_b & 0xff) as usize;
+    cache.ty = separating_feature::FACE_AXIS_B as u8;
+    cache.index_a = query.index_a as u8;
+    cache.index_b = query.index_b as u8;
     true
 }
 
@@ -1498,9 +1499,9 @@ fn build_edge_contact(
         make_feature_pair(SHAPE_A, query.index_a as u8, SHAPE_B, query.index_b as u8);
 
     cache.separation = separation;
-    cache.ty = separating_feature::EDGE_PAIR_AXIS;
-    cache.index_a = (query.index_a & 0xff) as usize;
-    cache.index_b = (query.index_b & 0xff) as usize;
+    cache.ty = separating_feature::EDGE_PAIR_AXIS as u8;
+    cache.index_a = query.index_a as u8;
+    cache.index_b = query.index_b as u8;
 
     true
 }
@@ -1858,11 +1859,11 @@ pub fn collide_hulls(
     cache.hit = 0;
 
     // Attempt to use the cache to speed up collision.
-    match cache.ty {
+    match cache.ty as u32 {
         separating_feature::INVALID => {}
 
         separating_feature::FACE_AXIS_A => {
-            let pl = planes_a[cache.index_a];
+            let pl = planes_a[cache.index_a as usize];
             let search_direction_in_b = transform_b_to_a.q.inv_rotate(pl.normal).neg();
             let vertex_index = hull_b.support_vertex(search_direction_in_b);
             let support = transform_b_to_a.point(points_b[vertex_index]);
@@ -1897,7 +1898,7 @@ pub fn collide_hulls(
         }
 
         separating_feature::FACE_AXIS_B => {
-            let pl = planes_b[cache.index_b];
+            let pl = planes_b[cache.index_b as usize];
             let search_direction_in_a = transform_b_to_a.q.rotate(pl.normal).neg();
             let vertex_index = hull_a.support_vertex(search_direction_in_a);
             let support = transform_b_to_a.inv_point(points_a[vertex_index]);
@@ -1932,7 +1933,7 @@ pub fn collide_hulls(
         }
 
         separating_feature::EDGE_PAIR_AXIS => {
-            let index1 = cache.index_a;
+            let index1 = cache.index_a as usize;
             let edge1 = edges_a[index1];
             let twin1 = edges_a[index1 + 1];
 
@@ -1943,7 +1944,7 @@ pub fn collide_hulls(
             let u1 = planes_a[edge1.face as usize].normal;
             let v1 = planes_a[twin1.face as usize].normal;
 
-            let index2 = cache.index_b;
+            let index2 = cache.index_b as usize;
             let edge2 = edges_b[index2];
             let twin2 = edges_b[index2 + 1];
 
@@ -2053,22 +2054,22 @@ pub fn collide_hulls(
 
     let axis_query = compute_separating_axis(hull_a, hull_b, transform_b_to_a, true);
     if axis_query.separated != separating_feature::INVALID {
-        cache.ty = axis_query.separated;
+        cache.ty = axis_query.separated as u8;
         match axis_query.separated {
             separating_feature::FACE_AXIS_A => {
                 cache.separation = axis_query.face_a.separation;
-                cache.index_a = (axis_query.face_a.index_a & 0xff) as usize;
-                cache.index_b = (axis_query.face_a.index_b & 0xff) as usize;
+                cache.index_a = axis_query.face_a.index_a as u8;
+                cache.index_b = axis_query.face_a.index_b as u8;
             }
             separating_feature::FACE_AXIS_B => {
                 cache.separation = axis_query.face_b.separation;
-                cache.index_a = (axis_query.face_b.index_a & 0xff) as usize;
-                cache.index_b = (axis_query.face_b.index_b & 0xff) as usize;
+                cache.index_a = axis_query.face_b.index_a as u8;
+                cache.index_b = axis_query.face_b.index_b as u8;
             }
             _ => {
                 cache.separation = axis_query.edge.separation;
-                cache.index_a = (axis_query.edge.index_a & 0xff) as usize;
-                cache.index_b = (axis_query.edge.index_b & 0xff) as usize;
+                cache.index_a = axis_query.edge.index_a as u8;
+                cache.index_b = axis_query.edge.index_b as u8;
             }
         }
         return;

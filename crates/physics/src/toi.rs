@@ -74,7 +74,7 @@ struct Function<'a> {
     w1: Vec3,
     w2: Vec3,
 }
-fn unique(count: usize, indices: &[usize; 3]) -> usize {
+fn unique(count: u16, indices: &[u8; 3]) -> usize {
     debug_assert!((1..=3).contains(&count));
     match count {
         1 => 1,
@@ -128,12 +128,15 @@ impl<'a> Function<'a> {
         let dp = xb.p.sub(xa.p);
         if cache.count == 3 && (ua == 3 || ub == 3) {
             if ua == 3 {
-                let v1 = a.points[ia[0]];
-                let v2 = a.points[ia[1]];
-                let v3 = a.points[ia[2]];
+                let v1 = a.points[ia[0] as usize];
+                let v2 = a.points[ia[1] as usize];
+                let v3 = a.points[ia[2] as usize];
                 let mut axis = v2.sub(v1).cross(v3.sub(v1)).normalize();
                 let point = v1.add(v2).add(v3).scale(1.0 / 3.0);
-                let delta = xb.q.rotate(b.points[ib[0]]).sub(xa.q.rotate(point)).add(dp);
+                let delta =
+                    xb.q.rotate(b.points[ib[0] as usize])
+                        .sub(xa.q.rotate(point))
+                        .add(dp);
                 if delta.dot(xa.q.rotate(axis)) < 0.0 {
                     axis = axis.neg();
                 }
@@ -141,12 +144,15 @@ impl<'a> Function<'a> {
                 f.w1 = axis;
                 f.w2 = point;
             } else {
-                let v1 = b.points[ib[0]];
-                let v2 = b.points[ib[1]];
-                let v3 = b.points[ib[2]];
+                let v1 = b.points[ib[0] as usize];
+                let v2 = b.points[ib[1] as usize];
+                let v3 = b.points[ib[2] as usize];
                 let mut axis = v2.sub(v1).cross(v3.sub(v1)).normalize();
                 let point = v1.add(v2).add(v3).scale(1.0 / 3.0);
-                let delta = xa.q.rotate(a.points[ia[0]]).sub(xb.q.rotate(point)).sub(dp);
+                let delta =
+                    xa.q.rotate(a.points[ia[0] as usize])
+                        .sub(xb.q.rotate(point))
+                        .sub(dp);
                 if delta.dot(xb.q.rotate(axis)) < 0.0 {
                     axis = axis.neg();
                 }
@@ -161,10 +167,10 @@ impl<'a> Function<'a> {
             if ib[0] == ib[1] {
                 ib[1] = ib[2];
             }
-            let va = a.points[ia[0]];
-            let vb = b.points[ib[0]];
-            let ea = a.points[ia[1]].sub(va).normalize();
-            let mut eb = b.points[ib[1]].sub(vb).normalize();
+            let va = a.points[ia[0] as usize];
+            let vb = b.points[ib[0] as usize];
+            let ea = a.points[ia[1] as usize].sub(va).normalize();
+            let mut eb = b.points[ib[1] as usize].sub(vb).normalize();
             let mut axis = xa.q.rotate(ea).cross(xb.q.rotate(eb));
             let tolerance = if cache.count == 2 {
                 0.05 * 0.05
