@@ -668,18 +668,7 @@ pub unsafe fn merge(world_index: usize, mut target: usize, mut source: usize) {
     let source_key = crate::constraint_graph::COLORS + source;
     let target_key = crate::constraint_graph::COLORS + target;
     for i in 0..crate::joints::count_in_world(world_index, source_key) {
-        let destination = crate::joints::append_in_world(world_index, target_key);
-        let src = (crate::joints::pointer_in_world(world_index, source_key) as *const u32)
-            .add(i * crate::joint_abi::JOINT_STRIDE);
-        let dst = (crate::joints::pointer_in_world(world_index, target_key) as *mut u32)
-            .add(destination * crate::joint_abi::JOINT_STRIDE);
-        core::ptr::copy_nonoverlapping(src, dst, crate::joint_abi::JOINT_STRIDE);
-        crate::joint_record::set_location(
-            world_index,
-            *src.add(crate::joint_abi::J_JOINT_ID) as usize,
-            target_key,
-            destination,
-        );
+        crate::joints::copy_record_in_world(world_index, source_key, i, target_key);
     }
     for i in 0..array_count_in_world(world_index, source, 1) {
         let id = array_get_in_world(world_index, source, 1, i);
@@ -706,6 +695,7 @@ pub unsafe fn transfer_joint(
     };
     if target == AWAKE {
         crate::constraint_graph::add_joint(world_index, source_key, index, a, b);
+        crate::joints::remove_in_world(world_index, source_key, index);
     } else {
         if source == AWAKE {
             crate::constraint_graph::clear_in_world(world_index, color, a, b);
@@ -761,9 +751,9 @@ pub unsafe fn wake(world_index: usize, set: usize) {
     let key = graph::COLORS + set;
     let count_joints = joints::count_in_world(world_index, key);
     for i in 0..count_joints {
-        let index = i.min(count_joints - 1 - i);
+        let index = i;
         let id = joints::read_word_in_world(world_index, key, index, J_JOINT_ID) as usize;
-        let r = *records::record(world_index, id);
+        let r = records::record(world_index, id);
         graph::add_joint(
             world_index,
             key,

@@ -32,7 +32,7 @@ unsafe fn wake_body(world_index: usize, id: usize) {
     );
 }
 unsafe fn link(world_index: usize, id: usize) {
-    let r = *records::record(world_index, id);
+    let r = records::record(world_index, id);
     let a = r.edges[0].body_id as usize;
     let b = r.edges[1].body_id as usize;
     let world = world_index;
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn unlink_record(id: usize) {
 }
 
 pub unsafe extern "C" fn unlink_record_in_world(world_index: usize, id: usize) {
-    let r = *records::record(world_index, id);
+    let r = records::record(world_index, id);
     if r.island_id != -1 {
         island::unlink_joint_in_world(world_index, id as i32, r.island_id, r.island_index as usize);
     }
@@ -218,11 +218,12 @@ pub unsafe extern "C" fn set_collide_connected(world: usize, id: usize, collide:
 }
 
 pub unsafe extern "C" fn set_collide_connected_in_world(world: usize, id: usize, collide: bool) {
-    let r = *records::record(world as usize, id);
+    let r = records::record(world as usize, id);
     if r.collide_connected == collide {
         return;
     }
     records::record_mut(world as usize, id).collide_connected = collide;
+    let r = records::record(world as usize, id);
     let a = r.edges[0].body_id as usize;
     let b = r.edges[1].body_id as usize;
     if collide {
@@ -269,9 +270,11 @@ pub unsafe extern "C" fn wake_bodies(world: usize, id: usize) {
 }
 
 pub unsafe extern "C" fn wake_bodies_in_world(world: usize, id: usize) {
-    let r = *records::record(world as usize, id);
-    wake_body(world as usize, r.edges[0].body_id as usize);
-    wake_body(world as usize, r.edges[1].body_id as usize);
+    let r = records::record(world as usize, id);
+    let a = r.edges[0].body_id as usize;
+    let b = r.edges[1].body_id as usize;
+    wake_body(world as usize, a);
+    wake_body(world as usize, b);
 }
 unsafe fn location(world_index: usize, id: usize) -> (usize, usize) {
     let r = records::record(world_index, id);
@@ -477,7 +480,7 @@ pub unsafe extern "C" fn transfer(id: usize, target: usize) {
 }
 
 pub unsafe extern "C" fn transfer_in_world(world_index: usize, id: usize, target: usize) {
-    let r = *records::record(world_index, id);
+    let r = records::record(world_index, id);
     if r.set_index as usize == target {
         return;
     }
@@ -498,9 +501,12 @@ pub unsafe extern "C" fn destroy(id: usize, wake_attached: bool) {
 
 pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize, wake_attached: bool) {
     begin();
-    let r = *records::record(world_index, id);
+    let r = records::record(world_index, id);
+    let a = r.edges[0].body_id as usize;
+    let b = r.edges[1].body_id as usize;
     records::unlink_bodies(world_index, id);
     unlink_record_in_world(world_index, id);
+    let r = records::record(world_index, id);
     if r.set_index == 2 {
         graph::remove_joint(
             world_index,
@@ -518,7 +524,7 @@ pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize, wake_at
     }
     records::free(world_index, id as u32);
     if wake_attached {
-        wake_body(world_index, r.edges[0].body_id as usize);
-        wake_body(world_index, r.edges[1].body_id as usize);
+        wake_body(world_index, a);
+        wake_body(world_index, b);
     }
 }

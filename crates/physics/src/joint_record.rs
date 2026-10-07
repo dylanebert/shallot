@@ -116,8 +116,8 @@ mod runtime {
     }
 
     pub unsafe fn unlink_bodies(world_index: usize, id: usize) {
-        let edges = record(world_index, id).edges;
-        for (side, edge) in edges.into_iter().enumerate() {
+        for side in 0..2 {
+            let edge = &record(world_index, id).edges[side];
             if edge.prev_key != -1 {
                 record_mut(world_index, (edge.prev_key >> 1) as usize).edges
                     [(edge.prev_key & 1) as usize]

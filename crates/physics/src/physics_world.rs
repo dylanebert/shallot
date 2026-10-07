@@ -550,6 +550,11 @@ pub unsafe extern "C" fn try_sleep_island_in_world(world_index: usize, id: usize
     }
     let index = island::field_in_world(world_index, id, 1) as usize;
     let target = solver_set::create_in_world(world_index);
+    solver_set::joint_array(world_index, target).reserve(island::array_count_in_world(
+        world_index,
+        id,
+        2,
+    ));
     for i in 0..island::array_count_in_world(world_index, id, 0) {
         let body = island::array_get_in_world(world_index, id, 0, i, 0) as usize;
         crate::body_record::runtime::transfer_in_world(world, body, target, false);

@@ -21,7 +21,7 @@ impl JointArray {
     fn layout(capacity: usize) -> Layout {
         Layout::from_size_align(capacity * core::mem::size_of::<JointSim>(), 16).unwrap()
     }
-    unsafe fn reserve(&mut self, capacity: usize) {
+    pub(crate) unsafe fn reserve(&mut self, capacity: usize) {
         if capacity <= self.capacity {
             return;
         }
@@ -42,7 +42,7 @@ impl JointArray {
     unsafe fn ptr(&self, index: usize) -> *mut u32 {
         self.data.add(index).cast()
     }
-    unsafe fn append(&mut self) -> usize {
+    unsafe fn emplace(&mut self) -> usize {
         let index = self.count;
         if index == self.capacity {
             self.reserve(if self.capacity == 0 {
@@ -51,8 +51,12 @@ impl JointArray {
                 self.capacity.checked_mul(2).unwrap()
             });
         }
-        self.data.add(index).write_bytes(0, 1);
         self.count += 1;
+        index
+    }
+    unsafe fn append(&mut self) -> usize {
+        let index = self.emplace();
+        self.data.add(index).write_bytes(0, 1);
         index
     }
     unsafe fn remove(&mut self, index: usize) -> u32 {
@@ -154,19 +158,32 @@ pub extern "C" fn move_record_in_world(
     index: usize,
     target: usize,
 ) -> u32 {
-    assert_ne!(source, target);
     unsafe {
-        assert!(index < array(world_index, source).count);
-        let destination = array(world_index, target).append();
-        core::ptr::copy_nonoverlapping(
-            array(world_index, source).ptr(index),
-            array(world_index, target).ptr(destination),
-            JOINT_STRIDE,
-        );
-        let id = *array(world_index, target).ptr(destination).add(J_JOINT_ID);
-        crate::joint_record::set_location(world_index, id as usize, target, destination);
+        copy_record_in_world(world_index, source, index, target);
         remove_in_world(world_index, source, index)
     }
+}
+
+pub(crate) unsafe fn copy_record_in_world(
+    world: usize,
+    source: usize,
+    index: usize,
+    target: usize,
+) {
+    assert_ne!(source, target);
+    assert!(index < array(world, source).count);
+    let destination = if target < crate::constraint_graph::COLORS {
+        array(world, target).append()
+    } else {
+        array(world, target).emplace()
+    };
+    core::ptr::copy_nonoverlapping(
+        array(world, source).data.add(index),
+        array(world, target).data.add(destination),
+        1,
+    );
+    let id = (*array(world, target).data.add(destination)).joint_id;
+    crate::joint_record::set_location(world, id as usize, target, destination);
 }
 #[export_name = "jointReadFloat"]
 pub extern "C" fn read_float(key: usize, index: usize, field: usize) -> f32 {

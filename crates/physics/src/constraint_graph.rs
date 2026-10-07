@@ -105,7 +105,7 @@ pub extern "C" fn create_joint(world_index: usize, a: usize, b: usize) -> usize 
 }
 pub fn add_joint(world_index: usize, source: usize, index: usize, a: usize, b: usize) {
     let color = joint_color(world_index, a, b);
-    joints::move_record_in_world(world_index, source, index, color);
+    unsafe { joints::copy_record_in_world(world_index, source, index, color) };
 }
 #[export_name = "graphBodyBit"]
 pub extern "C" fn body_bit(color: usize, id: usize) -> bool {
