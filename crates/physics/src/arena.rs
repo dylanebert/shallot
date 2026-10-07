@@ -757,6 +757,8 @@ unsafe fn update_contact(
         use crate::manifold_abi::*;
         let dir = manifolds::dir_col(world_index);
         let o = contact_id * DIR_STRIDE;
+        // JavaScript material callbacks run at the serial post-collide binding.
+        dir.set(o + DIR_FLAGS, dir.get(o + DIR_FLAGS) | 0x0200_0000);
         let old_count = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
         let shape_id_a = dir.get(o + DIR_SHAPE_A) as usize;
         let shape_id_b = dir.get(o + DIR_SHAPE_B) as usize;
@@ -1023,7 +1025,8 @@ pub(crate) unsafe fn contact_block(
         for i in start..end {
             let contact_id = contacts[i] as usize;
             let o = contact_id * DIR_STRIDE;
-            let flags = dir.get(o + DIR_FLAGS);
+            let flags = dir.get(o + DIR_FLAGS) & !0x0200_0000;
+            dir.set(o + DIR_FLAGS, flags);
             let sa = dir.get(o + DIR_SHAPE_A) as usize;
             let sb = dir.get(o + DIR_SHAPE_B) as usize;
             if !fat_overlap(fat, sa, sb) {
