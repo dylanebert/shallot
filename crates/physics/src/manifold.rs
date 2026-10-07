@@ -1809,9 +1809,7 @@ pub fn collide_hulls(
 
     // Attempt to use the cache to speed up collision.
     match cache.ty {
-        separating_feature::INVALID => {
-            cache.reset();
-        }
+        separating_feature::INVALID => {}
 
         separating_feature::FACE_AXIS_A => {
             let pl = planes_a[cache.index_a];
