@@ -10,11 +10,11 @@ use shallot_physics::body::flags::DYNAMIC;
 use shallot_physics::body::{SIM_STRIDE, STATE_STRIDE};
 use shallot_physics::col::Col;
 use shallot_physics::contact::{Softness, NULL_INDEX};
+use shallot_physics::contact_spans::WidePrepareSpan;
 use shallot_physics::contact_wide::{
-    prepare, restitution, solve, store, warm_start, LANES, WIDE_IDX_STRIDE, WIDE_META_STRIDE,
-    WIDE_STRIDE,
+    prepare, restitution, solve, store, warm_start, LANES, WIDE_STRIDE,
 };
-use shallot_physics::manifold_abi::{DIR_STRIDE, MANIFOLD_STRIDE};
+use shallot_physics::manifold_abi::*;
 
 /// SAFETY: a gold harness is single-threaded and each column has exactly one user, so `Col`'s
 /// disjoint-write promise holds trivially.
@@ -92,8 +92,8 @@ fn write_body(state: &mut [f32], sim: &mut [f32], b: &Body) {
     state[o + 6..o + 9].copy_from_slice(&b.dp);
     state[o + 9..o + 13].copy_from_slice(&b.dq);
     let so = b.idx * SIM_STRIDE;
-    sim[so] = b.inv_mass;
-    sim[so + 19..so + 28].copy_from_slice(&b.inv_i); // invInertiaWorld
+    sim[so + 26] = b.inv_mass;
+    sim[so + 36..so + 45].copy_from_slice(&b.inv_i); // invInertiaWorld
 }
 
 #[test]
@@ -131,7 +131,10 @@ fn wide_convex_phases_match_c() {
 
     let mut state = vec![0.0f32; body_count * STATE_STRIDE];
     let mut sim = vec![0.0f32; body_count * SIM_STRIDE];
-    let mut flags = vec![DYNAMIC; body_count];
+    let mut flags = vec![0; body_count * STATE_STRIDE];
+    for i in 0..body_count {
+        flags[i * STATE_STRIDE] = DYNAMIC;
+    }
     for a in &a_bodies {
         write_body(&mut state, &mut sim, a);
     }
@@ -159,32 +162,32 @@ fn wide_convex_phases_match_c() {
         let mp_imp = floats(&input["mpNormalImpulse"]);
 
         let d = c * DIR_STRIDE;
-        dir[d] = from_bits(input["friction"].as_str().unwrap()).to_bits();
-        dir[d + 1] = from_bits(input["restitution"].as_str().unwrap()).to_bits();
-        dir[d + 2] = from_bits(input["rollingResistance"].as_str().unwrap()).to_bits();
-        dir[d + 3] = tv[0].to_bits();
-        dir[d + 4] = tv[1].to_bits();
-        dir[d + 5] = tv[2].to_bits();
-        dir[d + 6] = input["flags"].as_u64().unwrap() as u32;
-        dir[d + 7] = 1; // manifoldCount
-        dir[d + 8] = c as u32; // manifoldBase
-        dir[d + 9] = a_bodies[c].idx as u32;
-        dir[d + 10] = b_bodies[c]
+        dir[d + DIR_FRICTION] = from_bits(input["friction"].as_str().unwrap()).to_bits();
+        dir[d + DIR_RESTITUTION] = from_bits(input["restitution"].as_str().unwrap()).to_bits();
+        dir[d + DIR_ROLLING_RESISTANCE] =
+            from_bits(input["rollingResistance"].as_str().unwrap()).to_bits();
+        for k in 0..3 {
+            dir[d + DIR_TANGENT_VELOCITY + k] = tv[k].to_bits();
+        }
+        dir[d + DIR_FLAGS] = input["flags"].as_u64().unwrap() as u32;
+        dir[d + DIR_MANIFOLD_COUNT] = 1;
+        dir[d + DIR_MANIFOLD_BASE] = c as u32;
+        dir[d + DIR_INDEX_A] = a_bodies[c].idx as u32;
+        dir[d + DIR_INDEX_B] = b_bodies[c]
             .as_ref()
             .map(|b| b.idx as u32)
             .unwrap_or(NULL_INDEX);
-        dir[d + 11] = 0; // hit
 
         let mpo = c * MANIFOLD_STRIDE;
-        pool[mpo..mpo + 3].copy_from_slice(&normal[0..3]);
-        pool[mpo + 3..mpo + 6].copy_from_slice(&m_friction[0..3]);
-        pool[mpo + 6] = m_twist;
-        pool[mpo + 7..mpo + 10].copy_from_slice(&m_rolling[0..3]);
-        pool[mpo + 10] = f32::from_bits(point_count as u32); // pointCount
+        pool[mpo + M_NORMAL..mpo + M_NORMAL + 3].copy_from_slice(&normal[0..3]);
+        pool[mpo + M_FRICTION..mpo + M_FRICTION + 3].copy_from_slice(&m_friction[0..3]);
+        pool[mpo + M_TWIST] = m_twist;
+        pool[mpo + M_ROLLING..mpo + M_ROLLING + 3].copy_from_slice(&m_rolling[0..3]);
+        pool[mpo + M_POINT_COUNT] = f32::from_bits(point_count as u32);
         for p in 0..point_count {
             let a = floats(&ra[p]);
             let b = floats(&rb[p]);
-            let pp = mpo + 11 + p * 14; // M_POINTS + p * POOL_POINT_STRIDE
+            let pp = mpo + M_POINTS + p * POOL_POINT_STRIDE;
             pool[pp..pp + 3].copy_from_slice(&[a[0], a[1], a[2]]); // anchorA
             pool[pp + 3..pp + 6].copy_from_slice(&[b[0], b[1], b[2]]); // anchorB
             pool[pp + 6] = sep[p]; // separation
@@ -194,12 +197,21 @@ fn wide_convex_phases_match_c() {
 
     // Wide constraint record + its meta/index columns.
     let mut wide = vec![0.0f32; WIDE_STRIDE];
-    let mut idx = vec![0u32; WIDE_IDX_STRIDE];
-    let mut meta = vec![0u32; WIDE_META_STRIDE];
-    for lane in 0..lane_count {
-        meta[lane] = lane as u32; // laneContact = contactId
-    }
-    meta[LANES] = lane_count as u32; // laneCount
+    let mut idx = vec![0u32; WIDE_STRIDE];
+    let contacts: Vec<u32> = (0..lane_count as u32).collect();
+    let mut spans = [
+        WidePrepareSpan {
+            start: 0,
+            count: lane_count as i32,
+            contacts: contacts.as_ptr(),
+        },
+        WidePrepareSpan {
+            start: i32::MAX,
+            count: 0,
+            contacts: std::ptr::null(),
+        },
+    ];
+    let mut hits = vec![0; lane_count];
 
     // warmStartScale is a world-level flag (uniform across a step); the harness uses 1.0 for all lanes.
     let warm = 1.0f32;
@@ -208,7 +220,7 @@ fn wide_convex_phases_match_c() {
     prepare(
         col(&mut wide),
         col(&mut idx),
-        col(&mut meta),
+        col(&mut spans),
         col(&mut state),
         col(&mut sim),
         col(&mut dir),
@@ -268,12 +280,15 @@ fn wide_convex_phases_match_c() {
     // store (writes impulses back into the pool manifolds + the directory hit flags)
     store(
         col(&mut wide),
-        col(&mut meta),
+        col(&mut spans),
         col(&mut dir),
         col(&mut pool),
         0,
         1,
         hit_threshold,
+        |id| {
+            hits[id] = 1;
+        },
     );
 
     // --- compare per lane ---
@@ -295,15 +310,15 @@ fn wide_convex_phases_match_c() {
         let mpo = c * MANIFOLD_STRIDE;
         for k in 0..3 {
             assert_bits(
-                pool[mpo + 3 + k],
+                pool[mpo + M_FRICTION + k],
                 want_mf[k],
                 &format!("lane{c}.mfFriction[{k}]"),
             );
         }
-        assert_bits(pool[mpo + 6], want_mf[3], &format!("lane{c}.mfTwist"));
+        assert_bits(pool[mpo + M_TWIST], want_mf[3], &format!("lane{c}.mfTwist"));
         for k in 0..3 {
             assert_bits(
-                pool[mpo + 7 + k],
+                pool[mpo + M_ROLLING + k],
                 want_mf[4 + k],
                 &format!("lane{c}.mfRolling[{k}]"),
             );
@@ -312,7 +327,7 @@ fn wide_convex_phases_match_c() {
         let pts = lane["points"].as_array().unwrap();
         for (p, pt) in pts.iter().enumerate() {
             let want = floats(pt);
-            let pp = mpo + 11 + p * 14; // M_POINTS + p * POOL_POINT_STRIDE
+            let pp = mpo + M_POINTS + p * POOL_POINT_STRIDE;
             assert_bits(
                 pool[pp + 8],
                 want[0],
@@ -331,6 +346,6 @@ fn wide_convex_phases_match_c() {
         }
 
         let want_hit = lane["hit"].as_u64().unwrap() as u32;
-        assert_eq!(dir[c * DIR_STRIDE + 11], want_hit, "lane{c}.hit");
+        assert_eq!(hits[c], want_hit, "lane{c}.hit");
     }
 }
