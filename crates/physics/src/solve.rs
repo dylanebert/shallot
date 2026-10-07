@@ -692,6 +692,7 @@ static mut PAR: Option<Par> = None;
 /// One built parallel-for: its partition and phase parameters.
 struct Par {
     par: ParFor,
+    worker_count: usize,
     count: usize,
     a: f32,
 }
@@ -731,7 +732,13 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
         par.block_count() >= 2 && worth_forking(count, thread_count - 1, COLLIDE_FORK_MIN)
     };
     unsafe {
-        PAR = Some(Par { par, count, a });
+        let worker_count = thread_count.min(par.block_count());
+        PAR = Some(Par {
+            par,
+            worker_count,
+            count,
+            a,
+        });
         JOB = job;
     }
     fork as usize
@@ -767,6 +774,9 @@ fn run_job(world_index: usize, index: usize) {
                 let Some(p) = &*(&raw const PAR) else {
                     return;
                 };
+                if index >= p.worker_count {
+                    return;
+                }
                 match job {
                     Job::Contacts => p
                         .par
