@@ -79,6 +79,27 @@ pub(crate) fn cast_record(out: &CastOutput) -> [f32; 12] {
         out.material_index as f32,
     ]
 }
+pub(crate) unsafe fn write_cast(out: &CastOutput, target: *mut u32, material: i32) {
+    for (index, value) in [
+        u32::from(out.hit) as f32,
+        out.fraction,
+        out.point.x,
+        out.point.y,
+        out.point.z,
+        out.normal.x,
+        out.normal.y,
+        out.normal.z,
+        out.iterations as f32,
+        out.triangle_index as f32,
+        out.child_index as f32,
+        material as f32,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        target.add(index).write(value.to_bits());
+    }
+}
 // Header, traversal stack and narrow-phase points belong to the calling task, not the query ABI.
 pub(crate) unsafe fn sensor_task(
     sensor_id: usize,
@@ -237,8 +258,11 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
             lo = lo.add(origin);
             hi = hi.add(origin);
         }
-        let mut result = [0u32; 80];
-        result[0] = if operation == 5 { 0 } else { u32::MAX };
+        let result = &raw mut RESULT as *mut u32;
+        result.write(if operation == 5 { 0 } else { u32::MAX });
+        let mut plane_count = 0;
+        let mut node_visits = 0;
+        let mut leaf_visits = 0;
         let mut stack = [0; tree::STACK_SIZE];
         for i in 0..3 {
             let pool =
@@ -287,12 +311,12 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                         query::collide_mover(&mut planes, &shape, transform, &mover, materials);
                     if user_callback == 0 {
                         for plane in &planes[..count] {
-                            let index = result[0] as usize;
+                            let index = plane_count;
                             if index == 8 {
                                 break;
                             }
                             let n = 16 + index * 8;
-                            result[n] = shape_id;
+                            result.add(n).write(shape_id);
                             let values = [
                                 plane.plane.normal.x,
                                 plane.plane.normal.y,
@@ -303,9 +327,9 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                                 plane.point.z,
                             ];
                             for j in 0..7 {
-                                result[n + 1 + j] = values[j].to_bits();
+                                result.add(n + 1 + j).write(values[j].to_bits());
                             }
-                            result[0] += 1;
+                            plane_count += 1;
                         }
                     }
                     return if count != 0 && user_callback != 0 {
@@ -339,14 +363,18 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                 if !output.hit || ((operation == 3 || operation == 6) && output.fraction == 0.0) {
                     return clip;
                 }
-                let mut record = cast_record(&output);
-                let material_count = shape_material_count(world as u32, id as u32);
-                record[11] = output
-                    .material_index
-                    .clamp(0, material_count.saturating_sub(1) as i32)
-                    as f32;
+                if (user_callback != 0 && operation != 6) || operation == 3 {
+                    let material_count = shape_material_count(world as u32, id as u32);
+                    write_cast(
+                        &output,
+                        result.add(4),
+                        output
+                            .material_index
+                            .clamp(0, material_count.saturating_sub(1) as i32),
+                    );
+                }
                 let value = if user_callback != 0 && operation != 6 {
-                    callback(1, id, record.as_ptr() as *const u8, 12)
+                    callback(1, id, result.add(4).cast::<u8>(), 12)
                 } else {
                     output.fraction
                 };
@@ -354,10 +382,7 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                     fraction = value;
                 }
                 if operation == 3 {
-                    result[0] = shape_id;
-                    for j in 0..12 {
-                        result[4 + j] = record[j].to_bits();
-                    }
+                    result.write(shape_id);
                 }
                 value
             };
@@ -402,13 +427,17 @@ pub extern "C" fn run(world: usize, operation: u32, user_callback: u32) {
                     visit,
                 )
             };
-            result[1] += stats.0;
-            result[2] += stats.1;
+            node_visits += stats.0;
+            leaf_visits += stats.1;
             if operation >= 2 && operation != 5 && fraction == 0.0 {
                 break;
             }
         }
-        result[3] = fraction.to_bits();
-        RESULT = result;
+        if operation == 5 {
+            result.write(plane_count as u32);
+        }
+        result.add(1).write(node_visits);
+        result.add(2).write(leaf_visits);
+        result.add(3).write(fraction.to_bits());
     }
 }
