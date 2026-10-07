@@ -1310,10 +1310,6 @@ pub(crate) unsafe fn finalize_block(
             inv_dt,
             enable_continuous,
         );
-        for i in start..end {
-            crate::events::write_move(world_index, i);
-        }
-        refit_block(world_index, sim, fin, start, end);
     }
 }
 
@@ -1329,7 +1325,7 @@ pub(crate) unsafe fn finalize_block(
 /// # Safety
 /// The body + shape + fat-AABB regions must be reserved for every reachable shape, and no thread may grow
 /// memory while this runs (the MT concurrency invariant).
-unsafe fn refit_block(world_index: usize, sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
+pub(crate) unsafe fn refit_body(world_index: usize, sim: Col<f32>, fin: Col<f32>, i: usize) {
     unsafe {
         let records = crate::bodies::body_cap_in_world(world_index);
         let sim2 = Col::new(
@@ -1339,9 +1335,9 @@ unsafe fn refit_block(world_index: usize, sim: Col<f32>, fin: Col<f32>, start: u
         let shape_u = crate::shapes::col(world_index);
         let shape_f = crate::shapes::col_f(world_index);
         let fat = crate::shapes::col_f(world_index);
-        for i in start..end {
+        {
             if sim2.atomic_get(i * SIM2_STRIDE + crate::body::S2_FLAGS) & 0x40 != 0 {
-                continue;
+                return;
             }
             let so = i * SIM_STRIDE;
             let fo = i * FIN_STRIDE;

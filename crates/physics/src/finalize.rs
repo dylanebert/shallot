@@ -186,6 +186,7 @@ pub unsafe fn finalize(
         let body_id = sim2_col.get(s2 + S2_BODY_ID).to_bits() as usize;
         let body = crate::bodies::record_mut(world_index, body_id);
         body.sleep_velocity = sleep_velocity;
+        crate::events::write_move(world_index, i);
         let awake = !crate::continuous::sleep_enabled()
             || body.flags & crate::body::flags::ENABLE_SLEEP == 0
             || sleep_velocity > body.sleep_threshold;
@@ -225,6 +226,7 @@ pub unsafe fn finalize(
                 .mul(sim.inv_inertia_local)
                 .mul(rotation_matrix.transpose()),
         );
+        crate::arena::refit_body(world_index, sim_col, fin_col, i);
     }
 }
 
