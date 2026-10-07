@@ -39,27 +39,21 @@ use crate::integrate;
 use crate::math::Vec3;
 use crate::parfor::{worth_forking, ParFor, COLLIDE_FORK_MIN, COLLIDE_MIN_RANGE};
 use crate::stages::{
-    self, max_sizes, Block, ColorSpan, Context, Plan, Stage, StageWork, SyncBlock, MAX_COLORS,
+    self, Block, ColorSpan, Context, Plan, Stage, StageWork, SyncBlock, MAX_COLORS,
 };
 
 /// Threads the solve can ever run on: the shadow stack affords main + 7 workers (`src/pool.ts`
 /// `maxWorkers`), and each needs its own null-lane identity record.
 pub(crate) const MAX_THREADS: usize = 8;
 
-const MAX: stages::Sizes = max_sizes(MAX_THREADS);
+struct Step {
+    ctx: Option<Context<'static>>,
+    work: Option<Work>,
+    spans: [ColorSpan; MAX_COLORS],
+}
 
-// The stage list, its blocks, and the active colors — the caller-owned storage `stages::build` lays the
-// plan into. Statics, not `Vec`s: the wasm path has no allocator (`physics.md`), and these live in
-// the shared linear memory, so every thread's instance addresses the same bytes. Written only by
-// `solveBuild`, on the main thread, with the workers parked.
-static mut STAGES: [Stage; MAX.stages] = [Stage::EMPTY; MAX.stages];
-static mut BLOCKS: [SyncBlock; MAX.blocks] = [SyncBlock::EMPTY; MAX.blocks];
-static mut SPANS: [ColorSpan; MAX_COLORS] = [ColorSpan::EMPTY; MAX_COLORS];
-
-/// The built solve. `None` until the first `solveBuild`.
-static mut CTX: Option<Context<'static>> = None;
-/// The columns + per-step scalars the blocks run over.
-static mut WORK: Option<Work> = None;
+// The pool runs one round at a time; this address publishes the world's step allocation.
+static mut STEP: *mut Step = core::ptr::null_mut();
 
 /// The arena's columns and this step's scalars, as every block sees them. The columns are [`Col`]s —
 /// shared-mutable handles, because a stage's blocks run concurrently over one column and only their
@@ -540,7 +534,8 @@ pub extern "C" fn solve_build_in_world(
         arena::reset_joint_states(world_index);
         // Drop the previous solve's context before re-borrowing its buffers. The workers have all left
         // it (the join in `stages::run`), so nothing else holds them.
-        CTX = None;
+        STEP = core::ptr::null_mut();
+        arena::free_solve(world_index);
         SPLIT_ID = crate::island::split_candidate_in_world(world_index);
         SPLIT_WORKER = usize::from(thread_count > 1);
         if SPLIT_ID != -1 {
@@ -548,7 +543,8 @@ pub extern "C" fn solve_build_in_world(
         }
 
         let (spans, color_count) = arena::color_span_column();
-        let out = &mut *(&raw mut SPANS);
+        let mut span_storage = [ColorSpan::EMPTY; MAX_COLORS];
+        let out = &mut span_storage;
         for c in 0..color_count {
             let o = c * arena::COLOR_SPAN_STRIDE;
             out[c] = ColorSpan {
@@ -577,7 +573,40 @@ pub extern "C" fn solve_build_in_world(
             }
         });
         let (wide, wide_idx, wide_spans) = arena::wide_columns(world_index);
-        WORK = Some(Work {
+        let plan = Plan {
+            body_count: arena::body_count(),
+            wide_total,
+            mesh_start,
+            mesh_total,
+            joint_total,
+            colors: &out[..color_count],
+            sub_step_count,
+            worker_count: thread_count,
+        };
+        let sizes = stages::sizes(&plan);
+        let stage_offset =
+            core::mem::size_of::<Step>().next_multiple_of(core::mem::align_of::<Stage>());
+        let block_offset = (stage_offset + sizes.stages * core::mem::size_of::<Stage>())
+            .next_multiple_of(core::mem::align_of::<SyncBlock>());
+        let bytes = block_offset + sizes.blocks * core::mem::size_of::<SyncBlock>();
+        let alignment = core::mem::align_of::<Step>().max(core::mem::align_of::<Stage>());
+        let allocation = arena::reserve_solve(world_index, bytes + alignment - 1);
+        let base = allocation.next_multiple_of(alignment);
+        STEP = base as *mut Step;
+        STEP.write(Step {
+            ctx: None,
+            work: None,
+            spans: span_storage,
+        });
+        let stage_ptr = (base + stage_offset) as *mut Stage;
+        let block_ptr = (base + block_offset) as *mut SyncBlock;
+        for i in 0..sizes.stages {
+            stage_ptr.add(i).write(Stage::EMPTY);
+        }
+        for i in 0..sizes.blocks {
+            block_ptr.add(i).write(SyncBlock::EMPTY);
+        }
+        (*STEP).work = Some(Work {
             world: world_index,
             cols: arena::scalar_columns(world_index),
             overflow_cols: arena::overflow_columns(world_index),
@@ -624,14 +653,14 @@ pub extern "C" fn solve_build_in_world(
             mesh_start,
             mesh_total,
             joint_total,
-            colors: &out[..color_count],
+            colors: &(&(*STEP).spans)[..color_count],
             sub_step_count,
             worker_count: thread_count,
         };
-        CTX = Some(stages::build(
+        (*STEP).ctx = Some(stages::build(
             &plan,
-            &mut *(&raw mut STAGES),
-            &mut *(&raw mut BLOCKS),
+            core::slice::from_raw_parts_mut(stage_ptr, sizes.stages),
+            core::slice::from_raw_parts_mut(block_ptr, sizes.blocks),
         ));
         JOB = Job::Solve;
     }
@@ -723,7 +752,7 @@ fn run_job(world_index: usize, index: usize) {
         match *(&raw const JOB) {
             Job::None => {}
             Job::Solve => {
-                let (Some(ctx), Some(work)) = (&*(&raw const CTX), &*(&raw const WORK)) else {
+                let (Some(ctx), Some(work)) = (&(*STEP).ctx, &(*STEP).work) else {
                     return;
                 };
                 // Worker 1 handles the queued split while worker 0 and the other thieves solve.
@@ -751,7 +780,7 @@ fn run_job(world_index: usize, index: usize) {
                         .run(|s, e| crate::pairwork::query_block(world_index, s, e, p.a as usize)),
                     Job::Sensors => p.par.run(|s, e| crate::sensor::task(world_index, s, e)),
                     Job::Finalize => p.par.run(|s, e| {
-                        let work = (&*(&raw const WORK)).as_ref().unwrap();
+                        let work = (*STEP).work.as_ref().unwrap();
                         work.finalize(Block {
                             start: s,
                             count: e - s,
@@ -807,7 +836,10 @@ pub extern "C" fn worker_fault() {
         if *(&raw const JOB) != Job::Solve {
             return;
         }
-        if let Some(ctx) = &*(&raw const CTX) {
+        if !STEP.is_null() {
+            let Some(ctx) = &(*STEP).ctx else {
+                return;
+            };
             ctx.fault();
         }
     }

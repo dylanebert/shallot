@@ -27,7 +27,24 @@ static mut STACKS: [crate::task_memory::Stack; crate::regions::MAX_WORLDS] =
     [const { crate::task_memory::Stack::EMPTY }; crate::regions::MAX_WORLDS];
 static mut SCRATCH_PTR: [usize; crate::regions::MAX_WORLDS] = [0; crate::regions::MAX_WORLDS];
 
+static mut SOLVE_PTR: [usize; crate::regions::MAX_WORLDS] = [0; crate::regions::MAX_WORLDS];
+
+pub unsafe fn reserve_solve(world: usize, bytes: usize) -> usize {
+    assert_eq!(SOLVE_PTR[world], 0);
+    let ptr = STACKS[world].alloc(bytes) as usize;
+    SOLVE_PTR[world] = ptr;
+    ptr
+}
+
+pub unsafe fn free_solve(world: usize) {
+    if SOLVE_PTR[world] != 0 {
+        STACKS[world].free(SOLVE_PTR[world] as *mut u8);
+        SOLVE_PTR[world] = 0;
+    }
+}
+
 pub unsafe fn free_scratch(world: usize) {
+    free_solve(world);
     if SCRATCH_PTR[world] != 0 {
         STACKS[world].free(SCRATCH_PTR[world] as *mut u8);
         SCRATCH_PTR[world] = 0;
