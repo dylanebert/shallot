@@ -1415,10 +1415,6 @@ fn build_face_b_contact(
 
     // Flip normal so it points from A to B, even though B owns the reference face.
     manifold.normal = matrix.mul_v(manifold.normal).neg();
-    cache.ty = separating_feature::FACE_AXIS_B;
-    cache.index_a = (query.index_a & 0xff) as usize;
-    cache.index_b = (query.index_b & 0xff) as usize;
-
     for i in 0..manifold.point_count {
         manifold.points[i].point = matrix
             .mul_v(manifold.points[i].point)
@@ -1426,6 +1422,9 @@ fn build_face_b_contact(
         manifold.points[i].pair = flip_pair(manifold.points[i].pair);
     }
 
+    cache.ty = separating_feature::FACE_AXIS_B;
+    cache.index_a = (query.index_a & 0xff) as usize;
+    cache.index_b = (query.index_b & 0xff) as usize;
     true
 }
 
