@@ -1,0 +1,337 @@
+0 0xe3883defc17d441a
+1 0xfadb1069ae45a021
+2 0x7ccc06c323d8dead
+3 0xaa517dbd64db99e1
+4 0x716ecc46b90b842b
+5 0xe0684e7b5e222804
+6 0xf25d3835c967f4a2
+7 0xd4b036eed8579f55
+8 0x396247c70e2b0be9
+9 0xe07ab36e44d098eb
+10 0x693032f7f12f8197
+11 0xe2343ea7e9695854
+12 0x6b7a0f7a091c1c80
+13 0x76ba535297b0e763
+14 0xe5bd5a379b021295
+15 0xef86d3e2e1e76c3e
+16 0x9c8f8e1d9cad3dab
+17 0xf3b1545c361797af
+18 0xfeb6ae8d81c48eeb
+19 0x9d1f61ae0ef9f0f8
+20 0x9734504dc07b395a
+21 0x5e16df337a93ea2c
+22 0x4c8883d34bb008b9
+23 0x6935a9b8dfe0eac8
+24 0x1e4f56620e61e187
+25 0x20d52b29b27acf32
+26 0x56a3354c2f614bf3
+27 0xd06ab7bbd84298a8
+28 0xd19ea2f188520d47
+29 0xb8043a0f06f3c0aa
+30 0x20bce563bdad9662
+31 0xa60c26d610d6d28c
+32 0x952f3d8d5478d644
+33 0x15300007f49245c9
+34 0xc9a0246ddd2d988e
+35 0x224634e36b0dda70
+36 0x89c46991135914ad
+37 0x174ce4fdc3870dc6
+38 0xacb5e35046d7db78
+39 0x5cd8193845bca19b
+40 0xe1210bb4bde52446
+41 0x34b8c1982c0b3867
+42 0xd269dbd9f6c88e42
+43 0x464a2d2f557d77b5
+44 0xf44279622fa23387
+45 0x35b51562fa96d2f5
+46 0x9b0ddda9eeeabb6d
+47 0x02cbe873e83ed1e3
+48 0xc03cd41058e89e27
+49 0x8416f1188f9cc8b6
+50 0xd33cfcec79e78d52
+51 0xcb5737083ae38280
+52 0xceec09791af57595
+53 0x75dd7377004e7ad8
+54 0x9fcced4a7a1bea85
+55 0xed5dc7a272f6b13e
+56 0x3b4114865d43acec
+57 0xb3d2cba92be838b4
+58 0x3117e2dced130f6f
+59 0x75f50ada75efa2be
+60 0x8a086b2f439347fc
+61 0xa00143978ecaf9ed
+62 0x32897fff05f403be
+63 0x19339a7b5cd997a3
+64 0x7bde7739005ae394
+65 0x624c2b08833b73b4
+66 0x4708d4b2d68e77a1
+67 0xc44023eaa03f2949
+68 0x03c68f489c487566
+69 0xa215ab0a06f926d7
+70 0x1c6f750ec946ddd7
+71 0x6a34a9638fecbdc9
+72 0x0d3abb3d55278445
+73 0xe6f23d175c92140a
+74 0xff7222a906b2a00b
+75 0x32fd8717b0b681c3
+76 0xb335b083cc7f55af
+77 0xaaa998cd7ee8ed88
+78 0xdda73470b1f492d2
+79 0x740c064967a178b4
+80 0x3fbafd543b4e1950
+81 0xb88d5a6afb41d85d
+82 0x344f6ad2c8d5a580
+83 0xaa692705cd8c1723
+84 0x3dbf3300b85cd83b
+85 0xf2bf2c39d3689eff
+86 0xe0ddf54fab6e70e9
+87 0x493570af54b4bfd9
+88 0x073e3688ee7088d2
+89 0x7cb9bf69149e8d9a
+90 0x7c10c4bde2fbdcb2
+91 0x2361e8ffd37a211a
+92 0x9f2b99239e7d2485
+93 0xa8c21fd982b8d5c0
+94 0xa22a2f676febc5f7
+95 0x41e9d00232c5c461
+96 0xc452c9ef69efbdb3
+97 0x493f7c416276b9b7
+98 0xa8bef9b4ffb5b529
+99 0xd0302111f246958d
+100 0xf8feb7e53a336fd4
+101 0xa1f652a5e3c148c0
+102 0x596549f1c9b9f7c8
+103 0xe3c3bb5ecae8948e
+104 0x908f1bb12fb278b1
+105 0x1f7b13515163b740
+106 0xf4668249b125a1b2
+107 0xbc7617775c671715
+108 0xf37c8b30008393a9
+109 0xee579570a7dfe282
+110 0xaa074e98259379f8
+111 0xe03a3dacac8593b0
+112 0x678761c1c14d80bc
+113 0x4fcccf015fe615a9
+114 0xe6eacb0cc7ddf218
+115 0xc8de7e97e000e2c0
+116 0xad001025bc21ecde
+117 0xaef3d59f72609dff
+118 0x23c37a5b899351e8
+119 0xb17684aa80b9c45d
+120 0x2258d69c410372f0
+121 0xd7fac57025c0a179
+122 0x1b9bcf656ed361a5
+123 0xcc09f64c99ae972b
+124 0xf66b9be28ac3a79d
+125 0xde40ca8dad604306
+126 0xcda0473224572c20
+127 0x2087bc3553a80419
+128 0x42e54aa697ea423a
+129 0x871ec4c43e0c4d09
+130 0xf45396f8af9edd09
+131 0x993bc977b2e90a73
+132 0x56ca8778623e2a76
+133 0xa5634e669aff0cce
+134 0x5dee440bbaff77b7
+135 0xdbf70cc50dbc5d5e
+136 0xd428169a46c86555
+137 0xf146b8739501314a
+138 0x996d2b3dccc40385
+139 0x116936ac69e5d40c
+140 0x46c5c36d9703a81f
+141 0xb1bf50b24ddc2acb
+142 0x540fd387fd9b092f
+143 0x0e78362c7a0f0c6d
+144 0xccec1828f710d0c4
+145 0xbce634b4abf3f4d4
+146 0x1eca09098ceef81d
+147 0x1582738c44336bbc
+148 0x37efd2c4f2184ea6
+149 0x85934ff15eafba10
+150 0xde00761b2efc1a57
+151 0x49461e86cd77af48
+152 0xb65689d500c5a4bf
+153 0x1fd9137118e722ec
+154 0x4909982eaf6ed0c9
+155 0xf3b04821c33012a3
+156 0x4dd93f193331c4fa
+157 0xee83d46ef75c8bb7
+158 0x850be25df41e987d
+159 0x2df54344efed015b
+160 0xf2123e4452c9d7c8
+161 0x226df1b126859530
+162 0x9e1e511d4a0b54ff
+163 0x8b44e8195b96c77c
+164 0x91f0bcbf36afd980
+165 0xa76834074a9ff93b
+166 0xe85816aac686d5fd
+167 0x604910d7e4669194
+168 0xbce9df44a8c63d22
+169 0x288859fdee81bc2f
+170 0x58c0327174aca3ed
+171 0xd27195b01f9e697f
+172 0x7ba3d35b8bdc0c11
+173 0x36193f03984c4167
+174 0x3504f8e8fe7258a3
+175 0xcbdbbd91776c9c8a
+176 0xd5394aa573ca7c06
+177 0xea58e3ef5b1fa1e8
+178 0x52349e8d5e408ef9
+179 0x78e42fd9d8dec202
+180 0x2a95a15717d0e967
+F 180 23.7808 6.3158 12.8941 4.5554 0.0000 3.4508 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.7534 0.0000 0.0012 0.0003 0.0000 0.0000 0.2807 0.0005
+W 180 contacts 39036 awake 39036 joints 0
+181 0xe67859c66017845f
+F 181 23.0196 6.0487 12.7554 4.2106 0.0000 3.4829 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5044 0.0000 0.0012 0.0002 0.0000 0.0000 0.1698 0.0004
+W 181 contacts 39719 awake 39719 joints 0
+182 0xf8ff16a5545b0e0c
+F 182 23.7774 6.3266 13.4300 4.0150 0.0000 3.3371 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.4722 0.0000 0.0012 0.0002 0.0000 0.0000 0.1505 0.0004
+W 182 contacts 40182 awake 40182 joints 0
+183 0x6316a2c5094f4a95
+F 183 24.3542 6.4339 13.8262 4.0904 0.0000 3.4363 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.4542 0.0000 0.0011 0.0002 0.0000 0.0000 0.1453 0.0004
+W 183 contacts 40454 awake 40454 joints 0
+184 0x5b3e3fd01473d335
+F 184 24.5337 6.2935 14.0599 4.1752 0.0000 3.4642 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.4937 0.0000 0.0016 0.0002 0.0000 0.0000 0.1538 0.0006
+W 184 contacts 40820 awake 40820 joints 0
+185 0x40f69a50e1fb8242
+F 185 25.4440 6.6526 14.5202 4.2671 0.0000 3.5717 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.4938 0.0000 0.0012 0.0001 0.0000 0.0000 0.1509 0.0003
+W 185 contacts 41468 awake 41468 joints 0
+186 0xe105a0c8b35418da
+F 186 26.7614 6.9508 15.2502 4.5562 0.0000 3.8201 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5222 0.0000 0.0012 0.0002 0.0000 0.0000 0.1577 0.0003
+W 186 contacts 42645 awake 42645 joints 0
+187 0x956b0be02abf1ddc
+F 187 26.9062 6.8053 15.7521 4.3424 0.0000 3.6002 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5340 0.0000 0.0016 0.0002 0.0000 0.0000 0.1468 0.0004
+W 187 contacts 44158 awake 44158 joints 0
+188 0xd6b005c24738af6d
+F 188 28.7748 7.6921 16.7252 4.3522 0.0000 3.6233 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5172 0.0000 0.0012 0.0002 0.0000 0.0000 0.1440 0.0005
+W 188 contacts 45502 awake 45502 joints 0
+189 0xa50ab0b40438bf88
+F 189 29.5300 7.4794 17.4602 4.5869 0.0000 3.8402 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5281 0.0000 0.0011 0.0003 0.0000 0.0000 0.1522 0.0005
+W 189 contacts 46547 awake 46547 joints 0
+190 0x764ad19e395bf5f8
+F 190 31.8731 7.6822 18.9985 5.1881 0.0000 4.0552 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5485 0.0000 0.0010 0.0002 0.0000 0.0000 0.1488 0.0005
+W 190 contacts 47745 awake 47745 joints 0
+191 0xdb8a9cb7a4673a76
+F 191 31.3839 7.7708 18.7895 4.8187 0.0000 4.0545 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5458 0.0000 0.0015 0.0003 0.0000 0.0000 0.1395 0.0003
+W 191 contacts 48916 awake 48916 joints 0
+192 0xa77815719c285837
+F 192 32.3232 7.9467 19.4483 4.9230 0.0000 4.1616 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5508 0.0000 0.0014 0.0003 0.0000 0.0000 0.1418 0.0005
+W 192 contacts 50253 awake 50253 joints 0
+193 0xee65c08aa819bfe5
+F 193 33.1047 8.0037 20.1333 4.9633 0.0000 4.1939 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5382 0.0000 0.0015 0.0002 0.0000 0.0000 0.1593 0.0004
+W 193 contacts 51710 awake 51710 joints 0
+194 0x99697af65e8373a2
+F 194 33.5406 8.0704 20.4862 4.9787 0.0000 4.2171 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5276 0.0000 0.0014 0.0001 0.0000 0.0000 0.1501 0.0005
+W 194 contacts 53130 awake 53130 joints 0
+195 0xfb62c42242e47310
+F 195 34.3804 8.0984 21.2549 5.0230 0.0000 4.2465 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5449 0.0000 0.0013 0.0001 0.0000 0.0000 0.1416 0.0003
+W 195 contacts 54664 awake 54664 joints 0
+196 0x4e98eb46d2f3aef7
+F 196 34.1472 7.8747 21.1197 5.1456 0.0000 4.3444 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5661 0.0000 0.0016 0.0002 0.0000 0.0000 0.1404 0.0005
+W 196 contacts 56060 awake 56060 joints 0
+197 0xb0f229c2ebec030d
+F 197 35.3847 8.2016 21.9396 5.2385 0.0000 4.4729 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5343 0.0000 0.0014 0.0002 0.0000 0.0000 0.1312 0.0006
+W 197 contacts 57475 awake 57475 joints 0
+198 0xcf20e302f8813537
+F 198 35.3255 8.3139 21.8806 5.1260 0.0000 4.3690 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5262 0.0000 0.0016 0.0006 0.0000 0.0000 0.1360 0.0005
+W 198 contacts 58913 awake 58913 joints 0
+199 0x3bbbd04a39c97761
+F 199 35.8909 8.3425 22.3225 5.2207 0.0000 4.4492 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 0.5435 0.0000 0.0013 0.0001 0.0000 0.0000 0.1345 0.0005
+W 199 contacts 60124 awake 60124 joints 0
+KS 7.178050 _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block
+KS 5.587100 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls
+KS 5.577800 _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+KS 1.868550 _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+KS 1.254900 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_a_contact
+KS 1.151750 _RNvNtCs3fmIXI6VUF6_15shallot_physics12contact_wide5solve
+KS 0.746650 _RNvMNtCs3fmIXI6VUF6_15shallot_physics4hullNtB2_8HullData19support_vertex_wide
+KS 0.540950 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13partition_mid
+KS 0.492300 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold12clip_polygon
+KS 0.492250 _RNvMNtCs3fmIXI6VUF6_15shallot_physics8pairworkNtB2_7Emitter12record_child
+KS 0.445050 _RNvNtCs3fmIXI6VUF6_15shallot_physics10continuous5solve
+KS 0.359150 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold27negative_transform_from_soa
+KS 0.315600 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13enlarge_proxy
+KS 0.311700 _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena11mix_surface
+KS 0.219950 bodyColumnPtr
+KS 0.134950 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold18find_incident_face
+KS 0.131300 _RNvNtCs3fmIXI6VUF6_15shallot_physics12contact_wide7scatter
+KS 0.090900 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild
+KS 0.090550 allocContact
+KS 0.090300 _RNvNtNtCs3fmIXI6VUF6_15shallot_physics14shape_geometry4wasm6bounds
+KS 0.089500 _RNvNtCs3fmIXI6VUF6_15shallot_physics10continuous8finalize
+KS 0.088950 _RNvNtCs3fmIXI6VUF6_15shallot_physics9query_abi12active_shape
+KS 0.045550 _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena12shape_radius
+KS 0.045300 freeMeshCache
+KS 0.045250 awakeContactCount
+KS 0.045200 broadBufferMove
+KS 0.045100 bodyFinish
+KS 0.045000 _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+KS 0.044950 graphComputeLayout
+KS 0.044600 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13allocate_node
+KS 0.044550 broadRemovePair
+KS 0.044500 broadAddPair
+KS 0.044100 treeEnlargePass
+KS 0.043900 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_b_contact
+J pairs total 7.329 wasm 6.881 join 0.000 ts 0.448
+JC pairs 6.070 runMt
+JC pairs 6.070 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+JC pairs 6.025 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+JC pairs 0.492 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_ > _RNvMNtCs3fmIXI6VUF6_15shallot_physics8pairworkNtB2_7Emitter12record_child
+JC pairs 0.676 rebuildTrees
+JC pairs 0.676 rebuildTrees > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild
+JC pairs 0.541 rebuildTrees > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13partition_mid
+JC pairs 0.045 rebuildTrees > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13allocate_node
+JC pairs 0.269 createContact
+JC pairs 0.134 createContact > addKey
+JC pairs 0.045 createContact > addKey > ensureResident
+JC pairs 0.045 createContact > addKey > ensureResident > refreshIfStale
+JC pairs 0.045 createContact > addKey > ensureResident > refreshIfStale > ensureViews
+JC pairs 0.044 createContact > addKey > broadAddPair
+JC pairs 0.091 createContact > bodyCreateContact
+JC pairs 0.091 createContact > bodyCreateContact > allocContact
+JC pairs 0.089 get buffer
+JC pairs 0.045 heap
+J collide total 17.425 wasm 16.022 join 0.000 ts 1.403
+JC collide 15.932 dispatchContacts
+JC collide 15.932 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block
+JC collide 8.442 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls
+JC collide 1.205 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_a_contact
+JC collide 0.312 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_a_contact > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold12clip_polygon
+JC collide 0.090 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_a_contact > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold18find_incident_face
+JC collide 0.721 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_b_contact
+JC collide 0.632 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_b_contact > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_a_contact
+JC collide 0.704 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvMNtCs3fmIXI6VUF6_15shallot_physics4hullNtB2_8HullData19support_vertex_wide
+JC collide 0.314 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold27negative_transform_from_soa
+JC collide 0.266 dispatchContacts > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena11mix_surface
+JC collide 1.448 applyTouch
+JC collide 0.397 applyTouch > destroyContact
+JC collide 0.134 applyTouch > destroyContact > contactField
+JC collide 0.090 applyTouch > destroyContact > removeKey
+JC collide 0.375 applyTouch > contactField
+JC collide 0.194 applyTouch > contactField > get
+JC collide 0.148 applyTouch > contactField > get > ensureViews
+JC collide 0.317 applyTouch > linkContact
+JC collide 0.226 applyTouch > linkContact > wakeEndpoints
+JC collide 0.181 applyTouch > linkContact > wakeEndpoints > bodyField
+JC collide 0.136 applyTouch > linkContact > wakeEndpoints > bodyField > get
+JC collide 0.134 applyTouch > addContactToGraph
+J solve total 4.452 wasm 4.272 join 0.000 ts 0.180
+JC solve 3.823 runMt
+JC solve 3.823 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+JC solve 3.823 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_
+JC solve 3.823 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+JC solve 1.240 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_ > _RNvNtCs3fmIXI6VUF6_15shallot_physics12contact_wide5solve
+JC solve 0.623 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_ > _RNvNtCs3fmIXI6VUF6_15shallot_physics10continuous8finalize
+JC solve 0.090 runMt > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_ > _RNvNtCs3fmIXI6VUF6_15shallot_physics10continuous6bounds
+JC solve 0.494 finalizeBodies
+JC solve 0.360 finalizeBodies > treeEnlargePass
+JC solve 0.226 finalizeBodies > treeEnlargePass > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13enlarge_proxy
+JC solve 0.134 finalizeBodies > treeEnlargePass > treeEnlargePass
+JC solve 0.090 finalizeBodies > treeEnlargePass > treeEnlargePass > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13enlarge_proxy
+JC solve 0.044 finalizeBodies > consumeContinuous
+JC solve 0.045 kernel2
+JC solve 0.045 kernel2 > kernelState
+JC solve 0.045 kernel2 > kernelState > resource
+JC solve 0.045 bodyFinish
+JC solve 0.045 computeLayout
+JC solve 0.045 computeLayout > graphComputeLayout

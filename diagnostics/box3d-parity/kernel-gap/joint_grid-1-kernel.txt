@@ -1,0 +1,128 @@
+0 0xc632f4e6fc4ec975
+1 0x7d890fecf271010d
+2 0x97d14b9ff5e7bc3d
+3 0x7295cbba1121f0bd
+4 0x1a4778db04110845
+5 0xdf5349fd22aa6035
+6 0x29a7860e0a43211d
+7 0x395bbd70f228c9dd
+8 0xa03538251aba90fd
+9 0xdc78738ea42c884d
+10 0x5f4f2c5b8808f095
+11 0x663568a20f27c40d
+12 0x96a49ee42aad6da5
+13 0xe81b2a9881ef51bd
+14 0x5df58837366c0105
+15 0x0f4e91d5319f1bd5
+16 0x0a3f4e13886718fd
+17 0x18168887e0b708b5
+18 0xc9358a463c32913d
+19 0x43e6af16802c3955
+20 0x68824f099fdd1c15
+F 20 10.4248 0.4455 0.0002 9.9665 0.0025 9.2578 0.7693 0.3880 0.9824 3.4946 0.2001 3.4213 0.0004 0.0002 0.0000 0.4360 0.0180 0.0576 0.0002 0.1895 0.0000 0.0000 0.0001
+W 20 contacts 0 awake 0 joints 19800
+21 0x9d24302c9ae32985
+F 21 11.6697 1.6225 0.0002 10.0461 0.0040 9.4073 0.7933 0.3926 0.9902 3.5489 0.2059 3.4738 0.0005 0.0002 0.0000 0.4665 0.0108 0.0599 0.0003 0.0920 0.0000 0.0000 0.0002
+W 21 contacts 0 awake 0 joints 19800
+22 0x4d6888c4c2717bb5
+F 22 10.5746 0.5603 0.0001 10.0135 0.0027 9.3232 0.7725 0.3863 0.9922 3.5169 0.2017 3.4513 0.0003 0.0001 0.0000 0.4415 0.0117 0.0576 0.0002 0.1705 0.0000 0.0000 0.0001
+W 22 contacts 0 awake 0 joints 19800
+23 0x6dca1c482058834d
+F 23 11.4511 1.5232 0.0001 9.9268 0.0019 9.3071 0.7717 0.3798 0.9877 3.5226 0.2004 3.4427 0.0003 0.0002 0.0000 0.4372 0.0108 0.0546 0.0002 0.1103 0.0000 0.0000 0.0001
+W 23 contacts 0 awake 0 joints 19800
+24 0x7e1b6089e77a34bd
+F 24 10.5889 0.6257 0.0000 9.9625 0.0025 9.2952 0.7684 0.3812 0.9818 3.5122 0.2087 3.4406 0.0004 0.0001 0.0000 0.4392 0.0110 0.0605 0.0001 0.1487 0.0000 0.0000 0.0001
+W 24 contacts 0 awake 0 joints 19800
+25 0xf42d43d5b69cb6b5
+F 25 10.9967 1.1623 0.0001 9.8339 0.0019 9.2543 0.7674 0.3890 0.9752 3.4830 0.2040 3.4338 0.0003 0.0002 0.0000 0.4352 0.0107 0.0574 0.0001 0.0692 0.0000 0.0000 0.0001
+W 25 contacts 0 awake 0 joints 19800
+26 0xa42abc7665d175e5
+F 26 10.0294 0.3483 0.0001 9.6806 0.0014 8.9701 0.7714 0.3834 0.9922 3.3753 0.2107 3.2348 0.0004 0.0001 0.0000 0.4382 0.0097 0.0576 0.0002 0.1988 0.0000 0.0000 0.0001
+W 26 contacts 0 awake 0 joints 19800
+27 0xd0d922b0c11ae4a5
+F 27 11.5780 1.6927 0.0003 9.8842 0.0036 9.2740 0.7793 0.3972 0.9942 3.4963 0.2085 3.3963 0.0003 0.0001 0.0000 0.4449 0.0107 0.0721 0.0002 0.0736 0.0000 0.0000 0.0002
+W 27 contacts 0 awake 0 joints 19800
+28 0x848fa6affd40ef2d
+F 28 10.2926 0.3167 0.0001 9.9753 0.0026 9.3022 0.7635 0.3891 0.9795 3.5008 0.2045 3.4627 0.0003 0.0001 0.0000 0.4563 0.0105 0.0599 0.0002 0.1388 0.0000 0.0000 0.0001
+W 28 contacts 0 awake 0 joints 19800
+29 0x29b0bc78c1c7e925
+F 29 11.2163 1.2372 0.0001 9.9783 0.0057 9.3628 0.7782 0.3909 0.9893 3.5124 0.2185 3.4664 0.0003 0.0001 0.0000 0.4471 0.0107 0.0577 0.0001 0.0893 0.0000 0.0000 0.0001
+W 29 contacts 0 awake 0 joints 19800
+30 0x1266f78134d24db5
+F 30 10.6152 0.5796 0.0001 10.0351 0.0022 9.3167 0.7756 0.3898 0.9870 3.4948 0.2092 3.4579 0.0004 0.0002 0.0000 0.4527 0.0107 0.0648 0.0001 0.1827 0.0000 0.0000 0.0001
+W 30 contacts 0 awake 0 joints 19800
+31 0x41cca7cc5251f215
+F 31 11.2454 1.4113 0.0001 9.8336 0.0020 9.2376 0.7659 0.3876 0.9762 3.4818 0.2017 3.4224 0.0003 0.0001 0.0000 0.4475 0.0108 0.0534 0.0001 0.0772 0.0000 0.0000 0.0001
+W 31 contacts 0 awake 0 joints 19800
+32 0x1f3e7c84f92e4a1d
+F 32 10.1589 0.3575 0.0001 9.8007 0.0016 9.1326 0.7617 0.3723 0.9791 3.4455 0.2065 3.3653 0.0003 0.0001 0.0000 0.4368 0.0100 0.0575 0.0002 0.1575 0.0000 0.0000 0.0001
+W 32 contacts 0 awake 0 joints 19800
+33 0xe6fa2509e0dc4825
+F 33 11.3330 1.4661 0.0000 9.8663 0.0021 9.2742 0.7731 0.3928 0.9795 3.4876 0.1980 3.4410 0.0003 0.0002 0.0000 0.4333 0.0108 0.0564 0.0002 0.0843 0.0000 0.0000 0.0001
+W 33 contacts 0 awake 0 joints 19800
+34 0x0459f391e13f7015
+F 34 10.1568 0.2290 0.0001 9.9270 0.0028 9.2393 0.7660 0.3900 0.9658 3.4893 0.2016 3.4245 0.0003 0.0001 0.0000 0.4405 0.0109 0.0620 0.0002 0.1665 0.0000 0.0000 0.0000
+W 34 contacts 0 awake 0 joints 19800
+35 0x484c445fdc3d17ed
+F 35 11.0473 1.1949 0.0000 9.8517 0.0022 9.2763 0.7640 0.3786 0.9834 3.5345 0.1965 3.4165 0.0003 0.0001 0.0000 0.3972 0.0097 0.0605 0.0002 0.1013 0.0000 0.0000 0.0001
+W 35 contacts 0 awake 0 joints 19800
+36 0x7a9ebcc0f8c7d2ed
+F 36 10.5268 0.6279 0.0002 9.8975 0.0033 9.3082 0.8132 0.4081 0.9440 3.4844 0.1966 3.4577 0.0007 0.0003 0.0000 0.4291 0.0099 0.0649 0.0003 0.0770 0.0000 0.0000 0.0003
+W 36 contacts 0 awake 0 joints 19800
+37 0x021ef647b320495d
+F 37 10.6275 0.2560 0.0003 10.3698 0.0048 9.6368 0.8075 0.4023 1.0235 3.6432 0.2069 3.5495 0.0005 0.0002 0.0000 0.4345 0.0123 0.0796 0.0005 0.1961 0.0000 0.0000 0.0004
+W 37 contacts 0 awake 0 joints 19800
+38 0xf6497d8256977da5
+F 38 11.0390 1.1602 0.0001 9.8783 0.0029 9.2611 0.7747 0.3945 0.9806 3.4908 0.2070 3.4111 0.0003 0.0003 0.0000 0.4410 0.0107 0.0745 0.0003 0.0829 0.0000 0.0000 0.0001
+W 38 contacts 0 awake 0 joints 19800
+39 0xf6f4ee4d964448f5
+F 39 10.3308 0.3676 0.0001 9.9627 0.0020 9.3555 0.7735 0.3911 1.0132 3.5215 0.2055 3.4487 0.0003 0.0001 0.0000 0.4351 0.0108 0.0710 0.0002 0.0831 0.0000 0.0000 0.0001
+W 39 contacts 0 awake 0 joints 19800
+KI 10.631500 stepAdvance
+KI 10.631500 js-to-wasm::i
+KI 10.282050 _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+KI 9.258200 _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+KI 9.258200 _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_
+KI 6.891800 _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint5solve
+KI 0.831650 _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint10warm_start
+KI 0.759000 _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint13prepare_world
+KI 0.543750 _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+KI 0.197800 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild
+KI 0.197800 rebuildTrees
+KI 0.075500 treeEnlargePass
+KI 0.072200 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13partition_mid
+KI 0.050600 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13enlarge_proxy
+KI 0.025600 _RNvNtNtCs3fmIXI6VUF6_15shallot_physics6events7runtime10write_move
+KI 0.025550 solveBuild
+KI 0.025550 stepSolveBuild
+KI 0.025350 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree11or_category
+KI 0.025350 broadBufferMove
+KI 0.025250 jointCollectEvents
+KS 6.891800 _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint5solve
+KS 0.831650 _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint10warm_start
+KS 0.775750 _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+KS 0.759000 _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint13prepare_world
+KS 0.543750 _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+KS 0.454500 _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+KS 0.100250 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild
+KS 0.072200 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13partition_mid
+KS 0.050600 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13enlarge_proxy
+KS 0.025600 _RNvNtNtCs3fmIXI6VUF6_15shallot_physics6events7runtime10write_move
+KS 0.025550 solveBuild
+KS 0.025350 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree11or_category
+KS 0.025350 broadBufferMove
+KS 0.025250 jointCollectEvents
+KS 0.024900 treeEnlargePass
+J solve total 10.657 wasm 10.632 join 0.000 ts 0.025
+JC solve 10.657 stepAdvance
+JC solve 10.307 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+JC solve 9.258 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_
+JC solve 9.258 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+JC solve 6.892 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_ > _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint5solve
+JC solve 0.832 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_ > _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint10warm_start
+JC solve 0.759 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_ > _RNvNtCs3fmIXI6VUF6_15shallot_physics5joint13prepare_world
+JC solve 0.544 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+JC solve 0.198 stepAdvance > rebuildTrees
+JC solve 0.198 stepAdvance > rebuildTrees > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild
+JC solve 0.072 stepAdvance > rebuildTrees > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13partition_mid
+JC solve 0.075 stepAdvance > treeEnlargePass

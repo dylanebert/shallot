@@ -1,0 +1,200 @@
+0 0xc632f4e6fc4ec975
+P 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 0 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 0 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 29800 tree_nodes 370420 tree_leaves 9900 rebuild_leaves 1
+1 0x7d890fecf271010d
+P 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 1 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 1 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 0 tree_nodes 0 tree_leaves 0 rebuild_leaves 0
+2 0x97d14b9ff5e7bc3d
+P 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 2 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 2 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 0 tree_nodes 0 tree_leaves 0 rebuild_leaves 0
+3 0x7295cbba1121f0bd
+P 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 3 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 3 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 0 tree_nodes 0 tree_leaves 0 rebuild_leaves 0
+4 0x1a4778db04110845
+P 4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 4 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 4 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 0 tree_nodes 0 tree_leaves 0 rebuild_leaves 0
+5 0xdf5349fd22aa6035
+P 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 5 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 5 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 0 tree_nodes 0 tree_leaves 0 rebuild_leaves 0
+6 0x29a7860e0a43211d
+P 6 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 6 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 6 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 21600 tree_nodes 266762 tree_leaves 7200 rebuild_leaves 7435
+7 0x395bbd70f228c9dd
+P 7 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 7 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 7 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 3300 tree_nodes 41206 tree_leaves 1100 rebuild_leaves 1413
+8 0xa03538251aba90fd
+P 8 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 8 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 8 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 900 tree_nodes 9530 tree_leaves 300 rebuild_leaves 646
+9 0xdc78738ea42c884d
+P 9 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 9 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 9 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 21600 tree_nodes 252006 tree_leaves 7200 rebuild_leaves 7455
+10 0x5f4f2c5b8808f095
+P 10 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 10 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 10 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 1200 tree_nodes 14526 tree_leaves 400 rebuild_leaves 789
+11 0x663568a20f27c40d
+P 11 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 11 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 11 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 18600 tree_nodes 200648 tree_leaves 6200 rebuild_leaves 6506
+12 0x96a49ee42aad6da5
+P 12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 12 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 12 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 6300 tree_nodes 74404 tree_leaves 2100 rebuild_leaves 2606
+13 0xe81b2a9881ef51bd
+P 13 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 13 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 13 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 16800 tree_nodes 203138 tree_leaves 5600 rebuild_leaves 5780
+14 0x5df58837366c0105
+P 14 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 14 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 14 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 2400 tree_nodes 26576 tree_leaves 800 rebuild_leaves 1325
+15 0x0f4e91d5319f1bd5
+P 15 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 15 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 15 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 21900 tree_nodes 258384 tree_leaves 7300 rebuild_leaves 7545
+16 0x0a3f4e13886718fd
+P 16 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 16 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 16 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 2700 tree_nodes 30574 tree_leaves 900 rebuild_leaves 1423
+17 0x18168887e0b708b5
+P 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 17 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 17 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 17700 tree_nodes 212380 tree_leaves 5900 rebuild_leaves 6141
+18 0xc9358a463c32913d
+P 18 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 18 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 18 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 4800 tree_nodes 54890 tree_leaves 1600 rebuild_leaves 1884
+19 0x43e6af16802c3955
+P 19 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 19 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 19 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 19800 tree_nodes 239386 tree_leaves 6600 rebuild_leaves 7191
+20 0x68824f099fdd1c15
+F 20 3.4063 0.4034 0.0000 3.0023 0.0018 2.5864 0.1887 0.1094 0.2267 1.0074 0.0552 0.9923 0.0010 0.0003 0.0000 0.1645 0.0109 0.0560 0.0001 0.1776 0.0000 0.0000 0.0001
+W 20 contacts 0 awake 0 joints 19800
+P 20 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 20 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 20 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 5400 tree_nodes 55172 tree_leaves 1800 rebuild_leaves 2147
+21 0x9d24302c9ae32985
+F 21 4.2390 1.3892 0.0001 2.8491 0.0016 2.5430 0.1912 0.1029 0.2239 0.9842 0.0552 0.9792 0.0011 0.0001 0.0000 0.1517 0.0108 0.0527 0.0001 0.0843 0.0000 0.0000 0.0001
+W 21 contacts 0 awake 0 joints 19800
+P 21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 21 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 21 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 20100 tree_nodes 233620 tree_leaves 6700 rebuild_leaves 7056
+22 0x4d6888c4c2717bb5
+F 22 3.4967 0.5256 0.0000 2.9705 0.0012 2.5597 0.1881 0.1037 0.2264 0.9980 0.0550 0.9817 0.0010 0.0001 0.0000 0.1605 0.0109 0.0535 0.0001 0.1797 0.0000 0.0000 0.0001
+W 22 contacts 0 awake 0 joints 19800
+P 22 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 22 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 22 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 7200 tree_nodes 72144 tree_leaves 2400 rebuild_leaves 2768
+23 0x6dca1c482058834d
+F 23 4.2450 1.3715 0.0000 2.8730 0.0015 2.5349 0.1898 0.1039 0.2237 0.9790 0.0553 0.9790 0.0008 0.0001 0.0000 0.1614 0.0109 0.0586 0.0002 0.1001 0.0000 0.0000 0.0001
+W 23 contacts 0 awake 0 joints 19800
+P 23 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 23 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 23 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 19500 tree_nodes 216796 tree_leaves 6500 rebuild_leaves 6969
+24 0x7e1b6089e77a34bd
+F 24 3.5271 0.6147 0.0001 2.9118 0.0030 2.5472 0.1922 0.1035 0.2243 0.9881 0.0555 0.9792 0.0012 0.0002 0.0000 0.1469 0.0108 0.0571 0.0001 0.1416 0.0000 0.0000 0.0002
+W 24 contacts 0 awake 0 joints 19800
+P 24 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 24 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 24 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 8400 tree_nodes 89692 tree_leaves 2800 rebuild_leaves 3173
+25 0xf42d43d5b69cb6b5
+F 25 3.9716 1.1228 0.0001 2.8480 0.0020 2.5500 0.1917 0.1034 0.2243 0.9920 0.0551 0.9787 0.0012 0.0002 0.0000 0.1602 0.0109 0.0534 0.0002 0.0665 0.0000 0.0000 0.0001
+W 25 contacts 0 awake 0 joints 19800
+P 25 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 25 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 25 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 15600 tree_nodes 171856 tree_leaves 5200 rebuild_leaves 5428
+26 0xa42abc7665d175e5
+F 26 3.2700 0.3098 0.0000 2.9595 0.0014 2.5476 0.1925 0.1031 0.2234 0.9842 0.0548 0.9831 0.0008 0.0002 0.0000 0.1615 0.0108 0.0530 0.0001 0.1803 0.0000 0.0000 0.0001
+W 26 contacts 0 awake 0 joints 19800
+P 26 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 26 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 26 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 3900 tree_nodes 44538 tree_leaves 1300 rebuild_leaves 1834
+27 0xd0d922b0c11ae4a5
+F 27 4.4314 1.5640 0.0001 2.8667 0.0015 2.5783 0.1903 0.1033 0.2240 0.9945 0.0656 0.9959 0.0012 0.0001 0.0000 0.1525 0.0107 0.0556 0.0001 0.0632 0.0000 0.0000 0.0001
+W 27 contacts 0 awake 0 joints 19800
+P 27 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 27 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 27 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 21900 tree_nodes 239020 tree_leaves 7300 rebuild_leaves 7715
+28 0x848fa6affd40ef2d
+F 28 3.1946 0.2790 0.0000 2.9152 0.0014 2.5460 0.1878 0.1037 0.2237 0.9914 0.0551 0.9798 0.0012 0.0001 0.0000 0.1602 0.0107 0.0564 0.0001 0.1351 0.0000 0.0000 0.0001
+W 28 contacts 0 awake 0 joints 19800
+P 28 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 28 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 28 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 3600 tree_nodes 39098 tree_leaves 1200 rebuild_leaves 1691
+29 0x29b0bc78c1c7e925
+F 29 3.9191 1.0535 0.0001 2.8650 0.0012 2.5477 0.1926 0.1035 0.2260 0.9833 0.0548 0.9808 0.0015 0.0000 0.0000 0.1593 0.0108 0.0553 0.0001 0.0856 0.0000 0.0000 0.0001
+W 29 contacts 0 awake 0 joints 19800
+P 29 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 29 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 29 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 15000 tree_nodes 174946 tree_leaves 5000 rebuild_leaves 5244
+30 0x1266f78134d24db5
+F 30 3.4281 0.4968 0.0001 2.9308 0.0012 2.5525 0.1896 0.1037 0.2262 0.9893 0.0548 0.9816 0.0015 0.0001 0.0000 0.1516 0.0109 0.0564 0.0001 0.1534 0.0000 0.0000 0.0001
+W 30 contacts 0 awake 0 joints 19800
+P 30 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 30 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 30 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 6600 tree_nodes 71444 tree_leaves 2200 rebuild_leaves 2719
+31 0x41cca7cc5251f215
+F 31 4.1276 1.2975 0.0001 2.8293 0.0024 2.5313 0.1886 0.1035 0.2238 0.9813 0.0547 0.9746 0.0012 0.0002 0.0000 0.1593 0.0108 0.0511 0.0002 0.0695 0.0000 0.0000 0.0001
+W 31 contacts 0 awake 0 joints 19800
+P 31 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 31 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 31 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 18000 tree_nodes 196864 tree_leaves 6000 rebuild_leaves 6457
+32 0x1f3e7c84f92e4a1d
+F 32 3.3008 0.3463 0.0001 2.9538 0.0018 2.5594 0.1895 0.1037 0.2242 0.9958 0.0553 0.9868 0.0011 0.0001 0.0000 0.1591 0.0108 0.0568 0.0002 0.1608 0.0000 0.0000 0.0001
+W 32 contacts 0 awake 0 joints 19800
+P 32 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 32 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 32 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 4500 tree_nodes 50780 tree_leaves 1500 rebuild_leaves 1962
+33 0xe6fa2509e0dc4825
+F 33 4.2437 1.3885 0.0001 2.8547 0.0017 2.5723 0.2010 0.1037 0.2236 0.9954 0.0547 0.9867 0.0010 0.0002 0.0000 0.1591 0.0108 0.0530 0.0001 0.0526 0.0000 0.0000 0.0001
+W 33 contacts 0 awake 0 joints 19800
+P 33 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 33 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 33 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 18900 tree_nodes 206256 tree_leaves 6300 rebuild_leaves 6872
+34 0x0459f391e13f7015
+F 34 3.0884 0.2046 0.0001 2.8833 0.0012 2.5318 0.1884 0.1038 0.2236 0.9807 0.0548 0.9753 0.0020 0.0001 0.0000 0.1490 0.0106 0.0532 0.0001 0.1322 0.0000 0.0000 0.0001
+W 34 contacts 0 awake 0 joints 19800
+P 34 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 34 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 34 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 2400 tree_nodes 25816 tree_leaves 800 rebuild_leaves 1299
+35 0x484c445fdc3d17ed
+F 35 4.0226 1.1564 0.0001 2.8657 0.0012 2.5589 0.1902 0.1041 0.2262 0.9912 0.0553 0.9874 0.0012 0.0001 0.0000 0.1482 0.0107 0.0536 0.0001 0.0880 0.0000 0.0000 0.0001
+W 35 contacts 0 awake 0 joints 19800
+P 35 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 35 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 35 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 15300 tree_nodes 167154 tree_leaves 5100 rebuild_leaves 5789
+36 0x7a9ebcc0f8c7d2ed
+F 36 3.4223 0.5881 0.0001 2.8337 0.0016 2.5654 0.1942 0.1034 0.2268 0.9904 0.0547 0.9917 0.0010 0.0001 0.0000 0.1464 0.0108 0.0545 0.0001 0.0497 0.0000 0.0000 0.0001
+W 36 contacts 0 awake 0 joints 19800
+P 36 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 36 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 36 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 7500 tree_nodes 76512 tree_leaves 2500 rebuild_leaves 3041
+37 0x021ef647b320495d
+F 37 3.1353 0.2131 0.0001 2.9213 0.0020 2.5419 0.1921 0.1075 0.2238 0.9815 0.0550 0.9757 0.0013 0.0002 0.0000 0.1594 0.0108 0.0541 0.0001 0.1482 0.0000 0.0000 0.0002
+W 37 contacts 0 awake 0 joints 19800
+P 37 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 37 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 37 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 2100 tree_nodes 22208 tree_leaves 700 rebuild_leaves 1136
+38 0xf6497d8256977da5
+F 38 3.8888 1.0471 0.0000 2.8412 0.0013 2.5547 0.1963 0.1032 0.2242 0.9892 0.0552 0.9818 0.0011 0.0001 0.0000 0.1516 0.0097 0.0541 0.0001 0.0654 0.0000 0.0000 0.0002
+W 38 contacts 0 awake 0 joints 19800
+P 38 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 38 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 38 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 14700 tree_nodes 171924 tree_leaves 4900 rebuild_leaves 5579
+39 0xf6f4ee4d964448f5
+F 39 3.1857 0.3515 0.0000 2.8336 0.0015 2.5339 0.1935 0.1033 0.2242 0.9809 0.0550 0.9729 0.0010 0.0001 0.0000 0.1563 0.0100 0.0575 0.0001 0.0698 0.0000 0.0000 0.0001
+W 39 contacts 0 awake 0 joints 19800
+P 39 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+G 39 4950 4950 4948 4753 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0
+D 39 support_scalar 0 support_wide 0 support_face 0 triangle_support 0 clip_input 0 clip_output 0 clip_final 0 hull_sat 0 hull_sat_hit 0 hull_sat_miss 0 face_axes 0 edge_candidates 0 contact_points 0 clip_copy_points 0 clip_zero_points 0 tree_queries 4500 tree_nodes 48648 tree_leaves 1500 rebuild_leaves 1902

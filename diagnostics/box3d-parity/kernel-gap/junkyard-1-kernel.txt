@@ -1,0 +1,336 @@
+0 0xe3883defc17d441a
+1 0xfadb1069ae45a021
+2 0x7ccc06c323d8dead
+3 0xaa517dbd64db99e1
+4 0x716ecc46b90b842b
+5 0xe0684e7b5e222804
+6 0xf25d3835c967f4a2
+7 0xd4b036eed8579f55
+8 0x396247c70e2b0be9
+9 0xe07ab36e44d098eb
+10 0x693032f7f12f8197
+11 0xe2343ea7e9695854
+12 0x6b7a0f7a091c1c80
+13 0x76ba535297b0e763
+14 0xe5bd5a379b021295
+15 0xef86d3e2e1e76c3e
+16 0x9c8f8e1d9cad3dab
+17 0xf3b1545c361797af
+18 0xfeb6ae8d81c48eeb
+19 0x9d1f61ae0ef9f0f8
+20 0x9734504dc07b395a
+21 0x5e16df337a93ea2c
+22 0x4c8883d34bb008b9
+23 0x6935a9b8dfe0eac8
+24 0x1e4f56620e61e187
+25 0x20d52b29b27acf32
+26 0x56a3354c2f614bf3
+27 0xd06ab7bbd84298a8
+28 0xd19ea2f188520d47
+29 0xb8043a0f06f3c0aa
+30 0x20bce563bdad9662
+31 0xa60c26d610d6d28c
+32 0x952f3d8d5478d644
+33 0x15300007f49245c9
+34 0xc9a0246ddd2d988e
+35 0x224634e36b0dda70
+36 0x89c46991135914ad
+37 0x174ce4fdc3870dc6
+38 0xacb5e35046d7db78
+39 0x5cd8193845bca19b
+40 0xe1210bb4bde52446
+41 0x34b8c1982c0b3867
+42 0xd269dbd9f6c88e42
+43 0x464a2d2f557d77b5
+44 0xf44279622fa23387
+45 0x35b51562fa96d2f5
+46 0x9b0ddda9eeeabb6d
+47 0x02cbe873e83ed1e3
+48 0xc03cd41058e89e27
+49 0x8416f1188f9cc8b6
+50 0xd33cfcec79e78d52
+51 0xcb5737083ae38280
+52 0xceec09791af57595
+53 0x75dd7377004e7ad8
+54 0x9fcced4a7a1bea85
+55 0xed5dc7a272f6b13e
+56 0x3b4114865d43acec
+57 0xb3d2cba92be838b4
+58 0x3117e2dced130f6f
+59 0x75f50ada75efa2be
+60 0x8a086b2f439347fc
+61 0xa00143978ecaf9ed
+62 0x32897fff05f403be
+63 0x19339a7b5cd997a3
+64 0x7bde7739005ae394
+65 0x624c2b08833b73b4
+66 0x4708d4b2d68e77a1
+67 0xc44023eaa03f2949
+68 0x03c68f489c487566
+69 0xa215ab0a06f926d7
+70 0x1c6f750ec946ddd7
+71 0x6a34a9638fecbdc9
+72 0x0d3abb3d55278445
+73 0xe6f23d175c92140a
+74 0xff7222a906b2a00b
+75 0x32fd8717b0b681c3
+76 0xb335b083cc7f55af
+77 0xaaa998cd7ee8ed88
+78 0xdda73470b1f492d2
+79 0x740c064967a178b4
+80 0x3fbafd543b4e1950
+81 0xb88d5a6afb41d85d
+82 0x344f6ad2c8d5a580
+83 0xaa692705cd8c1723
+84 0x3dbf3300b85cd83b
+85 0xf2bf2c39d3689eff
+86 0xe0ddf54fab6e70e9
+87 0x493570af54b4bfd9
+88 0x073e3688ee7088d2
+89 0x7cb9bf69149e8d9a
+90 0x7c10c4bde2fbdcb2
+91 0x2361e8ffd37a211a
+92 0x9f2b99239e7d2485
+93 0xa8c21fd982b8d5c0
+94 0xa22a2f676febc5f7
+95 0x41e9d00232c5c461
+96 0xc452c9ef69efbdb3
+97 0x493f7c416276b9b7
+98 0xa8bef9b4ffb5b529
+99 0xd0302111f246958d
+100 0xf8feb7e53a336fd4
+101 0xa1f652a5e3c148c0
+102 0x596549f1c9b9f7c8
+103 0xe3c3bb5ecae8948e
+104 0x908f1bb12fb278b1
+105 0x1f7b13515163b740
+106 0xf4668249b125a1b2
+107 0xbc7617775c671715
+108 0xf37c8b30008393a9
+109 0xee579570a7dfe282
+110 0xaa074e98259379f8
+111 0xe03a3dacac8593b0
+112 0x678761c1c14d80bc
+113 0x4fcccf015fe615a9
+114 0xe6eacb0cc7ddf218
+115 0xc8de7e97e000e2c0
+116 0xad001025bc21ecde
+117 0xaef3d59f72609dff
+118 0x23c37a5b899351e8
+119 0xb17684aa80b9c45d
+120 0x2258d69c410372f0
+121 0xd7fac57025c0a179
+122 0x1b9bcf656ed361a5
+123 0xcc09f64c99ae972b
+124 0xf66b9be28ac3a79d
+125 0xde40ca8dad604306
+126 0xcda0473224572c20
+127 0x2087bc3553a80419
+128 0x42e54aa697ea423a
+129 0x871ec4c43e0c4d09
+130 0xf45396f8af9edd09
+131 0x993bc977b2e90a73
+132 0x56ca8778623e2a76
+133 0xa5634e669aff0cce
+134 0x5dee440bbaff77b7
+135 0xdbf70cc50dbc5d5e
+136 0xd428169a46c86555
+137 0xf146b8739501314a
+138 0x996d2b3dccc40385
+139 0x116936ac69e5d40c
+140 0x46c5c36d9703a81f
+141 0xb1bf50b24ddc2acb
+142 0x540fd387fd9b092f
+143 0x0e78362c7a0f0c6d
+144 0xccec1828f710d0c4
+145 0xbce634b4abf3f4d4
+146 0x1eca09098ceef81d
+147 0x1582738c44336bbc
+148 0x37efd2c4f2184ea6
+149 0x85934ff15eafba10
+150 0xde00761b2efc1a57
+151 0x49461e86cd77af48
+152 0xb65689d500c5a4bf
+153 0x1fd9137118e722ec
+154 0x4909982eaf6ed0c9
+155 0xf3b04821c33012a3
+156 0x4dd93f193331c4fa
+157 0xee83d46ef75c8bb7
+158 0x850be25df41e987d
+159 0x2df54344efed015b
+160 0xf2123e4452c9d7c8
+161 0x226df1b126859530
+162 0x9e1e511d4a0b54ff
+163 0x8b44e8195b96c77c
+164 0x91f0bcbf36afd980
+165 0xa76834074a9ff93b
+166 0xe85816aac686d5fd
+167 0x604910d7e4669194
+168 0xbce9df44a8c63d22
+169 0x288859fdee81bc2f
+170 0x58c0327174aca3ed
+171 0xd27195b01f9e697f
+172 0x7ba3d35b8bdc0c11
+173 0x36193f03984c4167
+174 0x3504f8e8fe7258a3
+175 0xcbdbbd91776c9c8a
+176 0xd5394aa573ca7c06
+177 0xea58e3ef5b1fa1e8
+178 0x52349e8d5e408ef9
+179 0x78e42fd9d8dec202
+180 0x2a95a15717d0e967
+F 180 20.0945 5.5843 10.9287 3.5691 0.0218 2.0224 0.3413 0.3843 0.1576 0.3875 0.2014 0.4987 0.0018 0.0481 0.0000 1.0035 0.0188 0.0004 0.1129 0.3525 0.0000 0.0318 0.0003
+W 180 contacts 39036 awake 39036 joints 0
+181 0xe67859c66017845f
+F 181 20.8454 5.6122 11.5336 3.6987 0.0218 2.1609 0.3527 0.4056 0.1793 0.4304 0.2160 0.5271 0.0013 0.0468 0.0000 1.0185 0.0145 0.0003 0.0900 0.3585 0.0000 0.0290 0.0002
+W 181 contacts 39719 awake 39719 joints 0
+182 0xf8ff16a5545b0e0c
+F 182 22.0763 5.8250 12.2413 4.0093 0.0235 2.3463 0.3903 0.4175 0.1922 0.4370 0.2046 0.6469 0.0015 0.0548 0.0000 1.0693 0.0171 0.0004 0.1276 0.3893 0.0000 0.0303 0.0002
+W 182 contacts 40182 awake 40182 joints 0
+183 0x6316a2c5094f4a95
+F 183 22.4339 5.8480 12.5645 4.0206 0.0240 2.4080 0.4150 0.4494 0.1824 0.4612 0.2174 0.6183 0.0015 0.0612 0.0000 1.0556 0.0225 0.0002 0.0920 0.3838 0.0000 0.0279 0.0001
+W 183 contacts 40454 awake 40454 joints 0
+184 0x5b3e3fd01473d335
+F 184 22.7453 5.7449 12.8772 4.1222 0.0312 2.4664 0.4346 0.4221 0.1875 0.4503 0.2208 0.6873 0.0017 0.0602 0.0000 1.0306 0.0158 0.0004 0.1265 0.4164 0.0000 0.0292 0.0003
+W 184 contacts 40820 awake 40820 joints 0
+185 0x40f69a50e1fb8242
+F 185 23.7646 6.1553 13.4947 4.1137 0.0261 2.5023 0.4314 0.4148 0.1993 0.5218 0.2191 0.6518 0.0017 0.0608 0.0000 1.0323 0.0156 0.0002 0.1107 0.3919 0.0000 0.0298 0.0003
+W 185 contacts 41468 awake 41468 joints 0
+186 0xe105a0c8b35418da
+F 186 23.3755 6.0283 13.2683 4.0782 0.0283 2.4658 0.4396 0.3857 0.2077 0.5138 0.2345 0.6240 0.0019 0.0566 0.0000 1.0120 0.0170 0.0002 0.1172 0.4008 0.0000 0.0314 0.0001
+W 186 contacts 42645 awake 42645 joints 0
+187 0x956b0be02abf1ddc
+F 187 25.0051 6.4133 14.4442 4.1469 0.0272 2.5289 0.4478 0.3788 0.2283 0.5555 0.2172 0.6403 0.0018 0.0574 0.0000 1.0431 0.0170 0.0002 0.0910 0.4037 0.0000 0.0302 0.0002
+W 187 contacts 44158 awake 44158 joints 0
+188 0xd6b005c24738af6d
+F 188 25.2149 6.4199 14.6374 4.1568 0.0331 2.5233 0.4482 0.4265 0.2198 0.5368 0.1956 0.6270 0.0017 0.0656 0.0000 1.0262 0.0161 0.0002 0.1197 0.4050 0.0000 0.0281 0.0003
+W 188 contacts 45502 awake 45502 joints 0
+189 0xa50ab0b40438bf88
+F 189 26.3448 6.7297 15.2755 4.3383 0.0326 2.7047 0.4858 0.4233 0.2204 0.5136 0.2151 0.7771 0.0018 0.0660 0.0000 1.0500 0.0166 0.0002 0.0884 0.4126 0.0000 0.0281 0.0002
+W 189 contacts 46547 awake 46547 joints 0
+190 0x764ad19e395bf5f8
+F 190 27.6258 6.8973 16.2461 4.4818 0.0388 2.7998 0.5182 0.3820 0.2337 0.6355 0.2341 0.7228 0.0018 0.0699 0.0000 1.0658 0.0194 0.0003 0.1065 0.4085 0.0000 0.0373 0.0001
+W 190 contacts 47745 awake 47745 joints 0
+191 0xdb8a9cb7a4673a76
+F 191 27.5930 6.9233 16.2945 4.3743 0.0353 2.7492 0.5194 0.3862 0.2306 0.5768 0.2182 0.7437 0.0019 0.0705 0.0000 1.0509 0.0192 0.0003 0.0829 0.4039 0.0000 0.0273 0.0002
+W 191 contacts 48916 awake 48916 joints 0
+192 0xa77815719c285837
+F 192 28.3397 7.2657 16.4903 4.5831 0.0404 2.8838 0.5432 0.4139 0.2611 0.5960 0.2039 0.7834 0.0020 0.0785 0.0000 1.0658 0.0181 0.0003 0.1051 0.4284 0.0000 0.0357 0.0002
+W 192 contacts 50253 awake 50253 joints 0
+193 0xee65c08aa819bfe5
+F 193 29.7003 7.2465 17.7957 4.6576 0.0370 2.9965 0.5594 0.4047 0.2813 0.6475 0.2176 0.7946 0.0026 0.0871 0.0000 1.0427 0.0175 0.0002 0.0882 0.4431 0.0000 0.0273 0.0002
+W 193 contacts 51710 awake 51710 joints 0
+194 0x99697af65e8373a2
+F 194 32.1877 7.7544 19.2945 5.1371 0.0583 3.3760 0.7297 0.4048 0.2813 0.7331 0.2183 0.8634 0.0019 0.1412 0.0000 1.0589 0.0182 0.0004 0.1284 0.4606 0.0000 0.0313 0.0004
+W 194 contacts 53130 awake 53130 joints 0
+195 0xfb62c42242e47310
+F 195 33.3372 7.5731 20.4623 5.3008 0.0572 3.4734 0.6892 0.4422 0.3044 0.7386 0.2328 0.9203 0.0025 0.1413 0.0000 1.1050 0.0214 0.0003 0.1258 0.4800 0.0000 0.0318 0.0003
+W 195 contacts 54664 awake 54664 joints 0
+196 0x4e98eb46d2f3aef7
+F 196 32.3389 7.5833 19.8783 4.8766 0.0412 3.2241 0.6287 0.4114 0.2967 0.6950 0.2157 0.8805 0.0022 0.0922 0.0000 1.0535 0.0210 0.0003 0.0903 0.4103 0.0000 0.0302 0.0002
+W 196 contacts 56060 awake 56060 joints 0
+197 0xb0f229c2ebec030d
+F 197 32.3719 7.5984 19.7781 4.9946 0.0555 3.3169 0.6406 0.4190 0.2985 0.7183 0.2185 0.9232 0.0021 0.0949 0.0000 1.0458 0.0210 0.0003 0.0944 0.4262 0.0000 0.0292 0.0003
+W 197 contacts 57475 awake 57475 joints 0
+198 0xcf20e302f8813537
+F 198 32.0381 7.2109 19.8620 4.9645 0.0437 3.3075 0.6423 0.4123 0.3033 0.7163 0.2150 0.9176 0.0023 0.0965 0.0000 1.0515 0.0241 0.0003 0.0803 0.4217 0.0000 0.0296 0.0002
+W 198 contacts 58913 awake 58913 joints 0
+199 0x3bbbd04a39c97761
+F 199 33.3851 7.8337 20.5328 5.0177 0.0511 3.3545 0.6619 0.4090 0.3057 0.7301 0.2159 0.9310 0.0021 0.0972 0.0000 1.0455 0.0210 0.0002 0.0842 0.4263 0.0000 0.0293 0.0002
+W 199 contacts 60124 awake 60124 joints 0
+KI 26.767900 js-to-wasm::i
+KI 26.742550 stepAdvance
+KI 25.208650 _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+KI 15.455100 _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block
+KI 8.005000 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls
+KI 5.876300 _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+KI 2.765600 _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+KI 2.765600 _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_
+KI 1.993350 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_a_contact
+KI 1.540150 _RNvNtCs3fmIXI6VUF6_15shallot_physics12contact_wide5solve
+KI 1.083950 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_b_contact
+KI 0.882950 _RNvMNtCs3fmIXI6VUF6_15shallot_physics4hullNtB2_8HullData19support_vertex_wide
+KI 0.756450 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold12clip_polygon
+KI 0.583850 rebuildTrees
+KI 0.558450 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild
+KI 0.455200 _RNvNtCs3fmIXI6VUF6_15shallot_physics10continuous5solve
+KI 0.379300 _RNvMNtCs3fmIXI6VUF6_15shallot_physics8pairworkNtB2_7Emitter12record_child
+KI 0.377350 treeEnlargePass
+KI 0.354000 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold27negative_transform_from_soa
+KI 0.352300 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13enlarge_proxy
+KI 0.330500 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13partition_mid
+KI 0.151950 _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena11mix_surface
+KI 0.126900 _RNvNtCs3fmIXI6VUF6_15shallot_physics12contact_wide7scatter
+KI 0.126650 _RNvNtNtCs3fmIXI6VUF6_15shallot_physics14shape_geometry4wasm6bounds
+KI 0.126650 _RNvNtCs3fmIXI6VUF6_15shallot_physics10continuous6bounds
+KI 0.123950 applyContactTransitions
+KI 0.101350 broadAddPair
+KI 0.098150 eventBuildHits
+KI 0.076350 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold18find_incident_face
+KI 0.050950 broadRemovePair
+KI 0.050750 _RNvNtCs3fmIXI6VUF6_15shallot_physics9query_abi12active_shape
+KI 0.050650 bodyFinish
+KI 0.050600 graphRemoveContact
+KI 0.049950 bodyCreateContact
+KI 0.025600 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13allocate_node
+KI 0.025550 solveBuild
+KI 0.025550 stepSolveBuild
+KI 0.025400 _RNvNtCs3fmIXI6VUF6_15shallot_physics9manifolds8allocate
+KI 0.025100 sensorConsumeContinuous
+KI 0.022400 graphAssignColor
+KI 0.022400 graphAddContact
+KS 7.323600 _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block
+KS 5.497000 _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+KS 4.724350 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls
+KS 1.413250 _RNvNtCs3fmIXI6VUF6_15shallot_physics12contact_wide5solve
+KS 1.225450 _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+KS 1.185500 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_a_contact
+KS 0.882950 _RNvMNtCs3fmIXI6VUF6_15shallot_physics4hullNtB2_8HullData19support_vertex_wide
+KS 0.756450 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold12clip_polygon
+KS 0.504250 _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+KS 0.379300 _RNvMNtCs3fmIXI6VUF6_15shallot_physics8pairworkNtB2_7Emitter12record_child
+KS 0.354000 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold27negative_transform_from_soa
+KS 0.353850 _RNvNtCs3fmIXI6VUF6_15shallot_physics10continuous5solve
+KS 0.352300 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13enlarge_proxy
+KS 0.330500 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13partition_mid
+KS 0.202350 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild
+KS 0.151950 _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena11mix_surface
+KS 0.126900 _RNvNtCs3fmIXI6VUF6_15shallot_physics12contact_wide7scatter
+KS 0.126650 _RNvNtNtCs3fmIXI6VUF6_15shallot_physics14shape_geometry4wasm6bounds
+KS 0.123350 stepAdvance
+KS 0.101350 broadAddPair
+KS 0.098150 eventBuildHits
+KS 0.076350 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold18find_incident_face
+KS 0.050950 broadRemovePair
+KS 0.050750 _RNvNtCs3fmIXI6VUF6_15shallot_physics9query_abi12active_shape
+KS 0.050700 _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_b_contact
+KS 0.050650 bodyFinish
+KS 0.050600 graphRemoveContact
+KS 0.049950 bodyCreateContact
+KS 0.025600 _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13allocate_node
+KS 0.025550 solveBuild
+KS 0.025400 rebuildTrees
+KS 0.025400 _RNvNtCs3fmIXI6VUF6_15shallot_physics9manifolds8allocate
+KS 0.025100 sensorConsumeContinuous
+KS 0.025050 treeEnlargePass
+KS 0.022400 graphAssignColor
+J solve total 26.768 wasm 26.768 join 0.000 ts 0.000
+JC solve 26.743 stepAdvance
+JC solve 25.209 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job
+JC solve 15.455 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block
+JC solve 8.005 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls
+JC solve 1.084 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_b_contact
+JC solve 0.960 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold20build_face_a_contact
+JC solve 0.858 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvMNtCs3fmIXI6VUF6_15shallot_physics4hullNtB2_8HullData19support_vertex_wide
+JC solve 0.354 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RNvNtCs3fmIXI6VUF6_15shallot_physics5arena13contact_block > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold13collide_hulls > _RNvNtCs3fmIXI6VUF6_15shallot_physics8manifold27negative_transform_from_soa
+JC solve 5.876 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+JC solve 0.379 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_ > _RNvMNtCs3fmIXI6VUF6_15shallot_physics8pairworkNtB2_7Emitter12record_child
+JC solve 2.766 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_
+JC solve 2.766 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+JC solve 1.540 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_ > _RINvNtCs3fmIXI6VUF6_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_ > _RNvNtCs3fmIXI6VUF6_15shallot_physics12contact_wide5solve
+JC solve 0.455 stepAdvance > _RNvNtCs3fmIXI6VUF6_15shallot_physics5solve7run_job > _RNvNtCs3fmIXI6VUF6_15shallot_physics10continuous5solve
+JC solve 0.584 stepAdvance > rebuildTrees
+JC solve 0.558 stepAdvance > rebuildTrees > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild
+JC solve 0.331 stepAdvance > rebuildTrees > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree7rebuild > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13partition_mid
+JC solve 0.377 stepAdvance > treeEnlargePass
+JC solve 0.352 stepAdvance > treeEnlargePass > _RNvNtCs3fmIXI6VUF6_15shallot_physics4tree13enlarge_proxy

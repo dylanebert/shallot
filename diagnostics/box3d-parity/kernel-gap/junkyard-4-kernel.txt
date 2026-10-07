@@ -1,0 +1,343 @@
+0 0xe3883defc17d441a
+1 0xfadb1069ae45a021
+2 0x7ccc06c323d8dead
+3 0xaa517dbd64db99e1
+4 0x716ecc46b90b842b
+5 0xe0684e7b5e222804
+6 0xf25d3835c967f4a2
+7 0xd4b036eed8579f55
+8 0x396247c70e2b0be9
+9 0xe07ab36e44d098eb
+10 0x693032f7f12f8197
+11 0xe2343ea7e9695854
+12 0x6b7a0f7a091c1c80
+13 0x76ba535297b0e763
+14 0xe5bd5a379b021295
+15 0xef86d3e2e1e76c3e
+16 0x9c8f8e1d9cad3dab
+17 0xf3b1545c361797af
+18 0xfeb6ae8d81c48eeb
+19 0x9d1f61ae0ef9f0f8
+20 0x9734504dc07b395a
+21 0x5e16df337a93ea2c
+22 0x4c8883d34bb008b9
+23 0x6935a9b8dfe0eac8
+24 0x1e4f56620e61e187
+25 0x20d52b29b27acf32
+26 0x56a3354c2f614bf3
+27 0xd06ab7bbd84298a8
+28 0xd19ea2f188520d47
+29 0xb8043a0f06f3c0aa
+30 0x20bce563bdad9662
+31 0xa60c26d610d6d28c
+32 0x952f3d8d5478d644
+33 0x15300007f49245c9
+34 0xc9a0246ddd2d988e
+35 0x224634e36b0dda70
+36 0x89c46991135914ad
+37 0x174ce4fdc3870dc6
+38 0xacb5e35046d7db78
+39 0x5cd8193845bca19b
+40 0xe1210bb4bde52446
+41 0x34b8c1982c0b3867
+42 0xd269dbd9f6c88e42
+43 0x464a2d2f557d77b5
+44 0xf44279622fa23387
+45 0x35b51562fa96d2f5
+46 0x9b0ddda9eeeabb6d
+47 0x02cbe873e83ed1e3
+48 0xc03cd41058e89e27
+49 0x8416f1188f9cc8b6
+50 0xd33cfcec79e78d52
+51 0xcb5737083ae38280
+52 0xceec09791af57595
+53 0x75dd7377004e7ad8
+54 0x9fcced4a7a1bea85
+55 0xed5dc7a272f6b13e
+56 0x3b4114865d43acec
+57 0xb3d2cba92be838b4
+58 0x3117e2dced130f6f
+59 0x75f50ada75efa2be
+60 0x8a086b2f439347fc
+61 0xa00143978ecaf9ed
+62 0x32897fff05f403be
+63 0x19339a7b5cd997a3
+64 0x7bde7739005ae394
+65 0x624c2b08833b73b4
+66 0x4708d4b2d68e77a1
+67 0xc44023eaa03f2949
+68 0x03c68f489c487566
+69 0xa215ab0a06f926d7
+70 0x1c6f750ec946ddd7
+71 0x6a34a9638fecbdc9
+72 0x0d3abb3d55278445
+73 0xe6f23d175c92140a
+74 0xff7222a906b2a00b
+75 0x32fd8717b0b681c3
+76 0xb335b083cc7f55af
+77 0xaaa998cd7ee8ed88
+78 0xdda73470b1f492d2
+79 0x740c064967a178b4
+80 0x3fbafd543b4e1950
+81 0xb88d5a6afb41d85d
+82 0x344f6ad2c8d5a580
+83 0xaa692705cd8c1723
+84 0x3dbf3300b85cd83b
+85 0xf2bf2c39d3689eff
+86 0xe0ddf54fab6e70e9
+87 0x493570af54b4bfd9
+88 0x073e3688ee7088d2
+89 0x7cb9bf69149e8d9a
+90 0x7c10c4bde2fbdcb2
+91 0x2361e8ffd37a211a
+92 0x9f2b99239e7d2485
+93 0xa8c21fd982b8d5c0
+94 0xa22a2f676febc5f7
+95 0x41e9d00232c5c461
+96 0xc452c9ef69efbdb3
+97 0x493f7c416276b9b7
+98 0xa8bef9b4ffb5b529
+99 0xd0302111f246958d
+100 0xf8feb7e53a336fd4
+101 0xa1f652a5e3c148c0
+102 0x596549f1c9b9f7c8
+103 0xe3c3bb5ecae8948e
+104 0x908f1bb12fb278b1
+105 0x1f7b13515163b740
+106 0xf4668249b125a1b2
+107 0xbc7617775c671715
+108 0xf37c8b30008393a9
+109 0xee579570a7dfe282
+110 0xaa074e98259379f8
+111 0xe03a3dacac8593b0
+112 0x678761c1c14d80bc
+113 0x4fcccf015fe615a9
+114 0xe6eacb0cc7ddf218
+115 0xc8de7e97e000e2c0
+116 0xad001025bc21ecde
+117 0xaef3d59f72609dff
+118 0x23c37a5b899351e8
+119 0xb17684aa80b9c45d
+120 0x2258d69c410372f0
+121 0xd7fac57025c0a179
+122 0x1b9bcf656ed361a5
+123 0xcc09f64c99ae972b
+124 0xf66b9be28ac3a79d
+125 0xde40ca8dad604306
+126 0xcda0473224572c20
+127 0x2087bc3553a80419
+128 0x42e54aa697ea423a
+129 0x871ec4c43e0c4d09
+130 0xf45396f8af9edd09
+131 0x993bc977b2e90a73
+132 0x56ca8778623e2a76
+133 0xa5634e669aff0cce
+134 0x5dee440bbaff77b7
+135 0xdbf70cc50dbc5d5e
+136 0xd428169a46c86555
+137 0xf146b8739501314a
+138 0x996d2b3dccc40385
+139 0x116936ac69e5d40c
+140 0x46c5c36d9703a81f
+141 0xb1bf50b24ddc2acb
+142 0x540fd387fd9b092f
+143 0x0e78362c7a0f0c6d
+144 0xccec1828f710d0c4
+145 0xbce634b4abf3f4d4
+146 0x1eca09098ceef81d
+147 0x1582738c44336bbc
+148 0x37efd2c4f2184ea6
+149 0x85934ff15eafba10
+150 0xde00761b2efc1a57
+151 0x49461e86cd77af48
+152 0xb65689d500c5a4bf
+153 0x1fd9137118e722ec
+154 0x4909982eaf6ed0c9
+155 0xf3b04821c33012a3
+156 0x4dd93f193331c4fa
+157 0xee83d46ef75c8bb7
+158 0x850be25df41e987d
+159 0x2df54344efed015b
+160 0xf2123e4452c9d7c8
+161 0x226df1b126859530
+162 0x9e1e511d4a0b54ff
+163 0x8b44e8195b96c77c
+164 0x91f0bcbf36afd980
+165 0xa76834074a9ff93b
+166 0xe85816aac686d5fd
+167 0x604910d7e4669194
+168 0xbce9df44a8c63d22
+169 0x288859fdee81bc2f
+170 0x58c0327174aca3ed
+171 0xd27195b01f9e697f
+172 0x7ba3d35b8bdc0c11
+173 0x36193f03984c4167
+174 0x3504f8e8fe7258a3
+175 0xcbdbbd91776c9c8a
+176 0xd5394aa573ca7c06
+177 0xea58e3ef5b1fa1e8
+178 0x52349e8d5e408ef9
+179 0x78e42fd9d8dec202
+180 0x2a95a15717d0e967
+F 180 15.3213 10.0510 3.6049 1.6519 0.0197 0.6875 0.1227 0.1181 0.0692 0.1347 0.0631 0.1538 0.0042 0.0149 0.0000 0.4100 0.0190 0.0004 0.1328 0.3393 0.0000 0.0376 0.0002
+W 180 contacts 39036 awake 39036 joints 0
+181 0xe67859c66017845f
+F 181 7.3683 2.1013 3.6829 1.5830 0.0283 0.6716 0.1084 0.1154 0.0637 0.1318 0.0593 0.1697 0.0036 0.0149 0.0000 0.3772 0.0237 0.0002 0.0947 0.3458 0.0000 0.0346 0.0001
+W 181 contacts 39719 awake 39719 joints 0
+182 0xf8ff16a5545b0e0c
+F 182 7.7458 2.1600 3.9042 1.6805 0.0216 0.7267 0.1262 0.1256 0.0675 0.1390 0.0598 0.1812 0.0040 0.0163 0.0000 0.3948 0.0151 0.0002 0.1088 0.3820 0.0000 0.0265 0.0001
+W 182 contacts 40182 awake 40182 joints 0
+183 0x6316a2c5094f4a95
+F 183 7.6267 2.0538 3.9012 1.6710 0.0217 0.7608 0.1356 0.1188 0.0721 0.1526 0.0627 0.1918 0.0038 0.0168 0.0000 0.3836 0.0210 0.0002 0.0964 0.3510 0.0000 0.0296 0.0002
+W 183 contacts 40454 awake 40454 joints 0
+184 0x5b3e3fd01473d335
+F 184 7.7426 2.0696 3.9774 1.6947 0.0236 0.7669 0.1389 0.1127 0.0851 0.1536 0.0624 0.1864 0.0043 0.0170 0.0000 0.3944 0.0205 0.0002 0.0929 0.3589 0.0000 0.0309 0.0001
+W 184 contacts 40820 awake 40820 joints 0
+185 0x40f69a50e1fb8242
+F 185 8.0007 2.1781 4.1052 1.7161 0.0250 0.7678 0.1364 0.1152 0.0757 0.1574 0.0595 0.1903 0.0043 0.0185 0.0000 0.3788 0.0152 0.0003 0.0963 0.4019 0.0000 0.0258 0.0002
+W 185 contacts 41468 awake 41468 joints 0
+186 0xe105a0c8b35418da
+F 186 8.2996 2.2937 4.2854 1.7197 0.0342 0.7725 0.1376 0.1168 0.0785 0.1583 0.0593 0.1933 0.0039 0.0180 0.0000 0.3752 0.0168 0.0002 0.0817 0.4041 0.0000 0.0298 0.0001
+W 186 contacts 42645 awake 42645 joints 0
+187 0x956b0be02abf1ddc
+F 187 8.6562 2.2851 4.6175 1.7530 0.0298 0.7840 0.1464 0.1188 0.0760 0.1567 0.0600 0.1997 0.0040 0.0183 0.0000 0.3955 0.0172 0.0002 0.0859 0.4073 0.0000 0.0278 0.0001
+W 187 contacts 44158 awake 44158 joints 0
+188 0xd6b005c24738af6d
+F 188 8.9432 2.3953 4.7993 1.7480 0.0272 0.8082 0.1496 0.1161 0.0837 0.1733 0.0597 0.1960 0.0041 0.0190 0.0000 0.3668 0.0223 0.0003 0.1056 0.3785 0.0000 0.0333 0.0002
+W 188 contacts 45502 awake 45502 joints 0
+189 0xa50ab0b40438bf88
+F 189 9.1361 2.4156 4.9428 1.7773 0.0267 0.8294 0.1523 0.1114 0.0847 0.1742 0.0639 0.2085 0.0044 0.0205 0.0000 0.3962 0.0167 0.0001 0.0761 0.4029 0.0000 0.0242 0.0002
+W 189 contacts 46547 awake 46547 joints 0
+190 0x764ad19e395bf5f8
+F 190 9.4558 2.5045 5.0979 1.8528 0.0288 0.8727 0.1608 0.1168 0.0873 0.1975 0.0593 0.2185 0.0045 0.0215 0.0000 0.3931 0.0285 0.0002 0.0844 0.4040 0.0000 0.0341 0.0002
+W 190 contacts 47745 awake 47745 joints 0
+191 0xdb8a9cb7a4673a76
+F 191 9.9030 2.4900 5.4142 1.9982 0.0330 0.9257 0.1649 0.1279 0.0925 0.1930 0.0602 0.2335 0.0047 0.0267 0.0000 0.4167 0.0198 0.0003 0.1062 0.4615 0.0000 0.0294 0.0001
+W 191 contacts 48916 awake 48916 joints 0
+192 0xa77815719c285837
+F 192 10.1312 2.5782 5.6153 1.9363 0.0364 0.9230 0.1803 0.1224 0.0919 0.1884 0.0675 0.2390 0.0050 0.0232 0.0000 0.3890 0.0180 0.0003 0.0958 0.4408 0.0000 0.0278 0.0002
+W 192 contacts 50253 awake 50253 joints 0
+193 0xee65c08aa819bfe5
+F 193 10.3162 2.5719 5.7847 1.9588 0.0402 0.9200 0.1695 0.1170 0.0978 0.1965 0.0596 0.2442 0.0052 0.0257 0.0000 0.4215 0.0195 0.0002 0.0932 0.4291 0.0000 0.0300 0.0002
+W 193 contacts 51710 awake 51710 joints 0
+194 0x99697af65e8373a2
+F 194 10.5137 2.6912 5.8763 1.9453 0.0382 0.9593 0.1752 0.1181 0.0983 0.2133 0.0597 0.2579 0.0048 0.0252 0.0000 0.4032 0.0175 0.0004 0.0810 0.4158 0.0000 0.0250 0.0001
+W 194 contacts 53130 awake 53130 joints 0
+195 0xfb62c42242e47310
+F 195 10.4370 2.5434 5.9085 1.9845 0.0389 0.9928 0.1910 0.1307 0.1029 0.2061 0.0596 0.2663 0.0054 0.0266 0.0000 0.4112 0.0177 0.0002 0.0764 0.4185 0.0000 0.0239 0.0002
+W 195 contacts 54664 awake 54664 joints 0
+196 0x4e98eb46d2f3aef7
+F 196 10.6493 2.5987 6.0493 2.0005 0.0498 0.9989 0.1944 0.1156 0.1030 0.2155 0.0598 0.2672 0.0057 0.0288 0.0000 0.3758 0.0184 0.0003 0.0955 0.4292 0.0000 0.0278 0.0004
+W 196 contacts 56060 awake 56060 joints 0
+197 0xb0f229c2ebec030d
+F 197 10.7054 2.6476 6.0463 2.0106 0.0503 1.0247 0.1917 0.1122 0.1033 0.2295 0.0656 0.2847 0.0052 0.0283 0.0000 0.3767 0.0198 0.0002 0.0852 0.4165 0.0000 0.0312 0.0002
+W 197 contacts 57475 awake 57475 joints 0
+198 0xcf20e302f8813537
+F 198 10.7463 2.6500 6.0416 2.0540 0.0411 1.0365 0.1987 0.1164 0.1138 0.2266 0.0648 0.2796 0.0052 0.0270 0.0000 0.3947 0.0212 0.0001 0.0770 0.4514 0.0000 0.0268 0.0002
+W 198 contacts 58913 awake 58913 joints 0
+199 0x3bbbd04a39c97761
+F 199 11.0162 2.7369 6.2365 2.0420 0.0409 1.0329 0.2050 0.1188 0.1128 0.2227 0.0594 0.2747 0.0047 0.0275 0.0000 0.3994 0.0187 0.0002 0.0818 0.4363 0.0000 0.0269 0.0001
+W 199 contacts 60124 awake 60124 joints 0
+KI 7.628500 _RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job
+KI 7.628500 runMt
+KI 4.657800 _RNvNtCscZqW6pU5GSG_15shallot_physics5arena13contact_block
+KI 4.115600 js-to-wasm:iiifffffffi:
+KI 2.560300 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold13collide_hulls
+KI 1.791950 _RINvNtCscZqW6pU5GSG_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+KI 1.390100 stepAdvance
+KI 1.390100 js-to-wasm::i
+KI 0.886350 _RINvNtCscZqW6pU5GSG_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_
+KI 0.825950 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact
+KI 0.788400 _RINvNtCscZqW6pU5GSG_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+KI 0.634750 _RNvNtCscZqW6pU5GSG_15shallot_physics4tree7rebuild
+KI 0.634750 rebuildTrees
+KI 0.427500 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_b_contact
+KI 0.406500 _RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide5solve
+KI 0.330400 _RNvNtCscZqW6pU5GSG_15shallot_physics4tree13partition_mid
+KI 0.328800 treeEnlargePass
+KI 0.303450 _RNvNtCscZqW6pU5GSG_15shallot_physics4tree13enlarge_proxy
+KI 0.295500 _RNvMNtCscZqW6pU5GSG_15shallot_physics8pairworkNtB2_7Emitter12record_child
+KI 0.167750 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon
+KI 0.150350 _RNvMNtCscZqW6pU5GSG_15shallot_physics4hullNtB2_8HullData19support_vertex_wide
+KI 0.145550 _RNvNtCscZqW6pU5GSG_15shallot_physics10continuous5solve
+KI 0.101100 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold18find_incident_face
+KI 0.099700 eventBuildHits
+KI 0.051700 sensorConsumeContinuous
+KI 0.050800 bodyCreateContact
+KI 0.050450 applyContactTransitions
+KI 0.049400 _RNvNtCscZqW6pU5GSG_15shallot_physics5table6insert
+KI 0.049400 broadAddPair
+KI 0.049050 stepSolveBuild
+KI 0.025800 solveBuild
+KI 0.025600 _RNvNtCscZqW6pU5GSG_15shallot_physics5arena11mix_surface
+KI 0.025500 _RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide7scatter
+KI 0.025500 allocContact
+KI 0.025500 _RNvNtNtCscZqW6pU5GSG_15shallot_physics14shape_geometry4wasm6bounds
+KI 0.025500 _RNvNtCscZqW6pU5GSG_15shallot_physics10continuous6bounds
+KI 0.025300 graphAddContact
+KI 0.025300 bodyFinish
+KI 0.025250 _RNvNtCscZqW6pU5GSG_15shallot_physics4tree10union_into
+KI 0.024700 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold18build_edge_contact
+KI 0.024450 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold27negative_transform_from_soa
+KI 0.023600 _RNvNtCscZqW6pU5GSG_15shallot_physics9query_abi12active_shape
+KI 0.023250 graphComputeLayout
+KS 2.071900 _RNvNtCscZqW6pU5GSG_15shallot_physics5arena13contact_block
+KS 1.534850 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold13collide_hulls
+KS 1.496450 _RINvNtCscZqW6pU5GSG_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+KS 0.557100 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact
+KS 0.381900 _RINvNtCscZqW6pU5GSG_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_
+KS 0.381000 _RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide5solve
+KS 0.330400 _RNvNtCscZqW6pU5GSG_15shallot_physics4tree13partition_mid
+KS 0.303450 _RNvNtCscZqW6pU5GSG_15shallot_physics4tree13enlarge_proxy
+KS 0.295500 _RNvMNtCscZqW6pU5GSG_15shallot_physics8pairworkNtB2_7Emitter12record_child
+KS 0.279100 _RNvNtCscZqW6pU5GSG_15shallot_physics4tree7rebuild
+KS 0.167750 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon
+KS 0.150350 _RNvMNtCscZqW6pU5GSG_15shallot_physics4hullNtB2_8HullData19support_vertex_wide
+KS 0.121950 _RNvNtCscZqW6pU5GSG_15shallot_physics10continuous5solve
+KS 0.121350 _RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job
+KS 0.101100 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold18find_incident_face
+KS 0.099700 eventBuildHits
+KS 0.097950 _RINvNtCscZqW6pU5GSG_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_
+KS 0.051700 sensorConsumeContinuous
+KS 0.050150 stepAdvance
+KS 0.049400 _RNvNtCscZqW6pU5GSG_15shallot_physics5table6insert
+KS 0.025800 solveBuild
+KS 0.025600 _RNvNtCscZqW6pU5GSG_15shallot_physics5arena11mix_surface
+KS 0.025500 _RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide7scatter
+KS 0.025500 allocContact
+KS 0.025500 _RNvNtNtCscZqW6pU5GSG_15shallot_physics14shape_geometry4wasm6bounds
+KS 0.025350 treeEnlargePass
+KS 0.025300 bodyCreateContact
+KS 0.025300 graphAddContact
+KS 0.025300 bodyFinish
+KS 0.025250 _RNvNtCscZqW6pU5GSG_15shallot_physics4tree10union_into
+KS 0.025150 applyContactTransitions
+KS 0.024700 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold18build_edge_contact
+KS 0.024450 _RNvNtCscZqW6pU5GSG_15shallot_physics8manifold27negative_transform_from_soa
+KS 0.023600 _RNvNtCscZqW6pU5GSG_15shallot_physics9query_abi12active_shape
+KS 0.023250 graphComputeLayout
+J solve total 9.558 wasm 9.019 join 0.540 ts 0.000
+JC solve 8.168 runPool
+JC solve 8.168 runPool > run
+JC solve 7.628 runPool > run > runMt
+JC solve 7.628 runPool > run > runMt > _RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job
+JC solve 4.658 runPool > run > runMt > _RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job > _RNvNtCscZqW6pU5GSG_15shallot_physics5arena13contact_block
+JC solve 1.792 runPool > run > runMt > _RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job > _RINvNtCscZqW6pU5GSG_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_
+JC solve 0.886 runPool > run > runMt > _RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job > _RINvNtCscZqW6pU5GSG_15shallot_physics6stages18execute_main_stageNtNtB4_5solve4WorkEB4_
+JC solve 0.146 runPool > run > runMt > _RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job > _RNvNtCscZqW6pU5GSG_15shallot_physics10continuous5solve
+JC solve 1.390 stepAdvance
+JC solve 0.635 stepAdvance > rebuildTrees
+JC solve 0.635 stepAdvance > rebuildTrees > _RNvNtCscZqW6pU5GSG_15shallot_physics4tree7rebuild
+JC solve 0.330 stepAdvance > rebuildTrees > _RNvNtCscZqW6pU5GSG_15shallot_physics4tree7rebuild > _RNvNtCscZqW6pU5GSG_15shallot_physics4tree13partition_mid
+JC solve 0.329 stepAdvance > treeEnlargePass
+JC solve 0.303 stepAdvance > treeEnlargePass > _RNvNtCscZqW6pU5GSG_15shallot_physics4tree13enlarge_proxy
+JC solve 0.100 stepAdvance > eventBuildHits
+JC solve 0.052 stepAdvance > sensorConsumeContinuous
+JC solve 0.051 stepAdvance > bodyCreateContact
+JC solve 0.050 stepAdvance > applyContactTransitions
+JC solve 0.049 stepAdvance > broadAddPair
+JC solve 0.049 stepAdvance > broadAddPair > _RNvNtCscZqW6pU5GSG_15shallot_physics5table6insert
+JC solve 0.049 stepAdvance > stepSolveBuild
+WP 0 {"nodes":[{"id":1,"callFrame":{"functionName":"(root)","scriptId":"0","url":"","lineNumber":-1,"columnNumber":-1},"hitCount":0,"children":[2,11,23,24]},{"id":2,"callFrame":{"functionName":"","scriptId":"117","url":"[worker eval]","lineNumber":50,"columnNumber":39},"hitCount":0,"children":[3]},{"id":3,"callFrame":{"functionName":"boot","scriptId":"117","url":"[worker eval]","lineNumber":1,"columnNumber":13},"hitCount":846,"children":[4,5],"positionTicks":[{"line":13,"ticks":846}]},{"id":4,"callFrame":{"functionName":"post","scriptId":"121","url":"node:inspector","lineNumber":114,"columnNumber":6},"hitCount":0},{"id":5,"callFrame":{"functionName":"js-to-wasm::","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":7715},"hitCount":0,"children":[6]},{"id":6,"callFrame":{"functionName":"workerMain","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":520440},"hitCount":0,"children":[7]},{"id":7,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":374825},"hitCount":11,"children":[8,12,13,16],"positionTicks":[{"line":1,"ticks":11}]},{"id":8,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5arena13contact_block","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":300301},"hitCount":100,"children":[9,15],"positionTicks":[{"line":1,"ticks":100}]},{"id":9,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold13collide_hulls","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":218865},"hitCount":62,"children":[10,20,21,25],"positionTicks":[{"line":1,"ticks":62}]},{"id":10,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":399152},"hitCount":9,"children":[22,28],"positionTicks":[{"line":1,"ticks":9}]},{"id":22,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold18find_incident_face","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":280030},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":28,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":276494},"hitCount":2,"positionTicks":[{"line":1,"ticks":2}]},{"id":20,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics4hullNtB2_8HullData19support_vertex_wide","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":172790},"hitCount":8,"positionTicks":[{"line":1,"ticks":8}]},{"id":21,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold27negative_transform_from_soa","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":411829},"hitCount":2,"positionTicks":[{"line":1,"ticks":2}]},{"id":25,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_b_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":409314},"hitCount":0,"children":[26]},{"id":26,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":399152},"hitCount":1,"children":[27],"positionTicks":[{"line":1,"ticks":1}]},{"id":27,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":276494},"hitCount":2,"positionTicks":[{"line":1,"ticks":2}]},{"id":15,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5arena11mix_surface","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":297465},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":12,"callFrame":{"functionName":"_RINvNtCscZqW6pU5GSG_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":19414},"hitCount":22,"children":[18,19],"positionTicks":[{"line":1,"ticks":22}]},{"id":18,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide5solve","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":112889},"hitCount":9,"positionTicks":[{"line":1,"ticks":9}]},{"id":19,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide7scatter","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":229836},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":13,"callFrame":{"functionName":"_RINvNtCscZqW6pU5GSG_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":14974},"hitCount":54,"children":[14],"positionTicks":[{"line":1,"ticks":54}]},{"id":14,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics8pairworkNtB2_7Emitter12record_child","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":18519},"hitCount":9,"positionTicks":[{"line":1,"ticks":9}]},{"id":16,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics10continuous5solve","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":180294},"hitCount":2,"children":[17,29],"positionTicks":[{"line":1,"ticks":2}]},{"id":17,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics9query_abi12active_shape","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":16898},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":29,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics10continuous6bounds","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":189491},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":11,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":399152},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":23,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics4hullNtB2_8HullData19support_vertex_wide","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":172790},"hitCount":2,"positionTicks":[{"line":1,"ticks":2}]},{"id":24,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide7scatter","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":229836},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]}],"startTime":123117790051,"endTime":123118365886,"samples":[4,3,8,8,10,11,9,8,8,12,12,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,14,13,13,3,8,8,10,9,9,8,8,3,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,3,3,9,8,15,9,9,8,8,3,12,17,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,8,9,8,8,9,8,9,8,12,18,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,14,13,3,9,9,8,8,8,9,8,8,19,12,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,8,9,8,9,8,8,8,8,12,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,8,8,8,20,8,8,8,9,3,12,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,14,13,13,3,3,20,10,9,8,8,8,21,20,8,3,12,18,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,14,13,7,3,8,9,22,8,8,9,8,10,8,3,7,18,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,9,9,8,23,8,8,9,8,9,3,12,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,14,13,13,13,13,3,3,9,9,10,8,8,9,8,9,8,9,24,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,13,3,8,8,21,8,8,20,8,9,20,8,3,3,18,12,16,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,13,3,27,26,9,28,8,9,9,8,9,8,8,8,8,8,9,12,12,29,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,14,13,3,3,8,9,9,23,9,8,9,8,8,8,8,3,12,12,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,13,3,9,9,9,28,8,8,9,8,8,8,3,3,18,12,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,9,8,9,8,8,9,8,8,20,8,3,12,18,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,14,13,13,3,8,8,9,9,9,8,8,8,8,8,8,3,12,12,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,14,13,13,13,3,9,9,9,9,8,9,20,9,9,10,9,8,3,18,12,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,10,27,9,8,8,9,9,8,9,8,8,3,12,18,18,16,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,14,3,3,10,10,9,9,8,20,8,8,9,8,8,3,12,12,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],"timeDeltas":[9082,537,511,503,441,475,513,501,528,569,433,504,519,456,507,504,510,508,505,498,505,492,431,512,508,503,515,502,508,509,504,500,507,508,505,506,512,497,511,511,506,508,511,484,507,524,503,505,503,517,504,455,537,530,490,475,502,483,493,525,478,508,519,500,508,494,503,499,494,518,484,505,516,520,509,508,504,507,483,497,530,490,509,505,509,498,520,503,501,505,508,428,504,536,506,506,509,502,487,503,535,497,515,507,521,496,476,505,503,504,523,486,519,492,472,505,515,522,487,499,491,506,520,511,505,509,504,509,508,509,503,466,502,493,513,497,504,499,507,506,460,503,503,505,512,504,521,504,504,508,494,486,500,516,502,522,498,506,492,512,516,535,486,566,436,512,539,467,496,506,496,520,493,505,506,503,503,504,505,502,502,503,501,512,498,511,487,505,522,506,507,505,501,511,480,476,505,508,531,503,499,514,500,528,510,509,475,532,493,502,496,504,506,502,506,497,541,471,524,485,517,485,497,502,510,510,504,497,490,512,509,511,509,511,513,512,503,505,498,522,493,526,503,507,499,504,514,517,489,504,502,508,504,513,506,498,471,512,532,509,504,501,502,524,466,544,501,505,509,487,536,428,516,506,512,521,502,544,490,496,504,501,510,509,509,515,500,509,501,507,505,516,457,526,499,520,505,493,514,505,499,514,517,525,495,524,450,525,502,507,527,495,500,502,501,504,510,489,510,511,498,488,503,504,500,524,490,519,494,498,504,513,521,506,483,509,510,501,495,504,513,506,513,475,508,506,502,537,486,508,505,505,532,483,528,527,506,502,509,504,498,488,503,508,509,508,509,508,526,503,495,497,517,508,499,411,501,170,366,503,464,499,499,510,508,496,506,504,506,503,501,505,504,512,508,507,434,519,490,497,515,502,504,511,508,515,462,509,506,507,507,495,506,494,498,508,507,506,529,500,514,500,510,514,490,508,496,496,516,509,499,540,476,558,396,511,501,563,488,483,498,499,519,494,516,555,509,462,504,503,503,517,477,506,514,500,500,507,517,505,526,487,506,504,503,514,515,502,508,504,513,510,494,507,508,515,505,509,526,507,532,461,533,493,508,502,505,555,471,524,502,492,510,479,500,504,483,511,499,504,508,514,510,512,505,514,464,509,506,505,505,533,496,509,503,502,507,461,502,500,500,506,505,509,507,513,513,507,516,506,530,506,501,477,506,507,292,508,513,239,313,504,498,526,497,484,454,503,494,499,510,513,500,506,488,509,508,510,493,512,514,479,507,502,507,486,501,504,509,504,517,519,506,505,506,523,485,504,508,495,502,498,504,529,502,504,508,505,504,516,507,525,502,428,548,477,497,488,498,500,513,539,478,515,499,343,145,498,521,506,564,458,447,484,491,492,508,498,127,208,211,501,122,209,206,207,214,205,202,409,505,504,508,507,504,502,195,378,504,505,508,501,510,499,511,510,501,505,508,505,511,505,505,505,504,504,509,505,509,505,477,501,500,510,515,508,502,490,510,503,203,315,135,502,508,373,154,365,175,468,510,535,373,487,495,496,519,516,510,516,507,511,504,512,504,518,489,509,513,514,501,520,502,510,505,517,456,511,508,522,499,518,501,507,480,489,506,504,504,510,505,503,502,505,505,523,497,512,499,495,499,501,553,464,524,239,257,508,496,501,502,522,517,507,494,504,501,525,504,507,496,507,509,505,515,496,519,517,501,508,512,514,487,524,508,503,506,512,516,501,504,516,504,506,510,435,503,503,512,517,500,518,495,500,520,536,477,502,500,492,508,526,501,504,510,528,468,522,505,490,513,500,500,509,502,509,472,511,508,508,511,506,506,510,502,509,505,512,532,509,492,505,518,505,529,502,508,512,515,503,506,500,509,510,511,499,504,502,509,498,507,535,464,532,501,499,547,446,507,506,508,506,504,505,520,517,526,477,509,524,501,519,506,486,517,491,518,506,504,505,504,513,503,506,505,451,502,506,505,510,510,502,502,505,506,506,504,509,507,484,509,510,512,503,502,510,502,497,508,510,532,486,499,510,550,376,508,498,510,507,493,507,511,494,515,497,497,467,520,505,518,470,500,501,508,513,522,519,505,510,504,508,512,491,507,505,512,511,501,502,503,513,506,523,502,510,512,494,513,506,503,513,503,528,513,497,509,526,478,505,515,541,440,505,506,499,508,497,507,508,509,496,528,507,496,460,530,492,505,525,512,508,504,503,507,509,498,507,505,499,493,511,510,525,505,502,504,503,514,509,505,519,512,509,498,480,514,513,505,510,511,514,512,511,509,507,494,520,509,497,508,494,499,504,512,512,494,513,476,520,508,514,483,141,356,532,506,513,498,510,505,498,303,508,504,190,313,513,508,502,505,498,506,198,512,507,307,204,312,509,179,506,322,183,495,329,172,512,338,506,156,357,505,513,505,509,144,505,504,509,508,515,507,506,541,487,484,510,528,466,502,501,505,502,521,450,512,501,514,538,502,510,484,515,501,464,526,500,515,511,505,486,506,508,506,506,511,504,505,492,498,510,492,520,515,501,508,500,499,510,501,520,498,504,508,510,506,508,507,508,510,508,505,514,442,508,503,499,511]}
+WP 1 {"nodes":[{"id":1,"callFrame":{"functionName":"(root)","scriptId":"0","url":"","lineNumber":-1,"columnNumber":-1},"hitCount":0,"children":[2,19]},{"id":2,"callFrame":{"functionName":"","scriptId":"117","url":"[worker eval]","lineNumber":50,"columnNumber":39},"hitCount":0,"children":[3]},{"id":3,"callFrame":{"functionName":"boot","scriptId":"117","url":"[worker eval]","lineNumber":1,"columnNumber":13},"hitCount":844,"children":[4,5],"positionTicks":[{"line":13,"ticks":844}]},{"id":4,"callFrame":{"functionName":"post","scriptId":"121","url":"node:inspector","lineNumber":114,"columnNumber":6},"hitCount":0},{"id":5,"callFrame":{"functionName":"js-to-wasm::","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":7715},"hitCount":0,"children":[6]},{"id":6,"callFrame":{"functionName":"workerMain","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":520440},"hitCount":0,"children":[7]},{"id":7,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":374825},"hitCount":10,"children":[8,11,13,14,20],"positionTicks":[{"line":1,"ticks":10}]},{"id":8,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5arena13contact_block","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":300301},"hitCount":107,"children":[9,21,22,28],"positionTicks":[{"line":1,"ticks":107}]},{"id":9,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold13collide_hulls","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":218865},"hitCount":51,"children":[10,16,26,29],"positionTicks":[{"line":1,"ticks":51}]},{"id":10,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold27negative_transform_from_soa","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":411829},"hitCount":6,"positionTicks":[{"line":1,"ticks":6}]},{"id":16,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_b_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":409314},"hitCount":0,"children":[17]},{"id":17,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":399152},"hitCount":5,"children":[23,25],"positionTicks":[{"line":1,"ticks":5}]},{"id":23,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":276494},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":25,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold18find_incident_face","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":280030},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":26,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":399152},"hitCount":3,"children":[27],"positionTicks":[{"line":1,"ticks":3}]},{"id":27,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":276494},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":29,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics4hullNtB2_8HullData19support_vertex_wide","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":172790},"hitCount":2,"positionTicks":[{"line":1,"ticks":2}]},{"id":21,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics4hullNtB2_8HullData19support_vertex_wide","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":172790},"hitCount":2,"positionTicks":[{"line":1,"ticks":2}]},{"id":22,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5arena13contact_block","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":300301},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":28,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5arena11mix_surface","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":297465},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":11,"callFrame":{"functionName":"_RINvNtCscZqW6pU5GSG_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":19414},"hitCount":17,"children":[12,18],"positionTicks":[{"line":1,"ticks":17}]},{"id":12,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide5solve","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":112889},"hitCount":12,"positionTicks":[{"line":1,"ticks":12}]},{"id":18,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide7scatter","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":229836},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":13,"callFrame":{"functionName":"_RINvNtCscZqW6pU5GSG_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":14974},"hitCount":52,"children":[15],"positionTicks":[{"line":1,"ticks":52}]},{"id":15,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics8pairworkNtB2_7Emitter12record_child","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":18519},"hitCount":8,"positionTicks":[{"line":1,"ticks":8}]},{"id":14,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics10continuous5solve","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":180294},"hitCount":7,"children":[30],"positionTicks":[{"line":1,"ticks":7}]},{"id":30,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics10continuous6bounds","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":189491},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":20,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics10continuous6bounds","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":189491},"hitCount":1,"children":[24],"positionTicks":[{"line":1,"ticks":1}]},{"id":24,"callFrame":{"functionName":"_RNvNtNtCscZqW6pU5GSG_15shallot_physics14shape_geometry4wasm6bounds","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":192489},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":19,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics8pairworkNtB2_7Emitter12record_child","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":18519},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]}],"startTime":123117790051,"endTime":123118365909,"samples":[4,3,9,8,8,8,10,8,8,11,12,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,9,8,8,9,9,8,8,3,12,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,3,3,10,9,8,8,9,8,8,3,12,14,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,15,13,3,9,17,8,8,8,9,8,3,18,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,15,13,13,3,8,17,9,8,9,8,9,3,11,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,19,13,13,3,3,9,9,8,8,8,8,8,3,11,20,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,21,8,8,8,8,8,9,3,3,11,14,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,9,8,8,8,9,8,8,10,3,11,12,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,9,9,8,8,17,8,22,8,8,9,12,12,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,15,13,13,3,3,8,8,8,8,10,8,8,8,3,3,11,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,15,15,13,13,3,3,8,8,8,9,9,8,8,8,8,3,7,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,13,3,8,10,8,8,23,9,8,8,8,8,3,11,11,24,14,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,15,13,3,3,8,9,9,8,8,8,9,8,9,9,9,3,11,11,14,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,9,8,9,8,21,8,8,9,8,8,3,11,11,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,15,13,13,13,3,25,9,27,28,29,9,9,9,8,8,8,3,12,11,14,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,8,8,8,8,8,8,26,9,8,10,3,11,12,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,3,3,8,9,17,8,17,8,8,8,8,9,8,8,11,12,14,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,13,3,8,8,9,8,9,9,9,26,9,8,8,3,3,7,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,15,13,3,3,8,9,8,8,26,8,8,8,8,9,8,3,11,12,12,14,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,13,13,13,13,3,3,29,9,9,9,8,8,9,9,9,8,8,3,11,12,30,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],"timeDeltas":[9008,553,512,495,553,480,494,492,484,513,505,519,497,497,469,499,510,505,496,515,493,504,505,511,503,508,508,450,509,508,513,504,510,501,503,500,502,505,524,516,488,522,497,476,518,506,524,487,503,506,510,457,514,497,493,509,211,364,444,514,488,507,493,497,503,498,508,521,486,492,507,500,524,490,520,509,506,499,516,485,509,516,510,509,482,517,497,501,520,504,503,503,503,508,481,499,509,489,504,501,505,509,508,510,506,515,509,478,502,522,509,538,439,514,496,511,485,508,490,500,512,488,526,506,502,507,506,503,511,506,504,461,507,520,505,518,506,491,503,509,443,507,513,501,512,511,515,480,527,480,507,508,514,486,519,502,520,503,505,497,504,497,502,515,559,442,513,507,507,507,510,495,499,521,504,473,507,506,505,497,508,502,504,507,502,512,505,501,511,501,506,504,505,509,469,508,505,508,498,521,498,506,509,528,503,507,509,182,320,522,491,507,512,509,468,514,495,510,512,474,530,519,480,512,500,479,502,510,500,500,513,498,504,509,505,514,505,519,511,502,524,503,509,494,515,504,503,526,520,485,510,515,503,501,496,516,492,502,510,503,498,499,507,505,499,502,504,519,504,500,503,501,502,512,492,504,536,473,507,533,500,494,500,503,512,506,510,512,508,513,500,522,505,514,459,508,514,510,502,509,512,509,506,501,496,523,500,521,458,514,515,507,523,497,501,506,511,503,532,482,503,514,497,498,544,458,484,499,507,515,510,532,521,472,499,501,508,479,507,500,502,505,511,510,505,501,512,511,508,504,498,527,493,510,504,510,523,508,509,500,506,508,515,505,505,491,505,520,503,513,510,508,511,485,522,504,382,508,503,511,521,482,507,493,511,525,489,499,507,513,506,486,507,511,421,519,487,508,513,499,499,501,505,508,511,511,509,486,466,510,506,505,506,503,504,519,507,508,503,504,513,503,507,511,514,513,501,508,469,498,513,516,538,469,514,507,466,513,519,494,494,512,486,535,496,512,480,522,505,500,495,511,512,505,515,488,525,510,502,508,498,510,490,498,514,502,514,510,498,529,507,502,502,523,509,503,510,503,510,502,499,509,502,509,512,508,506,506,506,544,495,492,505,498,490,514,501,471,508,503,522,507,509,495,509,523,493,503,467,509,506,499,506,502,474,509,513,518,505,501,503,522,499,514,512,509,500,526,503,517,479,500,505,508,523,512,497,508,496,513,323,507,501,508,442,512,512,509,492,503,508,494,500,503,508,543,458,509,502,496,514,505,508,497,496,510,492,508,501,510,493,512,509,530,510,496,501,512,503,505,505,502,491,499,504,514,524,504,508,509,518,496,508,429,543,475,505,500,503,560,432,499,508,503,502,504,512,529,465,507,530,258,219,474,123,211,205,208,261,168,200,214,402,502,504,511,505,503,506,506,504,504,504,504,501,503,503,505,502,505,510,504,505,505,505,502,506,504,508,505,507,510,505,507,505,508,508,509,503,506,505,513,502,504,509,515,510,317,189,368,447,512,506,513,508,509,496,516,512,503,503,512,521,506,509,505,507,508,512,504,508,508,506,504,509,511,509,515,513,509,510,507,507,508,511,500,513,495,466,505,510,515,496,500,513,513,504,500,522,470,525,510,535,429,509,503,504,514,504,516,488,505,513,500,503,518,534,496,523,494,494,514,502,496,504,506,496,511,528,507,508,505,502,503,508,512,505,509,516,503,507,518,498,503,510,510,480,510,461,517,505,500,514,511,510,508,501,550,507,497,544,417,515,497,511,507,500,513,505,507,518,534,549,433,515,523,498,503,509,473,503,502,507,512,509,503,499,525,462,521,524,512,500,520,512,512,510,509,497,510,503,515,505,504,500,508,514,517,514,482,501,520,504,503,506,518,511,493,513,496,517,510,487,490,513,505,513,506,502,509,542,470,514,511,510,513,504,500,510,505,512,490,515,504,506,504,511,506,504,504,502,505,504,507,508,505,508,504,503,506,509,509,505,508,513,508,508,506,506,508,507,508,501,508,421,542,504,523,469,499,431,503,504,519,500,452,501,504,479,508,498,510,522,506,485,508,510,503,513,494,503,509,507,514,505,510,500,507,508,510,509,515,509,527,500,520,463,512,508,509,518,497,510,511,509,510,509,511,507,521,492,508,501,513,516,503,491,509,502,500,509,519,490,503,507,511,502,508,460,509,547,495,503,489,517,500,504,502,510,507,504,510,499,522,508,501,521,506,507,502,505,497,520,505,503,517,518,511,490,497,502,509,515,509,507,526,506,502,496,520,499,532,476,499,506,531,478,506,496,540,467,467,512,525,511,513,503,140,349,536,299,494,510,499,509,504,507,504,504,506,513,495,506,509,500,505,508,504,511,517,506,504,509,500,505,505,512,507,510,510,510,509,511,512,510,512,468,183,318,183,507,522,502,502,509,492,525,492,493,527,464,515,498,496,500,529,490,502,510,563,503,515,447,510,499,500,493,511,485,509,510,509,508,501,513,504,480,519,463,510,503,511,507,505,511,515,523,496,504,505,530,486,520,516,506,509,496,504,508,502,510,432,503,428,504,501,507]}
+WP 2 {"nodes":[{"id":1,"callFrame":{"functionName":"(root)","scriptId":"0","url":"","lineNumber":-1,"columnNumber":-1},"hitCount":0,"children":[2,19,22,26,27,28]},{"id":2,"callFrame":{"functionName":"","scriptId":"117","url":"[worker eval]","lineNumber":50,"columnNumber":39},"hitCount":0,"children":[3]},{"id":3,"callFrame":{"functionName":"boot","scriptId":"117","url":"[worker eval]","lineNumber":1,"columnNumber":13},"hitCount":844,"children":[4,5],"positionTicks":[{"line":13,"ticks":844}]},{"id":4,"callFrame":{"functionName":"post","scriptId":"121","url":"node:inspector","lineNumber":114,"columnNumber":6},"hitCount":0,"children":[32]},{"id":32,"callFrame":{"functionName":"dispatch","scriptId":"0","url":"","lineNumber":-1,"columnNumber":-1},"hitCount":1,"positionTicks":[{"line":139,"ticks":1}]},{"id":5,"callFrame":{"functionName":"js-to-wasm::","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":7715},"hitCount":0,"children":[6]},{"id":6,"callFrame":{"functionName":"workerMain","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":520440},"hitCount":0,"children":[7]},{"id":7,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5solve7run_job","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":374825},"hitCount":11,"children":[8,10,11,23],"positionTicks":[{"line":1,"ticks":11}]},{"id":8,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5arena13contact_block","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":300301},"hitCount":92,"children":[9,25],"positionTicks":[{"line":1,"ticks":92}]},{"id":9,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold13collide_hulls","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":218865},"hitCount":56,"children":[13,14,16,24],"positionTicks":[{"line":1,"ticks":56}]},{"id":13,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics4hullNtB2_8HullData19support_vertex_wide","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":172790},"hitCount":9,"positionTicks":[{"line":1,"ticks":9}]},{"id":14,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_b_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":409314},"hitCount":1,"children":[15,29],"positionTicks":[{"line":1,"ticks":1}]},{"id":15,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":399152},"hitCount":6,"children":[20,30],"positionTicks":[{"line":1,"ticks":6}]},{"id":20,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold18find_incident_face","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":280030},"hitCount":2,"positionTicks":[{"line":1,"ticks":2}]},{"id":30,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":276494},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":29,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":276494},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":16,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold20build_face_a_contact","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":399152},"hitCount":6,"children":[17],"positionTicks":[{"line":1,"ticks":6}]},{"id":17,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold12clip_polygon","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":276494},"hitCount":3,"positionTicks":[{"line":1,"ticks":3}]},{"id":24,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics8manifold27negative_transform_from_soa","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":411829},"hitCount":4,"positionTicks":[{"line":1,"ticks":4}]},{"id":25,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5arena13contact_block","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":300301},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":10,"callFrame":{"functionName":"_RINvNtCscZqW6pU5GSG_15shallot_physics6stages13execute_blockNtNtB4_5solve4WorkEB4_","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":19414},"hitCount":22,"children":[18],"positionTicks":[{"line":1,"ticks":22}]},{"id":18,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide5solve","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":112889},"hitCount":9,"children":[21],"positionTicks":[{"line":1,"ticks":9}]},{"id":21,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide7scatter","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":229836},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":11,"callFrame":{"functionName":"_RINvNtCscZqW6pU5GSG_15shallot_physics4tree5queryNCNvNtB4_8pairwork9run_query0EB4_","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":14974},"hitCount":55,"children":[12],"positionTicks":[{"line":1,"ticks":55}]},{"id":12,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics8pairworkNtB2_7Emitter12record_child","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":18519},"hitCount":6,"positionTicks":[{"line":1,"ticks":6}]},{"id":23,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics10continuous5solve","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":180294},"hitCount":5,"children":[31],"positionTicks":[{"line":1,"ticks":5}]},{"id":31,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics9query_abi12active_shape","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":16898},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":19,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics9query_abi12active_shape","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":16898},"hitCount":3,"positionTicks":[{"line":1,"ticks":3}]},{"id":22,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics4hullNtB2_8HullData19support_vertex_wide","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":172790},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":26,"callFrame":{"functionName":"_RNvMNtCscZqW6pU5GSG_15shallot_physics8pairworkNtB2_7Emitter12record_child","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":18519},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":27,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics5arena11mix_surface","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":297465},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]},{"id":28,"callFrame":{"functionName":"_RNvNtCscZqW6pU5GSG_15shallot_physics12contact_wide7scatter","scriptId":"113","url":"wasm://wasm/shallot_physics.wasm-00dd932e","lineNumber":0,"columnNumber":229836},"hitCount":1,"positionTicks":[{"line":1,"ticks":1}]}],"startTime":123117790051,"endTime":123118365925,"samples":[4,3,8,9,8,8,8,8,3,10,10,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,12,11,3,13,9,9,9,8,8,8,10,10,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,3,3,15,8,8,17,8,8,8,3,18,19,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,12,11,3,8,9,8,9,13,8,8,3,10,10,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,7,3,20,9,9,8,9,9,8,3,21,18,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,3,3,16,13,9,22,9,8,8,3,10,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,3,3,8,9,9,9,13,8,8,3,3,10,23,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,3,3,8,9,8,8,9,8,8,8,3,7,18,23,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,12,11,3,24,13,16,8,15,8,9,8,8,3,7,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,3,3,14,8,25,8,8,16,9,9,3,3,10,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,11,11,3,3,8,9,8,20,8,8,9,9,8,3,18,18,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,11,3,8,9,8,9,8,8,8,9,9,8,8,18,10,23,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,26,12,11,11,11,3,3,24,9,8,9,9,8,8,8,13,24,8,9,8,8,8,3,10,7,10,18,23,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,3,3,15,8,15,9,8,8,8,27,8,8,3,10,7,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,3,3,15,8,8,8,8,8,9,9,9,8,3,3,28,10,23,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,3,3,8,8,24,13,8,9,16,9,8,9,8,3,10,10,19,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,12,12,11,3,3,9,9,9,9,29,9,13,13,17,8,8,3,10,18,7,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,11,3,9,9,9,8,16,16,9,8,8,8,8,3,10,10,18,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,3,3,8,8,9,15,8,9,8,9,9,8,8,3,10,10,19,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,11,11,11,11,3,3,9,9,9,17,8,8,8,8,30,8,9,9,10,7,31,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,32],"timeDeltas":[9105,522,509,437,539,472,490,499,527,489,511,480,517,496,496,506,505,507,503,480,506,514,510,415,507,504,517,502,506,507,508,501,505,509,506,504,531,498,511,510,508,500,473,504,515,509,513,502,527,494,509,457,517,516,471,512,499,498,509,535,485,490,534,487,517,490,501,497,508,486,504,517,502,518,509,517,476,503,503,501,504,503,501,501,503,504,504,508,508,507,510,513,445,514,502,500,517,502,510,522,512,500,531,500,515,520,419,523,494,513,520,452,514,497,506,508,504,512,507,488,501,503,511,505,508,505,506,509,506,505,457,507,508,502,502,505,503,504,512,504,511,505,503,484,515,502,494,504,506,509,520,495,505,506,501,496,509,519,509,487,514,490,511,507,517,507,490,519,495,483,526,483,500,504,503,509,510,494,506,496,502,504,502,517,502,501,522,511,506,509,494,514,503,464,510,504,482,501,514,509,512,502,511,510,514,515,506,517,511,502,514,481,506,503,501,507,537,469,481,530,497,498,528,482,486,490,503,513,533,502,499,512,505,510,502,505,495,504,510,501,510,510,515,503,507,510,514,500,508,500,503,500,507,508,505,506,504,503,529,505,503,509,499,483,489,518,505,503,502,503,499,517,503,505,505,506,515,522,514,513,504,504,505,504,496,519,502,508,503,511,503,453,508,508,502,516,502,506,512,504,501,507,507,514,510,517,507,501,501,512,505,459,514,509,504,511,503,505,512,508,503,487,552,451,504,522,508,515,511,499,514,470,505,496,524,513,495,498,484,506,510,507,523,506,509,508,507,512,497,512,502,515,485,510,507,508,508,503,509,517,503,506,513,521,504,500,519,511,505,511,485,528,504,509,510,472,453,451,513,499,499,519,506,531,458,520,502,500,501,505,508,492,424,518,499,524,503,508,501,506,505,509,505,509,506,509,436,508,505,506,508,468,510,510,509,507,507,513,505,506,508,514,504,509,509,501,492,539,505,499,508,498,510,510,506,476,485,508,520,503,491,503,497,513,546,461,509,513,499,508,515,506,502,512,498,508,502,522,501,494,512,508,477,506,506,509,521,505,501,507,505,511,508,508,509,511,510,511,526,494,523,496,525,516,509,484,569,459,524,478,471,502,517,493,508,502,518,497,518,507,502,506,505,510,488,514,501,484,509,500,506,428,511,512,509,508,510,511,504,521,508,500,512,502,528,507,507,508,508,509,503,505,496,512,524,264,240,284,517,503,499,501,503,482,528,465,507,523,498,496,515,497,485,518,557,503,503,499,503,471,479,507,490,501,506,514,506,508,506,500,521,506,502,506,495,498,501,509,500,503,507,510,507,488,506,520,503,510,512,524,499,509,505,438,500,476,516,506,505,500,536,486,517,486,513,534,505,491,536,469,465,470,509,147,342,177,338,507,508,506,513,504,503,504,511,503,504,504,505,502,338,514,506,498,514,514,486,505,497,512,492,504,500,501,506,508,506,501,501,514,501,500,503,507,216,492,312,170,340,175,501,505,339,171,320,194,318,192,317,501,504,152,365,135,516,508,364,508,156,343,155,374,496,513,500,522,517,502,507,500,511,505,512,506,504,514,500,503,514,507,519,523,506,505,518,503,502,475,520,501,511,454,508,504,513,509,503,501,510,516,504,490,527,496,519,506,481,500,498,516,491,500,501,513,513,495,524,500,530,480,511,490,504,504,502,507,504,506,504,509,508,509,517,504,509,530,507,503,505,523,502,511,520,507,502,517,500,497,506,505,504,504,508,506,508,508,508,507,508,495,484,494,511,504,498,489,510,526,497,494,500,516,504,503,523,518,502,496,487,528,502,504,502,509,491,505,511,490,505,517,501,473,513,508,511,510,513,511,515,504,509,510,511,509,506,515,503,506,503,505,507,512,520,506,496,506,518,515,503,496,492,510,505,503,522,507,500,503,513,535,472,257,257,532,494,493,526,502,521,498,500,506,501,506,501,502,500,505,505,500,524,522,156,353,505,505,504,504,504,504,504,501,500,501,510,500,512,463,469,508,505,513,512,503,514,495,504,509,498,509,544,498,503,507,486,508,498,427,502,497,467,508,502,552,513,499,441,530,507,504,503,511,509,510,505,472,501,511,504,515,503,516,500,505,508,525,513,493,520,501,503,513,506,491,504,516,513,502,506,523,504,513,509,501,509,524,517,473,508,506,502,506,503,512,502,514,495,488,527,503,507,506,513,502,492,459,515,493,507,509,515,500,508,500,505,505,507,503,514,515,510,527,501,498,500,508,502,506,510,509,512,506,511,519,515,494,509,506,518,509,507,481,512,513,506,506,500,512,523,522,481,511,501,516,500,480,502,503,489,508,515,507,498,491,514,323,513,244,452,516,505,509,500,499,509,314,496,191,504,510,505,502,507,512,518,499,498,503,508,515,493,502,330,171,338,508,512,518,512,513,130,502,503,504,511,503,512,509,513,507,504,528,497,505,529,432,511,504,508,506,546,446,510,503,542,481,498,519,500,493,488,498,503,509,520,521,503,515,503,505,504,461,505,503,501,507,510,525,490,514,497,523,505,499,519,513,494,510,517,490,507,507,503,510,508,523,504,404,516,503,506,504,513,510,155]}
