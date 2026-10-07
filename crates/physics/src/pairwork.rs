@@ -90,7 +90,7 @@ pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
         off += tree::STACK_SIZE * 4;
         BUILD_PTR = off as u32;
         off += tree::STACK_SIZE * 5 * 4;
-        let base = crate::arena::reserve_scratch(off) as u32;
+        let base = crate::arena::reserve_scratch(world_index, off) as u32;
         STATE_PTR += base;
         CANDEND_PTR += base;
         CAND_PTR += base;

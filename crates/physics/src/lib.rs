@@ -60,6 +60,7 @@ mod simd;
 #[cfg(target_arch = "wasm32")]
 mod solver_set;
 pub mod stages;
+mod task_memory;
 mod toi;
 pub mod triangle_manifold;
 // The broad-phase pair query + dynamic-tree rebuild (3d). `tree`/`table` are native-testable (gold
@@ -95,6 +96,7 @@ mod checked {
 mod allocation;
 #[cfg(target_arch = "wasm32")]
 mod arena;
+
 #[cfg(target_arch = "wasm32")]
 mod bodies;
 #[cfg(target_arch = "wasm32")]

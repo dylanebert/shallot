@@ -1,11 +1,7 @@
-//! The shared-column arena and phase export shims — the kernel's wasm surface.
+//! Shared step storage and phase export shims.
 //!
-//! `reserve` lays out solver scratch in one allocator-owned shared buffer,
-//! growing the memory to fit, and records each column's byte offset in the `LAYOUT` header. The TS
-//! side reads `layoutPtr` and derives `Float32Array`/`Uint32Array` views over the columns, then drives
-//! the solve one phase at a time through the export shims below. Each shim rebuilds the columns from
-//! `LAYOUT` + the reserved counts and calls into the phase module (`integrate`, `contact`,
-//! `finalize`), which is where the arithmetic — already gold-verified against the C reference — lives.
+//! Each world owns a LIFO stack. Phase reservations publish column byte offsets in `LAYOUT`;
+//! TypeScript derives views from this header after allocations, which may grow linear memory.
 //!
 //! Wasm-only: the columns alias linear memory directly, so this is meaningful only in the JS host
 //! (native tests drive the phase modules against their gold vectors instead). They are shared-mutable
@@ -27,13 +23,37 @@ use crate::math::{Quat, Transform, Vec3};
 use crate::narrowphase::{compute_convex_manifold_into, ConvexContactCache, ConvexShape};
 
 use crate::geo::hull_view;
-use crate::regions::Buffer;
+static mut STACKS: [crate::task_memory::Stack; crate::regions::MAX_WORLDS] =
+    [const { crate::task_memory::Stack::EMPTY }; crate::regions::MAX_WORLDS];
+static mut SCRATCH_PTR: [usize; crate::regions::MAX_WORLDS] = [0; crate::regions::MAX_WORLDS];
 
-static mut SCRATCH: Buffer = Buffer::EMPTY;
-pub unsafe fn reserve_scratch(bytes: usize) -> usize {
-    let scratch = &mut *(&raw mut SCRATCH);
-    scratch.reserve(bytes);
-    scratch.ptr
+pub unsafe fn free_scratch(world: usize) {
+    if SCRATCH_PTR[world] != 0 {
+        STACKS[world].free(SCRATCH_PTR[world] as *mut u8);
+        SCRATCH_PTR[world] = 0;
+    }
+}
+
+pub unsafe fn grow_stack(world: usize) {
+    free_scratch(world);
+    STACKS[world].grow();
+    crate::regions::invalidate_views();
+}
+
+pub unsafe fn reset_stack(world: usize) {
+    free_scratch(world);
+    STACKS[world] = crate::task_memory::Stack::EMPTY;
+}
+
+pub unsafe fn reserve_scratch(world: usize, bytes: usize) -> usize {
+    free_scratch(world);
+    if STACKS[world].is_empty() {
+        STACKS[world] = crate::task_memory::Stack::new(2048);
+    }
+    let ptr = STACKS[world].alloc(bytes) as usize;
+    SCRATCH_PTR[world] = ptr;
+    crate::regions::invalidate_views();
+    ptr
 }
 const N_COLS: usize = 15;
 /// Active-color span: wideStart, wideCount, meshStart, meshCount, jointArrayKey, jointCount.
@@ -176,11 +196,11 @@ pub extern "C" fn reserve_in_world(
 
         let continuous_offset = off;
         off += body * crate::continuous::STRIDE * 4;
-        reserve_scratch(off);
+        let base = reserve_scratch(world_index, off);
         for column in SLOT_SCALAR..N_COLS {
-            LAYOUT[column] += SCRATCH.ptr as u32;
+            LAYOUT[column] += base as u32;
         }
-        crate::continuous::reserve_at(SCRATCH.ptr + continuous_offset, body);
+        crate::continuous::reserve_at(base + continuous_offset, body);
     }
 }
 
@@ -311,10 +331,10 @@ pub extern "C" fn reserve_collide_in_world(
         off = (off + 15) & !15;
         let scratch_off = off;
         off += mesh_threads * core::mem::size_of::<DispatchScratch>();
-        reserve_scratch(off);
-        CONTACT_LIST_PTR = SCRATCH.ptr;
-        MESH_MATERIAL_PTR = SCRATCH.ptr + material_off;
-        MESH_SCRATCH_PTR = SCRATCH.ptr + scratch_off;
+        let base = reserve_scratch(world_index, off);
+        CONTACT_LIST_PTR = base;
+        MESH_MATERIAL_PTR = base + material_off;
+        MESH_SCRATCH_PTR = base + scratch_off;
         (MESH_SCRATCH_PTR as *mut u8)
             .write_bytes(0, mesh_threads * core::mem::size_of::<DispatchScratch>());
     }

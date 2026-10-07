@@ -629,17 +629,20 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
             }
             2 => {
                 if crate::pairwork::pairs_overflow() != 0 {
+                    crate::arena::free_scratch(world_index);
                     DRIVER.phase = 1;
                     continue;
                 }
                 crate::pairwork::rebuild_trees_in_world(world_index);
                 create_pairs(world_index);
+                crate::arena::free_scratch(world_index);
                 DRIVER.phase = 3;
             }
             3 => {
                 if PAIRS_ONLY {
                     DRIVER.phase = 0;
                     PAIRS_ONLY = false;
+                    crate::arena::grow_stack(world_index);
                     return 0;
                 }
                 accumulate(world_index, 1, DRIVER.phase_start);
@@ -672,6 +675,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
             5 => {
                 if contact_list::count_in_world(world_index) != 0 {
                     apply_contact_transitions_in_world(world_index);
+                    crate::arena::free_scratch(world_index);
                 }
                 accumulate(world_index, 2, DRIVER.phase_start);
                 DRIVER.solve_start = ticks();
@@ -761,6 +765,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                     sleep_islands(world_index);
                     accumulate(world_index, 21, start);
                 }
+                crate::arena::free_scratch(world_index);
                 DRIVER.phase = 10;
             }
             10 => {
@@ -778,6 +783,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 crate::sensor::publish(world);
                 accumulate(world_index, 22, DRIVER.phase_start);
                 events::end_step(world);
+                crate::arena::grow_stack(world_index);
                 accumulate(world_index, 0, DRIVER.step_start);
                 DRIVER.phase = 0;
             }
