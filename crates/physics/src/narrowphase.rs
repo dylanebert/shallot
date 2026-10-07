@@ -65,19 +65,7 @@ impl ConvexContactCache {
 /// One point of a persistent contact manifold (b3ManifoldPoint). The narrowphase writes the anchors
 /// in world orientation relative to each body origin; the solver stage later shifts them to be
 /// center-of-mass-relative. `feature_id` + `normal_impulse` are the warm-start state carried forward.
-#[derive(Clone, Copy)]
-pub struct ManifoldPoint {
-    pub anchor_a: Vec3,
-    pub anchor_b: Vec3,
-    pub separation: f32,
-    pub base_separation: f32,
-    pub normal_impulse: f32,
-    pub total_normal_impulse: f32,
-    pub normal_velocity: f32,
-    pub feature_id: u32,
-    pub triangle_index: i32,
-    pub persisted: bool,
-}
+pub use crate::manifold_abi::ManifoldPointRecord as ManifoldPoint;
 
 impl ManifoldPoint {
     pub const ZERO: ManifoldPoint = ManifoldPoint {
@@ -145,6 +133,61 @@ pub fn compute_convex_manifold(
     xf_b: Transform,
     cache: &mut ConvexContactCache,
 ) -> bool {
+    let touching =
+        compute_convex_manifold_into(|| &mut *manifold, shape_a, xf_a, shape_b, xf_b, cache);
+    if !touching {
+        manifold.point_count = 0;
+    }
+    touching
+}
+
+/// Statically selected storage access; resident contacts never gather an owned manifold.
+pub(crate) trait ManifoldOutput {
+    fn point_count(&self) -> usize;
+    fn set_point_count(&mut self, count: usize);
+    fn points(&mut self) -> &mut [ManifoldPoint; MAX_MANIFOLD_POINTS];
+    fn set_normal(&mut self, normal: Vec3);
+}
+
+impl ManifoldOutput for Manifold {
+    fn point_count(&self) -> usize {
+        self.point_count
+    }
+    fn set_point_count(&mut self, count: usize) {
+        self.point_count = count;
+    }
+    fn points(&mut self) -> &mut [ManifoldPoint; MAX_MANIFOLD_POINTS] {
+        &mut self.points
+    }
+    fn set_normal(&mut self, normal: Vec3) {
+        self.normal = normal;
+    }
+}
+
+impl ManifoldOutput for crate::manifold_abi::ManifoldRecord {
+    fn point_count(&self) -> usize {
+        self.point_count as usize
+    }
+    fn set_point_count(&mut self, count: usize) {
+        self.point_count = count as i32;
+    }
+    fn points(&mut self) -> &mut [ManifoldPoint; MAX_MANIFOLD_POINTS] {
+        &mut self.points
+    }
+    fn set_normal(&mut self, normal: Vec3) {
+        self.normal = normal;
+    }
+}
+
+/// Resolve or allocate the destination only after geometry reports a nonempty manifold.
+pub(crate) fn compute_convex_manifold_into<'a, M: ManifoldOutput + 'a>(
+    resolve: impl FnOnce() -> &'a mut M,
+    shape_a: &ConvexShape,
+    xf_a: Transform,
+    shape_b: &ConvexShape,
+    xf_b: Transform,
+    cache: &mut ConvexContactCache,
+) -> bool {
     let mut points = [crate::manifold::LocalManifoldPoint::ZERO; GEOM_CAPACITY];
     let mut geom = LocalManifold::new(&mut points);
     let transform_b_to_a = xf_a.inv_mul(xf_b);
@@ -194,31 +237,30 @@ pub fn compute_convex_manifold(
     }
 
     if geom.point_count == 0 {
-        manifold.point_count = 0;
         return false;
     }
 
-    // Snapshot the previous points' feature ids + impulses before overwriting them; the warm-start
-    // match below reads the snapshot and claims entries there, never the points being reused.
-    let old_count = manifold.point_count;
-    let mut old_feat = [0u32; MAX_MANIFOLD_POINTS];
-    let mut old_imp = [0.0f32; MAX_MANIFOLD_POINTS];
-    for j in 0..old_count {
-        old_feat[j] = manifold.points[j].feature_id;
-        old_imp[j] = manifold.points[j].normal_impulse;
-    }
+    let manifold = resolve();
+    let old_count = manifold.point_count();
+    let mut old_storage = core::mem::MaybeUninit::<[ManifoldPoint; MAX_MANIFOLD_POINTS]>::uninit();
+    let old_points = unsafe {
+        let old = old_storage.as_mut_ptr().cast::<ManifoldPoint>();
+        core::ptr::copy_nonoverlapping(manifold.points().as_ptr(), old, old_count);
+        core::slice::from_raw_parts_mut(old, old_count)
+    };
 
     let n = geom.point_count;
-    manifold.point_count = n;
+    manifold.set_point_count(n);
 
     let matrix_a = Mat3::from_quat(xf_a.q);
-    manifold.normal = matrix_a.mul_v(geom.normal);
+    manifold.set_normal(matrix_a.mul_v(geom.normal));
+    let points = manifold.points();
 
     // Contact points are computed in frame A; anchorB is offset by the body-origin separation.
     let offset = xf_a.p.sub(xf_b.p);
     for i in 0..n {
         let source = geom.points[i];
-        let pt = &mut manifold.points[i];
+        let pt = &mut points[i];
         pt.anchor_a = matrix_a.mul_v(source.point);
         pt.anchor_b = pt.anchor_a.add(offset);
         pt.separation = source.separation;
@@ -229,14 +271,14 @@ pub fn compute_convex_manifold(
 
     // Copy impulses from any matching old point (by feature id) via the snapshot.
     for i in 0..n {
-        let pt = &mut manifold.points[i];
+        let pt = &mut points[i];
         pt.total_normal_impulse = 0.0;
         pt.persisted = false;
         for j in 0..old_count {
-            if pt.feature_id == old_feat[j] {
-                pt.normal_impulse = old_imp[j];
+            if pt.feature_id == old_points[j].feature_id {
+                pt.normal_impulse = old_points[j].normal_impulse;
                 pt.persisted = true;
-                old_feat[j] = u32::MAX; // claimed
+                old_points[j].feature_id = u32::MAX; // claimed
                 break;
             }
         }

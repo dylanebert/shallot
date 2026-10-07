@@ -26,9 +26,7 @@ use crate::manifold_abi::{
 };
 use crate::manifolds;
 use crate::math::{Quat, Transform, Vec3};
-use crate::narrowphase::{
-    compute_convex_manifold, ConvexContactCache, ConvexShape, Manifold, MAX_MANIFOLD_POINTS,
-};
+use crate::narrowphase::{compute_convex_manifold_into, ConvexContactCache, ConvexShape, Manifold};
 
 use crate::geo::hull_view;
 use crate::regions::Buffer;
@@ -420,23 +418,6 @@ unsafe fn read_shape(ty: u32, disp: &[u32], o: usize) -> ConvexShape<'static> {
     }
 }
 
-/// Read a contact's resident manifold's warm-start state (point count + per-point feature id + normal
-/// impulse) — the only fields `compute_convex_manifold` reads from the old manifold; the rest it
-/// overwrites.
-#[inline]
-fn read_manifold_warm(pool: Col<f32>, base: usize) -> Manifold {
-    let o = base * MANIFOLD_STRIDE;
-    let mut m = Manifold::new();
-    let pc = (pool.get(o + M_POINT_COUNT).to_bits() as usize).min(MAX_MANIFOLD_POINTS);
-    m.point_count = pc;
-    for j in 0..pc {
-        let p = o + M_POINTS + j * POOL_POINT_STRIDE;
-        m.points[j].feature_id = pool.get(p + P_FEATURE_ID).to_bits();
-        m.points[j].normal_impulse = pool.get(p + P_NORMAL_IMPULSE);
-    }
-    m
-}
-
 /// Write the computed manifold into the pool block. Only the narrowphase-owned fields — normal, point
 /// count, and per-point anchors/separation/impulses/feature id/triangle index/persisted — the header
 /// friction/twist/rolling (solver-owned, persistent) are left untouched. Separation and its recycle
@@ -816,7 +797,6 @@ unsafe fn update_contact(
     unsafe {
         use crate::manifold_abi::*;
         let dir = manifolds::dir_col(world_index);
-        let pool = manifolds::pool_col();
         let o = contact_id * DIR_STRIDE;
         let old_count = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
         let shape_id_a = dir.get(o + DIR_SHAPE_A) as usize;
@@ -928,40 +908,36 @@ unsafe fn update_contact(
             ConvexContactCache::empty()
         };
 
-        let resident = old_count != 0;
-        let mut m = if resident {
-            read_manifold_warm(crate::manifold_abi::block_col(pool, base, 1), 0)
-        } else {
-            Manifold::new()
-        };
-        let touching = compute_convex_manifold(
-            &mut m,
+        let mut address = base;
+        let touching = compute_convex_manifold_into(
+            || {
+                if old_count == 0 {
+                    address = manifolds::allocate_manifolds_in_world(world_index, contact_id, 1);
+                }
+                &mut *(address as *mut ManifoldRecord)
+            },
             &shape_a,
             convex_xf_a,
             &shape_b,
             convex_xf_b,
             &mut cache,
         );
-        if flip {
-            m.normal = m.normal.neg();
-            for p in &mut m.points[..m.point_count] {
-                core::mem::swap(&mut p.anchor_a, &mut p.anchor_b);
-            }
-        }
-        for p in &mut m.points[..m.point_count] {
-            p.anchor_a = p.anchor_a.add(child_offset);
-        }
-        for p in &mut m.points[..m.point_count] {
-            p.anchor_a = p.anchor_a.sub(center_a);
-            p.anchor_b = p.anchor_b.sub(center_b);
-        }
         if touching {
-            let address = if resident {
-                base
-            } else {
-                manifolds::allocate_manifolds_in_world(world_index, contact_id, 1)
-            };
-            write_manifold(&m, crate::manifold_abi::block_col(pool, address, 1), 0);
+            let m = &mut *(address as *mut ManifoldRecord);
+            if flip {
+                m.normal = m.normal.neg();
+                for p in &mut m.points[..m.point_count as usize] {
+                    core::mem::swap(&mut p.anchor_a, &mut p.anchor_b);
+                }
+            }
+            for p in &mut m.points[..m.point_count as usize] {
+                p.anchor_a = p.anchor_a.add(child_offset);
+            }
+            for p in &mut m.points[..m.point_count as usize] {
+                p.anchor_a = p.anchor_a.sub(center_a);
+                p.anchor_b = p.anchor_b.sub(center_b);
+                p.base_separation = p.separation;
+            }
         }
         match &cache {
             ConvexContactCache::Sat(cache) => write_sat(dir, contact_id, cache),

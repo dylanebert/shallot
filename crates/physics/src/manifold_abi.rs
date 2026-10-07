@@ -51,6 +51,7 @@ pub struct ContactRecord {
     pub generation: u32,
 }
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ManifoldPointRecord {
     pub anchor_a: Vec3,
     pub anchor_b: Vec3,
