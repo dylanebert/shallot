@@ -11,12 +11,13 @@ use shallot_physics::col::Col;
 use shallot_physics::joint::{prepare as kernel_prepare, solve, warm_start};
 
 // The fixture adapter's pose slots are not part of the solver ABI.
-const J_QA: usize = 23;
-const J_LOCAL_CENTER_A: usize = 27;
-const J_CENTER_A: usize = 30;
-const J_QB: usize = 33;
-const J_LOCAL_CENTER_B: usize = 37;
-const J_CENTER_B: usize = 40;
+const J_QA: usize = ABI_STRIDE;
+const J_LOCAL_CENTER_A: usize = ABI_STRIDE + 4;
+const J_CENTER_A: usize = ABI_STRIDE + 7;
+const J_QB: usize = ABI_STRIDE + 10;
+const J_LOCAL_CENTER_B: usize = ABI_STRIDE + 14;
+const J_CENTER_B: usize = ABI_STRIDE + 17;
+const JOINT_STRIDE: usize = ABI_STRIDE + 20;
 
 // Adapt the frozen vector layout into body columns; the solver never consumes its copied pose.
 fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
@@ -42,16 +43,16 @@ fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
             J_LOCAL_CENTER_B,
         ),
     ] {
-        sim[i * SIM_STRIDE] = get(jc, slot, mass);
+        sim[i * SIM_STRIDE + 26] = get(jc, slot, mass);
         for k in 0..9 {
-            sim[i * SIM_STRIDE + 19 + k] = get(jc, slot, inertia + k);
+            sim[i * SIM_STRIDE + 36 + k] = get(jc, slot, inertia + k);
         }
         for k in 0..4 {
-            sim[i * SIM_STRIDE + 28 + k] = get(jc, slot, rotation + k);
+            sim[i * SIM_STRIDE + 3 + k] = get(jc, slot, rotation + k);
         }
         for k in 0..3 {
-            fin[i * FIN_STRIDE + k] = get(jc, slot, center + k);
-            fin[i * FIN_STRIDE + 3 + k] = get(jc, slot, local_center + k);
+            fin[i * FIN_STRIDE + 7 + k] = get(jc, slot, center + k);
+            fin[i * FIN_STRIDE + 17 + k] = get(jc, slot, local_center + k);
         }
     }
     // Poison the old mass/inertia cache: every vector must derive these values from body columns.
@@ -73,14 +74,14 @@ fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
     }
 }
 use shallot_physics::joint_abi::{
-    get, get_vec3, DJ_ANCHOR_A, DJ_ANCHOR_B, DJ_AXIAL_MASS, DJ_DAMPING_RATIO, DJ_DELTA_CENTER,
-    DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT, DJ_ENABLE_MOTOR, DJ_ENABLE_SPRING, DJ_HERTZ,
-    DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE, DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH,
-    DJ_MAX_MOTOR_FORCE, DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE, DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE,
-    DJ_UPPER_SPRING_FORCE, JOINT_STRIDE, J_CONSTRAINT_DAMPING, J_CONSTRAINT_HERTZ,
-    J_CONSTRAINT_SOFTNESS, J_INV_IA, J_INV_IB, J_INV_MASS_A, J_INV_MASS_B, J_LOCAL_FRAME_A,
-    J_LOCAL_FRAME_B, J_SIM_INDEX_A, J_SIM_INDEX_B, J_TYPE, MJ_ANGULAR_DAMPING_RATIO,
-    MJ_ANGULAR_HERTZ, MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE,
+    get, get_vec3, set_indices, DJ_ANCHOR_A, DJ_ANCHOR_B, DJ_AXIAL_MASS, DJ_DAMPING_RATIO,
+    DJ_DELTA_CENTER, DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT, DJ_ENABLE_MOTOR,
+    DJ_ENABLE_SPRING, DJ_HERTZ, DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE, DJ_LOWER_SPRING_FORCE,
+    DJ_MAX_LENGTH, DJ_MAX_MOTOR_FORCE, DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE, DJ_MOTOR_SPEED,
+    DJ_UPPER_IMPULSE, DJ_UPPER_SPRING_FORCE, JOINT_STRIDE as ABI_STRIDE, J_CONSTRAINT_DAMPING,
+    J_CONSTRAINT_HERTZ, J_CONSTRAINT_SOFTNESS, J_INV_IA, J_INV_IB, J_INV_MASS_A, J_INV_MASS_B,
+    J_LOCAL_FRAME_A, J_LOCAL_FRAME_B, J_TYPE, MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ,
+    MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE,
     MJ_LINEAR_DAMPING_RATIO, MJ_LINEAR_HERTZ, MJ_LINEAR_SPRING_IMPULSE, MJ_LINEAR_VELOCITY,
     MJ_LINEAR_VELOCITY_IMPULSE, MJ_MAX_SPRING_FORCE, MJ_MAX_SPRING_TORQUE, MJ_MAX_VELOCITY_FORCE,
     MJ_MAX_VELOCITY_TORQUE, NULL_INDEX, PJ_ANGULAR_IMPULSE, PJ_DAMPING_RATIO, PJ_ENABLE,
@@ -150,13 +151,9 @@ fn setup(input: &Value) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
     let mut joints = vec![0.0f32; JOINT_STRIDE];
     {
         let jc = col(&mut joints);
-        let set = |field: usize, val: f32| jc.set(field, val);
+        let set = |field: usize, val: f32| set_field(jc, 0, field, val);
         set(J_TYPE, f32::from_bits(TY_DISTANCE));
-        set(J_SIM_INDEX_A, f32::from_bits(0));
-        set(
-            J_SIM_INDEX_B,
-            f32::from_bits(if b_static { NULL_INDEX } else { 1 }),
-        );
+        set_indices(jc, 0, 0, if b_static { NULL_INDEX } else { 1 });
         set(J_INV_MASS_A, f(input, "invMassA"));
         set(J_INV_MASS_B, f(input, "invMassB"));
         for (i, x) in arr(input, "invIA").iter().enumerate() {
@@ -223,7 +220,7 @@ fn setup(input: &Value) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
 
     // Two-body resident state column: body 0 = A (dynamic), body 1 = B (dynamic unless static).
     let mut state = vec![0.0f32; 2 * STATE_STRIDE];
-    let mut flags = vec![0u32; 2];
+    let mut flags = vec![0u32; 2 * STATE_STRIDE];
     {
         let sc = col(&mut state);
         let va = arr(input, "vA");
@@ -238,7 +235,7 @@ fn setup(input: &Value) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
         write_state(sc, 1, &state_of(&vb, &wb, &dpb, &dqb));
     }
     flags[0] = DYNAMIC;
-    flags[1] = if b_static { 0 } else { DYNAMIC };
+    flags[STATE_STRIDE] = if b_static { 0 } else { DYNAMIC };
 
     (joints, state, flags)
 }
@@ -436,6 +433,15 @@ fn check_vels(
     }
 }
 
+fn set_field(jc: Col<f32>, _slot: usize, field: usize, val: f32) {
+    use shallot_physics::joint_abi::{set, write_flags, BOOL_FIELD, J_FIXED_ROTATION};
+    if field & BOOL_FIELD != 0 && field != J_FIXED_ROTATION {
+        write_flags(jc, 0, field, val.to_bits());
+    } else {
+        set(jc, 0, field, val);
+    }
+}
+
 #[test]
 fn distance_joint_matches_reference() {
     let gold: Value = serde_json::from_str(GOLD).expect("parse joint.gold.json");
@@ -452,13 +458,9 @@ fn distance_joint_matches_reference() {
 /// full local frames (p + q) — exactly as `src/jointcolumns.ts` marshals it. Body 0 = A, body 1 = B.
 fn write_base(jc: Col<f32>, input: &Value, ty: u32) {
     let b_static = input["bStatic"].as_i64().unwrap() != 0;
-    let set = |field: usize, val: f32| jc.set(field, val);
+    let set = |field: usize, val: f32| set_field(jc, 0, field, val);
     set(J_TYPE, f32::from_bits(ty));
-    set(J_SIM_INDEX_A, f32::from_bits(0));
-    set(
-        J_SIM_INDEX_B,
-        f32::from_bits(if b_static { NULL_INDEX } else { 1 }),
-    );
+    set_indices(jc, 0, 0, if b_static { NULL_INDEX } else { 1 });
     set(J_INV_MASS_A, f(input, "invMassA"));
     set(J_INV_MASS_B, f(input, "invMassB"));
     for (i, x) in arr(input, "invIA").iter().enumerate() {
@@ -505,7 +507,7 @@ fn write_base(jc: Col<f32>, input: &Value, ty: u32) {
 fn build_state(input: &Value) -> (Vec<f32>, Vec<u32>) {
     let b_static = input["bStatic"].as_i64().unwrap() != 0;
     let mut state = vec![0.0f32; 2 * STATE_STRIDE];
-    let mut flags = vec![0u32; 2];
+    let mut flags = vec![0u32; 2 * STATE_STRIDE];
     {
         let sc = col(&mut state);
         write_state(
@@ -530,7 +532,7 @@ fn build_state(input: &Value) -> (Vec<f32>, Vec<u32>) {
         );
     }
     flags[0] = DYNAMIC;
-    flags[1] = if b_static { 0 } else { DYNAMIC };
+    flags[STATE_STRIDE] = if b_static { 0 } else { DYNAMIC };
     (state, flags)
 }
 
@@ -578,7 +580,7 @@ fn run_weld(sc: &Value) {
     {
         let jc = col(&mut joints);
         write_base(jc, input, TY_WELD);
-        let set = |field: usize, val: f32| jc.set(field, val);
+        let set = |field: usize, val: f32| set_field(jc, 0, field, val);
         set(WJ_LINEAR_HERTZ, f(input, "linearHertz"));
         set(WJ_LINEAR_DAMPING_RATIO, f(input, "linearDampingRatio"));
         set(WJ_ANGULAR_HERTZ, f(input, "angularHertz"));
@@ -661,7 +663,7 @@ fn run_revolute(sc: &Value) {
     {
         let jc = col(&mut joints);
         write_base(jc, input, TY_REVOLUTE);
-        let set = |field: usize, val: f32| jc.set(field, val);
+        let set = |field: usize, val: f32| set_field(jc, 0, field, val);
         set(RJ_HERTZ, f(input, "hertz"));
         set(RJ_DAMPING_RATIO, f(input, "dampingRatio"));
         set(RJ_MAX_MOTOR_TORQUE, f(input, "maxMotorTorque"));
@@ -794,7 +796,7 @@ fn run_spherical(sc: &Value) {
     {
         let jc = col(&mut joints);
         write_base(jc, input, TY_SPHERICAL);
-        let set = |field: usize, val: f32| jc.set(field, val);
+        let set = |field: usize, val: f32| set_field(jc, 0, field, val);
         set(SJ_HERTZ, f(input, "hertz"));
         set(SJ_DAMPING_RATIO, f(input, "dampingRatio"));
         set(SJ_MAX_MOTOR_TORQUE, f(input, "maxMotorTorque"));
@@ -930,7 +932,7 @@ fn run_prismatic(sc: &Value) {
     {
         let jc = col(&mut joints);
         write_base(jc, input, TY_PRISMATIC);
-        let set = |field: usize, val: f32| jc.set(field, val);
+        let set = |field: usize, val: f32| set_field(jc, 0, field, val);
         set(PJ_HERTZ, f(input, "hertz"));
         set(PJ_DAMPING_RATIO, f(input, "dampingRatio"));
         set(PJ_MAX_MOTOR_FORCE, f(input, "maxMotorForce"));
@@ -1063,7 +1065,7 @@ fn run_wheel(sc: &Value) {
     {
         let jc = col(&mut joints);
         write_base(jc, input, TY_WHEEL);
-        let set = |field: usize, val: f32| jc.set(field, val);
+        let set = |field: usize, val: f32| set_field(jc, 0, field, val);
         set(WHJ_MAX_SPIN_TORQUE, f(input, "maxSpinTorque"));
         set(WHJ_SPIN_SPEED, f(input, "spinSpeed"));
         set(WHJ_LOWER_SUSPENSION_LIMIT, f(input, "lowerSuspensionLimit"));
@@ -1256,7 +1258,7 @@ fn run_motor(sc: &Value) {
     {
         let jc = col(&mut joints);
         write_base(jc, input, TY_MOTOR);
-        let set = |field: usize, val: f32| jc.set(field, val);
+        let set = |field: usize, val: f32| set_field(jc, 0, field, val);
         for (i, x) in arr(input, "linearVelocity").iter().enumerate() {
             set(MJ_LINEAR_VELOCITY + i, *x);
         }
@@ -1362,7 +1364,7 @@ fn run_parallel(sc: &Value) {
     {
         let jc = col(&mut joints);
         write_base(jc, input, TY_PARALLEL);
-        let set = |field: usize, val: f32| jc.set(field, val);
+        let set = |field: usize, val: f32| set_field(jc, 0, field, val);
         set(PLJ_HERTZ, f(input, "hertz"));
         set(PLJ_DAMPING_RATIO, f(input, "dampingRatio"));
         set(PLJ_MAX_TORQUE, f(input, "maxTorque"));
