@@ -489,7 +489,7 @@ fn query_edge_direction_hull_and_capsule(
 fn reduce_manifold_points(
     manifold: &mut LocalManifold,
     capacity: usize,
-    points: &[LocalManifoldPoint],
+    points: &mut [LocalManifoldPoint],
     mut count: usize,
 ) {
     if capacity < 4 {
@@ -511,18 +511,12 @@ fn reduce_manifold_points(
     // A pecking-order bias for contact point consistency across time steps.
     let bias: f32 = 0.95;
 
-    // Swap-remove over an index array (not `points`) to mirror the TS pool-preserving indirection.
-    let mut idx = [0usize; MAX_CLIP_POINTS];
-    for i in 0..count {
-        idx[i] = i;
-    }
-
     // Step 1: extreme point that is touching.
     let mut best_index: i32 = -1;
     let mut best_score = -FLT_MAX;
     let search_direction = arbitrary_perp(normal);
     for index in 0..count {
-        let pt = &points[idx[index]];
+        let pt = &points[index];
         if pt.separation > speculative_distance {
             continue;
         }
@@ -539,9 +533,9 @@ fn reduce_manifold_points(
         return;
     }
 
-    manifold.points[0] = points[idx[best_index as usize]];
+    manifold.points[0] = points[best_index as usize];
     manifold.point_count = 1;
-    idx[best_index as usize] = idx[count - 1];
+    points[best_index as usize] = points[count - 1];
     count -= 1;
 
     let a = manifold.points[0].point;
@@ -550,11 +544,11 @@ fn reduce_manifold_points(
     best_score = 0.0;
     best_index = -1;
     for index in 0..count {
-        let p = points[idx[index]].point;
+        let p = points[index].point;
         let d = p.sub(a);
         let v = d.mul_sub(d.dot(normal), normal);
         let distance_squared = v.length_sq();
-        let separation = maxf(0.0, -points[idx[index]].separation);
+        let separation = maxf(0.0, -points[index].separation);
         let score = distance_squared + 4.0 * separation * separation;
         if bias * score > best_score {
             best_score = score;
@@ -566,9 +560,9 @@ fn reduce_manifold_points(
         return;
     }
 
-    manifold.points[1] = points[idx[best_index as usize]];
+    manifold.points[1] = points[best_index as usize];
     manifold.point_count = 2;
-    idx[best_index as usize] = idx[count - 1];
+    points[best_index as usize] = points[count - 1];
     count -= 1;
 
     let b = manifold.points[1].point;
@@ -579,7 +573,7 @@ fn reduce_manifold_points(
     let mut best_signed_area = 0.0;
     let ba = b.sub(a);
     for index in 0..count {
-        let p = points[idx[index]].point;
+        let p = points[index].point;
         let signed_area = normal.dot(ba.cross(p.sub(a)));
         let score = absf(signed_area);
         if bias * score >= best_score {
@@ -593,9 +587,9 @@ fn reduce_manifold_points(
         return;
     }
 
-    manifold.points[2] = points[idx[best_index as usize]];
+    manifold.points[2] = points[best_index as usize];
     manifold.point_count = 3;
-    idx[best_index as usize] = idx[count - 1];
+    points[best_index as usize] = points[count - 1];
     count -= 1;
 
     let c = manifold.points[2].point;
@@ -605,7 +599,7 @@ fn reduce_manifold_points(
     best_index = -1;
     let sign: f32 = if best_signed_area < 0.0 { -1.0 } else { 1.0 };
     for index in 0..count {
-        let p = points[idx[index]].point;
+        let p = points[index].point;
         let u1 = sign * normal.dot(p.sub(a).cross(ba));
         let u2 = sign * normal.dot(p.sub(b).cross(c.sub(b)));
         let u3 = sign * normal.dot(p.sub(c).cross(a.sub(c)));
@@ -617,7 +611,7 @@ fn reduce_manifold_points(
     }
 
     if best_index != -1 {
-        manifold.points[manifold.point_count] = points[idx[best_index as usize]];
+        manifold.points[manifold.point_count] = points[best_index as usize];
         manifold.point_count += 1;
     }
 }
@@ -1370,7 +1364,7 @@ fn build_face_a_contact(
         return false;
     }
 
-    reduce_manifold_points(manifold, capacity, &reduce_points, point_count);
+    reduce_manifold_points(manifold, capacity, &mut reduce_points, point_count);
 
     cache.separation = min_separation;
     cache.ty = separating_feature::FACE_AXIS_A;
