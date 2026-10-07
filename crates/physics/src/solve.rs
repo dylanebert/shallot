@@ -317,12 +317,17 @@ impl StageWork for Work {
     // --- joints -------------------------------------------------------------------------------
 
     fn prepare_joints(&self, b: Block) {
-        for color in 0..self.color_count {
+        let mut color = 0;
+        let mut index = b.start;
+        let end_index = b.start + b.count;
+        while color + 1 < self.color_count && self.joint_bases[color + 1] <= index {
+            color += 1;
+        }
+        while index < end_index {
             let base = self.joint_bases[color];
             let count = self.joints[color].len() / crate::joint_abi::JOINT_STRIDE;
-            let start = b.start.max(base);
-            let end = (b.start + b.count).min(base + count);
-            for slot in start..end {
+            let end = end_index.min(base + count);
+            for slot in index..end {
                 unsafe {
                     crate::joint::prepare_world(
                         self.world,
@@ -334,6 +339,8 @@ impl StageWork for Work {
                     );
                 }
             }
+            index = end;
+            color += 1;
         }
     }
 
