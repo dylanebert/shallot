@@ -226,6 +226,7 @@ bun run format                   # biome
 
 - Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs lightweight gameplay.
 - TypeScript that needs runtime-specific tricks to meet a performance target moves to WASM or the GPU.
+- WASM code takes the shape of the implementation it ports first. A departure for speed names why that shape is slower here and grounds the technique in a WebAssembly entry of the harness's `strategy/shallot/referents.md`.
 
 ## Dependencies and releases
 
