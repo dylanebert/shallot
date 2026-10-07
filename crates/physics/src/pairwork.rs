@@ -92,11 +92,8 @@ unsafe fn pool_slice(world_index: usize, tree_index: usize) -> &'static [u32] {
 struct Emitter<'a> {
     world: usize,
     shape: &'a [u32],
-    moved: &'a [u32],
-    key_hi: &'a [u32],
-    key_lo: &'a [u32],
-    hashes: &'a [u32],
-    set_cap: usize,
+    moved: &'a [u64],
+    items: &'a [table::Item],
     cand: *mut u32,
     cand_cap: usize,
     head: u32,
@@ -111,8 +108,8 @@ struct Emitter<'a> {
 impl<'a> Emitter<'a> {
     #[inline]
     fn moved_bit(&self, id: i32) -> bool {
-        let block = (id >> 5) as usize;
-        block < self.moved.len() && (self.moved[block] >> (id & 31)) & 1 != 0
+        let block = (id >> 6) as usize;
+        block < self.moved.len() && (self.moved[block] >> (id & 63)) & 1 != 0
     }
 
     /// b3PairQueryCallback's moved-proxy dedup: when both proxies moved, only the lower-keyed proxy's
@@ -182,15 +179,7 @@ impl<'a> Emitter<'a> {
         if self.dedup_reject(other) {
             return true;
         }
-        if table::contains(
-            self.key_hi,
-            self.key_lo,
-            self.hashes,
-            self.set_cap,
-            found_shape,
-            self.query_shape,
-            child,
-        ) {
+        if table::contains_item(self.items, found_shape, self.query_shape, child) {
             return true;
         }
         let a = &self.shape[found_shape as usize * SHAPE_STRIDE..][..SHAPE_STRIDE];
@@ -229,13 +218,10 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
     unsafe {
         let move_count = MOVE_COUNT;
         let move_buf = core::slice::from_raw_parts(MOVE_PTR as *const u32, move_count);
-        let moved = core::slice::from_raw_parts(MOVED_PTR as *const u32, MOVED_WORDS);
+        let moved = core::slice::from_raw_parts(MOVED_PTR as *const u64, MOVED_WORDS);
         let cand_end = CANDEND_PTR as *mut u32;
         let cand = CAND_PTR as *mut u32;
-        let (khi, klo, hp) = broad::set_ptrs(world_index);
-        let key_hi = core::slice::from_raw_parts(khi, set_cap);
-        let key_lo = core::slice::from_raw_parts(klo, set_cap);
-        let hashes = core::slice::from_raw_parts(hp, set_cap);
+        let items = core::slice::from_raw_parts(broad::set_items(world_index), set_cap);
         let shape = shape_col(world_index);
         let stack = &mut [0i32; tree::STACK_SIZE];
 
@@ -255,10 +241,7 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             world: world_index,
             shape,
             moved,
-            key_hi,
-            key_lo,
-            hashes,
-            set_cap,
+            items,
             cand,
             cand_cap: CAND_CAP,
             head: u32::MAX,

@@ -180,6 +180,14 @@ impl<const N: usize> Columns<N> {
         self.buffers[column].reserve(bytes);
         self.layout[column] = self.buffers[column].ptr as u32;
     }
+    pub unsafe fn replace_zeroed(&mut self, column: usize, bytes: usize) -> Buffer {
+        let old = self.buffers[column];
+        let mut next = Buffer::EMPTY;
+        next.reserve(bytes);
+        self.buffers[column] = next;
+        self.layout[column] = next.ptr as u32;
+        old
+    }
     pub unsafe fn snapshot(&self, out: &mut Vec<u8>) {
         for buffer in &self.buffers {
             write_word(out, buffer.bytes);

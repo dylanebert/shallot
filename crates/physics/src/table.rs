@@ -1,4 +1,42 @@
 //! Box3D table.c: symmetric pair keys, linear probing and backward-shift deletion.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Item {
+    pub key: u64,
+    pub hash: u32,
+    padding: u32,
+}
+
+fn item_slot(items: &[Item], key: u64, hash: u32) -> usize {
+    let mask = items.len() - 1;
+    let mut index = hash as usize & mask;
+    while items[index].hash != 0 && items[index].key != key {
+        index = (index + 1) & mask;
+    }
+    index
+}
+fn item_key(a: u32, b: u32, child: u32) -> u64 {
+    ((pair_key_hi(a, b) as u64) << 32) | pair_key_lo(a, b, child) as u64
+}
+fn item_insert(items: &mut [Item], key: u64, hash: u32) {
+    let index = item_slot(items, key, hash);
+    items[index].key = key;
+    items[index].hash = hash;
+}
+pub fn transfer_items(old: &[Item], new: &mut [Item]) {
+    for item in old {
+        if item.hash != 0 {
+            item_insert(new, item.key, item.hash);
+        }
+    }
+}
+pub fn contains_item(items: &[Item], a: u32, b: u32, child: u32) -> bool {
+    if items.is_empty() { return false; }
+    let key = item_key(a, b, child);
+    let hash = key_hash((key >> 32) as u32, key as u32);
+    items[item_slot(items, key, hash)].key == key
+}
+
 const SHAPE_MASK: u32 = (1 << 22) - 1;
 const CHILD_MASK: u32 = (1 << 20) - 1;
 
@@ -17,6 +55,7 @@ pub fn key_hash(hi: u32, lo: u32) -> u32 {
     h ^= h >> 33;
     h as u32
 }
+#[cfg(test)]
 fn find(hi: &[u32], lo: &[u32], hashes: &[u32], a: u32, b: u32, hash: u32) -> usize {
     let mask = hashes.len() - 1;
     let mut i = hash as usize & mask;
@@ -25,6 +64,7 @@ fn find(hi: &[u32], lo: &[u32], hashes: &[u32], a: u32, b: u32, hash: u32) -> us
     }
     i
 }
+#[cfg(test)]
 pub fn contains(
     hi: &[u32],
     lo: &[u32],
@@ -41,6 +81,7 @@ pub fn contains(
     let i = find(hi, lo, &hashes[..cap], a, b, key_hash(a, b));
     hi[i] == a && lo[i] == b
 }
+#[cfg(test)]
 fn insert(hi: &mut [u32], lo: &mut [u32], hashes: &mut [u32], a: u32, b: u32, hash: u32) -> bool {
     let i = find(hi, lo, hashes, a, b, hash);
     if hashes[i] != 0 {
@@ -51,6 +92,7 @@ fn insert(hi: &mut [u32], lo: &mut [u32], hashes: &mut [u32], a: u32, b: u32, ha
     hashes[i] = hash;
     false
 }
+#[cfg(test)]
 fn remove(hi: &mut [u32], lo: &mut [u32], hashes: &mut [u32], a: u32, b: u32) -> bool {
     let mut i = find(hi, lo, hashes, a, b, key_hash(a, b));
     if hashes[i] == 0 {
@@ -87,6 +129,7 @@ fn remove(hi: &mut [u32], lo: &mut [u32], hashes: &mut [u32], a: u32, b: u32) ->
 fn capacity(need: usize) -> usize {
     need.max(16).next_power_of_two()
 }
+#[cfg(test)]
 fn rehash(old: (&[u32], &[u32], &[u32]), new: (&mut [u32], &mut [u32], &mut [u32])) {
     new.0.fill(0);
     new.1.fill(0);
@@ -122,14 +165,8 @@ pub extern "C" fn ensure_set_in_world(world_index: usize, need: usize) {
 #[cfg(target_arch = "wasm32")]
 unsafe fn resident(
     world_index: usize,
-) -> (&'static mut [u32], &'static mut [u32], &'static mut [u32]) {
-    let cap = crate::broad::set_cap(world_index);
-    let (hi, lo, hashes) = crate::broad::set_ptrs(world_index);
-    (
-        core::slice::from_raw_parts_mut(hi as *mut u32, cap),
-        core::slice::from_raw_parts_mut(lo as *mut u32, cap),
-        core::slice::from_raw_parts_mut(hashes as *mut u32, cap),
-    )
+) -> &'static mut [Item] {
+    core::slice::from_raw_parts_mut(crate::broad::set_items(world_index), crate::broad::set_cap(world_index))
 }
 /// # Safety
 /// The active world must be selected, and this must run at a serial point, since growth moves the set.
@@ -142,20 +179,16 @@ pub unsafe extern "C" fn add_pair(a: u32, b: u32, child: u32) -> u32 {
 
 pub unsafe extern "C" fn add_pair_in_world(world_index: usize, a: u32, b: u32, child: u32) -> u32 {
     ensure_set_in_world(world_index, 16);
-    let (a, b) = (pair_key_hi(a, b), pair_key_lo(a, b, child));
-    let hash = key_hash(a, b);
-    let (hi, lo, hashes) = resident(world_index);
-    if hashes[find(hi, lo, hashes, a, b, hash)] != 0 {
+    let key = item_key(a, b, child);
+    let hash = key_hash((key >> 32) as u32, key as u32);
+    let items = resident(world_index);
+    if items[item_slot(items, key, hash)].hash != 0 {
         return 1;
     }
-    if 2 * crate::broad::set_count(world_index) >= hashes.len() {
-        let old = (hi.to_vec(), lo.to_vec(), hashes.to_vec());
-        crate::broad::reserve_broad_in_world(world_index, 0, 0, 0, hashes.len() * 2);
-        let (hi, lo, hashes) = resident(world_index);
-        rehash((&old.0, &old.1, &old.2), (hi, lo, hashes));
+    if 2 * crate::broad::set_count(world_index) >= items.len() {
+        crate::broad::grow_set(world_index);
     }
-    let (hi, lo, hashes) = resident(world_index);
-    insert(hi, lo, hashes, a, b, hash);
+    item_insert(resident(world_index), key, hash);
     crate::broad::change_set_count(world_index, 1);
     0
 }
@@ -177,12 +210,27 @@ pub unsafe extern "C" fn remove_pair_in_world(
     if crate::broad::set_cap(world_index) == 0 {
         return 0;
     }
-    let (hi, lo, hashes) = resident(world_index);
-    let found = remove(hi, lo, hashes, pair_key_hi(a, b), pair_key_lo(a, b, child));
-    if found {
-        crate::broad::change_set_count(world_index, -1);
+    let items = resident(world_index);
+    let key = item_key(a, b, child);
+    let hash = key_hash((key >> 32) as u32, key as u32);
+    let mut i = item_slot(items, key, hash);
+    if items[i].hash == 0 { return 0; }
+    items[i].key = 0;
+    items[i].hash = 0;
+    crate::broad::change_set_count(world_index, -1);
+    let mask = items.len() - 1;
+    let mut j = i;
+    loop {
+        j = (j + 1) & mask;
+        if items[j].hash == 0 { break; }
+        let k = items[j].hash as usize & mask;
+        if if i <= j { i < k && k <= j } else { i < k || k <= j } { continue; }
+        items[i] = items[j];
+        items[j].key = 0;
+        items[j].hash = 0;
+        i = j;
     }
-    found as u32
+    1
 }
 #[cfg(test)]
 mod tests {

@@ -2,9 +2,7 @@
 use crate::regions::{self, Columns, MAX_WORLDS};
 pub const TREE_STRIDE: usize = 12;
 const TREE_STATE_WORDS: usize = 6;
-const KEY_HI: usize = 3;
-const KEY_LO: usize = 4;
-const HASHES: usize = 5;
+const ITEMS: usize = 3;
 const MOVE: usize = 6;
 const BITS: usize = 7;
 const N_BROAD: usize = 10;
@@ -38,7 +36,7 @@ fn tree_bytes(cap: usize) -> usize {
     }
 }
 fn bit_bytes(cap: usize) -> usize {
-    cap.div_ceil(32) * 4
+    cap.div_ceil(64) * 8
 }
 pub fn tree_state(world_index: usize, i: usize) -> *mut u32 {
     base(world_index, i) as *mut u32
@@ -60,12 +58,20 @@ pub fn change_set_count(world_index: usize, delta: isize) {
 pub fn set_cap(world_index: usize) -> usize {
     unsafe { world(world_index).set }
 }
-pub fn set_ptrs(world_index: usize) -> (*const u32, *const u32, *const u32) {
-    (
-        base(world_index, KEY_HI) as *const u32,
-        base(world_index, KEY_LO) as *const u32,
-        base(world_index, HASHES) as *const u32,
-    )
+pub fn set_items(world_index: usize) -> *mut crate::table::Item {
+    base(world_index, ITEMS) as *mut crate::table::Item
+}
+
+pub unsafe fn grow_set(world_index: usize) {
+    let w = &mut WORLDS[world_index];
+    let capacity = w.set;
+    let mut old = w.columns.replace_zeroed(ITEMS, 2 * capacity * core::mem::size_of::<crate::table::Item>());
+    w.set = 2 * capacity;
+    crate::table::transfer_items(
+        core::slice::from_raw_parts(old.ptr as *const crate::table::Item, capacity),
+        core::slice::from_raw_parts_mut(w.columns.layout[ITEMS] as *mut crate::table::Item, w.set),
+    );
+    old.release();
 }
 pub fn move_ptr(world_index: usize) -> *mut u32 {
     unsafe { (base(world_index, MOVE) as *mut u32).add(1) }
@@ -73,11 +79,11 @@ pub fn move_ptr(world_index: usize) -> *mut u32 {
 pub fn move_count(world_index: usize) -> usize {
     unsafe { *(base(world_index, MOVE) as *const u32) as usize }
 }
-pub fn bits_ptr(world_index: usize, i: usize) -> *mut u32 {
-    base(world_index, BITS + i) as *mut u32
+pub fn bits_ptr(world_index: usize, i: usize) -> *mut u64 {
+    base(world_index, BITS + i) as *mut u64
 }
 pub fn bits_words(world_index: usize, i: usize) -> usize {
-    tree_cap(world_index, i).div_ceil(32)
+    tree_cap(world_index, i).div_ceil(64)
 }
 #[export_name = "broadTestOverlap"]
 pub unsafe extern "C" fn test_overlap(a: u32, b: u32) -> u32 {
@@ -255,8 +261,8 @@ pub unsafe extern "C" fn buffer_move(key: u32) {
 pub unsafe extern "C" fn buffer_move_in_world(world_index: usize, key: u32) {
     let i = (key & 3) as usize;
     let id = (key >> 2) as usize;
-    let p = bits_ptr(world_index, i).add(id / 32);
-    let mask = 1 << (id & 31);
+    let p = bits_ptr(world_index, i).add(id / 64);
+    let mask = 1u64 << (id & 63);
     if *p & mask == 0 {
         *p |= mask;
         let count = base(world_index, MOVE) as *mut u32;
@@ -267,7 +273,7 @@ pub unsafe extern "C" fn buffer_move_in_world(world_index: usize, key: u32) {
 pub unsafe fn unbuffer_move(world_index: usize, key: u32) {
     let i = (key & 3) as usize;
     let id = (key >> 2) as usize;
-    *bits_ptr(world_index, i).add(id / 32) &= !(1 << (id & 31));
+    *bits_ptr(world_index, i).add(id / 64) &= !(1u64 << (id & 63));
     let count = base(world_index, MOVE) as *mut u32;
     for n in 0..*count as usize {
         if *move_ptr(world_index).add(n) == key {
@@ -283,7 +289,7 @@ pub unsafe extern "C" fn clear_moved(index: usize, id: usize) {
 }
 
 pub unsafe extern "C" fn clear_moved_in_world(world_index: usize, index: usize, id: usize) {
-    *bits_ptr(world_index, index).add(id / 32) &= !(1 << (id & 31));
+    *bits_ptr(world_index, index).add(id / 64) &= !(1u64 << (id & 63));
 }
 #[export_name = "broadClearMoves"]
 pub unsafe extern "C" fn clear_moves() {
@@ -294,7 +300,7 @@ pub unsafe extern "C" fn clear_moves_in_world(world_index: usize) {
     for n in 0..move_count(world_index) {
         let key = *move_ptr(world_index).add(n);
         let id = (key >> 2) as usize;
-        *bits_ptr(world_index, (key & 3) as usize).add(id / 32) &= !(1 << (id & 31));
+        *bits_ptr(world_index, (key & 3) as usize).add(id / 64) &= !(1u64 << (id & 63));
     }
     *(base(world_index, MOVE) as *mut u32) = 0;
 }
@@ -354,9 +360,7 @@ pub extern "C" fn reserve_broad_in_world(
             }
             w.columns.reserve(BITS + i, bit_bytes(tree[i]));
         }
-        for c in [KEY_HI, KEY_LO, HASHES] {
-            w.columns.reserve(c, set * 4);
-        }
+        w.columns.reserve(ITEMS, set * core::mem::size_of::<crate::table::Item>());
         w.columns
             .reserve(MOVE, (1 + tree.iter().sum::<usize>()) * 4);
         w.tree = tree;
