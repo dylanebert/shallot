@@ -414,18 +414,23 @@ pub unsafe extern "C" fn set_limits_in_world(
         TY_WHEEL => (WHJ_LOWER_SUSPENSION_LIMIT, WHJ_UPPER_SUSPENSION_LIMIT),
         _ => unreachable!(),
     };
-    let changed = lower != joints::read_float_in_world(world as usize, key, index, lo)
-        || upper != joints::read_float_in_world(world as usize, key, index, hi);
-    joints::write_float_in_world(world as usize, key, index, lo, lower);
-    joints::write_float_in_world(world as usize, key, index, hi, upper);
-    if kind == TY_DISTANCE {
-        for field in [DJ_IMPULSE, DJ_LOWER_IMPULSE, DJ_UPPER_IMPULSE] {
-            joints::write_float_in_world(world as usize, key, index, field, 0.0);
+    if kind == TY_WHEEL {
+        if lower != joints::read_float_in_world(world as usize, key, index, lo)
+            || upper != joints::read_float_in_world(world as usize, key, index, hi)
+        {
+            joints::write_float_in_world(world as usize, key, index, lo, lower);
+            joints::write_float_in_world(world as usize, key, index, hi, upper);
+            for field in [WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_UPPER_SUSPENSION_IMPULSE] {
+                joints::write_float_in_world(world as usize, key, index, field, 0.0);
+            }
         }
-    }
-    if kind == TY_WHEEL && changed {
-        for field in [WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_UPPER_SUSPENSION_IMPULSE] {
-            joints::write_float_in_world(world as usize, key, index, field, 0.0);
+    } else {
+        joints::write_float_in_world(world as usize, key, index, lo, lower);
+        joints::write_float_in_world(world as usize, key, index, hi, upper);
+        if kind == TY_DISTANCE {
+            for field in [DJ_IMPULSE, DJ_LOWER_IMPULSE, DJ_UPPER_IMPULSE] {
+                joints::write_float_in_world(world as usize, key, index, field, 0.0);
+            }
         }
     }
 }
