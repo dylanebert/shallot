@@ -119,6 +119,8 @@ int main(void) {
                 }
                 word(m.pointCount); vector(m.normal); word(m.feature); emit(m.squaredDistance);
                 for(int i=0;i<m.pointCount;i++) { vector(points[i].point); emit(points[i].separation); word(b3MakeFeatureId(points[i].pair)); word(points[i].triangleIndex); }
+                word(1); vector(m.triangleNormal); word(m.triangleIndex);
+                word(m.i1); word(m.i2); word(m.i3); word(m.triangleFlags);
                 emit(cache.metric); word(cache.count);
                 for(int i=0;i<4;i++) word(cache.indexA[i]);
                 for(int i=0;i<4;i++) word(cache.indexB[i]);

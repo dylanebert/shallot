@@ -276,6 +276,10 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
                 ]);
                 n += 6;
             }
+            // The kernel LocalManifold has no triangle normal/index/vertices/flags fields.
+            // Encode absence, not zero values pretending to have been returned by the function.
+            out[n] = 0;
+            n += 1;
             out[n..n + 15].copy_from_slice(&[
                 cache.metric.to_bits(),
                 cache.count as u32,

@@ -180,6 +180,9 @@ static void emit_plane(const b3PlaneResult* plane)
     vector(plane->plane.normal);
     scalar(plane->plane.offset);
     vector(plane->point);
+    word((uint32_t)plane->triangleIndex);
+    word((uint32_t)plane->childIndex);
+    word((uint32_t)plane->materialIndex);
 }
 
 static bool plane_callback(b3ShapeId shape, const b3PlaneResult* planes, int planeCount, void* context)
@@ -255,6 +258,7 @@ static void query_case(unsigned operation, int kind, const uint32_t* bits)
     {
         b3RayResult r = b3World_CastRayClosest(f.world, origin, translation, filter);
         emit_cast(r.hit, r.shapeId, r.point, r.normal, r.fraction, r.userMaterialId, r.triangleIndex, r.childIndex, true);
+        word((uint32_t)r.nodeVisits); word((uint32_t)r.leafVisits);
     }
     else if (operation == 4)
     {

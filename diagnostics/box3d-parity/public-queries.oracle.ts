@@ -1,5 +1,6 @@
 // Stage-4 public differential oracle. Both sides author the same six shapes through their public
-// helpers/APIs, receive the same float32 bit patterns, and serialize only public, meaningful fields.
+// helpers/APIs and receive the same float32 bit patterns. Kernel buffers expose fields the public
+// result drops; separate todos compare those absent public fields rather than substituting zeros.
 // Callback results are appended as delivered: order is deliberately never sorted.
 import { expect, setDefaultTimeout, test } from "bun:test";
 import {
@@ -13,6 +14,9 @@ import {
     PhysicsWorld,
     type Shape,
 } from "../../src/standard/physics/api";
+import { BodyField, bodyField } from "../../src/standard/physics/kernel/bodyrecords";
+import { setQueryCallback } from "../../src/standard/physics/kernel/kernel";
+import { queryColumns } from "../../src/standard/physics/kernel/querycolumns";
 import { nativeSseOutput } from "./native-evidence";
 import { assertPublicOracleKernel } from "./oracle-kernel";
 
@@ -124,16 +128,16 @@ function fixturePosition(kind: number): { x: number; y: number; z: number } {
     return kind === 4 ? { x: -1.5, y: 0, z: -1.5 } : kind === 2 ? { x: 0, y: -0.75, z: 0 } : zero;
 }
 
-function pushVec(out: number[], value: { x: number; y: number; z: number }): void {
+function pushVec(out: (number | undefined)[], value: { x: number; y: number; z: number }): void {
     out.push(bits(value.x), bits(value.y), bits(value.z));
 }
 
-function pushU64(out: number[], value: bigint): void {
+function pushU64(out: (number | undefined)[], value: bigint): void {
     out.push(Number(value & 0xffffffffn), Number((value >> 32n) & 0xffffffffn));
 }
 
 function pushCast(
-    out: number[],
+    out: (number | undefined)[],
     hit: {
         shape: Shape | null;
         point: { x: number; y: number; z: number };
@@ -158,7 +162,7 @@ function pushCast(
 }
 
 function pushPlane(
-    out: number[],
+    out: (number | undefined)[],
     plane: {
         plane: { normal: { x: number; y: number; z: number }; offset: number };
         point: { x: number; y: number; z: number };
@@ -170,15 +174,16 @@ function pushPlane(
     pushVec(out, plane.plane.normal);
     out.push(bits(plane.plane.offset));
     pushVec(out, plane.point);
+    out.push(plane.triangleIndex, plane.childIndex, plane.materialIndex);
 }
 
-function runPublic(input: Input): string[] {
+function runPublic(input: Input, bridgeMetadata = false): string[] {
     const values = input.words.map((word) => new Float32Array(new Uint32Array([word]).buffer)[0]);
     const pose = {
         position: { x: values[11], y: values[12], z: values[13] },
         rotation: { v: { x: values[14], y: values[15], z: values[16] }, s: values[17] },
     };
-    const { world, body } = fixture(input.kind, pose);
+    const { world, body, shape } = fixture(input.kind, pose);
     const origin = { x: values[0], y: values[1], z: values[2] };
     const translation = { x: values[3], y: values[4], z: values[5] };
     const proxy = { points: [zero], count: 1, radius: values[6] };
@@ -191,8 +196,46 @@ function runPublic(input: Input): string[] {
     const filtered = values[10] < 0;
     const maxFraction = Math.abs(values[10]);
     const filter = filtered ? { categoryBits: 0n, maskBits: 0n } : undefined;
-    const out = [input.operation, input.kind];
+    const out: (number | undefined)[] = [input.operation, input.kind];
     try {
+        if (bridgeMetadata && (input.operation === 5 || input.operation === 11)) {
+            const q = queryColumns(world.state);
+            const k = q.prepare(origin, filter);
+            if (input.operation === 11) q.placement({ p: pose.position, q: pose.rotation }, origin);
+            q.mover(mover.center1, mover.center2, mover.radius);
+            const records: number[][] = [];
+            let count = 0;
+            const previous = setQueryCallback(world.state.ecsState, (_kind, _id, data, length) => {
+                const f = new Float32Array(k.memory.buffer, data, length * 10);
+                const u = new Int32Array(k.memory.buffer, data, length * 10);
+                const record = [shape.getUserData() as number];
+                if (input.operation === 5) record.push(length);
+                for (let i = 0; i < length; ++i) {
+                    const n = i * 10;
+                    for (let j = 0; j < 7; ++j) record.push(bits(f[n + j]));
+                    record.push(u[n + 7], u[n + 8], u[n + 9]);
+                }
+                records.push(record);
+                count += length;
+                return 1;
+            });
+            try {
+                if (input.operation === 5) k.worldQuery(world.state.worldId, 5, 1);
+                else
+                    k.bodyQuery(
+                        world.state.worldId,
+                        4,
+                        bodyField(body.world, body.id.index1 - 1, BodyField.headShapeId),
+                        8,
+                    );
+            } finally {
+                setQueryCallback(world.state.ecsState, previous);
+            }
+            if (input.operation === 11) out.push(count);
+            for (const record of records) out.push(...record);
+            if (input.operation === 5) out.push(records.length);
+            return out.map((v) => (v === undefined ? "unrepresented" : hex(v)));
+        }
         if (input.operation === 0) {
             let count = 0;
             const stats = world.overlapAABB(
@@ -248,6 +291,8 @@ function runPublic(input: Input): string[] {
             out.push(count, stats.nodeVisits, stats.leafVisits);
         } else if (input.operation === 3) {
             pushCast(out, world.castRayClosest(origin, translation, filter), true);
+            const q = queryColumns(world.state);
+            out.push(q.resultU[1], q.resultU[2]);
         } else if (input.operation === 5) {
             let count = 0;
             world.collideMover(
@@ -324,7 +369,7 @@ function runPublic(input: Input): string[] {
                 pushPlane(out, entry.plane);
             }
         }
-        return out.map(hex);
+        return out.map((v) => (v === undefined ? "unrepresented" : hex(v)));
     } finally {
         world.destroy();
     }
@@ -585,7 +630,7 @@ if (nativeRows.length !== inputs.length + contactInputs.length)
         `native returned ${nativeRows.length} rows for ${inputs.length + contactInputs.length} cases`,
     );
 
-const actualRows = inputs.map(runPublic);
+const actualRows = inputs.map((input) => runPublic(input, true));
 for (let operation = 0; operation < operations.length; operation++) {
     test(`${operations[operation]}: all six public shape kinds equal Box3D SSE2 bits`, () => {
         for (let i = 0; i < inputs.length; i++) {
@@ -604,6 +649,31 @@ for (let operation = 0; operation < operations.length; operation++) {
                 );
             }
             expect(actualRows[i]).toEqual(nativeRows[i]);
+        }
+    });
+}
+
+test("published mover fields equal native; identification is also compared through kernel buffers", () => {
+    for (let i = 0; i < inputs.length; ++i) {
+        if (inputs[i].operation !== 5 && inputs[i].operation !== 11) continue;
+        const actual = runPublic(inputs[i]);
+        expect(actual.length).toBe(nativeRows[i].length);
+        for (let j = 0; j < actual.length; ++j) {
+            // Only the three absent PlaneResult identification properties produce this marker.
+            // The full kernel comparison and public-loss todos cover those slots separately.
+            if (actual[j] !== "unrepresented") expect(actual[j]).toBe(nativeRows[i][j]);
+        }
+    }
+});
+
+for (const [operation, entry] of [
+    [5, "api/world.ts:819-835"],
+    [11, "api/body.ts:607-638"],
+] as const) {
+    test.todo(`${entry}: public mover planes preserve triangleIndex, childIndex and materialIndex`, () => {
+        for (let i = 0; i < inputs.length; ++i) {
+            if (inputs[i].operation !== operation) continue;
+            expect(runPublic(inputs[i])).toEqual(nativeRows[i]);
         }
     });
 }
