@@ -49,10 +49,10 @@ pub(crate) unsafe fn pose(id: usize, origin: Vec3) -> Transform {
     let fin = crate::bodies::column(body, 2, crate::body::FIN_STRIDE);
     let sim = crate::bodies::column(body, 1, crate::body::SIM_STRIDE);
     Transform {
-        p: Vec3::new(fin.get(9), fin.get(10), fin.get(11)).sub(origin),
+        p: Vec3::new(fin.get(0), fin.get(1), fin.get(2)).sub(origin),
         q: Quat {
-            v: Vec3::new(sim.get(28), sim.get(29), sim.get(30)),
-            s: sim.get(31),
+            v: Vec3::new(sim.get(3), sim.get(4), sim.get(5)),
+            s: sim.get(6),
         },
     }
 }

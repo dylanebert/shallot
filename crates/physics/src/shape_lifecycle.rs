@@ -18,8 +18,6 @@ pub unsafe extern "C" fn link(world: usize, id: usize, body_id: usize) {
     }
     body.head_shape_id = id as i32;
     body.shape_count += 1;
-    bodies::column(body_id, 5, body::SIM2_STRIDE)
-        .set(body::S2_HEAD_SHAPE, f32::from_bits(id as u32));
 }
 #[export_name = "shapeUnlink"]
 pub unsafe extern "C" fn unlink(world: usize, id: usize) {
@@ -40,10 +38,6 @@ pub unsafe extern "C" fn unlink(world: usize, id: usize) {
         body.head_shape_id = next as i32;
     }
     body.shape_count -= 1;
-    bodies::column(body_id, 5, body::SIM2_STRIDE).set(
-        body::S2_HEAD_SHAPE,
-        f32::from_bits(body.head_shape_id as u32),
-    );
 }
 /** Unlink one shape for the host to release its still-host-owned geometry and sensor payloads. */
 #[export_name = "shapeBodyTake"]
@@ -94,14 +88,15 @@ pub unsafe extern "C" fn query_pose(world: usize, shape: usize, body_id: usize) 
     let fin = bodies::column(body_id, 2, body::FIN_STRIDE);
     let sim2 = bodies::column(body_id, 5, body::SIM2_STRIDE);
     columns.set(o + 42, sim2.get(body::S2_FLAGS).to_bits());
-    for lane in 0..6 {
-        columns.set(o + 44 + lane, fin.get(lane).to_bits());
+    for lane in 0..3 {
+        columns.set(o + 44 + lane, fin.get(body::CENTER + lane).to_bits());
+        columns.set(o + 47 + lane, fin.get(body::LOCAL_CENTER + lane).to_bits());
     }
     for lane in 0..3 {
-        columns.set(o + 18 + lane, fin.get(9 + lane).to_bits());
+        columns.set(o + 18 + lane, fin.get(body::TRANSFORM_P + lane).to_bits());
     }
     for lane in 0..4 {
-        columns.set(o + 21 + lane, sim.get(28 + lane).to_bits());
+        columns.set(o + 21 + lane, sim.get(body::ROTATION + lane).to_bits());
     }
 }
 #[export_name = "shapeSyncBody"]

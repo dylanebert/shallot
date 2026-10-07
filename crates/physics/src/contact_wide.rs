@@ -324,7 +324,7 @@ fn scatter_scalar(
             continue;
         }
         let b = (i - 1) as usize;
-        let f = flags.get(b);
+        let f = flags.get(b * STATE_STRIDE);
         if f & body_flags::DYNAMIC == 0 {
             continue;
         }
@@ -657,10 +657,10 @@ fn scatter(
     ];
     let fp = flags.ptr();
     unsafe {
-        let f0 = *fp.add(recs[0]);
-        let f1 = *fp.add(recs[1]);
-        let f2 = *fp.add(recs[2]);
-        let f3 = *fp.add(recs[3]);
+        let f0 = *fp.add(recs[0] * STATE_STRIDE);
+        let f1 = *fp.add(recs[1] * STATE_STRIDE);
+        let f2 = *fp.add(recs[2] * STATE_STRIDE);
+        let f3 = *fp.add(recs[3] * STATE_STRIDE);
         if (f0 | f1 | f2 | f3) & ALL_LOCKS == 0 && (f0 & f1 & f2 & f3) & body_flags::DYNAMIC != 0 {
             scatter_t(state.ptr(), &recs, v, w);
         } else {

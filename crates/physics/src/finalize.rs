@@ -199,11 +199,14 @@ pub unsafe fn finalize(
         if awake {
             let max_motion = maxf(max_delta_position, max_velocity * h);
             fast_candidate = enable_continuous
-                && flags_col.get(i) & DYNAMIC != 0
+                && flags_col.get(i * crate::body::STATE_STRIDE) & DYNAMIC != 0
                 && max_motion > SAFETY_FACTOR * sim2_col.get(s2 + S2_MIN_EXTENT);
         }
         if fast_candidate {
-            sim2_col.set(s2 + S2_FLAGS, f32::from_bits(flags | crate::continuous::IS_FAST));
+            sim2_col.set(
+                s2 + S2_FLAGS,
+                f32::from_bits(flags | crate::continuous::IS_FAST),
+            );
             if flags & crate::continuous::IS_BULLET == 0 {
                 crate::continuous::solve(i);
             }

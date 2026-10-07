@@ -107,7 +107,7 @@ fn read_end(state_col: Col<f32>, flags_col: Col<u32>, index: u32) -> End {
         let i = index as usize;
         End {
             state: read_state(state_col, i),
-            dynamic: flags_col.get(i) & DYNAMIC != 0,
+            dynamic: flags_col.get(i * STATE_STRIDE) & DYNAMIC != 0,
         }
     }
 }

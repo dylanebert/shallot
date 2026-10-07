@@ -66,13 +66,13 @@ unsafe fn scratch() -> Col<'static, u32> {
 unsafe fn sim() -> Col<'static, f32> {
     Col::new(
         bodies::sim_base() as *mut f32,
-        (bodies::body_cap() + 8) * 32,
+        (bodies::body_cap() + 8) * body::SIM_STRIDE,
     )
 }
 unsafe fn fin() -> Col<'static, f32> {
     Col::new(
         bodies::fin_base() as *mut f32,
-        (bodies::body_cap() + 8) * 12,
+        (bodies::body_cap() + 8) * body::SIM_STRIDE,
     )
 }
 unsafe fn sim2() -> Col<'static, u32> {
@@ -103,11 +103,11 @@ unsafe fn sweep(i: usize, base: Vec3) -> Sweep {
         (bodies::body_cap() + 8) * body::SIM2_STRIDE,
     );
     Sweep {
-        local_center: v(f, i * 12 + 3),
+        local_center: v(f, i * body::SIM_STRIDE + body::LOCAL_CENTER),
         c1: v(s2, i * body::SIM2_STRIDE + body::S2_CENTER0).sub(base),
-        c2: v(f, i * 12).sub(base),
+        c2: v(f, i * body::SIM_STRIDE + body::CENTER).sub(base),
         q1: q(s2, i * body::SIM2_STRIDE + body::S2_ROTATION0),
-        q2: q(s, i * 32 + 28),
+        q2: q(s, i * body::SIM_STRIDE + body::ROTATION),
     }
 }
 fn transform(s: Sweep, t: f32) -> Transform {
@@ -277,7 +277,7 @@ pub(crate) unsafe fn solve(i: usize) {
     let mut fraction = 1.0;
     let mut hits = [(0u32, 0u32, 0.0f32); 8];
     let mut hit_count = 0;
-    let head = s2.get(i * body::SIM2_STRIDE + body::S2_HEAD_SHAPE);
+    let head = bodies::record(crate::regions::active(), body_id as usize).head_shape_id as u32;
     let mut id = head;
     while id != u32::MAX {
         let fast = id as usize;
@@ -376,12 +376,16 @@ pub(crate) unsafe fn solve(i: usize) {
         body::write_fin_center(ff, i, base.add(c));
         body::write_fin_transform_p(ff, i, base.add(c.sub(rotation.rotate(sw.local_center))));
     }
-    let rotation = q(sf, i * 32 + 28);
+    let rotation = q(sf, i * body::SIM_STRIDE + body::ROTATION);
     put(f2, i * body::SIM2_STRIDE + body::S2_ROTATION0, rotation.v);
     f2.set(i * body::SIM2_STRIDE + body::S2_ROTATION0 + 3, rotation.s);
-    put(f2, i * body::SIM2_STRIDE + body::S2_CENTER0, v(ff, i * 12));
+    put(
+        f2,
+        i * body::SIM2_STRIDE + body::S2_CENTER0,
+        v(ff, i * body::SIM_STRIDE + body::CENTER),
+    );
     let xf = Transform {
-        p: v(ff, i * 12 + 9),
+        p: v(ff, i * body::SIM_STRIDE + body::TRANSFORM_P),
         q: rotation,
     };
     id = head;

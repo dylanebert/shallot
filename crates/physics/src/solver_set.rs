@@ -1,15 +1,8 @@
 //! solver_set.c's set array and id pool. Body columns retain the solver's column layout.
-use crate::body::{FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
+use crate::body::{SIM_STRIDE, STATE_STRIDE};
 use crate::regions::{self, Columns, MAX_WORLDS};
 const AWAKE: usize = 2;
-const STRIDES: [usize; 6] = [
-    STATE_STRIDE,
-    SIM_STRIDE,
-    FIN_STRIDE,
-    0,
-    1,
-    SIM2_STRIDE,
-];
+const STRIDES: [usize; 6] = [STATE_STRIDE, SIM_STRIDE, 0, 0, 0, 0];
 struct SolverSet {
     columns: Columns<6>,
     body_count: usize,
@@ -82,7 +75,7 @@ pub unsafe extern "C" fn body_append(id: usize) -> usize {
     let i = s.body_count;
     s.body_count += 1;
     if id != AWAKE {
-        for c in [1, 2, 5] {
+        for c in [1] {
             s.columns.reserve(c, s.body_count * STRIDES[c] * 4);
         }
     }
@@ -94,7 +87,11 @@ pub unsafe extern "C" fn body_pop(id: usize) {
 }
 #[export_name = "solverSetLayout"]
 pub unsafe extern "C" fn layout(id: usize) -> *const u32 {
-    set(id).columns.layout.as_ptr()
+    let s = set(id);
+    s.columns.layout[2] = s.columns.layout[1];
+    s.columns.layout[5] = s.columns.layout[1];
+    s.columns.layout[4] = s.columns.layout[0];
+    s.columns.layout.as_ptr()
 }
 #[export_name = "solverSetArrayCount"]
 pub unsafe extern "C" fn array_count(id: usize, kind: usize) -> usize {
@@ -187,7 +184,13 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
 }
 
 pub unsafe fn awake_base(column: usize) -> usize {
-    set(AWAKE).columns.layout[column] as usize
+    set(AWAKE).columns.layout[if column == 2 || column == 5 {
+        1
+    } else if column == 4 {
+        0
+    } else {
+        column
+    }] as usize
 }
 pub unsafe fn reserve_awake(cap: usize) {
     let s = set(AWAKE);
@@ -205,7 +208,17 @@ pub(crate) unsafe fn body_ptr_world(
     index: usize,
     column: usize,
 ) -> *mut u32 {
-    (WORLDS[world].sets[id].columns.layout[column] as *mut u32).add(index * STRIDES[column])
+    let column = if column == 2 || column == 5 {
+        1
+    } else {
+        column
+    };
+    if column == 4 {
+        (WORLDS[world].sets[id].columns.layout[0] as *mut u32)
+            .add(index * STATE_STRIDE + crate::body::STATE_FLAGS)
+    } else {
+        (WORLDS[world].sets[id].columns.layout[column] as *mut u32).add(index * STRIDES[column])
+    }
 }
 
 #[export_name = "simColumnPtr"]
@@ -219,7 +232,7 @@ pub unsafe extern "C" fn sim_column_ptr(
 }
 
 pub(crate) unsafe fn body_ptr(id: usize, index: usize, column: usize) -> *mut u32 {
-    (set(id).columns.layout[column] as *mut u32).add(index * STRIDES[column])
+    body_ptr_world(regions::active(), id, index, column)
 }
 #[export_name = "solverSetBodyId"]
 pub unsafe extern "C" fn body_id(set: usize, index: usize) -> u32 {
@@ -227,7 +240,7 @@ pub unsafe extern "C" fn body_id(set: usize, index: usize) -> u32 {
 }
 
 unsafe fn copy_body(source: usize, index: usize, target: usize, destination: usize) {
-    for c in [1, 2, 5] {
+    for c in [1] {
         core::ptr::copy(
             body_ptr(source, index, c),
             body_ptr(target, destination, c),
@@ -243,7 +256,7 @@ unsafe fn remove_body(source: usize, index: usize) -> u32 {
         moved = *body_ptr(source, index, 5).add(crate::body::S2_BODY_ID);
         crate::bodies::set_location(moved as usize, source, index);
         if source == AWAKE {
-            for c in [0, 4] {
+            for c in [0] {
                 core::ptr::copy(
                     body_ptr(source, last, c),
                     body_ptr(source, index, c),
@@ -259,7 +272,7 @@ unsafe fn wake_state(index: usize, flags: u32, head: i32) {
     body_ptr(AWAKE, index, 0).write_bytes(0, STATE_STRIDE);
     *body_ptr(AWAKE, index, 0).add(12) = 1.0f32.to_bits();
     *body_ptr(AWAKE, index, 4) = flags;
-    *body_ptr(AWAKE, index, 5).add(crate::body::S2_HEAD_SHAPE) = head as u32;
+    let _ = head;
 }
 static mut BODY_RESULT: [u32; 2] = [0; 2];
 #[export_name = "solverSetTransferBody"]

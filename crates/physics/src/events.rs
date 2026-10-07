@@ -290,7 +290,7 @@ mod runtime {
                 crate::col::Col::new(
                     crate::solver_set::body_ptr(ar.set_index as usize, ar.local_index as usize, 2)
                         as *mut f32,
-                    12,
+                    body::SIM_STRIDE,
                 ),
                 0,
             )
@@ -299,7 +299,7 @@ mod runtime {
                 crate::col::Col::new(
                     crate::solver_set::body_ptr(br.set_index as usize, br.local_index as usize, 2)
                         as *mut f32,
-                    12,
+                    body::SIM_STRIDE,
                 ),
                 0,
             )
@@ -360,10 +360,11 @@ mod runtime {
         let world = regions::active();
         let sim2 = bodies::sim2_base() as *const u32;
         let body_id = *sim2.add(index * body::SIM2_STRIDE + body::S2_BODY_ID) as usize;
-        let fin = (bodies::fin_base() as *const f32).add(index * 12 + 9);
+        let fin =
+            (bodies::fin_base() as *const f32).add(index * body::SIM_STRIDE + body::TRANSFORM_P);
         let rotation = (bodies::sim_base() as *const crate::math::Quat)
             .cast::<f32>()
-            .add(index * 32 + 28)
+            .add(index * body::SIM_STRIDE + body::ROTATION)
             .cast::<crate::math::Quat>();
         *(bodies::move_base() as *mut BodyMove).add(index) = BodyMove {
             user_data: body_id as u32,

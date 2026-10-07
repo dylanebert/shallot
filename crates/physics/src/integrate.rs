@@ -134,7 +134,7 @@ pub fn integrate_positions(
 
     for i in start..start + count {
         let mut s = read_state(state_col, i);
-        let mut flags = flags_col.get(i);
+        let mut flags = flags_col.get(i * crate::body::STATE_STRIDE);
 
         // Motion locks — a constraint applied last, zeroing the locked components.
         let mut v = Vec3::new(
@@ -190,7 +190,7 @@ pub fn integrate_positions(
         s.delta_rotation = s.delta_rotation.integrate_rotation(w.scale(h));
 
         write_state(state_col, i, &s);
-        flags_col.set(i, flags);
+        flags_col.set(i * crate::body::STATE_STRIDE, flags);
     }
 }
 

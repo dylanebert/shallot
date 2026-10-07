@@ -1,5 +1,5 @@
 //! Serial tree operations over resident or caller-uploaded columns.
-use crate::body::{S2_FLAGS, S2_HEAD_SHAPE, SIM2_STRIDE};
+use crate::body::{S2_BODY_ID, S2_FLAGS, SIM2_STRIDE};
 use crate::continuous::{ENLARGE_BOUNDS, IS_BULLET, IS_FAST};
 use crate::regions::Buffer;
 use crate::tree::{self, Rebuild, STACK_SIZE, STRIDE};
@@ -251,7 +251,8 @@ pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
         if bullets != 0 && (!bullet || flags & ENLARGE_BOUNDS == 0) {
             continue;
         }
-        let mut id = *row.add(S2_HEAD_SHAPE);
+        let body_id = *row.add(S2_BODY_ID) as usize;
+        let mut id = crate::bodies::record(crate::regions::active(), body_id).head_shape_id as u32;
         while id != u32::MAX {
             let o = id as usize * crate::shapes::SHAPE_STRIDE;
             let key = shapes.get(o + crate::shapes::S_PROXY_KEY);

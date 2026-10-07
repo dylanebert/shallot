@@ -46,10 +46,10 @@ pub(crate) unsafe fn pose(id: usize) -> Transform {
     let sim = bodies::column(id, 1, body::SIM_STRIDE);
     let fin = bodies::column(id, 2, body::FIN_STRIDE);
     Transform {
-        p: Vec3::new(fin.get(9), fin.get(10), fin.get(11)),
+        p: Vec3::new(fin.get(0), fin.get(1), fin.get(2)),
         q: Quat {
-            v: Vec3::new(sim.get(28), sim.get(29), sim.get(30)),
-            s: sim.get(31),
+            v: Vec3::new(sim.get(3), sim.get(4), sim.get(5)),
+            s: sim.get(6),
         },
     }
 }
@@ -267,7 +267,7 @@ pub unsafe extern "C" fn run(
             }
             let fin = bodies::column(id, 2, body::FIN_STRIDE);
             let t = Transform {
-                p: Vec3::new(fin.get(0), fin.get(1), fin.get(2)),
+                p: body::read_fin(fin, 0).center,
                 q: pose(id).q,
             };
             frame(out, t);

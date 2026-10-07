@@ -1,21 +1,19 @@
 // Body columns (body.rs + bodies.rs). All resident in the persistent body region — the awake
 // `BodySim`/`BodyState` are offset-backed views over them (bodycolumns.ts), so no per-step marshal.
 export const STATE_STRIDE = 16;
-/** Live f32 fields in a state record; slots STATE_LIVE..STATE_STRIDE are alignment padding. */
+/** Velocity/delta fields; flags occupy word 13 in each resident state. */
 export const STATE_LIVE = 13;
-export const SIM_STRIDE = 32;
-export const FIN_STRIDE = 12;
-/** The `BodySim` fields the per-step `sim`/`fin` columns omit (kernel never gathers them), held in a
- * second resident column: rotation0(4) center0(3) minExtent(1) bodyId(1)
- * flags(1) headShapeId(1) = 11 (body.rs `SIM2_STRIDE`). Mirrors the Rust ABI. */
-export const SIM2_STRIDE = 11;
+export const SIM_STRIDE = 54;
+/** Legacy binding slots address the same resident b3BodySim array. */
+export const FIN_STRIDE = SIM_STRIDE;
+export const SIM2_STRIDE = SIM_STRIDE;
 /** Retained body-move bridge: body index, generation, fellAsleep. */
 export const MOVE_STRIDE = 11;
 // sim2 field offsets.
-export const S2_CENTER0 = 4;
-export const S2_MIN_EXTENT = 7;
-export const S2_BODY_ID = 8;
-export const S2_FLAGS = 9;
+export const S2_CENTER0 = 14;
+export const S2_MIN_EXTENT = 45;
+export const S2_BODY_ID = 52;
+export const S2_FLAGS = 53;
 // Joint record (kernel/src/joint_abi.rs). One flat f32 record per joint slot: a common header (the
 // state indices and body ids via u32 bits, cached invMass/invInertia, the local frames,
 // the base constraint frequency + softness) then a per-type payload (distance's

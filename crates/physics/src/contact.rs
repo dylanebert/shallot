@@ -714,7 +714,9 @@ fn read_vel(state_col: Col<f32>, index: u32) -> (Vec3, Vec3) {
 /// Write velocities back, only for a real dynamic body (static/kinematic bodies keep theirs).
 #[inline]
 fn write_vel(state_col: Col<f32>, flags_col: Col<u32>, index: u32, v: Vec3, w: Vec3) {
-    if index != NULL_INDEX && flags_col.get(index as usize) & body_flags::DYNAMIC != 0 {
+    if index != NULL_INDEX
+        && flags_col.get(index as usize * STATE_STRIDE) & body_flags::DYNAMIC != 0
+    {
         let o = index as usize * STATE_STRIDE;
         write_v3(state_col, o, v);
         write_v3(state_col, o + 3, w);

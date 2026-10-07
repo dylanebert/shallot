@@ -11,9 +11,7 @@
 //! (native tests drive the phase modules against their gold vectors instead). They are shared-mutable
 //! [`Col`]s rather than `&mut` slices — `col.rs` carries the argument.
 
-use crate::body::{
-    FIN_STRIDE, S2_HEAD_SHAPE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE,
-};
+use crate::body::{FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::col::Col;
 use crate::contact::{Columns, CC_META_STRIDE, CC_STRIDE, MCP_STRIDE, MC_META_STRIDE, MC_STRIDE};
 use crate::contact_wide::{WIDE_IDX_STRIDE, WIDE_META_STRIDE, WIDE_STRIDE};
@@ -192,7 +190,7 @@ unsafe fn columns() -> Columns<'static> {
     let p = POINT_COUNT;
     Columns {
         state: f32s(STATE, b * STATE_STRIDE),
-        flags: u32s(FLAGS, b),
+        flags: u32s(FLAGS, b * STATE_STRIDE),
         sim: f32s(SIM, b * SIM_STRIDE),
         slot: u32s(SLOT_SCALAR, c * SLOT_STRIDE),
         dir: manifolds::dir_col(),
@@ -1255,7 +1253,7 @@ pub(crate) unsafe fn finalize_block(
         let state = f32s(STATE, b * STATE_STRIDE);
         let sim = f32s(SIM, b * SIM_STRIDE);
         let fin = f32s(FIN, b * FIN_STRIDE);
-        let flags = u32s(FLAGS, b);
+        let flags = u32s(FLAGS, b * STATE_STRIDE);
         let sim2 = Col::new(crate::bodies::sim2_base() as *mut f32, b * SIM2_STRIDE);
         let sim2_u = Col::new(crate::bodies::sim2_base() as *mut u32, b * SIM2_STRIDE);
         finalize::finalize(
@@ -1321,13 +1319,15 @@ unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
             let so = i * SIM_STRIDE;
             let fo = i * FIN_STRIDE;
             let xf = Transform {
-                p: Vec3::new(fin.get(fo + 9), fin.get(fo + 10), fin.get(fo + 11)),
+                p: Vec3::new(fin.get(fo), fin.get(fo + 1), fin.get(fo + 2)),
                 q: Quat {
-                    v: Vec3::new(sim.get(so + 28), sim.get(so + 29), sim.get(so + 30)),
-                    s: sim.get(so + 31),
+                    v: Vec3::new(sim.get(so + 3), sim.get(so + 4), sim.get(so + 5)),
+                    s: sim.get(so + 6),
                 },
             };
-            let mut shape_id = sim2.get(i * SIM2_STRIDE + S2_HEAD_SHAPE);
+            let body_id = sim2.get(i * SIM2_STRIDE + crate::body::S2_BODY_ID) as usize;
+            let mut shape_id =
+                crate::bodies::record(crate::regions::active(), body_id).head_shape_id as u32;
             while shape_id != crate::shapes::NULL_SHAPE {
                 let o = shape_id as usize * crate::shapes::SHAPE_STRIDE;
                 let bounds = crate::continuous::bounds(shape_id as usize, xf);

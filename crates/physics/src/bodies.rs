@@ -99,10 +99,10 @@ pub unsafe fn geometry(id: usize) -> (crate::math::Transform, crate::body::SimFi
     let fin = column(id, 2, FIN_STRIDE);
     let sim2 = column(id, 5, crate::body::SIM2_STRIDE);
     let pose = crate::math::Transform {
-        p: crate::math::Vec3::new(fin.get(9), fin.get(10), fin.get(11)),
+        p: crate::math::Vec3::new(fin.get(0), fin.get(1), fin.get(2)),
         q: crate::math::Quat {
-            v: crate::math::Vec3::new(sim.get(28), sim.get(29), sim.get(30)),
-            s: sim.get(31),
+            v: crate::math::Vec3::new(sim.get(3), sim.get(4), sim.get(5)),
+            s: sim.get(6),
         },
     };
     (
@@ -141,7 +141,7 @@ pub fn state_base() -> usize {
     base(B_STATE)
 }
 pub fn flags_base() -> usize {
-    base(B_FLAGS)
+    base(B_STATE) + crate::body::STATE_FLAGS * 4
 }
 pub fn sim_base() -> usize {
     base(B_SIM)
@@ -206,7 +206,7 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
                 .add((cap + worker) * STATE_STRIDE);
             ptr.write_bytes(0, STATE_STRIDE);
             *ptr.add(12) = 1.0;
-            *(crate::solver_set::awake_base(B_FLAGS) as *mut u32).add(cap + worker) = DYNAMIC;
+            *(ptr as *mut u32).add(crate::body::STATE_FLAGS) = DYNAMIC;
         }
         w.cap = cap;
         1
