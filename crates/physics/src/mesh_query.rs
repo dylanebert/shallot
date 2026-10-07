@@ -241,16 +241,19 @@ pub fn shape_cast_mesh(mesh: Mesh, input: &ShapeCastInput) -> CastOutput {
                     });
                     if pair.hit {
                         pair.point = pair.point.add(a);
+                        let fraction_changed = pair.fraction != output.fraction;
                         cast_input.max_fraction = pair.fraction;
                         output = pair;
                         output.triangle_index = t as i32;
                         output.material_index = mesh.materials[t as usize] as i32;
-                        let scaled_end = center.add(input.translation.scale(output.fraction));
-                        scaled_lower = min(center, scaled_end);
-                        scaled_upper = max(center, scaled_end);
-                        let end = start.add(delta.scale(output.fraction));
-                        swept_lower = min(start, end);
-                        swept_upper = max(start, end);
+                        if fraction_changed {
+                            let scaled_end = center.add(input.translation.scale(output.fraction));
+                            scaled_lower = min(center, scaled_end);
+                            scaled_upper = max(center, scaled_end);
+                            let end = start.add(delta.scale(output.fraction));
+                            swept_lower = min(start, end);
+                            swept_upper = max(start, end);
+                        }
                     }
                 }
             } else {
