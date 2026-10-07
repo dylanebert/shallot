@@ -196,7 +196,7 @@ const [st, shared] = await Promise.all([
     ),
     sharedBuild,
 ]);
-const layoutKernel = new WebAssembly.Instance(new WebAssembly.Module(st), {
+const layoutKernel = new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(st)), {
     env: { queryCallback: () => 0, materialCallback: () => 0, now: () => 0 },
 });
 const recordOffset = layoutKernel.exports.contactRecordOffset as (index: number) => number;
