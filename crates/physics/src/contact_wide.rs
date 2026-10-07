@@ -158,80 +158,28 @@ fn ld_sym2(col: Col<f32>, o: usize) -> SymMatrix2W {
     }
 }
 
-// SoA store: pack one field's four lanes (indexed by lane) into the record's lane vectors.
 #[inline]
-fn st_lanes_v3(wide: Col<f32>, o: usize, lanes: &[Vec3; LANES]) {
-    st(
-        wide,
-        o,
-        FloatW::set(lanes[0].x, lanes[1].x, lanes[2].x, lanes[3].x),
-    );
-    st(
-        wide,
-        o + 4,
-        FloatW::set(lanes[0].y, lanes[1].y, lanes[2].y, lanes[3].y),
-    );
-    st(
-        wide,
-        o + 8,
-        FloatW::set(lanes[0].z, lanes[1].z, lanes[2].z, lanes[3].z),
-    );
+fn st_lane_v3(wide: Col<f32>, o: usize, lane: usize, v: Vec3) {
+    wide.set(o + lane, v.x);
+    wide.set(o + LANES + lane, v.y);
+    wide.set(o + 2 * LANES + lane, v.z);
 }
+
 #[inline]
-fn st_lanes_sym3(wide: Col<f32>, o: usize, m: &[Mat3; LANES]) {
-    // Symmetric components cxx,cxy,cxz,cyy,cyz,czz (column-major diagonal walk).
-    st(
-        wide,
-        o,
-        FloatW::set(m[0].cx.x, m[1].cx.x, m[2].cx.x, m[3].cx.x),
-    );
-    st(
-        wide,
-        o + 4,
-        FloatW::set(m[0].cx.y, m[1].cx.y, m[2].cx.y, m[3].cx.y),
-    );
-    st(
-        wide,
-        o + 8,
-        FloatW::set(m[0].cx.z, m[1].cx.z, m[2].cx.z, m[3].cx.z),
-    );
-    st(
-        wide,
-        o + 12,
-        FloatW::set(m[0].cy.y, m[1].cy.y, m[2].cy.y, m[3].cy.y),
-    );
-    st(
-        wide,
-        o + 16,
-        FloatW::set(m[0].cy.z, m[1].cy.z, m[2].cy.z, m[3].cy.z),
-    );
-    st(
-        wide,
-        o + 20,
-        FloatW::set(m[0].cz.z, m[1].cz.z, m[2].cz.z, m[3].cz.z),
-    );
+fn st_lane_sym3(wide: Col<f32>, o: usize, lane: usize, m: Mat3) {
+    for (component, value) in [m.cx.x, m.cx.y, m.cx.z, m.cy.y, m.cy.z, m.cz.z]
+        .into_iter()
+        .enumerate()
+    {
+        wide.set(o + component * LANES + lane, value);
+    }
 }
+
 #[inline]
-fn st_lanes_sym2(wide: Col<f32>, o: usize, m: &[Mat2; LANES]) {
-    st(
-        wide,
-        o,
-        FloatW::set(m[0].cx.x, m[1].cx.x, m[2].cx.x, m[3].cx.x),
-    );
-    st(
-        wide,
-        o + 4,
-        FloatW::set(m[0].cx.y, m[1].cx.y, m[2].cx.y, m[3].cx.y),
-    );
-    st(
-        wide,
-        o + 8,
-        FloatW::set(m[0].cy.y, m[1].cy.y, m[2].cy.y, m[3].cy.y),
-    );
-}
-#[inline]
-fn st_lanes_f(wide: Col<f32>, o: usize, l: &[f32; LANES]) {
-    st(wide, o, FloatW::set(l[0], l[1], l[2], l[3]));
+fn st_lane_sym2(wide: Col<f32>, o: usize, lane: usize, m: Mat2) {
+    wide.set(o + lane, m.cx.x);
+    wide.set(o + LANES + lane, m.cx.y);
+    wide.set(o + 2 * LANES + lane, m.cy.y);
 }
 
 #[inline]
@@ -700,47 +648,6 @@ pub fn prepare(
         let local = (r - span.start as usize) * LANES;
         let lane_count = (span.count as usize - local).min(LANES);
 
-        // Null every lane's body index up front (base-1, so 0 = null → gather contributes identity).
-        // Only `lane_count` lanes are filled below; this zeroes the tail lanes of a partial record,
-        // mirroring box3d's memset of the remainder wide slot. Without it a stale nonzero index would
-        // gather a bogus body in `warm_start`/`solve`.
-
-        // Per-lane staging; SoA lane vectors are written into the record after the lane loop.
-        let mut inv_mass_a = [0.0f32; 4];
-        let mut inv_mass_b = [0.0f32; 4];
-        let mut ia = [Mat3::ZERO; 4];
-        let mut ib = [Mat3::ZERO; 4];
-        let mut normal = [Vec3::ZERO; 4];
-        let mut tangent1 = [Vec3::ZERO; 4];
-        let mut tangent2 = [Vec3::ZERO; 4];
-        let mut origin_a = [Vec3::ZERO; 4];
-        let mut origin_b = [Vec3::ZERO; 4];
-        let mut friction = [0.0f32; 4];
-        let mut restitution = [0.0f32; 4];
-        let mut rolling_resistance = [0.0f32; 4];
-        let mut tangent_velocity1 = [0.0f32; 4];
-        let mut tangent_velocity2 = [0.0f32; 4];
-        let mut bias_rate = [0.0f32; 4];
-        let mut mass_scale = [0.0f32; 4];
-        let mut impulse_scale = [0.0f32; 4];
-        let mut twist_mass = [0.0f32; 4];
-        let mut twist_impulse = [0.0f32; 4];
-        let mut friction_impulse_x = [0.0f32; 4];
-        let mut friction_impulse_y = [0.0f32; 4];
-        let mut rolling_mass = [Mat3::ZERO; 4];
-        let mut rolling_impulse = [Vec3::ZERO; 4];
-        let mut tangent_mass = [Mat2 {
-            cx: Vec2::new(0.0, 0.0),
-            cy: Vec2::new(0.0, 0.0),
-        }; 4];
-        let mut p_anchor_a = [[Vec3::ZERO; 4]; MAX_POINTS];
-        let mut p_anchor_b = [[Vec3::ZERO; 4]; MAX_POINTS];
-        let mut p_base_sep = [[0.0f32; 4]; MAX_POINTS];
-        let mut p_normal_imp = [[0.0f32; 4]; MAX_POINTS];
-        let mut p_normal_mass = [[0.0f32; 4]; MAX_POINTS];
-        let mut p_lever_arm = [[0.0f32; 4]; MAX_POINTS];
-        let mut p_rel_vel = [[0.0f32; 4]; MAX_POINTS];
-
         for lane in 0..lane_count {
             let contact_id = unsafe { *span.contacts.add(local + lane) as usize };
             let d = read_dir(dir, contact_id);
@@ -761,33 +668,33 @@ pub fn prepare(
 
             let (m_a, i_a, v_a, w_a) = body_terms(sim, state, index_a);
             let (m_b, i_b, v_b, w_b) = body_terms(sim, state, index_b);
-            inv_mass_a[lane] = m_a;
-            inv_mass_b[lane] = m_b;
-            ia[lane] = i_a;
-            ib[lane] = i_b;
+            wide.set(wo + INV_MASS_A + lane, m_a);
+            wide.set(wo + INV_MASS_B + lane, m_b);
+            st_lane_sym3(wide, wo + INV_IA, lane, i_a);
+            st_lane_sym3(wide, wo + INV_IB, lane, i_b);
 
-            friction[lane] = d.friction;
-            restitution[lane] = d.restitution;
-            rolling_resistance[lane] = d.rolling_resistance;
+            wide.set(wo + FRICTION + lane, d.friction);
+            wide.set(wo + RESTITUTION + lane, d.restitution);
+            wide.set(wo + ROLLING_RESISTANCE + lane, d.rolling_resistance);
             let tangent_velocity = d.tangent_velocity;
 
             let n = v3(pool, mpo + mabi::M_NORMAL);
             let t1 = n.perp();
             let t2 = t1.cross(n);
-            normal[lane] = n;
-            tangent1[lane] = t1;
-            tangent2[lane] = t2;
-            tangent_velocity1[lane] = tangent_velocity.dot(t1);
-            tangent_velocity2[lane] = tangent_velocity.dot(t2);
+            st_lane_v3(wide, wo + NORMAL, lane, n);
+            st_lane_v3(wide, wo + TANGENT1, lane, t1);
+            st_lane_v3(wide, wo + TANGENT2, lane, t2);
+            wide.set(wo + TANGENT_VELOCITY1 + lane, tangent_velocity.dot(t1));
+            wide.set(wo + TANGENT_VELOCITY2 + lane, tangent_velocity.dot(t2));
 
             let soft = if index_a == NULL_INDEX || index_b == NULL_INDEX {
                 static_softness
             } else {
                 contact_softness
             };
-            bias_rate[lane] = soft.bias_rate;
-            mass_scale[lane] = soft.mass_scale;
-            impulse_scale[lane] = soft.impulse_scale;
+            wide.set(wo + BIAS_RATE + lane, soft.bias_rate);
+            wide.set(wo + MASS_SCALE + lane, soft.mass_scale);
+            wide.set(wo + IMPULSE_SCALE + lane, soft.impulse_scale);
 
             let point_count = pool.get(mpo + mabi::M_POINT_COUNT).to_bits() as usize;
             idx.set(io + POINT_COUNTS + lane, point_count as u32);
@@ -803,31 +710,44 @@ pub fn prepare(
                 let separation = pool.get(pp + mabi::P_SEPARATION);
                 let mp_normal_impulse = pool.get(pp + mabi::P_NORMAL_IMPULSE);
 
-                let rn_a = r_a.cross(n);
-                let rn_b = r_b.cross(n);
-                let k_normal = m_a + m_b + rn_a.dot(i_a.mul_v(rn_a)) + rn_b.dot(i_b.mul_v(rn_b));
-                let vr_a = v_a.add(w_a.cross(r_a));
-                let vr_b = v_b.add(w_b.cross(r_b));
-
-                p_anchor_a[pi][lane] = r_a;
-                p_anchor_b[pi][lane] = r_b;
-                p_base_sep[pi][lane] = separation - r_b.sub(r_a).dot(n);
-                p_normal_imp[pi][lane] = warm_start_scale * mp_normal_impulse;
-                p_normal_mass[pi][lane] = if k_normal > 0.0 { 1.0 / k_normal } else { 0.0 };
-                p_rel_vel[pi][lane] = n.dot(vr_b.sub(vr_a));
-
                 let weight = (2.0 - separation * inv_tau).clamp(MIN_FRICTION_WEIGHT, 1.0);
                 center_a = center_a.add(r_a.scale(weight));
                 center_b = center_b.add(r_b.scale(weight));
                 total_friction_weight += weight;
+
+                let pb = wo + POINTS + pi * POINT_STRIDE;
+                st_lane_v3(wide, pb + P_ANCHOR_A, lane, r_a);
+                st_lane_v3(wide, pb + P_ANCHOR_B, lane, r_b);
+                wide.set(pb + P_BASE_SEP + lane, separation - r_b.sub(r_a).dot(n));
+                wide.set(
+                    pb + P_NORMAL_IMP + lane,
+                    warm_start_scale * mp_normal_impulse,
+                );
+                wide.set(pb + P_TOTAL_NORMAL_IMP + lane, 0.0);
+
+                let rn_a = r_a.cross(n);
+                let rn_b = r_b.cross(n);
+                let k_normal = m_a + m_b + rn_a.dot(i_a.mul_v(rn_a)) + rn_b.dot(i_b.mul_v(rn_b));
+                wide.set(
+                    pb + P_NORMAL_MASS + lane,
+                    if k_normal > 0.0 { 1.0 / k_normal } else { 0.0 },
+                );
+                let vr_a = v_a.add(w_a.cross(r_a));
+                let vr_b = v_b.add(w_b.cross(r_b));
+                wide.set(pb + P_REL_VEL + lane, n.dot(vr_b.sub(vr_a)));
             }
             let inv_weight = 1.0 / total_friction_weight;
             center_a = center_a.scale(inv_weight);
             center_b = center_b.scale(inv_weight);
-            origin_a[lane] = center_a;
-            origin_b[lane] = center_b;
+            st_lane_v3(wide, wo + ORIGIN_A, lane, center_a);
+            st_lane_v3(wide, wo + ORIGIN_B, lane, center_b);
             for pi in 0..point_count {
-                p_lever_arm[pi][lane] = p_anchor_a[pi][lane].distance(center_a);
+                let pp = mpo + mabi::M_POINTS + pi * mabi::POOL_POINT_STRIDE;
+                let pb = wo + POINTS + pi * POINT_STRIDE;
+                wide.set(
+                    pb + P_LEVER_ARM + lane,
+                    v3(pool, pp + mabi::P_ANCHOR_A).distance(center_a),
+                );
             }
 
             let rt_a1 = center_a.cross(t1);
@@ -837,58 +757,50 @@ pub fn prepare(
             let kxx = m_a + m_b + rt_a1.dot(i_a.mul_v(rt_a1)) + rt_b1.dot(i_b.mul_v(rt_b1));
             let kyy = m_a + m_b + rt_a2.dot(i_a.mul_v(rt_a2)) + rt_b2.dot(i_b.mul_v(rt_b2));
             let kxy = rt_a1.dot(i_a.mul_v(rt_a2)) + rt_b1.dot(i_b.mul_v(rt_b2));
-            tangent_mass[lane] = Mat2 {
-                cx: Vec2::new(kxx, kxy),
-                cy: Vec2::new(kxy, kyy),
-            }
-            .invert();
+            st_lane_sym2(
+                wide,
+                wo + TANGENT_MASS,
+                lane,
+                Mat2 {
+                    cx: Vec2::new(kxx, kxy),
+                    cy: Vec2::new(kxy, kyy),
+                }
+                .invert(),
+            );
 
             let mf_friction_impulse = v3(pool, mpo + mabi::M_FRICTION);
-            friction_impulse_x[lane] = warm_start_scale * mf_friction_impulse.dot(t1);
-            friction_impulse_y[lane] = warm_start_scale * mf_friction_impulse.dot(t2);
+            wide.set(
+                wo + FRICTION_IMPULSE + lane,
+                warm_start_scale * mf_friction_impulse.dot(t1),
+            );
+            wide.set(
+                wo + FRICTION_IMPULSE + LANES + lane,
+                warm_start_scale * mf_friction_impulse.dot(t2),
+            );
 
             let iab = i_a.add(i_b);
             let twist_k = n.dot(iab.mul_v(n));
-            twist_mass[lane] = if twist_k > 0.0 { 1.0 / twist_k } else { 0.0 };
-            twist_impulse[lane] = warm_start_scale * pool.get(mpo + mabi::M_TWIST);
-            rolling_mass[lane] = iab.invert();
-            rolling_impulse[lane] = v3(pool, mpo + mabi::M_ROLLING).scale(warm_start_scale);
-        }
-
-        st_lanes_f(wide, wo + INV_MASS_A, &inv_mass_a);
-        st_lanes_f(wide, wo + INV_MASS_B, &inv_mass_b);
-        st_lanes_sym3(wide, wo + INV_IA, &ia);
-        st_lanes_sym3(wide, wo + INV_IB, &ib);
-        st_lanes_v3(wide, wo + NORMAL, &normal);
-        st_lanes_v3(wide, wo + TANGENT1, &tangent1);
-        st_lanes_v3(wide, wo + TANGENT2, &tangent2);
-        st_lanes_v3(wide, wo + ORIGIN_A, &origin_a);
-        st_lanes_v3(wide, wo + ORIGIN_B, &origin_b);
-        st_lanes_f(wide, wo + TWIST_MASS, &twist_mass);
-        st_lanes_f(wide, wo + TWIST_IMPULSE, &twist_impulse);
-        st_lanes_sym2(wide, wo + TANGENT_MASS, &tangent_mass);
-        st_lanes_f(wide, wo + FRICTION_IMPULSE, &friction_impulse_x);
-        st_lanes_f(wide, wo + FRICTION_IMPULSE + 4, &friction_impulse_y);
-        st_lanes_sym3(wide, wo + ROLLING_MASS, &rolling_mass);
-        st_lanes_v3(wide, wo + ROLLING_IMPULSE, &rolling_impulse);
-        st_lanes_f(wide, wo + FRICTION, &friction);
-        st_lanes_f(wide, wo + ROLLING_RESISTANCE, &rolling_resistance);
-        st_lanes_f(wide, wo + TANGENT_VELOCITY1, &tangent_velocity1);
-        st_lanes_f(wide, wo + TANGENT_VELOCITY2, &tangent_velocity2);
-        st_lanes_f(wide, wo + BIAS_RATE, &bias_rate);
-        st_lanes_f(wide, wo + MASS_SCALE, &mass_scale);
-        st_lanes_f(wide, wo + IMPULSE_SCALE, &impulse_scale);
-        st_lanes_f(wide, wo + RESTITUTION, &restitution);
-        for pi in 0..MAX_POINTS {
-            let pb = wo + POINTS + pi * POINT_STRIDE;
-            st_lanes_v3(wide, pb + P_ANCHOR_A, &p_anchor_a[pi]);
-            st_lanes_v3(wide, pb + P_ANCHOR_B, &p_anchor_b[pi]);
-            st_lanes_f(wide, pb + P_BASE_SEP, &p_base_sep[pi]);
-            st_lanes_f(wide, pb + P_NORMAL_IMP, &p_normal_imp[pi]);
-            st(wide, pb + P_TOTAL_NORMAL_IMP, FloatW::zero());
-            st_lanes_f(wide, pb + P_NORMAL_MASS, &p_normal_mass[pi]);
-            st_lanes_f(wide, pb + P_LEVER_ARM, &p_lever_arm[pi]);
-            st_lanes_f(wide, pb + P_REL_VEL, &p_rel_vel[pi]);
+            wide.set(
+                wo + TWIST_MASS + lane,
+                if twist_k > 0.0 { 1.0 / twist_k } else { 0.0 },
+            );
+            wide.set(
+                wo + TWIST_IMPULSE + lane,
+                warm_start_scale * pool.get(mpo + mabi::M_TWIST),
+            );
+            st_lane_sym3(wide, wo + ROLLING_MASS, lane, iab.invert());
+            st_lane_v3(
+                wide,
+                wo + ROLLING_IMPULSE,
+                lane,
+                v3(pool, mpo + mabi::M_ROLLING).scale(warm_start_scale),
+            );
+            for pi in point_count..MAX_POINTS {
+                let pb = wo + POINTS + pi * POINT_STRIDE;
+                for component in (0..POINT_STRIDE).step_by(LANES) {
+                    wide.set(pb + component + lane, 0.0);
+                }
+            }
         }
     }
 }
