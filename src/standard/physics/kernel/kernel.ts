@@ -527,13 +527,12 @@ export type Kernel = {
 
     // `reservePairs` reserves move-result lists and rebuild scratch. ParKind.Pairs queries the
     // resident proxies, shapes, body types and pair table, including compound recursion and default
-    // filtering. `pairsOverflow` grows survivor capacity for a read-only retry after overflow.
+    // filtering. Survivors beyond 16 times the move count are discarded, as in Box3D.
     // Each result is (child, shapeA, shapeB, next), prepended at its proxy's `pairsCandEndPtr` head
     // (u32::MAX for empty). TypeScript creates contacts from those lists in place after the join.
     reservePairs(): void;
     pairsCandEndPtr(): number;
     pairsCandPtr(): number;
-    pairsOverflow(): number;
     rebuildTrees(): void;
 
     // Immutable native geometry images are retained by caller identity inside each world; shapes

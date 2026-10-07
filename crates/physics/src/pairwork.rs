@@ -40,11 +40,11 @@ static mut BUILD_PTR: u32 = 0;
 
 static mut MOVE_COUNT: usize = 0;
 static mut MOVED_WORDS: usize = 0;
-static mut CAND_CAP: usize = 256;
+static mut CAND_CAP: usize = 0;
 static mut MAX_PROXY: usize = 0;
 
 /// Reserve shared pair-finding scratch, consumed before dispatch, recycle or solve reserves it.
-/// Rebuild scratch covers the largest rebuilt tree; survivor capacity grows on overflow.
+/// Rebuild scratch covers the largest rebuilt tree.
 #[export_name = "reservePairs"]
 pub extern "C" fn reserve_pairs() {
     reserve_pairs_in_world(crate::regions::active())
@@ -52,8 +52,9 @@ pub extern "C" fn reserve_pairs() {
 
 pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
     unsafe {
-        let cand_cap = CAND_CAP;
         let move_count = broad::move_count(world_index);
+        let cand_cap = 16 * move_count;
+        CAND_CAP = cand_cap;
         let max_proxy = [1usize, 2]
             .into_iter()
             .map(|i| {
@@ -273,19 +274,6 @@ fn shapes_collide(a: &[u32], b: &[u32]) -> bool {
         return a[42] as i32 > 0;
     }
     ((a[41] & b[39]) | (a[40] & b[38])) != 0 && ((a[39] & b[41]) | (a[38] & b[40])) != 0
-}
-
-/// After the join, grow capacity for a read-only retry if the survivor lists overflowed.
-#[export_name = "pairsOverflow"]
-pub extern "C" fn pairs_overflow() -> u32 {
-    let count = CAND_COUNT.load(Ordering::Relaxed);
-    unsafe {
-        if count <= CAND_CAP {
-            return 0;
-        }
-        CAND_CAP = count + count / 2;
-    }
-    1
 }
 
 /// Each task owns its moved-proxy heads and traversal stack. The shared candidate allocator only

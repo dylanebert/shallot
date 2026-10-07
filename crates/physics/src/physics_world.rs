@@ -626,11 +626,6 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
             }
             2 => {
-                if crate::pairwork::pairs_overflow() != 0 {
-                    crate::arena::free_scratch(world_index);
-                    DRIVER.phase = 1;
-                    continue;
-                }
                 crate::pairwork::rebuild_trees_in_world(world_index);
                 create_pairs(world_index);
                 crate::arena::free_scratch(world_index);
