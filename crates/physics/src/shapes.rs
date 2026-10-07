@@ -394,11 +394,11 @@ pub extern "C" fn shape_count(id: u32) -> usize {
 pub unsafe fn snapshot(id: usize, out: &mut Vec<u8>) {
     let w = &WORLDS[id];
     for pool in [w.shape] {
-        for value in [pool.cap, pool.next, pool.free] {
+        for value in [pool.next, pool.free] {
             regions::write_word(out, value);
         }
     }
-    w.columns.snapshot(out);
+    w.columns.snapshot_prefix(out, [w.shape.next * SHAPE_STRIDE * 4, w.shape.free * 4]);
     for shape in 0..w.shape.next {
         let count = *record(id, shape).add(S_MATERIAL_COUNT) as usize;
         if *record(id, shape).add(S_MATERIAL_HEAD) != 0 {
@@ -414,10 +414,11 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     for shape in 0..w.shape.next {
         free_materials(id, shape);
     }
-    w.shape.cap = regions::read_word(input);
     w.shape.next = regions::read_word(input);
+    w.shape.cap = w.shape.next;
     w.shape.free = regions::read_word(input);
     w.columns.restore(input);
+    w.columns.reserve(FREE_ARRAY, w.shape.next * 4);
     for shape in 0..w.shape.next {
         let p = record(id, shape);
         let count = *p.add(S_MATERIAL_COUNT) as usize;
