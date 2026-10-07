@@ -1,7 +1,10 @@
+#define NDEBUG
 #include "box3d/math_functions.h"
 #include "box3d/collision.h"
 #include "simd.h"
 #include "manifold.h"
+// The support helper is file-local; include its owner to call the native boundary.
+#include "convex_manifold.c"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -53,6 +56,16 @@ int main(void) {
                 float out[4];
                 b3StoreW(out, b3SymClampW(a, b));
                 for (int i = 0; i < 4; ++i) emit(out[i]);
+                break;
+            }
+            case 6: {
+                float x[8], y[8], z[8], support;
+                for (int i = 0; i < 8; ++i) {
+                    x[i] = value(r[4+i]); y[i] = value(r[12+i]); z[i] = value(r[20+i]);
+                }
+                int index;
+                b3GetSupportWide(vec(r,0), x, y, z, 8, value(r[3]), &support, &index);
+                word(index);
                 break;
             }
             case 3: case 4: case 5: {

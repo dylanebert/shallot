@@ -53,6 +53,29 @@ pub unsafe extern "C" fn run(operation: u32) -> usize {
             }
             4
         }
+        6 => {
+            let points: Vec<_> = (0..8)
+                .map(|i| Vec3::new(f(4 + i), f(12 + i), f(20 + i)))
+                .collect();
+            let hull = crate::hull::HullData {
+                center: Vec3::ZERO,
+                vertex_count: 8,
+                edge_count: 0,
+                face_count: 0,
+                points: &points,
+                soa_points: std::borrow::Cow::Borrowed(core::slice::from_raw_parts(
+                    r.as_ptr().add(4).cast::<f32>(),
+                    24,
+                )),
+                soa_normals: std::borrow::Cow::Borrowed(&[]),
+                vertices: &[],
+                edges: &[],
+                faces: &[],
+                planes: &[],
+            };
+            out[0] = hull.support_vertex_wide(Vec3::new(f(0), f(1), f(2)), f(3)) as u32;
+            1
+        }
         3..=5 => {
             let v = |i| Vec3::new(f(i), f(i + 1), f(i + 2));
             let q = |i| Quat {

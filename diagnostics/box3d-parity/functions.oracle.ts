@@ -229,6 +229,16 @@ for (const mode of [6, 7, 8]) {
     }
 }
 
+for (const [label, x] of [
+    ["ties", [1, 1, 1, 1, 1, 1, 1, 1]],
+    ["signed-zero", [0, -0, 0, -0, -0, 0, -0, 0]],
+    ["first-lane", [2, 1, 1, 1, 1, 1, 1, 1]],
+    ["last-lane", [1, 1, 1, 1, 1, 1, 1, 2]],
+] as const) {
+    cases.push({ operation: 6, label: `support-${label}`,
+        words: [1, 0, 0, 4, ...x, ...Array(16).fill(0)].map(bits) });
+}
+
 const native = nativeSseOutput(
     "functions.c",
     cases.map((c) => `${c.operation} ${c.words.length} ${c.words.map(hex).join(" ")}`).join("\n"),
@@ -320,6 +330,9 @@ function compare(rows: typeof results) {
             `${row.label ?? row.operation}: ${row.words.slice(0, 64).map(hex).join(" ")}`,
         ).toEqual(row.native);
 }
+test("hull support lane ties, signed zero and first/last winners equal Box3D SSE2 bits", () => {
+    compare(results.filter((r) => r.operation === 6));
+});
 test("normalize ordinary finite vectors equal Box3D SSE2 bits", () => {
     compare(
         results.filter(
