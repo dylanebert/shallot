@@ -1680,6 +1680,21 @@ fn compute_separating_axis(
     let mut b_points = HullSoa3::<NV>::new();
     negative_transform_from_soa(&rotation, transform_b_to_a.p, &hull_b.soa_normals, false, &mut b_normals);
     negative_transform_from_soa(&rotation, transform_b_to_a.p, &hull_b.soa_points, true, &mut b_points);
+    let mut b_c = HullSoa3::<NE>::new();
+    let mut b_d = HullSoa3::<NE>::new();
+    let mut b_v0 = HullSoa3::<NE>::new();
+    let mut b_dc = HullSoa3::<NE>::new();
+    let nb = hull_b.edge_count / 2;
+    for j in 0..nb {
+        let edge = hull_b.edges[2 * j];
+        let twin = hull_b.edges[2 * j + 1];
+        let v0 = b_points.get(edge.origin as usize);
+        b_c.set(j, b_normals.get(edge.face as usize));
+        b_d.set(j, b_normals.get(twin.face as usize));
+        b_v0.set(j, v0);
+        b_dc.set(j, b_points.get(twin.origin as usize).sub(v0));
+    }
+
     let mut a_n0 = HullSoa3::<NE>::new();
     let mut a_n1 = HullSoa3::<NE>::new();
     let mut a_dir = HullSoa3::<NE>::new();
@@ -1709,14 +1724,11 @@ fn compute_separating_axis(
     let zero = FloatW::zero();
     let eps = FloatW::splat(-0.0001);
     let inf = FloatW::splat(f32::INFINITY);
-    for j in 0..hull_b.edge_count / 2 {
-        let edge = hull_b.edges[2 * j];
-        let twin = hull_b.edges[2 * j + 1];
-        let c = splat3(b_normals.get(edge.face as usize));
-        let d = splat3(b_normals.get(twin.face as usize));
-        let v0 = b_points.get(edge.origin as usize);
-        let dc = splat3(b_points.get(twin.origin as usize).sub(v0));
-        let bv0 = splat3(v0);
+    for j in 0..nb {
+        let c = splat3(b_c.get(j));
+        let d = splat3(b_d.get(j));
+        let dc = splat3(b_dc.get(j));
+        let bv0 = splat3(b_v0.get(j));
         for i in (0..na).step_by(4) {
             let dir = a_dir.load(i);
             let cba = dot_wide(c, dir);
