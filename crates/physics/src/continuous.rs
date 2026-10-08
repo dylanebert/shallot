@@ -15,37 +15,31 @@ pub(crate) const ENLARGE_BOUNDS: u32 = 0x800;
 static mut BULLET_BODIES: *mut u32 = core::ptr::null_mut();
 static BULLET_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
-static mut DEFER_CALLBACKS: bool = false;
+static DEFERRED_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+const DEFERRED_BULLET: u32 = 1 << 31;
 
 pub(crate) unsafe fn reserve_bullets(world: usize, base: usize) {
     BULLET_BODIES = base as *mut u32;
     BULLET_COUNT.store(0, core::sync::atomic::Ordering::Relaxed);
-    DEFER_CALLBACKS = false;
-    let mask = if crate::callbacks::filter_enabled(world) {
-        4 << 16
-    } else {
-        0
-    } | if crate::callbacks::pre_solve_enabled(world) {
-        16 << 16
-    } else {
-        0
-    };
-    if mask != 0 {
-        let shapes = shapes::col_slice(world);
-        DEFER_CALLBACKS = (0..shapes::shape_cap_in_world(world)).any(|id| {
-            shapes::shape_alive(world as u32, id as u32) != 0
-                && shapes[id * shapes::SHAPE_STRIDE + shapes::S_FLAGS] & mask != 0
-        });
-    }
+    DEFERRED_COUNT.store(0, core::sync::atomic::Ordering::Relaxed);
+    let _ = world;
 }
 
-pub(crate) unsafe fn callbacks_deferred() -> bool {
-    DEFER_CALLBACKS
+pub(crate) unsafe fn add_deferred(sim: usize) {
+    DEFERRED_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    add_bullet(sim);
+}
+
+pub(crate) unsafe fn callback_body(world: usize, i: usize) -> bool {
+    if !crate::callbacks::filter_enabled(world) && !crate::callbacks::pre_solve_enabled(world) {
+        return false;
+    }
+    solve_impl(world, 0, i, true)
 }
 
 /// Non-bullets must finish before refit and the bullet sweep, exactly as in parallel finalize.
 pub(crate) unsafe fn finish_deferred(world: usize) {
-    if !DEFER_CALLBACKS {
+    if DEFERRED_COUNT.load(core::sync::atomic::Ordering::Relaxed) == 0 {
         return;
     }
     let list = core::slice::from_raw_parts_mut(BULLET_BODIES, bullet_count());
@@ -261,7 +255,27 @@ pub unsafe fn sleep_enabled() -> bool {
 /// As `finalize`, and `reserve_at` must have reserved continuous rows for every body in `[start, end)`.
 pub unsafe fn bullets(world_index: usize, worker: usize, start: usize, end: usize) {
     for index in start..end {
-        solve(world_index, worker, bullet_body(index));
+        let i = bullet_body(index);
+        if callback_body(world_index, i) {
+            *BULLET_BODIES.add(index) = i as u32 | DEFERRED_BULLET;
+            crate::callback_work::note(world_index, crate::callback_work::Work::ContinuousSerial);
+        } else {
+            crate::callback_work::note(world_index, crate::callback_work::Work::ContinuousParallel);
+            solve(world_index, worker, i);
+        }
+    }
+}
+
+pub(crate) unsafe fn finish_bullets(world: usize) {
+    if !crate::callbacks::filter_enabled(world) && !crate::callbacks::pre_solve_enabled(world) {
+        return;
+    }
+    for index in 0..bullet_count() {
+        let entry = BULLET_BODIES.add(index);
+        if *entry & DEFERRED_BULLET != 0 {
+            *entry &= !DEFERRED_BULLET;
+            solve(world, 0, *entry as usize);
+        }
     }
 }
 fn commit_bounds(u: Col<u32>, f: Col<f32>, s2: Col<u32>, i: usize, o: usize, b: [f32; 6]) {
@@ -281,6 +295,10 @@ fn commit_bounds(u: Col<u32>, f: Col<f32>, s2: Col<u32>, i: usize, o: usize, b: 
 }
 
 pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
+    solve_impl(world_index, worker, i, false);
+}
+
+unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -> bool {
     let u = shapes::col(world_index);
     let f = shapes::col_f(world_index);
     let s2 = sim2(world_index);
@@ -313,8 +331,10 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
             f.get(o + 15),
         ];
         let box2 = offset(bounds(world_index, fast, end), base);
-        for n in 0..6 {
-            f.set(o + 10 + n, box2[n]);
+        if !probe {
+            for n in 0..6 {
+                f.set(o + 10 + n, box2[n]);
+            }
         }
         if matches!(u.get(o + shapes::S_TYPE), 2 | 4) {
             continue;
@@ -336,6 +356,7 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
                 broad::tree_cap(world_index, t) * tree::STRIDE,
             );
             let mut stack = [0; tree::STACK_SIZE];
+            let mut needed = false;
             tree::query(
                 pool,
                 ROOTS[t],
@@ -377,6 +398,15 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
                     if !crate::bodies::should_collide_in_world(world_index, body_id, u.get(a + 1)) {
                         return true;
                     }
+                    if probe {
+                        let flags = u.get(a + shapes::S_FLAGS) | u.get(o + shapes::S_FLAGS);
+                        needed = crate::callbacks::filter_enabled(world_index)
+                            && flags & (4 << 16) != 0
+                            || !sensor
+                                && crate::callbacks::pre_solve_enabled(world_index)
+                                && flags & (16 << 16) != 0;
+                        return !needed;
+                    }
                     if !crate::callbacks::filter(world_index, target, fast) {
                         return true;
                     }
@@ -415,7 +445,13 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
                     true
                 },
             );
+            if needed {
+                return true;
+            }
         }
+    }
+    if probe {
+        return false;
     }
     if fraction < 1.0 {
         let rotation = sw.q1.nlerp(sw.q2, fraction);
@@ -465,4 +501,5 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
             crate::arena::push_sensor_hit(world_index, worker, sensor as usize, visitor as usize);
         }
     }
+    false
 }

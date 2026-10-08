@@ -991,6 +991,30 @@ unsafe fn mix_surface(
     );
 }
 
+const DEFER_PRE_SOLVE: u32 = 0x0400_0000;
+
+unsafe fn reaches_pre_solve(world: usize, contact: usize) -> bool {
+    use crate::manifold_abi::*;
+    let dir = manifolds::dir_col(world);
+    let o = contact * DIR_STRIDE;
+    if !crate::callbacks::pre_solve_enabled(world) || dir.get(o + DIR_FLAGS) & 0x0020_0000 == 0 {
+        return false;
+    }
+    let shapes = crate::shapes::col_slice(world);
+    let a = dir.get(o + DIR_SHAPE_A) as usize * crate::shapes::SHAPE_STRIDE;
+    let kind = if shapes[a + crate::shapes::S_TYPE] == 1 {
+        crate::compound_query::child_words(
+            shapes[a + crate::shapes::S_GEOM] as *const u32,
+            dir.get(o + DIR_CHILD_INDEX) as usize,
+        )[0]
+    } else {
+        shapes[a + crate::shapes::S_TYPE]
+    };
+    // contact.c dispatches mesh/height (including compound mesh children) to mesh_contact.c,
+    // which never invokes pre-solve.
+    matches!(kind, 0 | 3 | 5)
+}
+
 /// Box3D's b3UpdateContact over the shapes and body poses resolved by the collide task.
 ///
 /// # Safety
@@ -1012,8 +1036,7 @@ unsafe fn update_contact(
         let dir = manifolds::dir_col(world_index);
         let o = contact_id * DIR_STRIDE;
         // Deferred pre-solve work mixes custom materials before inspecting the contact, as Box3D does.
-        let pre_solve = crate::callbacks::pre_solve_enabled(world_index)
-            && dir.get(o + DIR_FLAGS) & 0x0020_0000 != 0;
+        let pre_solve = reaches_pre_solve(world_index, contact_id);
         let custom = DEFAULT_MIX == 0 && pre_solve;
         if !custom {
             dir.set(o + DIR_FLAGS, dir.get(o + DIR_FLAGS) | 0x0200_0000);
@@ -1378,10 +1401,12 @@ unsafe fn contact_block_impl(
         for i in start..end {
             let contact_id = contacts[i] as usize;
             let o = contact_id * DIR_STRIDE;
-            let deferred = crate::callbacks::pre_solve_enabled(world_index)
-                && dir.get(o + DIR_FLAGS) & 0x0020_0000 != 0;
-            if deferred != serial {
-                continue;
+            if serial {
+                let flags = dir.get(o + DIR_FLAGS);
+                if flags & DEFER_PRE_SOLVE == 0 {
+                    continue;
+                }
+                dir.set(o + DIR_FLAGS, flags & !DEFER_PRE_SOLVE);
             }
             let flags = dir.get(o + DIR_FLAGS) & !0x0200_0000;
             dir.set(o + DIR_FLAGS, flags);
@@ -1504,6 +1529,18 @@ unsafe fn contact_block_impl(
                 }
             }
 
+            if !serial && reaches_pre_solve(world_index, contact_id) {
+                dir.set(o + DIR_FLAGS, dir.get(o + DIR_FLAGS) | DEFER_PRE_SOLVE);
+                continue;
+            }
+            crate::callback_work::note(
+                world_index,
+                if serial {
+                    crate::callback_work::Work::ContactSerial
+                } else {
+                    crate::callback_work::Work::ContactParallel
+                },
+            );
             write_pose_cache(dir, contact_id, xf_a, xf_b);
             dir.set(o + DIR_FLAGS, flags | 0x0080_0000);
             update_contact(

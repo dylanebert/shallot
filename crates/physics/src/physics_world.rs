@@ -11,6 +11,7 @@ pub unsafe extern "C" fn destroy_world(world: usize) {
 }
 
 pub unsafe extern "C" fn destroy_world_in_world(world: usize) {
+    crate::pairwork::destroy(world);
     for id in 0..crate::shapes::shape_cap_in_world(world) {
         if crate::shapes::shape_alive(world as u32, id as u32) != 0 {
             crate::shape_lifecycle::release_geometry(world, id);
@@ -463,6 +464,7 @@ pub unsafe extern "C" fn begin_in_world(
 ) {
     PROFILE[world] = Profile::ZERO;
     SYNC_COUNT = 0;
+    crate::callback_work::reset(world);
     PAIRS_ONLY = false;
     let start = ticks();
     let substeps = substeps.max(1) as usize;
@@ -624,27 +626,18 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
                 crate::pairwork::reserve_pairs_in_world(world_index);
                 DRIVER.phase = 2;
-                if !crate::pairwork::callbacks_deferred()
-                    && parallel(
-                        world_index,
-                        4,
-                        crate::broad::move_count(world_index),
-                        crate::broad::set_cap(world_index) as f32,
-                    )
-                {
+                if parallel(
+                    world_index,
+                    4,
+                    crate::broad::move_count(world_index),
+                    crate::broad::set_cap(world_index) as f32,
+                ) {
                     return 1;
                 }
             }
             2 => {
                 crate::pairwork::schedule_rebuild();
-                if crate::pairwork::callbacks_deferred() {
-                    crate::pairwork::query_block(
-                        world_index,
-                        0,
-                        crate::broad::move_count(world_index),
-                        crate::broad::set_cap(world_index),
-                    );
-                }
+                crate::pairwork::finish_deferred(world_index);
                 create_pairs(world_index);
                 crate::arena::free_scratch(world_index);
                 DRIVER.phase = 3;
@@ -762,23 +755,15 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 accumulate(world_index, 19, start);
                 DRIVER.phase = 8;
                 DRIVER.phase_start = ticks();
-                if bullets {
-                    if crate::continuous::callbacks_deferred() {
-                        crate::continuous::bullets(
-                            world_index,
-                            0,
-                            0,
-                            crate::continuous::bullet_count(),
-                        );
-                    } else if parallel(world_index, 3, crate::continuous::bullet_count(), 0.0) {
-                        return 1;
-                    }
+                if bullets && parallel(world_index, 3, crate::continuous::bullet_count(), 0.0) {
+                    return 1;
                 }
                 if !bullets {
                     DRIVER.phase = 9;
                 }
             }
             8 => {
+                crate::continuous::finish_bullets(world_index);
                 crate::treework::enlarge_pass_in_world(world_index, DRIVER.count, 1);
                 accumulate(world_index, 20, DRIVER.phase_start);
                 DRIVER.phase = 9;

@@ -32,10 +32,46 @@ static mut MOVE_COUNT: usize = 0;
 static mut MOVED_WORDS: usize = 0;
 static mut CAND_CAP: usize = 0;
 static mut REBUILD_PENDING: bool = false;
-static mut DEFER_QUERIES: bool = false;
+struct DeferredPair {
+    child: u32,
+    a: u32,
+    b: u32,
+    before: u32,
+    accepted: bool,
+}
+static mut DEFERRED: [Vec<Vec<DeferredPair>>; crate::regions::MAX_WORLDS] =
+    [const { Vec::new() }; crate::regions::MAX_WORLDS];
+static mut PENDING: *mut Vec<DeferredPair> = core::ptr::null_mut();
 
-pub unsafe fn callbacks_deferred() -> bool {
-    DEFER_QUERIES
+pub(crate) unsafe fn destroy(world: usize) {
+    DEFERRED[world] = Vec::new();
+}
+
+pub(crate) unsafe fn finish_deferred(world: usize) {
+    if PENDING.is_null() {
+        return;
+    }
+    let cand = CAND_PTR as *mut u32;
+    for i in 0..MOVE_COUNT {
+        let pending = &mut *PENDING.add(i);
+        for pair in pending.iter_mut() {
+            pair.accepted = crate::callbacks::filter(world, pair.a as usize, pair.b as usize);
+        }
+        let mut link = (CANDEND_PTR as *mut u32).add(i);
+        // Walk the worker-owned chain once, merging accepted callbacks at their traversal boundary.
+        for pair in pending.iter().rev().filter(|p| p.accepted) {
+            while *link != pair.before {
+                link = cand.add(*link as usize * CAND_STRIDE + 3);
+            }
+            let before = *link;
+            *link = emit(pair.child, pair.a, pair.b, before);
+            if *link != before {
+                link = cand.add(*link as usize * CAND_STRIDE + 3);
+            }
+            crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
+        }
+        pending.clear();
+    }
 }
 
 pub unsafe fn schedule_rebuild() {
@@ -54,16 +90,18 @@ pub extern "C" fn reserve_pairs() {
 
 pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
     unsafe {
-        DEFER_QUERIES = false;
-        if crate::callbacks::filter_enabled(world_index) {
-            let shapes = shape_col(world_index);
-            DEFER_QUERIES = (0..crate::shapes::shape_cap_in_world(world_index)).any(|id| {
-                crate::shapes::shape_alive(world_index as u32, id as u32) != 0
-                    && shapes[id * SHAPE_STRIDE + crate::shapes::S_FLAGS] & (4 << 16) != 0
-                    && shapes[id * SHAPE_STRIDE + crate::shapes::S_SENSOR_INDEX] == u32::MAX
-            });
-        }
         let move_count = broad::move_count(world_index);
+        PENDING = core::ptr::null_mut();
+        if crate::callbacks::filter_enabled(world_index) {
+            let pending = &mut DEFERRED[world_index];
+            if pending.len() < move_count {
+                pending.resize_with(move_count, Vec::new);
+            }
+            for pairs in pending.iter_mut().take(move_count) {
+                pairs.clear();
+            }
+            PENDING = pending.as_mut_ptr();
+        }
         let cand_cap = 16 * move_count;
         CAND_CAP = cand_cap;
         CAND_COUNT.store(0, Ordering::Relaxed);
@@ -108,8 +146,6 @@ struct Emitter<'a> {
     shape: &'a [u32],
     moved: &'a [u64],
     items: &'a [table::Item],
-    cand: *mut u32,
-    cand_cap: usize,
     head: u32,
     lower: crate::math::Vec3,
     upper: crate::math::Vec3,
@@ -117,6 +153,7 @@ struct Emitter<'a> {
     query_key: u32,
     query_dynamic: bool,
     tree_type: u32,
+    pending: *mut Vec<DeferredPair>,
 }
 
 impl<'a> Emitter<'a> {
@@ -141,18 +178,7 @@ impl<'a> Emitter<'a> {
 
     #[inline]
     fn emit(&mut self, child: u32, a: u32, b: u32) {
-        let index = CAND_COUNT.fetch_add(1, Ordering::Relaxed);
-        if index < self.cand_cap {
-            // Allocation order may race; only this proxy owns its links.
-            unsafe {
-                let entry = self.cand.add(index * CAND_STRIDE);
-                *entry = child;
-                *entry.add(1) = a;
-                *entry.add(2) = b;
-                *entry.add(3) = self.head;
-                self.head = index as u32;
-            }
-        }
+        self.head = unsafe { emit(child, a, b, self.head) };
     }
 
     fn record(&mut self, other: i32, found_shape: u32) -> bool {
@@ -210,14 +236,37 @@ impl<'a> Emitter<'a> {
         if !unsafe { crate::bodies::should_collide(a[1], b[1]) } {
             return true;
         }
-        if !unsafe {
-            crate::callbacks::filter(self.world, found_shape as usize, self.query_shape as usize)
-        } {
+        if !self.pending.is_null()
+            && (a[crate::shapes::S_FLAGS] | b[crate::shapes::S_FLAGS]) & (4 << 16) != 0
+        {
+            unsafe {
+                (*self.pending).push(DeferredPair {
+                    child,
+                    a: found_shape,
+                    b: self.query_shape,
+                    before: self.head,
+                    accepted: false,
+                });
+            }
             return true;
         }
+        crate::callback_work::note(self.world, crate::callback_work::Work::PairParallel);
         self.emit(child, found_shape, self.query_shape);
         true
     }
+}
+
+unsafe fn emit(child: u32, a: u32, b: u32, next: u32) -> u32 {
+    let index = CAND_COUNT.fetch_add(1, Ordering::Relaxed);
+    if index >= CAND_CAP {
+        return next;
+    }
+    let entry = (CAND_PTR as *mut u32).add(index * CAND_STRIDE);
+    *entry = child;
+    *entry.add(1) = a;
+    *entry.add(2) = b;
+    *entry.add(3) = next;
+    index as u32
 }
 
 fn shapes_collide(a: &[u32], b: &[u32]) -> bool {
@@ -239,7 +288,6 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
         let move_buf = core::slice::from_raw_parts(MOVE_PTR as *const u32, move_count);
         let moved = core::slice::from_raw_parts(MOVED_PTR as *const u64, MOVED_WORDS);
         let cand_end = CANDEND_PTR as *mut u32;
-        let cand = CAND_PTR as *mut u32;
         let items = core::slice::from_raw_parts(broad::set_items(world_index), set_cap);
         let shape = shape_col(world_index);
         let stack = &mut [0i32; tree::STACK_SIZE];
@@ -269,8 +317,6 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             shape,
             moved,
             items,
-            cand,
-            cand_cap: CAND_CAP,
             head: u32::MAX,
             lower: crate::math::Vec3::ZERO,
             upper: crate::math::Vec3::ZERO,
@@ -278,10 +324,16 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             query_key: 0,
             query_dynamic: false,
             tree_type: 0,
+            pending: core::ptr::null_mut(),
         };
 
         for i in start..end {
             em.head = u32::MAX;
+            em.pending = if PENDING.is_null() {
+                PENDING
+            } else {
+                PENDING.add(i)
+            };
             let query_key = move_buf[i];
             let proxy_type = (query_key & 3) as usize;
             let proxy_id = (query_key >> 2) as i32;

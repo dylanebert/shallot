@@ -221,13 +221,20 @@ pub unsafe fn finalize(
                 s2 + S2_FLAGS,
                 f32::from_bits(flags | crate::continuous::IS_FAST),
             );
-            if flags & crate::continuous::IS_BULLET != 0 || crate::continuous::callbacks_deferred()
-            {
+            if flags & crate::continuous::IS_BULLET != 0 {
                 crate::continuous::add_bullet(i);
-                if flags & crate::continuous::IS_BULLET == 0 {
-                    continue;
-                }
+            } else if crate::continuous::callback_body(world_index, i) {
+                crate::callback_work::note(
+                    world_index,
+                    crate::callback_work::Work::ContinuousSerial,
+                );
+                crate::continuous::add_deferred(i);
+                continue;
             } else {
+                crate::callback_work::note(
+                    world_index,
+                    crate::callback_work::Work::ContinuousParallel,
+                );
                 crate::continuous::solve(world_index, worker, i);
             }
         } else {
