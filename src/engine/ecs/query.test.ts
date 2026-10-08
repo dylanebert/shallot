@@ -83,7 +83,7 @@ test("an eid destroyed and reused before its visit waits for the next query iter
     expect([...query]).toEqual([a, b]);
 });
 
-test("a nested iteration after membership changes preserves the outer boundary and ascending visits", () => {
+test("a nested iteration visits the current order without reordering the outer boundary", () => {
     const query = subject();
     const outer: number[] = [];
     for (const eid of query) {
@@ -94,9 +94,23 @@ test("a nested iteration after membership changes preserves the outer boundary a
         query.remove(3);
         query.add(3);
         query.add(5);
-        expect([...query]).toEqual([1, 2, 3, 4, 5]);
+        expect([...query]).toEqual([2, 4, 1, 3, 5]);
     }
     expect(outer).toEqual([1, 2, 4]);
+    expect([...query]).toEqual([1, 2, 3, 4, 5]);
+});
+
+test("sorting waits until every iterator finishes or returns, including an iterator not yet advanced", () => {
+    const query = subject();
+    const outer = query[Symbol.iterator]();
+    const nested = query[Symbol.iterator]();
+    query.remove(1);
+    query.add(1);
+    outer.return!();
+    expect([...query]).toEqual([2, 3, 4, 1]);
+    nested.return!();
+    nested.return!();
+    expect([...query]).toEqual([1, 2, 3, 4]);
 });
 
 test("borrowed query iterators and results are reused after completion or early return", () => {

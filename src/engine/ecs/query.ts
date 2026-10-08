@@ -52,9 +52,7 @@ export const or = makeOp("or");
 
 interface QueryOrder {
     dense: number[];
-    addedAt: number[];
-    membership: number;
-    sorted: number;
+    active: number;
 }
 
 const ascending = (a: number, b: number) => a - b;
@@ -64,9 +62,6 @@ class QueryIterator implements Iterator<number> {
     private _i = 0;
     private _count = 0;
     private _order!: QueryOrder;
-    private _membership = 0;
-    private _sorted = 0;
-    private _last = 0;
     private _active = false;
     private readonly _r = { value: 0, done: false };
     private readonly _pool: QueryIterator[];
@@ -78,9 +73,7 @@ class QueryIterator implements Iterator<number> {
     reset(order: QueryOrder): void {
         this._order = order;
         this._count = order.dense.length;
-        this._membership = order.membership;
-        this._sorted = order.sorted;
-        this._last = 0;
+        order.active++;
         this._i = 0;
         this._r.done = false;
         this._active = true;
@@ -90,23 +83,10 @@ class QueryIterator implements Iterator<number> {
         const r = this._r;
         if (!this._active) return r;
         const order = this._order;
-        if (this._sorted !== order.sorted) {
-            // A nested iteration sorted changed membership; resume after the last returned eid.
-            let lo = 0;
-            let hi = order.dense.length;
-            while (lo < hi) {
-                const mid = (lo + hi) >>> 1;
-                if (order.dense[mid] <= this._last) lo = mid + 1;
-                else hi = mid;
-            }
-            this._i = lo;
-            this._count = order.dense.length;
-            this._sorted = order.sorted;
-        }
         while (this._i < this._count) {
             const eid = order.dense[this._i++];
-            if (!eid || order.addedAt[eid] > this._membership) continue;
-            r.value = this._last = eid;
+            if (!eid) continue;
+            r.value = eid;
             return r;
         }
         this.reclaim();
@@ -125,19 +105,21 @@ class QueryIterator implements Iterator<number> {
         this._r.done = true;
         if (this._active) {
             this._active = false;
+            this._order.active--;
             this._pool.push(this);
         }
     }
 }
 
 /**
- * Each iteration starts in ascending eid order, determined only by membership. Changed membership
- * is compacted and sorted in place at iteration start; unchanged iterations allocate nothing after
- * iterator-pool warmup. Removing a member never reorders the remaining members.
- * An iteration visits each starting member at most once: removing the current or an already visited
- * member leaves later visits unchanged; removing an unvisited member skips it. New memberships,
- * including removed/re-added members and reused eids, wait for the next iteration. A nested iteration
- * sorts its own starting membership; that sort preserves the outer iteration's boundary and order.
+ * When no iterator of this query is active, starting an iteration compacts and sorts changed
+ * membership in place into ascending eid order. A nested iteration never reorders the shared array:
+ * it visits the current order, skipping removed members. Sorting waits until every active iterator
+ * completes or returns. Unchanged iterations allocate nothing after iterator-pool warmup.
+ * Removing a member never reorders the remaining members. Each iteration visits its starting
+ * memberships at most once: removing the current or an already visited member leaves later visits
+ * unchanged; removing an unvisited member skips it. Additions, including removed/re-added members
+ * and reused eids, wait for an iteration started after the addition.
  * Iterators and their result objects are borrowed until completion or return; do not retain results.
  */
 export class RegisteredQuery implements Iterable<number> {
@@ -145,7 +127,7 @@ export class RegisteredQuery implements Iterable<number> {
     readonly excluded: any[] = [];
     readonly orGroups: any[][] = [];
     readonly all = new Set<any>();
-    private readonly _order: QueryOrder = { dense: [], addedAt: [], membership: 0, sorted: 0 };
+    private readonly _order: QueryOrder = { dense: [], active: 0 };
     private _sparse: number[] = [];
     private _dirty = false;
     private _iterPool: QueryIterator[] = [];
@@ -188,7 +170,6 @@ export class RegisteredQuery implements Iterable<number> {
         if (idx !== undefined && idx >= 0 && dense[idx] === eid) return;
         this._sparse[eid] = dense.length;
         dense.push(eid);
-        this._order.addedAt[eid] = ++this._order.membership;
         this._dirty = true;
     }
 
@@ -198,7 +179,6 @@ export class RegisteredQuery implements Iterable<number> {
         // A tombstone skips an unvisited member without moving another member into its position.
         this._order.dense[idx] = 0;
         this._sparse[eid] = -1;
-        this._order.membership++;
         this._dirty = true;
     }
 
@@ -211,14 +191,13 @@ export class RegisteredQuery implements Iterable<number> {
     }
 
     [Symbol.iterator](): Iterator<number> {
-        if (this._dirty) {
+        if (this._dirty && this._order.active === 0) {
             const dense = this._order.dense;
             let count = 0;
             for (let i = 0; i < dense.length; i++) if (dense[i]) dense[count++] = dense[i];
             dense.length = count;
             dense.sort(ascending);
             for (let i = 0; i < count; i++) this._sparse[dense[i]] = i;
-            this._order.sorted++;
             this._dirty = false;
         }
         const it = this._iterPool.pop() ?? new QueryIterator(this._iterPool);

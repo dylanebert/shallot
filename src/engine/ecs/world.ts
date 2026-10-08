@@ -643,8 +643,9 @@ export class World {
         return this._components.has(eid, component);
     }
 
-    /** Find matching entities in ascending eid order. Membership changes take effect as documented
-     * by RegisteredQuery; unchanged iterations allocate nothing after iterator-pool warmup. */
+    /** Find matching entities. An idle query starts in ascending eid order; nested iterations keep
+     * the current array order. Membership changes follow RegisteredQuery's iteration contract;
+     * unchanged iterations allocate nothing after iterator-pool warmup. */
     query(terms: any[]): Iterable<number> {
         return this._queries.find(terms, this._components, this._entities);
     }
