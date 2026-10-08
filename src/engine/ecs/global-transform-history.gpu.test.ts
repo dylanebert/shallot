@@ -323,3 +323,76 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
         }
     });
 }
+
+configs.push({ defaults: false, plugins: [RenderingPlugin] });
+test("public exact ticks defer growth copies and retain interpolation, teleport and spawn history beyond the catch-up cap", async () => {
+    const app = subjects()[5];
+    const { world } = app;
+    try {
+        attachTestCamera(world);
+        const stationary = world.create();
+        const moving = world.create();
+        const jumping = world.create();
+        for (const eid of [stationary, moving, jumping]) world.add(eid, Transform);
+        const source = world.storage(Transform).translation;
+        source.x.set(stationary, 33);
+        const table = globalTransformTable(world);
+        world.step(0);
+        const capacity = table.buffer.size;
+        let spawned = -1;
+        world.addSystem({
+            group: "fixed",
+            update() {
+                const tick = world.time.fixedTick;
+                source.x.set(moving, tick * 10);
+                source.x.set(jumping, tick * 10);
+                if (tick === 2) {
+                    for (let i = 0; i < 100; i++) {
+                        const eid = world.create();
+                        world.add(eid, Transform, { translation: [i + 1000, 0, 0, 0] });
+                    }
+                }
+                if (tick === 8) {
+                    source.x.set(jumping, 800);
+                    world.teleport(jumping);
+                    spawned = world.create();
+                    world.add(spawned, Transform, { translation: [900, 0, 0, 0] });
+                }
+            },
+        });
+        const queue = world.gpu.device.queue;
+        const descriptor = Object.getOwnPropertyDescriptor(queue, "submit");
+        const submit = queue.submit.bind(queue);
+        let submissions = 0;
+        Object.defineProperty(queue, "submit", {
+            configurable: true,
+            value: (...args: Parameters<GPUQueue["submit"]>) => {
+                submissions++;
+                return submit(...args);
+            },
+        });
+        const frame = world.gpu.frame;
+        try {
+            for (let i = 0; i < 8; i++) world.tick();
+            expect(submissions).toBe(0);
+            expect(world.gpu.frame).toBe(frame);
+            expect(table.buffer.size).toBeGreaterThan(capacity);
+        } finally {
+            if (descriptor) Object.defineProperty(queue, "submit", descriptor);
+            else Reflect.deleteProperty(queue, "submit");
+        }
+        world.step(Time.FIXED_DT / 2);
+        const words = new Float32Array(
+            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
+        );
+        for (const [eid, x] of [
+            [stationary, 33],
+            [moving, 75],
+            [jumping, 800],
+            [spawned, 900],
+        ])
+            expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(x, 5);
+    } finally {
+        app.dispose();
+    }
+});

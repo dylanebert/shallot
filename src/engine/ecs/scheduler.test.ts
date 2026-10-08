@@ -2,6 +2,55 @@ import { expect, test } from "bun:test";
 import { Scheduler } from "./scheduler";
 import { World } from "./world";
 
+test("engine group boundaries bracket first, last, late-added and terminal systems without edges", () => {
+    const scheduler = new Scheduler();
+    const world = new World();
+    const order: string[] = [];
+    for (const [name, constraints] of [
+        ["first", { first: true }],
+        ["normal", {}],
+        ["last", { last: true }],
+        ["terminal", { terminal: true }],
+    ] as const)
+        scheduler.register({
+            group: "fixed",
+            ...constraints,
+            update: () => {
+                order.push(name);
+            },
+        });
+    scheduler.registerBoundary(
+        {
+            group: "fixed",
+            update: () => {
+                order.push("start");
+            },
+        },
+        "before",
+    );
+    scheduler.registerBoundary(
+        {
+            group: "fixed",
+            update: () => {
+                order.push("end");
+            },
+        },
+        "after",
+    );
+    scheduler.tick(world);
+    expect(order).toEqual(["start", "first", "normal", "last", "terminal", "end"]);
+    order.length = 0;
+    scheduler.register({
+        group: "fixed",
+        last: true,
+        update: () => {
+            order.push("late");
+        },
+    });
+    scheduler.tick(world);
+    expect(order).toEqual(["start", "first", "normal", "last", "late", "terminal", "end"]);
+});
+
 for (const phase of ["update", "setup"] as const) {
     test(`a throwing ${phase} ends the step, retries next step and leaves the world disposable`, () => {
         const world = new World();

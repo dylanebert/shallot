@@ -63,6 +63,7 @@ export interface System {
 export class Scheduler {
     logAndPauseErrors = false;
     private readonly _systems = new Set<System>();
+    private readonly _boundaries = new Map<System, "before" | "after">();
     private _systemsVersion = 0;
     private _accumulator = 0;
     private readonly _initialized = new WeakSet<System>();
@@ -121,6 +122,16 @@ export class Scheduler {
         }
     }
 
+    /** @internal Engine-owned slots bracket every ordinary system, including terminal systems. */
+    registerBoundary(system: System, position: "before" | "after"): void {
+        for (const [registered, slot] of this._boundaries) {
+            if (registered !== system && slot === position && registered.group === system.group)
+                throw new Error(`System group ${system.group} already has a ${position} boundary`);
+        }
+        this._boundaries.set(system, position);
+        this.register(system, "Engine");
+    }
+
     register(system: System, pluginName?: string): void {
         this._systems.add(system);
         this._systemsVersion++;
@@ -139,6 +150,7 @@ export class Scheduler {
     unregister(system: System): void {
         if (this._systems.delete(system)) {
             this._errored.delete(system);
+            this._boundaries.delete(system);
             this._names.delete(system);
             this._initialized.delete(system);
             this._systemsVersion++;
@@ -278,7 +290,12 @@ export class Scheduler {
 
         const all = Array.from(this._systems);
         const filtered = all.filter((s) => (s.group ?? "simulation") === group);
-        const sorted = sortSystems(filtered, all);
+        const ordinary = filtered.filter((s) => !this._boundaries.has(s));
+        const sorted = [
+            ...filtered.filter((s) => this._boundaries.get(s) === "before"),
+            ...sortSystems(ordinary, all),
+            ...filtered.filter((s) => this._boundaries.get(s) === "after"),
+        ];
         this._cache.set(group, sorted);
         return sorted;
     }

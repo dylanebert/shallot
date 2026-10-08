@@ -563,6 +563,11 @@ export class World {
         return result;
     }
 
+    /** @internal Only engine owners register group boundaries; plugins use addSystem. */
+    addBoundarySystem(system: System, position: "before" | "after"): void {
+        this._scheduler.registerBoundary(system, position);
+    }
+
     addSystem(system: System, pluginName?: string): void {
         this._scheduler.register(system, pluginName);
     }

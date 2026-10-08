@@ -63,7 +63,25 @@ test("GlobalTransform is an engine-owned public schema, independent of Physics",
 });
 
 test("built-in placement systems bracket exact ticks and gather after every simulation system without a plugin", async () => {
-    const app = await createApp({ defaults: false, plugins: [] });
+    let eid = -1;
+    let start = 0;
+    const app = await createApp({
+        defaults: false,
+        plugins: [
+            {
+                name: "FirstPlacementReader",
+                systems: [
+                    {
+                        group: "fixed",
+                        first: true,
+                        update: (world) => {
+                            start = world.storage(GlobalTransform).translation.x.get(eid);
+                        },
+                    },
+                ],
+            },
+        ],
+    });
     const world = app.world;
     try {
         for (const system of [
@@ -72,29 +90,24 @@ test("built-in placement systems bracket exact ticks and gather after every simu
             PrepareGlobalTransformSystem,
         ])
             expect(world.hasSystem(system)).toBe(true);
-        const eid = world.create();
+        eid = world.create();
         world.add(eid, Transform);
         const source = world.storage(Transform).translation;
         const global = world.storage(GlobalTransform).translation;
-        let start = 0;
-        world.addSystem({
-            group: "fixed",
-            first: true,
-            after: [GlobalTransformTickStartSystem],
-            update: () => {
-                start = global.x.get(eid);
-            },
-        });
         world.addSystem({
             group: "fixed",
             last: true,
-            before: [GlobalTransformTickEndSystem],
             update: () => source.x.set(eid, 7),
+        });
+        world.addSystem({
+            group: "fixed",
+            terminal: true,
+            update: () => source.x.set(eid, source.x.get(eid) + 2),
         });
         source.x.set(eid, 3);
         world.tick();
         expect(start).toBe(3);
-        expect(global.x.get(eid)).toBe(7);
+        expect(global.x.get(eid)).toBe(9);
         world.addSystem({ group: "simulation", last: true, update: () => source.x.set(eid, 11) });
         let drawn = 0;
         world.addSystem({

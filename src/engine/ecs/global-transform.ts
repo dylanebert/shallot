@@ -3,6 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Xform } from "../utils";
 import { component, vec4 } from "./component";
+import type { System } from "./scheduler";
 import type { ComponentStorage } from "./storage";
 import type { GpuTable } from "./table";
 import type { World } from "./world";
@@ -101,6 +102,10 @@ export function registerGlobalTransform(world: World): void {
 }
 /** @internal Install once before setup authoring. GPU residency waits for a reader. */
 export function initializeGlobalTransform(world: World): void {
+    if (world.globalTransformRuntime) return;
+    world.addBoundarySystem(GlobalTransformTickStartSystem, "before");
+    world.addBoundarySystem(GlobalTransformTickEndSystem, "after");
+    world.addBoundarySystem(PrepareGlobalTransformSystem, "before");
     const runtime: GlobalTransformRuntime = {
         enabled: false,
         tickCount: 0,
@@ -120,6 +125,30 @@ export function initializeGlobalTransform(world: World): void {
         if (present && runtime.enabled) queueDiscontinuity(runtime, eid);
     });
 }
+
+/** Runs before every fixed system, including first systems. Installed with world placement. */
+export const GlobalTransformTickStartSystem: System = {
+    group: "fixed",
+    first: true,
+    name: "global-transform-tick-start",
+    update: beginGlobalTransformTick,
+};
+
+/** Runs after every fixed placement writer, including last and terminal systems; no ordering edge is needed. */
+export const GlobalTransformTickEndSystem: System = {
+    group: "fixed",
+    last: true,
+    name: "global-transform-tick-end",
+    update: endGlobalTransformTick,
+};
+
+/** Gathers after simulation and before all draw systems, including the frame encoder and upload point. */
+export const PrepareGlobalTransformSystem: System = {
+    group: "draw",
+    first: true,
+    name: "prepare-global-transform",
+    update: prepareGlobalTransform,
+};
 
 /** The engine's interpolated dense GlobalTransform rows. Request before stepping a renderer. */
 export function globalTransformTable(world: World): GpuTable<typeof Xform> {

@@ -1,12 +1,9 @@
 /// <reference types="@webgpu/types" />
 
 import {
-    beginGlobalTransformTick,
     type Component,
     declaration,
-    endGlobalTransformTick,
     initializeGlobalTransform,
-    prepareGlobalTransform,
     registerGlobalTransform,
     type System,
     sameComponentSchema,
@@ -207,29 +204,11 @@ export const ClearChangeMarksSystem: System = {
     },
 };
 
-export const GlobalTransformTickStartSystem: System = {
-    group: "fixed",
-    first: true,
-    name: "global-transform-tick-start",
-    update: beginGlobalTransformTick,
-};
-
-/** A last fixed system writing placement orders `before: [GlobalTransformTickEndSystem]`
- * so its final columns enter tick history. */
-export const GlobalTransformTickEndSystem: System = {
-    group: "fixed",
-    last: true,
-    name: "global-transform-tick-end",
-    update: endGlobalTransformTick,
-};
-
-export const PrepareGlobalTransformSystem: System = {
-    group: "draw",
-    first: true,
-    name: "prepare-global-transform",
-    before: [ClearChangeMarksSystem],
-    update: prepareGlobalTransform,
-};
+export {
+    GlobalTransformTickEndSystem,
+    GlobalTransformTickStartSystem,
+    PrepareGlobalTransformSystem,
+} from "../ecs";
 
 let _defaultPlugins: readonly Plugin[] = [];
 let _defaultLoading: (() => Loading) | null = null;
@@ -330,9 +309,6 @@ async function buildNow(config: AppConfig): Promise<App> {
             }
         }
 
-        world.addSystem(GlobalTransformTickStartSystem, "Engine");
-        world.addSystem(GlobalTransformTickEndSystem, "Engine");
-        world.addSystem(PrepareGlobalTransformSystem, "Engine");
         world.addSystem(ClearChangeMarksSystem, "Engine");
 
         // Assign registered components their world-owned columns before loading.
