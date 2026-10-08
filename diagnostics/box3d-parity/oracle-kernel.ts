@@ -4,27 +4,24 @@ import { join } from "node:path";
 import { run } from "./native";
 
 const target = join(tmpdir(), "shallot-box3d-functions-wasm");
-const supplied = process.env.BOX3D_ORACLE_WASM;
-if (!supplied) {
-    run(
-        [
-            "cargo",
-            "build",
-            "--release",
-            "--target",
-            "wasm32-unknown-unknown",
-            "-p",
-            "shallot-physics",
-            "--features",
-            "box3d-oracle",
-            "--target-dir",
-            target,
-        ],
-        { RUSTFLAGS: "-C target-feature=+simd128 --remap-path-prefix=crates/physics/=" },
-    );
-}
+run(
+    [
+        "cargo",
+        "build",
+        "--release",
+        "--target",
+        "wasm32-unknown-unknown",
+        "-p",
+        "shallot-physics",
+        "--features",
+        "box3d-oracle",
+        "--target-dir",
+        target,
+    ],
+    { RUSTFLAGS: "-C target-feature=+simd128 --remap-path-prefix=crates/physics/=" },
+);
 export const oracleWasm = new Uint8Array(
-    readFileSync(supplied ?? join(target, "wasm32-unknown-unknown/release/shallot_physics.wasm")),
+    readFileSync(join(target, "wasm32-unknown-unknown/release/shallot_physics.wasm")),
 );
 
 export async function assertPublicOracleKernel(): Promise<void> {
