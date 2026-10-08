@@ -33,7 +33,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Uploads preserve command order across buffer growth.
 - Growth preserves contents and changes generation; consumers rebuild affected bind groups, not pipelines.
 - Shader arrays are runtime-sized. Device buffer limits bound table capacity, and refusal names the cause.
-- Fixed writes precede head-of-draw upload and GPU passes.
+- Fixed writes precede head-of-draw upload and GPU passes, including writes from exact ticks before a frame.
 - Engine work records on the renderer's frame encoder, never a separate steady-play submission.
 - TypeGPU is the engine and extension GPU language; raw WGSL uses its escape hatch.
 - Steady updates use raw handles and byte ranges, not allocating object-form writes. Buffer generations, row addressing and upload APIs are documented beside [GpuTable](src/engine/ecs/table.ts).
@@ -161,7 +161,9 @@ bun run format                   # biome
 - Device-backed checks record adapter classification, and a hardware claim requires a real adapter.
 - Browser observations accept software adapters and request no adapter themselves.
 - Display-bound measurements name a monitor and take its keyboard and cursor.
-- Gameplay assertions step the composed app; simulation lives in registered components or snapshot, restore and hash hooks.
+- Gameplay assertions drive the composed world: `tick()` advances one fixed tick; `step(deltaTime)` paces fixed work and runs simulation and draw. Exact ticks preserve changes for the next frame upload and advance no GPU frame or readback.
+- Fixed systems read tick time; simulation and draw read the virtual frame clock. Pause and scale pace `step`, never explicit ticks.
+- Simulation lives in registered components or snapshot, restore and hash hooks.
 - `fixed` reads per-tick actions, `draw` presents, and `local` components are excluded from hashes.
 - Determinism holds within one runtime and engine version; hashes detect divergence across versions.
 - Frame evidence uses the cheapest observable: CPU state, then GPU readback, then browser pixels, then a person.

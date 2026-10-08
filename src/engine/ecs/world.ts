@@ -360,11 +360,14 @@ export class World {
         return this._scheduler.time;
     }
 
-    /** Advance one frame by `deltaTime` seconds; refuses a negative or non-finite delta.
+    /** Advance a virtual frame by `deltaTime` seconds, with paced fixed work, simulation and draw.
+     * Pause, scale and the catch-up cap apply only here. Refuses inside a step or tick,
+     * or a negative or non-finite delta.
      * A system setup/update throw ends the step with a named Error and the thrown value as cause.
      * Later systems and the GPU frame do not advance; the next step retries the system.
      * Under `runApp`, errors instead log and pause the system until swapped or rebuilt. */
     step(deltaTime = Time.DEFAULT_DT): void {
+        if (this._stepping) throw new Error("World.step: refuses inside a step or tick");
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
         this._stepInput.deltaTime = deltaTime;
@@ -383,8 +386,22 @@ export class World {
         }
     }
 
-    /** freeze the virtual clock: gameplay (`time.deltaTime`/`elapsed`) and physics hold; the real clock keeps
-     * running for camera/UI/input. takes effect next frame. {@link resume} restores the prior {@link setTimeScale}. */
+    /** Advance exactly one fixed tick, ignoring pause, scale and catch-up limits. Runs only the fixed
+     * group (including its lazy system setup), not setup, simulation or draw groups. Does not advance
+     * the GPU frame or readback; field changes and deferred copies remain for the next frame upload.
+     * Refuses inside a step or tick. Errors follow {@link step}; the tick count is not rolled back. */
+    tick(): void {
+        if (this._stepping) throw new Error("World.tick: refuses inside a step or tick");
+        this._stepping = true;
+        try {
+            this._scheduler.tick(this);
+        } finally {
+            this._stepping = false;
+        }
+    }
+
+    /** Freeze the virtual frame clock and step's fixed work, not {@link tick}. The real frame clock
+     * keeps running. Takes effect next frame; resume retains the prior scale. */
     pause(): void {
         this._scheduler.pause();
     }
@@ -395,7 +412,7 @@ export class World {
     }
 
     /** set the virtual timescale: 1 real time, <1 slow-mo, >1 fast-forward, 0 freeze (negative clamps to 0).
-     * read via `time.scale`. */
+     * Applies to step's virtual clock and tick frequency, never to explicit {@link tick}. Read via `time.scale`. */
     setTimeScale(scale: number): void {
         this._scheduler.setScale(scale);
     }

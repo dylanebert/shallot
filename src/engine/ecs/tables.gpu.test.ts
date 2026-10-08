@@ -239,6 +239,32 @@ test("component fields bulk-upload through a dense struct table and release thei
     expect(table.count).toBe(0);
 });
 
+const tickUpload = subject("TickUploadProbe", [Bound], (world) => {
+    const table = world.table("tick-upload", d.struct({ x: d.f32 }));
+    table.bindComponent(Bound, { x: "x" });
+    return table;
+});
+
+test("tick field writes survive until the next draw upload without advancing GPU frames", async () => {
+    const { world, table } = tickUpload();
+    const eid = world.create();
+    world.add(eid, Bound);
+    await stepAndValidate(world, "initial tick table upload");
+    const frame = world.gpu.frame;
+    const x = world.storage(Bound).x;
+    const system = { group: "fixed" as const, update: () => x.set(eid, 42) };
+    world.addSystem(system);
+    world.tick();
+    expect(world.gpu.frame).toBe(frame);
+    world.removeSystem(system);
+    await stepAndValidate(world, "tick table upload");
+    const record = await bounded(
+        "tick row",
+        probeBuffer(world, table.buffer, { size: table.rowBytes }),
+    );
+    expect(new DataView(record.bytes).getFloat32(0, true)).toBe(42);
+});
+
 const dense = subject("DenseTableProbe", [], (world) =>
     world.table("dense-table-probe", d.struct({ value: d.u32 })),
 );

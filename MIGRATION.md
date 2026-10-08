@@ -2,6 +2,13 @@
 
 These changes require updates to a 0.9.5 app.
 
+## Fixed systems read tick time
+
+Inside `fixed`, `world.time.elapsed` is now `fixedTick * Time.FIXED_DT`, not the
+virtual frame elapsed time. Each catch-up tick reads its own time. Keep simulation
+trajectories on this clock; move frame-time effects to `simulation` or `draw`,
+where `elapsed` remains the virtual frame clock.
+
 ## System errors end a stepped frame
 
 Outside `runApp`, `world.step()` now throws when a system's setup or update throws.

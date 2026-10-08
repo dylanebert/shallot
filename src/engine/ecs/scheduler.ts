@@ -19,8 +19,7 @@ export const Time = {
 } as const;
 
 export interface Time {
-    /** virtual seconds since last frame: clamped, then scaled by {@link Time.scale} (0 while paused). the
-     * default gameplay clock; sim systems read this, so pause and slow-mo reach them for free */
+    /** In fixed, FIXED_DT seconds; outside fixed, clamped and scaled virtual frame seconds (0 while paused). */
     deltaTime: number;
     /** seconds since last frame, raw rAF interval before clamping or scaling */
     rawDeltaTime: number;
@@ -29,14 +28,13 @@ export interface Time {
     realDeltaTime: number;
     /** fixed timestep interval (1/60), constant; slow-mo reduces tick frequency, not per-tick dt */
     fixedDeltaTime: number;
-    /** total elapsed virtual time in seconds (advances with {@link Time.deltaTime}, frozen while paused) */
+    /** In fixed, fixedTick * FIXED_DT seconds; outside fixed, total virtual frame seconds, frozen while paused. */
     elapsed: number;
     /** total elapsed real time in seconds (advances with {@link Time.realDeltaTime}, runs through a pause) */
     realElapsed: number;
     /** virtual timescale multiplier (1 = real time, <1 slow-mo, >1 fast-forward). set via `world.setTimeScale` */
     scale: number;
-    /** when true the virtual clock is frozen: `deltaTime`/`elapsed` hold and no fixed steps run. set via
-     * `world.pause`/`world.resume`. separate from `scale = 0` so resume restores the prior speed */
+    /** Freezes the virtual frame clock and step's fixed work, not explicit ticks. Resume retains scale. */
     paused: boolean;
     /** fixed steps taken this frame (0–4) */
     fixedSteps: number;
@@ -204,11 +202,7 @@ export class Scheduler {
         // out of `real` above. Past the cap, drop the backlog rather than carry debt into future frames.
         let steps = 0;
         while (this._accumulator >= fixedDt && steps < Time.MAX_FIXED_STEPS) {
-            this._time.deltaTime = fixedDt;
-            this._time.fixedTick++;
-            beginGlobalTransformTick(world);
-            this.runGroup(world, "fixed");
-            endGlobalTransformTick(world);
+            this.tick(world);
             this._accumulator -= fixedDt;
             steps++;
         }
@@ -224,6 +218,22 @@ export class Scheduler {
         this.runGroup(world, "simulation");
         prepareGlobalTransform(world);
         this.runGroup(world, "draw");
+    }
+
+    tick(world: World): void {
+        const deltaTime = this._time.deltaTime;
+        const elapsed = this._time.elapsed;
+        this._time.fixedTick++;
+        this._time.deltaTime = Time.FIXED_DT;
+        this._time.elapsed = this._time.fixedTick * Time.FIXED_DT;
+        try {
+            beginGlobalTransformTick(world);
+            this.runGroup(world, "fixed");
+            endGlobalTransformTick(world);
+        } finally {
+            this._time.deltaTime = deltaTime;
+            this._time.elapsed = elapsed;
+        }
     }
 
     private runGroup(world: World, group: SystemGroup): void {
