@@ -1,5 +1,6 @@
 // Interleaved kernel comparison. Each timing sample is a fresh Node process.
 // bun diagnostics/box3d-parity/ab.ts <scene> <threads comma list> <from> <to exclusive> <rounds> <label=path> <label=path> ...
+// Use - for from/to/rounds to select the scene window and 12 rounds.
 // Paths are built JS bundles, kernel.wasm.ts artifacts, or directories containing both kernel artifacts.
 // Hashes are checked over the entire replay once per variant/thread cell; timings never hash.
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -8,12 +9,15 @@ import { dirname, join, resolve } from "node:path";
 import { PROFILE_FIELDS } from "../../src/standard/physics/world/profile";
 
 const [scene, threadArg, fromArg, toArg, roundsArg, ...variantArgs] = process.argv.slice(2);
-const from = Number(fromArg), to = Number(toArg), rounds = Number(roundsArg);
+const windows: Record<string, [number, number]> = { joint_grid: [20, 40], rain: [280, 320], junkyard: [180, 200] };
+const from = fromArg === "-" ? windows[scene]?.[0] : Number(fromArg);
+const to = toArg === "-" ? windows[scene]?.[1] : Number(toArg);
+const rounds = roundsArg === "-" ? 12 : Number(roundsArg);
 const threads = (threadArg ?? "").split(",").map(Number);
 if (!scene || !Number.isInteger(from) || from < 0 || !Number.isInteger(to) || to <= from ||
     !Number.isInteger(rounds) || rounds < 2 || threads.some(t => !Number.isInteger(t) || t < 1) ||
     variantArgs.length < 2 || variantArgs.some(v => !v.includes("="))) {
-    throw new Error("usage: ab.ts <scene> <threads comma list> <from> <to exclusive> <rounds >=2> <label=bundle.js|artifact-directory> ...");
+    throw new Error("usage: ab.ts <scene> <threads comma list> <from|-> <to exclusive|-> <rounds >=2|-> <label=bundle.js|artifact-directory> ... (- selects defaults)");
 }
 const median = (values: number[]) => {
     const s = [...values].sort((a, b) => a - b);
@@ -23,6 +27,24 @@ const range = (values: number[]) => ({ median: median(values), lo: Math.min(...v
 const display = (values: number[]) => {
     const r = range(values);
     return `${r.median.toFixed(3)} [${r.lo.toFixed(3)}, ${r.hi.toFixed(3)}]`;
+};
+// Paired sign test: https://www.itl.nist.gov/div898/software/dataplot/refman1/auxillar/signtest.htm
+// Apply its exact binomial tail to paired ratios, with a 2% minimum effect.
+// Two directional tails each get alpha=.025; inside the effect band counts against either claim.
+const verdict = (a: number[], b: number[]) => {
+    const ratios = a.map((x, i) => b[i] / x);
+    if (ratios.some(x => !Number.isFinite(x))) return "no difference";
+    const tail = (wins: number) => {
+        let mass = 2 ** -ratios.length, probability = 0;
+        for (let k = 0; k <= ratios.length; ++k) {
+            if (k >= wins) probability += mass;
+            mass *= (ratios.length - k) / (k + 1);
+        }
+        return probability;
+    };
+    if (tail(ratios.filter(x => x < 0.98).length) <= 0.025) return "faster";
+    if (tail(ratios.filter(x => x > 1.02).length) <= 0.025) return "slower";
+    return "no difference";
 };
 const dir = mkdtempSync(join(tmpdir(), "box3d-ab-"));
 const start = performance.now();
@@ -79,11 +101,8 @@ try {
         }
         for (let k = 0; k < PROFILE_FIELDS.length; ++k) {
             const values = samples.map(s => s.map(r => r.phases[k]));
-            const ranges = values.map(range);
-            const pairs = variants.flatMap((v, i) => variants.slice(i + 1).map((w, j) => {
-                const a = ranges[i], b = ranges[i + j + 1];
-                return `${v.label}/${w.label} ${a.hi < b.lo || b.hi < a.lo ? "disjoint" : "overlap"}`;
-            }));
+            const pairs = variants.flatMap((v, i) => variants.slice(i + 1).map((w, j) =>
+                `${w.label} vs ${v.label}: ${verdict(values[i], values[i + j + 1])}`));
             console.log(`${PROFILE_FIELDS[k]}: ${variants.map((v, i) => `${v.label} ${display(values[i])}`).join("; ")}; ${pairs.join("; ")}`);
         }
         for (const [i, v] of variants.entries()) {
