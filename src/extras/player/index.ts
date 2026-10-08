@@ -340,6 +340,8 @@ export const UpdatePlayerControlSystem: System = {
 /** First-person feel and camera over standard physics's velocity-driven capsule. */
 export const PlayerPlugin: Plugin = {
     name: "Player",
+    // Fixed movement and follow history live in components; Devices belongs to Input.
+    recovery: "stateless",
     systems: [DrivePlayerSystem, SnapshotPlayerPositionSystem, UpdatePlayerControlSystem],
     components: [PlayerMotion, Player],
     dependencies: [CharacterPlugin, InputPlugin],

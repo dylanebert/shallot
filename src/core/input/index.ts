@@ -984,6 +984,38 @@ const ResetFrameInputSystem: System = {
 /** Owns plain device facts, transitions and independent fixed- and frame-clock boundaries. */
 export const InputPlugin: Plugin = {
     name: "Input",
+    recovery: (world) => ({
+        snapshot: () => structuredClone(record(world)),
+        restore(saved: DeviceRecord) {
+            const d = record(world);
+            for (const key of [
+                "held",
+                "pressed",
+                "released",
+                "tickPressed",
+                "tickReleased",
+            ] as const) {
+                d.keys[key].clear();
+                for (const value of saved.keys[key]) d.keys[key].add(value);
+            }
+            d.keys.pressedTick.clear();
+            for (const [key, tick] of saved.keys.pressedTick) d.keys.pressedTick.set(key, tick);
+            const { normalizedX: _x, normalizedY: _y, lock, ...pointer } = saved.pointer;
+            Object.assign(d.pointer, pointer);
+            Object.assign(d.pointer.lock, lock);
+            Object.assign(d.touch, saved.touch);
+            Object.assign(d.audio, saved.audio);
+            d.touchPoints.clear();
+            for (const [id, point] of saved.touchPoints) d.touchPoints.set(id, { ...point });
+            d.suspended = saved.suspended;
+            d.requireLock = saved.requireLock;
+            d.focused = saved.focused;
+            d.pinchDistance = saved.pinchDistance;
+            d.centroidX = saved.centroidX;
+            d.centroidY = saved.centroidY;
+            d.pointerCanvasIndex = saved.pointerCanvasIndex;
+        },
+    }),
     systems: [InputSystem, ResetFixedInputSystem, ResetFrameInputSystem],
 };
 

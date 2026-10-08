@@ -33,6 +33,12 @@ export interface Plugin {
     /** Declares whether fixed simulation replays deterministically (default true).
      * Fixed consumers of GPU readback declare false. Byte access is not guarded. */
     readonly deterministic?: boolean;
+    /** Binds a snapshot/restore pair to each world during plugin registration, before initialize.
+     * Fixed plugins must declare a participant for hidden simulation state outside components or
+     * `"stateless"` when components or per-call reconstruction hold it all. Images are independent
+     * and reusable; restore sees recovered ECS identity, fields and fixedTick.
+     * Host handles and presentation are outside capture; live device reads are not replay inputs. */
+    readonly recovery?: ((world: World) => import("../ecs").Recovery) | "stateless";
     /** systems this plugin adds to the scheduler */
     readonly systems?: readonly System[];
     /** components registered under exact stable keys, with their defaults and requirements */
@@ -300,6 +306,16 @@ async function buildNow(config: AppConfig): Promise<App> {
         if (world.gpu.adapter.class !== "real") loading?.notice?.(world.gpu.adapter);
 
         for (const plugin of sorted) {
+            if (
+                plugin.recovery !== undefined ||
+                plugin.systems?.some((system) => system.group === "fixed")
+            )
+                world.registerRecovery(
+                    plugin.name,
+                    typeof plugin.recovery === "function"
+                        ? plugin.recovery(world)
+                        : plugin.recovery,
+                );
             for (const entry of plugin.components ?? []) {
                 world.registry.register(entry, plugin.name);
                 world.storage(entry);
@@ -607,6 +623,16 @@ export async function swapPlugins(
 
     for (const [name, nextPlugin] of nextByName) {
         const prevPlugin = prevByName.get(name)!;
+        if (
+            nextPlugin.recovery !== undefined ||
+            nextPlugin.systems?.some((system) => system.group === "fixed")
+        )
+            world.registerRecovery(
+                name,
+                typeof nextPlugin.recovery === "function"
+                    ? nextPlugin.recovery(world)
+                    : nextPlugin.recovery,
+            );
         for (const entry of nextPlugin.components ?? []) {
             world.registry.register(entry, nextPlugin.name);
             world.storage(entry);
@@ -641,6 +667,7 @@ function shapeDiff(
     prevIndex: Map<System, number>,
     nextIndex: Map<System, number>,
 ): string | null {
+    if (typeof prev.recovery !== typeof next.recovery) return "recovery declaration changed";
     const pc = Object.fromEntries(
         (prev.components ?? []).map((fields) => [declaration(fields, prev.name).key, fields]),
     );

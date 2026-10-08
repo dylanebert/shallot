@@ -38,5 +38,6 @@ export {
 } from "./global-transform";
 export { and, not, or } from "./query";
 export { type System, Time } from "./scheduler";
+export type { Recovery, WorldSnapshot } from "./snapshot";
 export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
-export { type Resource, World, type WorldSnapshot } from "./world";
+export { type Resource, World } from "./world";

@@ -121,7 +121,7 @@ export function initializeGlobalTransform(world: World): void {
         historyNeedsPromotion: false,
     };
     world.globalTransformRuntime = runtime;
-    world.registerRecovery("GlobalTransform", {
+    world.registerRecovery(Symbol("GlobalTransform"), {
         snapshot: () => undefined,
         restore() {
             runtime.tickCount = 0;

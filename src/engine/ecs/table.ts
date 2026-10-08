@@ -368,10 +368,14 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Attach an entity to a bound component table and mark its row for column fill at upload. @internal */
     attachComponent(eid: number, component: Component): void {
-        const binding = this._componentBindings.find(
-            (item) => item.ownsRows && idOf(item.component) === idOf(component),
-        );
-        if (!binding) throw new Error(`GpuTable "${this.name}": component has no row binding`);
+        let bound = false;
+        const id = idOf(component);
+        for (const item of this._componentBindings)
+            if (item.ownsRows && idOf(item.component) === id) {
+                bound = true;
+                break;
+            }
+        if (!bound) throw new Error(`GpuTable "${this.name}": component has no row binding`);
         this._boundDirty[this.acquire(eid)] = 1;
         this._membershipCounts.set(eid, (this._membershipCounts.get(eid) ?? 0) + 1);
         for (const presence of this._presenceBindings) {

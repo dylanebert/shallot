@@ -1,154 +1,101 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-
-import { CEILING } from "../../../scripts/test-tiers";
-
-setDefaultTimeout(CEILING.node);
-
-import { createApp, Time, type World } from "@dylanebert/shallot";
-import { Body, BodyType, DistanceJoint, ShapeKind } from "@dylanebert/shallot/physics";
+import { createApp, type WorldSnapshot } from "@dylanebert/shallot";
+import { Body, BodyType, DistanceJoint } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
     physicsWorld,
-    readBody,
-    restorePhysics,
     StandardPhysicsPlugin,
     setKinematic,
-    snapshotPhysics,
 } from "@dylanebert/shallot/standard/physics";
-
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { CEILING } from "../../../scripts/test-tiers";
 
+setDefaultTimeout(CEILING.node);
 await setupGlobals();
 
-function addBox(
-    world: World,
-    x: number,
-    y: number,
-    mass: number,
-    type: BodyType = BodyType.Dynamic,
-): number {
-    const eid = world.create();
-    world.add(eid, Body);
-    world.storage(Body).shape.set(eid, ShapeKind.Box);
-    world.storage(Body).halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-    world.storage(Body).position.set(eid, x, y, 0, 0);
-    world.storage(Body).rotation.set(eid, 0, 0, 0, 1);
-    world.storage(Body).type.set(eid, type);
-    world.storage(Body).mass.set(eid, mass);
-    return eid;
+for (const mutation of ["spawn", "despawn", "joint"] as const) {
+    test(`world restore reconciles physics bindings after ${mutation}`, async () => {
+        const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+        const world = app.world;
+        try {
+            const anchor = world.create();
+            world.add(anchor, Body, { type: BodyType.Static, position: [0, 3, 0, 0] });
+            const bob = world.create();
+            world.add(bob, Body, { position: [0, 1, 0, 0] });
+            world.tick();
+            const saved = world.snapshot();
+            const expected = hashPhysics(world);
+            if (mutation === "despawn") world.destroy(bob);
+            else {
+                const eid = world.create();
+                if (mutation === "spawn") world.add(eid, Body, { position: [3, 2, 0, 0] });
+                else
+                    world.add(eid, DistanceJoint, {
+                        a: anchor,
+                        b: bob,
+                        enableSpring: 1,
+                        length: 2,
+                        hertz: 2,
+                    });
+            }
+            world.tick();
+            world.restore(saved);
+            expect(hashPhysics(world)).toBe(expected);
+            expect(physicsWorld(world)!.getCounters().bodyCount).toBe(2);
+            expect(physicsWorld(world)!.getCounters().jointCount).toBe(0);
+            expect(physicsWorld(world)!.getBody(bob)?.isValid()).toBe(true);
+            world.tick();
+            expect(physicsWorld(world)!.getCounters().bodyCount).toBe(2);
+        } finally {
+            app.dispose();
+        }
+    });
 }
 
-async function scene() {
+test("kinematic hidden motion history replays every tick's hash after world recovery", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    return { app, world: app.world };
-}
-
-test("a body spawned between snapshot and restore marshals after the restore", async () => {
-    const { app, world } = await scene();
+    const world = app.world;
     try {
-        addBox(world, 0, 2, 1);
-        world.step(Time.FIXED_DT);
-        const saved = snapshotPhysics(world);
-        const spawned = addBox(world, 3, 2, 1);
-        world.step(Time.FIXED_DT);
-        restorePhysics(world, saved);
-        world.step(Time.FIXED_DT);
-        const before = readBody(world, spawned)!.position[1];
-        world.step(Time.FIXED_DT);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(2);
-        expect(physicsWorld(world)!.getBody(spawned)?.isValid()).toBe(true);
-        expect(readBody(world, spawned)!.position[1]).toBeLessThan(before);
-    } finally {
-        app.dispose();
-    }
-});
-
-test("a body despawned between snapshot and restore leaves no orphan solver body", async () => {
-    const { app, world } = await scene();
-    try {
-        addBox(world, 0, 2, 1);
-        const despawned = addBox(world, 3, 2, 1);
-        world.step(Time.FIXED_DT);
-        const saved = snapshotPhysics(world);
-        world.destroy(despawned);
-        world.step(Time.FIXED_DT);
-        restorePhysics(world, saved);
-        world.step(Time.FIXED_DT);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-    } finally {
-        app.dispose();
-    }
-});
-
-test("a spring added between snapshot and restore returns after it, and despawning it removes it", async () => {
-    const { app, world } = await scene();
-    try {
-        const anchor = addBox(world, 0, 2, 1, BodyType.Static);
-        const bob = addBox(world, 0, -2, 1);
-        world.step(Time.FIXED_DT);
-        const saved = snapshotPhysics(world);
-        const spring = world.create();
-        world.add(spring, DistanceJoint, {
-            a: anchor,
-            b: bob,
-            enableSpring: 1,
-            length: 4,
-            hertz: 2,
-            dampingRatio: 1,
-        });
-        world.step(Time.FIXED_DT);
-        restorePhysics(world, saved);
-        world.step(Time.FIXED_DT);
-        expect(physicsWorld(world)!.getCounters().jointCount).toBe(1);
-        world.destroy(spring);
-        world.step(Time.FIXED_DT);
-        expect(physicsWorld(world)!.getCounters().jointCount).toBe(0);
-    } finally {
-        app.dispose();
-    }
-});
-
-test("a kinematic body driven without velocity replays every tick's hash after a restore", async () => {
-    const { app, world } = await scene();
-    try {
-        const platform = addBox(world, 0, 0, 1, BodyType.Kinematic);
-        addBox(world, 0.2, 1, 1);
+        const platform = world.create();
+        world.add(platform, Body, { type: BodyType.Kinematic });
+        const bob = world.create();
+        world.add(bob, Body, { position: [0.2, 1, 0, 0] });
         const place = (tick: number) =>
             setKinematic(world, platform, [tick * 0.05, 0, 0], [0, 0, 0, 1]);
         for (let tick = 0; tick < 5; tick++) {
             place(tick);
-            world.step(Time.FIXED_DT);
+            world.tick();
         }
-        const saved = snapshotPhysics(world);
-        const original: bigint[] = [];
-        for (let tick = 5; tick < 9; tick++) {
-            place(tick);
-            world.step(Time.FIXED_DT);
-            original.push(hashPhysics(world));
-        }
-        restorePhysics(world, saved);
-        const replay: bigint[] = [];
-        for (let tick = 5; tick < 9; tick++) {
-            place(tick);
-            world.step(Time.FIXED_DT);
-            replay.push(hashPhysics(world));
-        }
-        expect(replay).toEqual(original);
+        const saved = world.snapshot();
+        const advance = () => {
+            const hashes: bigint[] = [];
+            for (let tick = 5; tick < 9; tick++) {
+                place(tick);
+                world.tick();
+                hashes.push(hashPhysics(world));
+            }
+            return hashes;
+        };
+        const expected = advance();
+        world.restore(saved);
+        expect(advance()).toEqual(expected);
     } finally {
         app.dispose();
     }
 });
 
-test("restorePhysics refuses a solver snapshot without bindings before changing the world", async () => {
-    const { app, world } = await scene();
+test("world recovery refuses a solver-only image before changing simulation", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
-        addBox(world, 0, 2, 1);
-        world.step(Time.FIXED_DT);
+        const world = app.world;
+        const eid = world.create();
+        world.add(eid, Body);
+        world.tick();
         const solverOnly = physicsWorld(world)!.snapshot();
-        world.step(Time.FIXED_DT);
+        world.tick();
         const hash = hashPhysics(world);
-        expect(() => restorePhysics(world, solverOnly)).toThrow(
-            "physics: restorePhysics needs a snapshot from snapshotPhysics",
+        expect(() => world.restore(solverOnly as unknown as WorldSnapshot)).toThrow(
+            "invalid snapshot",
         );
         expect(hashPhysics(world)).toBe(hash);
     } finally {

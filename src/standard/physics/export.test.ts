@@ -34,10 +34,8 @@ test("standard physics exports consumed world operations and profiling without s
         "hashPhysics",
         "physicsWorld",
         "readBody",
-        "restorePhysics",
         "setKinematic",
         "setVelocity",
-        "snapshotPhysics",
         "solvePlanes",
     ]);
 });

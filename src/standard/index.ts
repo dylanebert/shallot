@@ -48,13 +48,11 @@ export {
     PhysicsWorld,
     physicsWorld,
     readBody,
-    restorePhysics,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     type StepProfile,
     setKinematic,
     setVelocity,
-    snapshotPhysics,
 } from "./physics";
 export {
     CameraBackground,

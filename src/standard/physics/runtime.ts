@@ -362,40 +362,19 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
     runtime.jointSig = b.jointSig;
 }
 
-/** Capture the solver and this World's entity-to-body and constraint bindings for {@link restorePhysics}. */
-export function snapshotPhysics(world: World): PhysicsSnapshot {
+function capturePhysics(world: World): PhysicsSnapshot {
     const runtime = runtimeFor(world);
     return snapshotWorld(warmWorld(runtime), captureBindings(runtime));
 }
-/**
- * Restore a {@link snapshotPhysics} snapshot and its bindings; the next fixed tick marshals bodies and
- * constraints authored since and removes those despawned since. Refuses a snapshot without bindings.
- */
-export function restorePhysics(world: World, saved: PhysicsSnapshot): void {
+function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
     const runtime = runtimeFor(world);
     const physicsWorld = warmWorld(runtime);
     const bindings = snapshotBindings(saved) as Bindings | undefined;
-    if (bindings === undefined)
-        throw new Error(
-            "physics: restorePhysics needs a snapshot from snapshotPhysics; restore a PhysicsWorld.snapshot() with PhysicsWorld.restore",
-        );
+    if (bindings === undefined) throw new Error("physics: recovery image has no bindings");
     restoreWorld(physicsWorld, saved);
     restoreBindings(runtime, physicsWorld, bindings);
-    const p = { x: 0, y: 0, z: 0 };
-    const q = { v: { x: 0, y: 0, z: 0 }, s: 1 };
-    const v = { x: 0, y: 0, z: 0 };
-    runtime.bodies.forEach((body, eid) => {
-        body.getPosition(p);
-        body.getRotation(q);
-        body.getLinearVelocity(v);
-        writeGlobalTransform(
-            world,
-            eid,
-            [p.x, p.y, p.z],
-            [q.v.x, q.v.y, q.v.z, q.s],
-            [v.x, v.y, v.z],
-        );
-    });
+    // ECS poses were restored by World. Warning latches are presentation, counters and stale
+    // scans are overwritten on each step; solver history and binding caches are the participant.
 }
 export function hashPhysics(world: World): bigint {
     return hashWorld(warmWorld(runtimeFor(world)));
@@ -550,6 +529,10 @@ const SyncSystem: System = {
  */
 export const StandardPhysicsPlugin: Plugin = {
     name: "StandardPhysics",
+    recovery: (world) => ({
+        snapshot: () => capturePhysics(world),
+        restore: (image: PhysicsSnapshot) => recoverPhysics(world, image),
+    }),
     dependencies: [PhysicsPlugin],
     systems: [SyncSystem, SyncPhysicsConstraintsSystem, StepPhysicsSystem],
 

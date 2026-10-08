@@ -4,7 +4,8 @@ export interface Recovery<S = unknown> {
     restore(state: S): void;
 }
 
-type Participant = { owner: object; snapshot(): () => void };
+type Participant = { owner: object; snapshot?: () => () => void };
+const stateless: Recovery<undefined> = { snapshot: () => undefined, restore() {} };
 
 /** Opaque simulation image, valid only in its capturing world and compatible composition. */
 export class WorldSnapshot {
@@ -44,7 +45,7 @@ export class WorldSnapshot {
 
 /** @internal Ordered simulation owners; validation precedes all capture and restore work. */
 export class SnapshotComposition {
-    readonly #participants = new Map<string, Participant>();
+    readonly #participants = new Map<string | symbol, Participant>();
     readonly #boundary: () => boolean;
     readonly #revision: () => string;
     readonly #prepare: () => void;
@@ -54,7 +55,23 @@ export class SnapshotComposition {
         this.#prepare = prepare;
     }
 
-    register<S>(name: string, recovery: Recovery<S>): void {
+    clear(): void {
+        this.#participants.clear();
+    }
+
+    require(name: string): void {
+        if (!this.#participants.has(name)) this.register(name, undefined);
+    }
+
+    register<S>(name: string | symbol, recovery: Recovery<S> | "stateless" | undefined): void {
+        if (recovery === undefined) {
+            this.#participants.set(name, { owner: {} });
+            return;
+        }
+        if (recovery === "stateless") {
+            this.register(name, stateless);
+            return;
+        }
         this.#participants.set(name, {
             owner: recovery,
             snapshot: () => {
@@ -66,13 +83,18 @@ export class SnapshotComposition {
 
     snapshot(): WorldSnapshot {
         if (this.#boundary()) throw new Error("World.snapshot: refuses inside a step or tick");
+        for (const [name, participant] of this.#participants)
+            if (!participant.snapshot)
+                throw new Error(
+                    `World.snapshot: plugin ${String(name)} has fixed systems but declares no recovery`,
+                );
         this.#prepare();
         return new WorldSnapshot(
             this,
             this.#revision(),
             [...this.#participants.values()].map((p) => ({
                 owner: p.owner,
-                restore: p.snapshot(),
+                restore: p.snapshot!(),
             })),
         );
     }

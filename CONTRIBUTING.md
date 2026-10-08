@@ -163,8 +163,10 @@ bun run format                   # biome
 - Display-bound measurements name a monitor and take its keyboard and cursor.
 - Gameplay assertions drive the composed world: `tick()` advances one fixed tick; `step(deltaTime)` paces fixed work and runs simulation and draw. Exact ticks preserve changes for the next frame upload and advance no GPU frame or readback.
 - Fixed systems read tick time; simulation and draw read the virtual frame clock. Pause and scale pace `step`, never explicit ticks.
-- Simulation lives in registered components or snapshot, restore and hash hooks.
-- `fixed` reads per-tick actions, `draw` presents, and `local` components are excluded from hashes.
+- Simulation lives in registered components and declared plugin recovery participants. `world.snapshot()` captures ECS identity, allocation, membership, fields, fixed tick and participants; `world.restore()` restores ECS and clock before plugin participants; derived presentation reconciles through a participant too.
+- A plugin with fixed systems declares `recovery: "stateless"` when components or per-call reconstruction hold all its simulation state, or binds hidden state with `recovery(world)`, returning a pair `{ snapshot(), restore(state) }`. Snapshot images are independent and reusable. Snapshot refuses an undeclared fixed plugin by name; host handles, GPU state and pacing stay outside recovery.
+- Standard physics participates with its solver image and ECS bindings. `PhysicsWorld.snapshot()` and `restore()` remain solver-only APIs; a physics hash does not prove ECS or gameplay recovery.
+- `fixed` reads per-tick actions and `draw` presents. Recovery does not turn live device reads into replayable inputs.
 - Determinism holds within one runtime and engine version; hashes detect divergence across versions.
 - Frame evidence uses the cheapest observable: CPU state, then GPU readback, then browser pixels, then a person.
 - An engine's final frame uses `attachTexture` and `captureTexture`; other owned textures use `probeTexture`.

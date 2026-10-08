@@ -20,12 +20,10 @@ export {
     hashPhysics,
     physicsWorld,
     readBody,
-    restorePhysics,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     setKinematic,
     setVelocity,
-    snapshotPhysics,
 } from "./runtime";
 export type { Capsule } from "./shapes/geometry";
 export type { StepProfile } from "./world/profile";

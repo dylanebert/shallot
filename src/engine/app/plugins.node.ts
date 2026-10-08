@@ -59,10 +59,8 @@ import {
     hashPhysics,
     physicsWorld,
     readBody,
-    restorePhysics,
     StandardPhysicsPlugin,
     setVelocity,
-    snapshotPhysics,
 } from "../../standard/physics";
 import {
     Backgrounds,
@@ -850,10 +848,10 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             if (!firstBody) throw new Error("first Physics body did not become live");
             const siblingHash = hashPhysics(second.world);
             const siblingBody = readBody(second.world, peerA);
-            const saved = snapshotPhysics(first.world);
+            const saved = first.world.snapshot();
             setVelocity(first.world, firstA, 7, 0, 0);
             expect(readBody(first.world, firstA)?.linearVelocity[0]).toBeCloseTo(7);
-            restorePhysics(first.world, saved);
+            first.world.restore(saved);
             expect(hashPhysics(first.world)).toBe(firstHash);
             expect(readBody(first.world, firstA)).toEqual(firstBody);
             expect(hashPhysics(second.world)).toBe(siblingHash);

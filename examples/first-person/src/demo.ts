@@ -234,6 +234,23 @@ const controls: System = {
 
 export const Demo = {
     name: "Demo",
+    recovery: (world: World) => ({
+        snapshot() {
+            const bag = stateBag(world);
+            return {
+                liftEids: bag.liftEids.slice(),
+                liftBases: bag.liftBases.slice(),
+                liftCount: bag.liftCount,
+            };
+        },
+        restore(saved: Pick<DemoBag, "liftEids" | "liftBases" | "liftCount">) {
+            const bag = stateBag(world);
+            bag.liftEids = saved.liftEids.slice();
+            bag.liftBases = saved.liftBases.slice();
+            bag.liftCount = saved.liftCount;
+            // DOM handles are presentation; liftPos and liftVel are overwritten per call.
+        },
+    }),
     components: [Lift],
     dependencies: [PlayerPlugin, CharacterPlugin, InputPlugin, StandardPhysicsPlugin, MeshPlugin],
     initialize(world: World) {

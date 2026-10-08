@@ -292,7 +292,7 @@ Defaults use declaration field names and vector arrays, as `world.add` does; rep
 
 Keep each key byte-for-byte; it identifies saved data and hot reload. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused, naming the plugin and the record's fields.
 
-`inspect`, `snapshot`, `readFields` and `dump`, and the `EntityData` and `FieldValues` types, are removed. Read component values through `world.storage(Component)`. `world.snapshot()` returns `WorldSnapshot`, opaque, world-local recovery state for `world.restore(snapshot)`, not a save format.
+`inspect`, `snapshot`, `readFields` and `dump`, and the `EntityData` and `FieldValues` types, are removed. Read component values through `world.storage(Component)`. `world.snapshot()` returns `WorldSnapshot`, opaque, world-local recovery state for `world.restore(snapshot)`, not a save format. To use recovery, plugins with fixed systems declare `recovery: "stateless"` if components hold all their simulation state, or `recovery(world)` returning `{ snapshot(), restore(state) }` for hidden state. Snapshot returns an independent, reusable image; restore runs against the restored ECS and tick clock.
 
 ## Import app plugins in the entry page
 
@@ -569,8 +569,7 @@ registers `Body` and the nine joint-kind components with their defaults but inst
 Import shared components, `ShapeKind`, `Hulls`, `Hull`, `HullFace`, `UNIT_CUBE_ID`,
 `BodyState` from `@dylanebert/shallot/physics`. Import
 `StandardPhysicsPlugin`, `StepPhysicsSystem`, `PhysicsWorld`, `physicsWorld`,
-`readBody`, `setKinematic`, `setVelocity`, `snapshotPhysics`, `restorePhysics`
-and `hashPhysics` from `@dylanebert/shallot/standard/physics`. Both subpaths
+`readBody`, `setKinematic`, `setVelocity` and `hashPhysics` from `@dylanebert/shallot/standard/physics`. Both subpaths
 are also exported by the root barrel. Import `GlobalTransform` from the root,
 not `/physics`.
 

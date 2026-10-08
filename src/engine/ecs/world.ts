@@ -113,10 +113,10 @@ export class World {
     constructor(opts?: { pixelRatio?: number | "auto" }) {
         this._pixelRatio = opts?.pixelRatio ?? "auto";
         this._columns.highWater = 1;
-        this._snapshots.register("entities", this._entities);
-        this._snapshots.register("fields", this._columns);
-        this._snapshots.register("clock", this._scheduler);
-        this._snapshots.register("membership", this._components);
+        this._snapshots.register(Symbol("entities"), this._entities);
+        this._snapshots.register(Symbol("fields"), this._columns);
+        this._snapshots.register(Symbol("clock"), this._scheduler);
+        this._snapshots.register(Symbol("membership"), this._components);
     }
 
     /** this world's GPU device, registries, typed handles and frame state. */
@@ -437,7 +437,7 @@ export class World {
 
     /** Capture entity identity and allocation, component membership, all stored and registered
      * fields through the entity high-water mark, and fixedTick. Local to this world and registry;
-     * excludes pacing, resources, plugin hidden state, GPU and host state. Refuses during step/tick.
+     * includes declared participants' hidden simulation state; excludes pacing, GPU and host state. Refuses during step/tick.
      * Query order is derived from restored membership. The image is reusable, opaque and independent
      * of writes, not a save format. */
     snapshot(): WorldSnapshot {
@@ -447,13 +447,16 @@ export class World {
     /** Restore a local image between ticks. Refuses during step/tick, another world's image or
      * a changed component registry. Retained accessors and references resolve the restored state;
      * columns never shrink, queries and membership consumers reconcile, and fields publish changes.
-     * Restores no pacing, resources, plugin hidden state, GPU or host state. */
+     * Participants restore hidden simulation state after ECS and clock recovery; pacing, GPU and host state stay current. */
     restore(snapshot: WorldSnapshot): void {
         this._snapshots.restore(snapshot);
     }
 
     /** @internal Register an ordered simulation owner. */
-    registerRecovery<S>(name: string, recovery: Recovery<S>): void {
+    registerRecovery<S>(
+        name: string | symbol,
+        recovery: Recovery<S> | "stateless" | undefined,
+    ): void {
         this._snapshots.register(name, recovery);
     }
 
@@ -628,6 +631,7 @@ export class World {
     }
 
     addSystem(system: System, pluginName?: string): void {
+        if (pluginName && system.group === "fixed") this._snapshots.require(pluginName);
         this._scheduler.register(system, pluginName);
     }
 
@@ -742,6 +746,8 @@ export class World {
         this._scheduler.dispose(this);
         this._queries.clear();
         this._storage.clear();
+        this._columns.clear();
+        this._snapshots.clear();
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
         this.globalTransformRuntime = undefined;

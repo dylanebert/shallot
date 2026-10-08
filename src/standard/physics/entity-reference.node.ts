@@ -7,12 +7,7 @@ import {
     ShapeKind,
     SphericalJoint,
 } from "@dylanebert/shallot/physics";
-import {
-    physicsWorld,
-    restorePhysics,
-    StandardPhysicsPlugin,
-    snapshotPhysics,
-} from "@dylanebert/shallot/standard/physics";
+import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -32,26 +27,32 @@ test("recycled bodies retry failed marshals and placement warnings, including re
         world.step(Time.FIXED_DT);
         world.step(Time.FIXED_DT);
         expect(warning).toHaveBeenCalledTimes(2);
-        const failed = snapshotPhysics(world);
+        const failed = world.snapshot();
         world.destroy(eid);
         expect(world.create()).toBe(eid);
         world.add(eid, Body);
         world.add(eid, Transform);
-        restorePhysics(world, failed);
+        world.restore(failed);
+        world.step(Time.FIXED_DT);
+        expect(warning).toHaveBeenCalledTimes(2);
+        world.destroy(eid);
+        expect(world.create()).toBe(eid);
+        world.add(eid, Body);
+        world.add(eid, Transform);
         world.step(Time.FIXED_DT);
         expect(warning).toHaveBeenCalledTimes(3);
         const solver = physicsWorld(world)!;
         expect(solver.getBody(eid)).not.toBeNull();
-        const live = snapshotPhysics(world);
+        const live = world.snapshot();
         world.destroy(eid);
         expect(world.create()).toBe(eid);
         world.add(eid, Body, { position: [0, 7, 0, 0] });
-        restorePhysics(world, live);
-        expect(solver.getBody(eid)).toBeNull();
+        world.restore(live);
+        expect(solver.getBody(eid)).not.toBeNull();
         world.step(Time.FIXED_DT);
         const position = { x: 0, y: 0, z: 0 };
         solver.getBody(eid)!.getPosition(position);
-        expect(position.y).toBe(7);
+        expect(position.y).toBe(0);
         expect(solver.getCounters().bodyCount).toBe(1);
     } finally {
         warning.mockRestore();

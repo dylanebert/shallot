@@ -393,6 +393,9 @@ const MoveCharactersSystem: System = {
 /** Optional velocity-driven capsule movement, without gravity or input policy. */
 export const CharacterPlugin: Plugin = {
     name: "Character",
+    // characterScratch is per-call workspace: queries and motion overwrite every consumed lane;
+    // only Character component fields and the physics participant carry state between ticks.
+    recovery: "stateless",
     dependencies: [StandardPhysicsPlugin],
     components: [Character],
     systems: [MoveCharactersSystem],

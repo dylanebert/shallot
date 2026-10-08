@@ -11,10 +11,8 @@ import {
     type PhysicsSnapshot,
     physicsWorld,
     readBody,
-    restorePhysics,
     StandardPhysicsPlugin,
     setVelocity,
-    snapshotPhysics,
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { physicsCounters } from "./runtime";
@@ -89,11 +87,11 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
             setVelocity(replay.world, replay.body, 1, 0, 0);
             replay.world.step(Time.FIXED_DT);
         }
-        const saved = snapshotPhysics(replay.world);
+        const saved = replay.world.snapshot();
         const savedHash = hashPhysics(replay.world);
         const before = savedHash;
         replay.world.step(Time.FIXED_DT);
-        restorePhysics(replay.world, saved);
+        replay.world.restore(saved);
         expect(hashPhysics(replay.world)).toBe(savedHash);
         setVelocity(replay.world, replay.body, 1, 0, 0);
         replay.world.step(Time.FIXED_DT);
@@ -119,7 +117,7 @@ function snapshotRefs(saved: PhysicsSnapshot): SnapshotRefs {
 }
 
 function droppedSnapshotRefs(world: World, registry: FinalizationRegistry<string>): SnapshotRefs {
-    const saved = snapshotPhysics(world);
+    const saved = physicsWorld(world)!.snapshot();
     registry.register(saved, "dropped");
     return snapshotRefs(saved);
 }
@@ -131,12 +129,12 @@ function retainedSnapshot(
     saved: PhysicsSnapshot;
     refs: SnapshotRefs;
 } {
-    const saved = snapshotPhysics(world);
+    const saved = physicsWorld(world)!.snapshot();
     registry.register(saved, "control", saved);
     return { saved, refs: snapshotRefs(saved) };
 }
 
-test("a snapshot restores into a fresh compatible World with an equivalent hash", async () => {
+test("a solver snapshot restores into a fresh compatible PhysicsWorld with an equivalent hash", async () => {
     const source = await cleanState();
     const target = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
@@ -144,7 +142,7 @@ test("a snapshot restores into a fresh compatible World with an equivalent hash"
             setVelocity(source.world, source.body, 1, 0, 0);
             source.world.step(Time.FIXED_DT);
         }
-        const saved = snapshotPhysics(source.world);
+        const saved = physicsWorld(source.world)!.snapshot();
         const expected = hashPhysics(source.world);
         const targetWorld = physicsWorld(target.world);
         expect(targetWorld).not.toBeNull();

@@ -6,6 +6,10 @@ export class FieldColumns {
     highWater = 0;
     readonly #fields: WorldField[] = [];
 
+    clear(): void {
+        this.#fields.length = 0;
+    }
+
     register(field: WorldField): void {
         this.#fields.push(field);
     }
