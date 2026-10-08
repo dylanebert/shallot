@@ -63,6 +63,10 @@ export interface System {
     readonly after?: readonly System[];
 }
 
+function systemGroup(system: System): SystemGroup {
+    return system.group ?? "simulation";
+}
+
 export class Scheduler {
     logAndPauseErrors = false;
     private readonly _systems = new Set<System>();
@@ -137,9 +141,10 @@ export class Scheduler {
 
     /** @internal Module-owned slots bracket every ordinary system, including terminal systems. */
     registerBoundary(system: System, position: "before" | "after", pluginName?: string): void {
+        const group = systemGroup(system);
         for (const [registered, slot] of this._boundaries) {
-            if (registered !== system && slot === position && registered.group === system.group)
-                throw new Error(`System group ${system.group} already has a ${position} boundary`);
+            if (registered !== system && slot === position && systemGroup(registered) === group)
+                throw new Error(`System group ${group} already has a ${position} boundary`);
         }
         this._boundaries.set(system, position);
         this.register(system, pluginName);
@@ -302,7 +307,7 @@ export class Scheduler {
         if (cached) return cached;
 
         const all = Array.from(this._systems);
-        const filtered = all.filter((s) => (s.group ?? "simulation") === group);
+        const filtered = all.filter((s) => systemGroup(s) === group);
         const ordinary = filtered.filter((s) => !this._boundaries.has(s));
         const sorted = [
             ...filtered.filter((s) => this._boundaries.get(s) === "before"),
@@ -385,11 +390,11 @@ function validate(systems: System[], all: System[]): void {
         if (s.terminal && (s.first || s.last)) {
             throw new Error("System cannot combine terminal with first or last constraints");
         }
-        const group = s.group ?? "simulation";
+        const group = systemGroup(s);
         const sRank = s.first ? 0 : s.last ? 2 : s.terminal ? 3 : 1;
         for (const ref of [...(s.before ?? []), ...(s.after ?? [])]) {
             if (!all.includes(ref)) continue;
-            const refGroup = ref.group ?? "simulation";
+            const refGroup = systemGroup(ref);
             if (refGroup !== group) {
                 throw new Error(`Cross-group constraint: ${group} references ${refGroup}`);
             }

@@ -2,6 +2,40 @@ import { expect, test } from "bun:test";
 import { Scheduler } from "./scheduler";
 import { World } from "./world";
 
+for (const boundary of ["before", "after"] as const) {
+    for (const implicitFirst of [true, false]) {
+        test(`${boundary} boundary uniqueness treats an omitted group as simulation (${implicitFirst ? "implicit" : "explicit"} first)`, () => {
+            const world = new World();
+            const order: string[] = [];
+            const first = {
+                ...(implicitFirst ? {} : { group: "simulation" as const }),
+                boundary,
+                update: () => {
+                    order.push("first");
+                },
+            };
+            const second = {
+                ...(implicitFirst ? { group: "simulation" as const } : {}),
+                boundary,
+                update: () => {
+                    order.push("second");
+                },
+            };
+            try {
+                world.addSystem(first);
+                expect(() => world.addSystem(second)).toThrow(
+                    `System group simulation already has a ${boundary} boundary`,
+                );
+                expect(world.hasSystem(second)).toBe(false);
+                world.step(0);
+                expect(order).toEqual(["first"]);
+            } finally {
+                world.dispose();
+            }
+        });
+    }
+}
+
 test("engine group boundaries bracket first, last, late-added and terminal systems without edges", () => {
     const scheduler = new Scheduler();
     const world = new World();
