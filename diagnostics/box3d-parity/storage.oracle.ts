@@ -16,8 +16,8 @@ test("split acquires component-sized scratch and ids only after the no-split ret
             const k = kernel(world.state.ecsState) as unknown as {
                 box3dSplitScratch(world: number, body: number, lane: number): number;
             };
-            expect(k.box3dSplitScratch(world.state.worldId, bodies[0].id.index1 - 1, 0)).toBe(redundant ? 0 : 2);
-            expect(k.box3dSplitScratch(world.state.worldId, bodies[0].id.index1 - 1, 1)).toBe(redundant ? 0 : 2);
+            for (let lane = 0; lane < 4; ++lane)
+                expect(k.box3dSplitScratch(world.state.worldId, bodies[0].id.index1 - 1, lane)).toBe(redundant ? 0 : 2);
         } finally {
             world.destroy();
         }

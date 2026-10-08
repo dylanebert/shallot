@@ -405,7 +405,7 @@ fn union(
     }
 }
 #[cfg(feature = "box3d-oracle")]
-static mut SPLIT_SIZES: [[usize; 2]; regions::MAX_WORLDS] = [[0; 2]; regions::MAX_WORLDS];
+static mut SPLIT_SIZES: [[usize; 4]; regions::MAX_WORLDS] = [[0; 4]; regions::MAX_WORLDS];
 #[cfg(feature = "box3d-oracle")]
 #[export_name = "box3dSplitScratch"]
 pub unsafe extern "C" fn split_scratch(world: usize, body: usize, lane: usize) -> usize {
@@ -415,8 +415,25 @@ pub unsafe extern "C" fn split_scratch(world: usize, body: usize, lane: usize) -
     }
     SPLIT_SIZES[world][lane]
 }
-unsafe fn split_array(world: usize, count: usize) -> &'static mut [usize] {
+unsafe fn alloc_split_array(world: usize, count: usize, lane: usize) -> *mut usize {
     let ptr = crate::arena::alloc_split(world, count * core::mem::size_of::<usize>()) as *mut usize;
+    #[cfg(feature = "box3d-oracle")]
+    if lane < 4 {
+        SPLIT_SIZES[world][lane] = count;
+    }
+    let _ = lane;
+    ptr
+}
+unsafe fn split_array(
+    world: usize,
+    count: usize,
+    lane: usize,
+    mut initial: impl FnMut(usize) -> usize,
+) -> &'static mut [usize] {
+    let ptr = alloc_split_array(world, count, lane);
+    for i in 0..count {
+        ptr.add(i).write(initial(i));
+    }
     core::slice::from_raw_parts_mut(ptr, count)
 }
 unsafe fn free_split_array(world: usize, array: &mut [usize]) {
@@ -433,20 +450,14 @@ pub unsafe extern "C" fn split_in_world(world_index: usize, base: usize) {
 pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
     let _ = worker;
     let n = record(world_index, base).bodies.len();
-    let parents = split_array(world_index, n);
-    let contact_counts = split_array(world_index, n);
-    let joint_counts = split_array(world_index, n);
-    let ranks = split_array(world_index, n);
     #[cfg(feature = "box3d-oracle")]
     {
-        SPLIT_SIZES[world_index] = [0; 2];
+        SPLIT_SIZES[world_index] = [0; 4];
     }
-    for (i, p) in parents.iter_mut().enumerate() {
-        *p = i;
-    }
-    ranks.fill(0);
-    contact_counts.fill(0);
-    joint_counts.fill(0);
+    let parents = split_array(world_index, n, 4, |i| i);
+    let contact_counts = split_array(world_index, n, 4, |_| 0);
+    let joint_counts = split_array(world_index, n, 4, |_| 0);
+    let ranks = split_array(world_index, n, 4, |_| 0);
     for kind in 0..2 {
         let links = if kind == 0 {
             &record(world_index, base).contacts
@@ -489,18 +500,10 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
         free_split_array(world_index, parents);
         return;
     }
-    let root_map = split_array(world_index, n);
-    let body_counts = split_array(world_index, components);
-    let component_contacts = split_array(world_index, components);
-    let component_joints = split_array(world_index, components);
-    #[cfg(feature = "box3d-oracle")]
-    {
-        SPLIT_SIZES[world_index][0] = components;
-    }
-    root_map.fill(usize::MAX);
-    body_counts.fill(0);
-    component_contacts.fill(0);
-    component_joints.fill(0);
+    let root_map = split_array(world_index, n, 4, |_| usize::MAX);
+    let body_counts = split_array(world_index, components, 0, |_| 0);
+    let component_contacts = split_array(world_index, components, 1, |_| 0);
+    let component_joints = split_array(world_index, components, 2, |_| 0);
     let mut island_count = 0;
     for i in 0..n {
         let root = parents[i];
@@ -512,19 +515,16 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
         }
         body_counts[root_map[root]] += 1;
     }
-    let ids = split_array(world_index, island_count);
-    #[cfg(feature = "box3d-oracle")]
-    {
-        SPLIT_SIZES[world_index][1] = island_count;
-    }
+    let ids = alloc_split_array(world_index, island_count, 3);
     for i in 0..island_count {
         let id = create_in_world(world_index, 2);
-        ids[i] = id;
+        ids.add(i).write(id);
         let s = record(world_index, id);
         s.bodies.reserve(body_counts[i]);
         s.contacts.reserve(component_contacts[i]);
         s.joints.reserve(component_joints[i]);
     }
+    let ids = core::slice::from_raw_parts_mut(ids, island_count);
     for i in 0..n {
         let body = record(world_index, base).bodies[i];
         add_body_in_world(world_index, ids[root_map[parents[i]]], body);
