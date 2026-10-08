@@ -261,6 +261,10 @@ pub extern "C" fn allocate_manifolds_in_world(
     contact: usize,
     count: usize,
 ) -> usize {
+    if count == 0 {
+        free_manifolds_in_world(world_index, contact);
+        return 0;
+    }
     let id = world_index;
     lock(id);
     let address = unsafe { allocate(id, contact, count) };
@@ -279,6 +283,13 @@ pub extern "C" fn free_manifolds(contact: usize) {
 
 pub extern "C" fn free_manifolds_in_world(world_index: usize, contact: usize) {
     let id = world_index;
+    // Like Box3D, avoid the allocator lock when this contact owns no manifolds.
+    unsafe {
+        let dir = COLUMNS[id].layout[0] as *mut u32;
+        if *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_COUNT) == 0 {
+            return;
+        }
+    }
     lock(id);
     unsafe {
         free(id, contact);
