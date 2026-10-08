@@ -27,8 +27,13 @@ import { GpuTable, type GpuTableOptions } from "./table";
 
 const INITIAL_CAPACITY = 16;
 
-/** A world-owned value identified by this declaration object, not its creator or a name. */
-export type Resource<T> = { readonly create: (world: World) => T };
+/** A world-owned value identified by its declaration, or an explicit reload-stable key. */
+export type Resource<T> = {
+    readonly create: (world: World) => T;
+    /** Opt into carrying this value across re-evaluated declarations. The owner must refuse
+     * a carried shape its new code cannot use. Keys must be unique to the resource. */
+    readonly key?: symbol;
+};
 
 /**
  * Owns its entity storage, resources, GPU tables and allocations registered with {@link own};
@@ -86,7 +91,7 @@ export class World {
             storage: Record<string, unknown>;
         }
     >();
-    private _resources = new Map<Resource<unknown>, unknown>();
+    private _resources = new Map<Resource<unknown> | symbol, unknown>();
     private _tables = new Map<string, GpuTable>();
     private _tablesByComponent = new Map<number, GpuTable[]>();
     private _membershipObservers = new Map<number, Set<(eid: number, present: boolean) => void>>();
@@ -126,15 +131,17 @@ export class World {
     }
 
     /**
-     * Resolve once per declaration object in this World. Reloaded declarations create fresh values;
-     * creators register cleanup with onDispose or own, which runs at world disposal.
+     * Resolve once per declaration object or explicit key in this World. Reloaded declarations
+     * create fresh values unless they share a key; carrying a value does not run the new creator.
+     * Creators register cleanup with onDispose or own, which runs at world disposal.
      * Refuses after disposal; this does not invalidate caller-retained references.
      */
     resource<T>(declaration: Resource<T>): T {
         if (this._disposed) throw new Error("World.resource: world is disposed");
-        if (this._resources.has(declaration)) return this._resources.get(declaration) as T;
+        const key = declaration.key ?? declaration;
+        if (this._resources.has(key)) return this._resources.get(key) as T;
         const value = declaration.create(this);
-        this._resources.set(declaration, value);
+        this._resources.set(key, value);
         return value;
     }
 
@@ -615,13 +622,6 @@ export class World {
         return result;
     }
 
-    /** @internal Module-owned slots bracket ordinary systems, including terminal systems.
-     * Fixed boundaries require their owner's declared recovery. */
-    addBoundarySystem(system: System, position: "before" | "after", pluginName: string): void {
-        if (system.group === "fixed") this._snapshots.require(pluginName);
-        this._scheduler.registerBoundary(system, position, pluginName);
-    }
-
     /** Fixed systems belong to a plugin's declared recovery. Without plugin attribution,
      * snapshot refuses by system name until the system is removed. */
     addSystem(system: System, pluginName?: string): void {
@@ -629,7 +629,8 @@ export class World {
             if (pluginName) this._snapshots.require(pluginName);
             else this._snapshots.requireSystem(system);
         }
-        this._scheduler.register(system, pluginName);
+        if (system.boundary) this._scheduler.registerBoundary(system, system.boundary, pluginName);
+        else this._scheduler.register(system, pluginName);
     }
 
     removeSystem(system: System): void {

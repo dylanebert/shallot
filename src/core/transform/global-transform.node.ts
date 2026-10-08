@@ -9,7 +9,7 @@ import {
     viewportToWorld,
 } from "../../core/rendering";
 import * as engine from "../../engine";
-import { createApp, probeBuffer, u32 } from "../../engine";
+import { createApp, probeBuffer, swapPlugins, u32 } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { component } from "../../engine/ecs/component";
 import type { System } from "../../engine/ecs/scheduler";
@@ -474,6 +474,71 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
             (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([17, 3, -2]);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a compatible TransformPlugin reload preserves pending GPU history and interpolates the same tick pair", async () => {
+    const load = async (version: string): Promise<typeof import("./global-transform")> =>
+        import(`./global-transform.ts?${version}`);
+    const old = await import("./global-transform");
+    const next = await load("gpu-new");
+    const app = await createApp({ defaults: false, plugins: [old.TransformPlugin] });
+    try {
+        const { world } = app;
+        const eid = world.create();
+        world.add(eid, old.Transform);
+        const table = old.globalTransformTable(world);
+        const runtime = world.resource(old.TransformRuntime);
+        const present = async () => {
+            world.gpu.device.queue.writeBuffer(
+                runtime.params!,
+                0,
+                new Float32Array([0.5, runtime.current!.count, 0, 0]),
+            );
+            const encoder = world.gpu.device.createCommandEncoder();
+            world.beginGpuFrame(encoder);
+            const pass = encoder.beginComputePass();
+            pass.setPipeline(runtime.pipeline!);
+            pass.setBindGroup(0, runtime.group!);
+            pass.dispatchWorkgroups(Math.ceil(runtime.current!.count / 64));
+            pass.end();
+            world.gpu.device.queue.submit([encoder.finish()]);
+            world.endGpuFrame();
+            return renderedX(world, table, eid);
+        };
+        world.tick();
+        expect(await present()).toBeCloseTo(0, 5);
+        let position = 0;
+        world.addSystem({
+            group: "fixed",
+            update: (world) =>
+                world.storage(old.Transform).translation.x.set(eid, (position += 10)),
+        });
+        world.tick();
+        const stages = [...runtime.stages];
+        const ranges = [...runtime.ranges];
+        const previous = runtime.previous;
+        const current = runtime.current;
+        const pipeline = runtime.pipeline;
+        const group = runtime.group;
+        expect(await swapPlugins(world, [old.TransformPlugin], [next.TransformPlugin])).toEqual({
+            ok: true,
+        });
+        expect(world.resource(next.TransformRuntime)).toBe(runtime);
+        expect(next.globalTransformTable(world)).toBe(table);
+        expect(runtime.previous).toBe(previous);
+        expect(runtime.current).toBe(current);
+        expect(runtime.pipeline).toBe(pipeline);
+        expect(runtime.group).toBe(group);
+        expect(runtime.stages).toEqual(stages);
+        expect([...runtime.ranges]).toEqual(ranges);
+        expect(runtime.tickCount).toBe(1);
+        expect(await present()).toBeCloseTo(5, 5);
+        world.tick();
+        expect(world.storage(next.Transform).translation.x.get(eid)).toBe(20);
+        expect(await present()).toBeCloseTo(15, 5);
     } finally {
         app.dispose();
     }

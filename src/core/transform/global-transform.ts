@@ -102,13 +102,11 @@ export interface GlobalTransformRuntime {
 
 /** @internal Fixed placement and presentation history owned by the transform plugin. */
 export const TransformRuntime: Resource<GlobalTransformRuntime> = {
+    key: Symbol.for("@dylanebert/shallot/transform/runtime"),
     create: initializeGlobalTransform,
 };
 
 function initializeGlobalTransform(world: World): GlobalTransformRuntime {
-    world.addBoundarySystem(GlobalTransformTickStartSystem, "before", TransformPlugin.name);
-    world.addBoundarySystem(GlobalTransformTickEndSystem, "after", TransformPlugin.name);
-    world.addBoundarySystem(PrepareGlobalTransformSystem, "before", TransformPlugin.name);
     const runtime: GlobalTransformRuntime = {
         enabled: false,
         tickCount: 0,
@@ -123,23 +121,55 @@ function initializeGlobalTransform(world: World): GlobalTransformRuntime {
         discontinuityCount: 0,
         historyNeedsPromotion: false,
     };
-    world.gpuFrameHooks = {
-        record: (encoder) => prepareGlobalTransformFrame(world, encoder),
-        defer: () => runtime.enabled,
-    };
     world.observeMembership(GlobalTransform, (eid, present) => {
         if (present && runtime.enabled) queueDiscontinuity(runtime, eid);
     });
     return runtime;
 }
 
+/** Runs before every fixed system, including first systems. Installed by TransformPlugin. */
+export const GlobalTransformTickStartSystem: System = {
+    group: "fixed",
+    first: true,
+    name: "global-transform-tick-start",
+    boundary: "before",
+    update: beginGlobalTransformTick,
+};
+
+/** Runs after every fixed placement writer, including last and terminal systems; no ordering edge is needed. */
+export const GlobalTransformTickEndSystem: System = {
+    group: "fixed",
+    last: true,
+    name: "global-transform-tick-end",
+    boundary: "after",
+    update: endGlobalTransformTick,
+};
+
+/** Gathers after simulation and before all draw systems, including the frame encoder and upload point. */
+export const PrepareGlobalTransformSystem: System = {
+    group: "draw",
+    first: true,
+    name: "prepare-global-transform",
+    boundary: "before",
+    update: prepareGlobalTransform,
+};
+
 /** Owns authored and fixed-tick world placement. Physics and rendering install it as a dependency;
  * placement-only compositions add it explicitly. GPU residency waits for an interpolated-row reader. */
 export const TransformPlugin: Plugin = {
     name: "Transform",
     components: [GlobalTransform, Transform],
+    systems: [
+        GlobalTransformTickStartSystem,
+        GlobalTransformTickEndSystem,
+        PrepareGlobalTransformSystem,
+    ],
     recovery(world) {
         const runtime = world.resource(TransformRuntime);
+        world.gpuFrameHooks = {
+            record: (encoder) => prepareGlobalTransformFrame(world, encoder),
+            defer: () => runtime.enabled,
+        };
         return {
             snapshot: () => undefined,
             restore() {
@@ -153,30 +183,6 @@ export const TransformPlugin: Plugin = {
             },
         };
     },
-};
-
-/** Runs before every fixed system, including first systems. Installed by TransformPlugin. */
-export const GlobalTransformTickStartSystem: System = {
-    group: "fixed",
-    first: true,
-    name: "global-transform-tick-start",
-    update: beginGlobalTransformTick,
-};
-
-/** Runs after every fixed placement writer, including last and terminal systems; no ordering edge is needed. */
-export const GlobalTransformTickEndSystem: System = {
-    group: "fixed",
-    last: true,
-    name: "global-transform-tick-end",
-    update: endGlobalTransformTick,
-};
-
-/** Gathers after simulation and before all draw systems, including the frame encoder and upload point. */
-export const PrepareGlobalTransformSystem: System = {
-    group: "draw",
-    first: true,
-    name: "prepare-global-transform",
-    update: prepareGlobalTransform,
 };
 
 /** Interpolated dense world-placement rows, resident on request. Requires TransformPlugin;

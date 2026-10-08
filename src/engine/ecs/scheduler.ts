@@ -56,6 +56,9 @@ export interface System {
     readonly last?: boolean;
     /** runs after every other system in its group; at most one terminal system is allowed */
     readonly terminal?: boolean;
+    /** @internal Module-owned slot outside ordinary ordering, including terminal systems.
+     * At most one boundary occupies each end of a group. */
+    readonly boundary?: "before" | "after";
     readonly before?: readonly System[];
     readonly after?: readonly System[];
 }

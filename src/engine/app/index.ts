@@ -565,9 +565,8 @@ export interface PluginSwapResult {
  * drives this from its HMR seam; `prev`/`next` are the project's own plugins
  * before and after the reload.
  *
- * A user `initialize` that throws mid-swap returns `{ ok: false }`: systems
- * are already swapped at that point, so the World is half-updated and the
- * rebuild the caller falls back to is the recovery.
+ * A recovery factory or `initialize` that throws returns `{ ok: false, reason }`.
+ * The World may already be partly updated; the caller must rebuild, not continue stepping it.
  */
 export async function swapPlugins(
     world: World,
@@ -611,13 +610,19 @@ export async function swapPlugins(
         if (
             nextPlugin.recovery !== undefined ||
             nextPlugin.systems?.some((system) => system.group === "fixed")
-        )
-            world.registerRecovery(
-                name,
-                typeof nextPlugin.recovery === "function"
-                    ? nextPlugin.recovery(world)
-                    : nextPlugin.recovery,
-            );
+        ) {
+            try {
+                world.registerRecovery(
+                    name,
+                    typeof nextPlugin.recovery === "function"
+                        ? nextPlugin.recovery(world)
+                        : nextPlugin.recovery,
+                );
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                return { ok: false, reason: `${name}: recovery threw — ${msg}` };
+            }
+        }
         for (const entry of nextPlugin.components ?? []) {
             world.registry.register(entry, nextPlugin.name);
             world.storage(entry);
@@ -697,6 +702,8 @@ function systemSig(s: System): string {
         s.group ?? "simulation",
         s.first ? 1 : 0,
         s.last ? 1 : 0,
+        s.terminal ? 1 : 0,
+        s.boundary ?? "",
         (s.annotations?.layer as string) ?? "",
     ].join("|");
 }

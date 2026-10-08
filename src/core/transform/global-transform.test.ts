@@ -12,6 +12,8 @@ test("TransformPlugin installs processing on a bare World for frames and exact t
             ? TransformPlugin.recovery(world)
             : TransformPlugin.recovery,
     );
+    for (const system of TransformPlugin.systems ?? [])
+        world.addSystem(system, TransformPlugin.name);
     const eid = world.create();
     world.add(eid, Transform);
     const source = world.storage(Transform).translation;
