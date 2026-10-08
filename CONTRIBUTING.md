@@ -183,20 +183,19 @@ bun run format                   # biome
 
 ### Physics iteration
 
-- Combine the rows touched by a change; run their loop set after code corrections, not after wording-only corrections. Paths below are relative to `src/standard/physics` unless rooted; run Node files with `bun test ./<path>` and `diagnostics/box3d-parity/*.oracle.ts` with `BOX3D=<checkout> bun test --preload ./diagnostics/box3d-parity/oracle-preload.ts ./<path>`.
-- Common set: `bun run check` and all `*.test.ts` under `src/core/physics` and `src/standard/physics` in one `bun test` invocation. Kernel set: common, `bun crates/physics/scripts/build-kernel.ts`, `cargo test -p shallot-physics`, `solver/step.gold.node.ts`, `diagnostics/box3d-parity/phases.oracle.ts`.
+- A change runs, in the loop, the sets of every row it touches. The common set is `bun run check` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`; the kernel set adds `bun crates/physics/scripts/build-kernel.ts`, `cargo test -p shallot-physics`, `src/standard/physics/solver/step.gold.node.ts` and `diagnostics/box3d-parity/phases.oracle.ts`.
 
 | Change | Loop set |
 |---|---|
-| Kernel speedup, unchanged behavior | Kernel; `bun diagnostics/box3d-parity/ab.ts <scene> <threads> - - - base=<parent-artifacts> candidate=<candidate-artifacts>` |
-| Kernel behavior or native boundary | Kernel; affected `diagnostics/box3d-parity/*.oracle.ts` |
-| TypeScript API, ECS bridge, world/pool ownership | Common; all non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`, `src/engine/ecs/{global-transform,physics-interpolation}.node.ts` |
-| Allocation or lifecycle | Common; affected `*allocation.node.ts` under `src/standard/physics` |
-| Character or Player integration | Common; `character-allocation.node.ts`, `src/extras/player/*.node.ts`, `examples/first-person/src/*.node.ts` |
-| Checks or documentation only | Changed checks; `bun run check` |
+| Kernel speedup, unchanged behavior | Kernel; `diagnostics/box3d-parity/ab.ts` on the claim |
+| Kernel behavior or native boundary | Kernel; the affected `diagnostics/box3d-parity` oracles |
+| TypeScript API, ECS bridge, world or pool ownership | Common; the non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`; `src/engine/ecs/{global-transform,physics-interpolation}.node.ts` |
+| Allocation or lifecycle | Common; the affected `*allocation.node.ts` under `src/standard/physics` |
+| Character or Player | Common; `src/standard/physics/character-allocation.node.ts`; `src/extras/player/*.node.ts`; `examples/first-person/src/*.node.ts` |
+| Checks or documentation only | The changed checks; `bun run check` |
 
-- Run A/B only for a speed claim: name its scene, thread count and phase before running; only that phase's `ab.ts` faster/slower/no-difference verdict decides it, not another phase's result. No difference is not equivalence.
-- Once on the final code candidate, run the wide physics set: kernel set, all `*.node.ts` under `src/core/physics`, `src/standard/physics` and `src/extras/player`, `src/engine/app/{plugins,device}.node.ts`, `src/engine/ecs/{global-transform,physics-interpolation}.node.ts`, `examples/first-person/src/*.node.ts`, and all `diagnostics/box3d-parity/*.oracle.ts`; do not repeat A/B without a named doubt. For checks/documentation-only changes, run only that row.
+- A speed claim names its scene, thread count and phase before the A/B; only that phase's verdict decides it, and no difference is not equivalence.
+- A code change's final candidate runs once every row's set but the A/B, with every `diagnostics/box3d-parity` oracle.
 
 ### CI coverage
 
