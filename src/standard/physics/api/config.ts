@@ -15,6 +15,11 @@ import type { Contact, Shape } from "./shape";
  * Runs synchronously during the step; the world must not be modified from this callback. */
 export type CustomFilterCallback = (shapeA: Shape, shapeB: Shape) => boolean;
 
+/** Return false to disable a contact for this step. The point is in world meters and the normal
+ * points from shape A to B. Called only for enabled pre-solve events, not sensors. Runs synchronously
+ * during the step; the world must not be modified from this callback. */
+export type PreSolveCallback = (shapeA: Shape, shapeB: Shape, point: Pos, normal: Vec3) => boolean;
+
 export function makeShapeId(world: WorldState, shape: ShapeRecord): EntityId {
     return {
         index1: shape + 1,

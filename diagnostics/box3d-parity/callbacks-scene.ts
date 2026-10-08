@@ -6,11 +6,16 @@ const count = Number(process.argv[2]);
 await init(owner, { threads: count === 1 ? 0 : count });
 const world = new PhysicsWorld({}, owner);
 try {
-    world.setCustomFilterCallback((a, b) => {
+    const pre = process.argv[3] === "pre";
+    if (pre) world.setPreSolveCallback((_a, _b, point, normal) => {
+        const answer = !(point.x > 1 && point.x < 3 && point.y < 1 && normal.y > 0.9);
+        return process.env.CALLBACK_OPPOSITE === "1" ? !answer : answer;
+    });
+    else world.setCustomFilterCallback((a, b) => {
         const answer = a.id.index1 !== 4 && b.id.index1 !== 4;
         return process.env.CALLBACK_OPPOSITE === "1" ? !answer : answer;
     });
-    const shape = { enableCustomFiltering: true, enableContactEvents: true, enableHitEvents: true };
+    const shape = { enableCustomFiltering: !pre, enablePreSolveEvents: pre, enableContactEvents: true, enableHitEvents: true };
     for (const x of [0, 20]) {
         world.createBody({ position: { x, y: -0.5, z: 0 } }).createHull(shape, makeBoxHull(6, 0.5, 3));
     }

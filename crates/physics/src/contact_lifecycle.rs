@@ -48,6 +48,9 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     }
     let flags_a = shapes.get(shape_a * stride + crate::shapes::S_FLAGS) >> 16;
     let flags_b = shapes.get(shape_b * stride + crate::shapes::S_FLAGS) >> 16;
+    if (flags_a | flags_b) & 16 != 0 {
+        flags |= 0x0020_0000;
+    }
     if (flags_a | flags_b) & 2 != 0 {
         flags |= 4;
     }

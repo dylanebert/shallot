@@ -98,6 +98,7 @@ export type {
     ContactHitEvent,
     ContactTouchEvent,
     CustomFilterCallback,
+    PreSolveCallback,
     DistanceJointConfig,
     JointEvent,
     MotorJointConfig,

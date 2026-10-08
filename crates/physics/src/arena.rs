@@ -1011,8 +1011,13 @@ unsafe fn update_contact(
         use crate::manifold_abi::*;
         let dir = manifolds::dir_col(world_index);
         let o = contact_id * DIR_STRIDE;
-        // JavaScript material callbacks run at the serial post-collide binding.
-        dir.set(o + DIR_FLAGS, dir.get(o + DIR_FLAGS) | 0x0200_0000);
+        // Deferred pre-solve work mixes custom materials before inspecting the contact, as Box3D does.
+        let custom = DEFAULT_MIX == 0
+            && crate::callbacks::pre_solve_enabled(world_index)
+            && dir.get(o + DIR_FLAGS) & 0x0020_0000 != 0;
+        if !custom {
+            dir.set(o + DIR_FLAGS, dir.get(o + DIR_FLAGS) | 0x0200_0000);
+        }
         let old_count = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
         let shape_id_a = dir.get(o + DIR_SHAPE_A) as usize;
         let shape_id_b = dir.get(o + DIR_SHAPE_B) as usize;
@@ -1086,7 +1091,7 @@ unsafe fn update_contact(
                 count,
                 true,
                 child_radius,
-                false,
+                custom,
             );
             finish_contact(world_index, thread, contact_id, count, hit);
             return;
@@ -1114,7 +1119,7 @@ unsafe fn update_contact(
         };
 
         let mut address = base;
-        let touching = compute_convex_manifold_into(
+        let mut touching = compute_convex_manifold_into(
             || {
                 if old_count == 0 {
                     address = manifolds::allocate_manifolds_in_world(world_index, contact_id, 1);
@@ -1127,6 +1132,8 @@ unsafe fn update_contact(
             convex_xf_b,
             &mut cache,
         );
+        let mut callback_point = Vec3::ZERO;
+        let mut callback_normal = Vec3::ZERO;
         if touching {
             let m = &mut *(address as *mut ManifoldRecord);
             if flip {
@@ -1135,6 +1142,8 @@ unsafe fn update_contact(
                     core::mem::swap(&mut p.anchor_a, &mut p.anchor_b);
                 }
             }
+            callback_point = xf_a.p.add(m.points[0].anchor_a);
+            callback_normal = m.normal;
             for p in &mut m.points[..m.point_count as usize] {
                 p.anchor_a = p.anchor_a.add(child_offset);
             }
@@ -1162,9 +1171,17 @@ unsafe fn update_contact(
             touching as usize,
             false,
             child_radius,
-            false,
+            custom,
         );
-        // The pre-solve callback belongs here when stage 7 publishes it.
+        if touching && dir.get(o + DIR_FLAGS) & 0x0020_0000 != 0 {
+            touching = crate::callbacks::pre_solve(
+                world_index,
+                shape_id_a,
+                shape_id_b,
+                callback_point,
+                callback_normal,
+            );
+        }
         finish_contact(world_index, thread, contact_id, touching as usize, hit);
     }
 }
@@ -1328,6 +1345,24 @@ pub(crate) unsafe fn contact_block(
     total: usize,
     thread: usize,
 ) {
+    contact_block_impl(world_index, start, end, total, thread, false);
+}
+
+pub(crate) unsafe fn deferred_contacts(world: usize) {
+    if crate::callbacks::pre_solve_enabled(world) {
+        let count = crate::contact_list::count_in_world(world);
+        contact_block_impl(world, 0, count, count, 0, true);
+    }
+}
+
+unsafe fn contact_block_impl(
+    world_index: usize,
+    start: usize,
+    end: usize,
+    total: usize,
+    thread: usize,
+    serial: bool,
+) {
     unsafe {
         use crate::manifold_abi::*;
         let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
@@ -1341,6 +1376,11 @@ pub(crate) unsafe fn contact_block(
         for i in start..end {
             let contact_id = contacts[i] as usize;
             let o = contact_id * DIR_STRIDE;
+            let deferred = crate::callbacks::pre_solve_enabled(world_index)
+                && dir.get(o + DIR_FLAGS) & 0x0020_0000 != 0;
+            if deferred != serial {
+                continue;
+            }
             let flags = dir.get(o + DIR_FLAGS) & !0x0200_0000;
             dir.set(o + DIR_FLAGS, flags);
             let sa = dir.get(o + DIR_SHAPE_A) as usize;

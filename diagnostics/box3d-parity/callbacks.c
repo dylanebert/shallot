@@ -10,16 +10,25 @@ static bool filter(b3ShapeId a, b3ShapeId b, void* context)
     return a.index1 != 4 && b.index1 != 4;
 }
 
+static bool preSolve(b3ShapeId a, b3ShapeId b, b3Pos point, b3Vec3 normal, void* context)
+{
+    (void)a; (void)b; (void)context;
+    return !(point.x > 1 && point.x < 3 && point.y < 1 && normal.y > 0.9f);
+}
+
 int main(int argc, char** argv)
 {
-    if (argc != 2) return 2;
+    if (argc != 3) return 2;
+    bool pre = strcmp(argv[2], "pre") == 0;
     b3WorldDef wd = b3DefaultWorldDef();
     wd.workerCount = atoi(argv[1]);
     b3WorldId world = b3CreateWorld(&wd);
-    b3World_SetCustomFilterCallback(world, filter, NULL);
+    if (pre) b3World_SetPreSolveCallback(world, preSolve, NULL);
+    else b3World_SetCustomFilterCallback(world, filter, NULL);
     b3BodyDef bd = b3DefaultBodyDef();
     b3ShapeDef sd = b3DefaultShapeDef();
-    sd.enableCustomFiltering = true;
+    sd.enableCustomFiltering = !pre;
+    sd.enablePreSolveEvents = pre;
     sd.enableContactEvents = true;
     sd.enableHitEvents = true;
     b3BoxHull floor = b3MakeBoxHull(6, 0.5f, 3);

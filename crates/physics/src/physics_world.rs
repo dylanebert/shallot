@@ -23,6 +23,7 @@ pub unsafe extern "C" fn destroy_world_in_world(world: usize) {
         }
     }
     crate::callbacks::set_filter(world, false);
+    crate::callbacks::set_pre_solve(world, false);
     bodies::body_reset_world(world as u32);
     crate::shapes::shape_reset_world(world as u32);
     regions::reset(world as u32);
@@ -676,6 +677,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
             }
             4 => {
+                crate::arena::deferred_contacts(world_index);
                 crate::arena::sync_task_arenas(world_index);
                 DRIVER.phase = 5;
                 if !DRIVER.default_mix && contact_list::count_in_world(world_index) != 0 {

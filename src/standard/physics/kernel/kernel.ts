@@ -23,6 +23,7 @@ import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
 export type Kernel = {
     memory: WebAssembly.Memory;
     worldSetCustomFilterCallback(world: number, enabled: boolean): void;
+    worldSetPreSolveCallback(world: number, enabled: boolean): void;
     /** Present only in a checked build (`build-kernel.ts --checked`); routes panics to `kernelPanic`. */
     installPanicHook?(): void;
     viewEpochPtr(): number;
@@ -1044,15 +1045,24 @@ function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length
 }
 
 function collisionImport(runtime: KernelState) {
-    return (_kind: number, a: number, b: number, _pointer: number): number => {
+    let values = new Float32Array(0);
+    return (kind: number, a: number, b: number, pointer: number): number => {
         if (runtime.queryFailed) return 0;
         try {
             const world = runtime.collisionWorld;
             if (world === null) throw new Error("physics: collision callback is not installed");
+            const shapeA = new Shape(world, makeShapeId(world, a));
+            const shapeB = new Shape(world, makeShapeId(world, b));
+            if (kind === 0) return Number(world.customFilterCallback?.(shapeA, shapeB) ?? true);
+            const memory = kernel(world.ecsState).memory.buffer;
+            if (values.buffer !== memory) values = new Float32Array(memory);
+            const o = pointer >>> 2;
             return Number(
-                world.customFilterCallback?.(
-                    new Shape(world, makeShapeId(world, a)),
-                    new Shape(world, makeShapeId(world, b)),
+                world.preSolveCallback?.(
+                    shapeA,
+                    shapeB,
+                    { x: values[o], y: values[o + 1], z: values[o + 2] },
+                    { x: values[o + 3], y: values[o + 4], z: values[o + 5] },
                 ) ?? true,
             );
         } catch (error) {

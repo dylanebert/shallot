@@ -8,6 +8,7 @@ export function solve(world: WorldState): void {
     const pool = workers(world.ecsState);
     const state = kernelState(world.ecsState);
     state.collisionWorld = world;
+    state.materialWorld = world;
     try {
         let code: number;
         while ((code = k.stepAdvance()) !== 0) {
@@ -20,5 +21,6 @@ export function solve(world: WorldState): void {
         rethrowQueryError(world.ecsState);
     } finally {
         state.collisionWorld = null;
+        state.materialWorld = null;
     }
 }

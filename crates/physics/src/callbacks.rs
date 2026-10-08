@@ -2,6 +2,38 @@
 use crate::regions::MAX_WORLDS;
 
 static mut FILTER: [bool; MAX_WORLDS] = [false; MAX_WORLDS];
+static mut PRE_SOLVE: [bool; MAX_WORLDS] = [false; MAX_WORLDS];
+
+#[export_name = "worldSetPreSolveCallback"]
+pub unsafe extern "C" fn set_pre_solve(world: usize, enabled: bool) {
+    PRE_SOLVE[world] = enabled;
+}
+
+pub unsafe fn pre_solve_enabled(world: usize) -> bool {
+    PRE_SOLVE[world]
+}
+
+pub unsafe fn pre_solve(
+    world: usize,
+    a: usize,
+    b: usize,
+    point: crate::math::Vec3,
+    normal: crate::math::Vec3,
+) -> bool {
+    if !PRE_SOLVE[world] {
+        return true;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let data = [point.x, point.y, point.z, normal.x, normal.y, normal.z];
+        return collisionCallback(1, a, b, data.as_ptr());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (a, b, point, normal);
+        true
+    }
+}
 
 #[export_name = "worldSetCustomFilterCallback"]
 pub unsafe extern "C" fn set_filter(world: usize, enabled: bool) {

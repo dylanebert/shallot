@@ -1,5 +1,5 @@
 import { ShapeField, shapeField } from "../kernel/shaperecords";
-import type { CustomFilterCallback } from "./config";
+import type { CustomFilterCallback, PreSolveCallback } from "./config";
 // The public surface: thin handle classes over the internal id/record model. A World/Body/Shape
 // instance holds only an id and delegates to the internal free functions; all state lives in the
 // solver-set columns. Stale handles self-invalidate through the generation stored in the id (the
@@ -704,6 +704,16 @@ export class PhysicsWorld {
             this.state.worldId,
             callback !== null,
         );
+    }
+
+    /** Install contact inspection (b3World_SetPreSolveCallback), or clear it with null.
+     * Enabled contacts run their update on the stepping realm after parallel collision work joins.
+     * Returning false disables the contact for this step. Refuses changes during a step.
+     * Callback errors are rethrown after Rust returns. */
+    setPreSolveCallback(callback: PreSolveCallback | null): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.preSolveCallback = callback;
+        kernel(this.state.ecsState).worldSetPreSolveCallback(this.state.worldId, callback !== null);
     }
 
     /** Set the gravity vector. */
