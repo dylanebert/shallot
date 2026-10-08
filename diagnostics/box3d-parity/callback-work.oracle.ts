@@ -5,6 +5,51 @@ import { assertPublicOracleKernel } from "./oracle-kernel";
 function count(world: PhysicsWorld, lane: number): number {
     return (kernel(world.state.ecsState) as unknown as { box3dCallbackWork(world: number, lane: number): number }).box3dCallbackWork(world.state.worldId, lane);
 }
+test("fitted filtered collection adds only the counted candidate bytes to capacity-sized scratch", async () => {
+    await assertPublicOracleKernel();
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    try {
+        for (let i = 0; i < 2; ++i) world.createBody({ type: BodyType.Dynamic }).createSphere(
+            { enableCustomFiltering: i === 0 }, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+        );
+        let calls = 0;
+        world.setCustomFilterCallback(() => { ++calls; return true; });
+        world.step(1 / 60);
+        const k = kernel(world.state.ecsState) as unknown as { box3dPairScratchBytes(world: number): number };
+        // 32 survivor slots + two heads/counts/offsets, aligned to 16; one 12-byte candidate, aligned.
+        expect(k.box3dPairScratchBytes(world.state.worldId)).toBe(544 + 16);
+        expect(world.getCounters().contactCount).toBe(1);
+        expect(calls).toBe(1);
+    } finally { world.destroy(); }
+});
+test("a saturated serial walk keeps native filter-before-capacity invocation semantics", async () => {
+    await assertPublicOracleKernel();
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    try {
+        for (let i = 0; i < 100; ++i) world.createBody({ type: BodyType.Dynamic }).createSphere(
+            { enableCustomFiltering: true }, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+        );
+        let calls = 0;
+        world.setCustomFilterCallback(() => { ++calls; return true; });
+        world.step(1 / 60);
+        expect(world.getCounters().contactCount).toBe(1600);
+        expect(calls).toBe(4950);
+    } finally { world.destroy(); }
+});
+for (const filtered of [false, true]) test(`${filtered ? "filtered" : "no-callback"} 1000-sphere overflow reserves at most 32 bytes per survivor slot`, async () => {
+    await assertPublicOracleKernel();
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    try {
+        for (let i = 0; i < 1000; ++i) world.createBody({ type: BodyType.Dynamic }).createSphere(
+            { enableCustomFiltering: i === 0 }, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+        );
+        if (filtered) world.setCustomFilterCallback(() => true);
+        world.step(1 / 60);
+        expect(world.getCounters().contactCount).toBe(16000);
+        const k = kernel(world.state.ecsState) as unknown as { box3dPairScratchBytes(world: number): number };
+        expect(k.box3dPairScratchBytes(world.state.worldId)).toBeLessThanOrEqual(32 * 16000);
+    } finally { world.destroy(); }
+});
 test("unflagged pair candidates remain in tasks with a custom filter installed", async () => {
     await assertPublicOracleKernel();
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });

@@ -35,44 +35,72 @@ static mut REBUILD_PENDING: bool = false;
 const INPUT_STRIDE: usize = 3;
 static mut INPUT_PTR: u32 = 0;
 static mut INPUT_COUNT_PTR: u32 = 0;
-static mut INPUT_BOUND: usize = 0;
-
-pub(crate) unsafe fn retry_overflow(world: usize) -> bool {
-    if INPUT_PTR != 0 || CAND_COUNT.load(Ordering::Relaxed) <= CAND_CAP {
-        return false;
-    }
-    // The joined task pass chose a racing subset. Discard it before contacts consume survivors.
-    reserve(world, true);
-    true
+static mut INPUT_OFFSET_PTR: u32 = 0;
+static mut SCRATCH_BYTES: usize = 0;
+#[derive(Clone, Copy, PartialEq)]
+enum QueryMode {
+    Parallel,
+    Count,
+    Collect,
+    Serial,
 }
+static mut MODE: QueryMode = QueryMode::Parallel;
 
-pub(crate) unsafe fn finish_deferred(world: usize) {
-    if INPUT_PTR == 0 {
-        return;
-    }
-    let shapes = shape_col(world);
-    for i in 0..MOVE_COUNT {
-        let count = *(INPUT_COUNT_PTR as *const u32).add(i) as usize;
-        let inputs = (INPUT_PTR as *const u32).add(i * INPUT_BOUND * INPUT_STRIDE);
-        let mut head = u32::MAX;
-        for j in 0..count {
-            let p = inputs.add(j * INPUT_STRIDE);
-            let (child, a, b) = (*p, *p.add(1), *p.add(2));
-            if crate::callbacks::filter_enabled(world)
-                && (shapes[a as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS]
-                    | shapes[b as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS])
-                    & (4 << 16)
-                    != 0
-            {
-                crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
-            }
-            if crate::callbacks::filter(world, a as usize, b as usize) {
-                // broad_phase.c consumes capacity immediately after each accepted answer.
-                head = emit(child, a, b, head);
+/// Return true only when a fitted count pass needs its parallel collection pass.
+pub(crate) unsafe fn finish_queries(world: usize) -> bool {
+    if MODE == QueryMode::Count {
+        let mut total = 0usize;
+        for i in 0..MOVE_COUNT {
+            *(INPUT_OFFSET_PTR as *mut u32).add(i) = total as u32;
+            total = total.saturating_add(*(INPUT_COUNT_PTR as *const u32).add(i) as usize);
+            if total > CAND_CAP {
+                break;
             }
         }
-        *(CANDEND_PTR as *mut u32).add(i) = head;
+        if total <= CAND_CAP {
+            let bytes = total * INPUT_STRIDE * 4;
+            INPUT_PTR = crate::arena::extend_scratch(world, bytes) as u32;
+            crate::callback_work::pair_scratch(world, SCRATCH_BYTES + bytes.next_multiple_of(16));
+            MODE = QueryMode::Collect;
+            return true;
+        }
+        MODE = QueryMode::Serial;
+    } else if MODE == QueryMode::Parallel && CAND_COUNT.load(Ordering::Relaxed) > CAND_CAP {
+        MODE = QueryMode::Serial;
     }
+    if MODE == QueryMode::Serial {
+        CAND_COUNT.store(0, Ordering::Relaxed);
+        query_block(world, 0, MOVE_COUNT, broad::set_cap(world));
+    } else if MODE == QueryMode::Collect {
+        for i in 0..MOVE_COUNT {
+            let count = *(INPUT_COUNT_PTR as *const u32).add(i) as usize;
+            let offset = *(INPUT_OFFSET_PTR as *const u32).add(i) as usize;
+            let inputs = (INPUT_PTR as *const u32).add(offset * INPUT_STRIDE);
+            let mut head = u32::MAX;
+            for j in 0..count {
+                let p = inputs.add(j * INPUT_STRIDE);
+                let (child, a, b) = (*p, *p.add(1), *p.add(2));
+                if accept(world, a, b) {
+                    head = emit(child, a, b, head);
+                }
+            }
+            *(CANDEND_PTR as *mut u32).add(i) = head;
+        }
+    }
+    false
+}
+
+unsafe fn accept(world: usize, a: u32, b: u32) -> bool {
+    let shapes = shape_col(world);
+    if crate::callbacks::filter_enabled(world)
+        && (shapes[a as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS]
+            | shapes[b as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS])
+            & (4 << 16)
+            != 0
+    {
+        crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
+    }
+    crate::callbacks::filter(world, a as usize, b as usize)
 }
 
 pub unsafe fn schedule_rebuild() {
@@ -91,39 +119,14 @@ pub extern "C" fn reserve_pairs() {
 
 pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
     unsafe {
-        reserve(world_index, crate::callbacks::filter_enabled(world_index));
-    }
-}
-
-fn reserve(world_index: usize, collect: bool) {
-    unsafe {
+        let collect = crate::callbacks::filter_enabled(world_index);
         let move_count = broad::move_count(world_index);
         INPUT_PTR = 0;
-        INPUT_BOUND = 0;
-        if collect {
-            // Per moved proxy: at most one candidate per live non-sensor shape, or per compound
-            // child. Each broad-tree proxy and each compound leaf is visited at most once.
-            for id in 0..crate::shapes::shape_cap_in_world(world_index) {
-                if crate::shapes::shape_alive(world_index as u32, id as u32) == 0 {
-                    continue;
-                }
-                let shape = &shape_col(world_index)[id * SHAPE_STRIDE..][..SHAPE_STRIDE];
-                if shape[crate::shapes::S_SENSOR_INDEX] != u32::MAX {
-                    continue;
-                }
-                let leaves = if shape[S_TYPE] == SHAPE_COMPOUND {
-                    crate::compound_query::Compound::from_pointer(
-                        shape[crate::shapes::S_GEOM] as *const u32,
-                    )
-                    .child_count()
-                } else {
-                    1
-                };
-                INPUT_BOUND = INPUT_BOUND
-                    .checked_add(leaves)
-                    .expect("physics: pair candidate bound exceeds address space");
-            }
-        }
+        MODE = if collect {
+            QueryMode::Count
+        } else {
+            QueryMode::Parallel
+        };
         let cand_cap = 16 * move_count;
         CAND_CAP = cand_cap;
         CAND_COUNT.store(0, Ordering::Relaxed);
@@ -140,19 +143,17 @@ fn reserve(world_index: usize, collect: bool) {
         if collect {
             INPUT_COUNT_PTR = off as u32;
             off += move_count * 4;
-            INPUT_PTR = off as u32;
-            off = move_count
-                .checked_mul(INPUT_BOUND)
-                .and_then(|n| n.checked_mul(INPUT_STRIDE * 4))
-                .and_then(|n| off.checked_add(n))
-                .expect("physics: pair candidate scratch exceeds address space");
+            INPUT_OFFSET_PTR = off as u32;
+            off += move_count * 4;
         }
+        SCRATCH_BYTES = off.next_multiple_of(16);
+        crate::callback_work::pair_scratch(world_index, SCRATCH_BYTES);
         let base = crate::arena::reserve_scratch(world_index, off) as u32;
         CANDEND_PTR += base;
         CAND_PTR += base;
         if collect {
             INPUT_COUNT_PTR += base;
-            INPUT_PTR += base;
+            INPUT_OFFSET_PTR += base;
         }
     }
 }
@@ -191,6 +192,7 @@ struct Emitter<'a> {
     tree_type: u32,
     inputs: *mut u32,
     input_count: usize,
+    expected_count: usize,
 }
 
 impl<'a> Emitter<'a> {
@@ -219,6 +221,15 @@ impl<'a> Emitter<'a> {
     }
 
     fn record(&mut self, other: i32, found_shape: u32) -> bool {
+        unsafe {
+            if MODE == QueryMode::Count && self.input_count > CAND_CAP
+                || MODE == QueryMode::Serial
+                    && !crate::callbacks::filter_enabled(self.world)
+                    && CAND_COUNT.load(Ordering::Relaxed) >= CAND_CAP
+            {
+                return false;
+            }
+        }
         if found_shape == self.query_shape {
             return true;
         }
@@ -273,23 +284,48 @@ impl<'a> Emitter<'a> {
         if !unsafe { crate::bodies::should_collide(a[1], b[1]) } {
             return true;
         }
-        crate::callback_work::note(self.world, crate::callback_work::Work::PairParallel);
-        if !self.inputs.is_null() {
-            unsafe {
-                assert!(
-                    self.input_count < INPUT_BOUND,
-                    "physics: pair query exceeded its shape/child bound"
-                );
-                let p = self.inputs.add(self.input_count * INPUT_STRIDE);
-                *p = child;
-                *p.add(1) = found_shape;
-                *p.add(2) = self.query_shape;
+        unsafe {
+            match MODE {
+                QueryMode::Count => {
+                    crate::callback_work::note(
+                        self.world,
+                        crate::callback_work::Work::PairParallel,
+                    );
+                    self.input_count += 1;
+                    self.input_count <= CAND_CAP
+                }
+                QueryMode::Collect => {
+                    assert!(
+                        self.input_count < self.expected_count,
+                        "physics: pair collection exceeded its count pass"
+                    );
+                    let p = self.inputs.add(self.input_count * INPUT_STRIDE);
+                    *p = child;
+                    *p.add(1) = found_shape;
+                    *p.add(2) = self.query_shape;
+                    self.input_count += 1;
+                    true
+                }
+                QueryMode::Serial => {
+                    if accept(self.world, found_shape, self.query_shape)
+                        && CAND_COUNT.load(Ordering::Relaxed) < CAND_CAP
+                    {
+                        self.emit(child, found_shape, self.query_shape);
+                    }
+                    // Native filters precede the capacity check; keep calling them even when full.
+                    crate::callbacks::filter_enabled(self.world)
+                        || CAND_COUNT.load(Ordering::Relaxed) < CAND_CAP
+                }
+                QueryMode::Parallel => {
+                    crate::callback_work::note(
+                        self.world,
+                        crate::callback_work::Work::PairParallel,
+                    );
+                    self.emit(child, found_shape, self.query_shape);
+                    true
+                }
             }
-            self.input_count += 1;
-            return true;
         }
-        self.emit(child, found_shape, self.query_shape);
-        true
     }
 }
 
@@ -363,14 +399,24 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             tree_type: 0,
             inputs: core::ptr::null_mut(),
             input_count: 0,
+            expected_count: 0,
         };
 
         for i in start..end {
             em.head = u32::MAX;
-            em.inputs = if INPUT_PTR == 0 {
-                core::ptr::null_mut()
+            *cand_end.add(i) = u32::MAX;
+            if MODE == QueryMode::Serial
+                && !crate::callbacks::filter_enabled(world_index)
+                && CAND_COUNT.load(Ordering::Relaxed) >= CAND_CAP
+            {
+                continue;
+            }
+            em.inputs = if MODE == QueryMode::Collect {
+                em.expected_count = *(INPUT_COUNT_PTR as *const u32).add(i) as usize;
+                let offset = *(INPUT_OFFSET_PTR as *const u32).add(i) as usize;
+                (INPUT_PTR as *mut u32).add(offset * INPUT_STRIDE)
             } else {
-                (INPUT_PTR as *mut u32).add(i * INPUT_BOUND * INPUT_STRIDE)
+                core::ptr::null_mut()
             };
             em.input_count = 0;
             let query_key = move_buf[i];
@@ -402,8 +448,13 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             );
 
             *cand_end.add(i) = em.head;
-            if INPUT_PTR != 0 {
+            if MODE == QueryMode::Count {
                 *(INPUT_COUNT_PTR as *mut u32).add(i) = em.input_count as u32;
+            } else if MODE == QueryMode::Collect {
+                assert_eq!(
+                    em.input_count, em.expected_count,
+                    "physics: pair count changed before collection"
+                );
             }
         }
     }

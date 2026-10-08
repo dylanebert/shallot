@@ -26,6 +26,7 @@ use crate::geo::hull_view;
 static mut STACKS: [crate::task_memory::Stack; crate::regions::MAX_WORLDS] =
     [const { crate::task_memory::Stack::EMPTY }; crate::regions::MAX_WORLDS];
 static mut SCRATCH_PTR: [usize; crate::regions::MAX_WORLDS] = [0; crate::regions::MAX_WORLDS];
+static mut EXTRA_SCRATCH_PTR: [usize; crate::regions::MAX_WORLDS] = [0; crate::regions::MAX_WORLDS];
 
 static mut SOLVE_PTR: [usize; crate::regions::MAX_WORLDS] = [0; crate::regions::MAX_WORLDS];
 
@@ -54,6 +55,10 @@ pub unsafe fn free_solve(world: usize) {
 
 pub unsafe fn free_scratch(world: usize) {
     free_solve(world);
+    if EXTRA_SCRATCH_PTR[world] != 0 {
+        STACKS[world].free(EXTRA_SCRATCH_PTR[world] as *mut u8);
+        EXTRA_SCRATCH_PTR[world] = 0;
+    }
     if SCRATCH_PTR[world] != 0 {
         STACKS[world].free(SCRATCH_PTR[world] as *mut u8);
         SCRATCH_PTR[world] = 0;
@@ -77,6 +82,13 @@ pub unsafe fn reserve_scratch(world: usize, bytes: usize) -> usize {
     }
     let ptr = STACKS[world].alloc(bytes) as usize;
     SCRATCH_PTR[world] = ptr;
+    ptr
+}
+pub unsafe fn extend_scratch(world: usize, bytes: usize) -> usize {
+    assert_ne!(SCRATCH_PTR[world], 0);
+    assert_eq!(EXTRA_SCRATCH_PTR[world], 0);
+    let ptr = STACKS[world].alloc(bytes) as usize;
+    EXTRA_SCRATCH_PTR[world] = ptr;
     ptr
 }
 const N_COLS: usize = 15;
