@@ -21,7 +21,7 @@ try {
         const answer = a.id.index1 !== 4 && b.id.index1 !== 4 && a.id.index1 !== 6 && b.id.index1 !== 6;
         return process.env.CALLBACK_OPPOSITE === "1" ? !answer : answer;
     });
-    const shape = { enableCustomFiltering: !pre, enablePreSolveEvents: pre, enableContactEvents: true, enableHitEvents: true };
+    const shape = { enableCustomFiltering: !pre, enablePreSolveEvents: pre, enableContactEvents: true, enableHitEvents: true, enableSensorEvents: true };
     for (const x of [0, 20]) {
         world.createBody({ position: { x, y: -0.5, z: 0 } }).createHull(shape, makeBoxHull(6, 0.5, 3));
     }
@@ -40,6 +40,17 @@ try {
     for (let i = 0; i < 300; ++i) {
         world.createBody({ type: BodyType.Dynamic, position: { x: 100 + 2 * i, y: 0.5, z: 0 } })
             .createSphere(shape, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+    }
+    const sensorShape = { ...shape, isSensor: true, enableCustomFiltering: !pre, enablePreSolveEvents: pre };
+    world.createBody({ position: { x: 2, y: 3, z: 0 } })
+        .createHull(sensorShape, makeBoxHull(5, 4, 2));
+    world.createBody({ position: { x: 22, y: 1, z: 0 } })
+        .createHull(sensorShape, makeBoxHull(4, 0.5, 2));
+    sensorShape.enableCustomFiltering = false;
+    sensorShape.enablePreSolveEvents = false;
+    for (let i = 0; i < 300; ++i) {
+        world.createBody({ position: { x: 100 + 2 * i, y: 1, z: 0 } })
+            .createSphere(sensorShape, { center: { x: 0, y: 0, z: 0 }, radius: 0.75 });
     }
     for (let step = 0; step < 90; ++step) {
         calls = 0;

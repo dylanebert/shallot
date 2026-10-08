@@ -37,6 +37,7 @@ int main(int argc, char** argv)
     sd.enablePreSolveEvents = pre;
     sd.enableContactEvents = true;
     sd.enableHitEvents = true;
+    sd.enableSensorEvents = true;
     b3BoxHull floor = b3MakeBoxHull(6, 0.5f, 3);
     bd.position.y = -0.5f;
     b3CreateHullShape(b3CreateBody(world, &bd), &sd, &floor.base);
@@ -62,6 +63,24 @@ int main(int argc, char** argv)
         bd = b3DefaultBodyDef();
         bd.type = b3_dynamicBody;
         bd.position = (b3Pos){100 + 2*i, 0.5f, 0};
+        b3CreateSphereShape(b3CreateBody(world, &bd), &sd, &sphere);
+    }
+    sd.isSensor = true;
+    sd.enableCustomFiltering = !pre;
+    sd.enablePreSolveEvents = pre;
+    bd = b3DefaultBodyDef();
+    bd.position = (b3Pos){2, 3, 0};
+    b3BoxHull volume = b3MakeBoxHull(5, 4, 2);
+    b3CreateHullShape(b3CreateBody(world, &bd), &sd, &volume.base);
+    bd.position = (b3Pos){22, 1, 0};
+    volume = b3MakeBoxHull(4, 0.5f, 2);
+    b3CreateHullShape(b3CreateBody(world, &bd), &sd, &volume.base);
+    sd.enableCustomFiltering = false;
+    sd.enablePreSolveEvents = false;
+    sphere.radius = 0.75f;
+    for (int i = 0; i < 300; ++i) {
+        bd = b3DefaultBodyDef();
+        bd.position = (b3Pos){100 + 2*i, 1, 0};
         b3CreateSphereShape(b3CreateBody(world, &bd), &sd, &sphere);
     }
     for (int step = 0; step < 90; ++step) {

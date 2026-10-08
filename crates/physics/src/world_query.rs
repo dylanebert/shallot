@@ -83,11 +83,56 @@ pub(crate) unsafe fn write_cast(out: &CastOutput, target: *mut u32, material: i3
         target.add(index).write(value.to_bits());
     }
 }
+pub(crate) unsafe fn sensor_overlap(
+    world: usize,
+    sensor: &query::Shape<'_>,
+    transform: Transform,
+    id: usize,
+) -> bool {
+    let (visitor, _) = query_abi::active_shape(world, id);
+    let relative = transform.inv_mul(pose(world, id, Vec3::ZERO));
+    let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
+    let (count, radius) = match visitor {
+        query::Shape::Sphere(s) => {
+            points[0].write(relative.point(s.center));
+            (1, s.radius)
+        }
+        query::Shape::Capsule(s) => {
+            points[0].write(relative.point(s.center1));
+            points[1].write(relative.point(s.center2));
+            (2, s.radius)
+        }
+        query::Shape::Hull(h) => {
+            let count = h.vertex_count.min(128);
+            for j in 0..count {
+                points[j].write(relative.point(h.points[j]));
+            }
+            (count, 0.0)
+        }
+        query::Shape::Mesh(_) | query::Shape::Height(_)
+            if matches!(sensor, query::Shape::Mesh(_) | query::Shape::Height(_)) =>
+        {
+            return false
+        }
+        _ => panic!("physics: mesh/height/compound have no shape proxy"),
+    };
+    query::overlap_shape(
+        sensor,
+        Transform::IDENTITY,
+        ShapeProxy {
+            // Each convex branch initializes precisely count points.
+            points: core::slice::from_raw_parts(points.as_ptr().cast::<Vec3>(), count),
+            count,
+            radius,
+        },
+    )
+}
+
 // Traversal and narrow-phase scratch belongs to the calling sensor task.
 pub(crate) unsafe fn sensor_task(
     world_index: usize,
     sensor_id: usize,
-    mut emit: impl FnMut(usize),
+    mut emit: impl FnMut(usize, bool),
 ) {
     {
         let r = crate::shapes::col(world_index);
@@ -162,50 +207,14 @@ pub(crate) unsafe fn sensor_task(
                     {
                         return true;
                     }
-                    let (visitor, _) = query_abi::active_shape(world_index, id);
-                    let relative = sensor_transform.inv_mul(pose(world_index, id, Vec3::ZERO));
-                    let mut points = [core::mem::MaybeUninit::<Vec3>::uninit(); 128];
-                    let (count, radius) = match visitor {
-                        query::Shape::Sphere(s) => {
-                            points[0].write(relative.point(s.center));
-                            (1, s.radius)
-                        }
-                        query::Shape::Capsule(s) => {
-                            points[0].write(relative.point(s.center1));
-                            points[1].write(relative.point(s.center2));
-                            (2, s.radius)
-                        }
-                        query::Shape::Hull(h) => {
-                            let count = h.vertex_count.min(128);
-                            for j in 0..count {
-                                points[j].write(relative.point(h.points[j]));
-                            }
-                            (count, 0.0)
-                        }
-                        query::Shape::Mesh(_) | query::Shape::Height(_)
-                            if matches!(
-                                sensor,
-                                query::Shape::Mesh(_) | query::Shape::Height(_)
-                            ) =>
-                        {
-                            return true
-                        }
-                        _ => panic!("physics: mesh/height/compound have no shape proxy"),
-                    };
-                    if query::overlap_shape(
-                        &sensor,
-                        Transform::IDENTITY,
-                        ShapeProxy {
-                            // Each convex branch initializes precisely count points.
-                            points: core::slice::from_raw_parts(
-                                points.as_ptr().cast::<Vec3>(),
-                                count,
-                            ),
-                            count,
-                            radius,
-                        },
-                    ) {
-                        emit(id);
+                    let deferred = crate::callbacks::filter_enabled(world_index)
+                        && (r.get(n + crate::shapes::S_FLAGS) | r.get(o + crate::shapes::S_FLAGS))
+                            & (4 << 16)
+                            != 0;
+                    if deferred {
+                        emit(id, true);
+                    } else if sensor_overlap(world_index, &sensor, sensor_transform, id) {
+                        emit(id, false);
                     }
                     true
                 },

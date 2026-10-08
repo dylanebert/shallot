@@ -14,6 +14,7 @@ struct Sensor {
     overlaps1: Vec<Visitor>,
     overlaps2: Vec<Visitor>,
     shape_id: usize,
+    deferred: bool,
 }
 struct Sensors {
     sensors: Vec<Sensor>,
@@ -121,6 +122,7 @@ pub unsafe fn task(world_index: usize, worker: usize, start: usize, end: usize) 
         s.overlaps2.clear();
         s.overlaps2.extend_from_slice(&s.hits);
         s.hits.clear();
+        s.deferred = false;
         let r = shapes::col(world_index);
         let n = s.shape_id * shapes::SHAPE_STRIDE;
         let body = r.get(n + shapes::S_QUERY_BODY) as usize;
@@ -132,9 +134,15 @@ pub unsafe fn task(world_index: usize, worker: usize, start: usize, end: usize) 
             }
             continue;
         }
-        world_query::sensor_task(world_index, s.shape_id, |id| {
-            s.overlaps2.push(visitor(world, id))
+        world_query::sensor_task(world_index, s.shape_id, |id, deferred| {
+            let mut v = visitor(world, id);
+            v.padding = deferred as u16;
+            s.deferred |= deferred;
+            s.overlaps2.push(v);
         });
+        if s.deferred {
+            continue;
+        }
         s.overlaps2.sort_unstable_by_key(|v| v.shape_id);
         s.overlaps2.dedup_by_key(|v| v.shape_id);
         if s.overlaps1 != s.overlaps2 {
@@ -144,6 +152,30 @@ pub unsafe fn task(world_index: usize, worker: usize, start: usize, end: usize) 
 }
 pub unsafe fn publish(world: usize) {
     let w = state(world);
+    if crate::callbacks::filter_enabled(world) {
+        for (index, s) in w.sensors.iter_mut().enumerate() {
+            if !s.deferred {
+                continue;
+            }
+            let id = s.shape_id;
+            let (sensor, _) = crate::query_abi::active_shape(world, id);
+            let transform = world_query::pose(world, id, crate::math::Vec3::ZERO);
+            s.overlaps2.retain_mut(|v| {
+                if v.padding == 0 {
+                    return true;
+                }
+                v.padding = 0;
+                crate::callbacks::filter(world, id, v.shape_id as usize)
+                    && world_query::sensor_overlap(world, &sensor, transform, v.shape_id as usize)
+            });
+            s.deferred = false;
+            s.overlaps2.sort_unstable_by_key(|v| v.shape_id);
+            s.overlaps2.dedup_by_key(|v| v.shape_id);
+            if s.overlaps1 != s.overlaps2 {
+                w.event_bits[0][index / 64] |= 1 << (index % 64);
+            }
+        }
+    }
     for worker in 1..w.workers {
         for block in 0..w.event_blocks {
             w.event_bits[0][block] |= w.event_bits[worker][block];
