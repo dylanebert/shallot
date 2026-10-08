@@ -38,7 +38,6 @@ interface SnapshotState {
     revision: number;
     entities: ReturnType<Entities["snapshot"]>;
     components: ReturnType<Components["snapshot"]>;
-    queries: ReturnType<Queries["snapshot"]>;
     fields: Map<number, Map<string, TypedArray>>;
     highWater: number;
     fixedTick: number;
@@ -422,8 +421,8 @@ export class World {
     /** Capture entity identity and allocation, component membership, all stored and registered
      * fields through the entity high-water mark, and fixedTick. Local to this world and registry;
      * excludes pacing, resources, plugin hidden state, GPU and host state. Refuses during step/tick.
-     * Existing query iteration order is captured too; queries registered later rebuild from restored
-     * allocator order. The image is reusable, opaque and independent of writes, not a save format. */
+     * Query order is derived from restored membership. The image is reusable, opaque and independent
+     * of writes, not a save format. */
     snapshot(): WorldSnapshot {
         if (this._stepping) throw new Error("World.snapshot: refuses inside a step or tick");
         for (const entry of this.registry.entries()) this.storage(entry.component);
@@ -440,7 +439,6 @@ export class World {
             revision: this.registry.revision,
             entities: this._entities.snapshot(),
             components: this._components.snapshot(),
-            queries: this._queries.snapshot(),
             fields: columns,
             highWater: this._highWater,
             fixedTick: this.time.fixedTick,
@@ -477,7 +475,7 @@ export class World {
                 field.dirty.fill(0xffffffff);
             }
         }
-        this._queries.restore(state.queries, this._components, this._entities);
+        this._queries.restore(this._components, this._entities);
         this._scheduler.restoreFixedTick(state.fixedTick);
         for (const [component, before] of membership) {
             const after = new Set(this._entities.all().filter((eid) => this.has(eid, component)));
@@ -645,9 +643,8 @@ export class World {
         return this._components.has(eid, component);
     }
 
-    /**
-     * find entities matching component terms
-     */
+    /** Find matching entities in ascending eid order. Membership changes take effect as documented
+     * by RegisteredQuery; unchanged iterations allocate nothing after iterator-pool warmup. */
     query(terms: any[]): Iterable<number> {
         return this._queries.find(terms, this._components, this._entities);
     }

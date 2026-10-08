@@ -50,18 +50,23 @@ export const and = makeOp("and");
 /** match entities with at least one of these components */
 export const or = makeOp("or");
 
-// A pooled query iterator. The `next` object and its single reused IteratorResult are borrowed from
-// the owning query's free-list and returned to it when the loop completes or breaks, so
-// `for…of world.query([...])` allocates nothing after warmup (V8 doesn't reliably elide the per-loop
-// iterator object). It snapshots count + the live `_dense` reference exactly as a fresh iterator
-// would, so iteration-during-mutation is unchanged: a swap-remove of the current eid still visits
-// every original member once (the swap only overwrites already-visited slots; the snapshotted count
-// reads the original tail values at their original indices) — unless the body also adds a new
-// matching entity, which can land in an unvisited slot (see RegisteredQuery's doc).
+interface QueryOrder {
+    dense: number[];
+    addedAt: number[];
+    membership: number;
+    sorted: number;
+}
+
+const ascending = (a: number, b: number) => a - b;
+
+// Pool both the iterator and its result; unchanged iterations need neither sorting nor allocation.
 class QueryIterator implements Iterator<number> {
     private _i = 0;
     private _count = 0;
-    private _dense: number[] = [];
+    private _order!: QueryOrder;
+    private _membership = 0;
+    private _sorted = 0;
+    private _last = 0;
     private _active = false;
     private readonly _r = { value: 0, done: false };
     private readonly _pool: QueryIterator[];
@@ -70,9 +75,12 @@ class QueryIterator implements Iterator<number> {
         this._pool = pool;
     }
 
-    reset(dense: number[], count: number): void {
-        this._dense = dense;
-        this._count = count;
+    reset(order: QueryOrder): void {
+        this._order = order;
+        this._count = order.dense.length;
+        this._membership = order.membership;
+        this._sorted = order.sorted;
+        this._last = 0;
         this._i = 0;
         this._r.done = false;
         this._active = true;
@@ -80,8 +88,28 @@ class QueryIterator implements Iterator<number> {
 
     next(): IteratorResult<number> {
         const r = this._r;
-        if (this._i < this._count) r.value = this._dense[this._i++];
-        else this.reclaim();
+        if (!this._active) return r;
+        const order = this._order;
+        if (this._sorted !== order.sorted) {
+            // A nested iteration sorted changed membership; resume after the last returned eid.
+            let lo = 0;
+            let hi = order.dense.length;
+            while (lo < hi) {
+                const mid = (lo + hi) >>> 1;
+                if (order.dense[mid] <= this._last) lo = mid + 1;
+                else hi = mid;
+            }
+            this._i = lo;
+            this._count = order.dense.length;
+            this._sorted = order.sorted;
+        }
+        while (this._i < this._count) {
+            const eid = order.dense[this._i++];
+            if (!eid || order.addedAt[eid] > this._membership) continue;
+            r.value = this._last = eid;
+            return r;
+        }
+        this.reclaim();
         return r;
     }
 
@@ -103,31 +131,23 @@ class QueryIterator implements Iterator<number> {
 }
 
 /**
- * matched-entity set + iteration for one registered query. owns sparse-set
- * state inline (no wrapper class). iteration snapshots count at start so
- * callers can mutate the *current* eid during iteration — adding a marker to
- * or removing a component from the eid being visited swap-removes it from the
- * query mid-loop, yet every original member is still visited exactly once (the
- * swap only overwrites already-visited slots) — unless the body also adds a new
- * matching entity mid-iteration (see below). e.g. `for (const eid of
- * world.query([Spawn, not(Initialized)])) world.add(eid, Initialized)`.
- * Removing a *not-yet-visited* eid mid-iteration is not safe: the swap-remove
- * moves the tail into the unvisited slot, so that tail member is visited twice
- * and the removed one skipped. Adding a *new* matching entity mid-iteration splits
- * two ways: a pure add appends at `_dense[_count++]` past the snapshot and is
- * not visited this loop; but when the same body first removes the current eid
- * (e.g. `add(eid, Done)` on `query([Trigger, not(Done)])`), that removal
- * decrements `_count` and the subsequent `add()` writes into an unvisited slot
- * — the new entity is visited and one original is skipped.
+ * Each iteration starts in ascending eid order, determined only by membership. Changed membership
+ * is compacted and sorted in place at iteration start; unchanged iterations allocate nothing after
+ * iterator-pool warmup. Removing a member never reorders the remaining members.
+ * An iteration visits each starting member at most once: removing the current or an already visited
+ * member leaves later visits unchanged; removing an unvisited member skips it. New memberships,
+ * including removed/re-added members and reused eids, wait for the next iteration. A nested iteration
+ * sorts its own starting membership; that sort preserves the outer iteration's boundary and order.
+ * Iterators and their result objects are borrowed until completion or return; do not retain results.
  */
 export class RegisteredQuery implements Iterable<number> {
     readonly required: any[] = [];
     readonly excluded: any[] = [];
     readonly orGroups: any[][] = [];
     readonly all = new Set<any>();
-    private _dense: number[] = [];
+    private readonly _order: QueryOrder = { dense: [], addedAt: [], membership: 0, sorted: 0 };
     private _sparse: number[] = [];
-    private _count = 0;
+    private _dirty = false;
     private _iterPool: QueryIterator[] = [];
 
     constructor(terms: readonly unknown[]) {
@@ -163,38 +183,46 @@ export class RegisteredQuery implements Iterable<number> {
     }
 
     add(eid: Entity): void {
+        const dense = this._order.dense;
         const idx = this._sparse[eid];
-        if (idx !== undefined && idx >= 0 && idx < this._count && this._dense[idx] === eid) return;
-        this._sparse[eid] = this._count;
-        this._dense[this._count++] = eid;
+        if (idx !== undefined && idx >= 0 && dense[idx] === eid) return;
+        this._sparse[eid] = dense.length;
+        dense.push(eid);
+        this._order.addedAt[eid] = ++this._order.membership;
+        this._dirty = true;
     }
 
     remove(eid: Entity): void {
         const idx = this._sparse[eid];
-        if (idx === undefined || idx < 0 || idx >= this._count || this._dense[idx] !== eid) return;
-        this._count--;
-        const last = this._dense[this._count];
-        this._dense[idx] = last;
-        this._sparse[last] = idx;
+        if (idx === undefined || idx < 0 || this._order.dense[idx] !== eid) return;
+        // A tombstone skips an unvisited member without moving another member into its position.
+        this._order.dense[idx] = 0;
         this._sparse[eid] = -1;
+        this._order.membership++;
+        this._dirty = true;
     }
 
-    /** @internal Capture active iteration order independently of allocator order. */
-    snapshot(): number[] {
-        return this._dense.slice(0, this._count);
-    }
-
-    /** @internal Reset a retained query without aliasing the reusable snapshot. */
-    restore(order: readonly number[]): void {
-        this._dense = [];
-        this._sparse = [];
-        this._count = 0;
-        for (const eid of order) this.add(eid);
+    /** @internal Rebuild retained queries from restored membership, not historical order. */
+    restore(members: readonly number[]): void {
+        this._order.dense.length = 0;
+        this._sparse.length = 0;
+        for (const eid of members) this.add(eid);
+        this._dirty = true;
     }
 
     [Symbol.iterator](): Iterator<number> {
+        if (this._dirty) {
+            const dense = this._order.dense;
+            let count = 0;
+            for (let i = 0; i < dense.length; i++) if (dense[i]) dense[count++] = dense[i];
+            dense.length = count;
+            dense.sort(ascending);
+            for (let i = 0; i < count; i++) this._sparse[dense[i]] = i;
+            this._order.sorted++;
+            this._dirty = false;
+        }
         const it = this._iterPool.pop() ?? new QueryIterator(this._iterPool);
-        it.reset(this._dense, this._count);
+        it.reset(this._order);
         return it;
     }
 }
@@ -259,22 +287,11 @@ export class Queries {
         for (let i = 0; i < this._all.length; i++) this._all[i].remove(eid);
     }
 
-    /** @internal Query order affects deterministic work, even when membership is unchanged. */
-    snapshot(): Map<RegisteredQuery, number[]> {
-        return new Map(this._all.map((query) => [query, query.snapshot()]));
-    }
-
-    /** @internal Restore captured query order; later queries start from restored allocator order. */
-    restore(
-        state: ReadonlyMap<RegisteredQuery, readonly number[]>,
-        components: Components,
-        entities: Entities,
-    ): void {
+    /** @internal Query order is derived from membership, including queries registered after capture. */
+    restore(components: Components, entities: Entities): void {
         const alive = entities.all();
         for (const query of this._all)
-            query.restore(
-                state.get(query) ?? alive.filter((eid) => query.matches(eid, components)),
-            );
+            query.restore(alive.filter((eid) => query.matches(eid, components)));
     }
 
     clear(): void {

@@ -4,52 +4,41 @@ import { World } from "./world";
 
 const C = component("snapshot-query-order", { value: f32 });
 
-test("snapshot restores retained query iteration order so order-sensitive fixed work replays", () => {
-    const world = new World();
-    const a = world.create();
-    const b = world.create();
-    world.add(a, C);
-    world.add(b, C);
-    const query = world.query([C]);
-    world.remove(a, C);
-    world.add(a, C);
-    expect([...query]).toEqual([b, a]);
-    const snapshot = world.snapshot();
-    world.addSystem({
-        group: "fixed",
-        update: (w) => {
-            let value = 0;
-            for (const eid of query) w.storage(C).value.set(eid, ++value);
-        },
+for (const retained of [true, false]) {
+    test(`${retained ? "retained" : "late"} query replay ignores remove/re-add history and assigns in ascending eid order`, () => {
+        const world = new World();
+        const a = world.create();
+        const b = world.create();
+        world.add(a, C);
+        world.add(b, C);
+        if (retained) {
+            world.query([C]);
+            world.remove(a, C);
+            world.add(a, C);
+        }
+        const snapshot = world.snapshot();
+        world.addSystem({
+            group: "fixed",
+            update: (w) => {
+                if (!retained && w.time.fixedTick === 1) {
+                    w.remove(a, C);
+                    w.add(a, C);
+                } else {
+                    let value = 0;
+                    for (const eid of w.query([C])) w.storage(C).value.set(eid, ++value);
+                }
+            },
+        });
+        const run = () => {
+            world.tick();
+            if (!retained) world.tick();
+            const values = world.storage(C).value;
+            return [values.get(a), values.get(b)];
+        };
+        expect(run()).toEqual([1, 2]);
+        world.restore(snapshot);
+        expect(run()).toEqual([1, 2]);
+        world.restore(snapshot);
+        expect(run()).toEqual([1, 2]);
     });
-    world.tick();
-    const values = world.storage(C).value;
-    expect([values.get(a), values.get(b)]).toEqual([2, 1]);
-    world.restore(snapshot);
-    expect([...query]).toEqual([b, a]);
-    world.tick();
-    expect([values.get(a), values.get(b)]).toEqual([2, 1]);
-    world.restore(snapshot);
-    world.tick();
-    expect([values.get(a), values.get(b)]).toEqual([2, 1]);
-});
-
-test("queries first registered after capture rebuild from restored membership and allocator order", () => {
-    const world = new World();
-    const a = world.create();
-    const b = world.create();
-    world.add(a, C);
-    world.add(b, C);
-    const snapshot = world.snapshot();
-    world.destroy(a);
-    const later = world.query([C]);
-    expect([...later]).toEqual([b]);
-    world.restore(snapshot);
-    expect([...later]).toEqual([a, b]);
-    expect(world.query([C])).toBe(later);
-    world.remove(a, C);
-    world.add(a, C);
-    expect([...later]).toEqual([b, a]);
-    world.restore(snapshot);
-    expect([...later]).toEqual([a, b]);
-});
+}
