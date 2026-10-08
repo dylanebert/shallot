@@ -4,9 +4,9 @@
 // Needs node --expose-gc --allow-natives-syntax.
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
-// its `control` export allocates one known literal per call. Prints optimization trace markers and
-// one JSON sample on stdout.
-import { readFileSync, realpathSync, writeSync } from "node:fs";
+// its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces;
+// writes window markers into this isolate's trace file and one JSON sample on stdout.
+import { openSync, readdirSync, readFileSync, realpathSync, writeSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
 import { dirname, relative, resolve } from "node:path";
@@ -85,6 +85,31 @@ export function attribute(profile, runSite, siteOf) {
         .sort((x, y) => y.bytes - x.bytes);
 }
 
+/**
+ * This isolate's code-trace file under `--redirect-code-traces`, which gives each isolate its own
+ * `code-<pid>-<isolate id>.asm` in the working directory (V8 src/diagnostics/code-tracer.h). Found by
+ * optimizing a probe only this isolate defines. Needs --allow-natives-syntax.
+ */
+export function measuredTrace() {
+    function shallotMeasuredIsolate() {
+        return 1;
+    }
+    const optimize = new Function(
+        "fn",
+        "%PrepareFunctionForOptimization(fn); fn(); fn(); %OptimizeFunctionOnNextCall(fn); fn();",
+    );
+    optimize(shallotMeasuredIsolate);
+    const files = readdirSync(".").filter(
+        (file) =>
+            file.startsWith(`code-${process.pid}-`) &&
+            file.endsWith(".asm") &&
+            readFileSync(file, "utf8").includes("shallotMeasuredIsolate"),
+    );
+    if (files.length !== 1)
+        throw new Error(`allocation sampler: expected one measured-isolate trace, found ${files.length}`);
+    return resolve(files[0]);
+}
+
 async function main() {
     const [bundle, warmArg, framesArg, inputFile, mode] = process.argv.slice(2);
     const warm = Number(warmArg);
@@ -134,18 +159,23 @@ async function main() {
                 includeObjectsCollectedByMajorGC: true,
                 includeObjectsCollectedByMinorGC: true,
             });
-            // These synchronous markers share V8's trace stream and bracket the profiled run,
-            // excluding inspector and attribution work, just as the heap attribution does.
-            writeSync(1, `SHALLOT_SAMPLE_BEGIN ${JSON.stringify(label)}\n`);
+            // These synchronous markers share this isolate's trace file and bracket the profiled run,
+            // excluding inspector and attribution work, just as the heap attribution does. V8 appends
+            // each trace as it happens, and so do these, so they interleave in order.
+            mark(`SHALLOT_SAMPLE_BEGIN ${JSON.stringify(label)}\n`);
             const running = run(n);
             if (running && typeof running.then === "function") await running;
-            writeSync(1, "SHALLOT_SAMPLE_END\n");
+            mark("SHALLOT_SAMPLE_END\n");
             const { profile } = await session.post("HeapProfiler.stopSampling");
             return sites(profile);
         }
 
-        // Warm marker writes separately so their first compiles do not land in subject runs.
-        for (let i = 0; i < 10000; i++) writeSync(1, "");
+        // Warm marker writes separately so their first compiles do not land in subject runs. A
+        // descriptor, not appendFileSync, whose path handling tiers up late inside windows.
+        const trace = measuredTrace();
+        const traceFd = openSync(trace, "a");
+        const mark = (text) => writeSync(traceFd, text);
+        for (let i = 0; i < 10000; i++) mark("");
 
         const { default: create, control } = await import(bundleUrl);
         if (typeof control !== "function")

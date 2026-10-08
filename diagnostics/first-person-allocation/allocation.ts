@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -166,6 +166,9 @@ async function runSampler(
                 "--enable-source-maps",
                 ...TIER_FLAGS,
                 "--trace-opt",
+                // One stdout carries every isolate's traces; a worker's optimization would refuse
+                // a main-thread window. Per-isolate files keep only the measured isolate's.
+                "--redirect-code-traces",
                 "--allow-natives-syntax",
                 SAMPLER,
                 join(dir, "subject.mjs"),
@@ -174,7 +177,7 @@ async function runSampler(
                 join(dir, "input.txt"),
                 ...mode,
             ],
-            { stdout: "pipe", stderr: "pipe" },
+            { cwd: dir, stdout: "pipe", stderr: "pipe" },
         );
         const [stdout, stderr, code] = await Promise.all([
             new Response(proc.stdout).text(),
@@ -182,13 +185,24 @@ async function runSampler(
             proc.exited,
         ]);
         if (code !== 0) throw new Error(`allocation sampler exited ${code}: ${stderr.trim()}`);
-        return tracedSample(stdout);
+        return tracedSample(`${measuredIsolateTrace(dir)}\n${stdout}`);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
 }
 
-/** Read synchronous V8 optimization traces bracketed by the child's run markers. */
+/** The one isolate trace in `dir` that carries the sampler's window markers; other isolates' are ignored. */
+export function measuredIsolateTrace(dir: string): string {
+    const marked = readdirSync(dir)
+        .filter((file) => /^code-\d+-\d+\.asm$/.test(file))
+        .map((file) => readFileSync(join(dir, file), "utf8"))
+        .filter((text) => text.includes("SHALLOT_SAMPLE_BEGIN "));
+    if (marked.length !== 1)
+        throw new Error(`expected one marked isolate trace, found ${marked.length}`);
+    return marked[0];
+}
+
+/** Read synchronous V8 optimization traces bracketed by the measured isolate's run markers. */
 export function tracedSample(stdout: string): AllocationSample {
     const optimizations = new Map<string, Set<string>>();
     const marked = new Set<string>();
