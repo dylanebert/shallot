@@ -93,7 +93,6 @@ export interface GlobalTransformRuntime {
     discontinuities: Uint32Array;
     discontinuityPhases: Uint8Array;
     discontinuityCount: number;
-    historyNeedsPromotion: boolean;
 }
 
 /** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
@@ -107,9 +106,9 @@ export function initializeGlobalTransform(world: World): void {
         enabled: false,
         tickCount: 0,
         captureIndex: 0,
-        // Initial placement, four bounded catch-up ticks, and post-simulation placement.
-        stages: new Array(6),
-        ranges: new Uint32Array(12),
+        // Only the latest tick pair survives until presentation.
+        stages: new Array(2),
+        ranges: new Uint32Array(4),
         group: undefined,
         generation: -1,
         placement: world.storage(Transform),
@@ -117,7 +116,6 @@ export function initializeGlobalTransform(world: World): void {
         discontinuities: new Uint32Array(1),
         discontinuityPhases: new Uint8Array(1),
         discontinuityCount: 0,
-        historyNeedsPromotion: false,
     };
     world.globalTransformRuntime = runtime;
     world.observeMembership(GlobalTransform, (eid, present) => {
@@ -243,6 +241,13 @@ function captureCurrent(world: World, phase: number): void {
     const runtime = world.globalTransformRuntime!;
     const current = runtime.current!;
     current.prepareUpload();
+    // Reusing a stage must retain earlier changed rows, including gaps in the range.
+    if (current.pendingUploadSize && runtime.ranges[phase * 2 + 1]) {
+        current.markRange(
+            runtime.ranges[phase * 2] / current.rowBytes,
+            runtime.ranges[phase * 2 + 1] / current.rowBytes,
+        );
+    }
     const size = current.pendingUploadSize;
     let buffer = runtime.stages[phase];
     if (size && (!buffer || buffer.size < size)) {
@@ -255,29 +260,45 @@ function captureCurrent(world: World, phase: number): void {
         world.own(buffer);
         runtime.stages[phase] = buffer;
     }
-    if (size && buffer) current.upload(buffer, true);
-    runtime.ranges[phase * 2] = size ? current.lastUploadOffset : 0;
-    runtime.ranges[phase * 2 + 1] = size;
+    if (size && buffer) {
+        current.upload(buffer, true);
+        runtime.ranges[phase * 2] = current.lastUploadOffset;
+        runtime.ranges[phase * 2 + 1] = size;
+    }
     runtime.captureIndex = phase + 1;
 }
 /** @internal Initial placement precedes this frame's fixed ticks; no reader means no GPU work. */
 export function beginGlobalTransformTick(world: World): void {
     deriveTransforms(world);
     const runtime = world.globalTransformRuntime;
-    if (runtime?.enabled && runtime.tickCount === 0) captureCurrent(world, 0);
+    if (runtime?.enabled) {
+        if (runtime.tickCount && runtime.ranges[3]) {
+            runtime.current!.markRange(
+                runtime.ranges[2] / runtime.current!.rowBytes,
+                runtime.ranges[3] / runtime.current!.rowBytes,
+            );
+        }
+        captureCurrent(world, 0);
+        runtime.discontinuityCount = 0;
+        runtime.captureIndex = 1;
+    }
 }
-/** @internal Stage changed current rows; each catch-up tick has distinct immutable GPU bytes. */
+/** @internal Retain the latest completed tick for presentation. */
 export function endGlobalTransformTick(world: World): void {
     deriveTransforms(world);
     const runtime = world.globalTransformRuntime;
-    if (runtime?.enabled) captureCurrent(world, ++runtime.tickCount);
+    if (runtime?.enabled) {
+        runtime.tickCount = 1;
+        captureCurrent(world, 1);
+        runtime.captureIndex = 1;
+    }
 }
 /** @internal Gather post-simulation placement; recording waits for the renderer's frame encoder. */
 export function prepareGlobalTransform(world: World): void {
     deriveTransforms(world);
     const runtime = world.globalTransformRuntime;
     if (!runtime?.enabled) return;
-    captureCurrent(world, runtime.tickCount ? runtime.tickCount + 1 : 0);
+    captureCurrent(world, 1);
     runtime.render!.upload();
 }
 
@@ -298,10 +319,9 @@ function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): voi
             offset,
             size,
         );
-        runtime.historyNeedsPromotion = true;
     }
     for (let i = 0; i < runtime.discontinuityCount; i++) {
-        if (runtime.discontinuityPhases[i] !== phase) continue;
+        if (phase !== 1) continue;
         const current = runtime.current!;
         const row = current.rowIndex(runtime.discontinuities[i]);
         if (row >= 0)
@@ -318,27 +338,22 @@ function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): voi
 export function prepareGlobalTransformFrame(world: World, encoder: GPUCommandEncoder): void {
     const runtime = world.globalTransformRuntime;
     if (!runtime?.enabled) return;
-    copyPhase(world, encoder, 0);
-    for (let tick = 1; tick <= runtime.tickCount; tick++) {
-        if (runtime.historyNeedsPromotion) {
-            encoder.copyBufferToBuffer(
-                runtime.current!.buffer,
-                0,
-                runtime.previous!.buffer,
-                0,
-                runtime.current!.buffer.size,
-            );
-            runtime.historyNeedsPromotion = false;
-        }
-        copyPhase(world, encoder, tick);
+    if (runtime.tickCount) {
+        copyPhase(world, encoder, 0);
+        encoder.copyBufferToBuffer(
+            runtime.current!.buffer,
+            0,
+            runtime.previous!.buffer,
+            0,
+            runtime.current!.buffer.size,
+        );
     }
-    if (runtime.tickCount) copyPhase(world, encoder, runtime.tickCount + 1);
+    copyPhase(world, encoder, 1);
     runtime.tickCount = 0;
     runtime.captureIndex = 0;
     runtime.discontinuityCount = 0;
     runtime.ranges.fill(0);
     if (!runtime.current!.count) {
-        runtime.historyNeedsPromotion = false;
         return;
     }
     const generation =

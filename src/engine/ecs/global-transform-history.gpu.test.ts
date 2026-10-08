@@ -24,6 +24,7 @@ if (typeof ResizeObserver === "undefined") {
 }
 
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { beginGlobalTransformTick, endGlobalTransformTick } from "./global-transform";
 
 const configs: Parameters<typeof createApp>[0][] = [];
 const subjects = gpuApps(import.meta.path, configs);
@@ -274,6 +275,49 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
                     .bytes,
             );
             expect(words[row * 12]).toBeCloseTo(6, 5);
+        } finally {
+            app.dispose();
+        }
+    });
+}
+
+{
+    let eid = -1;
+    configs.push({
+        defaults: false,
+        plugins: [RenderingPlugin],
+        setup(world) {
+            eid = world.create();
+            world.add(eid, Transform);
+        },
+    });
+    test("0, 1, 2 and 8 ticks before a frame retain only the last tick pair", async () => {
+        const app = subjects()[4];
+        const { world } = app;
+        try {
+            attachTestCamera(world);
+            const table = globalTransformTable(world);
+            world.step(0);
+            let x = 0;
+            let previous = 0;
+            for (const ticks of [0, 1, 2, 8, 0]) {
+                for (let tick = 0; tick < ticks; tick++) {
+                    beginGlobalTransformTick(world);
+                    previous = x;
+                    x += 10;
+                    world.storage(Transform).translation.x.set(eid, x);
+                    endGlobalTransformTick(world);
+                }
+                world.step(Time.FIXED_DT * 0.1);
+                const words = new Float32Array(
+                    (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
+                        .bytes,
+                );
+                expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(
+                    previous + (x - previous) * world.time.fixedAlpha,
+                    5,
+                );
+            }
         } finally {
             app.dispose();
         }
