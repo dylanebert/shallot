@@ -8,6 +8,8 @@ const GAME_TIERS = ["engine", "core", "standard", "extras"] as const;
 const TIER_ORDER = new Map(GAME_TIERS.map((tier, index) => [tier, index]));
 const TOOLING = new Set(["project", "cli", "native", "types"]);
 const MODULE_TIERS = new Set(["core", "standard", "extras"]);
+type SiblingEdge = readonly [from: string, to: string];
+const SIBLING_EDGES: readonly SiblingEdge[] = [];
 // The runtime floor is a host-only leaf; Vite is public only through this package subpath.
 const DIRECT_LEAVES = new Set(["engine/runtime/floor.ts"]);
 const PUBLIC_ENTRIES = new Map([["@dylanebert/shallot/vite", "project/vite.ts"]]);
@@ -194,15 +196,46 @@ function transitionalRed(src: string, module: Module): string {
     return `${relative(dirname(src), index).split(sep).join("/")}:${line < 0 ? 1 : line + 1}: pending roadmap migration (still red): ${destination}`;
 }
 
-/** Return all import-boundary reds in a source tree. */
-export function checkImports(root: string): string[] {
+function siblingCycles(edges: readonly SiblingEdge[]): string[] {
+    const graph = new Map<string, string[]>();
+    for (const [from, to] of edges) {
+        const targets = graph.get(from) ?? [];
+        targets.push(to);
+        graph.set(from, targets);
+    }
+    const visited = new Set<string>();
+    const path: string[] = [];
+    const violations: string[] = [];
+    const visit = (module: string): void => {
+        const start = path.indexOf(module);
+        if (start >= 0) {
+            violations.push(
+                `declared sibling cycle: ${[...path.slice(start), module].join(" → ")}`,
+            );
+            return;
+        }
+        if (visited.has(module)) return;
+        path.push(module);
+        for (const target of graph.get(module) ?? []) visit(target);
+        path.pop();
+        visited.add(module);
+    };
+    for (const module of graph.keys()) visit(module);
+    return violations;
+}
+
+/** Return all import-boundary reds in a source tree, including cycles in declared sibling edges. */
+export function checkImports(
+    root: string,
+    siblingEdges: readonly SiblingEdge[] = SIBLING_EDGES,
+): string[] {
     const src = resolve(root, SOURCE_ROOT);
     const files = [...new Glob("**/*.{ts,tsx,mts,cts}").scanSync(src)]
         .filter((file) => !/\.(?:test|node|oracle)\.(?:ts|tsx|mts|cts)$/.test(file))
         .map((file) => resolve(src, file))
         .sort();
     const resolutions = moduleResolutions(root);
-    const violations: string[] = [];
+    const violations = siblingCycles(siblingEdges);
     const transitional = new Map<string, Module>();
 
     for (const file of files) {
@@ -261,7 +294,11 @@ export function checkImports(root: string): string[] {
                 targetModule?.kind === "game" &&
                 MODULE_TIERS.has(sourceModule.tier) &&
                 sourceModule.tier === targetModule.tier &&
-                sourceModule.name !== targetModule.name
+                sourceModule.name !== targetModule.name &&
+                !siblingEdges.some(
+                    ([from, to]) =>
+                        from === modulePath(sourceModule) && to === modulePath(targetModule),
+                )
             ) {
                 violations.push(
                     `${location}: sibling import ${sourceModule.tier}/${sourceModule.name} → ${targetModule.tier}/${targetModule.name}`,

@@ -85,6 +85,73 @@ function put(root: string, path: string, source: string): void {
     writeFileSync(file, source);
 }
 
+function withSiblingGraph(run: (root: string, tier: string) => void): void {
+    for (const tier of ["core", "standard", "extras"]) {
+        withFixture((root) => {
+            writeFileSync(
+                resolve(root, "tsconfig.json"),
+                JSON.stringify({
+                    compilerOptions: {
+                        module: "ESNext",
+                        moduleResolution: "Bundler",
+                        noEmit: true,
+                    },
+                    include: ["src"],
+                }),
+            );
+            put(root, `${tier}/a/index.ts`, 'import "../b";\n');
+            put(root, `${tier}/b/index.ts`, "export {};\n");
+            run(root, tier);
+        });
+    }
+}
+
+test("declared sibling edges admit imports in each module layer", () => {
+    withSiblingGraph((root, tier) => {
+        expect(checkImports(root, [[`${tier}/a`, `${tier}/b`]])).toEqual([]);
+    });
+});
+
+test("declaring one sibling edge does not admit an undeclared edge", () => {
+    withSiblingGraph((root, tier) => {
+        put(root, `${tier}/a/other.ts`, 'import "../c";\n');
+        put(root, `${tier}/c/index.ts`, "export {};\n");
+        expect(checkImports(root, [[`${tier}/a`, `${tier}/b`]])).toEqual([
+            `src/${tier}/a/other.ts:1: sibling import ${tier}/a → ${tier}/c`,
+        ]);
+    });
+});
+
+test("declared sibling cycles fail naming the cycle even without cyclic imports", () => {
+    withSiblingGraph((root, tier) => {
+        expect(
+            checkImports(root, [
+                [`${tier}/a`, `${tier}/b`],
+                [`${tier}/b`, `${tier}/c`],
+                [`${tier}/c`, `${tier}/a`],
+            ]),
+        ).toEqual([`declared sibling cycle: ${tier}/a → ${tier}/b → ${tier}/c → ${tier}/a`]);
+    });
+});
+
+test("declared sibling edges do not bypass physics or public-entry boundaries", () => {
+    withSiblingGraph((root, tier) => {
+        put(root, `${tier}/physics/index.ts`, 'import "../rendering";\n');
+        put(root, `${tier}/rendering/index.ts`, "export {};\n");
+        put(root, `${tier}/b/internal.ts`, "export {};\n");
+        put(root, `${tier}/a/index.ts`, 'import "../b/internal";\n');
+        expect(
+            checkImports(root, [
+                [`${tier}/a`, `${tier}/b`],
+                [`${tier}/physics`, `${tier}/rendering`],
+            ]),
+        ).toEqual([
+            `src/${tier}/a/index.ts:1: import past ${tier}/b/index.ts → ${tier}/b/internal.ts`,
+            `src/${tier}/physics/index.ts:1: physics module ${tier}/physics imports rendering module ${tier}/rendering`,
+        ]);
+    });
+});
+
 test("the import boundary resolves TypeScript specifiers, scans each source extension and rejects imports missing from the compiler trace", () => {
     withFixture((root) => {
         writeFileSync(
