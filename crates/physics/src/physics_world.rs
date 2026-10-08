@@ -171,7 +171,6 @@ pub unsafe extern "C" fn solve_build(
     restitution: f32,
     hit: f32,
     continuous: bool,
-    sleep: bool,
 ) {
     unsafe {
         solve_build_in_world(
@@ -187,7 +186,6 @@ pub unsafe extern "C" fn solve_build(
             restitution,
             hit,
             continuous,
-            sleep,
         )
     }
 }
@@ -205,7 +203,6 @@ pub unsafe extern "C" fn solve_build_in_world(
     restitution: f32,
     hit: f32,
     continuous: bool,
-    sleep: bool,
 ) {
     let count = solver_set::body_count_in_world(world_index, 2);
     let layout = constraint_graph::compute_layout_in_world(world_index) as *const u32;
@@ -232,12 +229,6 @@ pub unsafe extern "C" fn solve_build_in_world(
         spans.set(i * 6 + 5, n as u32);
         total += n;
     }
-    crate::continuous::roots(
-        *crate::broad::tree_state(world_index, 0) as i32,
-        *crate::broad::tree_state(world_index, 1) as i32,
-        *crate::broad::tree_state(world_index, 2) as i32,
-        sleep,
-    );
     crate::solve::solve_build_in_world(
         world_index,
         threads,
@@ -667,7 +658,11 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 DRIVER.phase = 4;
                 let fork = crate::solve::par_build(2, count, DRIVER.threads, 0.0) != 0;
                 if !fork && crate::pairwork::rebuild_pending() {
-                    crate::pairwork::rebuild_trees_in_world(world_index);
+                    if DRIVER.threads == 1 {
+                        crate::pairwork::rebuild_trees_in_world(world_index);
+                    } else {
+                        crate::pairwork::reserve_rebuild_in_world(world_index);
+                    }
                 }
                 if count != 0 {
                     crate::arena::reserve_collide_in_world(
@@ -704,6 +699,9 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 DRIVER.solve_start = ticks();
                 DRIVER.count = solver_set::body_count_in_world(world_index, 2);
                 DRIVER.phase = 6;
+                if (CONTEXT[0] <= 0.0 || DRIVER.count == 0) && crate::pairwork::rebuild_pending() {
+                    crate::pairwork::rebuild_trees_in_world(world_index);
+                }
                 if CONTEXT[0] <= 0.0 {
                     DRIVER.phase = 10;
                     continue;
@@ -727,7 +725,6 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                     DRIVER.restitution,
                     DRIVER.hit,
                     DRIVER.continuous,
-                    DRIVER.sleep,
                 );
                 accumulate(world_index, 4, start);
                 if DRIVER.threads > 1 {
@@ -736,6 +733,13 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 crate::solve::run_mt_in_world(world_index);
             }
             6 => {
+                debug_assert!(!crate::pairwork::rebuild_pending());
+                crate::continuous::roots(
+                    *crate::broad::tree_state(world_index, 0) as i32,
+                    *crate::broad::tree_state(world_index, 1) as i32,
+                    *crate::broad::tree_state(world_index, 2) as i32,
+                    DRIVER.sleep,
+                );
                 island::set_split_candidate_in_world(world_index, -1);
                 crate::arena::prepare_finalize(world_index, DRIVER.count);
                 PROFILE[world].constraints =
@@ -791,6 +795,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 DRIVER.phase = 10;
             }
             10 => {
+                debug_assert!(!crate::pairwork::rebuild_pending());
                 if CONTEXT[0] > 0.0 {
                     accumulate(world_index, 3, DRIVER.solve_start);
                 }

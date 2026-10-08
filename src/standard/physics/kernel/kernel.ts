@@ -647,7 +647,6 @@ export type Kernel = {
         restitution: number,
         hit: number,
         continuous: boolean,
-        sleep: boolean,
     ): void;
     contactPairOrder(typeA: number, typeB: number): number;
     allocContact(): number;

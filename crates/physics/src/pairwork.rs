@@ -486,6 +486,17 @@ fn run_query(
     );
 }
 
+pub unsafe fn reserve_rebuild_in_world(world_index: usize) {
+    for ti in [DYNAMIC as usize, KINEMATIC as usize] {
+        if broad::tree_cap(world_index, ti) != 0 {
+            let count = *broad::tree_state(world_index, ti).add(3) as usize;
+            if count != 0 {
+                broad::rebuild_scratch(world_index, ti, count);
+            }
+        }
+    }
+}
+
 /// b3UpdateTreesTask: dynamic then kinematic, with no broadphase readers until its join.
 #[export_name = "rebuildTrees"]
 pub extern "C" fn rebuild_trees() {

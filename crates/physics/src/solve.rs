@@ -556,6 +556,11 @@ pub extern "C" fn solve_build_in_world(
         arena::free_solve(world_index);
         SPLIT_ID = crate::island::split_candidate_in_world(world_index);
         SPLIT_WORKER = usize::from(thread_count > 1);
+        REBUILD_WORKER = if thread_count > 1 {
+            thread_count - 1
+        } else {
+            usize::MAX
+        };
 
         let mut span_storage = [ColorSpan::EMPTY; MAX_COLORS];
         let mut color_keys = [0; MAX_COLORS];
@@ -694,6 +699,7 @@ const KIND_CONTACTS: u32 = 2;
 
 static mut SPLIT_ID: i32 = -1;
 static mut SPLIT_WORKER: usize = 0;
+static mut REBUILD_WORKER: usize = usize::MAX;
 static mut JOB: Job = Job::None;
 static mut PAR: Option<Par> = None;
 
@@ -775,6 +781,9 @@ fn run_job(world_index: usize, index: usize) {
                     let start = crate::physics_world::ticks();
                     crate::island::split_task(world_index, SPLIT_ID as usize, index);
                     crate::physics_world::accumulate(world_index, 14, start);
+                }
+                if index == REBUILD_WORKER && crate::pairwork::rebuild_pending() {
+                    crate::pairwork::rebuild_trees_in_world(world_index);
                 }
                 stages::run(ctx, work, index);
             }
