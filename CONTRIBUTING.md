@@ -111,6 +111,9 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - A body belongs to one simulation. A replacement backend consumes core's data and replaces all of standard physics, not individual solver phases.
 - Standard physics steps at `Time.FIXED_DT`; gravity belongs to its solver world and the substep count is internal.
 - Box3D is the correctness authority: world hashes equal its reference with no tolerance. Joint authoring takes its definitions and defaults; each local frame splits into an anchor and quaternion rotation, like a body's pose.
+- A test expectation that a direct native Box3D call contradicts takes the native value; its commit records the old value, the new one and the call.
+- World hashes do not see allocation, published ECS values or event streams; a change that can move one is tested for it on its own, with the test captured before the change.
+- Caller-owned values (`userData`, mesh, height-field and compound data) keep their identity through snapshot and restore.
 - Each standard physics phase has one implementation, in the kernel. The worker count schedules it and is not a code path: with no pool the calling thread runs the same tasks, as Box3D's serial fallback does. The shared and single-thread kernel artifacts build from one source, since a page without cross-origin isolation has no shared memory.
 - Under [Heavy work](#heavy-work), the kernel owns Box3D's world in the shape of its files; TypeScript only coordinates: thin public API calls, the ECS authoring and `GlobalTransform` bridge, worker-pool dispatch, and user callbacks at serial points, with event delivery.
 - Camera rays belong to rendering's `viewportToWorld`, not physics; callers supply pointer or viewport coordinates, and `Ray` belongs to engine math.
@@ -175,6 +178,7 @@ bun run format                   # biome
 - An engine's final frame uses `attachTexture` and `captureTexture`; other owned textures use `probeTexture`.
 - Page composition uses a stepped app and semantic screenshot regions; a running canvas uses `captureFrame` inside the presenting frame, since canvas readback after presentation is transparent black.
 - Goldens cover only defects cheaper evidence cannot show, and are never updated to make a check pass.
+- A test kept unchanged keeps its claims and expected values; only how it observes may move.
 - Steady play allocates nothing.
 - A memory claim creates and disposes its subject, returns to baseline and fails on a deliberately leaking control; retention is measured after GC, and sampler sites are diagnostics, not results.
 - Performance uses counted work and same-machine ratio oracles; real-hardware timings name the hardware and are reported, never asserted.
