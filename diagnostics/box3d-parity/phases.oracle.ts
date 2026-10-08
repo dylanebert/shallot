@@ -12,17 +12,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { nativeBinary } from "./native";
+import { WINDOWS } from "./windows";
 
 setDefaultTimeout(300_000);
 
-// Windows sized to the fewest steps whose median the run repeats: joint_grid is steady after its first
-// steps; rain's last column spawns before 280; junkyard's rocks have landed and its contacts climb.
-const WINDOWS = {
-    // biome-ignore lint/style/useNamingConvention: Box3D's benchmark name, as native.c takes it.
-    joint_grid: [20, 40],
-    rain: [280, 320],
-    junkyard: [180, 200],
-} as const;
 // b3Profile's fields in order (box3d/types.h), as both sides print them.
 const FIELDS = [
     "step",

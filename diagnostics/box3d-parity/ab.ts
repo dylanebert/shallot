@@ -7,11 +7,11 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { PROFILE_FIELDS } from "../../src/standard/physics/world/profile";
+import { WINDOWS } from "./windows";
 
 const [scene, threadArg, fromArg, toArg, roundsArg, ...variantArgs] = process.argv.slice(2);
-const windows: Record<string, [number, number]> = { joint_grid: [20, 40], rain: [280, 320], junkyard: [180, 200] };
-const from = fromArg === "-" ? windows[scene]?.[0] : Number(fromArg);
-const to = toArg === "-" ? windows[scene]?.[1] : Number(toArg);
+const from = fromArg === "-" ? WINDOWS[scene]?.[0] : Number(fromArg);
+const to = toArg === "-" ? WINDOWS[scene]?.[1] : Number(toArg);
 const rounds = roundsArg === "-" ? 12 : Number(roundsArg);
 const threads = (threadArg ?? "").split(",").map(Number);
 if (!scene || !Number.isInteger(from) || from < 0 || !Number.isInteger(to) || to <= from ||
