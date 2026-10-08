@@ -10,6 +10,7 @@ import {
     idOf,
     type ScalarField,
     sameComponentSchema,
+    type TypedArray,
     type Vector2Field,
     type Vector4Field,
 } from "./component";
@@ -26,6 +27,22 @@ import { type ComponentStorage, WorldField } from "./storage";
 import { GpuTable, type GpuTableOptions } from "./table";
 
 const INITIAL_CAPACITY = 16;
+
+/** Opaque, world-local simulation image; not a wire payload or durable save. */
+export interface WorldCheckpoint {
+    readonly __worldCheckpoint: unique symbol;
+}
+
+interface CheckpointState {
+    owner: World;
+    revision: number;
+    entities: ReturnType<Entities["checkpoint"]>;
+    components: ReturnType<Components["checkpoint"]>;
+    fields: Map<number, Map<string, TypedArray>>;
+    highWater: number;
+    fixedTick: number;
+}
+const checkpoints = new WeakMap<WorldCheckpoint, CheckpointState>();
 
 /** A world-owned value identified by this declaration object, not its creator or a name. */
 export type Resource<T> = { readonly create: (world: World) => T };
@@ -45,6 +62,7 @@ export class World {
     private _pendingCopies: { source: GPUBuffer; target: GPUBuffer }[] = [];
     private _uploadStages = new Map<GPUBuffer, GPUBuffer>();
     private _stepping = false;
+    private _restoreObservers = new Set<() => void>();
     private _readback: ReadbackPool | undefined;
 
     /** One-shot buffer and texture staging owned by this world. */
@@ -400,6 +418,89 @@ export class World {
         }
     }
 
+    /** Capture entity identity and allocation, component membership, all stored and registered
+     * fields through the entity high-water mark, and fixedTick. Local to this world and registry;
+     * excludes pacing, resources, plugin hidden state, GPU and host state. Refuses during step/tick.
+     * The image is reusable, opaque and independent of subsequent writes, not a save format. */
+    checkpoint(): WorldCheckpoint {
+        if (this._stepping) throw new Error("World.checkpoint: refuses inside a step or tick");
+        for (const entry of this.registry.entries()) this.storage(entry.component);
+        const columns = new Map<number, Map<string, TypedArray>>();
+        for (const [id, entry] of this._storage) {
+            const fields = new Map<string, TypedArray>();
+            for (const [name, field] of entry.fields)
+                fields.set(name, field.column.slice(0, this._highWater * field.type.lanes));
+            columns.set(id, fields);
+        }
+        const checkpoint = Object.freeze({}) as WorldCheckpoint;
+        checkpoints.set(checkpoint, {
+            owner: this,
+            revision: this.registry.revision,
+            entities: this._entities.checkpoint(),
+            components: this._components.checkpoint(),
+            fields: columns,
+            highWater: this._highWater,
+            fixedTick: this.time.fixedTick,
+        });
+        return checkpoint;
+    }
+
+    /** Restore a local image between ticks. Refuses during step/tick, another world's image or
+     * a changed component registry. Retained accessors and references resolve the restored state;
+     * columns never shrink, queries and membership consumers reconcile, and fields publish changes.
+     * Restores no pacing, resources, plugin hidden state, GPU or host state. */
+    restore(checkpoint: WorldCheckpoint): void {
+        if (this._stepping) throw new Error("World.restore: refuses inside a step or tick");
+        const state = checkpoints.get(checkpoint);
+        if (!state) throw new Error("World.restore: invalid checkpoint");
+        if (state.owner !== this)
+            throw new Error("World.restore: checkpoint belongs to another world");
+        if (state.revision !== this.registry.revision || state.fields.size !== this._storage.size)
+            throw new Error("World.restore: checkpoint has a different component registry");
+        const previous = this._entities.all();
+        const membership = new Map<Component, Set<number>>();
+        for (const entry of this._storage.values())
+            membership.set(
+                entry.schema,
+                new Set(previous.filter((eid) => this.has(eid, entry.schema))),
+            );
+        this._entities.restore(state.entities);
+        this._components.restore(state.components);
+        for (const [id, entry] of this._storage) {
+            for (const [name, field] of entry.fields) {
+                field.ensure(state.highWater);
+                field.column.fill(0);
+                field.column.set(state.fields.get(id)!.get(name)!);
+                field.dirty.fill(0xffffffff);
+            }
+        }
+        this._queries.restore(this._components, this._entities, previous);
+        this._scheduler.restoreFixedTick(state.fixedTick);
+        for (const [component, before] of membership) {
+            const after = new Set(this._entities.all().filter((eid) => this.has(eid, component)));
+            const tables = this._tablesByComponent.get(idOf(component));
+            for (const eid of before)
+                if (!after.has(eid)) {
+                    for (const table of tables ?? []) table.detachComponent(eid, component);
+                    this.notifyMembership(component, eid, false);
+                }
+            for (const eid of after)
+                if (!before.has(eid)) {
+                    for (const table of tables ?? []) table.attachComponent(eid, component);
+                    this.notifyMembership(component, eid, true);
+                }
+        }
+        for (const observer of this._restoreObservers) observer();
+    }
+
+    /** @internal Reconcile derived presentation after simulation recovery; no simulation ownership. */
+    observeRestore(observer: () => void): () => void {
+        this._restoreObservers.add(observer);
+        return () => {
+            this._restoreObservers.delete(observer);
+        };
+    }
+
     /** Freeze the virtual frame clock and step's fixed work, not {@link tick}. The real frame clock
      * keeps running. Takes effect next frame; resume retains the prior scale. */
     pause(): void {
@@ -451,7 +552,9 @@ export class World {
 
     /**
      * Keep an entity across frames and storage growth, not destruction or eid reuse.
-     * Returns 0 for a dead eid. Valid only in this World and run, never across saves.
+     * Returns 0 for a dead eid. Local checkpoint recovery restores identity, so a reference
+     * captured with its entity resolves again after restore. Valid only in this World and run,
+     * never across saves.
      * The 21-bit generation wraps after 2^21 reuses of one eid and warns once.
      */
     ref(eid: number): EntityRef {
@@ -690,6 +793,7 @@ export class World {
         this._pendingCopies.length = 0;
         this._uploadStages.clear();
         this._resources.clear();
+        this._restoreObservers.clear();
         this.registry.clear();
         for (const resource of this._gpuResources) {
             try {

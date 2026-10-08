@@ -91,6 +91,11 @@ export class Scheduler {
     /** optional fence-wait telemetry sink — installed by the profile plugin */
     fenceWait?: (ms: number) => void;
 
+    /** @internal Recovery changes only the integer simulation clock, never frame pacing. */
+    restoreFixedTick(tick: number): void {
+        this._time.fixedTick = tick;
+    }
+
     get time(): Readonly<Time> {
         return this._time;
     }

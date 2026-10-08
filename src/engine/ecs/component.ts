@@ -416,6 +416,24 @@ export class Components {
     private _meta: ({ gen: number; bit: number } | undefined)[] = [];
     private _masks: number[][] = [[]];
 
+    /** @internal Membership image independent of live masks. */
+    checkpoint() {
+        return {
+            nextBit: this._nextBit,
+            gen: this._gen,
+            meta: this._meta.map((m) => m && { ...m }),
+            masks: this._masks.map((m) => m.slice()),
+        };
+    }
+
+    /** @internal Replace membership without applying insertion defaults. */
+    restore(state: ReturnType<Components["checkpoint"]>): void {
+        this._nextBit = state.nextBit;
+        this._gen = state.gen;
+        this._meta = state.meta.map((m) => m && { ...m });
+        this._masks = state.masks.map((m) => m.slice());
+    }
+
     has(eid: Entity, component: any): boolean {
         const m = this._meta[idOf(component)];
         if (!m) return false;

@@ -26,11 +26,15 @@ export class ComponentRegistry {
     // keyed by stable component id, so a handle held across reloads resolves this world's registration
     private readonly _byId = new Map<number, Entry>();
 
+    /** @internal Changes to registration invalidate local checkpoints. */
+    revision = 0;
+
     register(component: Component, plugin = "ComponentRegistry"): void {
         const metadata = declaration(component, plugin);
         const { key } = metadata;
         const id = idOf(component);
         const entry: Entry = { ...metadata };
+        this.revision++;
         this._byName.set(key, entry);
         this._byId.set(id, entry);
     }
@@ -60,6 +64,7 @@ export class ComponentRegistry {
     }
 
     clear(): void {
+        this.revision++;
         this._byName.clear();
         this._byId.clear();
     }

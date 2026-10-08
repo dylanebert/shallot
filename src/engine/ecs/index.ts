@@ -47,4 +47,4 @@ export {
 } from "./reflection";
 export { type System, Time } from "./scheduler";
 export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
-export { type Resource, World } from "./world";
+export { type Resource, World, type WorldCheckpoint } from "./world";

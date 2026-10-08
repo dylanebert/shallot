@@ -2,7 +2,8 @@ export type Entity = number;
 
 /**
  * A safe-integer reference that survives frames and storage growth, not destruction or
- * eid reuse. 0 means missing. Valid only in the World and run that made it, not saves.
+ * eid reuse. Local checkpoint recovery restores their identity too. 0 means missing.
+ * Valid only in the World and run that made it, not saves.
  * The low 32 bits hold the eid; the upper 21 hold its generation. After 2^21 reuses
  * of one eid the generation wraps, warns once per World, and can alias an old reference.
  */
@@ -38,6 +39,30 @@ export class Entities {
             );
         }
         return eid;
+    }
+
+    /** @internal Allocator image, including inactive slots that determine reuse. */
+    checkpoint() {
+        return {
+            dense: this._dense.slice(),
+            sparse: this._sparse.slice(),
+            generation: this._generation.slice(),
+            count: this._count,
+            nextId: this._nextId,
+            freelist: this._freelist.slice(),
+            freeCount: this._freeCount,
+        };
+    }
+
+    /** @internal Restore identity and subsequent allocation; wrap warnings remain host diagnostics. */
+    restore(state: ReturnType<Entities["checkpoint"]>): void {
+        this._dense = state.dense.slice();
+        this._sparse = state.sparse.slice();
+        this._generation = state.generation.slice();
+        this._count = state.count;
+        this._nextId = state.nextId;
+        this._freelist = state.freelist.slice();
+        this._freeCount = state.freeCount;
     }
 
     generation(eid: Entity): number {

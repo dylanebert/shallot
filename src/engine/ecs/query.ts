@@ -246,6 +246,14 @@ export class Queries {
         for (let i = 0; i < this._all.length; i++) this._all[i].remove(eid);
     }
 
+    /** @internal Reconcile retained query objects at a recovery boundary. */
+    restore(components: Components, entities: Entities, previous: readonly number[]): void {
+        for (const query of this._all) {
+            for (const eid of previous) query.remove(eid);
+            for (const eid of entities.all()) if (query.matches(eid, components)) query.add(eid);
+        }
+    }
+
     clear(): void {
         this._all.length = 0;
         this._byHash.clear();

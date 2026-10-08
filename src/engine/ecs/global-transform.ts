@@ -121,6 +121,14 @@ export function initializeGlobalTransform(world: World): void {
         historyNeedsPromotion: false,
     };
     world.globalTransformRuntime = runtime;
+    world.observeRestore(() => {
+        runtime.tickCount = 0;
+        runtime.ranges.fill(0);
+        runtime.historyNeedsPromotion = false;
+        runtime.discontinuityCount = 0;
+        if (runtime.enabled)
+            for (const eid of world.query([GlobalTransform])) queueDiscontinuity(runtime, eid);
+    });
     world.observeMembership(GlobalTransform, (eid, present) => {
         if (present && runtime.enabled) queueDiscontinuity(runtime, eid);
     });
