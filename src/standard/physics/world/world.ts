@@ -271,6 +271,8 @@ export function destroyWorld(world: WorldState): void {
     world.shapeUserData.fill(undefined);
     world.shapeNames.fill("");
     world.geometryIdentityValues.clear();
+    world.customFilterCallback = null;
+    world.preSolveCallback = null;
 
     // Wipe but preserve+bump generation so stale ids to this (possibly recycled) slot are detected.
     const generation = world.generation;

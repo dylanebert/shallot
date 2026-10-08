@@ -1048,9 +1048,12 @@ function collisionImport(runtime: KernelState) {
     let values = new Float32Array(0);
     return (kind: number, a: number, b: number, pointer: number): number => {
         if (runtime.queryFailed) return 0;
+        const previous = runtime.queryWorld;
+        ++runtime.callbackDepth;
         try {
             const world = runtime.collisionWorld;
             if (world === null) throw new Error("physics: collision callback is not installed");
+            runtime.queryWorld = world.worldId;
             const shapeA = new Shape(world, makeShapeId(world, a));
             const shapeB = new Shape(world, makeShapeId(world, b));
             if (kind === 0) return Number(world.customFilterCallback?.(shapeA, shapeB) ?? true);
@@ -1069,6 +1072,9 @@ function collisionImport(runtime: KernelState) {
             runtime.queryFailed = true;
             runtime.queryError = error;
             return 0;
+        } finally {
+            --runtime.callbackDepth;
+            runtime.queryWorld = previous;
         }
     };
 }
@@ -1084,9 +1090,12 @@ function materialImport(runtime: KernelState) {
         pointer: number,
     ): void => {
         if (runtime.queryFailed) return;
+        const previous = runtime.queryWorld;
+        ++runtime.callbackDepth;
         try {
             const world = runtime.materialWorld;
             if (world === null) throw new Error("physics: material callback is not installed");
+            runtime.queryWorld = world.worldId;
             const idA = world.shapeStore.materialUserIdAt(shapeA, indexA);
             const idB = world.shapeStore.materialUserIdAt(shapeB, indexB);
             const memory = kernel(world.ecsState).memory.buffer;
@@ -1100,6 +1109,9 @@ function materialImport(runtime: KernelState) {
         } catch (error) {
             runtime.queryFailed = true;
             runtime.queryError = error;
+        } finally {
+            --runtime.callbackDepth;
+            runtime.queryWorld = previous;
         }
     };
 }

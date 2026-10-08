@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BodyType, makeBoxHull, PhysicsWorld } from "./index";
+import { BodyType, makeBoxHull, PhysicsWorld, restore, snapshot } from "./index";
 
 function contactWorld(pre = false): PhysicsWorld {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
@@ -67,7 +67,121 @@ test("pre-solve sees the world-space point and A-to-B normal after custom materi
     }
 });
 
+test("destroying a world releases its callback references without changing the caller's functions", () => {
+    const world = contactWorld(true);
+    const callback = () => true;
+    world.setCustomFilterCallback(callback);
+    world.setPreSolveCallback(callback);
+    world.destroy();
+    expect(world.state.customFilterCallback).toBeNull();
+    expect(world.state.preSolveCallback).toBeNull();
+    expect(callback()).toBe(true);
+});
+
+test("a collision callback observes locked-world guards and cannot capture or reenter a partial step", () => {
+    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    try {
+        const sensor = world
+            .createBody()
+            .createSphere(
+                { isSensor: true, enableSensorEvents: true, enableCustomFiltering: true },
+                { center: { x: 0, y: 0, z: 0 }, radius: 2 },
+            );
+        world
+            .createBody({ type: BodyType.Dynamic })
+            .createSphere(
+                { enableSensorEvents: true },
+                { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+            );
+        world.step(1 / 60);
+        expect(sensor.getSensorOverlaps()).toHaveLength(1);
+        const saved = snapshot(world);
+        let calls = 0;
+        world.setCustomFilterCallback(() => {
+            calls++;
+            expect(sensor.getSensorOverlaps()).toHaveLength(0);
+            expect(world.getContactEvents()).toEqual({
+                beginEvents: [],
+                endEvents: [],
+                hitEvents: [],
+            });
+            expect(world.getSensorEvents()).toEqual({ beginEvents: [], endEvents: [] });
+            expect(world.getBodyEvents()).toEqual({ count: 0, moveEvents: [] });
+            expect(world.getJointEvents()).toHaveLength(0);
+            expect(() => snapshot(world)).toThrow("while it is stepping");
+            expect(() => restore(world, saved)).toThrow("while it is stepping");
+            world.step(1 / 60);
+            world.destroy();
+            expect(world.isValid()).toBe(true);
+            return true;
+        });
+        world.step(1 / 60);
+        expect(calls).toBe(1);
+        expect(world.state.stepIndex).toBe(2);
+        expect(sensor.getSensorOverlaps()).toHaveLength(1);
+    } finally {
+        world.destroy();
+    }
+});
+
+test("collision callbacks refuse interleaving a sibling query on the same kernel", () => {
+    const world = contactWorld();
+    const sibling = new PhysicsWorld();
+    const saved = snapshot(sibling);
+    try {
+        world.setCustomFilterCallback(() => {
+            expect(() => snapshot(sibling)).toThrow(
+                "one kernel cannot interleave two worlds' queries",
+            );
+            expect(() => restore(sibling, saved)).toThrow(
+                "one kernel cannot interleave two worlds' queries",
+            );
+            sibling.overlapAABB(
+                { lowerBound: { x: -1, y: -1, z: -1 }, upperBound: { x: 1, y: 1, z: 1 } },
+                () => true,
+            );
+            return true;
+        });
+        expect(() => world.step(1 / 60)).toThrow(
+            "one kernel cannot interleave two worlds' queries",
+        );
+    } finally {
+        world.destroy();
+        sibling.destroy();
+    }
+});
+
 for (const pre of [false, true]) {
+    test(`${pre ? "pre-solve" : "custom filter"} restores caller callback identity and its kernel gate`, () => {
+        const world = contactWorld(pre);
+        const target = new PhysicsWorld();
+        let calls = 0;
+        const callback = () => {
+            calls++;
+            return false;
+        };
+        try {
+            if (pre) world.setPreSolveCallback(callback);
+            else world.setCustomFilterCallback(callback);
+            const saved = snapshot(world);
+            if (pre) world.setPreSolveCallback(null);
+            else world.setCustomFilterCallback(null);
+            for (const destination of [world, target]) {
+                restore(destination, saved);
+                expect(
+                    pre
+                        ? destination.state.preSolveCallback
+                        : destination.state.customFilterCallback,
+                ).toBe(callback);
+                const before = calls;
+                destination.step(1 / 60);
+                expect(calls - before).toBe(1);
+            }
+        } finally {
+            world.destroy();
+            target.destroy();
+        }
+    });
     test(`${pre ? "pre-solve" : "custom filter"} exceptions return through the kernel before being rethrown`, () => {
         const world = contactWorld(pre);
         const error = new Error("callback failure");
@@ -81,6 +195,10 @@ for (const pre of [false, true]) {
                     throw error;
                 });
             expect(() => world.step(1 / 60)).toThrow(error);
+            expect(world.state.locked).toBe(false);
+            if (pre) world.setPreSolveCallback(null);
+            else world.setCustomFilterCallback(null);
+            expect(() => world.step(1 / 60)).not.toThrow();
         } finally {
             world.destroy();
         }

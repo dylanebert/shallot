@@ -6,11 +6,22 @@
 
 #include <stdatomic.h>
 static atomic_int calls;
+static b3WorldId callbackWorld;
+
+static bool eventsVisible(void)
+{
+    b3ContactEvents c = b3World_GetContactEvents(callbackWorld);
+    b3SensorEvents s = b3World_GetSensorEvents(callbackWorld);
+    b3BodyEvents b = b3World_GetBodyEvents(callbackWorld);
+    b3JointEvents j = b3World_GetJointEvents(callbackWorld);
+    return c.beginCount || c.endCount || c.hitCount || s.beginCount || s.endCount || b.moveCount || j.count;
+}
 
 static bool filter(b3ShapeId a, b3ShapeId b, void* context)
 {
     (void)context;
     atomic_fetch_add(&calls, 1);
+    if (eventsVisible() || b3Shape_GetSensorCapacity(a) || b3Shape_GetSensorCapacity(b)) return false;
     if (context) return a.index1 > 98 && b.index1 > 98;
     return a.index1 != 4 && b.index1 != 4 && a.index1 != 6 && b.index1 != 6;
 }
@@ -19,6 +30,7 @@ static bool preSolve(b3ShapeId a, b3ShapeId b, b3Pos point, b3Vec3 normal, void*
 {
     (void)a; (void)b; (void)context;
     atomic_fetch_add(&calls, 1);
+    if (eventsVisible()) return false;
     return !((point.x > 1 && point.x < 3 || point.x > 19 && point.x < 21) && point.y < 1 && normal.y > 0.9f);
 }
 
@@ -32,6 +44,7 @@ int main(int argc, char** argv)
     wd.enableSleep = false;
     if (pressure) wd.gravity = b3Vec3_zero;
     b3WorldId world = b3CreateWorld(&wd);
+    callbackWorld = world;
     if (pre) b3World_SetPreSolveCallback(world, preSolve, NULL);
     else b3World_SetCustomFilterCallback(world, filter, pressure ? (void*)1 : NULL);
     b3BodyDef bd = b3DefaultBodyDef();

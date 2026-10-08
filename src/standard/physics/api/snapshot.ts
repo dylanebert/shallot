@@ -1,4 +1,4 @@
-import { kernel } from "../kernel/kernel";
+import { assertQueryWorld, kernel } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { CheckpointStore } from "../kernel/views";
 import type { WorldState } from "../world/world";
@@ -167,9 +167,12 @@ type SnapshotState = {
     bindings?: unknown;
 };
 
-/** Capture logical state and kernel regions, retaining opaque userData values, with an owner's plain `bindings`. */
+/** Capture logical state and kernel regions, retaining opaque userData values, with an owner's plain
+ * `bindings`. Refuses a stepping world or a sibling snapshot during a callback on the same kernel. */
 export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldSnapshot {
     const state = physicsWorld.state;
+    if (state.locked) throw new Error("physics: cannot snapshot a world while it is stepping");
+    assertQueryWorld(state.ecsState, state.worldId);
     const k = kernel(state.ecsState);
     const length = k.worldSnapshot(state.worldId);
     const pointer = k.worldSnapshotBuffer(length);
@@ -204,7 +207,8 @@ export function snapshotBindings(snapshot: WorldSnapshot): unknown {
     return (snapshot.state as SnapshotState | null)?.bindings;
 }
 
-/** Restore into a live compatible World, preserving its identity and every sibling's state. */
+/** Restore into a live compatible World, preserving its identity and every sibling's state.
+ * Refuses a stepping world or a sibling restore during a callback on the same kernel. */
 export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): void {
     if (
         snapshot === null ||
@@ -219,6 +223,8 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
         throw new Error("physics: cannot restore a snapshot because its target World is not live");
 
     const state = physicsWorld.state;
+    if (state.locked) throw new Error("physics: cannot restore a world while it is stepping");
+    assertQueryWorld(state.ecsState, state.worldId);
     const identity = {
         ecsState: state.ecsState,
         worldId: state.worldId,
@@ -248,5 +254,7 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): vo
     const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength);
     new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);
     k.worldRestore(state.worldId);
+    k.worldSetCustomFilterCallback(state.worldId, state.customFilterCallback !== null);
+    k.worldSetPreSolveCallback(state.worldId, state.preSolveCallback !== null);
     state.manifoldStore.refreshViews();
 }

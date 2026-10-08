@@ -468,7 +468,7 @@ export function isSensorShape(world: WorldState, shape: Shape): boolean {
  * sensor's current-frame overlaps; empty if the shape is not a sensor.
  */
 export function getSensorData(world: WorldState, shape: Shape): Visitor[] {
-    if (shapeSensorIndex(world, shape) === NULL_INDEX) {
+    if (world.locked || shapeSensorIndex(world, shape) === NULL_INDEX) {
         return [];
     }
     const k = kernel(world.ecsState);

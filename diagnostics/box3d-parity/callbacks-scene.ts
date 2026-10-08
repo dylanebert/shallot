@@ -10,17 +10,23 @@ let calls = 0;
 const float = new Float32Array(1);
 const integer = new Uint32Array(float.buffer);
 const bits = (value: number) => { float[0] = value; return integer[0]; };
+const decision = (value: boolean) => {
+    if (process.env.CALLBACK_OPPOSITE === "1") value = !value;
+    const c = world.getContactEvents();
+    const s = world.getSensorEvents();
+    return value && !(c.beginEvents.length || c.endEvents.length || c.hitEvents.length || s.beginEvents.length || s.endEvents.length || world.getBodyEvents().count || world.getJointEvents().length);
+};
 try {
     const pre = process.argv[3] === "pre";
     if (pre) world.setPreSolveCallback((_a, _b, point, normal) => {
         calls++;
         const answer = !(((point.x > 1 && point.x < 3) || (point.x > 19 && point.x < 21)) && point.y < 1 && normal.y > 0.9);
-        return process.env.CALLBACK_OPPOSITE === "1" ? !answer : answer;
+        return decision(answer);
     });
     else world.setCustomFilterCallback((a, b) => {
         calls++;
         const answer = pressure ? a.id.index1 > 98 && b.id.index1 > 98 : a.id.index1 !== 4 && b.id.index1 !== 4 && a.id.index1 !== 6 && b.id.index1 !== 6;
-        return process.env.CALLBACK_OPPOSITE === "1" ? !answer : answer;
+        return decision(answer) && a.getSensorOverlaps().length === 0 && b.getSensorOverlaps().length === 0;
     });
     const shape = { enableCustomFiltering: !pre, enablePreSolveEvents: pre, enableContactEvents: true, enableHitEvents: true, enableSensorEvents: true };
     if (pressure) {

@@ -173,7 +173,7 @@ export class Shape {
 
     /**
      * The shapes currently overlapping this sensor as of the last {@link World.step}
-     * (b3Shape_GetSensorData). Empty if this shape is not a sensor.
+     * (b3Shape_GetSensorData). Empty if this shape is not a sensor or its world is stepping.
      */
     getSensorOverlaps(): Shape[] {
         const state = this.world;

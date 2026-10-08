@@ -261,8 +261,9 @@ export class PhysicsWorld {
         return worldIsValid(this._worldId);
     }
 
-    /** Destroy this world and every body and shape in it. */
+    /** Destroy this world and every body and shape in it. Ignored during a step. */
     destroy(): void {
+        if (!this.isValid() || this.state.locked) return;
         destroyWorld(this.state);
     }
 
@@ -316,12 +317,17 @@ export class PhysicsWorld {
      * Sensor begin/end touch events accumulated during the last {@link step} (b3World_GetSensorEvents).
      * End events read from the previous buffer, so they survive one step. The returned object and its
      * arrays are reused: the next step or the next call overwrites them, so copy an array to keep it.
-     * Each event and its handles are fresh.
+     * Each event and its handles are fresh. Empty while the world is stepping.
      * @example for (const e of world.getSensorEvents().beginEvents) onEnter(e.sensor, e.visitor)
      */
     getSensorEvents(): SensorEvents {
         const state = this.state;
         const events = this._sensorEvents;
+        if (state.locked) {
+            events.beginEvents.length = 0;
+            events.endEvents.length = 0;
+            return events;
+        }
         fillSensorTouches(state, events.beginEvents, EventKind.SensorBegin);
         // Careful to read the previous end-event buffer (the swap already happened this step).
         fillSensorTouches(state, events.endEvents, EventKind.SensorEnd);
@@ -333,12 +339,18 @@ export class PhysicsWorld {
      * carry {@link Contact} handles (validate before use); hit events carry the impact point, normal,
      * and approach speed. End events read the previous buffer, so they survive one step. The returned
      * object and its arrays are reused: the next step or the next call overwrites them, so copy an
-     * array to keep it. Each event and its handles are fresh.
+     * array to keep it. Each event and its handles are fresh. Empty while the world is stepping.
      * @example for (const e of world.getContactEvents().hitEvents) spark(e.point, e.approachSpeed)
      */
     getContactEvents(): ContactEvents {
         const state = this.state;
         const events = this._contactEvents;
+        if (state.locked) {
+            events.beginEvents.length = 0;
+            events.endEvents.length = 0;
+            events.hitEvents.length = 0;
+            return events;
+        }
         fillContactTouches(state, events.beginEvents, EventKind.ContactBegin);
         // Careful to read the previous end-event buffer (the swap already happened this step).
         fillContactTouches(state, events.endEvents, EventKind.ContactEnd);
@@ -350,10 +362,16 @@ export class PhysicsWorld {
      * Body move events from the last {@link step} (b3World_GetBodyEvents), bridged from the kernel's
      * retained finalization records. The returned object and move-event array are reused; each call
      * creates fresh events, transforms and body handles. Only the first `count` array entries are valid.
+     * Empty while the world is stepping.
      * @example const ev = world.getBodyEvents(); for (let i = 0; i < ev.count; i++) sync(ev.moveEvents[i].userData, ev.moveEvents[i].transform)
      */
     getBodyEvents(): BodyEvents {
         const state = this.state;
+        if (state.locked) {
+            this._bodyEvents.count = 0;
+            this._moveEventPool.length = 0;
+            return this._bodyEvents;
+        }
         const count = eventCount(state, EventKind.BodyMove);
         const pool = this._moveEventPool;
         const k = kernel(state.ecsState),
@@ -391,10 +409,14 @@ export class PhysicsWorld {
      * Joint events from the last {@link step} (b3World_GetJointEvents): awake joints whose force or
      * torque exceeded the threshold set via {@link Joint.setForceThreshold}/{@link Joint.setTorqueThreshold}.
      * The returned array is reused: the next step or the next call overwrites it, so copy it to keep
-     * it. Each event and its handle are fresh.
+     * it. Each event and its handle are fresh. Empty while the world is stepping.
      */
     getJointEvents(): JointEvent[] {
         const events = this._jointEvents;
+        if (this.state.locked) {
+            events.length = 0;
+            return events;
+        }
         fillJointEvents(this.state, events);
         return events;
     }
@@ -694,9 +716,10 @@ export class PhysicsWorld {
     }
 
     /** Install the collision-pair filter (b3World_SetCustomFilterCallback), or clear it with null.
-     * Only pairs with custom filtering enabled on either shape call it. It runs synchronously on
-     * the stepping realm after parallel queries join. Existing contacts are not reconsidered.
-     * Refuses changes while the world is stepping. Callback errors are rethrown after Rust returns. */
+     * Consulted for new contacts, continuous candidates and sensor overlaps when either shape
+     * enables custom filtering; existing discrete contacts are not refiltered. The world retains
+     * the function until replaced, cleared or disposed. It runs synchronously in the stepping realm at each
+     * phase's serial point. Refuses changes during a step. Errors are rethrown after Rust returns. */
     setCustomFilterCallback(callback: CustomFilterCallback | null): void {
         if (!this.isValid() || this.state.locked) return;
         this.state.customFilterCallback = callback;
@@ -707,9 +730,10 @@ export class PhysicsWorld {
     }
 
     /** Install contact inspection (b3World_SetPreSolveCallback), or clear it with null.
-     * Enabled contacts run their update on the stepping realm after parallel collision work joins.
-     * Returning false disables the contact for this step. Refuses changes during a step.
-     * Callback errors are rethrown after Rust returns. */
+     * Enabled convex contact updates and continuous impacts run on the stepping realm at serial
+     * points. Returning false disables the contact for this step or rejects the continuous impact.
+     * Sensors do not call it. The world retains the function until replaced, cleared or disposed.
+     * Refuses changes during a step. Errors are rethrown after Rust returns. */
     setPreSolveCallback(callback: PreSolveCallback | null): void {
         if (!this.isValid() || this.state.locked) return;
         this.state.preSolveCallback = callback;
