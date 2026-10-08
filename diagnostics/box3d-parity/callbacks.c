@@ -64,7 +64,7 @@ int main(int argc, char** argv)
     if (pressure) {
         b3Sphere sphere = { .center = {0,0,0}, .radius = 0.5f };
         bd.type = b3_dynamicBody;
-        for (int i = 0; i < 100; ++i) {
+        for (int i = 0; i < (acceptPressure ? 1000 : 100); ++i) {
             sd.enableCustomFiltering = !acceptPressure || i == 0;
             b3CreateSphereShape(b3CreateBody(world, &bd), &sd, &sphere);
         }

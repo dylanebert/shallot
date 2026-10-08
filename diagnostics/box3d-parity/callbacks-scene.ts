@@ -35,7 +35,7 @@ try {
     });
     const shape = { enableCustomFiltering: !pre, enablePreSolveEvents: pre, enableContactEvents: true, enableHitEvents: true, enableSensorEvents: true };
     if (pressure) {
-        for (let i = 0; i < 100; ++i) world.createBody({ type: BodyType.Dynamic })
+        for (let i = 0; i < (acceptPressure ? 1000 : 100); ++i) world.createBody({ type: BodyType.Dynamic })
             .createSphere({ ...shape, enableCustomFiltering: !acceptPressure || i === 0 }, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
     } else {
     for (const x of [0, 20]) {
