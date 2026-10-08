@@ -624,18 +624,27 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
                 crate::pairwork::reserve_pairs_in_world(world_index);
                 DRIVER.phase = 2;
-                if parallel(
-                    world_index,
-                    4,
-                    crate::broad::move_count(world_index),
-                    crate::broad::set_cap(world_index) as f32,
-                ) {
+                if !crate::pairwork::callbacks_deferred()
+                    && parallel(
+                        world_index,
+                        4,
+                        crate::broad::move_count(world_index),
+                        crate::broad::set_cap(world_index) as f32,
+                    )
+                {
                     return 1;
                 }
             }
             2 => {
                 crate::pairwork::schedule_rebuild();
-                crate::pairwork::filter_pairs(world_index);
+                if crate::pairwork::callbacks_deferred() {
+                    crate::pairwork::query_block(
+                        world_index,
+                        0,
+                        crate::broad::move_count(world_index),
+                        crate::broad::set_cap(world_index),
+                    );
+                }
                 create_pairs(world_index);
                 crate::arena::free_scratch(world_index);
                 DRIVER.phase = 3;

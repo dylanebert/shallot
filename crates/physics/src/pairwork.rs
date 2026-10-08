@@ -32,6 +32,11 @@ static mut MOVE_COUNT: usize = 0;
 static mut MOVED_WORDS: usize = 0;
 static mut CAND_CAP: usize = 0;
 static mut REBUILD_PENDING: bool = false;
+static mut DEFER_QUERIES: bool = false;
+
+pub unsafe fn callbacks_deferred() -> bool {
+    DEFER_QUERIES
+}
 
 pub unsafe fn schedule_rebuild() {
     REBUILD_PENDING = true;
@@ -49,6 +54,15 @@ pub extern "C" fn reserve_pairs() {
 
 pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
     unsafe {
+        DEFER_QUERIES = false;
+        if crate::callbacks::filter_enabled(world_index) {
+            let shapes = shape_col(world_index);
+            DEFER_QUERIES = (0..crate::shapes::shape_cap_in_world(world_index)).any(|id| {
+                crate::shapes::shape_alive(world_index as u32, id as u32) != 0
+                    && shapes[id * SHAPE_STRIDE + crate::shapes::S_FLAGS] & (4 << 16) != 0
+                    && shapes[id * SHAPE_STRIDE + crate::shapes::S_SENSOR_INDEX] == u32::MAX
+            });
+        }
         let move_count = broad::move_count(world_index);
         let cand_cap = 16 * move_count;
         CAND_CAP = cand_cap;
@@ -196,6 +210,11 @@ impl<'a> Emitter<'a> {
         if !unsafe { crate::bodies::should_collide(a[1], b[1]) } {
             return true;
         }
+        if !unsafe {
+            crate::callbacks::filter(self.world, found_shape as usize, self.query_shape as usize)
+        } {
+            return true;
+        }
         self.emit(child, found_shape, self.query_shape);
         true
     }
@@ -320,37 +339,6 @@ fn run_query(
         stack,
         |other, found_shape| em.record(other, found_shape),
     );
-}
-
-/// Finish callback-dependent pair queries in proxy and tree traversal order before contact creation.
-pub unsafe fn filter_pairs(world: usize) {
-    if !crate::callbacks::filter_enabled(world) {
-        return;
-    }
-    let heads = CANDEND_PTR as *mut u32;
-    let pairs = CAND_PTR as *mut u32;
-    for i in 0..MOVE_COUNT {
-        let mut entry = *heads.add(i);
-        let mut pending = u32::MAX;
-        while entry != u32::MAX {
-            let p = pairs.add(entry as usize * CAND_STRIDE);
-            let next = *p.add(3);
-            *p.add(3) = pending;
-            pending = entry;
-            entry = next;
-        }
-        let mut accepted = u32::MAX;
-        while pending != u32::MAX {
-            let p = pairs.add(pending as usize * CAND_STRIDE);
-            let next = *p.add(3);
-            if crate::callbacks::filter(world, *p.add(1) as usize, *p.add(2) as usize) {
-                *p.add(3) = accepted;
-                accepted = pending;
-            }
-            pending = next;
-        }
-        *heads.add(i) = accepted;
-    }
 }
 
 /// b3UpdateTreesTask: dynamic then kinematic, with no broadphase readers until its join.

@@ -4,7 +4,8 @@ import { BodyType, hash, init, makeBoxHull, PhysicsWorld, shutdown } from "../..
 const owner = new World();
 const count = Number(process.argv[2]);
 await init(owner, { threads: count === 1 ? 0 : count });
-const world = new PhysicsWorld({ enableSleep: false }, owner);
+const pressure = process.argv[3] === "pressure";
+const world = new PhysicsWorld({ enableSleep: false, ...(pressure ? { gravity: { x: 0, y: 0, z: 0 } } : {}) }, owner);
 let calls = 0;
 const float = new Float32Array(1);
 const integer = new Uint32Array(float.buffer);
@@ -18,10 +19,14 @@ try {
     });
     else world.setCustomFilterCallback((a, b) => {
         calls++;
-        const answer = a.id.index1 !== 4 && b.id.index1 !== 4 && a.id.index1 !== 6 && b.id.index1 !== 6;
+        const answer = pressure ? a.id.index1 > 98 && b.id.index1 > 98 : a.id.index1 !== 4 && b.id.index1 !== 4 && a.id.index1 !== 6 && b.id.index1 !== 6;
         return process.env.CALLBACK_OPPOSITE === "1" ? !answer : answer;
     });
     const shape = { enableCustomFiltering: !pre, enablePreSolveEvents: pre, enableContactEvents: true, enableHitEvents: true, enableSensorEvents: true };
+    if (pressure) {
+        for (let i = 0; i < 100; ++i) world.createBody({ type: BodyType.Dynamic })
+            .createSphere(shape, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+    } else {
     for (const x of [0, 20]) {
         world.createBody({ position: { x, y: -0.5, z: 0 } }).createHull(shape, makeBoxHull(6, 0.5, 3));
     }
@@ -51,6 +56,7 @@ try {
     for (let i = 0; i < 300; ++i) {
         world.createBody({ position: { x: 100 + 2 * i, y: 1, z: 0 } })
             .createSphere(sensorShape, { center: { x: 0, y: 0, z: 0 }, radius: 0.75 });
+    }
     }
     for (let step = 0; step < 90; ++step) {
         calls = 0;

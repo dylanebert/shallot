@@ -9,7 +9,7 @@ const dir = mkdtempSync(join(tmpdir(), "box3d-callbacks-"));
 const build = await Bun.build({ entrypoints: [join(import.meta.dir, "callbacks-scene.ts")], outdir: dir, target: "node", format: "esm" });
 if (!build.success) throw new Error(build.logs.join("\n"));
 process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
-for (const mode of ["filter", "pre"]) {
+for (const mode of ["filter", "pre", "pressure"]) {
     for (const threads of [1, 4]) {
         test(`${mode} callback contacts, impacts and sensor events equal native every step at ${threads} threads`, () => {
             const expected = run([nativeBinary("callbacks.c"), String(threads), mode]).trim();

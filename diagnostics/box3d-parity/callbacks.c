@@ -11,6 +11,7 @@ static bool filter(b3ShapeId a, b3ShapeId b, void* context)
 {
     (void)context;
     atomic_fetch_add(&calls, 1);
+    if (context) return a.index1 > 98 && b.index1 > 98;
     return a.index1 != 4 && b.index1 != 4 && a.index1 != 6 && b.index1 != 6;
 }
 
@@ -25,12 +26,14 @@ int main(int argc, char** argv)
 {
     if (argc != 3) return 2;
     bool pre = strcmp(argv[2], "pre") == 0;
+    bool pressure = strcmp(argv[2], "pressure") == 0;
     b3WorldDef wd = b3DefaultWorldDef();
     wd.workerCount = atoi(argv[1]);
     wd.enableSleep = false;
+    if (pressure) wd.gravity = b3Vec3_zero;
     b3WorldId world = b3CreateWorld(&wd);
     if (pre) b3World_SetPreSolveCallback(world, preSolve, NULL);
-    else b3World_SetCustomFilterCallback(world, filter, NULL);
+    else b3World_SetCustomFilterCallback(world, filter, pressure ? (void*)1 : NULL);
     b3BodyDef bd = b3DefaultBodyDef();
     b3ShapeDef sd = b3DefaultShapeDef();
     sd.enableCustomFiltering = !pre;
@@ -38,6 +41,11 @@ int main(int argc, char** argv)
     sd.enableContactEvents = true;
     sd.enableHitEvents = true;
     sd.enableSensorEvents = true;
+    if (pressure) {
+        b3Sphere sphere = { .center = {0,0,0}, .radius = 0.5f };
+        bd.type = b3_dynamicBody;
+        for (int i = 0; i < 100; ++i) b3CreateSphereShape(b3CreateBody(world, &bd), &sd, &sphere);
+    } else {
     b3BoxHull floor = b3MakeBoxHull(6, 0.5f, 3);
     bd.position.y = -0.5f;
     b3CreateHullShape(b3CreateBody(world, &bd), &sd, &floor.base);
@@ -82,6 +90,7 @@ int main(int argc, char** argv)
         bd = b3DefaultBodyDef();
         bd.position = (b3Pos){100 + 2*i, 1, 0};
         b3CreateSphereShape(b3CreateBody(world, &bd), &sd, &sphere);
+    }
     }
     for (int step = 0; step < 90; ++step) {
         atomic_store(&calls, 0);
