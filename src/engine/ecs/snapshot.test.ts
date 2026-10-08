@@ -2,32 +2,55 @@ import { expect, test } from "bun:test";
 import { component, entity, f32 } from "./component";
 import { World } from "./world";
 
+test("an unattributed fixed system refuses recovery by system name until removed", () => {
+    const world = new World();
+    let counter = 0;
+    const fixed = {
+        name: "closure-counter",
+        group: "fixed" as const,
+        update() {
+            counter++;
+        },
+    };
+    world.addSystem(fixed);
+    world.tick();
+    expect(counter).toBe(1);
+    expect(() => world.snapshot()).toThrow("closure-counter");
+    world.removeSystem(fixed);
+    expect(() => world.snapshot()).not.toThrow();
+    world.dispose();
+});
+
 const State = component("snapshot-state", { value: f32, target: entity });
 const Tag = component("snapshot-tag", {});
 
 function subject() {
     const world = new World();
+    world.registerRecovery("SnapshotFixture", "stateless");
     world.registry.register(State);
     world.registry.register(Tag);
     const a = world.create();
     const b = world.create();
     world.add(a, State, { value: 3, target: b });
     world.add(b, Tag);
-    world.addSystem({
-        group: "fixed",
-        update: (w) => {
-            const storage = w.storage(State);
-            for (const eid of w.query([State]))
-                storage.value.set(eid, storage.value.get(eid) + w.time.elapsed);
-            if (w.time.fixedTick % 2 === 0) {
-                const eid = w.only([Tag]);
-                if (eid !== -1) w.destroy(eid);
-                const next = w.create();
-                w.add(next, State, { value: w.time.fixedTick, target: a });
-                w.add(next, Tag);
-            }
+    world.addSystem(
+        {
+            group: "fixed",
+            update: (w) => {
+                const storage = w.storage(State);
+                for (const eid of w.query([State]))
+                    storage.value.set(eid, storage.value.get(eid) + w.time.elapsed);
+                if (w.time.fixedTick % 2 === 0) {
+                    const eid = w.only([Tag]);
+                    if (eid !== -1) w.destroy(eid);
+                    const next = w.create();
+                    w.add(next, State, { value: w.time.fixedTick, target: a });
+                    w.add(next, Tag);
+                }
+            },
         },
-    });
+        "SnapshotFixture",
+    );
     return { world, a, b };
 }
 
@@ -110,13 +133,16 @@ test("restore refuses execution boundaries, foreign worlds and changed component
     const { world } = subject();
     const snapshot = world.snapshot();
     expect(() => new World().restore(snapshot)).toThrow("another world");
-    world.addSystem({
-        group: "fixed",
-        update: () => {
-            expect(() => world.restore(snapshot)).toThrow("inside a step or tick");
-            expect(() => world.snapshot()).toThrow("inside a step or tick");
+    world.addSystem(
+        {
+            group: "fixed",
+            update: () => {
+                expect(() => world.restore(snapshot)).toThrow("inside a step or tick");
+                expect(() => world.snapshot()).toThrow("inside a step or tick");
+            },
         },
-    });
+        "SnapshotFixture",
+    );
     world.tick();
     world.step();
     world.registry.register(component("late-snapshot-component", {}));

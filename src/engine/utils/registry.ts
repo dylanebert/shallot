@@ -10,6 +10,23 @@ export class Registry<T extends { name: string }> {
     private readonly _names: string[] = [];
     private readonly _values = new Map<string, T>();
 
+    /** Container image including deleted entries' reserved IDs. Values are retained by reference;
+     * an owner recovering mutable entries must copy them at capture and restore. */
+    snapshot(): { names: string[]; values: Map<string, T> } {
+        return { names: this._names.slice(), values: new Map(this._values) };
+    }
+
+    /** Restore IDs and live entries in place; value ownership remains the caller's. */
+    restore(state: ReturnType<Registry<T>["snapshot"]>): void {
+        this.clear();
+        for (let id = 0; id < state.names.length; id++) {
+            const name = state.names[id];
+            this._names.push(name);
+            this._ids.set(name, id);
+        }
+        for (const [name, value] of state.values) this._values.set(name, value);
+    }
+
     /** register or overwrite an entry. Returns its (stable) ID */
     register(spec: T): number {
         let id = this._ids.get(spec.name);

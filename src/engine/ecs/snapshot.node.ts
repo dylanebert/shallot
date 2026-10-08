@@ -18,7 +18,22 @@ if (typeof ResizeObserver === "undefined")
     });
 
 test("built world recovery publishes restored fields and discards old interpolation without altering pacing or GPU frame", async () => {
-    const app = await createApp({ defaults: false, plugins: [RenderingPlugin] });
+    let transient = 0;
+    const app = await createApp({
+        defaults: false,
+        plugins: [
+            RenderingPlugin,
+            {
+                name: "SnapshotFixture",
+                recovery: () => ({
+                    snapshot: () => transient,
+                    restore(state: number) {
+                        transient = state;
+                    },
+                }),
+            },
+        ],
+    });
     const { world } = app;
     try {
         let context: CanvasContext;
@@ -40,17 +55,20 @@ test("built world recovery publishes restored fields and discards old interpolat
         const initial = world.create();
         world.add(initial, Transform);
         const identity = world.ref(initial);
-        let transient = initial;
+        transient = initial;
         const accessor = world.storage(GlobalTransform).translation.x;
-        world.addSystem({
-            group: "fixed",
-            update: (w) => {
-                w.storage(Transform).translation.x.set(eid, w.time.fixedTick * 10);
-                w.destroy(transient);
-                transient = w.create();
-                w.add(transient, Transform, { translation: [w.time.elapsed, 0, 0, 0] });
+        world.addSystem(
+            {
+                group: "fixed",
+                update: (w) => {
+                    w.storage(Transform).translation.x.set(eid, w.time.fixedTick * 10);
+                    w.destroy(transient);
+                    transient = w.create();
+                    w.add(transient, Transform, { translation: [w.time.elapsed, 0, 0, 0] });
+                },
             },
-        });
+            "SnapshotFixture",
+        );
         const table = globalTransformTable(world);
         world.step(Time.FIXED_DT * 2.5);
         const snapshot = world.snapshot();

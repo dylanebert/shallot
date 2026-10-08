@@ -1,4 +1,5 @@
 import { component, f32, GlobalTransform, type Plugin, u32, vec4 } from "../../engine";
+import { Hulls } from "./hull";
 import {
     DistanceJoint,
     FilterJoint,
@@ -89,6 +90,14 @@ export interface BodyState {
 /** Registers shared physics authoring data without installing a simulation. */
 export const PhysicsPlugin: Plugin = {
     name: "Physics",
+    recovery(world) {
+        const hulls = world.resource(Hulls);
+        return {
+            snapshot: () => structuredClone(hulls.snapshot()),
+            restore: (state: ReturnType<typeof hulls.snapshot>) =>
+                hulls.restore(structuredClone(state)),
+        };
+    },
     components: [
         Body,
         DistanceJoint,

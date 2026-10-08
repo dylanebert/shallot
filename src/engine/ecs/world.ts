@@ -630,13 +630,19 @@ export class World {
         this._scheduler.registerBoundary(system, position);
     }
 
+    /** Fixed systems belong to a plugin's declared recovery. Without plugin attribution,
+     * snapshot refuses by system name until the system is removed. */
     addSystem(system: System, pluginName?: string): void {
-        if (pluginName && system.group === "fixed") this._snapshots.require(pluginName);
+        if (system.group === "fixed") {
+            if (pluginName) this._snapshots.require(pluginName);
+            else this._snapshots.requireSystem(system);
+        }
         this._scheduler.register(system, pluginName);
     }
 
     removeSystem(system: System): void {
         this._scheduler.unregister(system);
+        this._snapshots.removeSystem(system);
     }
 
     /**

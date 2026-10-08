@@ -4,7 +4,7 @@ export interface Recovery<S = unknown> {
     restore(state: S): void;
 }
 
-type Participant = { owner: object; snapshot?: () => () => void };
+type Participant = { owner: object; snapshot?: () => () => void; refusal?: string };
 const stateless: Recovery<undefined> = { snapshot: () => undefined, restore() {} };
 
 /** Opaque simulation image, valid only in its capturing world and compatible composition. */
@@ -45,7 +45,7 @@ export class WorldSnapshot {
 
 /** @internal Ordered simulation owners; validation precedes all capture and restore work. */
 export class SnapshotComposition {
-    readonly #participants = new Map<string | symbol, Participant>();
+    readonly #participants = new Map<string | symbol | object, Participant>();
     readonly #boundary: () => boolean;
     readonly #revision: () => string;
     readonly #prepare: () => void;
@@ -61,6 +61,17 @@ export class SnapshotComposition {
 
     require(name: string): void {
         if (!this.#participants.has(name)) this.register(name, undefined);
+    }
+
+    requireSystem(system: { name?: string }): void {
+        this.#participants.set(system, {
+            owner: system,
+            refusal: `unattributed fixed system ${system.name ?? "(unnamed)"} declares no recovery owner`,
+        });
+    }
+
+    removeSystem(system: object): void {
+        this.#participants.delete(system);
     }
 
     register<S>(name: string | symbol, recovery: Recovery<S> | "stateless" | undefined): void {
@@ -86,7 +97,7 @@ export class SnapshotComposition {
         for (const [name, participant] of this.#participants)
             if (!participant.snapshot)
                 throw new Error(
-                    `World.snapshot: plugin ${String(name)} has fixed systems but declares no recovery`,
+                    `World.snapshot: ${participant.refusal ?? `plugin ${String(name)} has fixed systems but declares no recovery`}`,
                 );
         this.#prepare();
         return new WorldSnapshot(

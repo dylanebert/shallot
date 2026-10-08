@@ -14,7 +14,7 @@ import {
     releaseKey,
     touchPoint,
 } from "@dylanebert/shallot/input";
-import { Body } from "@dylanebert/shallot/physics";
+import { Body, Hulls, ShapeKind } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
     physicsWorld,
@@ -91,6 +91,33 @@ test("world recovery includes gameplay, identity, allocation, clock and physics 
         app.dispose();
     }
 });
+test("recovery restores hull authoring read by fixed sync, so failed bodies do not marshal from future hulls", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const world = app.world;
+        const hulls = world.resource(Hulls);
+        const body = world.create();
+        world.add(body, Body, { shape: ShapeKind.Hull, halfExtents: [1, 1, 1, 1] });
+        world.tick();
+        const saved = world.snapshot();
+        world.tick();
+        const expected = hashPhysics(world);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+        const cube = structuredClone(hulls.get(hulls.name(0)!)!);
+        expect(hulls.register({ ...cube, name: "future-hull" })).toBe(1);
+        world.restore(saved);
+        world.tick();
+        expect(hashPhysics(world)).toBe(expected);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+        expect(world.resource(Hulls)).toBe(hulls);
+        expect(hulls.size).toBe(1);
+        expect(hulls.id("future-hull")).toBeUndefined();
+        expect(hulls.register({ ...cube, name: "replayed-hull" })).toBe(1);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("Input recovery preserves accepted facts and retained device handles, not browser handles", async () => {
     const app = await createApp({ defaults: false, plugins: [InputPlugin] });
     try {
@@ -127,6 +154,7 @@ test.each(["declarative", "initialize"])(
     "snapshot refuses an enabled %s fixed plugin without recovery by name",
     async (registration) => {
         let captures = 0;
+        let counter = 0;
         const app = await createApp({
             defaults: false,
             plugins: [
@@ -147,16 +175,23 @@ test.each(["declarative", "initialize"])(
                             : [],
                     initialize(world) {
                         if (registration === "initialize")
-                            world.addSystem(
-                                { name: "fixed", group: "fixed", update() {} },
-                                "UnregisteredGameplay",
-                            );
+                            world.addSystem({
+                                name: "UnregisteredFixed",
+                                group: "fixed",
+                                update() {
+                                    counter++;
+                                },
+                            });
                     },
                 },
             ],
         });
         try {
-            expect(() => app.world.snapshot()).toThrow("UnregisteredGameplay");
+            app.world.tick();
+            if (registration === "initialize") expect(counter).toBe(1);
+            expect(() => app.world.snapshot()).toThrow(
+                registration === "declarative" ? "UnregisteredGameplay" : "UnregisteredFixed",
+            );
             expect(captures).toBe(0);
         } finally {
             app.dispose();
