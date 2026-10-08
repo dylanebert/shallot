@@ -70,7 +70,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Extras admit features after a stable release cycle as external packages.
 - Each module owns one useful responsibility completely; split, fix or remove one that doesn't.
 - Game modules never import tooling (`project`, `cli`, `native`, `types`).
-- Core, standard and extras modules never import siblings in their layer; physics never imports rendering or input.
+- A core, standard or extras module imports a sibling in its layer only along an edge the import gate declares, and the declared edges form no cycle. Physics never imports rendering or input.
 - A game module's `index.ts` is public and its other files are internal.
 - A module registering systems or resources defines a plugin; others export data and functions.
 - A module's extra plugins are its optional parts; a part with its own responsibility is its own module.
