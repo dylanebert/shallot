@@ -9,12 +9,16 @@ struct BodyArray<T> {
     data: *mut T,
     count: i32,
     capacity: i32,
+    #[cfg(feature = "box3d-oracle")]
+    allocations: usize,
 }
 impl<T> BodyArray<T> {
     const EMPTY: Self = Self {
         data: 16 as *mut T,
         count: 0,
         capacity: 0,
+        #[cfg(feature = "box3d-oracle")]
+        allocations: 0,
     };
     unsafe fn reserve(&mut self, capacity: usize) {
         let capacity =
@@ -25,6 +29,10 @@ impl<T> BodyArray<T> {
         let bytes = capacity as usize * core::mem::size_of::<T>();
         let layout = Layout::from_size_align(bytes, 16).unwrap();
         let data = alloc(layout) as *mut T;
+        #[cfg(feature = "box3d-oracle")]
+        {
+            self.allocations += 1;
+        }
         if data.is_null() {
             handle_alloc_error(layout);
         }
@@ -358,6 +366,21 @@ pub unsafe fn restore(id: usize, input: &mut &[u8]) {
     }
 }
 
+#[cfg(feature = "box3d-oracle")]
+#[export_name = "box3dSleepingBodyCapacity"]
+pub unsafe extern "C" fn sleeping_body_capacity(world: usize, body: usize) -> i32 {
+    set(world, crate::bodies::record(world, body).set_index as usize)
+        .body_sims
+        .capacity
+}
+#[cfg(feature = "box3d-oracle")]
+#[export_name = "box3dSleepingBodyAllocations"]
+pub unsafe extern "C" fn sleeping_body_allocations(world: usize, body: usize) -> usize {
+    set(world, crate::bodies::record(world, body).set_index as usize)
+        .body_sims
+        .allocations
+}
+
 pub unsafe fn awake_base(world_index: usize, column: usize) -> usize {
     let s = set(world_index, AWAKE);
     match column {
@@ -365,6 +388,11 @@ pub unsafe fn awake_base(world_index: usize, column: usize) -> usize {
         1 | 2 | 5 => s.body_sims.data as usize,
         _ => 16,
     }
+}
+pub unsafe fn reserve_sleeping(world_index: usize, id: usize, bodies: usize, contacts: usize) {
+    let s = set(world_index, id);
+    s.body_sims.reserve(bodies);
+    s.indices[0].reserve(contacts);
 }
 pub unsafe fn reserve_awake(world_index: usize, cap: usize) {
     let s = set(world_index, AWAKE);

@@ -543,6 +543,12 @@ pub unsafe extern "C" fn try_sleep_island_in_world(world_index: usize, id: usize
     }
     let index = island::field_in_world(world_index, id, 1) as usize;
     let target = solver_set::create_in_world(world_index);
+    solver_set::reserve_sleeping(
+        world_index,
+        target,
+        island::array_count_in_world(world_index, id, 0),
+        island::array_count_in_world(world_index, id, 1),
+    );
     solver_set::joint_array(world_index, target).reserve(island::array_count_in_world(
         world_index,
         id,
