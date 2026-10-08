@@ -60,7 +60,6 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Gameplay and physics read its fixed-tick columns; rendering reads the engine's interpolated table, resident only when requested.
 - A teleport discards interpolation across the discontinuity.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
-- Standard physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`.
 - A body's simulation writes its `GlobalTransform` translation, rotation and velocity, not scale.
 - Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
 - Hierarchy belongs to the domain deriving placement. A general attachment relation enters core only when two examples need the same one.
@@ -71,7 +70,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Extras admit features after a stable release cycle as external packages.
 - Each module owns one useful responsibility completely; split, fix or remove one that doesn't.
 - Game modules never import tooling (`project`, `cli`, `native`, `types`).
-- Core, standard and extras modules never import siblings in their layer; physics never imports rendering.
+- Core, standard and extras modules never import siblings in their layer; physics never imports rendering or input.
 - A game module's `index.ts` is public and its other files are internal.
 - A module registering systems or resources defines a plugin; others export data and functions.
 - A module's extra plugins are its optional parts; a part with its own responsibility is its own module.
@@ -104,21 +103,11 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### Physics
 
-- `PhysicsPlugin` (`core/physics`) registers `Body` and the nine joint kinds with their defaults; it installs no simulation: `DistanceJoint`, `FilterJoint`, `MotorJoint`, `ParallelJoint`, `PrismaticJoint`, `RevoluteJoint`, `SphericalJoint`, `WeldJoint` and `WheelJoint`.
-- Core owns `ShapeKind`, the world-owned `Hulls` registry and solver-neutral observation of caller-supplied body poses; it knows no solver.
-- Neither core nor standard physics imports rendering or input.
-- `StandardPhysicsPlugin` (`standard/physics`) depends on `PhysicsPlugin` and owns the whole Box3D-based simulation: body and constraint synchronization, stepping, events and world operations.
-- A body belongs to one simulation. A replacement backend consumes core's data and replaces all of standard physics, not individual solver phases.
-- Standard physics steps at `Time.FIXED_DT`; gravity belongs to its solver world and the substep count is internal.
-- Box3D is the correctness authority: world hashes equal its reference with no tolerance. Joint authoring takes its definitions and defaults; each local frame splits into an anchor and quaternion rotation, like a body's pose.
-- A test expectation that a direct native Box3D call contradicts takes the native value; its commit records the old value, the new one and the call.
-- World hashes do not see allocation, published ECS values or event streams; a change that can move one is tested for it on its own, with the test captured before the change.
-- Caller-owned values (`userData`, mesh, height-field and compound data) keep their identity through snapshot and restore.
-- Each standard physics phase has one implementation, in the kernel. The worker count schedules it and is not a code path: with no pool the calling thread runs the same tasks, as Box3D's serial fallback does. The shared and single-thread kernel artifacts build from one source, since a page without cross-origin isolation has no shared memory.
-- Under [Heavy work](#heavy-work), the kernel owns Box3D's world in the shape of its files; TypeScript only coordinates: thin public API calls, the ECS authoring and `GlobalTransform` bridge, worker-pool dispatch, and user callbacks at serial points, with event delivery.
-- Camera rays belong to rendering's `viewportToWorld`, not physics; callers supply pointer or viewport coordinates, and `Ray` belongs to engine math.
-- Standard physics publishes the mover queries and plane solver, and its optional `CharacterPlugin` resolves a kinematic capsule's caller-written velocity. It reports walkable or steep ground, its normal and point velocity; upward motion suppresses its pogo spring only relative to that ground velocity.
-- `extras/player` owns input, gravity, acceleration, friction, sprint, jump, coyote time, buffering and platform carry over the published standard physics barrel. Games replace that feel without reaching into physics internals.
+- `PhysicsPlugin` (`core/physics`) registers `Body` and the joint kinds with their defaults, and owns `ShapeKind`, the `Hulls` registry and solver-neutral observation of body poses; it knows no solver and installs no simulation.
+- `StandardPhysicsPlugin` (`standard/physics`) owns the whole Box3D-based simulation at `Time.FIXED_DT`. A body belongs to one simulation: a replacement backend consumes core's data and replaces all of standard physics, not single phases.
+- Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions and defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests.
+- Each phase has one implementation, in the kernel, built into the shared and single-thread artifacts from one source, since a page without cross-origin isolation has no shared memory; the worker count schedules it and is not a code path. TypeScript only coordinates: the public API, the ECS and `GlobalTransform` bridge, pool dispatch, and user callbacks at serial points.
+- Standard physics publishes the mover queries and `CharacterPlugin`; movement feel belongs to `extras/player`, over published names only.
 
 ## Commands
 
@@ -178,7 +167,6 @@ bun run format                   # biome
 - An engine's final frame uses `attachTexture` and `captureTexture`; other owned textures use `probeTexture`.
 - Page composition uses a stepped app and semantic screenshot regions; a running canvas uses `captureFrame` inside the presenting frame, since canvas readback after presentation is transparent black.
 - Goldens cover only defects cheaper evidence cannot show, and are never updated to make a check pass.
-- A test kept unchanged keeps its claims and expected values; only how it observes may move.
 - Steady play allocates nothing.
 - A memory claim creates and disposes its subject, returns to baseline and fails on a deliberately leaking control; retention is measured after GC, and sampler sites are diagnostics, not results.
 - Performance uses counted work and same-machine ratio oracles; real-hardware timings name the hardware and are reported, never asserted.
