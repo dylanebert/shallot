@@ -1,5 +1,5 @@
 import { World } from "../../src/engine";
-import { BodyType, hash, init, makeBoxHull, PhysicsWorld, shutdown } from "../../src/standard/physics/api";
+import { BodyType, createCompound, defaultSurfaceMaterial, hash, init, makeBoxHull, PhysicsWorld, shutdown } from "../../src/standard/physics/api";
 
 const owner = new World();
 const count = Number(process.argv[2]);
@@ -7,6 +7,7 @@ await init(owner, { threads: count === 1 ? 0 : count });
 const pressure = process.argv[3] === "pressure";
 const world = new PhysicsWorld({ enableSleep: false, ...(pressure ? { gravity: { x: 0, y: 0, z: 0 } } : {}) }, owner);
 let calls = 0;
+let callbackStep = 0;
 const float = new Float32Array(1);
 const integer = new Uint32Array(float.buffer);
 const bits = (value: number) => { float[0] = value; return integer[0]; };
@@ -18,13 +19,15 @@ const decision = (value: boolean) => {
 };
 try {
     const pre = process.argv[3] === "pre";
-    if (pre) world.setPreSolveCallback((_a, _b, point, normal) => {
+    if (pre) world.setPreSolveCallback((a, b, point, normal) => {
         calls++;
+        console.log(`${callbackStep} P ${a.id.index1} ${a.id.generation} ${b.id.index1} ${b.id.generation} ${bits(point.x)} ${bits(point.y)} ${bits(point.z)} ${bits(normal.x)} ${bits(normal.y)} ${bits(normal.z)}`);
         const answer = !(((point.x > 1 && point.x < 3) || (point.x > 19 && point.x < 21)) && point.y < 1 && normal.y > 0.9);
         return decision(answer);
     });
     else world.setCustomFilterCallback((a, b) => {
         calls++;
+        console.log(`${callbackStep} F ${a.id.index1} ${a.id.generation} ${b.id.index1} ${b.id.generation}`);
         const answer = pressure ? a.id.index1 > 98 && b.id.index1 > 98 : a.id.index1 !== 4 && b.id.index1 !== 4 && a.id.index1 !== 6 && b.id.index1 !== 6;
         return decision(answer) && a.getSensorOverlaps().length === 0 && b.getSensorOverlaps().length === 0;
     });
@@ -63,8 +66,24 @@ try {
         world.createBody({ position: { x: 100 + 2 * i, y: 1, z: 0 } })
             .createSphere(sensorShape, { center: { x: 0, y: 0, z: 0 }, radius: 0.75 });
     }
+    for (let i = 0; i < 3; ++i) {
+        const compound = createCompound(i === 0 ? {
+            spheres: [{ sphere: { center: { x: 0, y: 0, z: 0 }, radius: 0.5 }, material: defaultSurfaceMaterial() }],
+        } : i === 1 ? {
+            capsules: [{ capsule: { center1: { x: -0.5, y: 0, z: 0 }, center2: { x: 0.5, y: 0, z: 0 }, radius: 0.5 }, material: defaultSurfaceMaterial() }],
+        } : {
+            hulls: [{ hull: makeBoxHull(0.5, 0.5, 0.5), transform: { p: { x: 0.25, y: 0.1, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } }, material: defaultSurfaceMaterial() }],
+        });
+        if (!compound) throw new Error("callback scene compound construction failed");
+        world.createBody({ position: { x: 8 + 4 * i, y: -0.5, z: 0 } })
+            .createCompound({ ...shape, enableCustomFiltering: !pre, enablePreSolveEvents: pre }, compound);
+        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 8 + 4 * i + (i === 2 ? 0.25 : 0), y: i === 2 ? Math.fround(Math.fround(0.49) + Math.fround(0.1)) : 0.49, z: 0 } });
+        if (i === 2) body.createSphere(shape, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        else body.createHull(shape, makeBoxHull(0.5, 0.5, 0.5));
+    }
     }
     for (let step = 0; step < 90; ++step) {
+        callbackStep = step;
         calls = 0;
         world.step(1 / 60);
         const c = world.getCounters();

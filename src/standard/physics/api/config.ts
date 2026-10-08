@@ -16,10 +16,12 @@ import type { Contact, Shape } from "./shape";
  * Queries on another world sharing the kernel are refused. */
 export type CustomFilterCallback = (shapeA: Shape, shapeB: Shape) => boolean;
 
-/** Return false to disable a contact for this step. The point is in world meters and the normal
- * points from shape A to B. Called only for enabled pre-solve events, not sensors. Runs synchronously
- * during the step; the world must not be modified from this callback.
- * Queries on another world sharing the kernel are refused. */
+/** Return false to disable a contact for this step. The point is Box3D's inspection position in
+ * world meters. The normal follows the contact or TOI orientation: internally flipped compound
+ * sphere/capsule children receive shapes in convex-dispatch order, not contact order.
+ * Point and normal are independent values, not writable solver storage.
+ * Called only for enabled pre-solve events, not sensors. Runs synchronously during the step;
+ * the world must not be modified. Queries on another world sharing the kernel are refused. */
 export type PreSolveCallback = (shapeA: Shape, shapeB: Shape, point: Pos, normal: Vec3) => boolean;
 
 export function makeShapeId(world: WorldState, shape: ShapeRecord): EntityId {

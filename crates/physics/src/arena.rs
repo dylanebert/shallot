@@ -1012,9 +1012,9 @@ unsafe fn update_contact(
         let dir = manifolds::dir_col(world_index);
         let o = contact_id * DIR_STRIDE;
         // Deferred pre-solve work mixes custom materials before inspecting the contact, as Box3D does.
-        let custom = DEFAULT_MIX == 0
-            && crate::callbacks::pre_solve_enabled(world_index)
+        let pre_solve = crate::callbacks::pre_solve_enabled(world_index)
             && dir.get(o + DIR_FLAGS) & 0x0020_0000 != 0;
+        let custom = DEFAULT_MIX == 0 && pre_solve;
         if !custom {
             dir.set(o + DIR_FLAGS, dir.get(o + DIR_FLAGS) | 0x0200_0000);
         }
@@ -1142,8 +1142,10 @@ unsafe fn update_contact(
                     core::mem::swap(&mut p.anchor_a, &mut p.anchor_b);
                 }
             }
-            callback_point = xf_a.p.add(m.points[0].anchor_a);
-            callback_normal = m.normal;
+            if pre_solve {
+                callback_point = convex_xf_a.p.add(m.points[0].anchor_a);
+                callback_normal = m.normal;
+            }
             for p in &mut m.points[..m.point_count as usize] {
                 p.anchor_a = p.anchor_a.add(child_offset);
             }
@@ -1173,14 +1175,14 @@ unsafe fn update_contact(
             child_radius,
             custom,
         );
-        if touching && dir.get(o + DIR_FLAGS) & 0x0020_0000 != 0 {
-            touching = crate::callbacks::pre_solve(
-                world_index,
-                shape_id_a,
-                shape_id_b,
-                callback_point,
-                callback_normal,
-            );
+        if touching && pre_solve {
+            let (a, b) = if flip {
+                (shape_id_b, shape_id_a)
+            } else {
+                (shape_id_a, shape_id_b)
+            };
+            touching =
+                crate::callbacks::pre_solve(world_index, a, b, callback_point, callback_normal);
         }
         finish_contact(world_index, thread, contact_id, touching as usize, hit);
     }
