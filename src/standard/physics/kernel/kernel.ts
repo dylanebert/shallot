@@ -914,6 +914,7 @@ export interface KernelState {
     collisionWorld: WorldState | null;
     queryWorld: number;
     callbackDepth: number;
+    stepCallback: boolean;
     queryFailed: boolean;
     queryError: unknown;
     instance: Kernel | null;
@@ -934,6 +935,7 @@ function createKernelState(): KernelState {
         collisionWorld: null,
         queryWorld: -1,
         callbackDepth: 0,
+        stepCallback: false,
         queryFailed: false,
         queryError: undefined,
         instance: null,
@@ -1010,7 +1012,17 @@ export function queryCallbackState(world: World | undefined) {
     };
 }
 
+export function assertKernelEntry(world: World | undefined): void {
+    assertEntry(kernelState(world));
+}
+
+function assertEntry(state: KernelState): void {
+    if (state.stepCallback)
+        throw new Error("physics: cannot re-enter the shared kernel instance from a step callback");
+}
+
 export function assertQueryWorld(world: World | undefined, worldId: number): void {
+    assertKernelEntry(world);
     const state = kernelState(world);
     if (state.callbackDepth !== 0 && state.queryWorld !== worldId)
         throw new Error("physics: one kernel cannot interleave two worlds' queries");
@@ -1056,10 +1068,14 @@ function collisionImport(runtime: KernelState) {
             runtime.queryWorld = world.worldId;
             const shapeA = new Shape(world, makeShapeId(world, a));
             const shapeB = new Shape(world, makeShapeId(world, b));
-            if (kind === 0) return Number(world.customFilterCallback?.(shapeA, shapeB) ?? true);
+            if (kind === 0) {
+                runtime.stepCallback = true;
+                return Number(world.customFilterCallback?.(shapeA, shapeB) ?? true);
+            }
             const memory = kernel(world.ecsState).memory.buffer;
             if (values.buffer !== memory) values = new Float32Array(memory);
             const o = pointer >>> 2;
+            runtime.stepCallback = true;
             return Number(
                 world.preSolveCallback?.(
                     shapeA,
@@ -1074,6 +1090,7 @@ function collisionImport(runtime: KernelState) {
             return 0;
         } finally {
             --runtime.callbackDepth;
+            runtime.stepCallback = false;
             runtime.queryWorld = previous;
         }
     };
@@ -1101,6 +1118,7 @@ function materialImport(runtime: KernelState) {
             const memory = kernel(world.ecsState).memory.buffer;
             if (values.buffer !== memory) values = new Float32Array(memory);
             const o = pointer >>> 2;
+            runtime.stepCallback = true;
             if (kind === 0) {
                 values[o + 2] = world.frictionCallback(values[o], idA, values[o + 1], idB);
             } else {
@@ -1111,6 +1129,7 @@ function materialImport(runtime: KernelState) {
             runtime.queryError = error;
         } finally {
             --runtime.callbackDepth;
+            runtime.stepCallback = false;
             runtime.queryWorld = previous;
         }
     };
@@ -1348,6 +1367,7 @@ export async function shutdown(world: World | undefined): Promise<void> {
  */
 export function kernel(world: World | undefined): Kernel {
     const runtime = kernelState(world);
+    assertEntry(runtime);
     if (runtime.dead) {
         throw new Error(
             "physics kernel is dead: a worker trapped mid-step, so the shared columns hold a partial one",

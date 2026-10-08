@@ -20,7 +20,8 @@ test("custom filter rejects new pairs and clearing it restores default filtering
     try {
         let calls = 0;
         world.setCustomFilterCallback((a, b) => {
-            expect(a.isValid() && b.isValid()).toBe(true);
+            expect([a.id.index1, b.id.index1]).toEqual([1, 2]);
+            expect(() => a.isValid()).toThrow("shared kernel instance");
             calls++;
             return false;
         });
@@ -39,6 +40,25 @@ test("custom filter rejects new pairs and clearing it restores default filtering
         expect(world.getCounters().contactCount).toBeGreaterThan(0);
     } finally {
         world.destroy();
+    }
+});
+
+test("pre-solve refuses stepping an unlocked sibling sharing the kernel instance", () => {
+    const world = contactWorld(true);
+    const sibling = new PhysicsWorld();
+    try {
+        world.setPreSolveCallback(() => {
+            sibling.step(1 / 60);
+            return false;
+        });
+        expect(() => world.step(1 / 60)).toThrow(
+            "cannot re-enter the shared kernel instance from a step callback",
+        );
+        expect(sibling.state.stepIndex).toBe(0);
+        expect(sibling.state.locked).toBe(false);
+    } finally {
+        world.destroy();
+        sibling.destroy();
     }
 });
 
@@ -110,7 +130,7 @@ test("a collision callback observes locked-world guards and cannot capture or re
             expect(world.getJointEvents()).toHaveLength(0);
             expect(() => snapshot(world)).toThrow("while it is stepping");
             expect(() => restore(world, saved)).toThrow("while it is stepping");
-            world.step(1 / 60);
+            expect(() => world.step(1 / 60)).toThrow("shared kernel instance");
             world.destroy();
             expect(world.isValid()).toBe(true);
             return true;
@@ -131,10 +151,10 @@ test("collision callbacks refuse interleaving a sibling query on the same kernel
     try {
         world.setCustomFilterCallback(() => {
             expect(() => snapshot(sibling)).toThrow(
-                "one kernel cannot interleave two worlds' queries",
+                "cannot re-enter the shared kernel instance from a step callback",
             );
             expect(() => restore(sibling, saved)).toThrow(
-                "one kernel cannot interleave two worlds' queries",
+                "cannot re-enter the shared kernel instance from a step callback",
             );
             sibling.overlapAABB(
                 { lowerBound: { x: -1, y: -1, z: -1 }, upperBound: { x: 1, y: 1, z: 1 } },
@@ -143,7 +163,7 @@ test("collision callbacks refuse interleaving a sibling query on the same kernel
             return true;
         });
         expect(() => world.step(1 / 60)).toThrow(
-            "one kernel cannot interleave two worlds' queries",
+            "cannot re-enter the shared kernel instance from a step callback",
         );
     } finally {
         world.destroy();

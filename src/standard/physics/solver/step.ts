@@ -1,5 +1,5 @@
 import { readJointEventUserData } from "../kernel/jointcolumns";
-import { kernel, threads } from "../kernel/kernel";
+import { assertKernelEntry, kernel, threads } from "../kernel/kernel";
 import {
     defaultFrictionCallback,
     defaultRestitutionCallback,
@@ -9,6 +9,7 @@ import { solve } from "./solver";
 
 /** Advance the kernel world; TypeScript supplies settings and drives its yields. */
 export function step(world: WorldState, timeStep: number, subStepCount: number): void {
+    assertKernelEntry(world.ecsState);
     if (world.locked) return;
     world.locked = true;
     try {

@@ -13,7 +13,8 @@ import type { Contact, Shape } from "./shape";
 
 /** Return false to reject a collision pair. Called only when either shape enables custom filtering.
  * Runs synchronously during the step; the world must not be modified from this callback.
- * Queries on another world sharing the kernel are refused. */
+ * Kernel re-entry is refused: worlds sharing an instance also share its active driver.
+ * Use the supplied inspection values or cached user data, not kernel operations, in the callback. */
 export type CustomFilterCallback = (shapeA: Shape, shapeB: Shape) => boolean;
 
 /** Return false to disable a contact for this step. The point is Box3D's inspection position in
@@ -21,7 +22,8 @@ export type CustomFilterCallback = (shapeA: Shape, shapeB: Shape) => boolean;
  * sphere/capsule children receive shapes in convex-dispatch order, not contact order.
  * Point and normal are independent values, not writable solver storage.
  * Called only for enabled pre-solve events, not sensors. Runs synchronously during the step;
- * the world must not be modified. Queries on another world sharing the kernel are refused. */
+ * the world must not be modified. Kernel operations (including stepping any world sharing the
+ * instance) are refused from the callback because that instance has one active driver. */
 export type PreSolveCallback = (shapeA: Shape, shapeB: Shape, point: Pos, normal: Vec3) => boolean;
 
 export function makeShapeId(world: WorldState, shape: ShapeRecord): EntityId {
