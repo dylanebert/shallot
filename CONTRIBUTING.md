@@ -184,8 +184,6 @@ bun run format                   # biome
 ### CI coverage
 
 - [CI](.github/workflows/test.yml) owns host and tier commands.
-- Rust suites run with `cargo test -p shallot-audio` and `cargo test -p shallot-physics`.
-- The cheap and Node tiers also run against kernels built with `build-kernel.ts --checked`.
 - Display-bound allocation stays manual, and CI does not qualify Windows or native packaging.
 
 ## Code
@@ -232,8 +230,7 @@ bun run format                   # biome
 - Staged: `bun pm pack` here, then `bun add --no-save <tarball>` in the project; add `--dev` for dev dependencies, or the overlay silently targets the wrong section.
 - Live: `bun link` here, then `bun link @dylanebert/shallot` in the project; Vite dedupe and Bun preload route named `typegpu` imports and subpaths to the project's copy, not copies under other package names.
 - `bun install` restores the manifest pin only if its range resolves on npm: an unpublished `^0.10.0` neither restores nor matches `0.10.0-next.1`, so staged overlays and restores use a published range.
-- The Bun entry is a factory, not an import side effect: `tests/preload.ts` imports `plugin` from `bun` and `shallot` from `@dylanebert/shallot/bun` and registers `plugin(shallot({ root: import.meta.dir }))`, with `[test] preload = ["./tests/preload.ts"]` in `bunfig.toml`.
-- Root resolution walks from that preload to the nearest `package.json`, not from cwd; `shallot add` writes this setup.
+- The Bun entry is a factory registered from a test preload, not an import side effect; `shallot add` writes that setup, and root resolution walks from the preload to the nearest `package.json`, not from cwd.
 
 ### Plugin packages
 
