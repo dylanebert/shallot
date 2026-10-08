@@ -26,6 +26,14 @@ import { type ComponentStorage, WorldField } from "./storage";
 import { GpuTable, type GpuTableOptions } from "./table";
 
 const INITIAL_CAPACITY = 16;
+const UPLOAD_CHUNK_BYTES = 64 * 1024;
+interface UploadChunk {
+    buffer: GPUBuffer;
+    offset: number;
+    pending: number;
+    used: boolean;
+    settle(): void;
+}
 
 /** A world-owned value identified by its declaration, or an explicit reload-stable key. */
 export type Resource<T> = {
@@ -48,10 +56,12 @@ export class World {
     private _pendingCopies: {
         source: GPUBuffer;
         target: GPUBuffer;
+        sourceOffset: number;
         offset: number;
         size: number;
     }[] = [];
-    private _uploadStages = new Map<GPUBuffer, GPUBuffer>();
+    private _uploadChunks: UploadChunk[] = [];
+    private _uploadBytes = 0;
     private _stepping = false;
     private _columns = new FieldColumns();
     private _snapshots = new SnapshotComposition(
@@ -170,7 +180,7 @@ export class World {
         for (const copy of this._pendingCopies)
             encoder.copyBufferToBuffer(
                 copy.source,
-                copy.offset,
+                copy.sourceOffset,
                 copy.target,
                 copy.offset,
                 copy.size,
@@ -181,6 +191,16 @@ export class World {
     /** @internal Release buffers retired by growth only after the frame was submitted. */
     endGpuFrame(): void {
         this._frameEncoder = undefined;
+        if (!this._disposed) {
+            let completion: Promise<void> | undefined;
+            for (const chunk of this._uploadChunks) {
+                if (!chunk.used) continue;
+                chunk.used = false;
+                chunk.pending++;
+                completion ??= this.gpu.device.queue.onSubmittedWorkDone();
+                completion.then(chunk.settle, chunk.settle);
+            }
+        }
         for (const buffer of this._retiredBuffers) buffer.destroy();
         this._retiredBuffers.length = 0;
     }
@@ -188,11 +208,6 @@ export class World {
     /** @internal Growth during a step or behind pending work defers copies to the next frame
      * encoder and retains old buffers through submission. Applies to every GPU table. */
     growGpuBuffer(previous: GPUBuffer, buffer: GPUBuffer): void {
-        const oldStage = this._uploadStages.get(previous);
-        if (oldStage) {
-            this._uploadStages.delete(previous);
-            this.retireGpuBuffer(oldStage);
-        }
         if (this._frameEncoder) {
             this._frameEncoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
             this._retiredBuffers.push(previous);
@@ -200,6 +215,7 @@ export class World {
             this._pendingCopies.push({
                 source: previous,
                 target: buffer,
+                sourceOffset: 0,
                 offset: 0,
                 size: previous.size,
             });
@@ -219,25 +235,82 @@ export class World {
         else buffer.destroy();
     }
 
-    /** @internal Table uploads follow growth copies, including growth staged before a frame encoder opens. */
+    /** @internal Uploads append immutable source ranges for the current submission, including
+     * uploads behind deferred growth. Staging chunks recycle only after queue completion;
+     * total capacity is bounded by maxBufferSize; exhaustion refuses rather than overwriting live bytes. */
     uploadGpuTable(buffer: GPUBuffer, offset: number, data: ArrayBufferLike, size: number): void {
         const encoder = this._frameEncoder;
         if (!encoder && !this._pendingCopies.length) {
             this.gpu.device.queue.writeBuffer(buffer, offset, data as ArrayBuffer, offset, size);
             return;
         }
-        let staging = this._uploadStages.get(buffer);
-        if (!staging) {
-            staging = this.gpu.device.createBuffer({
-                size: buffer.size,
-                usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        const chunk = this.uploadChunk(size);
+        const sourceOffset = chunk.offset;
+        chunk.offset += size;
+        chunk.used = true;
+        this.gpu.device.queue.writeBuffer(
+            chunk.buffer,
+            sourceOffset,
+            data as ArrayBuffer,
+            offset,
+            size,
+        );
+        if (encoder) encoder.copyBufferToBuffer(chunk.buffer, sourceOffset, buffer, offset, size);
+        else
+            this._pendingCopies.push({
+                source: chunk.buffer,
+                target: buffer,
+                sourceOffset,
+                offset,
+                size,
             });
-            this.own(staging);
-            this._uploadStages.set(buffer, staging);
+    }
+
+    // Like wgpu's StagingBelt, append until submission completion makes an entire chunk reusable.
+    // In-flight chunks may accept more bytes, but never overwrite a recorded copy's source.
+    private uploadChunk(size: number): UploadChunk {
+        for (const chunk of this._uploadChunks)
+            if (chunk.buffer.size - chunk.offset >= size) return chunk;
+        const limit = this.gpu.device.limits.maxBufferSize;
+        let capacity = Math.min(UPLOAD_CHUNK_BYTES, limit);
+        while (capacity < size && capacity < limit) capacity = Math.min(capacity * 2, limit);
+        if (size <= limit && limit - this._uploadBytes < size) {
+            for (
+                let i = this._uploadChunks.length - 1;
+                i >= 0 && limit - this._uploadBytes < size;
+                i--
+            ) {
+                const chunk = this._uploadChunks[i];
+                if (chunk.pending || chunk.used) continue;
+                this._uploadBytes -= chunk.buffer.size;
+                chunk.buffer.destroy();
+                this._uploadChunks.splice(i, 1);
+            }
         }
-        this.gpu.device.queue.writeBuffer(staging, offset, data as ArrayBuffer, offset, size);
-        if (encoder) encoder.copyBufferToBuffer(staging, offset, buffer, offset, size);
-        else this._pendingCopies.push({ source: staging, target: buffer, offset, size });
+        capacity = Math.min(capacity, limit - this._uploadBytes);
+        if (capacity < size)
+            throw new Error(
+                `GPU table upload staging needs ${size} bytes; the world's ${limit}-byte budget has ${limit - this._uploadBytes} bytes available`,
+            );
+        const buffer = this.gpu.device.createBuffer({
+            label: "table-upload-chunk",
+            size: capacity,
+            usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        });
+        this.own(buffer);
+        const chunk: UploadChunk = {
+            buffer,
+            offset: 0,
+            pending: 0,
+            used: false,
+            settle() {
+                chunk.pending--;
+                if (!chunk.pending && !chunk.used) chunk.offset = 0;
+            },
+        };
+        this._uploadChunks.push(chunk);
+        this._uploadBytes += capacity;
+        return chunk;
     }
 
     /** Whether this world owns a registered resource. */
@@ -766,7 +839,8 @@ export class World {
         this._tables.clear();
         this.endGpuFrame();
         this._pendingCopies.length = 0;
-        this._uploadStages.clear();
+        this._uploadChunks.length = 0;
+        this._uploadBytes = 0;
         this._resources.clear();
 
         this.registry.clear();

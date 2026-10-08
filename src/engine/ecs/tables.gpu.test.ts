@@ -339,6 +339,119 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
     expect(Array.from(new Uint32Array(data.bytes))).toEqual([333, 222]);
 });
 
+const recycledUploads = subject("RecycledUploads", [], (world) =>
+    world.table("recycled-uploads", Record),
+);
+test("completed upload chunks recycle without allocating buffers and staging refuses beyond its world budget", async () => {
+    const { world, table } = recycledUploads();
+    table.acquire(world.create());
+    const device = world.gpu.device;
+    const bytes = new DataView(table.bytes.buffer);
+    const commands: GPUCommandBuffer[] = [];
+    let value = 0;
+    world.addSystem({
+        group: "draw",
+        update() {
+            const encoder = device.createCommandEncoder();
+            world.beginGpuFrame(encoder);
+            for (let i = 0; i < 3; i++) {
+                bytes.setFloat32(0, ++value, true);
+                table.markRange(0, 1);
+                table.upload();
+            }
+            commands[0] = encoder.finish();
+            device.queue.submit(commands);
+            world.endGpuFrame();
+        },
+    });
+    world.step(0);
+    await bounded("upload warmup", device.queue.onSubmittedWorkDone());
+    const descriptor = Object.getOwnPropertyDescriptor(device, "createBuffer");
+    const createBuffer = device.createBuffer.bind(device);
+    let allocations = 0;
+    Object.defineProperty(device, "createBuffer", {
+        configurable: true,
+        value: (options: GPUBufferDescriptor) => {
+            allocations++;
+            return createBuffer(options);
+        },
+    });
+    try {
+        for (let i = 0; i < 8; i++) {
+            world.step(0);
+            await bounded("upload reuse", device.queue.onSubmittedWorkDone());
+        }
+        expect(allocations).toBe(0);
+        const encoder = device.createCommandEncoder();
+        world.beginGpuFrame(encoder);
+        expect(() =>
+            world.uploadGpuTable(
+                table.buffer,
+                0,
+                new ArrayBuffer(0),
+                device.limits.maxBufferSize + 4,
+            ),
+        ).toThrow("budget");
+        commands[0] = encoder.finish();
+        device.queue.submit(commands);
+        world.endGpuFrame();
+        expect(allocations).toBe(0);
+    } finally {
+        if (descriptor) Object.defineProperty(device, "createBuffer", descriptor);
+        else Reflect.deleteProperty(device, "createBuffer");
+    }
+});
+
+for (const phase of ["fixed-growth", "draw"] as const) {
+    const uploads = subject(`OrderedUploads-${phase}`, [], (world) =>
+        world.table(`ordered-uploads-${phase}`, Record),
+    );
+    test(`${phase} uploads retain their own bytes across an intervening GPU copy`, async () => {
+        const { world, table } = uploads();
+        table.acquire(world.create());
+        table.upload();
+        const observation = world.gpu.device.createBuffer({
+            size: table.rowBytes,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+        world.own(observation);
+        const write = (value: number) => {
+            new DataView(table.bytes.buffer).setFloat32(0, value, true);
+            table.markRange(0, 1);
+            table.upload();
+        };
+        if (phase === "fixed-growth")
+            world.addSystem({
+                group: "fixed",
+                update() {
+                    table.reserveSlots(table.capacity + 1);
+                    write(11);
+                },
+            });
+        world.addSystem({
+            group: "draw",
+            update() {
+                const encoder = world.gpu.device.createCommandEncoder();
+                world.beginGpuFrame(encoder);
+                if (phase === "draw") write(11);
+                encoder.copyBufferToBuffer(table.buffer, 0, observation, 0, table.rowBytes);
+                write(22);
+                world.gpu.device.queue.submit([encoder.finish()]);
+                world.endGpuFrame();
+            },
+        });
+        world.step(1 / 60);
+        await bounded("ordered upload observation", observation.mapAsync(GPUMapMode.READ));
+        expect(new DataView(observation.getMappedRange()).getFloat32(0, true)).toBe(11);
+        observation.unmap();
+        const result = await bounded(
+            "last upload",
+            probeBuffer(world, table.buffer, { size: table.rowBytes }),
+        );
+        expect(new DataView(result.bytes).getFloat32(0, true)).toBe(22);
+    });
+}
+
 const steppedGrowth = subject("SteppedTableGrowth", [], (world) =>
     world.table("stepped-table-growth", Record),
 );
