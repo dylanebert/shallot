@@ -8,7 +8,8 @@ export function mixContacts(world: WorldState): void {
     state.materialWorld = world;
     try {
         kernel(world.ecsState).mixContacts(world.worldId);
-        rethrowQueryError(world.ecsState);
+        // The step reports callback errors only after Rust and host finalization have completed.
+        if (state.collisionWorld === null) rethrowQueryError(world.ecsState);
     } finally {
         state.materialWorld = previous;
     }

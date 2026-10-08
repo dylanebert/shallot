@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { kernel } from "../kernel/kernel";
 import { BodyType, makeBoxHull, PhysicsWorld, restore, snapshot } from "./index";
 
 function contactWorld(pre = false): PhysicsWorld {
@@ -84,6 +85,37 @@ test("pre-solve sees the world-space point and A-to-B normal after custom materi
         expect(world.getContactEvents().beginEvents).toHaveLength(0);
     } finally {
         world.destroy();
+    }
+});
+
+test("a throwing pre-solve completes step bookkeeping and views before rethrowing", () => {
+    const world = contactWorld(true);
+    const control = contactWorld(true);
+    const error = new Error("bookkeeping probe");
+    try {
+        kernel(world.state.ecsState).bodySetEntity(world.state.worldId, 1, 42);
+        kernel(control.state.ecsState).bodySetEntity(control.state.worldId, 1, 42);
+        control.setPreSolveCallback(() => false);
+        world.setPreSolveCallback(() => {
+            throw error;
+        });
+        control.step(1 / 60);
+        const expected = {
+            stepIndex: control.state.stepIndex,
+            syncCount: control.state.bodyStore.syncCount,
+            moves: control.getBodyEvents().count,
+            transform: control.getBodyEvents().moveEvents[0].transform,
+        };
+        expect(() => world.step(1 / 60)).toThrow(error);
+        expect({
+            stepIndex: world.state.stepIndex,
+            syncCount: world.state.bodyStore.syncCount,
+            moves: world.getBodyEvents().count,
+            transform: world.getBodyEvents().moveEvents[0].transform,
+        }).toEqual(expected);
+    } finally {
+        world.destroy();
+        control.destroy();
     }
 });
 

@@ -1,5 +1,5 @@
 import { readJointEventUserData } from "../kernel/jointcolumns";
-import { assertKernelEntry, kernel, threads } from "../kernel/kernel";
+import { assertKernelEntry, kernel, rethrowQueryError, threads } from "../kernel/kernel";
 import {
     defaultFrictionCallback,
     defaultRestitutionCallback,
@@ -48,6 +48,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
         world.manifoldStore.refreshViews();
         world.shapeStore.refreshViews();
         world.broadPhase.store.refreshIfStale();
+        rethrowQueryError(world.ecsState);
     } finally {
         world.locked = false;
     }

@@ -1,5 +1,5 @@
 import { mixContacts } from "../collision/collide";
-import { kernel, kernelState, rethrowQueryError, runPool, workers } from "../kernel/kernel";
+import { kernel, kernelState, runPool, workers } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 
 /** Drive the kernel's yielded tasks and user callbacks until b3World_Step completes. */
@@ -18,7 +18,6 @@ export function solve(world: WorldState): void {
             } else if (code === 2) mixContacts(world);
             else throw new Error(`physics: unknown step yield ${code}`);
         }
-        rethrowQueryError(world.ecsState);
     } finally {
         state.collisionWorld = null;
         state.materialWorld = null;
