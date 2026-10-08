@@ -4,6 +4,7 @@ export const DIR_COUNT = 19;
 export const DIR_BLOCK = 18;
 export const DIR_FLAGS = 17;
 export const DIR_FRICTION = 35;
+export const DIR_CACHE = 36;
 export const DIR_RESTITUTION = 45;
 export const DIR_ROLLING_RESISTANCE = 46;
 export const DIR_TANGENT_VELOCITY = 47;

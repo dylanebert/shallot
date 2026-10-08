@@ -8,6 +8,7 @@ pub extern "C" fn offset(index: usize) -> usize {
         DIR_MANIFOLD_BASE,
         DIR_FLAGS,
         DIR_FRICTION,
+        DIR_CACHE,
         DIR_RESTITUTION,
         DIR_ROLLING_RESISTANCE,
         DIR_TANGENT_VELOCITY,

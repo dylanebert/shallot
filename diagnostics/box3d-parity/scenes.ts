@@ -27,7 +27,7 @@ import {
     shutdown,
 } from "../../src/standard/physics/api";
 import { contactBodyId, contactCapacity, contactField, ContactField } from "../../src/standard/physics/collision/contact";
-import { DIR_STRIDE } from "../../src/standard/physics/collision/manifoldstore";
+import { DIR_CACHE, DIR_STRIDE } from "../../src/standard/physics/kernel/contact-layout";
 import { OVERFLOW_INDEX } from "../../src/standard/physics/common/constants";
 import { kernel } from "../../src/standard/physics/kernel/kernel";
 import {
@@ -393,9 +393,10 @@ for (let i = 0; i < steps; ++i) {
     }
     if (cache >= 0 && cache < contactCapacity(state) && contactField(state, cache, ContactField.contactId) === cache) {
         const d = state.manifoldStore.dirU,
-            o = cache * DIR_STRIDE + 12;
+            o = cache * DIR_STRIDE + DIR_CACHE,
+            fields = d[o + 1];
         lines.push(
-            `S ${i} contact ${cache} bodies ${contactBodyId(state, cache, 0)} ${contactBodyId(state, cache, 1)} manifolds ${contactField(state, cache, ContactField.manifoldCount)} cache sep ${hex(d[o])} type ${d[o + 1]} indexA ${d[o + 2]} indexB ${d[o + 3]} hit ${d[o + 4]}`,
+            `S ${i} contact ${cache} bodies ${contactBodyId(state, cache, 0)} ${contactBodyId(state, cache, 1)} manifolds ${contactField(state, cache, ContactField.manifoldCount)} cache sep ${hex(d[o])} type ${fields & 0xff} indexA ${(fields >>> 8) & 0xff} indexB ${(fields >>> 16) & 0xff} hit ${fields >>> 24}`,
         );
     }
 }

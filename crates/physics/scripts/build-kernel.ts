@@ -213,6 +213,7 @@ const layoutNames = [
     "DIR_BLOCK",
     "DIR_FLAGS",
     "DIR_FRICTION",
+    "DIR_CACHE",
     "DIR_RESTITUTION",
     "DIR_ROLLING_RESISTANCE",
     "DIR_TANGENT_VELOCITY",
