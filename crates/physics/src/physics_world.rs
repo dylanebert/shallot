@@ -674,6 +674,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                         world_index,
                         crate::arena::collide_list_ptr() as *mut u32,
                     );
+                    crate::arena::sort_collide_contacts(world_index, count);
                     parallel(world_index, 2, count, 0.0);
                 }
             }

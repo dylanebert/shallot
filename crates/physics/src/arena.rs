@@ -489,6 +489,7 @@ pub(crate) unsafe fn union_hit_events(world: usize) -> Option<&'static crate::bi
 }
 
 static mut CONTACT_LIST_PTR: usize = 0;
+static mut SORTED_CONTACT_LIST_PTR: usize = 0;
 static mut CONTACT_STATES: [Vec<crate::bitset::BitSet>; crate::regions::MAX_WORLDS] =
     [const { Vec::new() }; crate::regions::MAX_WORLDS];
 
@@ -537,13 +538,36 @@ pub extern "C" fn reserve_collide_in_world(
             state.set_count_and_clear(capacity);
         }
         TASK_CONTEXTS[world_index].resize_with(mesh_threads, TaskContext::new);
-        CONTACT_LIST_PTR = reserve_scratch(world_index, count * 4);
+        CONTACT_LIST_PTR = reserve_scratch(world_index, count * 8);
+        SORTED_CONTACT_LIST_PTR = CONTACT_LIST_PTR + count * 4;
     }
 }
 #[export_name = "collideListPtr"]
 pub extern "C" fn collide_list_ptr() -> usize {
     unsafe { CONTACT_LIST_PTR }
 }
+pub(crate) unsafe fn sort_collide_contacts(world: usize, count: usize) {
+    // Before the fork, worker 0's state bitset is free to order the awake ids.
+    // Keep the color-ordered source for callbacks, then clear the temporary marks.
+    let state = &mut CONTACT_STATES[world][0];
+    let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, count);
+    let sorted = core::slice::from_raw_parts_mut(SORTED_CONTACT_LIST_PTR as *mut u32, count);
+    for &id in contacts {
+        state.set(id as usize);
+    }
+    let mut next = 0;
+    for block in 0..state.block_count as usize {
+        let mut bits = *state.bits.add(block);
+        while bits != 0 {
+            sorted[next] = (block * 64 + bits.trailing_zeros() as usize) as u32;
+            next += 1;
+            bits &= bits - 1;
+        }
+        *state.bits.add(block) = 0;
+    }
+    assert_eq!(next, count);
+}
+
 #[export_name = "contactStatePtr"]
 pub extern "C" fn contact_state_ptr() -> usize {
     unsafe { CONTACT_STATES[crate::regions::active()][0].bits as usize }
@@ -1284,7 +1308,10 @@ pub extern "C" fn dispatch_contacts(count: usize) {
 }
 
 pub extern "C" fn dispatch_contacts_in_world(world_index: usize, count: usize) {
-    unsafe { contact_block(world_index, 0, count, count, 0) }
+    unsafe {
+        sort_collide_contacts(world_index, count);
+        contact_block(world_index, 0, count, count, 0);
+    }
 }
 
 // --- contact recycle -----------------------------------------------------------------------
@@ -1365,7 +1392,7 @@ fn write_pose_cache(dir: Col<u32>, contact_id: usize, xf_a: Transform, xf_b: Tra
     dir.set(o + DIR_CACHED_REL_POSE + 6, rel.q.s.to_bits());
 }
 
-/// Update each contact in Box3D's collide-task order.
+/// Update independent contacts in contact-id order.
 ///
 /// # Safety
 /// Contacts run in disjoint tasks; bodies and shapes stay resident for the fork.
@@ -1396,7 +1423,12 @@ unsafe fn contact_block_impl(
 ) {
     unsafe {
         use crate::manifold_abi::*;
-        let contacts = core::slice::from_raw_parts(CONTACT_LIST_PTR as *const u32, total);
+        let list = if serial {
+            CONTACT_LIST_PTR
+        } else {
+            SORTED_CONTACT_LIST_PTR
+        };
+        let contacts = core::slice::from_raw_parts(list as *const u32, total);
         let dir = manifolds::dir_col(world_index);
         let pool = manifolds::pool_col();
         let fat = crate::shapes::col_f_slice(world_index);
