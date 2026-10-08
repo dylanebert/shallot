@@ -84,6 +84,24 @@ test("a stepped over-stressed joint publishes the same ordered public event ids 
     }
 });
 
+test("body destruction preserves published joint-event user-data identity", () => {
+    const world = new PhysicsWorld();
+    try {
+        const anchor = world.createBody({ type: BodyType.Static });
+        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: -2, z: 0 } });
+        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        const userData = { label: "captured" };
+        world.createDistanceJoint(anchor, body, { length: 2, forceThreshold: 0, userData });
+        world.step(1 / 60);
+        body.destroy();
+        const events = world.getJointEvents();
+        expect(events).toHaveLength(1);
+        expect(events[0].userData).toBe(userData);
+    } finally {
+        world.destroy();
+    }
+});
+
 test("a foreign snapshot preserves captured joint-event id values while delivery handles bind to the target world", () => {
     const source = new PhysicsWorld();
     const target = new PhysicsWorld();

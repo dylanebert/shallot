@@ -4,6 +4,7 @@ import {
     defaultRestitutionCallback,
     type WorldState,
 } from "../world/world";
+import { readJointEventUserData } from "../kernel/jointcolumns";
 import { solve } from "./solver";
 
 /** Advance the kernel world; TypeScript supplies settings and drives its yields. */
@@ -35,6 +36,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
             world.restitutionCallback === defaultRestitutionCallback,
     );
     solve(world);
+    readJointEventUserData(world);
     world.invDt = k.stepInvDt();
     world.invH = k.stepInvH();
     if (timeStep > 0) ++world.stepIndex;
