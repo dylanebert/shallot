@@ -55,14 +55,7 @@ function fixture(count: number, dt: number, continuous: boolean, invDt = 1 / dt)
     return { world, k, store: world.state.bodyStore };
 }
 function finalize(k: ReturnType<typeof kernel>, count: number) {
-    // The existing WASM finalize job (7) is outside the coordinator's narrower ParKind union.
-    (k.parBuild as (kind: number, count: number, threads: number, a: number) => number)(
-        7,
-        count,
-        1,
-        0,
-    );
-    k.runMt();
+    k.parallelFor(7, count, 1, 0);
 }
 
 function load(store: ReturnType<typeof fixture>["store"], c: (typeof gold.cases)[number]) {

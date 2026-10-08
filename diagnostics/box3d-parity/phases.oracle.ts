@@ -149,7 +149,7 @@ for (const [scene, [from, to]] of Object.entries(WINDOWS)) {
             report.push(
                 `native counters (median): contacts ${count("contacts")}, awake ${count("awake")}, with a manifold ${count("manifolds")}, recycled ${count("recycled")}, sat calls ${count("sat")}, sat cache hits ${count("satHit")}, joints ${count("joints")}`,
                 "Shallot contacts, awake contacts and joints equal native at every measured step; SAT calls/cache hits are native denominators, not Shallot instrumentation.",
-                "shallot main thread, CPU profile ms per step (J phase total wasm join ts; JC inclusive callees; wasm includes internal stage waits, join is only the JS pool tail):",
+                "shallot main thread, CPU profile ms per step (J phase total wasm ts; JC inclusive callees; wasm includes scheduler and stage waits):",
                 ...s.filter((l) => l.startsWith("J")),
                 "",
             );

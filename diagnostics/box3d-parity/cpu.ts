@@ -1,7 +1,6 @@
 // The main thread's CPU profile over a stretch of steps, summarized per step phase (scenes.ts CPU=<step>).
 // Node only: V8's sampling profiler through node:inspector. A sample is charged to the innermost step
-// phase on its stack, and its self time is split into kernel (wasm), pool join (the main thread spinning
-// in the worker pool's `run` until the workers ack) and TypeScript; each phase also lists the inclusive
+// phase on its stack, and its self time is split into kernel (wasm) and TypeScript; each phase lists the inclusive
 // time of the functions it calls, five levels deep.
 import { Session } from "node:inspector";
 import { KERNEL_SHARED_WASM_BASE64 } from "../../src/standard/physics/kernel/kernel.shared.wasm";
@@ -95,7 +94,6 @@ export function stopCpu(steps: number, shared: boolean): string[] {
     type Phase = {
         total: number;
         wasm: number;
-        join: number;
         ts: number;
         calls: Map<string, number>;
     };
@@ -113,7 +111,7 @@ export function stopCpu(steps: number, shared: boolean): string[] {
         const key = PHASES.get(name(stack[at])) as string;
         let phase = phases.get(key);
         if (!phase) {
-            phase = { total: 0, wasm: 0, join: 0, ts: 0, calls: new Map() };
+            phase = { total: 0, wasm: 0, ts: 0, calls: new Map() };
             phases.set(key, phase);
         }
         const ms = us / 1000 / steps;
@@ -121,8 +119,6 @@ export function stopCpu(steps: number, shared: boolean): string[] {
         const self = byId.get(id)?.callFrame as Frame;
         if (self.url.startsWith("wasm") || self.functionName.startsWith("js-to-wasm"))
             phase.wasm += ms;
-        else if (self.functionName === "run" && stack.some((n) => name(n) === "runPool"))
-            phase.join += ms;
         else phase.ts += ms;
         // A js-to-wasm wrapper frame names nothing; the export it enters does.
         const below = stack
@@ -139,7 +135,7 @@ export function stopCpu(steps: number, shared: boolean): string[] {
     const lines: string[] = [];
     for (const [key, p] of phases) {
         lines.push(
-            `J ${key} total ${p.total.toFixed(3)} wasm ${p.wasm.toFixed(3)} join ${p.join.toFixed(3)} ts ${p.ts.toFixed(3)}`,
+            `J ${key} total ${p.total.toFixed(3)} wasm ${p.wasm.toFixed(3)} ts ${p.ts.toFixed(3)}`,
         );
         // Depth first, heaviest first, dropping callees under 0.5% of the phase.
         const visit = (prefix: string) => {

@@ -4,29 +4,8 @@
 //! overflow); `parfor.rs` owns the flat block-claim sweep the outer phases use; `arena.rs` owns the
 //! columns. This module is the seam between them: it builds the [`Plan`] from the kernel graph layout,
 //! holds the [`Context`] and the [`Work`] in linear memory where every thread's instance sees
-//! them, and exposes the entries the pool drives —
-//!
-//!   - a **build** on the main thread (`solveBuild` for the staged solve, `parBuild` for one outer
-//!     phase), which names the job every thread is about to run, then
-//!   - `runMt` on the main thread (the orchestrator) and `workerMain` in each pooled worker, both of
-//!     which dispatch on that job.
-//!
-//! One pool round is live at a time: the pool is woken once per build and every worker is parked
-//! before the next one. A solve round also runs its queued island split on worker 1 (or worker 0
-//! without a pool), before that worker enters the solver; the shared join waits for both tasks.
-//!
-//! **The join contract** (`stages::run`): every worker calls `run` exactly once per solve, and the
-//! orchestrator's `run` blocks until all of them have left. `src/pool.ts`'s round is what guarantees the
-//! first half; the second is inside `stages::run`.
-//!
-//! **Build, then wake.** `solveBuild` runs on the main thread *before* the pool's wake, so no worker can
-//! observe a half-built context: the wake (a seq-cst `Atomics.store`) is the release edge for everything
-//! written here, and the worker's `Atomics.wait`/`load` is the acquire. That ordering also means the
-//! buffers below are only ever written while every worker is parked.
-//!
-//! **No relocation of solve columns between fork and join**: column reserves run before the fork.
-//! The split may grow island records and lists, but not body, contact or joint solver arrays;
-//! the solver's shared column handles remain valid until the join.
+//! them. Task slots publish each callback's context, and their finish handles protect its lifetime.
+//! Solver-column reserves precede enqueue; the island split cannot relocate those columns.
 //!
 //! Wasm-only, like the arena it reads. Native `cargo test` drives the same machinery over owned columns
 //! (`kernel/tests/stages.rs`).
@@ -37,7 +16,10 @@ use crate::contact::{self, Columns, Softness};
 use crate::contact_wide;
 use crate::integrate;
 use crate::math::Vec3;
-use crate::parfor::{worth_forking, ParFor, COLLIDE_FORK_MIN, COLLIDE_MIN_RANGE};
+use crate::parfor::{ParFor, COLLIDE_MIN_RANGE};
+use crate::scheduler::Scheduler;
+
+pub(crate) static SCHEDULER: Scheduler = Scheduler::new();
 use crate::stages::{
     self, Block, ColorSpan, Context, Plan, Stage, StageWork, SyncBlock, MAX_COLORS,
 };
@@ -555,12 +537,6 @@ pub extern "C" fn solve_build_in_world(
         STEP = core::ptr::null_mut();
         arena::free_solve(world_index);
         SPLIT_ID = crate::island::split_candidate_in_world(world_index);
-        SPLIT_WORKER = usize::from(thread_count > 1);
-        REBUILD_WORKER = if thread_count > 1 {
-            thread_count - 1
-        } else {
-            usize::MAX
-        };
 
         let mut span_storage = [ColorSpan::EMPTY; MAX_COLORS];
         let mut color_keys = [0; MAX_COLORS];
@@ -667,12 +643,18 @@ pub extern "C" fn solve_build_in_world(
             sub_step_count,
             worker_count: thread_count,
         };
+        SOLVE_PAGES = core::arch::wasm32::memory_size::<0>();
+        SPLIT_TASK = if SPLIT_ID != -1 {
+            SCHEDULER.enqueue(split_task, world_index, 0)
+        } else {
+            None
+        };
         (*STEP).ctx = Some(stages::build(
             &plan,
             core::slice::from_raw_parts_mut(stage_ptr, sizes.stages),
             core::slice::from_raw_parts_mut(block_ptr, sizes.blocks),
         ));
-        JOB = Job::Solve;
+        SOLVE_THREADS = thread_count;
     }
 }
 
@@ -681,12 +663,8 @@ pub extern "C" fn solve_build_in_world(
 // Collide is one flat contact-id sweep: overlap, recycle and full contact update run in the same
 // task. Its manifold allocators may grow linear memory, but never move existing chunks.
 
-/// Which job the pool's current round runs. Written by a build on the main thread with every worker
-/// parked; the wake that follows is the release edge that publishes it (module header).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Job {
-    None,
-    Solve,
     Contacts,
     Bullets,
     Pairs,
@@ -694,32 +672,26 @@ enum Job {
     Finalize,
 }
 
-/// `parBuild`'s `kind` argument, mirrored in `src/kernel.ts`.
+/// Narrow-phase sweep kind.
 const KIND_CONTACTS: u32 = 2;
 
 static mut SPLIT_ID: i32 = -1;
-static mut SPLIT_WORKER: usize = 0;
-static mut REBUILD_WORKER: usize = usize::MAX;
-static mut JOB: Job = Job::None;
-static mut PAR: Option<Par> = None;
+static mut SOLVE_THREADS: usize = 1;
+static mut SPLIT_TASK: Option<usize> = None;
+static mut SOLVE_PAGES: usize = 0;
 
 /// One built parallel-for: its partition and phase parameters.
 struct Par {
+    kind: Job,
+    world: usize,
     par: ParFor,
     worker_count: usize,
     count: usize,
     a: f32,
 }
 
-/// Partition one outer phase's `count` records over `thread_count` threads, and name it as the job the
-/// next `pool.run` will drive. Main thread, with the workers parked and the phase's `reserve*` already
-/// done — the columns the blocks read are fixed from here to the join.
-///
-/// **Returns 1 if the caller should fork, 0 if it should run the serial shim instead** — a sweep of one
-/// block has nothing to steal, and one under the fork floor loses to its own wake (`parfor.rs`). The
-/// policy lives here, not in the caller, so the cost model sits next to the machinery it prices.
-#[export_name = "parBuild"]
-pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32) -> usize {
+#[export_name = "parallelFor"]
+pub extern "C" fn parallel_for(kind: u32, count: usize, thread_count: usize, a: f32) {
     assert!((1..=MAX_THREADS).contains(&thread_count));
     let job = match kind {
         KIND_CONTACTS => Job::Contacts,
@@ -735,139 +707,136 @@ pub extern "C" fn par_build(kind: u32, count: usize, thread_count: usize, a: f32
             8
         } else if job == Job::Sensors || job == Job::Finalize {
             16
+        } else if job == Job::Pairs {
+            64
         } else {
             COLLIDE_MIN_RANGE
         },
         thread_count,
     );
-    let fork = if job == Job::Sensors || job == Job::Finalize {
-        thread_count > 1 && count > 0
-    } else {
-        par.block_count() >= 2 && worth_forking(count, thread_count - 1, COLLIDE_FORK_MIN)
+
+    let pages = core::arch::wasm32::memory_size::<0>();
+    let p = Par {
+        kind: job,
+        world: crate::regions::active(),
+        worker_count: thread_count.min(par.block_count()),
+        par,
+        count,
+        a,
     };
-    unsafe {
-        let worker_count = thread_count.min(par.block_count());
-        PAR = Some(Par {
-            par,
-            worker_count,
-            count,
-            a,
-        });
-        JOB = job;
+    let mut handles = [None; MAX_THREADS];
+    for (i, handle) in handles.iter_mut().enumerate().take(p.worker_count) {
+        *handle = unsafe { SCHEDULER.enqueue(par_task, &p as *const Par as usize, i) };
     }
-    fork as usize
+    for handle in handles {
+        SCHEDULER.finish(handle);
+    }
+    // Collide grows its block allocators, and each sensor task grows its own overlaps, as
+    // b3SensorTask does (sensor.c). Neither moves storage another task reads.
+    if job != Job::Contacts && job != Job::Sensors && !SCHEDULER.faulted() {
+        assert_eq!(
+            core::arch::wasm32::memory_size::<0>(),
+            pages,
+            "memory grew during scheduled {job:?}"
+        );
+    }
 }
 
-/// Run the built job as `index` — 0 on the orchestrator (the thread driving the step), 1.. in each pooled
-/// worker. Every thread of the pool enters exactly once per round.
-///
-/// The staged solve needs its index (worker 0 orchestrates, and the wide phases key their null-lane
-/// identity record off it). A parallel-for does not: every thread races the same counter, which is what
-/// makes its partition worker-count-independent (`parfor.rs`).
-///
-/// No build means the pool was woken without one — a caller bug, but a benign one: every thread reads the
-/// same `Job::None` and returns without entering a spin.
-fn run_job(world_index: usize, index: usize) {
+fn run_par(p: &Par, index: usize) {
+    let world_index = p.world;
     unsafe {
-        match *(&raw const JOB) {
-            Job::None => {}
-            Job::Solve => {
-                let (Some(ctx), Some(work)) = (&(*STEP).ctx, &(*STEP).work) else {
-                    return;
-                };
-                // Worker 1 handles the queued split while worker 0 and the other thieves solve.
-                // Its solver exit acknowledgement joins both jobs before finalization.
-                if SPLIT_ID != -1 && index == SPLIT_WORKER {
-                    let start = crate::physics_world::ticks();
-                    crate::island::split_task(world_index, SPLIT_ID as usize, index);
-                    crate::physics_world::accumulate(world_index, 14, start);
-                }
-                if index == REBUILD_WORKER && crate::pairwork::rebuild_pending() {
-                    crate::pairwork::rebuild_trees_in_world(world_index);
-                }
-                stages::run(ctx, work, index);
+        match p.kind {
+            Job::Contacts => {
+                p.par
+                    .run(|s, e| arena::contact_block(world_index, s, e, p.count, index));
             }
-            job => {
-                let Some(p) = &*(&raw const PAR) else {
-                    return;
-                };
-                if index >= p.worker_count {
-                    return;
-                }
-                match job {
-                    Job::Contacts => {
-                        if index == 1 && crate::pairwork::rebuild_pending() {
-                            crate::pairwork::rebuild_trees_in_world(world_index);
-                        }
-                        p.par
-                            .run(|s, e| arena::contact_block(world_index, s, e, p.count, index));
-                    }
-                    Job::Bullets => p
-                        .par
-                        .run(|s, e| crate::continuous::bullets(world_index, index, s, e)),
-                    Job::Pairs => p
-                        .par
-                        .run(|s, e| crate::pairwork::query_block(world_index, s, e, p.a as usize)),
-                    Job::Sensors => p
-                        .par
-                        .run(|s, e| crate::sensor::task(world_index, index, s, e)),
-                    Job::Finalize => p.par.run(|s, e| {
-                        let work = (*STEP).work.as_ref().unwrap();
-                        work.finalize(
-                            Block {
-                                start: s,
-                                count: e - s,
-                                block_type: crate::stages::BlockType::Body,
-                                color: 0,
-                            },
-                            index,
-                        );
-                    }),
-                    Job::Solve | Job::None => unreachable!(),
-                }
-            }
+            Job::Bullets => p
+                .par
+                .run(|s, e| crate::continuous::bullets(world_index, index, s, e)),
+            Job::Pairs => p
+                .par
+                .run(|s, e| crate::pairwork::query_block(world_index, s, e, p.a as usize)),
+            Job::Sensors => p
+                .par
+                .run(|s, e| crate::sensor::task(world_index, index, s, e)),
+            Job::Finalize => p.par.run(|s, e| {
+                let work = (*STEP).work.as_ref().unwrap();
+                work.finalize(
+                    Block {
+                        start: s,
+                        count: e - s,
+                        block_type: crate::stages::BlockType::Body,
+                        color: 0,
+                    },
+                    index,
+                );
+            }),
         }
     }
 }
 
-/// The orchestrator's entry: run the built job on the thread driving the step. For the staged solve it
-/// returns once the stage list is done *and* every worker has left [`stages::run`]; for a parallel-for it
-/// returns once the blocks are exhausted, and the pool's JS ack is the join. The build must have run
-/// first, and the pool must already be awake.
-#[export_name = "runMt"]
-pub extern "C" fn run_mt() {
-    run_mt_in_world(crate::regions::active())
+unsafe fn par_task(context: usize, index: usize) {
+    run_par(&*(context as *const Par), index);
+}
+unsafe fn solver_task(_world: usize, index: usize) {
+    let step = &*STEP;
+    stages::run(
+        step.ctx.as_ref().unwrap(),
+        step.work.as_ref().unwrap(),
+        index,
+    );
+}
+unsafe fn split_task(world: usize, _: usize) {
+    let start = crate::physics_world::ticks();
+    crate::island::split_task(world, SPLIT_ID as usize, 0);
+    crate::physics_world::accumulate(world, 14, start);
+}
+pub unsafe fn run_solve(world: usize) {
+    let pages = SOLVE_PAGES;
+    let mut handles = [None; MAX_THREADS];
+    for (i, handle) in handles.iter_mut().enumerate().take(SOLVE_THREADS) {
+        *handle = SCHEDULER.enqueue(solver_task, world, i);
+    }
+    solver_task(world, 0);
+    for handle in handles {
+        SCHEDULER.finish(handle);
+    }
+    SCHEDULER.finish(SPLIT_TASK);
+    SPLIT_TASK = None;
+    if !SCHEDULER.faulted() {
+        assert_eq!(
+            core::arch::wasm32::memory_size::<0>(),
+            pages,
+            "memory grew during the solver tasks"
+        );
+    }
 }
 
-pub extern "C" fn run_mt_in_world(world_index: usize) {
-    run_job(world_index, 0);
-}
-
-/// A pooled worker's entry: run the built job as worker `index` (1-based — 0 is the orchestrator).
-/// Exactly once per round — a skipped call hangs the staged solve's join, and a doubled one corrupts the
-/// next step (`stages::run`'s contract).
+/// A background worker parks in wasm between tasks; its host catch releases peers on a trap.
 #[export_name = "workerMain"]
-pub extern "C" fn worker_main(index: usize) {
-    worker_main_in_world(crate::regions::active(), index)
+pub extern "C" fn worker_main(inject_fault: usize) {
+    SCHEDULER.worker_with_fault(inject_fault != 0);
 }
 
-pub extern "C" fn worker_main_in_world(world_index: usize, index: usize) {
-    run_job(world_index, index);
-}
-
-/// Called from the worker's catch before round acknowledgement. Only a staged solve has a live
-/// context to fault; parallel-for rounds return after draining their blocks and join in the pool.
+/// A trap cannot complete its claimed slot. Release the solver barriers and join surviving workers.
 #[export_name = "workerFault"]
 pub extern "C" fn worker_fault() {
-    unsafe {
-        if *(&raw const JOB) != Job::Solve {
-            return;
-        }
-        if JOB == Job::Solve && !STEP.is_null() {
-            let Some(ctx) = &(*STEP).ctx else {
-                return;
-            };
-            ctx.fault();
-        }
-    }
+    SCHEDULER.fail();
+}
+#[export_name = "workerRegister"]
+pub extern "C" fn worker_register() {
+    SCHEDULER.register_worker();
+}
+#[export_name = "schedulerStart"]
+pub extern "C" fn scheduler_start() {
+    SCHEDULER.start();
+}
+#[export_name = "schedulerStop"]
+pub extern "C" fn scheduler_stop() {
+    SCHEDULER.stop();
+    SCHEDULER.join_fault();
+}
+#[export_name = "schedulerFaultPtr"]
+pub extern "C" fn scheduler_fault_ptr() -> *mut i32 {
+    SCHEDULER.fault_ptr()
 }

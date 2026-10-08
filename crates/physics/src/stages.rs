@@ -385,12 +385,10 @@ pub struct Context<'a> {
     sub_step_count: usize,
     worker_count: usize,
     /// `(syncIndex << 16) | stageIndex`, monotone within a step. `u32::MAX` is the finish sentinel.
-    /// Its own cache line: every worker read-spins on it while the orchestrator writes it, and it must
-    /// not share a line with the counters the workers *write* (`exited`), as in solver.h's step context.
+    /// Keep the frequently read sync bits off the line containing the orchestrator claim.
     sync_bits: Line<AtomicU32>,
-    /// Workers that have seen the finish sentinel and left [`run`]. The orchestrator waits on this
-    /// before returning — see [`run`].
-    exited: AtomicI32,
+    /// The queued worker-zero task races the caller for orchestration, as in solver.c.
+    main_claimed: AtomicU32,
     /// Set when a worker dies inside the solve — see [`Context::fault`].
     fault: AtomicU32,
 }
@@ -400,14 +398,17 @@ pub struct Context<'a> {
 struct Line<T>(T);
 
 impl Context<'_> {
-    /// Abandon this solve before the worker acknowledges its round. Every barrier and exit
-    /// spin tests this context-local flag; rebuilding the context clears it for the next solve.
+    /// Abandon the solver barriers when a task cannot complete its claimed blocks.
     pub fn fault(&self) {
         self.fault.store(1, Ordering::SeqCst);
     }
 
     #[inline]
     fn faulted(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if crate::solve::SCHEDULER.faulted() {
+            return true;
+        }
         self.fault.load(Ordering::SeqCst) != 0
     }
 }
@@ -657,7 +658,7 @@ pub fn build<'a>(
         sub_step_count: plan.sub_step_count,
         worker_count: plan.worker_count,
         sync_bits: Line(AtomicU32::new(0)),
-        exited: AtomicI32::new(0),
+        main_claimed: AtomicU32::new(0),
         fault: AtomicU32::new(0),
     }
 }
@@ -793,7 +794,7 @@ fn execute_main_stage<W: StageWork>(
         if ctx.faulted() {
             return None;
         }
-        core::hint::spin_loop();
+        pause(1);
     }
 
     stage.completion.store(0, Ordering::SeqCst);
@@ -815,12 +816,8 @@ const ORCHESTRATOR: usize = 0;
 /// walks the stage list, runs the serial overflow color between stages, and publishes the sync bits.
 /// Every other worker spins on those bits and steals blocks until the finish sentinel.
 ///
-/// **Contract: every worker `1..worker_count` must call this exactly once per solve, or call [`fault`]
-/// if it cannot.** The orchestrator's `run` does not return until all of them have — without that join
-/// the caller could rebuild the context (zeroing every block's sync index) while a worker is still
-/// inside a stale `execute_stage`, whose CAS would then succeed against a freshly-reset block and run
-/// it a second time against the *next* step's columns. box3d gets this join from its task system
-/// (`finishTaskFcn`); we have no task system, so the sentinel is acknowledged here instead.
+/// Finish every scheduled handle before rebuilding the context: an old thief must never see reset
+/// block sync indices. The caller also enters worker zero; its CAS prevents double orchestration.
 ///
 /// A `worker_index` at or past `worker_count` is a caller bug — its home block can land in another
 /// stage's range, which would silently run a block under the wrong stage type — so it faults instead.
@@ -830,6 +827,13 @@ pub fn run<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
         return;
     }
     if worker_index == ORCHESTRATOR {
+        if ctx
+            .main_claimed
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
         orchestrate(ctx, work);
     } else {
         steal(ctx, work, worker_index);
@@ -837,22 +841,12 @@ pub fn run<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
 }
 
 fn orchestrate<W: StageWork>(ctx: &Context, work: &W) {
-    // `None` = a worker died mid-solve. The stage list is abandoned, but the finish sentinel is still
-    // published and the join still runs: the *surviving* workers must be let out of their spins before
-    // the caller returns, or the next step's build would race them.
+    // Publish the sentinel even on fault so surviving thieves can leave their spins.
     let _ = walk(ctx, work);
 
     ctx.sync_bits.0.store(FINISH, Ordering::SeqCst);
 
-    // The join. Past this line no worker is inside a stage, so the caller may rebuild the context. A
-    // faulted worker never acks — the flag is the only way out, and the caller (`src/pool.ts`) raises.
-    let workers = ctx.worker_count as i32 - 1;
-    while ctx.exited.load(Ordering::SeqCst) != workers {
-        if ctx.faulted() {
-            return;
-        }
-        core::hint::spin_loop();
-    }
+    // The scheduler finishes every solver handle before its context can be rebuilt.
 }
 
 /// The stage list, in order. `None` if a worker faulted partway.
@@ -969,20 +963,7 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     Some(())
 }
 
-fn pause(spins: u32) {
-    #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
-    unsafe {
-        #[link(wasm_import_module = "env")]
-        extern "C" {
-            fn solverPause(spins: u32);
-        }
-        solverPause(spins);
-    }
-    #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
-    for _ in 0..spins {
-        core::hint::spin_loop();
-    }
-}
+use crate::scheduler::pause;
 
 fn steal<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
     let mut last = 0;
@@ -990,8 +971,7 @@ fn steal<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
         let mut bits = ctx.sync_bits.0.load(Ordering::SeqCst);
         let mut spins = 1;
         while bits == last {
-            // A sibling died: the orchestrator has abandoned the solve and will publish no further
-            // stage. Leave without acking — its join breaks on the same flag.
+            // A sibling trapped: no further stage is guaranteed to be published.
             if ctx.faulted() {
                 return;
             }
@@ -1001,7 +981,6 @@ fn steal<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
         }
 
         if bits == FINISH {
-            ctx.exited.fetch_add(1, Ordering::SeqCst);
             return;
         }
 

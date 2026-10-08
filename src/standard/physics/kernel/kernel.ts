@@ -840,7 +840,7 @@ export type Kernel = {
     continuousRoots(s: number, k: number, d: number, enableSleep: boolean): void;
 
     // Solve columns are reserved while workers are parked. With no pool,
-    // threadCount is one and runMt executes every stage inline, including pose finalization.
+    // threadCount is one and finish executes queued tasks inline.
     solveBuild(
         threadCount: number,
         subStepCount: number,
@@ -871,25 +871,16 @@ export type Kernel = {
         hitEventThreshold: number,
         enableContinuous: number,
     ): void;
-    // Flat block-claim sweeps share the pool. The kernel prices the fork floor: 1 forks, 0 runs the
-    // same task on the caller. Build immediately precedes run; `a` carries a phase parameter.
-    parBuild(kind: ParKind, count: number, threadCount: number, a: number): number;
-    /** Run the built job (staged solve or parallel-for) on the calling thread — the orchestrator. */
-    runMt(): void;
-    /** Run the built job as pooled worker `index` (1-based). Exactly once per round. */
-    workerMain(index: number): void;
-    /** Abandon the running solve — a worker trapped. Breaks the orchestrator's wasm-side spins, which
-     * no JS event can reach; the worker's round body calls it before it acks (pool.ts). */
+    parallelFor(kind: number, count: number, threadCount: number, a: number): void;
+    schedulerStart(): void;
+    schedulerStop(): void;
+    schedulerFaultPtr(): number;
+    workerRegister(): void;
+    /** Enter the scheduler loop; returns only on shutdown or fault. */
+    workerMain(injectFault: number): void;
+    /** Release live workers and the stepping thread after a worker trap. */
     workerFault(): void;
 };
-
-/** Which outer phase a {@link KernelExports.parBuild} names (kernel/src/solve.rs `Job`). */
-export const ParKind = {
-    Contacts: 2,
-    Bullets: 3,
-    Pairs: 4,
-} as const;
-export type ParKind = (typeof ParKind)[keyof typeof ParKind];
 
 /** Options for {@link init}. */
 export type InitOptions = {
@@ -1275,6 +1266,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
                   count,
                   exports.__stack_pointer.value as number,
                   SHARED_STACK_SIZE,
+                  exports,
               )
             : null;
 
@@ -1393,39 +1385,24 @@ export function kernel(world: World | undefined): Kernel {
 }
 
 /** The worker pool the solve may run on, or null when the kernel is single-threaded — or when a worker
- * has faulted, which kills the kernel (`runPool`). */
+ * has faulted, which poisons the kernel. */
 export function workers(world: World | undefined): Pool | null {
     const pool = kernelState(world).pool;
     return pool?.alive ? pool : null;
 }
 
-/**
- * Wake the pool for one round, and kill the kernel if a worker trapped inside it.
- *
- * A trapped worker stops claiming blocks *mid-sweep*, and every phase the pool drives writes state that
- * outlives the step: the staged solve's impulses, and — since the outer phases moved onto the pool — the
- * persistent manifold pool and contact directory. So the survivors are not the casualty; the columns are.
- * Retiring the pool and stepping on single-threaded would run the next step off a half-written manifold
- * store, which is silent corruption. The kernel is poisoned instead: the throw reaches the caller, and
- * every later call throws too.
- *
- * A trap here is a kernel bug (an out-of-bounds column access), not a condition a caller can handle —
- * there is nothing to recover to.
- */
-export function runPool(
-    world: World | undefined,
-    pool: Pool,
-    orchestrate: () => void,
-    stableBlocks = false,
-): void {
+/** A worker trap leaves partially written simulation state: poison rather than retry the step. */
+export function advanceStep(world: World | undefined): number {
+    const runtime = kernelState(world);
+    const k = kernel(world);
+    if (runtime.pool === null) return k.stepAdvance();
     try {
-        pool.run(orchestrate, stableBlocks);
+        const result = k.stepAdvance();
+        runtime.pool?.checkFault();
+        return result;
     } catch (e) {
-        kernelState(world).dead = true;
-        // The dead worker is gone; terminate the survivors to reclaim the threads (they are `unref`'d, so
-        // they would not block exit, but they are live and now useless). Not awaited — this path is
-        // already unwinding.
-        void pool.terminate();
+        runtime.dead = true;
+        void runtime.pool?.terminate();
         throw e;
     }
 }

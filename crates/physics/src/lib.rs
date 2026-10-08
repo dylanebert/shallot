@@ -8,6 +8,10 @@
 // The FloatW fallback methods that only the tests touch today are the solver's foundation; the
 // wide-solver port consumes them. Remove when it lands.
 #![allow(dead_code)]
+#![cfg_attr(
+    all(target_arch = "wasm32", target_feature = "atomics"),
+    feature(stdarch_wasm_atomic_wait)
+)]
 // These lints are intentionally allowed for the C-reference port: argument-heavy phase entry
 // points, explicit index loops, named f32 constants, and method names mirror the upstream seams
 // and preserve operation order/bit behavior rather than following idiomatic Rust rewrites.
@@ -59,6 +63,7 @@ pub mod parfor;
 mod physics_world;
 pub mod query;
 pub mod recycle;
+mod scheduler;
 mod simd;
 #[cfg(target_arch = "wasm32")]
 mod solver_set;

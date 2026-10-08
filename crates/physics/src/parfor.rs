@@ -11,7 +11,7 @@
 //! so the sweep order is free. The same property is what lets box3d run collide on any worker count and
 //! promise the same bits — and what physics.md already states for the convex/recycle partition.
 //!
-//! The claim loop ends when blocks run out; the pool joins round acknowledgements and handles faults.
+//! The claim loop ends when blocks run out; the scheduler finishes the trampoline handles.
 //!
 //! `core::sync::atomic`, not `std` — this compiles into the wasm artifact unchanged.
 
@@ -25,14 +25,6 @@ const BLOCKS_PER_WORKER: usize = 32;
 /// Minimum items per collide block (box3d `physics_world.c`: "task should take at least 40us on a 4GHz
 /// CPU"). Both outer collide phases — recycle and convex dispatch — are per-contact sweeps.
 pub const COLLIDE_MIN_RANGE: usize = 20;
-
-/// Collide-sweep items per woken worker.
-pub const COLLIDE_FORK_MIN: usize = 256;
-
-/// Whether the item count reaches the per-worker fork floor.
-pub fn worth_forking(item_count: usize, worker_count: usize, fork_min: usize) -> bool {
-    worker_count >= 1 && item_count >= fork_min * worker_count
-}
 
 /// One parallel-for invocation: the block partition, plus the counter every thread claims from.
 pub struct ParFor {
@@ -67,9 +59,7 @@ impl ParFor {
         }
     }
 
-    /// How many blocks the work split into. One block means there is nothing to steal — the caller may as
-    /// well run it inline rather than pay a fork (box3d caps its task count at the block count for the
-    /// same reason).
+    /// Box3D caps the number of enqueued trampolines at the block count.
     pub fn block_count(&self) -> usize {
         self.block_count
     }
@@ -115,22 +105,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// The fork floor scales with the workers woken, and a pool with no workers never forks.
-    #[test]
-    fn fork_floor_scales_with_the_workers_woken() {
-        assert!(!worth_forking(1 << 20, 0, COLLIDE_FORK_MIN));
-        assert!(!worth_forking(COLLIDE_FORK_MIN - 1, 1, COLLIDE_FORK_MIN));
-        assert!(worth_forking(COLLIDE_FORK_MIN, 1, COLLIDE_FORK_MIN));
-        assert!(!worth_forking(COLLIDE_FORK_MIN * 6, 7, COLLIDE_FORK_MIN));
-        assert!(worth_forking(COLLIDE_FORK_MIN * 7, 7, COLLIDE_FORK_MIN));
-        // 200 contacts on 4 threads: the measured loss — the collide sweep must not fork.
-        assert!(!worth_forking(200, 3, COLLIDE_FORK_MIN));
-        // …and the measured wins it must take: 1,000 contacts on 4 threads, and large_pyramid's 3,015
-        // at 1,035 bodies on 8.
-        assert!(worth_forking(1000, 3, COLLIDE_FORK_MIN));
-        assert!(worth_forking(3015, 7, COLLIDE_FORK_MIN));
     }
 
     /// The claim loop under real contention: every block runs exactly once across the pool however the
