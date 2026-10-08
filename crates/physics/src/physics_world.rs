@@ -11,7 +11,6 @@ pub unsafe extern "C" fn destroy_world(world: usize) {
 }
 
 pub unsafe extern "C" fn destroy_world_in_world(world: usize) {
-    crate::pairwork::destroy(world);
     for id in 0..crate::shapes::shape_cap_in_world(world) {
         if crate::shapes::shape_alive(world as u32, id as u32) != 0 {
             crate::shape_lifecycle::release_geometry(world, id);

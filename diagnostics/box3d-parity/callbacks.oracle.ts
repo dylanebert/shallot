@@ -18,3 +18,12 @@ for (const mode of ["filter", "pre", "pressure"]) {
         });
     }
 }
+for (const threads of [1, 4]) {
+    test(`saturated always-true filtering at ${threads} threads equals native's 1-thread canonical query-order hashes and identities`, () => {
+        const expected = run([nativeBinary("callbacks.c"), "1", "accept-pressure"]).trim().split("\n").sort();
+        for (let repeat = 0; repeat < (threads === 4 ? 3 : 1); ++repeat) {
+            const actual = run(["node", join(dir, "callbacks-scene.js"), String(threads), "accept-pressure"]).trim().split("\n").sort();
+            expect(actual).toEqual(expected);
+        }
+    });
+}

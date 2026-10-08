@@ -24,6 +24,7 @@ static bool filter(b3ShapeId a, b3ShapeId b, void* context)
     atomic_fetch_add(&calls, 1);
     printf("%d F %d %d %d %d\n", callbackStep, a.index1, a.generation, b.index1, b.generation);
     if (eventsVisible() || b3Shape_GetSensorCapacity(a) || b3Shape_GetSensorCapacity(b)) return false;
+    if (context == (void*)2) return true;
     if (context) return a.index1 > 98 && b.index1 > 98;
     return a.index1 != 4 && b.index1 != 4 && a.index1 != 6 && b.index1 != 6;
 }
@@ -42,7 +43,8 @@ int main(int argc, char** argv)
 {
     if (argc != 3) return 2;
     bool pre = strcmp(argv[2], "pre") == 0;
-    bool pressure = strcmp(argv[2], "pressure") == 0;
+    bool acceptPressure = strcmp(argv[2], "accept-pressure") == 0;
+    bool pressure = strcmp(argv[2], "pressure") == 0 || acceptPressure;
     b3WorldDef wd = b3DefaultWorldDef();
     wd.workerCount = atoi(argv[1]);
     wd.enableSleep = false;
@@ -50,7 +52,7 @@ int main(int argc, char** argv)
     b3WorldId world = b3CreateWorld(&wd);
     callbackWorld = world;
     if (pre) b3World_SetPreSolveCallback(world, preSolve, NULL);
-    else b3World_SetCustomFilterCallback(world, filter, pressure ? (void*)1 : NULL);
+    else b3World_SetCustomFilterCallback(world, filter, acceptPressure ? (void*)2 : pressure ? (void*)1 : NULL);
     b3BodyDef bd = b3DefaultBodyDef();
     b3ShapeDef sd = b3DefaultShapeDef();
     sd.enableCustomFiltering = !pre;
@@ -62,7 +64,10 @@ int main(int argc, char** argv)
     if (pressure) {
         b3Sphere sphere = { .center = {0,0,0}, .radius = 0.5f };
         bd.type = b3_dynamicBody;
-        for (int i = 0; i < 100; ++i) b3CreateSphereShape(b3CreateBody(world, &bd), &sd, &sphere);
+        for (int i = 0; i < 100; ++i) {
+            sd.enableCustomFiltering = !acceptPressure || i == 0;
+            b3CreateSphereShape(b3CreateBody(world, &bd), &sd, &sphere);
+        }
     } else {
     b3BoxHull floor = b3MakeBoxHull(6, 0.5f, 3);
     bd.position.y = -0.5f;

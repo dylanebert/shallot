@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { kernel } from "../kernel/kernel";
-import { BodyType, makeBoxHull, PhysicsWorld, restore, snapshot } from "./index";
+import { BodyType, hash, makeBoxHull, PhysicsWorld, restore, snapshot } from "./index";
 
 function contactWorld(pre = false): PhysicsWorld {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
@@ -41,6 +41,39 @@ test("custom filter rejects new pairs and clearing it restores default filtering
         expect(world.getCounters().contactCount).toBeGreaterThan(0);
     } finally {
         world.destroy();
+    }
+});
+
+test("an always-true first-shape filter preserves native survivor identities under capacity pressure", () => {
+    const control = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    const filtered = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    try {
+        for (const world of [control, filtered]) {
+            for (let i = 0; i < 100; ++i)
+                world
+                    .createBody({ type: BodyType.Dynamic })
+                    .createSphere(
+                        { enableCustomFiltering: i === 0, enableContactEvents: true },
+                        { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+                    );
+        }
+        filtered.setCustomFilterCallback(() => true);
+        control.step(1 / 60);
+        filtered.step(1 / 60);
+        expect(control.getCounters().contactCount).toBe(1600);
+        expect(filtered.getCounters().contactCount).toBe(1600);
+        const identities = (world: PhysicsWorld) =>
+            world
+                .getContactEvents()
+                .beginEvents.map(
+                    (e) => `${e.contact.id.index1}:${e.shapeA.id.index1}:${e.shapeB.id.index1}`,
+                )
+                .sort();
+        expect(identities(filtered)).toEqual(identities(control));
+        expect(hash(filtered)).toBe(hash(control));
+    } finally {
+        control.destroy();
+        filtered.destroy();
     }
 });
 

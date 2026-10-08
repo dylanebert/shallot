@@ -4,7 +4,9 @@ import { BodyType, createCompound, defaultSurfaceMaterial, hash, init, makeBoxHu
 const owner = new World();
 const count = Number(process.argv[2]);
 await init(owner, { threads: count === 1 ? 0 : count });
-const pressure = process.argv[3] === "pressure";
+const noCallback = process.argv[3] === "no-callback-pressure";
+const acceptPressure = process.argv[3] === "accept-pressure" || noCallback;
+const pressure = process.argv[3] === "pressure" || acceptPressure;
 const world = new PhysicsWorld({ enableSleep: false, ...(pressure ? { gravity: { x: 0, y: 0, z: 0 } } : {}) }, owner);
 let calls = 0;
 let callbackStep = 0;
@@ -25,16 +27,16 @@ try {
         const answer = !(((point.x > 1 && point.x < 3) || (point.x > 19 && point.x < 21)) && point.y < 1 && normal.y > 0.9);
         return decision(answer);
     });
-    else world.setCustomFilterCallback((a, b) => {
+    else if (!noCallback) world.setCustomFilterCallback((a, b) => {
         calls++;
         console.log(`${callbackStep} F ${a.id.index1} ${a.id.generation} ${b.id.index1} ${b.id.generation}`);
-        const answer = pressure ? a.id.index1 > 98 && b.id.index1 > 98 : a.id.index1 !== 4 && b.id.index1 !== 4 && a.id.index1 !== 6 && b.id.index1 !== 6;
+        const answer = acceptPressure ? true : pressure ? a.id.index1 > 98 && b.id.index1 > 98 : a.id.index1 !== 4 && b.id.index1 !== 4 && a.id.index1 !== 6 && b.id.index1 !== 6;
         return decision(answer) && a.getSensorOverlaps().length === 0 && b.getSensorOverlaps().length === 0;
     });
     const shape = { enableCustomFiltering: !pre, enablePreSolveEvents: pre, enableContactEvents: true, enableHitEvents: true, enableSensorEvents: true };
     if (pressure) {
         for (let i = 0; i < 100; ++i) world.createBody({ type: BodyType.Dynamic })
-            .createSphere(shape, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+            .createSphere({ ...shape, enableCustomFiltering: !acceptPressure || i === 0 }, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
     } else {
     for (const x of [0, 20]) {
         world.createBody({ position: { x, y: -0.5, z: 0 } }).createHull(shape, makeBoxHull(6, 0.5, 3));

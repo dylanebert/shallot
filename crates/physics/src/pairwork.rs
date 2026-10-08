@@ -32,45 +32,36 @@ static mut MOVE_COUNT: usize = 0;
 static mut MOVED_WORDS: usize = 0;
 static mut CAND_CAP: usize = 0;
 static mut REBUILD_PENDING: bool = false;
-struct DeferredPair {
-    child: u32,
-    a: u32,
-    b: u32,
-    before: u32,
-    accepted: bool,
-}
-static mut DEFERRED: [Vec<Vec<DeferredPair>>; crate::regions::MAX_WORLDS] =
-    [const { Vec::new() }; crate::regions::MAX_WORLDS];
-static mut PENDING: *mut Vec<DeferredPair> = core::ptr::null_mut();
-
-pub(crate) unsafe fn destroy(world: usize) {
-    DEFERRED[world] = Vec::new();
-}
+const INPUT_STRIDE: usize = 3;
+static mut INPUT_PTR: u32 = 0;
+static mut INPUT_COUNT_PTR: u32 = 0;
+static mut INPUT_BOUND: usize = 0;
 
 pub(crate) unsafe fn finish_deferred(world: usize) {
-    if PENDING.is_null() {
+    if INPUT_PTR == 0 {
         return;
     }
-    let cand = CAND_PTR as *mut u32;
+    let shapes = shape_col(world);
     for i in 0..MOVE_COUNT {
-        let pending = &mut *PENDING.add(i);
-        for pair in pending.iter_mut() {
-            pair.accepted = crate::callbacks::filter(world, pair.a as usize, pair.b as usize);
-        }
-        let mut link = (CANDEND_PTR as *mut u32).add(i);
-        // Walk the worker-owned chain once, merging accepted callbacks at their traversal boundary.
-        for pair in pending.iter().rev().filter(|p| p.accepted) {
-            while *link != pair.before {
-                link = cand.add(*link as usize * CAND_STRIDE + 3);
+        let count = *(INPUT_COUNT_PTR as *const u32).add(i) as usize;
+        let inputs = (INPUT_PTR as *const u32).add(i * INPUT_BOUND * INPUT_STRIDE);
+        let mut head = u32::MAX;
+        for j in 0..count {
+            let p = inputs.add(j * INPUT_STRIDE);
+            let (child, a, b) = (*p, *p.add(1), *p.add(2));
+            if (shapes[a as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS]
+                | shapes[b as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS])
+                & (4 << 16)
+                != 0
+            {
+                crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
             }
-            let before = *link;
-            *link = emit(pair.child, pair.a, pair.b, before);
-            if *link != before {
-                link = cand.add(*link as usize * CAND_STRIDE + 3);
+            if crate::callbacks::filter(world, a as usize, b as usize) {
+                // broad_phase.c consumes capacity immediately after each accepted answer.
+                head = emit(child, a, b, head);
             }
-            crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
         }
-        pending.clear();
+        *(CANDEND_PTR as *mut u32).add(i) = head;
     }
 }
 
@@ -91,16 +82,32 @@ pub extern "C" fn reserve_pairs() {
 pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
     unsafe {
         let move_count = broad::move_count(world_index);
-        PENDING = core::ptr::null_mut();
-        if crate::callbacks::filter_enabled(world_index) {
-            let pending = &mut DEFERRED[world_index];
-            if pending.len() < move_count {
-                pending.resize_with(move_count, Vec::new);
+        INPUT_PTR = 0;
+        INPUT_BOUND = 0;
+        let collect = crate::callbacks::filter_enabled(world_index);
+        if collect {
+            // Per moved proxy: at most one candidate per live non-sensor shape, or per compound
+            // child. Each broad-tree proxy and each compound leaf is visited at most once.
+            for id in 0..crate::shapes::shape_cap_in_world(world_index) {
+                if crate::shapes::shape_alive(world_index as u32, id as u32) == 0 {
+                    continue;
+                }
+                let shape = &shape_col(world_index)[id * SHAPE_STRIDE..][..SHAPE_STRIDE];
+                if shape[crate::shapes::S_SENSOR_INDEX] != u32::MAX {
+                    continue;
+                }
+                let leaves = if shape[S_TYPE] == SHAPE_COMPOUND {
+                    crate::compound_query::Compound::from_pointer(
+                        shape[crate::shapes::S_GEOM] as *const u32,
+                    )
+                    .child_count()
+                } else {
+                    1
+                };
+                INPUT_BOUND = INPUT_BOUND
+                    .checked_add(leaves)
+                    .expect("physics: pair candidate bound exceeds address space");
             }
-            for pairs in pending.iter_mut().take(move_count) {
-                pairs.clear();
-            }
-            PENDING = pending.as_mut_ptr();
         }
         let cand_cap = 16 * move_count;
         CAND_CAP = cand_cap;
@@ -115,9 +122,23 @@ pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
         off += move_count * 4;
         CAND_PTR = off as u32;
         off += cand_cap * CAND_STRIDE * 4;
+        if collect {
+            INPUT_COUNT_PTR = off as u32;
+            off += move_count * 4;
+            INPUT_PTR = off as u32;
+            off = move_count
+                .checked_mul(INPUT_BOUND)
+                .and_then(|n| n.checked_mul(INPUT_STRIDE * 4))
+                .and_then(|n| off.checked_add(n))
+                .expect("physics: pair candidate scratch exceeds address space");
+        }
         let base = crate::arena::reserve_scratch(world_index, off) as u32;
         CANDEND_PTR += base;
         CAND_PTR += base;
+        if collect {
+            INPUT_COUNT_PTR += base;
+            INPUT_PTR += base;
+        }
     }
 }
 
@@ -153,7 +174,8 @@ struct Emitter<'a> {
     query_key: u32,
     query_dynamic: bool,
     tree_type: u32,
-    pending: *mut Vec<DeferredPair>,
+    inputs: *mut u32,
+    input_count: usize,
 }
 
 impl<'a> Emitter<'a> {
@@ -236,21 +258,21 @@ impl<'a> Emitter<'a> {
         if !unsafe { crate::bodies::should_collide(a[1], b[1]) } {
             return true;
         }
-        if !self.pending.is_null()
-            && (a[crate::shapes::S_FLAGS] | b[crate::shapes::S_FLAGS]) & (4 << 16) != 0
-        {
+        crate::callback_work::note(self.world, crate::callback_work::Work::PairParallel);
+        if !self.inputs.is_null() {
             unsafe {
-                (*self.pending).push(DeferredPair {
-                    child,
-                    a: found_shape,
-                    b: self.query_shape,
-                    before: self.head,
-                    accepted: false,
-                });
+                assert!(
+                    self.input_count < INPUT_BOUND,
+                    "physics: pair query exceeded its shape/child bound"
+                );
+                let p = self.inputs.add(self.input_count * INPUT_STRIDE);
+                *p = child;
+                *p.add(1) = found_shape;
+                *p.add(2) = self.query_shape;
             }
+            self.input_count += 1;
             return true;
         }
-        crate::callback_work::note(self.world, crate::callback_work::Work::PairParallel);
         self.emit(child, found_shape, self.query_shape);
         true
     }
@@ -324,16 +346,18 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             query_key: 0,
             query_dynamic: false,
             tree_type: 0,
-            pending: core::ptr::null_mut(),
+            inputs: core::ptr::null_mut(),
+            input_count: 0,
         };
 
         for i in start..end {
             em.head = u32::MAX;
-            em.pending = if PENDING.is_null() {
-                PENDING
+            em.inputs = if INPUT_PTR == 0 {
+                core::ptr::null_mut()
             } else {
-                PENDING.add(i)
+                (INPUT_PTR as *mut u32).add(i * INPUT_BOUND * INPUT_STRIDE)
             };
+            em.input_count = 0;
             let query_key = move_buf[i];
             let proxy_type = (query_key & 3) as usize;
             let proxy_id = (query_key >> 2) as i32;
@@ -363,6 +387,9 @@ pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap:
             );
 
             *cand_end.add(i) = em.head;
+            if INPUT_PTR != 0 {
+                *(INPUT_COUNT_PTR as *mut u32).add(i) = em.input_count as u32;
+            }
         }
     }
 }

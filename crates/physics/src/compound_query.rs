@@ -14,6 +14,12 @@ pub struct Compound<'a> {
     data: &'a [u32],
 }
 impl<'a> Compound<'a> {
+    pub(crate) fn child_count(self) -> usize {
+        self.data[20] as usize
+            + self.data[22] as usize
+            + self.data[25] as usize
+            + self.data[28] as usize
+    }
     pub unsafe fn from_pointer(pointer: *const u32) -> Self {
         let words = *pointer.add(2) as usize / 4;
         let data = core::slice::from_raw_parts(pointer, words);
