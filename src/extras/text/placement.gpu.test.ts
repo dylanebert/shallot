@@ -3,12 +3,12 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { compileGpuFile } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
+import { globalTransformTable, RenderingPlugin } from "../../core/rendering";
 import {
-    globalTransformTable,
     prepareGlobalTransformFrame,
-    Transform,
-    TransformRuntime,
-} from "../../core/transform";
+    GlobalTransformHistory as TransformRuntime,
+} from "../../core/rendering/global-transform";
+import { Transform } from "../../core/transform";
 import { createApp } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { encodePos } from "../../engine/utils";
@@ -18,7 +18,7 @@ import { textSurface } from "./surface";
 
 setDefaultTimeout(CEILING.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
-    const app = await createApp({ defaults: false, plugins: [] });
+    const app = await createApp({ defaults: false, plugins: [RenderingPlugin] });
     const world = app.world;
     const device = world.gpu.device;
     console.info("placement adapter:", world.gpu.adapter);

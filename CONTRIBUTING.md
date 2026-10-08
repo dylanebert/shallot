@@ -59,7 +59,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - `TransformPlugin` (`core/transform`) owns authored `Transform`, derived `GlobalTransform`, fixed-tick derivation and boundaries, discontinuities and placement recovery.
 - Physics and rendering depend on it; a composition without a placement reader registers no placement unless it adds `TransformPlugin`.
 - `GlobalTransform` is derived world placement, never authored.
-- Gameplay and physics read its fixed-tick columns; rendering reads `globalTransformTable(world)`, resident only when requested. Core transform currently owns that table and its GPU history.
+- Gameplay and physics read its fixed-tick columns; rendering owns `globalTransformTable(world)` in `core/rendering`, its GPU history and interpolation. Placement without rendering allocates no placement GPU buffers or pipelines.
 - `teleport(world, eid)` from `/transform` discards interpolation across a placement discontinuity.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
 - A body's simulation writes its `GlobalTransform` translation, rotation and velocity, not scale.
@@ -90,6 +90,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### Rendering
 
 - `RenderingPlugin` (`core/rendering`) owns cameras, shared views, canvas binding, projection, view and frame uniforms, capture, light components and the frame-ordering anchors; it knows no meshes or materials.
+- Rendering captures derived placement after each fixed tick's placement boundary and every ordinary fixed system. History copies and interpolation record on its frame encoder, after deferred table growth copies.
+- Each scheduler group end holds an ordered boundary set outside ordinary systems. Boundary edges obey the same refusal of contradictory and cyclic order as ordinary systems.
 - Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor.
 - `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` lane, `RenderPhases` and the tonemapping pass.
 - Core opens the prepass and one main render pass per view; renderers record opaque, then transparent, work into it with core's formats and sample count.
@@ -198,7 +200,7 @@ bun run format                   # biome
 |---|---|
 | Kernel speedup, unchanged behavior | Kernel; `diagnostics/box3d-parity/ab.ts` on the claim |
 | Kernel behavior or native boundary | Kernel; the affected `diagnostics/box3d-parity` oracles |
-| TypeScript API, ECS bridge, world or pool ownership | Common; the non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`; `src/core/transform/{global-transform,physics-interpolation,recovery,composition}.node.ts` |
+| TypeScript API, ECS bridge, world or pool ownership | Common; the non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`; `src/core/transform/{recovery,composition}.node.ts`; `src/core/rendering/{global-transform,physics-interpolation}.node.ts` |
 | Allocation or lifecycle | Common; the affected `*allocation.node.ts` under `src/standard/physics` |
 | Character or Player | Common; `src/standard/physics/character-allocation.node.ts`; `src/extras/player/*.node.ts`; `examples/first-person/src/*.node.ts` |
 | Checks or documentation only | The changed checks; `bun run check` |

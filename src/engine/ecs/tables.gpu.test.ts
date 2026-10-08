@@ -339,6 +339,63 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
     expect(Array.from(new Uint32Array(data.bytes))).toEqual([333, 222]);
 });
 
+const steppedGrowth = subject("SteppedTableGrowth", [], (world) =>
+    world.table("stepped-table-growth", Record),
+);
+test("a non-placement table defers growth during a step and uploads after its copies", async () => {
+    const { world, table } = steppedGrowth();
+    const eid = world.create();
+    table.acquire(eid);
+    new DataView(table.bytes.buffer).setFloat32(0, 7, true);
+    table.markRange(0, 1);
+    table.upload();
+    const initial = table.buffer;
+    let submissions = 0;
+    const queue = world.gpu.device.queue;
+    const submit = queue.submit.bind(queue);
+    const descriptor = Object.getOwnPropertyDescriptor(queue, "submit");
+    Object.defineProperty(queue, "submit", {
+        configurable: true,
+        value: (buffers: GPUCommandBuffer[]) => {
+            submissions++;
+            submit(buffers);
+        },
+    });
+    world.addSystem({
+        group: "fixed",
+        update() {
+            table.reserveSlots(table.capacity + 1);
+            expect(submissions).toBe(0);
+            expect(world.owns(initial)).toBe(true);
+            new DataView(table.bytes.buffer).setFloat32(0, 19, true);
+            table.markRange(0, 1);
+            table.upload();
+        },
+    });
+    world.addSystem({
+        group: "draw",
+        update() {
+            const encoder = world.gpu.device.createCommandEncoder();
+            world.beginGpuFrame(encoder);
+            queue.submit([encoder.finish()]);
+            world.endGpuFrame();
+        },
+    });
+    try {
+        world.step(1 / 60);
+        expect(submissions).toBe(1);
+        const result = await bounded(
+            "stepped growth",
+            probeBuffer(world, table.buffer, { size: table.rowBytes }),
+        );
+        expect(new DataView(result.bytes).getFloat32(0, true)).toBe(19);
+        expect(world.owns(initial)).toBe(false);
+    } finally {
+        if (descriptor) Object.defineProperty(queue, "submit", descriptor);
+        else Reflect.deleteProperty(queue, "submit");
+    }
+});
+
 const growth = subject("TableGrowthProbe", [], (world) =>
     world.table("table-growth-probe", Record),
 );

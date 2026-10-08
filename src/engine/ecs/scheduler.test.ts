@@ -1,89 +1,7 @@
 import { expect, test } from "bun:test";
-import { Scheduler } from "./scheduler";
+import { type Plugin, swapPlugins } from "../app";
+import { Scheduler, type System } from "./scheduler";
 import { World } from "./world";
-
-for (const boundary of ["before", "after"] as const) {
-    for (const implicitFirst of [true, false]) {
-        test(`${boundary} boundary uniqueness treats an omitted group as simulation (${implicitFirst ? "implicit" : "explicit"} first)`, () => {
-            const world = new World();
-            const order: string[] = [];
-            const first = {
-                ...(implicitFirst ? {} : { group: "simulation" as const }),
-                boundary,
-                update: () => {
-                    order.push("first");
-                },
-            };
-            const second = {
-                ...(implicitFirst ? { group: "simulation" as const } : {}),
-                boundary,
-                update: () => {
-                    order.push("second");
-                },
-            };
-            try {
-                world.addSystem(first);
-                expect(() => world.addSystem(second)).toThrow(
-                    `System group simulation already has a ${boundary} boundary`,
-                );
-                expect(world.hasSystem(second)).toBe(false);
-                world.step(0);
-                expect(order).toEqual(["first"]);
-            } finally {
-                world.dispose();
-            }
-        });
-    }
-}
-
-test("engine group boundaries bracket first, last, late-added and terminal systems without edges", () => {
-    const scheduler = new Scheduler();
-    const world = new World();
-    const order: string[] = [];
-    for (const [name, constraints] of [
-        ["first", { first: true }],
-        ["normal", {}],
-        ["last", { last: true }],
-        ["terminal", { terminal: true }],
-    ] as const)
-        scheduler.register({
-            group: "fixed",
-            ...constraints,
-            update: () => {
-                order.push(name);
-            },
-        });
-    scheduler.registerBoundary(
-        {
-            group: "fixed",
-            update: () => {
-                order.push("start");
-            },
-        },
-        "before",
-    );
-    scheduler.registerBoundary(
-        {
-            group: "fixed",
-            update: () => {
-                order.push("end");
-            },
-        },
-        "after",
-    );
-    scheduler.tick(world);
-    expect(order).toEqual(["start", "first", "normal", "last", "terminal", "end"]);
-    order.length = 0;
-    scheduler.register({
-        group: "fixed",
-        last: true,
-        update: () => {
-            order.push("late");
-        },
-    });
-    scheduler.tick(world);
-    expect(order).toEqual(["start", "first", "normal", "last", "late", "terminal", "end"]);
-});
 
 for (const phase of ["update", "setup"] as const) {
     test(`a throwing ${phase} ends the step, retries next step and leaves the world disposable`, () => {
@@ -151,3 +69,142 @@ test("step refuses a non-finite or negative delta before advancing its clock", (
         expect(scheduler.time).toEqual(before);
     }
 });
+
+for (const boundary of ["before", "after"] as const) {
+    test(`${boundary} boundary set treats omitted groups as simulation`, () => {
+        const world = new World();
+        const calls: string[] = [];
+        const a: System = {
+            boundary,
+            update: () => {
+                calls.push("a");
+            },
+        };
+        const b: System = {
+            boundary,
+            group: "simulation",
+            before: [a],
+            update: () => {
+                calls.push("b");
+            },
+        };
+        try {
+            world.addSystem(a);
+            world.addSystem(b);
+            world.step(0);
+            expect(calls).toEqual(["b", "a"]);
+        } finally {
+            world.dispose();
+        }
+    });
+}
+
+test("hot swap pairs every member of an ordered boundary set without duplicating or reordering it", async () => {
+    const world = new World();
+    const calls: string[] = [];
+    const make = (label: string): Plugin => {
+        const a: System = {
+            group: "fixed",
+            boundary: "after",
+            name: "a",
+            update: () => {
+                calls.push(`${label}/a`);
+            },
+        };
+        const b: System = {
+            group: "fixed",
+            boundary: "after",
+            name: "b",
+            after: [a],
+            update: () => {
+                calls.push(`${label}/b`);
+            },
+        };
+        return { name: "BoundarySet", recovery: "stateless", systems: [b, a] };
+    };
+    const old = make("old"),
+        next = make("next");
+    try {
+        world.registerRecovery(old.name, "stateless");
+        for (const system of old.systems!) world.addSystem(system, old.name);
+        world.tick();
+        expect(await swapPlugins(world, [old], [next])).toEqual({ ok: true });
+        world.tick();
+        expect(calls).toEqual(["old/a", "old/b", "next/a", "next/b"]);
+        for (const system of old.systems!) expect(world.hasSystem(system)).toBe(true);
+        for (const system of next.systems!) expect(world.hasSystem(system)).toBe(false);
+    } finally {
+        world.dispose();
+    }
+});
+
+for (const boundary of ["before", "after"] as const) {
+    test(`${boundary} boundary set follows edges outside every ordinary system`, () => {
+        const scheduler = new Scheduler();
+        const calls: string[] = [];
+        const a: System = {
+            boundary,
+            group: "fixed",
+            update: () => {
+                calls.push("a");
+            },
+        };
+        const b: System = {
+            boundary,
+            group: "fixed",
+            after: [a],
+            update: () => {
+                calls.push("b");
+            },
+        };
+        scheduler.registerBoundary(b, boundary);
+        scheduler.registerBoundary(a, boundary);
+        for (const [name, flags] of [
+            ["first", { first: true }],
+            ["normal", {}],
+            ["last", { last: true }],
+            ["terminal", { terminal: true }],
+        ] as const)
+            scheduler.register({
+                group: "fixed",
+                ...flags,
+                update: () => {
+                    calls.push(name);
+                },
+            });
+        scheduler.tick({} as World);
+        const ordinary = ["first", "normal", "last", "terminal"];
+        expect(calls).toEqual(
+            boundary === "before" ? ["a", "b", ...ordinary] : [...ordinary, "a", "b"],
+        );
+        calls.length = 0;
+        scheduler.register({
+            group: "fixed",
+            last: true,
+            update: () => {
+                calls.push("late");
+            },
+        });
+        ordinary.splice(3, 0, "late");
+        scheduler.tick({} as World);
+        expect(calls).toEqual(
+            boundary === "before" ? ["a", "b", ...ordinary] : [...ordinary, "a", "b"],
+        );
+    });
+    test(`${boundary} boundary set refuses cyclic edges`, () => {
+        const scheduler = new Scheduler();
+        const a: System = { boundary, group: "fixed" };
+        const b: System = { boundary, group: "fixed", after: [a], before: [a] };
+        scheduler.registerBoundary(a, boundary);
+        scheduler.registerBoundary(b, boundary);
+        expect(() => scheduler.tick({} as World)).toThrow("Circular dependency");
+    });
+    test(`${boundary} boundary refuses an edge into the wrong side of ordinary work`, () => {
+        const scheduler = new Scheduler();
+        const ordinary: System = { group: "fixed" };
+        const edge = boundary === "before" ? { after: [ordinary] } : { before: [ordinary] };
+        scheduler.register(ordinary);
+        scheduler.registerBoundary({ group: "fixed", boundary, ...edge }, boundary);
+        expect(() => scheduler.tick({} as World)).toThrow("Unsatisfiable ordering");
+    });
+}

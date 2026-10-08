@@ -6,6 +6,7 @@ import {
     Camera,
     CameraMode,
     computeViewProj,
+    globalTransformTable,
     MAX_VIEWS,
     PointLight,
     RenderContext,
@@ -13,7 +14,6 @@ import {
     Views,
     VolumetricLight,
 } from "../../core/rendering";
-import { globalTransformTable } from "../../core/transform";
 import type { System, World } from "../../engine";
 import { precompile, probeBuffer } from "../../engine/runtime";
 import {

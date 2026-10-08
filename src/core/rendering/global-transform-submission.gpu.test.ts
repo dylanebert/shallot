@@ -3,7 +3,8 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { Time, type World } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
-import { Transform, TransformPlugin, TransformRuntime } from "./index";
+import { Transform, TransformPlugin } from "../transform";
+import { GlobalTransformHistory as TransformRuntime } from "./global-transform";
 
 setDefaultTimeout(CEILING.gpu);
 if (typeof ResizeObserver === "undefined") {

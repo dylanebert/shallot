@@ -57,7 +57,7 @@ export interface System {
     /** runs after every other system in its group; at most one terminal system is allowed */
     readonly terminal?: boolean;
     /** @internal Module-owned slot outside ordinary ordering, including terminal systems.
-     * At most one boundary occupies each end of a group. */
+     * Each end holds a set ordered by its before/after edges; contradictory or cyclic order is refused. */
     readonly boundary?: "before" | "after";
     readonly before?: readonly System[];
     readonly after?: readonly System[];
@@ -141,11 +141,6 @@ export class Scheduler {
 
     /** @internal Module-owned slots bracket every ordinary system, including terminal systems. */
     registerBoundary(system: System, position: "before" | "after", pluginName?: string): void {
-        const group = systemGroup(system);
-        for (const [registered, slot] of this._boundaries) {
-            if (registered !== system && slot === position && systemGroup(registered) === group)
-                throw new Error(`System group ${group} already has a ${position} boundary`);
-        }
         this._boundaries.set(system, position);
         this.register(system, pluginName);
     }
@@ -308,20 +303,21 @@ export class Scheduler {
 
         const all = Array.from(this._systems);
         const filtered = all.filter((s) => systemGroup(s) === group);
+        validate(filtered, all, this._boundaries);
         const ordinary = filtered.filter((s) => !this._boundaries.has(s));
+        const start = filtered.filter((s) => this._boundaries.get(s) === "before");
+        const end = filtered.filter((s) => this._boundaries.get(s) === "after");
         const sorted = [
-            ...filtered.filter((s) => this._boundaries.get(s) === "before"),
-            ...sortSystems(ordinary, all),
-            ...filtered.filter((s) => this._boundaries.get(s) === "after"),
+            ...kahnSort(start, edgesOf(start)),
+            ...sortSystems(ordinary),
+            ...kahnSort(end, edgesOf(end)),
         ];
         this._cache.set(group, sorted);
         return sorted;
     }
 }
 
-function sortSystems(systems: System[], all: System[]): System[] {
-    validate(systems, all);
-
+function sortSystems(systems: System[]): System[] {
     const first = systems.filter((s) => s.first);
     const last = systems.filter((s) => s.last);
     const terminal = systems.filter((s) => s.terminal);
@@ -379,8 +375,12 @@ function edgesOf(systems: System[]): [System, System][] {
     return edges;
 }
 
-function validate(systems: System[], all: System[]): void {
-    const terminals = systems.filter((s) => s.terminal);
+function validate(
+    systems: System[],
+    all: System[],
+    boundaries: ReadonlyMap<System, "before" | "after">,
+): void {
+    const terminals = systems.filter((s) => s.terminal && !boundaries.has(s));
     if (terminals.length > 1)
         throw new Error("System group cannot have more than one terminal system");
 
@@ -391,7 +391,7 @@ function validate(systems: System[], all: System[]): void {
             throw new Error("System cannot combine terminal with first or last constraints");
         }
         const group = systemGroup(s);
-        const sRank = s.first ? 0 : s.last ? 2 : s.terminal ? 3 : 1;
+        const sRank = systemRank(s, boundaries);
         for (const ref of [...(s.before ?? []), ...(s.after ?? [])]) {
             if (!all.includes(ref)) continue;
             const refGroup = systemGroup(ref);
@@ -400,7 +400,7 @@ function validate(systems: System[], all: System[]): void {
             }
             // satisfiable cross-partition constraints hold by construction (first < normal < last)
             // and stay silent; only the unsatisfiable direction errors
-            const refRank = ref.first ? 0 : ref.last ? 2 : ref.terminal ? 3 : 1;
+            const refRank = systemRank(ref, boundaries);
             if (s.before?.includes(ref) && sRank > refRank) {
                 throw new Error(
                     `Unsatisfiable ordering: a ${partitionName(sRank)} system cannot run before a ${partitionName(refRank)} system`,
@@ -415,6 +415,29 @@ function validate(systems: System[], all: System[]): void {
     }
 }
 
+function systemRank(system: System, boundaries: ReadonlyMap<System, "before" | "after">): number {
+    return boundaries.get(system) === "before"
+        ? -1
+        : boundaries.get(system) === "after"
+          ? 4
+          : system.first
+            ? 0
+            : system.last
+              ? 2
+              : system.terminal
+                ? 3
+                : 1;
+}
 function partitionName(rank: number): string {
-    return rank === 0 ? "first" : rank === 2 ? "last" : rank === 3 ? "terminal" : "normal";
+    return rank === -1
+        ? "before boundary"
+        : rank === 4
+          ? "after boundary"
+          : rank === 0
+            ? "first"
+            : rank === 2
+              ? "last"
+              : rank === 3
+                ? "terminal"
+                : "normal";
 }

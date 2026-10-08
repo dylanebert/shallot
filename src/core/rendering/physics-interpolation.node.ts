@@ -10,7 +10,7 @@ import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
 import { readBody, StandardPhysicsPlugin } from "../../standard/physics";
-import { TransformRuntime } from "./index";
+import { GlobalTransformHistory as TransformRuntime } from "./global-transform";
 
 await setupGlobals();
 if (typeof ResizeObserver === "undefined") {

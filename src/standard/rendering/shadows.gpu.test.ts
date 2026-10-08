@@ -13,7 +13,7 @@ import {
     captureTexture,
     DirectionalLight,
 } from "../../core/rendering";
-import { Transform } from "../../core/transform";
+import { Transform, TransformPlugin } from "../../core/transform";
 import type { World } from "../../engine";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -32,7 +32,7 @@ import {
 const rendering = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 // three headless worlds for the cascade-pool rows, then three rendering worlds for the bound row
 const subjects = gpuApps(import.meta.path, [
-    ...Array.from({ length: 3 }, () => ({ defaults: false, plugins: [] })),
+    ...Array.from({ length: 3 }, () => ({ defaults: false, plugins: [TransformPlugin] })),
     rendering,
     rendering,
     rendering,

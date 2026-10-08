@@ -8,8 +8,12 @@ import type {
 import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
-import { BeginFrameSystem, NotShadowCaster, RenderContext } from "../../core/rendering";
-import { globalTransformTable } from "../../core/transform";
+import {
+    BeginFrameSystem,
+    globalTransformTable,
+    NotShadowCaster,
+    RenderContext,
+} from "../../core/rendering";
 import type { Registry, System, World } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import type { Surface } from "./contract";

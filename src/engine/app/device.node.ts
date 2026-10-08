@@ -9,7 +9,7 @@ import { hashPhysics, readBody, StandardPhysicsPlugin } from "../../standard/phy
 import "../../standard";
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { globalTransformTable } from "../../core/transform";
+import { globalTransformTable } from "../../core/rendering";
 import { Time, type World } from "../index";
 import { createApp } from "./index";
 
@@ -147,13 +147,8 @@ test("live Physics apps keep their authored component values and solver worlds i
     expect(first.world.storage(Body).position.column).not.toBe(
         second.world.storage(Body).position.column,
     );
-    expect(globalTransformTable(first.world).buffer).not.toBe(
-        globalTransformTable(second.world).buffer,
-    );
-    expect(globalTransformTable(first.world).eidToRowBuffer).toBeDefined();
-    expect(globalTransformTable(first.world).eidToRowBuffer).not.toBe(
-        globalTransformTable(second.world).eidToRowBuffer,
-    );
+    expect(() => globalTransformTable(first.world)).toThrow("RenderingPlugin");
+    expect(() => globalTransformTable(second.world)).toThrow("RenderingPlugin");
 
     first.dispose();
     for (let i = 0; i < 8; i++) second.world.step(Time.FIXED_DT);

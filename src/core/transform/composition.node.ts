@@ -3,11 +3,45 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp } from "../../engine";
 import { PhysicsPlugin } from "../physics";
-import { RenderingPlugin } from "../rendering";
+import { globalTransformTable, RenderingPlugin } from "../rendering";
 import { GlobalTransform, Transform, TransformPlugin } from "./index";
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();
+
+test("placement without rendering refuses placement GPU residency", async () => {
+    const app = await createApp({ defaults: false, plugins: [TransformPlugin] });
+    const device = app.world.gpu.device;
+    const methods = ["createBuffer", "createComputePipeline", "createRenderPipeline"] as const;
+    const descriptors = methods.map((name) => Object.getOwnPropertyDescriptor(device, name));
+    let allocations = 0;
+    for (const name of methods) {
+        const original = device[name].bind(device);
+        Object.defineProperty(device, name, {
+            configurable: true,
+            value: (...args: unknown[]) => {
+                allocations++;
+                return Reflect.apply(original, device, args);
+            },
+        });
+    }
+    try {
+        expect(() => globalTransformTable(app.world)).toThrow("RenderingPlugin");
+        const eid = app.world.create();
+        app.world.add(eid, Transform);
+        app.world.tick();
+        app.world.step(0);
+        expect(allocations).toBe(0);
+        expect(app.world.storage(GlobalTransform).scale.x.get(eid)).toBe(1);
+    } finally {
+        methods.forEach((name, i) => {
+            const descriptor = descriptors[i];
+            if (descriptor) Object.defineProperty(device, name, descriptor);
+            else Reflect.deleteProperty(device, name);
+        });
+        app.dispose();
+    }
+});
 
 for (const plugin of [PhysicsPlugin, RenderingPlugin]) {
     test(`${plugin.name} gets placement through its Transform dependency`, async () => {

@@ -26,10 +26,23 @@ if (typeof ResizeObserver === "undefined") {
 
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import {
-    beginGlobalTransformTick,
-    endGlobalTransformTick,
-    TransformRuntime,
+    endGlobalTransformTick as deriveEnd,
+    beginGlobalTransformTick as deriveStart,
+} from "../transform";
+import {
+    GlobalTransformHistoryEndSystem,
+    GlobalTransformHistoryStartSystem,
+    GlobalTransformHistory as TransformRuntime,
 } from "./global-transform";
+
+const beginGlobalTransformTick = (world: World) => {
+    deriveStart(world);
+    GlobalTransformHistoryStartSystem.update!(world);
+};
+const endGlobalTransformTick = (world: World) => {
+    deriveEnd(world);
+    GlobalTransformHistoryEndSystem.update!(world);
+};
 
 const configs: Parameters<typeof createApp>[0][] = [];
 const subjects = gpuApps(import.meta.path, configs);

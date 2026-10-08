@@ -1,3 +1,4 @@
+export { GlobalTransformHistory, globalTransformTable } from "./global-transform";
 export {
     CorePipelinePlugin,
     MainPassSystem,

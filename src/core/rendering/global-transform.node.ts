@@ -15,18 +15,21 @@ import { component } from "../../engine/ecs/component";
 import type { System } from "../../engine/ecs/scheduler";
 import { Time } from "../../engine/ecs/scheduler";
 import { StandardPhysicsPlugin, StepPhysicsSystem, setKinematic } from "../../standard/physics";
-import * as transform from "./index";
+import * as transform from "../transform";
 import {
     GlobalTransform,
     GlobalTransformTickEndSystem,
     GlobalTransformTickStartSystem,
-    globalTransformTable,
     PrepareGlobalTransformSystem,
     Transform,
     TransformPlugin,
-    TransformRuntime,
     teleport as teleportPlacement,
-} from "./index";
+} from "../transform";
+import {
+    globalTransformTable,
+    prepareGlobalTransformFrame,
+    GlobalTransformHistory as TransformRuntime,
+} from "./global-transform";
 
 setDefaultTimeout(CEILING.node);
 if (typeof ResizeObserver === "undefined") {
@@ -275,7 +278,11 @@ async function handoverApp(initial: "Body" | "Transform"): Promise<{
     };
     const app = await createApp({
         defaults: false,
-        plugins: [StandardPhysicsPlugin, { name: "Handover", systems: [handoverSystem] }],
+        plugins: [
+            StandardPhysicsPlugin,
+            RenderingPlugin,
+            { name: "Handover", systems: [handoverSystem] },
+        ],
         setup(world) {
             eid = world.create();
             if (initial === "Body") addStaticBody(world, eid, 10);
@@ -484,13 +491,20 @@ test("a compatible TransformPlugin reload preserves pending GPU history and inte
         import(`./global-transform.ts?${version}`);
     const old = await import("./global-transform");
     const next = await load("gpu-new");
-    const app = await createApp({ defaults: false, plugins: [old.TransformPlugin] });
+    const oldTransform = await import("../transform/global-transform");
+    const nextTransform: typeof oldTransform = await import(
+        `../transform/global-transform.ts?${"gpu-new"}`
+    );
+    const app = await createApp({
+        defaults: false,
+        plugins: [oldTransform.TransformPlugin, RenderingPlugin],
+    });
     try {
         const { world } = app;
         const eid = world.create();
-        world.add(eid, old.Transform);
+        world.add(eid, oldTransform.Transform);
         const table = old.globalTransformTable(world);
-        const runtime = world.resource(old.TransformRuntime);
+        const runtime = world.resource(old.GlobalTransformHistory);
         const present = async () => {
             world.gpu.device.queue.writeBuffer(
                 runtime.params!,
@@ -499,6 +513,7 @@ test("a compatible TransformPlugin reload preserves pending GPU history and inte
             );
             const encoder = world.gpu.device.createCommandEncoder();
             world.beginGpuFrame(encoder);
+            prepareGlobalTransformFrame(world, encoder);
             const pass = encoder.beginComputePass();
             pass.setPipeline(runtime.pipeline!);
             pass.setBindGroup(0, runtime.group!);
@@ -514,7 +529,7 @@ test("a compatible TransformPlugin reload preserves pending GPU history and inte
         world.addSystem({
             group: "fixed",
             update: (world) =>
-                world.storage(old.Transform).translation.x.set(eid, (position += 10)),
+                world.storage(oldTransform.Transform).translation.x.set(eid, (position += 10)),
         });
         world.tick();
         const stages = [...runtime.stages];
@@ -523,10 +538,16 @@ test("a compatible TransformPlugin reload preserves pending GPU history and inte
         const current = runtime.current;
         const pipeline = runtime.pipeline;
         const group = runtime.group;
-        expect(await swapPlugins(world, [old.TransformPlugin], [next.TransformPlugin])).toEqual({
+        expect(
+            await swapPlugins(
+                world,
+                [oldTransform.TransformPlugin],
+                [nextTransform.TransformPlugin],
+            ),
+        ).toEqual({
             ok: true,
         });
-        expect(world.resource(next.TransformRuntime)).toBe(runtime);
+        expect(world.resource(next.GlobalTransformHistory)).toBe(runtime);
         expect(next.globalTransformTable(world)).toBe(table);
         expect(runtime.previous).toBe(previous);
         expect(runtime.current).toBe(current);
@@ -537,7 +558,7 @@ test("a compatible TransformPlugin reload preserves pending GPU history and inte
         expect(runtime.tickCount).toBe(1);
         expect(await present()).toBeCloseTo(5, 5);
         world.tick();
-        expect(world.storage(next.Transform).translation.x.get(eid)).toBe(20);
+        expect(world.storage(nextTransform.Transform).translation.x.get(eid)).toBe(20);
         expect(await present()).toBeCloseTo(15, 5);
     } finally {
         app.dispose();

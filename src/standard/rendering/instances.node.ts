@@ -5,7 +5,8 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { MeshInstance } from "../../core/mesh";
-import { globalTransformTable, Transform } from "../../core/transform";
+import { globalTransformTable } from "../../core/rendering";
+import { Transform } from "../../core/transform";
 import { createApp } from "../../engine";
 import { Surfaces } from "./contract";
 import { Materials, MeshMaterial, StandardMaterial } from "./material";

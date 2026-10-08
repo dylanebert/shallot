@@ -43,11 +43,14 @@ export class World {
     /** this world's component registrations, with their defaults and requirements. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
-    /** @internal GPU history participants record after deferred growth copies. */
-    gpuFrameHooks: { record(encoder: GPUCommandEncoder): void; defer(): boolean } | undefined;
     private _frameEncoder: GPUCommandEncoder | undefined;
     private _retiredBuffers: GPUBuffer[] = [];
-    private _pendingCopies: { source: GPUBuffer; target: GPUBuffer }[] = [];
+    private _pendingCopies: {
+        source: GPUBuffer;
+        target: GPUBuffer;
+        offset: number;
+        size: number;
+    }[] = [];
     private _uploadStages = new Map<GPUBuffer, GPUBuffer>();
     private _stepping = false;
     private _columns = new FieldColumns();
@@ -165,9 +168,14 @@ export class World {
     beginGpuFrame(encoder: GPUCommandEncoder): void {
         this._frameEncoder = encoder;
         for (const copy of this._pendingCopies)
-            encoder.copyBufferToBuffer(copy.source, 0, copy.target, 0, copy.source.size);
+            encoder.copyBufferToBuffer(
+                copy.source,
+                copy.offset,
+                copy.target,
+                copy.offset,
+                copy.size,
+            );
         this._pendingCopies.length = 0;
-        this.gpuFrameHooks?.record(encoder);
     }
 
     /** @internal Release buffers retired by growth only after the frame was submitted. */
@@ -177,7 +185,8 @@ export class World {
         this._retiredBuffers.length = 0;
     }
 
-    /** @internal Growth during a frame shares its encoder and retains referenced old buffers. */
+    /** @internal Growth during a step or behind pending work defers copies to the next frame
+     * encoder and retains old buffers through submission. Applies to every GPU table. */
     growGpuBuffer(previous: GPUBuffer, buffer: GPUBuffer): void {
         const oldStage = this._uploadStages.get(previous);
         if (oldStage) {
@@ -187,8 +196,13 @@ export class World {
         if (this._frameEncoder) {
             this._frameEncoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
             this._retiredBuffers.push(previous);
-        } else if (this._stepping && this.gpuFrameHooks?.defer()) {
-            this._pendingCopies.push({ source: previous, target: buffer });
+        } else if (this._stepping || this._pendingCopies.length) {
+            this._pendingCopies.push({
+                source: previous,
+                target: buffer,
+                offset: 0,
+                size: previous.size,
+            });
             this._retiredBuffers.push(previous);
         } else {
             const encoder = this.gpu.device.createCommandEncoder();
@@ -200,15 +214,15 @@ export class World {
 
     /** @internal CPU metadata replaces old buffers without a GPU copy. */
     retireGpuBuffer(buffer: GPUBuffer): void {
-        if (this._frameEncoder || (this._stepping && this.gpuFrameHooks?.defer()))
+        if (this._frameEncoder || this._stepping || this._pendingCopies.length)
             this._retiredBuffers.push(buffer);
         else buffer.destroy();
     }
 
-    /** @internal A table upload during draw must follow recorded growth copies, not precede them. */
+    /** @internal Table uploads follow growth copies, including growth staged before a frame encoder opens. */
     uploadGpuTable(buffer: GPUBuffer, offset: number, data: ArrayBufferLike, size: number): void {
         const encoder = this._frameEncoder;
-        if (!encoder) {
+        if (!encoder && !this._pendingCopies.length) {
             this.gpu.device.queue.writeBuffer(buffer, offset, data as ArrayBuffer, offset, size);
             return;
         }
@@ -222,7 +236,8 @@ export class World {
             this._uploadStages.set(buffer, staging);
         }
         this.gpu.device.queue.writeBuffer(staging, offset, data as ArrayBuffer, offset, size);
-        encoder.copyBufferToBuffer(staging, offset, buffer, offset, size);
+        if (encoder) encoder.copyBufferToBuffer(staging, offset, buffer, offset, size);
+        else this._pendingCopies.push({ source: staging, target: buffer, offset, size });
     }
 
     /** Whether this world owns a registered resource. */
@@ -749,7 +764,6 @@ export class World {
         this._snapshots.clear();
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
-        this.gpuFrameHooks = undefined;
         this.endGpuFrame();
         this._pendingCopies.length = 0;
         this._uploadStages.clear();

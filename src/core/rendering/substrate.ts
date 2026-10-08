@@ -5,10 +5,8 @@ import type { Plugin, System, World } from "../../engine";
 import { ClearChangeMarksSystem, invertMat4 } from "../../engine";
 import {
     composeGlobalTransform,
-    globalTransformTable,
     PrepareGlobalTransformSystem,
     TransformPlugin,
-    TransformRuntime,
 } from "../transform";
 
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
@@ -20,6 +18,15 @@ import {
     VIEW_KEY_FLOATS,
 } from "./frame-state";
 import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
+import {
+    GlobalTransformHistory,
+    GlobalTransformHistoryEndSystem,
+    GlobalTransformHistoryStartSystem,
+    globalTransformTable,
+    PrepareGlobalTransformHistorySystem,
+    prepareGlobalTransformFrame,
+    recoverGlobalTransformHistory,
+} from "./global-transform";
 import { initializeImageState } from "./image";
 import {
     AmbientLight,
@@ -204,6 +211,7 @@ export const BeginFrameSystem: System = {
         const encoder = device.createCommandEncoder(FRAME_ENCODER);
         _render.encoder = encoder;
         world.beginGpuFrame(encoder);
+        prepareGlobalTransformFrame(world, encoder);
         writeFrame(world);
 
         let count = 0;
@@ -299,7 +307,7 @@ export const BeginFrameSystem: System = {
         }
 
         // Every renderer reads interpolated GlobalTransforms, independently of clustered lighting.
-        const globalTransformRuntime = world.resource(TransformRuntime);
+        const globalTransformRuntime = world.resource(GlobalTransformHistory);
         const globalTransformCount =
             _render.viewCount > 0 && globalTransformRuntime?.enabled
                 ? (globalTransformRuntime.current?.count ?? 0)
@@ -407,7 +415,16 @@ async function initRender(world: World): Promise<void> {
 export const RenderingPlugin: Plugin = {
     dependencies: [TransformPlugin],
     name: "Rendering",
-    systems: [BeginFrameSystem, OverlaySystem, PresentationSystem, EndFrameSystem],
+    systems: [
+        GlobalTransformHistoryStartSystem,
+        GlobalTransformHistoryEndSystem,
+        PrepareGlobalTransformHistorySystem,
+        BeginFrameSystem,
+        OverlaySystem,
+        PresentationSystem,
+        EndFrameSystem,
+    ],
+    recovery: recoverGlobalTransformHistory,
     components: [
         Camera,
         Resolution,
@@ -426,7 +443,7 @@ export const RenderingPlugin: Plugin = {
         initializeImageState(world);
         initializeRenderFrameState(world);
         await initRender(world);
-        const globalTransformRuntime = world.resource(TransformRuntime);
+        const globalTransformRuntime = world.resource(GlobalTransformHistory);
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
         globalTransformRuntime.params = world.resource(Frame).buffer;
         globalTransformTable(world);
