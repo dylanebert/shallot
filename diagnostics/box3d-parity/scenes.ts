@@ -6,6 +6,7 @@
 // The builders transcribe Box3D 47d7f7cc's shared/benchmarks.c and shared/human.c with their f32
 // arithmetic; human.c's bone table is read from the frozen ragdoll fixture. Environment as native.c:
 // RAIN_COUNT, RAIN_GROUP, ROCKS, COLORS, CACHE, PROFILE, COUNTERS, and on Node CPU (cpu.ts).
+// HASH_STEPS=0 disables hash output for timing; SAMPLE_WALL=1 reports setup and loop costs as M JSON.
 import { World } from "../../src/engine";
 import { awakeContactCount } from "../../src/standard/physics/collision/contact";
 import {
@@ -274,6 +275,37 @@ function jointGrid(): Scene {
     };
 }
 
+// benchmarks.c CreateManyPyramids and CreateSmallPyramid.
+function manyPyramids(): Scene {
+    return {
+        def: {},
+        create(w) {
+            const baseCount = 10, extent = f(0.5), rowCount = 14, columnCount = 14;
+            const groundExtent = f(f(extent * columnCount) * f(baseCount + 1));
+            const ground = w.createBody({ position: { x: 0, y: -1, z: 0 } });
+            ground.createHull({}, makeBoxHull(groundExtent, 1, groundExtent));
+            const baseWidth = f(f(2 * extent) * baseCount);
+            let baseZ = f(-groundExtent + f(2 * extent));
+            const deltaZ = f(f(2 * f(groundExtent - f(2 * extent))) / f(rowCount - 1));
+            const box = makeBoxHull(extent, extent, extent);
+            for (let r = 0; r < rowCount; ++r) {
+                for (let c = 0; c < columnCount; ++c) {
+                    const centerX = f(f(-groundExtent + f(c * f(baseWidth + f(2 * extent)))) + f(2 * extent));
+                    for (let i = 0; i < baseCount; ++i) {
+                        const y = f(f(f(2 * i) + 1) * extent);
+                        for (let j = i; j < baseCount; ++j) {
+                            const x = f(f(f(f(f(i + 1) * extent) + f(f(2 * extent) * (j - i))) + centerX) - 0.5);
+                            w.createBody({ type: BodyType.Dynamic, enableSleep: false, position: { x, y, z: baseZ } }).createHull({ density: 100 }, box);
+                        }
+                    }
+                }
+                baseZ = f(baseZ + deltaZ);
+            }
+        },
+        step() {},
+    };
+}
+
 const all: V3[] = [];
 for (let Y = 0; Y < 24; ++Y)
     for (let X = 0; X <= 20; ++X) for (let Z = 0; Z <= 20; ++Z) all.push([X, Y, Z]);
@@ -299,9 +331,11 @@ const scenes: Record<string, () => Scene> = {
     junk: () => junk(chosen, {}),
     // biome-ignore lint/style/useNamingConvention: Box3D's benchmark name, as native.c takes it.
     joint_grid: jointGrid,
+    // biome-ignore lint/style/useNamingConvention: Box3D's benchmark name.
+    many_pyramids: manyPyramids,
 };
 if (!scenes[name] || stepArg === undefined) {
-    console.error("usage: scenes.ts rain|rain-n|junkyard|junk|joint_grid <threads> <steps>");
+    console.error("usage: scenes.ts rain|rain-n|junkyard|junk|joint_grid|many_pyramids <threads> <steps>");
     process.exit(2);
 }
 const owner = new World();
@@ -320,13 +354,26 @@ const colors = env("COLORS", -1),
     steps = Number(stepArg);
 const cpu = cpuFrom >= 0 ? await import("./cpu") : null;
 const lines: string[] = [];
+const sampleWall = process.env.SAMPLE_WALL === "1";
+const hashSteps = process.env.HASH_STEPS !== "0";
+const loopStart = performance.now();
+let before = 0, window = 0, hashing = 0;
 for (let i = 0; i < steps; ++i) {
+    const sampleStart = sampleWall ? performance.now() : 0;
     scene.step(w, i);
     if (i === cpuFrom) cpu?.startCpu();
     const wallStart = i >= wallFrom && wallFrom >= 0 ? performance.now() : 0;
     w.step(f(1 / 60), 4);
     if (i >= wallFrom && wallFrom >= 0) lines.push(`T ${i} ${(performance.now() - wallStart).toFixed(4)}`);
-    lines.push(`${i} 0x${hash(w).toString(16).padStart(16, "0")}`);
+    const hashStart = sampleWall ? performance.now() : 0;
+    if (sampleWall) {
+        if (i < profileFrom) before += hashStart - sampleStart;
+        else window += hashStart - sampleStart;
+    }
+    if (hashSteps) {
+        lines.push(`${i} 0x${hash(w).toString(16).padStart(16, "0")}`);
+        if (sampleWall) hashing += performance.now() - hashStart;
+    }
     if (profileFrom >= 0 && i >= profileFrom) {
         const p = w.getProfile();
         lines.push(`F ${i} ${PROFILE_FIELDS.map((k) => p[k].toFixed(4)).join(" ")}`);
@@ -352,6 +399,7 @@ for (let i = 0; i < steps; ++i) {
         );
     }
 }
+if (sampleWall) lines.push(`M ${JSON.stringify({ setup: loopStart, before, hashing, window, other: performance.now() - loopStart - before - hashing - window })}`);
 if (cpu && cpuFrom < steps) lines.push(...cpu.stopCpu(steps - cpuFrom, threads !== 1));
 console.log(lines.join("\n"));
 w.destroy();
