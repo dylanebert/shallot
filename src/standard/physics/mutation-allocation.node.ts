@@ -47,6 +47,9 @@ test("warmed type, filter, joint, event-flag and destroy/create mutations match 
                 materialCallback() {
                     throw new Error("unexpected mutation allocation material callback");
                 },
+                collisionCallback() {
+                    throw new Error("unexpected mutation allocation collision callback");
+                },
             },
         });
         const k = built.instance.exports as unknown as Kernel & {

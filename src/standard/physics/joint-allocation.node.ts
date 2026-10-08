@@ -50,6 +50,9 @@ test("the same warm joint subject allocates no WASM heap and its counting alloca
                 materialCallback() {
                     throw new Error("unexpected allocation-subject material callback");
                 },
+                collisionCallback() {
+                    throw new Error("unexpected allocation-subject collision callback");
+                },
             },
         });
         const k = built.instance.exports as unknown as Kernel & {

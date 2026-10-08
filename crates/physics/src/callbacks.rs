@@ -23,16 +23,8 @@ pub unsafe fn pre_solve(
     if !PRE_SOLVE[world] {
         return true;
     }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let data = [point.x, point.y, point.z, normal.x, normal.y, normal.z];
-        return collisionCallback(1, a, b, data.as_ptr());
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = (a, b, point, normal);
-        true
-    }
+    let data = [point.x, point.y, point.z, normal.x, normal.y, normal.z];
+    collisionCallback(1, a, b, data.as_ptr())
 }
 
 #[export_name = "worldSetCustomFilterCallback"]
@@ -44,7 +36,6 @@ pub unsafe fn filter_enabled(world: usize) -> bool {
     FILTER[world]
 }
 
-#[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn collisionCallback(kind: u32, a: usize, b: usize, data: *const f32) -> bool;
@@ -62,8 +53,5 @@ pub unsafe fn filter(world: usize, a: usize, b: usize) -> bool {
     {
         return true;
     }
-    #[cfg(target_arch = "wasm32")]
-    return collisionCallback(0, a, b, core::ptr::null());
-    #[cfg(not(target_arch = "wasm32"))]
-    true
+    collisionCallback(0, a, b, core::ptr::null())
 }
