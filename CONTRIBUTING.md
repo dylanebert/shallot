@@ -181,6 +181,23 @@ bun run format                   # biome
 | GPU release | Counting wrapper over a real Dawn device / GPU |
 | Beyond the suite | Heap snapshots, CDP tracing, `measureUserAgentSpecificMemory`, GPU timestamps / oracle |
 
+### Physics iteration
+
+- Combine the rows touched by a change; run their loop set after code corrections, not after wording-only corrections. Paths below are relative to `src/standard/physics` unless rooted; run Node files with `bun test ./<path>` and `diagnostics/box3d-parity/*.oracle.ts` with `BOX3D=<checkout> bun test --preload ./diagnostics/box3d-parity/oracle-preload.ts ./<path>`.
+- Common set: `bun run check` and all `*.test.ts` under `src/core/physics` and `src/standard/physics` in one `bun test` invocation. Kernel set: common, `bun crates/physics/scripts/build-kernel.ts`, `cargo test -p shallot-physics`, `solver/step.gold.node.ts`, `diagnostics/box3d-parity/phases.oracle.ts`.
+
+| Change | Loop set |
+|---|---|
+| Kernel speedup, unchanged behavior | Kernel; `bun diagnostics/box3d-parity/ab.ts <scene> <threads> - - - base=<parent-artifacts> candidate=<candidate-artifacts>` |
+| Kernel behavior or native boundary | Kernel; affected `diagnostics/box3d-parity/*.oracle.ts` |
+| TypeScript API, ECS bridge, world/pool ownership | Common; all non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`, `src/engine/ecs/{global-transform,physics-interpolation}.node.ts` |
+| Allocation or lifecycle | Common; affected `*allocation.node.ts` under `src/standard/physics` |
+| Character or Player integration | Common; `character-allocation.node.ts`, `src/extras/player/*.node.ts`, `examples/first-person/src/*.node.ts` |
+| Checks or documentation only | Changed checks; `bun run check` |
+
+- Run A/B only for a speed claim: name its scene, thread count and phase before running; only that phase's `ab.ts` faster/slower/no-difference verdict decides it, not another phase's result. No difference is not equivalence.
+- Once on the final code candidate, run the wide physics set: kernel set, all `*.node.ts` under `src/core/physics`, `src/standard/physics` and `src/extras/player`, `src/engine/app/{plugins,device}.node.ts`, `src/engine/ecs/{global-transform,physics-interpolation}.node.ts`, `examples/first-person/src/*.node.ts`, and all `diagnostics/box3d-parity/*.oracle.ts`; do not repeat A/B without a named doubt. For checks/documentation-only changes, run only that row.
+
 ### CI coverage
 
 - [CI](.github/workflows/test.yml) owns host and tier commands.
