@@ -26,7 +26,7 @@ export class ComponentRegistry {
     // keyed by stable component id, so a handle held across reloads resolves this world's registration
     private readonly _byId = new Map<number, Entry>();
 
-    /** @internal Changes to registration invalidate local checkpoints. */
+    /** @internal Changes to registration invalidate local snapshots. */
     revision = 0;
 
     register(component: Component, plugin = "ComponentRegistry"): void {

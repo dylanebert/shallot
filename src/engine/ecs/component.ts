@@ -417,7 +417,7 @@ export class Components {
     private _masks: number[][] = [[]];
 
     /** @internal Membership image independent of live masks. */
-    checkpoint() {
+    snapshot() {
         return {
             nextBit: this._nextBit,
             gen: this._gen,
@@ -427,7 +427,7 @@ export class Components {
     }
 
     /** @internal Replace membership without applying insertion defaults. */
-    restore(state: ReturnType<Components["checkpoint"]>): void {
+    restore(state: ReturnType<Components["snapshot"]>): void {
         this._nextBit = state.nextBit;
         this._gen = state.gen;
         this._meta = state.meta.map((m) => m && { ...m });

@@ -37,14 +37,6 @@ export {
     Transform,
 } from "./global-transform";
 export { and, not, or } from "./query";
-export {
-    dump,
-    type EntityData,
-    type FieldValues,
-    inspect,
-    readFields,
-    snapshot,
-} from "./reflection";
 export { type System, Time } from "./scheduler";
 export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
-export { type Resource, World, type WorldCheckpoint } from "./world";
+export { type Resource, World, type WorldSnapshot } from "./world";

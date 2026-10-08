@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { component, entity, f32 } from "./component";
 import { World } from "./world";
 
-const State = component("checkpoint-state", { value: f32, target: entity });
-const Tag = component("checkpoint-tag", {});
+const State = component("snapshot-state", { value: f32, target: entity });
+const Tag = component("snapshot-tag", {});
 
 function subject() {
     const world = new World();
@@ -42,7 +42,7 @@ function image(world: World) {
     };
 }
 
-test("checkpoint restores identity, membership, columns and future allocation after despawn and reuse", () => {
+test("snapshot restores identity, membership, columns and future allocation after despawn and reuse", () => {
     const { world, a, b } = subject();
     const sibling = subject().world;
     const untouched = image(sibling);
@@ -51,7 +51,7 @@ test("checkpoint restores identity, membership, columns and future allocation af
     const accessor = world.storage(State).value;
     const ref = world.ref(b);
     const query = world.query([State]);
-    const checkpoint = world.checkpoint();
+    const snapshot = world.snapshot();
     for (let i = 0; i < 4; i++) world.tick();
     const continued = image(world);
     const next = world.create();
@@ -60,7 +60,7 @@ test("checkpoint restores identity, membership, columns and future allocation af
     expect(world.resolve(ref)).toBe(0);
     const events: [number, boolean][] = [];
     world.observeMembership(State, (eid, present) => events.push([eid, present]));
-    world.restore(checkpoint);
+    world.restore(snapshot);
     expect(world.resolve(ref)).toBe(b);
     expect(accessor.get(a)).toBe(saved.fields[a]);
     expect([...query]).toEqual(saved.members);
@@ -79,7 +79,7 @@ test("checkpoint restores identity, membership, columns and future allocation af
     expect(world.ref(next)).toBe(nextRef);
 });
 
-test("checkpoint preserves free-list order, inactive fields and registered but unattached columns", () => {
+test("snapshot preserves free-list order, inactive fields and registered but unattached columns", () => {
     const world = new World();
     world.registry.register(State);
     const ids = Array.from({ length: 6 }, () => world.create());
@@ -88,13 +88,13 @@ test("checkpoint preserves free-list order, inactive fields and registered but u
     const storage = world.storage(State);
     storage.value.set(ids[1], 91);
     const column = storage.value.column;
-    const checkpoint = world.checkpoint();
+    const snapshot = world.snapshot();
     const allocated = Array.from({ length: 4 }, () => {
         const eid = world.create();
         return [eid, world.ref(eid)];
     });
     storage.value.set(ids[1], 0);
-    world.restore(checkpoint);
+    world.restore(snapshot);
     expect(storage.value.column).toBe(column);
     expect(storage.value.get(ids[1])).toBe(91);
     expect([...world.query([State])]).toEqual([]);
@@ -108,17 +108,17 @@ test("checkpoint preserves free-list order, inactive fields and registered but u
 
 test("restore refuses execution boundaries, foreign worlds and changed component registries by cause", () => {
     const { world } = subject();
-    const checkpoint = world.checkpoint();
-    expect(() => new World().restore(checkpoint)).toThrow("another world");
+    const snapshot = world.snapshot();
+    expect(() => new World().restore(snapshot)).toThrow("another world");
     world.addSystem({
         group: "fixed",
         update: () => {
-            expect(() => world.restore(checkpoint)).toThrow("inside a step or tick");
-            expect(() => world.checkpoint()).toThrow("inside a step or tick");
+            expect(() => world.restore(snapshot)).toThrow("inside a step or tick");
+            expect(() => world.snapshot()).toThrow("inside a step or tick");
         },
     });
     world.tick();
     world.step();
-    world.registry.register(component("late-checkpoint-component", {}));
-    expect(() => world.restore(checkpoint)).toThrow("component registry");
+    world.registry.register(component("late-snapshot-component", {}));
+    expect(() => world.restore(snapshot)).toThrow("component registry");
 });

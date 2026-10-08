@@ -53,7 +53,7 @@ test("built world recovery publishes restored fields and discards old interpolat
         });
         const table = globalTransformTable(world);
         world.step(Time.FIXED_DT * 2.5);
-        const checkpoint = world.checkpoint();
+        const snapshot = world.snapshot();
         const reference = world.ref(transient);
         const retained = world.query([Transform]);
         const membership = [...retained];
@@ -68,7 +68,7 @@ test("built world recovery publishes restored fields and discards old interpolat
         world.step(0);
         const frame = world.gpu.frame;
         const pacing = { ...world.time };
-        world.restore(checkpoint);
+        world.restore(snapshot);
         expect(accessor.get(eid)).toBe(20);
         expect(world.resolve(identity)).toBe(0);
         expect(world.resolve(reference)).toBe(transient);

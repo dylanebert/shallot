@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp, swapPlugins } from "../app";
-import { component, snapshot, u32 } from "../ecs";
+import { component, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 
 setDefaultTimeout(CEILING.node);
@@ -61,7 +61,12 @@ test("a deterministic composition hashes identically under two frame pacings wit
             }
             expect(app.world.time.fixedTick).toBe(60);
             expect(app.world.storage(Counter).value.get(eid)).toBe(1830);
-            return Bun.hash(JSON.stringify(snapshot(app.world)));
+            const values = app.world.storage(Counter).value;
+            return Bun.hash(
+                JSON.stringify(
+                    [...app.world.query([Counter])].map((eid) => [eid, values.get(eid)]),
+                ),
+            );
         } finally {
             app.dispose();
         }

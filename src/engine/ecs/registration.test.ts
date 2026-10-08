@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { resolvePlugins } from "../app/compose";
 import { component, declaration, f32, vec2, vec4 } from "./component";
 import { GlobalTransform } from "./global-transform";
-import { dump, inspect, readFields, snapshot } from "./reflection";
 import { World } from "./world";
 
 const fields = () => ({ scalarValue: f32, pair: vec2, vectorValue: vec4 });
@@ -49,22 +48,5 @@ test("required GlobalTransform is inserted when missing and remains after its re
     world.remove(eid, Component);
     world.step(0);
     expect(world.has(eid, GlobalTransform)).toBe(true);
-    world.dispose();
-});
-
-test("snapshot reports exact registration keys and declared scalar and vector fields", () => {
-    const Component = component("ExactKey", fields());
-    const world = new World();
-    world.registry.register(Component);
-    const eid = world.create();
-    world.add(eid, Component, { scalarValue: 7, pair: [8, 9], vectorValue: [1, 2, 3, 4] });
-    const values = { scalarValue: 7, pair: [8, 9], vectorValue: [1, 2, 3, 4] };
-    const data = { eid, components: { ExactKey: values } };
-    expect(snapshot(world)).toEqual([data]);
-    expect(inspect(world, eid)).toEqual(data);
-    expect(readFields(world, Component, eid)).toEqual(values);
-    expect(dump(world, eid)).toBe(
-        `Entity ${eid}:\n  ExactKey: scalarValue: 7, pair: [8,9], vectorValue: [1,2,3,4]`,
-    );
     world.dispose();
 });

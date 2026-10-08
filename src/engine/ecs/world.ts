@@ -29,20 +29,20 @@ import { GpuTable, type GpuTableOptions } from "./table";
 const INITIAL_CAPACITY = 16;
 
 /** Opaque, world-local simulation image; not a wire payload or durable save. */
-export interface WorldCheckpoint {
-    readonly __worldCheckpoint: unique symbol;
+export interface WorldSnapshot {
+    readonly __worldSnapshot: unique symbol;
 }
 
-interface CheckpointState {
+interface SnapshotState {
     owner: World;
     revision: number;
-    entities: ReturnType<Entities["checkpoint"]>;
-    components: ReturnType<Components["checkpoint"]>;
+    entities: ReturnType<Entities["snapshot"]>;
+    components: ReturnType<Components["snapshot"]>;
     fields: Map<number, Map<string, TypedArray>>;
     highWater: number;
     fixedTick: number;
 }
-const checkpoints = new WeakMap<WorldCheckpoint, CheckpointState>();
+const snapshots = new WeakMap<WorldSnapshot, SnapshotState>();
 
 /** A world-owned value identified by this declaration object, not its creator or a name. */
 export type Resource<T> = { readonly create: (world: World) => T };
@@ -422,8 +422,8 @@ export class World {
      * fields through the entity high-water mark, and fixedTick. Local to this world and registry;
      * excludes pacing, resources, plugin hidden state, GPU and host state. Refuses during step/tick.
      * The image is reusable, opaque and independent of subsequent writes, not a save format. */
-    checkpoint(): WorldCheckpoint {
-        if (this._stepping) throw new Error("World.checkpoint: refuses inside a step or tick");
+    snapshot(): WorldSnapshot {
+        if (this._stepping) throw new Error("World.snapshot: refuses inside a step or tick");
         for (const entry of this.registry.entries()) this.storage(entry.component);
         const columns = new Map<number, Map<string, TypedArray>>();
         for (const [id, entry] of this._storage) {
@@ -432,31 +432,31 @@ export class World {
                 fields.set(name, field.column.slice(0, this._highWater * field.type.lanes));
             columns.set(id, fields);
         }
-        const checkpoint = Object.freeze({}) as WorldCheckpoint;
-        checkpoints.set(checkpoint, {
+        const snapshot = Object.freeze({}) as WorldSnapshot;
+        snapshots.set(snapshot, {
             owner: this,
             revision: this.registry.revision,
-            entities: this._entities.checkpoint(),
-            components: this._components.checkpoint(),
+            entities: this._entities.snapshot(),
+            components: this._components.snapshot(),
             fields: columns,
             highWater: this._highWater,
             fixedTick: this.time.fixedTick,
         });
-        return checkpoint;
+        return snapshot;
     }
 
     /** Restore a local image between ticks. Refuses during step/tick, another world's image or
      * a changed component registry. Retained accessors and references resolve the restored state;
      * columns never shrink, queries and membership consumers reconcile, and fields publish changes.
      * Restores no pacing, resources, plugin hidden state, GPU or host state. */
-    restore(checkpoint: WorldCheckpoint): void {
+    restore(snapshot: WorldSnapshot): void {
         if (this._stepping) throw new Error("World.restore: refuses inside a step or tick");
-        const state = checkpoints.get(checkpoint);
-        if (!state) throw new Error("World.restore: invalid checkpoint");
+        const state = snapshots.get(snapshot);
+        if (!state) throw new Error("World.restore: invalid snapshot");
         if (state.owner !== this)
-            throw new Error("World.restore: checkpoint belongs to another world");
+            throw new Error("World.restore: snapshot belongs to another world");
         if (state.revision !== this.registry.revision || state.fields.size !== this._storage.size)
-            throw new Error("World.restore: checkpoint has a different component registry");
+            throw new Error("World.restore: snapshot has a different component registry");
         const previous = this._entities.all();
         const membership = new Map<Component, Set<number>>();
         for (const entry of this._storage.values())
@@ -552,7 +552,7 @@ export class World {
 
     /**
      * Keep an entity across frames and storage growth, not destruction or eid reuse.
-     * Returns 0 for a dead eid. Local checkpoint recovery restores identity, so a reference
+     * Returns 0 for a dead eid. Local snapshot recovery restores identity, so a reference
      * captured with its entity resolves again after restore. Valid only in this World and run,
      * never across saves.
      * The 21-bit generation wraps after 2^21 reuses of one eid and warns once.
