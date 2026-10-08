@@ -278,6 +278,8 @@ int main( int argc, char** argv )
 		{ "junkyard", GetJunkyardCapacity, CreateJunkyard, StepJunkyard },
 		{ "junk", NULL, CreateJunk, StepJunk },
 		{ "joint_grid", NULL, CreateJointGrid, NULL },
+		{ "many_pyramids", NULL, CreateManyPyramids, NULL },
+		{ "large_pyramid", NULL, CreateLargePyramid, NULL },
         { "sleeping_merge", NULL, CreateSleepingMerge, StepSleepingMerge },
 	};
 	Scene* scene = NULL;
@@ -287,7 +289,7 @@ int main( int argc, char** argv )
 	}
 	if ( scene == NULL )
 	{
-		fprintf( stderr, "usage: native rain|rain-n|junkyard|junk|joint_grid <workers> <steps>\n" );
+		fprintf( stderr, "usage: native rain|rain-n|junkyard|junk|joint_grid|many_pyramids|large_pyramid <workers> <steps>\n" );
 		return 2;
 	}
 	int steps = atoi( argv[3] );

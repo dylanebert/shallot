@@ -276,6 +276,26 @@ function jointGrid(): Scene {
 }
 
 // benchmarks.c CreateManyPyramids and CreateSmallPyramid.
+function largePyramid(): Scene {
+    return {
+        def: { enableSleep: false },
+        create(w) {
+            const baseCount = 100, h = f(0.5), shift = f(1 * h);
+            const ground = w.createBody({ position: { x: 0, y: -1, z: 0 } });
+            ground.createHull({}, makeBoxHull(400, 1, 400));
+            const box = makeBoxHull(h, h, h);
+            for (let i = 0; i < baseCount; ++i) {
+                const y = f(f(f(2 * i) + 1) * shift);
+                for (let j = i; j < baseCount; ++j) {
+                    const x = f(f(f(f(i + 1) * shift) + f(f(2 * (j - i)) * shift)) - f(h * baseCount));
+                    w.createBody({ type: BodyType.Dynamic, position: { x, y, z: 0 } }).createHull({ density: 100 }, box);
+                }
+            }
+        },
+        step() {},
+    };
+}
+
 function manyPyramids(): Scene {
     return {
         def: {},
@@ -333,9 +353,11 @@ const scenes: Record<string, () => Scene> = {
     joint_grid: jointGrid,
     // biome-ignore lint/style/useNamingConvention: Box3D's benchmark name.
     many_pyramids: manyPyramids,
+    // biome-ignore lint/style/useNamingConvention: Box3D's benchmark name.
+    large_pyramid: largePyramid,
 };
 if (!scenes[name] || stepArg === undefined) {
-    console.error("usage: scenes.ts rain|rain-n|junkyard|junk|joint_grid|many_pyramids <threads> <steps>");
+    console.error("usage: scenes.ts rain|rain-n|junkyard|junk|joint_grid|many_pyramids|large_pyramid <threads> <steps>");
     process.exit(2);
 }
 const owner = new World();
