@@ -8,7 +8,7 @@ import type { PhysicsWorld } from "./world";
  * Reusable snapshot of a wasm-backed physics world. Caller-owned geometry identities remain opaque
  * metadata; restore uses the captured kernel images and does not deep-clone or re-author their values.
  */
-export interface WorldSnapshot {
+export interface PhysicsSnapshot {
     /** Copied logical state. userData values retain identity; their id associations and names are copied. */
     readonly state: unknown;
     /** the detached bytes of this World's persistent kernel regions */
@@ -169,7 +169,7 @@ type SnapshotState = {
 
 /** Capture logical state and kernel regions, retaining opaque userData values, with an owner's plain
  * `bindings`. Refuses a stepping world or a sibling snapshot during a callback on the same kernel. */
-export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldSnapshot {
+export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): PhysicsSnapshot {
     const state = physicsWorld.state;
     if (state.locked) throw new Error("physics: cannot snapshot a world while it is stepping");
     assertQueryWorld(state.ecsState, state.worldId);
@@ -203,13 +203,13 @@ export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): WorldS
 }
 
 /** @returns the `bindings` a snapshot was captured with, if any. */
-export function snapshotBindings(snapshot: WorldSnapshot): unknown {
+export function snapshotBindings(snapshot: PhysicsSnapshot): unknown {
     return (snapshot.state as SnapshotState | null)?.bindings;
 }
 
 /** Restore into a live compatible World, preserving its identity and every sibling's state.
  * Refuses a stepping world or a sibling restore during a callback on the same kernel. */
-export function restore(physicsWorld: PhysicsWorld, snapshot: WorldSnapshot): void {
+export function restore(physicsWorld: PhysicsWorld, snapshot: PhysicsSnapshot): void {
     if (
         snapshot === null ||
         typeof snapshot !== "object" ||

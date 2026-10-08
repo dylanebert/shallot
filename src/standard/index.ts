@@ -44,6 +44,7 @@ export {
     CharacterPlugin,
     GroundState,
     hashPhysics,
+    type PhysicsSnapshot,
     PhysicsWorld,
     physicsWorld,
     readBody,
@@ -54,7 +55,6 @@ export {
     setKinematic,
     setVelocity,
     snapshotPhysics,
-    type WorldSnapshot,
 } from "./physics";
 export {
     CameraBackground,

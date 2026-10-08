@@ -52,6 +52,7 @@ export {
     vec2,
     vec4,
     World,
+    type WorldSnapshot,
 } from "./ecs";
 export {
     type BufferProbe,

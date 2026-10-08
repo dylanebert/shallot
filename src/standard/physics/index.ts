@@ -1,4 +1,4 @@
-export type { WorldSnapshot } from "./api";
+export type { PhysicsSnapshot } from "./api";
 export type {
     CustomFilterCallback,
     MoverFilterCallback,

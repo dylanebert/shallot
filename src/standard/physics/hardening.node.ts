@@ -8,13 +8,13 @@ import { createApp, Time, type World } from "@dylanebert/shallot";
 import { Body, BodyType, ShapeKind } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
+    type PhysicsSnapshot,
     physicsWorld,
     readBody,
     restorePhysics,
     StandardPhysicsPlugin,
     setVelocity,
     snapshotPhysics,
-    type WorldSnapshot,
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { physicsCounters } from "./runtime";
@@ -105,12 +105,12 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
 });
 
 interface SnapshotRefs {
-    snapshot: WeakRef<WorldSnapshot>;
+    snapshot: WeakRef<PhysicsSnapshot>;
     logical: WeakRef<object>;
     bytes: WeakRef<Uint8Array>;
 }
 
-function snapshotRefs(saved: WorldSnapshot): SnapshotRefs {
+function snapshotRefs(saved: PhysicsSnapshot): SnapshotRefs {
     return {
         snapshot: new WeakRef(saved),
         logical: new WeakRef(saved.state as object),
@@ -128,7 +128,7 @@ function retainedSnapshot(
     world: World,
     registry: FinalizationRegistry<string>,
 ): {
-    saved: WorldSnapshot;
+    saved: PhysicsSnapshot;
     refs: SnapshotRefs;
 } {
     const saved = snapshotPhysics(world);

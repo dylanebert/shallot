@@ -78,7 +78,7 @@ export { JointType } from "../solver/joint";
 export { DebugColor, type DebugDraw, defaultDebugDraw } from "../world/draw";
 import { hashWorldState } from "../world/hash";
 export { hashWorldState };
-export { restore, snapshot, type WorldSnapshot } from "./snapshot";
+export { type PhysicsSnapshot, restore, snapshot } from "./snapshot";
 export function hash(physicsWorld: import("./world").PhysicsWorld): bigint {
     return hashWorldState(physicsWorld.state);
 }

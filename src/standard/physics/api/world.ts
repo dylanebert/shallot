@@ -110,7 +110,11 @@ import {
     WheelJoint,
 } from "./joints";
 import { Contact, Shape } from "./shape";
-import { restore as restoreWorld, snapshot as snapshotWorld, type WorldSnapshot } from "./snapshot";
+import {
+    type PhysicsSnapshot,
+    restore as restoreWorld,
+    snapshot as snapshotWorld,
+} from "./snapshot";
 
 function queryShape(world: WorldState, id: number): Shape {
     return new Shape(world, {
@@ -268,12 +272,12 @@ export class PhysicsWorld {
     }
 
     /** Capture the complete wasm-backed state for deterministic resimulation. */
-    snapshot(): WorldSnapshot {
+    snapshot(): PhysicsSnapshot {
         return snapshotWorld(this);
     }
 
     /** Restore into a live compatible World; refuses if another live World shares its kernel. */
-    restore(snapshot: WorldSnapshot): void {
+    restore(snapshot: PhysicsSnapshot): void {
         restoreWorld(this, snapshot);
     }
 

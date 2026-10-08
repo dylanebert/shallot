@@ -13,12 +13,12 @@ import {
 import {
     hash as hashWorld,
     init,
+    type PhysicsSnapshot,
     PhysicsWorld,
     restore as restoreWorld,
     Body as SolverBody,
     shutdown,
     snapshot as snapshotWorld,
-    type WorldSnapshot,
 } from "./api";
 import { snapshotBindings } from "./api/snapshot";
 import { FNV_BASIS, jointDefs, jointSignature } from "./authoring";
@@ -363,7 +363,7 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
 }
 
 /** Capture the solver and this World's entity-to-body and constraint bindings for {@link restorePhysics}. */
-export function snapshotPhysics(world: World): WorldSnapshot {
+export function snapshotPhysics(world: World): PhysicsSnapshot {
     const runtime = runtimeFor(world);
     return snapshotWorld(warmWorld(runtime), captureBindings(runtime));
 }
@@ -371,7 +371,7 @@ export function snapshotPhysics(world: World): WorldSnapshot {
  * Restore a {@link snapshotPhysics} snapshot and its bindings; the next fixed tick marshals bodies and
  * constraints authored since and removes those despawned since. Refuses a snapshot without bindings.
  */
-export function restorePhysics(world: World, saved: WorldSnapshot): void {
+export function restorePhysics(world: World, saved: PhysicsSnapshot): void {
     const runtime = runtimeFor(world);
     const physicsWorld = warmWorld(runtime);
     const bindings = snapshotBindings(saved) as Bindings | undefined;
