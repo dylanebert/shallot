@@ -886,7 +886,9 @@ export type Kernel = {
 export type InitOptions = {
     /**
      * the advanced escape from the default threading. {@link init} multithreads on its own wherever the
-     * host allows it, so this is rarely needed: pass `0` to force the single-thread kernel, or `n` to
+     * host allows it. The default follows Box3D's samples: half the host's logical cores (floor),
+     * clamped to 1–8, including the calling thread; an unavailable core count reads as 0.
+     * Pass `0` to force the single-thread kernel, or `n` to
      * override the auto count (counting the calling thread, clamped to the ceiling the shadow stack
      * affords). `n` still needs a host that can hold shared memory — a browser without cross-origin
      * isolation runs single-thread whatever you ask. read {@link threads} for what you got. the
@@ -1151,11 +1153,6 @@ function decode(base64: string): Uint8Array<ArrayBuffer> {
     return bytes;
 }
 
-/** Threads {@link init} runs by default when the host allows it. Flat, not
- * scale-aware: 4 is optimal or within noise at every scene size and never regresses a small one, where
- * more threads would — the wake cost outweighs the split. */
-export const AUTO_THREADS = 4;
-
 /** The one-time log a browser gets when it blocks multithreading for want of cross-origin isolation.
  * Loud and host-actionable — the fix is the host's headers, not the caller's code. */
 export const COOP_COEP_HINT =
@@ -1167,8 +1164,9 @@ export type Threading = { want: number; warn: boolean };
 
 /** The host signals {@link resolve} branches on. `shared` — can this host hold a shared
  * `WebAssembly.Memory`: cross-origin isolation in a browser, `SharedArrayBuffer` existing standalone.
- * `browser` picks whether a blocked host earns the COOP/COEP hint (headers only fix a page). */
-export type Host = { browser: boolean; shared: boolean };
+ * `browser` picks whether a blocked host earns the COOP/COEP hint (headers only fix a page).
+ * `cores` is the host's logical core count, or 0 when unavailable. */
+export type Host = { browser: boolean; shared: boolean; cores: number };
 
 /**
  * Resolve the threading plan from the caller's request and the host — the pure decision table (the seam a
@@ -1179,7 +1177,8 @@ export type Host = { browser: boolean; shared: boolean };
  */
 export function resolve(threads: number | undefined, host: Host): Threading {
     if (threads === 0) return { want: 0, warn: false };
-    const want = threads ?? AUTO_THREADS;
+    // Box3D samples/main.cpp:116 counts the calling thread in half the logical cores, capped at 8.
+    const want = threads ?? Math.max(1, Math.min(8, Math.floor(host.cores / 2)));
     if (host.shared) return { want, warn: false };
     return { want: 0, warn: host.browser };
 }
@@ -1195,12 +1194,13 @@ export function announce(plan: Threading): void {
  * the spawn path cannot disagree. Keying "browser" on `crossOriginIsolated` being a boolean would misroute
  * deno, which exposes that global too, into the COOP/COEP warning. */
 function host(): Host {
+    const cores = globalThis.navigator?.hardwareConcurrency ?? 0;
     const p = (globalThis as { process?: { versions?: { node?: unknown } } }).process;
     if (p?.versions?.node != null) {
-        return { browser: false, shared: typeof SharedArrayBuffer !== "undefined" };
+        return { browser: false, shared: typeof SharedArrayBuffer !== "undefined", cores };
     }
     const g = globalThis as { crossOriginIsolated?: boolean };
-    return { browser: true, shared: g.crossOriginIsolated === true };
+    return { browser: true, shared: g.crossOriginIsolated === true, cores };
 }
 
 async function single(runtime: KernelState): Promise<void> {
