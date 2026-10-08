@@ -97,6 +97,7 @@ export type {
     ContactEvents,
     ContactHitEvent,
     ContactTouchEvent,
+    CustomFilterCallback,
     DistanceJointConfig,
     JointEvent,
     MotorJointConfig,

@@ -11,6 +11,10 @@ import type { Body } from "./body";
 import type { Joint } from "./joint";
 import type { Contact, Shape } from "./shape";
 
+/** Return false to reject a collision pair. Called only when either shape enables custom filtering.
+ * Runs synchronously during the step; the world must not be modified from this callback. */
+export type CustomFilterCallback = (shapeA: Shape, shapeB: Shape) => boolean;
+
 export function makeShapeId(world: WorldState, shape: ShapeRecord): EntityId {
     return {
         index1: shape + 1,

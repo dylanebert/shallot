@@ -111,6 +111,7 @@ mod body_record;
 mod box3d_oracle;
 #[cfg(target_arch = "wasm32")]
 mod broad;
+mod callbacks;
 #[cfg(target_arch = "wasm32")]
 mod compound_query;
 #[cfg(target_arch = "wasm32")]

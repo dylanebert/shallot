@@ -13,6 +13,8 @@
 // auto count. The MT artifact loads behind a dynamic `import()`, so a single-thread consumer never parses it.
 
 import type { World } from "../../../engine";
+import { makeShapeId } from "../api/config";
+import { Shape } from "../api/shape";
 import type { WorldState } from "../world/world";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
@@ -20,6 +22,7 @@ import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
 /** The kernel's exported surface — grows as each solver phase ports to wasm. */
 export type Kernel = {
     memory: WebAssembly.Memory;
+    worldSetCustomFilterCallback(world: number, enabled: boolean): void;
     /** Present only in a checked build (`build-kernel.ts --checked`); routes panics to `kernelPanic`. */
     installPanicHook?(): void;
     viewEpochPtr(): number;
@@ -907,6 +910,7 @@ export type QueryCallback = (kind: number, shape: number, data: number, count: n
 export interface KernelState {
     queryCallback: QueryCallback | null;
     materialWorld: WorldState | null;
+    collisionWorld: WorldState | null;
     queryWorld: number;
     callbackDepth: number;
     queryFailed: boolean;
@@ -926,6 +930,7 @@ function createKernelState(): KernelState {
     return {
         queryCallback: null,
         materialWorld: null,
+        collisionWorld: null,
         queryWorld: -1,
         callbackDepth: 0,
         queryFailed: false,
@@ -1035,6 +1040,26 @@ function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length
     return (pointer, length) => {
         const bytes = new Uint8Array(memory().buffer, pointer, length).slice();
         console.error(`physics kernel ${new TextDecoder().decode(bytes)}`);
+    };
+}
+
+function collisionImport(runtime: KernelState) {
+    return (_kind: number, a: number, b: number, _pointer: number): number => {
+        if (runtime.queryFailed) return 0;
+        try {
+            const world = runtime.collisionWorld;
+            if (world === null) throw new Error("physics: collision callback is not installed");
+            return Number(
+                world.customFilterCallback?.(
+                    new Shape(world, makeShapeId(world, a)),
+                    new Shape(world, makeShapeId(world, b)),
+                ) ?? true,
+            );
+        } catch (error) {
+            runtime.queryFailed = true;
+            runtime.queryError = error;
+            return 0;
+        }
     };
 }
 
@@ -1153,6 +1178,7 @@ async function single(runtime: KernelState): Promise<void> {
             solverPause,
             queryCallback: queryImport(runtime),
             materialCallback: materialImport(runtime),
+            collisionCallback: collisionImport(runtime),
             now: clockImport(() => instance.memory),
             kernelPanic: panicImport(() => instance.memory),
         },
@@ -1182,6 +1208,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
                 memory,
                 queryCallback: queryImport(runtime),
                 materialCallback: materialImport(runtime),
+                collisionCallback: collisionImport(runtime),
                 now: clockImport(() => memory),
                 kernelPanic: panicImport(() => memory),
             },
@@ -1312,6 +1339,7 @@ export function kernel(world: World | undefined): Kernel {
                 solverPause,
                 queryCallback: queryImport(runtime),
                 materialCallback: materialImport(runtime),
+                collisionCallback: collisionImport(runtime),
                 now: clockImport(() => instance.memory),
                 kernelPanic: panicImport(() => instance.memory),
             },

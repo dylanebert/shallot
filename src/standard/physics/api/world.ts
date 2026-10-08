@@ -1,4 +1,5 @@
 import { ShapeField, shapeField } from "../kernel/shaperecords";
+import type { CustomFilterCallback } from "./config";
 // The public surface: thin handle classes over the internal id/record model. A World/Body/Shape
 // instance holds only an id and delegates to the internal free functions; all state lives in the
 // solver-set columns. Stale handles self-invalidate through the generation stored in the id (the
@@ -690,6 +691,19 @@ export class PhysicsWorld {
         out.y = this.state.gravity.y;
         out.z = this.state.gravity.z;
         return out;
+    }
+
+    /** Install the collision-pair filter (b3World_SetCustomFilterCallback), or clear it with null.
+     * Only pairs with custom filtering enabled on either shape call it. It runs synchronously on
+     * the stepping realm after parallel queries join. Existing contacts are not reconsidered.
+     * Refuses changes while the world is stepping. Callback errors are rethrown after Rust returns. */
+    setCustomFilterCallback(callback: CustomFilterCallback | null): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.customFilterCallback = callback;
+        kernel(this.state.ecsState).worldSetCustomFilterCallback(
+            this.state.worldId,
+            callback !== null,
+        );
     }
 
     /** Set the gravity vector. */

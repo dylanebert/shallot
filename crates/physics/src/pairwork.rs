@@ -322,6 +322,37 @@ fn run_query(
     );
 }
 
+/// Finish callback-dependent pair queries in proxy and tree traversal order before contact creation.
+pub unsafe fn filter_pairs(world: usize) {
+    if !crate::callbacks::filter_enabled(world) {
+        return;
+    }
+    let heads = CANDEND_PTR as *mut u32;
+    let pairs = CAND_PTR as *mut u32;
+    for i in 0..MOVE_COUNT {
+        let mut entry = *heads.add(i);
+        let mut pending = u32::MAX;
+        while entry != u32::MAX {
+            let p = pairs.add(entry as usize * CAND_STRIDE);
+            let next = *p.add(3);
+            *p.add(3) = pending;
+            pending = entry;
+            entry = next;
+        }
+        let mut accepted = u32::MAX;
+        while pending != u32::MAX {
+            let p = pairs.add(pending as usize * CAND_STRIDE);
+            let next = *p.add(3);
+            if crate::callbacks::filter(world, *p.add(1) as usize, *p.add(2) as usize) {
+                *p.add(3) = accepted;
+                accepted = pending;
+            }
+            pending = next;
+        }
+        *heads.add(i) = accepted;
+    }
+}
+
 /// b3UpdateTreesTask: dynamic then kinematic, with no broadphase readers until its join.
 #[export_name = "rebuildTrees"]
 pub extern "C" fn rebuild_trees() {

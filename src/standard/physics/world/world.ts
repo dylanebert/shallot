@@ -1,3 +1,4 @@
+import type { CustomFilterCallback } from "../api/config";
 import { jointCount } from "../kernel/jointrecords";
 import { createSolverSet } from "../kernel/solversetcolumns";
 // The simulation world: the root that owns every entity pool and the broad-phase. Ported from
@@ -92,6 +93,7 @@ export type WorldState = {
     contactDampingRatio: number;
     contactRecycleDistance: number;
 
+    customFilterCallback: CustomFilterCallback | null;
     frictionCallback: MixCallback;
     restitutionCallback: MixCallback;
 
@@ -184,6 +186,7 @@ function makeWorldState(
         contactHertz: def.contactHertz,
         contactDampingRatio: def.contactDampingRatio,
         contactRecycleDistance: CONTACT_RECYCLE_DISTANCE,
+        customFilterCallback: null,
         frictionCallback: def.frictionCallback ?? defaultFrictionCallback,
         restitutionCallback: def.restitutionCallback ?? defaultRestitutionCallback,
         generation,

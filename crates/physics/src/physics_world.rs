@@ -22,6 +22,7 @@ pub unsafe extern "C" fn destroy_world_in_world(world: usize) {
             solver_set::destroy_in_world(world, id);
         }
     }
+    crate::callbacks::set_filter(world, false);
     bodies::body_reset_world(world as u32);
     crate::shapes::shape_reset_world(world as u32);
     regions::reset(world as u32);
@@ -633,6 +634,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
             }
             2 => {
                 crate::pairwork::schedule_rebuild();
+                crate::pairwork::filter_pairs(world_index);
                 create_pairs(world_index);
                 crate::arena::free_scratch(world_index);
                 DRIVER.phase = 3;
