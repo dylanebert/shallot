@@ -81,7 +81,6 @@ export interface GlobalTransformRuntime {
     render?: GpuTable<typeof Xform>;
     enabled: boolean;
     tickCount: number;
-    captureIndex: number;
     stages: (GPUBuffer | undefined)[];
     ranges: Uint32Array;
     pipeline?: GPUComputePipeline;
@@ -91,8 +90,8 @@ export interface GlobalTransformRuntime {
     placement: ComponentStorage<typeof Transform>;
     global: ComponentStorage<typeof GlobalTransform>;
     discontinuities: Uint32Array;
-    discontinuityPhases: Uint8Array;
     discontinuityCount: number;
+    historyNeedsPromotion: boolean;
 }
 
 /** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
@@ -105,7 +104,6 @@ export function initializeGlobalTransform(world: World): void {
     const runtime: GlobalTransformRuntime = {
         enabled: false,
         tickCount: 0,
-        captureIndex: 0,
         // Only the latest tick pair survives until presentation.
         stages: new Array(2),
         ranges: new Uint32Array(4),
@@ -114,12 +112,12 @@ export function initializeGlobalTransform(world: World): void {
         placement: world.storage(Transform),
         global: world.storage(GlobalTransform),
         discontinuities: new Uint32Array(1),
-        discontinuityPhases: new Uint8Array(1),
         discontinuityCount: 0,
+        historyNeedsPromotion: false,
     };
     world.globalTransformRuntime = runtime;
     world.observeMembership(GlobalTransform, (eid, present) => {
-        if (present && runtime.enabled) queueDiscontinuity(runtime, eid, runtime.captureIndex);
+        if (present && runtime.enabled) queueDiscontinuity(runtime, eid);
     });
 }
 
@@ -161,33 +159,28 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         runtime.pipeline = world.gpu.root.unwrap(
             world.gpu.root.createComputePipeline({ compute: kernel }),
         );
-        for (const eid of world.query(globalTransformTerms))
-            queueDiscontinuity(runtime, eid, runtime.captureIndex);
+        for (const eid of world.query(globalTransformTerms)) queueDiscontinuity(runtime, eid);
     }
     return runtime.render!;
 }
 
-function queueDiscontinuity(runtime: GlobalTransformRuntime, eid: number, phase: number): void {
+function queueDiscontinuity(runtime: GlobalTransformRuntime, eid: number): void {
     for (let i = 0; i < runtime.discontinuityCount; i++) {
-        if (runtime.discontinuities[i] === eid && runtime.discontinuityPhases[i] === phase) return;
+        if (runtime.discontinuities[i] === eid) return;
     }
     if (runtime.discontinuityCount === runtime.discontinuities.length) {
         const discontinuities = new Uint32Array(runtime.discontinuities.length * 2);
-        const phases = new Uint8Array(discontinuities.length);
         discontinuities.set(runtime.discontinuities);
-        phases.set(runtime.discontinuityPhases);
         runtime.discontinuities = discontinuities;
-        runtime.discontinuityPhases = phases;
     }
-    runtime.discontinuities[runtime.discontinuityCount] = eid;
-    runtime.discontinuityPhases[runtime.discontinuityCount++] = phase;
+    runtime.discontinuities[runtime.discontinuityCount++] = eid;
 }
 
-/** @internal Record a teleport at the current fixed-history phase. */
+/** @internal Record a teleport at the latest fixed tick. */
 export function markGlobalTransformDiscontinuity(world: World, eid: number): void {
     const runtime = world.globalTransformRuntime;
     if (!runtime?.enabled || !world.has(eid, GlobalTransform)) return;
-    queueDiscontinuity(runtime, eid, runtime.captureIndex);
+    queueDiscontinuity(runtime, eid);
 }
 
 /** @internal Gather authored placement into the fixed world column without per-row callbacks. */
@@ -265,7 +258,6 @@ function captureCurrent(world: World, phase: number): void {
         runtime.ranges[phase * 2] = current.lastUploadOffset;
         runtime.ranges[phase * 2 + 1] = size;
     }
-    runtime.captureIndex = phase + 1;
 }
 /** @internal Initial placement precedes this frame's fixed ticks; no reader means no GPU work. */
 export function beginGlobalTransformTick(world: World): void {
@@ -280,7 +272,6 @@ export function beginGlobalTransformTick(world: World): void {
         }
         captureCurrent(world, 0);
         runtime.discontinuityCount = 0;
-        runtime.captureIndex = 1;
     }
 }
 /** @internal Retain the latest completed tick for presentation. */
@@ -290,7 +281,6 @@ export function endGlobalTransformTick(world: World): void {
     if (runtime?.enabled) {
         runtime.tickCount = 1;
         captureCurrent(world, 1);
-        runtime.captureIndex = 1;
     }
 }
 /** @internal Gather post-simulation placement; recording waits for the renderer's frame encoder. */
@@ -319,6 +309,7 @@ function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): voi
             offset,
             size,
         );
+        runtime.historyNeedsPromotion = true;
     }
     for (let i = 0; i < runtime.discontinuityCount; i++) {
         if (phase !== 1) continue;
@@ -340,20 +331,23 @@ export function prepareGlobalTransformFrame(world: World, encoder: GPUCommandEnc
     if (!runtime?.enabled) return;
     if (runtime.tickCount) {
         copyPhase(world, encoder, 0);
-        encoder.copyBufferToBuffer(
-            runtime.current!.buffer,
-            0,
-            runtime.previous!.buffer,
-            0,
-            runtime.current!.buffer.size,
-        );
+        if (runtime.historyNeedsPromotion) {
+            encoder.copyBufferToBuffer(
+                runtime.current!.buffer,
+                0,
+                runtime.previous!.buffer,
+                0,
+                runtime.current!.buffer.size,
+            );
+            runtime.historyNeedsPromotion = false;
+        }
     }
     copyPhase(world, encoder, 1);
     runtime.tickCount = 0;
-    runtime.captureIndex = 0;
     runtime.discontinuityCount = 0;
     runtime.ranges.fill(0);
     if (!runtime.current!.count) {
+        runtime.historyNeedsPromotion = false;
         return;
     }
     const generation =

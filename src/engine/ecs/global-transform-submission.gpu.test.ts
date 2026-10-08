@@ -116,6 +116,11 @@ for (const renderer of [false, true]) {
                 expect(encoders).toBe(renderer ? 1 : 0);
                 expect(submissions).toBe(renderer ? 1 : 0);
                 expect(copies).toBe(renderer ? 1 : 0);
+                // Settle the changed placement into both history tables first.
+                world.step(Time.FIXED_DT);
+                copies = 0;
+                world.step(Time.FIXED_DT);
+                expect(copies).toBe(0);
                 if (!renderer) {
                     expect(globalTransformWrites).toBe(0);
                     expect(world.globalTransformRuntime!.enabled).toBe(false);
