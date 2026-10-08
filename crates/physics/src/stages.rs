@@ -19,15 +19,6 @@
 //! creation order, between stages while every worker is parked in its spin. No reduction depends on
 //! worker identity. Two threads give the same bits as eight.
 //!
-//! Deviations from the C, all mechanical:
-//!   - a stage names its blocks by `[start, start+count)` into one shared block array instead of
-//!     holding a pointer (a raw pointer isn't `Sync`; an index is);
-//!   - contacts use flat columns plus a per-color base; joints use their graph-color arrays and
-//!     joint-prepare spans, as Box3D does;
-//!   - box3d's `mainClaimed` race is gone. It exists so *some* thread orchestrates when the user's
-//!     task system schedules worker 0 late; our pool has no external task system, so the thread that
-//!     drives the step is always worker 0.
-//!
 //! `core::sync::atomic` (not `std`) so this module compiles into the wasm artifact unchanged. On the
 //! single-thread artifact (no `+atomics`) these lower to plain loads and stores, which is correct:
 //! `worker_count == 1` means the orchestrator runs every block itself and nothing is ever contended.
@@ -229,7 +220,7 @@ pub trait StageWork: Sync {
     fn store_wide(&self, block: Block, worker_index: usize);
     fn store_mesh(&self, block: Block, worker_index: usize);
 
-    /// The pose finalize, fused as the solve's terminal stage over the body blocks (header deviations).
+    /// The pose finalize, the solve's terminal stage over the body blocks.
     /// Per-body write-disjoint, like every body stage.
     fn finalize(&self, block: Block, worker: usize);
 
@@ -409,17 +400,8 @@ pub struct Context<'a> {
 struct Line<T>(T);
 
 impl Context<'_> {
-    /// Abandon this solve: a worker died (on wasm, a trap that unwound into its JS round body, which
-    /// calls this before it acks — `src/pool.ts`).
-    ///
-    /// Every spin in this module tests the flag, because a dead worker claims no further block and
-    /// never acks the finish sentinel — so without it the orchestrator spins forever, either at the
-    /// stage barrier of a block the worker claimed and never completed, or in the exit join. Both spins
-    /// are *inside* wasm, where no JS error event can reach it: the flag is the only way out, and the
-    /// JS fault protocol only gets its turn once the orchestrator has returned.
-    ///
-    /// It lives in the context, not in a global: a context is rebuilt per solve, so the flag is
-    /// per-solve by construction and a faulted step cannot poison the next.
+    /// Abandon this solve before the worker acknowledges its round. Every barrier and exit
+    /// spin tests this context-local flag; rebuilding the context clears it for the next solve.
     pub fn fault(&self) {
         self.fault.store(1, Ordering::SeqCst);
     }

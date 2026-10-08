@@ -5,13 +5,8 @@
 //! path because per-lane IEEE f32 is deterministic — the same reason box3d's SIMD and
 //! `DISABLE_SIMD` builds emit identical fixtures (verified: 52/52 default-config scenes match).
 //!
-//! Semantics mirror the SSE2 branch op-for-op (the reference build on x86 is SSE2), which is the
-//! contract the fixtures encode:
-//!   - `mul_add(a, b, c)` = `a + b*c`, NEVER fused (box3d disables FMA to match its scalar path;
-//!     Rust does not auto-contract `a + b*c`).
-//!   - `min`/`max` are `(a<b)?a:b` / `(a>b)?a:b` (SSE `_mm_min_ps`/`_mm_max_ps`), NOT wasm's native
-//!     `f32x4_min`/`max`, which differ on NaN and signed zero. Implemented via compare→bitselect so
-//!     the wasm lanes match SSE bit-for-bit.
+//! `mul_add(a, b, c)` = `a + b*c`, non-fused. `min`/`max` use ordered comparisons and select
+//! the second operand on equality or unordered inputs, via compare→bitselect.
 
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32::*;

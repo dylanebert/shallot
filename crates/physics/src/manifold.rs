@@ -2,10 +2,6 @@
 //! query helpers) and `convex_manifold.c` (the six sphere/capsule/hull pair functions) (Erin Catto,
 //! MIT) via the upstream TS port (`src/manifold.ts`). Results are in shape A's local frame;
 //! `transform_b_to_a` places shape B in shape A's frame.
-//!
-//! The TS port carries a zero-alloc ping-pong buffer strategy for the clip loop; here the arithmetic
-//! is identical but storage is plain local `Vec`/arrays (Rust value types remove the shared-reference
-//! aliasing hazards the TS strategy had to guard against). Only the arithmetic is contract-bound.
 
 use crate::distance::{shape_distance, DistanceInput, ShapeProxy, SimplexCache};
 use crate::hull::HullData;

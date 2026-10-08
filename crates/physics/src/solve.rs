@@ -52,7 +52,7 @@ struct Step {
     spans: [ColorSpan; MAX_COLORS],
 }
 
-// The pool runs one round at a time; this address publishes the world's step allocation.
+// Published address of the world's live step allocation.
 static mut STEP: *mut Step = core::ptr::null_mut();
 
 pub(crate) unsafe fn release_step(world: usize) {
@@ -846,16 +846,8 @@ pub extern "C" fn worker_main_in_world(world_index: usize, index: usize) {
     run_job(world_index, index);
 }
 
-/// A worker died inside [`worker_main`] — a wasm trap, which unwinds into its JS round body. Called from
-/// that catch, before it acks.
-///
-/// Only the staged solve needs it, and only that job's context may be poisoned. The solve's orchestrator
-/// spins *inside* wasm (a stage barrier, the exit join) for a block the dead worker will never complete,
-/// and no JS event can reach a thread that never yields — so the flag on its [`Context`] is the only way
-/// out ([`stages::Context::fault`]). A parallel-for round has no wasm-side spin at all: its orchestrator
-/// drains the remaining blocks and returns, and the pool's JS ack is the whole join. Poisoning `CTX` from
-/// one would hit the *previous* step's solve context, which is dead and about to be rebuilt — harmless,
-/// but it would read as if it did something.
+/// Called from the worker's catch before round acknowledgement. Only a staged solve has a live
+/// context to fault; parallel-for rounds return after draining their blocks and join in the pool.
 #[export_name = "workerFault"]
 pub extern "C" fn worker_fault() {
     unsafe {

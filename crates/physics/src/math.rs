@@ -21,7 +21,6 @@ pub const FLT_EPSILON: f32 = 1.192_092_895_507_812_5e-7; // 2^-23
 pub const FLT_MIN: f32 = 1.175_494_350_822_287_5e-38; // 2^-126, smallest normal
 pub const FLT_MAX: f32 = f32::MAX;
 
-// Match common/constants.ts: the single-precision port fixes Box3D's length unit at 1.0.
 pub const LENGTH_UNITS_PER_METER: f32 = 1.0;
 pub const HUGE: f32 = 1.0e5 * LENGTH_UNITS_PER_METER;
 

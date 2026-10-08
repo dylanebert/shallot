@@ -11,9 +11,7 @@
 //! so the sweep order is free. The same property is what lets box3d run collide on any worker count and
 //! promise the same bits — and what physics.md already states for the convex/recycle partition.
 //!
-//! **No fault flag, no join.** Unlike `stages::run`, nothing here spins: a worker's loop ends when the
-//! blocks run out, and the orchestrator's does too. So a dead worker cannot hang a live one inside wasm —
-//! the pool's JS ack is the whole join, and its fault check (`src/pool.ts`) is the whole fault path.
+//! The claim loop ends when blocks run out; the pool joins round acknowledgements and handles faults.
 //!
 //! `core::sync::atomic`, not `std` — this compiles into the wasm artifact unchanged.
 
@@ -28,28 +26,10 @@ const BLOCKS_PER_WORKER: usize = 32;
 /// CPU"). Both outer collide phases — recycle and convex dispatch — are per-contact sweeps.
 pub const COLLIDE_MIN_RANGE: usize = 20;
 
-// The fork floor. box3d's `min_range` is the whole gate there, because its fork is an `enqueueTaskFcn`
-// push onto a live task system — nanoseconds. Ours is an `Atomics.notify`, N worker wakeups off
-// `Atomics.wait`, and a spin join (`src/pool.ts`), and its cost scales with the workers woken. So a phase
-// must carry enough work to beat its own wake, and the floor has to scale the same way: **items per
-// woken worker**, not items.
-//
-// Derived, not tuned, with the join's backoff in place (Apple M4 Max; Node, Bun and Chromium). Boxes
-// resting on a sliding platform, one contact each, 4 threads (3 workers): forking loses at 64 contacts
-// (Node 54 → 65 µs/step) and at 200 (94 → 103), breaks even near 170-200 contacts per worker on Node,
-// and wins from 800 (Node 278 → 262; at 1,000, Chromium 325-375 → 300-305). `large_pyramid` on 8
-// threads (7 workers) wins at 1,035 bodies, 3,015 contacts (Node 702-749 → 615-677). The floor sits
-// above that break-even, so a scene near it stays inline. (The pose finalize once carried its own floor here; it now rides the staged solve as its
-// terminal stage — `stages.rs` — where the workers are already awake and no floor applies.)
-
-/// Collide-sweep items per woken worker (recycle, and the convex dispatch with it — a dispatch record is
-/// strictly more work than a recycle record, so the recycle floor is a conservative bound for it, and it
-/// is not perf-load-bearing anyway: post-settle almost every contact recycles, so the convex sweep fires
-/// on the settle-in steps and then essentially never).
+/// Collide-sweep items per woken worker.
 pub const COLLIDE_FORK_MIN: usize = 256;
 
-/// Is `item_count` enough work to be worth waking `worker_count` workers for? A sweep under the floor
-/// loses to its own wake, and runs inline instead.
+/// Whether the item count reaches the per-worker fork floor.
 pub fn worth_forking(item_count: usize, worker_count: usize, fork_min: usize) -> bool {
     worker_count >= 1 && item_count >= fork_min * worker_count
 }

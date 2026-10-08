@@ -193,13 +193,7 @@ pub extern "C" fn reserve_in_world(
         WIDE_COUNT = wide;
         COLOR_COUNT = color;
 
-        // The body columns are resident (4a.2/4a.3): `state` + `flags` (velocity/delta/flags),
-        // and `sim` + `fin` (the integrate/finalize sim fields) live in the persistent body
-        // region (bodies.rs), held across steps, so the awake `BodySim`/`BodyState` become offset-backed
-        // views and no per-step marshal runs. Point their LAYOUT entries at that region instead of
-        // allocating per-step scratch; the phase shims read `LAYOUT[SIM]`/etc unchanged. `reserveBodies`
-        // (run before this, in `step()`) has laid the region out for the current total-body high-water.
-        // The remaining columns share the per-step arena.
+        // Body LAYOUT entries alias resident sim/state storage; constraint entries use step scratch.
         LAYOUT[STATE] = crate::bodies::state_base(world_index) as u32;
         LAYOUT[FLAGS] = crate::bodies::flags_base(world_index) as u32;
         LAYOUT[SIM] = crate::bodies::sim_base(world_index) as u32;
