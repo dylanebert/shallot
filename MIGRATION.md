@@ -292,7 +292,7 @@ Defaults use declaration field names and vector arrays, as `world.add` does; rep
 
 Keep each key byte-for-byte; it identifies saved data and hot reload. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused, naming the plugin and the record's fields.
 
-`inspect`, `snapshot`, `readFields` and `dump`, and the `EntityData` and `FieldValues` types, are removed. Read component values through `world.storage(Component)`. `world.snapshot()` returns `WorldSnapshot`, opaque, world-local recovery state for `world.restore(snapshot)`, not a save format. The solver image returned by `snapshotPhysics(world)` and `PhysicsWorld.snapshot()` is `PhysicsSnapshot`; use that type instead of the physics API's former `WorldSnapshot`. Both types import from `@dylanebert/shallot`. `snapshotPhysics` and `restorePhysics` remain available.
+`inspect`, `snapshot`, `readFields` and `dump`, and the `EntityData` and `FieldValues` types, are removed. Read component values through `world.storage(Component)`. `world.snapshot()` returns `WorldSnapshot`, opaque, world-local recovery state for `world.restore(snapshot)`, not a save format.
 
 ## Import app plugins in the entry page
 

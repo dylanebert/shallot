@@ -122,3 +122,28 @@ test("restore refuses execution boundaries, foreign worlds and changed component
     world.registry.register(component("late-snapshot-component", {}));
     expect(() => world.restore(snapshot)).toThrow("component registry");
 });
+
+test("one snapshot restores the same allocation and references twice despite intervening mutation", () => {
+    const { world, a, b } = subject();
+    world.destroy(b);
+    const snapshot = world.snapshot();
+    const saved = image(world);
+    const replay = () => {
+        const reused = world.create();
+        world.add(reused, State, { value: 7, target: a });
+        const fresh = world.create();
+        world.add(fresh, Tag);
+        return { reused, fresh, image: image(world) };
+    };
+    world.restore(snapshot);
+    const first = replay();
+    world.destroy(a);
+    world.destroy(first.reused);
+    world.create();
+    world.storage(State).value.set(first.fresh, 99);
+    world.restore(snapshot);
+    expect(image(world)).toEqual(saved);
+    expect(replay()).toEqual(first);
+    world.restore(snapshot);
+    expect(image(world)).toEqual(saved);
+});

@@ -179,6 +179,19 @@ export class RegisteredQuery implements Iterable<number> {
         this._sparse[eid] = -1;
     }
 
+    /** @internal Capture active iteration order independently of allocator order. */
+    snapshot(): number[] {
+        return this._dense.slice(0, this._count);
+    }
+
+    /** @internal Reset a retained query without aliasing the reusable snapshot. */
+    restore(order: readonly number[]): void {
+        this._dense = [];
+        this._sparse = [];
+        this._count = 0;
+        for (const eid of order) this.add(eid);
+    }
+
     [Symbol.iterator](): Iterator<number> {
         const it = this._iterPool.pop() ?? new QueryIterator(this._iterPool);
         it.reset(this._dense, this._count);
@@ -246,12 +259,22 @@ export class Queries {
         for (let i = 0; i < this._all.length; i++) this._all[i].remove(eid);
     }
 
-    /** @internal Reconcile retained query objects at a recovery boundary. */
-    restore(components: Components, entities: Entities, previous: readonly number[]): void {
-        for (const query of this._all) {
-            for (const eid of previous) query.remove(eid);
-            for (const eid of entities.all()) if (query.matches(eid, components)) query.add(eid);
-        }
+    /** @internal Query order affects deterministic work, even when membership is unchanged. */
+    snapshot(): Map<RegisteredQuery, number[]> {
+        return new Map(this._all.map((query) => [query, query.snapshot()]));
+    }
+
+    /** @internal Restore captured query order; later queries start from restored allocator order. */
+    restore(
+        state: ReadonlyMap<RegisteredQuery, readonly number[]>,
+        components: Components,
+        entities: Entities,
+    ): void {
+        const alive = entities.all();
+        for (const query of this._all)
+            query.restore(
+                state.get(query) ?? alive.filter((eid) => query.matches(eid, components)),
+            );
     }
 
     clear(): void {
