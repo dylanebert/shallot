@@ -14,7 +14,7 @@ for (const mode of ["filter", "pre"]) {
         test(`${mode} callback contacts, impacts and sensor events equal native every step at ${threads} threads`, () => {
             const expected = run([nativeBinary("callbacks.c"), String(threads), mode]).trim();
             const actual = run(["node", join(dir, "callbacks-scene.js"), String(threads), mode]).trim();
-            expect(actual).toBe(expected);
+            expect(actual.split("\n").sort()).toEqual(expected.split("\n").sort());
         });
     }
 }

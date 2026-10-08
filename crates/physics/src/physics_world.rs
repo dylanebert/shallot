@@ -736,6 +736,7 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
             }
             12 => {
+                crate::continuous::finish_deferred(world_index);
                 crate::arena::reduce_finalize(world_index);
                 let bullets =
                     finalize_in_world(world_index, DRIVER.count, CONTEXT[0], DRIVER.sleep);
@@ -752,8 +753,17 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 accumulate(world_index, 19, start);
                 DRIVER.phase = 8;
                 DRIVER.phase_start = ticks();
-                if bullets && parallel(world_index, 3, crate::continuous::bullet_count(), 0.0) {
-                    return 1;
+                if bullets {
+                    if crate::continuous::callbacks_deferred() {
+                        crate::continuous::bullets(
+                            world_index,
+                            0,
+                            0,
+                            crate::continuous::bullet_count(),
+                        );
+                    } else if parallel(world_index, 3, crate::continuous::bullet_count(), 0.0) {
+                        return 1;
+                    }
                 }
                 if !bullets {
                     DRIVER.phase = 9;

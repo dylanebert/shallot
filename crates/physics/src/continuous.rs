@@ -15,9 +15,61 @@ pub(crate) const ENLARGE_BOUNDS: u32 = 0x800;
 static mut BULLET_BODIES: *mut u32 = core::ptr::null_mut();
 static BULLET_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
-pub(crate) unsafe fn reserve_bullets(base: usize) {
+static mut DEFER_CALLBACKS: bool = false;
+
+pub(crate) unsafe fn reserve_bullets(world: usize, base: usize) {
     BULLET_BODIES = base as *mut u32;
     BULLET_COUNT.store(0, core::sync::atomic::Ordering::Relaxed);
+    DEFER_CALLBACKS = false;
+    let mask = if crate::callbacks::filter_enabled(world) {
+        4 << 16
+    } else {
+        0
+    } | if crate::callbacks::pre_solve_enabled(world) {
+        16 << 16
+    } else {
+        0
+    };
+    if mask != 0 {
+        let shapes = shapes::col_slice(world);
+        DEFER_CALLBACKS = (0..shapes::shape_cap_in_world(world)).any(|id| {
+            shapes::shape_alive(world as u32, id as u32) != 0
+                && shapes[id * shapes::SHAPE_STRIDE + shapes::S_FLAGS] & mask != 0
+        });
+    }
+}
+
+pub(crate) unsafe fn callbacks_deferred() -> bool {
+    DEFER_CALLBACKS
+}
+
+/// Non-bullets must finish before refit and the bullet sweep, exactly as in parallel finalize.
+pub(crate) unsafe fn finish_deferred(world: usize) {
+    if !DEFER_CALLBACKS {
+        return;
+    }
+    let list = core::slice::from_raw_parts_mut(BULLET_BODIES, bullet_count());
+    list.sort_unstable();
+    let mut bullets = 0;
+    for index in 0..list.len() {
+        let i = list[index] as usize;
+        if sim2(world).get(i * body::SIM2_STRIDE + body::S2_FLAGS) & IS_BULLET != 0 {
+            list[bullets] = i as u32;
+            bullets += 1;
+        } else {
+            solve(world, 0, i);
+            #[cfg(target_arch = "wasm32")]
+            crate::finalize::finish_body(
+                world,
+                0,
+                i,
+                sim(world),
+                fin(world),
+                sim2(world).get(i * body::SIM2_STRIDE + body::S2_BODY_ID) as usize,
+            );
+        }
+    }
+    BULLET_COUNT.store(bullets, core::sync::atomic::Ordering::Relaxed);
 }
 
 pub(crate) unsafe fn add_bullet(sim: usize) {
@@ -325,6 +377,9 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
                     if !crate::bodies::should_collide_in_world(world_index, body_id, u.get(a + 1)) {
                         return true;
                     }
+                    if !crate::callbacks::filter(world_index, target, fast) {
+                        return true;
+                    }
                     let target_shape = crate::query_abi::active_shape(world_index, target).0;
                     let output = shape_time_of_impact(
                         &target_shape,
@@ -340,8 +395,22 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
                             hit_count += 1;
                         }
                     } else if output.fraction > 0.0 && output.fraction < fraction {
-                        fraction = output.fraction;
-                        s2.atomic_or(i * body::SIM2_STRIDE + body::S2_FLAGS, HAD_TIME_OF_IMPACT);
+                        let flags = u.get(a + shapes::S_FLAGS) | u.get(o + shapes::S_FLAGS);
+                        if flags & (16 << 16) == 0
+                            || crate::callbacks::pre_solve(
+                                world_index,
+                                target,
+                                fast,
+                                base.add(output.point),
+                                output.normal,
+                            )
+                        {
+                            fraction = output.fraction;
+                            s2.atomic_or(
+                                i * body::SIM2_STRIDE + body::S2_FLAGS,
+                                HAD_TIME_OF_IMPACT,
+                            );
+                        }
                     }
                     true
                 },

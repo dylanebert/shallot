@@ -221,8 +221,12 @@ pub unsafe fn finalize(
                 s2 + S2_FLAGS,
                 f32::from_bits(flags | crate::continuous::IS_FAST),
             );
-            if flags & crate::continuous::IS_BULLET != 0 {
+            if flags & crate::continuous::IS_BULLET != 0 || crate::continuous::callbacks_deferred()
+            {
                 crate::continuous::add_bullet(i);
+                if flags & crate::continuous::IS_BULLET == 0 {
+                    continue;
+                }
             } else {
                 crate::continuous::solve(world_index, worker, i);
             }
@@ -236,18 +240,31 @@ pub unsafe fn finalize(
             sim2_col.set(s2 + S2_CENTER0 + 2, center.z);
         }
 
-        // Continuous collision can clip the rotation before inertia is rebuilt.
-        let rotation_matrix = Mat3::from_quat(read_sim(sim_col, i).rotation);
-        write_sim_inv_inertia_world(
-            sim_col,
-            i,
-            rotation_matrix
-                .mul(sim.inv_inertia_local)
-                .mul(rotation_matrix.transpose()),
-        );
-        crate::arena::mark_finalize_island(world_index, worker, body_id);
-        crate::arena::refit_body(world_index, worker, sim_col, fin_col, i);
+        finish_body(world_index, worker, i, sim_col, fin_col, body_id);
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) unsafe fn finish_body(
+    world_index: usize,
+    worker: usize,
+    i: usize,
+    sim_col: Col<f32>,
+    fin_col: Col<f32>,
+    body_id: usize,
+) {
+    // Continuous collision can clip the rotation before inertia is rebuilt.
+    let sim = read_sim(sim_col, i);
+    let rotation_matrix = Mat3::from_quat(sim.rotation);
+    write_sim_inv_inertia_world(
+        sim_col,
+        i,
+        rotation_matrix
+            .mul(sim.inv_inertia_local)
+            .mul(rotation_matrix.transpose()),
+    );
+    crate::arena::mark_finalize_island(world_index, worker, body_id);
+    crate::arena::refit_body(world_index, worker, sim_col, fin_col, i);
 }
 
 #[cfg(test)]
