@@ -37,6 +37,15 @@ static mut INPUT_PTR: u32 = 0;
 static mut INPUT_COUNT_PTR: u32 = 0;
 static mut INPUT_BOUND: usize = 0;
 
+pub(crate) unsafe fn retry_overflow(world: usize) -> bool {
+    if INPUT_PTR != 0 || CAND_COUNT.load(Ordering::Relaxed) <= CAND_CAP {
+        return false;
+    }
+    // The joined task pass chose a racing subset. Discard it before contacts consume survivors.
+    reserve(world, true);
+    true
+}
+
 pub(crate) unsafe fn finish_deferred(world: usize) {
     if INPUT_PTR == 0 {
         return;
@@ -49,10 +58,11 @@ pub(crate) unsafe fn finish_deferred(world: usize) {
         for j in 0..count {
             let p = inputs.add(j * INPUT_STRIDE);
             let (child, a, b) = (*p, *p.add(1), *p.add(2));
-            if (shapes[a as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS]
-                | shapes[b as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS])
-                & (4 << 16)
-                != 0
+            if crate::callbacks::filter_enabled(world)
+                && (shapes[a as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS]
+                    | shapes[b as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS])
+                    & (4 << 16)
+                    != 0
             {
                 crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
             }
@@ -81,10 +91,15 @@ pub extern "C" fn reserve_pairs() {
 
 pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
     unsafe {
+        reserve(world_index, crate::callbacks::filter_enabled(world_index));
+    }
+}
+
+fn reserve(world_index: usize, collect: bool) {
+    unsafe {
         let move_count = broad::move_count(world_index);
         INPUT_PTR = 0;
         INPUT_BOUND = 0;
-        let collect = crate::callbacks::filter_enabled(world_index);
         if collect {
             // Per moved proxy: at most one candidate per live non-sensor shape, or per compound
             // child. Each broad-tree proxy and each compound leaf is visited at most once.

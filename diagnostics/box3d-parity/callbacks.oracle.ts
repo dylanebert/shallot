@@ -18,6 +18,11 @@ for (const mode of ["filter", "pre", "pressure"]) {
         });
     }
 }
+test("five genuinely forked no-callback overflow runs equal native's 1-thread canonical hashes and identities", () => {
+    const expected = run([nativeBinary("callbacks.c"), "1", "no-callback-pressure"]).trim().split("\n").sort();
+    const runs = Array.from({ length: 5 }, () => run(["node", join(dir, "callbacks-scene.js"), "4", "no-callback-pressure"]).trim().split("\n").sort());
+    for (const actual of runs) expect(actual).toEqual(expected);
+});
 for (const threads of [1, 4]) {
     test(`1000-proxy saturated always-true filtering at ${threads} threads equals native's 1-thread canonical query-order hashes and identities`, () => {
         const expected = run([nativeBinary("callbacks.c"), "1", "accept-pressure"]).trim().split("\n").sort();

@@ -635,6 +635,16 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
             }
             2 => {
+                if crate::pairwork::retry_overflow(world_index)
+                    && parallel(
+                        world_index,
+                        4,
+                        crate::broad::move_count(world_index),
+                        crate::broad::set_cap(world_index) as f32,
+                    )
+                {
+                    return 1;
+                }
                 crate::pairwork::schedule_rebuild();
                 crate::pairwork::finish_deferred(world_index);
                 create_pairs(world_index);

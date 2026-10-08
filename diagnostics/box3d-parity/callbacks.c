@@ -43,7 +43,8 @@ int main(int argc, char** argv)
 {
     if (argc != 3) return 2;
     bool pre = strcmp(argv[2], "pre") == 0;
-    bool acceptPressure = strcmp(argv[2], "accept-pressure") == 0;
+    bool noCallback = strcmp(argv[2], "no-callback-pressure") == 0;
+    bool acceptPressure = strcmp(argv[2], "accept-pressure") == 0 || noCallback;
     bool pressure = strcmp(argv[2], "pressure") == 0 || acceptPressure;
     b3WorldDef wd = b3DefaultWorldDef();
     wd.workerCount = atoi(argv[1]);
@@ -52,7 +53,7 @@ int main(int argc, char** argv)
     b3WorldId world = b3CreateWorld(&wd);
     callbackWorld = world;
     if (pre) b3World_SetPreSolveCallback(world, preSolve, NULL);
-    else b3World_SetCustomFilterCallback(world, filter, acceptPressure ? (void*)2 : pressure ? (void*)1 : NULL);
+    else if (!noCallback) b3World_SetCustomFilterCallback(world, filter, acceptPressure ? (void*)2 : pressure ? (void*)1 : NULL);
     b3BodyDef bd = b3DefaultBodyDef();
     b3ShapeDef sd = b3DefaultShapeDef();
     sd.enableCustomFiltering = !pre;
