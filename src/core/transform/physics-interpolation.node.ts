@@ -7,9 +7,10 @@ setDefaultTimeout(CEILING.node);
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { Body, BodyType } from "../../core/physics";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
+import { CanvasContext } from "../../engine/app/canvas.fixture";
+import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
 import { readBody, StandardPhysicsPlugin } from "../../standard/physics";
-import { CanvasContext } from "../app/canvas.fixture";
-import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../index";
+import { TransformRuntime } from "./index";
 
 await setupGlobals();
 if (typeof ResizeObserver === "undefined") {
@@ -22,7 +23,7 @@ if (typeof ResizeObserver === "undefined") {
     });
 }
 
-function attachTestCamera(world: import("../index").World): void {
+function attachTestCamera(world: import("../../index").World): void {
     let context: CanvasContext;
     const canvas = {
         width: 32,
@@ -55,7 +56,7 @@ function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     });
 }
 
-test("engine interpolation uploads one GlobalTransform range and preserves unmoved renderer rows", async () => {
+test("placement interpolation uploads one GlobalTransform range and preserves unmoved renderer rows", async () => {
     const app = await createApp({
         defaults: false,
         plugins: [StandardPhysicsPlugin, RenderingPlugin],
@@ -85,7 +86,7 @@ test("engine interpolation uploads one GlobalTransform range and preserves unmov
     Object.defineProperty(queue, "writeBuffer", {
         configurable: true,
         value: (...args: Parameters<GPUQueue["writeBuffer"]>) => {
-            if (world.globalTransformRuntime!.stages.includes(args[0])) {
+            if (world.resource(TransformRuntime).stages.includes(args[0])) {
                 globalTransformWrites++;
                 globalTransformBytes += args[4] ?? 0;
             }

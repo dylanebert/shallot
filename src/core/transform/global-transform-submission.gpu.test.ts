@@ -1,8 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
-import { CanvasContext } from "../app/canvas.fixture";
-import { Time, Transform, type World } from "../index";
+import { Time, type World } from "../../engine";
+import { CanvasContext } from "../../engine/app/canvas.fixture";
+import { Transform, TransformPlugin, TransformRuntime } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
 if (typeof ResizeObserver === "undefined") {
@@ -18,7 +19,7 @@ if (typeof ResizeObserver === "undefined") {
 import { gpuApps } from "../../../scripts/gpu.fixture";
 
 const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [] },
+    { defaults: false, plugins: [TransformPlugin] },
     { defaults: false, plugins: [RenderingPlugin] },
 ]);
 
@@ -47,6 +48,7 @@ for (const renderer of [false, true]) {
         async () => {
             const app = subjects()[renderer ? 1 : 0];
             const world = app.world;
+            const runtime = world.resource(TransformRuntime);
             const eid = world.create();
             world.add(eid, Transform);
             world.storage(Transform).translation.set(eid, 3, 2, 1, 0);
@@ -81,8 +83,8 @@ for (const renderer of [false, true]) {
                             ...copyArgs: Parameters<GPUCommandEncoder["copyBufferToBuffer"]>
                         ) => {
                             if (
-                                copyArgs[0] === world.globalTransformRuntime!.current!.buffer &&
-                                copyArgs[2] === world.globalTransformRuntime!.previous!.buffer
+                                copyArgs[0] === runtime.current!.buffer &&
+                                copyArgs[2] === runtime.previous!.buffer
                             )
                                 copies++;
                             return copy(...copyArgs);
@@ -101,10 +103,7 @@ for (const renderer of [false, true]) {
             Object.defineProperty(queue, "writeBuffer", {
                 configurable: true,
                 value: (...args: Parameters<GPUQueue["writeBuffer"]>) => {
-                    if (
-                        args[0] === world.globalTransformRuntime!.current!.buffer ||
-                        args[0] === world.globalTransformRuntime!.params!
-                    )
+                    if (args[0] === runtime.current!.buffer || args[0] === runtime.params!)
                         globalTransformWrites++;
                     return write(...args);
                 },
@@ -123,8 +122,8 @@ for (const renderer of [false, true]) {
                 expect(copies).toBe(0);
                 if (!renderer) {
                     expect(globalTransformWrites).toBe(0);
-                    expect(world.globalTransformRuntime!.enabled).toBe(false);
-                    expect(world.globalTransformRuntime!.current).toBeUndefined();
+                    expect(runtime.enabled).toBe(false);
+                    expect(runtime.current).toBeUndefined();
                 }
             } finally {
                 for (const [object, key, descriptor] of [

@@ -1,7 +1,8 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
-import { createApp, GlobalTransform, Time, Transform } from "../../engine";
+import { GlobalTransform, Transform } from "../../core/transform";
+import { createApp, Time } from "../../engine";
 import { physicsWorld, readBody, StandardPhysicsPlugin } from ".";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 

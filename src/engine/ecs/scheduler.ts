@@ -132,14 +132,14 @@ export class Scheduler {
         }
     }
 
-    /** @internal Engine-owned slots bracket every ordinary system, including terminal systems. */
-    registerBoundary(system: System, position: "before" | "after"): void {
+    /** @internal Module-owned slots bracket every ordinary system, including terminal systems. */
+    registerBoundary(system: System, position: "before" | "after", pluginName?: string): void {
         for (const [registered, slot] of this._boundaries) {
             if (registered !== system && slot === position && registered.group === system.group)
                 throw new Error(`System group ${system.group} already has a ${position} boundary`);
         }
         this._boundaries.set(system, position);
-        this.register(system, "Engine");
+        this.register(system, pluginName);
     }
 
     register(system: System, pluginName?: string): void {

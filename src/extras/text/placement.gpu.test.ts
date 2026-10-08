@@ -3,8 +3,13 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { compileGpuFile } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp, globalTransformTable, Transform } from "../../engine";
-import { prepareGlobalTransformFrame } from "../../engine/ecs/global-transform";
+import {
+    globalTransformTable,
+    prepareGlobalTransformFrame,
+    Transform,
+    TransformRuntime,
+} from "../../core/transform";
+import { createApp } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { encodePos } from "../../engine/utils";
 import { VsIn } from "../../standard/rendering";
@@ -34,7 +39,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     // The small composition has no renderer; record its placement pass exactly once at warm-up.
     const placementEncoder = device.createCommandEncoder();
     prepareGlobalTransformFrame(world, placementEncoder);
-    const runtime = world.globalTransformRuntime!;
+    const runtime = world.resource(TransformRuntime);
     device.queue.writeBuffer(runtime.params!, 0, new Float32Array([1, table.count, 0, 0]));
     const placementPass = placementEncoder.beginComputePass();
     placementPass.setPipeline(runtime.pipeline!);

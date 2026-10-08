@@ -8,19 +8,25 @@ import {
     Views,
     viewportToWorld,
 } from "../../core/rendering";
+import * as engine from "../../engine";
+import { createApp, probeBuffer, u32 } from "../../engine";
+import { CanvasContext } from "../../engine/app/canvas.fixture";
+import { component } from "../../engine/ecs/component";
+import type { System } from "../../engine/ecs/scheduler";
+import { Time } from "../../engine/ecs/scheduler";
 import { StandardPhysicsPlugin, StepPhysicsSystem, setKinematic } from "../../standard/physics";
+import * as transform from "./index";
 import {
-    createApp,
+    GlobalTransform,
     GlobalTransformTickEndSystem,
     GlobalTransformTickStartSystem,
+    globalTransformTable,
     PrepareGlobalTransformSystem,
-} from "../app";
-import { CanvasContext } from "../app/canvas.fixture";
-import * as engine from "../index";
-import { GlobalTransform, globalTransformTable, probeBuffer, Transform, u32 } from "../index";
-import { component } from "./component";
-import type { System } from "./scheduler";
-import { Time } from "./scheduler";
+    Transform,
+    TransformPlugin,
+    TransformRuntime,
+    teleport as teleportPlacement,
+} from "./index";
 
 setDefaultTimeout(CEILING.node);
 if (typeof ResizeObserver === "undefined") {
@@ -57,17 +63,18 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
         );
     });
 }
-test("GlobalTransform is an engine-owned public schema, independent of Physics", () => {
-    expect(Reflect.get(engine, "GlobalTransform")).toBe(GlobalTransform);
-    expect(Reflect.get(engine, "markGlobalTransformDiscontinuity")).toBeUndefined();
+test("GlobalTransform is a transform-module public schema, independent of Physics", () => {
+    expect(transform.GlobalTransform).toBe(GlobalTransform);
+    expect(Reflect.get(engine, "GlobalTransform")).toBeUndefined();
 });
 
-test("built-in placement systems bracket exact ticks and gather after every simulation system without a plugin", async () => {
+test("TransformPlugin boundaries bracket exact ticks and gather after every simulation system", async () => {
     let eid = -1;
     let start = 0;
     const app = await createApp({
         defaults: false,
         plugins: [
+            TransformPlugin,
             {
                 name: "FirstPlacementReader",
                 systems: [
@@ -435,7 +442,7 @@ test("an author-marked Transform jump of any size snaps instead of interpolating
         const table = globalTransformTable(world);
         world.step(Time.FIXED_DT);
         world.storage(Transform).translation.set(eid, 0.25, 0, 0, 0);
-        world.teleport(eid);
+        teleportPlacement(world, eid);
         world.step(Time.FIXED_DT / 2);
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         expect(await renderedX(world, table, eid)).toBeCloseTo(0.25, 5);
@@ -457,7 +464,7 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
         attachTestCamera(world);
         globalTransformTable(world);
         world.step(Time.FIXED_DT);
-        const table = world.globalTransformRuntime!.current!;
+        const table = world.resource(TransformRuntime).current!;
         const row = table.rowIndex(eid);
         expect(row).toBeGreaterThanOrEqual(0);
         setKinematic(world, eid, [17, 3, -2], [0, 0, 0, 1], false);

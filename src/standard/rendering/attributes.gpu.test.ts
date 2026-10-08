@@ -13,7 +13,7 @@ import {
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
-import { Transform } from "../../engine";
+import { Transform } from "../../core/transform";
 import { fsCtxSchema, registerSurface, surfaceLayout, VsIn, vsPatchSchema } from "./contract";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";

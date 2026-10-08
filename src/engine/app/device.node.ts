@@ -9,7 +9,8 @@ import { hashPhysics, readBody, StandardPhysicsPlugin } from "../../standard/phy
 import "../../standard";
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { globalTransformTable, Time, type World } from "../index";
+import { globalTransformTable } from "../../core/transform";
+import { Time, type World } from "../index";
 import { createApp } from "./index";
 
 await setupGlobals();

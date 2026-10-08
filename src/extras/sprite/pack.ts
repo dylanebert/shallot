@@ -7,7 +7,8 @@ import { component } from "../../engine";
 // over World — no GPU — so the packing contract is what sprite.test.ts exercises directly.
 
 import * as d from "typegpu/data";
-import { f32, GlobalTransform, u32, vec2, type World } from "../../engine";
+import { GlobalTransform } from "../../core/transform";
+import { f32, u32, vec2, type World } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { SpriteData } from "./surface";
 

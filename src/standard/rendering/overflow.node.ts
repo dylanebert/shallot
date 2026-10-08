@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import { CEILING } from "../../../scripts/test-tiers";
 import { PointLight } from "../../core/rendering";
-import { Transform } from "../../engine";
+import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import { CLUSTER_COUNT, LIGHT_GRID_OFFSET, LIGHT_POOL, requestLightOverflow } from "./cluster";
 

@@ -1,7 +1,8 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
-import { createApp, GlobalTransform, Time } from "../../engine";
+import { GlobalTransform } from "../../core/transform";
+import { createApp, Time } from "../../engine";
 import { physicsWorld, readBody, StandardPhysicsPlugin, setKinematic } from ".";
 
 setDefaultTimeout(CEILING.node);

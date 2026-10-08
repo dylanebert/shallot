@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { GlobalTransform, resizeViewport, World } from "../../engine";
+import { resizeViewport, World } from "../../engine";
 import { component } from "../../engine/ecs/component";
+import { GlobalTransform } from "../transform";
 import { Camera, CameraMode } from "./camera";
 import { type View, Views } from "./view";
 import { generateRay, screenToRay, viewportToWorld } from "./viewport-to-world";

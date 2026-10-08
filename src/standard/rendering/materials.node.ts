@@ -13,7 +13,7 @@ import {
     DirectionalLight,
     PointLight,
 } from "../../core/rendering";
-import { Transform } from "../../engine";
+import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import { DEFAULT_PLUGINS, MeshRenderPlugin, StandardRenderingPlugin } from "../index";
 import { Surfaces } from "./contract";

@@ -8,8 +8,9 @@ import {
     SpotLight,
     VolumetricLight,
 } from "../../core/rendering";
+import { GlobalTransform } from "../../core/transform";
 import type { World } from "../../engine";
-import { GlobalTransform, unpackColor } from "../../engine";
+import { unpackColor } from "../../engine";
 import { bitcastF32toU32, octDecodeNormal } from "../../engine/utils";
 
 /** the Lighting UBO byte size (three vec4s: ambient, sun direction, sun color); a relocatable consumer

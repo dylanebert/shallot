@@ -1,7 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { type Plugin, Transform } from "../../engine";
+import type { Plugin } from "../../engine";
 import { createApp } from "../../engine/app";
+import { Transform } from "../transform";
 import {
     attachTexture,
     Camera,

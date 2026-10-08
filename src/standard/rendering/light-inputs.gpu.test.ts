@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { PointLight, SpotLight, VolumetricLight } from "../../core/rendering";
-import { Transform } from "../../engine";
+import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import { lightInputKey } from "./cluster";
 import { StandardRenderingPlugin } from "./index";

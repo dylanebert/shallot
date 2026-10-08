@@ -18,7 +18,8 @@ import {
     Views,
 } from "../../core/rendering";
 import { PointsPlugin } from "../../core/rendering/points.fixture";
-import { type Plugin, Transform } from "../../engine";
+import { Transform } from "../../core/transform";
+import type { Plugin } from "../../engine";
 import { createApp } from "../../engine/app";
 import { probeBuffer } from "../../engine/runtime";
 import { Xform } from "../../engine/utils";

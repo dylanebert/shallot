@@ -9,7 +9,10 @@ const TIER_ORDER = new Map(GAME_TIERS.map((tier, index) => [tier, index]));
 const TOOLING = new Set(["project", "cli", "native", "types"]);
 const MODULE_TIERS = new Set(["core", "standard", "extras"]);
 type SiblingEdge = readonly [from: string, to: string];
-const SIBLING_EDGES: readonly SiblingEdge[] = [];
+const SIBLING_EDGES: readonly SiblingEdge[] = [
+    ["core/physics", "core/transform"],
+    ["core/rendering", "core/transform"],
+];
 // The runtime floor is a host-only leaf; Vite is public only through this package subpath.
 const DIRECT_LEAVES = new Set(["engine/runtime/floor.ts"]);
 const PUBLIC_ENTRIES = new Map([["@dylanebert/shallot/vite", "project/vite.ts"]]);
@@ -246,7 +249,18 @@ export function checkImports(
         if (transition && sourceModule) transitional.set(sourceModule.directory, sourceModule);
         const sourceTier = gameTierAt(src, file);
         const path = relative(root, file).split(sep).join("/");
-        for (const reference of references(readFileSync(file, "utf8"), path)) {
+        const source = readFileSync(file, "utf8");
+        if (sourceTier === "engine" && !fixtureSource) {
+            const placement =
+                /\bTransform\b|GlobalTransform\w*|globalTransform\w*|\bteleport\b|global-transform/.exec(
+                    source,
+                );
+            if (placement) {
+                const line = source.slice(0, placement.index).split("\n").length;
+                violations.push(`${path}:${line}: engine names placement code ${placement[0]}`);
+            }
+        }
+        for (const reference of references(source, path)) {
             const key = `${file}\u0000${reference.specifier}`;
             const resolution = resolutions.get(key);
             if (

@@ -13,8 +13,8 @@ import {
     Views,
     VolumetricLight,
 } from "../../core/rendering";
+import { globalTransformTable } from "../../core/transform";
 import type { System, World } from "../../engine";
-import { globalTransformTable } from "../../engine";
 import { precompile, probeBuffer } from "../../engine/runtime";
 import {
     idiv,

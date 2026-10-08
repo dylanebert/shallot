@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { Transform } from "../../engine";
 import { createApp } from "../../engine/app";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { probeTexture } from "../../engine/runtime";
 import { BASE_FEATURES } from "../../engine/runtime/gpu";
 import { Vignette, VignettePlugin } from "../../extras/vignette";
 import { StandardRenderer } from "../../standard/rendering";
+import { Transform } from "../transform";
 import "../../standard";
 import {
     attachCanvas,

@@ -137,7 +137,7 @@ export interface WorldGpu {
     /**
      * named GPU buffers published for cross-system lookup. GPU tables
      * self-register; producers register their static buffers (cube vertices,
-     * GlobalTransform rows, …). Consumers (renderers) resolve binding names
+     * placement rows, …). Consumers (renderers) resolve binding names
      * to buffers at bind-group build time
      */
     readonly buffers: Map<string, GPUBuffer>;

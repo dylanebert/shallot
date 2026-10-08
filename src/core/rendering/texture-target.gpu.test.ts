@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { Transform } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
+import { Transform } from "../transform";
 import {
     attachTexture,
     BeginFrameSystem,

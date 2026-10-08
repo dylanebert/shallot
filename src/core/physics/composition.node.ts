@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp, GlobalTransform } from "../../engine";
+import { createApp } from "../../engine";
+import { GlobalTransform } from "../transform";
 import {
     Body,
     DistanceJoint,

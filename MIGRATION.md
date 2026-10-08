@@ -374,7 +374,7 @@ world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
 
 ## Authored Transform and world GlobalTransform are separate
 
-`Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, never authored, and has no hierarchy. Physics publishes rigid pose and velocity, not collider-derived scale. Register a sized mesh with `cube([hx, hy, hz])`, `sphere(radius)` or `capsule(halfHeight, radius)` from `/mesh` when the visual should match the collider; these builders default to the built-in sizes.
+`Transform` remains authored placement. Replace `TransformsPlugin` with `TransformPlugin` from `@dylanebert/shallot/transform` (also exported at the root). Physics and rendering include it as a dependency; add it explicitly to placement-only compositions. It derives `GlobalTransform` for each `Transform` entity; physics publishes a body's placement. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is derived world placement, never authored, and has no hierarchy. Physics publishes rigid pose and velocity, not collider-derived scale. Register a sized mesh with `cube([hx, hy, hz])`, `sphere(radius)` or `capsule(halfHeight, radius)` from `/mesh` when the visual should match the collider; these builders default to the built-in sizes.
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 
@@ -570,7 +570,7 @@ Import shared components, `ShapeKind`, `Hulls`, `Hull`, `HullFace`, `UNIT_CUBE_I
 `BodyState` from `@dylanebert/shallot/physics`. Import
 `StandardPhysicsPlugin`, `StepPhysicsSystem`, `PhysicsWorld`, `physicsWorld`,
 `readBody`, `setKinematic`, `setVelocity` and `hashPhysics` from `@dylanebert/shallot/standard/physics`. Both subpaths
-are also exported by the root barrel. Import `GlobalTransform` from the root,
+are also exported by the root barrel. Import `GlobalTransform` from the root or `/transform`,
 not `/physics`.
 
 `Spring` and `Joint` are replaced by `DistanceJoint`, `FilterJoint`, `MotorJoint`,
@@ -660,7 +660,7 @@ There is no animation plugin in this release line. Implement animation in app co
 
 The `.scene` format is removed with no replacement: the root's `load`, `serialize`, `diagnose`, `parse` and `stringify` and the `Node`, `Attr`, `ParseError` and `Diagnostic` types, and `/scene/core`'s `normalizeAttr`, `parseFields`, `formatFields`, `readComponent`, `setFieldValue`, `findNodeById` and `findParent`. Remove the app's and manifest's `scene` option. A game saves the component values it needs through `world.storage(Component)` and restores them itself. The world snapshot is local recovery state, not a save format.
 
-`Identity`, `world.identity`, `refs()` and the `derived` component trait are removed. Keep the eids returned by `world.create()` instead of naming entities. The `entity` field type still stores a plain eid; save and restore references yourself. `GlobalTransform` remains engine-managed through its producers' `requires`, without the trait.
+`Identity`, `world.identity`, `refs()` and the `derived` component trait are removed. Keep the eids returned by `world.create()` instead of naming entities. The `entity` field type still stores a plain eid; save and restore references yourself. `GlobalTransform` remains attached through its producers' `requires`, without the trait.
 
 Author worlds in code:
 

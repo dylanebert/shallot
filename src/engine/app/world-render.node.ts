@@ -3,12 +3,12 @@ import * as d from "typegpu/data";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import { RenderingPlugin } from "../../core/rendering";
+import { Transform } from "../../core/transform";
 import {
     MeshInstanceInput,
     MeshRenderPlugin,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { Transform } from "../index";
 import { probeBuffer } from "../runtime";
 import { createApp } from "./index";
 

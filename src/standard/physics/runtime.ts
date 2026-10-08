@@ -1,15 +1,8 @@
 /// <reference types="@webgpu/types" />
 
 import { Body, type BodyState, BodyType, Hulls, PhysicsPlugin } from "../../core/physics";
-import {
-    type EntityRef,
-    GlobalTransform,
-    type Plugin,
-    type System,
-    Time,
-    Transform,
-    type World,
-} from "../../engine";
+import { GlobalTransform, Transform, teleport as teleportPlacement } from "../../core/transform";
+import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
 import {
     hash as hashWorld,
     init,
@@ -272,7 +265,7 @@ export function setKinematic(
     global.translation.markChanged(eid);
     global.rotation.markChanged(eid);
     global.linearVelocity.markChanged(eid);
-    if (teleport) world.teleport(eid);
+    if (teleport) teleportPlacement(world, eid);
     if (moved && !tb.isAwake()) tb.setAwake(true);
     prev.pos[0] = pos[0];
     prev.pos[1] = pos[1];
@@ -498,7 +491,7 @@ const SyncSystem: System = {
             runtime.stamps.set(eid, stamp);
             bodySetChanged = true;
             seedGlobalTransform(world, eid);
-            world.teleport(eid);
+            teleportPlacement(world, eid);
         }
         runtime.failed.forEach(dropDespawnedFailure, world);
         const stale = runtime.stale;

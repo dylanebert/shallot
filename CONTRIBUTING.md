@@ -56,9 +56,11 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### GlobalTransform
 
+- `TransformPlugin` (`core/transform`) owns authored `Transform`, derived `GlobalTransform`, fixed-tick derivation and boundaries, discontinuities and placement recovery.
+- Physics and rendering depend on it; a composition without a placement reader registers no placement unless it adds `TransformPlugin`.
 - `GlobalTransform` is derived world placement, never authored.
-- Gameplay and physics read its fixed-tick columns; rendering reads the engine's interpolated table, resident only when requested.
-- A teleport discards interpolation across the discontinuity.
+- Gameplay and physics read its fixed-tick columns; rendering reads `globalTransformTable(world)`, resident only when requested. Core transform currently owns that table and its GPU history.
+- `teleport(world, eid)` from `/transform` discards interpolation across a placement discontinuity.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
 - A body's simulation writes its `GlobalTransform` translation, rotation and velocity, not scale.
 - Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
@@ -70,7 +72,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Extras admit features after a stable release cycle as external packages.
 - Each module owns one useful responsibility completely; split, fix or remove one that doesn't.
 - Game modules never import tooling (`project`, `cli`, `native`, `types`).
-- A core, standard or extras module imports a sibling in its layer only along an edge the import gate declares, and the declared edges form no cycle. Physics never imports rendering or input.
+- A core, standard or extras module imports a sibling in its layer only along an edge the import gate declares, and the declared edges form no cycle. Core physics and rendering depend on core transform. Physics never imports rendering or input.
+- Engine owns domain-free storage and scheduling; it neither imports nor names placement code.
 - A game module's `index.ts` is public and its other files are internal.
 - A module registering systems or resources defines a plugin; others export data and functions.
 - A module's extra plugins are its optional parts; a part with its own responsibility is its own module.
@@ -195,7 +198,7 @@ bun run format                   # biome
 |---|---|
 | Kernel speedup, unchanged behavior | Kernel; `diagnostics/box3d-parity/ab.ts` on the claim |
 | Kernel behavior or native boundary | Kernel; the affected `diagnostics/box3d-parity` oracles |
-| TypeScript API, ECS bridge, world or pool ownership | Common; the non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`; `src/engine/ecs/{global-transform,physics-interpolation}.node.ts` |
+| TypeScript API, ECS bridge, world or pool ownership | Common; the non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`; `src/core/transform/{global-transform,physics-interpolation,recovery,composition}.node.ts` |
 | Allocation or lifecycle | Common; the affected `*allocation.node.ts` under `src/standard/physics` |
 | Character or Player | Common; `src/standard/physics/character-allocation.node.ts`; `src/extras/player/*.node.ts`; `examples/first-person/src/*.node.ts` |
 | Checks or documentation only | The changed checks; `bun run check` |

@@ -4,7 +4,8 @@ import { StandardRenderingPlugin } from "../../standard/rendering";
 import "../../standard";
 
 import { CEILING } from "../../../scripts/test-tiers";
-import { Time, Transform, type World } from "../index";
+import { Transform } from "../../core/transform";
+import { Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { createApp } from "./index";
 

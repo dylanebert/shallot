@@ -1,7 +1,6 @@
 import type { World } from "../../engine";
 import {
     component,
-    composeGlobalTransform,
     f32,
     invertMat4,
     multiplyMat4,
@@ -9,6 +8,7 @@ import {
     perspective,
     u32,
 } from "../../engine";
+import { composeGlobalTransform } from "../transform";
 
 /**
  * a camera's projection model: `Perspective` (fov-based, the default) or `Orthographic` (size-based).
@@ -20,7 +20,7 @@ export const CameraMode = {
 } as const;
 
 /**
- * camera component. Placement comes from the engine's fixed-tick GlobalTransform (looks down its local -Z). A lone camera
+ * camera component. Placement comes from TransformPlugin's fixed-tick GlobalTransform (looks down its local -Z). A lone camera
  * auto-binds to the first `<canvas>` in the document, so the single-view case needs no wiring;
  * multi-view (or a dynamically-created canvas) binds each camera explicitly via `attachCanvas`
  * from the view. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); core unpacks to linear

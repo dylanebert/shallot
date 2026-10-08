@@ -4,7 +4,6 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { Transform } from "../../engine";
 import { Fog, FogPlugin } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";
 import { DEFAULT_PLUGINS } from "../../standard";
@@ -19,6 +18,7 @@ import {
     StandardRenderer,
 } from "../../standard/rendering";
 import { MeshInstance } from "../mesh";
+import { Transform } from "../transform";
 import {
     AmbientLight,
     attachTexture,

@@ -85,6 +85,15 @@ function put(root: string, path: string, source: string): void {
     writeFileSync(file, source);
 }
 
+test("engine placement names fail even without an outward import", () => {
+    withFixture((root) => {
+        put(root, "engine/ecs/placement.ts", "export const GlobalTransform = {};\n");
+        expect(checkImports(root)).toContain(
+            "src/engine/ecs/placement.ts:1: engine names placement code GlobalTransform",
+        );
+    });
+});
+
 function withSiblingGraph(run: (root: string, tier: string) => void): void {
     for (const tier of ["core", "standard", "extras"]) {
         withFixture((root) => {

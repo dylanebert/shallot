@@ -1,4 +1,5 @@
-import { GlobalTransform, qRotate, type Ray, Viewports, type World } from "../../engine";
+import { qRotate, type Ray, Viewports, type World } from "../../engine";
+import { GlobalTransform } from "../transform";
 import { Camera, CameraMode } from "./camera";
 import { Views } from "./view";
 

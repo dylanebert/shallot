@@ -12,7 +12,7 @@ export {
     WeldJoint,
     WheelJoint,
 } from "../core/physics";
-export { composeGlobalTransform, GlobalTransform, Transform } from "../engine";
+export { composeGlobalTransform, GlobalTransform, Transform } from "../core/transform";
 export {
     AudioPlugin,
     type InstrumentDef,

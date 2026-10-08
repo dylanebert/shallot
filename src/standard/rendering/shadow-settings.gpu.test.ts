@@ -10,7 +10,8 @@ import {
     DirectionalLight,
     PointLight,
 } from "../../core/rendering";
-import { createApp, Transform, type World } from "../../engine";
+import { Transform } from "../../core/transform";
+import { createApp, type World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";

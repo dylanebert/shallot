@@ -1,14 +1,13 @@
 import { Devices, InputPlugin, type Pointer } from "../../core/input";
 import { Camera, CameraMode } from "../../core/rendering";
+import { GlobalTransform, Transform, TransformPlugin } from "../../core/transform";
 import {
     component,
     entity,
     f32,
-    GlobalTransform,
     not,
     type Plugin,
     type System,
-    Transform,
     u8,
     Viewports,
     vec4,
@@ -493,7 +492,7 @@ export const OrbitPlugin: Plugin = {
     systems: [OrbitSystem],
     components: [Orbit],
 
-    dependencies: [InputPlugin],
+    dependencies: [InputPlugin, TransformPlugin],
 };
 
 export { OrbitOverlayPlugin } from "./overlay";

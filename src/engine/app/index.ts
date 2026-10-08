@@ -1,14 +1,6 @@
 /// <reference types="@webgpu/types" />
 
-import {
-    type Component,
-    declaration,
-    initializeGlobalTransform,
-    registerGlobalTransform,
-    type System,
-    sameComponentSchema,
-    World,
-} from "../ecs";
+import { type Component, declaration, type System, sameComponentSchema, World } from "../ecs";
 import {
     type AdapterVerdict,
     deviceLost,
@@ -211,12 +203,6 @@ export const ClearChangeMarksSystem: System = {
     },
 };
 
-export {
-    GlobalTransformTickEndSystem,
-    GlobalTransformTickStartSystem,
-    PrepareGlobalTransformSystem,
-} from "../ecs";
-
 let _defaultPlugins: readonly Plugin[] = [];
 let _defaultLoading: (() => Loading) | null = null;
 
@@ -303,7 +289,6 @@ async function buildNow(config: AppConfig): Promise<App> {
             resource: world.resource.bind(world),
         });
         world.attachGpu(compute);
-        registerGlobalTransform(world);
         if (world.gpu.adapter.class !== "real") loading?.notice?.(world.gpu.adapter);
 
         for (const plugin of sorted) {
@@ -336,7 +321,6 @@ async function buildNow(config: AppConfig): Promise<App> {
         const warmable = sorted.filter((p) => p.warm);
         const total = sorted.length + warmable.length;
 
-        initializeGlobalTransform(world);
         config.setup?.(world);
 
         for (let i = 0; i < sorted.length; i++) {

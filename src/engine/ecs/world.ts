@@ -19,11 +19,6 @@ import { type Recovery, SnapshotComposition, type WorldSnapshot } from "./snapsh
 
 export type { WorldSnapshot } from "./snapshot";
 
-import {
-    type GlobalTransformRuntime,
-    markGlobalTransformDiscontinuity,
-    prepareGlobalTransformFrame,
-} from "./global-transform";
 import { Queries } from "./query";
 import { ComponentRegistry } from "./registry";
 import { Scheduler, type System, Time } from "./scheduler";
@@ -43,8 +38,8 @@ export class World {
     /** this world's component registrations, with their defaults and requirements. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
-    /** @internal Fixed world placement and renderer-only GPU history, owned by this world. */
-    globalTransformRuntime: GlobalTransformRuntime | undefined;
+    /** @internal GPU history participants record after deferred growth copies. */
+    gpuFrameHooks: { record(encoder: GPUCommandEncoder): void; defer(): boolean } | undefined;
     private _frameEncoder: GPUCommandEncoder | undefined;
     private _retiredBuffers: GPUBuffer[] = [];
     private _pendingCopies: { source: GPUBuffer; target: GPUBuffer }[] = [];
@@ -165,7 +160,7 @@ export class World {
         for (const copy of this._pendingCopies)
             encoder.copyBufferToBuffer(copy.source, 0, copy.target, 0, copy.source.size);
         this._pendingCopies.length = 0;
-        prepareGlobalTransformFrame(this, encoder);
+        this.gpuFrameHooks?.record(encoder);
     }
 
     /** @internal Release buffers retired by growth only after the frame was submitted. */
@@ -185,7 +180,7 @@ export class World {
         if (this._frameEncoder) {
             this._frameEncoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
             this._retiredBuffers.push(previous);
-        } else if (this._stepping && this.globalTransformRuntime?.enabled) {
+        } else if (this._stepping && this.gpuFrameHooks?.defer()) {
             this._pendingCopies.push({ source: previous, target: buffer });
             this._retiredBuffers.push(previous);
         } else {
@@ -198,7 +193,7 @@ export class World {
 
     /** @internal CPU metadata replaces old buffers without a GPU copy. */
     retireGpuBuffer(buffer: GPUBuffer): void {
-        if (this._frameEncoder || (this._stepping && this.globalTransformRuntime?.enabled))
+        if (this._frameEncoder || (this._stepping && this.gpuFrameHooks?.defer()))
             this._retiredBuffers.push(buffer);
         else buffer.destroy();
     }
@@ -477,11 +472,6 @@ export class World {
         this._scheduler.setScale(scale);
     }
 
-    /** Mark a placement change as a teleport so rendering snaps instead of interpolating it. */
-    teleport(eid: number): void {
-        markGlobalTransformDiscontinuity(this, eid);
-    }
-
     create(): number {
         const eid = this._entities.add();
         if (eid + 1 > this._highWater) this._highWater = eid + 1;
@@ -625,9 +615,11 @@ export class World {
         return result;
     }
 
-    /** @internal Only engine owners register group boundaries; plugins use addSystem. */
-    addBoundarySystem(system: System, position: "before" | "after"): void {
-        this._scheduler.registerBoundary(system, position);
+    /** @internal Module-owned slots bracket ordinary systems, including terminal systems.
+     * Fixed boundaries require their owner's declared recovery. */
+    addBoundarySystem(system: System, position: "before" | "after", pluginName: string): void {
+        if (system.group === "fixed") this._snapshots.require(pluginName);
+        this._scheduler.registerBoundary(system, position, pluginName);
     }
 
     /** Fixed systems belong to a plugin's declared recovery. Without plugin attribution,
@@ -756,7 +748,7 @@ export class World {
         this._snapshots.clear();
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
-        this.globalTransformRuntime = undefined;
+        this.gpuFrameHooks = undefined;
         this.endGpuFrame();
         this._pendingCopies.length = 0;
         this._uploadStages.clear();

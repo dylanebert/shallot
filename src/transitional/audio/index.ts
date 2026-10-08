@@ -2,18 +2,12 @@
 
 import { Devices } from "../../core/input";
 import {
-    component,
     composeGlobalTransform,
-    f32,
     GlobalTransform,
-    i32,
-    not,
-    type Plugin,
-    type System,
     Transform,
-    u8,
-    type World,
-} from "../../engine";
+    TransformPlugin,
+} from "../../core/transform";
+import { component, f32, i32, not, type Plugin, type System, u8, type World } from "../../engine";
 import {
     Audio,
     addSpatial,
@@ -375,6 +369,7 @@ export { Instruments, instrument };
  */
 export const AudioPlugin: Plugin = {
     name: "Audio",
+    dependencies: [TransformPlugin],
     components: [Sound, Listener, Voiced],
     systems: [SoundSystem],
 

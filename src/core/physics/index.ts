@@ -1,4 +1,5 @@
-import { component, f32, GlobalTransform, type Plugin, u32, vec4 } from "../../engine";
+import { component, f32, type Plugin, u32, vec4 } from "../../engine";
+import { GlobalTransform, TransformPlugin } from "../transform";
 import { Hulls } from "./hull";
 import {
     DistanceJoint,
@@ -90,6 +91,7 @@ export interface BodyState {
 /** Registers shared physics authoring data without installing a simulation. */
 export const PhysicsPlugin: Plugin = {
     name: "Physics",
+    dependencies: [TransformPlugin],
     recovery(world) {
         const hulls = world.resource(Hulls);
         return {

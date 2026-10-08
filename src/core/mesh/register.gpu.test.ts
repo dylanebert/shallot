@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp, type Plugin, Transform, type World } from "../../engine";
+import { createApp, type Plugin, type World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import {
     MeshRenderPlugin,
@@ -9,6 +9,7 @@ import {
     StandardRenderingPlugin,
 } from "../../standard/rendering";
 import { AmbientLight, attachTexture, Camera, captureTexture } from "../rendering";
+import { Transform } from "../transform";
 import { type Mesh, Meshes, MeshInstance, MeshPlugin, registerMesh } from "./index";
 
 setDefaultTimeout(CEILING.gpu);

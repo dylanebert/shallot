@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, PointLight, RenderingPlugin } from "../../core/rendering";
-import { CanvasContext } from "../app/canvas.fixture";
+import { CanvasContext } from "../../engine/app/canvas.fixture";
 import {
     type createApp,
     GlobalTransform,
@@ -9,8 +9,9 @@ import {
     probeBuffer,
     Time,
     Transform,
+    teleport,
     type World,
-} from "../index";
+} from "../../index";
 
 setDefaultTimeout(CEILING.gpu);
 if (typeof ResizeObserver === "undefined") {
@@ -24,7 +25,11 @@ if (typeof ResizeObserver === "undefined") {
 }
 
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { beginGlobalTransformTick, endGlobalTransformTick } from "./global-transform";
+import {
+    beginGlobalTransformTick,
+    endGlobalTransformTick,
+    TransformRuntime,
+} from "./global-transform";
 
 const configs: Parameters<typeof createApp>[0][] = [];
 const subjects = gpuApps(import.meta.path, configs);
@@ -127,7 +132,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
                     .bytes,
             );
             expect(words[row * 12]).toBeCloseTo(22.5, 5);
-            expect(() => world.globalTransformRuntime!.previous!.bytes).toThrow("GPU-only");
+            expect(() => world.resource(TransformRuntime).previous!.bytes).toThrow("GPU-only");
             expect(await bounded(world.gpu.device.popErrorScope())).toBeNull();
         } finally {
             app.dispose();
@@ -195,7 +200,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
                         update(world) {
                             if (world.time.fixedTick === 1) {
                                 world.storage(Transform).translation.x.set(eid, 100);
-                                world.teleport(eid);
+                                teleport(world, eid);
                             } else {
                                 world
                                     .storage(Transform)
@@ -354,7 +359,7 @@ test("public exact ticks defer growth copies and retain interpolation, teleport 
                 }
                 if (tick === 8) {
                     source.x.set(jumping, 800);
-                    world.teleport(jumping);
+                    teleport(world, jumping);
                     spawned = world.create();
                     world.add(spawned, Transform, { translation: [900, 0, 0, 0] });
                 }

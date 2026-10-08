@@ -13,7 +13,8 @@ import {
     NotShadowCaster,
     PointLight,
 } from "../../core/rendering";
-import { type Plugin, Transform, type World } from "../../engine";
+import { Transform } from "../../core/transform";
+import type { Plugin, World } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import { Xform } from "../../engine/utils";
 import { pointAtlasView, sunShadowView } from "./atlas";

@@ -1,12 +1,17 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Xform } from "../utils";
-import { component, vec4 } from "./component";
-import type { System } from "./scheduler";
-import type { ComponentStorage } from "./storage";
-import type { GpuTable } from "./table";
-import type { World } from "./world";
+import type { Plugin } from "../../engine";
+import {
+    type ComponentStorage,
+    component,
+    type GpuTable,
+    type Resource,
+    type System,
+    vec4,
+    type World,
+} from "../../engine/ecs";
+import { Xform } from "../../engine/utils";
 
 /** Derived fixed-tick world placement, never authored. Gameplay and physics queries
  * read this, never Transform. Producers require it on insertion;
@@ -28,7 +33,7 @@ export const GlobalTransform = component(
         }),
     },
 );
-/** Authored world placement. There is no hierarchy. */
+/** Authored world placement, derived into GlobalTransform by TransformPlugin. There is no hierarchy. */
 export const Transform = component(
     "Transform",
     { translation: vec4, rotation: vec4, scale: vec4 },
@@ -95,17 +100,15 @@ export interface GlobalTransformRuntime {
     historyNeedsPromotion: boolean;
 }
 
-/** @internal Register the built-in schemas; plugins cannot opt out of world placement. */
-export function registerGlobalTransform(world: World): void {
-    world.registry.register(GlobalTransform);
-    world.registry.register(Transform);
-}
-/** @internal Install once before setup authoring. GPU residency waits for a reader. */
-export function initializeGlobalTransform(world: World): void {
-    if (world.globalTransformRuntime) return;
-    world.addBoundarySystem(GlobalTransformTickStartSystem, "before");
-    world.addBoundarySystem(GlobalTransformTickEndSystem, "after");
-    world.addBoundarySystem(PrepareGlobalTransformSystem, "before");
+/** @internal Fixed placement and presentation history owned by the transform plugin. */
+export const TransformRuntime: Resource<GlobalTransformRuntime> = {
+    create: initializeGlobalTransform,
+};
+
+function initializeGlobalTransform(world: World): GlobalTransformRuntime {
+    world.addBoundarySystem(GlobalTransformTickStartSystem, "before", TransformPlugin.name);
+    world.addBoundarySystem(GlobalTransformTickEndSystem, "after", TransformPlugin.name);
+    world.addBoundarySystem(PrepareGlobalTransformSystem, "before", TransformPlugin.name);
     const runtime: GlobalTransformRuntime = {
         enabled: false,
         tickCount: 0,
@@ -120,24 +123,39 @@ export function initializeGlobalTransform(world: World): void {
         discontinuityCount: 0,
         historyNeedsPromotion: false,
     };
-    world.globalTransformRuntime = runtime;
-    world.registerRecovery(Symbol("GlobalTransform"), {
-        snapshot: () => undefined,
-        restore() {
-            runtime.tickCount = 0;
-            runtime.ranges.fill(0);
-            runtime.historyNeedsPromotion = false;
-            runtime.discontinuityCount = 0;
-            if (runtime.enabled)
-                for (const eid of world.query([GlobalTransform])) queueDiscontinuity(runtime, eid);
-        },
-    });
+    world.gpuFrameHooks = {
+        record: (encoder) => prepareGlobalTransformFrame(world, encoder),
+        defer: () => runtime.enabled,
+    };
     world.observeMembership(GlobalTransform, (eid, present) => {
         if (present && runtime.enabled) queueDiscontinuity(runtime, eid);
     });
+    return runtime;
 }
 
-/** Runs before every fixed system, including first systems. Installed with world placement. */
+/** Owns authored and fixed-tick world placement. Physics and rendering install it as a dependency;
+ * placement-only compositions add it explicitly. GPU residency waits for an interpolated-row reader. */
+export const TransformPlugin: Plugin = {
+    name: "Transform",
+    components: [GlobalTransform, Transform],
+    recovery(world) {
+        const runtime = world.resource(TransformRuntime);
+        return {
+            snapshot: () => undefined,
+            restore() {
+                runtime.tickCount = 0;
+                runtime.ranges.fill(0);
+                runtime.historyNeedsPromotion = false;
+                runtime.discontinuityCount = 0;
+                if (runtime.enabled)
+                    for (const eid of world.query([GlobalTransform]))
+                        queueDiscontinuity(runtime, eid);
+            },
+        };
+    },
+};
+
+/** Runs before every fixed system, including first systems. Installed by TransformPlugin. */
 export const GlobalTransformTickStartSystem: System = {
     group: "fixed",
     first: true,
@@ -161,10 +179,12 @@ export const PrepareGlobalTransformSystem: System = {
     update: prepareGlobalTransform,
 };
 
-/** The engine's interpolated dense GlobalTransform rows. Request before stepping a renderer. */
+/** Interpolated dense world-placement rows, resident on request. Requires TransformPlugin;
+ * request before stepping a renderer. */
 export function globalTransformTable(world: World): GpuTable<typeof Xform> {
-    const runtime = world.globalTransformRuntime;
-    if (!runtime) throw new Error("GlobalTransform is unavailable before engine initialization");
+    if (![...world.registry.entries()].some((entry) => entry.key === "Transform"))
+        throw new Error("globalTransformTable requires TransformPlugin");
+    const runtime = world.resource(TransformRuntime);
     if (!runtime.enabled) {
         runtime.enabled = true;
         const current = (runtime.current = world.table("global-transform", Xform));
@@ -216,17 +236,18 @@ function queueDiscontinuity(runtime: GlobalTransformRuntime, eid: number): void 
     runtime.discontinuities[runtime.discontinuityCount++] = eid;
 }
 
-/** @internal Record a teleport at the latest fixed tick. */
-export function markGlobalTransformDiscontinuity(world: World, eid: number): void {
-    const runtime = world.globalTransformRuntime;
-    if (!runtime?.enabled || !world.has(eid, GlobalTransform)) return;
+/** Mark a placement change at the latest fixed tick so rendering snaps instead of interpolating it.
+ * Requires TransformPlugin. An entity with no derived placement has nothing to mark. */
+export function teleport(world: World, eid: number): void {
+    if (!world.has(eid, GlobalTransform)) return;
+    const runtime = world.resource(TransformRuntime);
+    if (!runtime.enabled) return;
     queueDiscontinuity(runtime, eid);
 }
 
 /** @internal Gather authored placement into the fixed world column without per-row callbacks. */
 export function deriveTransforms(world: World): void {
-    const runtime = world.globalTransformRuntime;
-    if (!runtime) return;
+    const runtime = world.resource(TransformRuntime);
     const global = runtime.global,
         source = runtime.placement;
     const pp = source.translation.column,
@@ -271,7 +292,7 @@ export function deriveTransforms(world: World): void {
 }
 
 function captureCurrent(world: World, phase: number): void {
-    const runtime = world.globalTransformRuntime!;
+    const runtime = world.resource(TransformRuntime);
     const current = runtime.current!;
     current.prepareUpload();
     // Reusing a stage must retain earlier changed rows, including gaps in the range.
@@ -302,8 +323,8 @@ function captureCurrent(world: World, phase: number): void {
 /** @internal Initial placement precedes this frame's fixed ticks; no reader means no GPU work. */
 export function beginGlobalTransformTick(world: World): void {
     deriveTransforms(world);
-    const runtime = world.globalTransformRuntime;
-    if (runtime?.enabled) {
+    const runtime = world.resource(TransformRuntime);
+    if (runtime.enabled) {
         if (runtime.tickCount && runtime.ranges[3]) {
             runtime.current!.markRange(
                 runtime.ranges[2] / runtime.current!.rowBytes,
@@ -317,8 +338,8 @@ export function beginGlobalTransformTick(world: World): void {
 /** @internal Retain the latest completed tick for presentation. */
 export function endGlobalTransformTick(world: World): void {
     deriveTransforms(world);
-    const runtime = world.globalTransformRuntime;
-    if (runtime?.enabled) {
+    const runtime = world.resource(TransformRuntime);
+    if (runtime.enabled) {
         runtime.tickCount = 1;
         captureCurrent(world, 1);
     }
@@ -326,14 +347,14 @@ export function endGlobalTransformTick(world: World): void {
 /** @internal Gather post-simulation placement; recording waits for the renderer's frame encoder. */
 export function prepareGlobalTransform(world: World): void {
     deriveTransforms(world);
-    const runtime = world.globalTransformRuntime;
+    const runtime = world.resource(TransformRuntime);
     if (!runtime?.enabled) return;
     captureCurrent(world, 1);
     runtime.render!.upload();
 }
 
 function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): void {
-    const runtime = world.globalTransformRuntime!;
+    const runtime = world.resource(TransformRuntime);
     const offset = runtime.ranges[phase * 2],
         size = runtime.ranges[phase * 2 + 1];
     if (size && !runtime.stages[phase]) {
@@ -367,7 +388,7 @@ function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): voi
 }
 /** @internal Record history copies and bind data before renderer compute passes. */
 export function prepareGlobalTransformFrame(world: World, encoder: GPUCommandEncoder): void {
-    const runtime = world.globalTransformRuntime;
+    const runtime = world.resource(TransformRuntime);
     if (!runtime?.enabled) return;
     if (runtime.tickCount) {
         copyPhase(world, encoder, 0);

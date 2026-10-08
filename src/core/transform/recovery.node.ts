@@ -2,9 +2,9 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
-import { createApp } from "../app";
-import { CanvasContext } from "../app/canvas.fixture";
-import { GlobalTransform, globalTransformTable, probeBuffer, Time, Transform } from "../index";
+import { createApp } from "../../engine/app";
+import { CanvasContext } from "../../engine/app/canvas.fixture";
+import { GlobalTransform, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();

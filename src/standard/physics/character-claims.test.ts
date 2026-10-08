@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { Body, PhysicsPlugin, ShapeKind } from "../../core/physics";
-import { GlobalTransform, Time, World } from "../../engine";
+import { GlobalTransform } from "../../core/transform";
+import { Time, World } from "../../engine";
 import { BodyType, createHull } from "./api";
 import { characterScratch } from "./character";
 import {

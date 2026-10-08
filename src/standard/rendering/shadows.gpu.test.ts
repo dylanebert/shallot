@@ -13,7 +13,8 @@ import {
     captureTexture,
     DirectionalLight,
 } from "../../core/rendering";
-import { Transform, type World } from "../../engine";
+import { Transform } from "../../core/transform";
+import type { World } from "../../engine";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
 import { Materials, MeshMaterial, StandardMaterial } from "./material";

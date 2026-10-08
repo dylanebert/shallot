@@ -13,16 +13,14 @@ import {
     SpotLight,
     Views,
 } from "../../core/rendering";
+import { composeGlobalTransform, GlobalTransform, Transform } from "../../core/transform";
 import {
-    composeGlobalTransform,
-    GlobalTransform,
     lookAt,
     lookAtRotation,
     multiplyMat4,
     orthographic,
     perspective,
     type Resource,
-    Transform,
     type World,
 } from "../../engine";
 

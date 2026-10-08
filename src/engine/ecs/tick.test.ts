@@ -4,11 +4,11 @@ import { World } from "./world";
 
 test("scheduler fixed and frame paths require no placement or other world domain", () => {
     const scheduler = new Scheduler();
-    const world = Object.defineProperty({}, "globalTransformRuntime", {
-        get() {
-            throw new Error("scheduler accessed placement");
+    const world = new Proxy({} as World, {
+        get(_target, key) {
+            throw new Error(`scheduler accessed world domain ${String(key)}`);
         },
-    }) as World;
+    });
     const groups: string[] = [];
     for (const group of ["fixed", "simulation", "draw"] as const)
         scheduler.register({

@@ -3,13 +3,7 @@ import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import type { Resource, System } from "../../engine";
-import { Transform } from "../../engine";
-import {
-    ClearChangeMarksSystem,
-    GlobalTransformTickEndSystem,
-    GlobalTransformTickStartSystem,
-    PrepareGlobalTransformSystem,
-} from "../../engine/app";
+import { ClearChangeMarksSystem } from "../../engine/app";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
 import {
     MeshRenderPlugin,
@@ -29,6 +23,12 @@ import { backgroundsKey, surfacesKey } from "../../standard/rendering/contract-s
 import { Lighting, lightingKey } from "../../standard/rendering/lighting";
 import { Draws, drawsKey } from "../../standard/rendering/registry";
 import { Meshes, meshResourcesKey } from "../mesh/mesh";
+import {
+    GlobalTransformTickEndSystem,
+    GlobalTransformTickStartSystem,
+    PrepareGlobalTransformSystem,
+    Transform,
+} from "../transform";
 import { Frame, frameKey } from "./frame";
 import { EndFrameSystem, renderFrameKey } from "./frame-state";
 import { blitPipelinesKey } from "./image";

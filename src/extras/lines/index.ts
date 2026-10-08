@@ -12,8 +12,9 @@ import { component } from "../../engine";
 
 import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
 import { BeginFrameSystem, PrepassSystem, RenderingPlugin } from "../../core/rendering";
+import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
-import { composeGlobalTransform, f32, GlobalTransform, vec4 } from "../../engine";
+import { f32, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { Draws, registerSurface, StandardRenderingPlugin } from "../../standard/rendering";
 import {

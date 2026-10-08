@@ -2,13 +2,14 @@
 
 import * as d from "typegpu/data";
 import type { Plugin, System, World } from "../../engine";
+import { ClearChangeMarksSystem, invertMat4 } from "../../engine";
 import {
-    ClearChangeMarksSystem,
     composeGlobalTransform,
     globalTransformTable,
-    invertMat4,
     PrepareGlobalTransformSystem,
-} from "../../engine";
+    TransformPlugin,
+    TransformRuntime,
+} from "../transform";
 
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import { FRAME_UNIFORM_SIZE, Frame, initializeFrameState, writeFrame } from "./frame";
@@ -298,7 +299,7 @@ export const BeginFrameSystem: System = {
         }
 
         // Every renderer reads interpolated GlobalTransforms, independently of clustered lighting.
-        const globalTransformRuntime = world.globalTransformRuntime;
+        const globalTransformRuntime = world.resource(TransformRuntime);
         const globalTransformCount =
             _render.viewCount > 0 && globalTransformRuntime?.enabled
                 ? (globalTransformRuntime.current?.count ?? 0)
@@ -404,6 +405,7 @@ async function initRender(world: World): Promise<void> {
  * and either can become a default plugin
  */
 export const RenderingPlugin: Plugin = {
+    dependencies: [TransformPlugin],
     name: "Rendering",
     systems: [BeginFrameSystem, OverlaySystem, PresentationSystem, EndFrameSystem],
     components: [
@@ -424,9 +426,7 @@ export const RenderingPlugin: Plugin = {
         initializeImageState(world);
         initializeRenderFrameState(world);
         await initRender(world);
-        const globalTransformRuntime = world.globalTransformRuntime;
-        if (!globalTransformRuntime)
-            throw new Error("GlobalTransform is unavailable before RenderingPlugin initialization");
+        const globalTransformRuntime = world.resource(TransformRuntime);
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.
         globalTransformRuntime.params = world.resource(Frame).buffer;
         globalTransformTable(world);

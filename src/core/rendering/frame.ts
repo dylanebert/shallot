@@ -1,5 +1,6 @@
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
+import { TransformRuntime } from "../transform";
 
 /** the per-frame `Frame` UBO schema — the single source of truth for both sides of the layout (the
  * `View`/`Step` precedent): the shader binding and the CPU staging write
@@ -60,7 +61,7 @@ export function writeFrame(world: World): void {
     const _frame = world.resource(Frame);
 
     if (!world.gpu.device || !_frame.buffer) return;
-    const globalTransform = world.globalTransformRuntime;
+    const globalTransform = world.resource(TransformRuntime);
     if (globalTransform?.enabled) {
         _frame.staging[GLOBAL_TRANSFORM_PARAMS_F32] = world.time.fixedAlpha;
         _frame.staging[GLOBAL_TRANSFORM_PARAMS_F32 + 1] = globalTransform.current?.count ?? 0;

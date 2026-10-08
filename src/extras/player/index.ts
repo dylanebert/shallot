@@ -6,16 +6,15 @@ import {
     requirePointerLock,
 } from "../../core/input";
 import { Body } from "../../core/physics";
+import { GlobalTransform, Transform } from "../../core/transform";
 import {
     component,
     entity,
     f32,
-    GlobalTransform,
     not,
     type Plugin,
     type System,
     Time,
-    Transform,
     vec4,
     type World,
 } from "../../engine";

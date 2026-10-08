@@ -16,7 +16,8 @@ import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
 import { BeginFrameSystem, imageArray, PrepassSystem, RenderingPlugin } from "../../core/rendering";
-import { globalTransformTable, type Plugin, Registry, type System, type World } from "../../engine";
+import { globalTransformTable } from "../../core/transform";
+import { type Plugin, Registry, type System, type World } from "../../engine";
 import {
     DrawIndexedIndirect,
     Draws,

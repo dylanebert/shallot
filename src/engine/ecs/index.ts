@@ -25,19 +25,9 @@ export {
     vec4,
 } from "./component";
 export type { EntityRef } from "./entity";
-export {
-    composeGlobalTransform,
-    GlobalTransform,
-    GlobalTransformTickEndSystem,
-    GlobalTransformTickStartSystem,
-    globalTransformTable,
-    initializeGlobalTransform,
-    PrepareGlobalTransformSystem,
-    registerGlobalTransform,
-    Transform,
-} from "./global-transform";
 export { and, not, or } from "./query";
 export { type System, Time } from "./scheduler";
 export type { Recovery, WorldSnapshot } from "./snapshot";
+export type { ComponentStorage } from "./storage";
 export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
 export { type Resource, World } from "./world";

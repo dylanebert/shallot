@@ -44,7 +44,7 @@ import {
 
 const quantNs = tgpu["~unstable"].namespace({ names: "strict" });
 
-/** the decomposed per-entity world transform the `global-transform-interpolated` table stores (48 B AoS: pos, quat,
+/** Decomposed placement record (48 B AoS: pos, quat,
  *  scale), reconstructed on read rather than stored as a matrix — the VS reads it scattered per
  *  instance, so AoS is one cache line per instance. */
 export const Xform = d.struct({

@@ -20,6 +20,7 @@ import {
     VolumetricLight,
 } from "../../core/rendering";
 import { offscreenTexture } from "../../core/rendering/view";
+import { GlobalTransform } from "../../core/transform";
 import {
     Arrow,
     Fog,
@@ -72,7 +73,7 @@ import {
 } from "../../standard/rendering";
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
-import { GlobalTransform, type Plugin, probeTexture, Time, type World } from "../index";
+import { type Plugin, probeTexture, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { createApp } from "./index";
 

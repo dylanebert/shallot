@@ -54,3 +54,14 @@ export {
     TonemappingSystem,
     VolumetricLight,
 } from "./rendering";
+export {
+    composeGlobalTransform,
+    GlobalTransform,
+    GlobalTransformTickEndSystem,
+    GlobalTransformTickStartSystem,
+    globalTransformTable,
+    PrepareGlobalTransformSystem,
+    Transform,
+    TransformPlugin,
+    teleport,
+} from "./transform";

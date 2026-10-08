@@ -2,7 +2,8 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
-import { createApp, GlobalTransform, Time } from "../../engine";
+import { GlobalTransform } from "../../core/transform";
+import { createApp, Time } from "../../engine";
 import { physicsWorld, StandardPhysicsPlugin } from ".";
 import { hash } from "./api";
 
