@@ -9,7 +9,12 @@ import {
     viewportToWorld,
 } from "../../core/rendering";
 import { StandardPhysicsPlugin, StepPhysicsSystem, setKinematic } from "../../standard/physics";
-import { createApp } from "../app";
+import {
+    createApp,
+    GlobalTransformTickEndSystem,
+    GlobalTransformTickStartSystem,
+    PrepareGlobalTransformSystem,
+} from "../app";
 import { CanvasContext } from "../app/canvas.fixture";
 import * as engine from "../index";
 import { GlobalTransform, globalTransformTable, probeBuffer, Transform, u32 } from "../index";
@@ -55,6 +60,54 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
 test("GlobalTransform is an engine-owned public schema, independent of Physics", () => {
     expect(Reflect.get(engine, "GlobalTransform")).toBe(GlobalTransform);
     expect(Reflect.get(engine, "markGlobalTransformDiscontinuity")).toBeUndefined();
+});
+
+test("built-in placement systems bracket exact ticks and gather after every simulation system without a plugin", async () => {
+    const app = await createApp({ defaults: false, plugins: [] });
+    const world = app.world;
+    try {
+        for (const system of [
+            GlobalTransformTickStartSystem,
+            GlobalTransformTickEndSystem,
+            PrepareGlobalTransformSystem,
+        ])
+            expect(world.hasSystem(system)).toBe(true);
+        const eid = world.create();
+        world.add(eid, Transform);
+        const source = world.storage(Transform).translation;
+        const global = world.storage(GlobalTransform).translation;
+        let start = 0;
+        world.addSystem({
+            group: "fixed",
+            first: true,
+            after: [GlobalTransformTickStartSystem],
+            update: () => {
+                start = global.x.get(eid);
+            },
+        });
+        world.addSystem({
+            group: "fixed",
+            last: true,
+            before: [GlobalTransformTickEndSystem],
+            update: () => source.x.set(eid, 7),
+        });
+        source.x.set(eid, 3);
+        world.tick();
+        expect(start).toBe(3);
+        expect(global.x.get(eid)).toBe(7);
+        world.addSystem({ group: "simulation", last: true, update: () => source.x.set(eid, 11) });
+        let drawn = 0;
+        world.addSystem({
+            group: "draw",
+            update: () => {
+                drawn = global.x.get(eid);
+            },
+        });
+        world.step(0);
+        expect(drawn).toBe(11);
+    } finally {
+        app.dispose();
+    }
 });
 
 test("Transform placement lands in the fixed-tick GlobalTransform column and the renderer table", async () => {

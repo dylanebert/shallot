@@ -1,8 +1,3 @@
-import {
-    beginGlobalTransformTick,
-    endGlobalTransformTick,
-    prepareGlobalTransform,
-} from "./global-transform";
 import type { World } from "./world";
 
 function invalidDelta(): never {
@@ -216,7 +211,6 @@ export class Scheduler {
 
         this._time.deltaTime = scaled;
         this.runGroup(world, "simulation");
-        prepareGlobalTransform(world);
         this.runGroup(world, "draw");
     }
 
@@ -227,9 +221,7 @@ export class Scheduler {
         this._time.deltaTime = Time.FIXED_DT;
         this._time.elapsed = this._time.fixedTick * Time.FIXED_DT;
         try {
-            beginGlobalTransformTick(world);
             this.runGroup(world, "fixed");
-            endGlobalTransformTick(world);
         } finally {
             this._time.deltaTime = deltaTime;
             this._time.elapsed = elapsed;

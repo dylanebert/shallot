@@ -4,7 +4,12 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import type { Resource, System } from "../../engine";
 import { Transform } from "../../engine";
-import { ClearChangeMarksSystem } from "../../engine/app";
+import {
+    ClearChangeMarksSystem,
+    GlobalTransformTickEndSystem,
+    GlobalTransformTickStartSystem,
+    PrepareGlobalTransformSystem,
+} from "../../engine/app";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
 import {
     MeshRenderPlugin,
@@ -107,6 +112,9 @@ const coreSystems = {
     PrepassSystem,
     TonemappingSystem,
     ClearChangeMarksSystem,
+    GlobalTransformTickStartSystem,
+    GlobalTransformTickEndSystem,
+    PrepareGlobalTransformSystem,
 };
 const lightSystems = { UpdateLightClustersSystem, CullLightsSystem };
 

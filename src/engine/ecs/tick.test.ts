@@ -1,6 +1,27 @@
 import { expect, test } from "bun:test";
-import { Time } from "./scheduler";
+import { Scheduler, Time } from "./scheduler";
 import { World } from "./world";
+
+test("scheduler fixed and frame paths require no placement or other world domain", () => {
+    const scheduler = new Scheduler();
+    const world = Object.defineProperty({}, "globalTransformRuntime", {
+        get() {
+            throw new Error("scheduler accessed placement");
+        },
+    }) as World;
+    const groups: string[] = [];
+    for (const group of ["fixed", "simulation", "draw"] as const)
+        scheduler.register({
+            group,
+            update: (w) => {
+                expect(w).toBe(world);
+                groups.push(group);
+            },
+        });
+    scheduler.tick(world);
+    scheduler.step(world, { deltaTime: Time.FIXED_DT });
+    expect(groups).toEqual(["fixed", "fixed", "simulation", "draw"]);
+});
 
 test("catch-up ticks see integer tick time; zero-tick frames keep virtual time", () => {
     const world = new World();

@@ -2,7 +2,13 @@
 
 import * as d from "typegpu/data";
 import type { Plugin, System, World } from "../../engine";
-import { composeGlobalTransform, globalTransformTable, invertMat4 } from "../../engine";
+import {
+    ClearChangeMarksSystem,
+    composeGlobalTransform,
+    globalTransformTable,
+    invertMat4,
+    PrepareGlobalTransformSystem,
+} from "../../engine";
 
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import { FRAME_UNIFORM_SIZE, Frame, initializeFrameState, writeFrame } from "./frame";
@@ -179,6 +185,8 @@ function slotInputsChanged(
 export const BeginFrameSystem: System = {
     group: "draw",
     first: true,
+    after: [PrepareGlobalTransformSystem],
+    before: [ClearChangeMarksSystem],
     update(world) {
         const _render = world.resource(RenderContext);
         const _renderFrame = world.resource(renderFrameKey);

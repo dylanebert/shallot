@@ -26,10 +26,13 @@ export {
 } from "./component";
 export type { EntityRef } from "./entity";
 export {
+    beginGlobalTransformTick,
     composeGlobalTransform,
+    endGlobalTransformTick,
     GlobalTransform,
     globalTransformTable,
     initializeGlobalTransform,
+    prepareGlobalTransform,
     registerGlobalTransform,
     Transform,
 } from "./global-transform";
