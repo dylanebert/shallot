@@ -1,5 +1,6 @@
 import type * as d from "typegpu/data";
 import { ReadbackPool, type WorldGpu } from "../runtime";
+import { FieldColumns } from "./columns";
 import {
     type Component,
     Components,
@@ -10,11 +11,14 @@ import {
     idOf,
     type ScalarField,
     sameComponentSchema,
-    type TypedArray,
     type Vector2Field,
     type Vector4Field,
 } from "./component";
 import { Entities, type EntityRef } from "./entity";
+import { type Recovery, SnapshotComposition, type WorldSnapshot } from "./snapshot";
+
+export type { WorldSnapshot } from "./snapshot";
+
 import {
     type GlobalTransformRuntime,
     markGlobalTransformDiscontinuity,
@@ -27,22 +31,6 @@ import { type ComponentStorage, WorldField } from "./storage";
 import { GpuTable, type GpuTableOptions } from "./table";
 
 const INITIAL_CAPACITY = 16;
-
-/** Opaque, world-local simulation image; not a wire payload or durable save. */
-export interface WorldSnapshot {
-    readonly __worldSnapshot: unique symbol;
-}
-
-interface SnapshotState {
-    owner: World;
-    revision: number;
-    entities: ReturnType<Entities["snapshot"]>;
-    components: ReturnType<Components["snapshot"]>;
-    fields: Map<number, Map<string, TypedArray>>;
-    highWater: number;
-    fixedTick: number;
-}
-const snapshots = new WeakMap<WorldSnapshot, SnapshotState>();
 
 /** A world-owned value identified by this declaration object, not its creator or a name. */
 export type Resource<T> = { readonly create: (world: World) => T };
@@ -62,7 +50,14 @@ export class World {
     private _pendingCopies: { source: GPUBuffer; target: GPUBuffer }[] = [];
     private _uploadStages = new Map<GPUBuffer, GPUBuffer>();
     private _stepping = false;
-    private _restoreObservers = new Set<() => void>();
+    private _columns = new FieldColumns();
+    private _snapshots = new SnapshotComposition(
+        () => this._stepping,
+        () => `${this.registry.revision}/${this._storage.size}`,
+        () => {
+            for (const entry of this.registry.entries()) this.storage(entry.component);
+        },
+    );
     private _readback: ReadbackPool | undefined;
 
     /** One-shot buffer and texture staging owned by this world. */
@@ -74,7 +69,18 @@ export class World {
     private readonly _stepInput = { deltaTime: Time.DEFAULT_DT };
     private readonly _runStep = () => this._scheduler.step(this, this._stepInput);
     private _entities = new Entities();
-    private _components = new Components();
+    private _components = new Components(
+        () => this._queries.restore(this._components, this._entities),
+        (id, eid, present) => {
+            const component = this._storage.get(id)?.schema;
+            if (!component) return;
+            for (const table of this._tablesByComponent.get(id) ?? []) {
+                if (present) table.attachComponent(eid, component);
+                else table.detachComponent(eid, component);
+            }
+            this.notifyMembership(component, eid, present);
+        },
+    );
     private _queries = new Queries();
     private _storage = new Map<
         number,
@@ -89,7 +95,12 @@ export class World {
     private _tables = new Map<string, GpuTable>();
     private _tablesByComponent = new Map<number, GpuTable[]>();
     private _membershipObservers = new Map<number, Set<(eid: number, present: boolean) => void>>();
-    private _highWater = 1;
+    private get _highWater(): number {
+        return this._columns.highWater;
+    }
+    private set _highWater(value: number) {
+        this._columns.highWater = value;
+    }
     private _pixelRatio: number | "auto";
     private _fieldUploadSeen = false;
     private _changesClearedAtUpload = false;
@@ -101,6 +112,11 @@ export class World {
 
     constructor(opts?: { pixelRatio?: number | "auto" }) {
         this._pixelRatio = opts?.pixelRatio ?? "auto";
+        this._columns.highWater = 1;
+        this._snapshots.register("entities", this._entities);
+        this._snapshots.register("fields", this._columns);
+        this._snapshots.register("clock", this._scheduler);
+        this._snapshots.register("membership", this._components);
     }
 
     /** this world's GPU device, registries, typed handles and frame state. */
@@ -361,6 +377,7 @@ export class World {
         const storage: Record<string, unknown> = {};
         for (const { name, field } of fields(component)) {
             const column = new WorldField(field, INITIAL_CAPACITY, this);
+            this._columns.register(column);
             column.ensure(this._highWater);
             columns.set(name, column);
             storage[name] = column.bind();
@@ -424,26 +441,7 @@ export class World {
      * Query order is derived from restored membership. The image is reusable, opaque and independent
      * of writes, not a save format. */
     snapshot(): WorldSnapshot {
-        if (this._stepping) throw new Error("World.snapshot: refuses inside a step or tick");
-        for (const entry of this.registry.entries()) this.storage(entry.component);
-        const columns = new Map<number, Map<string, TypedArray>>();
-        for (const [id, entry] of this._storage) {
-            const fields = new Map<string, TypedArray>();
-            for (const [name, field] of entry.fields)
-                fields.set(name, field.column.slice(0, this._highWater * field.type.lanes));
-            columns.set(id, fields);
-        }
-        const snapshot = Object.freeze({}) as WorldSnapshot;
-        snapshots.set(snapshot, {
-            owner: this,
-            revision: this.registry.revision,
-            entities: this._entities.snapshot(),
-            components: this._components.snapshot(),
-            fields: columns,
-            highWater: this._highWater,
-            fixedTick: this.time.fixedTick,
-        });
-        return snapshot;
+        return this._snapshots.snapshot();
     }
 
     /** Restore a local image between ticks. Refuses during step/tick, another world's image or
@@ -451,55 +449,12 @@ export class World {
      * columns never shrink, queries and membership consumers reconcile, and fields publish changes.
      * Restores no pacing, resources, plugin hidden state, GPU or host state. */
     restore(snapshot: WorldSnapshot): void {
-        if (this._stepping) throw new Error("World.restore: refuses inside a step or tick");
-        const state = snapshots.get(snapshot);
-        if (!state) throw new Error("World.restore: invalid snapshot");
-        if (state.owner !== this)
-            throw new Error("World.restore: snapshot belongs to another world");
-        if (state.revision !== this.registry.revision || state.fields.size !== this._storage.size)
-            throw new Error("World.restore: snapshot has a different component registry");
-        const previous = this._entities.all();
-        const membership = new Map<Component, Set<number>>();
-        for (const entry of this._storage.values())
-            membership.set(
-                entry.schema,
-                new Set(previous.filter((eid) => this.has(eid, entry.schema))),
-            );
-        this._entities.restore(state.entities);
-        this._components.restore(state.components);
-        for (const [id, entry] of this._storage) {
-            for (const [name, field] of entry.fields) {
-                field.ensure(state.highWater);
-                field.column.fill(0);
-                field.column.set(state.fields.get(id)!.get(name)!);
-                field.dirty.fill(0xffffffff);
-            }
-        }
-        this._queries.restore(this._components, this._entities);
-        this._scheduler.restoreFixedTick(state.fixedTick);
-        for (const [component, before] of membership) {
-            const after = new Set(this._entities.all().filter((eid) => this.has(eid, component)));
-            const tables = this._tablesByComponent.get(idOf(component));
-            for (const eid of before)
-                if (!after.has(eid)) {
-                    for (const table of tables ?? []) table.detachComponent(eid, component);
-                    this.notifyMembership(component, eid, false);
-                }
-            for (const eid of after)
-                if (!before.has(eid)) {
-                    for (const table of tables ?? []) table.attachComponent(eid, component);
-                    this.notifyMembership(component, eid, true);
-                }
-        }
-        for (const observer of this._restoreObservers) observer();
+        this._snapshots.restore(snapshot);
     }
 
-    /** @internal Reconcile derived presentation after simulation recovery; no simulation ownership. */
-    observeRestore(observer: () => void): () => void {
-        this._restoreObservers.add(observer);
-        return () => {
-            this._restoreObservers.delete(observer);
-        };
+    /** @internal Register an ordered simulation owner. */
+    registerRecovery<S>(name: string, recovery: Recovery<S>): void {
+        this._snapshots.register(name, recovery);
     }
 
     /** Freeze the virtual frame clock and step's fixed work, not {@link tick}. The real frame clock
@@ -794,7 +749,7 @@ export class World {
         this._pendingCopies.length = 0;
         this._uploadStages.clear();
         this._resources.clear();
-        this._restoreObservers.clear();
+
         this.registry.clear();
         for (const resource of this._gpuResources) {
             try {

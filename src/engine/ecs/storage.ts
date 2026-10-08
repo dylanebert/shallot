@@ -38,6 +38,19 @@ export class WorldField<T extends FieldType = FieldType> {
         };
     }
 
+    /** @internal Independent column image. */
+    snapshot(capacity = this.#column.array.length / this.type.lanes): TypedArray {
+        return this.#column.array.slice(0, capacity * this.type.lanes);
+    }
+
+    /** @internal Restore without shrinking retained accessors; publish every restored lane. */
+    restore(state: TypedArray): void {
+        this.ensure(state.length / this.type.lanes);
+        this.#column.array.fill(0);
+        this.#column.array.set(state);
+        this.#column.dirty.fill(0xffffffff);
+    }
+
     ensure(capacity: number): void {
         const column = this.#column;
         const oldCapacity = column.array.length / this.type.lanes;

@@ -426,12 +426,45 @@ export class Components {
         };
     }
 
-    /** @internal Replace membership without applying insertion defaults. */
+    private readonly _restored?: () => void;
+    private readonly _membership?: (id: number, eid: number, present: boolean) => void;
+
+    constructor(
+        restored?: () => void,
+        membership?: (id: number, eid: number, present: boolean) => void,
+    ) {
+        this._restored = restored;
+        this._membership = membership;
+    }
+
+    /** @internal Replace masks, then reconcile changed bits without per-entity objects or defaults. */
     restore(state: ReturnType<Components["snapshot"]>): void {
+        const before = this._masks;
+        const beforeMeta = this._meta;
         this._nextBit = state.nextBit;
         this._gen = state.gen;
         this._meta = state.meta.map((m) => m && { ...m });
         this._masks = state.masks.map((m) => m.slice());
+        this._restored?.();
+        if (!this._membership) return;
+        for (let gen = 0; gen < Math.max(before.length, this._masks.length); gen++) {
+            const owners: number[] = [];
+            for (let id = 0; id < Math.max(this._meta.length, beforeMeta.length); id++) {
+                const meta = this._meta[id] ?? beforeMeta[id];
+                if (meta?.gen === gen) owners[31 - Math.clz32(meta.bit)] = id;
+            }
+            const old = before[gen] ?? [];
+            const next = this._masks[gen] ?? [];
+            for (let eid = 0; eid < Math.max(old.length, next.length); eid++) {
+                const current = next[eid] ?? 0;
+                let changed = (old[eid] ?? 0) ^ current;
+                while (changed) {
+                    const bit = changed & -changed;
+                    this._membership(owners[31 - Math.clz32(bit)], eid, (current & bit) !== 0);
+                    changed ^= bit;
+                }
+            }
+        }
     }
 
     has(eid: Entity, component: any): boolean {
