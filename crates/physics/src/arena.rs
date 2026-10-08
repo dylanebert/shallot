@@ -29,6 +29,14 @@ static mut SCRATCH_PTR: [usize; crate::regions::MAX_WORLDS] = [0; crate::regions
 
 static mut SOLVE_PTR: [usize; crate::regions::MAX_WORLDS] = [0; crate::regions::MAX_WORLDS];
 
+pub unsafe fn alloc_split(world: usize, bytes: usize) -> *mut u8 {
+    STACKS[world].alloc(bytes)
+}
+
+pub unsafe fn free_split(world: usize, ptr: *mut u8) {
+    STACKS[world].free(ptr);
+}
+
 pub unsafe fn reserve_solve(world: usize, bytes: usize) -> usize {
     assert_eq!(SOLVE_PTR[world], 0);
     let ptr = STACKS[world].alloc(bytes) as usize;

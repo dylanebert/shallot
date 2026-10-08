@@ -404,50 +404,23 @@ fn union(
         }
     }
 }
-struct SplitScratch {
-    parents: Vec<usize>,
-    ranks: Vec<usize>,
-    contact_counts: Vec<usize>,
-    joint_counts: Vec<usize>,
-    root_map: Vec<usize>,
-    body_counts: Vec<usize>,
-    component_contacts: Vec<usize>,
-    component_joints: Vec<usize>,
-    ids: Vec<usize>,
-}
-impl SplitScratch {
-    const EMPTY: Self = Self {
-        parents: Vec::new(),
-        ranks: Vec::new(),
-        contact_counts: Vec::new(),
-        joint_counts: Vec::new(),
-        root_map: Vec::new(),
-        body_counts: Vec::new(),
-        component_contacts: Vec::new(),
-        component_joints: Vec::new(),
-        ids: Vec::new(),
-    };
-}
-// Like Box3D's task contexts/arena, scratch is retained by the worker, not allocated by a split.
-static mut SPLIT_SCRATCH: [SplitScratch; crate::solve::MAX_THREADS] =
-    [const { SplitScratch::EMPTY }; crate::solve::MAX_THREADS];
-pub unsafe fn prepare_split(world_index: usize, base: usize, worker: usize) {
-    let s = &mut SPLIT_SCRATCH[worker];
-    let n = record(world_index, base).bodies.len();
-    for v in [
-        &mut s.parents,
-        &mut s.ranks,
-        &mut s.contact_counts,
-        &mut s.joint_counts,
-        &mut s.root_map,
-        &mut s.body_counts,
-        &mut s.component_contacts,
-        &mut s.component_joints,
-    ] {
-        v.resize(n, 0);
+#[cfg(feature = "box3d-oracle")]
+static mut SPLIT_SIZES: [[usize; 2]; regions::MAX_WORLDS] = [[0; 2]; regions::MAX_WORLDS];
+#[cfg(feature = "box3d-oracle")]
+#[export_name = "box3dSplitScratch"]
+pub unsafe extern "C" fn split_scratch(world: usize, body: usize, lane: usize) -> usize {
+    if lane == 0 {
+        let base = crate::bodies::record(world, body).island_id as usize;
+        split_in_world(world, base);
     }
-    s.ids.clear();
-    s.ids.reserve(n);
+    SPLIT_SIZES[world][lane]
+}
+unsafe fn split_array(world: usize, count: usize) -> &'static mut [usize] {
+    let ptr = crate::arena::alloc_split(world, count * core::mem::size_of::<usize>()) as *mut usize;
+    core::slice::from_raw_parts_mut(ptr, count)
+}
+unsafe fn free_split_array(world: usize, array: &mut [usize]) {
+    crate::arena::free_split(world, array.as_mut_ptr().cast());
 }
 #[export_name = "islandSplit"]
 pub unsafe extern "C" fn split(base: usize) {
@@ -455,22 +428,19 @@ pub unsafe extern "C" fn split(base: usize) {
 }
 
 pub unsafe extern "C" fn split_in_world(world_index: usize, base: usize) {
-    prepare_split(world_index, base, 0);
     split_task(world_index, base, 0);
 }
 pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
-    let SplitScratch {
-        parents,
-        ranks,
-        contact_counts,
-        joint_counts,
-        root_map,
-        body_counts,
-        component_contacts,
-        component_joints,
-        ids,
-    } = &mut SPLIT_SCRATCH[worker];
+    let _ = worker;
     let n = record(world_index, base).bodies.len();
+    let parents = split_array(world_index, n);
+    let contact_counts = split_array(world_index, n);
+    let joint_counts = split_array(world_index, n);
+    let ranks = split_array(world_index, n);
+    #[cfg(feature = "box3d-oracle")]
+    {
+        SPLIT_SIZES[world_index] = [0; 2];
+    }
     for (i, p) in parents.iter_mut().enumerate() {
         *p = i;
     }
@@ -504,6 +474,7 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
             }
         }
     }
+    free_split_array(world_index, ranks);
     let mut components = 0;
     for i in 0..n {
         parents[i] = find_parent(parents, i);
@@ -513,7 +484,18 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
     }
     if components == 1 {
         record(world_index, base).constraint_remove_count = 0;
+        free_split_array(world_index, joint_counts);
+        free_split_array(world_index, contact_counts);
+        free_split_array(world_index, parents);
         return;
+    }
+    let root_map = split_array(world_index, n);
+    let body_counts = split_array(world_index, components);
+    let component_contacts = split_array(world_index, components);
+    let component_joints = split_array(world_index, components);
+    #[cfg(feature = "box3d-oracle")]
+    {
+        SPLIT_SIZES[world_index][0] = components;
     }
     root_map.fill(usize::MAX);
     body_counts.fill(0);
@@ -530,9 +512,14 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
         }
         body_counts[root_map[root]] += 1;
     }
+    let ids = split_array(world_index, island_count);
+    #[cfg(feature = "box3d-oracle")]
+    {
+        SPLIT_SIZES[world_index][1] = island_count;
+    }
     for i in 0..island_count {
         let id = create_in_world(world_index, 2);
-        ids.push(id);
+        ids[i] = id;
         let s = record(world_index, id);
         s.bodies.reserve(body_counts[i]);
         s.contacts.reserve(component_contacts[i]);
@@ -555,6 +542,14 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
         add_joint(world_index, if a != -1 { a } else { b } as usize, l);
     }
     destroy_in_world(world_index, base);
+    free_split_array(world_index, ids);
+    free_split_array(world_index, component_joints);
+    free_split_array(world_index, component_contacts);
+    free_split_array(world_index, body_counts);
+    free_split_array(world_index, root_map);
+    free_split_array(world_index, joint_counts);
+    free_split_array(world_index, contact_counts);
+    free_split_array(world_index, parents);
 }
 pub unsafe fn reset(id: usize) {
     WORLDS[id] = Islands {

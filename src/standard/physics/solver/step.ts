@@ -1,10 +1,10 @@
+import { readJointEventUserData } from "../kernel/jointcolumns";
 import { kernel, threads } from "../kernel/kernel";
 import {
     defaultFrictionCallback,
     defaultRestitutionCallback,
     type WorldState,
 } from "../world/world";
-import { readJointEventUserData } from "../kernel/jointcolumns";
 import { solve } from "./solver";
 
 /** Advance the kernel world; TypeScript supplies settings and drives its yields. */

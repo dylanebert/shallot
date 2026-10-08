@@ -24,9 +24,9 @@
 //! written here, and the worker's `Atomics.wait`/`load` is the acquire. That ordering also means the
 //! buffers below are only ever written while every worker is parked.
 //!
-//! **No relocation of solve columns between fork and join**: column reserves and split-scratch
-//! reserves run before the fork. The split may grow island records and lists, but not body, contact
-//! or joint solver arrays; the solver's shared column handles remain valid until the join.
+//! **No relocation of solve columns between fork and join**: column reserves run before the fork.
+//! The split may grow island records and lists, but not body, contact or joint solver arrays;
+//! the solver's shared column handles remain valid until the join.
 //!
 //! Wasm-only, like the arena it reads. Native `cargo test` drives the same machinery over owned columns
 //! (`kernel/tests/stages.rs`).
@@ -556,9 +556,6 @@ pub extern "C" fn solve_build_in_world(
         arena::free_solve(world_index);
         SPLIT_ID = crate::island::split_candidate_in_world(world_index);
         SPLIT_WORKER = usize::from(thread_count > 1);
-        if SPLIT_ID != -1 {
-            crate::island::prepare_split(world_index, SPLIT_ID as usize, SPLIT_WORKER);
-        }
 
         let mut span_storage = [ColorSpan::EMPTY; MAX_COLORS];
         let mut color_keys = [0; MAX_COLORS];
