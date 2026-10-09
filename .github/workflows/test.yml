@@ -18,7 +18,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15]
+        os: [ubuntu-latest, macos-15, windows-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -37,10 +40,17 @@ jobs:
         run: bun run check
       - name: cheap tier
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
+        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
 
   gpu:
-    runs-on: macos-15
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -48,7 +58,7 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: GPU tier
-        run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts
+        run: time -p bun scripts/gpu-compile.oracle.ts
 
   cargo:
     runs-on: ubuntu-latest
