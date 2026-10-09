@@ -91,7 +91,12 @@ test("the packed engine refuses with Bun's optional peer fix when navigator.gpu 
     const previous = Object.getOwnPropertyDescriptor(navigator, "gpu");
     Object.defineProperty(navigator, "gpu", { configurable: true, value: undefined });
     try {
-        await expect(createApp({ plugins: [Counter], defaults: false })).rejects.toThrow(
+        await expect(
+            createApp({
+                plugins: [Counter, { name: "PackedGpuRequirement", gpu: {} }],
+                defaults: false,
+            }),
+        ).rejects.toThrow(
             "WebGPU unavailable: navigator.gpu is missing in Bun. Install the optional webgpu peer dependency",
         );
     } finally {

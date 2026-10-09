@@ -21,6 +21,7 @@ test("a deterministic composition hashes identically under two frame pacings wit
             plugins: [
                 {
                     name: "DeterministicCounter",
+                    gpu: {},
                     components: [component("Counter", Counter)],
                     initialize(world) {
                         eid = world.create();

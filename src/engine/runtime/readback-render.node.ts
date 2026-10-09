@@ -1,6 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
+import { gpuRequirements } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
+import { DEFAULT_PLUGINS } from "../../standard";
 import { createApp } from "../app";
 import { rawDevice } from "./gpu";
 
@@ -11,7 +13,15 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 await setupGlobals();
 
 test("rendered frames without a request map nothing", async () => {
-    const owner = await createApp({ defaults: false, plugins: [] });
+    const owner = await createApp({
+        defaults: false,
+        plugins: [
+            {
+                name: "ReadbackRenderTestDevice",
+                gpu: gpuRequirements(DEFAULT_PLUGINS),
+            },
+        ],
+    });
     const device = rawDevice(owner.world.gpu.device);
     const original = device.createBuffer.bind(device);
     let maps = 0;

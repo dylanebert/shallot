@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, gpuRequirements } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -22,7 +22,15 @@ import { PointShadows } from "./shadows";
 setDefaultTimeout(CEILING.gpu);
 
 const subjects = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({ defaults: false, plugins: [] });
+    const owner = await createApp({
+        defaults: false,
+        plugins: [
+            {
+                name: "PointAtlasTestDevice",
+                gpu: gpuRequirements([StandardRenderingPlugin, MeshRenderPlugin]),
+            },
+        ],
+    });
     const device = rawDevice(owner.world.gpu.device);
     return { owner, device };
 });

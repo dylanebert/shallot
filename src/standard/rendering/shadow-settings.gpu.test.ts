@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, gpuRequirements } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -65,7 +65,15 @@ async function shot(world: World, camera: number) {
 }
 
 const subjects = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({ defaults: false, plugins: [] });
+    const owner = await createApp({
+        defaults: false,
+        plugins: [
+            {
+                name: "ShadowSettingsTestDevice",
+                gpu: gpuRequirements([StandardRenderingPlugin, MeshRenderPlugin]),
+            },
+        ],
+    });
     const device = rawDevice(owner.world.gpu.device);
     const plugins = [StandardRenderingPlugin, MeshRenderPlugin];
     const a = await createApp({ defaults: false, plugins, device });

@@ -10,7 +10,10 @@ setDefaultTimeout(CEILING.node);
 await setupGlobals();
 
 test("placement without rendering refuses placement GPU residency", async () => {
-    const app = await createApp({ defaults: false, plugins: [TransformPlugin] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [{ name: "PlacementResidencyTestDevice", gpu: {} }, TransformPlugin],
+    });
     const device = app.world.gpu.device;
     const methods = ["createBuffer", "createComputePipeline", "createRenderPipeline"] as const;
     const descriptors = methods.map((name) => Object.getOwnPropertyDescriptor(device, name));

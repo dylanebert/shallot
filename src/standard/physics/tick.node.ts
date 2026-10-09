@@ -11,8 +11,10 @@ setDefaultTimeout(CEILING.node);
 await setupGlobals();
 
 test("exact ticks then draw match frame ticks in physics hash and published fields", async () => {
-    const a = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const b = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    const gpuFrameProbe = { name: "GpuFrameProbe", gpu: {} };
+    const plugins = [StandardPhysicsPlugin, gpuFrameProbe];
+    const a = await createApp({ defaults: false, plugins });
+    const b = await createApp({ defaults: false, plugins });
     try {
         for (const app of [a, b]) {
             const eid = app.world.create();

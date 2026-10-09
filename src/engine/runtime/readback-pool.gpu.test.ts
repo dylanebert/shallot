@@ -10,7 +10,10 @@ import { countStaging } from "./readback.fixture";
 setDefaultTimeout(CEILING.gpu);
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 const subject = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({ defaults: false, plugins: [] });
+    const owner = await createApp({
+        defaults: false,
+        plugins: [{ name: "ReadbackPoolTestDevice", gpu: {} }],
+    });
     apps.push(owner);
     const device = rawDevice(owner.world.gpu.device);
     const tracker = countStaging(device);
