@@ -177,3 +177,65 @@ for (const type of [f32, vec2, vec4] as const) {
         expect(lane.get(45)).toBe(14);
     });
 }
+
+test("restore publishes changed field values but leaves equal values unmarked after clear", () => {
+    const State = component("RestoreChangedField", { value: f32 });
+    const world = new World();
+    world.registry.register(State);
+    const changed = world.create();
+    const equal = world.create();
+    world.add(changed, State);
+    world.add(equal, State);
+    const value = world.storage(State).value;
+    value.set(changed, 3);
+    value.set(equal, 5);
+    const image = world.snapshot();
+
+    value.set(changed, 7);
+    world.clearChanges();
+    world.restore(image);
+
+    const field = world.fieldStorage(State, "value");
+    expect(field.dirty[changed >>> 5] & (1 << (changed & 31))).not.toBe(0);
+    expect(field.dirty[equal >>> 5] & (1 << (equal & 31))).toBe(0);
+});
+
+test("restore zeroes and publishes a lane written by an entity created after the image", () => {
+    const State = component("RestorePastImageField", { value: f32 });
+    const world = new World();
+    world.registry.register(State);
+    const saved = world.create();
+    world.add(saved, State);
+    const value = world.storage(State).value;
+    value.set(saved, 3);
+    const image = world.snapshot();
+
+    const added = world.create();
+    world.add(added, State);
+    value.set(added, 9);
+    world.clearChanges();
+    world.restore(image);
+
+    const field = world.fieldStorage(State, "value");
+    expect(value.get(added)).toBe(0);
+    expect(field.dirty[added >>> 5] & (1 << (added & 31))).not.toBe(0);
+});
+
+test("restore publishes a raw-bit change between negative and positive zero", () => {
+    const State = component("RestoreSignedZeroField", { value: f32 });
+    const world = new World();
+    world.registry.register(State);
+    const eid = world.create();
+    world.add(eid, State);
+    const value = world.storage(State).value;
+    value.set(eid, 0);
+    const image = world.snapshot();
+
+    value.set(eid, -0);
+    world.clearChanges();
+    world.restore(image);
+
+    const field = world.fieldStorage(State, "value");
+    expect(Object.is(value.column[eid], 0)).toBe(true);
+    expect(field.dirty[eid >>> 5] & (1 << (eid & 31))).not.toBe(0);
+});
