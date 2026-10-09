@@ -29,8 +29,15 @@ import {
     PrepareGlobalTransformSystem,
     Transform,
 } from "../transform";
+import { TransformRuntime } from "../transform/global-transform";
 import { Frame, frameKey } from "./frame";
 import { EndFrameSystem, renderFrameKey } from "./frame-state";
+import {
+    GlobalTransformHistory,
+    GlobalTransformHistoryEndSystem,
+    GlobalTransformHistoryStartSystem,
+    PrepareGlobalTransformHistorySystem,
+} from "./global-transform";
 import { blitPipelinesKey } from "./image";
 import {
     attachTexture,
@@ -83,6 +90,8 @@ const coreResources = {
     renderFrameKey,
     viewResourcesKey,
     Views,
+    TransformRuntime: TransformRuntime.key!,
+    GlobalTransformHistory: GlobalTransformHistory.key!,
     frameKey,
     Frame,
     blitPipelinesKey,
@@ -115,21 +124,24 @@ const coreSystems = {
     GlobalTransformTickStartSystem,
     GlobalTransformTickEndSystem,
     PrepareGlobalTransformSystem,
+    GlobalTransformHistoryStartSystem,
+    GlobalTransformHistoryEndSystem,
+    PrepareGlobalTransformHistorySystem,
 };
 const lightSystems = { UpdateLightClustersSystem, CullLightsSystem };
 
 function composition() {
     // Inspect identities without lazy resource() access creating the state under test.
     return subjects()[0].world as unknown as {
-        _resources: Map<Resource<unknown>, unknown>;
+        _resources: Map<unknown, unknown>;
         _scheduler: { _systems: Set<System> };
     };
 }
 
-function exactNames<T>(
-    actual: Iterable<T>,
-    allowed: Record<string, T>,
-    deferred: Record<string, T>,
+function exactNames(
+    actual: Iterable<unknown>,
+    allowed: Record<string, unknown>,
+    deferred: Record<string, unknown>,
 ): string[] {
     const names = new Map(Object.entries(allowed).map(([name, key]) => [key, name]));
     const otherStage = new Set(Object.values(deferred));
@@ -140,7 +152,7 @@ function exactNames<T>(
 }
 
 function assertRegistration(
-    deferredResources: Record<string, Resource<unknown>>,
+    deferredResources: Record<string, unknown>,
     deferredSystems: Record<string, System>,
 ) {
     const { _resources, _scheduler } = composition();
