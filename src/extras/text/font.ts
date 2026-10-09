@@ -1,3 +1,7 @@
+// Inter v20 Regular (400), with the original cmap retained and parser-unused tables removed. Keep the
+// asset static so Vite omits it when TextPlugin is tree-shaken; the OFL-1.1 text is beside the font.
+export const DEFAULT_FONT = new URL("./Inter-Regular.ttf", import.meta.url).href;
+
 export interface Font {
     unitsPerEm: number;
     ascender: number;
@@ -595,6 +599,22 @@ export function parseFont(buffer: ArrayBuffer): Font {
 }
 
 export async function loadFont(url: string): Promise<Font> {
+    if (url.startsWith("file:")) {
+        const process = (
+            globalThis as typeof globalThis & {
+                process?: { getBuiltinModule?: (specifier: string) => unknown };
+            }
+        ).process;
+        const fs = process?.getBuiltinModule?.("node:fs") as
+            | { readFileSync(path: URL): Uint8Array }
+            | undefined;
+        if (!fs) throw new Error(`Cannot read local font: ${url}`);
+        const bytes = fs.readFileSync(new URL(url));
+        const copy = new Uint8Array(bytes.byteLength);
+        copy.set(bytes);
+        return parseFont(copy.buffer);
+    }
+
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Failed to load font: ${response.statusText}`);
     return parseFont(await response.arrayBuffer());

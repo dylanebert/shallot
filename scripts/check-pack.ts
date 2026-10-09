@@ -81,6 +81,8 @@ const required = [
     "src/project/bun.ts",
     "tsconfig.base.json",
     "src/core/rendering/capture.ts",
+    "src/extras/text/Inter-Regular.ttf",
+    "src/extras/text/Inter-OFL.txt",
     "bin/shallot.ts",
     "src/project/policy.ts",
     "src/cli/index.ts",

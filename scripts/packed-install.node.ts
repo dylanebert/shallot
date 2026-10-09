@@ -77,6 +77,30 @@ test("the packed engine exposes no test-support namespace or capture helpers", (
     expect("assertCaptureGeometry" in Rendering).toBe(false);
 });
 
+test("the packed TextPlugin font ships with its license and resolves from the package", async () => {
+    const packageRoot = resolve(import.meta.dir, "node_modules/@dylanebert/shallot");
+    const fontPath = resolve(packageRoot, "src/extras/text/Inter-Regular.ttf");
+    const licensePath = resolve(packageRoot, "src/extras/text/Inter-OFL.txt");
+    expect(existsSync(fontPath)).toBe(true);
+    expect(readFileSync(licensePath, "utf8")).toContain("SIL Open Font License, Version 1.1");
+    const { DEFAULT_FONT, loadFont } = await import("./node_modules/@dylanebert/shallot/src/extras/text/font.ts");
+    expect(new URL(DEFAULT_FONT).protocol).toBe("file:");
+    expect((await loadFont(DEFAULT_FONT)).advance("A")).toBeGreaterThan(0);
+    const fontModule = resolve(packageRoot, "src/extras/text/font.ts");
+    const node = Bun.spawnSync(
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            'import { readFileSync } from "node:fs"; import { pathToFileURL } from "node:url"; const font = readFileSync(new URL("./Inter-Regular.ttf", pathToFileURL(' +
+                JSON.stringify(fontModule) +
+                '))); if (font.readUInt32BE(0) !== 0x00010000) throw new Error("packed font did not resolve in Node");',
+        ],
+        { cwd: import.meta.dir, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(node.exitCode, node.stderr.toString()).toBe(0);
+});
+
 test("the packed Vite entry imports in Node and exposes only shallot", () => {
     const node = Bun.spawnSync(
         [
@@ -175,7 +199,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         expect(packedProjectTests).toContain(
             "the packed Vite entry imports in Node and exposes only shallot",
         );
-        expect(packedProjectTests).toContain("2 pass");
+        expect(packedProjectTests).toContain("3 pass");
 
         const recipes = readdirSync(join(ROOT, "examples"), { withFileTypes: true })
             .filter((entry) => entry.isDirectory())
@@ -249,6 +273,11 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
                 example,
                 `vite build ${name}`,
             );
+            expect(
+                readdirSync(join(example, "dist/assets")).some((file) =>
+                    file.startsWith("Inter-Regular"),
+                ),
+            ).toBe(false);
             const testOutput = run(["bun", "test"], example, `bun test ${name}`);
             expect(testOutput).toContain("1 pass");
 

@@ -249,6 +249,10 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 
 The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wrappers `register`, `getExclusions`, `entries` and `clear` are removed; use `world.registry`.
 
+## Text font load failures stop initialization
+
+In 0.9.5, `TextPlugin` warned and continued when a registered font failed to load. It now rejects initialization with the load error as `cause`; a 0.9.5 game with an unreachable registered font therefore fails initialization. The default Inter font ships with the package and no longer needs network access.
+
 ## Lights own their shadow settings
 
 `Spot` and `Shadow` are removed. A `SpotLight` contains its own light values; do not add a `PointLight` to provide them. `Volumetric` is now `VolumetricLight`. These components and `NotShadowCaster` are exported from the root and `/rendering`.

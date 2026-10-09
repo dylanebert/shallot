@@ -28,14 +28,10 @@ import {
     type GlyphAtlas,
     layoutText,
 } from "./atlas";
-import { type Font, loadFont } from "./font";
+import { DEFAULT_FONT, type Font, loadFont } from "./font";
 import { GLYPH_AT, GLYPH_BYTES, GLYPH_FLOATS, Glyph } from "./glyph";
 import { initializeSdfState, resetPipelines } from "./sdf";
 import { atlasName, textSurface, textVaryings } from "./surface";
-
-// Inter, the default face when the consumer registers no font of its own
-const DEFAULT_FONT =
-    "https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZg.ttf";
 
 /** registered fonts, keyed by name (the url when unnamed); the id is the atlas slot */
 export const Fonts = { create: () => new Registry<{ name: string; url: string }>() };
@@ -396,9 +392,8 @@ export const TextPlugin: Plugin = {
                 const url = _fonts.get(_fonts.name(id)!)!.url;
                 try {
                     _textState.loaded[id] = await loadFont(url);
-                } catch (e) {
-                    console.warn(`[Text] font ${id} (${url}) failed to load:`, e);
-                    _textState.loaded[id] = null;
+                } catch (cause) {
+                    throw new Error(`[Text] font ${id} (${url}) failed to load`, { cause });
                 }
             }),
         );
