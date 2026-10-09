@@ -45,7 +45,6 @@ export const TransformRuntime: Resource<{
     placement: ComponentStorage<typeof Transform>;
     global: ComponentStorage<typeof GlobalTransform>;
     discontinuities: Uint32Array;
-    discontinuityCount: number;
 }> = {
     key: Symbol.for("@dylanebert/shallot/transform/runtime"),
     create(world) {
@@ -53,7 +52,6 @@ export const TransformRuntime: Resource<{
             placement: world.storage(Transform),
             global: world.storage(GlobalTransform),
             discontinuities: new Uint32Array(1),
-            discontinuityCount: 0,
         };
     },
 };
@@ -62,14 +60,13 @@ export const TransformRuntime: Resource<{
 export function teleport(world: World, eid: number): void {
     if (!world.has(eid, GlobalTransform)) return;
     const runtime = world.resource(TransformRuntime);
-    for (let i = 0; i < runtime.discontinuityCount; i++)
-        if (runtime.discontinuities[i] === eid) return;
-    if (runtime.discontinuityCount === runtime.discontinuities.length) {
-        const next = new Uint32Array(runtime.discontinuities.length * 2);
+    const word = eid >>> 5;
+    if (word >= runtime.discontinuities.length) {
+        const next = new Uint32Array(Math.max(word + 1, runtime.discontinuities.length * 2));
         next.set(runtime.discontinuities);
         runtime.discontinuities = next;
     }
-    runtime.discontinuities[runtime.discontinuityCount++] = eid;
+    runtime.discontinuities[word] |= 1 << (eid & 31);
 }
 /** @internal Gather authored placement into fixed world columns without per-row callbacks. */
 export function deriveTransforms(world: World): void {
@@ -159,7 +156,7 @@ export const TransformPlugin: Plugin = {
         return {
             snapshot: () => undefined,
             restore() {
-                runtime.discontinuityCount = 0;
+                runtime.discontinuities.fill(0);
                 for (const eid of world.query([GlobalTransform])) teleport(world, eid);
             },
         };

@@ -9,6 +9,7 @@ import {
     GlobalTransformTickStartSystem,
     PrepareGlobalTransformSystem,
     TransformRuntime,
+    teleport,
 } from "../transform";
 
 const terms = [GlobalTransform];
@@ -56,8 +57,6 @@ export interface GlobalTransformRuntime {
     group?: GPUBindGroup;
     generation: number;
     params?: GPUBuffer;
-    discontinuities: Uint32Array;
-    discontinuityCount: number;
     historyNeedsPromotion: boolean;
 }
 /** @internal GPU history identity survives compatible renderer reloads. */
@@ -70,12 +69,10 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             stages: new Array(2),
             ranges: new Uint32Array(4),
             generation: -1,
-            discontinuities: new Uint32Array(1),
-            discontinuityCount: 0,
             historyNeedsPromotion: false,
         };
         world.observeMembership(GlobalTransform, (eid, present) => {
-            if (present && runtime.enabled) queueDiscontinuity(runtime, eid);
+            if (present && runtime.enabled) teleport(world, eid);
         });
         return runtime;
     },
@@ -95,8 +92,7 @@ export const GlobalTransformHistoryStartSystem: System = {
                 runtime.ranges[3] / runtime.current!.rowBytes,
             );
         captureCurrent(world, 0);
-        runtime.discontinuityCount = 0;
-        world.resource(TransformRuntime).discontinuityCount = 0;
+        world.resource(TransformRuntime).discontinuities.fill(0);
     },
 };
 /** Captures completed derived placement after every ordinary fixed writer. */
@@ -135,9 +131,6 @@ export function recoverGlobalTransformHistory(world: World) {
             runtime.tickCount = 0;
             runtime.ranges.fill(0);
             runtime.historyNeedsPromotion = false;
-            runtime.discontinuityCount = 0;
-            if (runtime.enabled)
-                for (const eid of world.query(terms)) queueDiscontinuity(runtime, eid);
         },
     };
 }
@@ -180,25 +173,12 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         runtime.pipeline = world.gpu.root.unwrap(
             world.gpu.root.createComputePipeline({ compute: kernel }),
         );
-        for (const eid of world.query(terms)) queueDiscontinuity(runtime, eid);
+        for (const eid of world.query(terms)) teleport(world, eid);
     }
     return runtime.render!;
 }
-function queueDiscontinuity(runtime: GlobalTransformRuntime, eid: number): void {
-    for (let i = 0; i < runtime.discontinuityCount; i++)
-        if (runtime.discontinuities[i] === eid) return;
-    if (runtime.discontinuityCount === runtime.discontinuities.length) {
-        const next = new Uint32Array(runtime.discontinuities.length * 2);
-        next.set(runtime.discontinuities);
-        runtime.discontinuities = next;
-    }
-    runtime.discontinuities[runtime.discontinuityCount++] = eid;
-}
 function captureCurrent(world: World, phase: number): void {
     const runtime = world.resource(GlobalTransformHistory);
-    const placement = world.resource(TransformRuntime);
-    for (let i = 0; i < placement.discontinuityCount; i++)
-        queueDiscontinuity(runtime, placement.discontinuities[i]);
     const current = runtime.current!;
     current.prepareUpload();
     // Reused stages retain earlier changed rows, including gaps in their range.
@@ -243,10 +223,12 @@ function copyPhase(world: World, encoder: GPUCommandEncoder | undefined, phase: 
         );
         runtime.historyNeedsPromotion = true;
     }
-    if (phase === 1)
-        for (let i = 0; i < runtime.discontinuityCount; i++) {
-            const current = runtime.current!,
-                row = current.rowIndex(runtime.discontinuities[i]);
+    if (phase !== 1) return;
+    const current = runtime.current!,
+        marks = world.resource(TransformRuntime).discontinuities;
+    for (let word = 0; word < marks.length; word++)
+        for (let bits = marks[word]; bits !== 0; bits &= bits - 1) {
+            const row = current.rowIndex((word << 5) | (31 - Math.clz32(bits & -bits)));
             if (row >= 0)
                 (encoder ?? world.frameEncoder()!).copyBufferToBuffer(
                     current.buffer,
@@ -276,9 +258,8 @@ export function prepareGlobalTransformFrame(world: World, encoder?: GPUCommandEn
     }
     copyPhase(world, encoder, 1);
     runtime.tickCount = 0;
-    runtime.discontinuityCount = 0;
     runtime.ranges.fill(0);
-    world.resource(TransformRuntime).discontinuityCount = 0;
+    world.resource(TransformRuntime).discontinuities.fill(0);
     if (!runtime.current!.count) {
         runtime.historyNeedsPromotion = false;
         return;
