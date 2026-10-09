@@ -30,7 +30,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Draws and dispatches read compact active-row or instance lists, never the sparse eid range; eid-based lookups opt into the uploaded map.
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback. GPU-only tables have no CPU record source or upload.
 - Unchanged records upload nothing; a changed record uploads its spanning range.
-- Uploads preserve command order across buffer growth.
+- Uploads preserve command order across buffer growth. Before a frame encoder opens, queue writes and immediate growth submissions follow program order; within a frame, distinct staging ranges preserve encoded observations.
+- Frame upload staging recycles through the existing `world.gpu.sync` completion fence, never an additional per-upload or per-frame fence. The upload-byte bound applies to one encoded frame, not accumulated exact ticks.
 - Growth preserves contents and changes generation; consumers rebuild affected bind groups, not pipelines.
 - Shader arrays are runtime-sized. Device buffer limits bound table capacity, and refusal names the cause.
 - Fixed writes precede head-of-draw upload and GPU passes, including writes from exact ticks before a frame.
@@ -90,7 +91,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### Rendering
 
 - `RenderingPlugin` (`core/rendering`) owns cameras, shared views, canvas binding, projection, view and frame uniforms, capture, light components and the frame-ordering anchors; it knows no meshes or materials.
-- Rendering captures derived placement after each fixed tick's placement boundary and every ordinary fixed system. History copies and interpolation record on its frame encoder, after deferred table growth copies.
+- Rendering captures derived placement after each fixed tick's placement boundary and every ordinary fixed system. History copies and interpolation record on its frame encoder, after pre-frame table growth submissions.
 - Each scheduler group end holds an ordered boundary set outside ordinary systems. Boundary edges obey the same refusal of contradictory and cyclic order as ordinary systems.
 - Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor.
 - `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` lane, `RenderPhases` and the tonemapping pass.

@@ -343,7 +343,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
 }
 
 configs.push({ defaults: false, plugins: [RenderingPlugin] });
-test("public exact ticks defer growth copies and retain interpolation, teleport and spawn history beyond the catch-up cap", async () => {
+test("public exact ticks submit growth copies and retain interpolation, teleport and spawn history beyond the catch-up cap", async () => {
     const app = subjects()[5];
     const { world } = app;
     try {
@@ -392,7 +392,7 @@ test("public exact ticks defer growth copies and retain interpolation, teleport 
         const frame = world.gpu.frame;
         try {
             for (let i = 0; i < 8; i++) world.tick();
-            expect(submissions).toBe(0);
+            expect(submissions).toBeGreaterThan(0);
             expect(world.gpu.frame).toBe(frame);
             expect(table.buffer.size).toBeGreaterThan(capacity);
         } finally {

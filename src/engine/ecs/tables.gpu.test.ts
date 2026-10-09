@@ -339,10 +339,96 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
     expect(Array.from(new Uint32Array(data.bytes))).toEqual([333, 222]);
 });
 
+const retainedUploads = subject("RetainedSubmissionUploads", [], (world) =>
+    world.table("retained-submission-uploads", Record),
+);
+test("two in-flight submissions retain distinct upload ranges until their existing fences complete", async () => {
+    const { world, table } = retainedUploads();
+    table.reserveSlots((64 * 1024) / table.rowBytes);
+    table.acquire(world.create());
+    const device = world.gpu.device;
+    const observations = [11, 22].map(() =>
+        device.createBuffer({
+            size: table.rowBytes,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        }),
+    );
+    for (const buffer of observations) world.own(buffer);
+    const bytes = new DataView(table.bytes.buffer);
+    const commands: GPUCommandBuffer[] = [];
+    const record = (value: number, observation?: GPUBuffer) => {
+        const encoder = device.createCommandEncoder();
+        world.beginGpuFrame(encoder);
+        bytes.setFloat32(0, value, true);
+        table.markRange(0, table.capacity);
+        table.upload();
+        if (observation)
+            encoder.copyBufferToBuffer(table.buffer, 0, observation, 0, table.rowBytes);
+        commands[0] = encoder.finish();
+        device.queue.submit(commands);
+        world.endGpuFrame();
+        return world.gpu.sync();
+    };
+    const first = record(11, observations[0]);
+    const second = record(22, observations[1]);
+    await bounded("both upload submissions", Promise.all([first, second]));
+    for (let i = 0; i < observations.length; i++) {
+        const observation = observations[i];
+        await bounded("retained upload observation", observation.mapAsync(GPUMapMode.READ));
+        expect(new DataView(observation.getMappedRange()).getFloat32(0, true)).toBe([11, 22][i]);
+        observation.unmap();
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(device, "createBuffer");
+    const createBuffer = device.createBuffer.bind(device);
+    let allocations = 0;
+    Object.defineProperty(device, "createBuffer", {
+        configurable: true,
+        value: (options: GPUBufferDescriptor) => {
+            allocations++;
+            return createBuffer(options);
+        },
+    });
+    try {
+        await bounded("completed upload recycling", record(33));
+        expect(allocations).toBe(0);
+    } finally {
+        if (descriptor) Object.defineProperty(device, "createBuffer", descriptor);
+        else Reflect.deleteProperty(device, "createBuffer");
+    }
+});
+
+const largeTicks = subject("LargeExactTickUploads", [], (world) =>
+    world.table("large-exact-tick-uploads", Record),
+);
+test("four exact ticks upload 32/64/128/128 MiB without retaining uploads until a frame", async () => {
+    const { world, table } = largeTicks();
+    table.acquire(world.create());
+    const sizes = [32, 64, 128, 128].map((mib) => mib * 1024 * 1024);
+    let tick = 0;
+    world.addSystem({
+        group: "fixed",
+        update() {
+            const size = sizes[tick++];
+            table.reserveSlots(size / table.rowBytes);
+            new DataView(table.bytes.buffer).setFloat32(0, tick, true);
+            table.markRange(0, size / table.rowBytes);
+            table.upload();
+        },
+    });
+    const frame = world.gpu.frame;
+    for (let i = 0; i < 4; i++) world.tick();
+    expect(world.gpu.frame).toBe(frame);
+    const result = await bounded(
+        "large exact tick uploads",
+        probeBuffer(world, table.buffer, { size: table.rowBytes }),
+    );
+    expect(new DataView(result.bytes).getFloat32(0, true)).toBe(4);
+});
+
 const recycledUploads = subject("RecycledUploads", [], (world) =>
     world.table("recycled-uploads", Record),
 );
-test("completed upload chunks recycle without allocating buffers and staging refuses beyond its world budget", async () => {
+test("completed upload chunks recycle without allocating buffers and a single frame exceeding its budget refuses", async () => {
     const { world, table } = recycledUploads();
     table.acquire(world.create());
     const device = world.gpu.device;
@@ -365,7 +451,7 @@ test("completed upload chunks recycle without allocating buffers and staging ref
         },
     });
     world.step(0);
-    await bounded("upload warmup", device.queue.onSubmittedWorkDone());
+    await bounded("upload warmup", world.gpu.sync());
     const descriptor = Object.getOwnPropertyDescriptor(device, "createBuffer");
     const createBuffer = device.createBuffer.bind(device);
     let allocations = 0;
@@ -379,7 +465,7 @@ test("completed upload chunks recycle without allocating buffers and staging ref
     try {
         for (let i = 0; i < 8; i++) {
             world.step(0);
-            await bounded("upload reuse", device.queue.onSubmittedWorkDone());
+            await bounded("upload reuse", world.gpu.sync());
         }
         expect(allocations).toBe(0);
         const encoder = device.createCommandEncoder();
@@ -455,7 +541,7 @@ for (const phase of ["fixed-growth", "draw"] as const) {
 const steppedGrowth = subject("SteppedTableGrowth", [], (world) =>
     world.table("stepped-table-growth", Record),
 );
-test("a non-placement table defers growth during a step and uploads after its copies", async () => {
+test("a non-placement table submits pre-frame growth in queue order and preserves subsequent uploads", async () => {
     const { world, table } = steppedGrowth();
     const eid = world.create();
     table.acquire(eid);
@@ -478,8 +564,8 @@ test("a non-placement table defers growth during a step and uploads after its co
         group: "fixed",
         update() {
             table.reserveSlots(table.capacity + 1);
-            expect(submissions).toBe(0);
-            expect(world.owns(initial)).toBe(true);
+            expect(submissions).toBe(1);
+            expect(world.owns(initial)).toBe(false);
             new DataView(table.bytes.buffer).setFloat32(0, 19, true);
             table.markRange(0, 1);
             table.upload();
@@ -496,7 +582,7 @@ test("a non-placement table defers growth during a step and uploads after its co
     });
     try {
         world.step(1 / 60);
-        expect(submissions).toBe(1);
+        expect(submissions).toBe(2);
         const result = await bounded(
             "stepped growth",
             probeBuffer(world, table.buffer, { size: table.rowBytes }),

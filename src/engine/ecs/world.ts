@@ -30,9 +30,8 @@ const UPLOAD_CHUNK_BYTES = 64 * 1024;
 interface UploadChunk {
     buffer: GPUBuffer;
     offset: number;
-    pending: number;
+    fence: number;
     used: boolean;
-    settle(): void;
 }
 
 /** A world-owned value identified by its declaration, or an explicit reload-stable key. */
@@ -53,15 +52,8 @@ export class World {
     private _scheduler = new Scheduler();
     private _frameEncoder: GPUCommandEncoder | undefined;
     private _retiredBuffers: GPUBuffer[] = [];
-    private _pendingCopies: {
-        source: GPUBuffer;
-        target: GPUBuffer;
-        sourceOffset: number;
-        offset: number;
-        size: number;
-    }[] = [];
     private _uploadChunks: UploadChunk[] = [];
-    private _uploadBytes = 0;
+    private _frameUploadBytes = 0;
     private _stepping = false;
     private _columns = new FieldColumns();
     private _snapshots = new SnapshotComposition(
@@ -177,48 +169,28 @@ export class World {
     /** @internal The renderer opens one encoder; engine work records into it. */
     beginGpuFrame(encoder: GPUCommandEncoder): void {
         this._frameEncoder = encoder;
-        for (const copy of this._pendingCopies)
-            encoder.copyBufferToBuffer(
-                copy.source,
-                copy.sourceOffset,
-                copy.target,
-                copy.offset,
-                copy.size,
-            );
-        this._pendingCopies.length = 0;
+        this._frameUploadBytes = 0;
     }
 
-    /** @internal Release buffers retired by growth only after the frame was submitted. */
+    /** @internal Close a submitted frame and release buffers retired by growth.
+     * Its following gpu.sync fence retires staging ranges; runApp already issues that fence. */
     endGpuFrame(): void {
         this._frameEncoder = undefined;
-        if (!this._disposed) {
-            let completion: Promise<void> | undefined;
+        if (!this._disposed)
             for (const chunk of this._uploadChunks) {
                 if (!chunk.used) continue;
                 chunk.used = false;
-                chunk.pending++;
-                completion ??= this.gpu.device.queue.onSubmittedWorkDone();
-                completion.then(chunk.settle, chunk.settle);
+                chunk.fence = this.gpu.fences.issued + 1;
             }
-        }
         for (const buffer of this._retiredBuffers) buffer.destroy();
         this._retiredBuffers.length = 0;
     }
 
-    /** @internal Growth during a step or behind pending work defers copies to the next frame
-     * encoder and retains old buffers through submission. Applies to every GPU table. */
+    /** @internal Growth shares an open frame encoder; otherwise its immediate submission
+     * follows preceding queue writes. Old buffers retire after the copy submission. */
     growGpuBuffer(previous: GPUBuffer, buffer: GPUBuffer): void {
         if (this._frameEncoder) {
             this._frameEncoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
-            this._retiredBuffers.push(previous);
-        } else if (this._stepping || this._pendingCopies.length) {
-            this._pendingCopies.push({
-                source: previous,
-                target: buffer,
-                sourceOffset: 0,
-                offset: 0,
-                size: previous.size,
-            });
             this._retiredBuffers.push(previous);
         } else {
             const encoder = this.gpu.device.createCommandEncoder();
@@ -230,21 +202,26 @@ export class World {
 
     /** @internal CPU metadata replaces old buffers without a GPU copy. */
     retireGpuBuffer(buffer: GPUBuffer): void {
-        if (this._frameEncoder || this._stepping || this._pendingCopies.length)
-            this._retiredBuffers.push(buffer);
+        if (this._frameEncoder) this._retiredBuffers.push(buffer);
         else buffer.destroy();
     }
 
-    /** @internal Uploads append immutable source ranges for the current submission, including
-     * uploads behind deferred growth. Staging chunks recycle only after queue completion;
-     * total capacity is bounded by maxBufferSize; exhaustion refuses rather than overwriting live bytes. */
+    /** @internal Outside a frame, writes use queue order directly. Inside a frame, uploads
+     * append distinct source ranges, recycled after the existing gpu.sync fence completes.
+     * A frame recording more than maxBufferSize upload bytes refuses with the cause. */
     uploadGpuTable(buffer: GPUBuffer, offset: number, data: ArrayBufferLike, size: number): void {
         const encoder = this._frameEncoder;
-        if (!encoder && !this._pendingCopies.length) {
+        if (!encoder) {
             this.gpu.device.queue.writeBuffer(buffer, offset, data as ArrayBuffer, offset, size);
             return;
         }
+        const limit = this.gpu.device.limits.maxBufferSize;
+        if (size > limit - this._frameUploadBytes)
+            throw new Error(
+                `GPU table frame uploads exceed the ${limit}-byte frame budget: ${this._frameUploadBytes} bytes recorded, ${size} more requested`,
+            );
         const chunk = this.uploadChunk(size);
+        this._frameUploadBytes += size;
         const sourceOffset = chunk.offset;
         chunk.offset += size;
         chunk.used = true;
@@ -255,43 +232,19 @@ export class World {
             offset,
             size,
         );
-        if (encoder) encoder.copyBufferToBuffer(chunk.buffer, sourceOffset, buffer, offset, size);
-        else
-            this._pendingCopies.push({
-                source: chunk.buffer,
-                target: buffer,
-                sourceOffset,
-                offset,
-                size,
-            });
+        encoder.copyBufferToBuffer(chunk.buffer, sourceOffset, buffer, offset, size);
     }
 
     // Like wgpu's StagingBelt, append until submission completion makes an entire chunk reusable.
     // In-flight chunks may accept more bytes, but never overwrite a recorded copy's source.
     private uploadChunk(size: number): UploadChunk {
-        for (const chunk of this._uploadChunks)
+        for (const chunk of this._uploadChunks) {
+            if (!chunk.used && chunk.fence <= this.gpu.fences.completed) chunk.offset = 0;
             if (chunk.buffer.size - chunk.offset >= size) return chunk;
+        }
         const limit = this.gpu.device.limits.maxBufferSize;
         let capacity = Math.min(UPLOAD_CHUNK_BYTES, limit);
         while (capacity < size && capacity < limit) capacity = Math.min(capacity * 2, limit);
-        if (size <= limit && limit - this._uploadBytes < size) {
-            for (
-                let i = this._uploadChunks.length - 1;
-                i >= 0 && limit - this._uploadBytes < size;
-                i--
-            ) {
-                const chunk = this._uploadChunks[i];
-                if (chunk.pending || chunk.used) continue;
-                this._uploadBytes -= chunk.buffer.size;
-                chunk.buffer.destroy();
-                this._uploadChunks.splice(i, 1);
-            }
-        }
-        capacity = Math.min(capacity, limit - this._uploadBytes);
-        if (capacity < size)
-            throw new Error(
-                `GPU table upload staging needs ${size} bytes; the world's ${limit}-byte budget has ${limit - this._uploadBytes} bytes available`,
-            );
         const buffer = this.gpu.device.createBuffer({
             label: "table-upload-chunk",
             size: capacity,
@@ -301,15 +254,10 @@ export class World {
         const chunk: UploadChunk = {
             buffer,
             offset: 0,
-            pending: 0,
+            fence: 0,
             used: false,
-            settle() {
-                chunk.pending--;
-                if (!chunk.pending && !chunk.used) chunk.offset = 0;
-            },
         };
         this._uploadChunks.push(chunk);
-        this._uploadBytes += capacity;
         return chunk;
     }
 
@@ -513,7 +461,7 @@ export class World {
 
     /** Advance exactly one fixed tick, ignoring pause, scale and catch-up limits. Runs only the fixed
      * group (including its lazy system setup), not setup, simulation or draw groups. Does not advance
-     * the GPU frame or readback; field changes and deferred copies remain for the next frame upload.
+     * the GPU frame or readback; queued table writes remain ordered before the next frame submission.
      * Refuses inside a step or tick. Errors follow {@link step}; the tick count is not rolled back. */
     tick(): void {
         if (this._stepping) throw new Error("World.tick: refuses inside a step or tick");
@@ -838,9 +786,8 @@ export class World {
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
         this.endGpuFrame();
-        this._pendingCopies.length = 0;
         this._uploadChunks.length = 0;
-        this._uploadBytes = 0;
+        this._frameUploadBytes = 0;
         this._resources.clear();
 
         this.registry.clear();

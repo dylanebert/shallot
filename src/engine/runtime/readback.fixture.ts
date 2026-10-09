@@ -104,6 +104,7 @@ export async function controlledReadback(
         typed: new Map(),
         root: {} as import("typegpu").TgpuRoot,
         pending: () => 0,
+        fences: { issued: 0, completed: 0 },
         sync: async () => {},
         adapter: {
             class: "unidentified",

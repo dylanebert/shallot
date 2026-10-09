@@ -134,6 +134,9 @@ export interface WorldGpu {
     pending(): number;
     /** register the just-submitted frame's completion fence; tracks {@link pending}, returns the fence */
     sync(): Promise<void>;
+    /** Completion watermarks for the existing sync fences, not additional submissions.
+     * A resource used before the next sync may recycle when that fence completes. */
+    readonly fences: { readonly issued: number; readonly completed: number };
     /**
      * named GPU buffers published for cross-system lookup. GPU tables
      * self-register; producers register their static buffers (cube vertices,
@@ -1140,9 +1143,14 @@ export async function requestGPU(
     observeDevice(d);
     beginArtifactSession(d);
     let inFlight = 0;
-    // one settle reaction for every fence, resolved or rejected
+    const fences = { issued: 0, completed: 0 };
     const settle = (): void => {
         inFlight--;
+    };
+    // Queue fences complete in order; only successful completion makes staging reusable.
+    const complete = (): void => {
+        inFlight--;
+        fences.completed++;
     };
     const trackedDevice = owner
         ? (() => {
@@ -1225,10 +1233,12 @@ export async function requestGPU(
         root: trackedRoot,
         frame: 0,
         pending: () => inFlight,
+        fences,
         sync: () => {
             inFlight++;
+            fences.issued++;
             const fence = d.queue.onSubmittedWorkDone();
-            fence.then(settle, settle);
+            fence.then(complete, settle);
             return fence;
         },
         buffers: new Map<string, GPUBuffer>(),
