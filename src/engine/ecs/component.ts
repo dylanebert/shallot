@@ -404,14 +404,9 @@ export class Components {
     // component id by generation and bit index, the inverse of _meta
     private _owners: number[][] = [[]];
 
-    /** @internal Membership image independent of live masks. */
+    /** @internal Capture membership without taking ownership of component assignments. */
     snapshot() {
-        return {
-            nextBit: this._nextBit,
-            gen: this._gen,
-            meta: this._meta.map((m) => m && { ...m }),
-            masks: this._masks.map((m) => m.slice()),
-        };
+        return { masks: this._masks.map((m) => m.slice()) };
     }
 
     private readonly _restored?: () => void;
@@ -425,29 +420,16 @@ export class Components {
         this._membership = membership;
     }
 
-    /** @internal Replace masks, then reconcile changed bits without per-entity objects or defaults. */
+    /** @internal Restore membership from an image while preserving live component assignments. */
     restore(state: ReturnType<Components["snapshot"]>): void {
         const before = this._masks;
-        const beforeMeta = this._meta;
-        this._nextBit = state.nextBit;
-        this._gen = state.gen;
-        this._meta = state.meta.map((m) => m && { ...m });
-        this._masks = state.masks.map((m) => m.slice());
-        this._owners = this._masks.map(() => []);
-        for (let id = 0; id < this._meta.length; id++) {
-            const m = this._meta[id];
-            if (m) this._owners[m.gen][31 - Math.clz32(m.bit)] = id;
-        }
+        this._masks = before.map((_, gen) => state.masks[gen]?.slice() ?? []);
         this._restored?.();
         if (!this._membership) return;
-        for (let gen = 0; gen < Math.max(before.length, this._masks.length); gen++) {
-            const owners: number[] = [];
-            for (let id = 0; id < Math.max(this._meta.length, beforeMeta.length); id++) {
-                const meta = this._meta[id] ?? beforeMeta[id];
-                if (meta?.gen === gen) owners[31 - Math.clz32(meta.bit)] = id;
-            }
-            const old = before[gen] ?? [];
-            const next = this._masks[gen] ?? [];
+        for (let gen = 0; gen < this._masks.length; gen++) {
+            const owners = this._owners[gen];
+            const old = before[gen];
+            const next = this._masks[gen];
             for (let eid = 0; eid < Math.max(old.length, next.length); eid++) {
                 const current = next[eid] ?? 0;
                 let changed = (old[eid] ?? 0) ^ current;
