@@ -151,5 +151,14 @@ export function jointDefs(world: World): JointDef[] {
             });
         }
     }
+    // Snapshots share these values.
+    for (const def of out) deepFreeze(def);
+    Object.freeze(out);
     return out;
+}
+function deepFreeze(value: object): void {
+    for (const child of Object.values(value)) {
+        if (child !== null && typeof child === "object") deepFreeze(child);
+    }
+    Object.freeze(value);
 }

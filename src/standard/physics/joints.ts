@@ -203,7 +203,7 @@ export function resyncConstraints(
 }
 export interface ConstraintIds {
     joints: [string, number[]][];
-    retainedJoints: JointDef[];
+    retainedJoints: readonly JointDef[];
 }
 export function captureConstraints(cache: ConstraintCache): ConstraintIds {
     return {
@@ -211,7 +211,7 @@ export function captureConstraints(cache: ConstraintCache): ConstraintIds {
             key,
             pool.flatMap((j) => [j.id.index1, j.id.generation]),
         ]),
-        retainedJoints: structuredClone(cache.retainedJoints) as JointDef[],
+        retainedJoints: cache.retainedJoints,
     };
 }
 export function restoreConstraints(
@@ -233,7 +233,7 @@ export function restoreConstraints(
             return [key, pool];
         }),
     );
-    cache.retainedJoints = structuredClone(ids.retainedJoints);
+    cache.retainedJoints = ids.retainedJoints;
 }
 export function resetConstraints(cache: ConstraintCache): void {
     cache.liveJoints.clear();
