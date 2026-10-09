@@ -186,6 +186,10 @@ test("the standard composition and points render every variant at the declared t
         world.add(camera, Camera);
         world.add(camera, StandardRenderer);
         attachTexture(world, camera, { width: 32, height: 32 });
+        const captureCompletedFrame = async () => {
+            await device.queue.onSubmittedWorkDone();
+            return captureTexture(world, camera);
+        };
         const bg = registerBackground(world, {
             name: "floor-background",
             layout: backgroundLayout({}),
@@ -245,7 +249,7 @@ test("the standard composition and points render every variant at the declared t
                     `floor work meshes=195 sprites=6 glyphs=9 AA=${aa} depth=${depth}`,
                     JSON.stringify(work),
                 );
-                const shot = await captureTexture(world, camera);
+                const shot = await captureCompletedFrame();
                 expect(shot.rgba.some((v, i) => i % 4 !== 3 && v > 0)).toBe(true);
             }
         }
@@ -288,7 +292,7 @@ test("the standard composition and points render every variant at the declared t
         const records = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect));
         const words = new Uint32Array(records.bytes);
         for (let i = 3; i < words.length; i += 5) expect(words[i]).toBe(0);
-        const plain = (await captureTexture(world, camera)).rgba;
+        const plain = (await captureCompletedFrame()).rgba;
         let points = 0;
         for (let i = 0; i < plain.length; i += 4)
             if (plain[i + 1] > plain[i] && plain[i + 1] > plain[i + 2]) points++;
@@ -296,7 +300,7 @@ test("the standard composition and points render every variant at the declared t
         world.add(camera, Vignette, { intensity: 0.5 });
         world.step(0);
         world.step(0);
-        const vignette = (await captureTexture(world, camera)).rgba;
+        const vignette = (await captureCompletedFrame()).rgba;
         expect(vignette).not.toEqual(plain);
         // Identity after-tonemap pass; cache by input view, as built-in effects do.
         const module = device.createShaderModule({
@@ -337,7 +341,7 @@ test("the standard composition and points render every variant at the declared t
         });
         world.step(0);
         world.step(0);
-        expect((await captureTexture(world, camera)).rgba).toEqual(vignette);
+        expect((await captureCompletedFrame()).rgba).toEqual(vignette);
         let groupsCreated = 0;
         const original = device.createBindGroup;
         device.createBindGroup = function (descriptor) {
