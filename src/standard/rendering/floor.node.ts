@@ -84,11 +84,13 @@ const proof: Plugin = {
     },
 };
 
-test("the standard composition and points render every variant on default eight-buffer limits", async () => {
+test("the standard composition and points render every variant at the declared ten-buffer limit", async () => {
     const adapter = await gpu.requestAdapter();
     if (!adapter) throw new Error("Metal adapter unavailable");
+    const requiredFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"] as const;
     const device = await adapter.requestDevice({
-        requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
+        requiredFeatures: [...requiredFeatures],
+        requiredLimits: { maxStorageBuffersPerShaderStage: 10 },
     });
     console.log(
         "floor adapter",
@@ -107,13 +109,13 @@ test("the standard composition and points render every variant on default eight-
             ),
         ),
     );
-    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
+    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(10);
     expect(
         [...device.features].filter((feature) => feature !== "core-features-and-limits").sort(),
-    ).toEqual(["indirect-first-instance", "rg11b10ufloat-renderable"].sort());
+    ).toEqual([...requiredFeatures].sort());
     device.pushErrorScope("validation");
     device.createPipelineLayout({
-        bindGroupLayouts: [4, 5].map((length) =>
+        bindGroupLayouts: [6, 5].map((length) =>
             device.createBindGroupLayout({
                 entries: Array.from({ length }, (_, binding) => ({
                     binding,
@@ -125,8 +127,8 @@ test("the standard composition and points render every variant on default eight-
     });
     const refused = await device.popErrorScope();
     expect(refused).not.toBeNull();
-    expect(refused!.message).toMatch(/storage.*(8|limit)|9.*storage/i);
-    console.log("nine-binding control", refused!.message);
+    expect(refused!.message).toMatch(/storage.*(10|limit)|11.*storage/i);
+    console.log("eleven-binding control", refused!.message);
     const work = { uploadedBytes: 0, renderPasses: 0, computePasses: 0, dispatches: 0 };
     const writeBuffer = device.queue.writeBuffer.bind(device.queue);
     device.queue.writeBuffer = (buffer, offset, data, dataOffset, size) => {
