@@ -1,8 +1,6 @@
 export {
-    beginGlobalTransformTick,
     composeGlobalTransform,
     deriveTransforms,
-    endGlobalTransformTick,
     GlobalTransform,
     GlobalTransformTickEndSystem,
     GlobalTransformTickStartSystem,

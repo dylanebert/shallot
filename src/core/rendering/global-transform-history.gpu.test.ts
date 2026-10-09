@@ -25,22 +25,19 @@ if (typeof ResizeObserver === "undefined") {
 }
 
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import {
-    endGlobalTransformTick as deriveEnd,
-    beginGlobalTransformTick as deriveStart,
-} from "../transform";
+import { deriveTransforms } from "../transform";
 import {
     GlobalTransformHistoryEndSystem,
     GlobalTransformHistoryStartSystem,
     GlobalTransformHistory as TransformRuntime,
 } from "./global-transform";
 
-const beginGlobalTransformTick = (world: World) => {
-    deriveStart(world);
+const startTick = (world: World) => {
+    deriveTransforms(world);
     GlobalTransformHistoryStartSystem.update!(world);
 };
-const endGlobalTransformTick = (world: World) => {
-    deriveEnd(world);
+const endTick = (world: World) => {
+    deriveTransforms(world);
     GlobalTransformHistoryEndSystem.update!(world);
 };
 
@@ -320,11 +317,11 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             let previous = 0;
             for (const ticks of [0, 1, 2, 8, 0]) {
                 for (let tick = 0; tick < ticks; tick++) {
-                    beginGlobalTransformTick(world);
+                    startTick(world);
                     previous = x;
                     x += 10;
                     world.storage(Transform).translation.x.set(eid, x);
-                    endGlobalTransformTick(world);
+                    endTick(world);
                 }
                 world.step(Time.FIXED_DT * 0.1);
                 const words = new Float32Array(

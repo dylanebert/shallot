@@ -139,8 +139,6 @@ export const PrepareGlobalTransformSystem: System = {
     boundary: "before",
     update: deriveTransforms,
 };
-export const beginGlobalTransformTick = deriveTransforms;
-export const endGlobalTransformTick = deriveTransforms;
 /** Owns authored and derived fixed-tick placement and discontinuities, never GPU allocations.
  * Physics and rendering install it as a dependency; placement-only compositions add it explicitly. */
 export const TransformPlugin: Plugin = {
