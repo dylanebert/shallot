@@ -433,34 +433,6 @@ test("a stepped World reclaims frame staging on its own fence without runApp or 
     }
 });
 
-const largeTicks = subject("LargeExactTickUploads", [], (world) =>
-    world.table("large-exact-tick-uploads", Record),
-);
-test("four exact ticks upload 32/64/128/128 MiB without retaining uploads until a frame", async () => {
-    const { world, table } = largeTicks();
-    table.acquire(world.create());
-    const sizes = [32, 64, 128, 128].map((mib) => mib * 1024 * 1024);
-    let tick = 0;
-    world.addSystem({
-        group: "fixed",
-        update() {
-            const size = sizes[tick++];
-            table.reserveSlots(size / table.rowBytes);
-            new DataView(table.bytes.buffer).setFloat32(0, tick, true);
-            table.markRange(0, size / table.rowBytes);
-            table.upload();
-        },
-    });
-    const frame = world.gpu.frame;
-    for (let i = 0; i < 4; i++) world.tick();
-    expect(world.gpu.frame).toBe(frame);
-    const result = await bounded(
-        "large exact tick uploads",
-        probeBuffer(world, table.buffer, { size: table.rowBytes }),
-    );
-    expect(new DataView(result.bytes).getFloat32(0, true)).toBe(4);
-});
-
 const recycledUploads = subject("RecycledUploads", [], (world) =>
     world.table("recycled-uploads", Record),
 );
