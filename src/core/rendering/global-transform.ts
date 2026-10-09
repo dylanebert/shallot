@@ -94,6 +94,8 @@ export const GlobalTransformHistoryStartSystem: System = {
                 runtime.ranges[3] / runtime.current!.rowBytes,
             );
         captureCurrent(world, 0);
+        // These rows are now carried by phase 0, not the earlier phase 1.
+        runtime.ranges[2] = runtime.ranges[3] = 0;
         runtime.historyDiscarded = false;
         world.resource(TransformRuntime).discontinuities.fill(0);
     },
@@ -131,6 +133,15 @@ export function recoverGlobalTransformHistory(world: World) {
     return {
         snapshot: () => undefined,
         restore() {
+            const current = runtime.current;
+            // Staged rows have left the CPU mirror, so keep them pending for upload.
+            if (current)
+                for (let phase = 0; phase < 2; phase++)
+                    if (runtime.ranges[phase * 2 + 1])
+                        current.markRange(
+                            runtime.ranges[phase * 2] / current.rowBytes,
+                            runtime.ranges[phase * 2 + 1] / current.rowBytes,
+                        );
             runtime.tickCount = 0;
             runtime.ranges.fill(0);
             runtime.historyNeedsPromotion = false;
