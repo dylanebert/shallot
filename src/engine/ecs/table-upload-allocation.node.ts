@@ -8,21 +8,24 @@ await setupGlobals();
 
 setDefaultTimeout(CEILING.node);
 test("whole steady table frames reuse staging and only the existing completion promise and reaction", async () => {
-    const app = await createApp({ defaults: false, plugins: [] });
+    const app = await createApp({
+        defaults: false,
+        plugins: [{ name: "TableUploadAllocation", gpu: {} }],
+    });
     const { world } = app;
     const device = world.gpu.device;
     const table = world.table("whole-frame-uploads", d.struct({ value: d.vec4f }));
     table.acquire(world.create());
     const data = new Float32Array(4);
-    const commands: GPUCommandBuffer[] = [];
+    world.addSystem({
+        group: "draw",
+        update(world) {
+            world.uploadGpuTable(table.buffer, 0, data.buffer, data.byteLength);
+            world.uploadGpuTable(table.buffer, 0, data.buffer, data.byteLength);
+        },
+    });
     const frame = () => {
-        const encoder = device.createCommandEncoder();
-        world.beginGpuFrame(encoder);
-        world.uploadGpuTable(table.buffer, 0, data.buffer, data.byteLength);
-        world.uploadGpuTable(table.buffer, 0, data.buffer, data.byteLength);
-        commands[0] = encoder.finish();
-        device.queue.submit(commands);
-        world.endGpuFrame();
+        world.step(0);
         return world.frameFence!;
     };
     for (let i = 0; i < 3; i++) await frame();

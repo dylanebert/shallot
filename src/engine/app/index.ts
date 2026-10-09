@@ -518,7 +518,7 @@ export async function runApp(config: AppConfig): Promise<App> {
                 world.fenceWait(pendingFenceWaitMs);
                 pendingFenceWaitMs = 0;
                 world.step(dt);
-                // endGpuFrame owns this submission's fence; wait on it rather than issuing a second.
+                // The engine-owned frame submission issues this fence; wait on it rather than adding another.
                 const fence = world.frameFence;
                 if (fence) {
                     fenceIssued[fenceTail] = now();

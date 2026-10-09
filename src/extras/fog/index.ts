@@ -184,9 +184,7 @@ const FogSystem: System = {
         const _render = world.resource(RenderContext);
         const _fogState = world.resource(fogStateKey);
 
-        const encoder = _render.encoder;
-        if (!encoder || !world.gpu.device || !_fogState.fog.pipeline || !_fogState.fog.buffer)
-            return;
+        if (!world.gpu.device || !_fogState.fog.pipeline || !_fogState.fog.buffer) return;
         const fogEid = world.only([Fog]);
         if (fogEid < 0) return;
         packFog(world, fogEid, fogState(world).staging);
@@ -220,7 +218,7 @@ const FogSystem: System = {
                 };
                 fogState(world).views.set(eid, cam);
             }
-            const pass = encoder.beginComputePass({
+            const pass = world.frameEncoder()!.beginComputePass({
                 label: `fog/${eid}`,
                 timestampWrites: world.gpu.span?.("fog:march"),
             });

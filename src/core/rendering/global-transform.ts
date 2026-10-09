@@ -113,7 +113,7 @@ export const GlobalTransformHistoryEndSystem: System = {
         }
     },
 };
-/** Stages simulation placement before the renderer opens its frame encoder. */
+/** Stages simulation placement before ordinary draw systems use the World's encoder. */
 export const PrepareGlobalTransformHistorySystem: System = {
     group: "draw",
     name: "prepare-global-transform-history",
@@ -142,7 +142,7 @@ export function recoverGlobalTransformHistory(world: World) {
     };
 }
 /** Rendering-owned interpolated dense placement rows. Requires RenderingPlugin;
- * history and interpolation record on its frame encoder before draw passes. */
+ * history and interpolation record through `world.frameEncoder()` before draw passes. */
 export function globalTransformTable(world: World): GpuTable<typeof Xform> {
     const runtime = world.resource(GlobalTransformHistory);
     if (!runtime.enabled && !world.hasSystem(GlobalTransformHistoryEndSystem))
@@ -225,7 +225,7 @@ function captureCurrent(world: World, phase: number): void {
         runtime.ranges[phase * 2 + 1] = size;
     }
 }
-function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): void {
+function copyPhase(world: World, encoder: GPUCommandEncoder | undefined, phase: number): void {
     const runtime = world.resource(GlobalTransformHistory);
     const offset = runtime.ranges[phase * 2],
         size = runtime.ranges[phase * 2 + 1];
@@ -234,7 +234,7 @@ function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): voi
             `GlobalTransform history phase ${phase} has ${size} bytes but no staging buffer`,
         );
     if (size) {
-        encoder.copyBufferToBuffer(
+        (encoder ?? world.frameEncoder()!).copyBufferToBuffer(
             runtime.stages[phase]!,
             0,
             runtime.current!.buffer,
@@ -248,7 +248,7 @@ function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): voi
             const current = runtime.current!,
                 row = current.rowIndex(runtime.discontinuities[i]);
             if (row >= 0)
-                encoder.copyBufferToBuffer(
+                (encoder ?? world.frameEncoder()!).copyBufferToBuffer(
                     current.buffer,
                     row * current.rowBytes,
                     runtime.previous!.buffer,
@@ -257,14 +257,14 @@ function copyPhase(world: World, encoder: GPUCommandEncoder, phase: number): voi
                 );
         }
 }
-/** @internal Records history copies and binds data on rendering's frame encoder. */
-export function prepareGlobalTransformFrame(world: World, encoder: GPUCommandEncoder): void {
+/** @internal Records pending history work through the World's draw encoder. */
+export function prepareGlobalTransformFrame(world: World, encoder?: GPUCommandEncoder): void {
     const runtime = world.resource(GlobalTransformHistory);
     if (!runtime.enabled) return;
     if (runtime.tickCount) {
         copyPhase(world, encoder, 0);
         if (runtime.historyNeedsPromotion) {
-            encoder.copyBufferToBuffer(
+            (encoder ?? world.frameEncoder()!).copyBufferToBuffer(
                 runtime.current!.buffer,
                 0,
                 runtime.previous!.buffer,

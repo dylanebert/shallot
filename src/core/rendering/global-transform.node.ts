@@ -512,7 +512,6 @@ test("a compatible TransformPlugin reload preserves pending GPU history and inte
                 new Float32Array([0.5, runtime.current!.count, 0, 0]),
             );
             const encoder = world.gpu.device.createCommandEncoder();
-            world.beginGpuFrame(encoder);
             prepareGlobalTransformFrame(world, encoder);
             const pass = encoder.beginComputePass();
             pass.setPipeline(runtime.pipeline!);
@@ -520,7 +519,6 @@ test("a compatible TransformPlugin reload preserves pending GPU history and inte
             pass.dispatchWorkgroups(Math.ceil(runtime.current!.count / 64));
             pass.end();
             world.gpu.device.queue.submit([encoder.finish()]);
-            world.endGpuFrame();
             return renderedX(world, table, eid);
         };
         world.tick();

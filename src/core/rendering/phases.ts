@@ -1,6 +1,5 @@
 import type { Plugin, System, World } from "../../engine";
 import { Camera } from "./camera";
-import { RenderContext } from "./render";
 import { BeginFrameSystem, OverlaySystem, RenderingPlugin } from "./substrate";
 import {
     colorPassDescriptor,
@@ -24,10 +23,9 @@ export const PrepassSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(world) {
-        const encoder = world.resource(RenderContext).encoder;
-        if (!encoder) return;
         for (const [eid, view] of world.resource(Views)) {
             if (!view.framebuffer) continue;
+            const encoder = world.frameEncoder()!;
             view.depth = null;
             if (!world.has(eid, DepthPrepass)) continue;
             const pass = encoder.beginRenderPass(prepassDescriptor(world, eid, view));
@@ -42,10 +40,9 @@ export const MainPassSystem: System = {
     after: [PrepassSystem],
     before: [OverlaySystem],
     update(world) {
-        const encoder = world.resource(RenderContext).encoder;
-        if (!encoder) return;
         for (const [eid, view] of world.resource(Views)) {
             if (!view.framebuffer) continue;
+            const encoder = world.frameEncoder()!;
             const targets = colorTargets(
                 world,
                 eid,

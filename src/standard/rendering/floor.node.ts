@@ -325,7 +325,7 @@ test("the standard composition and points render every variant on default eight-
                 });
                 groups.set(input, group);
             }
-            const pass = world.resource(RenderContext).encoder!.beginRenderPass({
+            const pass = world.frameEncoder()!.beginRenderPass({
                 colorAttachments: [{ view: output, loadOp: "clear", storeOp: "store" }],
             });
             pass.setPipeline(pipeline);

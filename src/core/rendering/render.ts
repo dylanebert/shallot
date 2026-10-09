@@ -1,8 +1,8 @@
 import type { World } from "../../engine";
 
 /**
- * World-owned GPU context shared by renderers. BeginFrameSystem opens `encoder`;
- * every frame pass records on it before the terminal submission.
+ * World-owned GPU context shared by renderers. Frame passes record through
+ * {@link World.frameEncoder}; the engine submits after the draw group.
  * `viewBuffers` holds one 208-byte ViewUniforms buffer per presenting slot, bounded
  * by MAX_VIEWS. Depth-only slots have staging and cull volumes but no view buffer.
  * `cullVolumes`, published under that name in world.gpu.buffers, contains one
@@ -12,7 +12,6 @@ import type { World } from "../../engine";
  */
 export interface RenderContext {
     format: GPUTextureFormat;
-    encoder: GPUCommandEncoder | null;
     viewBuffers: GPUBuffer[];
     viewStaging: Float32Array;
     cullVolumes: GPUBuffer;
@@ -26,7 +25,6 @@ export const renderKey = { create: createRender };
 function createRender(): RenderContext {
     return {
         format: "" as GPUTextureFormat,
-        encoder: null,
         viewBuffers: [],
         viewStaging: null!,
         cullVolumes: null!,

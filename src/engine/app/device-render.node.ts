@@ -5,7 +5,7 @@ import "../../standard";
 
 import { CEILING } from "../../../scripts/test-tiers";
 import { Transform } from "../../core/transform";
-import { Time, type World } from "../index";
+import { stampAdapter, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { createApp } from "./index";
 
@@ -49,6 +49,7 @@ for (const sharedDevice of [true, false]) {
         const makeTrackedDevice = async () => {
             const adapter = await navigator.gpu.requestAdapter();
             if (!adapter) throw new Error("Dawn adapter unavailable");
+            console.info("default renderer adapter:", stampAdapter(adapter));
             const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
             for (const limit of [
                 "maxStorageBuffersInVertexStage",
@@ -101,6 +102,14 @@ for (const sharedDevice of [true, false]) {
         ) => {
             let first: Awaited<ReturnType<typeof createApp>> | undefined;
             let second: Awaited<ReturnType<typeof createApp>> | undefined;
+            const queues = new Map<
+                GPUQueue,
+                {
+                    descriptor: PropertyDescriptor | undefined;
+                    submit: GPUQueue["submit"];
+                    count: number;
+                }
+            >();
             try {
                 first = await createApp({
                     plugins: [cameraPlugin("DefaultCameraA")],
@@ -111,10 +120,40 @@ for (const sharedDevice of [true, false]) {
                     device: secondDevice,
                 });
                 expect(first.world.gpu.root).not.toBe(second.world.gpu.root);
-                first.world.step(Time.FIXED_DT);
-                second.world.step(Time.FIXED_DT);
-                first.world.step(Time.FIXED_DT);
+                for (const world of [first.world, second.world]) {
+                    const queue = world.gpu.device.queue;
+                    if (queues.has(queue)) continue;
+                    const tracked = {
+                        descriptor: Object.getOwnPropertyDescriptor(queue, "submit"),
+                        submit: queue.submit.bind(queue),
+                        count: 0,
+                    };
+                    Object.defineProperty(queue, "submit", {
+                        configurable: true,
+                        value: (...args: Parameters<GPUQueue["submit"]>) => {
+                            tracked.count++;
+                            return tracked.submit(...args);
+                        },
+                    });
+                    queues.set(queue, tracked);
+                }
+                const step = (world: World) => {
+                    const tracked = queues.get(world.gpu.device.queue)!;
+                    const before = tracked.count;
+                    world.step(Time.FIXED_DT);
+                    expect(tracked.count - before).toBe(1);
+                    expect(world.frameFence).toBeDefined();
+                };
+                step(first.world);
+                step(second.world);
+                step(first.world);
+                await Promise.all([first.world.frameFence!, second.world.frameFence!]);
             } finally {
+                for (const [queue, tracked] of queues) {
+                    if (tracked.descriptor)
+                        Object.defineProperty(queue, "submit", tracked.descriptor);
+                    else Reflect.deleteProperty(queue, "submit");
+                }
                 second?.dispose();
                 first?.dispose();
             }

@@ -62,7 +62,7 @@ test("runApp logs a system error once, keeps healthy frames running and resumes 
     }
 });
 
-test("runApp waits on endGpuFrame's fence instead of issuing a second completion fence", async () => {
+test("runApp waits on the engine frame fence instead of issuing a second completion fence", async () => {
     let syncs = 0;
     let reads = 0;
     let sameFence = true;
@@ -71,6 +71,17 @@ test("runApp waits on endGpuFrame's fence instead of issuing a second completion
         name: "FrameFenceObserver",
         initialize(world) {
             const sync = world.gpu.sync;
+            const buffer = world.gpu.device.createBuffer({
+                size: 4,
+                usage: GPUBufferUsage.COPY_DST,
+            });
+            world.own(buffer);
+            world.addSystem({
+                group: "draw",
+                update(world) {
+                    world.frameEncoder()!.clearBuffer(buffer);
+                },
+            });
             world.gpu.sync = () => {
                 latest = sync();
                 syncs++;

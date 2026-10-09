@@ -11,7 +11,6 @@ import {
     captureTexture,
     EffectPasses,
     PresentationSystem,
-    RenderContext,
     Tonemapping,
     TonemappingMethod,
     Views,
@@ -36,7 +35,7 @@ const Replacement: Plugin = {
                 for (const eid of world.query([Camera, CustomPresentation])) {
                     const view = world.resource(Views).get(eid);
                     if (!view?.present) continue;
-                    const pass = world.resource(RenderContext).encoder!.beginRenderPass({
+                    const pass = world.frameEncoder()!.beginRenderPass({
                         label: "replacement-presentation",
                         colorAttachments: [
                             {

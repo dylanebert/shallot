@@ -277,8 +277,8 @@ function renderOutline(
     const _render = world.resource(RenderContext);
     const _outlineState = world.resource(outlineStateKey);
 
-    const encoder = _render.encoder;
-    if (!encoder || !view.framebuffer) return;
+    if (!view.framebuffer) return;
+    const encoder = world.frameEncoder()!;
     const t = targets(world, camEid, view.width, view.height);
     const seedClear = { r: SENTINEL, g: SENTINEL, b: 0, a: 0 };
 
@@ -386,7 +386,7 @@ const OutlineSystem: System = {
         const _outlineState = world.resource(outlineStateKey);
         const _meshes = world.resource(Meshes);
 
-        if (!world.resource(RenderContext).encoder || !_outlineState.gpu.maskPlain) return;
+        if (!_outlineState.gpu.maskPlain) return;
         const eids = [...world.query([Outline, MeshInstance])];
         if (eids.length === 0) return; // bare path — no passes
         const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");

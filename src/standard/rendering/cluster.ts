@@ -409,7 +409,7 @@ export const UpdateLightClustersSystem: System = {
         const _clusterGpu = world.resource(clusterGpuKey);
         const _clusters = world.resource(Clusters);
 
-        if (!_render.encoder || !_clusterGpu.pipe || _render.shadeCount === 0) return;
+        if (!_clusterGpu.pipe || _render.shadeCount === 0) return;
         for (const [eid, view] of world.resource(Views)) {
             if (!view.framebuffer || view.slot >= _render.shadeCount) continue;
             packClusterView(world, eid, view.width / view.height, view.slot);
@@ -440,7 +440,7 @@ export const UpdateLightClustersSystem: System = {
         );
         _clusterGpu.gridPass.timestampWrites = world.gpu.span?.("cluster:aabbs");
         const grid = bindGrid(world);
-        const pass = _render.encoder.beginComputePass(_clusterGpu.gridPass);
+        const pass = world.frameEncoder()!.beginComputePass(_clusterGpu.gridPass);
         pass.setPipeline(grid.pipeline);
         pass.setBindGroup(0, grid.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
@@ -853,13 +853,7 @@ export const CullLightsSystem: System = {
         const _clusterGpu = world.resource(clusterGpuKey);
         const _lightCull = world.resource(LightCull);
 
-        if (
-            !_render.encoder ||
-            !_clusterGpu.compactPipe ||
-            !_clusterGpu.cullPipe ||
-            _render.shadeCount === 0
-        )
-            return;
+        if (!_clusterGpu.compactPipe || !_clusterGpu.cullPipe || _render.shadeCount === 0) return;
         warnLightOverflow(world);
 
         world.gpu.device.queue.writeBuffer(
@@ -869,8 +863,9 @@ export const CullLightsSystem: System = {
             0,
             _render.shadeCount * 16,
         );
-        _render.encoder.clearBuffer(_lightCull.lights!, 0, 16);
-        _render.encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
+        const encoder = world.frameEncoder()!;
+        encoder.clearBuffer(_lightCull.lights!, 0, 16);
+        encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
         _clusterGpu.cullPass.timestampWrites = world.gpu.span?.("light:cull");
         const lightCount = lightInputTable(world).count;
         if (lightCount !== _clusterGpu.lightCountValue) {
@@ -880,7 +875,7 @@ export const CullLightsSystem: System = {
         }
         const compact = lightCount > 0 ? bindCompact(world) : null;
         const cull = bindCull(world);
-        const pass = _render.encoder.beginComputePass(_clusterGpu.cullPass);
+        const pass = encoder.beginComputePass(_clusterGpu.cullPass);
         if (compact) {
             pass.setPipeline(compact.pipeline);
             pass.setBindGroup(0, compact.group);

@@ -1,6 +1,7 @@
 import {
     CharacterPlugin,
     createApp,
+    DEFAULT_PLUGINS,
     InputPlugin,
     OrbitPlugin,
     PlayerPlugin,
@@ -9,6 +10,7 @@ import {
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
+import { gpuRequirements } from "./gpu.fixture";
 
 export const compileSubjects = [
     { name: "engine-only", config: { defaults: false, plugins: [] } },
@@ -39,7 +41,14 @@ export const compileSubjects = [
 ] satisfies { name: string; config: Parameters<typeof createApp>[0] }[];
 
 export async function measureCompile(config: Parameters<typeof createApp>[0]) {
-    const owner = await createApp({ defaults: false, plugins: [] });
+    const plugins = [
+        ...DEFAULT_PLUGINS,
+        ...compileSubjects.flatMap((subject) => subject.config.plugins),
+    ];
+    const owner = await createApp({
+        defaults: false,
+        plugins: [{ name: "CompileProbeDevice", gpu: gpuRequirements(plugins) }],
+    });
     const device = rawDevice(owner.world.gpu.device);
     const methods = [
         "createComputePipeline",

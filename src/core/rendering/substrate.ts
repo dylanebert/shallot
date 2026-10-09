@@ -80,7 +80,6 @@ export {
 
 const SLOT_FLOATS = VIEW_STRIDE / 4;
 const CAMERAS = [Camera];
-const FRAME_ENCODER: GPUCommandEncoderDescriptor = { label: "shallot-frame" };
 const GLOBAL_TRANSFORM_PASS: GPUComputePassDescriptor = {};
 // write a world-matrix column (base = column index * 4), normalized, into `out` at `at`
 function basisColumn(world: Float32Array, base: number, out: Float32Array, at: number): void {
@@ -183,12 +182,11 @@ function slotInputsChanged(
 }
 
 /**
- * opens the frame: creates the encoder, writes the Frame UBO, records the
- * world-matrix compose dispatch, acquires each view's swapchain backbuffer
+ * prepares per-frame render state: writes the Frame UBO, records history work
+ * on the World's lazy frame encoder, acquires each view's swapchain backbuffer
  * (`view.present`) + offscreen scene-color target (`view.framebuffer`), and
- * packs the ViewUniforms UBO. Producer and renderer systems both run
- * `after: [BeginFrameSystem]`; the terminal submission system closes the frame
- * after every producer and renderer in the draw group.
+ * packs the ViewUniforms UBO. Producer and renderer systems run after this anchor;
+ * the engine submits any recorded encoder after the draw group.
  */
 export const BeginFrameSystem: System = {
     group: "draw",
@@ -199,7 +197,6 @@ export const BeginFrameSystem: System = {
         const _render = world.resource(RenderContext);
         const _renderFrame = world.resource(renderFrameKey);
 
-        _render.encoder = null;
         const device = world.gpu.device;
         if (!device) return;
 
@@ -208,10 +205,7 @@ export const BeginFrameSystem: System = {
         // reference drops the old View even when the replacement also carries Camera.
         pruneViews(world);
 
-        const encoder = device.createCommandEncoder(FRAME_ENCODER);
-        _render.encoder = encoder;
-        world.beginGpuFrame(encoder);
-        prepareGlobalTransformFrame(world, encoder);
+        prepareGlobalTransformFrame(world);
         writeFrame(world);
 
         let count = 0;
@@ -313,6 +307,7 @@ export const BeginFrameSystem: System = {
                 ? (globalTransformRuntime.current?.count ?? 0)
                 : 0;
         if (globalTransformRuntime && globalTransformCount > 0) {
+            const encoder = world.frameEncoder()!;
             const pass = encoder.beginComputePass(GLOBAL_TRANSFORM_PASS);
             pass.setPipeline(globalTransformRuntime.pipeline!);
             pass.setBindGroup(0, globalTransformRuntime.group!);
@@ -369,7 +364,6 @@ async function initRender(world: World): Promise<void> {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-    _render.encoder = null;
     for (const b of _render.viewBuffers) b.destroy();
     _render.viewBuffers = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         uniform(`shallot-view-${slot}`, VIEW_BYTES),

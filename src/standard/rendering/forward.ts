@@ -511,10 +511,9 @@ function renderPrepass(
     count: number,
     pass: GPURenderPassEncoder,
 ): void {
-    const _render = world.resource(RenderContext);
     const _standardRendererState = world.resource(standardRendererStateKey);
 
-    if (!_render.encoder || !view.framebuffer) return;
+    if (!view.framebuffer) return;
 
     let draws = 0;
     const shadow = shadowGroup(world);
@@ -658,7 +657,7 @@ function renderColor(
     const _render = world.resource(RenderContext);
     const _standardRendererState = world.resource(standardRendererStateKey);
 
-    if (!_render.encoder || !view.framebuffer) return;
+    if (!view.framebuffer) return;
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the Camera component default), else
     // single-sample. `world.storage(Camera).antialias.set(eid, 0)` flips it live
     const aa = world.storage(Camera).antialias.get(eid) !== 0;
@@ -801,7 +800,7 @@ const ResolveDrawsSystem: System = {
     after: [BeginFrameSystem, CullLightsSystem],
     before: [PrepassSystem],
     update(world) {
-        if (world.resource(RenderContext).encoder) resolveDraws(world, world.entityHighWater);
+        resolveDraws(world, world.entityHighWater);
     },
 };
 

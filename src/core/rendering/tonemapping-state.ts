@@ -7,7 +7,6 @@ import {
     Camera,
     MAX_VIEWS,
     PresentationSystem,
-    RenderContext,
     RenderingPlugin,
     type View,
     Views,
@@ -22,7 +21,7 @@ export const Tonemapping = component("Tonemapping", { method: u32 });
 
 /** Camera marker: core skips this view's tonemapping and EffectPasses.
  * The replacement owns grading and encoding and must write every presented pixel
- * on RenderContext.encoder after PresentationSystem and before EndFrameSystem.
+ * through `world.frameEncoder()` after PresentationSystem and before engine submission.
  * Removing the marker resumes core presentation on the next draw.
  */
 export const CustomPresentation = component("CustomPresentation", {});
@@ -125,14 +124,14 @@ export const TonemappingSystem: System = {
     after: [BeginFrameSystem, PresentationSystem],
     update(world) {
         const state = world.resource(tonemappingStateKey);
-        const encoder = world.resource(RenderContext).encoder;
-        if (!encoder || !state.built || !state.pipeline) return;
+        if (!state.built || !state.pipeline) return;
         const device = world.gpu.device;
         const grading = world.storage(ColorGrading);
         const methods = world.storage(Tonemapping);
         for (const eid of world.query(CAMERAS)) {
             const view = world.resource(Views).get(eid);
             if (!view?.present || !view.framebuffer || world.has(eid, CustomPresentation)) continue;
+            const encoder = world.frameEncoder()!;
             const effects = world.resource(EffectPasses).get(eid);
             const before = effects?.before.length ?? 0;
             const after = effects?.after.length ?? 0;

@@ -30,12 +30,12 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Draws and dispatches read compact active-row or instance lists, never the sparse eid range; eid-based lookups opt into the uploaded map.
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback. GPU-only tables have no CPU record source or upload.
 - Unchanged records upload nothing; a changed record uploads its spanning range.
-- Uploads preserve command order across buffer growth. Before a frame encoder opens, queue writes and immediate growth submissions follow program order; within a frame, distinct staging ranges preserve encoded observations.
-- Each submitted frame owns one completion fence from `endGpuFrame`; `runApp` waits on that same fence. Upload staging recycles when it completes, with no extra staging fence. The upload-byte bound applies to one encoded frame, not accumulated exact ticks.
+- Uploads preserve command order across buffer growth. Outside draw, queue writes and immediate growth submissions follow program order; during draw, distinct staging ranges preserve encoded observations on the World's lazy frame encoder.
+- The engine submits once after the draw group, only when its encoder was opened; that submission owns the completion fence `runApp` waits on. Upload staging recycles when it completes, with no extra staging fence. The upload-byte bound applies to one encoded frame, not accumulated exact ticks.
 - Growth preserves contents and changes generation; consumers rebuild affected bind groups, not pipelines.
 - Shader arrays are runtime-sized. Device buffer limits bound table capacity, and refusal names the cause.
 - Fixed writes precede head-of-draw upload and GPU passes, including writes from exact ticks before a frame.
-- Engine work records on the renderer's frame encoder, never a separate steady-play submission.
+- Engine, rendering and compute work record during draw through `world.frameEncoder()`, which opens the World's one encoder on first use. The engine submits it after every draw system; a step that recorded nothing submits nothing. Outside draw, writes keep queue order without a frame encoder.
 - TypeGPU is the engine and extension GPU language; raw WGSL uses its escape hatch.
 - Steady updates use raw handles and byte ranges, not allocating object-form writes. Buffer generations, row addressing and upload APIs are documented beside [GpuTable](src/engine/ecs/table.ts).
 
@@ -48,7 +48,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### Readback
 
-- Steady play reads nothing back.
+- Steady play reads nothing back automatically. An asynchronous GPU result enters simulation only as an accepted record with an assigned tick, never by completion timing alone.
 - GPU work sizes later GPU work through indirect arguments; diagnostics clamp safely without CPU observation and are read only on request.
 - Shipped shaders never use TypeGPU's shader `console.log`.
 - A [probe](src/engine/runtime/probe.ts) returns one independent snapshot of a world-owned resource, stamped with the copy-time frame and fixed tick, not arrival time.
@@ -91,7 +91,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### Rendering
 
 - `RenderingPlugin` (`core/rendering`) owns cameras, shared views, canvas binding, projection, view and frame uniforms, capture, light components and the frame-ordering anchors; it knows no meshes or materials.
-- Rendering captures derived placement after each fixed tick's placement boundary and every ordinary fixed system. History copies and interpolation record on its frame encoder, after pre-frame table growth submissions.
+- Rendering captures derived placement after each fixed tick's placement boundary and every ordinary fixed system. History copies and interpolation record through `world.frameEncoder()`, after pre-frame table growth submissions.
 - Each scheduler group end holds an ordered boundary set outside ordinary systems. Boundary edges obey the same refusal of contradictory and cyclic order as ordinary systems.
 - Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor.
 - `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` lane, `RenderPhases` and the tonemapping pass.

@@ -195,12 +195,7 @@ export const MeshPreprocessSystem: System = {
         const _render = world.resource(RenderContext);
         const _meshPreprocess = world.resource(meshPreprocessKey);
 
-        if (
-            !_render.encoder ||
-            !_meshPreprocess.countPipe ||
-            !_meshPreprocess.scanPipe ||
-            !_meshPreprocess.scatterPipe
-        )
+        if (!_meshPreprocess.countPipe || !_meshPreprocess.scanPipe || !_meshPreprocess.scatterPipe)
             return;
         syncBuffers(world);
         if (_meshPreprocess.pairCount === 0) return;
@@ -211,8 +206,7 @@ export const MeshPreprocessSystem: System = {
 
         // viewCount + pairCount let the cull shader find a view's frustum and
         // index its slot's slice; slot ≥ viewCount means no frustum (headless),
-        // packed unculled. Queued before EndFrameSystem submits the encoder, so
-        // it lands before the pack executes
+        // packed unculled. The engine submits after this pass.
         const views = Math.max(1, _render.viewCount);
         // a two-word uniform written when either word changes: the typed write is the idiomatic path here.
         // The "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
@@ -242,9 +236,10 @@ export const MeshPreprocessSystem: System = {
             _meshPreprocess.countsUnwrapped = _meshPreprocess.counts;
             _meshPreprocess.countsRaw = world.gpu.root.unwrap(_meshPreprocess.counts!);
         }
-        _render.encoder.clearBuffer(_meshPreprocess.countsRaw!);
+        const encoder = world.frameEncoder()!;
+        encoder.clearBuffer(_meshPreprocess.countsRaw!);
         _meshPreprocess.packPass.timestampWrites = world.gpu.span?.("mesh:preprocess");
-        const pass = _render.encoder.beginComputePass(_meshPreprocess.packPass);
+        const pass = encoder.beginComputePass(_meshPreprocess.packPass);
         const rows = Math.ceil(instanceCount / 64);
         if (rows > 0) {
             setBound(pass, count);

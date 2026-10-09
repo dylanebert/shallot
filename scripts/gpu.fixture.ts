@@ -1,6 +1,6 @@
 import { afterAll, beforeAll } from "bun:test";
 import { relative } from "node:path";
-import { createApp } from "@dylanebert/shallot";
+import { createApp, type Plugin } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
 import { CEILING } from "./test-tiers";
 
@@ -23,6 +23,33 @@ export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () =
     return () => subject;
 }
 
+/** Union declared GPU needs for one test device shared by independently built worlds. */
+export function gpuRequirements(plugins: readonly Plugin[]): NonNullable<Plugin["gpu"]> {
+    const required = new Set<GPUFeatureName>();
+    const preferred = new Set<GPUFeatureName>();
+    const limits: Record<string, number> = {};
+    const seen = new Set<Plugin>();
+    const visit = (plugin: Plugin): void => {
+        if (seen.has(plugin)) return;
+        seen.add(plugin);
+        for (const dependency of plugin.dependencies ?? []) visit(dependency);
+        for (const feature of plugin.gpu?.features ?? []) required.add(feature);
+        for (const feature of plugin.gpu?.preferredFeatures ?? []) preferred.add(feature);
+        for (const [name, value] of Object.entries(plugin.gpu?.limits ?? {})) {
+            if (typeof value !== "number") continue;
+            limits[name] = name.startsWith("min")
+                ? Math.min(limits[name] ?? value, value)
+                : Math.max(limits[name] ?? value, value);
+        }
+    };
+    for (const plugin of plugins) visit(plugin);
+    return {
+        features: [...required],
+        preferredFeatures: [...preferred],
+        limits: limits as Partial<GPUSupportedLimits>,
+    };
+}
+
 /** Prebuild independent worlds on one file device; never share pipelines between worlds. */
 export function gpuApps(
     path: string,
@@ -30,7 +57,15 @@ export function gpuApps(
 ): () => Awaited<ReturnType<typeof createApp>>[] {
     const apps: Awaited<ReturnType<typeof createApp>>[] = [];
     const subject = compileGpuFile(path, async () => {
-        const owner = await createApp({ defaults: false, plugins: [] });
+        const owner = await createApp({
+            defaults: false,
+            plugins: [
+                {
+                    name: "GpuTestDevice",
+                    gpu: gpuRequirements(configs.flatMap((config) => config.plugins)),
+                },
+            ],
+        });
         apps.push(owner);
         const device = rawDevice(owner.world.gpu.device);
         const worlds = [];

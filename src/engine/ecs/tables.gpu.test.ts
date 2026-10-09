@@ -355,18 +355,25 @@ test("two in-flight submissions retain distinct upload ranges until their existi
     );
     for (const buffer of observations) world.own(buffer);
     const bytes = new DataView(table.bytes.buffer);
-    const commands: GPUCommandBuffer[] = [];
+    let nextValue = 0;
+    let nextObservation: GPUBuffer | undefined;
+    world.addSystem({
+        group: "draw",
+        update(world) {
+            bytes.setFloat32(0, nextValue, true);
+            table.markRange(0, table.capacity);
+            table.upload();
+            if (nextObservation)
+                world
+                    .frameEncoder()!
+                    .copyBufferToBuffer(table.buffer, 0, nextObservation, 0, table.rowBytes);
+        },
+    });
     const record = (value: number, observation?: GPUBuffer) => {
-        const encoder = device.createCommandEncoder();
-        world.beginGpuFrame(encoder);
-        bytes.setFloat32(0, value, true);
-        table.markRange(0, table.capacity);
-        table.upload();
-        if (observation)
-            encoder.copyBufferToBuffer(table.buffer, 0, observation, 0, table.rowBytes);
-        commands[0] = encoder.finish();
-        device.queue.submit(commands);
-        world.endGpuFrame();
+        nextValue = value;
+        nextObservation = observation;
+        world.step(0);
+        nextObservation = undefined;
         return world.frameFence!;
     };
     const first = record(11, observations[0]);
@@ -400,17 +407,10 @@ test("a stepped World reclaims frame staging on its own fence without runApp or 
     const { world, table } = steppedRecycling();
     table.reserveSlots((64 * 1024) / table.rowBytes);
     const bytes = new ArrayBuffer(64 * 1024);
-    const commands: GPUCommandBuffer[] = [];
-    const device = world.gpu.device;
     world.addSystem({
         group: "draw",
         update() {
-            const encoder = device.createCommandEncoder();
-            world.beginGpuFrame(encoder);
             world.uploadGpuTable(table.buffer, 0, bytes, bytes.byteLength);
-            commands[0] = encoder.finish();
-            device.queue.submit(commands);
-            world.endGpuFrame();
         },
     });
     world.step(0);
@@ -469,21 +469,27 @@ test("completed upload chunks recycle without allocating buffers and a single fr
     table.acquire(world.create());
     const device = world.gpu.device;
     const bytes = new DataView(table.bytes.buffer);
-    const commands: GPUCommandBuffer[] = [];
     let value = 0;
+    let exceedBudget = false;
     world.addSystem({
         group: "draw",
-        update() {
-            const encoder = device.createCommandEncoder();
-            world.beginGpuFrame(encoder);
+        update(world) {
+            if (exceedBudget) {
+                expect(() =>
+                    world.uploadGpuTable(
+                        table.buffer,
+                        0,
+                        new ArrayBuffer(0),
+                        device.limits.maxBufferSize + 4,
+                    ),
+                ).toThrow("budget");
+                return;
+            }
             for (let i = 0; i < 3; i++) {
                 bytes.setFloat32(0, ++value, true);
                 table.markRange(0, 1);
                 table.upload();
             }
-            commands[0] = encoder.finish();
-            device.queue.submit(commands);
-            world.endGpuFrame();
         },
     });
     world.step(0);
@@ -501,19 +507,11 @@ test("completed upload chunks recycle without allocating buffers and a single fr
             await bounded("upload reuse", world.frameFence!);
         }
         expect(allocations).toBe(0);
-        const encoder = device.createCommandEncoder();
-        world.beginGpuFrame(encoder);
-        expect(() =>
-            world.uploadGpuTable(
-                table.buffer,
-                0,
-                new ArrayBuffer(0),
-                device.limits.maxBufferSize + 4,
-            ),
-        ).toThrow("budget");
-        commands[0] = encoder.finish();
-        device.queue.submit(commands);
-        world.endGpuFrame();
+        exceedBudget = true;
+        const before = world.gpu.fences.issued;
+        world.step(0);
+        expect(world.frameFence).toBeUndefined();
+        expect(world.gpu.fences.issued).toBe(before);
         expect(allocations).toBe(0);
     } finally {
         world.own = own;
@@ -548,14 +546,12 @@ for (const phase of ["fixed-growth", "draw"] as const) {
             });
         world.addSystem({
             group: "draw",
-            update() {
-                const encoder = world.gpu.device.createCommandEncoder();
-                world.beginGpuFrame(encoder);
+            update(world) {
                 if (phase === "draw") write(11);
-                encoder.copyBufferToBuffer(table.buffer, 0, observation, 0, table.rowBytes);
+                world
+                    .frameEncoder()!
+                    .copyBufferToBuffer(table.buffer, 0, observation, 0, table.rowBytes);
                 write(22);
-                world.gpu.device.queue.submit([encoder.finish()]);
-                world.endGpuFrame();
             },
         });
         world.step(1 / 60);
@@ -603,18 +599,9 @@ test("a non-placement table submits pre-frame growth in queue order and preserve
             table.upload();
         },
     });
-    world.addSystem({
-        group: "draw",
-        update() {
-            const encoder = world.gpu.device.createCommandEncoder();
-            world.beginGpuFrame(encoder);
-            queue.submit([encoder.finish()]);
-            world.endGpuFrame();
-        },
-    });
     try {
         world.step(1 / 60);
-        expect(submissions).toBe(2);
+        expect(submissions).toBe(1);
         const result = await bounded(
             "stepped growth",
             probeBuffer(world, table.buffer, { size: table.rowBytes }),

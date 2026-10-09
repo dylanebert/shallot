@@ -7,7 +7,7 @@
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { DEPTH_FORMAT, RenderContext, Views } from "../../core/rendering";
+import { DEPTH_FORMAT, Views } from "../../core/rendering";
 import type { World } from "../../engine";
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
@@ -842,8 +842,7 @@ export function renderPointShadows(
     const _atlasState = world.resource(atlasStateKey);
     const _pointRegather = world.resource(pointRegather);
 
-    const encoder = world.resource(RenderContext).encoder;
-    if (!encoder || !_atlasState.shadowReady) return;
+    if (!_atlasState.shadowReady) return;
     if (_atlasState.pointFrameCount === 0) {
         if (!_atlasState.pointCleared) {
             clearPointParams(world);
@@ -976,6 +975,7 @@ export function renderPointShadows(
     const packed = world.gpu.buffers.get("eids");
     if (D === 0 || C === 0 || !drawArgs || !packed || pairCount === 0) return;
     _pointRegather.reserve(D);
+    const encoder = world.frameEncoder()!;
 
     // the re-gather inputs: the view slot each dense combo culled into, and the (surface,mesh) pair each
     // casting draw owns. `Regather.run` concatenates each mesh's per-combo culled members into one run +
@@ -1061,8 +1061,7 @@ export function renderCascades(
     const _atlasState = world.resource(atlasStateKey);
     const _cascadeRegather = world.resource(cascadeRegather);
 
-    const encoder = world.resource(RenderContext).encoder;
-    if (!encoder || !_atlasState.shadowReady) return;
+    if (!_atlasState.shadowReady) return;
     const COriginal = cascadeCount(world);
     if (COriginal === 0) {
         _atlasState.sunCasting = false;
@@ -1183,6 +1182,7 @@ export function renderCascades(
         return;
     }
 
+    const encoder = world.frameEncoder()!;
     // the re-gather inputs: the view slot each cascade culled into, the (surface,mesh) pair each casting draw owns
     let maxBatchDraws = 0;
     for (let b = 0; b < batchCount; b++) {

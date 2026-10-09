@@ -1,0 +1,109 @@
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import { CEILING } from "../../../scripts/test-tiers";
+import { createApp, type Plugin } from "../app";
+import { probeBuffer } from "../runtime";
+
+setDefaultTimeout(CEILING.gpu);
+await setupGlobals();
+
+const outputLayout = tgpu.bindGroupLayout({
+    output: { storage: d.arrayOf(d.u32), access: "mutable" },
+});
+const increment = tgpu.computeFn({
+    workgroupSize: [1],
+    in: { gid: d.builtin.globalInvocationId },
+})((input) => {
+    "use gpu";
+    if (input.gid.x === 0) outputLayout.$.output[0] = outputLayout.$.output[0] + 1;
+});
+
+const runtime: {
+    enabled: boolean;
+    output?: GPUBuffer;
+    pipeline?: GPUComputePipeline;
+    group?: GPUBindGroup;
+} = { enabled: true };
+
+const ComputePlugin: Plugin = {
+    name: "FrameEncoderCompute",
+    gpu: {},
+    initialize(world) {
+        const device = world.gpu.device;
+        runtime.output = device.createBuffer({
+            label: "frame-encoder-compute-output",
+            size: 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        });
+        world.own(runtime.output);
+        device.queue.writeBuffer(runtime.output, 0, new Uint32Array([0]));
+        runtime.pipeline = world.gpu.root.unwrap(
+            world.gpu.root.createComputePipeline({ compute: increment }),
+        );
+        runtime.group = device.createBindGroup({
+            layout: runtime.pipeline.getBindGroupLayout(0),
+            entries: [{ binding: 0, resource: { buffer: runtime.output } }],
+        });
+    },
+    systems: [
+        {
+            group: "draw",
+            update(world) {
+                if (!runtime.enabled) return;
+                const encoder = world.frameEncoder();
+                if (!encoder) throw new Error("GPU device did not provide a frame encoder");
+                const pass = encoder.beginComputePass();
+                pass.setPipeline(runtime.pipeline!);
+                pass.setBindGroup(0, runtime.group!);
+                pass.dispatchWorkgroups(1);
+                pass.end();
+            },
+        },
+    ],
+};
+
+test("compute-only steps submit their lazy frame encoder once and idle device steps submit nothing", async () => {
+    const app = await createApp({ defaults: false, plugins: [ComputePlugin] });
+    const { world } = app;
+    const queue = world.gpu.device.queue;
+    const descriptor = Object.getOwnPropertyDescriptor(queue, "submit");
+    const submit = queue.submit.bind(queue);
+    let submissions = 0;
+    Object.defineProperty(queue, "submit", {
+        configurable: true,
+        value: (...args: Parameters<GPUQueue["submit"]>) => {
+            submissions++;
+            return submit(...args);
+        },
+    });
+    try {
+        console.info("frame-encoder adapter:", world.gpu.adapter);
+        expect(() => world.frameEncoder()).toThrow("only during the draw group");
+        for (const expected of [1, 2]) {
+            const issued = world.gpu.fences.issued;
+            const before = submissions;
+            world.step(0);
+            expect(submissions - before).toBe(1);
+            expect(world.frameFence).toBeDefined();
+            expect(world.gpu.fences.issued).toBe(issued + 1);
+            await world.frameFence;
+            const result = await probeBuffer(world, runtime.output!);
+            expect(new Uint32Array(result.bytes)[0]).toBe(expected);
+        }
+
+        runtime.enabled = false;
+        const before = submissions;
+        const issued = world.gpu.fences.issued;
+        world.step(0);
+        expect(submissions).toBe(before);
+        expect(world.frameFence).toBeUndefined();
+        expect(world.gpu.fences.issued).toBe(issued);
+    } finally {
+        runtime.enabled = true;
+        if (descriptor) Object.defineProperty(queue, "submit", descriptor);
+        else Reflect.deleteProperty(queue, "submit");
+        app.dispose();
+    }
+});

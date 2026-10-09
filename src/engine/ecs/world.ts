@@ -52,6 +52,7 @@ export class World {
     private _scheduler = new Scheduler();
     private _frameEncoder: GPUCommandEncoder | undefined;
     private _frameFence: Promise<void> | undefined;
+    private _inDrawGroup = false;
     private _retiredBuffers: GPUBuffer[] = [];
     private _uploadChunks: UploadChunk[] = [];
     private _frameUploadBytes = 0;
@@ -181,19 +182,29 @@ export class World {
         };
     }
 
-    /** @internal The renderer opens one encoder; engine work records into it. */
-    beginGpuFrame(encoder: GPUCommandEncoder): void {
-        this._frameEncoder = encoder;
-        this._frameFence = undefined;
-        this._frameUploadBytes = 0;
+    /** The current draw group's command encoder, opened on first use. Outside draw this refuses;
+     * a CPU-only World returns undefined while a GPU-backed draw may record commands. */
+    frameEncoder(): GPUCommandEncoder | undefined {
+        if (!this._inDrawGroup)
+            throw new Error("World.frameEncoder is available only during the draw group of step()");
+        if (!this._gpu) return undefined;
+        return (this._frameEncoder ??= this.gpu.device.createCommandEncoder({
+            label: "shallot-frame",
+        }));
     }
 
-    /** @internal Close a submitted frame, release retired buffers and issue its completion fence.
-     * runApp waits on this same fence; its completion makes staging ranges reusable. */
-    endGpuFrame(): void {
-        const submittedFrame = this._frameEncoder !== undefined;
+    /** @internal Bracket the scheduler's draw group and submit its single recorded frame. */
+    beginDrawGroup(): void {
+        this._inDrawGroup = true;
+    }
+
+    /** @internal Submit recorded work once, then issue the fence that owns its staging ranges. */
+    endDrawGroup(): void {
+        this._inDrawGroup = false;
+        const encoder = this._frameEncoder;
         this._frameEncoder = undefined;
-        if (submittedFrame && !this._disposed) {
+        if (encoder && !this._disposed) {
+            this.gpu.device.queue.submit([encoder.finish()]);
             for (const chunk of this._uploadChunks) {
                 if (!chunk.used) continue;
                 chunk.used = false;
@@ -205,11 +216,11 @@ export class World {
         this._retiredBuffers.length = 0;
     }
 
-    /** @internal Growth shares an open frame encoder; otherwise its immediate submission
+    /** @internal Growth records into a draw encoder; otherwise its immediate submission
      * follows preceding queue writes. Old buffers retire after the copy submission. */
     growGpuBuffer(previous: GPUBuffer, buffer: GPUBuffer): void {
-        if (this._frameEncoder) {
-            this._frameEncoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
+        if (this._inDrawGroup) {
+            this.frameEncoder()!.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
             this._retiredBuffers.push(previous);
         } else {
             const encoder = this.gpu.device.createCommandEncoder();
@@ -225,12 +236,10 @@ export class World {
         else buffer.destroy();
     }
 
-    /** @internal Outside a frame, writes use queue order directly. Inside a frame, uploads
-     * append distinct source ranges, recycled after the existing gpu.sync fence completes.
-     * A frame recording more than maxBufferSize upload bytes refuses with the cause. */
+    /** @internal Outside draw, writes use queue order directly. During draw, uploads append
+     * distinct source ranges on the lazily opened encoder and recycle after its fence. */
     uploadGpuTable(buffer: GPUBuffer, offset: number, data: ArrayBufferLike, size: number): void {
-        const encoder = this._frameEncoder;
-        if (!encoder) {
+        if (!this._inDrawGroup) {
             this.gpu.device.queue.writeBuffer(buffer, offset, data as ArrayBuffer, offset, size);
             return;
         }
@@ -239,6 +248,7 @@ export class World {
             throw new Error(
                 `GPU table frame uploads exceed the ${limit}-byte frame budget: ${this._frameUploadBytes} bytes recorded, ${size} more requested`,
             );
+        const encoder = this.frameEncoder()!;
         const chunk = this.uploadChunk(size);
         this._frameUploadBytes += size;
         const sourceOffset = chunk.offset;
@@ -461,6 +471,7 @@ export class World {
     step(deltaTime = Time.DEFAULT_DT): void {
         if (this._stepping) throw new Error("World.step: refuses inside a step or tick");
         this._frameFence = undefined;
+        this._frameUploadBytes = 0;
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
         this._stepInput.deltaTime = deltaTime;
@@ -805,7 +816,10 @@ export class World {
         this._snapshots.clear();
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
-        this.endGpuFrame();
+        this._frameEncoder = undefined;
+        this._inDrawGroup = false;
+        for (const buffer of this._retiredBuffers) buffer.destroy();
+        this._retiredBuffers.length = 0;
         this._uploadChunks.length = 0;
         this._frameUploadBytes = 0;
         this._resources.clear();
