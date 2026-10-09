@@ -52,7 +52,9 @@ export default async function create(input: string) {
                     throw new Error("allocation subject lost its floor planes");
             }
         },
-        wait: () => world.gpu.device.queue.onSubmittedWorkDone(),
+        wait: async () => {
+            await world.gpuIfAvailable?.device.queue.onSubmittedWorkDone();
+        },
         dispose: () => app.dispose(),
     };
 }

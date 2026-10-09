@@ -41,7 +41,9 @@ export default async function create() {
             sink[0] =
                 result.delta.x + result.delta.y + result.delta.z + vector.x + vector.y + vector.z;
         },
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
+        wait: async () => {
+            await app.world.gpuIfAvailable?.device.queue.onSubmittedWorkDone();
+        },
         dispose: () => app.dispose(),
     };
 }
