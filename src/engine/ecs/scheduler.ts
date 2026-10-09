@@ -195,7 +195,11 @@ export class Scheduler {
         this._errored.delete(old);
     }
 
-    step(world: World, input: Readonly<{ deltaTime: number }>): void {
+    step(
+        world: World,
+        input: Readonly<{ deltaTime: number }>,
+        withDrawGroup?: (run: () => void) => void,
+    ): void {
         const deltaTime = input.deltaTime;
         if (!Number.isFinite(deltaTime) || deltaTime < 0) {
             invalidDelta();
@@ -236,7 +240,9 @@ export class Scheduler {
 
         this._time.deltaTime = scaled;
         this.runGroup(world, "simulation");
-        this.runGroup(world, "draw");
+        const draw = () => this.runGroup(world, "draw");
+        if (withDrawGroup) withDrawGroup(draw);
+        else draw();
     }
 
     tick(world: World): void {
@@ -256,44 +262,39 @@ export class Scheduler {
     private runGroup(world: World, group: SystemGroup): void {
         const record = this.record;
         const systems = this.getSorted(group);
-        if (group === "draw") world.beginDrawGroup();
-        try {
-            for (let i = 0; i < systems.length; i++) {
-                const system = systems[i];
-                if (this._errored.has(system)) continue;
-                try {
-                    if (!this._initialized.has(system)) {
-                        system.setup?.(world);
-                        this._initialized.add(system);
+        for (let i = 0; i < systems.length; i++) {
+            const system = systems[i];
+            if (this._errored.has(system)) continue;
+            try {
+                if (!this._initialized.has(system)) {
+                    system.setup?.(world);
+                    this._initialized.add(system);
+                }
+                if (system.update) {
+                    if (record) {
+                        const t0 = performance.now();
+                        system.update(world);
+                        record(this._names.get(system) ?? "?", performance.now() - t0);
+                    } else {
+                        system.update(world);
                     }
-                    if (system.update) {
-                        if (record) {
-                            const t0 = performance.now();
-                            system.update(world);
-                            record(this._names.get(system) ?? "?", performance.now() - t0);
-                        } else {
-                            system.update(world);
-                        }
-                    }
-                } catch (e) {
-                    if (!this.logAndPauseErrors) {
-                        const name = this._names.get(system) ?? system.name ?? "?";
-                        throw new Error(
-                            `System "${name}" threw: ${e instanceof Error ? e.message : String(e)}`,
-                            { cause: e },
-                        );
-                    }
-                    // A hot-reloaded bug must not wedge a live host. Pause until a swap supplies the fix;
-                    // failed setup stays uninitialized so the replacement retries it.
-                    this._errored.add(system);
-                    console.error(
-                        `System "${this._names.get(system) ?? system.name ?? "?"}" threw and is paused until its next reload:`,
-                        e,
+                }
+            } catch (e) {
+                if (!this.logAndPauseErrors) {
+                    const name = this._names.get(system) ?? system.name ?? "?";
+                    throw new Error(
+                        `System "${name}" threw: ${e instanceof Error ? e.message : String(e)}`,
+                        { cause: e },
                     );
                 }
+                // A hot-reloaded bug must not wedge a live host. Pause until a swap supplies the fix;
+                // failed setup stays uninitialized so the replacement retries it.
+                this._errored.add(system);
+                console.error(
+                    `System "${this._names.get(system) ?? system.name ?? "?"}" threw and is paused until its next reload:`,
+                    e,
+                );
             }
-        } finally {
-            if (group === "draw") world.endDrawGroup();
         }
     }
 

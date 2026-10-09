@@ -614,6 +614,100 @@ test("a non-placement table submits pre-frame growth in queue order and preserve
     }
 });
 
+const growthAfterThrow = subject("GrowthAfterThrow", [], (world) =>
+    world.table("growth-after-throw", Record),
+);
+test("a propagated draw throw submits only table-copy replay and retains grown contents", async () => {
+    const { world, table } = growthAfterThrow();
+    table.acquire(world.create());
+    const device = world.gpu.device;
+    const bytes = new DataView(table.bytes.buffer);
+    bytes.setFloat32(0, 17, true);
+    bytes.setUint32(4, 29, true);
+    table.markRange(0, 1);
+    table.upload();
+    const cleared = device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+    world.own(cleared);
+    device.queue.writeBuffer(cleared, 0, new Uint32Array([53]));
+    await device.queue.onSubmittedWorkDone();
+
+    const initial = table.buffer;
+    const queue = device.queue;
+    const submit = queue.submit.bind(queue);
+    const descriptor = Object.getOwnPropertyDescriptor(queue, "submit");
+    let submissions = 0;
+    Object.defineProperty(queue, "submit", {
+        configurable: true,
+        value: (buffers: GPUCommandBuffer[]) => {
+            submissions++;
+            submit(buffers);
+        },
+    });
+    let fail = true;
+    let uploadAgain = false;
+    let allocations = 0;
+    const own = world.own.bind(world);
+    world.own = (resource) => {
+        allocations++;
+        own(resource);
+    };
+    const frame = world.gpu.frame;
+    const issued = world.gpu.fences.issued;
+    world.addSystem({
+        group: "draw",
+        update(world) {
+            if (fail) {
+                world.frameEncoder()!.clearBuffer(cleared);
+                table.reserveSlots(table.capacity + 1);
+                new DataView(table.bytes.buffer).setFloat32(table.rowBytes, 37, true);
+                table.markRange(1, 1);
+                table.upload();
+                throw new Error("discard grown table frame");
+            }
+            if (uploadAgain) {
+                new DataView(table.bytes.buffer).setFloat32(0, 41, true);
+                table.markRange(0, 1);
+                table.upload();
+            } else {
+                world.frameEncoder();
+            }
+        },
+    });
+
+    try {
+        expect(() => world.step(0)).toThrow("discard grown table frame");
+        expect(submissions).toBe(1);
+        expect(world.frameFence).toBeDefined();
+        expect(world.gpu.fences.issued).toBe(issued + 1);
+        expect(world.gpu.frame).toBe(frame);
+        expect(world.owns(initial)).toBe(false);
+        await world.frameFence;
+        const result = await probeBuffer(world, table.buffer, { size: table.rowBytes * 2 });
+        const view = new DataView(result.bytes);
+        expect(view.getFloat32(0, true)).toBe(17);
+        expect(view.getUint32(4, true)).toBe(29);
+        expect(view.getFloat32(table.rowBytes, true)).toBe(37);
+        const clearResult = await probeBuffer(world, cleared);
+        expect(new Uint32Array(clearResult.bytes)[0]).toBe(53);
+
+        const replayAllocations = allocations;
+        fail = false;
+        uploadAgain = true;
+        world.step(0);
+        await world.frameFence;
+        expect(allocations).toBe(replayAllocations);
+        const reused = await probeBuffer(world, table.buffer, { size: table.rowBytes });
+        expect(new DataView(reused.bytes).getFloat32(0, true)).toBe(41);
+    } finally {
+        if (descriptor) Object.defineProperty(queue, "submit", descriptor);
+        else Reflect.deleteProperty(queue, "submit");
+        world.own = own;
+    }
+});
+
 const growth = subject("TableGrowthProbe", [], (world) =>
     world.table("table-growth-probe", Record),
 );

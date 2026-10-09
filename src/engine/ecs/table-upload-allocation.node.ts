@@ -7,7 +7,7 @@ import { setupGlobals } from "../runtime/webgpu";
 await setupGlobals();
 
 setDefaultTimeout(CEILING.node);
-test("whole steady table frames reuse staging and only the existing completion promise and reaction", async () => {
+test("whole steady table frames reuse copy records and staging with one completion reaction", async () => {
     const app = await createApp({
         defaults: false,
         plugins: [{ name: "TableUploadAllocation", gpu: {} }],
@@ -37,6 +37,19 @@ test("whole steady table frames reuse staging and only the existing completion p
     const own = world.own;
     const ownBound = own.bind(world);
     const fenceDescriptor = Object.getOwnPropertyDescriptor(queue, "onSubmittedWorkDone");
+    // Pool growth and identity expose steady per-upload copy-record allocations directly.
+    const copyPool = (world as unknown as { _frameCopies: object[] })._frameCopies;
+    const pooledRecords = copyPool.slice();
+    let copyRecordsAdded = 0;
+    const copyPush = copyPool.push.bind(copyPool);
+    const copyPushDescriptor = Object.getOwnPropertyDescriptor(copyPool, "push");
+    Object.defineProperty(copyPool, "push", {
+        configurable: true,
+        value: (...records: object[]) => {
+            copyRecordsAdded += records.length;
+            return copyPush(...records);
+        },
+    });
     const then = Promise.prototype.then;
     Object.defineProperty(queue, "onSubmittedWorkDone", {
         configurable: true,
@@ -66,11 +79,17 @@ test("whole steady table frames reuse staging and only the existing completion p
             expect(reactions - beforeReactions).toBe(1);
         }
         expect(buffers).toBe(0);
+        expect(copyRecordsAdded).toBe(0);
+        expect(copyPool).toHaveLength(2);
+        expect(copyPool[0]).toBe(pooledRecords[0]);
+        expect(copyPool[1]).toBe(pooledRecords[1]);
     } finally {
         // biome-ignore lint/suspicious/noThenProperty: restore the native method after counting its reactions.
         Object.defineProperty(Promise.prototype, "then", thenDescriptor);
         if (fenceDescriptor) Object.defineProperty(queue, "onSubmittedWorkDone", fenceDescriptor);
         else Reflect.deleteProperty(queue, "onSubmittedWorkDone");
+        if (copyPushDescriptor) Object.defineProperty(copyPool, "push", copyPushDescriptor);
+        else Reflect.deleteProperty(copyPool, "push");
         world.own = own;
         app.dispose();
     }

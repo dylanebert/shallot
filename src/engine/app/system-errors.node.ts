@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { RenderingPlugin } from "../../core/rendering";
-import { type Plugin, runApp } from "./index";
+import { createApp, type Plugin, runApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
 
@@ -58,6 +58,74 @@ test("runApp logs a system error once, keeps healthy frames running and resumes 
         expect(logged).toHaveBeenCalledTimes(1);
     } finally {
         app.dispose();
+        logged.mockRestore();
+    }
+});
+
+test("log-and-pause skips a failed draw system but still submits later draw work", async () => {
+    const cause = new Error("broken draw");
+    let attempts = 0;
+    let healthyFrames = 0;
+    let submissions = 0;
+    let descriptor: PropertyDescriptor | undefined;
+    let queue: GPUQueue | undefined;
+    let buffer: GPUBuffer | undefined;
+    const broken = {
+        name: "broken-draw",
+        group: "draw" as const,
+        update(world: import("../ecs/world").World) {
+            attempts++;
+            world.frameEncoder()!.clearBuffer(buffer!);
+            throw cause;
+        },
+    };
+    const healthy = {
+        name: "healthy-draw",
+        group: "draw" as const,
+        after: [broken],
+        update(world: import("../ecs/world").World) {
+            healthyFrames++;
+            world.frameEncoder()!.clearBuffer(buffer!);
+        },
+    };
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    const plugin: Plugin = {
+        name: "PausedDraw",
+        gpu: {},
+        initialize(world) {
+            queue = world.gpu.device.queue;
+            descriptor = Object.getOwnPropertyDescriptor(queue, "submit");
+            const submit = queue.submit.bind(queue);
+            Object.defineProperty(queue, "submit", {
+                configurable: true,
+                value: (...args: Parameters<GPUQueue["submit"]>) => {
+                    submissions++;
+                    return submit(...args);
+                },
+            });
+            buffer = world.gpu.device.createBuffer({
+                size: 4,
+                usage: GPUBufferUsage.COPY_DST,
+            });
+            world.own(buffer);
+        },
+        systems: [broken, healthy],
+    };
+    const app = await createApp({ defaults: false, plugins: [plugin] });
+    app.world.logAndPauseSystemErrors();
+    try {
+        expect(() => app.world.step(0)).not.toThrow();
+        expect(attempts).toBe(1);
+        expect(healthyFrames).toBe(1);
+        expect(submissions).toBe(1);
+        expect(logged).toHaveBeenCalledTimes(1);
+        await app.world.frameFence;
+    } finally {
+        app.dispose();
+        if (queue) {
+            if (descriptor) Object.defineProperty(queue, "submit", descriptor);
+            else Reflect.deleteProperty(queue, "submit");
+        }
         logged.mockRestore();
     }
 });

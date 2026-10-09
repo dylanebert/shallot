@@ -33,6 +33,13 @@ interface UploadChunk {
     fence: number;
     used: boolean;
 }
+interface FrameCopy {
+    source: GPUBuffer | undefined;
+    sourceOffset: number;
+    destination: GPUBuffer | undefined;
+    destinationOffset: number;
+    size: number;
+}
 
 /** A world-owned value identified by its declaration, or an explicit reload-stable key. */
 export type Resource<T> = {
@@ -54,6 +61,8 @@ export class World {
     private _frameFence: Promise<void> | undefined;
     private _inDrawGroup = false;
     private _retiredBuffers: GPUBuffer[] = [];
+    private _frameCopies: FrameCopy[] = [];
+    private _frameCopyCount = 0;
     private _uploadChunks: UploadChunk[] = [];
     private _frameUploadBytes = 0;
     private _stepping = false;
@@ -74,7 +83,8 @@ export class World {
     }
 
     private readonly _stepInput = { deltaTime: Time.DEFAULT_DT };
-    private readonly _runStep = () => this._scheduler.step(this, this._stepInput);
+    private readonly _runStep = () =>
+        this._scheduler.step(this, this._stepInput, (run) => this.runDrawGroup(run));
     private _entities = new Entities();
     private _components = new Components(
         () => this._queries.restore(this._components, this._entities),
@@ -126,8 +136,8 @@ export class World {
         this._snapshots.register(Symbol("membership"), this._components);
     }
 
-    /** Fence for the latest step's submitted frame; undefined when that step submitted no frame.
-     * Reading it never submits another fence. */
+    /** Fence for the latest step's queue submission; undefined when it submitted nothing.
+     * A propagated draw error may submit only engine copy replay. Reading it issues no fence. */
     get frameFence(): Promise<void> | undefined {
         return this._frameFence;
     }
@@ -193,34 +203,109 @@ export class World {
         }));
     }
 
-    /** @internal Bracket the scheduler's draw group and submit its single recorded frame. */
-    beginDrawGroup(): void {
+    private runDrawGroup(run: () => void): void {
+        this.beginDrawGroup();
+        try {
+            run();
+        } catch (error) {
+            this.abortDrawGroup();
+            throw error;
+        }
+        this.endDrawGroup();
+    }
+
+    private beginDrawGroup(): void {
         this._inDrawGroup = true;
     }
 
-    /** @internal Submit recorded work once, then issue the fence that owns its staging ranges. */
-    endDrawGroup(): void {
+    /** Submit recorded work once, then issue the fence that owns its staging ranges. */
+    private endDrawGroup(): void {
         this._inDrawGroup = false;
         const encoder = this._frameEncoder;
         this._frameEncoder = undefined;
-        if (encoder && !this._disposed) {
-            this.gpu.device.queue.submit([encoder.finish()]);
-            for (const chunk of this._uploadChunks) {
-                if (!chunk.used) continue;
-                chunk.used = false;
-                chunk.fence = this.gpu.fences.issued + 1;
+        if (encoder && !this._disposed) this.submitDrawEncoder(encoder);
+        else this.releaseRetiredBuffers();
+        this.resetFrameCopies();
+    }
+
+    /** Drop system work and submit only the engine copies needed to preserve table state. */
+    private abortDrawGroup(): void {
+        this._inDrawGroup = false;
+        this._frameEncoder = undefined;
+        if (this._frameCopyCount > 0 && !this._disposed) {
+            const encoder = this.gpu.device.createCommandEncoder({ label: "shallot-frame-replay" });
+            for (let i = 0; i < this._frameCopyCount; i++) {
+                const copy = this._frameCopies[i];
+                encoder.copyBufferToBuffer(
+                    copy.source!,
+                    copy.sourceOffset,
+                    copy.destination!,
+                    copy.destinationOffset,
+                    copy.size,
+                );
             }
-            this._frameFence = this.gpu.sync();
+            this.submitDrawEncoder(encoder);
+        } else {
+            this.releaseRetiredBuffers();
         }
+        this.resetFrameCopies();
+    }
+
+    private submitDrawEncoder(encoder: GPUCommandEncoder): void {
+        this.gpu.device.queue.submit([encoder.finish()]);
+        for (const chunk of this._uploadChunks) {
+            if (!chunk.used) continue;
+            chunk.used = false;
+            chunk.fence = this.gpu.fences.issued + 1;
+        }
+        this._frameFence = this.gpu.sync();
+        this.releaseRetiredBuffers();
+    }
+
+    private releaseRetiredBuffers(): void {
         for (const buffer of this._retiredBuffers) buffer.destroy();
         this._retiredBuffers.length = 0;
     }
 
-    /** @internal Growth records into a draw encoder; otherwise its immediate submission
-     * follows preceding queue writes. Old buffers retire after the copy submission. */
+    private recordFrameCopy(
+        source: GPUBuffer,
+        sourceOffset: number,
+        destination: GPUBuffer,
+        destinationOffset: number,
+        size: number,
+    ): void {
+        let copy = this._frameCopies[this._frameCopyCount];
+        if (copy) {
+            copy.source = source;
+            copy.sourceOffset = sourceOffset;
+            copy.destination = destination;
+            copy.destinationOffset = destinationOffset;
+            copy.size = size;
+        } else {
+            copy = { source, sourceOffset, destination, destinationOffset, size };
+            this._frameCopies.push(copy);
+        }
+        this._frameCopyCount++;
+    }
+
+    private resetFrameCopies(): void {
+        for (let i = 0; i < this._frameCopyCount; i++) {
+            const copy = this._frameCopies[i];
+            copy.source = undefined;
+            copy.destination = undefined;
+            copy.size = 0;
+            copy.sourceOffset = 0;
+            copy.destinationOffset = 0;
+        }
+        this._frameCopyCount = 0;
+    }
+
+    /** @internal Growth records in draw; otherwise its immediate submission follows preceding queue writes.
+     * Old buffers retire after the copy submission. */
     growGpuBuffer(previous: GPUBuffer, buffer: GPUBuffer): void {
         if (this._inDrawGroup) {
             this.frameEncoder()!.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
+            this.recordFrameCopy(previous, 0, buffer, 0, previous.size);
             this._retiredBuffers.push(previous);
         } else {
             const encoder = this.gpu.device.createCommandEncoder();
@@ -236,8 +321,7 @@ export class World {
         else buffer.destroy();
     }
 
-    /** @internal Outside draw, writes use queue order directly. During draw, uploads append
-     * distinct source ranges on the lazily opened encoder and recycle after its fence. */
+    /** @internal Outside draw, writes use queue order. Draw uploads share the encoder and recycle after its fence. */
     uploadGpuTable(buffer: GPUBuffer, offset: number, data: ArrayBufferLike, size: number): void {
         if (!this._inDrawGroup) {
             this.gpu.device.queue.writeBuffer(buffer, offset, data as ArrayBuffer, offset, size);
@@ -262,6 +346,7 @@ export class World {
             size,
         );
         encoder.copyBufferToBuffer(chunk.buffer, sourceOffset, buffer, offset, size);
+        this.recordFrameCopy(chunk.buffer, sourceOffset, buffer, offset, size);
     }
 
     // Like wgpu's StagingBelt, append until submission completion makes an entire chunk reusable.
@@ -465,9 +550,11 @@ export class World {
     /** Advance a virtual frame by `deltaTime` seconds, with paced fixed work, simulation and draw.
      * Pause, scale and the catch-up cap apply only here. Refuses inside a step or tick,
      * or a negative or non-finite delta.
-     * A system setup/update throw ends the step with a named Error and the thrown value as cause.
-     * Later systems and the GPU frame do not advance; the next step retries the system.
-     * Under `runApp`, errors instead log and pause the system until swapped or rebuilt. */
+     * A propagated setup/update throw ends the step with a named Error and the thrown value as cause.
+     * A propagated draw throw drops the unfinished system encoder without submitting its commands.
+     * Only recorded table growth and staged upload copies replay through a fresh submission; if there are
+     * none, no submission or fence issues. The GPU frame does not advance. With
+     * {@link logAndPauseSystemErrors}, the failed system is paused, later draw systems run, and the frame submits. */
     step(deltaTime = Time.DEFAULT_DT): void {
         if (this._stepping) throw new Error("World.step: refuses inside a step or tick");
         this._frameFence = undefined;
@@ -738,7 +825,7 @@ export class World {
     }
 
     /** @internal The running host chooses log-and-pause so a hot-reloaded bug cannot wedge it.
-     * Failed systems pause until swapped or rebuilt; the rest of the frame finishes. */
+     * Failed systems pause until swapped or rebuilt; later draw systems run and the frame still submits. */
     logAndPauseSystemErrors(): void {
         this._scheduler.logAndPauseErrors = true;
     }
@@ -820,6 +907,7 @@ export class World {
         this._inDrawGroup = false;
         for (const buffer of this._retiredBuffers) buffer.destroy();
         this._retiredBuffers.length = 0;
+        this.resetFrameCopies();
         this._uploadChunks.length = 0;
         this._frameUploadBytes = 0;
         this._resources.clear();
