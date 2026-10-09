@@ -72,6 +72,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
       - run: bun install --frozen-lockfile
       - name: Node tier
         run: /usr/bin/time -p bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print)
