@@ -14,7 +14,6 @@ export {
 export {
     Orbit,
     OrbitMode,
-    OrbitOverlayPlugin,
     OrbitPick,
     OrbitPlugin,
 } from "./orbit";

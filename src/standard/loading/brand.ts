@@ -1,57 +1,17 @@
-// The shallot mark, wordmark and splash as data plus pure renderers. Browser-safe: no node
-// imports, so the same module draws the brand page and emits the downloadable SVGs.
-//
-// The source of truth is a square-pixel bitmap. A terminal prints it as half blocks (one
-// character is two stacked pixels, square at the 1:2 cell every terminal ships); an image draws
-// it as squares. Both come from the one bitmap, so the shape never drifts between surfaces.
+// Internal renderer for the default loading screen and generated icons. Its source data lives in
+// assets/branding; brand-data.ts embeds that data so published source needs no branding files.
+import { DARK, FONT, LIGHT, MARK, NAME } from "./brand-data";
+
+export { DARK, LIGHT };
 
 /** A pixel color role. Palettes map roles to hex per theme. */
-export type Tone = "gold" | "dim" | "ink";
+type Tone = "gold" | "dim" | "ink";
 
 /** Rows of pixels; `null` is transparent. */
 export type Grid = (Tone | null)[][];
 
-/** The mark at three sizes, as the half-block strings a terminal prints. `m` is canonical. */
-export const MARK = {
-    s: ["    ▄▄", "   ▄██▄", "  ▄████▄", "▄████████▄", "▀████████▀", "  ▀▀▀▀▀▀"],
-    m: [
-        "     ▄▄",
-        "    ▄██▄",
-        "   ▄████▄",
-        " ▄████████▄",
-        "████████████",
-        "▀██████████▀",
-        "  ▀▀▀▀▀▀▀▀",
-    ],
-    l: [
-        "      ▄▄",
-        "     ▄██▄",
-        "    ▄████▄",
-        "  ▄████████▄",
-        " ████████████",
-        "██████████████",
-        " ▀██████████▀",
-        "   ▀▀▀▀▀▀▀▀",
-    ],
-} as const;
-
-/** 5×7 bitmap face, lowercase, the letters the name needs. `#` is ink. */
-export const FONT: Record<string, readonly string[]> = {
-    s: [".....", ".....", ".####", "#....", ".###.", "....#", "####."],
-    h: ["#....", "#....", "####.", "#...#", "#...#", "#...#", "#...#"],
-    a: [".....", ".....", ".###.", "....#", ".####", "#...#", ".####"],
-    l: ["#..", "#..", "#..", "#..", "#..", "#..", ".##"],
-    o: [".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###."],
-    t: [".#..", ".#..", "####", ".#..", ".#..", ".#..", "..##"],
-};
-
-export const NAME = "shallot";
-
 /** Hex per tone and ground, one set per theme. */
 export type Palette = { gold: string; dim: string; ink: string; bg: string };
-
-export const DARK: Palette = { gold: "#d49560", dim: "#7a5a3a", ink: "#f0e6d6", bg: "#141210" };
-export const LIGHT: Palette = { gold: "#d49560", dim: "#e6c6a4", ink: "#2a231e", bg: "#f7f3ec" };
 
 /** Half-block rows → bitmap of the given tone. Width is the longest row. */
 export function fromBlocks(rows: readonly string[], tone: Tone = "gold"): Grid {
@@ -71,7 +31,7 @@ export function fromBlocks(rows: readonly string[], tone: Tone = "gold"): Grid {
 }
 
 /** The name set in the bitmap face, one pixel between letters. */
-export function word(text: string = NAME, tone: Tone = "ink"): Grid {
+function word(text: string = NAME, tone: Tone = "ink"): Grid {
     const rows: Grid = Array.from({ length: 7 }, () => []);
     [...text].forEach((ch, i) => {
         const glyph = FONT[ch];
@@ -86,7 +46,7 @@ export function word(text: string = NAME, tone: Tone = "ink"): Grid {
 }
 
 /** A placed bitmap. `x` in pixels, `y` in pixels. */
-export type Layer = { grid: Grid; x: number; y: number };
+type Layer = { grid: Grid; x: number; y: number };
 
 /** Stamp layers onto a blank grid, later layers over earlier. Pixel rows must be even for half blocks. */
 export function compose(width: number, height: number, layers: readonly Layer[]): Grid {
@@ -103,18 +63,6 @@ export function compose(width: number, height: number, layers: readonly Layer[])
         });
     }
     return out;
-}
-
-/** The canonical lockup: mark `m` in gold, the name in ink on its lower half, four pixels apart. */
-export function lockup(): Grid {
-    const mark = fromBlocks(MARK.m);
-    const name = word();
-    const markW = mark[0]?.length ?? 0;
-    const width = markW + 4 + (name[0]?.length ?? 0);
-    return compose(width, mark.length, [
-        { grid: mark, x: 0, y: 0 },
-        { grid: name, x: markW + 4, y: 5 },
-    ]);
 }
 
 /** Pixel grid → SVG of square rects, one per pixel, crisp edges. Transparent ground. */
@@ -140,10 +88,10 @@ export function toSvg(grid: Grid, palette: Palette, scale: number = 1): string {
 // centre outwards within each dither level. Each pixel lands dim and goes full a tick later. On
 // the hit the name types a letter every two ticks; the cursor stays six ticks after the last
 // letter and goes out. Thirty-five ticks a second. Every frame is a grid, so the same function drives
-// the page and an ANSI terminal.
+// the default loading screen.
 
-export const TICK_RATE = 35;
-export const TICK_MS = 1000 / TICK_RATE;
+const TICK_RATE = 35;
+const TICK_MS = 1000 / TICK_RATE;
 const ANTICIPATION = 3;
 const BEATS = [2, 2, 2, 1, 1, 1, 1] as const;
 const COUNTS = [2, 3, 5, 7, 9, 11] as const;
@@ -157,7 +105,7 @@ const BAYER = [
 ] as const;
 
 /** Tick of the hit: the last beat, when the remaining pixels land and the name starts. */
-export const HIT_TICK = ANTICIPATION + BEATS.reduce((a, b) => a + b, 0);
+const HIT_TICK = ANTICIPATION + BEATS.reduce((a, b) => a + b, 0);
 
 /** Last tick with any change; the frame after it is the lockup. */
 export const END_TICK = HIT_TICK + NAME.length * LETTER_TICKS + CURSOR_TICKS;
@@ -213,7 +161,7 @@ const NAME_Y = 5;
 const GLYPHS = [...NAME].map((ch) => word(ch));
 
 /** The splash at a tick, as the lockup-sized grid. Ticks past `END_TICK` return the lockup. */
-export function splashFrame(tick: number): Grid {
+function splashFrame(tick: number): Grid {
     const name = word();
     const width = NAME_X + (name[0]?.length ?? 0);
     const out: Grid = Array.from({ length: MARK_GRID.length }, () =>
@@ -242,12 +190,6 @@ export function splashFrame(tick: number): Grid {
             for (let k = 0; k < 4; k++) (out[NAME_Y + y] as (Tone | null)[])[x + k] = "gold";
     }
     return out;
-}
-
-/** Progress `0`–`1` → the landing tick it lights; non-finite or `p <= 0` is `0`, `p >= 1` the hit. */
-export function progressTick(progress: number): number {
-    if (!Number.isFinite(progress)) return 0;
-    return Math.floor(Math.min(1, Math.max(0, progress)) * HIT_TICK);
 }
 
 /** A mounted splash: `seek` draws one tick, `play` runs the clock from a tick to the lockup. */

@@ -7,11 +7,12 @@ import { readProjectPolicy } from "../src/project/policy";
 
 const root = resolve(import.meta.dir, "..");
 const readers = [...new Glob("check-*.ts").scanSync(import.meta.dir)]
-    .filter((file) => !/\.(?:test|node|oracle)\.ts$/.test(file))
+    .filter((file) => file !== "check-branding.ts" && !/\.(?:test|node|oracle)\.ts$/.test(file))
     .sort();
 const arms: [string, string[]][] = [
     ["tsc", ["tsc"]],
     ["biome", ["biome", "check"]],
+    ["check-branding", ["bun", resolve(import.meta.dir, "check-branding.ts")]],
     ...readers.map((file): [string, string[]] => [
         file.replace(/\.ts$/, ""),
         ["bun", resolve(import.meta.dir, file)],

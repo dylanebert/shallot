@@ -494,5 +494,3 @@ export const OrbitPlugin: Plugin = {
 
     dependencies: [InputPlugin, TransformPlugin],
 };
-
-export { OrbitOverlayPlugin } from "./overlay";

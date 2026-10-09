@@ -5,8 +5,8 @@ import { f32, u8 } from "../../engine";
 // orbit center so exiting fly is pose-continuous) and the orbitLatch (the per-drag contextual-orbit state,
 // below). Added on an entity's first frame with Orbit; that membership doubles as the "already snapped"
 // flag, so a fresh camera starts framed. Derived state: never authored or serialized, re-snapped on every
-// rebuild, so a reload can't desync it from the authored fields. Internal — a sibling export for the
-// overlay and tests, never re-exported from the barrel.
+// rebuild, so a reload can't desync it from the authored fields. Internal — a sibling export for tests,
+// never re-exported from the barrel.
 export const OrbitSmooth = {
     yaw: f32,
     pitch: f32,

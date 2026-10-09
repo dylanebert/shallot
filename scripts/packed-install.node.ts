@@ -124,6 +124,8 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         const installedManifest = JSON.parse(
             readFileSync(join(installedPackage, "package.json"), "utf8"),
         );
+        expect(installedManifest.exports["./brand"]).toBeUndefined();
+        expect(existsSync(join(installedPackage, "assets/branding"))).toBe(false);
         expect(installedManifest.scripts.prepare).toBe(rootPackage.scripts.prepare);
         expect(cliInstall).not.toContain("build-tooling: compiled dist/vite.js");
 
@@ -160,33 +162,6 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
             typecheckConfig,
         ];
         run(typecheckCommand, cliProject, "typechecking every public TypeScript export");
-
-        const brandTarget = installedManifest.exports["./brand"];
-        if (typeof brandTarget !== "string" || !brandTarget.startsWith("./")) {
-            throw new Error("the exported ./brand entry has no direct TypeScript target");
-        }
-        const brandModule = resolve(installedPackage, brandTarget.slice(2));
-        const missingImport = "__shallot_missing_relative_import_probe__";
-        writeFileSync(
-            brandModule,
-            `import "./${missingImport}";\n${readFileSync(brandModule, "utf8")}`,
-        );
-        const brokenTypecheck = Bun.spawnSync(typecheckCommand, {
-            cwd: cliProject,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        const brokenOutput = `${brokenTypecheck.stdout.toString()}${brokenTypecheck.stderr.toString()}`;
-        expect(brokenTypecheck.exitCode).not.toBe(0);
-        const brokenImportRed = brokenOutput
-            .split("\n")
-            .find((line) => line.includes("TS2882") && line.includes(missingImport));
-        if (!brokenImportRed) {
-            throw new Error(
-                `the broken exported relative import had no named TS2882 red:\n${brokenOutput}`,
-            );
-        }
-        console.log(`expected typecheck red: ${brokenImportRed.trim()}`);
 
         const packedProjectTests = run(
             ["bun", "test"],

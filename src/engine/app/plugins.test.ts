@@ -7,7 +7,6 @@ import { TransformPlugin } from "../../core/transform";
 import {
     FogPlugin,
     LinesPlugin,
-    OrbitOverlayPlugin,
     OrbitPlugin,
     OutlinePlugin,
     PlayerPlugin,
@@ -60,7 +59,6 @@ const publicPlugins = [
     CharacterPlugin,
     FogPlugin,
     LinesPlugin,
-    OrbitOverlayPlugin,
     OrbitPlugin,
     OutlinePlugin,
     PlayerPlugin,

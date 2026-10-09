@@ -12,7 +12,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { compose, DARK, fromBlocks, MARK, toSvg } from "../src/standard/loading/brand";
+import { compose, fromBlocks, toSvg } from "../src/standard/loading/brand";
+import { readBranding } from "./branding";
 import { toPng } from "./png";
 
 // Each asset links under the public/ of the examples named in its assets.json entry.
@@ -230,8 +231,9 @@ const FRAME = 16;
 const NATIVE_SCALE = 64;
 
 function icons(): number {
-    const mark = fromBlocks(MARK.m);
-    const svg = `${toSvg(mark, DARK, 1)}\n`;
+    const branding = readBranding();
+    const mark = fromBlocks(branding.marks.m);
+    const svg = `${toSvg(mark, branding.palettes.dark, 1)}\n`;
     const tracked = Bun.spawnSync(["git", "ls-files", "-z", "examples"], { cwd: ROOT });
     if (!tracked.success) throw new Error("`git ls-files` failed");
     const targets = tracked.stdout
@@ -248,7 +250,10 @@ function icons(): number {
             y: Math.floor((FRAME - mark.length) / 2),
         },
     ]);
-    writeFileSync(resolve(ROOT, NATIVE_ICON), toPng(framed, DARK, NATIVE_SCALE, DARK.bg));
+    writeFileSync(
+        resolve(ROOT, NATIVE_ICON),
+        toPng(framed, branding.palettes.dark, NATIVE_SCALE, branding.palettes.dark.bg),
+    );
     return targets.length;
 }
 

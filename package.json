@@ -30,7 +30,6 @@
         "./bun": "./src/project/bun.ts",
         "./tsconfig.json": "./tsconfig.base.json",
         "./extras": "./src/extras/index.ts",
-        "./brand": "./src/standard/loading/brand.ts",
         "./vite": {
             "types": "./dist/vite.d.ts",
             "default": "./dist/vite.js"
@@ -60,6 +59,7 @@
         "crates/audio/pkg",
         "crates/native",
         "assets/icon-1024.png",
+        "!assets/branding/**",
         "dist",
         "examples/first-person",
         "examples/loading-screen",

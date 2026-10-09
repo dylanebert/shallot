@@ -724,6 +724,14 @@ world.add(eid, Transform, { translation: [0, 1, 0, 0] });
 
 Remove imports of `installHarness`, `HarnessTarget` and `REAL_GPU_LAUNCH`. Drive `createApp()` and `world.step()` in the project's tests and observe through public ECS and physics reads. Configure the project's browser tests with Playwright Test, its own Vite `webServer` and its own Chromium launch flags.
 
+## `./brand` is removed
+
+Remove imports from `@dylanebert/shallot/brand`. The mark and palette are repository assets, not a package subpath; the default loading screen continues to render the mark internally. There is no public brand-assets replacement.
+
+## `OrbitOverlayPlugin` is removed
+
+Remove `OrbitOverlayPlugin` from plugin imports and registrations. `OrbitPlugin` remains; there is no replacement overlay plugin.
+
 ## Vite configuration and project scripts are now the project's
 
 0.9.5's CLI synthesized a Vite configuration for manifest projects. Create a `vite.config.ts` with Shallot's plugin. For an ejected 0.9.5 config, replace its separate TypeGPU plugin (or `typegpuPlugin()`) with this one. Remove the old `CROSS_ORIGIN_ISOLATION` import; the plugin sets those headers:
