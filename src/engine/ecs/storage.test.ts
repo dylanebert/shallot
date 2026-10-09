@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ScalarField, Vector2Field, Vector4Field } from "./component";
 import { component } from "./component";
-import { f32, vec2, vec4, World } from "./index";
+import { entity, f16, f32, vec2, vec4, World } from "./index";
 import { WorldField } from "./storage";
 
 test("bulk field writes copy typed rows, preserve other rows, publish scalar-equivalent marks and refuse mismatches", () => {
@@ -109,32 +109,42 @@ function schemaBoundTypeControl(): void {
 }
 void schemaBoundTypeControl;
 
-test("scalar and vector field writes reach columns without a temporary value array", () => {
-    const Scalar = { value: f32 };
-    const Pair = { value: vec2 };
-    const Quad = { value: vec4 };
+test("scalar and vector setters write their arguments to the expected columns and publish changes", () => {
+    const eid = 5;
+    const scalarColumn = new WorldField(f32, 16);
+    const pairColumn = new WorldField(vec2, 16);
+    const quadColumn = new WorldField(vec4, 16);
+    const scalar = scalarColumn.bind();
+    const pair = pairColumn.bind();
+    const quad = quadColumn.bind();
+    scalarColumn.dirty.fill(0);
+    pairColumn.dirty.fill(0);
+    quadColumn.dirty.fill(0);
+
+    scalar.set(eid, 1);
+    pair.set(eid, 2, 3);
+    quad.set(eid, 4, 5, 6, 7);
+
+    expect(Array.from(scalar.column.slice(eid, eid + 1))).toEqual([1]);
+    expect(Array.from(pair.column.slice(eid * 2, eid * 2 + 2))).toEqual([2, 3]);
+    expect(Array.from(quad.column.slice(eid * 4, eid * 4 + 4))).toEqual([4, 5, 6, 7]);
+    expect(Array.from(scalarColumn.dirty)).toEqual([1 << eid]);
+    expect(Array.from(pairColumn.dirty)).toEqual([1 << eid]);
+    expect(Array.from(quadColumn.dirty)).toEqual([1 << eid]);
+});
+
+test("field getters return zero beyond plain, encoded and entity column capacity", () => {
     const world = new World();
-    const eid = world.create();
-    const scalar = world.storage(Scalar).value;
-    const pair = world.storage(Pair).value;
-    const quad = world.storage(Quad).value;
-    const original = WorldField.prototype.set;
-    const firstArguments: unknown[] = [];
+    const scalar = new WorldField(f32, 16).bind();
+    const pair = new WorldField(vec2, 16).bind();
+    const half = new WorldField(f16, 16).bind();
+    const target = new WorldField(entity, 16, world).bind();
 
-    WorldField.prototype.set = function (this: WorldField, ...args: Parameters<WorldField["set"]>) {
-        firstArguments.push(args[1]);
-        return Reflect.apply(original, this, args);
-    };
-    try {
-        scalar.set(eid, 1);
-        pair.set(eid, 2, 3);
-        quad.set(eid, 4, 5, 6, 7);
-    } finally {
-        WorldField.prototype.set = original;
-        world.dispose();
-    }
-
-    expect(firstArguments.map(Array.isArray)).toEqual([false, false, false]);
+    expect(scalar.get(16)).toBe(0);
+    expect(pair.x.get(16)).toBe(0);
+    expect(half.get(16)).toBe(0);
+    expect(target.get(16)).toBe(0);
+    world.dispose();
 });
 
 for (const type of [f32, vec2, vec4] as const) {
