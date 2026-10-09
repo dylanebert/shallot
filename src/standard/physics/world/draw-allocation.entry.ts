@@ -53,7 +53,6 @@ export default async function create(input: string) {
                 if (input === "leak") leaked = new Set([1, 2, 3]);
             }
         },
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => {
             world.destroy();
             app.dispose();

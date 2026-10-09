@@ -15,7 +15,6 @@ export default async function create(input: string) {
             physicsWorld(ecs)!,
             input === "allocating" ? control : undefined,
         ),
-        wait: () => ecs.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

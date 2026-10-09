@@ -75,7 +75,6 @@ export default async function create() {
                     throw new Error("contact churn lost its merged island");
             }
         },
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

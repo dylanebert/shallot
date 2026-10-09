@@ -15,7 +15,6 @@ export default async function create(input: string) {
             step();
             if (allocating) controlSink = { frame: 0 };
         },
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

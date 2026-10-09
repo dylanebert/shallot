@@ -12,7 +12,6 @@ export default async function create() {
     const step = mutationAllocationSubject(physicsWorld(app.world)!);
     return {
         step,
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

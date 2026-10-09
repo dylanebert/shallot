@@ -81,7 +81,6 @@ export default async function create(input: string) {
     });
     return {
         step: () => app.world.step(1 / 60),
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: async () => {
             app.dispose();
             solver.destroy();

@@ -16,7 +16,6 @@ export default async function create() {
     });
     return {
         step: () => app.world.tick(),
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

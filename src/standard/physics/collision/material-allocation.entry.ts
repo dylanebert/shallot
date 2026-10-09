@@ -78,7 +78,6 @@ export default async function create(kind: string) {
             if (awakeContactCount(state) !== boxes.length || mixes - before < boxes.length)
                 throw new Error("allocation subject lost its awake custom-mixed contacts");
         },
-        wait: () => world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

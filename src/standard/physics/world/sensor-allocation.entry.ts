@@ -76,7 +76,6 @@ export default async function create(input: string) {
             if (awakeContactCount(state) !== count)
                 throw new Error("allocation subject lost its awake box contacts");
         },
-        wait: () => world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

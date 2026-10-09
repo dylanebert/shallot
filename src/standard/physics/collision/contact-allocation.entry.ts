@@ -66,7 +66,6 @@ export default async function create(input: string) {
                     throw new Error("allocation subject lost a box's one awake platform contact");
             }
         },
-        wait: () => world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

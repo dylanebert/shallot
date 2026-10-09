@@ -54,7 +54,6 @@ export default async function create() {
                 k.worldQuery(physics.state.worldId, 3, 0);
             }
         },
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }

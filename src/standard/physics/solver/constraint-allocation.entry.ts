@@ -100,7 +100,6 @@ async function bodyReads(input: string) {
     });
     return {
         step: () => app.world.step(1 / 60),
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => {
             const sleepingStayedAsleep = !sleeping.isAwake();
             app.dispose();
@@ -139,7 +138,6 @@ async function forced() {
     });
     return {
         step: () => app.world.step(1 / 60),
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => {
             app.dispose();
             solver.destroy();
@@ -175,7 +173,6 @@ async function authored() {
     }
     return {
         step: () => world.step(1 / 60),
-        wait: () => world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => {
             // A bob that slept would have left the joint column, so its windows would prove nothing.
             const physics = physicsWorld(world)!;
@@ -217,7 +214,6 @@ async function spherical() {
     });
     return {
         step: () => app.world.step(1 / 60),
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => {
             app.dispose();
             solver.destroy();

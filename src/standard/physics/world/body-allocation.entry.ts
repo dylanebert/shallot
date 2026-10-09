@@ -68,7 +68,6 @@ export default async function create(input: string) {
                 if (allocating) controlSink = { velocity: a.getLinearVelocity() };
             }
         },
-        wait: () => app.world.gpu.device.queue.onSubmittedWorkDone(),
         dispose: () => app.dispose(),
     };
 }
