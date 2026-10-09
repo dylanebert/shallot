@@ -37,8 +37,9 @@ export class FieldColumns {
     }
 
     restore(state: ReturnType<FieldColumns["snapshot"]>): void {
+        const extent = this.highWater;
         this.highWater = state.highWater;
         for (let i = 0; i < this.#fields.length; i++)
-            this.#fields[i].restore(state.fields[i], state.marks[i]);
+            this.#fields[i].restore(state.fields[i], state.marks[i], extent);
     }
 }

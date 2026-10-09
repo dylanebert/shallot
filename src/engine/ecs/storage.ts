@@ -50,8 +50,8 @@ export class WorldField<T extends FieldType = FieldType> {
         return this.#column.array.slice(0, capacity * this.type.lanes);
     }
 
-    /** @internal Restore without shrinking retained accessors; publish each lane the image changes and each mark it held. */
-    restore(state: TypedArray, marks: Uint32Array): void {
+    /** @internal Restore without shrinking retained accessors; publish each lane the image changes and each mark it held. Lanes at or past the live high-water mark are zero. */
+    restore(state: TypedArray, marks: Uint32Array, extent: number): void {
         this.ensure(state.length / this.type.lanes);
         const { array, dirty } = this.#column;
         const lanes = this.type.lanes;
@@ -59,15 +59,36 @@ export class WorldField<T extends FieldType = FieldType> {
         const image = bits(state);
         const stride = live.length / (array.length / lanes);
         const imageLength = image.length;
-        for (let eid = 0, base = 0; base < live.length; eid++, base += stride) {
-            let changed = 0;
-            for (let k = base; k < base + stride; k++) {
-                const value = k < imageLength ? image[k] : 0;
-                changed |= live[k] ^ value;
-                live[k] = value;
+        let eid = 0,
+            k = 0;
+        if (stride === 4) {
+            for (; k < imageLength; k += 4, eid++)
+                if (
+                    ((live[k] ^ image[k]) |
+                        (live[k + 1] ^ image[k + 1]) |
+                        (live[k + 2] ^ image[k + 2]) |
+                        (live[k + 3] ^ image[k + 3])) !==
+                    0
+                )
+                    dirty[eid >>> 5] |= 1 << (eid & 31);
+        } else if (stride === 1) {
+            for (; k < imageLength; k++, eid++)
+                if (live[k] !== image[k]) dirty[eid >>> 5] |= 1 << (eid & 31);
+        } else {
+            for (; k < imageLength; k += stride, eid++) {
+                let changed = 0;
+                for (let j = 0; j < stride; j++) changed |= live[k + j] ^ image[k + j];
+                if (changed !== 0) dirty[eid >>> 5] |= 1 << (eid & 31);
             }
+        }
+        live.set(image);
+        const end = extent * stride;
+        for (; k < end; k += stride, eid++) {
+            let changed = 0;
+            for (let j = 0; j < stride; j++) changed |= live[k + j];
             if (changed !== 0) dirty[eid >>> 5] |= 1 << (eid & 31);
         }
+        live.fill(0, imageLength, end);
         for (let word = 0; word < marks.length; word++) dirty[word] |= marks[word];
     }
 
