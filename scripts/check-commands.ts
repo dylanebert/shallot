@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Glob } from "bun";
-import { dirname, relative, resolve } from "path";
+import { dirname, isAbsolute, relative, resolve } from "path";
 
 async function readScripts(pkgPath: string): Promise<Record<string, string>> {
     const pkg = (await Bun.file(pkgPath).json()) as { scripts?: Record<string, string> };
@@ -89,13 +89,15 @@ async function checkRealization(root: string): Promise<string[]> {
             for (const declared of targets) {
                 const target = declared.replace(/^\.\//, "");
                 const path = resolve(dir, target);
+                const inside = relative(dir, path);
                 const present =
                     kind === "bin"
                         ? existsSync(path) && statSync(path).isFile()
                         : existsSync(path) ||
                           [...new Glob(target).scanSync({ cwd: dir })].length > 0;
                 if (
-                    (path !== dir && !path.startsWith(`${dir}/`)) ||
+                    inside.startsWith("..") ||
+                    isAbsolute(inside) ||
                     (!present && !projected(target, kind))
                 ) {
                     errors.push(

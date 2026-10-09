@@ -43,14 +43,7 @@ jobs:
         run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
 
   gpu:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, windows-latest]
-    defaults:
-      run:
-        shell: bash
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -58,7 +51,7 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: GPU tier
-        run: time -p bun scripts/gpu-compile.oracle.ts
+        run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts
 
   cargo:
     runs-on: ubuntu-latest

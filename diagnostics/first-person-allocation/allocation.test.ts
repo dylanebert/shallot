@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import {
     type AllocationSample,
     allocatesNothing,
@@ -20,6 +20,10 @@ test("the sampler keeps lazy feedback and Chromium's existing timing flags", () 
 
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
 const ROOT = resolve(import.meta.dir, "../..");
+/** A bundle input's absolute path with `/` separators, so suffix checks hold on Windows. */
+const absolute = (path: string) => resolve(path).replaceAll(sep, "/");
+/** A bundle input's root-relative path with `/` separators. */
+const rooted = (path: string) => absolute(resolve(ROOT, path)).slice(ROOT.length + 1);
 
 test("a Node allocation import does not load the display-only oracle or Hyprland instrument", async () => {
     const built = await Bun.build({
@@ -30,7 +34,7 @@ test("a Node allocation import does not load the display-only oracle or Hyprland
     });
     if (!built.success || built.metafile === undefined)
         throw new Error(`allocation import graph failed: ${built.logs.map(String).join("\\n")}`);
-    const inputs = Object.keys(built.metafile.inputs).map((path) => resolve(path));
+    const inputs = Object.keys(built.metafile.inputs).map(absolute);
     expect(inputs.some((path) => path.endsWith("/diagnostics/first-person-allocation/display.ts"))).toBe(false);
     expect(inputs.some((path) => path.endsWith("/diagnostics/first-person-allocation/display-seat.ts"))).toBe(false);
 
@@ -42,7 +46,7 @@ test("a Node allocation import does not load the display-only oracle or Hyprland
     });
     if (!node.success || node.metafile === undefined)
         throw new Error(`Node sampler graph failed: ${node.logs.map(String).join("\\n")}`);
-    const nodeInputs = Object.keys(node.metafile.inputs).map((path) => resolve(path));
+    const nodeInputs = Object.keys(node.metafile.inputs).map(absolute);
     expect(nodeInputs.some((path) => path.endsWith("/allocation-sampler.mjs"))).toBe(true);
     expect(nodeInputs.some((path) => path.endsWith("/display.ts"))).toBe(false);
     const nodeImports = Object.values(node.metafile.inputs).flatMap((input) => input.imports);
@@ -65,7 +69,7 @@ test("the allocation-gated first-person composition carries no timing or profili
     if (!built.success || built.metafile === undefined)
         throw new Error(`gated bundle failed: ${built.logs.map(String).join("\n")}`);
     const inputs = built.metafile.inputs;
-    const paths = Object.keys(inputs).map((path) => resolve(ROOT, path).slice(ROOT.length + 1));
+    const paths = Object.keys(inputs).map(rooted);
     // Non-vacuity: the graph reaches the physics step whose timers this row is about.
     if (!paths.includes("src/standard/physics/solver/step.ts"))
         throw new Error(
@@ -78,7 +82,7 @@ test("the allocation-gated first-person composition carries no timing or profili
             )
             .map(([path]) => path);
     const found = Object.keys(inputs).filter((path) =>
-        PROFILER.some((pattern) => pattern.test(resolve(ROOT, path).slice(ROOT.length + 1))),
+        PROFILER.some((pattern) => pattern.test(rooted(path))),
     );
     if (found.length !== 0)
         throw new Error(
