@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "../../../../scripts/test-tiers";
 import {
     createBoxMesh,
     createGridMesh,
@@ -8,6 +9,8 @@ import {
     createWaveMesh,
     type MeshData,
 } from "./mesh";
+
+setDefaultTimeout(CEILING.node);
 
 function orderedTraversal(mesh: MeshData | null): void {
     expect(mesh).not.toBeNull();
