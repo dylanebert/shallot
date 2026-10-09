@@ -15,8 +15,8 @@ for (const count of [64, 128]) {
         const sample = await sampleAllocation(
             resolve(import.meta.dir, "sensor-allocation.entry.ts"),
             {
-                warm: count === 128 ? 1800 : 6000,
-                frames: count === 128 ? 180 : 600,
+                warm: 6000,
+                frames: 600,
                 input: String(count),
             },
         );
