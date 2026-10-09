@@ -1,4 +1,4 @@
-//! Box3D mesh.c query traversal over builder-authored mesh-tree records.
+//! Box3D mesh.c query traversal over builder-authored BVH records.
 use crate::distance::{
     shape_cast, shape_distance, CastOutput, DistanceInput, ShapeCastPairInput, ShapeProxy,
     SimplexCache,

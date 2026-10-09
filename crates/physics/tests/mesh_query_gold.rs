@@ -1,4 +1,4 @@
-//! Mesh-tree query order and contact results match the immutable Box3D corpus.
+//! Mesh BVH query order and contact results match the immutable Box3D corpus.
 use serde_json::Value;
 use shallot_physics::distance::ShapeProxy;
 use shallot_physics::manifold::Capsule;
