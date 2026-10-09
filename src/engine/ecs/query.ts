@@ -270,6 +270,8 @@ export class Queries {
     private _byTerms: TermNode = new Map() as TermNode;
     // keyed by component id (idOf), not the object — array-by-id, like membership
     private _byComponent: RegisteredQuery[][] = [];
+    // Queries without a required or `or` term match every new entity.
+    private _unbounded: RegisteredQuery[] = [];
 
     /**
      * resolve `terms` to a registered query, registering on first sight.
@@ -300,11 +302,15 @@ export class Queries {
         }
     }
 
+    onEntityCreated(eid: Entity): void {
+        for (let i = 0; i < this._unbounded.length; i++) this._unbounded[i].add(eid);
+    }
+
     onEntityRemoved(eid: Entity): void {
         for (let i = 0; i < this._all.length; i++) this._all[i].remove(eid);
     }
 
-    /** @internal Refilter queries that component changes do not maintain (only excluded terms) and queries with an active iteration, whose order the changed-bit pass cannot rebuild. */
+    /** @internal Refilter queries without required or `or` terms because restore also changes which entities are alive, and queries with an active iteration, whose order the changed-bit pass cannot rebuild. */
     restore(components: Components, entities: Entities): void {
         let alive: readonly number[] | undefined;
         for (const query of this._all) {
@@ -323,6 +329,7 @@ export class Queries {
         this._byHash.clear();
         this._byTerms.clear();
         this._byComponent.length = 0;
+        this._unbounded.length = 0;
     }
 
     private _register(
@@ -344,6 +351,7 @@ export class Queries {
         this._all.push(rq);
         this._byHash.set(hash, rq);
         this._cacheTerms(terms, rq);
+        if (rq.required.length === 0 && rq.orGroups.length === 0) this._unbounded.push(rq);
         for (const c of rq.all) {
             const id = idOf(c);
             let list = this._byComponent[id];

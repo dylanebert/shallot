@@ -640,6 +640,7 @@ export class World {
         const eid = this._entities.add();
         if (eid + 1 > this._highWater) this._highWater = eid + 1;
         this._columns.ensure(eid + 1);
+        this._queries.onEntityCreated(eid);
         return eid;
     }
 
