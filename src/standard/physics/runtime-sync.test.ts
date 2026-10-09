@@ -121,3 +121,29 @@ test("physics sync forgets a Body destroyed before the next tick", async () => {
         expect(physicsWorld(world)!.getBody(eid)).toBeNull();
     });
 });
+
+test("physics sync retries a failed hull body whose hull a restored snapshot registered before its sync", async () => {
+    await withPhysics((world) => {
+        const hulls = world.resource(Hulls);
+        const eid = world.create();
+        world.add(eid, Body, {
+            shape: ShapeKind.Hull,
+            halfExtents: [1, 1, 1, 1],
+        });
+        world.tick();
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+
+        const cube = structuredClone(hulls.get(hulls.name(0)!)!);
+        hulls.register({ ...cube, name: "runtime-sync-restored-hull" });
+        const saved = world.snapshot();
+        world.tick();
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        world.restore(saved);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+
+        world.tick();
+
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getBody(eid)?.isValid()).toBe(true);
+    });
+});
