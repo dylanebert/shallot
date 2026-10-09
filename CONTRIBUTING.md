@@ -13,9 +13,9 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Each app owns its world storage and allocations; disposing one releases its resources, not the device or a sibling's data.
 - Builds serialize registration and warm-up; completed apps coexist.
 - Components declare fields, not storage or GPU residency.
-- A component's fields carry a value only while an entity holds it: remove and destroy clear them, and destroy notifies membership observers as remove does. A raw write to a component the entity does not hold is unsupported.
-- A component key only rebinds a reloaded record; identity is the record. A composition refuses a different record under a key another plugin's record holds, naming both plugins.
-- A component's bit, once assigned, stays its component's; a snapshot carries membership masks, never the assignment.
+- A component's fields promise a value only while an entity holds it.
+- A component's identity is its record; its key only rebinds a reloaded record, and a composition refuses two records under one key.
+- A component's membership bit is never reassigned, including by restore.
 - Each world owns eid-indexed typed columns that double to cover the entity high-water mark and never shrink during play.
 - Accessors resolve once with `world.storage(Component)`; growth replaces arrays, not accessors.
 - Compatible hot reload reuses storage; an incompatible schema requires rebuilding.
@@ -174,7 +174,7 @@ bun run format                   # biome
 - Gameplay assertions drive the composed world: `tick()` advances one fixed tick; `step(deltaTime)` paces fixed work and runs simulation and draw. Exact ticks preserve changes for the next frame upload and advance no GPU frame or readback.
 - Fixed systems read tick time; simulation and draw read the virtual frame clock. Pause and scale pace `step`, never explicit ticks.
 - Simulation lives in registered components and declared plugin recovery participants. `world.snapshot()` captures ECS identity, allocation, membership, fields, fixed tick and participants; `world.restore()` restores ECS and clock before plugin participants; derived presentation reconciles through a participant too.
-- A plugin declares recovery for state it owns that its own or another plugin's fixed systems read, not only state fixed systems write. It declares `recovery: "stateless"` when components or per-call reconstruction hold that state, or binds hidden state with `recovery(world)`, returning a pair `{ snapshot(), restore(state) }`. Snapshot images are independent and reusable, and may share a frozen value that nothing mutates; host handles, GPU state and pacing stay outside recovery.
+- A plugin declares recovery for state it owns that its own or another plugin's fixed systems read, not only state fixed systems write. It declares `recovery: "stateless"` when components or per-call reconstruction hold that state, or binds hidden state with `recovery(world)`, returning a pair `{ snapshot(), restore(state) }`. Snapshot images are independent and reusable, and may share immutable values; host handles, GPU state and pacing stay outside recovery.
 - Every fixed system has a recovery owner. Snapshot refuses an undeclared fixed plugin by name and an unattributed fixed system by system name. This registration guard does not prove that participants capture all simulation inputs.
 - Core physics recovers its mutable `Hulls` registry, read by fixed body synchronization. Standard physics participates with its solver image and ECS bindings. `PhysicsWorld.snapshot()` and `restore()` remain solver-only APIs; a physics hash does not prove ECS or gameplay recovery.
 - `fixed` reads per-tick actions and `draw` presents. Recovery does not turn live device reads into replayable inputs.
