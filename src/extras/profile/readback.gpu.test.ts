@@ -1,13 +1,20 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { compileGpuFile } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
+import { createApp } from "../../engine";
 import { Profile, ProfilePlugin } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [ProfilePlugin] }]);
+const subject = compileGpuFile(import.meta.path, async () => {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("profiler adapter unavailable");
+    const device = await adapter.requestDevice({ requiredFeatures: [] });
+    const app = await createApp({ defaults: false, plugins: [ProfilePlugin], device });
+    return { app, device };
+});
 
 test("a profiler without timestamp-query runs and distinguishes missing GPU timings from zero", async () => {
-    const app = subjects()[0];
+    const { app, device } = subject();
     try {
         expect(app.world.gpu.device.features.has("timestamp-query")).toBe(false);
         const stats = app.world.resource(Profile);
@@ -28,5 +35,6 @@ test("a profiler without timestamp-query runs and distinguishes missing GPU timi
         expect(stats.bufferBytes).toBe(before);
     } finally {
         app.dispose();
+        device.destroy();
     }
 });
