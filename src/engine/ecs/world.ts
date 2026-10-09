@@ -813,11 +813,6 @@ export class World {
         return this._scheduler.has(system);
     }
 
-    /** record a CPU timing entry; no-op when no sink is installed */
-    record(name: string, ms: number): void {
-        this._scheduler.record?.(name, ms);
-    }
-
     /**
      * the CPU timing sink, or `undefined` when profiling is off. Hot-path
      * callers can read this once and skip timed work entirely when absent.
@@ -834,11 +829,6 @@ export class World {
      * Failed systems pause until swapped or rebuilt; later draw systems run, and the frame submits when it recorded work. */
     logAndPauseSystemErrors(): void {
         this._scheduler.logAndPauseErrors = true;
-    }
-
-    /** report a GPU fence-wait duration; no-op when no sink is installed */
-    fenceWait(ms: number): void {
-        this._scheduler.fenceWait?.(ms);
     }
 
     /** the GPU fence-wait telemetry sink, or `undefined` when profiling is off */

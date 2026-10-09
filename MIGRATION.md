@@ -405,6 +405,12 @@ table.bindComponent(Material, { params: "params", color: "color" });
 world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
 ```
 
+## Removed app and field metadata
+
+- `App.skipped` is removed, since an incomplete composition fails in `createApp`.
+- `World.record(name, ms)` and `World.fenceWait(ms)` are removed; call `world.recordSink?.(name, ms)` or `world.fenceWaitSink?.(ms)`.
+- `FieldType.wgsl` is removed, since tables bind TypeGPU records and a custom field type declares `ctor`, `lanes`, `name` and an optional codec.
+
 ## Authored Transform and world GlobalTransform are separate
 
 `Transform` remains authored placement. Replace `TransformsPlugin` with `TransformPlugin` from `@dylanebert/shallot/transform` (also exported at the root). Physics and rendering include it as a dependency; add it explicitly to placement-only compositions. It derives `GlobalTransform` for each `Transform` entity; physics publishes a body's placement. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is derived world placement, never authored, and has no hierarchy. Physics publishes rigid pose and velocity, not collider-derived scale. Register a sized mesh with `cube([hx, hy, hz])`, `sphere(radius)` or `capsule(halfHeight, radius)` from `/mesh` when the visual should match the collider; these builders default to the built-in sizes.

@@ -118,8 +118,6 @@ export interface AppConfig {
 /** result of {@link createApp} / {@link runApp}. owns the plugin teardown order. */
 export interface App {
     readonly world: World;
-    /** @deprecated compatibility field; always empty because incomplete compositions fail in {@link createApp}. */
-    readonly skipped: readonly string[];
     dispose(): void;
 }
 
@@ -347,7 +345,6 @@ async function buildNow(config: AppConfig): Promise<App> {
         let disposed = false;
         return {
             world,
-            skipped: [],
             dispose() {
                 if (disposed) return;
                 disposed = true;
@@ -515,7 +512,7 @@ export async function runApp(config: AppConfig): Promise<App> {
                 if ((pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
                 const dt = frameDelta(t, lastTime);
                 lastTime = t;
-                world.fenceWait(pendingFenceWaitMs);
+                world.fenceWaitSink?.(pendingFenceWaitMs);
                 pendingFenceWaitMs = 0;
                 world.step(dt);
                 // The engine-owned frame submission issues this fence; wait on it rather than adding another.
@@ -532,7 +529,6 @@ export async function runApp(config: AppConfig): Promise<App> {
 
         return {
             world,
-            skipped: [],
             dispose() {
                 disposed = true;
                 app.dispose();

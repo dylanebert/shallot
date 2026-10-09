@@ -31,8 +31,7 @@ export function isType(value: unknown): value is FieldType {
         typeof type.ctor === "function" &&
         typeof type.ctor.BYTES_PER_ELEMENT === "number" &&
         (type.lanes === 1 || type.lanes === 2 || type.lanes === 4) &&
-        typeof type.name === "string" &&
-        (type.wgsl === null || typeof type.wgsl === "string")
+        typeof type.name === "string"
     );
 }
 
@@ -59,9 +58,6 @@ export interface FieldType<TArray extends TypedArray = TypedArray> {
     /** scalar = 1, vec2 = 2, vec4 = 4. stride into the backing array per eid */
     readonly lanes: 1 | 2 | 4;
     readonly name: string;
-    /** WGSL element type, or null for CPU-only columns. Tables bind TypeGPU
-     * records, not this; it is part of the layout that hot reload compares. */
-    readonly wgsl: string | null;
     /** JS number → array-slot value. omit for identity-mapped types */
     readonly encode?: (v: number) => number;
     /** array-slot value → JS number. omit for identity-mapped types */
@@ -73,7 +69,6 @@ export const f32: FieldType<Float32Array> & { readonly lanes: 1 } = {
     ctor: Float32Array,
     lanes: 1,
     name: "f32",
-    wgsl: "f32",
 };
 
 /** 32-bit signed integer. */
@@ -81,7 +76,6 @@ export const i32: FieldType<Int32Array> & { readonly lanes: 1 } = {
     ctor: Int32Array,
     lanes: 1,
     name: "i32",
-    wgsl: "i32",
 };
 
 /** 32-bit unsigned integer. */
@@ -89,7 +83,6 @@ export const u32: FieldType<Uint32Array> & { readonly lanes: 1 } = {
     ctor: Uint32Array,
     lanes: 1,
     name: "u32",
-    wgsl: "u32",
 };
 
 /**
@@ -103,7 +96,6 @@ export const entity: FieldType<Float64Array> & { readonly lanes: 1 } = {
     ctor: Float64Array,
     lanes: 1,
     name: "entity",
-    wgsl: null,
 };
 
 /** @internal compare storage and conversion semantics, never a FieldType's debug label. */
@@ -112,7 +104,6 @@ export function sameTypeLayout(a: FieldType, b: FieldType): boolean {
         a.ctor !== b.ctor ||
         a.ctor.BYTES_PER_ELEMENT !== b.ctor.BYTES_PER_ELEMENT ||
         a.lanes !== b.lanes ||
-        a.wgsl !== b.wgsl ||
         a.encode !== b.encode ||
         a.decode !== b.decode
     ) {
@@ -128,7 +119,6 @@ export const u8: FieldType<Uint8Array> & { readonly lanes: 1 } = {
     ctor: Uint8Array,
     lanes: 1,
     name: "u8",
-    wgsl: null,
 };
 
 /**
@@ -138,7 +128,6 @@ export const u16: FieldType<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
     lanes: 1,
     name: "u16",
-    wgsl: null,
 };
 
 // IEEE 754 binary16 codec — scratch buffer aliases an f32 over a u32 for the
@@ -188,7 +177,6 @@ export const f16: FieldType<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
     lanes: 1,
     name: "f16",
-    wgsl: "f16",
     encode: f16encode,
     decode: f16decode,
 };
@@ -198,7 +186,6 @@ export const vec2: FieldType<Float32Array> & { readonly lanes: 2 } = {
     ctor: Float32Array,
     lanes: 2,
     name: "vec2",
-    wgsl: "vec2<f32>",
 };
 
 /**
@@ -211,7 +198,6 @@ export const vec4: FieldType<Float32Array> & { readonly lanes: 4 } = {
     ctor: Float32Array,
     lanes: 4,
     name: "vec4",
-    wgsl: "vec4<f32>",
 };
 
 /**
