@@ -155,7 +155,6 @@ export const TransformPlugin: Plugin = {
             snapshot: () => undefined,
             restore() {
                 runtime.discontinuities.fill(0);
-                for (const eid of world.query([GlobalTransform])) teleport(world, eid);
             },
         };
     },

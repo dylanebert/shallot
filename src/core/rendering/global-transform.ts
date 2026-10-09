@@ -58,6 +58,7 @@ export interface GlobalTransformRuntime {
     generation: number;
     params?: GPUBuffer;
     historyNeedsPromotion: boolean;
+    historyDiscarded: boolean;
 }
 /** @internal GPU history identity survives compatible renderer reloads. */
 export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
@@ -70,6 +71,7 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             ranges: new Uint32Array(4),
             generation: -1,
             historyNeedsPromotion: false,
+            historyDiscarded: false,
         };
         world.observeMembership(GlobalTransform, (eid, present) => {
             if (present && runtime.enabled) teleport(world, eid);
@@ -92,6 +94,7 @@ export const GlobalTransformHistoryStartSystem: System = {
                 runtime.ranges[3] / runtime.current!.rowBytes,
             );
         captureCurrent(world, 0);
+        runtime.historyDiscarded = false;
         world.resource(TransformRuntime).discontinuities.fill(0);
     },
 };
@@ -131,6 +134,7 @@ export function recoverGlobalTransformHistory(world: World) {
             runtime.tickCount = 0;
             runtime.ranges.fill(0);
             runtime.historyNeedsPromotion = false;
+            runtime.historyDiscarded = true;
         },
     };
 }
@@ -224,6 +228,16 @@ function copyPhase(world: World, encoder: GPUCommandEncoder | undefined, phase: 
         runtime.historyNeedsPromotion = true;
     }
     if (phase !== 1) return;
+    if (runtime.historyDiscarded) {
+        (encoder ?? world.frameEncoder()!).copyBufferToBuffer(
+            runtime.current!.buffer,
+            0,
+            runtime.previous!.buffer,
+            0,
+            runtime.current!.buffer.size,
+        );
+        return;
+    }
     const current = runtime.current!,
         marks = world.resource(TransformRuntime).discontinuities;
     for (let word = 0; word < marks.length; word++)
@@ -259,6 +273,7 @@ export function prepareGlobalTransformFrame(world: World, encoder?: GPUCommandEn
     copyPhase(world, encoder, 1);
     runtime.tickCount = 0;
     runtime.ranges.fill(0);
+    runtime.historyDiscarded = false;
     world.resource(TransformRuntime).discontinuities.fill(0);
     if (!runtime.current!.count) {
         runtime.historyNeedsPromotion = false;
