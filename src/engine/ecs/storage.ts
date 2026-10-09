@@ -20,6 +20,13 @@ type Column = {
     dirty: Uint32Array;
 };
 
+function bits(array: TypedArray): Uint32Array | Uint16Array | Uint8Array {
+    const { buffer, byteOffset, byteLength } = array;
+    if (array.BYTES_PER_ELEMENT >= 4) return new Uint32Array(buffer, byteOffset, byteLength >>> 2);
+    if (array.BYTES_PER_ELEMENT === 2) return new Uint16Array(buffer, byteOffset, byteLength >>> 1);
+    return new Uint8Array(buffer, byteOffset, byteLength);
+}
+
 /** world-owned field column. The exposed accessors close over this record, not a component singleton. */
 export class WorldField<T extends FieldType = FieldType> {
     readonly type: T;
@@ -43,12 +50,24 @@ export class WorldField<T extends FieldType = FieldType> {
         return this.#column.array.slice(0, capacity * this.type.lanes);
     }
 
-    /** @internal Restore without shrinking retained accessors; publish every restored lane. */
+    /** @internal Restore without shrinking retained accessors; publish each lane the image changes. */
     restore(state: TypedArray): void {
         this.ensure(state.length / this.type.lanes);
-        this.#column.array.fill(0);
-        this.#column.array.set(state);
-        this.#column.dirty.fill(0xffffffff);
+        const { array, dirty } = this.#column;
+        const lanes = this.type.lanes;
+        const live = bits(array);
+        const image = bits(state);
+        const stride = live.length / (array.length / lanes);
+        const imageLength = image.length;
+        for (let eid = 0, base = 0; base < live.length; eid++, base += stride) {
+            let changed = 0;
+            for (let k = base; k < base + stride; k++) {
+                const value = k < imageLength ? image[k] : 0;
+                changed |= live[k] ^ value;
+                live[k] = value;
+            }
+            if (changed !== 0) dirty[eid >>> 5] |= 1 << (eid & 31);
+        }
     }
 
     ensure(capacity: number): void {
