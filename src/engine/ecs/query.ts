@@ -195,6 +195,11 @@ export class RegisteredQuery implements Iterable<number> {
         this._dirty = true;
     }
 
+    /** @internal Whether an iterator is currently borrowing this query's order. */
+    hasActiveIterators(): boolean {
+        return this._order.active !== 0;
+    }
+
     [Symbol.iterator](): Iterator<number> {
         if (this._dirty && this._order.active === 0) this.rebuild();
         const it = this._iterPool.pop() ?? new QueryIterator(this._iterPool);
@@ -285,8 +290,8 @@ export class Queries {
         return this._register(terms, components, entities);
     }
 
-    onComponentChanged(eid: Entity, component: any, components: Components): void {
-        const queries = this._byComponent[idOf(component)];
+    onComponentChanged(id: number, eid: Entity, components: Components): void {
+        const queries = this._byComponent[id];
         if (!queries) return;
         for (let i = 0; i < queries.length; i++) {
             const rq = queries[i];
@@ -299,11 +304,18 @@ export class Queries {
         for (let i = 0; i < this._all.length; i++) this._all[i].remove(eid);
     }
 
-    /** @internal Query order is derived from membership, including queries registered after capture. */
+    /** @internal Refilter queries that component changes do not maintain (only excluded terms) and queries with an active iteration, whose order the changed-bit pass cannot rebuild. */
     restore(components: Components, entities: Entities): void {
-        const alive = entities.all();
-        for (const query of this._all)
+        let alive: readonly number[] | undefined;
+        for (const query of this._all) {
+            if (
+                (query.required.length !== 0 || query.orGroups.length !== 0) &&
+                !query.hasActiveIterators()
+            )
+                continue;
+            alive ??= entities.all();
             query.restore(alive.filter((eid) => query.matches(eid, components)));
+        }
     }
 
     clear(): void {

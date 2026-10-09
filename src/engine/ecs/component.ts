@@ -411,21 +411,31 @@ export class Components {
 
     private readonly _restored?: () => void;
     private readonly _membership?: (id: number, eid: number, present: boolean) => void;
+    private readonly _queryChanged?: (id: number, eid: number) => void;
 
     constructor(
         restored?: () => void,
         membership?: (id: number, eid: number, present: boolean) => void,
+        queryChanged?: (id: number, eid: number) => void,
     ) {
         this._restored = restored;
         this._membership = membership;
+        this._queryChanged = queryChanged;
     }
 
-    /** @internal Restore membership from an image while preserving live component assignments. */
+    /** @internal Restore membership, updating queries before observers and tables. */
     restore(state: ReturnType<Components["snapshot"]>): void {
         const before = this._masks;
         this._masks = before.map((_, gen) => state.masks[gen]?.slice() ?? []);
+        if (this._queryChanged) this.reconcile(before, this._queryChanged);
         this._restored?.();
-        if (!this._membership) return;
+        if (this._membership) this.reconcile(before, this._membership);
+    }
+
+    private reconcile(
+        before: number[][],
+        visit: (id: number, eid: number, present: boolean) => void,
+    ): void {
         for (let gen = 0; gen < this._masks.length; gen++) {
             const owners = this._owners[gen];
             const old = before[gen];
@@ -435,7 +445,7 @@ export class Components {
                 let changed = (old[eid] ?? 0) ^ current;
                 while (changed) {
                     const bit = changed & -changed;
-                    this._membership(owners[31 - Math.clz32(bit)], eid, (current & bit) !== 0);
+                    visit(owners[31 - Math.clz32(bit)], eid, (current & bit) !== 0);
                     changed ^= bit;
                 }
             }

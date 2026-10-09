@@ -98,6 +98,7 @@ export class World {
             }
             this.notifyMembership(component, eid, present);
         },
+        (id, eid) => this._queries.onComponentChanged(id, eid, this._components),
     );
     private _queries = new Queries();
     private readonly _held: number[] = [];
@@ -719,8 +720,9 @@ export class World {
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
         const storage = this.storage(component as Component);
         if (this._components.add(eid, component)) {
+            const id = idOf(component as Component);
             this.notifyMembership(component as Component, eid, true);
-            const tables = this._tablesByComponent.get(idOf(component as Component));
+            const tables = this._tablesByComponent.get(id);
             const attached: GpuTable[] = [];
             try {
                 if (tables) {
@@ -735,7 +737,7 @@ export class World {
                 this.notifyMembership(component as Component, eid, false);
                 throw error;
             }
-            this._queries.onComponentChanged(eid, component, this._components);
+            this._queries.onComponentChanged(id, eid, this._components);
             for (const required of this.registry.getRequirements(component as Component)) {
                 if (!this.has(eid, required)) this.add(eid, required);
             }
@@ -760,12 +762,13 @@ export class World {
     /** Remove a component and clear its fields after membership observers, table detachment and query updates. */
     remove(eid: number, component: any): void {
         if (this._components.remove(eid, component)) {
+            const id = idOf(component as Component);
             this.notifyMembership(component as Component, eid, false);
-            const tables = this._tablesByComponent.get(idOf(component as Component));
+            const tables = this._tablesByComponent.get(id);
             if (tables)
                 for (const table of tables) table.detachComponent(eid, component as Component);
-            this._queries.onComponentChanged(eid, component, this._components);
-            const entry = this._storage.get(idOf(component as Component));
+            this._queries.onComponentChanged(id, eid, this._components);
+            const entry = this._storage.get(id);
             if (entry) for (const field of entry.fields.values()) field.clear(eid);
         }
     }
