@@ -32,6 +32,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Unchanged records upload nothing; a changed record uploads its spanning range.
 - Uploads preserve command order across buffer growth. Outside draw, queue writes and immediate growth submissions follow program order; during draw, distinct staging ranges preserve encoded observations on the World's lazy frame encoder.
 - The engine submits once after the draw group, only when its encoder was opened; that submission owns the completion fence `runApp` waits on. Upload staging recycles when it completes, with no extra staging fence. The upload-byte bound applies to one encoded frame, not accumulated exact ticks.
+- On a propagated draw error, system draw commands are discarded; only engine copies replay in their own fenced submission.
 - Growth preserves contents and changes generation; consumers rebuild affected bind groups, not pipelines.
 - Shader arrays are runtime-sized. Device buffer limits bound table capacity, and refusal names the cause.
 - Fixed writes precede head-of-draw upload and GPU passes, including writes from exact ticks before a frame.

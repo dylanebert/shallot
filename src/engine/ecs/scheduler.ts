@@ -71,6 +71,8 @@ export class Scheduler {
     logAndPauseErrors = false;
     private readonly _systems = new Set<System>();
     private readonly _boundaries = new Map<System, "before" | "after">();
+    private _drawWorld: World | undefined;
+    private readonly _runDraw = () => this.runGroup(this._drawWorld!, "draw");
     private _systemsVersion = 0;
     private _accumulator = 0;
     private readonly _initialized = new WeakSet<System>();
@@ -240,9 +242,16 @@ export class Scheduler {
 
         this._time.deltaTime = scaled;
         this.runGroup(world, "simulation");
-        const draw = () => this.runGroup(world, "draw");
-        if (withDrawGroup) withDrawGroup(draw);
-        else draw();
+        if (withDrawGroup) {
+            this._drawWorld = world;
+            try {
+                withDrawGroup(this._runDraw);
+            } finally {
+                this._drawWorld = undefined;
+            }
+        } else {
+            this.runGroup(world, "draw");
+        }
     }
 
     tick(world: World): void {

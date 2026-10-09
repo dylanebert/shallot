@@ -37,7 +37,7 @@ test("whole steady table frames reuse copy records and staging with one completi
     const own = world.own;
     const ownBound = own.bind(world);
     const fenceDescriptor = Object.getOwnPropertyDescriptor(queue, "onSubmittedWorkDone");
-    // Pool growth and identity expose steady per-upload copy-record allocations directly.
+    // Pool growth and identity verify warmed reuse of the existing per-upload copy records.
     const copyPool = (world as unknown as { _frameCopies: object[] })._frameCopies;
     const pooledRecords = copyPool.slice();
     let copyRecordsAdded = 0;

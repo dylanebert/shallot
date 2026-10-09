@@ -83,8 +83,9 @@ export class World {
     }
 
     private readonly _stepInput = { deltaTime: Time.DEFAULT_DT };
+    private readonly _runDrawGroup = (run: () => void) => this.runDrawGroup(run);
     private readonly _runStep = () =>
-        this._scheduler.step(this, this._stepInput, (run) => this.runDrawGroup(run));
+        this._scheduler.step(this, this._stepInput, this._runDrawGroup);
     private _entities = new Entities();
     private _components = new Components(
         () => this._queries.restore(this._components, this._entities),
@@ -136,8 +137,8 @@ export class World {
         this._snapshots.register(Symbol("membership"), this._components);
     }
 
-    /** Fence for the latest step's queue submission; undefined when it submitted nothing.
-     * A propagated draw error may submit only engine copy replay. Reading it issues no fence. */
+    /** Fence for the latest draw-group submission; a propagated draw error may set it to the engine-copy replay's fence.
+     * Undefined when neither submitted. Reading it issues no fence. */
     get frameFence(): Promise<void> | undefined {
         return this._frameFence;
     }
@@ -825,7 +826,7 @@ export class World {
     }
 
     /** @internal The running host chooses log-and-pause so a hot-reloaded bug cannot wedge it.
-     * Failed systems pause until swapped or rebuilt; later draw systems run and the frame still submits. */
+     * Failed systems pause until swapped or rebuilt; later draw systems run, and the frame submits when it recorded work. */
     logAndPauseSystemErrors(): void {
         this._scheduler.logAndPauseErrors = true;
     }
