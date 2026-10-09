@@ -261,6 +261,29 @@ async function renderedX(
     return new Float32Array(result.bytes)[row * 12];
 }
 
+async function interpolatedRows(
+    world: engine.World,
+    table: ReturnType<typeof globalTransformTable>,
+): Promise<Float32Array> {
+    const runtime = world.resource(TransformRuntime);
+    world.gpu.device.queue.writeBuffer(
+        runtime.params!,
+        0,
+        new Float32Array([world.time.fixedAlpha, runtime.current!.count, 0, 0]),
+    );
+    const encoder = world.gpu.device.createCommandEncoder();
+    prepareGlobalTransformFrame(world, encoder);
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(runtime.pipeline!);
+    pass.setBindGroup(0, runtime.group!);
+    pass.dispatchWorkgroups(Math.ceil(runtime.current!.count / 64));
+    pass.end();
+    world.gpu.device.queue.submit([encoder.finish()]);
+    return new Float32Array(
+        (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
+    );
+}
+
 async function handoverApp(initial: "Body" | "Transform"): Promise<{
     app: Awaited<ReturnType<typeof createApp>>;
     handover(action: (world: engine.World, eid: number) => void): void;
@@ -481,6 +504,88 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
             (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([17, 3, -2]);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("restoring more than 32 GlobalTransforms leaves every interpolated row at its restored pose", async () => {
+    const app = await createApp({ defaults: false, plugins: [RenderingPlugin] });
+    try {
+        const { world } = app;
+        const eids: number[] = [];
+        const poses: number[] = [];
+        for (let i = 0; i < 40; i++) {
+            const eid = world.create();
+            eids.push(eid);
+            poses.push(i + 1);
+            addTransform(world, eid, i + 1);
+        }
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+        const snapshot = world.snapshot();
+
+        for (let i = 0; i < eids.length; i++)
+            world.storage(Transform).translation.x.set(eids[i], poses[i] + 100);
+        world.step(Time.FIXED_DT);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+        world.restore(snapshot);
+        world.step(0);
+
+        const rows = await interpolatedRows(world, table);
+        expect(eids.length).toBeGreaterThan(32);
+        for (let i = 0; i < eids.length; i++) {
+            const row = table.rowIndex(eids[i]);
+            expect(row).toBeGreaterThanOrEqual(0);
+            expect(rows[row * 12]).toBeCloseTo(poses[i], 5);
+        }
+    } finally {
+        app.dispose();
+    }
+});
+
+test("restore followed by a tick still interpolates between restored and ticked placement", async () => {
+    let eid = -1;
+    let advance = false;
+    const app = await createApp({
+        defaults: false,
+        plugins: [
+            RenderingPlugin,
+            {
+                name: "RestoreInterpolation",
+                recovery: "stateless",
+                systems: [
+                    {
+                        group: "fixed",
+                        update(world) {
+                            if (advance) world.storage(Transform).translation.x.set(eid, 10);
+                        },
+                    },
+                ],
+            },
+        ],
+    });
+    try {
+        const { world } = app;
+        eid = world.create();
+        addTransform(world, eid, 0);
+        const table = globalTransformTable(world);
+        world.step(Time.FIXED_DT);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+        const snapshot = world.snapshot();
+
+        world.storage(Transform).translation.x.set(eid, 100);
+        world.step(0);
+        world.restore(snapshot);
+        advance = true;
+        world.tick();
+        advance = false;
+        world.step(Time.FIXED_DT / 2);
+
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        const rows = await interpolatedRows(world, table);
+        expect(rows[table.rowIndex(eid) * 12]).toBeCloseTo(5, 5);
     } finally {
         app.dispose();
     }
