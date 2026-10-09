@@ -85,6 +85,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _activeConsumers: Consumer[] = [];
     private _componentBindings: ComponentBinding[] = [];
     private _boundDirty = new Uint8Array(0);
+    private _seeds = 0;
     private _membershipCounts = new Map<number, number>();
     private _presenceBindings: PresenceBinding[] = [];
     private _presenceUnsubscribes: (() => void)[] = [];
@@ -315,9 +316,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             };
             binding.fields.push(field);
         }
-        for (let i = 0; i < this._activeCount; i++) {
-            this._boundDirty[this._activeRows[i * 2 + 1]] = 1;
-        }
+        for (let i = 0; i < this._activeCount; i++) this.seed(this._activeRows[i * 2 + 1]);
     }
 
     /** Allocate rows for members of this component without binding component fields. */
@@ -376,7 +375,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 break;
             }
         if (!bound) throw new Error(`GpuTable "${this.name}": component has no row binding`);
-        this._boundDirty[this.acquire(eid)] = 1;
+        this.seed(this.acquire(eid));
         this._membershipCounts.set(eid, (this._membershipCounts.get(eid) ?? 0) + 1);
         for (const presence of this._presenceBindings) {
             this.writePresence(eid, presence, this._world.has(eid, presence.component));
@@ -414,7 +413,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._eidToRow[eid] = row + 1;
         this._mapDirty = true;
         this.activateRow(eid, row);
-        this._boundDirty[row] = 1;
+        this.seed(row);
         return row;
     }
 
@@ -426,6 +425,11 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (encoded === 0) return;
         const row = encoded - 1;
         this._eidToRow[eid] = 0;
+        // The next acquire seeds this row again.
+        if (this._boundDirty[row] !== 0) {
+            this._boundDirty[row] = 0;
+            this._seeds--;
+        }
         this._freeRows[this._freeCount++] = row;
         this._mapDirty = true;
         this.deactivateRow(row);
@@ -583,9 +587,19 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         );
     }
 
+    private seed(row: number): void {
+        if (this._boundDirty[row] !== 0) return;
+        this._boundDirty[row] = 1;
+        this._seeds++;
+    }
+
     private fillBoundFields(): void {
         const view = this._view;
         if (!view || this._componentBindings.length === 0) return;
+        if (this._seeds === 0) {
+            this.fillChangedFields(view);
+            return;
+        }
         for (let i = 0; i < this._activeCount; i++) {
             const eid = this._activeRows[i * 2];
             const row = this._activeRows[i * 2 + 1];
@@ -619,10 +633,61 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                     changed ||= fieldChanged;
                 }
             }
-            this._boundDirty[row] = 0;
+            if (seed) {
+                this._boundDirty[row] = 0;
+                this._seeds--;
+            }
             if (changed) {
                 this._dirtyFirst = Math.min(this._dirtyFirst, row);
                 this._dirtyLast = Math.max(this._dirtyLast, row);
+            }
+        }
+    }
+
+    // Without pending seeds, only marked eids can differ from their rows.
+    private fillChangedFields(view: DataView): void {
+        const eidToRow = this._eidToRow;
+        const activeIndex = this._activeIndex;
+        for (const binding of this._componentBindings) {
+            for (const field of binding.fields) {
+                const dirty = field.source.dirty;
+                const column = field.source.column;
+                const words = Math.min(dirty.length, (eidToRow.length + 31) >>> 5);
+                for (let word = 0; word < words; word++) {
+                    let bits = dirty[word];
+                    while (bits !== 0) {
+                        const bit = 31 - Math.clz32(bits & -bits);
+                        bits &= bits - 1;
+                        const eid = (word << 5) | bit;
+                        const encoded = eid < eidToRow.length ? eidToRow[eid] : 0;
+                        if (encoded === 0) continue;
+                        const row = encoded - 1;
+                        if (activeIndex[row] < 0) continue;
+                        if (binding.ownsRows && !this._world.has(eid, binding.component)) continue;
+                        const sourceBase = eid * field.sourceLanes;
+                        const targetBase = row * this.rowBytes + field.offset;
+                        let changed = false;
+                        for (let lane = 0; lane < field.lanes; lane++) {
+                            const offset = targetBase + lane * field.bytesPerLane;
+                            const value = column[sourceBase + lane];
+                            if (column instanceof Float32Array) {
+                                if (!Object.is(view.getFloat32(offset, true), value))
+                                    changed = true;
+                                view.setFloat32(offset, value, true);
+                            } else if (column instanceof Int32Array) {
+                                if (view.getInt32(offset, true) !== value) changed = true;
+                                view.setInt32(offset, value, true);
+                            } else {
+                                if (view.getUint32(offset, true) !== value) changed = true;
+                                view.setUint32(offset, value, true);
+                            }
+                        }
+                        if (changed) {
+                            this._dirtyFirst = Math.min(this._dirtyFirst, row);
+                            this._dirtyLast = Math.max(this._dirtyLast, row);
+                        }
+                    }
+                }
             }
         }
     }
