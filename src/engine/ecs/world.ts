@@ -595,7 +595,8 @@ export class World {
     }
 
     /** Capture entity identity and allocation, component membership, all stored and registered
-     * fields through the entity high-water mark, and fixedTick. Local to this world and registry;
+     * fields and their pending change marks through the entity high-water mark, and fixedTick.
+     * Local to this world and registry;
      * includes declared participants' hidden simulation state; excludes pacing, GPU and host state. Refuses during step/tick.
      * Query order is derived from restored membership. The image is reusable, opaque and independent
      * of writes, not a save format. */

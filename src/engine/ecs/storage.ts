@@ -50,8 +50,8 @@ export class WorldField<T extends FieldType = FieldType> {
         return this.#column.array.slice(0, capacity * this.type.lanes);
     }
 
-    /** @internal Restore without shrinking retained accessors; publish each lane the image changes. */
-    restore(state: TypedArray): void {
+    /** @internal Restore without shrinking retained accessors; publish each lane the image changes and each mark it held. */
+    restore(state: TypedArray, marks: Uint32Array): void {
         this.ensure(state.length / this.type.lanes);
         const { array, dirty } = this.#column;
         const lanes = this.type.lanes;
@@ -68,6 +68,7 @@ export class WorldField<T extends FieldType = FieldType> {
             }
             if (changed !== 0) dirty[eid >>> 5] |= 1 << (eid & 31);
         }
+        for (let word = 0; word < marks.length; word++) dirty[word] |= marks[word];
     }
 
     ensure(capacity: number): void {
