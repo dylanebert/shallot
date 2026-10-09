@@ -12,7 +12,7 @@ for (const kind of ["mesh", "compound"]) {
     test(`warm ${kind} contacts with custom material mixing allocate no JavaScript heap`, async () => {
         const sample = await sampleAllocation(
             resolve(import.meta.dir, "material-allocation.entry.ts"),
-            { warm: 6000, frames: 600, input: kind },
+            { warm: kind === "mesh" ? 2400 : 6000, frames: 600, input: kind },
         );
         expect(sample.control.length).toBeGreaterThan(0);
         const failure = allocationFailure(sample);
