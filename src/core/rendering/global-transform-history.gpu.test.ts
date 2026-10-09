@@ -342,9 +342,43 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     });
 }
 
+{
+    const eids: number[] = [];
+    const placements = [20, -30];
+    configs.push({
+        defaults: false,
+        plugins: [RenderingPlugin],
+        setup(world) {
+            for (let i = 0; i < 30; i++) world.create();
+            for (const x of placements) {
+                const eid = world.create();
+                world.add(eid, Transform, { translation: [x, 0, 0, 0] });
+                eids.push(eid);
+            }
+        },
+    });
+    test("GPU history startup seeds every placement present before its table is enabled", async () => {
+        const app = subjects()[5];
+        const { world } = app;
+        try {
+            attachTestCamera(world);
+            const table = globalTransformTable(world);
+            world.step(0);
+            const words = new Float32Array(
+                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
+                    .bytes,
+            );
+            for (let i = 0; i < eids.length; i++)
+                expect(words[table.rowIndex(eids[i]) * 12]).toBeCloseTo(placements[i], 5);
+        } finally {
+            app.dispose();
+        }
+    });
+}
+
 configs.push({ defaults: false, plugins: [RenderingPlugin] });
 test("public exact ticks submit growth copies and retain interpolation, teleport and spawn history beyond the catch-up cap", async () => {
-    const app = subjects()[5];
+    const app = subjects()[6];
     const { world } = app;
     try {
         attachTestCamera(world);
