@@ -18,7 +18,6 @@ import {
 } from "../../extras";
 import {
     AudioPlugin,
-    BvhPlugin,
     CharacterPlugin,
     DEFAULT_PLUGINS,
     MeshRenderPlugin,
@@ -34,7 +33,6 @@ const needsGpu = new Set<Plugin>([
     MeshPlugin,
     MeshRenderPlugin,
     StandardRenderingPlugin,
-    BvhPlugin,
     FogPlugin,
     LinesPlugin,
     OutlinePlugin,
@@ -55,7 +53,6 @@ const publicPlugins = [
     CorePipelinePlugin,
     TransformPlugin,
     AudioPlugin,
-    BvhPlugin,
     CharacterPlugin,
     FogPlugin,
     LinesPlugin,

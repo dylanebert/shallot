@@ -17,7 +17,7 @@ import { Segment } from "./surface";
 // drift waiting to happen).
 const SEGMENT_BYTES = d.sizeOf(Segment);
 const SEGMENT_FLOATS = SEGMENT_BYTES / 4;
-// initial segment capacity; the CPU staging + GPU buffer double on demand (BVH wireframes push thousands)
+// initial segment capacity; the CPU staging + GPU buffer double on demand for large wireframe workloads
 const INITIAL = 1 << 14;
 
 interface SegmentState {

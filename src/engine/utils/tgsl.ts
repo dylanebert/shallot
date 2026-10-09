@@ -181,8 +181,8 @@ export const uniformLoad = (flag: TgpuVar<"workgroup", d.U32>) =>
 
 /**
  * the shared dedup scope for the chunks a raw-WGSL consumer splices *together*: the storage codecs
- * (`octEncodeWgsl` / `quatSnorm16x4Wgsl`), the BVH traversal chunks and the standard renderer's
- * shadow-caster chunk. A shared dependency is emitted into whichever
+ * (`octEncodeWgsl` / `quatSnorm16x4Wgsl`) and the standard renderer's shadow-caster chunk. A shared
+ * dependency is emitted into whichever
  * chunk resolves first, so every chunk in here **forces its base chunks first** — then a dependency
  * always lands in the lowest chunk of the dependency order, and a consumer splicing a chunk already
  * splices the base that carries the dependency. Without the shared scope each chunk would re-emit the
@@ -229,19 +229,3 @@ export function chunk(
         return wgsl;
     };
 }
-
-/** the module-scope `diagnostic(off, subgroup_uniformity);` directive — the sanctioned opt-out for
- *  WGSL's uniformity analysis rejecting a subgroup op inside a loop whose condition derives from a
- *  subgroup reduction. **Always pair it with a fixed
- *  iteration cap**, so a logic error degrades to a wrong result instead of a GPU watchdog hang.
- *
- *  Not a function, and how you attach it depends on what consumes the WGSL. A bare `tgpu.resolve` takes
- *  it as a resolve item. A **pipeline cannot**: its descriptor is `{ compute }` and nothing else, so
- *  there is no hook — and `$uses` throws on a kernel whose metadata came from `unplugin-typegpu`. There,
- *  the directive rides a no-argument WGSL-bodied `tgpu.fn` called as the kernel's *first* statement:
- *  typegpu emits declarations in first-use order and WGSL requires every directive ahead of every global
- *  declaration, so anything later emits invalid WGSL. `uniformityOptOut` in `transitional/bvh/sort.ts` is
- *  the worked case. */
-export const subgroupUniformityOff = tgpu["~unstable"].declare(
-    "diagnostic(off, subgroup_uniformity);",
-);

@@ -53,11 +53,11 @@ export interface LazyAlloc {
 
 /**
  * pre-flight a large/fixed-cap storage buffer against the device's per-binding limit. A heavy scene
- * grows several of these (the physics contact store, the BVH node buffer); past `maxStorageBufferBindingSize`
+ * grows several of these (including the physics contact store); past `maxStorageBufferBindingSize`
  * the bare allocation OOMs silently or surfaces an opaque bind-group validation error, so this throws a
  * named {@link UnsupportedError} first: the buffer, the needed-vs-available MB, and a remedy. Pure
- * (bytes + limit), so a unit test exercises it with no device. `label` names the buffer (e.g.
- * `"[bvh] the node buffer"`); `remedy` says how to fit under the limit.
+ * (bytes + limit), so a unit test exercises it with no device. `label` names the buffer; `remedy` says
+ * how to fit under the limit.
  */
 export function checkStorageBinding(
     label: string,
@@ -826,9 +826,9 @@ export function precompile(
 }
 
 /**
- * a unique {@link precompile} label prefix for a factory an app can instantiate more than once (the
- * BVH stages: a scene builds one BVH, the physics broadphase another). The first instance keeps the
- * bare `prefix`, so a single-instance app's labels — and their profiler rows — read unchanged; every
+ * a unique {@link precompile} label prefix for a factory an app can instantiate more than once (for
+ * example, separate scene and physics acceleration structures). The first instance keeps the bare
+ * `prefix`, so a single-instance app's labels — and their profiler rows — read unchanged; every
  * later one gets `prefix-2`, `prefix-3`, … Counts and labels belong to the supplied World.
  *
  * A scoped label is therefore not a fixed string, so it can't be named by another forcer's `after`

@@ -75,7 +75,6 @@ export {
     packUnorm2x16,
     packUnorm4x8,
     spliceNs,
-    subgroupUniformityOff,
     uniformLoad,
     unpackSnorm2x16,
     unpackUnorm2x16,

@@ -28,7 +28,6 @@ export {
     sample,
     sfx,
 } from "../transitional/audio";
-export { BvhPlugin } from "../transitional/bvh";
 export {
     type LoadingOptions,
     minimalDark,

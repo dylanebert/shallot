@@ -36,7 +36,7 @@ export const MeshEdgeFlags = {
     AllFlatEdges: 0x77,
 } as const;
 
-/** A BVH node (b3MeshNode). Internal nodes carry `axis` + `childOffset`; leaves carry the triangle run. */
+/** A mesh tree node (b3MeshNode). Internal nodes carry `axis` + `childOffset`; leaves carry the triangle run. */
 export type MeshNode = {
     lowerBound: Vec3;
     upperBound: Vec3;
@@ -205,7 +205,7 @@ const weldVertices = (
     return { vertices: dstVertices, indices };
 };
 
-// --- BVH build ----------------------------------------------------------------------------------
+// --- mesh tree build ---------------------------------------------------------------------------
 
 type Primitive = { aabb: AABB; center: Vec3; triangleIndex: number };
 
@@ -369,7 +369,7 @@ const storeLeaf = (bounds: AABB, triangleCount: number, triangleOffset: number):
     triangleOffset,
 });
 
-// Recursively build the BVH into `nodes` (DFS preorder append), reordering the primitive range in
+// Recursively build the mesh tree into `nodes` (DFS preorder append), reordering the primitive range in
 // place (b3BuildRecursive). Returns the node index and subtree height.
 const buildRecursive = (
     nodes: MeshNode[],
@@ -426,7 +426,7 @@ const buildRecursive = (
     return { index, height: 1 };
 };
 
-// Reorder triangles + material indices into BVH depth-first-order and reassign each leaf's offset to
+// Reorder triangles + material indices into tree depth-first order and reassign each leaf's offset to
 // the running counter (b3SortMeshTriangles). Casts and volume queries then return sorted runs.
 const sortMeshTriangles = (mesh: MeshData): void => {
     const tempTriangles: MeshTriangle[] = [];
@@ -585,7 +585,7 @@ const identifyEdges = (mesh: MeshData): void => {
 
 /**
  * Build immutable mesh collision data from vertices + triangle indices (b3CreateMesh): optional
- * welding, degenerate-triangle culling, BVH build (SAH or median split), DFS triangle sort, and
+ * welding, degenerate-triangle culling, tree build (SAH or median split), DFS triangle sort, and
  * optional edge identification. Returns null when the input is invalid or the bounds are insane.
  *
  * @example

@@ -574,7 +574,11 @@ Custom surface, background and draw producers depend on `StandardRenderingPlugin
 
 Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. `StandardRenderingPlugin` and `MeshRenderPlugin` include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
 
-Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is removed in favor of `/standard/physics` and `/bvh/core` is `/bvh`. `/scene/core` is removed with the scene format. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
+### `/bvh/core`
+
+Removed. Shallot no longer provides a GPU BVH builder or traversal helpers; there is no replacement subpath. Keep or vendor the acceleration structure in the package that consumes it.
+
+Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics`, and `/character/core` is removed in favor of `/standard/physics`. `/scene/core` is removed with the scene format. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
 
 ## `Inputs` is now `world.resource(Devices)`
 

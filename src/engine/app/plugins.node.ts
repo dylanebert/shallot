@@ -71,7 +71,6 @@ import {
     StandardRenderingPlugin,
 } from "../../standard/rendering";
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
-import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
 import { type Plugin, probeTexture, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
 import { createApp } from "./index";
@@ -79,7 +78,6 @@ import { createApp } from "./index";
 const everyPlugin: readonly Plugin[] = [
     ...DEFAULT_PLUGINS,
     AudioPlugin,
-    BvhPlugin,
     CharacterPlugin,
     FogPlugin,
     LinesPlugin,
@@ -491,7 +489,6 @@ interface IsolationResources {
     actor: number;
     part: number;
     sky: number;
-    bvh: Bvh | null;
 }
 
 const ISOLATION_FONT = `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`;
@@ -501,7 +498,6 @@ const createIsolationResources = (): IsolationResources => ({
     actor: -1,
     part: -1,
     sky: -1,
-    bvh: null,
 });
 
 function uses(subject: Plugin, dependency: Plugin): boolean {
@@ -641,27 +637,6 @@ function featurePlugin(subject: Plugin): Plugin {
             const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
             if (!globalTransforms)
                 throw new Error("Engine GlobalTransform did not publish its renderer buffer");
-        },
-        async warm(world) {
-            const resources = world.resource(isolationKey);
-            if (!uses(subject, BvhPlugin)) return;
-            const device = world.gpu.device;
-            const bvh = await createBvh(world, device, 2);
-            device.queue.writeBuffer(
-                bvh.prims,
-                0,
-                new Float32Array([0, 0, 0, 0, 1, 1, 1, 0, 2, 0, 0, 0, 3, 1, 1, 0]),
-            );
-            device.queue.writeBuffer(bvh.count, 0, new Uint32Array([2]));
-            const encoder = device.createCommandEncoder({ label: "gpu-isolation-bvh" });
-            bvh.build(encoder);
-            device.queue.submit([encoder.finish()]);
-            resources.bvh = bvh;
-        },
-        dispose(world) {
-            const resources = world.resource(isolationKey);
-            resources.bvh?.destroy();
-            resources.bvh = null;
         },
     };
 }
@@ -866,10 +841,6 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
                     second.world.storage(GlobalTransform).translation.y.get(secondFeatures.actor),
                 );
             }
-        }
-        if (uses(subject, BvhPlugin)) {
-            expect(firstFeatures.bvh).not.toBeNull();
-            expect(secondFeatures.bvh).not.toBeNull();
         }
         if (uses(subject, SkyPlugin)) {
             expectStateViews(first.world, cascadeComboEids(first.world));

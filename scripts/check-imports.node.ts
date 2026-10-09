@@ -15,10 +15,6 @@ const deferred = [
         "audio-boundary: audio leaves transitional",
         "src/transitional/audio/index.ts:1: pending roadmap migration (still red): // Destination: core/audio and standard/audio; owner: audio-boundary.md.",
     ],
-    [
-        "bvh-extraction: BVH leaves transitional",
-        "src/transitional/bvh/index.ts:1: pending roadmap migration (still red): // Destination: shallot-avbd-physics; owner: bvh-extraction.md.",
-    ],
 ] as const;
 
 function unexpected(findings: readonly string[]): string[] {

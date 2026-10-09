@@ -114,7 +114,7 @@ function exercisePublicMeshShape(mesh: MeshData): void {
     physicsWorld.destroy();
 }
 
-test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the TypeScript port builds", () => {
+test("a triangle mesh builder drifts from the Box3D C reference in its tree nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the TypeScript port builds", () => {
     const cases: [string, () => MeshData, string][] = [
         [
             "box (SAH split, edge identification)",

@@ -46,8 +46,7 @@
         "./vignette": "./src/extras/vignette/index.ts",
         "./physics": "./src/core/physics/index.ts",
         "./transform": "./src/core/transform/index.ts",
-        "./standard/physics": "./src/standard/physics/index.ts",
-        "./bvh": "./src/transitional/bvh/index.ts"
+        "./standard/physics": "./src/standard/physics/index.ts"
     },
     "bin": {
         "shallot": "./bin/shallot.ts"
