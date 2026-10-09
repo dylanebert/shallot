@@ -60,7 +60,7 @@ interface PhysicsRuntime {
     // eids whose Body membership, or a Body's Transform, changed since the last sync, as 32-bit words
     changed: Uint32Array;
     anyChanged: boolean;
-    // a sync after warm or restore walks every Body
+    // only warm sets this to make the next sync walk every Body
     full: boolean;
     hulls: number;
     observing: boolean;
@@ -320,6 +320,10 @@ interface Bindings {
     failed: number[];
     constraints: ConstraintIds;
     jointSig: number;
+    /** pending sync words, copied so later marks cannot mutate the image */
+    changed: Uint32Array | null;
+    full: boolean;
+    hulls: number;
 }
 
 function warmWorld(runtime: PhysicsRuntime): PhysicsWorld {
@@ -342,6 +346,9 @@ function captureBindings(runtime: PhysicsRuntime): Bindings {
         failed,
         constraints: captureConstraints(runtime.constraints),
         jointSig: runtime.jointSig,
+        changed: runtime.anyChanged ? runtime.changed.slice() : null,
+        full: runtime.full,
+        hulls: runtime.hulls,
     };
 }
 
@@ -377,6 +384,21 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
         });
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
     runtime.jointSig = b.jointSig;
+    if (b.changed) {
+        if (b.changed.length > runtime.changed.length) {
+            const grown = new Uint32Array(Math.max(b.changed.length, runtime.changed.length * 2));
+            grown.set(runtime.changed);
+            runtime.changed = grown;
+        }
+        for (let w = 0; w < b.changed.length; w++) {
+            const bits = b.changed[w];
+            if (bits === 0) continue;
+            runtime.changed[w] |= bits;
+            runtime.anyChanged = true;
+        }
+    }
+    runtime.full = b.full;
+    runtime.hulls = b.hulls;
 }
 
 function capturePhysics(world: World): PhysicsSnapshot {
@@ -390,7 +412,6 @@ function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
     if (bindings === undefined) throw new Error("physics: recovery image has no bindings");
     restoreWorld(physicsWorld, saved);
     restoreBindings(runtime, physicsWorld, bindings);
-    runtime.full = true;
     // ECS poses were restored by World. Warning latches are presentation, counters and stale
     // scans are overwritten on each step; solver history and binding caches are the participant.
 }
