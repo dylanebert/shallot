@@ -130,6 +130,9 @@ export class RegisteredQuery implements Iterable<number> {
     private readonly _order: QueryOrder = { dense: [], active: 0 };
     private _sparse: number[] = [];
     private _dirty = false;
+    // dense[0, _sorted) stays ascending apart from tombstones, so a rebuild sorts only later appends.
+    private _sorted = 0;
+    private readonly _tail: number[] = [];
     private _iterPool: QueryIterator[] = [];
 
     constructor(terms: readonly unknown[]) {
@@ -186,23 +189,52 @@ export class RegisteredQuery implements Iterable<number> {
     restore(members: readonly number[]): void {
         this._order.dense.length = 0;
         this._sparse.length = 0;
+        this._sorted = 0;
         for (const eid of members) this.add(eid);
         this._dirty = true;
     }
 
     [Symbol.iterator](): Iterator<number> {
-        if (this._dirty && this._order.active === 0) {
-            const dense = this._order.dense;
-            let count = 0;
-            for (let i = 0; i < dense.length; i++) if (dense[i]) dense[count++] = dense[i];
-            dense.length = count;
-            dense.sort(ascending);
-            for (let i = 0; i < count; i++) this._sparse[dense[i]] = i;
-            this._dirty = false;
-        }
+        if (this._dirty && this._order.active === 0) this.rebuild();
         const it = this._iterPool.pop() ?? new QueryIterator(this._iterPool);
         it.reset(this._order);
         return it;
+    }
+
+    // Sorting a retained tail preserves the prefix; merging backward keeps the dense array in place.
+    private rebuild(): void {
+        const dense = this._order.dense;
+        const sparse = this._sparse;
+        const tail = this._tail;
+        let live = 0;
+        for (let i = 0; i < this._sorted; i++) {
+            const eid = dense[i];
+            if (!eid) continue;
+            if (live !== i) {
+                dense[live] = eid;
+                sparse[eid] = live;
+            }
+            live++;
+        }
+        let added = 0;
+        for (let i = this._sorted; i < dense.length; i++) if (dense[i]) tail[added++] = dense[i];
+        tail.length = added;
+        tail.sort(ascending);
+        let write = live + added;
+        dense.length = write;
+        let read = live - 1;
+        for (let t = added - 1; t >= 0; t--) {
+            const eid = tail[t];
+            while (read >= 0 && dense[read] > eid) {
+                const moved = dense[read--];
+                dense[--write] = moved;
+                sparse[moved] = write;
+            }
+            dense[--write] = eid;
+            sparse[eid] = write;
+        }
+        this._sorted = dense.length;
+        this._dirty = false;
     }
 }
 
