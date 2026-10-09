@@ -1,12 +1,18 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { attachCanvas, Camera } from "../../core/rendering";
-import { StandardRenderingPlugin } from "../../standard/rendering";
+import { MeshInstance } from "../../core/mesh";
+import { AmbientLight, attachTexture, Camera, captureTexture, Views } from "../../core/rendering";
+import {
+    Materials,
+    MeshMaterial,
+    StandardMaterial,
+    StandardRenderer,
+    StandardRenderingPlugin,
+} from "../../standard/rendering";
 import "../../standard";
 
 import { CEILING } from "../../../scripts/test-tiers";
 import { Transform } from "../../core/transform";
 import { stampAdapter, Time, type World } from "../index";
-import { CanvasContext } from "./canvas.fixture";
 import { createApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
@@ -14,32 +20,30 @@ setDefaultTimeout(CEILING.node);
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
-if (typeof ResizeObserver === "undefined") {
-    globalThis.ResizeObserver = class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-    };
-}
-
-function cameraPlugin(label: string) {
-    const canvas = {
-        width: 16,
-        height: 16,
-        style: { imageRendering: "auto" },
-        getBoundingClientRect: () => ({ width: 16, height: 16 }),
-    } as unknown as HTMLCanvasElement;
-    const context = new CanvasContext(canvas, 16, 16);
-    canvas.getContext = ((kind: string) =>
-        kind === "webgpu" ? context : null) as typeof canvas.getContext;
+function cameraPlugin(
+    label: string,
+    x: number,
+    clearColor: number,
+    color: readonly [number, number, number, number],
+) {
     return {
         name: label,
         dependencies: [StandardRenderingPlugin],
         initialize(world: World) {
-            const eid = world.create();
-            world.add(eid, Transform);
-            world.add(eid, Camera);
-            attachCanvas(eid, canvas, world);
+            const camera = world.create();
+            world.add(camera, Transform, { translation: [x, 0, 5, 0] });
+            world.add(camera, Camera, { clearColor });
+            world.add(camera, StandardRenderer);
+            attachTexture(world, camera, { width: 16, height: 16 });
+
+            const mesh = world.create();
+            world.add(mesh, Transform, { translation: [x, 0, 0, 0] });
+            world.add(mesh, MeshInstance);
+            const material = world
+                .resource(Materials)
+                .add(StandardMaterial({ baseColor: color, perceptualRoughness: 1 }));
+            world.add(mesh, MeshMaterial, { material });
+            world.add(world.create(), AmbientLight, { intensity: 0.5 });
         },
     };
 }
@@ -112,14 +116,15 @@ for (const sharedDevice of [true, false]) {
             >();
             try {
                 first = await createApp({
-                    plugins: [cameraPlugin("DefaultCameraA")],
+                    plugins: [cameraPlugin("DefaultCameraA", 0, 0x204060, [0.8, 0.2, 0.1, 1])],
                     device: firstDevice,
                 });
                 second = await createApp({
-                    plugins: [cameraPlugin("DefaultCameraB")],
+                    plugins: [cameraPlugin("DefaultCameraB", 1, 0x603020, [0.1, 0.2, 0.8, 1])],
                     device: secondDevice,
                 });
                 expect(first.world.gpu.root).not.toBe(second.world.gpu.root);
+                expect(first.world.resource(Views)).not.toBe(second.world.resource(Views));
                 for (const world of [first.world, second.world]) {
                     const queue = world.gpu.device.queue;
                     if (queues.has(queue)) continue;
@@ -148,6 +153,49 @@ for (const sharedDevice of [true, false]) {
                 step(second.world);
                 step(first.world);
                 await Promise.all([first.world.frameFence!, second.world.frameFence!]);
+
+                if (sharedDevice) {
+                    const firstCamera = [...first.world.query([Camera])][0]!;
+                    const secondCamera = [...second.world.query([Camera])][0]!;
+                    const firstMesh = [...first.world.query([MeshInstance])][0]!;
+                    expect(first.world.resource(Views).get(firstCamera)).not.toBe(
+                        second.world.resource(Views).get(secondCamera),
+                    );
+                    const firstTexture = first.world.resource(Views).get(firstCamera)!.texture!;
+                    expect(firstTexture).not.toBe(
+                        second.world.resource(Views).get(secondCamera)!.texture,
+                    );
+                    const firstFrame = (await captureTexture(first.world, firstCamera)).rgba;
+                    const secondFrame = (await captureTexture(second.world, secondCamera)).rgba;
+                    expect(firstFrame).not.toEqual(secondFrame);
+
+                    first.world.remove(firstMesh, MeshInstance);
+                    step(first.world);
+                    const sceneChanged = (await captureTexture(first.world, firstCamera)).rgba;
+                    expect(sceneChanged).not.toEqual(firstFrame);
+                    step(second.world);
+                    expect((await captureTexture(second.world, secondCamera)).rgba).toEqual(
+                        secondFrame,
+                    );
+
+                    first.world.storage(Camera).clearColor.set(firstCamera, 0x20c040);
+                    step(first.world);
+                    expect((await captureTexture(first.world, firstCamera)).rgba).not.toEqual(
+                        sceneChanged,
+                    );
+                    step(second.world);
+                    expect((await captureTexture(second.world, secondCamera)).rgba).toEqual(
+                        secondFrame,
+                    );
+
+                    first.dispose();
+                    first = undefined;
+                    expect(live.has(firstTexture)).toBe(false);
+                    step(second.world);
+                    expect((await captureTexture(second.world, secondCamera)).rgba).toEqual(
+                        secondFrame,
+                    );
+                }
             } finally {
                 for (const [queue, tracked] of queues) {
                     if (tracked.descriptor)

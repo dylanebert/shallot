@@ -57,6 +57,77 @@ function amount(world: World) {
     return world.storage(Value).amount;
 }
 
+const CompositionValue = { value: f32 };
+const CompositionPlugin = {
+    name: "InterleavedCompositionProbe",
+    recovery: "stateless" as const,
+    components: [component("CompositionValue", CompositionValue)],
+    systems: [
+        {
+            group: "fixed" as const,
+            update(world: World) {
+                const values = world.storage(CompositionValue).value;
+                for (const eid of world.query([CompositionValue])) {
+                    values.set(eid, values.get(eid) + 1);
+                }
+            },
+        },
+    ],
+    initialize(world: World) {
+        const eid = world.create();
+        world.add(eid, CompositionValue);
+    },
+};
+
+test("CPU-only and default-rendered worlds step interleaved without sharing fields or acquiring for CPU", async () => {
+    const gpu = navigator.gpu;
+    let adapterRequests = 0;
+    const trackedGpu = new Proxy(gpu, {
+        get(target, key) {
+            if (key === "requestAdapter") {
+                return (...args: Parameters<GPU["requestAdapter"]>) => {
+                    adapterRequests++;
+                    return target.requestAdapter(...args);
+                };
+            }
+            const value = Reflect.get(target, key, target);
+            return typeof value === "function" ? value.bind(target) : value;
+        },
+    });
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "gpu");
+    Object.defineProperty(navigator, "gpu", { configurable: true, value: trackedGpu });
+    try {
+        const cpu = await createApp({ defaults: false, plugins: [CompositionPlugin] });
+        apps.push(cpu);
+        expect(adapterRequests).toBe(0);
+        expect(() => cpu.world.gpu).toThrow("no enabled plugin declares a GPU requirement");
+
+        const rendered = await createApp({ plugins: [CompositionPlugin] });
+        apps.push(rendered);
+        expect(adapterRequests).toBe(1);
+        expect(rendered.world.gpu).toBeDefined();
+
+        cpu.world.step(Time.FIXED_DT);
+        rendered.world.step(Time.FIXED_DT);
+        cpu.world.step(Time.FIXED_DT);
+        const cpuStorage = cpu.world.storage(CompositionValue).value;
+        const renderedStorage = rendered.world.storage(CompositionValue).value;
+        const cpuEid = [...cpu.world.query([CompositionValue])][0]!;
+        const renderedEid = [...rendered.world.query([CompositionValue])][0]!;
+        expect(cpuEid).toBe(renderedEid);
+        expect(cpuStorage.column).not.toBe(renderedStorage.column);
+        expect(cpuStorage.get(cpuEid)).toBe(2);
+        expect(renderedStorage.get(renderedEid)).toBe(1);
+
+        rendered.world.step(Time.FIXED_DT);
+        expect(cpuStorage.get(cpuEid)).toBe(2);
+        expect(renderedStorage.get(renderedEid)).toBe(2);
+    } finally {
+        if (descriptor) Object.defineProperty(navigator, "gpu", descriptor);
+        else Reflect.deleteProperty(navigator, "gpu");
+    }
+});
+
 test("live and later worlds keep component columns separate", async () => {
     const first = await createApp({ defaults: false, plugins: [ResourcePlugin] });
     apps.push(first);
