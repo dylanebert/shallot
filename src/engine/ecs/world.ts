@@ -416,7 +416,7 @@ export class World {
         for (const eid of this.query([component])) table.attachComponent(eid, component);
     }
 
-    /** @internal Observe component membership without putting state on the component schema. */
+    /** @internal Observe component membership without putting state on the component schema. Observers must not change membership. */
     observeMembership(
         component: Component,
         observer: (eid: number, present: boolean) => void,
@@ -642,16 +642,32 @@ export class World {
         return eid;
     }
 
-    /** Remove every component, clear the fields of each it held, and free the eid; no-op when it is not alive. */
+    /** Remove every component, notify membership observers, clear its fields, and free the eid; no-op when it is not alive. */
     destroy(eid: number): void {
         if (!this._entities.exists(eid)) return;
+        const held = this._held;
+        const count = this._components.held(eid, held);
+        this._components.clear(eid);
+        if (count !== 0 && this._membershipObservers.size !== 0) {
+            if (count > 1)
+                for (let i = 1; i < count; i++) {
+                    const id = held[i];
+                    let j = i;
+                    while (j > 0 && held[j - 1] > id) {
+                        held[j] = held[j - 1];
+                        j--;
+                    }
+                    held[j] = id;
+                }
+            for (let i = 0; i < count; i++) {
+                const observers = this._membershipObservers.get(held[i]);
+                if (observers) for (const observer of observers) observer(eid, false);
+            }
+        }
         this._queries.onEntityRemoved(eid);
         for (const tables of this._tablesByComponent.values()) {
             for (const table of tables) table.release(eid);
         }
-        const held = this._held;
-        const count = this._components.held(eid, held);
-        this._components.clear(eid);
         for (let i = 0; i < count; i++) {
             const entry = this._storage.get(held[i]);
             if (entry) for (const field of entry.fields.values()) field.clear(eid);
