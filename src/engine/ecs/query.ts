@@ -61,6 +61,7 @@ const ascending = (a: number, b: number) => a - b;
 class QueryIterator implements Iterator<number> {
     private _i = 0;
     private _count = 0;
+    private _dense: number[] = [];
     private _order!: QueryOrder;
     private _active = false;
     private readonly _r = { value: 0, done: false };
@@ -72,6 +73,7 @@ class QueryIterator implements Iterator<number> {
 
     reset(order: QueryOrder): void {
         this._order = order;
+        this._dense = order.dense;
         this._count = order.dense.length;
         order.active++;
         this._i = 0;
@@ -81,10 +83,9 @@ class QueryIterator implements Iterator<number> {
 
     next(): IteratorResult<number> {
         const r = this._r;
-        if (!this._active) return r;
-        const order = this._order;
+        const dense = this._dense;
         while (this._i < this._count) {
-            const eid = order.dense[this._i++];
+            const eid = dense[this._i++];
             if (!eid) continue;
             r.value = eid;
             return r;
