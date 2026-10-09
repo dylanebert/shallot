@@ -24,8 +24,18 @@ export function resolvePlugins(plugins: readonly Plugin[]): PluginComposition {
     const adjacent = new Map(nodes.map((plugin) => [plugin, [] as Plugin[]]));
     const degree = new Map(nodes.map((plugin) => [plugin, 0]));
 
+    const holders = new Map<string, { fields: object; plugin: string }>();
     for (const plugin of nodes) {
-        for (const fields of plugin.components ?? []) declaration(fields, plugin.name);
+        for (const fields of plugin.components ?? []) {
+            const { key } = declaration(fields, plugin.name);
+            const holder = holders.get(key);
+            if (!holder) holders.set(key, { fields, plugin: plugin.name });
+            else if (holder.fields !== fields) {
+                throw new Error(
+                    `component "${key}" is declared by plugin "${holder.plugin}" and by another record in plugin "${plugin.name}"; give one of them its own key`,
+                );
+            }
+        }
         for (const dependency of plugin.dependencies ?? []) {
             if (!present.has(dependency)) {
                 missing.push({ plugin, dependency });

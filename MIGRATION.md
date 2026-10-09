@@ -323,7 +323,7 @@ const GamePlugin: Plugin = {
 
 Defaults use declaration field names and vector arrays, as `world.add` does; replace dotted-lane defaults with complete vectors. Remove imports of `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits` and `ColorTraits`; options now live on component declarations.
 
-Keep each key byte-for-byte; it identifies saved data and hot reload. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused, naming the plugin and the record's fields.
+Keep each key byte-for-byte; hot reload rebinds a reloaded record by it. A composition refuses two different records under one key, naming both plugins. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused, naming the plugin and the record's fields.
 
 `inspect`, `snapshot`, `readFields` and `dump`, and the `EntityData` and `FieldValues` types, are removed. Read component values through `world.storage(Component)`. `world.snapshot()` returns `WorldSnapshot`, opaque, world-local recovery state for `world.restore(snapshot)`, not a save format. To use recovery, plugins with fixed systems declare `recovery: "stateless"` if components hold all their simulation state, or `recovery(world)` returning `{ snapshot(), restore(state) }` for hidden state. Snapshot returns an independent, reusable image; restore runs against the restored ECS and tick clock.
 
