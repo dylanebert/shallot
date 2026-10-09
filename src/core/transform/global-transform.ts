@@ -40,7 +40,6 @@ export const Transform = component(
         requires: [GlobalTransform],
     },
 );
-const transformTerms = [Transform];
 /** @internal Fixed placement accessors and discontinuity notifications, with no GPU state. */
 export const TransformRuntime: Resource<{
     placement: ComponentStorage<typeof Transform>;
@@ -89,32 +88,37 @@ export function deriveTransforms(world: World): void {
     const spd = world.fieldStorage(Transform, "translation").dirty,
         sqd = world.fieldStorage(Transform, "rotation").dirty,
         ssd = world.fieldStorage(Transform, "scale").dirty;
-    for (const eid of world.query(transformTerms)) {
-        const word = eid >>> 5,
-            mask = 1 << (eid & 31);
-        if (((spd[word] | sqd[word] | ssd[word]) & mask) === 0) continue;
-        const offset = eid * 4;
-        let posChanged = false,
-            quatChanged = false,
-            scaleChanged = false;
-        for (let lane = 0; lane < 4; lane++) {
-            const j = offset + lane;
-            if (!Object.is(op[j], pp[j])) {
-                op[j] = pp[j];
-                posChanged = true;
+    const words = Math.max(spd.length, sqd.length, ssd.length);
+    for (let word = 0; word < words; word++) {
+        let bits = spd[word] | sqd[word] | ssd[word];
+        while (bits !== 0) {
+            const mask = bits & -bits;
+            bits ^= mask;
+            const eid = (word << 5) | (31 - Math.clz32(mask));
+            if (!world.has(eid, Transform)) continue;
+            const offset = eid * 4;
+            let posChanged = false,
+                quatChanged = false,
+                scaleChanged = false;
+            for (let lane = 0; lane < 4; lane++) {
+                const j = offset + lane;
+                if (!Object.is(op[j], pp[j])) {
+                    op[j] = pp[j];
+                    posChanged = true;
+                }
+                if (!Object.is(oq[j], pq[j])) {
+                    oq[j] = pq[j];
+                    quatChanged = true;
+                }
+                if (!Object.is(os[j], ps[j])) {
+                    os[j] = ps[j];
+                    scaleChanged = true;
+                }
             }
-            if (!Object.is(oq[j], pq[j])) {
-                oq[j] = pq[j];
-                quatChanged = true;
-            }
-            if (!Object.is(os[j], ps[j])) {
-                os[j] = ps[j];
-                scaleChanged = true;
-            }
+            if (posChanged) pd[word] |= mask;
+            if (quatChanged) qd[word] |= mask;
+            if (scaleChanged) sd[word] |= mask;
         }
-        if (posChanged) pd[word] |= mask;
-        if (quatChanged) qd[word] |= mask;
-        if (scaleChanged) sd[word] |= mask;
     }
 }
 /** Derives initial placement before every ordinary fixed system. */
