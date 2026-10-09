@@ -770,3 +770,101 @@ test("frame change marks clear at the world upload point", async () => {
     world.step(0);
     expect(world.fieldStorage(Changed, "uploaded").dirty[0]).toBe(0);
 });
+
+const FastWord = { value: f32 };
+const fastWord = subject("FastWordTableProbe", [component("FastWord", FastWord)], (world) => {
+    const table = world.table("fast-word-table-probe", d.struct({ value: d.f32 }));
+    table.bindComponent(FastWord, { value: "value" });
+    return table;
+});
+
+test("bound table uploads a changed eid from a later dirty word", async () => {
+    const { world, table } = fastWord();
+    const eids = Array.from({ length: 40 }, () => world.create());
+    for (const eid of eids) world.add(eid, FastWord);
+    await stepAndValidate(world, "seed fast-word table rows");
+
+    const eid = eids[eids.length - 1];
+    const row = table.rowIndex(eid);
+    expect(eid).toBeGreaterThanOrEqual(32);
+    world.storage(FastWord).value.set(eid, 41.5);
+    table.prepareUpload();
+    expect(table.pendingUploadSize).toBe(table.rowBytes);
+    table.upload();
+
+    expect(table.lastUploadPath).toBe("writeBuffer");
+    expect(table.lastUploadOffset).toBe(row * table.rowBytes);
+    expect(new DataView(table.bytes.buffer).getFloat32(row * table.rowBytes, true)).toBe(41.5);
+    const uploaded = await bounded(
+        "later dirty-word table row",
+        probeBuffer(world, table.buffer, {
+            offset: row * table.rowBytes,
+            size: table.rowBytes,
+            label: "later-dirty-word-table-row",
+        }),
+    );
+    expect(new DataView(uploaded.bytes).getFloat32(0, true)).toBe(41.5);
+});
+
+const PrimaryOwner = { value: f32 };
+const SecondaryOwner = {};
+const twoOwners = subject(
+    "TwoOwnerFastPathTableProbe",
+    [component("PrimaryOwner", PrimaryOwner), component("SecondaryOwner", SecondaryOwner)],
+    (world) => {
+        const table = world.table("two-owner-fast-path-table-probe", d.struct({ value: d.f32 }));
+        table.bindComponent(PrimaryOwner, { value: "value" });
+        table.bindMembership(SecondaryOwner);
+        return table;
+    },
+);
+
+test("bound table skips a marked field when another component owns the row", async () => {
+    const { world, table } = twoOwners();
+    const eid = world.create();
+    world.add(eid, SecondaryOwner);
+    const row = table.rowIndex(eid);
+    expect(row).toBeGreaterThanOrEqual(0);
+    expect(world.has(eid, PrimaryOwner)).toBe(false);
+    await stepAndValidate(world, "seed secondary-owned row");
+
+    const bytes = new DataView(table.bytes.buffer);
+    const before = bytes.getFloat32(row * table.rowBytes, true);
+    world.storage(PrimaryOwner).value.set(eid, 73.25);
+    table.prepareUpload();
+    expect(table.pendingUploadSize).toBe(0);
+    table.upload();
+
+    expect(bytes.getFloat32(row * table.rowBytes, true)).toBe(before);
+    expect(table.lastUploadPath).toBe("none");
+});
+
+const InactiveOwner = { value: f32 };
+const inactive = subject(
+    "InactiveFastPathTableProbe",
+    [component("InactiveOwner", InactiveOwner)],
+    (world) => {
+        const table = world.table("inactive-fast-path-table-probe", d.struct({ value: d.f32 }));
+        table.bindComponent(InactiveOwner, { value: "value" });
+        return table;
+    },
+);
+
+test("bound table skips a marked field for an inactive row", async () => {
+    const { world, table } = inactive();
+    const eid = world.create();
+    world.add(eid, InactiveOwner);
+    const row = table.rowIndex(eid);
+    await stepAndValidate(world, "seed row before deactivation");
+
+    table.deactivate(eid);
+    const bytes = new DataView(table.bytes.buffer);
+    const before = bytes.getFloat32(row * table.rowBytes, true);
+    world.storage(InactiveOwner).value.set(eid, 96.5);
+    table.prepareUpload();
+    expect(table.pendingUploadSize).toBe(0);
+    table.upload();
+
+    expect(bytes.getFloat32(row * table.rowBytes, true)).toBe(before);
+    expect(table.lastUploadPath).toBe("none");
+});
