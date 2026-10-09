@@ -415,6 +415,8 @@ export class Components {
     // re-attaches by id. Array-by-id, since ids are small and monotonic.
     private _meta: ({ gen: number; bit: number } | undefined)[] = [];
     private _masks: number[][] = [[]];
+    // component id by generation and bit index, the inverse of _meta
+    private _owners: number[][] = [[]];
 
     /** @internal Membership image independent of live masks. */
     snapshot() {
@@ -445,6 +447,11 @@ export class Components {
         this._gen = state.gen;
         this._meta = state.meta.map((m) => m && { ...m });
         this._masks = state.masks.map((m) => m.slice());
+        this._owners = this._masks.map(() => []);
+        for (let id = 0; id < this._meta.length; id++) {
+            const m = this._meta[id];
+            if (m) this._owners[m.gen][31 - Math.clz32(m.bit)] = id;
+        }
         this._restored?.();
         if (!this._membership) return;
         for (let gen = 0; gen < Math.max(before.length, this._masks.length); gen++) {
@@ -494,6 +501,21 @@ export class Components {
         for (let g = 0; g <= this._gen; g++) this._masks[g][eid] = 0;
     }
 
+    /** @internal Write the ids of the components `eid` holds into `out`; returns their count. */
+    held(eid: Entity, out: number[]): number {
+        let count = 0;
+        for (let g = 0; g <= this._gen; g++) {
+            let mask = this._masks[g][eid] ?? 0;
+            const owners = this._owners[g];
+            while (mask) {
+                const bit = mask & -mask;
+                out[count++] = owners[31 - Math.clz32(bit)];
+                mask ^= bit;
+            }
+        }
+        return count;
+    }
+
     private ensure(component: any) {
         const id = idOf(component);
         const existing = this._meta[id];
@@ -502,7 +524,9 @@ export class Components {
             this._gen++;
             this._nextBit = 0;
             this._masks.push([]);
+            this._owners.push([]);
         }
+        this._owners[this._gen][this._nextBit] = id;
         const m = { gen: this._gen, bit: 1 << this._nextBit++ };
         this._meta[id] = m;
         return m;

@@ -363,7 +363,7 @@ const health = world.storage(Health);
 health.value.set(eid, 100);
 ```
 
-Resolve storage once in a system's setup or a lifecycle hook, then retain it for that world. Declare the complete schema before binding it; to change a schema, replace the component object.
+Resolve storage once in a system's setup or a lifecycle hook, then retain it for that world. Declare the complete schema before binding it; to change a schema, replace the component object. A component's values are unreadable after `world.remove`; writing to a component the entity does not hold is unsupported and may leave values for a reused eid.
 
 Remove `capacity` from `createApp()` configuration and `new World()` options. The exported global `capacity` is gone; columns and tables grow as needed.
 

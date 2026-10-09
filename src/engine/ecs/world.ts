@@ -100,6 +100,7 @@ export class World {
         },
     );
     private _queries = new Queries();
+    private readonly _held: number[] = [];
     private _storage = new Map<
         number,
         {
@@ -641,16 +642,19 @@ export class World {
         return eid;
     }
 
-    /** Remove every component and free the eid; no-op for an eid that is not alive. */
+    /** Remove every component, clear the fields of each it held, and free the eid; no-op when it is not alive. */
     destroy(eid: number): void {
         if (!this._entities.exists(eid)) return;
         this._queries.onEntityRemoved(eid);
         for (const tables of this._tablesByComponent.values()) {
             for (const table of tables) table.release(eid);
         }
+        const held = this._held;
+        const count = this._components.held(eid, held);
         this._components.clear(eid);
-        for (const entry of this._storage.values()) {
-            for (const field of entry.fields.values()) field.clear(eid);
+        for (let i = 0; i < count; i++) {
+            const entry = this._storage.get(held[i]);
+            if (entry) for (const field of entry.fields.values()) field.clear(eid);
         }
         this._entities.remove(eid);
     }
@@ -737,6 +741,7 @@ export class World {
         }
     }
 
+    /** Remove a component and clear its fields after membership observers, table detachment and query updates. */
     remove(eid: number, component: any): void {
         if (this._components.remove(eid, component)) {
             this.notifyMembership(component as Component, eid, false);
@@ -744,6 +749,8 @@ export class World {
             if (tables)
                 for (const table of tables) table.detachComponent(eid, component as Component);
             this._queries.onComponentChanged(eid, component, this._components);
+            const entry = this._storage.get(idOf(component as Component));
+            if (entry) for (const field of entry.fields.values()) field.clear(eid);
         }
     }
 
