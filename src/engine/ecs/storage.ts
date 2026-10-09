@@ -165,6 +165,8 @@ export class WorldField<T extends FieldType = FieldType> {
 
     bind(): FieldStorage<T> {
         const field = this;
+        if (!this.type.encode && !this.type.decode && this.type !== entity)
+            return this.bindIdentity();
         const lane = (offset: number): ScalarField => ({
             writeEncoded(eids, source) {
                 field.writeEncoded(eids, source, offset);
@@ -230,6 +232,100 @@ export class WorldField<T extends FieldType = FieldType> {
             z: lane(2),
             w: lane(3),
         } as unknown as FieldStorage<T>;
+    }
+
+    // Plain fields are the hot path; avoid routing their writes through codec-aware setters.
+    private bindIdentity(): FieldStorage<T> {
+        const field = this;
+        const column = this.#column;
+        const lanes = this.type.lanes;
+        const type = this.type;
+        const lane = (offset: number): ScalarField => ({
+            writeEncoded(eids, source) {
+                field.writeEncoded(eids, source, offset);
+            },
+            set(eid, value) {
+                const i = eid * lanes + offset;
+                if (i >= column.array.length) field.ensure(eid + 1);
+                column.array[i] = value;
+                column.dirty[eid >>> 5] |= 1 << (eid & 31);
+            },
+            get(eid) {
+                return column.array[eid * lanes + offset] ?? 0;
+            },
+            type,
+            get column() {
+                return column.array;
+            },
+            markChanged(eid) {
+                field.markChanged(eid);
+            },
+        });
+        const base = {
+            markChanged: (eid: number) => field.markChanged(eid),
+            writeEncoded: (eids: Uint32Array, source: TypedArray) =>
+                field.writeEncoded(eids, source),
+        };
+        if (lanes === 1) {
+            return Object.defineProperties(
+                {
+                    type,
+                    markChanged: base.markChanged,
+                    writeEncoded: base.writeEncoded,
+                    set: (eid: number, value: number) => {
+                        if (eid >= column.array.length) field.ensure(eid + 1);
+                        column.array[eid] = value;
+                        column.dirty[eid >>> 5] |= 1 << (eid & 31);
+                    },
+                    get: (eid: number) => column.array[eid] ?? 0,
+                },
+                { column: { get: () => column.array, enumerable: true } },
+            ) as unknown as FieldStorage<T>;
+        }
+        if (lanes === 2) {
+            return Object.defineProperties(
+                {
+                    type,
+                    markChanged: base.markChanged,
+                    writeEncoded: base.writeEncoded,
+                    set: (eid: number, x: number, y = 0) => {
+                        const o = eid * 2;
+                        if (o >= column.array.length) field.ensure(eid + 1);
+                        const a = column.array;
+                        a[o] = x;
+                        a[o + 1] = y;
+                        column.dirty[eid >>> 5] |= 1 << (eid & 31);
+                    },
+                    read: (eid: number, out: Float32Array) => field.read(eid, out),
+                    x: lane(0),
+                    y: lane(1),
+                },
+                { column: { get: () => column.array, enumerable: true } },
+            ) as unknown as FieldStorage<T>;
+        }
+        return Object.defineProperties(
+            {
+                type,
+                markChanged: base.markChanged,
+                writeEncoded: base.writeEncoded,
+                set: (eid: number, x: number, y = 0, z = 0, w = 0) => {
+                    const o = eid * 4;
+                    if (o >= column.array.length) field.ensure(eid + 1);
+                    const a = column.array;
+                    a[o] = x;
+                    a[o + 1] = y;
+                    a[o + 2] = z;
+                    a[o + 3] = w;
+                    column.dirty[eid >>> 5] |= 1 << (eid & 31);
+                },
+                read: (eid: number, out: Float32Array) => field.read(eid, out),
+                x: lane(0),
+                y: lane(1),
+                z: lane(2),
+                w: lane(3),
+            },
+            { column: { get: () => column.array, enumerable: true } },
+        ) as unknown as FieldStorage<T>;
     }
 
     private setLane(eid: number, lane: number, value: number): void {
