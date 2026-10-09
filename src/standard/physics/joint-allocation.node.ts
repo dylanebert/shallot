@@ -85,7 +85,7 @@ test("the same warm joint subject allocates no WASM heap and its counting alloca
 });
 
 test("kernel joint lifecycle, plain-id fields, internal events and pair finding with jointed bodies allocate no steady JavaScript heap", async () => {
-    const sample = await sampleAllocation(entry, { warm: 1200, frames: 600 });
+    const sample = await sampleAllocation(entry, { warm: 6000, frames: 600 });
     expect(sample.control.length).toBeGreaterThan(0);
     const failure = allocationFailure(sample);
     if (failure !== undefined) throw new Error(failure);
