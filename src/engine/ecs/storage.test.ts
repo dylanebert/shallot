@@ -189,6 +189,7 @@ test("restore publishes changed field values but leaves equal values unmarked af
     const value = world.storage(State).value;
     value.set(changed, 3);
     value.set(equal, 5);
+    world.clearChanges();
     const image = world.snapshot();
 
     value.set(changed, 7);
@@ -198,6 +199,24 @@ test("restore publishes changed field values but leaves equal values unmarked af
     const field = world.fieldStorage(State, "value");
     expect(field.dirty[changed >>> 5] & (1 << (changed & 31))).not.toBe(0);
     expect(field.dirty[equal >>> 5] & (1 << (equal & 31))).toBe(0);
+});
+
+test("restore republishes a lane marked in the image even when its value is equal", () => {
+    const State = component("RestorePendingField", { value: f32 });
+    const world = new World();
+    world.registry.register(State);
+    const eid = world.create();
+    world.add(eid, State);
+    const value = world.storage(State).value;
+    value.set(eid, 3);
+    const image = world.snapshot();
+    world.clearChanges();
+
+    world.restore(image);
+
+    const field = world.fieldStorage(State, "value");
+    expect(value.get(eid)).toBe(3);
+    expect(field.dirty[eid >>> 5] & (1 << (eid & 31))).not.toBe(0);
 });
 
 test("restore zeroes and publishes a lane written by an entity created after the image", () => {

@@ -28,6 +28,30 @@ test("TransformPlugin installs processing on a bare World for frames and exact t
     world.dispose();
 });
 
+test("restoring a pending Transform derives its GlobalTransform on the next step", () => {
+    const world = new World();
+    for (const entry of TransformPlugin.components ?? []) world.registry.register(entry);
+    world.registerRecovery(
+        TransformPlugin.name,
+        typeof TransformPlugin.recovery === "function"
+            ? TransformPlugin.recovery(world)
+            : TransformPlugin.recovery,
+    );
+    for (const system of TransformPlugin.systems ?? [])
+        world.addSystem(system, TransformPlugin.name);
+
+    const eid = world.create();
+    world.add(eid, Transform, { translation: [5, 0, 0, 0] });
+    const image = world.snapshot();
+    world.step(0);
+    world.step(0);
+    world.restore(image);
+    world.step(0);
+
+    expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(5);
+    world.dispose();
+});
+
 test("rotation-only and scale-only writes derive their matching GlobalTransform fields", () => {
     const world = new World();
     for (const entry of TransformPlugin.components ?? []) world.registry.register(entry);
