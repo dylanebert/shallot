@@ -18,6 +18,9 @@ const Removed = component("remove-clears-held-values", { value: f32, vector: vec
 const Retained = component("remove-keeps-other-values", { value: f32 });
 const RestoreX = component("destroy-restore-owner-x", { scalar: f32, vector: vec4 });
 const RestoreY = component("destroy-restore-owner-y", { scalar: f32, vector: vec4 });
+const ObserverFirst = component("destroy-observer-first", { value: f32 });
+const ObserverSecond = component("destroy-observer-second", { value: f32 });
+const ObserverThird = component("destroy-observer-third", { value: f32 });
 
 test("destroy clears every held field and publishes its change mark", () => {
     const world = new World();
@@ -160,6 +163,45 @@ test("remove clears only its component after membership observers read the old v
         expect(retained.value.get(eid)).toBe(47);
         expect(retainedColumn.column[eid]).toBe(47);
         expect(retainedColumn.dirty[eid >>> 5] & (1 << (eid & 31))).toBe(0);
+    } finally {
+        world.dispose();
+    }
+});
+
+test("destroy notifies every held membership observer before fields clear", () => {
+    const world = new World();
+    try {
+        const eid = world.create();
+        world.add(eid, ObserverThird, { value: 33 });
+        world.add(eid, ObserverFirst, { value: 11 });
+        world.add(eid, ObserverSecond, { value: 22 });
+        const components = [ObserverFirst, ObserverSecond, ObserverThird] as const;
+        const values = [11, 22, 33];
+        const observed: { component: number; present: boolean; values: number[] }[] = [];
+        components.forEach((component, index) => {
+            const storage = world.storage(component);
+            world.observeMembership(component, (changed, present) => {
+                observed.push({
+                    component: index,
+                    present,
+                    values: components.map((held) => world.storage(held).value.get(changed)),
+                });
+                expect(changed).toBe(eid);
+                expect(world.exists(changed)).toBe(true);
+                expect(components.every((held) => !world.has(changed, held))).toBe(true);
+                expect(storage.value.get(changed)).toBe(values[index]);
+            });
+        });
+
+        world.destroy(eid);
+
+        expect(observed).toEqual(
+            components.map((_, index) => ({
+                component: index,
+                present: false,
+                values,
+            })),
+        );
     } finally {
         world.dispose();
     }
