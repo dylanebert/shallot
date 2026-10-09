@@ -587,12 +587,17 @@ const width = world.resource(Viewports).get(input.focused)?.cssWidth ?? 0;
 setInputEnabled(world, false);
 ```
 
-In `fixed`, use `keys.tickPressed` instead of the frame-level press. Replace `isKeyPressedWithin(code, seconds)` with fixed-tick comparisons:
+Fixed systems do not read `Devices`. Sample devices in a `setup`-group system into a component record on each controlled actor, counting press edges as `PlayerInput.jumpPresses` does. In `fixed`, consume a new count once and keep windows such as the former `isKeyPressedWithin` in actor component state advanced by fixed ticks, as Player's jump buffer does:
 
 ```ts
-const at = input.keys.pressedTick.get("Space");
-if (at !== undefined && world.time.fixedTick - at < 6) jump();
+const presses = input.jumpPresses.get(eid);
+if (presses !== state.lastPresses.get(eid)) {
+    state.lastPresses.set(eid, presses);
+    state.bufferTicks.set(eid, 12);
+}
 ```
+
+Advance `bufferTicks` once each fixed tick.
 
 ## Shared physics data and standard simulation
 

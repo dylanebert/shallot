@@ -1,7 +1,6 @@
 import { type Plugin, type System, Viewports, type World } from "../../engine";
 
-/** Keyboard facts owned by one {@link World}. `pressed`/`released` are the frame latches;
- * `tickPressed`/`tickReleased` are the independent fixed-clock latches. */
+/** Keyboard facts owned by one {@link World}. `pressed`/`released` are the frame latches. */
 export interface Keys {
     /** keys currently held */
     readonly held: Set<string>;
@@ -9,12 +8,6 @@ export interface Keys {
     readonly pressed: Set<string>;
     /** keys released since the last draw boundary */
     readonly released: Set<string>;
-    /** keys pressed since the last fixed-tick boundary */
-    readonly tickPressed: Set<string>;
-    /** keys released since the last fixed-tick boundary */
-    readonly tickReleased: Set<string>;
-    /** fixed tick at which each key was produced */
-    readonly pressedTick: Map<string, number>;
 }
 
 /** pointer-lock state reported by the browser or a headless producer. */
@@ -199,9 +192,6 @@ function emptyRecord(world: World): DeviceRecord {
             held: new Set(),
             pressed: new Set(),
             released: new Set(),
-            tickPressed: new Set(),
-            tickReleased: new Set(),
-            pressedTick: new Map(),
         },
         audio: { ...DEFAULT_AUDIO },
         pointer,
@@ -292,8 +282,6 @@ export function pressKey(world: World, code: string): void {
     if (d.suspended || d.keys.held.has(code)) return;
     d.keys.held.add(code);
     d.keys.pressed.add(code);
-    d.keys.tickPressed.add(code);
-    d.keys.pressedTick.set(code, world.time.fixedTick);
 }
 
 /** Produce a keyboard release. */
@@ -302,7 +290,6 @@ export function releaseKey(world: World, code: string): void {
     if (d.suspended || !d.keys.held.has(code)) return;
     d.keys.held.delete(code);
     d.keys.released.add(code);
-    d.keys.tickReleased.add(code);
 }
 
 /** Produce a pointer position update. The object form is used by the DOM producer; the numeric form is
@@ -424,11 +411,10 @@ export function touchPoint(
     }
 }
 
-function releaseKeyForLegacy(d: DeviceRecord, code: string): void {
+function releaseHeldKey(d: DeviceRecord, code: string): void {
     if (!d.keys.held.has(code)) return;
     d.keys.held.delete(code);
     d.keys.released.add(code);
-    d.keys.tickReleased.add(code);
 }
 
 function setPointerLock(d: DeviceRecord, status: PointerLockStatus, refusal: string | null): void {
@@ -493,7 +479,7 @@ function clearTouch(d: DeviceRecord): void {
 }
 
 function releaseAll(_world: World | null, d: DeviceRecord): void {
-    for (const code of [...d.keys.held]) releaseKeyForLegacy(d, code);
+    for (const code of [...d.keys.held]) releaseHeldKey(d, code);
     pointerButtonsForRecord(d, 0);
     clearTouch(d);
 }
@@ -872,7 +858,6 @@ export function setInputEnabled(world: World, on: boolean): void {
     if (d.suspended) {
         releaseAll(world, d);
         d.keys.pressed.clear();
-        d.keys.tickPressed.clear();
         d.pointer.deltaX = 0;
         d.pointer.deltaY = 0;
         d.pointer.scroll = 0;
@@ -952,18 +937,6 @@ export function createBrowserInputPlugin(host?: InputHost): Plugin {
     };
 }
 
-const ResetFixedInputSystem: System = {
-    name: "tick-reset",
-    group: "fixed",
-    last: true,
-    update(world: World) {
-        const keys = record(world).keys;
-        // `Set.prototype.clear` mints a fresh table even on an empty set, so guard on size.
-        if (keys.tickPressed.size !== 0) keys.tickPressed.clear();
-        if (keys.tickReleased.size !== 0) keys.tickReleased.clear();
-    },
-};
-
 const ResetFrameInputSystem: System = {
     name: "frame-reset",
     group: "draw",
@@ -981,42 +954,10 @@ const ResetFrameInputSystem: System = {
     },
 };
 
-/** Owns plain device facts, transitions and independent fixed- and frame-clock boundaries. */
+/** Owns plain device facts, transitions and the frame boundary. */
 export const InputPlugin: Plugin = {
     name: "Input",
-    recovery: (world) => ({
-        snapshot: () => structuredClone(record(world)),
-        restore(saved: DeviceRecord) {
-            const d = record(world);
-            for (const key of [
-                "held",
-                "pressed",
-                "released",
-                "tickPressed",
-                "tickReleased",
-            ] as const) {
-                d.keys[key].clear();
-                for (const value of saved.keys[key]) d.keys[key].add(value);
-            }
-            d.keys.pressedTick.clear();
-            for (const [key, tick] of saved.keys.pressedTick) d.keys.pressedTick.set(key, tick);
-            const { normalizedX: _x, normalizedY: _y, lock, ...pointer } = saved.pointer;
-            Object.assign(d.pointer, pointer);
-            Object.assign(d.pointer.lock, lock);
-            Object.assign(d.touch, saved.touch);
-            Object.assign(d.audio, saved.audio);
-            d.touchPoints.clear();
-            for (const [id, point] of saved.touchPoints) d.touchPoints.set(id, { ...point });
-            d.suspended = saved.suspended;
-            d.requireLock = saved.requireLock;
-            d.focused = saved.focused;
-            d.pinchDistance = saved.pinchDistance;
-            d.centroidX = saved.centroidX;
-            d.centroidY = saved.centroidY;
-            d.pointerCanvasIndex = saved.pointerCanvasIndex;
-        },
-    }),
-    systems: [InputSystem, ResetFixedInputSystem, ResetFrameInputSystem],
+    systems: [InputSystem, ResetFrameInputSystem],
 };
 
 /** Optional browser producer. It is composed separately from the plain-data input owner. */

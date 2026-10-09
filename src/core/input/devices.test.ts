@@ -629,29 +629,6 @@ test("composing the browser input producer without host globals preserves the pl
     }
 });
 
-test("controlled input edges depend on frame cadence rather than the independent fixed and draw boundaries", () => {
-    const world = inputState();
-    const _devices = world.resource(Devices);
-    const fixedSeen: string[] = [];
-    world.addSystem({
-        group: "fixed",
-        update(s: World) {
-            if (s.resource(Devices).keys.tickPressed.has("KeyA")) fixedSeen.push("A");
-            if (s.resource(Devices).keys.tickPressed.has("KeyB")) fixedSeen.push("B");
-        },
-    });
-    pressKey(world, "KeyA");
-    world.step(0);
-    if (!_devices.keys.tickPressed.has("KeyA")) throw new Error("zero-tick frame reset a press");
-    world.step(Time.FIXED_DT * 2);
-    pressKey(world, "KeyB");
-    world.step(Time.FIXED_DT);
-    if (fixedSeen.join("") !== "AB") throw new Error(`unexpected fixed edges: ${fixedSeen}`);
-    if (_devices.keys.pressed.has("KeyA") || _devices.keys.tickPressed.size !== 0)
-        throw new Error("draw or fixed edge reset did not run");
-    world.dispose();
-});
-
 test("a key press, pointer, wheel or touch fact is lost before the frame's readers see it, or a release edge never appears", () => {
     const world = inputState();
     const seen: Array<{ held: boolean; pressed: boolean; released: boolean }> = [];
@@ -703,32 +680,6 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     world.dispose();
 });
 
-test("a key press in a frame with zero fixed ticks is dropped before the next frame's first fixed tick", () => {
-    const world = inputState();
-    let count = 0;
-    world.addSystem({
-        group: "fixed",
-        update(s: World) {
-            if (s.resource(Devices).keys.tickPressed.has("KeyA")) count++;
-        },
-    });
-    pressKey(world, "KeyA");
-    world.step(0);
-    world.step(Time.FIXED_DT);
-    if (count !== 1) throw new Error(`expected carried edge, got ${count}`);
-    world.dispose();
-});
-
-test("a press records a wall-clock timestamp instead of the World fixed tick, so replays diverge", () => {
-    const world = inputState();
-    world.step(Time.FIXED_DT);
-    const tick = world.time.fixedTick;
-    pressKey(world, "KeyB");
-    if (world.resource(Devices).keys.pressedTick.get("KeyB") !== tick)
-        throw new Error("wrong pressedTick");
-    world.dispose();
-});
-
 test("a press and release between frames loses an edge or leaves the key held", () => {
     const world = inputState();
     let seen = false;
@@ -744,31 +695,6 @@ test("a press and release between frames loses an edge or leaves the key held", 
     world.step(0);
     if (!seen) throw new Error("between-frame edges were not latched");
     world.dispose();
-});
-
-test("the same press yields a different fixed edge count under batched and one-tick-per-frame cadence", () => {
-    const batched = inputState();
-    const stepped = inputState();
-    const count = (world: World) => {
-        let value = 0;
-        world.addSystem({
-            group: "fixed",
-            update(s: World) {
-                if (s.resource(Devices).keys.tickPressed.has("KeyE")) value++;
-            },
-        });
-        return () => value;
-    };
-    const batchedCount = count(batched);
-    const steppedCount = count(stepped);
-    pressKey(batched, "KeyE");
-    pressKey(stepped, "KeyE");
-    batched.step(Time.FIXED_DT * 2);
-    stepped.step(Time.FIXED_DT);
-    stepped.step(Time.FIXED_DT);
-    if (batchedCount() !== 1 || steppedCount() !== 1) throw new Error("cadence changed edge count");
-    batched.dispose();
-    stepped.dispose();
 });
 
 test("window blur leaves keys or pointer buttons held, or releases them without an edge", () => {

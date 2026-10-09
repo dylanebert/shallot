@@ -7,6 +7,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import {
+    audioContextState,
     Devices,
     InputPlugin,
     pointerMove,
@@ -118,7 +119,7 @@ test("recovery restores hull authoring read by fixed sync, so failed bodies do n
     }
 });
 
-test("Input recovery preserves accepted facts and retained device handles, not browser handles", async () => {
+test("snapshot and restore leave device state outside recovery", async () => {
     const app = await createApp({ defaults: false, plugins: [InputPlugin] });
     try {
         const world = app.world;
@@ -128,23 +129,27 @@ test("Input recovery preserves accepted facts and retained device handles, not b
         pressKey(world, "Space");
         pointerMove(world, 12, 8, 3, 4);
         touchPoint(world, 1, 10, 20);
+        touchPoint(world, 2, 30, 20);
+        audioContextState(world, "suspended");
         const saved = world.snapshot();
-        world.tick();
         releaseKey(world, "Space");
         pointerMove(world, 42, 18, 8, 9);
         touchPoint(world, 1, 30, 40);
+        audioContextState(world, "running");
         world.restore(saved);
         expect(world.resource(Devices)).toBe(devices);
         expect(devices.keys).toBe(keys);
         expect(devices.pointer).toBe(pointer);
-        expect(keys.held.has("Space")).toBe(true);
-        expect(keys.tickPressed.has("Space")).toBe(true);
-        expect(keys.tickReleased.size).toBe(0);
-        expect(pointer.x).toBe(12);
-        world.tick();
-        expect(keys.tickPressed.size).toBe(0);
-        world.restore(saved);
-        expect(keys.tickPressed.has("Space")).toBe(true);
+        expect(keys.held.has("Space")).toBe(false);
+        expect(keys.released.has("Space")).toBe(true);
+        expect(pointer.x).toBe(42);
+        expect(pointer.y).toBe(18);
+        expect(pointer.deltaX).toBe(11);
+        expect(pointer.deltaY).toBe(13);
+        expect(devices.touch.count).toBe(2);
+        expect(devices.touch.deltaX).toBe(10);
+        expect(devices.touch.deltaY).toBe(10);
+        expect(devices.audio.context).toBe("running");
     } finally {
         app.dispose();
     }
