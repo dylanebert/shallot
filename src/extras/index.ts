@@ -24,7 +24,9 @@ export {
 } from "./outline";
 export {
     DrivePlayerSystem,
+    LocalPlayer,
     Player,
+    PlayerInput,
     PlayerPlugin,
     type PointerLockStatus,
     UpdatePlayerControlSystem,

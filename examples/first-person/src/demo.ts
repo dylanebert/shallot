@@ -9,6 +9,7 @@ import {
     cube,
     DirectionalLight,
     InputPlugin,
+    LocalPlayer,
     Materials,
     Meshes,
     MeshInstance,
@@ -85,6 +86,7 @@ export function route(world: World) {
     // The route keeps its launch and fall rhythm; pogo placement floats two radii above contact.
     world.add(player, Character);
     world.add(player, Player, { camera: eye, jumpSpeed: 7, gravity: 30 });
+    world.add(player, LocalPlayer);
     block(world, [0, 0, -5, 0], [16, 0.5, 26, 0], GROUND_COLOR);
     const steps = [
         [

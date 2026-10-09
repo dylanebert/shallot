@@ -11,6 +11,7 @@ import {
     createApp,
     Devices,
     InputPlugin,
+    LocalPlayer,
     Player,
     readBody,
     StandardPhysicsPlugin,
@@ -181,11 +182,17 @@ test("the actual first-person scene gives the player a pogo-rest spawn, a contai
             throw new Error(`lift upper stop was not adjacent to tower: gap=${towerGap}`);
         const defaults = app.world.create();
         app.world.add(defaults, Player);
+        app.world.add(defaults, LocalPlayer);
         const tuning = app.world.storage(Player);
-        for (const field of ["speed", "sprint", "sensitivity", "yaw", "pitch"] as const) {
+        for (const field of ["speed", "sprint", "yaw", "pitch"] as const) {
             if (tuning[field].get(player) !== tuning[field].get(defaults))
                 throw new Error(`first-person player overrides default ${field}`);
         }
+        if (
+            app.world.storage(LocalPlayer).sensitivity.get(player) !==
+            app.world.storage(LocalPlayer).sensitivity.get(defaults)
+        )
+            throw new Error("first-person LocalPlayer overrides default sensitivity");
         const eyeHeight = tuning.eyeHeight.get(defaults);
         app.world.destroy(defaults);
         // The eye is authored where Player would pose it at spawn: the capsule centre raised by

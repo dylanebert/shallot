@@ -1,5 +1,4 @@
-import { setDefaultTimeout, test } from "bun:test";
-
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -11,122 +10,340 @@ import {
     CharacterPlugin,
     createApp,
     Devices,
-    InputPlugin,
+    DrivePlayerSystem,
+    GroundState,
+    LocalPlayer,
     Player,
+    PlayerInput,
     PlayerPlugin,
     pointerLockChanged,
     pointerMove,
     pressKey,
     readBody,
-    releaseKey,
     ShapeKind,
     StandardPhysicsPlugin,
     Time,
     Transform,
 } from "@dylanebert/shallot";
-
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { PlayerMotion } from "./motion";
 
 await setupGlobals();
 
-test("the public Player controller consumes held, released and neutral input to drive a Character and a linked Transform without a Camera, renderer or browser input", async () => {
+interface Scene {
+    app: Awaited<ReturnType<typeof createApp>>;
+    world: Awaited<ReturnType<typeof createApp>>["world"];
+    players: number[];
+    cameras: number[];
+}
+
+async function scene(localPlayers: readonly number[] = [], count = 1): Promise<Scene> {
+    const players: number[] = [];
+    const cameras: number[] = [];
     const app = await createApp({
         defaults: false,
-        plugins: [InputPlugin, CharacterPlugin, StandardPhysicsPlugin, PlayerPlugin],
+        plugins: [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin],
+        setup(world) {
+            const floor = world.create();
+            world.add(floor, Body, {
+                type: BodyType.Static,
+                shape: ShapeKind.Box,
+                halfExtents: [20, 0.5, 20, 0],
+            });
+            for (let index = 0; index < count; index++) {
+                const camera = world.create();
+                world.add(camera, Transform);
+                cameras.push(camera);
+
+                const player = world.create();
+                world.add(player, Body, {
+                    type: BodyType.Kinematic,
+                    shape: ShapeKind.Capsule,
+                    halfExtents: [0, 0.5, 0, 0.3],
+                    position: [index * 4, 1.3, 0, 0],
+                });
+                world.add(player, Character);
+                world.add(player, Player, {
+                    camera,
+                    acceleration: 100,
+                    gravity: 30,
+                    jumpSpeed: 7,
+                    sprint: 2,
+                });
+                if (localPlayers.includes(index)) world.add(player, LocalPlayer);
+                players.push(player);
+            }
+        },
     });
+    return { app, world: app.world, players, cameras };
+}
+
+function writeInput(
+    world: Scene["world"],
+    eid: number,
+    values: {
+        move: readonly [number, number];
+        sprint?: number;
+        yaw?: number;
+        pitch?: number;
+        jumpPresses?: number;
+    },
+): void {
+    if (!world.has(eid, PlayerInput)) {
+        world.add(eid, PlayerInput, {
+            yaw: world.storage(Player).yaw.get(eid),
+            pitch: world.storage(Player).pitch.get(eid),
+        });
+    }
+    const input = world.storage(PlayerInput);
+    input.move.set(eid, values.move[0], values.move[1]);
+    input.sprint.set(eid, values.sprint ?? 0);
+    input.yaw.set(eid, values.yaw ?? 0);
+    input.pitch.set(eid, values.pitch ?? 0);
+    input.jumpPresses.set(eid, values.jumpPresses ?? 0);
+}
+
+function playerMotionState(world: Scene["world"], eid: number) {
+    const player = world.storage(Player);
+    const motion = world.storage(PlayerMotion);
+    return {
+        player: [player.yaw.get(eid), player.pitch.get(eid)],
+        motion: {
+            carry: Array.from(motion.carry.column.slice(eid * 4, eid * 4 + 4)),
+            coyote: motion.coyote.get(eid),
+            buffer: motion.buffer.get(eid),
+            lastJumpPresses: motion.lastJumpPresses.get(eid),
+        },
+        body: readBody(world, eid),
+    };
+}
+
+test("two players follow different records and diverge", async () => {
+    const { app, world, players } = await scene([], 2);
     try {
-        const world = app.world;
-        const floor = world.create();
-        world.add(floor, Body);
-        world.storage(Body).shape.set(floor, ShapeKind.Box);
-        world.storage(Body).position.set(floor, 0, 0, 0, 0);
-        world.storage(Body).halfExtents.set(floor, 4, 0.5, 4, 0);
+        const [forward, right] = players;
+        for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
+        writeInput(world, forward, { move: [0, 1] });
+        writeInput(world, right, { move: [1, 0] });
+        const beforeForward = readBody(world, forward)!;
+        const beforeRight = readBody(world, right)!;
 
-        const camera = world.create();
-        world.add(camera, Transform);
+        world.tick();
 
-        const player = world.create();
-        world.add(player, Body);
-        world.add(player, Character);
-        world.add(player, Player);
-        world.storage(Body).shape.set(player, ShapeKind.Capsule);
-        world.storage(Body).position.set(player, 0, 1.3, 0, 0);
-        world.storage(Body).halfExtents.set(player, 0, 0.5, 0, 0.3);
-        world.storage(Body).type.set(player, BodyType.Kinematic);
-        world.storage(Player).speed.set(player, 6);
-        world.storage(Player).sprint.set(player, 1);
-        world.storage(Player).sensitivity.set(player, 1.5);
-        world.storage(Player).camera.set(player, camera);
-        world.storage(Player).jumpSpeed.set(player, 7);
-        world.storage(Player).gravity.set(player, 30);
+        const inputs = world.storage(PlayerInput);
+        expect(inputs.move.column.slice(forward * 2, forward * 2 + 2)).toEqual(
+            new Float32Array([0, 1]),
+        );
+        expect(inputs.move.column.slice(right * 2, right * 2 + 2)).toEqual(
+            new Float32Array([1, 0]),
+        );
+        expect(readBody(world, forward)!.position[2]).toBeLessThan(beforeForward.position[2]);
+        expect(readBody(world, right)!.position[0]).toBeGreaterThan(beforeRight.position[0]);
+    } finally {
+        app.dispose();
+    }
+});
 
-        // Establish the floor contact before the supplied jump edge arrives.
-        world.step(Time.FIXED_DT);
-        const initial = readBody(world, player);
-        if (!initial) throw new Error("Player body did not enter the CPU physics world");
-        const initialYaw = world.storage(Player).yaw.get(player);
-        const initialPitch = world.storage(Player).pitch.get(player);
-
-        pointerLockChanged(world, true);
-        pointerMove(world, 0, 0, 12, -4);
+test("a player without LocalPlayer ignores the keyboard", async () => {
+    const { app, world, players } = await scene();
+    try {
+        const player = players[0];
+        for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
+        const before = readBody(world, player)!;
         pressKey(world, "KeyW");
+        world.step(Time.FIXED_DT);
+        const after = readBody(world, player)!;
+
+        expect(world.has(player, LocalPlayer)).toBe(false);
+        expect(world.has(player, PlayerInput)).toBe(true);
+        expect(after.position[0]).toBeCloseTo(before.position[0]);
+        expect(after.position[2]).toBeCloseTo(before.position[2]);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("world.tick drives move, sprint, look and jump from records without device input", async () => {
+    const { app, world, players } = await scene();
+    try {
+        const player = players[0];
+        world.storage(Player).yaw.set(player, 0.3);
+        world.storage(Player).pitch.set(player, 0.2);
+        for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
+        expect(world.storage(Character).groundState.get(player)).toBe(GroundState.OnGround);
+        expect(world.storage(Player).yaw.get(player)).toBeCloseTo(0.3);
+        expect(world.storage(Player).pitch.get(player)).toBeCloseTo(0.2);
+
+        writeInput(world, player, {
+            move: [0, 1],
+            sprint: 1,
+            yaw: Math.PI / 2,
+            pitch: 0.25,
+            jumpPresses: 1,
+        });
+        world.tick();
+
+        expect(world.storage(Player).yaw.get(player)).toBeCloseTo(Math.PI / 2);
+        expect(world.storage(Player).pitch.get(player)).toBeCloseTo(0.25);
+        expect(world.storage(Character).velocity.x.get(player)).toBeLessThan(-8);
+        expect(world.storage(Character).velocity.y.get(player)).toBeGreaterThan(6);
+        expect(world.resource(Devices).keys.held.size).toBe(0);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a jump press before a zero-tick step jumps on the next tick", async () => {
+    const { app, world, players } = await scene([0]);
+    try {
+        const player = players[0];
+        for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
+        expect(world.storage(Character).groundState.get(player)).toBe(GroundState.OnGround);
+
+        pressKey(world, "Space");
+        world.step(Time.FIXED_DT / 2);
+        expect(world.time.fixedSteps).toBe(0);
+        expect(world.storage(PlayerInput).jumpPresses.get(player)).toBe(1);
+        world.tick();
+
+        expect(world.storage(Character).velocity.y.get(player)).toBeGreaterThan(4);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a jump press before a catch-up step launches once instead of refilling the jump buffer", async () => {
+    const { app, world, players } = await scene([0]);
+    try {
+        const player = players[0];
+        for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
+        world.storage(Player).gravity.set(player, 60);
+        world.storage(Player).jumpSpeed.set(player, 10);
+        const launchVelocity: number[] = [];
+        world.addSystem({
+            name: "ground-for-each-catch-up-tick",
+            group: "fixed",
+            before: [DrivePlayerSystem],
+            update() {
+                world.storage(Character).groundState.set(player, GroundState.OnGround);
+            },
+        });
+        world.addSystem({
+            name: "observe-catch-up-launches",
+            group: "fixed",
+            after: [DrivePlayerSystem],
+            before: CharacterPlugin.systems,
+            update() {
+                launchVelocity.push(world.storage(Character).velocity.y.get(player));
+            },
+        });
+
+        pressKey(world, "Space");
+        world.step(Time.FIXED_DT * 4);
+
+        expect(world.time.fixedSteps).toBe(4);
+        expect(launchVelocity).toHaveLength(4);
+        expect(launchVelocity[0]).toBeGreaterThan(8);
+        expect(launchVelocity.slice(1).every((value) => value < 0)).toBe(true);
+        expect(world.storage(PlayerInput).jumpPresses.get(player)).toBe(1);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("pointer motion before a step turns that step's first tick movement direction", async () => {
+    const { app, world, players } = await scene([0]);
+    try {
+        const player = players[0];
+        world.storage(Player).yaw.set(player, 0.4);
+        world.storage(Player).pitch.set(player, 0.2);
+        world.storage(LocalPlayer).sensitivity.set(player, 2.5);
+        for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
+        expect(world.storage(LocalPlayer).viewYaw.get(player)).toBeCloseTo(0.4);
+        expect(world.storage(LocalPlayer).viewPitch.get(player)).toBeCloseTo(0.2);
+        pointerLockChanged(world, true);
+        pointerMove(world, 0, 0, 1080, 100);
+        pressKey(world, "KeyW");
+        world.step(Time.FIXED_DT);
+
+        const sensitivity = world.storage(LocalPlayer).sensitivity.get(player) / 1080;
+        expect(world.storage(Player).yaw.get(player)).toBeCloseTo(0.4 - 1080 * sensitivity);
+        expect(world.storage(Player).pitch.get(player)).toBeCloseTo(0.2 - 100 * sensitivity);
+        expect(world.storage(Character).velocity.x.get(player)).toBeGreaterThan(4);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("written records replay identically across a zero-tick step and a catch-up step after restore", async () => {
+    const { app, world, players } = await scene();
+    try {
+        const player = players[0];
+        for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
+        const snapshot = world.snapshot();
+        const run = () => {
+            writeInput(world, player, {
+                move: [0, 1],
+                sprint: 0,
+                yaw: 0.2,
+                pitch: 0.1,
+                jumpPresses: 1,
+            });
+            world.tick();
+            writeInput(world, player, {
+                move: [1, 0],
+                sprint: 1,
+                yaw: 0.4,
+                pitch: -0.1,
+                jumpPresses: 2,
+            });
+            world.step(0);
+            writeInput(world, player, {
+                move: [-1, 0],
+                sprint: 0,
+                yaw: -0.3,
+                pitch: 0,
+                jumpPresses: 2,
+            });
+            world.step(Time.FIXED_DT * 4);
+            return playerMotionState(world, player);
+        };
+
+        const first = run();
+        world.restore(snapshot);
+        const replay = run();
+
+        expect(first.player[0]).toBeCloseTo(-0.3);
+        expect(first.player[1]).toBeCloseTo(0);
+        expect(first.motion.lastJumpPresses).toBe(2);
+        expect(replay).toEqual(first);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a jump pressed during a pause does not jump after resume, while look still turns the camera", async () => {
+    const { app, world, players, cameras } = await scene([0]);
+    try {
+        const player = players[0];
+        const camera = cameras[0];
+        for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
+        const initialRotation = world.storage(Transform).rotation.y.get(camera);
+        const initialYaw = world.storage(Player).yaw.get(player);
+
+        world.pause();
+        pointerLockChanged(world, true);
+        pointerMove(world, 0, 0, 720, 0);
         pressKey(world, "Space");
         world.step(Time.FIXED_DT);
-        const lookScale = world.storage(Player).sensitivity.get(player) / 1080;
-        if (
-            Math.abs(world.storage(Player).yaw.get(player) - (initialYaw - 12 * lookScale)) >
-            0.000001
-        )
-            throw new Error("Player did not consume the supplied locked look sensitivity");
-        if (
-            Math.abs(world.storage(Player).pitch.get(player) - (initialPitch + 4 * lookScale)) >
-            0.000001
-        )
-            throw new Error("Player did not consume the supplied vertical look sensitivity");
-        const expectedYaw = initialYaw - 12 * lookScale;
-        const expectedPitch = initialPitch + 4 * lookScale;
-        const halfYaw = expectedYaw * 0.5;
-        const halfPitch = expectedPitch * 0.5;
-        const expectedCameraY = Math.sin(halfYaw) * Math.cos(halfPitch);
-        if (Math.abs(world.storage(Transform).rotation.y.get(camera) - expectedCameraY) > 0.000001)
-            throw new Error("Player did not apply look to the public camera Transform.rot");
-        if (!world.resource(Devices).keys.held.has("KeyW"))
-            throw new Error("Player lost the held move fact");
+        expect(world.storage(PlayerInput).jumpPresses.get(player)).toBe(0);
+        expect(world.storage(Player).yaw.get(player)).toBe(initialYaw);
+        expect(world.storage(Transform).rotation.y.get(camera)).not.toBeCloseTo(initialRotation);
 
-        // Observe the composed fixed-tick consumer, not a private intent store.
+        world.resume();
         world.step(Time.FIXED_DT);
-        const moved = readBody(world, player);
-        if (
-            !moved ||
-            Math.hypot(
-                moved.position[0] - initial.position[0],
-                moved.position[2] - initial.position[2],
-            ) < 0.001
-        )
-            throw new Error("Character did not apply Player's supplied movement intent");
-        if (!moved || moved.position[1] <= initial.position[1] + 0.01)
-            throw new Error("Character did not apply Player's supplied jump edge");
-
-        releaseKey(world, "KeyW");
-        releaseKey(world, "Space");
-        world.step(Time.FIXED_DT); // Release removes acceleration, not momentum.
-        const beforeNeutral = readBody(world, player);
-        if (!beforeNeutral) throw new Error("Player body disappeared after release");
-        world.step(Time.FIXED_DT); // Friction continues damping the prior velocity.
-        const neutral = readBody(world, player);
-        if (!neutral) throw new Error("Player body disappeared on the neutral step");
-        for (let tick = 0; tick < 120; tick++) world.step(Time.FIXED_DT);
-        const resting = readBody(world, player)!;
-        world.step(Time.FIXED_DT); // Friction has brought the released player to rest.
-        const settled = readBody(world, player);
-        if (!settled) throw new Error("Player body disappeared on the settled neutral step");
-        if (
-            Math.hypot(
-                settled.position[0] - resting.position[0],
-                settled.position[2] - resting.position[2],
-            ) > 0.0001
-        )
-            throw new Error("released Player movement was replayed after the neutral step");
+        expect(world.storage(PlayerInput).jumpPresses.get(player)).toBe(0);
+        expect(world.storage(Character).velocity.y.get(player)).toBeLessThan(4);
     } finally {
         app.dispose();
     }

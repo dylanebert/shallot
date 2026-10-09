@@ -8,6 +8,7 @@ import {
     createApp,
     DrivePlayerSystem,
     GroundState,
+    LocalPlayer,
     Player,
     PlayerPlugin,
     pressKey,
@@ -46,6 +47,7 @@ async function scene(y = 2) {
             });
             world.add(player, Character);
             world.add(player, Player, { camera });
+            world.add(player, LocalPlayer);
         },
     });
     return { app, world: app.world, player, floor };

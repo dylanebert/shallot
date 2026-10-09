@@ -441,7 +441,9 @@ These helpers use the owning World:
 Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallot/standard/physics` (also re-exported from the root). `/character` and `/character/core` are removed. `Character` requires a capsule `Body` with `type: BodyType.Kinematic`; its pogo spring floats the lower sphere centre three radii above ground. Retune spawn and camera heights for that float.
 
 - Replace `move` with a fixed-tick write to `world.storage(Character).velocity`, ordered before `CharacterPlugin.systems`. Standard physics resolves that velocity, without gravity or acceleration.
-- Replace `jump` with your input policy's velocity write. With `PlayerPlugin`, the Space press edge is buffered by Player; jump tuning belongs to `Player.jumpSpeed`.
+- An external producer can add and write `PlayerInput` with held `move` axes, `sprint`, absolute `yaw`/`pitch`, and a cumulative `jumpPresses` count. If absent, `DrivePlayerSystem` adds it seeded from `Player.yaw` and `Player.pitch`; every fixed tick copies the record's look angles to `Player`. It does not sample devices.
+- The former keyboard-driven `Player` also needs `LocalPlayer`; its setup producer ensures `PlayerInput` and samples this World's devices before the fixed loop. Move mouse-look `sensitivity` from `Player` to `LocalPlayer.sensitivity`; local view angles start from `Player.yaw` and `Player.pitch`.
+- Replace `jump` with your input policy's velocity write. The local producer counts Space presses; `Player` buffers each new count once, and jump tuning belongs to `Player.jumpSpeed`.
 - Replace `globalTransform` with `world.storage(GlobalTransform).translation`; test membership with `world.has(eid, GlobalTransform)` when placement may not yet exist.
 - Replace `grounded` with `world.storage(Character).groundState.get(eid) === GroundState.OnGround`; steep ground is a separate state.
 - Replace `teleport` with `setKinematic(world, eid, position, rotation, true)` from `/standard/physics`, then clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn.

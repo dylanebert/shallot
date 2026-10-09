@@ -15,25 +15,31 @@ import {
     type Plugin,
     type System,
     Time,
-    vec4,
+    u8,
+    u32,
+    vec2,
     type World,
 } from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
 import { Character, CharacterPlugin, GroundState } from "../../standard/physics";
 import { PlayerFollow } from "./follow";
+import { PlayerMotion } from "./motion";
 
 const MAX_PITCH = Math.PI / 2 - 0.01;
-// the look normalizes by this fixed reference height, never the live canvas — the why is in
-// UpdatePlayerControlSystem.update (resolution-independence).
+// the look normalizes by this fixed reference height, never the live canvas size.
 const LOOK_REFERENCE_HEIGHT = 1080;
 
 /** First-person feel on a kinematic capsule Body with Character. Input is consumed on fixed ticks; the separate camera's Transform is authored during simulation using interpolated fixed placement. */
 export const Player = component(
     "Player",
     {
-        /** look yaw in radians (turn around world Y); set it to face a direction at spawn */
+        /**
+         * Look yaw in radians around world Y. Set spawn facing here; each fixed tick copies PlayerInput.yaw.
+         */
         yaw: f32,
-        /** look pitch in radians (clamped to ±90°); set it to tilt the view at spawn */
+        /**
+         * Look pitch in radians. Set spawn tilt here; each fixed tick copies PlayerInput.pitch. Local look clamps it to ±90°.
+         */
         pitch: f32,
         /** walk speed (m/s) the move input is scaled to */
         speed: f32,
@@ -51,9 +57,6 @@ export const Player = component(
         jumpBuffer: f32,
         /** sprint multiplier applied while Shift is held */
         sprint: f32,
-        /** mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look
-         * speed is resolution-independent, so the same mouse motion turns the same angle at any canvas size) */
-        sensitivity: f32,
         /** camera height above the capsule centre (the eye offset) */
         eyeHeight: f32,
         /** camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding) */
@@ -73,7 +76,6 @@ export const Player = component(
             jumpSpeed: 5,
             coyoteTime: 0.15,
             jumpBuffer: 0.2,
-            sensitivity: 1.5,
             eyeHeight: 0.7,
             distance: 0,
             camera: 0,
@@ -91,11 +93,100 @@ function setupPointerLock(world: World): void {
     });
 }
 
-const PlayerMotion = component("PlayerMotion", {
-    carry: vec4,
-    coyote: f32,
-    buffer: f32,
-});
+/** Per-tick actions for one player. Producers write this record; fixed gameplay reads it without sampling devices. */
+export const PlayerInput = component(
+    "PlayerInput",
+    {
+        /** held lateral (positive right) and forward (positive forward) axes in [-1, 1] */
+        move: vec2,
+        /** whether sprint is held */
+        sprint: u8,
+        /** absolute look yaw in radians */
+        yaw: f32,
+        /** absolute look pitch in radians */
+        pitch: f32,
+        /** cumulative number of jump presses produced for this player */
+        jumpPresses: u32,
+    },
+    { defaults: () => ({ move: [0, 0], sprint: 0, yaw: 0, pitch: 0, jumpPresses: 0 }) },
+);
+
+/** Local device ownership and the camera angles accumulated before each fixed loop. */
+export const LocalPlayer = component(
+    "LocalPlayer",
+    {
+        /** mouse-look radians per pointer-lock pixel at the fixed 1080px reference height */
+        sensitivity: f32,
+        /** locally accumulated view yaw in radians */
+        viewYaw: f32,
+        /** locally accumulated view pitch in radians */
+        viewPitch: f32,
+        /** whether the view angles have been seeded from Player */
+        initialized: u8,
+    },
+    { defaults: () => ({ sensitivity: 1.5, viewYaw: 0, viewPitch: 0, initialized: 0 }) },
+);
+
+/** Fixed-tick movement history, including the latest jump press count consumed. */
+const LOCAL_PLAYERS = [LocalPlayer, Player];
+
+/** Sample the local devices once per frame, before any fixed ticks. */
+const LocalPlayerInputSystem: System = {
+    name: "local-input",
+    group: "setup",
+    update(world) {
+        const devices = world.resource(Devices);
+        const active = inputEnabled(world);
+        const players = world.storage(Player);
+        const local = world.storage(LocalPlayer);
+        const inputs = world.storage(PlayerInput);
+        for (const eid of world.query(LOCAL_PLAYERS)) {
+            if (!world.has(eid, PlayerInput)) {
+                world.add(eid, PlayerInput, {
+                    yaw: players.yaw.get(eid),
+                    pitch: players.pitch.get(eid),
+                });
+            }
+            if (!local.initialized.get(eid)) {
+                local.viewYaw.set(eid, players.yaw.get(eid));
+                local.viewPitch.set(eid, players.pitch.get(eid));
+                local.initialized.set(eid, 1);
+            }
+
+            let yaw = local.viewYaw.get(eid);
+            let pitch = local.viewPitch.get(eid);
+            if (active && devices.pointer.lock.status === "locked") {
+                const sensitivity = local.sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
+                yaw -= devices.pointer.deltaX * sensitivity;
+                pitch = clamp(pitch - devices.pointer.deltaY * sensitivity, -MAX_PITCH, MAX_PITCH);
+                local.viewYaw.set(eid, yaw);
+                local.viewPitch.set(eid, pitch);
+            }
+
+            const move = inputs.move.column;
+            const offset = eid * 2;
+            move[offset] = active
+                ? Number(devices.keys.held.has("KeyD")) - Number(devices.keys.held.has("KeyA"))
+                : 0;
+            move[offset + 1] = active
+                ? Number(devices.keys.held.has("KeyW")) - Number(devices.keys.held.has("KeyS"))
+                : 0;
+            inputs.move.markChanged(eid);
+            inputs.sprint.set(
+                eid,
+                Number(
+                    active &&
+                        (devices.keys.held.has("ShiftLeft") || devices.keys.held.has("ShiftRight")),
+                ),
+            );
+            inputs.yaw.set(eid, yaw);
+            inputs.pitch.set(eid, pitch);
+            if (active && !world.time.paused && devices.keys.pressed.has("Space")) {
+                inputs.jumpPresses.set(eid, inputs.jumpPresses.get(eid) + 1);
+            }
+        }
+    },
+};
 
 /** Fixed-tick input and feel, before the published character movement systems. */
 export const DrivePlayerSystem: System = {
@@ -106,16 +197,29 @@ export const DrivePlayerSystem: System = {
         const players = world.storage(Player);
         const characters = world.storage(Character);
         const motion = world.storage(PlayerMotion);
-        const input = world.resource(Devices);
+        const inputs = world.storage(PlayerInput);
         const dt = Time.FIXED_DT;
-        for (const eid of world.query(PLAYER_BODIES)) {
+        for (const eid of world.query(DRIVEN_PLAYERS)) {
             if (!world.has(eid, PlayerMotion)) world.add(eid, PlayerMotion);
+            if (!world.has(eid, PlayerInput)) {
+                world.add(eid, PlayerInput, {
+                    yaw: players.yaw.get(eid),
+                    pitch: players.pitch.get(eid),
+                });
+            }
             const grounded = characters.groundState.column[eid] === GroundState.OnGround;
             let coyote = grounded
                 ? players.coyoteTime.column[eid]
                 : Math.max(0, motion.coyote.column[eid] - dt);
             let buffer = Math.max(0, motion.buffer.column[eid] - dt);
-            if (input.keys.pressed.has("Space")) buffer = players.jumpBuffer.column[eid];
+            const jumpPresses = inputs.jumpPresses.column[eid];
+            if (jumpPresses !== motion.lastJumpPresses.column[eid]) {
+                buffer = players.jumpBuffer.column[eid];
+            }
+            motion.lastJumpPresses.set(eid, jumpPresses);
+            const yaw = inputs.yaw.column[eid];
+            players.yaw.set(eid, yaw);
+            players.pitch.set(eid, inputs.pitch.column[eid]);
             let vx = characters.velocity.column[eid * 4] - motion.carry.column[eid * 4];
             let vy = characters.velocity.column[eid * 4 + 1] - motion.carry.column[eid * 4 + 1];
             let vz = characters.velocity.column[eid * 4 + 2] - motion.carry.column[eid * 4 + 2];
@@ -131,24 +235,16 @@ export const DrivePlayerSystem: System = {
                 vz *= ratio;
             }
             if (grounded) vy = 0;
-            const yaw = players.yaw.column[eid];
-            let lx = 0,
-                lz = 0;
-            if (inputEnabled(world)) {
-                if (input.keys.held.has("KeyW")) lz--;
-                if (input.keys.held.has("KeyS")) lz++;
-                if (input.keys.held.has("KeyA")) lx--;
-                if (input.keys.held.has("KeyD")) lx++;
-            }
-            const length = Math.sqrt(lx * lx + lz * lz);
+            const inputOffset = eid * 2;
+            const lx = inputs.move.column[inputOffset];
+            const forward = inputs.move.column[inputOffset + 1];
+            const length = Math.sqrt(lx * lx + forward * forward);
             const maxSpeed =
                 players.speed.column[eid] *
-                (grounded && (input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight"))
-                    ? players.sprint.column[eid]
-                    : 1);
+                (grounded && inputs.sprint.column[eid] !== 0 ? players.sprint.column[eid] : 1);
             if (length > 0) {
-                const dx = (lz * Math.sin(yaw) + lx * Math.cos(yaw)) / length;
-                const dz = (lz * Math.cos(yaw) - lx * Math.sin(yaw)) / length;
+                const dx = (-forward * Math.sin(yaw) + lx * Math.cos(yaw)) / length;
+                const dz = (-forward * Math.cos(yaw) - lx * Math.sin(yaw)) / length;
                 const acceleration = Math.min(
                     Math.max(0, maxSpeed - vx * dx - vz * dz),
                     players.acceleration.column[eid] * maxSpeed * dt,
@@ -186,6 +282,7 @@ export const DrivePlayerSystem: System = {
 };
 // query terms held once, so a steady frame mints no array.
 const PLAYER_BODIES = [Player, Body];
+const DRIVEN_PLAYERS = [Player, Body, Character];
 const ORPHAN_FOLLOWS = [not(Player), PlayerFollow];
 
 // Camera interpolation samples the body's fixed placement rather than a rendered or read-back pose.
@@ -280,8 +377,7 @@ function setLook(world: World, cam: number, yaw: number, pitch: number): void {
 const _pos: [number, number, number] = [0, 0, 0];
 
 /**
- * Mouse-look and the follow-camera Transform, run in the
- * `simulation` group. Exported as an ordering anchor: a camera-juice system that perturbs the authored camera
+ * Pose the follow-camera Transform in the `simulation` group. Exported as an ordering anchor: a camera-juice system that perturbs the authored camera
  * placement declares `after: [UpdatePlayerControlSystem]`, reading the base
  * `Transform` this writes before `BeginFrameSystem` (draw) consumes it.
  */
@@ -292,22 +388,15 @@ export const UpdatePlayerControlSystem: System = {
     setup: setupPointerLock,
 
     update(world: World) {
-        // Suspended input leaves presentation following the physics pose without consuming look.
-        const input = world.resource(Devices);
-        const active = inputEnabled(world);
+        const players = world.storage(Player);
+        const local = world.storage(LocalPlayer);
         for (const eid of world.query(PLAYER_BODIES)) {
-            let yaw = world.storage(Player).yaw.column[eid];
-            let pitch = world.storage(Player).pitch.column[eid];
-            if (active && input.pointer.lock.status === "locked") {
-                // Resolution-independent mouse-look. Pointer-lock movementX/Y is physical mouse motion in CSS
-                // px — independent of canvas size — so the angle per pixel must NOT scale with the canvas.
-                const s = world.storage(Player).sensitivity.column[eid] / LOOK_REFERENCE_HEIGHT;
-                yaw -= input.pointer.deltaX * s;
-                pitch = clamp(pitch - input.pointer.deltaY * s, -MAX_PITCH, MAX_PITCH);
-                world.storage(Player).yaw.set(eid, yaw);
-                world.storage(Player).pitch.set(eid, pitch);
-            }
-
+            const yaw = world.has(eid, LocalPlayer)
+                ? local.viewYaw.column[eid]
+                : players.yaw.column[eid];
+            const pitch = world.has(eid, LocalPlayer)
+                ? local.viewPitch.column[eid]
+                : players.pitch.column[eid];
             const sy = Math.sin(yaw);
             const cy = Math.cos(yaw);
 
@@ -331,8 +420,6 @@ export const UpdatePlayerControlSystem: System = {
             translation.markChanged(cam);
             setLook(world, cam, yaw, pitch);
         }
-
-        // InputPlugin clears the shared pointer delta at the draw boundary.
     },
 };
 
@@ -341,7 +428,12 @@ export const PlayerPlugin: Plugin = {
     name: "Player",
     // Fixed movement and follow history live in components; Devices belongs to Input.
     recovery: "stateless",
-    systems: [DrivePlayerSystem, SnapshotPlayerPositionSystem, UpdatePlayerControlSystem],
-    components: [PlayerMotion, Player],
+    systems: [
+        DrivePlayerSystem,
+        SnapshotPlayerPositionSystem,
+        UpdatePlayerControlSystem,
+        LocalPlayerInputSystem,
+    ],
+    components: [PlayerMotion, Player, PlayerInput, LocalPlayer],
     dependencies: [CharacterPlugin, InputPlugin],
 };
