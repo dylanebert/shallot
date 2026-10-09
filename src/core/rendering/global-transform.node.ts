@@ -284,6 +284,50 @@ async function interpolatedRows(
     );
 }
 
+async function placementHistoryApp(): Promise<{
+    app: Awaited<ReturnType<typeof createApp>>;
+    world: engine.World;
+    eid: number;
+    writeOnTick(x: number): void;
+}> {
+    let eid = -1;
+    let tickWrite: number | undefined;
+    const app = await createApp({
+        defaults: false,
+        plugins: [
+            RenderingPlugin,
+            {
+                name: "PlacementHistoryWriter",
+                recovery: "stateless",
+                systems: [
+                    {
+                        group: "fixed",
+                        update(world) {
+                            if (tickWrite === undefined) return;
+                            world.storage(Transform).translation.x.set(eid, tickWrite);
+                            tickWrite = undefined;
+                        },
+                    },
+                ],
+            },
+        ],
+    });
+    const world = app.world;
+    eid = world.create();
+    world.add(eid, Transform);
+    globalTransformTable(world);
+    world.step(0);
+    await world.gpu.device.queue.onSubmittedWorkDone();
+    return { app, world, eid, writeOnTick: (x) => (tickWrite = x) };
+}
+
+async function expectCurrentPlacement(world: engine.World, eid: number): Promise<void> {
+    const current = world.resource(TransformRuntime).current!;
+    expect(await renderedX(world, current, eid)).toBe(
+        world.storage(GlobalTransform).translation.x.get(eid),
+    );
+}
+
 async function handoverApp(initial: "Body" | "Transform"): Promise<{
     app: Awaited<ReturnType<typeof createApp>>;
     handover(action: (world: engine.World, eid: number) => void): void;
@@ -504,6 +548,51 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
             (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([17, 3, -2]);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("restore re-stages ticked GlobalTransform rows for the next GPU table upload", async () => {
+    const { app, world, eid, writeOnTick } = await placementHistoryApp();
+    try {
+        writeOnTick(10);
+        world.tick();
+        const snapshot = world.snapshot();
+        world.restore(snapshot);
+        world.step(Time.FIXED_DT);
+        world.step(Time.FIXED_DT);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(10);
+        await expectCurrentPlacement(world, eid);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a later no-write tick does not replay the earlier phase-1 GlobalTransform range", async () => {
+    const { app, world, eid, writeOnTick } = await placementHistoryApp();
+    try {
+        writeOnTick(10);
+        world.tick();
+        world.storage(Transform).translation.x.set(eid, 20);
+        world.tick();
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
+        world.step(0);
+        await expectCurrentPlacement(world, eid);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a fixed step does not replay the earlier phase-1 GlobalTransform range", async () => {
+    const { app, world, eid, writeOnTick } = await placementHistoryApp();
+    try {
+        writeOnTick(10);
+        world.tick();
+        world.storage(Transform).translation.x.set(eid, 20);
+        world.step(Time.FIXED_DT);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
+        await expectCurrentPlacement(world, eid);
     } finally {
         app.dispose();
     }
