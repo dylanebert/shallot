@@ -8,11 +8,20 @@ import { CEILING } from "../../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-for (const kind of ["mesh", "compound"]) {
-    test(`warm ${kind} contacts with custom material mixing allocate no JavaScript heap`, async () => {
+const materialMixingScenes = [
+    ...[0, 16, 32, 48].map((start) => ({
+        label: `mesh contacts ${start + 1}-${start + 16}`,
+        input: `mesh:${start}`,
+        warm: 2400,
+    })),
+    { label: "compound contacts", input: "compound", warm: 6000 },
+];
+
+for (const { label, input, warm } of materialMixingScenes) {
+    test(`warm ${label} with custom material mixing allocate no JavaScript heap`, async () => {
         const sample = await sampleAllocation(
             resolve(import.meta.dir, "material-allocation.entry.ts"),
-            { warm: kind === "mesh" ? 2400 : 6000, frames: 600, input: kind },
+            { warm, frames: 600, input },
         );
         expect(sample.control.length).toBeGreaterThan(0);
         const failure = allocationFailure(sample);

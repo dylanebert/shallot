@@ -14,7 +14,10 @@ export const control = () => {
     controlSink = { frame: 0 };
 };
 
-export default async function create(kind: string) {
+export default async function create(input: string) {
+    const [kind, startText] = input.split(":");
+    const start = startText === undefined ? 0 : Number(startText);
+    const count = startText === undefined ? 64 : 16;
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const world = app.world;
     const physics = physicsWorld(world)!;
@@ -57,7 +60,8 @@ export default async function create(kind: string) {
     }
     const hull = makeBoxHull(0.5, 0.5, 0.5);
     const boxes: { body: Body; position: Vec3 }[] = [];
-    for (let i = 0; i < 64; i++) {
+    for (let offset = 0; offset < count; offset++) {
+        const i = start + offset;
         const position = { x: (i % 8) * 3 - 12, y: 0.5, z: Math.floor(i / 8) * 3 - 12 };
         const body = physics.createBody({ type: BodyType.Dynamic, position });
         body.createHull({ baseMaterial: { ...material, userMaterialId: BigInt(i + 1) } }, hull);
