@@ -530,8 +530,8 @@ export class World {
         const storage: Record<string, unknown> = {};
         for (const { name, field } of fields(component)) {
             const column = new WorldField(field, INITIAL_CAPACITY, this);
-            this._columns.register(column);
             column.ensure(this._highWater);
+            this._columns.register(column);
             columns.set(name, column);
             storage[name] = column.bind();
         }
@@ -637,9 +637,7 @@ export class World {
     create(): number {
         const eid = this._entities.add();
         if (eid + 1 > this._highWater) this._highWater = eid + 1;
-        for (const entry of this._storage.values()) {
-            for (const field of entry.fields.values()) field.ensure(eid + 1);
-        }
+        this._columns.ensure(eid + 1);
         return eid;
     }
 

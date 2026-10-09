@@ -4,14 +4,27 @@ import type { WorldField } from "./storage";
 /** @internal Field storage owns its capture boundary and never shrinks live columns. */
 export class FieldColumns {
     highWater = 0;
+    #capacity = Infinity;
     readonly #fields: WorldField[] = [];
 
     clear(): void {
         this.#fields.length = 0;
+        this.#capacity = Infinity;
     }
 
     register(field: WorldField): void {
         this.#fields.push(field);
+        this.#capacity = Math.min(this.#capacity, field.column.length / field.type.lanes);
+    }
+
+    ensure(capacity: number): void {
+        if (capacity <= this.#capacity) return;
+        let next = Infinity;
+        for (const field of this.#fields) {
+            field.ensure(capacity);
+            next = Math.min(next, field.column.length / field.type.lanes);
+        }
+        this.#capacity = next;
     }
 
     snapshot(): { highWater: number; fields: TypedArray[] } {
