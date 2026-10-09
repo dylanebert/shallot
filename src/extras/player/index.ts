@@ -127,7 +127,6 @@ export const LocalPlayer = component(
     { defaults: () => ({ sensitivity: 1.5, viewYaw: 0, viewPitch: 0, initialized: 0 }) },
 );
 
-/** Fixed-tick movement history, including the latest jump press count consumed. */
 const LOCAL_PLAYERS = [LocalPlayer, Player];
 
 /** Sample the local devices once per frame, before any fixed ticks. */

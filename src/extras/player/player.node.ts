@@ -155,7 +155,6 @@ test("a player without LocalPlayer ignores the keyboard", async () => {
         const after = readBody(world, player)!;
 
         expect(world.has(player, LocalPlayer)).toBe(false);
-        expect(world.has(player, PlayerInput)).toBe(true);
         expect(after.position[0]).toBeCloseTo(before.position[0]);
         expect(after.position[2]).toBeCloseTo(before.position[2]);
     } finally {
@@ -171,6 +170,7 @@ test("world.tick drives move, sprint, look and jump from records without device 
         world.storage(Player).pitch.set(player, 0.2);
         for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
         expect(world.storage(Character).groundState.get(player)).toBe(GroundState.OnGround);
+        expect(world.has(player, PlayerInput)).toBe(true);
         expect(world.storage(Player).yaw.get(player)).toBeCloseTo(0.3);
         expect(world.storage(Player).pitch.get(player)).toBeCloseTo(0.2);
 
@@ -203,10 +203,10 @@ test("a jump press before a zero-tick step jumps on the next tick", async () => 
         pressKey(world, "Space");
         world.step(Time.FIXED_DT / 2);
         expect(world.time.fixedSteps).toBe(0);
-        expect(world.storage(PlayerInput).jumpPresses.get(player)).toBe(1);
         world.tick();
 
         expect(world.storage(Character).velocity.y.get(player)).toBeGreaterThan(4);
+        expect(world.storage(PlayerInput).jumpPresses.get(player)).toBe(1);
     } finally {
         app.dispose();
     }
@@ -259,17 +259,21 @@ test("pointer motion before a step turns that step's first tick movement directi
         world.storage(Player).pitch.set(player, 0.2);
         world.storage(LocalPlayer).sensitivity.set(player, 2.5);
         for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
-        expect(world.storage(LocalPlayer).viewYaw.get(player)).toBeCloseTo(0.4);
-        expect(world.storage(LocalPlayer).viewPitch.get(player)).toBeCloseTo(0.2);
         pointerLockChanged(world, true);
         pointerMove(world, 0, 0, 1080, 100);
         pressKey(world, "KeyW");
         world.step(Time.FIXED_DT);
 
+        expect(world.storage(Character).velocity.x.get(player)).toBeGreaterThan(4);
         const sensitivity = world.storage(LocalPlayer).sensitivity.get(player) / 1080;
         expect(world.storage(Player).yaw.get(player)).toBeCloseTo(0.4 - 1080 * sensitivity);
         expect(world.storage(Player).pitch.get(player)).toBeCloseTo(0.2 - 100 * sensitivity);
-        expect(world.storage(Character).velocity.x.get(player)).toBeGreaterThan(4);
+        expect(world.storage(LocalPlayer).viewYaw.get(player)).toBeCloseTo(
+            0.4 - 1080 * sensitivity,
+        );
+        expect(world.storage(LocalPlayer).viewPitch.get(player)).toBeCloseTo(
+            0.2 - 100 * sensitivity,
+        );
     } finally {
         app.dispose();
     }
