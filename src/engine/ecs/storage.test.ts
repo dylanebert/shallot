@@ -178,6 +178,37 @@ for (const type of [f32, vec2, vec4] as const) {
     });
 }
 
+test("restore marks changes confined to each vector lane and a scalar lane", () => {
+    const State = component("RestoreStrideChanges", { vector: vec4, scalar: f32 });
+    const world = new World();
+    world.registry.register(State);
+    const eid = world.create();
+    world.add(eid, State);
+    const { vector, scalar } = world.storage(State);
+    vector.set(eid, 1, 2, 3, 4);
+    scalar.set(eid, 5);
+    world.clearChanges();
+    const image = world.snapshot();
+    const vectorField = world.fieldStorage(State, "vector");
+    const scalarField = world.fieldStorage(State, "scalar");
+
+    for (let lane = 0; lane < 4; lane++) {
+        vector.column[eid * 4 + lane] = 10 + lane;
+        world.clearChanges();
+        world.restore(image);
+        expect(vectorField.dirty[eid >>> 5] & (1 << (eid & 31))).not.toBe(0);
+        expect(scalarField.dirty[eid >>> 5] & (1 << (eid & 31))).toBe(0);
+        world.clearChanges();
+    }
+
+    scalar.column[eid] = 6;
+    world.clearChanges();
+    world.restore(image);
+    expect(scalarField.dirty[eid >>> 5] & (1 << (eid & 31))).not.toBe(0);
+    expect(vectorField.dirty[eid >>> 5] & (1 << (eid & 31))).toBe(0);
+    world.dispose();
+});
+
 test("restore publishes changed field values but leaves equal values unmarked after clear", () => {
     const State = component("RestoreChangedField", { value: f32 });
     const world = new World();
