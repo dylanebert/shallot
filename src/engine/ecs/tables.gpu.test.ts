@@ -367,7 +367,7 @@ test("two in-flight submissions retain distinct upload ranges until their existi
         commands[0] = encoder.finish();
         device.queue.submit(commands);
         world.endGpuFrame();
-        return world.gpu.sync();
+        return world.frameFence!;
     };
     const first = record(11, observations[0]);
     const second = record(22, observations[1]);
@@ -378,22 +378,58 @@ test("two in-flight submissions retain distinct upload ranges until their existi
         expect(new DataView(observation.getMappedRange()).getFloat32(0, true)).toBe([11, 22][i]);
         observation.unmap();
     }
-    const descriptor = Object.getOwnPropertyDescriptor(device, "createBuffer");
-    const createBuffer = device.createBuffer.bind(device);
+    const own = world.own;
+    const ownBound = own.bind(world);
     let allocations = 0;
-    Object.defineProperty(device, "createBuffer", {
-        configurable: true,
-        value: (options: GPUBufferDescriptor) => {
-            allocations++;
-            return createBuffer(options);
-        },
-    });
+    world.own = (resource) => {
+        allocations++;
+        ownBound(resource);
+    };
     try {
         await bounded("completed upload recycling", record(33));
         expect(allocations).toBe(0);
     } finally {
-        if (descriptor) Object.defineProperty(device, "createBuffer", descriptor);
-        else Reflect.deleteProperty(device, "createBuffer");
+        world.own = own;
+    }
+});
+
+const steppedRecycling = subject("SteppedUploadRecycling", [], (world) =>
+    world.table("stepped-upload-recycling", Record),
+);
+test("a stepped World reclaims frame staging on its own fence without runApp or manual sync", async () => {
+    const { world, table } = steppedRecycling();
+    table.reserveSlots((64 * 1024) / table.rowBytes);
+    const bytes = new ArrayBuffer(64 * 1024);
+    const commands: GPUCommandBuffer[] = [];
+    const device = world.gpu.device;
+    world.addSystem({
+        group: "draw",
+        update() {
+            const encoder = device.createCommandEncoder();
+            world.beginGpuFrame(encoder);
+            world.uploadGpuTable(table.buffer, 0, bytes, bytes.byteLength);
+            commands[0] = encoder.finish();
+            device.queue.submit(commands);
+            world.endGpuFrame();
+        },
+    });
+    world.step(0);
+    await bounded("warm frame fence", world.frameFence ?? Promise.resolve());
+    const originalOwn = world.own;
+    const own = originalOwn.bind(world);
+    let allocations = 0;
+    world.own = (resource) => {
+        allocations++;
+        own(resource);
+    };
+    try {
+        for (let i = 0; i < 8; i++) {
+            world.step(0);
+            await bounded("owned frame completion", world.frameFence ?? Promise.resolve());
+        }
+        expect(allocations).toBe(0);
+    } finally {
+        world.own = originalOwn;
     }
 });
 
@@ -451,21 +487,18 @@ test("completed upload chunks recycle without allocating buffers and a single fr
         },
     });
     world.step(0);
-    await bounded("upload warmup", world.gpu.sync());
-    const descriptor = Object.getOwnPropertyDescriptor(device, "createBuffer");
-    const createBuffer = device.createBuffer.bind(device);
+    await bounded("upload warmup", world.frameFence!);
+    const own = world.own;
+    const ownBound = own.bind(world);
     let allocations = 0;
-    Object.defineProperty(device, "createBuffer", {
-        configurable: true,
-        value: (options: GPUBufferDescriptor) => {
-            allocations++;
-            return createBuffer(options);
-        },
-    });
+    world.own = (resource) => {
+        allocations++;
+        ownBound(resource);
+    };
     try {
         for (let i = 0; i < 8; i++) {
             world.step(0);
-            await bounded("upload reuse", world.gpu.sync());
+            await bounded("upload reuse", world.frameFence!);
         }
         expect(allocations).toBe(0);
         const encoder = device.createCommandEncoder();
@@ -483,8 +516,7 @@ test("completed upload chunks recycle without allocating buffers and a single fr
         world.endGpuFrame();
         expect(allocations).toBe(0);
     } finally {
-        if (descriptor) Object.defineProperty(device, "createBuffer", descriptor);
-        else Reflect.deleteProperty(device, "createBuffer");
+        world.own = own;
     }
 });
 

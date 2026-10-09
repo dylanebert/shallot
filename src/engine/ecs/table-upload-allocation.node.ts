@@ -23,7 +23,7 @@ test("whole steady table frames reuse staging and only the existing completion p
         commands[0] = encoder.finish();
         device.queue.submit(commands);
         world.endGpuFrame();
-        return world.gpu.sync();
+        return world.frameFence!;
     };
     for (let i = 0; i < 3; i++) await frame();
     let promises = 0,
@@ -31,9 +31,9 @@ test("whole steady table frames reuse staging and only the existing completion p
         buffers = 0;
     const queue = device.queue;
     const fence = queue.onSubmittedWorkDone.bind(queue);
-    const createBuffer = device.createBuffer.bind(device);
+    const own = world.own;
+    const ownBound = own.bind(world);
     const fenceDescriptor = Object.getOwnPropertyDescriptor(queue, "onSubmittedWorkDone");
-    const bufferDescriptor = Object.getOwnPropertyDescriptor(device, "createBuffer");
     const then = Promise.prototype.then;
     Object.defineProperty(queue, "onSubmittedWorkDone", {
         configurable: true,
@@ -42,13 +42,10 @@ test("whole steady table frames reuse staging and only the existing completion p
             return fence();
         },
     });
-    Object.defineProperty(device, "createBuffer", {
-        configurable: true,
-        value: (options: GPUBufferDescriptor) => {
-            buffers++;
-            return createBuffer(options);
-        },
-    });
+    world.own = (resource) => {
+        buffers++;
+        ownBound(resource);
+    };
     const thenDescriptor = Object.getOwnPropertyDescriptor(Promise.prototype, "then")!;
     // biome-ignore lint/suspicious/noThenProperty: count native promise reactions, not a new thenable.
     Object.defineProperty(Promise.prototype, "then", {
@@ -71,8 +68,7 @@ test("whole steady table frames reuse staging and only the existing completion p
         Object.defineProperty(Promise.prototype, "then", thenDescriptor);
         if (fenceDescriptor) Object.defineProperty(queue, "onSubmittedWorkDone", fenceDescriptor);
         else Reflect.deleteProperty(queue, "onSubmittedWorkDone");
-        if (bufferDescriptor) Object.defineProperty(device, "createBuffer", bufferDescriptor);
-        else Reflect.deleteProperty(device, "createBuffer");
+        world.own = own;
         app.dispose();
     }
 });

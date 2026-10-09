@@ -31,7 +31,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback. GPU-only tables have no CPU record source or upload.
 - Unchanged records upload nothing; a changed record uploads its spanning range.
 - Uploads preserve command order across buffer growth. Before a frame encoder opens, queue writes and immediate growth submissions follow program order; within a frame, distinct staging ranges preserve encoded observations.
-- Frame upload staging recycles through the existing `world.gpu.sync` completion fence, never an additional per-upload or per-frame fence. The upload-byte bound applies to one encoded frame, not accumulated exact ticks.
+- Each submitted frame owns one completion fence from `endGpuFrame`; `runApp` waits on that same fence. Upload staging recycles when it completes, with no extra staging fence. The upload-byte bound applies to one encoded frame, not accumulated exact ticks.
 - Growth preserves contents and changes generation; consumers rebuild affected bind groups, not pipelines.
 - Shader arrays are runtime-sized. Device buffer limits bound table capacity, and refusal names the cause.
 - Fixed writes precede head-of-draw upload and GPU passes, including writes from exact ticks before a frame.

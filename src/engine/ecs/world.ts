@@ -51,6 +51,7 @@ export class World {
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
     private _frameEncoder: GPUCommandEncoder | undefined;
+    private _frameFence: Promise<void> | undefined;
     private _retiredBuffers: GPUBuffer[] = [];
     private _uploadChunks: UploadChunk[] = [];
     private _frameUploadBytes = 0;
@@ -124,6 +125,12 @@ export class World {
         this._snapshots.register(Symbol("membership"), this._components);
     }
 
+    /** Fence for the latest step's submitted frame; undefined when that step submitted no frame.
+     * Reading it never submits another fence. */
+    get frameFence(): Promise<void> | undefined {
+        return this._frameFence;
+    }
+
     /** this world's GPU device, registries, typed handles and frame state. */
     get gpu(): WorldGpu {
         if (!this._gpu) throw new Error("World.gpu is unavailable before build acquires a device");
@@ -169,19 +176,23 @@ export class World {
     /** @internal The renderer opens one encoder; engine work records into it. */
     beginGpuFrame(encoder: GPUCommandEncoder): void {
         this._frameEncoder = encoder;
+        this._frameFence = undefined;
         this._frameUploadBytes = 0;
     }
 
-    /** @internal Close a submitted frame and release buffers retired by growth.
-     * Its following gpu.sync fence retires staging ranges; runApp already issues that fence. */
+    /** @internal Close a submitted frame, release retired buffers and issue its completion fence.
+     * runApp waits on this same fence; its completion makes staging ranges reusable. */
     endGpuFrame(): void {
+        const submittedFrame = this._frameEncoder !== undefined;
         this._frameEncoder = undefined;
-        if (!this._disposed)
+        if (submittedFrame && !this._disposed) {
             for (const chunk of this._uploadChunks) {
                 if (!chunk.used) continue;
                 chunk.used = false;
                 chunk.fence = this.gpu.fences.issued + 1;
             }
+            this._frameFence = this.gpu.sync();
+        }
         for (const buffer of this._retiredBuffers) buffer.destroy();
         this._retiredBuffers.length = 0;
     }
@@ -441,6 +452,7 @@ export class World {
      * Under `runApp`, errors instead log and pause the system until swapped or rebuilt. */
     step(deltaTime = Time.DEFAULT_DT): void {
         if (this._stepping) throw new Error("World.step: refuses inside a step or tick");
+        this._frameFence = undefined;
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
         this._stepInput.deltaTime = deltaTime;

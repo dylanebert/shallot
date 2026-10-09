@@ -132,7 +132,7 @@ export interface WorldGpu {
     frame: number;
     /** frames submitted but not yet retired by the GPU */
     pending(): number;
-    /** register the just-submitted frame's completion fence; tracks {@link pending}, returns the fence */
+    /** Register a completion fence after submitted queue work; tracks {@link pending}, returns the fence. */
     sync(): Promise<void>;
     /** Completion watermarks for the existing sync fences, not additional submissions.
      * A resource used before the next sync may recycle when that fence completes. */

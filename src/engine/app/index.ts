@@ -433,7 +433,8 @@ export async function runApp(config: AppConfig): Promise<App> {
     try {
         const world = app.world;
         world.logAndPauseSystemErrors();
-        const { device, pending, sync } = world.gpu;
+        const { device, pending } = world.gpu;
+        const sync = world.gpu.sync;
         // UI teardown is World-owned: the overlay auto-registers its removal (mountOverlay above), and the
         // ui cleanup registers beside it. Both run at world.dispose() — after the plugin dispose hooks on the
         // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
@@ -516,7 +517,8 @@ export async function runApp(config: AppConfig): Promise<App> {
                 world.fenceWait(pendingFenceWaitMs);
                 pendingFenceWaitMs = 0;
                 world.step(dt);
-                const fence = sync?.();
+                // endGpuFrame owns this submission's fence; wait on it rather than issuing a second.
+                const fence = world.frameFence;
                 if (fence) {
                     fenceIssued[fenceTail] = now();
                     fenceTail = (fenceTail + 1) % MAX_FRAMES_IN_FLIGHT;

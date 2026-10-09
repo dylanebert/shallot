@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { runApp } from "./index";
+import { RenderingPlugin } from "../../core/rendering";
+import { type Plugin, runApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
 
@@ -58,5 +59,51 @@ test("runApp logs a system error once, keeps healthy frames running and resumes 
     } finally {
         app.dispose();
         logged.mockRestore();
+    }
+});
+
+test("runApp waits on endGpuFrame's fence instead of issuing a second completion fence", async () => {
+    let syncs = 0;
+    let reads = 0;
+    let sameFence = true;
+    let latest: Promise<void> | undefined;
+    const observed: Plugin = {
+        name: "FrameFenceObserver",
+        initialize(world) {
+            const sync = world.gpu.sync;
+            world.gpu.sync = () => {
+                latest = sync();
+                syncs++;
+                return latest;
+            };
+            const descriptor = Object.getOwnPropertyDescriptor(
+                Object.getPrototypeOf(world),
+                "frameFence",
+            );
+            if (!descriptor?.get) throw new Error("World.frameFence getter is missing");
+            Object.defineProperty(world, "frameFence", {
+                configurable: true,
+                get() {
+                    reads++;
+                    const fence = descriptor.get!.call(world) as Promise<void> | undefined;
+                    if (fence !== latest) sameFence = false;
+                    return fence;
+                },
+            });
+        },
+    };
+    const app = await runApp({ defaults: false, plugins: [RenderingPlugin, observed] });
+    try {
+        const deadline = performance.now() + CEILING.node / 2;
+        while (app.world.gpu.frame < 3) {
+            if (performance.now() > deadline)
+                throw new Error("render loop did not submit three frames");
+            await Bun.sleep(1);
+        }
+        expect(syncs).toBeGreaterThanOrEqual(3);
+        expect(reads).toBeGreaterThanOrEqual(3);
+        expect(sameFence).toBe(true);
+    } finally {
+        app.dispose();
     }
 });
